@@ -113,7 +113,7 @@
 - Freedesktop integration: `.desktop` launcher, AppStream metainfo, application icon (installed via `make`/`cmake --install`)
 - GitHub Actions: CI (build + FUSE + unit + golden-screenshot regression against a provisioned SD image) and a release workflow that publishes packages on `v*` tags
 
-## Debugger (Qt 6)
+## Debugger
 - Separate debugger window with full panel layout
 - Panels: CPU registers, disassembly, memory hex editor, MMU, stack, call stack
 - Memory panel physical-page view: `Slot 0-7` show the page (or ROM) mapped in the slot itself, with no DivMMC, Multiface or Layer 2 overlay leaking in, and `Page...` shows any NR page, mapped or not; hex edits write the same place (a ROM slot stays read-only)

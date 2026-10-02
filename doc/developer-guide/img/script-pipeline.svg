@@ -91,67 +91,67 @@
 <!-- engine -->
 <g id="node6" class="node">
 <title>engine</title>
-<path fill="#f7eef0" stroke="#8c6b70" d="M420.64,-50.4C420.64,-50.4 227.36,-50.4 227.36,-50.4 221.36,-50.4 215.36,-44.4 215.36,-38.4 215.36,-38.4 215.36,-12 215.36,-12 215.36,-6 221.36,0 227.36,0 227.36,0 420.64,0 420.64,0 426.64,0 432.64,-6 432.64,-12 432.64,-12 432.64,-38.4 432.64,-38.4 432.64,-44.4 426.64,-50.4 420.64,-50.4"/>
-<text xml:space="preserve" text-anchor="start" x="226.88" y="-33.7" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">ScriptEngine — script_engine.{h,cpp}</text>
-<text xml:space="preserve" text-anchor="start" x="226.88" y="-21.7" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">one backend client; rules &#45;&gt; subscriptions</text>
-<text xml:space="preserve" text-anchor="start" x="226.88" y="-9.7" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">Condition = compiled when · Handler = body</text>
+<path fill="#f7eef0" stroke="#8c6b70" d="M426.64,-50.4C426.64,-50.4 233.36,-50.4 233.36,-50.4 227.36,-50.4 221.36,-44.4 221.36,-38.4 221.36,-38.4 221.36,-12 221.36,-12 221.36,-6 227.36,0 233.36,0 233.36,0 426.64,0 426.64,0 432.64,0 438.64,-6 438.64,-12 438.64,-12 438.64,-38.4 438.64,-38.4 438.64,-44.4 432.64,-50.4 426.64,-50.4"/>
+<text xml:space="preserve" text-anchor="start" x="232.88" y="-33.7" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">ScriptEngine — script_engine.{h,cpp}</text>
+<text xml:space="preserve" text-anchor="start" x="232.88" y="-21.7" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">one backend client; rules &#45;&gt; subscriptions</text>
+<text xml:space="preserve" text-anchor="start" x="232.88" y="-9.7" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">Condition = compiled when · Handler = body</text>
 </g>
 <!-- check&#45;&gt;engine -->
 <g id="edge5" class="edge">
 <title>check&#45;&gt;engine</title>
-<path fill="none" stroke="#8c6b70" d="M168.48,-94.02C194.4,-82.72 228.09,-68.02 257.49,-55.2"/>
-<polygon fill="#8c6b70" stroke="#8c6b70" points="258.53,-58.57 266.3,-51.36 255.73,-52.15 258.53,-58.57"/>
+<path fill="none" stroke="#8c6b70" d="M170.01,-93.91C196.63,-82.65 231.13,-68.05 261.27,-55.29"/>
+<polygon fill="#8c6b70" stroke="#8c6b70" points="262.49,-58.57 270.34,-51.45 259.77,-52.13 262.49,-58.57"/>
 </g>
 <!-- library -->
 <g id="node8" class="node">
 <title>library</title>
-<path fill="#f7eef0" stroke="#8c6b70" stroke-dasharray="5,2" d="M173.89,-50.4C173.89,-50.4 54.11,-50.4 54.11,-50.4 48.11,-50.4 42.11,-44.4 42.11,-38.4 42.11,-38.4 42.11,-12 42.11,-12 42.11,-6 48.11,0 54.11,0 54.11,0 173.89,0 173.89,0 179.89,0 185.89,-6 185.89,-12 185.89,-12 185.89,-38.4 185.89,-38.4 185.89,-44.4 179.89,-50.4 173.89,-50.4"/>
-<text xml:space="preserve" text-anchor="start" x="53.62" y="-33.7" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">expr_compiler.h</text>
-<text xml:space="preserve" text-anchor="start" x="53.62" y="-21.7" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">compile_expr() · eval_expr()</text>
-<text xml:space="preserve" text-anchor="start" x="53.62" y="-9.7" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">(for ZRCP, package Z)</text>
+<path fill="#f7eef0" stroke="#8c6b70" stroke-dasharray="5,2" d="M179.89,-50.4C179.89,-50.4 42.11,-50.4 42.11,-50.4 36.11,-50.4 30.11,-44.4 30.11,-38.4 30.11,-38.4 30.11,-12 30.11,-12 30.11,-6 36.11,0 42.11,0 42.11,0 179.89,0 179.89,0 185.89,0 191.89,-6 191.89,-12 191.89,-12 191.89,-38.4 191.89,-38.4 191.89,-44.4 185.89,-50.4 179.89,-50.4"/>
+<text xml:space="preserve" text-anchor="start" x="41.62" y="-33.7" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">expr_compiler.h</text>
+<text xml:space="preserve" text-anchor="start" x="41.62" y="-21.7" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">compile_expr() · eval_expr()</text>
+<text xml:space="preserve" text-anchor="start" x="41.62" y="-9.7" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">(also used by the ZRCP server)</text>
 </g>
 <!-- check&#45;&gt;library -->
 <g id="edge7" class="edge">
 <title>check&#45;&gt;library</title>
-<path fill="none" stroke="#8c6b70" stroke-dasharray="5,2" d="M123.46,-94.23C121.69,-81.56 119.33,-64.55 117.41,-50.71"/>
+<path fill="none" stroke="#8c6b70" stroke-dasharray="5,2" d="M122.82,-94.23C120.62,-81.56 117.66,-64.55 115.26,-50.71"/>
 </g>
 <!-- dbg -->
 <g id="node9" class="node">
 <title>dbg</title>
-<polygon fill="#e9d3d6" stroke="#8c6b70" points="572.97,-134.18 285.03,-134.18 281.03,-130.18 281.03,-92.9 568.97,-92.9 572.97,-96.9 572.97,-134.18"/>
-<polyline fill="none" stroke="#8c6b70" points="568.97,-130.18 281.03,-130.18"/>
-<polyline fill="none" stroke="#8c6b70" points="568.97,-130.18 568.97,-92.9"/>
-<polyline fill="none" stroke="#8c6b70" points="568.97,-130.18 572.97,-134.18"/>
-<text xml:space="preserve" text-anchor="start" x="296.88" y="-116.04" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">jnext::dbg::Debugger — the facade (3.9)</text>
-<text xml:space="preserve" text-anchor="start" x="296.88" y="-104.04" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">subscribe · deliver at a boundary · verbs (set_key, poke, …)</text>
+<polygon fill="#e9d3d6" stroke="#8c6b70" points="576.97,-134.18 289.03,-134.18 285.03,-130.18 285.03,-92.9 572.97,-92.9 576.97,-96.9 576.97,-134.18"/>
+<polyline fill="none" stroke="#8c6b70" points="572.97,-130.18 285.03,-130.18"/>
+<polyline fill="none" stroke="#8c6b70" points="572.97,-130.18 572.97,-92.9"/>
+<polyline fill="none" stroke="#8c6b70" points="572.97,-130.18 576.97,-134.18"/>
+<text xml:space="preserve" text-anchor="start" x="300.88" y="-116.04" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">jnext::dbg::Debugger — the facade (3.9.1)</text>
+<text xml:space="preserve" text-anchor="start" x="300.88" y="-104.04" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#2e1c1f">subscribe · deliver at a boundary · verbs (set_key, poke, …)</text>
 </g>
 <!-- engine&#45;&gt;dbg -->
 <g id="edge8" class="edge">
 <title>engine&#45;&gt;dbg</title>
-<path fill="none" stroke="#8c6b70" d="M379.63,-50.88C386.93,-55.44 393.96,-60.62 400,-66.4 404.89,-71.09 409.19,-76.86 412.84,-82.71"/>
-<polygon fill="#8c6b70" stroke="#8c6b70" points="409.64,-84.15 417.6,-91.14 415.73,-80.71 409.64,-84.15"/>
-<text xml:space="preserve" text-anchor="middle" x="444.16" y="-68.35" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5a3f43"> subscribe / verbs</text>
+<path fill="none" stroke="#8c6b70" d="M384.98,-50.87C392.17,-55.43 399.09,-60.61 405,-66.4 409.8,-71.1 413.97,-76.87 417.49,-82.72"/>
+<polygon fill="#8c6b70" stroke="#8c6b70" points="414.22,-84.02 422.07,-91.14 420.37,-80.68 414.22,-84.02"/>
+<text xml:space="preserve" text-anchor="middle" x="448.96" y="-68.35" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5a3f43"> subscribe / verbs</text>
 </g>
 <!-- recorder&#45;&gt;dbg -->
 <g id="edge10" class="edge">
 <title>recorder&#45;&gt;dbg</title>
-<path fill="none" stroke="#8c6b70" d="M392.11,-176.31C394.64,-167.81 397.95,-158.37 402,-150.18 402.98,-148.2 404.06,-146.2 405.21,-144.23"/>
-<polygon fill="#8c6b70" stroke="#8c6b70" points="408.1,-146.2 410.52,-135.88 402.2,-142.44 408.1,-146.2"/>
+<path fill="none" stroke="#8c6b70" d="M391.7,-176.4C394.22,-167.82 397.62,-158.3 402,-150.18 403.2,-147.95 404.55,-145.73 405.99,-143.55"/>
+<polygon fill="#8c6b70" stroke="#8c6b70" points="408.76,-145.69 411.83,-135.55 403.1,-141.56 408.76,-145.69"/>
 <text xml:space="preserve" text-anchor="middle" x="466.5" y="-152.13" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5a3f43"> input_state · ula_screen_dump</text>
 </g>
 <!-- dbg&#45;&gt;host -->
 <g id="edge11" class="edge">
 <title>dbg&#45;&gt;host</title>
-<path fill="none" stroke="#8c6b70" d="M517.68,-134.6C523.95,-138.85 529.53,-143.99 534,-150.18 536.73,-153.97 534.38,-156.03 534,-160.68 527.19,-243.47 519.13,-272.34 463,-333.58 453.33,-344.13 441.16,-353.68 429.37,-361.66"/>
+<path fill="none" stroke="#8c6b70" d="M517.86,-134.67C524.08,-138.91 529.61,-144.01 534,-150.18 536.71,-153.98 534.38,-156.03 534,-160.68 527.19,-243.47 519.13,-272.34 463,-333.58 453.33,-344.13 441.16,-353.68 429.37,-361.66"/>
 <polygon fill="#8c6b70" stroke="#8c6b70" points="427.8,-358.51 421.31,-366.89 431.61,-364.38 427.8,-358.51"/>
 <text xml:space="preserve" text-anchor="middle" x="581.51" y="-245.03" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5a3f43"> ExitRequested · log (listener)</text>
 </g>
 <!-- dbg&#45;&gt;engine -->
 <g id="edge9" class="edge">
 <title>dbg&#45;&gt;engine</title>
-<path fill="none" stroke="#8c6b70" d="M328.33,-92.41C322.1,-88.16 316.53,-83.04 312,-76.9 308.72,-72.45 307.69,-67.23 308.02,-61.86"/>
-<polygon fill="#8c6b70" stroke="#8c6b70" points="311.4,-62.83 310.03,-52.33 304.55,-61.39 311.4,-62.83"/>
-<text xml:space="preserve" text-anchor="middle" x="352.5" y="-68.35" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5a3f43"> deliveries · Paused</text>
+<path fill="none" stroke="#8c6b70" d="M333.43,-92.49C327.16,-88.22 321.54,-83.08 317,-76.9 313.71,-72.42 312.73,-67.19 313.15,-61.82"/>
+<polygon fill="#8c6b70" stroke="#8c6b70" points="316.52,-62.81 315.34,-52.28 309.69,-61.24 316.52,-62.81"/>
+<text xml:space="preserve" text-anchor="middle" x="357.5" y="-68.35" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5a3f43"> deliveries · Paused</text>
 </g>
 </g>
 </svg>

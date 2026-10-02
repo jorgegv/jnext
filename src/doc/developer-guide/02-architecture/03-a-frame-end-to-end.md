@@ -183,7 +183,7 @@ for the same reason `step_one_instruction()` is: the debugger's Step needs it
 too. `step_frame_slot()` — one instruction slot with the begin-frame and
 end-frame seams around it — is what `debugger_step()` drives, because nothing
 calls `run_frame()` while the debugger holds the machine. See
-[3.9 Debug and the debugger](../03-subsystems/09-debug-and-the-debugger.md).
+[3.9.4 Execution control and rewind](../03-subsystems/09-4-execution-control-and-rewind.md).
 
 Only then is the picture actually made, and it is made **once**:
 

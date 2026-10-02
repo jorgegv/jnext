@@ -1,0 +1,72 @@
+// The debug backend's event delivery pipeline: chapter 3.9.2.
+//
+// Rendered by `make docs-devguide-diagrams` into ../img/debug-event-delivery.svg,
+// which is COMMITTED. Edit this file, never the SVG.
+//
+// Two halves, split by the instruction boundary. Above it a site only LATCHES
+// (a cheap filter, then an entry in the ring); no subscriber code runs inside
+// an instruction. Below it, with the machine stopped at the boundary, the drain
+// builds each Event and runs every live subscription's filter, Condition and
+// Handler under one InspectionScope, and the verdict decides what happens.
+// Execute is the one kind that skips the ring: the pre-instruction gate
+// delivers it before the instruction runs.
+//
+// Palette: the page theme's pastel dark red family (see css/theme.css), as the
+// other figures. Light fills, dark labels, transparent canvas.
+digraph debug_event_delivery {
+    bgcolor="transparent";
+    rankdir=TB;
+    fontname="Helvetica";
+    ranksep=0.40;
+    nodesep=0.35;
+    node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=10,
+          fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.14,0.08"];
+    edge [color="#8c6b70", fontname="Helvetica", fontsize=9, fontcolor="#5a3f43"];
+
+    subgraph cluster_inside {
+        label="inside an instruction (and the device cluster after it)";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        sites [label="latch sites\lMmu read/write (8) · PortDispatch · NextReg::write\lCopper::execute · Dma::execute_burst · on_scanline\lend_of_frame · IntAck · Nmi · Reset · Magic\l"];
+        gate  [label="cheap gate\lslot mask byte · per-sub-kind bool\lwatchpoints_live() = armed && guest access\l"];
+        ring  [label="LATCH into the ring\l512 entries · keeps the first N · counts the rest\l"];
+        sites -> gate -> ring;
+    }
+
+    subgraph cluster_boundary {
+        label="at the instruction boundary — machine stopped, one InspectionScope";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        drain   [label="drain_boundary()\lonly while armed(); never in replay\l"];
+        build   [label="build Event\lcommon header + per-kind payload\loverflowed / dropped on every entry\l"];
+        filter  [label="per subscription: live? EventFilter matches?\l"];
+        cond    [label="Condition (if any)\lthe subscriber's compiled predicate\l"];
+        handler [label="Handler (if any)\lmay read and mutate; its Action overrides\l"];
+        verdict [label="verdict", shape=diamond, style="filled", margin="0.04,0.02"];
+        drain -> build -> filter;
+        filter -> cond [label=" match"];
+        cond -> handler [label=" true"];
+        handler -> verdict;
+    }
+
+    execgate [label="pre-instruction gate\lExecute only: built from PC, delivered\lBEFORE the instruction — a handler may set PC\l",
+              fillcolor="#e9d3d6"];
+    execgate -> filter [style=dashed];
+
+    direct [label="no latch\lHost: raise_host_event() delivers at once\lCycle: compared against the clock at each drain\l",
+            fillcolor="#e9d3d6"];
+    direct -> filter [style=dashed];
+
+    ring -> drain [label=" the boundary after the access\l (device-cluster sites: the next one)\l"];
+
+    stop  [label="Stop\lHit into matched[] · stop evidence\ltransients dropped · stop policy applied\l", fillcolor="#e9d3d6"];
+    logn  [label="Log\lone SES-06 line, keep running\l"];
+    cont  [label="Continue\lthe handler was the point\l"];
+    verdict -> stop;
+    verdict -> logn;
+    verdict -> cont;
+
+    paused [label="machine pauses at this boundary\lPaused{matched[]} pushed at the next pump()\l",
+            fillcolor="#f5dfe2"];
+    stop -> paused;
+}

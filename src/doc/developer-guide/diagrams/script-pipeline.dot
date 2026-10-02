@@ -1,5 +1,5 @@
 // The debugger scripting language (src/script/), from text to the backend and
-// back: chapter 3.12.
+// back: chapter 3.10.6.
 //
 // Rendered by `make docs-devguide-diagrams` into ../img/script-pipeline.svg,
 // which is COMMITTED. Edit this file, never the SVG.
@@ -38,9 +38,9 @@ digraph script_pipeline {
 
     engine [label="ScriptEngine — script_engine.{h,cpp}\lone backend client; rules -> subscriptions\lCondition = compiled when · Handler = body\l"];
     recorder [label="Recorder — recorder.{h,cpp}\lFrame edge: input_state() -> press/release/joystick\lcaptures -> compare_scr / screenshot\l"];
-    library [label="expr_compiler.h\lcompile_expr() · eval_expr()\l(for ZRCP, package Z)\l", style="filled,rounded,dashed"];
+    library [label="expr_compiler.h\lcompile_expr() · eval_expr()\l(also used by the ZRCP server)\l", style="filled,rounded,dashed"];
 
-    dbg [label="jnext::dbg::Debugger — the facade (3.9)\lsubscribe · deliver at a boundary · verbs (set_key, poke, …)\l",
+    dbg [label="jnext::dbg::Debugger — the facade (3.9.1)\lsubscribe · deliver at a boundary · verbs (set_key, poke, …)\l",
          shape=box3d, style="filled", fillcolor="#e9d3d6", margin="0.22,0.12"];
 
     owners -> host [label=" start()"];

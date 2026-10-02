@@ -1,0 +1,2771 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="ZX Spectrum Next emulator — developer guide">
+      
+      
+      
+      
+        <link rel="prev" href="09-2-event-delivery-and-mutation.html">
+      
+      
+        <link rel="next" href="09-4-execution-control-and-rewind.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>3.9.3 Sessions, the pump and the reconstruct contract - JNEXT Developer Guide</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../css/theme.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#393-sessions-the-pump-and-the-reconstruct-contract" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../index.html" title="JNEXT Developer Guide" class="md-header__button md-logo" aria-label="JNEXT Developer Guide" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            JNEXT Developer Guide
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              3.9.3 Sessions, the pump and the reconstruct contract
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.69</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
+  </div>
+</a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../index.html" title="JNEXT Developer Guide" class="md-nav__button md-logo" aria-label="JNEXT Developer Guide" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    JNEXT Developer Guide
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.69</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
+  </div>
+</a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../01-orientation/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1. Orientation
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    1. Orientation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/01-what-jnext-is.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.1 What JNEXT is, in one page
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/02-repository-layout.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.2 Repository layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/03-the-rules-that-shape-the-code.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.3 The rules that shape the code
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../02-architecture/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2. Architecture
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    2. Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/01-startup-and-the-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.1 Startup and the frontends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/02-the-emulator-core.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.2 The emulator core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/03-a-frame-end-to-end.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.3 A frame, end to end
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/04-the-video-pipeline.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.4 The video pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/05-save-state-and-rewind.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.5 Save state, rewind and determinism
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3. Subsystems
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    3. Subsystems
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="01-cpu.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.1 CPU
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="02-memory.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.2 Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="03-video.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.3 Video
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-audio.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.4 Audio
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="05-ports-and-nextreg.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.5 Ports and NextREG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="06-peripherals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.6 Peripherals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="07-input.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.7 Input
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="08-media-and-loaders.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.8 Media and loaders
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_10" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_10" id="__nav_4_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9 The debug subsystem
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_10_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    3.9 The debug subsystem
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-debug-and-the-debugger.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9 Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-1-the-backend-api.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.1 The backend API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-2-event-delivery-and-mutation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.2 Event delivery and mutation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.3 Sessions, the pump and the reconstruct contract
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="09-3-sessions-the-pump-and-reconstruct.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.3 Sessions, the pump and the reconstruct contract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#clients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clients
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#detaching-and-who-owns-a-pause" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detaching, and who owns a pause
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#listeners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Listeners
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-pump" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The pump
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-stop-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The stop policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#no-verb-that-drives-the-machine-runs-inside-a-delivery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No verb that drives the machine runs inside a delivery
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-the-loop-owners-host-the-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the loop owners host the backend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-reconstruct-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The reconstruct contract
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-4-execution-control-and-rewind.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.4 Execution control and rewind
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_11" id="__nav_4_11_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10 The debugger frontends
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    3.10 The debugger frontends
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-0-the-debugger-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10 Overview and capability matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-1-the-socket-transport.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.1 The shared socket transport
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-2-the-qt-debugger.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.2 The Qt debugger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-the-dzrp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.3 The DZRP server (DeZog)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="11-the-gdb-rsp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.4 The GDB RSP server (z88dk-gdb)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="12-the-zrcp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.5 The ZRCP server (ZEsarUX's protocol)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="13-the-debugger-scripting-language.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.6 The debugger scripting language
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-7-extending-the-debug-subsystem.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.7 Extending the debug subsystem
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../04-testing/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4. Testing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    4. Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/01-the-test-triplet.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.1 The test triplet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/02-declared-suites-and-pinned-counts.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.2 Declared suites and pinned counts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/03-the-regression-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.3 The regression suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/04-traceability.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.4 Traceability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/05-documentation-and-cli-gates.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.5 The documentation and CLI gates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/06-the-harness-selftest.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.6 The harness self-test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/07-writing-a-new-test.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.7 Writing a new test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../05-building/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5. Building and packaging
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    5. Building and packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/01-make-targets.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.1 Make targets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/02-build-configurations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.2 Build configurations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/03-packaging-and-release.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.3 Packaging and release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/04-continuous-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.4 Continuous integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../06-contributing/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6. Contributing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    6. Contributing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/01-issues-and-pull-requests.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.1 Issues and pull requests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/02-branches-worktrees-and-review.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.2 Branches, worktrees and review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/03-house-style.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.3 House style
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="393-sessions-the-pump-and-the-reconstruct-contract">3.9.3 Sessions, the pump and the reconstruct contract<a class="headerlink" href="#393-sessions-the-pump-and-the-reconstruct-contract" title="Permanent link">&para;</a></h1>
+<p>The backend does not own a thread and does not own the frame loop. A <strong>loop
+owner</strong> — <code>QtApp</code>'s timer tick, the SDL loop, <code>HeadlessApp::run()</code> — owns both.
+This page is the seam between them: how a frontend becomes a client, how the
+backend talks back to it, when its commands run, and how everything a client set
+survives a hard reset that rebuilds the machine under it.</p>
+<h2 id="clients">Clients<a class="headerlink" href="#clients" title="Permanent link">&para;</a></h2>
+<p><code>attach(ClientInfo)</code> returns a <code>ClientId</code>. A <code>ClientInfo</code> carries a display
+<code>name</code>, a <code>ClientKind</code> and the <code>observer</code> flag:</p>
+<table>
+<thead>
+<tr>
+<th><code>ClientKind</code></th>
+<th>Who attaches it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Gui</code></td>
+<td>the Qt debugger: one observer client for the life of the GUI, one arming client while the debugger window is open</td>
+</tr>
+<tr>
+<td><code>Dzrp</code>, <code>Zrcp</code>, <code>GdbRsp</code></td>
+<td>each protocol server, one client per connected peer session</td>
+</tr>
+<tr>
+<td><code>Script</code></td>
+<td>the script engine, the recorder, and <code>ScriptHost</code>'s observer listener</td>
+</tr>
+<tr>
+<td><code>Test</code></td>
+<td>the test harnesses</td>
+</tr>
+</tbody>
+</table>
+<p>Every verb that mutates or transitions takes the client's id, and every
+transition is broadcast with it. The client table holds each client's listener,
+its <code>live_raster</code> request, its per-client event switch and its bookmarks. It
+lives on <code>Debugger::Impl</code>, outside the <code>Emulator</code>, which is what lets all of it
+survive a machine rebuild. Ids are handed out in attach order and never reused.</p>
+<p><strong>Attaching arms the machine; an observer does not.</strong> <code>attached()</code> is "at least
+one <em>arming</em> client is attached". An observer (<code>ClientInfo::observer</code>) is a
+client in every other respect — it owns subscriptions, has a listener, issues
+verbs, keeps bookmarks — but counts toward no arm bit. Its subscriptions
+therefore fire only while something else arms the machine. The Qt GUI's
+breakpoints belong to an observer: they outlive the debugger window, fire with
+the window shut when <code>--persistent-breakpoints</code> or a remote client arms the
+machine, and cost a closed window nothing.</p>
+<p><code>DebugState</code> keeps one bit per arming contributor and ORs them in
+<code>refresh_gates_()</code>:</p>
+<ul>
+<li><code>clients_attached_</code>: published by <code>clients_changed()</code> from the client table;</li>
+<li><code>persistent_</code>: <code>--persistent-breakpoints</code>;</li>
+<li><code>replay_armed_</code>: set by <code>DebugState::ReplayArmScope</code> for the length of a
+  rewind's replay loop;</li>
+<li><code>magic_hold_</code>: set when a magic breakpoint fires, released by the resume that
+  ends its stop.</li>
+</ul>
+<p>Each contributor has its own bit because a shared one would let one owner's
+release clear another's arm. <code>SuspendScope</code> clears all of them. Outside the two
+holds, <code>armed() == attached() || persistent_breakpoints()</code>.</p>
+<p><code>attached</code> and <code>live_raster</code> are two different gates. <code>attached</code> gates the
+step machinery: Step Out's per-instruction test and the <code>STEP_BACK</code> /
+<code>RUN_BACK_TO_CYCLE</code> step modes. <code>live_raster</code> — per client, ORed — gates only
+the render-every-frame hint and the per-instruction <code>VideoTiming::advance()</code>
+walk. <code>refresh_gates_()</code> precomputes both into <code>DebugState</code> bits, so each
+hot-path reader pays one bool load, and <code>Debugger::attached()</code> and
+<code>live_raster()</code> read the same bits back.</p>
+<h2 id="detaching-and-who-owns-a-pause">Detaching, and who owns a pause<a class="headerlink" href="#detaching-and-who-owns-a-pause" title="Permanent link">&para;</a></h2>
+<p><code>detach(cid)</code> removes the client's subscriptions, its bookmarks and every other
+record keyed by its id (its event switch, its unflushed capture failures).
+What happens to a pause depends on whose it is.</p>
+<ul>
+<li><strong>The pause is this client's</strong> — its <code>pause()</code>, its step, or a <code>Stop</code> on one
+  of its subscriptions. While another <em>arming</em> client remains, the pause passes
+  to it and the machine stays paused; <code>pause_reason.by</code> is rewritten and nothing
+  is pushed. The heir is the client the machine was paused by before the leaver
+  single-stepped it, if that client is still attached (<code>step_into()</code> on a paused
+  machine keeps it in <code>Impl::pause_origin</code>), otherwise the earliest-attached
+  remaining arming client. Only the last arming client out releases the pause,
+  which is what stops a crashed DeZog from leaving the machine hung.</li>
+<li><strong>The pause is another client's.</strong> It survives.</li>
+<li><strong>The pause is unowned.</strong> <code>PauseReason::Magic</code> and <code>PauseReason::Corrupt</code>
+  carry <code>by == CLIENT_NONE</code>, and no detach ever releases them.</li>
+</ul>
+<p>An observer neither inherits a pause nor holds one back from release. The same
+rule applies to a pause captured for a guest cold boot that has not completed
+yet. The detach is logged on the <code>debugger</code> channel, for example
+<code>DETACH client 1 (released its pause)</code>.</p>
+<h2 id="listeners">Listeners<a class="headerlink" href="#listeners" title="Permanent link">&para;</a></h2>
+<p><code>set_listener(cid, Listener*)</code> installs a client's push interface. <code>Listener</code>
+has seven pure virtual methods; a notification silently ignored by a default
+empty override is the failure the design rules out.</p>
+<table>
+<thead>
+<tr>
+<th>Push</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>on_paused(PausedInfo)</code></td>
+<td>the machine stopped: <code>by</code>, <code>reason</code>, <code>cycle</code>, <code>pc</code>, <code>matched[]</code></td>
+</tr>
+<tr>
+<td><code>on_resumed(by)</code></td>
+<td>it started again</td>
+</tr>
+<tr>
+<td><code>on_reset(kind)</code></td>
+<td>a reset; a hard one before the verb that caused it returns</td>
+</tr>
+<tr>
+<td><code>on_frame_ended(frame)</code></td>
+<td>frames ended since the last pump</td>
+</tr>
+<tr>
+<td><code>on_subscriptions_changed(kinds)</code></td>
+<td>the subscription model changed; carries the live kinds</td>
+</tr>
+<tr>
+<td><code>on_exit_requested(code)</code></td>
+<td>a <code>Stop</code> under <code>StopPolicy::ExitNonZero</code></td>
+</tr>
+<tr>
+<td><code>on_log(level, text)</code></td>
+<td>every SES-06 line, the <code>MUTATE</code> lines included</td>
+</tr>
+</tbody>
+</table>
+<p>Pushes are synchronous, on the emulation thread, and must do no UI work. The
+Qt listener records and acts on its own tick.</p>
+<p><code>Paused</code>, <code>Resumed</code>, <code>FrameEnded</code> and <code>SubscriptionsChanged</code> are <strong>not pushed at
+each transition site</strong>. There are many ways into and out of a pause, and a push
+at each is the two-lists failure. Instead <code>sync_notifications()</code> compares:</p>
+<ul>
+<li><code>paused()</code>;</li>
+<li><code>DebugState::resume_generation()</code>, so a stop-resume-stop between two pumps
+  is two pushes rather than none;</li>
+<li>the frame's start cycle (<code>Emulator::current_frame_cycle()</code>), because the first
+  frame run again after a rewind ends without the frame counter moving;</li>
+<li><code>EventTable::revision()</code></li>
+</ul>
+<p>against what it last pushed, and <code>pump()</code> calls it. So a stop in this tick's
+frames is notified in this tick's pump. <code>Reset</code> is the exception and is pushed
+synchronously by the verb, so that an adapter whose client is blocked in a <code>run</code>
+can complete the reply.</p>
+<h2 id="the-pump">The pump<a class="headerlink" href="#the-pump" title="Permanent link">&para;</a></h2>
+<p><img alt="The loop owner and the pump" src="../img/debug-pump.svg" /></p>
+<p><em>One loop-owner tick, and what <code>pump()</code> does inside it.</em></p>
+<p><code>pump(PumpBudget)</code> is the loop owner's once-per-tick service call, made after
+the tick's frames and after the cold-boot polls. In order, it:</p>
+<ol>
+<li>writes the screenshots queued for the frame just rendered, before any
+   command of this pump can change the machine;</li>
+<li>drains the registered <code>Service</code>s;</li>
+<li>syncs the notifications;</li>
+<li>calls each service's <code>flush_notifications()</code>;</li>
+<li>returns a <code>ServiceHint{remote_attached, paused}</code>, which the loop owner uses
+   to pick the next tick's budget.</li>
+</ol>
+<p>The drain has two arms. While the machine <strong>runs</strong>, each service is asked for at
+most one command whatever the budget says, because the loop owner needs its
+thread back for the next frame. While it is <strong>paused</strong>, the service keeps
+answering while the peer keeps talking, bounded by <code>budget_ms</code>. A DeZog ZRCP
+step is about fifteen sequential round trips, which at one per tick would take
+300 ms. "Paused" is asked after each command, not at entry: a <code>run</code> in the chain
+hands the loop owner its frames back at once, and a <code>pause</code> arriving while
+running lets the reads behind it be answered in the same pump. <code>budget_ms == 0</code>
+therefore means <em>one</em> command, not "unbounded".</p>
+<p><code>DebugServers</code> (<code>src/platform/debug_servers.*</code>) holds the budgets, so all three
+loop owners share one statement of them:</p>
+<table>
+<thead>
+<tr>
+<th>Loop owner</th>
+<th>Running</th>
+<th>Paused, with a remote attached last tick</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Qt, SDL</td>
+<td><code>PumpBudget{}</code>: one command</td>
+<td><code>PumpBudget{0, 2, 10}</code>: drain a queued chain, never block the tick</td>
+</tr>
+<tr>
+<td>headless</td>
+<td><code>PumpBudget{}</code></td>
+<td><code>PumpBudget{50, 2, 10}</code>, and no frame that tick</td>
+</tr>
+</tbody>
+</table>
+<p>The headless branch turns what would be a busy spin on a paused machine into a
+wait. Its one countdown that keeps running is <code>--delayed-automatic-exit</code>,
+charged in wall time at 20 ms a frame, because it is a hard bound and a client
+holding the machine must not hold the process. The budgets are the one place in
+the backend that reads a wall clock, and legitimately: they are host service
+parameters, and nothing in the emulated timeline depends on them.</p>
+<p><code>pump()</code> refuses to run from inside an event delivery, and refuses rather than
+asserting: an <code>assert</code> compiles away in the build where a frontend bug would
+ship, and re-entering the drain would deliver a boundary's events twice.</p>
+<h2 id="the-stop-policy">The stop policy<a class="headerlink" href="#the-stop-policy" title="Permanent link">&para;</a></h2>
+<p><code>StopPolicy</code> decides what a <code>Stop</code> verdict does in this frontend, and the loop
+owner sets it, never an adapter:</p>
+<table>
+<thead>
+<tr>
+<th>Loop owner</th>
+<th>Policy</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>QtApp</code></td>
+<td><code>Pause</code>: pause and notify</td>
+</tr>
+<tr>
+<td><code>SdlApp</code>, <code>HeadlessApp</code></td>
+<td><code>ExitNonZero</code>: pause, log, push <code>on_exit_requested(3)</code></td>
+</tr>
+</tbody>
+</table>
+<p>The SDL frontend has no pause path, and a headless run is a CI verdict.
+<code>ExitNonZero</code> becomes <code>Pause</code> while any service has a peer connected, so a
+client blocked on <code>run</code> gets its stop reply rather than the process exiting
+under it. <code>stop_policy()</code> returns what was set; the override lives at the one
+place the policy is consumed. The exit code is 3: never 2, which both test
+harnesses use for a harness fault, and never 1, which means "JNEXT could not
+run". The backend logs the request at info level. Only the listener that decides
+knows which code is taken, so <code>ScriptHost</code> logs the <code>requesting exit 3</code> warning
+when the stop is a script's.</p>
+<p>An explicit <code>pause()</code> is a stop that drops the transient subscriptions, but it
+is not an <code>Action::Stop</code>, so it never requests an exit.</p>
+<h2 id="no-verb-that-drives-the-machine-runs-inside-a-delivery">No verb that drives the machine runs inside a delivery<a class="headerlink" href="#no-verb-that-drives-the-machine-runs-inside-a-delivery" title="Permanent link">&para;</a></h2>
+<p>A handler runs with <code>run_frame()</code> still on the stack and the drain walking the
+latch ring. So every verb that would do any of the following refuses there with
+<code>Unsupported</code>, through one helper (<code>Impl::refuse_inside_delivery()</code>):</p>
+<ul>
+<li><strong>execute</strong> the machine: the step verbs, and a save that has to advance to a
+  frame boundary;</li>
+<li><strong>change its run state</strong>: <code>pause</code>, <code>run</code>, <code>step_out</code>, the <code>run_to</code> family —
+  each re-arms the stop evidence, which would rewrite the very stop the handler
+  is part of;</li>
+<li><strong>rewind or restore</strong> it: <code>step_back</code>, <code>rewind_to_frame</code>, <code>load_state_bytes</code>,
+  <code>bookmark_restore</code>;</li>
+<li><strong>reset or replace</strong> it: <code>reset</code> of either kind, <code>load</code>,
+  <code>on_cold_boot_done</code>, and the one NextREG write that resets (NR 0x02 with the
+  soft-reset bit, through <code>nextreg_write</code> or <code>port_out</code>).</li>
+</ul>
+<p>A handler stops the machine by returning <code>Action::Stop</code>. Mutations are allowed
+(see <a href="09-2-event-delivery-and-mutation.html">3.9.2</a>), <code>raise_host_event</code> nests,
+and <code>detach</code> is a session verb: its release of the departing client's pause goes
+through <code>run()</code>'s body rather than the refused public verb.</p>
+<h2 id="how-the-loop-owners-host-the-backend">How the loop owners host the backend<a class="headerlink" href="#how-the-loop-owners-host-the-backend" title="Permanent link">&para;</a></h2>
+<p><code>HeadlessApp</code>, <code>SdlApp</code> and <code>QtApp</code> each, in <code>init()</code>:</p>
+<ol>
+<li>build one <code>Debugger</code> and set the stop policy;</li>
+<li>register a <code>LoopDriver</code> with <code>set_loop_driver()</code>: <code>cold_boot</code> runs the loop
+   owner's own boot sequence, and <code>load</code> its load dispatch. Both live in
+   <code>src/platform/</code>, above the backend, so a closure is the only way the backend
+   can reach them;</li>
+<li>open the protocol servers the command line asked for (<code>DebugServers::start()</code>);</li>
+<li>start the <code>ScriptHost</code> for <code>--script</code>, <code>--script-key</code>, <code>--map</code> and
+   <code>--record-script</code>.</li>
+</ol>
+<p>Every cold boot the loop owner decides on — a guest NR 0x02 hard reset, a NEX
+load request, F1, a menu load — is bracketed with <code>on_cold_boot_begin()</code> and
+<code>on_cold_boot_done()</code>. The loop owner polls for those requests <strong>before</strong> it
+pumps, so a guest reset and a client's <code>reset(Hard)</code> in the same tick run in
+that order. <code>QtApp</code> pumps in <code>post_frames()</code>.</p>
+<p>With no client attached none of this arms anything, so a run with the backend
+is bit-identical to a run without it (<code>debugger_backend_test</code> rows HOST-01..05,
+the last three through the real <code>HeadlessApp</code>). Because nothing a normal run
+does can show a missing call, the <code>JNEXT_HOST_PROBE</code> fixture
+(<code>src/platform/host_probe.h</code>, env-gated, zero cost unset) makes them
+observable. It runs a client inside <code>pump()</code> as a <code>Service</code>, exercises the
+guest and the client cold-boot paths, and prints one <code>HOSTPROBE</code> line per check.
+The regression rows <code>sdl-host-probe-func</code>, <code>qt-host-probe-func</code> and
+<code>qt-host-order-func</code>, and backend rows HOST-07 and HOST-08, read those lines.
+<code>JNEXT_HOST_PROBE=sdcard:&lt;image&gt;</code> checks the SD-card change poll the same way
+(<code>sdcard-swap-func</code>).</p>
+<p><strong>The CLI <code>--delayed-*</code> flags keep their own countdowns.</strong> Each loop owner
+counts loop ticks for them, because a tick count survives a cold boot and keeps
+counting while the machine is paused, which keeps <code>--delayed-automatic-exit</code> a
+hard bound; a frame tag does neither. Only the actions go through the backend:
+<code>press_key</code>, <code>press_nmi</code> (which calls the F9/F10 hotkey functions, gates
+included), <code>save_snapshot</code>, and <code>screenshot()</code> through
+<code>src/platform/cli_capture.h</code>, whose outcome the loop owner reads back with
+<code>flush_captures(CLIENT_NONE)</code>.</p>
+<h2 id="the-reconstruct-contract">The reconstruct contract<a class="headerlink" href="#the-reconstruct-contract" title="Permanent link">&para;</a></h2>
+<p>A hard reset is a power-on cold boot the frontend performs.
+<code>emulator_frontend_cold_boot()</code> destroys the <code>Emulator</code>, placement-news a new
+one at the same address and re-runs <code>init()</code>. <code>&amp;emu</code> stays valid, which is what
+lets a <code>Debugger</code> live across it, but every sub-object is new — the
+<code>DebugState</code> included. Left alone, a surviving <code>Debugger</code> would be silently
+disconnected: every subscription still exists and lists as live, and not one
+can ever fire.</p>
+<p><img alt="The cold-boot reconstruct contract" src="../img/debug-reconstruct.svg" /></p>
+<p><em>The three routes take one capture before the machine goes and run one
+re-application after it comes back.</em></p>
+<p>Three routes land a new machine, and all three go through
+<code>Debugger::Impl::reapply_after_machine_rebuild()</code> (<code>debugger_reconstruct.cpp</code>):</p>
+<ul>
+<li><code>reset(by, Hard)</code> runs <code>LoopDriver::cold_boot</code> <strong>synchronously</strong>, inside
+  <code>pump()</code>, so later commands in the same drain see the new machine (a ZRCP
+  <code>hard-reset-cpu</code> → <code>enter-cpu-step</code> → <code>smartload</code> chain works). With no
+  driver it refuses with <code>RefusedUnavailable</code>. It is subject to the corruption
+  gate like any verb that leaves the machine running;</li>
+<li><code>load(by, path)</code> runs <code>LoopDriver::load</code>, which may load in place
+  (<code>emulator_apply_load()</code>), cold-boot first, or re-<code>init()</code> in place. It
+  re-applies unconditionally — the re-application is idempotent on a load that
+  replaced nothing — and tells a rebuild from an in-place load by its own
+  publication: only a brand-new <code>DebugState</code> can point anywhere but
+  <code>Impl::events</code>;</li>
+<li>a guest NR 0x02 hard reset is performed by the loop owner, which calls
+  <code>on_cold_boot_begin()</code> just before it destroys the machine and
+  <code>on_cold_boot_done()</code> after.</li>
+</ul>
+<p>The capture taken before the machine goes is two facts: was it paused, and whose
+pause was it. The re-application then:</p>
+<ol>
+<li>re-publishes into the new <code>DebugState</code> what the constructor published: the
+   event table, the drain and <code>Execute</code> hooks, the machine-replaced hook. The
+   fourth hook, the latch stamper, is the <code>Emulator</code>'s, and <code>init()</code> installs it.
+   It also mirrors the master switch into the new <code>BreakpointSet</code>, seeds the
+   eight live slot pages (they were discarded during <code>init()</code>, while the table
+   pointer was null) and calls <code>gates_changed()</code>, the only writer of the
+   event-mask half of the hot-path gate across a boot;</li>
+<li>clears the latch ring — it lives on <code>Impl</code>, so it survives, while everything
+   in it describes a machine that is gone — and arms <code>PauseReason::Kind::None</code>,
+   because <code>init()</code> reconciled the stop evidence while the hook was still null;</li>
+<li>re-applies the pause: paused stays paused, running stays running. There is no
+   <code>Reset</code> pause reason, so a client's hard reset never pauses a running
+   machine. A pause a client owned comes back as <code>User{that client}</code>, so its
+   detach can still release it; an unowned pause stays unowned;</li>
+<li>re-applies what clients asked for: call-stack tracking, the trace and
+   <code>persistent_breakpoints</code> from the backend's own record of each request
+   (<code>Impl::want_*</code>, empty until a client sets it, so a machine nobody configured
+   keeps its defaults), the coverage sink, the queued screenshots' hold on the
+   new renderer (each capture's wait re-based on the new machine's frame
+   counter), and each client's arm bit and <code>live_raster</code> through
+   <code>clients_changed()</code>;</li>
+<li>starts a fresh CTL-11 corruption guard on a rebuilt machine, whose error
+   generation restarts at 0, so an old acknowledgement cannot pre-acknowledge its
+   first corruption;</li>
+<li>re-bases the notification edge detector on the new machine, whose resume
+   generation and frame counter restarted. Every route first flushes the old
+   machine's pending pushes, so re-basing loses nothing; the exception is a
+   <code>done</code> with no <code>begin</code>, whose machine is gone before the backend hears of it.</li>
+</ol>
+<p>Subscriptions, switches, the symbol table and bookmarks need nothing: they never
+left the <code>Debugger</code>. Then the <code>Reset{Hard}</code> event is latched — after the ring
+discard, or it would go with the stale entries — and <code>on_reset(Hard)</code> is pushed
+to every listener before the verb returns: always for <code>reset(Hard)</code> and the
+guest route, and for <code>load()</code> only when it rebuilt the machine.</p>
+<p>The guest-route pair is pinned state by state: <code>begin</code> then <code>done</code> keeps the
+pause and its owner; <code>done</code> without a <code>begin</code> re-applies the rebuilt machine's
+own state, unowned; a second <code>begin</code> replaces the first; a <code>reset(Hard)</code> or
+<code>load()</code> in between discards a pending capture; a detach of the capture's owner
+passes the captured pause on, or releases it; and neither call needs a driver or
+refuses on a corrupt machine.</p>
+<p><code>emulator_cold_boot()</code> carries nothing of the debugger's across a boot: the
+backend is the single owner of everything it re-applies.</p>
+<h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
+<p><code>debugger_backend_test</code> pins the session (<code>SES-01-*</code> attach and detach,
+<code>SES-02-*</code> the pushes and the edge detector, <code>SES-03-*</code> the drain arms), the
+reconstruct contract (<code>CTL-12-*</code>, <code>CTL-15-*</code>), the destructor's retirement of
+what the constructor published (<code>LIFE-*</code>), and the hosting (<code>HOST-*</code>).
+<code>remote_transport_test</code>'s <code>XPT-PUMP</code> rows drive the real transport through
+<code>pump()</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.indexes", "toc.integrate", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

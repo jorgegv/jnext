@@ -1,10 +1,10 @@
-# 3.10 The DZRP server (DeZog)
+# 3.10.3 The DZRP server (DeZog)
 
 `--dzrp-port N` makes JNEXT serve the DeZog Remote Protocol, the wire protocol
 DeZog — the Z80 debugger for VS Code — uses to drive CSpect and real hardware.
 The server is `src/remote/dzrp/`, one adapter over the shared socket transport
-of 3.9 (`src/remote/transport.*`), and it reaches the machine only through the
-published debugger API (`jnext::dbg::Debugger`). It never includes `Emulator`
+([3.10.1](10-1-the-socket-transport.md)), and it reaches the machine only through
+the published debugger API (`jnext::dbg::Debugger`). It never includes `Emulator`
 and never makes a socket call of its own. The design, with the reason behind
 every rule below, is `doc/design/debug-subsystem/dzrp-frontend.md`; how it is
 validated is `doc/testing/DZRP-VALIDATION.md`.
@@ -90,8 +90,7 @@ compare a ROM bank byte against:
   ROM the half is read through the space the backend reports for it
   (`SlotInfo.space`), so the bytes are the CPU's. While RAM is paged at 0x0000
   it is read from `Debugger::rom_select()`, the image the legacy paging
-  selects — the one query package D added to the published headers. The
-  adapter composes no ROM index of its own.
+  selects. The adapter composes no ROM index of its own.
 - **The limit**: `MemSpace::Rom` cannot name the NR 0x8C *alternate* ROM. With
   it enabled the CPU reads the alt ROM at 0x0000 (and `CMD_READ_MEM` shows it),
   but bank 0xFF shows the ROM image beneath.
@@ -104,23 +103,11 @@ thread, between two frames. That is what makes a `CMD_PAUSE` land on a frame
 boundary, a `CONTINUE` reply leave before anything executes, and every register
 and memory read coherent.
 
-`DebugServers` is where the three loop owners — `QtApp` (its `post_frames`
-pump), `SdlApp` and `HeadlessApp` — open the server and register it, and it
-holds the per-tick budgets the transport design recorded, so all three share one
-statement of them:
-
-| Loop owner | Running | Paused, with a remote attached |
-|---|---|---|
-| Qt, SDL | `PumpBudget{}`: one command | `PumpBudget{0, 2, 10}`: drain a queued chain, never block the tick |
-| headless | `PumpBudget{}` | `PumpBudget{50, 2, 10}`, and no frame and no frame countdown that tick |
-
-"Remote attached" comes from the previous pump's `ServiceHint`. The drain is why
-a DeZog step — four to six round trips — costs about one tick rather than one
-tick per trip. The headless branch turns what was a busy spin on a paused
-machine into a wait; its one countdown that keeps running is the automatic exit,
-charged in wall time at 20 ms a frame, because it is a hard bound and a client
-holding the machine must not hold the process. A server that cannot bind its
-port is a startup error in every frontend.
+`DebugServers` opens the server in all three loop owners and picks each tick's
+pump budget ([3.9.3](09-3-sessions-the-pump-and-reconstruct.md)). While the
+machine is paused with a remote attached, one pump drains a queued chain of
+commands, which is why a DeZog step — four to six round trips — costs about one
+tick rather than one tick per trip.
 
 Notifications are built in `on_notify()`, the transport's flush after the pump's
 commands, not inside the backend's `on_paused()` push: building one removes the
@@ -152,11 +139,14 @@ because the backend drops transients only at a stop it caused itself.
 
 **SES-01, the detach rule.** `detach()` removes the client's subscriptions — its
 breakpoints, watchpoints, temporaries and break-on-interrupt — and its
-bookmarks, and resumes the machine **if and only if the pause is this client's**
-(its `PAUSE`, its `INIT`, or a stop on one of its subscriptions). A pause made
-from the Qt window, or a magic breakpoint's unowned stop, survives it. So a
-DeZog that crashes, or a socket that simply drops, never leaves the machine
-hung.
+bookmarks. A pause that is **this client's** (its `PAUSE`, its `INIT`, or a stop
+on one of its subscriptions) passes to another arming client if one is attached
+— an open Qt debugger window, another remote — and the machine stays paused; it
+is released only when no arming client remains
+([3.9.3](09-3-sessions-the-pump-and-reconstruct.md)). A pause made from the Qt
+window, or a magic breakpoint's unowned stop, survives it. So a DeZog that
+crashes, or a socket that simply drops, never leaves the machine hung with
+nobody to resume it.
 
 Two consequences of the shared machine: the Qt debugger and DeZog can both
 pause and resume it, and whichever acted last wins; and a `--headless` stop that
@@ -165,7 +155,7 @@ client is connected, so a client blocked in a `CONTINUE` gets its stop.
 
 ## Tests
 
-- `dzrp_adapter_test` (145 rows) runs the production `DzrpServer` and `Server`
+- `dzrp_adapter_test` runs the production `DzrpServer` and `Server`
   over the transport's in-memory fake, on a real `Emulator` and `Debugger`, and
   asserts bytes on the wire and machine state for every command, including both
   sides of every bank and range check.
