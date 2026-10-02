@@ -139,11 +139,13 @@ does exactly that.
 
 - **Change the machine during an RZX recording or playback**: the recording
   would no longer reproduce. The change is refused.
-- **Rewind into a span it changed.** The rewind buffer captures the machine but
-  not the script, and a replay would not re-apply the change, so the debugger
-  refuses to step back into a span a script changed (rewinding to a frame
-  boundary is still allowed). A script that changes the machine while
-  `--rewind-buffer-size` is on logs a warning once.
+- **Rewind across a change it made.** The rewind buffer captures the machine
+  but not the script, and a replay does not re-apply the change, so the
+  debugger refuses a step back that would have to replay past it. Stepping
+  back to a point before the change is allowed (the change is undone with
+  everything after that point), and so is rewinding to a frame start. A script
+  that changes the machine while `--rewind-buffer-size` is on logs a warning
+  once.
 - **Rules do not fire during a rewind's replay.**
 
 And one interaction: an `execute` rule at A that sets `PC` to B skips a
