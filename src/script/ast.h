@@ -18,6 +18,7 @@
 
 #include "script/diagnostic.h"
 #include "script/lexer.h"
+#include "script/value.h"
 
 namespace jnext {
 namespace script {
@@ -122,6 +123,11 @@ struct Expr {
     /// taller than MAX_EXPR_DEPTH (parser.h), which is what bounds every
     /// recursive pass over it.
     int         depth = 1;
+    /// Var: the variable's slot; SnapField / Changed / Depth: the snapshot
+    /// stack's slot. Assigned by `check_script` (-1 = not bound).
+    int         slot = -1;
+    /// The static type, assigned by `check_script` (value.h).
+    ValueType   type = ValueType::Int;
 };
 
 // ---------------------------------------------------------------------------
@@ -192,6 +198,9 @@ struct Action {
     /// snap / unsnap / dump_diff / enable / disable: the name.
     std::string name;
     SourcePos   name_pos;
+    /// snap / unsnap / dump_diff: the snapshot stack's slot; set: a variable
+    /// target's slot is on `target`. Assigned by `check_script`.
+    int slot = -1;
     /// joystick: the port index (1 or 2).
     int joystick = 0;
     /// if: the branches.
@@ -222,8 +231,11 @@ struct Rule {
 };
 
 struct Script {
-    std::vector<VarDecl> vars;
+    std::vector<VarDecl> vars;       ///< a variable's slot is its index here
     std::vector<Rule>    rules;
+    /// The snapshot stacks the script names, by slot. Filled by `check_script`
+    /// in order of first appearance.
+    std::vector<std::string> snapshots;
 };
 
 }  // namespace script

@@ -16,9 +16,11 @@ int SymbolTable::load_z88dk_map(const std::string& path)
     std::string line;
 
     while (std::getline(file, line)) {
-        // Only keep lines with "; addr" qualifier — these are actual memory
-        // addresses. Lines with "; const" are compile-time constants and
-        // not useful for symbol resolution in the disassembler.
+        // "; addr" lines are memory addresses: they name addresses (the
+        // disassembler's immediates) and resolve by name. "; const" lines are
+        // compile-time values — a size, or a section bound such as
+        // `__data_crt_head` — so they must never name an address, but a script
+        // or a remote client may still ask for one by name (#279).
         auto semi = line.find(';');
         if (semi == std::string::npos)
             continue;
@@ -28,7 +30,10 @@ int SymbolTable::load_z88dk_map(const std::string& path)
         if (md_start == std::string::npos)
             continue;
         metadata = metadata.substr(md_start);
-        if (metadata.substr(0, 4) != "addr")
+        // "; const" values (section bounds, sizes) are kept by NAME only:
+        // `lookup_name()` resolves them, `lookup()` never sees them.
+        const bool is_const = metadata.substr(0, 5) == "const";
+        if (metadata.substr(0, 4) != "addr" && !is_const)
             continue;
 
         // Strip metadata for value parsing
@@ -83,6 +88,11 @@ int SymbolTable::load_z88dk_map(const std::string& path)
             continue;
 
         auto addr = static_cast<uint16_t>(addr_val);
+
+        if (is_const) {
+            const_by_name_.emplace(name, addr);   // first occurrence wins
+            continue;
+        }
 
         // First occurrence wins for both maps
         if (addr_to_name_.find(addr) == addr_to_name_.end())
@@ -179,6 +189,9 @@ std::optional<uint16_t> SymbolTable::lookup_name(const std::string& name) const
     auto it = name_to_addr_.find(name);
     if (it != name_to_addr_.end())
         return it->second;
+    auto c = const_by_name_.find(name);
+    if (c != const_by_name_.end())
+        return c->second;
     return std::nullopt;
 }
 
@@ -186,5 +199,6 @@ void SymbolTable::clear()
 {
     addr_to_name_.clear();
     name_to_addr_.clear();
+    const_by_name_.clear();
     loaded_file_.clear();
 }

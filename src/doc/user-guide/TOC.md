@@ -99,6 +99,7 @@ function, so it can be used as a reference while debugging.
 - Copper
 - NextREG
 - Audio
+- Script
 
 **Functions** (one subsection each):
 
@@ -111,6 +112,13 @@ function, so it can be used as a reference while debugging.
 - Backward execution (rewind)
 - The magic breakpoint and the magic port
 - Changing the keys (rebinding every debugger command)
+- Debugger scripts, and the Alt+1..Alt+8 host keys
+
+**Scripting** (GH #26, its own section): a first script; the language; every
+event with its payload; reading the machine; every action; snapshots and span
+checks; keys, joysticks and host keys; changing the machine; running scripts
+(CLI, GUI, exit codes, watchdog, CI); recording and replaying a session;
+catching memory-corruption bugs (#279); the demo scripts; a quick reference.
 
 ## 7. Automation and CI
 

@@ -1,0 +1,7 @@
+# z88dk outputs (the installed fixtures live in test/00regression/nex/)
+/dsl_demo
+/dsl_demo_buggy
+*.addr
+*.bin
+*.nex
+*.map

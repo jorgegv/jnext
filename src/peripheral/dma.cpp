@@ -1045,6 +1045,12 @@ void Dma::latch_start_() {
     e.aux2        = block_len_;
     e.misc2       = dir_a_to_b_ ? 1 : 0;
     e.misc3       = mode_;
+    // GH #26 WP3 (DSL finding F1, manager decision): a Start carries the
+    // transfer's I/O endpoints too, as Byte does — which side is a port, in
+    // the direction the block will run — so an `on dma start` rule can read
+    // IO_SRC / IO_DST (dsl-frontend.md §2.3).
+    e.flag_a      = dir_a_to_b_ ? port_a_is_io_ : port_b_is_io_;
+    e.flag_b      = dir_a_to_b_ ? port_b_is_io_ : port_a_is_io_;
     debug_state_->latch_event(e);
 }
 

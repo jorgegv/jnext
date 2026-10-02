@@ -1055,6 +1055,42 @@ target_link_libraries(script_parse_test PRIVATE
 target_include_directories(script_parse_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME script_parse_tests COMMAND script_parse_test)
 
+# GH #26 WP2 — the DSL evaluator: the value model, variables, the snapshot
+# stacks, interpolation and run-time errors, over a real Debugger (48K).
+# Qt-free: `gate: none`.
+add_executable(script_eval_test script/script_eval_test.cpp)
+target_link_libraries(script_eval_test PRIVATE
+    jnext_script
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(script_eval_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME script_eval_tests COMMAND script_eval_test)
+
+# GH #26 WP3 — the DSL engine: rules as backend subscriptions on a real
+# machine (48K and Next), payloads, mutations, the frame-edge actions and the
+# §3 worked scripts. Qt-free: `gate: none`.
+add_executable(script_events_test script/script_events_test.cpp)
+target_link_libraries(script_events_test PRIVATE
+    jnext_script
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(script_events_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME script_events_tests COMMAND script_events_test)
+
+# GH #26 WP6 (#20) — the recorder: input edges, captures, header, warnings, a
+# cold boot, and the record -> emit -> replay round trip on a fresh machine;
+# ScriptHost's `--record-script`. Qt-free: `gate: none`.
+add_executable(script_record_test script/script_record_test.cpp)
+target_link_libraries(script_record_test PRIVATE
+    jnext_script
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(script_record_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME script_record_tests COMMAND script_record_test)
+
 # GH #281 (epic #276, package G) — the GDB Remote Serial Protocol adapter
 # (z88dk-gdb) over T's in-memory fake transport, on a real 48K / +3 / Next
 # machine driven by Debugger::pump(). Qt-free, so it is declared `gate: none`

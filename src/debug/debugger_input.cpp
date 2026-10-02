@@ -34,6 +34,7 @@
 // and not the backend's contract.
 // ---------------------------------------------------------------------------
 
+#include <cstdio>
 #include "debug/debugger_impl.h"
 
 #include "input/joystick.h"
@@ -135,9 +136,10 @@ Result Debugger::set_joystick(ClientId by, JoystickSide side, uint16_t bits12) {
     Joystick& joy = impl_->emu.joystick();
     if (side == JoystickSide::Left) joy.set_joy_left(bits12);
     else                            joy.set_joy_right(bits12);
+    char val[16];
+    std::snprintf(val, sizeof(val), "= 0x%03X", static_cast<unsigned>(bits12 & 0x0FFF));
     impl_->log_mutate_range(
-        by, side == JoystickSide::Left ? "joystick left" : "joystick right",
-        "= 0x" + std::to_string(bits12 & 0x0FFF));
+        by, side == JoystickSide::Left ? "joystick left" : "joystick right", val);
     return Result::Ok;
 }
 

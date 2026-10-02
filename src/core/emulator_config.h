@@ -5,6 +5,7 @@
 #include <ctime>
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 // MachineType is the canonical shared enum; defined once in contention.h.
@@ -216,6 +217,15 @@ struct EmulatorConfig {
     // <addr>:<port>`; any other value is that port. CLI-only.
     int gdb_port = -1;
 
+    // GH #26 WP4 — the debugger scripting language (dsl-frontend.md §6.6):
+    // `--script` files in the order given, `--script-key FRAME N` pairs
+    // (headless only), and the `--map` symbol table. Empty = none.
+    std::vector<std::string>                   script_files;
+    std::vector<std::pair<uint32_t, int>>      script_keys;
+    std::string                                map_file;
+    // GH #26 WP6 / #20 — `--record-script FILE`: record the session as a
+    // replay script (any frontend). Empty = not recording.
+    std::string                                record_script_file;
     // GH #280 (--zrcp-port): the TCP port the ZEsarUX remote command protocol
     // server listens on. The same port rule as `dzrp_port`: -1 = off (the
     // default), 0 = an OS-chosen port logged as `zrcp: listening on

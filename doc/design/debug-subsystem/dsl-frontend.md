@@ -35,16 +35,16 @@ whole, so `done` here means the sub-item is approved, not merged.
 
 | WP | Branch `gh26-dsl` (issue #26, carrying #279) | Status |
 |---|---|---|
-| **WP1** | lexer / parser / `compile_expr` **exported as a library** (Z WP-4 consumes it) — as built: Appendix G | in review |
-| **WP2** | evaluator + the snapshot stacks (`snap` / `unsnap` / `changed()`, which is how #279's span invariants are served with no new event kind) | todo |
-| **WP3** | engine over subscriptions, stop / exit policy. Headless script `stop` with no explicit `exit` is code **3** (never 2, a harness fault) | todo |
-| **WP4** | CLI + man page (`--script`, `--script-key`) | todo |
-| **WP5** | GUI — Script tab, **Alt+1..Alt+8** as the DSL host-key namespace in both windows. **Needs Q** | todo |
-| **WP6** | the recorder — **this is #20**, after its re-scope: recorder + `compare_scr` + INS-16 + the two parked DAPR rows | todo |
-| **WP7** | demos + the `script-*-func` rows | todo |
-| **WP8** | developer-guide pages | todo |
-| **WP9** | **an exhaustive User Guide chapter for the DSL** (`src/doc/user-guide`, `docs-userguide-check`-gated) — the owner's words: the most powerful feature of jnext | todo |
-| **WP10** | **a demo program + script suite** under `demo/dsl_demo/` exercising every event kind and action, with ten `script-*-func` rows | todo |
+| **WP1** | lexer / parser / `compile_expr` **exported as a library** (Z WP-4 consumes it) — as built: Appendix G | **done** |
+| **WP2** | evaluator + the snapshot stacks (`snap` / `unsnap` / `changed()`, which is how #279's span invariants are served with no new event kind) — as built: Appendix H | **done** |
+| **WP3** | engine over subscriptions, stop / exit policy. Headless script `stop` with no explicit `exit` is code **3** (never 2, a harness fault) — as built: Appendix I | **done** |
+| **WP4** | CLI + man page (`--script`, `--script-key`) — as built: Appendix J | **done** |
+| **WP5** | GUI — Script tab, **Alt+1..Alt+8** as the DSL host-key namespace in both windows. **Needs Q** — as built: Appendix K | **done** |
+| **WP6** | the recorder — **this is #20**, after its re-scope: recorder + `compare_scr` + INS-16 + the two parked DAPR rows — as built: Appendix L | **done** |
+| **WP7** | demos + the `script-*-func` rows — delivered together with WP10, as built: Appendix M | in review |
+| **WP8** | developer-guide pages — developer guide 3.12, `script-pipeline` figure, FEATURES.md (§9 WP8b; its man-page part was WP4/WP6) | in review |
+| **WP9** | **an exhaustive User Guide chapter for the DSL** (`src/doc/user-guide`, `docs-userguide-check`-gated) — the owner's words: the most powerful feature of jnext — as built: Appendix N | in review |
+| **WP10** | **a demo program + script suite** under `demo/dsl_demo/` exercising every event kind and action, with ten `script-*-func` rows — the same deliverable as WP7, done as one package (Appendix M) | in review |
 
 Depends on: B0 (landed), B; WP5 on Q. design-dsl owns WP9 and WP10.
 
@@ -150,7 +150,10 @@ addr_spec   ::= expr [ ".." expr ] [ "page" expr ]   # inclusive 16-bit logical 
               | "page" expr [ ".." expr ]          #   qualified by / replaced with a PHYSICAL 8K page
                                                    #   (set) — the backend's first-class page filter
 port_spec   ::= expr [ ".." expr ]                 # GH #222 semantics: 0x00xx = low-byte decode,
-              | "mask" expr "value" expr           #   else exact; or explicit mask/value
+              | "mask" expr "value" expr           #   else exact; or explicit mask/value. A range
+                                                   #   decodes like a single port, so it lies wholly
+                                                   #   in 0x00..0xFF or wholly above it: a range across
+                                                   #   0xFF is a load error (Appendix I.2)
 reg_spec    ::= expr [ ".." expr ]                 # NextREG number(s)
 
 action      ::= "log" [ "indent" expr ] string
@@ -189,7 +192,13 @@ expr        ::= literal | IDENT | builtin | "@" IDENT | "(" expr ")"   # builtin
 literal     ::= INT (dec, 0x hex, $ hex, 0b bin) | "true" | "false" | string
               | "CPU" | "DMA" | "COPPER"           # the SOURCE constants (integers 0, 1, 2)
 string      ::= '"' { char | "${" expr [ ":" fmt ] "}" } '"'      # fmt: x2 x4 d
-key_spec    ::= string                             # same vocabulary as --delayed-keypress
+key_spec    ::= string                             # the --delayed-keypress vocabulary, plus
+                                                   # "row,col" (one matrix bit, e.g. "0,0" CAPS
+                                                   # SHIFT, "7,1" SYMBOL SHIFT) and "ext:<name>",
+                                                   # a Next extended key (WP6, Appendix L.2):
+                                                   # right left down up dot comma quote semicolon
+                                                   # extend capslock graph truevideo invvideo
+                                                   # break edit delete; any case
 ```
 
 Operators, by precedence (low to high): `or`; `and`; `not`; `== != < > <= >=`;
@@ -340,14 +349,14 @@ the nesting expressible without loops or data structures.
 | `log [indent n] "…"` | one line to the script log, prefixed `[jds F:<FRAME> C:<CYCLE>]`, `n` spaces after the prefix. Headless: stderr through the `script` spdlog channel. |
 | `stop ["reason"]` | request a pause **at the offending instruction** (§6.3). Headless: log + exit 3 at the end of the current instruction. |
 | `assert expr "msg"` | if false: `log "ASSERT FAILED: msg"`, then behaves as `stop "msg"`. |
-| `exit n` | headless: exit with code n after the current instruction. GUI: log + pause (a GUI never exits from a script). |
+| `exit n` | headless: exit with code n after the current instruction. GUI: log + pause (a GUI never exits from a script). **A failure at the same boundary wins over `exit 0`** (WP7 review 1, Appendix M.2): a `stop`, a failed `assert` or `compare_scr`, a static stop, or a run-time error at the same event — in this rule or another, before or after the `exit` — makes the run exit 3 (1 for the run-time error), logged `SCRIPT EXIT 0 not taken`; a non-zero `exit n` is kept. An `exit` issued while a `compare_scr` waits for its frame edge waits too, and is taken at that edge after the compare. An `exit` inside an `on stop` rule never changes the status: the pause that ran the rule already decided it (a stop's 3, an `exit`'s own code — row SCRIPT-EV-EXIT-IN-ON-STOP). |
 | `dump_regs`, `dump_mmu`, `dump_mem a len` | to the log; `dump_mem` ≤ 4096 bytes, 16 per line. |
 | `screenshot "f"` | queued for the **next frame boundary** through `save_screenshot` (`screenshot.h:60`): `.scr` = ULA memory (`Ula::screen_dump`), else PNG. Same path `--delayed-screenshot` uses. Its outcome is the backend's `flush_captures(cid)` (added in B4): the engine calls it before `exit`, and `NoFrame` (a capture still pending) or `RefusedUnavailable` (one that failed to write) makes the run's exit non-zero. |
 | `compare_scr "f" "msg"` | at the next frame boundary, `Ula::screen_dump()` byte-compared to file; first differing offset logged; mismatch behaves as `assert` failure. |
 | `save_snapshot "f"` | queued for the next frame boundary through the existing savers (the GH #27 `--delayed-snapshot` route). |
-| `press "KEY"` | **level**: KEY goes down at the next frame edge and stays down until `release` (backend CAP-IN-02 `set_key`, `Keyboard::set_matrix_bit`, `keyboard.h:185`). Vocabulary of `--delayed-keypress`. This is what the recorder emits (§7.2). |
-| `release "KEY"` | **level**: KEY goes up at the next frame edge. Releasing a key that is not down is a no-op. |
-| `press "KEY" for n` | **pulse**: down for n frames then up, with the auto-type 4-frame all-released gap after it (backend CAP-IN-01 over `Keyboard::queue_auto_type`, `keyboard.cpp:541-590`). Today `queue_auto_type` REPLACES the queue, so a second pulse while one is in flight strands the first key down (review R-1); REQ-dsl-18 is ACCEPTED as **append**: CAP-IN-01 queues behind an in-flight pulse (4-frame released gap kept), two pulses due in one frame both happen, and `--delayed-keypress-frames` inherits the fix. `set_matrix_bit` (`keyboard.h:185`, private today) gains a public entry for CAP-IN-02. `--delayed-keypress-frames N KEY` ≡ `on frame N do press "KEY" for 5 end`. |
+| `press "KEY"` | **level**: KEY goes down at the next frame edge and stays down until `release` (backend CAP-IN-02 `set_key`, `Keyboard::set_matrix_bit`, `keyboard.h:185`). Vocabulary of `--delayed-keypress`, plus `row,col` for one matrix bit and `ext:<name>` for one of the 16 Next extended keys (NR 0xB0/0xB1, IN-02 `set_extended_key`; the names are in §2.1's `key_spec`, WP6 / Appendix L.2). This is what the recorder emits (§7.2). |
+| `release "KEY"` | **level**: KEY goes up at the next frame edge, `row,col` and `ext:<name>` included. Releasing a key that is not down is a no-op. |
+| `press "KEY" for n` | **pulse**: down for n frames then up, with the auto-type 4-frame all-released gap after it (backend CAP-IN-01 over `Keyboard::queue_auto_type`, `keyboard.cpp:541-590`). Today `queue_auto_type` REPLACES the queue, so a second pulse while one is in flight strands the first key down (review R-1); REQ-dsl-18 is ACCEPTED as **append**: CAP-IN-01 queues behind an in-flight pulse (4-frame released gap kept), two pulses due in one frame both happen, and `--delayed-keypress-frames` inherits the fix. `set_matrix_bit` (`keyboard.h:185`, private today) gains a public entry for CAP-IN-02. `--delayed-keypress-frames N KEY` ≡ `on frame N do press "KEY" for 5 end`. An `ext:<name>` key has no pulse form: `press "ext:…" for n` is a run-time error (WP6). |
 | `joystick n bits` | set MD6 12-bit state of port n (1\|2) at the next frame boundary (`Joystick::set_joy_left/right`, `joystick.h:116-117`). |
 | `enable NAME`, `disable NAME` | arm / disarm a labelled rule. |
 | `set v = expr` | assign a `var`. |
@@ -709,7 +718,7 @@ on copper move 0x43 do
 end
 on copper wait when WAIT_V == 95 do
     log "WAIT(95,${WAIT_H}) satisfied at cvc ${CVC} hc_ula ${HC_ULA}"
-    assert CVC == 96 "WAIT for line 95 must be satisfied in the blanking before line 96 (GH #181)"
+    assert CVC == 95 and HC_ULA >= WAIT_H "WAIT for line 95 is satisfied on the Copper's own line 95, at or past its threshold (GH #181)"
 end
 on copper halt once do log "copper HALT at ${CPC}" end
 
@@ -1251,7 +1260,7 @@ Mutations a reviewer must run (each must turn the named row red):
 | mutation | apply a `set PC` at an execute delivery AFTER the instruction instead of before | `script_events_test` SCRIPT-EV-MUT-PRE (the demo's trap instruction must NOT execute) |
 | mutation | drop the backend `MUTATE` log line | `script-mutation-func` (greps the line) |
 | mutation red twin | a script-injected fault UPSTREAM of the watched guest write: `set nextreg[0x50] = 0xFF` at `on execute @page_in_level_mmu1` — the `NEXTREG 0x51` instruction itself, so the guest's preceding `NEXTREG 0x50` has already committed — against the GOOD demo build | `script-mmu-func` second half: exit 3 with the guard's reason — the GUEST's `NEXTREG 0x51, 0x23` trips `mmu_guard` (0xFF + 1 != 0x23). Two mutations of the mutation, both must stay GREEN: (1) inject at the watched register `set nextreg[0x51]` instead (no event, §2.7); (2) hook `@page_in_level` one instruction earlier (the guest's deferred `NEXTREG 0x50, 0x22` overwrites the injection, `emulator.cpp:10221`) |
-| copper | deliver `on copper move` without `CPC` (or with the CPU's raster position instead of the step's `HC_ULA`) | `script-copper-func` (asserts `CPC` and the GH #181 `CVC == 96` line) |
+| copper | deliver `on copper move` without `CPC` (or with the CPU's raster position instead of the step's `HC_ULA`) | `script-copper-func` (asserts `CPC` and the GH #181 `CVC == 95 and HC_ULA >= WAIT_H` line) |
 | dma | fire `on dma byte` only for bytes inside a Mem range subscription | `script-dma-func` (no range subscribed; the byte count must equal `LEN`) |
 | all | remove the `InspectionScope` around script reads | `script_events_test`: a `read` watchpoint on an address the script peeks must NOT fire |
 
@@ -1532,3 +1541,729 @@ below is one §2.1 left open; none extends the language.
 | F4 | §3(a): "the parser warns on a `when PAGE ==` over a range wider than one slot". The range is known only after `@symbol` resolution. | WP1 does not warn. | WP3, at registration, where the resolved range is known. |
 | F5 | §8.1 asks `script_parse_test` for "one row per event kind proving the rule became exactly one subscription". | Registration is WP3; those rows land with it. | WP3. |
 | F6 | An `on stop` rule's `PC` binds to the payload PC, but a stop is not an `Event`. | None. | WP3 supplies it from `PausedInfo`. |
+
+## Appendix H — WP2 as built (2026-09-29)
+
+`src/script/`: `value.h` (the value model), `state.*` (variables and the
+snapshot stacks), the evaluator (`evaluator.*`) extended to every form, and the
+checker (`check.*`) extended with types and slots. Suite `script_eval_test`
+(`gate: none`). Every decision below is one §2 left open; none extends the
+language.
+
+### H.1 The value model
+
+| # | Decision | Why |
+|---|---|---|
+| H1 | **Two types, fixed at load time**: INTEGER (32-bit, wrapping; booleans are 0/1) and STRING. A string is a string literal (its `${…}` evaluated) or `REASON`; it can be compared with `==` / `!=` against another string and interpolated, and nothing else. | §2.1 lists string literals as expressions and `REASON` is a string (§2.3), but no action or builtin consumes a string value, and every expression slot of the grammar (a condition, a `set`, an index, a filter bound, a `var` initializer, `exit`, `dump_mem`, `out`, `joystick`, `press … for`, `log indent`) is an integer. |
+| H2 | **Variables are integers.** `var v = "x"` and `set v = "x"` are load-time errors. | No worked script stores a string, and a static type makes every type error a load-time error (§6.5: nothing runs partially) instead of a run-time one. |
+| H3 | **`check_script` types every expression** and refuses: a string in arithmetic or under `not`; a string compared with an integer; a string where an integer is needed; a format (`x2`, `x4`, `d`) on a string interpolation. `compile_expr` keeps refusing strings outright (Appendix G, G.2). | |
+
+### H.2 Variables
+
+- A variable's slot is its declaration index; `check_script` binds every reference and `set` target to it.
+- **Initializers run once, at load, in declaration order**, in the `None` scope (machine state allowed, payload not), and may read only the variables declared **before** them: a later one is a load-time error "used before its declaration". Rules read any variable, wherever it is declared.
+- Values wrap like every integer: `var big = 0x7FFFFFFF + 1` is INT_MIN.
+
+### H.3 Snapshot stacks (§2.5)
+
+- **The record**: the registers (`AF..HL2 IX IY SP PC I R IFF1 IFF2 IM`), the word at SP, the eight MMU slots as `mmu[s]` reads them (NR 0x50+s), FRAME and CYCLE (64-bit, read wrapped to 32) — captured through the inspection surface only.
+- **One stack per name**, with a slot in order of first appearance (`Script::snapshots`).
+- **Bounded at 4096 entries per name.** `snap` on a full stack, and `unsnap`, a field, `changed()` or `dump_diff` on an empty one, are **run-time errors at the action or expression, leaving the stack unchanged** (§6.5: the engine disables the rule). Dropping the oldest entry was rejected: every later exit would compare against the wrong entry, a silently wrong script. `depth()` of an empty stack is 0, not an error — it is how a script asks (§3(c) does).
+- **`changed()` compares exactly §2.5's groups**:
+  - `regs`: AF BC DE HL IX IY AF2 BC2 DE2 HL2 SP.
+  - `mmu`: all 8 slots.
+  - `iff1`: IFF1 only.
+  - `stack0`: the word at the *current* SP against the captured word. A moved SP over the same word is unchanged.
+- **`dump_diff`** returns one line per differing field, `NAME old -> new`, in the order AF BC DE HL IX IY AF2 BC2 DE2 HL2 SP IFF1 IFF2 IM STACK0 MMU0..MMU7. The values are upper-case hex, 4 digits for 16-bit, 2 for MMU, 1 for IFF/IM. **PC, I, R, FRAME and CYCLE are not compared**: between an entry and its exit they always differ, so they would bury the line that matters.
+
+### H.4 Interpolation
+
+- With no format, or with `d`, a value prints in signed decimal.
+- `x2` and `x4` print upper-case hex of the 32-bit pattern, zero-padded to **at least** 2 or 4 digits. A wider value keeps all its digits (`${0x1234:x2}` is `1234`, never a silently truncated `34`), and a negative one prints its pattern (`${-1:x4}` is `FFFFFFFF`).
+- A string piece (`${REASON}`) is inserted as it is.
+
+### H.5 Run-time errors (§6.5)
+
+- Every run-time failure throws `EvalError` with the failing node's position. That covers:
+  - division or modulo by zero;
+  - an accessor out of range;
+  - a refused `phys[]` page;
+  - a snapshot stack that is empty or full;
+  - `MMU[n]` outside 0..7;
+  - an `@symbol` left **unresolved** (the script was checked with no MAP): this is an error, not 0;
+  - `REASON` evaluated outside a stop delivery: this is an error, not "".
+- `make_condition`'s predicate turns a failure into *false* plus a report to its handler. The engine (WP3) catches a failure around a rule body and disables the rule.
+
+### H.6 Recursion
+
+- The new paths are the string comparison, interpolation, snapshot fields with an index, and variable initializers.
+- They recurse over the tree only, whose height the parser bounds (Appendix G13). A string node's height includes its interpolations', so the bound holds through them.
+- Row SEV-STACK runs each path at the bound on a 1 MB stack.
+
+### H.7 What WP3 consumes
+
+- `ScriptState`: variables (`set_var` is what `set v = …` calls), and `snap` / `unsnap` / `diff` for the three actions.
+- `init_vars`.
+- `eval_int`, `eval_str`, `evaluate` and `interpolate` for action operands and messages.
+- `make_condition` for each rule's `when`.
+- An `on stop` rule evaluates with `EvalContext::reason`, plus a synthetic `Event` carrying the paused PC (Appendix G.4 F6).
+
+### H.8 Deviations from the §8 test plan
+
+- §8 plans `script_eval_test` "against a fake inspection surface". `Debugger` is a concrete class in the frozen backend headers, so the suite runs a real `Debugger` over a 48K machine instead.
+- "Division by zero disabling the rule" is the engine's behaviour (WP3). WP2 pins that the error is raised and reported, positioned.
+
+## Appendix I — WP3 as built (2026-10-01)
+
+`src/script/script_engine.*` (`ScriptEngine`, `EngineHost`, `LoadResult`), one
+evaluator change (I.5), two backend fixes (I.4 F1, F8). Suite
+`script_events_test` (`gate: none`, both configurations), which drives the
+engine directly on real 48K and Next machines; the CLI that loads scripts is
+WP4.
+
+### I.1 The engine
+
+- **One engine is one backend client** (`ClientKind::Script`) and is its own
+  `Listener`. Every loaded script is a unit with its own variables, labels and
+  snapshot stacks; scripts load in order, and rules on one event run in file
+  order, then across files in load order (§2.2).
+- **`load()` is atomic** (§6.5): parse, check (symbols from the backend's
+  table), run the `var` initializers, evaluate every filter bound — a bound may
+  use a `var` or an `@symbol` and is range-checked here — and only then
+  subscribe. Any error, including a backend refusal, registers nothing.
+- **A rule is ONE subscription** (F5), carrying the rule's `once` and enable
+  flag, a `Handler` that runs the body and returns the verdict, and a
+  `Condition` exactly when the rule has a `when` or the engine refines the
+  filter (I.2). The one exception is F3's page range.
+- **What runs where**: event rules in the backend's delivery (machine stopped
+  at the boundary, under its `InspectionScope`); `on stop` rules in
+  `on_paused()`, i.e. from `pump()`; deferred actions per I.3.
+- **`EngineHost::exit`** is the loop owner's: `exit n` and the run-time-error
+  exit 1 go there. Empty means the GUI, where `exit` logs and pauses.
+- **The log sink is `Debugger::log`** — the debugger channel plus every
+  listener's `on_log` (§2.6 names a `script` spdlog channel; the backend appends
+  ` [client N]`). WP4 may route it.
+
+### I.2 Registration
+
+| Rule | Subscription |
+|---|---|
+| `execute A..B [page P]` | `Execute`, `lo..hi`, optional `page` |
+| `execute page P1..P2` | **one `Execute` per page** over 0..0xFFFF, at most 16 (F3) |
+| `read` / `write A..B [page P]` | `Mem`, access Read / Write, range, optional `page` (the AND form) |
+| `read` / `write page P1..P2` | ONE `Mem` whose page SET is P1..P2 — the backend's filter, never a `PAGE ==` predicate |
+| `io_read` / `io_write P` | `Port`: mask `0x00FF` for P ≤ 0xFF (GH #222), else `0xFFFF` |
+| `io_* mask M value V` | `Port`, as written |
+| `io_* P1..P2` | `Port` matching every port, plus the engine's inclusive range condition — on the LOW byte when the range lies in 0x00..0xFF, exactly otherwise, as a single port decodes (GH #222). A range straddling 0xFF is a load error |
+| `nextreg R1..R2` | `NextRegWrite`, register set |
+| `frame [N]` / `scanline N` / `cycle N` | `Frame` (N or every) / `Scanline` (0..1023) / `Cycle` |
+| `interrupt` / `nmi` / `reset` | `IntAck` / `Nmi` / `Reset{Any}` |
+| `hostkey N` | `Host`, name `scriptN` |
+| `copper move [R1..R2] / wait / halt [at A..B]` | `Copper`, one sub-kind, register set, Copper-PC range 0..1023 |
+| `dma start / byte [A..B] / end` | `Dma`, one sub-kind; a `byte` range pre-selects in the backend (either endpoint) and the engine's condition keeps the DESTINATION (F2); `dma byte … page` is a load error (no page filter) |
+| `stop` | none |
+
+The §3(a) warning (F4) is raised here, where the bounds are resolved: a `PAGE ==`
+or `PAGE !=` test in the `when` of a `read`/`write` range that spans more than
+one 8K slot and has no page qualifier. It is positioned at the comparison and
+logged as `SCRIPT WARNING file:L:C: …`; the script still loads.
+
+### I.3 Actions
+
+- **The frame edge (§2.6).** `press` / `release` / `press … for` go straight to
+  the backend (IN-01/IN-02), which queues them for the edge itself; `screenshot`
+  is the backend's (CAP-01, next rendered frame). `joystick` (IN-03 is
+  immediate) and `compare_scr` are **queued by the engine** and applied by its
+  own `Frame` subscription, made on first need — or at once when issued from a
+  `frame` rule, which already runs at the edge. `compare_scr` logs the first
+  differing offset (or the size), then `ASSERT FAILED: msg`, and stops.
+- **`save_snapshot` waits for `on_frame_ended()`**: the backend refuses a save
+  inside a delivery that would have to run the frame out, so the engine writes
+  it from the first `pump()` that finds the machine AT a frame boundary — not
+  while a stop holds it inside a frame, which would move the user's machine. A
+  failed write is a run-time error.
+- **`press … for n`** is the backend's auto-type pulse, the one
+  `--delayed-keypress-frames` uses: pressed by the tick at the issuing edge,
+  released by the n-th tick, so the guest sees it for n−1 frames (backend row
+  IN-01-07 pins the same span). §2.6's "down for n frames" counts ticks.
+- **`log indent n`** clamps n to 0..255. **`dump_mem`** refuses a length over
+  4096 at run time.
+- **`once` is the rule's**: its first firing spends every subscription of the
+  rule (an execute page range has several). **`enable`** re-arms a spent
+  `once` by registering the rule afresh — the backend never re-arms one
+  (EVT-EXEC-32). A rule a run-time error disabled
+  stays disabled; `enable` does not revive it.
+
+### I.4 Stop, exit, errors
+
+- `stop` / failed `assert` return `Stop`; the backend pauses at the boundary and
+  applies the loop owner's SES-04 policy, so headless is exit **3** with no
+  engine involvement. The engine logs `SCRIPT STOP: <reason> at PC=<the event's
+  PC> FRAME=… CYCLE=<the event's cycle>`.
+- **`exit n`** calls `EngineHost::exit(n)` during the delivery, BEFORE the
+  backend's stop requests 3 — the loop owner keeps the first code it is given
+  (row SCRIPT-EV-EXIT pins the order). **Superseded by WP7 review 1
+  (Appendix M.2):** the `exit` is no longer handed over during the delivery but
+  at the pause, in `on_paused()`, once every stop of the boundary is known, and
+  the loop owner's listener leaves the backend's 3 to that hand-over while an
+  exit is pending. A failure at the same boundary turns `exit 0` into its code. An `exit`
+  inside an `on stop` rule never changes the status: the pause that ran it already
+  decided it (a stop's 3, an `exit`'s own code; SCRIPT-EV-EXIT-IN-ON-STOP). Before that it calls
+  `flush_captures()`: a screenshot still pending or failed, or a
+  `save_snapshot` still queued, turns `exit 0` into exit 1, logged.
+- **`REASON`** is the rule's own text for the engine's own stop (the backend
+  names it Breakpoint / Watch / Script by event kind, with empty text), and
+  `user`, `breakpoint`, … plus the backend's text otherwise. An `on stop`
+  rule's `PC` is the paused PC (F6), carried on a synthetic `Event`.
+- **Run-time errors** disable the rule's subscriptions, log `SCRIPT ERROR
+  file:L:C: msg — rule X disabled`, and call `EngineHost::exit(1)` once, at the
+  next frame edge.
+- A mutation that does not wholly land is a run-time error, never silent:
+  `poke(Cpu)` returns `RefusedReadOnly` with the count that landed (GH #281),
+  reported as `N of M byte(s) landed`; the bytes that did land stay.
+- The ring overflow (§2.2) is logged once per boundary.
+
+### I.5 Name binding — supersedes G.3 for `CYCLE`
+
+**`CYCLE` in an event rule is the event's own cycle**, captured at the hook;
+outside one (a `var` initializer) it is the live clock. G.3 made it always
+live, and the §3(f) `latency.jds` acceptance script then always printed 0: the
+IntAck and the `execute 0x0038` it measures are delivered at the same
+boundary. With the payload cycle it prints the acknowledge's 104 master cycles
+(13 T at 3.5 MHz), and the design already says so (§2.2 "the payload carries
+the exact cycle", §5.1 rows 1 and 6). The `[jds F: C:]` log stamp uses the same
+value. `FRAME` stays live.
+
+### I.6 Findings
+
+| # | Finding | Resolution |
+|---|---|---|
+| F1 | §2.3's `IO_SRC`/`IO_DST` on `dma start` had no backend payload. | **Fixed in the backend** (manager decision): `Dma::latch_start_` sets both flags in the block's direction. Rows PL-DMA-IO-01..03, SCRIPT-EV-DMA-START-IO. `events.h` still documents the flags as `Dma{Byte}` only — a frozen-header comment, reported, not edited. |
+| F2 | The `dma byte` filter is the destination (§2.1); the backend's matches either endpoint. | The design is the contract: the engine ANDs a destination condition (row SCRIPT-EV-DMA-DST); `dma byte page` is a load error. |
+| F3 | `execute page P1..P2` against a one-page Execute filter. | One subscription per page, at most 16, all owned by the one rule. |
+| F4 | The §3(a) warning needs resolved bounds. | Raised at registration (I.2). |
+| F5 | One subscription per rule, pinned per kind. | The SCRIPT-EV-REG-* rows, in `script_events_test` rather than `script_parse_test` (registration needs a backend). |
+| F6 | `on stop`'s `PC`. | The paused PC (I.4). |
+| F7 | §3(f) `copper.jds` asserted `CVC == 96` for a WAIT on line 95. A WAIT is satisfied when the Copper's OWN line counter equals its vpos (`copper.vhd:94`; `Copper::execute`, `copper.cpp:199-201`), so its payload `CVC` is 95 by construction; GH #181's "the following line" is the RAW line. As written the script always stopped. | **§3(f) corrected** (review round 1) to `assert CVC == 95 and HC_ULA >= WAIT_H`; row SCRIPT-EV-WORK-COPPER runs the corrected script verbatim and pins that it passes, and that the old assert would stop. |
+| F8 | The `NextRegWrite` a Copper MOVE fans out to had `prev` = 0 (the site never peeked), so §8's post-commit contract failed for the Copper. | **Fixed in the backend**: the Copper site peeks the register before the write and the drain carries it. Rows PL-NR-COPPER-PREV, SCRIPT-EV-COPPER. |
+| F9 | `CYCLE` always live (G.3) defeats `latency.jds`. | I.5. |
+| F10 | §2.7's MUTATE line reads `by script:<rule>`; the backend writes `by <client id>` and knows no rule. | Reported to the backend owner; the engine does not re-log mutations. |
+
+### I.7 For WP4
+
+- The loop owner implements `EngineHost::exit`, keeping the FIRST code.
+- §7.3's "a headless run whose scripts declared a `compare_scr`/`exit` that
+  never fired exits 3 with `SCRIPT: N deferred actions never ran`" is the loop
+  owner's check at the `--delayed-automatic-exit*` bound.
+- A menu-loaded script (§6.4) registers from the next frame boundary; `load()`
+  itself registers at once.
+
+### I.8 Deviations from the §8 test plan
+
+- §8.3 plans the program "through the `--inject` route"; the rows write it into
+  RAM and drive the engine directly, as the CLI is WP4.
+- The per-kind registration rows §8.1 assigns to `script_parse_test` are
+  `script_events_test`'s SCRIPT-EV-REG-* (F5).
+
+## Appendix J — WP4 as built (2026-10-01)
+
+The CLI rows of §6.6, the loop owners' script host, the man page. Suites:
+`script_events_test` (SCRIPT-HOST-*), `cli_options_test` (CLI-SKEY-01/02), and
+six regression rows `script-{pass,assert,stop,load-error,key,frontends}-func`.
+
+### J.1 The options
+
+| Flag | As built |
+|---|---|
+| `--script FILE` | repeatable, loaded in the order given into ONE engine (one backend client) |
+| `--script-key FRAME N` | FRAME 0..2^31-1, N 1..8, both whole (`cli::parse_script_key`); `--headless` only — the windowed frontends refuse it at startup as they refuse `--delayed-keypress`; needs a `--script` |
+| `--map FILE` | a z88dk `.map` into the backend's one symbol table (CAP-SYM), loaded BEFORE the scripts so `@symbol` resolves; a file that cannot be loaded or holds no symbols is a startup error |
+
+### J.2 `ScriptHost` (`src/script/script_host.*`)
+
+- **Where it lives.** In `src/script`, not `src/platform`: it needs only the
+  `Debugger` and the engine, so its rows run in `script_events_test` with no
+  frontend. Each loop owner holds one beside its `DebugServers`, declared after
+  `debugger_`, and starts it right after the servers.
+- **Startup.** Any failure — an unreadable file, a load-time error in any
+  script (§6.5), a bad `--map`, `--script-key` with no `--script` — is logged
+  (`SCRIPT ERROR file:line:column: message`, then `--script FILE: not loaded`
+  and `--script: not starting; no script is loaded (exit 1)`) and fails the
+  start; the loop owner exits 1 before the machine runs. Nothing of any script
+  stays registered, a good one loaded before the bad one included.
+- **No scripts, no client.** With nothing to load it attaches nothing and arms
+  nothing (row SCRIPT-HOST-NONE).
+- **The exit code (§6.3).** The FIRST code a run reaches is kept: the engine's
+  `exit n` and run-time-error 1 through `EngineHost::exit`, and the backend's
+  `ExitRequested` 3 through the host's own listener — a NON-ARMING client
+  (`ClientInfo::observer`), because the listener only listens. The headless and
+  SDL loops check it after every pump; a 0 never replaces an earlier failure.
+- **Qt.** Started with `exits = false`: no exit hook and no listener, so
+  `exit` and `stop` pause (the stop policy there is `Pause`). A load error is
+  still a startup failure, logged; the dialog §6.5 describes is WP5's.
+
+### J.3 `--script-key` timing
+
+A scheduled key is raised at the EDGE of frame FRAME (`E_FRAME`, where
+`on frame FRAME` fires), from the engine's own frame-edge subscription, BEFORE
+the edge's deferred queue, so a `hostkey` rule runs with `FRAME == FRAME` and
+what it queues for the edge lands at that same edge. Raising it from the loop
+between frames was rejected: `Debugger::time().frame` there is the frame just
+completed, so the rule would have seen FRAME − 1, and the timing would have
+depended on which loop owner raised it.
+
+### J.4 The watchdog (§7.3)
+
+At the `--delayed-automatic-exit*` bound the headless and SDL loops ask
+`unreached_verdicts()`: rules holding `exit` or `compare_scr` (in any `if`
+branch) that never fired, deferred actions still queued, and scheduled keys
+not yet delivered. A non-zero count logs `SCRIPT: N deferred actions never ran`
+and exits 3 unless the run had already failed. A rule with no verdict (a guard)
+never counts: a guard that never trips is a pass.
+
+### J.5 Deviations
+
+- The man page's SCRIPTING section does NOT state the Alt+1..Alt+8 keyboard
+  change §6.6 names: that change is WP5's and is not in the product yet. It
+  lands with WP5.
+- The user guide links the man page's SCRIPTING section until WP8a writes the
+  guide's own chapter (`tools/gen-userguide-cli.pl`).
+- The GH #26 ChangeLog line is reworded now that scripts load from the CLI; it
+  is to be checked again at the final merge.
+
+## Appendix K — WP5 as built (2026-10-01)
+
+The GUI half of §6.4 and qt-frontend.md §5.3: the Script tab and menu, and
+Alt+1..Alt+8 as the script host keys in both windows. Rows: QSCR-01..07
+(`debugger_panels_test`), H-SCRIPT-01..09 (`host_hotkey_test`), DKSK-01/02
+(`debugger_keymap_test`), DK-32..35 and DK-68 (`app_config_test`), HKL-SK-01..04
+(`host_key_latch_test`), SCRIPT-HOST-GUI-* (`script_events_test`), and DACC-05's
+pinned menu shape (`debugger_accel_test`).
+
+### K.1 The host keys
+
+- **One implementation for both windowed frontends: the key `Router`**
+  (`host_key_latch.h`), which the Qt emulator window and the SDL window both
+  feed. §5.3 placed the Qt half in `MainWindow::keyPressEvent` and the SDL
+  half in the Router; the Router alone serves both, with the same properties —
+  independent of the debugger being open (the Router is upstream of nothing
+  the debugger gates), swallowed press AND release, consumed with no script
+  loaded — and the two frontends cannot drift. `wire_script_keys()`
+  (`host_key_wiring.h`) binds it to `Debugger::raise_host_event("scriptN")`
+  in `QtApp` and `SdlApp`, one spelling of the name.
+- **The chord is exact**: Alt (left or right) and no Ctrl / Shift / GUI held.
+  Ctrl+Alt+N, Shift+Alt+N, Alt+9, Alt+0 and the bare digits are unchanged.
+  The digit's release is swallowed even if Alt went up first; an autorepeat of
+  a held chord raises nothing; `release_all()` forgets a chord whose key-up
+  went to another window.
+- **The debugger window**: eight `Qt::WindowShortcut` `QAction`s, not menu
+  items, each raising the same event, with auto-repeat off (a held chord
+  raises once there too — review round 1 found it raising per autorepeat); `validate_combo` refuses `Alt+1..Alt+8`
+  by name ("Alt+1..Alt+8 are the script host keys"), so a saved binding there
+  is a `LoadIssue` and keeps its default.
+- **SDL parity**: full — the SDL window's key callback forwards Alt+digit to
+  the same Router (it filters only F-keys and the pointer release).
+
+### K.2 The Script tab and menu
+
+- `ScriptPanel` (`src/debugger/script_panel.*`) drives the loop owner's
+  `ScriptHost` (`QtApp` → `MainWindow::set_script_host` →
+  `DebuggerManager::set_script_host`) — the one `--script` loads into, so CLI
+  scripts are listed too. It includes no core header (QTF-09..13 stay green).
+- **Script menu** (Alt+S on the debugger window's menu bar): Load Script…,
+  Reload Scripts, Unload Scripts. §6.4 named "Load Script…, Unload Scripts"
+  in a Debug menu; a menu of its own keeps the Debug menu's mnemonics as they
+  are, and Reload was asked for by the WP5 brief.
+- **What it shows**: per rule — file, label (or `line:column`), the event with
+  the filter as registered, the state (`armed` / `disabled` / `spent (once)` /
+  `error (disabled)`, plus `verdict not reached`), hits; the verdict line from
+  `ScriptEngine::status()` — `PASS: exit 0` / `FAIL: exit n` (the machine
+  paused, the GUI never exits), stops with the last reason, run-time errors,
+  verdicts not reached; and the script log, the last 2000 lines the engine's
+  client logged (the backend's `[client N]` tag removed), the `MUTATE` lines
+  included, plus the host's own load errors.
+- **ScriptHost gained a GUI API**: `load_file()` (registered at once; a
+  script with an error registers nothing and the loaded ones stay),
+  `unload_all()` (which destroys the engine: its client arms the machine, and
+  a GUI with nothing loaded must not keep every instruction paying for it),
+  `reload()`, `files()`, `log_since()`. Its listener client (non-arming) now
+  exists in the GUI too, to collect the log.
+- **`ScriptEngine`** gained `status()` and three `RuleView` fields (`spent`,
+  `verdict`, `event`).
+
+### K.3 Deviations
+
+- **FRAME stays absolute for a menu-loaded script.** §6.4 says a menu-loaded
+  script's `FRAME` 0 is "the first full frame after loading"; §2.4 says the
+  same for any script ("Frame 0 is the first frame executed after the script
+  is loaded"). WP3 made `FRAME` the backend's frame number (Appendix I), which
+  for a CLI script at power-on is the same thing. Making it relative per load
+  would split `FRAME`, `on frame N`, `--script-key`, the recorder's stamps and
+  the `[jds F:]` log stamp across two origins, so it stays the machine's frame
+  number, and the load note says so (`SCRIPT … loaded at FRAME n (FRAME and
+  \`on frame N\` count the machine's frames)`), as do the man page and the
+  user guide. A script that wants a relative frame captures `FRAME` into a
+  `var` in a `once` rule.
+- **Registered at once, not "from the next frame boundary".** The Qt tick
+  loads between frames (or with the machine paused), which is a boundary.
+- **No regression row for the GUI path**: §8's `script-hostkey-func` is WP7's,
+  headless. The GUI path is pinned in the Qt unit suites above (offscreen,
+  real windows, the real key Router and the real backend).
+
+### K.4 Breakpoints other clients can see (Z review finding, 2026-10-01)
+
+Every rule used to be registered as a static `Continue` plus a handler, the
+handler deciding `stop`. A client's own stepping loop — ZRCP `run n`, or any
+like it — asks which subscriptions would stop at a PC (`probe_execute` +
+`subscriptions()`), and a probe cannot run a handler (it might mutate), so it
+ran past every script breakpoint.
+
+- **A stop-only `execute` rule** (body exactly `stop ["msg"]`) is now
+  registered as a static `Stop`, its `when` as the subscription's condition,
+  no handler — the shape every frontend breakpoint has. `probe_execute` lists
+  it and `subscriptions()` reports `action Stop`, no handler.
+- **Its bookkeeping moved to `on_paused()`**, driven by `PausedInfo::matched`
+  (every stop of the boundary, whoever's was first): the hit, `once` (every
+  subscription of the rule spent — a page range has several), the
+  `SCRIPT STOP: <msg> at PC=… FRAME=… CYCLE=…` line, the stop count and last
+  reason (`status()`), and `REASON` for the `on stop` rules. The message is
+  interpolated on an Execute event at the paused PC — the boundary the rule
+  fired at, nothing executed since — so it reads what the handler read.
+  Exit 3 under `StopPolicy::ExitNonZero` is the backend's, unchanged.
+- **Still invisible to a probe**: every rule that does more than `stop` (a
+  `log` before the stop, a mutation, `snap`, a conditional `stop` inside
+  `if`, `assert`, `exit`, `compare_scr`) and every non-`execute` rule. Those
+  keep a handler, because only running the body knows the verdict. A script
+  author who wants a breakpoint another client honours writes it stop-only and
+  puts the condition in `when`. Mem / Port stops need no probe: they are
+  delivered after the instruction, which no stepping loop pre-empts.
+- Rows: SCRIPT-EV-STATIC-STOP, -WHEN, -ONCE, -PAGES, -TWO, -MIXED, SCRIPT-HOST-STATIC-EXIT3.
+  `probe_execute` is still the `bool` form on this branch (it ignores
+  conditions); the condition-evaluating `std::vector<EventId>` form arrives
+  with Z, whose `other_breakpoint_at()` already reads `action == Stop &&
+  !has_handler` — the shape these rows pin.
+
+## Appendix L — WP6 as built: the recorder, #20 (2026-10-01)
+
+Where this differs from §7 it says so; §7 is the design, this is the code.
+Code: `src/script/recorder.*`, `src/script/key_names.*`, the recorder half of
+`ScriptHost`, `src/platform/recording_info.h`, `ScriptPanel` /
+`DebuggerWindow`'s Script menu. Rows: `script_record_test` (REC-*),
+QSCR-11..13, DKSK-05, and the functional rows `script-replay-keyb-func`,
+`script-replay-joystick-func`, `script-record-replay-func`.
+
+### L.1 What it records, and when
+
+- **One backend client** (`ClientKind::Script`, arming): a `Frame`
+  subscription (every frame) and a `Host` one (`script8`), plus a listener
+  for `Paused` and `Reset{Hard}`. It only observes: nothing it does changes
+  the machine.
+- **At every frame edge E_K** it reads INS-16 `input_state()` and writes one
+  edge per change since E_K-1 — a matrix bit (`press` / `release`), an
+  extended key (`ext:<name>`, L.2), a connector's 12-bit state (`joystick 1|2
+  0x…`, the whole new state) — stamped **`on frame K-1`**, as §7.2 item 1 says.
+  Level form only; there is no `for`. The sample is taken at E_K rather than
+  at `begin_new_frame(K)`: the two read the same input, because a running
+  machine takes host input only between frames, and E_K is a backend event
+  where `begin_new_frame` is not. E_K's `Frame` delivery comes before the
+  edge's injection drain and `tick_auto_type()` (`emulator.cpp`, B4), so a
+  change applied AT E_K-1 (a script `press`, an auto-type step) is first seen
+  at E_K and stamped K-1 like a host key.
+- **A capture** (host key 8 — Alt+8 in either window, `--script-key F 8` —
+  or `capture()` from the menu / tab) is taken at the NEXT frame edge E_K, and
+  stamped K: a replay's `on frame K` rule runs at that same point, so what is
+  compared is, by construction, what was captured. Taking it at once instead
+  was rejected: between frames, and above all while paused mid-frame, there is
+  no frame a replay could take it at. A capture asked for while the machine is
+  paused at a frame boundary is therefore taken one frame after resuming.
+- **`.scr` or PNG** (§7.4): `.scr` (`ula_screen_dump()` written by the
+  recorder at E_K, and `compare_scr` in the script) when only the ULA is on —
+  NR 0x68 b7 clear, NR 0x15 b0 (sprites) and b7 (LoRes) clear, NR 0x69 b7
+  (Layer 2) clear, NR 0x6B b7 (tilemap) clear, read with `nextreg_peek()`,
+  i.e. the live values. Otherwise a PNG through CAP-01 `screenshot()` (deferred
+  to the next rendered frame, as a replay's `screenshot` is) and, in the
+  script, `screenshot "<base>-NNNN-replay.png"` with a comment naming the
+  reference. The DSL has no PNG comparison (§7.4 puts it in the suite), so a
+  PNG replay's verdict is the caller's: the functional rows `png_diff` them.
+- **The header**: `jds-recorder: 1`, machine, program (`config().load_file`
+  of the CURRENT boot), `--rtc`, the SD image's base name and `.jns` Tier-1
+  identity, NR 0x05, the frame range and counts, and the replay command line.
+  The preconditions are `once` asserts at the first recorded frame: `MACHINE`
+  and `nextreg[0x05]`. The script ends `on frame <last>+2 do exit 0 end` — two
+  frames, so a PNG asked for at the last edge has been rendered and written.
+- **Inexact, said in the script** — a `# WARNING:` comment and the same text
+  as a `log` at the first frame, so a replay prints it: a change sampled at the
+  edge of a frame the machine was paused in mid-frame (§7.2 item 4; flagged
+  per FRAME, from the `Paused` push with `at_frame_boundary()` false — the
+  backend does not say whether the key moved during the pause or before it,
+  so this errs towards warning); input held when recording began; input before
+  frame 0; a frame tag going backwards (a rewind).
+- **A cold boot** (`Reset{Hard}` — a hard reset, a menu load, which is one)
+  restarts the recording at FRAME 0 and re-reads the header's facts: a replay
+  starts at power-on too, so nothing recorded before it could be replayed.
+  This is what makes "Record, then File > Load" work. Not in §7.
+- **`stop()`** calls `flush_captures()`: a PNG still pending (asked for at the
+  last edge before the stop) is dropped by the backend, and its line goes with
+  it, with a warning. The script is written whole at the stop (not streamed),
+  so the warnings can lead it.
+
+### L.2 Findings against the design (not worked around)
+
+- **§7.2 named the matrix and the joysticks but not the 16 Next EXTENDED keys**
+  (NR 0xB0/0xB1, `InputState::ext_keys`). The host's arrows, Backspace, Esc,
+  the Alt-letter keys drive those, not the matrix (issue #33), so a recorder
+  that ignored them would drop real input silently. The language gained the
+  key names `ext:right … ext:delete` for `press` / `release` (backend IN-02's
+  `set_extended_key`, already there); `press "ext:…" for n` is a run-time
+  error (there is no extended-key pulse). §2.1's `key_spec` and §2.6's
+  `press` / `release` rows carry the names. The names live in
+  `src/script/key_names.*`, with the inverse matrix table (§7.2's "`row,col`
+  for a bit with no single-key name" — CAPS SHIFT `0,0`, SYMBOL SHIFT `7,1`).
+- **Keys jnext types by itself are input like any other.** A tape `--load`'s
+  `LOAD ""` and `--delayed-keypress` pulses change the matrix, and the
+  recorder records them; a replay given the same options types them twice.
+  INS-16 cannot tell them apart and the backend has no "auto-type active"
+  query, so it is documented (man page) rather than filtered.
+- **Not recorded at all**: the Kempston mouse (not in INS-16), media changes
+  (a tape inserted, an SD card swapped, GH #93), a soft reset from the GUI
+  (`Reset{Soft}` is also what a guest NR 0x02 write raises, so it cannot be
+  warned about without false alarms), and a loaded script's mutations.
+
+### L.3 Where it is reached (deviations)
+
+- **`ScriptHost`** owns the recorder: `start_recording()` /
+  `capture_screen()` / `stop_recording()` / `recording()` / `recorder()`, and
+  `set_recording_info()`, a provider each loop owner sets to
+  `recording_info_of(emulator_)`. The host's destructor stops and writes, so
+  any exit writes the script. Its log lines reach the Script tab like the
+  engine's.
+- **`--record-script FILE`** — NOT in §6.6 or §9. Added because the SDL
+  frontend has no menus, so it is the only way to record there, and because it
+  makes the recorder testable end to end through the binary
+  (`script-record-replay-func`) and from a real GUI session driven by xdotool
+  (`test/scripts/dsl/record-dapr.sh`). With it, `--script-key` no longer needs
+  a `--script` (key 8 is the capture).
+- **The GUI affordance is the Script menu and tab, not the Debug menu** (§9
+  said Debug menu "Record Script…"): Script > Record Script… / Capture Screen /
+  Stop Recording, enabled by state when the menu opens, and the same three as a
+  row of buttons in the Script tab with a status line — beside the Load /
+  Reload / Unload of K.2, which is where a user who records a script looks for
+  it.
+- **Alt+8 is the capture while recording**, as §7.2 says; it is still raised
+  as host key 8, so a loaded `on hostkey 8` rule runs too.
+
+### L.4 The parked DAPR rows, and what else records
+
+- **`06-dapr-keyb` and `07-dapr-joystick`** are recorded once from the Qt GUI
+  under Xvfb with `--record-script`, driven by xdotool
+  (`test/scripts/dsl/record-dapr.sh`, which re-records), and committed as
+  `test/scripts/dsl/dapr-{keyb,joystick}.jds` with their PNG captures. Both
+  programs draw on the tilemap, so the captures are PNGs. The rows
+  `script-replay-keyb-func` / `script-replay-joystick-func` replay them
+  headless and require `exit 0` and every capture pixel-identical. The keyb
+  recording holds W across CAPS SHIFT, presses EDIT (CAPS + 1) and holds E
+  with R (the §8 "press as a pulse" mutation strands or drops one of those);
+  the joystick one uses `--joy1-source keys` (diagonals, fire, a direction held
+  across another's release). `test/interactive/README.md` keeps them listed
+  for a manual run and points at the rows. **`script-replay-keyb-func` is
+  therefore WP6's, not WP7's**: WP7's ten rows become nine plus this one.
+- **RZX** (§7.3) stays as it is: it records the IN *results* and replays them
+  by overriding every IN, inside its own snapshot; the recorder records the
+  input *state* and lets the emulator compute the INs, which is what a test of
+  the input path needs. They can run in the same session; neither replaces the
+  other.
+- **`--tape-save`** records what the guest SAVEs (the ROM's SA-BYTES), not
+  what the user does: a recorded session that SAVEs, replayed with the same
+  `--tape-save`, writes the same `.tap` again — a comparison the caller can
+  make. The recorder neither replaces it nor needs it.
+
+### L.5 Deviations from the §8 test plan
+
+- `script-replay-edge-func` (a demo that latches the FRAME of its first key)
+  needs WP7's `dsl_demo`; it stays WP7's. The K-1 stamping it pins is pinned
+  here by `REC-EDGE-*` (exact frame numbers) and by the round trip
+  `REC-RT-GUEST`, whose guest counts loop passes before Q is first seen down —
+  a number that moves with the frame the press lands on.
+
+## Appendix M — WP7 (and WP10) as built: the DSL demo and script suite (2026-10-01)
+
+WP7 (§9) and the overview's WP10 are one deliverable, built as one package.
+`script-replay-keyb-func` is WP6's (L.4), so WP7 has **nine** rows; together
+with it they are §9's ten.
+
+### M.1 What was built
+
+- **`demo/dsl_demo/dsl_demo.asm`** — one z88dk `+zxn` NEX, written in
+  assembly so every address a script names is a MAP label. `make` builds
+  `dsl_demo.nex`, `dsl_demo_buggy.nex` (the same source with `BUGGY`) and
+  `dsl_demo.map`. `make install` copies the three to `test/00regression/nex/`.
+  **One MAP serves both builds:** each `BUGGY` difference is an operand of the
+  same size, or an instruction of the same length writing a different target.
+  The Makefile refuses to build if the two maps disagree on any `addr` line.
+  Every frame, under IM 2, the program:
+
+  | Feature | Good build | `BUGGY` build |
+  |---|---|---|
+  | Keyboard poll | latches the frame counter at the first Q (`first_key`) | same |
+  | Data area | writes `data_area` | same |
+  | `mempoint_addr` | written, never 0xB7 | 0xB7 at its frame 20 |
+  | `patch_byte` → `patch_copy` | copied | same |
+  | `trap_insn` | runs | runs, plus a second, unskipped write after it |
+  | Stray write | none | one into `__data_crt_head - 1`, the last byte of the guarded range |
+  | MMU0/MMU1 paging (every 8 frames) | `page_in_level` / `page_in_level_mmu1` | MMU1 = 0x24 |
+  | DMA sprite-pattern upload to port 0x5B (every 16 frames) | 256 bytes | 128 bytes |
+
+  The IM 2 handler (`isr` .. `isr_exit`) counts `frames`. It carries five
+  faults, one per invariant of the interrupt-exit audit, picked by the byte
+  `isr_fault`: 0 in the good build, 1 in the `BUGGY` one, any other value set by
+  a script (WP7 review 1). 1 returns IY incremented (a constant clobber would
+  be invisible after the first entry); 2 leaves MMU slot 7 on page 0x0F; 3
+  rewrites the return address; 4 returns without EI; 5 leaves SP two bytes
+  deeper. The stack and the IM 2 table live in slot 5, so slot 7 is free for
+  fault 2. The Copper runs `MOVE NR 0x43,0x00; WAIT 95;
+  MOVE NR 0x43,0x02; HALT`; in the `BUGGY` build the WAIT is for line 96.
+- **`test/scripts/dsl/`** holds the nine scripts. Each header gives the exact
+  command line, the exit code and the log line. The rows are thin
+  `test/00regression/scripts/script-*-func.sh` wrappers. They take the §8 names
+  (the mutation table's), not `script-<script name>-func`:
+
+  | Script | Row | Red twin |
+  |---|---|---|
+  | `range_watch.jds` | `script-guard-func` — **#279** code-area guard, `0x8000..(@__data_crt_head - 1)` as ChaseTheBug | buggy build: exit 3, the write into 0x8317 from PC 0x8172 |
+  | `value_predicate.jds` | `script-mempoint-func` | buggy build: exit 3 |
+  | `nextreg.jds` | `script-mmu-func` — **#279** MMU0/MMU1 | buggy build: exit 3, PC 0x818B. Also the good build with a script fault upstream of the watched write (3), and the two "must stay green" variants (watched register, one instruction early; both 0) |
+  | `span_invariants.jds` | `script-isr-func` — **#279** interrupt-exit audit | each of the five handler faults: exit 3 with its own line — IY named; MMU7 named and "isr changed an MMU slot"; "top of stack modified"; "isr exit with interrupts disabled"; SP named |
+  | `copper.jds` | `script-copper-func` | buggy build: exit 3, split on line 96 |
+  | `dma.jds` | `script-dma-func` | buggy build: exit 3, a 128-byte upload |
+  | `mutation.jds` | `script-mutation-func` (requires the MUTATE lines) | buggy build: exit 3, its `exit 0` not taken |
+  | `hostkey.jds` | `script-hostkey-func` (`--script-key 560 1`) | buggy with the key: 3; buggy with no key: 0 (nothing armed); good with the key: 0 |
+  | `replay_edge.jds` | `script-replay-edge-func` | script: Q pressed in the program's frame 30 is first seen in 31. A real SDL window under Xvfb records a held Q (through the key Router, xdotool); the recording must press it at F-1 (F = the FRAME the program latched it in) and replay to the same latch. Control: the press a frame later latches a frame later |
+
+### M.2 Findings
+
+- **A defect: `assert …; exit 0` passed a failed assert.** `exit` handed its
+  code to the loop owner during the delivery, before the backend's stop asked
+  for 3, so the first code — 0 — won. §3(f)'s own `palette_init.jds` would have
+  gone green on a failed assert. The same held for `compare_scr …; exit 0`, for
+  a stop in ANOTHER rule at the same event, and, in an event rule, a deferred
+  `compare_scr` was never made because the `exit` came first (review round 1).
+  Fixed by class in `ScriptEngine`:
+  - an `exit` is no longer handed over during its delivery: it is recorded
+    (`take_exit`), the machine pauses, and `on_paused()` hands it over once
+    every stop of the boundary is known (`hand_over_exit`), the loop owner's
+    listener leaving the backend's 3 to it while an exit is pending. The
+    backend's first `pump()` only takes a baseline and pushes no pause, so
+    `ScriptHost::start()` pumps once before the loop's first tick, or an
+    `exit` at frame 0 would never be handed over (SCRIPT-EV-EXIT-FIRST-TICK);
+  - every failure marks the boundary (`mark_failure`, by master cycle): a
+    `stop`, a failed `assert` or `compare_scr`, a static stop (counted in
+    `account_static_stops`), and a run-time error (code 1). At the hand-over
+    an `exit 0` at a failed boundary becomes the failure's code, logged
+    `SCRIPT EXIT 0 not taken: "reason" failed at the same boundary (exit 3)`;
+    a non-zero `exit n` is kept. The rest of a body still runs, so a span
+    script's `unsnap` after a `stop` keeps its stack balanced;
+  - an `exit` issued while any `compare_scr` waits for its frame edge waits too
+    (`Deferred::Kind::Exit`), and is taken at that edge after the compare.
+  Pinned by SCRIPT-EV-ASSERT-EXIT, -EXIT-COMPARE-FRAME, -EXIT-COMPARE-HELD,
+  -EXIT-OTHER-RULE (both orders, a static stop, `exit 7` kept), -EXIT-RUNTIME,
+  -EXIT-FIRST-TICK, -EXIT-FIRST-OF-BOUNDARY, -EXIT-LATER-BOUNDARY, and end to end by `script-mutation-func`'s red twin. §2.6's `exit` row, I.4
+  and the man page say so. Other clients' breakpoints at the same boundary are
+  not script failures and do not count.
+- **`@__data_crt_head` did not resolve** (review round 1, blocking for #279):
+  jnext's MAP loader kept only the `; addr` lines of a z88dk map, and the crt's
+  section bounds are `; const`. Fixed in `SymbolTable`: `; const` lines are kept
+  in a separate NAME-ONLY table that `lookup_name()` consults after the
+  addresses — so `@__data_crt_head`, ZRCP and GDB names resolve — and that
+  `lookup()`, `symbols()` and the disassembler never see, so a size or a bound
+  never names an address (rows SYM-11, SYM-12). A name defined twice resolves to
+  its FIRST definition, a const as an address already did; a name that is both
+  is the address (review round 2, C5; SYM-13). `range_watch.jds` and
+  `hostkey.jds` now guard `0x8000..(@__data_crt_head - 1)`, as §3(a) and
+  ChaseTheBug do.
+- **A script must arm after the program is loaded.** Before the NEX loads,
+  NextZXOS and the loader run code at these same addresses, and the loader
+  writes the code range. Every script therefore arms its watches at the first
+  `main_loop` where the program's `magic` word reads 0xD5D5 (`once when
+  mem16[@magic] == 0xD5D5`). §3's sketches assumed watches live from power-on.
+- **The keyboard poll is in the main loop, not the handler**, after
+  `main_loop`, where the script presses. This way "applied at once" (seen in
+  the same frame) and "a frame late" (two frames on) both differ from the
+  frame-edge rule (seen in the next frame), and both of §8's replay mutations
+  are visible.
+- **Absolute frames**: `--script-key 560 1` and the recording half rely on the
+  NEX running from about FRAME 500, as with a warm start. The DAPR recordings
+  (L.4) rely on the same thing. The verdicts themselves count the program's own
+  frames.
+
+### M.3 Deviations
+
+- `replay_edge.jds` presses at the program's frame 30 and expects 31, rather
+  than §8's absolute FRAME 120 and 121: the program's start frame depends on
+  the boot path.
+- The recording half uses the SDL frontend under Xvfb with xdotool, as
+  `sdl-keypress-func` does. It SKIPS, and never fails, when the X server
+  delivers no key — the recording then holds no press.
+
+## Appendix N — WP9 (§9's WP8a) as built: the user-guide chapter (2026-10-02)
+
+`src/doc/user-guide/06-debugger/scripting/`, fourteen pages, rendered into the
+committed `doc/user-guide/` and linked from the debugger chapter's index, the
+Script panel and function pages, and the generated option page (whose
+SCRIPTING link now points at the chapter instead of the man page). Pages: an
+index; a first-script tour; the language; events (filter, delivery point,
+payload for every kind); reading the machine; actions; snapshots and span
+checks; keys, joysticks and host keys; changing the machine (the §2.7
+visibility rule); running scripts (CLI, GUI, exit codes and the
+exit-after-failure rule, the watchdog, CI); recording and replaying (recorded
+in the Qt GUI under Xvfb, replayed headless, the "inexact" warnings);
+catching memory-corruption bugs (#279's three cases and MemPoint and the host
+keys, as a ChaseTheBug user's path); the nine demo scripts with their output;
+a quick reference. Every example was run against the product and its output
+pasted (time stamps and `[client N]` trimmed).
+
+### N.1 Product defects found while writing it, fixed in-branch with rows
+
+- **The raster names read a constant while running.** `Debugger::raster()` /
+  `time()` returned the LAST PAUSE's snapshot unless the machine was paused,
+  so `RAW_VC`, `CVC`, `HC_ULA` … in a `scanline` or `execute` rule never
+  moved (`on scanline 100` printed `CVC=247 RAW_VC=0` on every frame). They are
+  now derived from the clock at the query; the paused snapshot is still left
+  alone. INS-06-04 re-pinned (its "raster() returns the kept snapshot while
+  running" clause was the defect), SCRIPT-EV-RASTER-LIVE added. In a `scanline
+  N` rule the live `CVC` reads N-1: the rule runs as the raw line begins and
+  CVC steps a few pixels into it — exactly what NR 0x1E/0x1F read then (GH
+  #257); the guide says so.
+- **`exit 256` reached the shell as 0.** An `exit` outside 0..255 is now a
+  run-time error (exit 1). SCRIPT-EV-EXIT-RANGE.
+- **The joystick and sprite-pattern `MUTATE` lines printed decimal after
+  `0x`** (`joystick 1 0x10` logged `= 0x16`). MUT-HEX-01.
+- **The man page's `# REMOTE DEBUGGING (ZRCP)` heading had no blank line
+  before it**, so pandoc swallowed the whole ZRCP section into SCRIPTING (a
+  literal `# REMOTE…` line in the roff).
+- **The Script tab elided its Event and State cells** (`write …`, `armed, …`)
+  at the window's default width. The columns are now sized to their text when
+  it changes. QSCR-14.
+- **Every headless stop logged `[warning] STOP under StopPolicy::ExitNonZero —
+  requesting exit 3`**, a passing script `exit 0`'s included. The backend
+  cannot know which exit the loop owner takes, so its line is now neutral and
+  at info (`… — asking the loop owner to exit`); `ScriptHost`'s listener, which
+  decides, logs the old warning when the exit it takes IS the stop's.
+  SCRIPT-HOST-STOP-WARNING.
+- **`docshot` did not build** (GH #278 WP7 changed `DebuggerManager`'s
+  constructor and the Video panel's raster helper); fixed, and it now also
+  captures the Script tab (`debugger-script.png`, used by the guide).
+
+### N.2 Found, documented, not changed (owner's call)
+
+- `page[s]` (and the `PAGE` payload, and the `page` filters) give a ROM slot its
+  ROM page number, 0..7 — the same numbers as RAM pages 0..7, so `on execute
+  page 0` also matches ROM code. Documented, with `mmu[s] != 0xFF` as the RAM
+  test.
+- `save_snapshot` (like `--delayed-snapshot`) writes `.sna` data for any
+  extension but `.jns`/`.szx`/`.nex`, `.z80` included. Documented.
+- `screenshot` / `save_snapshot` and an `exit` in the same frame rule: the run
+  exits 1 (§2.6, fail loud), unlike `compare_scr`, which the exit waits for.
+  Documented, with the one-frame-later idiom.
+- A `log "PASS …"` after a failed `assert` in the same body is still printed
+  (the body runs to the end, §6.3); the status is right. Documented.
+

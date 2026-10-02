@@ -361,12 +361,20 @@ void MainWindow::set_emulator(Emulator* emu) {
 #ifdef ENABLE_DEBUGGER
     if (!debugger_mgr_ && emu) {
         debugger_mgr_ = new DebuggerManager(this, *debugger_, this);
+        debugger_mgr_->set_script_host(script_host_);   // GH #26 WP5
         // Debugger starts disabled — main window stays fixed-size.
         // GH #1 — hand it the user's key bindings straight away: the window is
         // built now, and a keymap pushed only when it is first SHOWN would
         // leave the emulator window forwarding keys the debugger does not have.
         push_debug_keymap();
     }
+#endif
+}
+
+void MainWindow::set_script_host(jnext::script::ScriptHost* host) {
+    script_host_ = host;
+#ifdef ENABLE_DEBUGGER
+    if (debugger_mgr_) debugger_mgr_->set_script_host(host);
 #endif
 }
 

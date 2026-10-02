@@ -1,0 +1,2504 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="ZX Spectrum Next emulator — developer guide">
+      
+      
+      
+      
+        <link rel="prev" href="12-the-zrcp-server.html">
+      
+      
+        <link rel="next" href="../04-testing/index.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>3.13 The debugger scripting language - JNEXT Developer Guide</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../css/theme.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#313-the-debugger-scripting-language" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../index.html" title="JNEXT Developer Guide" class="md-header__button md-logo" aria-label="JNEXT Developer Guide" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            JNEXT Developer Guide
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              3.13 The debugger scripting language
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.66</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
+  </div>
+</a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../index.html" title="JNEXT Developer Guide" class="md-nav__button md-logo" aria-label="JNEXT Developer Guide" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    JNEXT Developer Guide
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.66</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
+  </div>
+</a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../01-orientation/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1. Orientation
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    1. Orientation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/01-what-jnext-is.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.1 What JNEXT is, in one page
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/02-repository-layout.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.2 Repository layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/03-the-rules-that-shape-the-code.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.3 The rules that shape the code
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../02-architecture/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2. Architecture
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    2. Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/01-startup-and-the-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.1 Startup and the frontends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/02-the-emulator-core.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.2 The emulator core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/03-a-frame-end-to-end.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.3 A frame, end to end
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/04-the-video-pipeline.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.4 The video pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/05-save-state-and-rewind.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.5 Save state, rewind and determinism
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3. Subsystems
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    3. Subsystems
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="01-cpu.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.1 CPU
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="02-memory.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.2 Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="03-video.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.3 Video
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-audio.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.4 Audio
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="05-ports-and-nextreg.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.5 Ports and NextREG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="06-peripherals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.6 Peripherals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="07-input.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.7 Input
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="08-media-and-loaders.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.8 Media and loaders
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-debug-and-the-debugger.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9 Debug and the debugger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-the-dzrp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10 The DZRP server (DeZog)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="11-the-gdb-rsp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.11 The GDB RSP server (z88dk-gdb)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="12-the-zrcp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.12 The ZRCP server (ZEsarUX's protocol)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.13 The debugger scripting language
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="13-the-debugger-scripting-language.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.13 The debugger scripting language
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-pieces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The pieces
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#from-text-to-a-checked-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        From text to a checked script
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#values-state-and-the-snapshot-stacks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Values, state and the snapshot stacks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-expression-compiler-as-a-library" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The expression compiler as a library
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-engine-rules-as-backend-subscriptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The engine: rules as backend subscriptions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stop-exit-and-the-exit-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stop, exit and the exit code
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-host-scripthost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The host: ScriptHost
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#host-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host keys
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-recorder-gh-20-and-compare_scr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The recorder (GH #20) and compare_scr
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-a-built-in-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding a built-in name
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-an-event-kind" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding an event kind
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../04-testing/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4. Testing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    4. Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/01-the-test-triplet.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.1 The test triplet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/02-declared-suites-and-pinned-counts.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.2 Declared suites and pinned counts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/03-the-regression-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.3 The regression suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/04-traceability.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.4 Traceability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/05-documentation-and-cli-gates.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.5 The documentation and CLI gates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/06-the-harness-selftest.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.6 The harness self-test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/07-writing-a-new-test.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.7 Writing a new test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../05-building/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5. Building and packaging
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    5. Building and packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/01-make-targets.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.1 Make targets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/02-build-configurations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.2 Build configurations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/03-packaging-and-release.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.3 Packaging and release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/04-continuous-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.4 Continuous integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../06-contributing/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6. Contributing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    6. Contributing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/01-issues-and-pull-requests.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.1 Issues and pull requests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/02-branches-worktrees-and-review.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.2 Branches, worktrees and review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/03-house-style.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.3 House style
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="313-the-debugger-scripting-language">3.13 The debugger scripting language<a class="headerlink" href="#313-the-debugger-scripting-language" title="Permanent link">&para;</a></h1>
+<p>A debugger script (<code>.jds</code>, GH #26, carrying #279's use cases) is a list of
+rules. Each rule is an event and the actions to run when it happens. The
+language lives in <strong><code>src/script/</code></strong> (CMake target <code>jnext_script</code>). It has no
+toolkit dependency, so it is built in every configuration, and it reaches the
+machine only through the published <code>jnext::dbg::Debugger</code> facade of
+<a href="09-debug-and-the-debugger.html">3.9</a> — never through <code>Emulator</code>. The record /
+replay workflow of GH #20 is built on top of it (the recorder, below).</p>
+<p>The design and the reason behind each rule is
+<code>doc/design/debug-subsystem/dsl-frontend.md</code>. Its "as built" appendices (G to
+M) record every choice made where the design was silent, and every place the
+code departs from it. This page describes the code.</p>
+<p><img alt="The scripting language" src="../img/script-pipeline.svg" /></p>
+<h2 id="the-pieces">The pieces<a class="headerlink" href="#the-pieces" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>lexer.{h,cpp}</code></td>
+<td>tokens; comments <code>;</code> <code>//</code> <code>#</code>; integers (decimal, <code>0x</code>, <code>$</code>, <code>0b</code>, 32-bit wrapping); strings with <code>${expr[:x2\|x4\|d]}</code> interpolation; the bracketed accessors (<code>mem[</code>, <code>mem16[</code>, <code>phys[</code>, <code>nextreg[</code>, <code>mmu[</code>, <code>page[</code>, <code>stack[</code>, <code>changed(</code>, <code>depth(</code>) as single tokens</td>
+</tr>
+<tr>
+<td><code>parser.{h,cpp}</code>, <code>ast.h</code></td>
+<td>recursive descent over the grammar; the syntax tree (<code>Script</code>, <code>Rule</code>, <code>EventSpec</code>, <code>Action</code>, <code>Expr</code>)</td>
+</tr>
+<tr>
+<td><code>names.{h,cpp}</code></td>
+<td>the one table of reserved words, built-in state names (<code>LIVE</code>) and payload names (<code>PAYLOAD</code>); which names <code>set</code> may assign</td>
+</tr>
+<tr>
+<td><code>check.{h,cpp}</code></td>
+<td>the load-time checks and BINDING: each upper-case name resolved to what it reads in its scope; <code>payload_legal()</code> — the per-event payload table</td>
+</tr>
+<tr>
+<td><code>value.h</code>, <code>state.{h,cpp}</code></td>
+<td>the value model; the interpreter state: variables and the snapshot stacks</td>
+</tr>
+<tr>
+<td><code>evaluator.{h,cpp}</code></td>
+<td>evaluation over a checked tree; <code>make_condition()</code> (a rule's <code>when</code> as a backend predicate); <code>machine_code()</code></td>
+</tr>
+<tr>
+<td><code>expr_compiler.{h,cpp}</code></td>
+<td>the public library surface: <code>compile_expr()</code>, <code>eval_expr()</code></td>
+</tr>
+<tr>
+<td><code>script_engine.{h,cpp}</code></td>
+<td><code>ScriptEngine</code>: loaded scripts as backend subscriptions; the actions; stop and exit</td>
+</tr>
+<tr>
+<td><code>script_host.{h,cpp}</code></td>
+<td><code>ScriptHost</code>: what the three loop owners hold to run <code>--script</code>, <code>--script-key</code>, <code>--map</code> and <code>--record-script</code></td>
+</tr>
+<tr>
+<td><code>recorder.{h,cpp}</code>, <code>key_names.{h,cpp}</code></td>
+<td>the GH #20 recorder, and the key names it writes</td>
+</tr>
+<tr>
+<td><code>src/platform/recording_info.h</code></td>
+<td><code>recording_info_of()</code>: the recorder's header facts, taken from the booted machine</td>
+</tr>
+<tr>
+<td><code>src/platform/host_key_latch.h</code>, <code>host_key_wiring.h</code></td>
+<td>the script host keys (Alt+1..Alt+8) in the emulator windows</td>
+</tr>
+<tr>
+<td><code>src/debugger/script_panel.*</code>, <code>debugger_window.cpp</code></td>
+<td>the Qt Script tab and Script menu</td>
+</tr>
+</tbody>
+</table>
+<h2 id="from-text-to-a-checked-script">From text to a checked script<a class="headerlink" href="#from-text-to-a-checked-script" title="Permanent link">&para;</a></h2>
+<p><code>parse_script()</code> stops at the first syntax error and reports it as
+<code>line:column: message</code>. It also bounds nesting:</p>
+<ul>
+<li>an expression tree is at most <code>MAX_EXPR_DEPTH</code> (200) levels tall;</li>
+<li><code>if</code> is nested at most <code>MAX_IF_DEPTH</code> (64) deep.</li>
+</ul>
+<p>A chain of operators counts one level per operator, so <code>a or b or …</code> stops at
+200 terms. Every later pass recurses over these trees and nothing else, so this
+one bound is what keeps a pathological script, or a ZRCP expression, from
+overflowing the stack.</p>
+<p><code>check_script()</code> then reports every load-time error with its position, not just
+the first. It binds each name in place (<code>Expr::builtin</code>), and the binding
+depends on the scope:</p>
+<ul>
+<li><code>PC</code> is the CAUSING instruction's PC in an event rule, and the CPU's PC in a
+  filter bound or a <code>var</code> initializer;</li>
+<li><code>HC_ULA</code> and <code>CVC</code> are the Copper step's position in a <code>copper</code> rule, and the
+  live raster elsewhere;</li>
+<li>a payload name is admitted only where <code>payload_legal()</code> says the backend's
+  <code>Event</code> carries it. <code>PREV</code> needs a write, <code>CPC</code> needs a <code>copper</code> rule, and
+  filter bounds and initializers have no payload at all.</li>
+</ul>
+<p>Types are fixed here too. Strings only compare and interpolate; they never go
+into arithmetic or a condition. <code>@symbol</code>s are resolved against the backend's
+one symbol table (CAP-SYM, filled by <code>--map</code> or <strong>Map &gt; Load MAP</strong>). A z88dk
+map's <code>; addr</code> lines name addresses; its <code>; const</code> lines (sizes, and section
+bounds such as <code>__data_crt_head</code>) are kept in a separate name-only table, so
+<code>@__data_crt_head</code> resolves while the disassembler and <code>lookup(addr)</code> never
+name an address after a constant (<code>SymbolTable::lookup_name()</code>). A name defined
+twice resolves to its first definition, a constant as an address; a name that
+is both is the address (row SYM-13).</p>
+<h2 id="values-state-and-the-snapshot-stacks">Values, state and the snapshot stacks<a class="headerlink" href="#values-state-and-the-snapshot-stacks" title="Permanent link">&para;</a></h2>
+<p>Integers are 32-bit signed and wrap. Comparisons, <code>and</code>, <code>or</code> and <code>not</code> yield
+1 or 0, and <code>and</code>/<code>or</code> short-circuit.</p>
+<p>Each loaded script has its own variables, labels and snapshot stacks
+(<code>ScriptState</code>). A snapshot (<code>snap NAME</code>) records:</p>
+<ul>
+<li>the registers, with IFF1, IFF2, IM, SP and PC;</li>
+<li>the word at SP;</li>
+<li>the eight MMU slots;</li>
+<li>FRAME and CYCLE.</li>
+</ul>
+<p>All of it is read through the side-effect-free inspection surface. Each name is
+a stack, so nested entries pair with their own exits. <code>changed(NAME, regs)</code>,
+<code>changed(NAME, mmu)</code>, <code>changed(NAME, iff1)</code> and <code>changed(NAME, stack0)</code> and
+<code>dump_diff NAME</code> compare the machine against the TOP entry.</p>
+<p>A stack holds at most <code>MAX_SNAPSHOT_DEPTH</code> (4096) entries. A full stack on
+<code>snap</code>, or an empty one on <code>unsnap</code> / a field / <code>changed()</code>, is a run-time
+error, never a silent drop. <code>depth()</code> of an empty stack is 0, not an error.</p>
+<p>Run-time failures (division by zero, an address out of range, an empty stack)
+throw <code>EvalError</code> with the failing node's position. The engine catches it,
+disables the rule and logs <code>SCRIPT ERROR file:L:C: … — rule X disabled</code>.</p>
+<h2 id="the-expression-compiler-as-a-library">The expression compiler as a library<a class="headerlink" href="#the-expression-compiler-as-a-library" title="Permanent link">&para;</a></h2>
+<p><code>expr_compiler.h</code> is the stable surface other frontends call, and it names no
+AST type:</p>
+<ul>
+<li><code>compile_expr(text, scope)</code> returns a <code>dbg::Condition</code> — the backend's
+  CAP-EVT predicate — for events of a <code>PayloadScope</code>;</li>
+<li><code>eval_expr(text, debugger)</code> evaluates once, in the no-event scope.</li>
+</ul>
+<p>The engine compiles every <code>when</code> through the same code, via <code>make_condition()</code>
+in the evaluator. The ZRCP server (<a href="12-the-zrcp-server.html">3.12</a>) is the other
+caller: <code>src/remote/zrcp/zrcp_condition.*</code> translates ZEsarUX's breakpoint
+dialect into this grammar — tokenising and grouping as ZEsarUX does, emitting a
+fully bracketed expression — and compiles it here, so it owns no evaluator. The
+one thing the language cannot read is whether a slot holds ROM, so ZEsarUX's
+<code>SEGn</code> / <code>ROM</code> / <code>RAM</code> are evaluated by the adapter.</p>
+<h2 id="the-engine-rules-as-backend-subscriptions">The engine: rules as backend subscriptions<a class="headerlink" href="#the-engine-rules-as-backend-subscriptions" title="Permanent link">&para;</a></h2>
+<p><code>ScriptEngine</code> is ONE backend client (<code>ClientKind::Script</code>), and it is also its
+own <code>Listener</code>. <code>load(text, file)</code> does four things, in this order:</p>
+<ol>
+<li>parses and checks the text;</li>
+<li>runs the <code>var</code> initializers;</li>
+<li>evaluates every filter bound (<code>@__data_crt_head - 1</code> and the like);</li>
+<li>only then registers each rule (<code>subscriptions_for()</code>).</li>
+</ol>
+<p>A script with any error registers nothing.</p>
+<p>A rule is one subscription, with one exception: <code>on execute … page P1..P2</code> is
+one subscription per page, because the Execute filter takes a single page
+(<code>MAX_EXECUTE_PAGES</code> = 16). The engine spends the sibling subscriptions of a
+fired <code>once</code> rule itself.</p>
+<p>The subscription's <code>Condition</code> is the compiled <code>when</code>, plus two refinements the
+backend filter cannot express: a port range, and the destination of a
+<code>dma byte</code> range. So the backend evaluates the predicate, and a non-matching
+hit never enters the interpreter. The <code>Handler</code> runs the body at the delivery,
+with the machine at an instruction boundary, and returns the verdict.</p>
+<p><strong>A stop-only <code>execute</code> rule</strong> — its body exactly <code>stop ["msg"]</code> — is
+registered as a static <code>Stop</code> with no handler. That is the shape every frontend
+breakpoint has, so other clients see it:</p>
+<ul>
+<li><code>probe_execute(pc)</code> lists it whenever its <code>when</code> holds at <code>pc</code> (the backend
+  evaluates the condition), which is how a ZRCP <code>run</code> stops on it;</li>
+<li><code>subscriptions()</code> reports <code>action Stop</code>, no handler.</li>
+</ul>
+<p>Its bookkeeping happens in <code>on_paused()</code> from <code>PausedInfo::matched</code> (see
+<code>account_static_stops()</code>): the hit, <code>once</code>, the <code>SCRIPT STOP</code> line, the status
+and <code>REASON</code>.</p>
+<p><strong>Where actions run</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Action</th>
+<th>When it takes effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>log</code>, <code>dump_*</code>, <code>snap</code>, <code>assert</code>, <code>stop</code>, <code>exit</code>, <code>enable</code> / <code>disable</code>, <code>set</code> / <code>out</code></td>
+<td>in the delivery</td>
+</tr>
+<tr>
+<td><code>press</code> / <code>release</code></td>
+<td>through IN-01 / IN-02, which queue for the frame edge themselves</td>
+</tr>
+<tr>
+<td><code>joystick</code>, <code>compare_scr</code> issued outside a <code>frame</code> rule</td>
+<td>the engine's own every-frame subscription (<code>ensure_edge()</code> / <code>run_edge()</code>); issued inside a <code>frame</code> rule, at once — that rule already runs at the edge. An <code>exit</code> issued while a <code>compare_scr</code> is pending is queued behind it and taken at the same edge</td>
+</tr>
+<tr>
+<td><code>screenshot</code></td>
+<td>CAP-01 defers it to the next rendered frame</td>
+</tr>
+<tr>
+<td><code>save_snapshot</code></td>
+<td><code>on_frame_ended()</code>, the first <code>pump()</code> at a frame boundary: the backend refuses a save inside a delivery</td>
+</tr>
+<tr>
+<td><code>on stop</code> rule bodies</td>
+<td><code>on_paused()</code></td>
+</tr>
+</tbody>
+</table>
+<p>Mutations (<code>set</code>, <code>out</code>) go through the debugger's write paths (<code>set_register</code>,
+<code>poke</code>, <code>nextreg_write</code>, <code>port_out</code>, <code>set_audio_mute_mask</code>). These raise no
+events, and the backend logs each as a <code>MUTATE</code> line. With a rewind buffer
+active, the first mutation logs a warning.</p>
+<p>Every engine log line is stamped <code>[jds F:frame C:cycle]</code>.</p>
+<h2 id="stop-exit-and-the-exit-code">Stop, exit and the exit code<a class="headerlink" href="#stop-exit-and-the-exit-code" title="Permanent link">&para;</a></h2>
+<p>There are three verdicts:</p>
+<ul>
+<li><strong><code>stop</code>, and a failed <code>assert</code> or <code>compare_scr</code></strong>, return <code>Verdict::Stop</code>.
+  The backend pauses at the boundary — the end of the offending instruction
+  for a write — and applies the loop owner's stop policy (<code>StopPolicy</code>): Qt
+  pauses; headless and SDL request exit 3. The engine logs <code>SCRIPT STOP:
+  &lt;reason&gt; at PC=… FRAME=… CYCLE=…</code>. <strong>The rest of the body still runs</strong>, so a
+  span script's <code>unsnap</code> keeps its stack balanced.</li>
+<li><strong><code>exit n</code></strong> (0..255; any other value is a run-time error, since a process
+  status is 8 bits and <code>exit 256</code> would read as 0) is recorded (<code>take_exit()</code>)
+  and returns <code>Stop</code> too, so the
+  machine pauses. It is handed to <code>EngineHost::exit</code> only at that pause, in
+  <code>on_paused()</code> (<code>hand_over_exit()</code>), when every stop of the boundary is known.
+  While an exit is pending, <code>ScriptHost</code>'s listener leaves the backend's own
+  ExitRequested(3) to that hand-over. The backend's first <code>pump()</code> only takes
+  its baseline and pushes no pause, so <code>ScriptHost::start()</code> pumps once before
+  the loop's first tick: an <code>exit</code> at frame 0 still reaches <code>on_paused()</code>.
+  Before the hand-over, <code>take_exit()</code> calls
+  <code>flush_captures()</code>: a screenshot still pending or failed, or a
+  <code>save_snapshot</code> still queued, turns <code>exit 0</code> into 1.</li>
+<li><strong>A run-time error</strong> disables the rule and asks for exit 1 at the next frame
+  edge.</li>
+</ul>
+<p><strong>A failure wins over a success at the same boundary.</strong> Every failure marks the
+boundary by master cycle (<code>mark_failure()</code>): a <code>stop</code>, a failed <code>assert</code> or
+<code>compare_scr</code>, a static stop (counted in <code>account_static_stops()</code>), and a
+run-time error (code 1). At the hand-over, an <code>exit 0</code> at a failed boundary
+becomes the failure's code. It is logged
+<code>SCRIPT EXIT 0 not taken: "reason" failed at the same boundary (exit 3)</code>. It
+does not matter which rule failed, or whether before or after the exit. The
+first failure of the boundary names it, and of two exits at one boundary the
+first is taken. A non-zero <code>exit n</code> is kept: it already reports a failure. A
+stop at an EARLIER boundary (paused and resumed under <code>StopPolicy::Pause</code>)
+does not take a later <code>exit 0</code> away. An <code>exit</code> inside an <code>on stop</code> rule never
+changes the status: the pause that ran it already decided it (a stop's 3, an
+<code>exit</code>'s own code; SCRIPT-EV-EXIT-IN-ON-STOP). Other clients' breakpoints are
+not script failures.</p>
+<p><strong>An exit waits for a pending <code>compare_scr</code>.</strong> An <code>exit</code> issued while any
+<code>compare_scr</code> waits for its frame edge is queued behind it
+(<code>Deferred::Kind::Exit</code>) and taken at that edge, after the compare. So
+<code>on write … do compare_scr … exit 0 end</code> reports a mismatch instead of exiting
+first.</p>
+<p><code>unreached_verdicts()</code> counts what a run never got to: rules holding <code>exit</code> or
+<code>compare_scr</code> that never fired, deferred actions still pending, and
+<code>--script-key</code>s not yet delivered. The headless and SDL loops ask for it at the
+<code>--delayed-automatic-exit*</code> bound and exit 3 when it is non-zero.</p>
+<p><code>status()</code> gives the first exit code actually taken, the stop count with the
+last reason, the run-time errors and the unreached count. It is the Script
+tab's verdict line.</p>
+<h2 id="the-host-scripthost">The host: <code>ScriptHost</code><a class="headerlink" href="#the-host-scripthost" title="Permanent link">&para;</a></h2>
+<p><code>HeadlessApp</code>, <code>SdlApp</code> and <code>QtApp</code> each hold a <code>ScriptHost</code> beside their
+<code>DebugServers</code>. It is declared after <code>debugger_</code>, so it is destroyed first.</p>
+<p><code>start()</code> loads <code>--map</code> into the symbol table, then each <code>--script</code> in order,
+and schedules <code>--script-key</code>. Any failure is logged and fails the start, so the
+loop owner exits 1 before the machine runs.</p>
+<p>It hears exit codes in two ways: from the engine (<code>EngineHost::exit</code>), and from
+the backend's <code>ExitRequested</code>, through a NON-ARMING listener client
+(<code>ClientInfo::observer</code>). The first code wins. The Qt GUI starts it with
+<code>exits = false</code>, so a script there pauses and never exits.</p>
+<p>The GUI side of the host:</p>
+<ul>
+<li><code>load_file()</code>, <code>unload_all()</code> (which destroys the engine — its client arms
+  the machine), <code>reload()</code>;</li>
+<li>a 2000-line log ring of the engine's and the recorder's lines (with the
+  backend's <code>[client N]</code> tag removed), read with <code>log_since()</code>.</li>
+</ul>
+<h2 id="host-keys">Host keys<a class="headerlink" href="#host-keys" title="Permanent link">&para;</a></h2>
+<p>Script host keys are the backend's <code>Host</code> events named <code>script1</code> … <code>script8</code>.
+They are reached in four ways:</p>
+<ul>
+<li><strong>The emulator windows</strong>, Qt and SDL alike, go through the shared key
+  <code>Router</code> (<code>host_key_latch.h</code>). Alt (left or right) with no Ctrl, Shift or GUI,
+  plus a digit 1..8, calls the callback <code>wire_script_keys()</code> installs. That
+  callback runs <code>Debugger::raise_host_event("scriptN")</code>. The digit's press and
+  release are both swallowed, script loaded or not. An autorepeat of a held
+  chord raises nothing, and <code>release_all()</code> / <code>attach()</code> forget a held chord.
+  See <a href="07-input.html">3.7 Input</a>.</li>
+<li><strong>The debugger window</strong> has eight <code>Qt::WindowShortcut</code> <code>QAction</code>s with
+  auto-repeat off. They are window-scoped, so a key pressed in the emulator
+  window is raised once, by the Router.</li>
+<li><strong>The keymap</strong> refuses Alt+1..Alt+8 as a debugger binding (<code>validate_combo()</code>
+  in <code>debug_keymap.cpp</code>).</li>
+<li><strong>Headless</strong>: <code>--script-key FRAME N</code> queues the key in the engine
+  (<code>queue_host_key()</code>). <code>run_edge()</code> raises it at the edge of that frame,
+  before the deferred actions run.</li>
+</ul>
+<h2 id="the-recorder-gh-20-and-compare_scr">The recorder (GH #20) and <code>compare_scr</code><a class="headerlink" href="#the-recorder-gh-20-and-compare_scr" title="Permanent link">&para;</a></h2>
+<p><code>Recorder</code> is a second backend client (<code>ClientKind::Script</code>, arming). It
+OBSERVES and never drives. Its frame-edge handler does the work:</p>
+<ul>
+<li><strong>Input edges.</strong> At every frame edge E_K it reads INS-16 <code>input_state()</code> and
+  writes one level edge per change since E_K-1, stamped <code>on frame K-1</code>:</li>
+<li>a matrix bit, by its <code>key_names.cpp</code> name, or <code>row,col</code> for CAPS SHIFT and
+    SYMBOL SHIFT;</li>
+<li>an extended key, as <code>ext:&lt;name&gt;</code>;</li>
+<li>a joystick connector's whole 12-bit state.</li>
+</ul>
+<p>The <code>Frame</code> delivery precedes the edge's injection drain and
+  <code>tick_auto_type()</code>. So a change applied at E_K-1, by a host key or a script
+  alike, is first seen at E_K, and replaying it at E_K-1 shows it to the guest
+  from frame K, as the original did.
+- <strong>Captures.</strong> A capture (host key <code>script8</code>, or <code>capture()</code>) is taken at the
+  NEXT frame edge, where a replay's <code>on frame K</code> rule runs:
+  - <strong><code>.scr</code></strong> when only the ULA is on (NR 0x68 b7, NR 0x15 b0/b7, NR 0x69 b7
+    and NR 0x6B b7 all clear). The recorder writes <code>ula_screen_dump()</code> itself
+    and emits <code>compare_scr</code>.
+  - <strong>PNG</strong> otherwise: through CAP-01 <code>screenshot()</code>, with a <code>screenshot</code> line
+    naming a <code>-replay.png</code>.
+- <strong>The script.</strong> <code>stop()</code> calls <code>flush_captures()</code>, so a PNG still pending is
+  dropped together with its line. It then writes the script: a header, <code>once</code>
+  asserts on <code>MACHINE</code> and <code>nextreg[0x05]</code>, the warnings (as comments and as
+  <code>log</code> lines), the edges and captures, and <code>exit 0</code> two frames after the last
+  recorded one.
+- <strong>Cold boot.</strong> A <code>Reset{Hard}</code> — a hard reset, or a menu load — restarts the
+  recording and re-reads the header's facts through <code>recording_info_of()</code>.</p>
+<p><code>ScriptHost</code> owns the recorder: <code>start_recording()</code>, <code>capture_screen()</code>,
+<code>stop_recording()</code>. <code>--record-script</code> starts it before the first frame, in any
+frontend. The host's destructor writes the script on the way out (through
+<code>~Recorder</code>).</p>
+<p><code>compare_scr</code> byte-compares <code>ula_screen_dump()</code> with a file. A mismatch logs
+the first differing offset (or the sizes) and <code>ASSERT FAILED: msg</code>, then stops.
+A file that cannot be read is a run-time error.</p>
+<h2 id="adding-a-built-in-name">Adding a built-in name<a class="headerlink" href="#adding-a-built-in-name" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong><code>ast.h</code></strong>: add the <code>Builtin</code> enumerator. Payload names go after <code>P_ADDR</code>,
+   which is how the evaluator tells the two apart.</li>
+<li><strong><code>names.cpp</code></strong>: add the spelling to <code>LIVE</code> or <code>PAYLOAD</code>. If a script may
+   <code>set</code> it, add it to <code>is_assignable()</code> too.</li>
+<li><strong><code>check.cpp</code></strong>: for a payload name, admit it in <code>payload_legal()</code> for
+   exactly the events whose <code>dbg::Event</code> carries it.</li>
+<li><strong><code>evaluator.cpp</code></strong>: read it in <code>read_builtin()</code>'s switch. That switch has
+   a <code>default</code>, so a missing arm is NOT a build failure: the name parses, and
+   reading it fails at run time with <code>internal: unbound name</code>. Only a row that
+   reads the name finds it (step 5). For <code>set</code>, add the write path in
+   <code>ScriptEngine::exec()</code>'s <code>ActionKind::Set</code> case, through a debugger verb.</li>
+<li><strong>Tests</strong>:</li>
+<li>add the name to <code>script_parse_test</code>'s <code>EVAL-*</code> state-name rows, which read
+     each name against a real <code>Debugger</code>'s own answer, and to
+     <code>script_eval_test</code>'s <code>SEV-BUILTINS</code>; these are the rows that catch a
+     missing <code>read_builtin()</code> arm. <code>script_parse_test</code> also pins the payload
+     table both ways;</li>
+<li><code>script_eval_test</code> covers the value model;</li>
+<li><code>script_events_test</code> covers a payload as delivered.</li>
+</ol>
+<p>Pin each count in <code>test/unit-tests.conf</code>.
+6. <strong>Docs</strong>: §2.3 of the design, and the user guide's language reference.</p>
+<h2 id="adding-an-event-kind">Adding an event kind<a class="headerlink" href="#adding-an-event-kind" title="Permanent link">&para;</a></h2>
+<p>The backend comes first. The event must exist in <code>src/debug/events.h</code>
+(<code>EventKind</code>, its <code>EventFilter</code> fields, its <code>Event</code> payload), be latched at its
+site and matched by <code>EventTable</code> (see 3.9's event pipeline), and have its own
+<code>debugger_backend_test</code> rows. Then the DSL:</p>
+<ol>
+<li><strong><code>names.cpp</code></strong>: add the keyword to <code>RESERVED</code>.</li>
+<li><strong><code>ast.h</code></strong>: add an <code>EventType</code> (and a sub-kind enum, like <code>CopperSub</code>, if it
+   has one).</li>
+<li><strong><code>parser.cpp</code></strong>: in <code>parse_event()</code>, parse its filter into <code>EventSpec</code>.</li>
+<li><strong><code>check.cpp</code></strong>: <code>scope_of()</code> maps it to a <code>PayloadScope</code>, and
+   <code>payload_legal()</code> admits its payload names.</li>
+<li><strong><code>script_engine.cpp</code></strong>:</li>
+<li>in <code>subscriptions_for()</code>, build the <code>dbg::Subscription</code> (kind, filter, and
+     any engine refinement in the <code>Condition</code>);</li>
+<li>in <code>describe_event()</code>, describe it for the Script tab.</li>
+<li><strong><code>evaluator.cpp</code></strong>: read any new payload field from the <code>dbg::Event</code>.</li>
+<li><strong>Tests</strong>:</li>
+<li><code>script_parse_test</code>: the grammar, the payload table, what the rule
+     registers as;</li>
+<li><code>script_events_test</code>: a SCRIPT-EV row that drives it on a real machine and
+     asserts the payload;</li>
+<li>if it is user-visible, a <code>script-*-func</code> row. The suite's demo is
+     <code>demo/dsl_demo/</code> — its fixtures live under <code>test/00regression/nex/</code> and its
+     scripts in <code>test/scripts/dsl/</code>.</li>
+</ol>
+<h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Suite / rows</th>
+<th>What it pins</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>script_parse_test</code></td>
+<td>grammar, error positions, precedence, the payload table, every name against a real <code>Debugger</code>, every worked script of the design</td>
+</tr>
+<tr>
+<td><code>script_eval_test</code></td>
+<td>the value model, the snapshot stacks, interpolation</td>
+</tr>
+<tr>
+<td><code>script_events_test</code></td>
+<td>the engine on real 48K and Next machines, the <code>ScriptHost</code> (SCRIPT-HOST-*) and the stop/exit rules</td>
+</tr>
+<tr>
+<td><code>script_record_test</code></td>
+<td>the recorder, including a record → emit → replay round trip on a fresh machine (REC-RT-*)</td>
+</tr>
+<tr>
+<td>QSCR-<em> (<code>debugger_panels_test</code>), DKSK-</em> (<code>debugger_keymap_test</code>), H-SCRIPT-<em> (<code>host_hotkey_test</code>), HKL-SK-</em> (<code>host_key_latch_test</code>)</td>
+<td>the Qt Script tab and menu, the host keys in both windows</td>
+</tr>
+<tr>
+<td><code>script-*-func</code> (regression)</td>
+<td>the binary end to end</td>
+</tr>
+</tbody>
+</table>
+<p>The <code>script-*-func</code> regression rows cover:</p>
+<ul>
+<li>the three frontends' exit codes;</li>
+<li>the dsl_demo suite, each row with a red twin against <code>dsl_demo_buggy.nex</code>. The
+  three #279 ChaseTheBug cases are <code>script-guard-func</code>, <code>script-mmu-func</code> and
+  <code>script-isr-func</code>;</li>
+<li>the two DAPR recordings;</li>
+<li>a headless record → replay round trip;</li>
+<li>a recording from a real SDL window, in <code>script-replay-edge-func</code>.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.indexes", "toc.integrate", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -9,6 +9,7 @@
 #include "debug/debugger.h"
 
 class BreakpointModel;
+namespace jnext { namespace script { class ScriptHost; } }
 class QMainWindow;
 class DebuggerWindow;
 
@@ -102,6 +103,11 @@ public:
     /// the observer client. The Breakpoints panel, the disassembly and the
     /// window's Breakpoints menu all edit this one model.
     BreakpointModel& breakpoints() const { return *bp_model_; }
+
+    /// GH #26 WP5 — the loop owner's script host (`QtApp`'s, the one
+    /// `--script` loads into), for the Script tab. Null = no scripting.
+    void set_script_host(jnext::script::ScriptHost* host);
+    jnext::script::ScriptHost* script_host() const { return script_host_; }
 
 public slots:
     void on_run();
@@ -211,4 +217,5 @@ private:
     /// so a pause found already in force when the window opens still gets the
     /// full pause-edge sequence on the next tick, as it always has.
     bool shown_paused_ = false;
+    jnext::script::ScriptHost* script_host_ = nullptr;   // GH #26 WP5
 };

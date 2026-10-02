@@ -180,7 +180,9 @@ facade's (CAP-SYM) and the Magic Breakpoint item arms it through CTL-14. Since
 WP7 nothing in `src/debugger/` holds an `Emulator` at all: the last reach, the
 raster snapshot the manager took before a paused refresh, is the backend's —
 `raster()` and `time()` take a paused machine's snapshot at the query, for every
-client.
+client. Running, they report the live beam from the clock and leave that
+snapshot alone (GH #26 WP9: a script's `CVC` in a `scanline` rule used to read
+the last pause's value).
 
 ### The event pipeline (B2)
 
@@ -496,7 +498,11 @@ something else is a trap for whoever wrote it — and the §4.8 override
 (`ExitNonZero` becomes `Pause` while a remote client is *connected*, so a client
 blocked on `run` gets its stop reply) lives at the one place the policy is
 consumed. The exit code with no script to name one is **3**: never 2, which both
-harnesses use for a harness fault, and 1 stays "jnext could not run".
+harnesses use for a harness fault, and 1 stays "jnext could not run". The
+backend logs that request at info and neutrally (`… — asking the loop owner to
+exit`): a script's own `exit n` stops the machine too, and only the listener
+that decides — `ScriptHost`'s — knows which code is taken, so it logs the
+`requesting exit 3` warning when it is the stop's (GH #26 WP9).
 
 An explicit `pause()` is a stop that drops the transient subscriptions but is
 **not** an `Action::Stop`, so it never requests an exit. One function serves both
@@ -875,54 +881,21 @@ to bind; it is refused unless a server port (`--dzrp-port`, `--gdb-port` or
 `--zrcp-port`) is given too. The design, and the reason behind each rule above, is
 `doc/design/debug-subsystem/transport.md`.
 
-### The scripting language front end (package S)
+### The scripting language (package S)
 
 The debugger scripting language (`.jds`, GH #26) lives in **`src/script/`**
-(target `jnext_script`). Like `src/remote/` it has no toolkit dependency and is
-built in every configuration; it reads the machine only through the published
-`jnext::dbg::Debugger` facade, never through `Emulator`. As of its first work
-package it is a front end and a library: no script engine exists yet, and
-nothing in the shipped binary instantiates it.
-
-It is layered, each stage consuming only the one before it:
-
-- `lexer.*` — tokens. Comments are `;`, `//` and `#`; the bracketed
-  accessors (`mem[`, `page[`, `changed(`, …) are single tokens spelled with
-  their bracket, which is what tells the accessor `page[s]` from the `page`
-  of an address filter.
-- `parser.*` over `ast.h` — recursive descent over the grammar of record
-  (`doc/design/debug-subsystem/dsl-frontend.md` §2.1). It stops at the first
-  syntax error and reports it as `line:column: message`. It is also where
-  nesting is bounded: an expression tree at most 200 levels tall, `if`s nested
-  at most 64 deep, refused with a positioned error past that. A chain of
-  operators counts one level per operator, parentheses or not (the tree is
-  left-deep), so `a or b or …` stops at 200 terms. Every later pass
-  recurses over those trees and nothing else, so the bound made here is what
-  keeps a pathological script or ZRCP expression from overflowing the stack.
-- `check.*`, with `names.*` as the one table of reserved words, built-in state
-  names and payload names — the load-time checks, and BINDING: each upper-case
-  name is resolved to what it reads in its scope (`PC` is the causing
-  instruction's PC in an event rule and the CPU's PC elsewhere; `CPC` is legal
-  only in a `copper` rule). The per-kind payload table admits a name only where
-  the backend's `Event` actually carries it.
-- `evaluator.*` — the integer evaluator over a bound tree, reading through the
-  facade's const inspection surface (32-bit wrapping arithmetic; run-time
-  failures such as division by zero are reported, not thrown past the library).
-- `expr_compiler.h` — the stable public header other frontends call:
-  `compile_expr(text, scope)` returns the backend's CAP-EVT predicate
-  (`dbg::Condition`) and `eval_expr(text, debugger)` evaluates once. The ZRCP
-  adapter (`src/remote/zrcp/zrcp_condition.*`, GH #280 WP-4) translates
-  ZEsarUX's breakpoint dialect into this grammar — tokenising and grouping as
-  ZEsarUX does, emitting a fully bracketed expression — and compiles it here,
-  so it owns no evaluator. The one thing the DSL cannot read is whether a slot
-  is ROM, so ZEsarUX's `SEGn` / `ROM` / `RAM` are evaluated by the adapter.
-
-`script_parse_test` (`gate: none`) pins the grammar, every error class with its
-position, precedence, the per-kind payload table, the evaluation of every name
-against a real `Debugger`, and that every worked script of the design parses.
-The choices made where the grammar is silent are the design document's
-"WP1 as built" appendix. This section covers the front end only; the engine,
-the CLI and the recorder are later work packages of the same branch.
+(target `jnext_script`), with no toolkit dependency and reaching the machine
+only through this facade. A loaded script is ONE backend client
+(`ClientKind::Script`): each rule becomes a subscription whose `Condition` is
+the compiled `when` and whose `Handler` runs the body at the delivery, and a
+stop-only `execute` rule is registered as a static `Stop`, so `probe_execute()`
+and `subscriptions()` show it like any breakpoint. The loop owners run it
+through `ScriptHost`, which also carries the GH #20 recorder (a second,
+observing client). Its whole architecture — the front end, the expression
+compiler as a library, the engine, stop and exit, the host keys, the recorder,
+and how to add a name or an event kind — is [3.13 The debugger scripting
+language](13-the-debugger-scripting-language.md). The ZRCP server ([3.12](12-the-zrcp-server.md))
+compiles its breakpoint conditions through the same expression compiler.
 
 ## What `ENABLE_DEBUGGER=OFF` removes
 

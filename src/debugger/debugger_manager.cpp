@@ -1,4 +1,5 @@
 #include "debugger/debugger_manager.h"
+#include "debugger/script_panel.h"
 #include "debugger/debugger_window.h"
 #include "debugger/cpu_panel.h"
 #include "debugger/disasm_panel.h"
@@ -644,4 +645,10 @@ void DebuggerManager::update_actions() {
         bool is_paused = enabled_ && dbg_.state().paused;
         debugger_window_->update_actions(is_paused);
     }
+}
+
+void DebuggerManager::set_script_host(jnext::script::ScriptHost* host) {
+    script_host_ = host;
+    if (debugger_window_ && debugger_window_->script_panel())
+        debugger_window_->script_panel()->set_host(host);
 }

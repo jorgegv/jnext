@@ -50,6 +50,7 @@
 #include <QString>
 #include <QStringList>
 #include <QEventLoop>
+#include <QFile>
 #include <QTemporaryDir>
 #include <QLineEdit>
 #include <QMenuBar>
@@ -63,6 +64,9 @@
 #include <string>
 #include <vector>
 
+#include "input/keyboard.h"
+#include "platform/host_key_wiring.h"
+#include "platform/host_key_latch.h"
 #include "core/emulator.h"
 #include "debug/debug_keymap.h"
 #include "qt/debug_keymap_qt.h"
@@ -75,6 +79,7 @@
 #include "peripheral/nmi_source.h"
 #include "gui/preferences_dialog.h"
 #include "gui/shortcut_capture_button.h"
+#include "script/recorder.h"
 #include "../row_id.h"
 
 using namespace jnext::dbgkeys;
@@ -956,6 +961,170 @@ void test_debugger_menu_focus() {
 
 } // namespace
 
+
+// ── DKSK: the script host keys in the debugger window (GH #26 WP5) ────────
+
+void test_script_keys() {
+    {
+        DebuggerFixture fx;
+        if (!fx.ok) {
+            check("DKSK-01", "Alt+1 / Alt+8 in the focused debugger window raise script1 / script8",
+                  false, "fixture failed");
+        } else {
+            jnext::dbg::ClientInfo ci;
+            ci.name = "keymap_test";
+            const auto cid = fx.backend->attach(ci).value;
+            std::vector<std::string> raised;
+            jnext::dbg::Subscription sub;
+            sub.kind   = jnext::dbg::EventKind::Host;
+            sub.action = jnext::dbg::Action::Continue;
+            sub.handler = [&raised](const jnext::dbg::Event& e, jnext::dbg::Debugger&) {
+                raised.emplace_back(e.host_name);
+                return jnext::dbg::Action::Continue;
+            };
+            fx.backend->subscribe(cid, sub);
+            press_shortcut(fx.dbg, parsed("Alt+1"));
+            press_shortcut(fx.dbg, parsed("Alt+8"));
+            press_shortcut(fx.dbg, parsed("Alt+9"));
+            std::string got;
+            for (const auto& r : raised) got += r + " ";
+            check("DKSK-01", "Alt+1 / Alt+8 in the focused debugger window raise script1 / script8 "
+                             "(through the real shortcut map), and Alt+9 raises nothing",
+                  got == "script1 script8 ", got);
+            // A HELD Alt+5 — one press and its autorepeats — raises script5
+            // once, as the Router does in the emulator window.
+            raised.clear();
+            if (QWindow* wh = fx.dbg->windowHandle()) {
+                QTest::simulateEvent(wh, true, Qt::Key_5, Qt::AltModifier, QString(), false);
+                QTest::simulateEvent(wh, true, Qt::Key_5, Qt::AltModifier, QString(), true);
+                QTest::simulateEvent(wh, true, Qt::Key_5, Qt::AltModifier, QString(), true);
+                QTest::simulateEvent(wh, false, Qt::Key_5, Qt::AltModifier, QString(), false);
+            }
+            settle(80);
+            std::string held;
+            for (const auto& r : raised) held += r + " ";
+            check("DKSK-04", "a held Alt+5 in the debugger window (a press and two autorepeats) raises "
+                             "script5 once, as a held chord does in the emulator window",
+                  held == "script5 ", held);
+            fx.backend->detach(cid);
+        }
+    }
+    {
+        // With the EMULATOR window focused (the debugger open beside it), one
+        // Alt+3 raises script3 exactly once: the key Router does it, and the
+        // debugger window's own QActions are window-scoped, so they do not
+        // fire too.
+        MainWindowFixture fx;
+        DebuggerManager* mgr = fx.ok ? fx.win.debugger_manager() : nullptr;
+        if (!mgr) {
+            check("DKSK-03", "Alt+3 in the emulator window raises script3 exactly once", false, "fixture failed");
+        } else {
+            mgr->set_enabled(true);
+            host_key_latch::Router<Keyboard, SDL_Scancode> router;
+            router.attach(fx.emu.keyboard());
+            wire_host_keys(fx.win, router);
+            wire_script_keys(router, *fx.backend);
+            jnext::dbg::ClientInfo ci;
+            ci.name = "keymap_test";
+            const auto cid = fx.backend->attach(ci).value;
+            std::vector<std::string> raised;
+            jnext::dbg::Subscription sub;
+            sub.kind   = jnext::dbg::EventKind::Host;
+            sub.action = jnext::dbg::Action::Continue;
+            sub.handler = [&raised](const jnext::dbg::Event& e, jnext::dbg::Debugger&) {
+                raised.emplace_back(e.host_name);
+                return jnext::dbg::Action::Continue;
+            };
+            fx.backend->subscribe(cid, sub);
+            fx.win.show();
+            fx.win.activateWindow();
+            settle(150);
+            // Preconditions, or the row proves nothing: the debugger window is
+            // open, its Alt+3 action is live, and the EMULATOR window is active.
+            DebuggerWindow* dw = mgr->debugger_window_ptr();
+            QAction* a3 = dw ? dw->script_key_action(2) : nullptr;
+            const bool armed = dw && dw->isVisible() && a3 && a3->isEnabled() &&
+                               QApplication::activeWindow() == &fx.win;
+            press_shortcut(&fx.win, parsed("Alt+3"));
+            std::string got;
+            for (const auto& r : raised) got += r + " ";
+            // A third top-level window (any other jnext window — a dialog, the
+            // SD download window) is neither the emulator's nor the debugger's:
+            // Alt+3 there is not a script key at all. An application-wide
+            // action would fire it.
+            QWidget other;
+            other.show();
+            other.activateWindow();
+            settle(150);
+            const bool other_active = QApplication::activeWindow() == &other;
+            raised.clear();
+            press_shortcut(&other, parsed("Alt+3"));
+            std::string got_other;
+            for (const auto& r : raised) got_other += r + " ";
+            check("DKSK-03", "with the emulator window focused and the debugger window open, Alt+3 raises "
+                             "script3 exactly once; in a third window it raises nothing (the debugger "
+                             "window's actions are window-scoped)",
+                  armed && other_active && got == "script3 " && got_other.empty(),
+                  armed && other_active ? "emulator: " + got + "| other: " + got_other
+                                        : "not armed: debugger window hidden, action disabled or the "
+                                          "pressed window not active");
+            fx.win.set_key_callback(nullptr);
+            fx.win.set_keyboard_lost_callback(nullptr);
+            fx.backend->detach(cid);
+        }
+    }
+    {
+        // GH #26 WP6 (#20): while recording, Alt+8 in the EMULATOR window is the
+        // recorder's capture — the key Router raises host key 8, the recorder
+        // hears it and captures at the next frame edge; Alt+7 does not.
+        MainWindowFixture fx;
+        QTemporaryDir dir;
+        if (!fx.ok || !dir.isValid()) {
+            check("DKSK-05", "Alt+8 in the emulator window captures while recording", false, "fixture failed");
+        } else {
+            host_key_latch::Router<Keyboard, SDL_Scancode> router;
+            router.attach(fx.emu.keyboard());
+            wire_host_keys(fx.win, router);
+            wire_script_keys(router, *fx.backend);
+            jnext::script::Recorder rec(*fx.backend);
+            std::string why;
+            const bool started = rec.start((dir.path() + "/k.jds").toStdString(), nullptr, why);
+            fx.win.show();
+            fx.win.activateWindow();
+            settle(150);
+            auto frames = [&fx](int n) {
+                for (int i = 0; i < n; ++i) {
+                    fx.emu.run_frame();
+                    fx.backend->pump(jnext::dbg::PumpBudget{});
+                }
+            };
+            press_shortcut(&fx.win, parsed("Alt+7"));
+            frames(2);
+            const unsigned after7 = rec.captures();
+            press_shortcut(&fx.win, parsed("Alt+8"));
+            frames(2);
+            const unsigned after8 = rec.captures();
+            rec.stop(why);
+            check("DKSK-05", "while recording, Alt+8 in the emulator window (the key Router -> host key 8) "
+                             "takes a capture at the next frame edge, and Alt+7 does not",
+                  started && after7 == 0 && after8 == 1 &&
+                      QFile::exists(dir.path() + "/k-0001.scr"),
+                  "after7=" + std::to_string(after7) + " after8=" + std::to_string(after8));
+            fx.win.set_key_callback(nullptr);
+            fx.win.set_keyboard_lost_callback(nullptr);
+        }
+    }
+    {
+        Combo c1 = parsed("Alt+1"), c8 = parsed("Alt+8"), c9 = parsed("Alt+9");
+        std::string w1, w8, w9;
+        const bool r1 = validate_combo(c1, w1), r8 = validate_combo(c8, w8), r9 = validate_combo(c9, w9);
+        check("DKSK-02", "the keymap refuses Alt+1 and Alt+8 by name (script host keys) and accepts Alt+9",
+              c1.bound() && c8.bound() && !r1 && !r8 && r9 &&
+                  w1.find("script host keys") != std::string::npos,
+              "Alt+1: " + w1 + " | Alt+8: " + w8 + " | Alt+9: " + (r9 ? "ok" : w9));
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
 
@@ -984,6 +1153,7 @@ int main(int argc, char** argv) {
     test_main_window_pushes_keymap();
     test_keymap_survives_a_late_window();
     test_debugger_menu_focus();
+    test_script_keys();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);

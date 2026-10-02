@@ -2,6 +2,7 @@
 #include "platform/emulator_boot.h"
 #include "platform/auto_exit.h"
 #include "platform/cli_capture.h"
+#include "platform/recording_info.h"   // GH #26 WP6
 #include "platform/rzx_startup.h"
 #include "core/log.h"
 #include "input/keyboard.h"
@@ -62,6 +63,18 @@ bool HeadlessApp::init(int argc, char* argv[]) {
     host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
     // GH #12 (WP-5) — the socket debugger servers, on this loop's pump.
     if (!debug_servers_.start(*debugger_, config_)) return false;
+    // GH #26 WP4 — the scripts, after the servers and before the machine runs:
+    // a script that does not load is a startup failure (exit 1, §6.5).
+    {
+        jnext::script::ScriptHostOptions so;
+        so.map_file = config_.map_file;
+        so.scripts  = config_.script_files;
+        so.keys     = config_.script_keys;
+        so.record_file = config_.record_script_file;   // GH #26 WP6
+        so.exits    = true;
+        script_host_.set_recording_info([this]() { return recording_info_of(emulator_); });
+        if (!script_host_.start(*debugger_, so)) return false;
+    }
 
     running_ = true;
     Log::platform()->info("Headless mode initialized");
@@ -810,6 +823,17 @@ void HeadlessApp::run() {
         // and no service it writes nothing and moves nothing (row HOST-02).
         pump_hint_ = debugger_->pump(jnext::dbg::PumpBudget{});
 
+        // GH #26 WP4 — a script's verdict (§6.3): `exit n`, a stop or failed
+        // assert (3), a run-time error (1). The first code wins, and it never
+        // hides an earlier failure behind a 0.
+        if (script_host_.exit_requested()) {
+            const int code = script_host_.exit_code();
+            Log::platform()->info("script requested exit {}", code);
+            if (code != 0 || exit_code_ == 0) exit_code_ = code;
+            running_ = false;
+            continue;
+        }
+
         // --benchmark: stop after exactly N frames and report.
         if (benchmark_frames_ > 0 && ++bench_frames_done >= benchmark_frames_) {
             const double wall =
@@ -943,6 +967,13 @@ void HeadlessApp::run() {
                     {"--delayed-sdcard-insert-frames", cards, !delayed_sd_inserts_.empty()},
                 }))
                 exit_code_ = 1;
+            // GH #26 WP4 (§7.3) — the watchdog fired before a script reached
+            // its verdict: an `exit` / `compare_scr` that never ran, or a
+            // deferred action still queued, is a failed run, never a 0.
+            if (const std::size_t n = script_host_.unreached_verdicts()) {
+                Log::platform()->error("SCRIPT: {} deferred actions never ran — exiting 3", n);
+                if (exit_code_ == 0) exit_code_ = 3;
+            }
             running_ = false;
         } else if (exit_countdown_ > 0) {
             --exit_countdown_;

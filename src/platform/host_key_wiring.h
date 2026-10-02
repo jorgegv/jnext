@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <utility>
 
 // The ONE place a frontend's host-key surface is connected to the key Router.
@@ -64,4 +65,19 @@ void wire_host_keys(Source& source, Router& router, KeyFn&& on_key)
 {
     source.set_key_callback(std::forward<KeyFn>(on_key));
     wire_keyboard_loss(source, router);
+}
+
+/// GH #26 WP5 — the script host keys (dsl-frontend.md §6.4): bind the Router's
+/// Alt+1..Alt+8 chord to the backend's `Host` event `scriptN` (CAP-EVT
+/// `Host`). Both windowed frontends call this one function on their Router, so
+/// the name a chord raises is spelt once. `Backend` is `jnext::dbg::Debugger`;
+/// templated, like the rest of this header, so a suite drives the real
+/// function. The raise carries no client: a host chord is the user's, not any
+/// client's (the backend ignores the raiser).
+template <typename Router, typename Backend>
+void wire_script_keys(Router& router, Backend& backend)
+{
+    router.set_script_key_callback([&backend](int n) {
+        backend.raise_host_event(0 /* CLIENT_NONE */, "script" + std::to_string(n));
+    });
 }

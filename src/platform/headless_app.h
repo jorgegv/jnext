@@ -9,6 +9,7 @@
 #include "debug/debugger.h"
 #include "platform/host_probe.h"
 #include "platform/debug_servers.h"
+#include "script/script_host.h"
 #include "video/renderer.h"
 
 /// Headless application shell — no display, no audio, no input.
@@ -157,6 +158,10 @@ private:
     // unregisters from the Debugger it was started on (platform/debug_servers.h).
     DebugServers              debug_servers_;
     jnext::dbg::ServiceHint   pump_hint_;
+    // GH #26 WP4 — `--script` / `--script-key` / `--map` (script/script_host.h).
+    // Declared AFTER debugger_ so it is destroyed FIRST: its engine and its
+    // listener detach from the Debugger they were started on.
+    jnext::script::ScriptHost script_host_;
 
     /// The cold boot itself (reconstruct + init, platform/emulator_boot.h) and
     /// the loop's pending-work reset — what `LoopDriver::cold_boot` runs for a

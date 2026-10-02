@@ -8,6 +8,12 @@ registers, all as the hardware sees them at that instant.
 This chapter is a reference. Each panel and each function has its own section,
 so you can look one up while you are debugging.
 
+**[Debugger scripting](scripting/index.md)** has a section of its own: scripts
+that watch the running machine and stop, log or check the moment something
+happens — a write into your code, an MMU slot out of step, an interrupt handler
+that returns with a clobbered register — in the GUI while you play, and
+headless as tests in your build. It is the most powerful tool JNEXT gives you.
+
 Open the debugger with **Alt+D**, with **Debug ▸ Debugger** or **View ▸
 Debugger** (the same entry, in both menus), or with the bug button on the
 emulator toolbar. The same actions close it. While it is closed

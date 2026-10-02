@@ -52,6 +52,8 @@
 #include "debugger/memory_panel.h"
 #include "debugger/mmu_panel.h"
 #include "debugger/nextreg_panel.h"
+#include "debugger/script_panel.h"
+#include "script/script_host.h"
 #include "debugger/sprite_panel.h"
 #include "debugger/stack_panel.h"
 #include "debugger/watch_panel.h"
@@ -63,6 +65,8 @@
 
 #include <QAbstractButton>
 #include <QApplication>
+#include <QMenuBar>
+#include <QTabWidget>
 #include <QBoxLayout>
 #include <QCheckBox>
 #include <QComboBox>
@@ -2380,6 +2384,398 @@ static void test_memory_panel() {
     }
 }
 
+
+// ── QSCR: the Script tab (GH #26 WP5) ──────────────────────────────────
+
+static std::string scr_file(const char* name, const std::string& text) {
+    const std::string path = (g_tmp->path() + "/" + name).toStdString();
+    QFile f(QString::fromStdString(path));
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return path;
+    f.write(text.c_str(), static_cast<qint64>(text.size()));
+    return path;
+}
+
+/// A 48K running the writer below, its backend, a ScriptHost started as the
+/// Qt GUI starts it (`exits = false`, no --script) and a standalone panel.
+///   8000 3E 5A  LD A,0x5A ; 8002 32 00 90  LD (0x9000),A ; 8005 18 F9  JR 0x8000
+struct ScriptFixture {
+    Emulator emu;
+    std::unique_ptr<jnext::dbg::Debugger> backend;
+    jnext::script::ScriptHost host;
+    ScriptPanel panel;
+    bool ok = false;
+    ScriptFixture() {
+        if (!build(emu, MachineType::ZX48K)) return;
+        poke(emu, 0x8000, {0x3E, 0x5A, 0x32, 0x00, 0x90, 0x18, 0xF9});
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        jnext::script::ScriptHostOptions o;
+        o.exits = false;
+        ok = host.start(*backend, o);
+        panel.set_host(&host);
+    }
+    ~ScriptFixture() {
+        panel.set_host(nullptr);
+        host.unload_all();
+    }
+    void frames(int n) {
+        for (int i = 0; i < n && !backend->state().paused; ++i) {
+            emu.run_frame();
+            backend->pump(jnext::dbg::PumpBudget{});
+        }
+        panel.refresh();
+    }
+    QString cell(int row, int col) const {
+        QTableWidgetItem* it = panel.rule_table()->item(row, col);
+        return it ? it->text() : QString();
+    }
+    bool log_has(const QString& needle) const {
+        for (const QString& l : panel.log_lines())
+            if (l.contains(needle)) return true;
+        return false;
+    }
+};
+
+static bool button(const ScriptPanel& p, const char* text) {
+    for (QPushButton* b : p.findChildren<QPushButton*>())
+        if (b->text() == QString::fromUtf8(text)) return b->isEnabled();
+    return false;
+}
+
+static void test_script_panel() {
+    set_group("QSCR");
+    {
+        // A script given with --script is listed — QtApp starts the host
+        // with the command line's files — and Reload / Unload act on it; a
+        // second host replaces the first's log.
+        ScriptFixture fx;   // started with no scripts; its host is replaced below
+        jnext::script::ScriptHost cli;
+        jnext::script::ScriptHostOptions o;
+        o.exits   = false;
+        o.scripts = {scr_file("cli.jds", "on frame 0 do log \"CLI\" end\n")};
+        const bool started = fx.ok && cli.start(*fx.backend, o);
+        fx.panel.load_path(QString::fromStdString(scr_file("other.jds", "on frame 0 do log \"O\" end\n")));
+        const bool had_log = !fx.panel.log_lines().isEmpty();
+        fx.panel.set_host(&cli);
+        const bool log_cleared = fx.panel.log_lines().isEmpty() ||
+                                 !fx.panel.log_lines().join('|').contains("other.jds");
+        const bool listed = fx.panel.rule_table()->rowCount() == 1 && fx.cell(0, 0) == "cli.jds" &&
+                            !fx.panel.verdict_text().startsWith("No script") &&
+                            button(fx.panel, "Reload") && button(fx.panel, "Unload All");
+        const size_t cli_files = cli.files().size();
+        fx.panel.unload_all();
+        fx.panel.set_host(&fx.host);
+        check("QSCR-09", "a script loaded with --script is listed in the Script tab with Reload and Unload "
+                         "enabled, and handing the panel another host clears the previous host's log",
+              started && cli_files == 1 && listed && had_log && log_cleared && cli.files().empty(),
+              fmt("started=%d files=%zu listed=%d log_cleared=%d", started, cli_files, listed, log_cleared));
+    }
+    {
+        // The window refreshes the Script tab with its other panels: a verdict
+        // reached while running shows after refresh_panels(), no button pressed.
+        WindowFixture fx;
+        jnext::script::ScriptHost host;
+        jnext::script::ScriptHostOptions o;
+        o.exits = false;
+        const bool started = fx.ok && host.start(*fx.backend, o);
+        DebuggerWindow* w = fx.ok ? fx.dbg() : nullptr;
+        bool shows = false;
+        QString before, after;
+        if (w && started) {
+            fx.mgr->set_script_host(&host);
+            w->script_panel()->load_path(QString::fromStdString(scr_file("rp.jds", "on frame 0 do exit 0 end\n")));
+            before = w->script_panel()->verdict_text();
+            fx.backend->run(jnext::dbg::CLIENT_NONE);
+            fx.emu.run_frame();
+            fx.backend->pump(jnext::dbg::PumpBudget{});
+            w->refresh_panels();
+            after = w->script_panel()->verdict_text();
+            shows = !before.contains("PASS") && after.contains("PASS: exit 0");
+            fx.mgr->set_script_host(nullptr);
+        }
+        host.unload_all();
+        check("QSCR-10", "the debugger window's refresh_panels() refreshes the Script tab: an `exit 0` reached "
+                         "while running shows as PASS without any panel action",
+              shows, s(before) + " || " + s(after));
+    }
+    {
+        // QtApp's order: the host is handed to the manager BEFORE the window
+        // exists (it is built when the debugger is first opened).
+        Emulator emu;
+        build(emu, MachineType::ZX48K);
+        jnext::dbg::Debugger backend(emu);
+        jnext::script::ScriptHost host;
+        QMainWindow win;
+        auto* mgr = new DebuggerManager(&win, backend, &win);
+        mgr->set_script_host(&host);
+        const bool no_window_yet = mgr->debugger_window_ptr() == nullptr;
+        mgr->set_enabled(true);
+        QApplication::processEvents();
+        DebuggerWindow* w = mgr->debugger_window_ptr();
+        check("QSCR-08", "a script host handed to the manager before its window exists reaches the "
+                         "Script tab of the window it builds later",
+              no_window_yet && w && w->script_panel() && w->script_panel()->host() == &host, "");
+        mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+        delete w;
+    }
+    {
+        // The tab and the menu, in the real window, on the manager's host.
+        WindowFixture fx;
+        jnext::script::ScriptHost host;
+        jnext::script::ScriptHostOptions o;
+        o.exits = false;
+        const bool started = fx.ok && host.start(*fx.backend, o);
+        if (fx.ok) fx.mgr->set_script_host(&host);
+        DebuggerWindow* w = fx.ok ? fx.dbg() : nullptr;
+        QTabWidget* tabs = nullptr;
+        int script_tab = -1;
+        if (w)
+            for (QTabWidget* t : w->findChildren<QTabWidget*>())
+                for (int i = 0; i < t->count(); ++i)
+                    if (t->tabText(i) == QStringLiteral("Script")) { tabs = t; script_tab = i; }
+        QStringList items;
+        if (w)
+            for (QAction* m : w->menuBar()->actions())
+                if (m->text() == QStringLiteral("&Script") && m->menu())
+                    for (QAction* a : m->menu()->actions()) items << a->text();
+        const bool loads = w && w->script_panel() &&
+                           w->script_panel()->load_path(QString::fromStdString(
+                               scr_file("tab.jds", "on frame 0 do log \"T\" end\n")));
+        // The menu's Reload and Unload act (Load opens a file dialog).
+        size_t after_reload = 99, after_unload = 99;
+        if (w)
+            for (QAction* m : w->menuBar()->actions())
+                if (m->text() == QStringLiteral("&Script") && m->menu())
+                    for (QAction* a : m->menu()->actions()) {
+                        if (a->text() == QStringLiteral("&Reload Scripts")) {
+                            a->trigger();
+                            after_reload = host.files().size();
+                        }
+                        if (a->text() == QStringLiteral("&Unload Scripts")) {
+                            a->trigger();
+                            after_unload = host.files().size();
+                        }
+                    }
+        check("QSCR-01", "the debugger window has a Script tab holding the Script panel, and a &Script "
+                         "menu with Load Script…, Reload Scripts and Unload Scripts (the last two act) and, "
+                         "after a separator, the recorder's three (WP6); "
+                         "the panel drives the manager's script host",
+              started && tabs && tabs->widget(script_tab) == w->script_panel() &&
+                  items == QStringList({"&Load Script...", "&Reload Scripts", "&Unload Scripts", "",
+                                        "Re&cord Script...", "Capture &Screen", "S&top Recording"}) && loads &&
+                  after_reload == 1 && after_unload == 0,
+              fmt("tab=%d items=%s reload=%zu unload=%zu", script_tab, s(items.join('|')).c_str(),
+                  after_reload, after_unload));
+        if (fx.ok) fx.mgr->set_script_host(nullptr);
+        host.unload_all();
+    }
+    {
+        ScriptFixture fx;
+        QString errors;
+        const bool ok = fx.ok && fx.panel.load_path(QString::fromStdString(scr_file(
+                                     "w.jds", "w: on write 0x9000 once do log \"W ${VALUE:x2}\" end\n")), &errors);
+        fx.frames(1);
+        const bool row = fx.panel.rule_table()->rowCount() == 1 && fx.cell(0, 0) == "w.jds" &&
+                         fx.cell(0, 1) == "w" && fx.cell(0, 2) == "write 9000" && fx.cell(0, 3) == "spent (once)" &&
+                         fx.cell(0, 4) == "1";
+        fx.panel.refresh();
+        int loaded_lines = 0;
+        for (const QString& l : fx.panel.log_lines()) if (l.contains("loaded at FRAME")) ++loaded_lines;
+        check("QSCR-02", "a loaded script's rule is listed — file, label, the event with its filter resolved, "
+                         "its state (a fired `once`: spent) and its hit count — and its log lines reach the panel",
+              ok && errors.isEmpty() && row && loaded_lines == 1 && fx.log_has("] W 5A"),
+              fmt("rows=%d [%s|%s|%s|%s|%s] log=%d", fx.panel.rule_table()->rowCount(), s(fx.cell(0, 0)).c_str(),
+                  s(fx.cell(0, 1)).c_str(), s(fx.cell(0, 2)).c_str(), s(fx.cell(0, 3)).c_str(),
+                  s(fx.cell(0, 4)).c_str(), int(fx.panel.log_lines().size())));
+        QString bad_err;
+        const std::string bad = scr_file("bad.jds", "on frame 0 do\n  log +\nend\n");
+        const bool bad_ok = fx.panel.load_path(QString::fromStdString(bad), &bad_err);
+        check("QSCR-03", "a script with an error is not loaded: load_path() says so with `file:line:column: "
+                         "message`, the rules already loaded stay, and the log records it",
+              !bad_ok && bad_err.startsWith(QString::fromStdString(bad + ":2:")) &&
+                  fx.panel.rule_table()->rowCount() == 1 && fx.host.files().size() == 1 &&
+                  fx.log_has("SCRIPT ERROR"),
+              s(bad_err));
+        const uint64_t hits_before = fx.cell(0, 4).toULongLong();
+        const QString again = fx.panel.reload_all();
+        const bool reloaded = again.isEmpty() && fx.panel.rule_table()->rowCount() == 1 &&
+                              fx.cell(0, 4) == "0" && fx.cell(0, 3) == "armed" && hits_before > 0;
+        // A file that has gone away is reported by Reload, by name.
+        const std::string gone = scr_file("gone.jds", "on frame 0 do log \"G\" end\n");
+        fx.panel.load_path(QString::fromStdString(gone));
+        QFile::remove(QString::fromStdString(gone));
+        const QString gone_err = fx.panel.reload_all();
+        const bool reload_reports = gone_err.contains(QString::fromStdString(gone)) &&
+                                    gone_err.contains("cannot be read");
+        fx.panel.unload_all();
+        check("QSCR-04", "Reload loads the same files again (hits start over, `once` re-armed); Unload All empties the table, "
+                         "the verdict says nothing is loaded, and Reload / Unload All are disabled (Load is not)",
+              reloaded && reload_reports && fx.panel.rule_table()->rowCount() == 0 &&
+                  fx.panel.verdict_text() == "No script loaded." && fx.host.engine() == nullptr &&
+                  !button(fx.panel, "Reload") && !button(fx.panel, "Unload All") && button(fx.panel, "Load..."),
+              fmt("reloaded=%d rows=%d verdict=%s", reloaded, fx.panel.rule_table()->rowCount(),
+                  s(fx.panel.verdict_text()).c_str()));
+    }
+    {
+        ScriptFixture fx;
+        const bool ok = fx.ok && fx.panel.load_path(QString::fromStdString(scr_file(
+                                     "v.jds", "on frame 300 do exit 0 end\non write 0x9000 once do stop \"caught\" end\n")));
+        fx.panel.refresh();
+        const QString before = fx.panel.verdict_text();
+        const QString state0 = fx.cell(0, 3);
+        fx.frames(2);
+        const QString after = fx.panel.verdict_text();
+        check("QSCR-05", "the verdict line: before anything fires, the declared verdict is not reached "
+                         "(and its rule says so); after a stop it reads FAIL with the reason, and the "
+                         "machine is paused, not exited",
+              ok && before.contains("1 verdict(s) not reached yet") &&
+                  state0.contains("verdict not reached") && after.contains("FAIL: 1 stop(s), the last: caught") &&
+                  fx.backend->state().paused,
+              s(before) + " || " + s(after) + " || " + s(state0));
+    }
+    {
+        ScriptFixture fx;
+        const bool ok = fx.ok && fx.panel.load_path(QString::fromStdString(scr_file(
+                                     "e.jds", "on frame 0 do exit 0 end\non frame 1 do log \"${1 / 0}\" end\n")));
+        fx.frames(1);
+        const QString pass = fx.panel.verdict_text();
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        fx.frames(2);
+        const QString err = fx.panel.verdict_text();
+        check("QSCR-06", "`exit 0` reads PASS and pauses (the GUI never exits) and its rule, having run, no "
+                         "longer says `verdict not reached`; a run-time error reads ERROR and its rule's state "
+                         "says it was disabled",
+              ok && pass.contains("PASS: exit 0") && pass.contains("never exits") &&
+                  err.contains("ERROR: 1 rule(s) disabled by a run-time error") &&
+                  fx.cell(1, 3) == "error (disabled)" && fx.cell(0, 3) == "armed",
+              s(pass) + " || " + s(err) + " || " + s(fx.cell(1, 3)));
+    }
+    {
+        ScriptPanel bare;
+        QString why;
+        const bool loads = bare.load_path(QStringLiteral("/nonexistent.jds"), &why);
+        bool load_enabled = true;
+        for (QPushButton* b : bare.findChildren<QPushButton*>())
+            if (b->text() == QStringLiteral("Load...")) load_enabled = b->isEnabled();
+        check("QSCR-07", "a panel with no script host says scripting is unavailable, refuses to load and "
+                         "disables Load",
+              !loads && !load_enabled && bare.verdict_text() == "Scripting is not available.",
+              s(bare.verdict_text()));
+    }
+    // ── GH #26 WP6 (#20): the recorder in the Script tab and menu ──────────
+    {
+        ScriptFixture fx;
+        const bool idle = fx.ok && fx.panel.record_text() == "Not recording." && button(fx.panel, "Record...") &&
+                          !button(fx.panel, "Capture") && !button(fx.panel, "Stop Recording") &&
+                          !fx.panel.recording();
+        const std::string path = (g_tmp->path() + "/panel-rec.jds").toStdString();
+        const bool started = fx.panel.record_to(QString::fromStdString(path));
+        const QString during = fx.panel.record_text();
+        const bool buttons_rec = !button(fx.panel, "Record...") && button(fx.panel, "Capture") &&
+                                 button(fx.panel, "Stop Recording") && fx.panel.recording();
+        QString why;
+        const bool again = fx.panel.record_to(QString::fromStdString(path + "2"), &why);
+        check("QSCR-11", "Record… starts a recording on the panel's host: Record is then disabled, Capture and "
+                         "Stop Recording enabled, the line says where it records and that Alt+8 captures; a "
+                         "second Record is refused with the reason",
+              idle && started && buttons_rec &&
+                  during == QString::fromStdString("Recording to " + path +
+                                                   ": 0 input edge(s), 0 capture(s) (Alt+8 captures).") &&
+                  !again && why.contains("already recording to"),
+              s(during) + " || " + s(why));
+        const bool cap = fx.panel.capture();
+        fx.frames(2);
+        const bool stopped = fx.panel.stop_recording();
+        const QString after = fx.panel.record_text();
+        QFile f(QString::fromStdString(path));
+        const bool written = f.open(QIODevice::ReadOnly) && f.readAll().contains("compare_scr \"panel-rec-0001.scr\"");
+        check("QSCR-12", "Capture asks for one at the next frame edge and Stop Recording writes the script; "
+                         "the buttons go back, the line says what the last recording was, and the log has "
+                         "the RECORD lines",
+              cap && stopped && written && button(fx.panel, "Record...") && !button(fx.panel, "Capture") &&
+                  !button(fx.panel, "Stop Recording") &&
+                  after == QString::fromStdString("Last recording: " + path + ": 0 input edge(s), 1 capture(s).") &&
+                  fx.log_has("RECORD: capture 1") && fx.log_has("RECORD: wrote") &&
+                  !fx.panel.capture() && !fx.panel.stop_recording(),
+              s(after));
+    }
+    {
+        // GH #26 WP9 — the Event and State cells were elided (`write …`,
+        // `armed, …`) at the window's default width: every column but Hits is
+        // sized to its text.
+        ScriptFixture fx;
+        const bool ok = fx.ok && fx.panel.load_path(QString::fromStdString(scr_file(
+                                     "w.jds", "disabled code_guard: on write 0x8000..0xBFFF do stop end\n"
+                                              "on frame 100000 do exit 0 end\n")));
+        fx.panel.refresh();
+        QTableWidget* t = fx.panel.rule_table();
+        const QFontMetrics fm(t->font());
+        bool fits = ok && t->rowCount() == 2;
+        QString worst;
+        for (int r = 0; fits && r < t->rowCount(); ++r)
+            for (int c = 0; c < 4; ++c) {
+                const QString text = fx.cell(r, c);
+                if (t->columnWidth(c) < fm.horizontalAdvance(text)) {
+                    fits = false;
+                    worst = text + " in " + QString::number(t->columnWidth(c)) + "px";
+                }
+            }
+        check("QSCR-14", "the rule table sizes File, Rule, Event and State to their text: `write 8000..BFFF` "
+                         "and `armed, verdict not reached` are shown whole, not elided",
+              fits && fx.cell(0, 2) == "write 8000..BFFF" && fx.cell(1, 3) == "armed, verdict not reached",
+              s(worst) + " | " + s(fx.cell(0, 2)) + " | " + s(fx.cell(1, 3)));
+    }
+    {
+        // The menu's three, enabled by state when the menu opens; Capture and
+        // Stop act (Record opens a file dialog).
+        WindowFixture fx;
+        jnext::script::ScriptHost host;
+        jnext::script::ScriptHostOptions o;
+        o.exits = false;
+        const bool started = fx.ok && host.start(*fx.backend, o);
+        if (fx.ok) fx.mgr->set_script_host(&host);
+        DebuggerWindow* w = fx.ok ? fx.dbg() : nullptr;
+        QMenu* menu = nullptr;
+        if (w)
+            for (QAction* m : w->menuBar()->actions())
+                if (m->text() == QStringLiteral("&Script")) menu = m->menu();
+        auto act = [menu](const char* text) -> QAction* {
+            if (menu)
+                for (QAction* a : menu->actions())
+                    if (a->text() == QString::fromUtf8(text)) return a;
+            return nullptr;
+        };
+        QAction* rec = act("Re&cord Script...");
+        QAction* cap = act("Capture &Screen");
+        QAction* stp = act("S&top Recording");
+        auto states = [&]() {
+            if (menu) emit menu->aboutToShow();
+            return QString("%1%2%3").arg(rec && rec->isEnabled()).arg(cap && cap->isEnabled()).arg(stp && stp->isEnabled());
+        };
+        const QString idle = states();
+        const bool rec_on = host.start_recording((g_tmp->path() + "/menu-rec.jds").toStdString());
+        const QString during = states();
+        if (cap) cap->trigger();
+        fx.backend->run(jnext::dbg::CLIENT_NONE);
+        for (int i = 0; i < 2; ++i) {
+            fx.emu.run_frame();
+            fx.backend->pump(jnext::dbg::PumpBudget{});
+        }
+        const unsigned caps = host.recorder() ? host.recorder()->captures() : 99;
+        if (stp) stp->trigger();
+        const QString after = states();
+        check("QSCR-13", "the Script menu's Record Script… / Capture Screen / Stop Recording are enabled by "
+                         "state when it opens (idle: Record only; recording: Capture and Stop), and Capture and "
+                         "Stop act",
+              started && rec && cap && stp && idle == "100" && rec_on && during == "011" && caps == 1 &&
+                  !host.recording() && after == "100",
+              s(idle) + " " + s(during) + " " + s(after) + fmt(" caps=%u", caps));
+        if (fx.ok) fx.mgr->set_script_host(nullptr);
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QTemporaryDir cfg;
@@ -2405,6 +2801,7 @@ int main(int argc, char** argv) {
     test_window_wiring();
     test_memory_panel();
     test_disasm_latch();
+    test_script_panel();
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

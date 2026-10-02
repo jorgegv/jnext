@@ -1,0 +1,41 @@
+# copper.jds — the Copper side of the palette split (dsl-frontend.md §3(f)):
+# where along the frame the split lands, from the Copper's own events.
+# The program's list: MOVE NR 0x43,0x00; WAIT line 95; MOVE NR 0x43,0x02; HALT.
+#
+# Run from the repository root:
+#   build/jnext --headless --machine next --load test/00regression/nex/dsl_demo.nex \
+#       --map test/00regression/nex/dsl_demo.map --script test/scripts/dsl/copper.jds \
+#       --delayed-automatic-exit-frames 900
+#   exit 0, log line:  PASS copper: 64 frames, the split on line 95 every time
+# Against dsl_demo_buggy.nex (WAIT line 96):
+#   exit 3, log lines: Copper MOVE NR43=02 at copper PC 2 on cvc 96 hc_ula 12
+#                      ASSERT FAILED: the palette split lands on line 95
+
+var armed = 0
+var splits = 0
+
+on copper move 0x43 when armed == 1 do
+    log "Copper MOVE NR43=${VALUE:x2} at copper PC ${CPC} on cvc ${CVC} hc_ula ${HC_ULA}"
+    if VALUE == 0x02 then
+        assert CVC == 95 "the palette split lands on line 95"
+        set splits = splits + 1
+    end
+end
+
+on copper wait when armed == 1 and WAIT_V == 95 do
+    assert CVC == 95 and HC_ULA >= WAIT_H "WAIT for line 95 is satisfied on the Copper's own line 95, at or past its threshold (GH #181)"
+end
+
+on copper halt once when armed == 1 do
+    log "copper HALT at ${CPC}"
+end
+
+on execute @main_loop once when mem16[@magic] == 0xD5D5 do
+    set armed = 1
+end
+
+on execute @main_loop once when mem16[@magic] == 0xD5D5 and mem[@frames] >= 64 do
+    assert splits >= 60 "the split ran every frame"
+    log "PASS copper: 64 frames, the split on line 95 every time"
+    exit 0
+end

@@ -576,10 +576,10 @@ bool Debugger::Impl::drain_boundary() {
             nr.source     = EventSource::Copper;
             nr.overflowed = overflowed;
             nr.dropped    = dropped;
-            // `prev` is NOT carried: the Copper site latches before the write,
-            // but it does not peek the register (the NR-side hook is what does,
-            // and it is suppressed for a Copper write precisely so there is one
-            // entry). Reported as a limitation rather than filled with `value`.
+            // `prev`: the Copper site peeks the register before the write, as
+            // the CPU-side hook does (GH #26 WP3 — the §8 post-commit contract
+            // holds for a Copper MOVE as for a CPU write).
+            nr.prev       = events.at(i).prev;
             deliver_to_subscribers(nr, stop, CLIENT_NONE);
         }
     }
@@ -652,9 +652,13 @@ void Debugger::Impl::apply_stop(bool from_event) {
     // no frontend's behaviour.
     if (effective_stop_policy() != StopPolicy::ExitNonZero) return;
 
-    self->log(CLIENT_NONE, LogLevel::Warn,
-              "STOP under StopPolicy::ExitNonZero — requesting exit " +
-                  std::to_string(kStopExitCode));
+    // NEUTRAL, at info: the backend does not know which exit the loop owner
+    // will take — a script's own `exit n` stops the machine too, and its code
+    // wins (GH #26). The listener that does decide logs the warning when the
+    // exit it takes is this stop's (`ScriptHost`'s, "requesting exit 3"), so a
+    // passing run no longer prints a warning contradicting its verdict.
+    self->log(CLIENT_NONE, LogLevel::Info,
+              "STOP under StopPolicy::ExitNonZero — asking the loop owner to exit");
     notify_exit_requested(kStopExitCode);
 }
 

@@ -9,6 +9,7 @@
 
 #include "debug/debugger.h"
 #include "script/names.h"
+#include "script/state.h"
 
 namespace jnext {
 namespace script {
@@ -33,19 +34,6 @@ int32_t wrap(uint64_t v) { return static_cast<int32_t>(static_cast<uint32_t>(v))
 int32_t wrap(int64_t v) { return wrap(static_cast<uint64_t>(v)); }
 
 int32_t flag(uint16_t af, int bit) { return (af >> bit) & 1; }
-
-// The MACHINE constants of §2.3: 0=48K 1=128K 2=+3 3=Pentagon 4=Next. jnext
-// has no standalone Pentagon machine type any more (emulator.cpp: "the
-// standalone Pentagon machine type was dropped"), so 3 is never produced.
-int32_t machine_code(MachineType t) {
-    switch (t) {
-        case MachineType::ZX48K:      return 0;
-        case MachineType::ZX128K:     return 1;
-        case MachineType::ZX_PLUS3:   return 2;
-        case MachineType::ZXN_ISSUE2: return 4;
-    }
-    return -1;
-}
 
 // The SOURCE constants of §2.1 (CPU 0, DMA 1, COPPER 2) — NOT the backend's
 // `EventSource` order (Cpu 0, Copper 1, Dma 2).
@@ -162,7 +150,9 @@ int32_t read_builtin(const Expr& e, const EvalContext& ctx) {
         case Builtin::IM:     return ctx.dbg.registers().IM;
         case Builtin::HALTED: return ctx.dbg.registers().halted ? 1 : 0;
         case Builtin::FRAME:  return wrap(uint64_t{ctx.dbg.time().frame});
-        case Builtin::CYCLE:  return wrap(ctx.dbg.time().master_cycle);
+        // In an event rule, the event's own cycle — captured at the hook, so
+        // exact for an event delivered at a later boundary (§2.2; Appendix I).
+        case Builtin::CYCLE:  return wrap(ctx.ev ? ctx.ev->cycle : ctx.dbg.time().master_cycle);
         case Builtin::TFRAME: return wrap(ctx.dbg.time().cycle_in_frame);
         case Builtin::RAW_HC: return ctx.dbg.raster().raw_hc;
         case Builtin::RAW_VC: return ctx.dbg.raster().raw_vc;
@@ -177,10 +167,61 @@ int32_t read_builtin(const Expr& e, const EvalContext& ctx) {
     fail(e, "internal: unbound name `" + e.text + "`");
 }
 
+ScriptState& script_state(const Expr& e, const EvalContext& ctx) {
+    if (!ctx.state) fail(e, "internal: this expression needs a script context");
+    return *ctx.state;
+}
+
+// A §2.5 snapshot field, read from the top of its stack.
+int32_t snap_field(const Expr& e, const EvalContext& ctx) {
+    const Snapshot& s = script_state(e, ctx).top(e.slot, e.pos);
+    const Z80Registers& r = s.regs;
+    const std::string& f = e.field;
+    if (f == "MMU") {
+        const int32_t k = eval_int(*e.a, ctx);
+        if (k < 0 || k > 7) fail(e, "snapshot field `MMU[" + std::to_string(k) + "]`: a slot is 0..7");
+        return s.mmu[static_cast<size_t>(k)];
+    }
+    if (f == "A") return r.AF >> 8;
+    if (f == "F") return r.AF & 0xFF;
+    if (f == "B") return r.BC >> 8;
+    if (f == "C") return r.BC & 0xFF;
+    if (f == "D") return r.DE >> 8;
+    if (f == "E") return r.DE & 0xFF;
+    if (f == "H") return r.HL >> 8;
+    if (f == "L") return r.HL & 0xFF;
+    if (f == "I") return r.I;
+    if (f == "R") return r.R;
+    if (f == "AF") return r.AF;
+    if (f == "BC") return r.BC;
+    if (f == "DE") return r.DE;
+    if (f == "HL") return r.HL;
+    if (f == "IX") return r.IX;
+    if (f == "IY") return r.IY;
+    if (f == "SP") return r.SP;
+    if (f == "PC") return r.PC;
+    if (f == "AF2") return r.AF2;
+    if (f == "BC2") return r.BC2;
+    if (f == "DE2") return r.DE2;
+    if (f == "HL2") return r.HL2;
+    if (f == "IFF1") return r.IFF1 ? 1 : 0;
+    if (f == "IFF2") return r.IFF2 ? 1 : 0;
+    if (f == "IM") return r.IM;
+    if (f == "STACK0") return s.stack0;
+    if (f == "FRAME") return wrap(uint64_t{s.frame});
+    if (f == "CYCLE") return wrap(s.cycle);
+    fail(e, "internal: unknown snapshot field `" + f + "`");
+}
+
 int32_t binary(const Expr& e, const EvalContext& ctx) {
     // Short-circuit forms first: the right operand may not be evaluated.
     if (e.op == Op::And) return (eval_int(*e.a, ctx) != 0 && eval_int(*e.b, ctx) != 0) ? 1 : 0;
     if (e.op == Op::Or)  return (eval_int(*e.a, ctx) != 0 || eval_int(*e.b, ctx) != 0) ? 1 : 0;
+    // A string comparison (the checker makes both sides the same type).
+    if ((e.op == Op::Eq || e.op == Op::Ne) && e.a->type == ValueType::Str) {
+        const bool same = eval_str(*e.a, ctx) == eval_str(*e.b, ctx);
+        return (e.op == Op::Eq) == same ? 1 : 0;
+    }
 
     const int32_t  l  = eval_int(*e.a, ctx);
     const int32_t  r  = eval_int(*e.b, ctx);
@@ -218,6 +259,19 @@ int32_t binary(const Expr& e, const EvalContext& ctx) {
 
 }  // namespace
 
+// The MACHINE constants of §2.3: 0=48K 1=128K 2=+3 3=Pentagon 4=Next. jnext
+// has no standalone Pentagon machine type any more (emulator.cpp: "the
+// standalone Pentagon machine type was dropped"), so 3 is never produced.
+int32_t machine_code(MachineType t) {
+    switch (t) {
+        case MachineType::ZX48K:      return 0;
+        case MachineType::ZX128K:     return 1;
+        case MachineType::ZX_PLUS3:   return 2;
+        case MachineType::ZXN_ISSUE2: return 4;
+    }
+    return -1;
+}
+
 int32_t eval_int(const Expr& e, const EvalContext& ctx) {
     switch (e.kind) {
         case ExprKind::Int:
@@ -225,7 +279,10 @@ int32_t eval_int(const Expr& e, const EvalContext& ctx) {
         case ExprKind::Name:
             return read_builtin(e, ctx);
         case ExprKind::Symbol:
-            if (!e.resolved) fail(e, "internal: unresolved symbol `@" + e.text + "`");
+            // Resolved at load time when a MAP was given; a script checked
+            // without one reaches here unresolved, which is a run-time error
+            // (§6.5), not a zero.
+            if (!e.resolved) fail(e, "`@" + e.text + "` is not resolved: no MAP symbol was loaded for it");
             return e.value;
         case ExprKind::Unary: {
             const int32_t v = eval_int(*e.a, ctx);
@@ -279,14 +336,83 @@ int32_t eval_int(const Expr& e, const EvalContext& ctx) {
                             dbg::result_name(r.status) + ")");
             return b;
         }
-        case ExprKind::Str:
         case ExprKind::Var:
+            return script_state(e, ctx).var(e.slot);
         case ExprKind::SnapField:
+            return snap_field(e, ctx);
         case ExprKind::Changed:
+            return script_state(e, ctx).changed(e.slot, e.group, ctx.dbg, e.pos) ? 1 : 0;
         case ExprKind::Depth:
+            return static_cast<int32_t>(script_state(e, ctx).depth(e.slot));
+        case ExprKind::Str:
             break;
     }
-    fail(e, "internal: this expression needs a script context");
+    fail(e, "internal: a string where an integer was expected");
+}
+
+std::string eval_str(const Expr& e, const EvalContext& ctx) {
+    if (e.kind == ExprKind::Str) return interpolate(e.str, ctx);
+    if (e.kind == ExprKind::Name && e.builtin == Builtin::P_REASON) {
+        if (!ctx.reason) fail(e, "`REASON` has no value here: it belongs to a `stop` delivery");
+        return *ctx.reason;
+    }
+    fail(e, "internal: an integer where a string was expected");
+}
+
+Value evaluate(const Expr& e, const EvalContext& ctx) {
+    if (e.type == ValueType::Str) return Value::of(eval_str(e, ctx));
+    return Value::of(eval_int(e, ctx));
+}
+
+std::string format_int(int32_t v, Fmt f) {
+    char buf[16];
+    switch (f) {
+        case Fmt::None:
+        case Fmt::D:
+            std::snprintf(buf, sizeof buf, "%d", static_cast<int>(v));
+            break;
+        case Fmt::X2:
+            std::snprintf(buf, sizeof buf, "%02X", static_cast<unsigned>(static_cast<uint32_t>(v)));
+            break;
+        case Fmt::X4:
+            std::snprintf(buf, sizeof buf, "%04X", static_cast<unsigned>(static_cast<uint32_t>(v)));
+            break;
+    }
+    return buf;
+}
+
+std::string interpolate(const StringLit& s, const EvalContext& ctx) {
+    std::string out;
+    for (const StringPart& part : s.parts) {
+        if (!part.expr) {
+            out += part.text;
+        } else if (part.expr->type == ValueType::Str) {
+            out += eval_str(*part.expr, ctx);
+        } else {
+            out += format_int(eval_int(*part.expr, ctx), part.fmt);
+        }
+    }
+    return out;
+}
+
+void init_vars(const Script& script, ScriptState& state, const dbg::Debugger& dbg) {
+    EvalContext ctx{dbg, nullptr, &state, nullptr};
+    for (size_t k = 0; k < script.vars.size(); ++k)
+        state.set_var(static_cast<int>(k), eval_int(*script.vars[k].init, ctx));
+}
+
+dbg::Condition make_condition(ExprPtr when, std::shared_ptr<ScriptState> state,
+                              RuntimeErrorHandler on_error) {
+    std::shared_ptr<const Expr> root = std::move(when);
+    return [root, state, on_error](const dbg::Event& ev, const dbg::Debugger& dbg) -> bool {
+        try {
+            EvalContext ctx{dbg, &ev, state.get(), nullptr};
+            return eval_int(*root, ctx) != 0;
+        } catch (const EvalError& err) {
+            if (on_error) on_error(err.d);
+            return false;
+        }
+    };
 }
 
 }  // namespace script

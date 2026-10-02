@@ -11,6 +11,7 @@
 #include "debug/debugger.h"
 #include "platform/host_probe.h"
 #include "platform/debug_servers.h"
+#include "script/script_host.h"
 #include "video/renderer.h"
 #include "input/gamepad_host.h"
 #include "input/mouse_dispatcher.h"
@@ -110,6 +111,10 @@ private:
     // unregisters from the Debugger it was started on (platform/debug_servers.h).
     DebugServers              debug_servers_;
     jnext::dbg::ServiceHint   pump_hint_;
+    // GH #26 WP4 — `--script` / `--script-key` / `--map` (script/script_host.h).
+    // Declared AFTER debugger_ so it is destroyed FIRST: its engine and its
+    // listener detach from the Debugger they were started on.
+    jnext::script::ScriptHost script_host_;
     /// The cold boot itself — what `LoopDriver::cold_boot` runs for a client's
     /// `reset(Hard)`, which brackets it with its own capture. cold_boot() is
     /// this plus the begin/done pair.

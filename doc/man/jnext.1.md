@@ -731,6 +731,35 @@ debugger ones.
     is given too: an address for servers that are all off would configure
     nothing.
 
+**\--script** *FILE*
+:   Load a debugger script (`.jds`); see **SCRIPTING**. Repeatable: the
+    scripts load, and their rules run, in the order given. A script that
+    cannot be read, or that has any error, is reported as
+    *file*:*line*:*column*: *message* and jnext exits 1 before the machine
+    runs - nothing of it runs partially. In **\--headless** and the SDL-only
+    build a script decides the exit status: `exit` *N* exits *N*, a `stop` or
+    a failed `assert` exits 3, a run-time error exits 1. In the Qt GUI a script
+    never ends the program: `stop` and `exit` pause the machine instead.
+
+**\--script-key** *FRAME* *N*
+:   Deliver script host key *N* (`1` to `8`) at emulated frame *FRAME*
+    (**\--headless** only; repeatable): the script's `on hostkey` *N* rules run
+    at the end of frame *FRAME*, where `on frame` *FRAME* runs. Needs a
+    **\--script**, or a **\--record-script** (key `8` is the recorder's
+    capture).
+
+**\--record-script** *FILE*
+:   Record the session as a replay script; see **Recording a session** under
+    **SCRIPTING**. Every input change is written as the frame it landed on,
+    each Alt + 8 (or **\--script-key** *FRAME* `8`) captures the screen, and
+    *FILE* is written when jnext exits. Works in every frontend.
+
+**\--map** *FILE*
+:   Load a z88dk `.map` symbol table, so a script can name an address as
+    `@symbol`, and the debugger shows the names (the same table **Map > Load
+    MAP** fills). A file that cannot be loaded, or holds no symbols, is a
+    startup error.
+
 **\--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, for example `0x00FF`).
 
@@ -1521,6 +1550,7 @@ fast the emulator runs relative to real time.
 | Alt + E               | Edit (Caps Shift + 1)              |
 | Alt + G               | Graph (Caps Shift + 9)             |
 | Alt + C               | Caps Lock (Caps Shift + 2)         |
+| Alt + 1 ... Alt + 8   | nothing - script host keys 1-8 (see **SCRIPTING**) |
 | `'`                   | `"` (Symbol Shift + P)             |
 | `;`                   | `;` (Symbol Shift + O)             |
 | `.`                   | `.` (Symbol Shift + M)             |
@@ -1558,9 +1588,11 @@ takes are Ctrl+F5 and Ctrl+F6 (start and stop video recording), and function
 keys have no Spectrum meaning to lose.
 
 Alt is the opposite: it is a host modifier, never a Spectrum key. jnext claims
-Alt + Q/O/S/K/R/T/D/P and Alt+Shift+S (menu shortcuts) plus Alt + F/M/I/A/B/V/N/H
-(menu bar), which leaves the guest only Alt + E/G/C (EDIT, GRAPH, CAPS LOCK)
-and Alt + the key left of `1` (INV VIDEO). Real Next hardware instead maps Left
+Alt + Q/O/S/K/R/T/D/P and Alt+Shift+S (menu shortcuts), Alt + F/M/I/A/B/V/N/H
+(menu bar) and Alt + 1 to Alt + 8 (the script host keys), which leaves the
+guest only Alt + E/G/C (EDIT, GRAPH, CAPS LOCK) and Alt + the key left of `1`
+(INV VIDEO). Alt + 1 to Alt + 8 no longer type their digit into the program
+(earlier releases let them through as plain 1-8); Alt + 9 and Alt + 0 still do. Real Next hardware instead maps Left
 Alt to EXTEND MODE and Right Alt to GRAPH; jnext deliberately does not,
 following the FUSE/ZEsarUX convention that puts EXTEND MODE on Tab.
 
@@ -1755,6 +1787,118 @@ z88dk-gdb -h 127.0.0.1 -p 3333 -x mygame.map
 In **\--headless** mode a client holding the machine stopped holds its frames
 too, exactly as described for DeZog above. The GDB protocol has no
 authentication either.
+
+# SCRIPTING
+
+A debugger script (`.jds`, loaded with **\--script**) is a list of rules,
+each an event and the actions to run when it happens:
+
+```
+# palette.jds - CI assertion: the exit status is the verdict
+on execute @palette_init_done once do
+    assert mem[0x9000] == 0xAA "sentinel missing in palette buffer"
+    log "PASS palette init"
+    exit 0
+end
+on write 0x4000..0x5AFF when VALUE == 0xB7 do
+    stop "forbidden value ${VALUE:x2} written by ${PC:x4}"
+end
+```
+
+```
+jnext --headless --map game.map --script palette.jds --load game.nex \
+      --delayed-automatic-exit-frames 600
+```
+
+The events are an instruction about to execute, a memory read or write, a
+port read or write, a NextREG write, a frame, a scanline, a master-clock
+cycle, an accepted interrupt, an NMI, a reset, a host key, a Copper
+`MOVE`/`WAIT`/`HALT`, a DMA transfer's start, bytes and end, and any pause of
+the machine. A rule's `when` condition is checked by the debugger itself, so a
+rule body runs only for the accesses that match. A script observes the machine
+without disturbing it; it changes the machine only through `set` and `out`,
+and each such write is logged as a `MUTATE` line. Script output goes to the log
+as `[jds F:`*frame* `C:`*cycle*`]` lines.
+
+**Host keys.** In the emulator window (Qt or SDL) and in the debugger window,
+Alt + 1 to Alt + 8 are the script host keys: Alt + *N* runs the loaded
+scripts' `on hostkey` *N* rules, with or without the debugger window open.
+The digit never reaches the guest, even when no script is loaded, so what
+Alt + 1 does never depends on what is loaded. **\--script-key** is the same
+key in **\--headless**. A debugger key binding can never use them.
+
+**The Script tab.** In the Qt GUI the debugger window's Script tab lists the
+loaded scripts' rules (the event with its filter, its state, its hit count),
+the run's verdict (a stop or failed assert, an `exit`, a run-time error, the
+verdicts not reached yet) and the script log. **Script > Load Script...**
+loads one more script while the machine runs, **Reload Scripts** loads the
+same files again and **Unload Scripts** removes them all; scripts given with
+**\--script** appear there too. A script loaded from the menu registers at
+once, and `FRAME` (and `on frame` *N*) count the machine's frames, not frames
+since the load. In the GUI a script never ends the program: `stop`, a failed
+`assert` and `exit` pause the machine and open the debugger.
+
+**Keys.** `press` *KEY* holds a key down until `release` *KEY* (`press` *KEY*
+`for` *N* is a pulse of *N* frames). *KEY* is a name **\--delayed-keypress**
+takes, a single matrix position `row,col` (`0,0` is CAPS SHIFT, `7,1` SYMBOL
+SHIFT), or one of the Next's extended keys as `ext:`*name* - `ext:right`,
+`ext:left`, `ext:down`, `ext:up`, `ext:dot`, `ext:comma`, `ext:quote`,
+`ext:semicolon`, `ext:extend`, `ext:capslock`, `ext:graph`, `ext:truevideo`,
+`ext:invvideo`, `ext:break`, `ext:edit`, `ext:delete` (the keys NR 0xB0 / 0xB1
+read; the PC's arrows, Backspace and Esc are among them). An extended key has
+no `for` pulse.
+
+**Recording a session.** **Script > Record Script...** in the debugger window
+(or the Script tab's **Record...**, or **\--record-script** *FILE*) records
+what you do into a replay script: every change of the keyboard, the Next
+extended keys and both joysticks, as `press` / `release` / `joystick` at the
+frame it landed on, and a capture at each **Alt + 8** (or **Script > Capture
+Screen**). A capture is the ULA screen memory (*base*`-0001.scr` and a
+`compare_scr` line) when only the ULA layer is on, and otherwise a PNG
+(*base*`-0001.png`, and a `screenshot` of *base*`-0001-replay.png` to compare
+it with). **Stop Recording** - or leaving jnext - writes the script. Its header
+says what it was recorded on and the command that replays it:
+
+```
+jnext --headless --machine next --load game.nex --script session.jds \
+      --delayed-automatic-exit-frames 1010
+```
+
+run in the directory holding the captures (the script names them relative to
+it). The replay asserts the machine type and the
+joystick mode (NR 0x05) it was recorded with, applies the same input at the
+same frames, and ends with `exit 0`: a `.scr` that differs exits `3`. A cold
+boot (a hard reset, or loading a program from the menu) restarts the recording,
+because a replay starts at power-on too. What cannot be replayed exactly is
+written into the script as a `WARNING` (and logged again when it replays): a
+key changed while the machine was paused in the middle of a frame, input held
+before the recording began, a rewind. Keys jnext types by itself (a tape's
+`LOAD ""`, **\--delayed-keypress**) are recorded like any others, so replay
+without the options that typed them.
+
+**Exit status** in **\--headless** (and the SDL-only build): `0` for a clean run
+or `exit 0`; *N* for `exit` *N* (0 to 255: any other value is a run-time
+error); `3` for a `stop` or a failed `assert`; `1`
+for a script that does not load or a run-time error (division by zero, say -
+the rule is disabled and the run ends at the next frame). The first status a
+run reaches is kept. When **\--delayed-automatic-exit** or
+**\--delayed-automatic-exit-frames** ends a run before a script reached a
+verdict it declared - a rule holding `exit` or `compare_scr` that never ran, or
+a **\--script-key** not yet delivered - the run exits `3`
+(`SCRIPT: N deferred actions never ran`). A status `2` never comes from a
+script. A failure wins over a success at the same moment: when a `stop`, a
+failed `assert` or `compare_scr`, or a run-time error happens at the same
+event as an `exit 0` - in the same rule or in another one, before it or
+after it - the run exits `3` (or `1` for the run-time error), and the log
+says `SCRIPT EXIT 0 not taken`. A non-zero `exit` *N* is kept. An `exit` in an
+`on stop` rule never changes the status: the pause that ran it already decided
+it (a stop's `3`). An `exit`
+that comes while a `compare_scr` is still waiting for its frame edge waits
+with it, so `on write` *A* `do compare_scr` *F* *M* `exit 0 end` reports a
+mismatch rather than exiting first.
+
+The user guide's **Debugger scripting** chapter is the full reference: every
+event with its payload, every action, the state names, and worked examples.
 
 # REMOTE DEBUGGING (ZRCP)
 
