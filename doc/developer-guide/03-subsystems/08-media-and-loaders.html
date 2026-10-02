@@ -2044,16 +2044,16 @@ the guest's own driver talks to. Both are called out below.</p>
 <tr>
 <td><code>.tzx</code></td>
 <td>yes</td>
-<td>—</td>
-<td><code>tzx_loader.*</code></td>
-<td>Wraps ZOT (<code>third_party/zot</code>)</td>
+<td>yes</td>
+<td><code>tzx_loader.*</code>, <code>tape_recorder.*</code></td>
+<td>Read: wraps ZOT (<code>third_party/zot</code>). Write: tape-out capture decoded into 0x10/0x11/0x13/0x20</td>
 </tr>
 <tr>
 <td><code>.wav</code></td>
 <td>yes</td>
-<td>—</td>
-<td><code>wav_loader.*</code></td>
-<td>Real-time only, no fast path</td>
+<td>yes</td>
+<td><code>wav_loader.*</code>, <code>tape_recorder.*</code></td>
+<td>Read: real-time only, no fast path. Write: the tape-out signal, 8-bit mono 44100 Hz</td>
 </tr>
 <tr>
 <td><code>.rzx</code></td>
@@ -2106,11 +2106,41 @@ just audio samples with no block structure to extract. The gate is a PC match,
 which has one consequence worth knowing: a custom or turbo loader that never
 enters the ROM routine is never intercepted, and real time is then the only way
 it will load.</p>
-<p>Saving works the same way in reverse. <code>--tape-save</code> arms <code>TapSaver</code>, which
-traps <code>SA-BYTES</code> at <code>0x04C2</code> and appends a TAP block. That trap is gated on a
-<strong>ROM identity check</strong> as well as on the PC, because other ROMs legitimately
-execute code at <code>0x04C2</code> — a plain PC gate fired ten times during an ordinary
-NextZXOS boot.</p>
+<p>Saving works the same way in reverse. <code>--tape-save</code> (or Tape ▸ Start Saving,
+both through <code>Emulator::start_tape_save()</code>) arms one of two savers by the
+file's extension, and in both the ROM's <code>SA-BYTES</code> at <code>0x04C2</code> is trapped. That
+trap is gated on a <strong>ROM identity check</strong> as well as on the PC, because other
+ROMs legitimately execute code at <code>0x04C2</code> — a plain PC gate fired ten times
+during an ordinary NextZXOS boot.</p>
+<ul>
+<li><strong><code>.tap</code></strong> (any name not <code>.tzx</code>/<code>.wav</code>): <code>TapSaver</code> appends the trapped block.
+  Nothing else is captured; a TAP cannot hold an arbitrary signal.</li>
+<li><strong><code>.tzx</code> / <code>.wav</code></strong>: <code>TapeRecorder</code> (<code>src/core/tape_recorder.*</code>) records the
+  <strong>tape-out signal</strong> as timed edges, and the trap hands it trapped blocks as
+  events in the same time-ordered stream. Tape-out is the MIC jack, <code>o_AUDIO_MIC
+  &lt;= beep_mic_final</code> (<code>zxnext.vhd:1638</code>), with <code>beep_mic_final = i_AUDIO_EAR xor
+  (port_fe_mic and nr_08_keyboard_issue2) xor port_fe_mic</code> (<code>zxnext.vhd:6503</code>);
+  <code>Emulator::tape_out_level()</code> computes it from the same <code>i_AUDIO_EAR</code> model the
+  port 0xFE read uses, so with no tape playing it is port 0xFE bit 3, and a tape
+  playing in real time is echoed. It is sampled at each port 0xFE write (a CPU
+  OUT at its bus request edge, a DMA transfer at its place in the burst), while
+  a tape plays at the end of every instruction, and once at the end of every
+  frame, against <code>Clock::get()</code>: emulated 28 MHz master cycles, so CPU speed
+  (NR 0x07) changes the pulse lengths exactly as on the board, and a trapped
+  block cannot be double-written, because the trap skips the routine whose
+  pulses would otherwise reach the line. The TZX writer cuts the stream into
+  segments at gaps over 65535 T-states and decodes each: pilot (≥256 equal
+  pulses) + sync + two-class bit pairs becomes 0x10 at the ROM's timings and
+  0x11 otherwise; everything else becomes exact 0x13 pulses and a 0x20 pause.
+  The WAV writer needs no decoding; it synthesises the ROM's pulse train for a
+  trapped block. Nothing is recorded while a rewind replays frames. Unarmed, all
+  of this costs one flag test per port 0xFE write and nothing per instruction:
+  a TZX / WAV save arms the TAP saver's flag too, so the trap test is unchanged.
+  The file survives a kill: trapped blocks are written at once and segments once
+  they go quiet, the last pause WORD patched in place later, the WAV header
+  refreshed, and the file flushed every frame.
+  <code>doc/design/TAPE-SAVE-PLAN.md</code> has the rules and their reasons.</li>
+</ul>
 <p><strong>Real-time playback</strong> (<code>--tape-realtime</code>) is the honest one. The loader drives
 the EAR bit per T-state and the ROM's own loading routine decodes it, so the
 border stripes and the timing are produced by the same code that produces them

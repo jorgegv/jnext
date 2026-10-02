@@ -95,6 +95,15 @@ public:
     /// trap is only armed while active.
     bool active() const { return !path_.empty(); }
 
+    /// Disarm (the file is already complete: every block is written whole).
+    void close() { path_.clear(); }
+
+    /// GH #89 — arm the trap for a TZX / WAV save, without opening anything:
+    /// handle_sa_bytes_trap() hands the block to the Emulator's TapeRecorder
+    /// whenever that is active. One armed flag for every format keeps the
+    /// per-instruction trap test exactly what it was for TAP alone.
+    void arm_for_recorder(const std::string& path) { path_ = path; }
+
     const std::string& output_path() const { return path_; }
 
     size_t blocks_written() const { return blocks_written_; }

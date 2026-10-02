@@ -2008,7 +2008,11 @@ on.</p>
 Fast loading intercepts <code>LD-BYTES</code> at <code>0x0556</code> for both TAP and TZX, and
 <code>--tape-save</code> intercepts <code>SA-BYTES</code> at <code>0x04C2</code>. The save trap additionally
 checks the ROM's identity, because other ROMs have perfectly ordinary code at
-that address. When a trap fires it charges a small cycle cost and <code>continue</code>s.</p>
+that address. When a trap fires it charges a small cycle cost and <code>continue</code>s.
+A <code>.tzx</code> or <code>.wav</code> save also samples the tape-out level
+(<code>Emulator::tape_out_level()</code>) at port 0xFE writes, while a tape plays, and at the
+end of the frame; see
+<a href="../03-subsystems/08-media-and-loaders.html">3.8</a>.</p>
 <p><strong>Then <code>step_one_instruction()</code></strong> (<code>:7594</code>), the one shared per-instruction
 body. It picks exactly one of four things to do:</p>
 <ul>

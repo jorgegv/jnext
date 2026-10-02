@@ -3831,11 +3831,18 @@ passes through untranslated. POSIX only.</dd>
 <dd>Real-time tape loading, at the speed of an actual tape, instead of
 fast load.</dd>
 <dt><strong>--tape-save</strong> <em>FILE</em></dt>
-<dd>Append blocks SAVEd through the 48K ROM SA-BYTES routine to <em>FILE</em>
-(<code>.tap</code>). Trap-based: it fires when the ROM save routine at 0x04C2
-runs with ROM paged at slot 0. Without this option no SAVE capture
-happens. Cannot be combined with RZX recording or playback: the trap
-skips the ROM routine, which a recording cannot replay.</dd>
+<dd>Save to tape, appending to <em>FILE</em>; its extension picks the format. A
+<code>.tzx</code> or <code>.wav</code> records the machine’s tape output (the MIC jack),
+so a program’s own saver is captured as well as BASIC <code>SAVE</code>: a
+<code>.tzx</code> holds it as standard (0x10), turbo (0x11) or raw pulse (0x13)
+blocks, a <code>.wav</code> as 8-bit mono 44100 Hz audio. Any other name
+(<code>.tap</code>) captures only blocks SAVEd through the 48K ROM routine. ROM
+saves are instant in all three: a trap at 0x04C2 (with the 48K ROM
+paged at slot 0) takes the block without running the routine. An
+existing file must be of the same format. Also <strong>Tape &gt; Start
+Saving…</strong> in the window. Cannot be combined with RZX recording or
+playback: the trap skips the ROM routine, which a recording cannot
+replay.</dd>
 <dt><strong>--esxdos-stub</strong></dt>
 <dd>Answer a few <code>RST $08</code> esxDOS calls for any program, for the whole
 session: the version query, one in-memory file and <code>run sibling.nex</code>

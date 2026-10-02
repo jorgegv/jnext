@@ -24,8 +24,8 @@ the guest's own driver talks to. Both are called out below.
 | `.szx` | yes | yes | `szx_loader.*`, `szx_saver.*` | Writes only 48K/128K/+3; refuses Next |
 | `.z80` | yes | — | `z80_loader.*` | v1/v2/v3, 48K and 128K |
 | `.tap` | yes | yes | `tap_loader.*`, `tap_saver.*` | Save is a ROM `SA-BYTES` trap |
-| `.tzx` | yes | — | `tzx_loader.*` | Wraps ZOT (`third_party/zot`) |
-| `.wav` | yes | — | `wav_loader.*` | Real-time only, no fast path |
+| `.tzx` | yes | yes | `tzx_loader.*`, `tape_recorder.*` | Read: wraps ZOT (`third_party/zot`). Write: tape-out capture decoded into 0x10/0x11/0x13/0x20 |
+| `.wav` | yes | yes | `wav_loader.*`, `tape_recorder.*` | Read: real-time only, no fast path. Write: the tape-out signal, 8-bit mono 44100 Hz |
 | `.rzx` | yes | yes | `rzx_player.*`, `rzx_recorder.*` | Input recording, not state |
 | raw binary | yes | — | `Emulator::inject_binary` | `--inject` + `--inject-org`/`--inject-pc` |
 
@@ -70,11 +70,40 @@ which has one consequence worth knowing: a custom or turbo loader that never
 enters the ROM routine is never intercepted, and real time is then the only way
 it will load.
 
-Saving works the same way in reverse. `--tape-save` arms `TapSaver`, which
-traps `SA-BYTES` at `0x04C2` and appends a TAP block. That trap is gated on a
-**ROM identity check** as well as on the PC, because other ROMs legitimately
-execute code at `0x04C2` — a plain PC gate fired ten times during an ordinary
-NextZXOS boot.
+Saving works the same way in reverse. `--tape-save` (or Tape ▸ Start Saving,
+both through `Emulator::start_tape_save()`) arms one of two savers by the
+file's extension, and in both the ROM's `SA-BYTES` at `0x04C2` is trapped. That
+trap is gated on a **ROM identity check** as well as on the PC, because other
+ROMs legitimately execute code at `0x04C2` — a plain PC gate fired ten times
+during an ordinary NextZXOS boot.
+
+- **`.tap`** (any name not `.tzx`/`.wav`): `TapSaver` appends the trapped block.
+  Nothing else is captured; a TAP cannot hold an arbitrary signal.
+- **`.tzx` / `.wav`**: `TapeRecorder` (`src/core/tape_recorder.*`) records the
+  **tape-out signal** as timed edges, and the trap hands it trapped blocks as
+  events in the same time-ordered stream. Tape-out is the MIC jack, `o_AUDIO_MIC
+  <= beep_mic_final` (`zxnext.vhd:1638`), with `beep_mic_final = i_AUDIO_EAR xor
+  (port_fe_mic and nr_08_keyboard_issue2) xor port_fe_mic` (`zxnext.vhd:6503`);
+  `Emulator::tape_out_level()` computes it from the same `i_AUDIO_EAR` model the
+  port 0xFE read uses, so with no tape playing it is port 0xFE bit 3, and a tape
+  playing in real time is echoed. It is sampled at each port 0xFE write (a CPU
+  OUT at its bus request edge, a DMA transfer at its place in the burst), while
+  a tape plays at the end of every instruction, and once at the end of every
+  frame, against `Clock::get()`: emulated 28 MHz master cycles, so CPU speed
+  (NR 0x07) changes the pulse lengths exactly as on the board, and a trapped
+  block cannot be double-written, because the trap skips the routine whose
+  pulses would otherwise reach the line. The TZX writer cuts the stream into
+  segments at gaps over 65535 T-states and decodes each: pilot (≥256 equal
+  pulses) + sync + two-class bit pairs becomes 0x10 at the ROM's timings and
+  0x11 otherwise; everything else becomes exact 0x13 pulses and a 0x20 pause.
+  The WAV writer needs no decoding; it synthesises the ROM's pulse train for a
+  trapped block. Nothing is recorded while a rewind replays frames. Unarmed, all
+  of this costs one flag test per port 0xFE write and nothing per instruction:
+  a TZX / WAV save arms the TAP saver's flag too, so the trap test is unchanged.
+  The file survives a kill: trapped blocks are written at once and segments once
+  they go quiet, the last pause WORD patched in place later, the WAV header
+  refreshed, and the file flushed every frame.
+  `doc/design/TAPE-SAVE-PLAN.md` has the rules and their reasons.
 
 **Real-time playback** (`--tape-realtime`) is the honest one. The loader drives
 the EAR bit per T-state and the ROM's own loading routine decodes it, so the
