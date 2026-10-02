@@ -2330,11 +2330,19 @@ Makefile is full of those, and they are where the reasoning actually lives.</p>
 <code>-debug</code> and a <code>-release</code> flavour. Every build variant also has a <code>-run</code> target,
 which builds and then runs, and a <code>-clean</code> target; <code>make clean</code> removes all of
 them along with <code>build/</code>.</p>
+<p><code>gui-release</code> is the binary JNEXT ships and tests, and it is a <strong>PGO build</strong>
+(GH #297): it depends on <code>gui-release-pgo-gen</code>, the instrumented twin, runs the
+training and then compiles <code>build/gui-release</code> with the profile — see
+<a href="02-build-configurations.html#profile-guided-optimisation">5.2</a>.
+<code>gui-release-non-pgo</code> is the same Release build without PGO, in its own tree;
+it is the one to measure code changes with.</p>
 <p>The <code>win-*</code> family cross-compiles Windows executables with the MinGW toolchain.
 <code>win-release</code> is the x64 Qt6 build; <code>win-qt5-release</code> and <code>win32-qt5-release</code>
 are the legacy Qt5 legs, 64- and 32-bit, which keep a lower Windows floor than
 the Qt6 build can offer; and <code>win-sdl-release</code> / <code>win32-sdl-release</code> are
 SDL-only legs used to validate the cross-build rather than to publish anything.
+The three published legs are PGO builds trained under wine; <code>WIN_PGO=0</code> builds
+any of them without, and <code>win-release-non-pgo</code> does that for the x64 one.
 Separately, <code>qt5-guard-build</code> compiles the GUI against native Linux Qt5, purely
 to keep that combination building.</p>
 <h2 id="test">Test<a class="headerlink" href="#test" title="Permanent link">&para;</a></h2>
@@ -2343,7 +2351,10 @@ to keep that combination building.</p>
 them they pull in a set of structural gates as prerequisites —
 <code>lint-assertions</code>, <code>lint-makefile-help</code>, <code>cli-check</code>, <code>docs-check</code>,
 <code>traceability-check</code> and friends — which is deliberate: it puts those checks in
-your inner loop instead of leaving them for CI to discover. Alongside them,
+your inner loop instead of leaving them for CI to discover. <code>make regression</code>
+also runs <code>make fuse-pgo</code>, the FUSE Z80 opcode suite built against the PGO
+tree's CPU core, because <code>build/</code> — where <code>make unit-test</code> runs it — is neither
+the shipped build nor a Release one. Alongside them,
 <code>make harness-selftest</code> proves that the test harness itself fails loudly when
 faults are injected into it, <code>make build-matrix</code> builds every combination of the
 frontend options, <code>make unit-test-sdl</code> runs the declared suites a second time in

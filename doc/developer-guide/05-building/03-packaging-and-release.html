@@ -2342,6 +2342,27 @@ you read it; it is not a replacement for it.</p>
 <em>empty</em> <code>third_party/spdlog</code> directory, which fails CMake configure the moment
 anyone tries to build from it; <code>package-src</code> instead runs
 <code>packaging/make-dist-tarball.sh</code>, which vendors the submodule content properly.</p>
+<p>Every package's <code>jnext</code> is a <strong>PGO build</strong>, the same as <code>make gui-release</code>
+(<a href="02-build-configurations.html#profile-guided-optimisation">5.2</a>): the package
+targets call <code>tools/pgo-build.sh</code>, which configures an instrumented twin of the
+package's tree, trains it and rebuilds the tree with the profile. Each package
+build therefore needs the SD image (provisioned by download when missing), and
+some platforms need more:</p>
+<ul>
+<li>the Windows legs are trained under <strong>wine</strong>, headless only: in a
+  display-less container the Qt exe under wine never terminates after its
+  automatic exit, so the training's GUI run is left out there. No wine is a
+  hard error; <code>WIN_PGO=0</code> (or <code>make win-release-non-pgo</code>) builds without PGO.
+  The repository-internal SDL-only Windows legs are not PGO builds;</li>
+<li>the <strong>Flatpak</strong> trains inside the build sandbox: the distribution zip is a
+  manifest source, jnext's own provisioner turns it into the SD image there,
+  and the FUSE Z80 suite must pass against the PGO-built CPU core before the
+  bundle is installed — the KDE SDK's gcc is the one that miscompiles jnext
+  under LTO, so its output gets that extra check;</li>
+<li><strong>macOS</strong> uses clang's instrumentation (<code>-fprofile-instr-generate</code>, merged
+  with <code>llvm-profdata</code> from Xcode). There a stale profile is an error but a
+  translation unit with no profile at all is not detected per unit.</li>
+</ul>
 <p><code>package-test</code> matters more than its name suggests. It does not merely build
 each package: it then looks inside and checks what is there — that the rpm and
 deb carry <code>bin/jnext</code>, that the source zip carries the vendored submodule, that
