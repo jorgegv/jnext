@@ -658,7 +658,10 @@ the protocols already needed; no new CAP id. **One contract for all of them:**
   a soft reset and an in-place state load — not the host-side mute mask. Built
   as the earliest change cycle kept per rewind slot
   (`RewindBuffer::mark_mutated()` / `replay_crosses_mutation()`), cleared when
-  the slot is re-taken or a restore lands at or before it.
+  the slot is re-taken or a restore lands at or before it. A change also drops
+  the ring's slots past C — an abandoned future left by a rewind or a backwards
+  state load, recorded before C — so neither a Frame Back / slider restore nor
+  a replay can reach a snapshot that predates the change but lies after it.
 
 ### 4.3 Events, breakpoints, conditions — `CAP-EVT`
 

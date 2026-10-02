@@ -3531,7 +3531,14 @@ emulator window redrawn to match. The status bar reports the buffer's size in
 frames and megabytes, and when you are rewound it shows which frame you are on,
 numbered as the slider numbers it. Running forward again from a rewound frame
 discards the frames after it: the slider then ends at the frame you are on.
-Press <strong>F5</strong> to carry on from there.</p>
+So does changing the machine from the debugger while rewound — a memory,
+register or NextREG edit, a script's <code>set</code>, a state load: the frames after it
+were recorded without that change, so they are dropped, and the slider can no
+longer go forward into them. Press <strong>F5</strong> to carry on from there.</p>
+<p>Step Back also refuses a step that would have to replay across a change you
+made from the debugger, because the replay would silently lose it; the window
+does nothing and the log says why. A step back to before the change is
+allowed, and undoes it.</p>
 <p>Step Back is greyed out when the trace log is off, when the buffer is empty,
 and while an RZX recording plays or is being made: a recording replays one
 continuous run, so it cannot follow the machine back in time. If a snapshot ever fails to restore cleanly, JNEXT says so

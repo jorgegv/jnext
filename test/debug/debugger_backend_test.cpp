@@ -5948,6 +5948,132 @@ static void rwm_rows() {
               "got=" + std::to_string(got) + " " + b5_state(*m.dbg));
     }
 
+    // ── The abandoned future (REV-09/10/11) ──────────────────────────────
+    //
+    // After a Frame Back, the ring still holds the slots of the frames after it:
+    // recorded BEFORE any change made now, though later in cycles. A change ends
+    // that future (RewindBuffer::mark_mutated() drops the slots past it), so a
+    // slider move forward finds nothing there and a replay into it is refused.
+    for (int via = 0; via < 2; ++via) {
+        B5VerbMachine m(/*rewind=*/true);
+        m.dbg->set_trace_enabled(true);
+        m.dbg->pause(m.a);
+        m.dbg->run_to_frame(m.a, 2);
+        run_until_paused(m.emu, 4);
+        for (int i = 0; i < 4; ++i) m.dbg->step_into(m.a);
+        const Result   rf     = m.dbg->rewind_to_frame(m.a, 1);
+        const uint32_t newest = m.dbg->rewind_range().newest_frame;   // 2: the old future
+        const uint8_t  v      = 0x5A;
+        m.dbg->poke(m.a, MemSpace::cpu(), 0xC000, 1, &v);
+        const uint32_t after  = m.dbg->rewind_range().newest_frame;
+        const RwmPos   before = rwm_pos(*m.dbg);
+        if (via == 0) {
+            const Result r = m.dbg->rewind_to_frame(m.a, 2);
+            check("RWM-43", "Frame Back to frame 1 with frame 2 still in the ring, a change, "
+                            "then the slider FORWARD to frame 2: frame 2 is gone (the change "
+                            "ended that future), RefusedUnavailable, the byte stands",
+                  rf == Result::Ok && newest == 2 && after == 1 &&
+                      r == Result::RefusedUnavailable && rwm_peek(*m.dbg, 0xC000) == 0x5A &&
+                      rwm_same(rwm_pos(*m.dbg), before),
+                  "newest=" + std::to_string(newest) + "->" + std::to_string(after) + rwm_rc(r) +
+                      " " + b5_state(*m.dbg));
+        } else {
+            const Result r = m.dbg->step_back(m.a, 1);   // the stale trace: a target in old frame 2
+            check("RWM-44", "the same, then Step Back on the trace the Frame Back left (a target "
+                            "in the old frame 2): refused, the byte stands, nothing moved",
+                  rf == Result::Ok && after == 1 && r == Result::RefusedUnavailable &&
+                      rwm_peek(*m.dbg, 0xC000) == 0x5A && rwm_same(rwm_pos(*m.dbg), before),
+                  rwm_rc(r) + " " + b5_state(*m.dbg));
+        }
+    }
+    {
+        // A BACKWARDS state load is a change at the clock it lands on: the slots
+        // after it are the future it abandoned. load_state_bytes() (DZRP
+        // WRITE_STATE) and bookmark_restore() (ZRCP snapshot-load) alike.
+        for (int via = 0; via < 2; ++via) {
+            B5VerbMachine m(/*rewind=*/true);
+            m.dbg->set_trace_enabled(true);
+            m.dbg->pause(m.a);
+            m.dbg->run_to_frame(m.a, 1);
+            run_until_paused(m.emu, 4);
+            m.emu.mmu().write(0xC000, 0x77);
+            Result saved = Result::Ok;
+            std::vector<uint8_t> bytes;
+            if (via == 0) {
+                const auto b = m.dbg->save_state_bytes(m.a, SaveStateMode::AdvanceToBoundary);
+                saved = b.status;
+                bytes = b.value;
+            } else {
+                saved = m.dbg->bookmark_save(m.a, "rwm-back", SaveStateMode::AdvanceToBoundary);
+            }
+            m.emu.mmu().write(0xC000, 0x00);
+            m.dbg->run_to_frame(m.a, 3);
+            run_until_paused(m.emu, 6);
+            for (int i = 0; i < 4; ++i) m.dbg->step_into(m.a);
+            const Result ld = via == 0 ? m.dbg->load_state_bytes(m.a, bytes.data(), bytes.size())
+                                       : m.dbg->bookmark_restore(m.a, "rwm-back");
+            const uint8_t after_load = rwm_peek(*m.dbg, 0xC000);
+            const RwmPos  before     = rwm_pos(*m.dbg);
+            const Result  r          = m.dbg->step_back(m.a, 1);   // the stale trace: old frame 3
+            check(via == 0 ? "RWM-45" : "RWM-46",
+                  via == 0 ? "load_state_bytes() back to frame 2's start from frame 3, then Step "
+                             "Back on the stale trace (old frame 3): refused, the load stands"
+                           : "bookmark_restore() back to frame 2's start from frame 3, then Step "
+                             "Back on the stale trace: refused, the restore stands",
+                  saved == Result::Ok && ld == Result::Ok && after_load == 0x77 &&
+                      r == Result::RefusedUnavailable && rwm_peek(*m.dbg, 0xC000) == 0x77 &&
+                      rwm_same(rwm_pos(*m.dbg), before),
+                  std::string("saved=") + jnext::dbg::result_name(saved) + " ld=" +
+                      jnext::dbg::result_name(ld) + rwm_rc(r) + " byte=" +
+                      hex(rwm_peek(*m.dbg, 0xC000)) + " " + b5_state(*m.dbg));
+        }
+    }
+    {
+        // A load that FAILS changed nothing a rewind could lose: it marks
+        // nothing, so the ring is left whole for the rewind out of the corruption.
+        B5VerbMachine m(/*rewind=*/true);
+        m.dbg->set_trace_enabled(true);
+        m.dbg->pause(m.a);
+        m.dbg->run_to_frame(m.a, 1);
+        run_until_paused(m.emu, 4);
+        const auto b = m.dbg->save_state_bytes(m.a, SaveStateMode::AdvanceToBoundary);  // S2
+        m.dbg->run_to_frame(m.a, 3);
+        run_until_paused(m.emu, 6);
+        const uint32_t newest = m.dbg->rewind_range().newest_frame;
+        std::vector<uint8_t> torn = b.value;
+        if (!torn.empty()) torn.back() ^= 0xFF;   // the last sentinel: the clock has loaded by then
+        const Result   ld    = m.dbg->load_state_bytes(m.a, torn.data(), torn.size());
+        const uint32_t after = m.dbg->rewind_range().newest_frame;
+        const Result   rf    = m.dbg->rewind_to_frame(m.a, 3);
+        check("RWM-47", "a load_state_bytes() that FAILS marks nothing: the ring keeps its "
+                        "newest frame, and Frame Back to it still restores",
+              b.status == Result::Ok && ld == Result::RefusedCorrupt && newest == 3 &&
+                  after == newest && rf == Result::Ok,
+              std::string("ld=") + jnext::dbg::result_name(ld) + " newest=" +
+                  std::to_string(newest) + "->" + std::to_string(after) + " rf=" +
+                  jnext::dbg::result_name(rf));
+    }
+
+    {
+        // The truncation drops only slots PAST the change: a slot that starts
+        // exactly at C (frame 0 begins at c0 with no overshoot) is the change's
+        // own frame start, restored as a pure restore — it stays.
+        B5VerbMachine m(/*rewind=*/true);
+        rwm_steps(m, 2);
+        const Result rf1 = m.dbg->rewind_to_frame(m.a, 0);
+        const bool   at0 = m.dbg->state().cycle == m.c0;
+        const uint8_t v  = 0x5A;
+        m.dbg->poke(m.a, MemSpace::cpu(), 0xC000, 1, &v);   // C == c0 == slot 0's frame_cycle
+        const uint32_t depth = static_cast<uint32_t>(m.dbg->rewind_range().depth);
+        const Result rf2 = m.dbg->rewind_to_frame(m.a, 0);
+        check("RWM-48", "a change at frame 0's restored start (C equal to the slot's own "
+                        "frame_cycle) keeps that slot: Frame Back to it again is Ok",
+              rf1 == Result::Ok && at0 && depth == 1 && rf2 == Result::Ok &&
+                  rwm_peek(*m.dbg, 0xC000) != 0x5A,
+              "depth=" + std::to_string(depth) + " rf2=" + jnext::dbg::result_name(rf2) +
+                  " " + b5_state(*m.dbg));
+    }
+
     // ── In-place machine replacement ─────────────────────────────────────
     {
         // load_state_bytes() and bookmark_restore() put the machine in a state

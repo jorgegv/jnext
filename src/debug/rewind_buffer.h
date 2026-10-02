@@ -51,11 +51,13 @@ public:
     /// exactly when S <= C <= T and T is past the clock S restores — the replay
     /// crosses the change.
     ///
-    /// mark_mutated(C) records C on the slot a replay to C would start from (the
-    /// one restore_nearest() would pick), keeping the EARLIEST such C per slot:
-    /// that slot was taken before the change and cannot carry it. The mark lasts
-    /// as long as the slot (a ring wrap, a re-take, clear()) or until a restore
-    /// lands at or before it (unmark_from()). No-op on an empty ring.
+    /// mark_mutated(C) first DROPS every slot whose frame_cycle is past C — an
+    /// abandoned future, recorded before the change — and then records C on the
+    /// slot a replay to C would start from (the one restore_nearest() would
+    /// pick), keeping the EARLIEST such C per slot: that slot was taken before
+    /// the change and cannot carry it. The mark lasts as long as the slot (a ring
+    /// wrap, a re-take, clear()) or until a restore lands at or before it
+    /// (unmark_from()). No-op on an empty ring.
     void mark_mutated(uint64_t cycle);
 
     /// True iff a replay to `target_cycle` would cross a marked change: it starts

@@ -103,6 +103,11 @@ size_t RewindBuffer::nearest_index(uint64_t target_cycle) const
 
 void RewindBuffer::mark_mutated(uint64_t cycle)
 {
+    // The slots past `cycle` are an abandoned future (left by a rewind, or by a
+    // load that moved the clock back): recorded before this change, so restoring
+    // or replaying from one would drop it. The change ends that future, as the
+    // next take_snapshot() would.
+    while (count_ > 0 && slots_[slot_index(count_ - 1)].frame_cycle > cycle) --count_;
     const size_t idx = nearest_index(cycle);
     if (idx != SIZE_MAX && cycle < slots_[idx].mutated_at) slots_[idx].mutated_at = cycle;
 }
