@@ -846,6 +846,11 @@ void DebuggerWindow::frame_back() {
     debugger_mgr_->on_rewind_to_frame(target);
 }
 
+void DebuggerWindow::show_rewind_refusal(const QString& msg) {
+    rewind_refusal_until_ = QDeadlineTimer(kRewindRefusalMs);
+    statusBar()->showMessage(msg, kRewindRefusalMs);
+}
+
 void DebuggerWindow::update_rewind_ui() {
     jnext::dbg::Debugger* dbg = backend();
     if (!dbg) return;
@@ -880,8 +885,10 @@ void DebuggerWindow::update_rewind_ui() {
         }
     }
 
-    // Status bar indicator
-    if (rr.depth > 0) {
+    // Status bar indicator — not while a rewind refusal is on show.
+    if (!rewind_refusal_until_.hasExpired()) {
+        // keep the refusal (show_rewind_refusal())
+    } else if (rr.depth > 0) {
         // Behind the newest snapshot, or sitting on a restored frame start
         // (the newest's included; REQ-qt-09d): anything else is the live end.
         const bool is_rewound = rewind_position() < rr.newest_frame ||

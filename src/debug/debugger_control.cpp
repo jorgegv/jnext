@@ -21,6 +21,9 @@
 
 #include "debug/debugger_impl.h"
 
+#include <optional>
+#include <string>
+
 #include "debug/disasm.h"
 #include "debug/rewind_buffer.h"
 #include "video/renderer.h"   // Renderer::FB_HEIGHT — the last visible row
@@ -421,7 +424,46 @@ Result rewind_failure(const Emulator& emu, uint64_t gen_before) {
                                                       : Result::RefusedUnavailable;
 }
 
+// WHY a rewind was refused, in a user's words, for every benign refusal
+// (RefusedRzx / RefusedUnavailable). Read from the machine after the refusal:
+// the order is the order the refusal checks run in. `frame` is the
+// rewind_to_frame() target, or empty for a step back.
+std::string rewind_refusal_reason(Emulator& emu, std::optional<uint32_t> frame) {
+    if (emu.rzx_recorder().is_recording())
+        return "an RZX recording is being made — stop it first";
+    if (emu.rzx_player().is_playing())
+        return "an RZX recording is playing — stop it first";
+    const RewindBuffer* rb = emu.rewind_buffer();
+    if (!rb)
+        return "rewind is off — turn on Debug \u25B8 Rewind \u25B8 Enable Rewind and run forward";
+    if (rb->empty())
+        return "the rewind buffer holds no frames yet — run forward first";
+    if (frame) {
+        if (*frame < rb->oldest_frame_num() || *frame > rb->newest_frame_num())
+            return "frame " + std::to_string(*frame) + " is not in the rewind buffer (it holds "
+                   "frames " + std::to_string(rb->oldest_frame_num()) + " to " +
+                   std::to_string(rb->newest_frame_num()) + ")";
+        return "frame " + std::to_string(*frame) + " has no snapshot in the rewind buffer";
+    }
+    if (const auto f = emu.last_rewind_crossing_frame())
+        return "it would undo a change you made from the debugger in frame " +
+               std::to_string(*f) + " — step back to before the change, or use Frame Back";
+    if (!emu.trace_log().enabled())
+        return "the instruction trace is off — turn on Debug \u25B8 Trace \u25B8 Enable Trace "
+               "and run forward";
+    if (emu.trace_log().size() == 0)
+        return "the instruction trace is empty — run forward first";
+    return "the rewind could not be done";
+}
+
 }  // namespace
+
+void Debugger::Impl::explain_rewind_refusal(ClientId by, const std::string& verb,
+                                            const std::string& reason) {
+    self->log(by, LogLevel::Warn,
+              "REWIND REFUSED: " + verb + " refused: " + reason +
+                  ". See the user guide: Debugger \u25B8 Functions \u25B8 Backward execution (rewind)");
+}
 
 Result Debugger::step_back(ClientId by, uint32_t n) {
     if (const Result nested = impl_->refuse_inside_delivery("step_back"); nested != Result::Ok)
@@ -435,12 +477,19 @@ Result Debugger::step_back(ClientId by, uint32_t n) {
         // CTL-09-06). NOT inside `rewind_refusal()`, which `rewind_blocked()`
         // also calls on every greying tick.
         if (refusal == Result::RefusedRzx) impl_->emu.rzx_blocks_rewind("step_back");
+        impl_->explain_rewind_refusal(by, "Step Back",
+                                      rewind_refusal_reason(impl_->emu, std::nullopt));
         return refusal;
     }
 
     const uint64_t gen = impl_->emu.state_error_generation();
-    if (!impl_->emu.step_back(static_cast<int>(n == 0 ? 1 : n)))
-        return rewind_failure(impl_->emu, gen);
+    if (!impl_->emu.step_back(static_cast<int>(n == 0 ? 1 : n))) {
+        const Result r = rewind_failure(impl_->emu, gen);
+        if (r != Result::RefusedCorrupt)
+            impl_->explain_rewind_refusal(by, "Step Back",
+                                          rewind_refusal_reason(impl_->emu, std::nullopt));
+        return r;
+    }
 
     impl_->arm(PauseReason::Kind::Step, by);
     return Result::Ok;
@@ -453,6 +502,8 @@ Result Debugger::rewind_to_frame(ClientId by, uint32_t frame) {
     if (refusal != Result::Ok) {
         // Refused, and said — as step_back() above (row CTL-10-09).
         if (refusal == Result::RefusedRzx) impl_->emu.rzx_blocks_rewind("rewind_to_frame");
+        impl_->explain_rewind_refusal(by, "Rewind to frame " + std::to_string(frame),
+                                      rewind_refusal_reason(impl_->emu, frame));
         return refusal;
     }
 
@@ -462,11 +513,20 @@ Result Debugger::rewind_to_frame(ClientId by, uint32_t frame) {
     // returns — so the range is checked HERE, where the two can still be told
     // apart.
     const RewindBuffer* rb = impl_->emu.rewind_buffer();
-    if (frame < rb->oldest_frame_num() || frame > rb->newest_frame_num())
+    if (frame < rb->oldest_frame_num() || frame > rb->newest_frame_num()) {
+        impl_->explain_rewind_refusal(by, "Rewind to frame " + std::to_string(frame),
+                                      rewind_refusal_reason(impl_->emu, frame));
         return Result::RefusedUnavailable;
+    }
 
     const uint64_t gen = impl_->emu.state_error_generation();
-    if (!impl_->emu.rewind_to_frame(frame)) return rewind_failure(impl_->emu, gen);
+    if (!impl_->emu.rewind_to_frame(frame)) {
+        const Result r = rewind_failure(impl_->emu, gen);
+        if (r != Result::RefusedCorrupt)
+            impl_->explain_rewind_refusal(by, "Rewind to frame " + std::to_string(frame),
+                                          rewind_refusal_reason(impl_->emu, frame));
+        return r;
+    }
 
     impl_->arm(PauseReason::Kind::Step, by);
     return Result::Ok;

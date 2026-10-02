@@ -2272,6 +2272,212 @@ static void test_map_load() {
     }
 }
 
+
+// ── QRF — why a rewind was refused (§4.2a wall, owner request) ───────────────
+//
+// Every benign refusal of Step Back / Frame Back / the slider says why: the
+// backend logs `REWIND REFUSED: <verb> refused: <reason>. See the user guide:
+// …` to every listener, and the debugger window shows it in its status bar
+// for DebuggerWindow::kRewindRefusalMs. Each row asserts BOTH: the window's
+// status text and the line a second client's listener received.
+struct LogCatcher final : jnext::dbg::Listener {
+    std::vector<std::string> lines;
+    void on_paused(const jnext::dbg::PausedInfo&) override {}
+    void on_resumed(jnext::dbg::ClientId) override {}
+    void on_reset(jnext::dbg::ResetKind) override {}
+    void on_frame_ended(uint32_t) override {}
+    void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+    void on_exit_requested(int) override {}
+    void on_log(jnext::dbg::LogLevel, const std::string& t) override { lines.push_back(t); }
+    bool has(const std::string& needle) const {
+        for (const auto& l : lines) if (l.find(needle) != std::string::npos) return true;
+        return false;
+    }
+};
+
+struct RefusalProbe {
+    Fixture&             fx;
+    LogCatcher           log;
+    jnext::dbg::ClientId cid = jnext::dbg::CLIENT_NONE;
+    explicit RefusalProbe(Fixture& f) : fx(f) {
+        jnext::dbg::ClientInfo ci;
+        ci.name     = "qrf";
+        ci.observer = true;
+        cid = fx.backend->attach(ci).value;
+        fx.backend->set_listener(cid, &log);
+    }
+    ~RefusalProbe() {
+        fx.backend->set_listener(cid, nullptr);
+        fx.backend->detach(cid);
+    }
+    QString status() const { return status_of(fx.dbg()); }
+    /// The window shows `want`, and the log line carries it after the tag.
+    bool shows(const QString& want) const {
+        return status().startsWith(want) &&
+               status().contains(QStringLiteral("See the user guide: Debugger ▸ Functions "
+                                                "▸ Backward execution (rewind)")) &&
+               log.has("REWIND REFUSED: " + s(want));
+    }
+    std::string detail() const {
+        return "status='" + s(status()) + "' log=" + std::to_string(log.lines.size()) +
+               (log.lines.empty() ? std::string() : " last='" + log.lines.back() + "'");
+    }
+};
+
+static void test_rewind_refusal_ui() {
+    set_group("QRF");
+    {
+        Fixture fx(MachineType::ZX48K, 0);   // no ring at all
+        const char* desc = "Step Back with rewind off: the status bar and the log say "
+                           "\"Step Back refused: rewind is off\"";
+        if (!fx.ok) { check("QRF-01", desc, false, "fixture"); }
+        else {
+            fx.enable();
+            RefusalProbe p(fx);
+            fx.mgr->on_step_back();
+            check("QRF-01", desc,
+                  p.shows(QStringLiteral("Step Back refused: rewind is off")), p.detail());
+        }
+    }
+    {
+        Fixture fx(MachineType::ZX48K, 10);  // a ring, no frame run yet
+        const char* desc = "Step Back with an empty ring: \"…the rewind buffer holds no "
+                           "frames yet\"";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QRF-02", desc, false, "fixture"); }
+        else {
+            fx.enable();
+            RefusalProbe p(fx);
+            fx.mgr->on_step_back();
+            check("QRF-02", desc,
+                  fx.emu.rewind_buffer()->empty() &&
+                      p.shows(QStringLiteral("Step Back refused: the rewind buffer holds no frames yet")),
+                  p.detail());
+        }
+    }
+    {
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "Step Back with the trace off: \"…the instruction trace is off\"";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QRF-03", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 4);
+            fx.emu.trace_log().set_enabled(false);
+            RefusalProbe p(fx);
+            fx.mgr->on_step_back();
+            check("QRF-03", desc,
+                  p.shows(QStringLiteral("Step Back refused: the instruction trace is off")),
+                  p.detail());
+        }
+    }
+    {
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "Step Back with an empty trace: \"…the instruction trace is empty\"";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QRF-04", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 4);
+            fx.emu.trace_log().clear();
+            RefusalProbe p(fx);
+            fx.mgr->on_step_back();
+            check("QRF-04", desc,
+                  p.shows(QStringLiteral("Step Back refused: the instruction trace is empty")),
+                  p.detail());
+        }
+    }
+    {
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "Step Back while an RZX plays: \"…an RZX recording is playing\"";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QRF-05", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 4);
+            fx.emu.rzx_player().start(RzxRecording{});
+            RefusalProbe p(fx);
+            fx.mgr->on_step_back();
+            check("QRF-05", desc,
+                  p.shows(QStringLiteral("Step Back refused: an RZX recording is playing")),
+                  p.detail());
+            fx.emu.rzx_player().stop();
+        }
+    }
+    {
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "Frame Back while an RZX is being recorded: \"Rewind to frame N "
+                           "refused: an RZX recording is being made\"";
+        if (!fx.ok || !fx.emu.rewind_buffer() || !g_tmp) { check("QRF-09", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 4);
+            const uint32_t f = fx.emu.rewind_buffer()->oldest_frame_num();
+            const bool rec = fx.emu.rzx_recorder().start(
+                g_tmp->filePath(QStringLiteral("qrf-09.rzx")).toStdString());
+            RefusalProbe p(fx);
+            fx.mgr->on_rewind_to_frame(f);
+            const QString want = QStringLiteral("Rewind to frame %1 refused: an RZX recording "
+                                                "is being made").arg(f);
+            check("QRF-09", desc, rec && p.shows(want), p.detail());
+            fx.emu.rzx_recorder().stop();
+        }
+    }
+    {
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "the slider / Frame Back to a frame outside the ring: "
+                           "\"Rewind to frame N refused: frame N is not in the rewind buffer\"";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QRF-06", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 4);
+            const uint32_t f = fx.emu.rewind_buffer()->newest_frame_num() + 50;
+            RefusalProbe p(fx);
+            fx.mgr->on_rewind_to_frame(f);
+            const QString want = QStringLiteral("Rewind to frame %1 refused: frame %1 is not in "
+                                                "the rewind buffer").arg(f);
+            check("QRF-06", desc, p.shows(want), p.detail());
+        }
+    }
+    {
+        // The wall: a change at C mid-frame, two steps, Step Back past C.
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "Step Back across a debugger change: \"Step Back refused: it would "
+                           "undo a change you made from the debugger in frame N — step back to "
+                           "before the change, or use Frame Back\"";
+        if (!fx.ok || !fx.emu.rewind_buffer()) {
+            check("QRF-07", desc, false, "fixture");
+            check("QRF-08", "the refusal holds the status bar", false, "fixture");
+        } else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 4);
+            fx.mgr->on_step_into();
+            fx.mgr->on_step_into();
+            RefusalProbe p(fx);
+            const uint32_t frame = fx.backend->time().frame;
+            const uint8_t  v     = 0x5A;
+            fx.backend->poke(p.cid, jnext::dbg::MemSpace::cpu(), 0xC000, 1, &v);
+            fx.mgr->on_step_into();
+            fx.mgr->on_step_into();
+            const uint16_t pc0 = fx.pc();
+            fx.mgr->on_step_back();
+            const QString want = QStringLiteral("Step Back refused: it would undo a change you "
+                                                "made from the debugger in frame %1 — step "
+                                                "back to before the change, or use Frame Back")
+                                     .arg(frame);
+            check("QRF-07", desc, p.shows(want) && fx.pc() == pc0, p.detail());
+            // The rewind status line is refreshed on every tick; it must not
+            // overwrite the refusal while it is on show.
+            fx.dbg()->refresh_panels();
+            check("QRF-08", "a panel refresh (the rewind status line) does not overwrite "
+                            "the refusal while it is on show",
+                  status_of(fx.dbg()).startsWith(want), p.detail());
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     // The MAP and trace rows drive the REAL QFileDialog. A desktop platform
@@ -2298,6 +2504,7 @@ int main(int argc, char** argv) {
     test_throttle();
     test_enable_seeds();
     test_rewind_ui();
+    test_rewind_refusal_ui();
     test_trace_ui();
     test_map_load();
 

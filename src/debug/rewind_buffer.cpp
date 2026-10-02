@@ -112,11 +112,13 @@ void RewindBuffer::mark_mutated(uint64_t cycle)
     if (idx != SIZE_MAX && cycle < slots_[idx].mutated_at) slots_[idx].mutated_at = cycle;
 }
 
-bool RewindBuffer::replay_crosses_mutation(uint64_t target_cycle) const
+bool RewindBuffer::replay_crosses_mutation(uint64_t target_cycle, uint32_t* frame) const
 {
     const size_t idx = nearest_index(target_cycle);
-    return idx != SIZE_MAX && target_cycle > slots_[idx].clock &&
-           target_cycle >= slots_[idx].mutated_at;
+    const bool crosses = idx != SIZE_MAX && target_cycle > slots_[idx].clock &&
+                         target_cycle >= slots_[idx].mutated_at;
+    if (crosses && frame) *frame = slots_[idx].frame_num;
+    return crosses;
 }
 
 void RewindBuffer::unmark_from(uint64_t landing_cycle)

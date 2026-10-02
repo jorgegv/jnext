@@ -65,8 +65,9 @@ public:
     /// restores — a frame's first instruction boundary can sit a few cycles past
     /// its nominal frame_cycle — so a pure restore is never refused) and reaches
     /// the change (target >= its cycle). A target before the change precedes it,
-    /// as any rewind precedes what came after it.
-    bool replay_crosses_mutation(uint64_t target_cycle) const;
+    /// as any rewind precedes what came after it. On true, `frame` (if given)
+    /// receives the frame tag of the slot whose span holds the change.
+    bool replay_crosses_mutation(uint64_t target_cycle, uint32_t* frame = nullptr) const;
 
     /// A restore landed at `landing_cycle`: the mark on the slot it restored from
     /// describes changes at or after the landing, which the restore undid.

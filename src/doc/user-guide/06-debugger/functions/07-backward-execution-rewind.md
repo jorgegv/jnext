@@ -33,9 +33,28 @@ were recorded without that change, so they are dropped, and the slider can no
 longer go forward into them. Press **F5** to carry on from there.
 
 Step Back also refuses a step that would have to replay across a change you
-made from the debugger, because the replay would silently lose it; the window
-does nothing and the log says why. A step back to before the change is
-allowed, and undoes it.
+made from the debugger, because the replay would silently lose it. A step back
+to before the change is allowed, and undoes it.
+
+### When a rewind is refused
+
+When Step Back, Frame Back or the slider cannot do what you asked, the debugger
+window's status bar says why for ten seconds, and the same line goes to the
+log, for example:
+
+```
+Step Back refused: it would undo a change you made from the debugger in frame 12 — step back to before the change, or use Frame Back. See the user guide: Debugger ▸ Functions ▸ Backward execution (rewind)
+```
+
+| The message says | What to do |
+|---|---|
+| rewind is off | Turn on **Debug ▸ Rewind ▸ Enable Rewind**, then run forward |
+| the rewind buffer holds no frames yet | Run forward first: there is nothing recorded to go back to |
+| the instruction trace is off | Turn on **Debug ▸ Trace ▸ Enable Trace**, then run forward |
+| the instruction trace is empty | Run forward first |
+| an RZX recording is being made / is playing | Stop the recording or the playback |
+| frame N is not in the rewind buffer | Pick a frame inside the slider's range |
+| it would undo a change you made from the debugger in frame N | Step back to before the change, or use Frame Back to the start of that frame (both undo the change), or carry on forward |
 
 Step Back is greyed out when the trace log is off, when the buffer is empty,
 and while an RZX recording plays or is being made: a recording replays one

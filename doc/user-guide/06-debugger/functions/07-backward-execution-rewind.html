@@ -2365,6 +2365,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backward execution (rewind)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="07-backward-execution-rewind.html" class="md-nav__link md-nav__link--active">
         
   
@@ -2381,6 +2399,36 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-rewind-is-refused" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a rewind is refused
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -3536,9 +3584,52 @@ register or NextREG edit, a script's <code>set</code>, a state load: the frames 
 were recorded without that change, so they are dropped, and the slider can no
 longer go forward into them. Press <strong>F5</strong> to carry on from there.</p>
 <p>Step Back also refuses a step that would have to replay across a change you
-made from the debugger, because the replay would silently lose it; the window
-does nothing and the log says why. A step back to before the change is
-allowed, and undoes it.</p>
+made from the debugger, because the replay would silently lose it. A step back
+to before the change is allowed, and undoes it.</p>
+<h3 id="when-a-rewind-is-refused">When a rewind is refused<a class="headerlink" href="#when-a-rewind-is-refused" title="Permanent link">&para;</a></h3>
+<p>When Step Back, Frame Back or the slider cannot do what you asked, the debugger
+window's status bar says why for ten seconds, and the same line goes to the
+log, for example:</p>
+<pre><code>Step Back refused: it would undo a change you made from the debugger in frame 12 — step back to before the change, or use Frame Back. See the user guide: Debugger ▸ Functions ▸ Backward execution (rewind)
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>The message says</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>rewind is off</td>
+<td>Turn on <strong>Debug ▸ Rewind ▸ Enable Rewind</strong>, then run forward</td>
+</tr>
+<tr>
+<td>the rewind buffer holds no frames yet</td>
+<td>Run forward first: there is nothing recorded to go back to</td>
+</tr>
+<tr>
+<td>the instruction trace is off</td>
+<td>Turn on <strong>Debug ▸ Trace ▸ Enable Trace</strong>, then run forward</td>
+</tr>
+<tr>
+<td>the instruction trace is empty</td>
+<td>Run forward first</td>
+</tr>
+<tr>
+<td>an RZX recording is being made / is playing</td>
+<td>Stop the recording or the playback</td>
+</tr>
+<tr>
+<td>frame N is not in the rewind buffer</td>
+<td>Pick a frame inside the slider's range</td>
+</tr>
+<tr>
+<td>it would undo a change you made from the debugger in frame N</td>
+<td>Step back to before the change, or use Frame Back to the start of that frame (both undo the change), or carry on forward</td>
+</tr>
+</tbody>
+</table>
 <p>Step Back is greyed out when the trace log is off, when the buffer is empty,
 and while an RZX recording plays or is being made: a recording replays one
 continuous run, so it cannot follow the machine back in time. If a snapshot ever fails to restore cleanly, JNEXT says so

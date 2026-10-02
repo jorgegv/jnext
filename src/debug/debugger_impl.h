@@ -138,6 +138,13 @@ struct Debugger::Impl {
     /// would cross it (`RewindBuffer::replay_crosses_mutation()`).
     void note_mutation();
 
+    /// Tell every client WHY a rewind verb was refused (a benign refusal:
+    /// RefusedRzx / RefusedUnavailable), as one SES-06 warning:
+    /// `REWIND REFUSED: <verb> refused: <reason>. See the user guide: …`. The
+    /// `Result` alone cannot say which of its causes it was; this line can, and
+    /// the Qt debugger shows it in its status bar.
+    void explain_rewind_refusal(ClientId by, const std::string& verb, const std::string& reason);
+
     /// ST-03 / CTL-09 / CTL-10 — the target-independent refusals (RZX, an empty
     /// ring), or `Ok`. ONE predicate: `rewind_blocked()` greys the control with it
     /// and both rewind verbs gate on it. The target-dependent ones — no trace

@@ -13419,18 +13419,21 @@ bool Emulator::rzx_blocks_rewind(const char* what) const
     return true;
 }
 
-void Emulator::log_rewind_into_mutation_(const char* what, uint64_t target_cycle) const
+void Emulator::refuse_rewind_into_mutation_(const char* what, uint64_t target_cycle,
+                                            uint32_t frame)
 {
+    rewind_crossing_frame_ = frame;
     Log::emulator()->error(
-        "{}: refused — the replay to target cycle {} would cross a debugger change made "
-        "after its rewind snapshot was taken, and would drop it "
-        "(DEBUG-SUBSYSTEM-ARCHITECTURE.md §4.2a); rewind to before the change, or to "
-        "a frame start, instead",
-        what, target_cycle);
+        "{}: refused — it would undo a change you made from the debugger in frame {} "
+        "(replaying to cycle {} cannot reproduce it). Step back to before the change, "
+        "or use Frame Back. See the user guide: Debugger \u25B8 Functions \u25B8 "
+        "Backward execution (rewind)",
+        what, frame, target_cycle);
 }
 
 uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
 {
+    rewind_crossing_frame_.reset();
     if (rzx_blocks_rewind("rewind_to_cycle")) return UINT64_MAX;
     if (!rewind_buffer_ || rewind_buffer_->empty()) {
         Log::emulator()->warn("rewind_to_cycle: rewind buffer is empty or disabled");
@@ -13439,8 +13442,8 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
 
     // §4.2a's rewind wall — refused BEFORE anything is restored, so the machine
     // (and any debugger mutation in it) is left exactly as it was.
-    if (rewind_buffer_->replay_crosses_mutation(target_cycle)) {
-        log_rewind_into_mutation_("rewind_to_cycle", target_cycle);
+    if (uint32_t f = 0; rewind_buffer_->replay_crosses_mutation(target_cycle, &f)) {
+        refuse_rewind_into_mutation_("rewind_to_cycle", target_cycle, f);
         debug_state_.pause();   // ends a RUN_BACK_TO_CYCLE request; the caller was paused
         return UINT64_MAX;
     }
@@ -13515,6 +13518,7 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
 bool Emulator::step_back(int n)
 {
     if (n <= 0) n = 1;
+    rewind_crossing_frame_.reset();
     if (rzx_blocks_rewind("step_back")) return false;
 
     if (!rewind_buffer_ || rewind_buffer_->empty()) {
@@ -13561,8 +13565,8 @@ bool Emulator::step_back(int n)
 
     // §4.2a's rewind wall, checked BEFORE the trace is cleared: a refused step
     // leaves the trace, the machine and the mutation untouched.
-    if (rewind_buffer_->replay_crosses_mutation(target_cycle)) {
-        log_rewind_into_mutation_("step_back", target_cycle);
+    if (uint32_t f = 0; rewind_buffer_->replay_crosses_mutation(target_cycle, &f)) {
+        refuse_rewind_into_mutation_("step_back", target_cycle, f);
         return false;
     }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QDeadlineTimer>
 #include <QMainWindow>
 #include <QSettings>
 #include "debug/debug_keymap.h"
@@ -39,6 +40,12 @@ public:
     explicit DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent = nullptr);
 
     void refresh_panels();
+
+    /// Show why a rewind (Step Back, Frame Back, the slider) was refused, in
+    /// this window's status bar, for kRewindRefusalMs; the rewind status line
+    /// update_rewind_ui() keeps there does not overwrite it meanwhile.
+    void show_rewind_refusal(const QString& msg);
+    static constexpr int kRewindRefusalMs = 10000;
 
     /// Wire up the debugger manager and create menus/toolbar.
     void set_debugger_manager(DebuggerManager* mgr);
@@ -247,6 +254,9 @@ private:
     QLabel*   rewind_frame_label_ = nullptr;
     QPushButton* rewind_jump_btn_ = nullptr;
     bool      rewind_slider_dragging_ = false;
+    /// While a rewind refusal is on show (show_rewind_refusal()), the rewind
+    /// status line leaves the status bar alone.
+    QDeadlineTimer rewind_refusal_until_{0};
 
     // Frame count used by the live Enable Rewind toggle (Task 27 A1b).
     // Remembers the last size applied via the Rewind Buffer Size... dialog
