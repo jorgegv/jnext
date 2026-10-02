@@ -92,6 +92,7 @@ static std::string dstr(const std::vector<Diagnostic>& ds) {
 /// trail with the engine host's exits so their ORDER can be asserted.
 struct Sink : jnext::dbg::Listener {
     std::vector<std::string>             lines;
+    std::vector<jnext::dbg::LogLevel>    levels;   ///< parallel to `lines`
     std::vector<int>                     exits;
     std::vector<jnext::dbg::PausedInfo>  paused;
     size_t                               subs_changed = 0;
@@ -106,7 +107,17 @@ struct Sink : jnext::dbg::Listener {
         exits.push_back(code);
         if (order) order->push_back("notify" + std::to_string(code));
     }
-    void on_log(jnext::dbg::LogLevel, const std::string& t) override { lines.push_back(t); }
+    void on_log(jnext::dbg::LogLevel lv, const std::string& t) override {
+        lines.push_back(t);
+        levels.push_back(lv);
+    }
+    /// Lines holding `needle` logged at level `lv`.
+    size_t count_at(const std::string& needle, jnext::dbg::LogLevel lv) const {
+        size_t n = 0;
+        for (size_t i = 0; i < lines.size(); ++i)
+            if (levels[i] == lv && lines[i].find(needle) != std::string::npos) ++n;
+        return n;
+    }
 
     size_t count(const std::string& needle) const {
         size_t n = 0;
@@ -2096,7 +2107,10 @@ static void exit_rows() {
         // no longer prints a warning contradicting its verdict.
         const std::string warn = "STOP under StopPolicy::ExitNonZero — requesting exit 3";
         const std::string info = "STOP under StopPolicy::ExitNonZero — asking the loop owner to exit";
-        struct Got { int code = -1; size_t warns = 0, infos = 0; bool ok = false; };
+        using jnext::dbg::LogLevel;
+        // Every line at Warn in the run, whatever its text: a passing run must
+        // have none (the user-visible symptom was a `[warning]` on `exit 0`).
+        struct Got { int code = -1; size_t warns = 0, infos = 0, any_warn = 0, info_as_warn = 0; bool ok = false; };
         auto go = [&](const char* text) {
             Got r;
             HostRig g(kWriter);
@@ -2105,17 +2119,27 @@ static void exit_rows() {
             r.ok = g.start(o);
             g.run(8);
             r.code  = g.host->exit_requested() ? g.host->exit_code() : -1;
-            r.warns = g.sink.count(warn);
-            r.infos = g.sink.count(info);
+            r.warns        = g.sink.count_at(warn, LogLevel::Warn);
+            r.infos        = g.sink.count_at(info, LogLevel::Info);
+            r.info_as_warn = g.sink.count(info) - r.infos;
+            for (LogLevel lv : g.sink.levels) r.any_warn += lv == LogLevel::Warn;
             return r;
         };
         const Got p = go("on write 0x9000 do exit 0 end\n");
         const Got e = go("on write 0x9000 do exit 7 end\n");
         const Got t = go("on write 0x9000 do stop \"s\" end\n");
-        check("SCRIPT-HOST-STOP-WARNING", "a script `exit 0` or `exit 7` run logs no `requesting exit 3` warning "
-                                          "(only the backend's neutral line); a real `stop` still logs it, once",
-              p.ok && e.ok && t.ok && p.code == 0 && e.code == 7 && t.code == 3 && p.warns == 0 && e.warns == 0 &&
-                  p.infos == 1 && t.warns == 1 && t.infos == 1,
+        // Two stops still request ONE exit: one warning. The write is
+        // delivered after LD (0x9000),A and the execute before the next
+        // instruction — two deliveries, two exit requests, at one boundary.
+        const Got two = go("on write 0x9000 do stop \"a\" end\non execute 0x8005 do stop \"b\" end\n");
+        check("SCRIPT-HOST-STOP-WARNING", "a script `exit 0` or `exit 7` run logs NO line at warning level — the "
+                                          "backend's neutral `asking the loop owner to exit` is at info; a real "
+                                          "`stop` logs `requesting exit 3` at WARNING, once, even for two stops "
+                                          "at one boundary",
+              p.ok && e.ok && t.ok && two.ok && p.code == 0 && e.code == 7 && t.code == 3 && two.code == 3 &&
+                  p.any_warn == 0 && e.any_warn == 0 && p.warns == 0 && e.warns == 0 && p.infos == 1 &&
+                  e.infos == 1 && t.infos == 1 && t.warns == 1 && two.warns == 1 && p.info_as_warn == 0 &&
+                  t.info_as_warn == 0,
               std::to_string(p.code) + "/" + std::to_string(e.code) + "/" + std::to_string(t.code) + " warns " +
                   std::to_string(p.warns) + "/" + std::to_string(e.warns) + "/" + std::to_string(t.warns) +
                   " infos " + std::to_string(p.infos) + "/" + std::to_string(t.infos));
