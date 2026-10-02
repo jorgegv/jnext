@@ -610,6 +610,7 @@ public:
     // -----------------------------------------------------------------------
 
     Clock&        clock()     { return clock_; }
+    const Clock&  clock() const { return clock_; }
     Scheduler&    scheduler() { return scheduler_; }
     Ram&          ram()       { return ram_; }
     Mmu&          mmu()       { return mmu_; }
@@ -1066,13 +1067,13 @@ public:
     /// Returns the cycle actually reached (may differ if the trace doesn't
     /// contain target_cycle exactly — lands on the nearest instruction boundary).
     /// Returns UINT64_MAX if the rewind buffer is empty or disabled, or if the
-    /// target lies in a mutated span (RewindBuffer::replay_crosses_mutation(),
+    /// replay would cross a debugger change (RewindBuffer::replay_crosses_mutation(),
     /// §4.2a) — refused, logged, nothing restored, and the debugger paused.
     uint64_t rewind_to_cycle(uint64_t target_cycle);
 
     /// Step back N instructions using the TraceLog for target-cycle lookup.
     /// Requires TraceLog to be enabled.  Returns true on success; false, with
-    /// nothing changed, for a target in a mutated span (§4.2a).
+    /// nothing changed, when the replay would cross a debugger change (§4.2a).
     bool step_back(int n = 1);
 
     /// Rewind to the start of frame frame_num (must be in the rewind buffer).

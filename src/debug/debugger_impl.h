@@ -130,18 +130,19 @@ struct Debugger::Impl {
     void log_mutate_range(ClientId by, const std::string& what,
                           const std::string& detail);
 
-    /// §4.2a's rewind wall, the recording half: a §4.2a write (register, memory,
-    /// MMU slot, NextREG, port out, sprite, pattern, palette, border) made while a
-    /// frame is in progress taints the rewind slot that frame replays from, which
-    /// predates the write; `Emulator::step_back()` / `rewind_to_cycle()` then
-    /// refuse a target inside that span. Between frames nothing is tainted: the
-    /// next frame's snapshot is taken after the write and carries it.
+    /// §4.2a's rewind wall, the recording half: a debugger change of guest state
+    /// a replay would not reproduce — every §4.2a write, `port_in`, input
+    /// injection, a soft reset, an in-place state load — records the current
+    /// cycle on the rewind slot a replay to it would start from;
+    /// `Emulator::step_back()` / `rewind_to_cycle()` then refuse a replay that
+    /// would cross it (`RewindBuffer::replay_crosses_mutation()`).
     void note_mutation();
 
-    /// ST-03 / CTL-09 / CTL-10 — why a rewind would be refused right now, or
-    /// `Ok` if it would not. ONE predicate: `rewind_blocked()` greys the control
-    /// with it and both rewind verbs gate on it, so what the UI shows and what
-    /// the verb does cannot disagree (which is the whole point of ST-03).
+    /// ST-03 / CTL-09 / CTL-10 — the target-independent refusals (RZX, an empty
+    /// ring), or `Ok`. ONE predicate: `rewind_blocked()` greys the control with it
+    /// and both rewind verbs gate on it. The target-dependent ones — no trace
+    /// entry, a replay crossing a debugger change (§4.2a) — come from the
+    /// `Emulator` when the verb runs.
     Result rewind_refusal() const;
 
     // ── B2 (§4.3 CAP-EVT) — the event machinery ─────────────────────────────

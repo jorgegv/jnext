@@ -399,8 +399,9 @@ public:
 
     /// CTL-09 / ST-04 — step back `n` instructions. SYNCHRONOUS.
     /// `RefusedRzx` (an RZX is recording or playing), `RefusedUnavailable`
-    /// (empty buffer, or a target inside a span a debugger mutation touched —
-    /// §4.2a) and `RefusedCorrupt` are distinguished.
+    /// (empty buffer, or a replay to the target that would cross a debugger
+    /// change made after its snapshot — §4.2a) and `RefusedCorrupt` are
+    /// distinguished.
     Result step_back(ClientId by, uint32_t n);
 
     /// CTL-10 / ST-04 — rewind to the start of frame `frame`. SYNCHRONOUS, same
@@ -877,7 +878,9 @@ public:
     RewindRange rewind_range() const;
 
     /// ST-03 — why a rewind would be refused right now, for PRE-CLICK greying:
-    /// the same `Result` the verb would return, or empty if it would succeed.
+    /// RZX or an empty ring, or empty. Not every refusal: one that depends on the
+    /// target (a trace with no entry for it, a replay crossing a debugger change,
+    /// §4.2a) is only known when the verb runs.
     std::optional<Result> rewind_blocked() const;
 
     /// ST-03 — resize the ring, in frames. `0` frees it.

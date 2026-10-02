@@ -503,8 +503,9 @@ void DebuggerManager::on_step_back() {
     // CTL-09 — the three outcomes are the backend's: Ok (the machine is one
     // instruction back, paused), a benign refusal — RefusedRzx (an RZX is
     // recording or playing) or RefusedUnavailable (empty buffer, trace off or
-    // empty) — which is silent, as it always was, and RefusedCorrupt (the
-    // restore tore the machine), which is the only one that warns.
+    // empty, or a replay that would cross a debugger change, §4.2a — the log
+    // says which) — which is silent here, and RefusedCorrupt (the restore tore
+    // the machine), which is the only one that warns.
     const jnext::dbg::Result r = dbg_.step_back(client_, 1);
     if (r == jnext::dbg::Result::RefusedCorrupt) {
         warn_state_corrupt(QObject::tr("Step Back"));

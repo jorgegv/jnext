@@ -97,10 +97,7 @@ constexpr uint32_t PAGE_BYTES = 0x2000;
 }  // namespace
 
 void Debugger::Impl::note_mutation() {
-    RewindBuffer* rb = emu.rewind_buffer();
-    if (!rb) return;
-    if (!emu.frame_in_progress() && emu.rewind_enabled()) return;
-    rb->mark_mutated(emu.clock().get());
+    if (RewindBuffer* rb = emu.rewind_buffer()) rb->mark_mutated(emu.clock().get());
 }
 
 // ---------------------------------------------------------------------------
@@ -499,6 +496,7 @@ Expected<uint8_t> Debugger::port_in(ClientId by, uint16_t port) {
     char what[24];
     std::snprintf(what, sizeof(what), "port in 0x%04X", port);
     impl_->log_mutate(by, what, v, v);
+    impl_->note_mutation();   // the read's side effects are the change (§4.2a wall)
     return make_ok<uint8_t>(v);
 }
 

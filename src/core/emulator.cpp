@@ -9452,7 +9452,9 @@ void Emulator::run_frame()
     // Qt window closed (§4.1; row SES-05-17).
     if (debug_state_.attached() && !replay_mode_) {
         if (debug_state_.step_mode() == StepMode::STEP_BACK) {
-            step_back(debug_state_.step_back_count());
+            // A refused or failed step back (logged by step_back()) ends the
+            // request: retried every frame it would log forever.
+            if (!step_back(debug_state_.step_back_count())) debug_state_.pause();
             return;
         }
         if (debug_state_.step_mode() == StepMode::RUN_BACK_TO_CYCLE) {
@@ -13305,10 +13307,10 @@ bool Emulator::rzx_blocks_rewind(const char* what) const
 void Emulator::log_rewind_into_mutation_(const char* what, uint64_t target_cycle) const
 {
     Log::emulator()->error(
-        "{}: refused — target cycle {} lies in a frame a debugger write changed after "
-        "its rewind snapshot was taken, and the replay would drop that change "
-        "(DEBUG-SUBSYSTEM-ARCHITECTURE.md §4.2a); rewind to the frame's start, or to "
-        "a later frame, instead",
+        "{}: refused — the replay to target cycle {} would cross a debugger change made "
+        "after its rewind snapshot was taken, and would drop it "
+        "(DEBUG-SUBSYSTEM-ARCHITECTURE.md §4.2a); rewind to before the change, or to "
+        "a frame start, instead",
         what, target_cycle);
 }
 
@@ -13389,6 +13391,7 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
     uint64_t reached = clock_.get();
     Log::emulator()->debug("rewind_to_cycle: reached cycle {} after {} replay frames",
                             reached, frames);
+    rewind_buffer_->unmark_from(reached);   // §4.2a: changes after the landing are undone
     return reached;
 }
 
@@ -13505,6 +13508,7 @@ bool Emulator::rewind_to_frame(uint32_t target_frame_num)
         return false;
     }
     restored_frame_start_ = true;   // GH #278: sits on a counted frame start
+    rewind_buffer_->unmark_from(snap);   // §4.2a: changes after the landing are undone
 
     // Re-render so the main window framebuffer reflects the restored state.
     renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,

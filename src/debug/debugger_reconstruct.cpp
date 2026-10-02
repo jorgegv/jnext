@@ -501,6 +501,9 @@ Result Debugger::load(ClientId by, const std::string& path) {
                                       (reconstructed ? " (cold boot)" : ""))
                                    : ("load FAILED \"" + path + "\""));
 
+    // §4.2a wall: a load that kept the ring replaced the machine in place, which
+    // no replay from the ring reproduces. (A cold boot builds a new, empty ring.)
+    if (loaded) impl_->note_mutation();
     if (reconstructed) impl_->notify_reset(ResetKind::Hard);
     return loaded ? Result::Ok : Result::RefusedUnavailable;
 }

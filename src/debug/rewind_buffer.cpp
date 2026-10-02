@@ -78,7 +78,8 @@ void RewindBuffer::take_snapshot(const Emulator& emu, uint64_t frame_cycle, uint
     // Publish the slot only after a size-exact write.
     s.frame_cycle = frame_cycle;
     s.frame_num   = frame_num;
-    s.mutated     = false;   // a fresh snapshot carries every mutation made so far
+    s.clock       = emu.clock().get();
+    s.mutated_at  = UINT64_MAX;   // a fresh snapshot carries every change made so far
     if (full) {
         head_ = (head_ + 1) % slots_.size();
     } else {
@@ -103,13 +104,21 @@ size_t RewindBuffer::nearest_index(uint64_t target_cycle) const
 void RewindBuffer::mark_mutated(uint64_t cycle)
 {
     const size_t idx = nearest_index(cycle);
-    if (idx != SIZE_MAX) slots_[idx].mutated = true;
+    if (idx != SIZE_MAX && cycle < slots_[idx].mutated_at) slots_[idx].mutated_at = cycle;
 }
 
 bool RewindBuffer::replay_crosses_mutation(uint64_t target_cycle) const
 {
     const size_t idx = nearest_index(target_cycle);
-    return idx != SIZE_MAX && slots_[idx].mutated && target_cycle > slots_[idx].frame_cycle;
+    return idx != SIZE_MAX && target_cycle > slots_[idx].clock &&
+           target_cycle >= slots_[idx].mutated_at;
+}
+
+void RewindBuffer::unmark_from(uint64_t landing_cycle)
+{
+    const size_t idx = nearest_index(landing_cycle);
+    if (idx != SIZE_MAX && slots_[idx].mutated_at >= landing_cycle)
+        slots_[idx].mutated_at = UINT64_MAX;
 }
 
 uint64_t RewindBuffer::restore_nearest(uint64_t target_cycle, Emulator& emu) const

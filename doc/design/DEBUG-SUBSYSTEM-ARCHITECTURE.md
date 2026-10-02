@@ -645,6 +645,20 @@ the protocols already needed; no new CAP id. **One contract for all of them:**
   `rewind_to_cycle` into a mutated span with `RefusedUnavailable`; a
   frame-boundary target is always fine. Script mutation + intra-frame rewind
   replay is a stated wall, not a promise (design-dsl §4).
+  **Refined 2026-10-02 (manager decision for the owner, GH #276 defect A
+  review): the wall is cycle-precise.** "Inside the frame" is the coarse form
+  of the real condition: a replay from snapshot S to target T loses a debugger
+  change made at cycle C exactly when S ≤ C ≤ T and T lies past the point S
+  restores (a pure restore of S replays nothing). A target before C precedes
+  the change, as any rewind does, and is allowed with the faithful state; a
+  target at or after C that replays from a snapshot taken before C is refused
+  with `RefusedUnavailable` before anything is restored. "Mutation"
+  here is every debugger change of guest state a replay would not reproduce:
+  the writes above, plus `port_in`'s side effects, input injection (IN-01..04),
+  a soft reset and an in-place state load — not the host-side mute mask. Built
+  as the earliest change cycle kept per rewind slot
+  (`RewindBuffer::mark_mutated()` / `replay_crosses_mutation()`), cleared when
+  the slot is re-taken or a restore lands at or before it.
 
 ### 4.3 Events, breakpoints, conditions — `CAP-EVT`
 

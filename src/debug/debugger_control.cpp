@@ -549,6 +549,7 @@ Result Debugger::reset(ClientId by, ResetKind kind) {
 
     impl_->emu.soft_reset();
     impl_->log_mutate_range(by, "machine", "soft reset");
+    impl_->note_mutation();   // as NR 0x02's soft reset through nextreg_write()
     // A soft reset does not pause a running machine and does not resume a paused
     // one; whatever the caller's state was, it survives. So the armed reason
     // stays as it was — this verb is not a stop.

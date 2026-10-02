@@ -46,24 +46,29 @@ public:
     /// machine is partially restored and must not be reported as rewound.
     uint64_t restore_nearest(uint64_t target_cycle, Emulator& emu) const;
 
-    /// §4.2a's rewind wall (DEBUG-SUBSYSTEM-ARCHITECTURE.md): "a rewind target
-    /// inside the frame the mutation happened in would replay that frame without
-    /// the mutation and diverge … the backend refuses step_back / rewind_to_cycle
-    /// into a mutated span; a frame-boundary target is always fine".
+    /// §4.2a's rewind wall (DEBUG-SUBSYSTEM-ARCHITECTURE.md, refined 2026-10-02):
+    /// a replay from slot S to target T loses a debugger change made at cycle C
+    /// exactly when S <= C <= T and T is past the clock S restores — the replay
+    /// crosses the change.
     ///
-    /// A MUTATED SPAN is the replay span of one slot: from its frame_cycle up to
-    /// the next slot. mark_mutated(cycle) taints the slot a replay to `cycle`
-    /// would start from (the one restore_nearest() would pick), because that slot
-    /// was taken before the mutation and cannot carry it. The taint lasts as long
-    /// as the slot: a ring wrap, a re-take of the frame after a rewind, or clear()
-    /// ends it. No-op on an empty ring.
+    /// mark_mutated(C) records C on the slot a replay to C would start from (the
+    /// one restore_nearest() would pick), keeping the EARLIEST such C per slot:
+    /// that slot was taken before the change and cannot carry it. The mark lasts
+    /// as long as the slot (a ring wrap, a re-take, clear()) or until a restore
+    /// lands at or before it (unmark_from()). No-op on an empty ring.
     void mark_mutated(uint64_t cycle);
 
-    /// True iff a replay to `target_cycle` would start from a tainted slot and
-    /// actually replay (target past the slot's own frame start). A target equal
-    /// to the slot's frame_cycle is a pure restore — the frame-boundary case
-    /// §4.2a allows.
+    /// True iff a replay to `target_cycle` would cross a marked change: it starts
+    /// from a marked slot, actually replays (target past the clock the slot
+    /// restores — a frame's first instruction boundary can sit a few cycles past
+    /// its nominal frame_cycle — so a pure restore is never refused) and reaches
+    /// the change (target >= its cycle). A target before the change precedes it,
+    /// as any rewind precedes what came after it.
     bool replay_crosses_mutation(uint64_t target_cycle) const;
+
+    /// A restore landed at `landing_cycle`: the mark on the slot it restored from
+    /// describes changes at or after the landing, which the restore undid.
+    void unmark_from(uint64_t landing_cycle);
 
     /// Drop every snapshot, keeping the allocation (GH #93: an SD card change
     /// makes the held history restore one card's state machine onto another).
@@ -156,7 +161,8 @@ private:
         uint64_t frame_cycle = 0;
         uint32_t frame_num   = 0;
         uint8_t* data        = nullptr;  ///< Points into block_ (mmap region)
-        bool     mutated     = false;    ///< see mark_mutated(); reset on (re)write
+        uint64_t clock       = 0;           ///< the master clock the slot restores (>= frame_cycle)
+        uint64_t mutated_at  = UINT64_MAX;  ///< earliest marked change; see mark_mutated()
     };
 
     std::vector<Slot> slots_;
