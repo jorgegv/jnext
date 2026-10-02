@@ -1,6 +1,6 @@
 # ChangeLog
 
-## Unreleased (2026-09-29)
+## Unreleased (2026-10-02)
 
 ### User Features
 - Change the SD card while running (File > Insert/Eject SD Card), so NextZXOS's REMOUNT works
@@ -8,16 +8,21 @@
 - Save to TZX or WAV (`--tape-save`, Tape > Start Saving), capturing programs' own savers too
 
 ### Developer Features
-- Debug programs from z88dk-gdb: `--gdb-port` serves the GDB remote protocol, with Next state via `monitor`
-- Debugger scripts: `--script` runs `.jds` rules on CPU, memory, port, NextREG, Copper and DMA events; exit status is the verdict
-- Debug programs from DeZog's `zrcp` remote or telnet: `--zrcp-port` speaks ZEsarUX's protocol, with breakpoints, history and coverage
-- Debugger Memory panel shows a slot's real page, with no DivMMC/Multiface/Layer 2 overlay, and any page via Page...
+- New remote debugging protocols, in every frontend incl. headless: DeZog (DZRP), z88dk-gdb (GDB RSP) and ZEsarUX ZRCP
+- Debugger scripting language and engine (`--script`): event rules, checks and CI verdicts; record/replay sessions with screen compares
 
 ### Bug Fixes
 - ZX81 boots from the firmware boot menu; REQUIRES re-downloading the SD image (`--sdcard-download-force`), which replaces anything saved on it
 - Debugger panels no longer disturb the +3 floating bus; Step Back, Step Over and the Magic Breakpoint menu fixed
 - RZX recordings now capture and replay DMA port reads, so DMA-driven programs replay faithfully
 - Copper programs in restart-every-frame mode run to the end of the frame: Copper-played DAC samples no longer stall
+- Rewind no longer silently undoes a change made from the debugger: the step is refused and the window says why
+- Raster readback (NR 0x1E/0x1F) applies the NR 0x64 offset once per frame, as on hardware
+- A crafted .jns snapshot can no longer write past the keyboard matrix; out-of-range values are refused
+
+### Internal JNEXT Development
+- Debugging subsystem fully refactored into one backend shared by the Qt debugger, remote servers and scripts
+- Test harness hardened: per-run isolation of temp paths, config and HOME; duplicate row IDs and corrupted counters refused
 
 ## v1.0.44 (2026-09-26)
 
