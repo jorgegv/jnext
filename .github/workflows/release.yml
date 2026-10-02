@@ -236,6 +236,11 @@ jobs:
       # Qt5Config.cmake + libqt5main.a, qmake carries the cross moc/rcc/uic
       # AUTOMOC needs. The mingw32-* set is the i686 twin backing
       # make package-win32-qt5 (GH #108 Phase C: the 32-bit Qt5 zip).
+      # wine (GH #297): every Windows exe is a PGO build whose instrumented
+      # twin is trained headless under wine (tools/pgo-build.sh); wine-core
+      # carries wine itself (new WoW64, so it runs the i686 exe too),
+      # wine-common wineboot. The training's SD image comes from jnext's own
+      # download, as everywhere else.
       - name: Install MinGW cross toolchain + build tools
         run: |
           dnf install -y \
@@ -248,7 +253,8 @@ jobs:
             mingw32-SDL3 \
             mingw32-qt5-qtbase mingw32-qt5-qtbase-devel mingw32-qt5-qmake \
             mingw32-zlib mingw32-libpng mingw32-winpthreads \
-            qt6-qtbase-devel
+            qt6-qtbase-devel \
+            wine-core wine-common
       - uses: actions/checkout@v5
         with:
           submodules: recursive
@@ -314,7 +320,7 @@ jobs:
   #
   # The bundle the called workflow uploads belongs to THIS run (a reusable
   # workflow's artifacts are the caller's), so `publish` downloads it unchanged.
-  # `timeout-minutes` is not settable on a `uses:` job; the same 45-minute bound
+  # `timeout-minutes` is not settable on a `uses:` job; the same 60-minute bound
   # now lives on the job inside flatpak-build.yml.
   flatpak:
     needs: gate
@@ -364,7 +370,9 @@ jobs:
       # it references Homebrew (GH #46 — the v0.98.34 .dmg did, and aborted in
       # dyld on every Mac but the builder's).
       - name: Package and verify (make package-macos)
-        timeout-minutes: 30
+        # 30 -> 60 for GH #297: the package is a PGO build (an instrumented
+        # build, a training run, an optimised build), roughly twice the work.
+        timeout-minutes: 60
         run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" make package-macos
       - uses: actions/upload-artifact@v6
         with:

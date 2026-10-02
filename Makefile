@@ -38,6 +38,19 @@ GUI_RELEASE_KEYS  = "CMAKE_BUILD_TYPE=Release" "CMAKE_C_COMPILER=$(CC)" "CMAKE_C
 GUI_RELEASE_DEFS  = "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_C_COMPILER=$(CC)" "-DCMAKE_CXX_COMPILER=$(CXX)" \
                     "-DCMAKE_CXX_FLAGS=-O2 -DNDEBUG" "-DENABLE_QT_UI=ON" "-DENABLE_TESTS=OFF"
 PGO_PROFILE_ABS   = $(CURDIR)/$(PGO_PROFILE_DIR)
+# `make bench` measures the non-PGO build: its speed does not move with a
+# retrained profile, so it is the one to compare two code changes with.
+BENCH_BUILD      ?= gui-release-non-pgo
+# The FUSE suite's case count (test/fuse/tests.in), pinned for fuse-pgo.
+FUSE_CASES        = 1356
+# GH #297 — the release trees other than gui-release (packages, Windows) are
+# PGO builds through tools/pgo-build.sh: instrument, train, rebuild.
+# $(call PGO_BUILD,<build dir>,<configure command, without -B>)
+PGO_BUILD         = JOBS=$(JOBS) bash tools/pgo-build.sh $(1) -- $(2)
+# The Windows executables are PGO builds trained under wine. WIN_PGO=0 builds
+# any of them the plain way instead (win-release-non-pgo does that for x64).
+WIN_PGO          ?= 1
+WIN_BUILD         = $(if $(filter 1,$(WIN_PGO)),$(call PGO_BUILD,$(1),$(2)),$(2) -B $(1) && $(CMAKE) --build $(1) -j$(JOBS))
 
 # Guard for unit-test-build's build/ dir: does $(1)/CMakeCache.txt hold cache
 # key $(2) with value $(3), regardless of the cache's TYPE tag? A bare
@@ -159,13 +172,13 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build \
-       kloc-count regression unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
+       kloc-count regression fuse-pgo unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-diagrams read-devguide \
        docs-schema schema-check snapshot-zip-check \
        bump bump-patch bump-minor bump-major version publish-release \
-       package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release package-test \
+       package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
        package-contract-test packaging-selftest verify-macos-dmg verify-flatpak-permissions
@@ -339,13 +352,18 @@ win-release:
 		printf "  (mingw64-filesystem supplies mingw64-cmake; native qt6-qtbase-devel supplies moc/rcc/uic.)\n"; \
 		exit 1; \
 	fi
-	mingw64-cmake -S . -B $(BUILD_DIR_WIN_RELEASE) $(MINGW64_RC) -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
-	$(CMAKE) --build $(BUILD_DIR_WIN_RELEASE) -j$(JOBS)
+	@# GH #297: a PGO build, trained under wine (tools/pgo-build.sh); WIN_PGO=0
+	@# (or `make win-release-non-pgo`) builds it without.
+	$(call WIN_BUILD,$(BUILD_DIR_WIN_RELEASE),mingw64-cmake -S . $(MINGW64_RC) -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF)
 	@# Bundle the Qt6/SDL3 runtime DLLs + Qt plugins next to the exe so it runs
 	@# in place (jnext.exe alone can't start — missing Qt6Core.dll and, even with
 	@# the DLLs, the platforms/qwindows.dll plugin).
 	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_RELEASE)/jnext.exe $(BUILD_DIR_WIN_RELEASE)
 	@printf "$(BOLD)Windows executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN_RELEASE)/jnext.exe\n"
+
+# Cross-compile the Windows jnext.exe WITHOUT PGO into build/win-release-non-pgo (no wine needed)
+win-release-non-pgo:
+	@$(MAKE) --no-print-directory win-release WIN_PGO=0 BUILD_DIR_WIN_RELEASE=build/win-release-non-pgo
 
 # Cross-compile the SDL-only Windows jnext.exe (no Qt — Windows 8+ compatible; GH #108)
 win-sdl-release:
@@ -388,8 +406,7 @@ win-qt5-release:
 		printf "  (mingw64-filesystem supplies mingw64-cmake.)\n"; \
 		exit 1; \
 	fi
-	mingw64-cmake -S . -B $(BUILD_DIR_WIN_QT5_RELEASE) $(MINGW64_RC) -DENABLE_QT_UI=ON -DENABLE_DEBUGGER=ON -DJNEXT_FORCE_QT5=ON -DENABLE_TESTS=OFF
-	$(CMAKE) --build $(BUILD_DIR_WIN_QT5_RELEASE) -j$(JOBS)
+	$(call WIN_BUILD,$(BUILD_DIR_WIN_QT5_RELEASE),mingw64-cmake -S . $(MINGW64_RC) -DENABLE_QT_UI=ON -DENABLE_DEBUGGER=ON -DJNEXT_FORCE_QT5=ON -DENABLE_TESTS=OFF)
 	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_QT5_RELEASE)/jnext.exe $(BUILD_DIR_WIN_QT5_RELEASE)
 	@printf "$(BOLD)Windows Qt5 full-GUI executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN_QT5_RELEASE)/jnext.exe\n"
 
@@ -450,8 +467,7 @@ win32-qt5-release:
 		printf "  (mingw32-filesystem supplies mingw32-cmake.)\n"; \
 		exit 1; \
 	fi
-	mingw32-cmake -S . -B $(BUILD_DIR_WIN32_QT5_RELEASE) $(MINGW32_RC) -DENABLE_QT_UI=ON -DENABLE_DEBUGGER=ON -DJNEXT_FORCE_QT5=ON -DENABLE_TESTS=OFF
-	$(CMAKE) --build $(BUILD_DIR_WIN32_QT5_RELEASE) -j$(JOBS)
+	$(call WIN_BUILD,$(BUILD_DIR_WIN32_QT5_RELEASE),mingw32-cmake -S . $(MINGW32_RC) -DENABLE_QT_UI=ON -DENABLE_DEBUGGER=ON -DJNEXT_FORCE_QT5=ON -DENABLE_TESTS=OFF)
 	@# bundle-dlls.sh reads the exe's PE machine field (i686 sysroot) and the
 	@# qt5core.dll import (Qt5 plugin root) — no flags needed for either.
 	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN32_QT5_RELEASE)/jnext.exe $(BUILD_DIR_WIN32_QT5_RELEASE)
@@ -472,7 +488,7 @@ gui-clean: gui-debug-clean gui-release-clean
 clean: sdl-debug-clean sdl-release-clean gui-clean unit-test-clean
 
 # Run the full regression test suite (screenshot + functional tests)
-regression: lint-makefile-help regression-doc-check unit-test-build gui-release sdl-release docs-check cli-check
+regression: lint-makefile-help regression-doc-check unit-test-build gui-release fuse-pgo sdl-release docs-check cli-check
 	@# Depends on unit-test-build: regression.sh runs build/test/rewind_test, and a
 	@# `make clean` deletes it. It used to vanish from the suite with no row printed.
 	@# gui-release is a REAL prerequisite, not a convenience: regression.sh runs
@@ -486,7 +502,21 @@ regression: lint-makefile-help regression-doc-check unit-test-build gui-release 
 	@# only when ENABLE_QT_UI=OFF, so gui-release compiles the SDL frontend but never
 	@# executes it, and sdl-keypress-func is the one row that does. `make clean`
 	@# deletes it (clean depends on sdl-release-clean), hence building it here.
+	@# fuse-pgo (GH #297): gui-release is a PGO build, so the FUSE opcode suite
+	@# also runs against ITS CPU core — `make unit-test` runs it only against
+	@# build/, which is neither PGO nor Release.
 	bash test/00regression/regression.sh
+
+# Run the FUSE Z80 opcode suite against the PGO build's CPU core (fails unless 1356/1356 pass)
+fuse-pgo: gui-release
+	@$(CMAKE) --build $(BUILD_DIR_GUI_RELEASE) -j$(JOBS) --target fuse_z80_test
+	@out=$$($(BUILD_DIR_GUI_RELEASE)/fuse_z80_test test/fuse) || { printf '%s\n' "$$out"; exit 1; }; \
+	 total=$$(printf '%s\n' "$$out" | sed -n 's/^Total: *\([0-9]*\) *Passed: *\([0-9]*\) .*/\1 \2/p'); \
+	 if [ "$$total" != "$(FUSE_CASES) $(FUSE_CASES)" ]; then \
+		printf '%s\n' "$$out"; \
+		printf "$(BADGE_FAIL) FAIL $(RESET) FUSE on the PGO build: got '$$total', expected $(FUSE_CASES) of $(FUSE_CASES)\n"; exit 1; \
+	 fi; \
+	 printf "$(BADGE_PASS) OK $(RESET) FUSE Z80 on the PGO build: $(FUSE_CASES)/$(FUSE_CASES)\n"
 
 # Fail if doc/testing/CURRENT-REGRESSION-STATE.md and regression_tests.conf disagree
 regression-doc-check:
@@ -836,9 +866,9 @@ cmake-guard-selftest:
 	@# positive case proves nothing.
 	@bash test/cmake-configure-guard-selftest.sh
 
-# Benchmark the 5 canonical workloads on the fastest core (needs 'make gui-release' first)
+# Benchmark the 5 canonical workloads (non-PGO build; BENCH_BUILD=gui-release benches the shipped PGO one)
 bench:
-	@bash test/bench/bench.sh
+	@JNEXT_BENCH_BUILD=$(BENCH_BUILD) bash test/bench/bench.sh
 
 # Run the GH #276 hot-latch interleaved A/B (needs a baseline binary)
 bench-hotlatch:
@@ -1463,9 +1493,8 @@ package-src:
 
 # Build an RPM package via CPack (Fedora/RHEL); needs rpmbuild
 package-rpm:
-	$(CMAKE) -B $(BUILD_DIR_RPM_RELEASE) -S . \
-		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
-	$(CMAKE) --build $(BUILD_DIR_RPM_RELEASE) -j$(JOBS)
+	@# GH #297: the packaged binary is a PGO build (needs the SD image to train).
+	$(call PGO_BUILD,$(BUILD_DIR_RPM_RELEASE),$(CMAKE) -S . -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF)
 	cd $(BUILD_DIR_RPM_RELEASE) && cpack -G RPM
 	@printf "$(BOLD)RPM(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_RPM_RELEASE)/*.rpm
 
@@ -1480,10 +1509,10 @@ package-deb: sdl3-vendor
 	@# It is a no-op on every distro that does ship SDL3 (and leaves no prefix),
 	@# so the $$(...) below adds CMAKE_PREFIX_PATH only when there is something to
 	@# add — keeping this target the SAME command locally and in CI, on both.
-	$(CMAKE) -B $(BUILD_DIR_DEB_RELEASE) -S . \
+	@# GH #297: the packaged binary is a PGO build (needs the SD image to train).
+	$(call PGO_BUILD,$(BUILD_DIR_DEB_RELEASE),$(CMAKE) -S . \
 		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
-		$$([ -d build/sdl3-vendor/prefix ] && echo "-DCMAKE_PREFIX_PATH=$(CURDIR)/build/sdl3-vendor/prefix -DJNEXT_SDL3_VENDORED=ON")
-	$(CMAKE) --build $(BUILD_DIR_DEB_RELEASE) -j$(JOBS)
+		$$([ -d build/sdl3-vendor/prefix ] && echo "-DCMAKE_PREFIX_PATH=$(CURDIR)/build/sdl3-vendor/prefix -DJNEXT_SDL3_VENDORED=ON"))
 	cd $(BUILD_DIR_DEB_RELEASE) && cpack -G DEB
 	@printf "$(BOLD)DEB(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_DEB_RELEASE)/*.deb
 
@@ -1712,12 +1741,10 @@ package-macos:
 		printf "  It cannot be produced on this $$(uname -s) host.\n"; \
 		exit 0; \
 	fi; \
-	$(MACOS_BOUND) 300 "cmake configure (mac-release)" \
-		$(CMAKE) -B $(BUILD_DIR_MAC_RELEASE) -S . \
-		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
+	$(MACOS_BOUND) 3600 "PGO build: instrument, train, rebuild (mac-release; GH #297)" \
+		env JOBS=$(JOBS) bash tools/pgo-build.sh $(BUILD_DIR_MAC_RELEASE) -- \
+		$(CMAKE) -S . -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF \
 		-DMACOS_APP_BUNDLE=ON && \
-	$(MACOS_BOUND) 2400 "cmake build (mac-release)" \
-		$(CMAKE) --build $(BUILD_DIR_MAC_RELEASE) -j$(JOBS) && \
 	( cd $(BUILD_DIR_MAC_RELEASE) && $(MACOS_BOUND) 900 "cpack -G DragNDrop" cpack -G DragNDrop ) && \
 	$(MAKE) verify-macos-dmg
 

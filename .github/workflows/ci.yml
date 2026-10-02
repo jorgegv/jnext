@@ -406,7 +406,13 @@ jobs:
     # the rpm and Windows artifacts in. Load-bearing for Windows: only Fedora
     # packages a MinGW Qt6, so this is the one host the cross-build works on.
     container: fedora:44
-    timeout-minutes: 30
+    # GH #297: every package-* target is a PGO build (instrument, train,
+    # rebuild), so this job needs the NextZXOS SD image for the training — it is
+    # downloaded by jnext's own provisioner on the first leg, as the `test`
+    # job's regression does — and wine for the Windows legs' training. The
+    # backstop went from 30 to 60 minutes: each leg is two builds plus a
+    # training run now.
+    timeout-minutes: 60
     steps:
       # Before the checkout: a bare fedora:44 has no git, and actions/checkout
       # rejects `submodules` without it.
@@ -438,7 +444,8 @@ jobs:
             mingw32-gcc mingw32-gcc-c++ mingw32-binutils mingw32-filesystem \
             mingw32-SDL3 \
             mingw32-qt5-qtbase mingw32-qt5-qtbase-devel mingw32-qt5-qmake \
-            mingw32-zlib mingw32-libpng mingw32-winpthreads
+            mingw32-zlib mingw32-libpng mingw32-winpthreads \
+            wine-core wine-common
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Check out
@@ -487,7 +494,9 @@ jobs:
   # macos job records).
   macos:
     runs-on: macos-latest
-    timeout-minutes: 45
+    # 45 -> 90 for GH #297: package-macos is a PGO build (instrument,
+    # train, rebuild), roughly twice the work.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
         with:

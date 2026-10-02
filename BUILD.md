@@ -58,12 +58,50 @@ a source-only build ships complete docs on a machine that has none of them.
 git clone --recursive https://github.com/jorgegv/jnext.git
 cd jnext
 
-make gui-release      # Qt6 GUI + debugger, optimised  → build/gui-release/jnext
+make gui-release      # Qt6 GUI + debugger, optimised with PGO → build/gui-release/jnext
 make sdl-release      # SDL only, no GUI, no debugger   → build/sdl-release/jnext
 ```
 
 `--recursive` matters: spdlog is a git submodule. (CMake will try to
 initialise submodules itself if they are missing.)
+
+### `gui-release` is a profile-guided (PGO) build — it needs the SD image
+
+`make gui-release` builds the binary JNEXT ships with gcc **profile-guided
+optimisation** ([GH #297](https://github.com/jorgegv/jnext/issues/297)), in
+three steps:
+
+1. an **instrumented** jnext in `build/gui-release-pgo-gen`;
+2. a short **training** run of it (`tools/pgo-train.sh`, about half a minute:
+   a few demos and games headless, a real-time tape load and a few seconds of
+   the GUI on Qt's offscreen platform), which writes the profile into
+   `build/gui-release-pgo-profile`;
+3. the **optimised** build in `build/gui-release`, compiled with that profile.
+
+Training needs the **NextZXOS SD image**, because the machines' ROMs come from
+it. If `~/.jnext/sdcard/cspect-next-1gb-fixed.img` is missing, the training
+provisions it the same way jnext does on a first run — it downloads the
+NextZXOS distribution (about 50 MB) — and if that fails the build stops and
+tells you to use the non-PGO build instead:
+
+```sh
+make gui-release-non-pgo   # same build without PGO → build/gui-release-non-pgo/jnext
+```
+
+A no-op `make gui-release` stays fast (about a second): training is skipped
+when nothing that decides the profile changed — the instrumented binary (any
+source or flag change rebuilds it), the compiler, the training script and its
+inputs. After a retrain the optimised tree is rebuilt from clean; ccache
+cannot cache `-fprofile-use` compiles, so that rebuild is a cold one (about a
+minute here). A missing or mismatched profile is a build **error**, never a
+silent non-PGO binary.
+
+Which binary to measure with:
+
+- **`gui-release-non-pgo`** for performance A/B work between two code changes
+  (`make bench` uses it): its speed does not move with a retrained profile.
+- **`gui-release`** for "how fast is what we ship"
+  (`make bench BENCH_BUILD=gui-release`).
 
 ### Make targets
 
@@ -85,11 +123,13 @@ targets: build variants, per-variant `-run`/`-clean`, tests, packaging, versioni
 
 | Target | Description |
 |--------|-------------|
-| `make gui-release` | Qt6 GUI + debugger, release (optimised) → `build/gui-release/jnext` |
+| `make gui-release` | Qt6 GUI + debugger, release, optimised with PGO (needs the SD image) → `build/gui-release/jnext` |
+| `make gui-release-non-pgo` | The same release build without PGO → `build/gui-release-non-pgo/jnext` |
 | `make gui-debug` | Qt6 GUI, debug (`-Og`, debug symbols, frame pointers) |
 | `make sdl-release` | SDL-only, release → `build/sdl-release/jnext` |
 | `make sdl-debug` | SDL-only, debug |
-| `make win-release` | Cross-compile the Windows `jnext.exe` (Fedora MinGW), DLLs bundled beside it |
+| `make win-release` | Cross-compile the Windows `jnext.exe` (Fedora MinGW, PGO trained under wine), DLLs bundled beside it |
+| `make win-release-non-pgo` | The same without PGO (no wine needed) → `build/win-release-non-pgo` |
 | `make gui-release-run` / `gui-debug-run` / `sdl-release-run` / `sdl-debug-run` | Build, then run |
 
 **Test**
@@ -98,7 +138,8 @@ targets: build variants, per-variant `-run`/`-clean`, tests, packaging, versioni
 |--------|-------------|
 | `make unit-test` | Build `build/` and run every subsystem unit-test suite in parallel |
 | `make unit-test-dashboard` | `unit-test`, then refresh `test/SUBSYSTEM-TESTS-STATUS.md` |
-| `make regression` | Run the screenshot + functional regression suite |
+| `make regression` | Run the screenshot + functional regression suite (on the PGO build) |
+| `make fuse-pgo` | Run the FUSE Z80 opcode suite against the PGO build's CPU core |
 | `make harness-selftest` | Prove the test harness fails loudly on injected faults |
 
 **Package** (details under [Building packages](#building-packages))
@@ -132,6 +173,7 @@ The `make` targets pass these for you; use them when invoking CMake directly.
 | `ENABLE_TESTS`    | ON      | Build the unit-test binaries                                                                                                         |
 | `USE_CCACHE`      | ON      | Use ccache as the compiler launcher when it is found (no-op if it is not)                                                            |
 | `CYCLE_ACCURATE`  | OFF     | 28 MHz cycle-accurate mode                                                                                                           |
+| `JNEXT_PGO`       | OFF     | Profile-guided optimisation stage: `GENERATE` (instrument) or `USE` (optimise with the profile in `JNEXT_PGO_DIR`). The make targets drive it |
 | `STATIC_BUILD`    | OFF     | Link statically (needs static SDL3/Qt6 builds)                                                                                       |
 
 Directly, without the Makefile:
@@ -251,6 +293,22 @@ Packages are the recommended way for end users to install JNEXT (see the main
 | `make package-src` | source tarball |
 | `make package-test` | build every package above (except macOS) and check each artifact |
 
+Every packaged binary is a **PGO build**, like `gui-release`: each package
+target runs `tools/pgo-build.sh`, which instruments, trains and rebuilds in
+that package's own build tree. So every package build needs the SD image (it
+is downloaded if missing, as above), and:
+
+- the **Windows** executables are trained under **wine** (`wine-core` and
+  `wine-common` on Fedora). Without wine the build stops; `make
+  win-release-non-pgo`, or `WIN_PGO=0` on any `win-*-release` target, builds
+  without PGO. The repository-internal SDL-only Windows builds
+  (`win-sdl-release`, `win32-sdl-release`) are not PGO builds;
+- the **Flatpak** trains inside the build sandbox: the manifest carries the
+  NextZXOS distribution zip as a source, and the bundle is only produced if
+  the FUSE Z80 suite passes against its PGO-built CPU core;
+- **macOS** uses clang's instrumentation (`-fprofile-instr-generate`,
+  `llvm-profdata` from Xcode) instead of gcc's.
+
 A **Windows** executable can be cross-compiled on Fedora with MinGW
 (`make win-release` for just `jnext.exe`, or `make package-win` for the
 zip). See [packaging/README.md](packaging/README.md) for the exact MinGW
@@ -274,6 +332,9 @@ make regression     # screenshot comparisons + functional tests, headless
   ```sh
   ./build/test/fuse_z80_test build/test/fuse
   ```
+
+  `build/` is not the shipped build, so `make regression` also runs the FUSE
+  suite against the PGO build's CPU core (`make fuse-pgo`).
 
 - **`make regression`** runs the screenshot and functional tests headless and
   compares the output against the reference images. Details, and how to add a

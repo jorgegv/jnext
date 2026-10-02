@@ -143,6 +143,12 @@ elif imports "$EXE" | grep -q '^qt5core\.dll$'; then
     QT_PLUGIN_LIST="$QT_PLUGIN_LIST_COMMON $QT5_STYLE_PLUGIN"
 fi
 
+# BUNDLE_EXTRA_QT_PLUGINS: extra plugin paths, for a NON-shipped bundle only —
+# tools/pgo-build.sh adds platforms/qoffscreen.dll so the instrumented exe can
+# run its GUI training under wine with no display (GH #297). Never set by a
+# package-* target.
+QT_PLUGIN_LIST="$QT_PLUGIN_LIST ${BUNDLE_EXTRA_QT_PLUGINS:-}"
+
 [ "$QT_EXE" -eq 1 ] && for rel in $QT_PLUGIN_LIST; do
     src="$QT_PLUGINS/$rel"
     if [ ! -f "$src" ]; then

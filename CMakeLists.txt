@@ -508,6 +508,14 @@ endif()
 if(ENABLE_TESTS)
     enable_testing()
     add_subdirectory(test)
+else()
+    # GH #297 — the FUSE Z80 opcode suite built against THIS tree's CPU core,
+    # so a release tree (the PGO one above all) can be checked with the
+    # compiler and profile it ships with: `make fuse-pgo`, and the Flatpak
+    # build. EXCLUDE_FROM_ALL: an ordinary build never compiles it.
+    add_executable(fuse_z80_test EXCLUDE_FROM_ALL test/fuse/fuse_z80_test.cpp)
+    target_link_libraries(fuse_z80_test PRIVATE jnext_cpu)
+    target_include_directories(fuse_z80_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 endif()
 
 # GH #297 — profile-guided optimisation (`make gui-release`). Last of the

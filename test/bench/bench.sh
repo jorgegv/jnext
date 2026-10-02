@@ -12,8 +12,12 @@
 #     hardcoded (hybrid P/E boxes differ ~40% between core classes).
 #   - Median of 5 with min/max spread printed. Spread > 5% VOIDs the
 #     workload (noted, run continues; final exit code is then non-zero).
-#   - Only build/gui-release/jnext (Release) is measured. RelWithDebInfo
-#     and Debug numbers are not comparable and the script refuses them.
+#   - Only a Release build is measured: build/gui-release-non-pgo/jnext by
+#     default (GH #297 — its speed does not move with a retrained PGO profile,
+#     so it is the one to compare two code changes with), or the build dir
+#     named by JNEXT_BENCH_BUILD (`make bench BENCH_BUILD=gui-release` for the
+#     shipped PGO binary). RelWithDebInfo and Debug numbers are not
+#     comparable and the script refuses them.
 #   - Primary metric is T-states/sec, not FPS.
 #
 # LIMITATION — spread does not catch CONSISTENT load. A background process
@@ -31,8 +35,9 @@ export LC_ALL=C
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-BIN="$PROJECT_DIR/build/gui-release/jnext"
-CACHE="$PROJECT_DIR/build/gui-release/CMakeCache.txt"
+BENCH_BUILD="${JNEXT_BENCH_BUILD:-gui-release-non-pgo}"
+BIN="$PROJECT_DIR/build/$BENCH_BUILD/jnext"
+CACHE="$PROJECT_DIR/build/$BENCH_BUILD/CMakeCache.txt"
 # The SD image jnext provisions and caches itself. `roms/` holds only the
 # embedded boot ROM now — no SD image lives there (GH #75/#77), so a fixture
 # path under the repo is no longer a thing to point at.
@@ -44,11 +49,12 @@ SPREAD_LIMIT_PCT=5.0
 die() { echo "bench: ERROR: $*" >&2; exit 2; }
 
 # --- Preconditions: the Release binary, and nothing but Release ---
-[[ -x "$BIN" ]] || die "$BIN not found or not executable — build it with 'make gui-release' first"
+[[ -x "$BIN" ]] || die "$BIN not found or not executable — build it with 'make $BENCH_BUILD' first"
 [[ -f "$CACHE" ]] || die "$CACHE missing — build dir is not CMake-configured"
 build_type=$(grep -oP '^CMAKE_BUILD_TYPE:\w+=\K.*' "$CACHE" || true)
 [[ "$build_type" == "Release" ]] || \
-    die "build/gui-release is configured as '${build_type:-<unset>}', not Release — refusing to benchmark it"
+    die "build/$BENCH_BUILD is configured as '${build_type:-<unset>}', not Release — refusing to benchmark it"
+pgo=$(grep -oP '^JNEXT_PGO:\w+=\K.*' "$CACHE" || true)
 [[ -f "$SD_MASTER" ]] || die "SD image missing: $SD_MASTER (provision it with '$BIN --headless --sdcard-download-confirm', or point JNEXT_TEST_SD_IMAGE at an existing one)"
 
 # --- This run's PRIVATE SD-image clone ------------------------------------
@@ -160,7 +166,7 @@ emit "# jnext benchmark baseline"
 emit "# date:   $(date '+%Y-%m-%d %H:%M:%S')"
 emit "# host:   $(hostname)"
 emit "# commit: $(git -C "$PROJECT_DIR" rev-parse HEAD)"
-emit "# binary: $BIN (CMAKE_BUILD_TYPE=$build_type)"
+emit "# binary: $BIN (CMAKE_BUILD_TYPE=$build_type, JNEXT_PGO=${pgo:-OFF})"
 emit "# core:   $CORE @ ${CORE_KHZ} kHz (fastest class, lowest-numbered)$CORE_NOTE"
 emit "# load1:  $LOAD1 (1-min loadavg at run start; > 1.5 biases medians without inflating spread)"
 emit "# runs:   median of $REPEATS per workload; spread = (max-min)/median of fps"

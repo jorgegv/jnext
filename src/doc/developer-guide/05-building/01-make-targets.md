@@ -45,11 +45,20 @@ Makefile is full of those, and they are where the reasoning actually lives.
 which builds and then runs, and a `-clean` target; `make clean` removes all of
 them along with `build/`.
 
+`gui-release` is the binary JNEXT ships and tests, and it is a **PGO build**
+(GH #297): it depends on `gui-release-pgo-gen`, the instrumented twin, runs the
+training and then compiles `build/gui-release` with the profile — see
+[5.2](02-build-configurations.md#profile-guided-optimisation).
+`gui-release-non-pgo` is the same Release build without PGO, in its own tree;
+it is the one to measure code changes with.
+
 The `win-*` family cross-compiles Windows executables with the MinGW toolchain.
 `win-release` is the x64 Qt6 build; `win-qt5-release` and `win32-qt5-release`
 are the legacy Qt5 legs, 64- and 32-bit, which keep a lower Windows floor than
 the Qt6 build can offer; and `win-sdl-release` / `win32-sdl-release` are
 SDL-only legs used to validate the cross-build rather than to publish anything.
+The three published legs are PGO builds trained under wine; `WIN_PGO=0` builds
+any of them without, and `win-release-non-pgo` does that for the x64 one.
 Separately, `qt5-guard-build` compiles the GUI against native Linux Qt5, purely
 to keep that combination building.
 
@@ -60,7 +69,10 @@ to keep that combination building.
 them they pull in a set of structural gates as prerequisites —
 `lint-assertions`, `lint-makefile-help`, `cli-check`, `docs-check`,
 `traceability-check` and friends — which is deliberate: it puts those checks in
-your inner loop instead of leaving them for CI to discover. Alongside them,
+your inner loop instead of leaving them for CI to discover. `make regression`
+also runs `make fuse-pgo`, the FUSE Z80 opcode suite built against the PGO
+tree's CPU core, because `build/` — where `make unit-test` runs it — is neither
+the shipped build nor a Release one. Alongside them,
 `make harness-selftest` proves that the test harness itself fails loudly when
 faults are injected into it, `make build-matrix` builds every combination of the
 frontend options, `make unit-test-sdl` runs the declared suites a second time in

@@ -119,7 +119,9 @@ on:
 jobs:
   flatpak-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 45 -> 60 for GH #297: the bundle's jnext is a PGO build (instrument,
+    # train under the sandbox, rebuild, then the FUSE suite on the result).
+    timeout-minutes: 60
     # The kde-6.10 image ships flatpak-builder + org.kde.Sdk//6.10 +
     # org.kde.Platform//6.10 — the exact runtime the manifest targets. It is
     # published at ghcr.io/flathub-infra/flatpak-github-actions (kde-6.11 has no

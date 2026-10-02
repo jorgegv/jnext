@@ -3,10 +3,12 @@
 #
 # Usage: tools/pgo-train.sh <instrumented jnext> <profile dir>
 #
-# Runs a small, broad training set with the instrumented (-fprofile-generate)
-# jnext, which writes its .gcda files into <profile dir> (the directory was
-# baked into the binary at compile time; the two must agree, which the
-# Makefile guarantees). Then `make gui-release` rebuilds with -fprofile-use.
+# Runs a small, broad training set with the instrumented jnext, which writes
+# its profile into <profile dir> (the directory was baked into the binary at
+# compile time; the two must agree, which the callers guarantee). gcc writes
+# one .gcda per translation unit; clang (macOS) writes .profraw files, merged
+# here into <profile dir>/jnext.profdata with llvm-profdata. The optimised
+# rebuild then reads that profile (cmake/JnextPgo.cmake).
 #
 # NOT the regression suite: profiles saturate quickly (GH #294 measured +17-20%
 # on titles an 8-workload profile never saw). The set is the GH #294 one —
@@ -32,7 +34,11 @@
 # Env:
 #   JNEXT_PGO_RUNNER  command prefix for every jnext run (e.g. "wine" to train
 #                     a MinGW jnext.exe); word-split on purpose.
-#   JNEXT_PGO_NO_GUI  =1 skips the Qt-offscreen GUI run (e.g. under wine).
+#   JNEXT_PGO_NO_GUI  =1 skips the Qt-offscreen GUI run; the build is then
+#                     byte-reproducible (see REPRODUCIBILITY below).
+#
+# Portable to macOS's bash 3.2 and BSD userland (no GNU timeout, flock,
+# setarch, sha256sum or stat -c there): every such tool has a fallback.
 set -euo pipefail
 export LC_ALL=C LANG=C
 
@@ -43,12 +49,31 @@ BIN=$1
 PROFILE_DIR=$2
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
-read -r -a RUNNER <<< "${JNEXT_PGO_RUNNER:-}"
+RUNNER=()
+[[ -n "${JNEXT_PGO_RUNNER:-}" ]] && read -r -a RUNNER <<< "$JNEXT_PGO_RUNNER"
+
+sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; }
+# bounded <seconds> <command...>: a time limit that ends in SIGKILL.
+bounded() {
+    local t=$1; shift
+    if command -v timeout >/dev/null 2>&1; then
+        timeout --kill-after=5s "${t}s" "$@"
+    else
+        bash "$PROJECT_DIR/packaging/macos/run-bounded.sh" "$t" pgo-train "$@"
+    fi
+}
+now() { local n; n=$(date +%s.%N); [[ "$n" == *N ]] && n=$(date +%s); echo "$n"; }
+elapsed() { awk -v a="$1" -v b="$(now)" 'BEGIN { print b - a }'; }
 
 [[ -x "$BIN" ]] || die "instrumented binary not found: $BIN"
-# The compiler that built it, for the fingerprint: from its own build tree.
-COMPILER=$(sed -n 's/^CMAKE_CXX_COMPILER:[A-Z]*=//p' "$(dirname "$BIN")/CMakeCache.txt" 2>/dev/null)
-[[ -n "$COMPILER" ]] || die "no CMAKE_CXX_COMPILER in $(dirname "$BIN")/CMakeCache.txt"
+# The build tree that made it (a macOS bundle puts the binary three levels
+# down): its compiler goes into the fingerprint and picks the profile format.
+TREE=$(dirname "$BIN")
+while [[ ! -f "$TREE/CMakeCache.txt" && "$TREE" != / ]]; do TREE=$(dirname "$TREE"); done
+COMPILER=$(sed -n 's/^CMAKE_CXX_COMPILER:[A-Z]*=//p' "$TREE/CMakeCache.txt" 2>/dev/null)
+[[ -n "$COMPILER" ]] || die "no CMakeCache.txt with CMAKE_CXX_COMPILER above $BIN"
+CLANG=0
+"$COMPILER" --version 2>&1 | grep -qi clang && CLANG=1
 mkdir -p "$PROFILE_DIR"
 PROFILE_DIR=$(cd "$PROFILE_DIR" && pwd)
 
@@ -78,18 +103,18 @@ GUI_ARGS=(--machine next --load "$NEX/parallax.nex")
 # --- Fingerprint: everything that decides what training would produce -------
 fingerprint() {
     {
-        echo "binary $(sha256sum < "$BIN")"
-        echo "compiler $("$COMPILER" --version 2>&1 | head -1) $("$COMPILER" -dumpfullversion 2>&1)"
-        echo "script $(sha256sum < "${BASH_SOURCE[0]}")"
+        echo "binary $(sha256 < "$BIN")"
+        echo "compiler $("$COMPILER" --version 2>&1 | head -1)"
+        echo "script $(sha256 < "${BASH_SOURCE[0]}")"
         echo "runner ${RUNNER[*]:-native} gui=${JNEXT_PGO_NO_GUI:-0}"
         local spec files f
         for spec in "${WORKLOADS[@]}"; do
             IFS='|' read -r _ _ _ _ files <<< "$spec"
-            for f in $files; do echo "input $f $(sha256sum < "$PROJECT_DIR/$f")"; done
+            for f in $files; do echo "input $f $(sha256 < "$PROJECT_DIR/$f")"; done
         done
-        echo "input gui $(sha256sum < "$PROJECT_DIR/$NEX/parallax.nex")"
-        echo "sd $(stat -c '%s:%Y' "$SD_MASTER" 2>/dev/null || echo absent)"
-    } | sha256sum | cut -d' ' -f1
+        echo "input gui $(sha256 < "$PROJECT_DIR/$NEX/parallax.nex")"
+        echo "sd $(ls -ln "$SD_MASTER" 2>/dev/null | awk '{print $5, $6, $7, $8}')"
+    } | sha256 | cut -d' ' -f1
 }
 
 cd "$PROJECT_DIR"
@@ -104,9 +129,9 @@ if [[ ! -f "$SD_MASTER" ]]; then
     echo "pgo-train: no SD image at $SD_MASTER — provisioning it (jnext's own download)"
     mkdir -p "$SD_MASTER_DIR"
     {
-        flock 9 2>/dev/null || true
+        command -v flock >/dev/null 2>&1 && flock 9
         [[ -f "$SD_MASTER" ]] || JNEXT_CONFIG_DIR="$HOME/.jnext" \
-            timeout --kill-after=5s 1200s "${RUNNER[@]}" "$BIN" --headless \
+            bounded 1200 ${RUNNER[@]+"${RUNNER[@]}"} "$BIN" --headless \
                 --sdcard-download-confirm --delayed-automatic-exit 2 >/dev/null 2>&1 || true
     } 9>"$SD_MASTER_DIR/.provision.lock"
     if [[ ! -f "$SD_MASTER" ]]; then
@@ -132,7 +157,8 @@ trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 mkdir -p "$RUN_DIR/sdcard" "$RUN_DIR/xdg"
 cp --reflink=always "$SD_MASTER" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" 2>/dev/null ||
-    cp --reflink=auto "$SD_MASTER" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" ||
+    cp -c "$SD_MASTER" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" 2>/dev/null ||   # APFS clone
+    cp "$SD_MASTER" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" ||
     die "cannot clone the SD master $SD_MASTER"
 SD="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
 # REPRODUCIBILITY. gcc's value profiling records runtime VALUES (pointer
@@ -148,7 +174,7 @@ SD="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
 # by well under 1% between runs); JNEXT_PGO_NO_GUI=1 leaves it out.
 RUN_ENV=(env -i "HOME=$HOME" "PATH=$PATH" LANG=C LC_ALL=C
          "JNEXT_CONFIG_DIR=$RUN_DIR" "XDG_CONFIG_HOME=$RUN_DIR/xdg")
-for v in WINEPREFIX WINEDEBUG WINEDLLOVERRIDES XDG_RUNTIME_DIR; do
+for v in WINEPREFIX WINEDEBUG WINEDLLOVERRIDES XDG_RUNTIME_DIR DYLD_FRAMEWORK_PATH DYLD_LIBRARY_PATH; do
     [[ -n "${!v:-}" ]] && RUN_ENV+=("$v=${!v}")
 done
 NORAND=()
@@ -159,20 +185,18 @@ fi
 # A stale or partial profile must never survive into a new one: libgcov
 # MERGES into existing .gcda files, so start from an empty directory.
 find "$PROFILE_DIR" -mindepth 1 -delete
-t0=$(date +%s.%N)
-
-elapsed() { awk -v a="$1" -v b="$(date +%s.%N)" 'BEGIN { print b - a }'; }
+t0=$(now)
 
 run() {   # run <name> <timeout s> <jnext args...>
     local name=$1 limit=$2 rc=0 t
     shift 2
-    t=$(date +%s.%N)
-    timeout --kill-after=5s "${limit}s" "${RUN_ENV[@]}" "${EXTRA_ENV[@]}" "${NORAND[@]}" \
-        "${RUNNER[@]}" "$BIN" --rtc "$RTC" --log-level off --sdcard "$SD" "$@" \
+    t=$(now)
+    bounded "$limit" "${RUN_ENV[@]}" ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"} ${NORAND[@]+"${NORAND[@]}"} \
+        ${RUNNER[@]+"${RUNNER[@]}"} "$BIN" --rtc "$RTC" --log-level off --sdcard "$SD" "$@" \
         >"$RUN_DIR/$name.log" 2>&1 || rc=$?
     if [[ $rc -ne 0 ]]; then
         tail -20 "$RUN_DIR/$name.log" >&2
-        die "training run '$name' failed (exit $rc): ${RUNNER[*]} $BIN $*"
+        die "training run '$name' failed (exit $rc): ${RUNNER[*]:-} $BIN $*"
     fi
     printf 'pgo-train:   %-14s %6.1f s\n' "$name" "$(elapsed "$t")"
 }
@@ -181,8 +205,9 @@ EXTRA_ENV=()
 echo "pgo-train: training $BIN -> $PROFILE_DIR"
 for spec in "${WORKLOADS[@]}"; do
     IFS='|' read -r name machine frames extra _ <<< "$spec"
-    read -r -a extra_args <<< "$extra"
-    run "$name" 300 --headless --machine "$machine" "${extra_args[@]}" \
+    extra_args=()
+    [[ -n "$extra" ]] && read -r -a extra_args <<< "$extra"
+    run "$name" 300 --headless --machine "$machine" ${extra_args[@]+"${extra_args[@]}"} \
         --delayed-automatic-exit-frames "$frames"
 done
 if [[ "${JNEXT_PGO_NO_GUI:-0}" != 1 ]]; then
@@ -192,14 +217,25 @@ if [[ "${JNEXT_PGO_NO_GUI:-0}" != 1 ]]; then
     run gui-offscreen 120 "${GUI_ARGS[@]}" --delayed-automatic-exit-frames "$GUI_FRAMES"
 fi
 
-n=$(find "$PROFILE_DIR" -name '*.gcda' | wc -l)
-[[ $n -gt 0 ]] || die "training wrote no .gcda files into $PROFILE_DIR — is $BIN instrumented for that directory?"
-# The instrumented link's map goes with the profile: cmake/JnextPgo.cmake
-# reads it to tell the members jnext links (profile REQUIRED) from those it
-# never links (no profile can exist).
-MAP="$(dirname "$BIN")/jnext-pgo.map"
-[[ -s "$MAP" ]] || die "no link map at $MAP — the instrumented build did not write one"
-cp "$MAP" "$PROFILE_DIR/jnext.map"
+if [[ $CLANG -eq 1 ]]; then
+    n=$(find "$PROFILE_DIR" -name '*.profraw' | wc -l | tr -d ' ')
+    [[ $n -gt 0 ]] || die "training wrote no .profraw files into $PROFILE_DIR — is $BIN instrumented for that directory?"
+    if command -v llvm-profdata >/dev/null 2>&1; then PROFDATA=(llvm-profdata)
+    elif command -v xcrun >/dev/null 2>&1; then PROFDATA=(xcrun llvm-profdata)
+    else die "llvm-profdata not found (clang PGO needs it to merge the profile)"; fi
+    "${PROFDATA[@]}" merge -o "$PROFILE_DIR/jnext.profdata" "$PROFILE_DIR"/*.profraw ||
+        die "llvm-profdata merge failed"
+    rm -f "$PROFILE_DIR"/*.profraw
+else
+    n=$(find "$PROFILE_DIR" -name '*.gcda' | wc -l | tr -d ' ')
+    [[ $n -gt 0 ]] || die "training wrote no .gcda files into $PROFILE_DIR — is $BIN instrumented for that directory?"
+    # The instrumented link's map goes with the profile: cmake/JnextPgo.cmake
+    # reads it to tell the members jnext links (profile REQUIRED) from those
+    # it never links (no profile can exist).
+    MAP="$TREE/jnext-pgo.map"
+    [[ -s "$MAP" ]] || die "no link map at $MAP — the instrumented build did not write one"
+    cp "$MAP" "$PROFILE_DIR/jnext.map"
+fi
 fingerprint > "$PROFILE_DIR/.fingerprint"
 touch "$PROFILE_DIR/.trained"
 printf 'pgo-train: %d profiles in %.1f s\n' "$n" "$(elapsed "$t0")"

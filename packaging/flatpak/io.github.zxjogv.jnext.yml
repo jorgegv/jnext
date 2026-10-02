@@ -44,16 +44,42 @@ modules:
   # bump-the-tarball-and-its-hash maintenance item. If the runtime version
   # below is ever moved to one without SDL3, this module has to come back.
   - name: jnext
-    buildsystem: cmake-ninja
-    config-opts:
-      - -DCMAKE_BUILD_TYPE=Release
-      - -DENABLE_QT_UI=ON
-      - -DENABLE_TESTS=OFF
+    # GH #297: a PGO build, like every other release binary — instrument,
+    # train, rebuild (tools/pgo-build.sh, the script the package-* targets
+    # use). So the build is `simple`, not cmake-ninja; the configure flags are
+    # the ones cmake-ninja used to get from config-opts.
+    #
+    # Training needs the NextZXOS SD image and the build sandbox has no
+    # network, so the distro zip is a SOURCE (second entry below, sha256
+    # pinned; flatpak-builder downloads it outside the sandbox) and jnext's own
+    # provisioner turns it into the patched image, exactly as on a user's first
+    # run — JNEXT_SDCARD_DISTRO_URL points it at the local file. HOME is moved
+    # into the build directory so the image and the training's state stay
+    # inside it.
+    #
+    # The KDE SDK gcc miscompiles jnext under LTO (see below), so this PGO
+    # binary must ALSO pass the FUSE Z80 suite, built against the same
+    # profile-optimised CPU core, before it is installed; a failure fails the
+    # build.
+    buildsystem: simple
+    build-commands:
       # LTO OFF for Flatpak ONLY: the org.kde.Sdk GCC miscompiles the
       # QApplication init under whole-program LTO (SIGSEGV at GUI launch).
       # Bisected to the LTO process in that toolchain, not any single unit.
       # Native/DEB/RPM/gui-release builds keep full LTO. See CMakeLists.txt.
-      - -DJNEXT_ENABLE_LTO=OFF
+      - >-
+        env HOME="$FLATPAK_BUILDER_BUILDDIR/pgo-home"
+        JNEXT_SDCARD_DISTRO_URL="file://$FLATPAK_BUILDER_BUILDDIR/sn-emulator-24.11.zip"
+        bash tools/pgo-build.sh build/flatpak --
+        cmake -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
+        -DJNEXT_ENABLE_LTO=OFF -DCMAKE_INSTALL_PREFIX=/app
+      - cmake --build build/flatpak --target fuse_z80_test
+      - >-
+        build/flatpak/fuse_z80_test test/fuse > build/flatpak/fuse.log;
+        rc=$?; tail -4 build/flatpak/fuse.log;
+        test $rc -eq 0 && grep -q 'Total. 1356  Passed. 1356' build/flatpak/fuse.log
+      - cmake --install build/flatpak
+      - rm -rf "$FLATPAK_BUILDER_BUILDDIR/pgo-home"
     sources:
       # Build from the LOCAL checkout, not a pushed remote tag. This project
       # bumps the version locally and pushes tags in batches, so the current
@@ -75,7 +101,11 @@ modules:
         # same manifest is portable across both without a hard-coded ref (the
         # git source otherwise defaults to `master`, which this repo lacks).
         branch: HEAD
+      # The training's SD image source (see above). The same zip jnext's
+      # provisioner downloads (kDistroUrl, src/core/sdcard_provisioner.cpp).
+      - type: file
+        url: https://www.specnext.com/distro/24.11/sn-emulator-24.11.zip
+        sha256: b2b0cbfb421acba2dcd00b081e647d7ead7bd0bc35952f0fdcafe1581321b516
     # No post-install needed: CMakeLists.txt's own install() rules (Task 67)
     # already place the .desktop/metainfo/icon files under the standard
-    # freedesktop paths, which cmake-ninja installs to $FLATPAK_DEST (/app)
-    # the same as any other `ninja install` target.
+    # freedesktop paths, which `cmake --install` puts under /app.

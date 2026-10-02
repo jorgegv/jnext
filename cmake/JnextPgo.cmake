@@ -1,9 +1,17 @@
-# Profile-guided optimisation of the jnext executable (GH #297), gcc only.
+# Profile-guided optimisation of the jnext executable (GH #297).
 #
 #   JNEXT_PGO=OFF       (default) no PGO flags anywhere.
-#   JNEXT_PGO=GENERATE  instrument: the build writes .gcda files into
-#                       JNEXT_PGO_DIR when the binary runs.
-#   JNEXT_PGO=USE       optimise with the .gcda files in JNEXT_PGO_DIR.
+#   JNEXT_PGO=GENERATE  instrument: the binary writes its profile into
+#                       JNEXT_PGO_DIR when it runs (tools/pgo-train.sh).
+#   JNEXT_PGO=USE       optimise with the profile in JNEXT_PGO_DIR.
+#
+# gcc (Linux, MinGW, Flatpak) is the measured, primary path: -fprofile-generate
+# / -fprofile-use, one .gcda per translation unit. clang (macOS's AppleClang)
+# uses its own instrumentation, -fprofile-instr-generate / -fprofile-instr-use
+# with the merged JNEXT_PGO_DIR/jnext.profdata; there a stale profile is an
+# error (-Wprofile-instr-out-of-date) but a translation unit with no profile at
+# all is not detected per unit — ld64's link map has another format, so the
+# unlinked-member exemption below is gcc-only.
 #
 # The flags go ONLY on the sources of the jnext executable and of the in-tree
 # static libraries it links (its transitive closure), never on anything else
@@ -123,8 +131,12 @@ function(jnext_apply_pgo exe)
     if(NOT JNEXT_PGO MATCHES "^(GENERATE|USE)$")
         message(FATAL_ERROR "JNEXT_PGO must be OFF, GENERATE or USE (got '${JNEXT_PGO}')")
     endif()
-    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR NOT CMAKE_C_COMPILER_ID STREQUAL "GNU")
-        message(FATAL_ERROR "JNEXT_PGO=${JNEXT_PGO} needs gcc (the C++ compiler is ${CMAKE_CXX_COMPILER_ID})")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        set(clang OFF)
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang$" AND CMAKE_C_COMPILER_ID MATCHES "Clang$")
+        set(clang ON)
+    else()
+        message(FATAL_ERROR "JNEXT_PGO=${JNEXT_PGO} needs gcc or clang (got ${CMAKE_C_COMPILER_ID}/${CMAKE_CXX_COMPILER_ID})")
     endif()
     if(NOT JNEXT_PGO_DIR OR NOT IS_ABSOLUTE "${JNEXT_PGO_DIR}")
         message(FATAL_ERROR "JNEXT_PGO=${JNEXT_PGO} needs an absolute JNEXT_PGO_DIR")
@@ -137,7 +149,20 @@ function(jnext_apply_pgo exe)
     endif()
 
     set(prefix "-fprofile-prefix-path=${CMAKE_BINARY_DIR}")
-    if(JNEXT_PGO STREQUAL "GENERATE")
+    if(clang)
+        set(profdata "${JNEXT_PGO_DIR}/jnext.profdata")
+        if(JNEXT_PGO STREQUAL "GENERATE")
+            set(cflags "-fprofile-instr-generate=${JNEXT_PGO_DIR}/jnext-%p.profraw")
+            set(lflags ${cflags})
+        else()
+            if(NOT EXISTS "${profdata}")
+                message(FATAL_ERROR "JNEXT_PGO=USE: ${profdata} missing (train first)")
+            endif()
+            set_property(DIRECTORY "${CMAKE_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${profdata}")
+            set(cflags "-fprofile-instr-use=${profdata}" -Werror=profile-instr-out-of-date)
+            set(lflags "-fprofile-instr-use=${profdata}")
+        endif()
+    elseif(JNEXT_PGO STREQUAL "GENERATE")
         set(cflags -fprofile-generate=${JNEXT_PGO_DIR} -fprofile-update=single ${prefix})
         set(lflags -fprofile-generate=${JNEXT_PGO_DIR})
     else()
@@ -149,7 +174,7 @@ function(jnext_apply_pgo exe)
     set(targets "")
     _jnext_pgo_collect(${exe} targets)
     set(linked "")
-    if(JNEXT_PGO STREQUAL "USE")
+    if(JNEXT_PGO STREQUAL "USE" AND NOT clang)
         _jnext_pgo_linked_members(linked)
     endif()
     set(exempt "")
@@ -175,7 +200,7 @@ function(jnext_apply_pgo exe)
             endif()
             set(opts ${cflags})
             get_filename_component(name "${src}" NAME)
-            if(JNEXT_PGO STREQUAL "USE" AND type STREQUAL "STATIC_LIBRARY"
+            if(JNEXT_PGO STREQUAL "USE" AND NOT clang AND type STREQUAL "STATIC_LIBRARY"
                AND NOT "${archive}(${name}${CMAKE_C_OUTPUT_EXTENSION})" IN_LIST linked)
                 list(APPEND opts -Wno-missing-profile)
                 list(APPEND exempt "${name}")
@@ -185,11 +210,11 @@ function(jnext_apply_pgo exe)
         endforeach()
     endforeach()
     target_link_options(${exe} PRIVATE ${lflags})
-    if(JNEXT_PGO STREQUAL "GENERATE")
+    if(JNEXT_PGO STREQUAL "GENERATE" AND NOT clang)
         # The link map records which library members the linker pulled into
         # jnext; tools/pgo-train.sh files it with the profile for USE.
         target_link_options(${exe} PRIVATE "LINKER:-Map=${CMAKE_BINARY_DIR}/jnext-pgo.map")
-    else()
+    elseif(JNEXT_PGO STREQUAL "USE" AND NOT clang)
         message(STATUS "PGO USE: not linked into jnext, no profile required: ${exempt}")
     endif()
     # Any OTHER executable linking an instrumented library (gen-snapshot-schema
