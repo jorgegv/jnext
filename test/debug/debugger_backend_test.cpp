@@ -6134,6 +6134,70 @@ static void rwm_rows() {
         std::remove(tzx.c_str());
     }
 
+    {
+        // MORE THAN ONE abandoned slot. The slider dragged back three frames,
+        // an edit: every slot past it goes (`while`, not `if`), so neither the
+        // slider forward nor Step Back on the stale trace reaches any of them.
+        B5VerbMachine m(/*rewind=*/true);
+        m.dbg->set_trace_enabled(true);
+        m.dbg->pause(m.a);
+        m.dbg->run_to_frame(m.a, 4);
+        run_until_paused(m.emu, 6);
+        for (int i = 0; i < 4; ++i) m.dbg->step_into(m.a);
+        const uint32_t newest0 = m.dbg->rewind_range().newest_frame;     // 4
+        const Result   rf      = m.dbg->rewind_to_frame(m.a, 1);         // 2, 3, 4 abandoned
+        const uint8_t  v       = 0x5A;
+        m.dbg->poke(m.a, MemSpace::cpu(), 0xC000, 1, &v);
+        const size_t   depth   = m.dbg->rewind_range().depth;            // slots 0, 1
+        const RwmPos   before  = rwm_pos(*m.dbg);
+        const Result   fwd2    = m.dbg->rewind_to_frame(m.a, 2);
+        const Result   fwd3    = m.dbg->rewind_to_frame(m.a, 3);
+        const Result   sb      = m.dbg->step_back(m.a, 1);               // stale trace: old frame 4
+        check("RWM-51", "slider back three frames (2, 3, 4 abandoned), an edit: ALL of them "
+                        "go — depth 2, slider forward to 2 and to 3 refused, Step Back refused, "
+                        "the byte stands",
+              newest0 == 4 && rf == Result::Ok && depth == 2 &&
+                  m.dbg->rewind_range().newest_frame == 1 &&
+                  fwd2 == Result::RefusedUnavailable && fwd3 == Result::RefusedUnavailable &&
+                  sb == Result::RefusedUnavailable && rwm_peek(*m.dbg, 0xC000) == 0x5A &&
+                  rwm_same(rwm_pos(*m.dbg), before),
+              "depth=" + std::to_string(depth) + " fwd2=" + jnext::dbg::result_name(fwd2) +
+                  " fwd3=" + jnext::dbg::result_name(fwd3) + " sb=" +
+                  jnext::dbg::result_name(sb) + " " + b5_state(*m.dbg));
+    }
+    {
+        // REV-13: a backwards load past SEVERAL slots. Saved on the machine's
+        // first frame boundary (cycle 0, before anything ran), run on to frame
+        // 3, loaded back: slots 1, 2 and 3 were recorded in the history the
+        // load abandoned, and all of them go; slot 0, which starts exactly at
+        // the load, stays.
+        B5VerbMachine m(/*rewind=*/true);
+        m.dbg->set_trace_enabled(true);
+        m.dbg->pause(m.a);
+        const auto b = m.dbg->save_state_bytes(m.a, SaveStateMode::AdvanceToBoundary);
+        m.dbg->run_to_frame(m.a, 3);
+        run_until_paused(m.emu, 6);
+        for (int i = 0; i < 3; ++i) m.dbg->step_into(m.a);
+        const size_t d1  = m.dbg->rewind_range().depth;           // slots 0..3
+        const Result ld  = m.dbg->load_state_bytes(m.a, b.value.data(), b.value.size());
+        const size_t d2  = m.dbg->rewind_range().depth;
+        const RwmPos before = rwm_pos(*m.dbg);
+        const Result sb  = m.dbg->step_back(m.a, 1);              // stale trace: old frame 3
+        const Result fb1 = m.dbg->rewind_to_frame(m.a, 1);
+        const Result fb2 = m.dbg->rewind_to_frame(m.a, 2);
+        const Result fb3 = m.dbg->rewind_to_frame(m.a, 3);
+        check("RWM-52", "a load back past three slots (frames 1, 2, 3): all of them go — "
+                        "depth 4 -> 1, Step Back and Frame Back to 1, 2 or 3 refused, the "
+                        "machine where the load left it",
+              b.status == Result::Ok && ld == Result::Ok && d1 == 4 && d2 == 1 &&
+                  sb == Result::RefusedUnavailable && fb1 == Result::RefusedUnavailable &&
+                  fb2 == Result::RefusedUnavailable && fb3 == Result::RefusedUnavailable &&
+                  rwm_same(rwm_pos(*m.dbg), before),
+              "d1=" + std::to_string(d1) + " d2=" + std::to_string(d2) + " sb=" +
+                  jnext::dbg::result_name(sb) + " fb1=" + jnext::dbg::result_name(fb1) +
+                  " " + b5_state(*m.dbg));
+    }
+
     // ── In-place machine replacement ─────────────────────────────────────
     {
         // load_state_bytes() and bookmark_restore() put the machine in a state
