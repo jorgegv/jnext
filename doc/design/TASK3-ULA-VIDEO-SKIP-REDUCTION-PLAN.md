@@ -238,7 +238,7 @@ Keep separate by default — simpler critic review, zero merge risk.
      counts.
    - `test/TRACEABILITY-MATRIX.md` adding NR 0x26, 0x27, 0x42, 0x43,
      port 0xFF3B rows.
-   - `doc/testing/ULA-TEST-PLAN-DESIGN.md` (the ULA test plan) to
+   - `doc/testing/ULA-VIDEO-TEST-PLAN-DESIGN.md` (the ULA test plan) to
      match the closed rows — amend §9 scroll, §6 ULAnext, §7 ULA+,
      §14 line-interrupt sections with the live test IDs.
    - `doc/design/EMULATOR-DESIGN-PLAN.md` ULA section with the new

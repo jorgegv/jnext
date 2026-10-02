@@ -336,7 +336,7 @@ Otherwise skip — this plan is small enough that Phases 0-2 critics
 are sufficient.
 
 If run: 1 audit agent produces
-`doc/testing/audits/task-compositor-udis-03-phase3.md` with plan-drift
+`doc/testing/audits/task-udis03-phase3.md` with plan-drift
 catalogue, critic verdicts, and final aggregate delta.
 
 ## Dependencies

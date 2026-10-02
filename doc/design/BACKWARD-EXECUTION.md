@@ -686,4 +686,5 @@ This test verifies that rewind does not introduce any non-determinism.
 ---
 
 *Document created: 2026-04-09*
-*Status: Design — awaiting implementation approval*
+*Status: implemented (Phase 8): `src/debug/rewind_buffer.{h,cpp}`, `--rewind-buffer-size`. This is the original design and is not maintained.*
+*Original status, kept as history: Design — awaiting implementation approval*

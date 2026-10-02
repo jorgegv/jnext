@@ -1,5 +1,10 @@
 # Debug subsystem architecture — backend and frontends (epic #276)
 
+> Status: **implemented.** Epic #276 and #277, #278, #12, #280, #281 and #26 are
+> closed; the code is in `src/debug/`, `src/remote/` and `src/script/`, and the
+> developer guide (§3.9, §3.10) describes the shipped subsystem. The original
+> status line follows, kept as history.
+>
 > Status: **design converged, not implemented.** Deliverable of
 > [#277](https://github.com/jorgegv/jnext/issues/277), gate on
 > [#278](https://github.com/jorgegv/jnext/issues/278) (Qt refactor),

@@ -18,6 +18,7 @@ The sub-directories mirror where each file used to live (`analysis/`,
 | `design/INTERNAL-Z80N-CORE-PLAN.md` | Plan for a VHDL-derived Z80N core, declined (WONT, Task 65, 2026-07-17). |
 | `design/PROFILING-OPTIMIZATION-PLAN.md` | Self-declared obsolete; superseded by the Task 27 plan and reports in `doc/design/`. |
 | `design/SCRIPTABLE-DEBUGGER.md` | DSL design of 2026-04-09, superseded by `doc/design/debug-subsystem/dsl-frontend.md` (epic #276). |
+| `design/REQUIREMENTS-DATABASE.md` | Proposal (2026-04-20) for a requirements database, never implemented; the generated traceability matrix (GH #196) took its place. |
 | `design/TASK89-DRAFT-ISSUE.md` | Draft of an issue that was filed as GH #31. |
 | `design/LAYER-COMPOSITION-RESOLUTION.md` | Background note, not derived from the VHDL. The VHDL and the developer guide are the authority. |
 | `design/MAGIC-BREAKPOINT.md` | Background note on `ED FF`; the feature shipped and is documented in the user guide. |

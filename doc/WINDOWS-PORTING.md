@@ -56,7 +56,7 @@ There is very little, which is the point:
   `--help` and `--headless`) reserves a >2 MB frame that overflows MinGW's 2 MB
   default. The 16 MB reserve fully resolves the crash; **the frame itself was
   never root-caused** and no >256 KB array was found by grep. Tracked in
-  [EMULATOR-DESIGN-PLAN.md](EMULATOR-DESIGN-PLAN.md) §11.
+  [EMULATOR-DESIGN-PLAN.md](design/EMULATOR-DESIGN-PLAN.md) §11.
 - The GUI subsystem is selected so no console window appears alongside the app.
 
 ## Known gaps on Windows

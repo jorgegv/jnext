@@ -8,10 +8,10 @@ The goal is a single queryable source of truth, populated mechanically from the 
 
 ## What exists today (and why it's not enough)
 
-1. **Per-subsystem plans** — [doc/testing/*-TEST-PLAN-DESIGN.md](../testing/) × 16 files. Each row carries: plan ID, preconditions, stimulus, expected value, VHDL `file:line` citation. Authoritative spec, derived exclusively from VHDL per
-   [UNIT-TEST-PLAN-EXECUTION.md](../testing/UNIT-TEST-PLAN-EXECUTION.md) §1.
-2. **Traceability matrix** — [doc/testing/TRACEABILITY-MATRIX.md](../testing/TRACEABILITY-MATRIX.md). Maps plan row → test ID → VHDL citation → status → test `file:line`. Refreshed by [test/refresh-traceability-matrix.pl](../../test/refresh-traceability-matrix.pl).
-3. **Dashboard** — [test/SUBSYSTEM-TESTS-STATUS.md](../../test/SUBSYSTEM-TESTS-STATUS.md). Aggregate pass/fail/skip/total per subsystem, auto-refreshed by `make unit-test`.
+1. **Per-subsystem plans** — [doc/testing/*-TEST-PLAN-DESIGN.md](../../testing/) × 16 files. Each row carries: plan ID, preconditions, stimulus, expected value, VHDL `file:line` citation. Authoritative spec, derived exclusively from VHDL per
+   [UNIT-TEST-PLAN-EXECUTION.md](../../testing/UNIT-TEST-PLAN-EXECUTION.md) §1.
+2. **Traceability matrix** — [doc/testing/TRACEABILITY-MATRIX.md](../../testing/TRACEABILITY-MATRIX.md). Maps plan row → test ID → VHDL citation → status → test `file:line`. Refreshed by [test/refresh-traceability-matrix.pl](../../../test/refresh-traceability-matrix.pl).
+3. **Dashboard** — [test/SUBSYSTEM-TESTS-STATUS.md](../../../test/SUBSYSTEM-TESTS-STATUS.md). Aggregate pass/fail/skip/total per subsystem, auto-refreshed by `make unit-test`.
 4. **Live backlog** — `.prompts/YYYY-MM-DD.md` files carry the daily tasklist and the "Emulator Bug backlog" items surfaced by test runs. Not machine-readable.
 
 **Concrete limitations that made today's session noisy:**
@@ -106,4 +106,4 @@ The script is **idempotent** and emits a diff against the existing DB so CI can 
 
 - Today's instigator: session 2026-04-20 NextREG Phase 1 SKIP-reduction, commit `d455e23`. After re-homing 32 skip()s to source comments, the matrix's "missing" count jumped from 11 to 43 for NextREG alone — entirely because the extractor can't follow the re-home pointers. That session put the issue on the map.
 - Related memory: `project_test_plan_audit_20260414.md`, in the owner's auto-memory outside the repository (the audit that established the current plan→matrix→dashboard hierarchy).
-- The existing refresh script's behaviour is documented in [UNIT-TEST-PLAN-EXECUTION.md](../testing/UNIT-TEST-PLAN-EXECUTION.md) §6a.
+- The existing refresh script's behaviour is documented in [UNIT-TEST-PLAN-EXECUTION.md](../../testing/UNIT-TEST-PLAN-EXECUTION.md) §6a.

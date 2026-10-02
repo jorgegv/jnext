@@ -265,9 +265,12 @@ whenever:
   the suite on main.
 - A new row is added or retracted — update the denominator.
 
-`doc/design/EMULATOR-DESIGN-PLAN.md` carries the aggregate table across
-all 16 subsystems and the unit-test grand total. Keep that table and the
-per-plan Current status blocks in sync.
+The aggregate numbers are not kept by hand: `test/SUBSYSTEM-TESTS-STATUS.md`
+(refreshed by `make unit-test-dashboard`) carries the per-subsystem and grand
+totals, and `doc/testing/TRACEABILITY-MATRIX.md` (generated, staleness-gated by
+`make traceability-check`) carries every row's status. Keep the per-plan
+Current status blocks consistent with them. `doc/design/EMULATOR-DESIGN-PLAN.md`
+is a frozen historical roadmap and is not updated.
 
 **Never publish a 100% pass rate for a plan that still has skips.** 100%
 pass on a live subset is honest; 100% pass on the whole plan is only

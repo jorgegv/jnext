@@ -319,7 +319,8 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
 ## 7. Release checklist — when the user says "release vX.Y.Z"
 
 1. **Green triplet** on `main`: `make unit-test`, FUSE suite, `make regression`
-   — no FAIL (per CLAUDE.md "Version bumping").
+   — no FAIL (per CLAUDE.md "Version bumping") — plus `make unit-test-sdl`, as
+   the merge protocol requires.
 2. Update the unit-test status report, `doc/DEVELOPMENT-SESSIONS.md`, and the
    ChangeLog (to the future version). The traceability matrix is generated, not
    hand-updated: commit it only if `make unit-test` regenerated it (GH #196).

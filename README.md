@@ -183,7 +183,7 @@ automate JNEXT the way its own test suite does.
 | [TODO.md](TODO.md)                                             | Pointer to GitHub issues, where pending features and known issues live                   |
 | [ChangeLog](ChangeLog)                                         | What changed in each release                                                             |
 | [CREDITS.md](CREDITS.md)                                       | Third-party libraries, references and acknowledgments                                    |
-| [EMULATOR-DESIGN-PLAN.md](doc/design/EMULATOR-DESIGN-PLAN.md)  | The development plan: real status, implemented features, roadmap                         |
+| [EMULATOR-DESIGN-PLAN.md](doc/design/EMULATOR-DESIGN-PLAN.md)  | The original roadmap, frozen as history; pending work lives in GitHub issues            |
 | [CURRENT-REGRESSION-STATE.md](doc/testing/CURRENT-REGRESSION-STATE.md) | Current state of the screenshot regression suite                                         |
 
 ## Contributing

@@ -2121,7 +2121,7 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Effort**: M.
 
 ### G70. Requirements DB (SQLite proposal — queued)
-- **What**: `doc/design/REQUIREMENTS-DATABASE.md` proposes a SQLite
+- **What**: `doc/obsolete/design/REQUIREMENTS-DATABASE.md` proposes a SQLite
   `test/requirements.db` populated from plans + test source + VHDL
   citations, with priority/blocker tags + `comment-rehome`. Queued
   since 2026-04-20 behind SKIP-reduction.
