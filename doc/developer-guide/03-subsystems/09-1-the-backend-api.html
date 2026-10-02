@@ -1,0 +1,2950 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="ZX Spectrum Next emulator — developer guide">
+      
+      
+      
+      
+        <link rel="prev" href="09-debug-and-the-debugger.html">
+      
+      
+        <link rel="next" href="09-2-event-delivery-and-mutation.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>3.9.1 The backend API - JNEXT Developer Guide</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../css/theme.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#391-the-backend-api" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../index.html" title="JNEXT Developer Guide" class="md-header__button md-logo" aria-label="JNEXT Developer Guide" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            JNEXT Developer Guide
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              3.9.1 The backend API
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.68</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
+  </div>
+</a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../index.html" title="JNEXT Developer Guide" class="md-nav__button md-logo" aria-label="JNEXT Developer Guide" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    JNEXT Developer Guide
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.68</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
+  </div>
+</a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../01-orientation/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1. Orientation
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    1. Orientation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/01-what-jnext-is.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.1 What JNEXT is, in one page
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/02-repository-layout.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.2 Repository layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/03-the-rules-that-shape-the-code.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.3 The rules that shape the code
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../02-architecture/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2. Architecture
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    2. Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/01-startup-and-the-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.1 Startup and the frontends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/02-the-emulator-core.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.2 The emulator core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/03-a-frame-end-to-end.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.3 A frame, end to end
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/04-the-video-pipeline.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.4 The video pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/05-save-state-and-rewind.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.5 Save state, rewind and determinism
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3. Subsystems
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    3. Subsystems
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="01-cpu.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.1 CPU
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="02-memory.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.2 Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="03-video.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.3 Video
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-audio.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.4 Audio
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="05-ports-and-nextreg.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.5 Ports and NextREG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="06-peripherals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.6 Peripherals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="07-input.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.7 Input
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="08-media-and-loaders.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.8 Media and loaders
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_10" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_10" id="__nav_4_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9 The debug subsystem
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_10_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    3.9 The debug subsystem
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-debug-and-the-debugger.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9 Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.1 The backend API
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="09-1-the-backend-api.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.1 The backend API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#conventions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conventions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-capability-families" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The capability families
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The capability families">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#control-cap-ctl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Control — CAP-CTL
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inspection-and-mutation-cap-ins" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inspection and mutation — CAP-INS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#events-cap-evt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Events — CAP-EVT
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#input-injection-and-capture-cap-in-cap-cap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Input injection and capture — CAP-IN, CAP-CAP
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#state-and-rewind-cap-st" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        State and rewind — CAP-ST
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#symbols-cap-sym" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Symbols — CAP-SYM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#coverage-and-the-trace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coverage and the trace
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#session-cap-ses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session — CAP-SES
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#behind-the-facade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Behind the facade
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-2-event-delivery-and-mutation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.2 Event delivery and mutation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-3-sessions-the-pump-and-reconstruct.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.3 Sessions, the pump and the reconstruct contract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-4-execution-control-and-rewind.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.4 Execution control and rewind
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_11" id="__nav_4_11_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10 The debugger frontends
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    3.10 The debugger frontends
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-0-the-debugger-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10 Overview and capability matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-1-the-socket-transport.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.1 The shared socket transport
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-2-the-qt-debugger.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.2 The Qt debugger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-the-dzrp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.3 The DZRP server (DeZog)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="11-the-gdb-rsp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.4 The GDB RSP server (z88dk-gdb)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="12-the-zrcp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.5 The ZRCP server (ZEsarUX's protocol)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="13-the-debugger-scripting-language.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.6 The debugger scripting language
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-7-extending-the-debug-subsystem.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.7 Extending the debug subsystem
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../04-testing/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4. Testing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    4. Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/01-the-test-triplet.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.1 The test triplet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/02-declared-suites-and-pinned-counts.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.2 Declared suites and pinned counts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/03-the-regression-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.3 The regression suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/04-traceability.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.4 Traceability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/05-documentation-and-cli-gates.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.5 The documentation and CLI gates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/06-the-harness-selftest.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.6 The harness self-test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/07-writing-a-new-test.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.7 Writing a new test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../05-building/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5. Building and packaging
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    5. Building and packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/01-make-targets.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.1 Make targets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/02-build-configurations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.2 Build configurations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/03-packaging-and-release.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.3 Packaging and release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/04-continuous-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.4 Continuous integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../06-contributing/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6. Contributing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    6. Contributing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/01-issues-and-pull-requests.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.1 Issues and pull requests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/02-branches-worktrees-and-review.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.2 Branches, worktrees and review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/03-house-style.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.3 House style
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="391-the-backend-api">3.9.1 The backend API<a class="headerlink" href="#391-the-backend-api" title="Permanent link">&para;</a></h1>
+<p>Four headers in <code>src/debug/</code> are the whole interface a frontend sees:</p>
+<table>
+<thead>
+<tr>
+<th>Header</th>
+<th>Declares</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>debugger.h</code></td>
+<td><code>jnext::dbg::Debugger</code>, and the session types: <code>ClientKind</code>, <code>ClientInfo</code>, <code>Listener</code>, <code>Service</code>, <code>PumpBudget</code>, <code>ServiceHint</code>, <code>PausedInfo</code>, <code>StopPolicy</code>, <code>LoopDriver</code>, <code>LogLevel</code></td>
+</tr>
+<tr>
+<td><code>events.h</code></td>
+<td>the event vocabulary: <code>EventKind</code> and its sub-kinds, <code>Event</code>, <code>EventFilter</code>, <code>Subscription</code>, <code>SubscriptionInfo</code>, <code>Condition</code>, <code>Handler</code>, <code>Action</code>, <code>Hit</code>, <code>ClientId</code>, <code>EventId</code></td>
+</tr>
+<tr>
+<td><code>inspect.h</code></td>
+<td>the inspection value types: <code>MemSpace</code>, <code>SlotInfo</code>, <code>RegId</code>, <code>RunState</code>, <code>PauseReason</code>, <code>Time</code>, <code>MachineInfo</code>, <code>RewindRange</code>, <code>InputState</code>, <code>Layer</code>, <code>ClipLayer</code>, <code>PaletteId</code> and the rest</td>
+</tr>
+<tr>
+<td><code>result.h</code></td>
+<td><code>Result</code>, the closed set of refusals, and <code>Expected&lt;T&gt;</code></td>
+</tr>
+</tbody>
+</table>
+<p>They are a frozen interface. A verb is added only by owner decision, and each
+declaration says which capability id of <code>doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md</code>
+§4 it serves. <code>doc/design/debug-subsystem/b0-cap-traceability.md</code> maps each
+capability id to its declarations, though not completely: <code>rgb333_to_argb()</code>,
+for one, is missing from it.</p>
+<h2 id="conventions">Conventions<a class="headerlink" href="#conventions" title="Permanent link">&para;</a></h2>
+<p><strong>Every verb that can refuse returns a <code>Result</code>.</strong> The set is closed, and every
+value is pinned by <code>debug_types_check.cpp</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th><code>Result</code></th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>Ok</code></td>
+<td>done</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>RefusedRunning</code></td>
+<td>needs a paused machine</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>RefusedPaused</code></td>
+<td>needs a running machine</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>RefusedCorrupt</code></td>
+<td>an unacknowledged corruption incident blocks it (CTL-11)</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>RefusedRzx</code></td>
+<td>an RZX is recording or playing</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>RefusedUnavailable</code></td>
+<td>benign: the thing is not there right now (empty rewind buffer, trace off, no loop driver, an unknown bookmark)</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>RefusedReadOnly</code></td>
+<td>a ROM target</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>InvalidPage</code></td>
+<td>a page number that names no page</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>NotAtFrameBoundary</code></td>
+<td>a frame-boundary-only verb, mid-frame, asked not to advance</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>NoFrame</code></td>
+<td>a deferred capture that never got its frame</td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>Unsupported</code></td>
+<td>there is no such thing, for example a verb called from inside an event delivery that may not be</td>
+</tr>
+</tbody>
+</table>
+<p><code>result_name()</code> gives each one stable lowercase spelling for logs and protocol
+error strings, and <code>ok(r)</code> is the named test for success.</p>
+<p><strong>A verb that refuses and also yields data returns <code>Expected&lt;T&gt;</code></strong>: a <code>status</code>
+and a <code>value</code> in one object, testable with <code>if (auto r = ...)</code>. On a refusal the
+value is value-initialised, with one exception: <code>peek</code> and <code>poke</code> report how
+many bytes did transfer even when they refuse.</p>
+<p><strong>A query that cannot refuse returns its value directly.</strong> The class is listed
+in full in <code>debugger.h</code>'s "DIRECT-VALUE QUERIES" banner, with per-group counts
+so the list can be audited. Moving a query onto that list is a claim that it
+cannot fail. <code>pump()</code> is in neither class: it is the loop owner's service call.</p>
+<p><strong>Every transition and every mutation is attributed.</strong> A verb that pauses,
+resumes, steps, resets, loads or writes takes <code>ClientId by</code> as its first
+argument, and the backend broadcasts transitions with it. Reads take none. The
+backend itself acts as <code>CLIENT_NONE</code>.</p>
+<p><strong>No ownership token, no arbitration.</strong> One machine, any number of clients, and
+the last verb wins. The only thing owned is a subscription, which only the
+client that created it may change or remove.</p>
+<p><strong>Memory is addressed by <code>MemSpace</code>, and the index is part of the space.</strong></p>
+<table>
+<thead>
+<tr>
+<th><code>MemSpace</code></th>
+<th>Addresses</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MemSpace::cpu()</code></td>
+<td>the live 64 KB CPU map, every overlay included (DivMMC, Multiface, Layer 2, the NR 0x8C alternate ROM)</td>
+</tr>
+<tr>
+<td><code>MemSpace::page(p)</code></td>
+<td>the physical 8 KB page <code>p</code>, numbered as NR 0x50-0x57 numbers it (0..223), regardless of any overlay. 0xFE and 0xFF, the ROM sentinels, answer <code>InvalidPage</code></td>
+</tr>
+<tr>
+<td><code>MemSpace::rom(i)</code></td>
+<td>the 16 KB ROM image <code>i</code> (0..3), read-only</td>
+</tr>
+</tbody>
+</table>
+<p>A client never composes a space from a slot's page number. On the Next a ROM
+slot's <code>effective_page</code> is an un-shifted SRAM page index, outside <code>page()</code>'s
+numbering. So <code>mmu_slots()</code> returns each slot's complete backing store as
+<code>SlotInfo::space</code> plus <code>SlotInfo::space_offset</code>. <code>rom_select()</code> names the image
+legacy paging selects, even while RAM is paged at 0x0000.</p>
+<h2 id="the-capability-families">The capability families<a class="headerlink" href="#the-capability-families" title="Permanent link">&para;</a></h2>
+<p>Each family keeps its design id prefix, which is how the headers, the tests and
+the design documents refer to it.</p>
+<h3 id="control-cap-ctl">Control — CAP-CTL<a class="headerlink" href="#control-cap-ctl" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Verb</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pause(by)</code></td>
+<td>stop at the next instruction boundary. Idempotent; a second pause re-attributes the stop to its caller</td>
+</tr>
+<tr>
+<td><code>run(by)</code></td>
+<td>resume. Still <code>Ok</code> on a running machine. Subject to the corruption gate</td>
+</tr>
+<tr>
+<td><code>step_into(by)</code></td>
+<td>one instruction, <strong>synchronously</strong>, frame-loop aware: a step at a <code>HALT</code> runs the halt out</td>
+</tr>
+<tr>
+<td><code>step_over(by)</code>, <code>step_out(by)</code></td>
+<td><strong>asynchronous</strong>: the stop arrives later as a <code>Paused</code> push</td>
+</tr>
+<tr>
+<td><code>run_to(by, addr)</code>, <code>run_to_cycle(by, c)</code>, <code>run_to_frame(by, f)</code>, <code>run_to_end_of_frame(by)</code>, <code>run_to_end_of_scanline(by)</code></td>
+<td>resume until a target</td>
+</tr>
+<tr>
+<td><code>step_back(by, n)</code>, <code>rewind_to_frame(by, f)</code></td>
+<td>rewind, synchronously. A benign refusal is <code>RefusedRzx</code> or <code>RefusedUnavailable</code> (no ring or an empty one, a frame outside it or not recorded, the trace off or empty, or a step back that would replay across a debugger change), and logs its reason</td>
+</tr>
+<tr>
+<td><code>resume_blocked_by_corruption()</code>, <code>acknowledge_corruption(gen)</code></td>
+<td>the CTL-11 gate after a failed restore</td>
+</tr>
+<tr>
+<td><code>reset(by, Soft \| Hard)</code></td>
+<td><code>Soft</code> is <code>Emulator::soft_reset()</code>. <code>Hard</code> is the reconstruct contract of <a href="09-3-sessions-the-pump-and-reconstruct.html">3.9.3</a></td>
+</tr>
+<tr>
+<td><code>load(by, path)</code></td>
+<td>through the loop owner's <code>LoopDriver::load</code>; same contract when the load rebuilds the machine</td>
+</tr>
+<tr>
+<td><code>state()</code></td>
+<td><code>RunState</code>: paused, step mode, <code>pause_reason</code>, cycle, frame, PC</td>
+</tr>
+<tr>
+<td><code>magic_breakpoint()</code>, <code>set_magic_breakpoint(on)</code></td>
+<td>the magic opcode switch</td>
+</tr>
+<tr>
+<td><code>armed()</code>, <code>persistent_breakpoints()</code>, <code>set_persistent_breakpoints(on)</code></td>
+<td>whether the hot loop consults the backend at all</td>
+</tr>
+</tbody>
+</table>
+<p><code>step_over()</code> asks <code>is_call_like()</code> about the instruction at PC (<code>CALL</code>,
+<code>CALL cc</code>, <code>RST</code>, <code>DJNZ</code>). If it is, it arms a transient <code>Execute</code>
+subscription at the next instruction and resumes. Otherwise it is a
+<code>step_into()</code>.</p>
+<h3 id="inspection-and-mutation-cap-ins">Inspection and mutation — CAP-INS<a class="headerlink" href="#inspection-and-mutation-cap-ins" title="Permanent link">&para;</a></h3>
+<p>Reads never perturb the machine. Writes are first-class, logged by the backend,
+and follow the contract of <a href="09-2-event-delivery-and-mutation.html">3.9.2</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Reads</th>
+<th>Writes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>registers</td>
+<td><code>registers()</code></td>
+<td><code>set_register(by, RegId, v)</code>, one register at a time. Setting <code>PC</code> clears <code>halted</code></td>
+</tr>
+<tr>
+<td>memory</td>
+<td><code>peek(space, addr, n, buf)</code>, <code>memory_reader()</code></td>
+<td><code>poke(by, space, addr, n, buf)</code></td>
+</tr>
+<tr>
+<td>paging</td>
+<td><code>mmu_slots()</code>, <code>paging_ports()</code>, <code>rom_select()</code></td>
+<td><code>set_mmu_slot(by, slot, page)</code>, through the NR 0x50+slot write handler</td>
+</tr>
+<tr>
+<td>NextREG</td>
+<td><code>nextreg_peek(reg)</code>, <code>nextreg_selected()</code></td>
+<td><code>nextreg_write(by, reg, v)</code>, which runs the register's own handler</td>
+</tr>
+<tr>
+<td>ports</td>
+<td>—</td>
+<td><code>port_in(by, port)</code>, <code>port_out(by, port, v)</code>; both dispatch like the guest's <code>IN</code>/<code>OUT</code> and are perturbing by nature</td>
+</tr>
+<tr>
+<td>time and raster</td>
+<td><code>time()</code>, <code>raster()</code>, <code>machine()</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>sprites</td>
+<td><code>sprites()</code>, <code>sprite_attr_raw(i)</code>, <code>pattern_ram()</code>, <code>sprite_palette_rgb333(bank, i)</code>, <code>sprite_clip()</code></td>
+<td><code>set_sprite_attr_raw(...)</code>, <code>write_pattern_ram(...)</code></td>
+</tr>
+<tr>
+<td>Copper</td>
+<td><code>copper()</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>audio</td>
+<td><code>ay_registers(chip)</code>, <code>turbosound_enabled()</code>, <code>ay_mode()</code>, <code>stereo_mode()</code>, <code>audio_mute_mask()</code></td>
+<td><code>set_audio_mute_mask(by, m)</code> (host-side, never in a snapshot or an RZX)</td>
+</tr>
+<tr>
+<td>video</td>
+<td><code>framebuffer()</code>, <code>render_layer(layer, vc, dst, stride)</code>, <code>palette(id)</code>, <code>active_ula_palette_bank()</code>, <code>ula_screen_regs()</code>, <code>clip_window(layer)</code></td>
+<td><code>set_palette(...)</code>, <code>set_border(by, colour)</code></td>
+</tr>
+<tr>
+<td>disassembly</td>
+<td><code>disassemble(addr, n, symbols)</code>, <code>instruction_length(addr)</code>, <code>is_call_like(addr)</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>call stack and trace</td>
+<td><code>call_stack()</code>, <code>trace_entries()</code>, <code>trace_export(path)</code></td>
+<td><code>set_call_stack_enabled</code>, <code>set_trace_enabled</code>, <code>trace_clear</code>, <code>trace_resize</code></td>
+</tr>
+<tr>
+<td>coverage</td>
+<td><code>coverage()</code>, <code>coverage_enabled()</code></td>
+<td><code>coverage_enable</code>, <code>coverage_clear</code></td>
+</tr>
+<tr>
+<td>input</td>
+<td><code>input_state()</code></td>
+<td>see input injection below</td>
+</tr>
+<tr>
+<td>the event model</td>
+<td><code>subscriptions(include_transient)</code>, <code>events_fired_since(seq)</code></td>
+<td>see <a href="09-2-event-delivery-and-mutation.html">3.9.2</a></td>
+</tr>
+</tbody>
+</table>
+<p>Three of these are worth understanding before using them.</p>
+<p><strong><code>peek(MemSpace::cpu())</code> is <code>Mmu::peek()</code>.</strong> <code>Mmu::read()</code> is the guest's
+read: it captures the byte into the +3 floating-bus latch on a contended access
+and raises the data-breakpoint latch on a READ watchpoint. <code>Mmu::peek()</code> wraps
+<code>read()</code> under <code>DebugState::InspectionScope</code> and puts the floating-bus byte
+back. It wraps rather than copies, so the overlay arbitration (boot ROM,
+Multiface, DivMMC, Layer 2, alternate ROM, config mode) cannot drift between
+the two. The trace's word at SP reads the same way.</p>
+<p><strong>The frame number is a tag, not the raw counter.</strong> <code>Emulator::frame_num()</code> is
+post-incremented at the start of each frame, so during frame K it reads K+1.
+<code>time().frame</code> and <code>state().frame</code> report <code>frame_num() - 1</code>. That is the tag
+the rewind slot for the frame carries, and the frame <code>--delayed-keypress-frames N</code>
+lands on. A rewind lands on a frame start the ring has already counted;
+<code>RewindRange::at_restored_frame_start</code> says when the machine sits on one, and
+<code>run_to_frame()</code> takes its base from it.</p>
+<p><strong><code>raster()</code> and <code>time()</code> of a paused machine are snapshots taken at the
+query.</strong> While the machine runs they report the live beam from the clock.</p>
+<p><code>render_layer()</code> (<code>src/debug/debugger_render.cpp</code>) draws one of the eight
+<code>Layer</code> views of the paused frame: composite, ULA primary and shadow, Layer 2
+active and shadow, sprites, tilemap, and the NR 0x4A background. It fills rows
+0..vc of a <code>RENDER_WIDTH</code>-wide buffer with <code>0x00000000</code>, so alpha 0 means
+transparent. It then replays every per-scanline change log the way
+<code>Renderer::render_frame</code> does, so a raster split shows as on screen. The render
+is state-preserving: the replay walks each log to its end, and the port 0x303B
+sprite status bits are saved and restored. <code>debugger_backend_test</code> INS-14-08
+compares the whole serialised machine state around each view.</p>
+<h3 id="events-cap-evt">Events — CAP-EVT<a class="headerlink" href="#events-cap-evt" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Verb</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>subscribe(by, Subscription)</code></td>
+<td>register a subscription owned by <code>by</code>; returns its <code>EventId</code></td>
+</tr>
+<tr>
+<td><code>unsubscribe(by, id)</code>, <code>set_enabled(by, id, on)</code></td>
+<td>owner only</td>
+</tr>
+<tr>
+<td><code>master_enabled()</code>, <code>set_master_enabled(on)</code></td>
+<td>suspend every non-transient subscription without touching its own flag</td>
+</tr>
+<tr>
+<td><code>client_enabled(cid)</code>, <code>set_client_enabled(cid, on)</code></td>
+<td>the per-client switch</td>
+</tr>
+<tr>
+<td><code>probe_execute(pc)</code></td>
+<td>the ids of every live <code>Execute</code> subscription that would fire at <code>pc</code>, with its condition evaluated. A pure query, for step loops</td>
+</tr>
+<tr>
+<td><code>raise_host_event(by, name)</code></td>
+<td>raise a <code>Host</code> event, <code>script1</code>..<code>script8</code> or any name up to <code>MAX_HOST_EVENT_NAME</code></td>
+</tr>
+</tbody>
+</table>
+<p><a href="09-2-event-delivery-and-mutation.html">3.9.2</a> describes the subscription model
+and the delivery contract.</p>
+<h3 id="input-injection-and-capture-cap-in-cap-cap">Input injection and capture — CAP-IN, CAP-CAP<a class="headerlink" href="#input-injection-and-capture-cap-in-cap-cap" title="Permanent link">&para;</a></h3>
+<p><strong>Pulses append.</strong> <code>press_key(by, name | MatrixKey, hold_frames)</code> queues a
+pulse on <code>Keyboard</code>'s auto-type queue. <code>Keyboard::queue_auto_type()</code> appends
+for every producer: the phantom typist, the tape <code>LOAD ""</code> sites,
+<code>--delayed-keypress</code> and the backend. An append behind an entry in flight
+leaves that entry's counters alone, so a held key does not restart its hold.
+<code>Keyboard::MAX_AUTO_TYPE_KEYS</code> (16) caps the union of what every producer
+queued. A pulse that does not fit is refused with <code>RefusedUnavailable</code> and the
+count that was queued.</p>
+<p><strong>Every injection lands at the frame edge.</strong> A pulse or a level set
+(<code>set_key</code>, <code>set_extended_key</code>) issued during frame N — from a handler, from a
+remote command in a pump, from a CLI countdown — is applied at the end of frame
+N and is visible to the guest from frame N+1. The level sets are queued on
+<code>Keyboard</code> and applied first thing in the edge's <code>tick_auto_type()</code>, so a
+handler cannot change what the rest of its own frame reads. <code>end_of_frame()</code>
+delivers the <code>Frame</code> event before that tick, so an <code>on frame N</code> handler's pulse
+is pressed by frame N's own tick. <code>set_joystick</code> and <code>press_nmi</code> are immediate.</p>
+<p><strong>Screenshots wait for the next rendered frame.</strong> <code>screenshot(by, path,
+layer_mask, format)</code> only queues. <code>pump()</code> writes every capture whose frame has
+been rendered since it was queued (<code>Emulator::rendered_frames()</code> moved), before
+any command of that pump can change the machine. While a capture waits, its
+layer mask is armed on the renderer and a force-render bit makes sure the next
+frame is rendered whatever the frontend's render-skip hint says. A paused
+machine renders nothing, so the capture is held, with one warning.
+<code>flush_captures(by)</code> is the exit bound. It answers <code>NoFrame</code> if any of <code>by</code>'s
+captures is still pending (they are dropped), <code>RefusedUnavailable</code> if one failed
+to write since the last call, and <code>Ok</code> otherwise. A capture survives its
+requester's detach and every machine rebuild. The PNG and <code>.SCR</code> writers live in
+<code>src/core/screenshot.*</code>, below the platform layer.</p>
+<p><code>ula_screen_dump()</code> returns the ULA screen as a <code>.SCR</code> image. Layer 2, tilemap
+and pattern RAM come out of <code>peek(MemSpace::page(...))</code>.</p>
+<h3 id="state-and-rewind-cap-st">State and rewind — CAP-ST<a class="headerlink" href="#state-and-rewind-cap-st" title="Permanent link">&para;</a></h3>
+<p><strong>Saves share one rule.</strong> <code>save_state_bytes</code>, <code>bookmark_save</code> and
+<code>save_snapshot</code> reach a frame boundary through one helper. At a boundary they
+save. Mid-frame, <code>SaveStateMode::RefuseMidFrame</code> answers <code>NotAtFrameBoundary</code>,
+and <code>AdvanceToBoundary</code> runs the frame out under <code>SuspendScope</code> and logs a
+<code>MUTATE clock … by &lt;client&gt;</code> line, because emulated time moved under every other
+client. <code>save_snapshot</code> always advances, as <code>--delayed-snapshot</code> does, and
+writes the file by extension through <code>save_snapshot_file()</code> in <code>src/core/</code>.</p>
+<p>A window inside the frame edge is not a boundary. Between the <code>Frame</code> delivery
+and the end of <code>tick_auto_type()</code> the machine is not the state <code>run_frame()</code>
+hands back, so a save from a <code>Frame</code> handler is refused, or answers
+<code>NotAtFrameBoundary</code>.</p>
+<p><strong>Bookmarks</strong> are named, in memory and per client: <code>bookmark_save</code>,
+<code>bookmark_restore</code>, <code>bookmarks(cid)</code>. A client holds at most 8; a ninth new name
+is refused and re-saving a name replaces it. They are freed at detach and
+survive a hard reconstruct. A restore into a machine of another type or
+snapshot width is refused before <code>load_state</code> runs, so nothing is latched.
+DZRP's <code>READ_STATE</code>/<code>WRITE_STATE</code> and ZRCP's <code>snapshot-save</code>/<code>snapshot-load</code>
+are bookmarks.</p>
+<p><code>load_state_bytes</code> restores in-process bytes. A failure latches corruption,
+which the CTL-11 gate then holds every resume on. The rewind controls are
+<code>rewind_enabled</code>, <code>set_rewind_enabled</code>, <code>rewind_range()</code>, <code>resize_rewind_buffer</code>
+and <code>rewind_blocked()</code>, which returns the <code>Result</code> a rewind would refuse with,
+for greying a control before it is clicked. It knows only the refusals that do
+not depend on the target: an RZX, no ring, an empty ring. The rest — no trace
+entry, a frame outside the ring or not recorded, a replay that would cross a
+debugger change (<a href="09-2-event-delivery-and-mutation.html">3.9.2</a>) — are known only
+when the verb runs.</p>
+<p><strong>A refused rewind says why.</strong> On every <code>RefusedRzx</code> or <code>RefusedUnavailable</code>,
+<code>step_back</code> and <code>rewind_to_frame</code> log one <code>Warn</code> line to every listener:</p>
+<pre><code>REWIND REFUSED: Step Back refused: the instruction trace is off — turn on Debug ▸ Trace ▸ Enable Trace and run forward. See the user guide: Debugger ▸ Functions ▸ Backward execution (rewind)
+</code></pre>
+<p>The verb is <code>Step Back</code> or <code>Rewind to frame N</code>, and the reason is read from the
+machine after the refusal (<code>rewind_refusal_reason()</code> in
+<code>debugger_control.cpp</code>). The prefix is what the Qt debugger matches to put the
+reason in its status bar. <code>RefusedCorrupt</code> logs no reason line: the corruption
+incident is reported on its own.</p>
+<h3 id="symbols-cap-sym">Symbols — CAP-SYM<a class="headerlink" href="#symbols-cap-sym" title="Permanent link">&para;</a></h3>
+<p>There is one symbol table, and the backend owns it. <code>load_map(path, format)</code>
+reads a z88dk map (<code>MapFormat::Z88dk</code>) or a plain <code>SYMBOL = $ADDR</code> list
+(<code>MapFormat::Simple</code>); <code>clear_symbols</code>, <code>lookup(addr)</code>, <code>lookup_name(name)</code> and
+<code>symbols()</code> read it. The Qt panels, the DSL's <code>@name</code>, the GDB server's
+<code>monitor sym</code> and <code>--map</code> all read this table, so a symbol loaded by one client
+shows in every other. A z88dk map's <code>; const</code> lines go into a separate
+name-only table: <code>lookup_name()</code> resolves them, and <code>lookup(addr)</code> never names an
+address after a constant.</p>
+<h3 id="coverage-and-the-trace">Coverage and the trace<a class="headerlink" href="#coverage-and-the-trace" title="Permanent link">&para;</a></h3>
+<p>INS-20 coverage is recorded in <code>step_one_instruction()</code>, the one body that
+<code>run_frame()</code>, the debugger's Step and <code>execute_single_instruction()</code> share,
+and only for a slot that fetched the opcode at PC. An NMI or INT acknowledge
+does not run it. Switched off it costs one pointer test per instruction.</p>
+<p>Each trace entry carries the registers (including I, R, IM, IFF1 and IFF2), the
+word at SP read with <code>peek()</code>, the eight MMU pages and <code>rom_slots</code>, a bit per
+slot that held ROM. <code>trace_export()</code> writes all of them; the ROM mask is the
+<code>ROM=</code> column after the pages.</p>
+<h3 id="session-cap-ses">Session — CAP-SES<a class="headerlink" href="#session-cap-ses" title="Permanent link">&para;</a></h3>
+<p><code>attach</code>, <code>detach</code>, <code>set_listener</code>, <code>add_service</code>, <code>remove_service</code>, <code>pump</code>,
+<code>stop_policy</code>, <code>set_stop_policy</code>, <code>set_live_raster</code>, <code>live_raster</code>, <code>attached</code>,
+<code>log</code>, <code>set_loop_driver</code>, <code>on_cold_boot_begin</code> and <code>on_cold_boot_done</code>.
+<a href="09-3-sessions-the-pump-and-reconstruct.html">3.9.3</a> describes them.</p>
+<h2 id="behind-the-facade">Behind the facade<a class="headerlink" href="#behind-the-facade" title="Permanent link">&para;</a></h2>
+<p><code>Debugger</code> holds one <code>unique_ptr&lt;Impl&gt;</code> and nothing else, so adding state never
+edits a header five frontends compile against. <code>Impl</code> is defined in the internal
+<code>src/debug/debugger_impl.h</code>, which is also where <code>core/emulator.h</code> is included.
+No path through <code>run_frame()</code> calls a <code>Debugger</code> method: the hook sites read the
+internals directly, through the pointers the constructor publishes into
+<code>DebugState</code>.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>debugger.cpp</code></td>
+<td>construction and destruction, the <code>MUTATE</code> log, symbols, <code>state()</code>, the save and rewind-buffer verbs</td>
+</tr>
+<tr>
+<td><code>debugger_control.cpp</code></td>
+<td>CAP-CTL: pause, run, the steps, the run-to family, rewind, soft reset</td>
+</tr>
+<tr>
+<td><code>debugger_inspect.cpp</code></td>
+<td>CAP-INS reads and writes, the trace and coverage verbs</td>
+</tr>
+<tr>
+<td><code>debugger_input.cpp</code></td>
+<td>input injection</td>
+</tr>
+<tr>
+<td><code>debugger_events.cpp</code></td>
+<td>CAP-EVT, the pre-instruction <code>Execute</code> gate and the boundary drain</td>
+</tr>
+<tr>
+<td><code>debugger_session.cpp</code></td>
+<td>clients, listeners, services, <code>pump()</code>, the stop policy</td>
+</tr>
+<tr>
+<td><code>debugger_reconstruct.cpp</code></td>
+<td>the loop driver, <code>reset(Hard)</code>, <code>load()</code>, the cold-boot notifications and the reconstruct contract</td>
+</tr>
+<tr>
+<td><code>debugger_capture.cpp</code></td>
+<td>screenshots, bookmarks, <code>save_snapshot</code></td>
+</tr>
+<tr>
+<td><code>debugger_render.cpp</code></td>
+<td><code>render_layer()</code></td>
+</tr>
+<tr>
+<td><code>event_table.*</code></td>
+<td><code>EventTable</code>: subscriptions, cheap filters, the latch ring, the delivery history</td>
+</tr>
+<tr>
+<td><code>inspect.cpp</code>, <code>result.cpp</code></td>
+<td>the free functions of <code>inspect.h</code> (<code>key_name_to_matrix()</code>, <code>rrrgggbb_to_argb()</code>, <code>rgb333_to_argb()</code>) and <code>result_name()</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>debugger_backend_test</code> is the backend's suite. It is headless and Qt-free, so
+it runs in both test configurations. Its row families follow the capability
+ids: <code>CTL-*</code>, <code>INS-*</code>, <code>EVT-*</code>, <code>SES-*</code>, <code>CAP-*</code>, <code>ST-*</code>, <code>HOST-*</code>, <code>LIFE-*</code>.
+Each control verb has a wiring row (arm it through the facade, run, assert the
+machine stopped where the verb promises) and a control row, where the same
+program runs straight past.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.indexes", "toc.integrate", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

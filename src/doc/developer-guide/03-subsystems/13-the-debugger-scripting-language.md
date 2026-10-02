@@ -1,11 +1,11 @@
-# 3.13 The debugger scripting language
+# 3.10.6 The debugger scripting language
 
 A debugger script (`.jds`, GH #26, carrying #279's use cases) is a list of
 rules. Each rule is an event and the actions to run when it happens. The
 language lives in **`src/script/`** (CMake target `jnext_script`). It has no
 toolkit dependency, so it is built in every configuration, and it reaches the
 machine only through the published `jnext::dbg::Debugger` facade of
-[3.9](09-debug-and-the-debugger.md) — never through `Emulator`. The record /
+[3.9.1](09-1-the-backend-api.md) — never through `Emulator`. The record /
 replay workflow of GH #20 is built on top of it (the recorder, below).
 
 The design and the reason behind each rule is
@@ -104,7 +104,7 @@ AST type:
 - `eval_expr(text, debugger)` evaluates once, in the no-event scope.
 
 The engine compiles every `when` through the same code, via `make_condition()`
-in the evaluator. The ZRCP server ([3.12](12-the-zrcp-server.md)) is the other
+in the evaluator. The ZRCP server ([3.10.5](12-the-zrcp-server.md)) is the other
 caller: `src/remote/zrcp/zrcp_condition.*` translates ZEsarUX's breakpoint
 dialect into this grammar — tokenising and grouping as ZEsarUX does, emitting a
 fully bracketed expression — and compiles it here, so it owns no evaluator. The
@@ -330,7 +330,8 @@ A file that cannot be read is a run-time error.
 
 The backend comes first. The event must exist in `src/debug/events.h`
 (`EventKind`, its `EventFilter` fields, its `Event` payload), be latched at its
-site and matched by `EventTable` (see 3.9's event pipeline), and have its own
+site and matched by `EventTable` (see [3.9.2](09-2-event-delivery-and-mutation.md)
+and [3.10.7](10-7-extending-the-debug-subsystem.md)), and have its own
 `debugger_backend_test` rows. Then the DSL:
 
 1. **`names.cpp`**: add the keyword to `RESERVED`.

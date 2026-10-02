@@ -47,11 +47,13 @@ because a snapshot is read exactly once and nothing about the loader needs to
 outlive the call.
 
 Subsystems are reached through accessors — `mmu()`, `nextreg()`, `copper()` and
-so on — which simply hand out references. That is how the debugger panels, the
-unit suites and the frontends all get at the machine; there is no façade layer
-in between. In particular, the `DebuggerInterface` class described in the
-design plan **does not exist** in the code. The Qt debugger talks to `Emulator`
-accessors and to `DebugState` directly.
+so on — which simply hand out references. That is how the unit suites, the
+frontends and the debugger backend get at the machine. The debugger frontends
+do not: the Qt debugger, the protocol servers and the scripting language hold a
+`jnext::dbg::Debugger`, the debug backend's facade, and never an `Emulator`
+(see [3.9 The debug subsystem](../03-subsystems/09-debug-and-the-debugger.md)).
+The `DebuggerInterface` class described in the design plan **does not exist**
+in the code; the facade is its successor.
 
 ## How subsystems reach each other
 
