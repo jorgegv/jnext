@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=75
+EXPECTED_TOTAL=80   # 75 + HS-68a..e (the sourced-row counter guard)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1333,6 +1333,44 @@ out=$(load_probe 12.5 12 "LOADAVG_FILE=$T/no-such-loadavg; $loaded_run; echo \"f
 out+=$'\n'"warned=$(count_of "$out" "loaded host") noise=$(count_of "$out" "No such file")"
 check "HS-55" "an unreadable load average reads 'unknown', is never flagged, and the FAIL still counts (GH #245)" 0 $rc "$out" \
     "host load at start: unknown" "a-func (1-min load unknown)" "fail=1" "warned=0 noise=0"
+
+# ---------------- a sourced row must not clobber the counters (CI, v1.0.66) ----------------
+# Rows are SOURCED into the harness shell. script-replay-edge-func did `skip=""`,
+# which zeroed an earlier SKIP: CI (where gdb-z88dk-func skips) reported 214 of
+# 215 rows and an empty `Skip:`, while every local run stayed green. The driver
+# now wraps each row in row_counters_snapshot/row_counters_check; these rows
+# drive that guard around REAL sourced stub rows, through the same library.
+mkdir -p "$T/rows"
+printf '%s\n' 'begin_func clobber-func' 'skip=""' 'pass_row' > "$T/rows/clobber-func.sh"
+printf '%s\n' 'begin_func good-func' 'skip_row " (stub)"' > "$T/rows/good-func.sh"
+printf '%s\n' 'begin_func twice-func' 'pass_row' 'pass_row' > "$T/rows/twice-func.sh"
+printf '%s\n' 'if want quiet-func; then begin_func quiet-func; pass_row; fi' > "$T/rows/quiet-func.sh"
+guarded() {   # guarded <row> — an earlier SKIP, then <row> sourced inside the guard
+    echo "begin_func early-func; skip_row; row_counters_snapshot $1; source '$T/rows/$1.sh'; row_counters_check; echo \"after: \$pass/\$fail/\$skip\""
+}
+
+out=$(load_probe 0.5 12 "$(guarded clobber-func)"); rc=$?
+out+=$'\n'"reached=$(count_of "$out" "after:")"
+check "HS-68a" "a sourced row that clobbers \$skip after an earlier SKIP is a harness fault NAMING the row" 2 $rc "$out" \
+    "HARNESS FAULT" "clobber-func" "left the harness counter" "\$skip" "0/0/1 pass/fail/skip before the row" "reached=0"
+
+out=$(load_probe 0.5 12 "$(guarded good-func)"); rc=$?
+out+=$'\n'"faults=$(count_of "$out" "HARNESS FAULT")"
+check "HS-68b" "the NULL control: a row that leaves the counters alone and reports one result passes the guard" 0 $rc "$out" \
+    "after: 0/0/2" "faults=0"
+
+out=$(load_probe 0.5 12 "$(guarded twice-func)"); rc=$?
+check "HS-68c" "a row that reports two results is a harness fault naming it" 2 $rc "$out" \
+    "HARNESS FAULT" "twice-func" "reported" "a row reports exactly 1"
+
+out=$(load_probe 0.5 12 "FILTER_TESTS=(other-func); IS_FILTERED=([other-func]=1); $(guarded quiet-func)"); rc=$?
+out+=$'\n'"faults=$(count_of "$out" "HARNESS FAULT")"
+check "HS-68d" "a row a name filter leaves out reports nothing, and the guard expects nothing of it" 0 $rc "$out" \
+    "after: 0/0/1" "faults=0"
+
+reg="$PROJECT_DIR/test/00regression/regression.sh"
+out="snap=$(grep -cE '^[[:space:]]*row_counters_snapshot "\$func_name"$' "$reg") check=$(grep -cE '^[[:space:]]*row_counters_check$' "$reg")"
+check "HS-68e" "the driver wraps every sourced functional row in the counter guard" 0 0 "$out" "snap=1 check=1"
 
 # The library is only half of it: the driver must call it, and the screenshot
 # rows must name themselves (they report through fail_row without begin_func).

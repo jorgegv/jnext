@@ -1821,6 +1821,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#no-row-script-may-touch-the-counters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No row script may touch the counters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#every-timeout-must-escalate-to-sigkill" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2456,6 +2467,21 @@ look like syntax stays clean. Its scope is bounded on purpose: <strong>it catche
 accidental trap, not deliberate obfuscation, which no static grep can.</strong> When a
 row needs scratch files, put them under <code>$TMP_DIR</code> instead of installing a
 cleanup handler — the harness trap already removes that directory.</p>
+<h2 id="no-row-script-may-touch-the-counters">No row script may touch the counters<a class="headerlink" href="#no-row-script-may-touch-the-counters" title="Permanent link">&para;</a></h2>
+<p>The same sourcing puts the harness's own <code>pass</code>, <code>fail</code> and <code>skip</code> in every
+row's scope. <code>script-replay-edge-func</code> once used <code>skip</code> for a reason string;
+that zeroed an earlier SKIP, so CI — where <code>gdb-z88dk-func</code> skips — reported 214
+of 215 rows with an empty <code>Skip:</code>, while every local run, with nothing skipped,
+stayed green. The driver now wraps each functional row in a guard
+(<code>row_counters_snapshot</code> / <code>row_counters_check</code>, <code>test-functions.inc</code>) that
+checks the EFFECT after the row, however it was done: the three counters are
+still integers, none went down, and together they grew by exactly the row's one
+result (none for a row a name filter left out). Anything else is a harness
+fault naming the row. A runtime check, not a lint, because it also sees an
+indirect write — <code>read</code>, <code>printf -v</code>, <code>declare</code>, a helper the row called — that
+a grep would not. What it cannot see: a row that changes a counter and puts it
+back, one that swaps results while keeping the sum, and any other harness
+global. Give a row's own variables names of their own.</p>
 <h2 id="every-timeout-must-escalate-to-sigkill">Every <code>timeout</code> must escalate to <code>SIGKILL</code><a class="headerlink" href="#every-timeout-must-escalate-to-sigkill" title="Permanent link">&para;</a></h2>
 <p><code>timeout N cmd</code> sends <code>SIGTERM</code> and nothing after it. A command that does not
 act on <code>SIGTERM</code> keeps running; <code>timeout</code> waits for it and then reports 124, so

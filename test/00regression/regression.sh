@@ -207,9 +207,14 @@ echo ""
 
 # One script per declared functional test, sourced in conf order. Each script
 # want-guards itself, so name filters behave exactly as before.
+# Around each one, the counter guard (row_counters_check, test-functions.inc):
+# a row that clobbers pass/fail/skip, or reports other than one result, is a
+# harness fault naming it, at once rather than as a short total at the end.
 for func_name in "${DECLARED_FUNC[@]}"; do
+    row_counters_snapshot "$func_name"
     # shellcheck source=/dev/null
     source "$SCRIPTS_DIR/$func_name.sh"
+    row_counters_check
 done
 
 echo ""

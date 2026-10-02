@@ -43,6 +43,51 @@ fail_row() {
 }
 skip_row() { echo -e "${YELLOW}SKIP${RESET}${1-}"; skip=$((skip + 1)); }
 
+# row_counters_snapshot <row> / row_counters_check — the guard the driver puts
+# around every SOURCED functional row. The row's name is taken BEFORE it runs,
+# so a row that clobbers the driver's loop variable is still named right.
+#
+# Rows are sourced into this shell, so a row that assigns `pass`, `fail` or
+# `skip` for its own purposes clobbers the harness's counters. That happened:
+# script-replay-edge-func did `skip=""`, which zeroed an earlier SKIP, so CI
+# (where gdb-z88dk-func SKIPs) reported 214 of 215 rows and an EMPTY `Skip:`,
+# while a local run (nothing skipped) stayed green. The check is on the EFFECT,
+# after the row, so it does not care how the row did it (`skip=`, `local`,
+# `read`, `printf -v`, `declare`, `(( skip-- ))`, a helper it called): all
+# three counters must still be non-negative integers, none may go down, and
+# together they must grow by exactly the row's results — 1 for a row that ran,
+# 0 for one a name filter left out. A violation is a harness fault NAMING the
+# row.
+#
+# What it cannot catch: a row that changes a counter and puts it back, or
+# that trades one result for another in a way that keeps the sum (a FAIL turned
+# into a PASS); clobbering of any OTHER harness global (TMP_DIR, FAILED_ROWS,
+# the snapshot below itself); and a row run on its own with `bash row.sh`,
+# which no driver wraps. Keep harness names out of rows: a row's own variables
+# get a prefix of its own.
+row_counters_snapshot() {
+    ROW_GUARD_NAME=$1
+    ROW_GUARD_PASS=$pass
+    ROW_GUARD_FAIL=$fail
+    ROW_GUARD_SKIP=$skip
+}
+row_counters_check() {
+    local row=$ROW_GUARD_NAME results=1 v
+    want "$row" || results=0
+    for v in pass fail skip; do
+        [[ "${!v-}" =~ ^[0-9]+$ ]] \
+            || harness_fault "row ${BOLD}$row${RESET} left the harness counter ${BOLD}\$$v${RESET} as '${!v-<unset>}' (it was ${ROW_GUARD_PASS}/${ROW_GUARD_FAIL}/${ROW_GUARD_SKIP} pass/fail/skip before the row)" \
+                             "Rows are SOURCED into the harness shell: a row must never assign pass, fail or skip. Give the row's variable a name of its own."
+    done
+    if (( pass < ROW_GUARD_PASS || fail < ROW_GUARD_FAIL || skip < ROW_GUARD_SKIP )); then
+        harness_fault "row ${BOLD}$row${RESET} moved a harness counter BACK: pass/fail/skip ${ROW_GUARD_PASS}/${ROW_GUARD_FAIL}/${ROW_GUARD_SKIP} -> $pass/$fail/$skip" \
+                      "Rows are SOURCED into the harness shell: a row must never assign pass, fail or skip."
+    fi
+    local grew=$(( pass + fail + skip - ROW_GUARD_PASS - ROW_GUARD_FAIL - ROW_GUARD_SKIP ))
+    [[ $grew -eq $results ]] \
+        || harness_fault "row ${BOLD}$row${RESET} reported ${BOLD}$grew${RESET} results; a row reports exactly $results (pass/fail/skip ${ROW_GUARD_PASS}/${ROW_GUARD_FAIL}/${ROW_GUARD_SKIP} -> $pass/$fail/$skip)"
+}
+
 # show_output <label> <text> [ERE] — call after a fail_row: print what a run
 # said, indented under the verdict, so a failure can be diagnosed from the log
 # alone ($TMP_DIR, where a row might have kept it, is gone by then). With an

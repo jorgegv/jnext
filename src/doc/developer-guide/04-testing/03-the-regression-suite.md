@@ -142,6 +142,23 @@ accidental trap, not deliberate obfuscation, which no static grep can.** When a
 row needs scratch files, put them under `$TMP_DIR` instead of installing a
 cleanup handler — the harness trap already removes that directory.
 
+## No row script may touch the counters
+
+The same sourcing puts the harness's own `pass`, `fail` and `skip` in every
+row's scope. `script-replay-edge-func` once used `skip` for a reason string;
+that zeroed an earlier SKIP, so CI — where `gdb-z88dk-func` skips — reported 214
+of 215 rows with an empty `Skip:`, while every local run, with nothing skipped,
+stayed green. The driver now wraps each functional row in a guard
+(`row_counters_snapshot` / `row_counters_check`, `test-functions.inc`) that
+checks the EFFECT after the row, however it was done: the three counters are
+still integers, none went down, and together they grew by exactly the row's one
+result (none for a row a name filter left out). Anything else is a harness
+fault naming the row. A runtime check, not a lint, because it also sees an
+indirect write — `read`, `printf -v`, `declare`, a helper the row called — that
+a grep would not. What it cannot see: a row that changes a counter and puts it
+back, one that swaps results while keeping the sum, and any other harness
+global. Give a row's own variables names of their own.
+
 ## Every `timeout` must escalate to `SIGKILL`
 
 `timeout N cmd` sends `SIGTERM` and nothing after it. A command that does not
