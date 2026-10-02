@@ -89,7 +89,8 @@ Fast loading intercepts `LD-BYTES` at `0x0556` for both TAP and TZX, and
 checks the ROM's identity, because other ROMs have perfectly ordinary code at
 that address. When a trap fires it charges a small cycle cost and `continue`s.
 A `.tzx` or `.wav` save also samples the tape-out level
-(`Emulator::tape_out_level()`) at port 0xFE writes and while a tape plays; see
+(`Emulator::tape_out_level()`) at port 0xFE writes, while a tape plays, and at the
+end of the frame; see
 [3.8](../03-subsystems/08-media-and-loaders.md).
 
 **Then `step_one_instruction()`** (`:7594`), the one shared per-instruction
