@@ -73,7 +73,7 @@ while [[ ! -f "$TREE/CMakeCache.txt" && "$TREE" != / ]]; do TREE=$(dirname "$TRE
 COMPILER=$(sed -n 's/^CMAKE_CXX_COMPILER:[A-Z]*=//p' "$TREE/CMakeCache.txt" 2>/dev/null)
 [[ -n "$COMPILER" ]] || die "no CMakeCache.txt with CMAKE_CXX_COMPILER above $BIN"
 CLANG=0
-"$COMPILER" --version 2>&1 | grep -qi clang && CLANG=1
+[[ "$("$COMPILER" --version 2>&1)" == *[Cc]lang* ]] && CLANG=1
 mkdir -p "$PROFILE_DIR"
 PROFILE_DIR=$(cd "$PROFILE_DIR" && pwd)
 
