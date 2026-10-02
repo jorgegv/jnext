@@ -16,9 +16,13 @@
 # the profile is new (make cannot see .gcda files as dependencies).
 #
 # A Windows (.exe) instrumented build is trained under wine: its runtime DLLs
-# (and Qt's offscreen platform plugin, for the GUI run) are bundled next to it
-# first, and wine runs in its own prefix under build/. No wine is a hard
-# error that says how to build without PGO.
+# are bundled next to it first, and wine runs in its own prefix under build/.
+# No wine is a hard error that says how to build without PGO. The GUI run of
+# the training set is left out there (JNEXT_PGO_NO_GUI=1): in a display-less
+# container (release.yml's) the Qt exe under wine reaches its automatic exit
+# and then never terminates, so the run could only time out. The headless
+# runs are unaffected, and -fprofile-partial-training keeps the untrained GUI
+# code optimised as it is without PGO.
 #
 # Env: JOBS (default: nproc).
 set -euo pipefail
@@ -49,9 +53,8 @@ if [[ "$BIN" == *.exe ]]; then
     command -v wine >/dev/null 2>&1 ||
         die "training the Windows PGO build needs wine (e.g. 'dnf install wine').
 pgo-build: Without it, build the non-PGO executable instead (make win-release-non-pgo)."
-    BUNDLE_EXTRA_QT_PLUGINS="platforms/qoffscreen.dll" \
-        bash "$SCRIPT_DIR/../packaging/windows/bundle-dlls.sh" "$BIN" "$GEN" >/dev/null
-    export JNEXT_PGO_RUNNER=wine
+    bash "$SCRIPT_DIR/../packaging/windows/bundle-dlls.sh" "$BIN" "$GEN" >/dev/null
+    export JNEXT_PGO_RUNNER=wine JNEXT_PGO_NO_GUI=1
     export WINEPREFIX="${WINEPREFIX:-$(cd "$(dirname "$DIR")" && pwd)/wine-pgo}"
     export WINEDLLOVERRIDES="mscoree,mshtml=" WINEDEBUG=-all
     unset DISPLAY WAYLAND_DISPLAY

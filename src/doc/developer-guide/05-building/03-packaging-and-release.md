@@ -31,8 +31,9 @@ package's tree, trains it and rebuilds the tree with the profile. Each package
 build therefore needs the SD image (provisioned by download when missing), and
 some platforms need more:
 
-- the Windows legs are trained under **wine**, with Qt's offscreen platform
-  plugin bundled next to the instrumented exe for the GUI run. No wine is a
+- the Windows legs are trained under **wine**, headless only: in a
+  display-less container the Qt exe under wine never terminates after its
+  automatic exit, so the training's GUI run is left out there. No wine is a
   hard error; `WIN_PGO=0` (or `make win-release-non-pgo`) builds without PGO.
   The repository-internal SDL-only Windows legs are not PGO builds;
 - the **Flatpak** trains inside the build sandbox: the distribution zip is a
