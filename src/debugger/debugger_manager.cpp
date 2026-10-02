@@ -505,10 +505,13 @@ void DebuggerManager::on_step_back() {
     // CTL-09 — the three outcomes are the backend's: Ok (the machine is one
     // instruction back, paused), a benign refusal — RefusedRzx (an RZX is
     // recording or playing) or RefusedUnavailable (empty buffer, trace off or
-    // empty, or a replay that would cross a debugger change, §4.2a — the log
-    // says which) — which is silent here, and RefusedCorrupt (the restore tore
-    // the machine), which is the only one that warns.
+    // empty, or a replay that would cross a debugger change, §4.2a) — whose
+    // reason, logged by the backend and recorded by on_log(), goes to the
+    // window's status bar — and RefusedCorrupt (the restore tore the machine),
+    // the only one that warns with a modal. A refusal still on show from an
+    // earlier verb is cleared first: it describes that verb, not this one.
     rewind_refusal_.clear();
+    if (debugger_window_) debugger_window_->clear_rewind_refusal();
     const jnext::dbg::Result r = dbg_.step_back(client_, 1);
     if (r == jnext::dbg::Result::RefusedCorrupt) {
         warn_state_corrupt(QObject::tr("Step Back"));
@@ -540,8 +543,9 @@ void DebuggerManager::show_rewind_refusal() {
 void DebuggerManager::on_rewind_to_frame(uint32_t frame_num) {
     if (!enabled_) return;
     // CTL-10 — as on_step_back(): a frame outside the ring is RefusedUnavailable
-    // (silent), a torn restore RefusedCorrupt (warned).
+    // (its reason in the status bar), a torn restore RefusedCorrupt (warned).
     rewind_refusal_.clear();
+    if (debugger_window_) debugger_window_->clear_rewind_refusal();
     const jnext::dbg::Result r = dbg_.rewind_to_frame(client_, frame_num);
     if (r == jnext::dbg::Result::RefusedCorrupt) {
         warn_state_corrupt(QObject::tr("Rewind To Frame"));

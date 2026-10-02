@@ -851,6 +851,13 @@ void DebuggerWindow::show_rewind_refusal(const QString& msg) {
     statusBar()->showMessage(msg, kRewindRefusalMs);
 }
 
+void DebuggerWindow::clear_rewind_refusal() {
+    if (rewind_refusal_until_.hasExpired()) return;
+    rewind_refusal_until_ = QDeadlineTimer(0);
+    statusBar()->clearMessage();
+    update_rewind_ui();
+}
+
 void DebuggerWindow::update_rewind_ui() {
     jnext::dbg::Debugger* dbg = backend();
     if (!dbg) return;

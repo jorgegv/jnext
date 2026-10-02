@@ -3590,7 +3590,7 @@ to before the change is allowed, and undoes it.</p>
 <p>When Step Back, Frame Back or the slider cannot do what you asked, the debugger
 window's status bar says why for ten seconds, and the same line goes to the
 log, for example:</p>
-<pre><code>Step Back refused: it would undo a change you made from the debugger in frame 12 — step back to before the change, or use Frame Back. See the user guide: Debugger ▸ Functions ▸ Backward execution (rewind)
+<pre><code>Step Back refused: it would undo a change you made from the debugger in frame 12 — use Frame Back (or the slider) to that frame's start, which undoes the change, or carry on forward. See the user guide: Debugger ▸ Functions ▸ Backward execution (rewind)
 </code></pre>
 <table>
 <thead>
@@ -3625,8 +3625,12 @@ log, for example:</p>
 <td>Pick a frame inside the slider's range</td>
 </tr>
 <tr>
+<td>frame N has no snapshot in the rewind buffer</td>
+<td>That frame was not recorded, typically because it ran while <strong>Debug ▸ Rewind ▸ Enable Rewind</strong> was off: pick another frame on the slider</td>
+</tr>
+<tr>
 <td>it would undo a change you made from the debugger in frame N</td>
-<td>Step back to before the change, or use Frame Back to the start of that frame (both undo the change), or carry on forward</td>
+<td>Use <strong>Frame Back</strong> (or the slider) to the start of that frame, which undoes the change, or carry on forward. Pressing Step Back again does not help: every further step back is refused the same way</td>
 </tr>
 </tbody>
 </table>

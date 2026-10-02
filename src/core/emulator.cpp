@@ -13425,8 +13425,9 @@ void Emulator::refuse_rewind_into_mutation_(const char* what, uint64_t target_cy
     rewind_crossing_frame_ = frame;
     Log::emulator()->error(
         "{}: refused — it would undo a change you made from the debugger in frame {} "
-        "(replaying to cycle {} cannot reproduce it). Step back to before the change, "
-        "or use Frame Back. See the user guide: Debugger \u25B8 Functions \u25B8 "
+        "(replaying to cycle {} cannot reproduce it). Use Frame Back (or the slider) to "
+        "that frame's start, which undoes the change, or carry on forward. See the user "
+        "guide: Debugger \u25B8 Functions \u25B8 "
         "Backward execution (rewind)",
         what, frame, target_cycle);
 }

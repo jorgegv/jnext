@@ -6197,6 +6197,38 @@ static void rwm_rows() {
                   jnext::dbg::result_name(sb) + " fb1=" + jnext::dbg::result_name(fb1) +
                   " " + b5_state(*m.dbg));
     }
+    {
+        // The crossing frame the refusal message names is per CALL: each of the
+        // two Emulator entry points forgets the last one before deciding, so a
+        // later refusal for another cause (or a success) never reports a stale
+        // "it would undo a change … in frame N".
+        B5VerbMachine m(/*rewind=*/true);
+        rwm_steps(m, 2);
+        const uint8_t v = 0x5A;
+        m.dbg->poke(m.a, MemSpace::cpu(), 0xC000, 1, &v);
+        m.dbg->step_into(m.a);
+        m.dbg->step_into(m.a);
+        const uint64_t here = m.dbg->state().cycle;
+        const bool     sb1  = m.emu.step_back(1);                 // crossing
+        const auto     f1   = m.emu.last_rewind_crossing_frame();
+        m.emu.trace_log().set_enabled(false);
+        const bool     sb2  = m.emu.step_back(1);                 // trace off
+        const auto     f2   = m.emu.last_rewind_crossing_frame();
+        m.emu.trace_log().set_enabled(true);
+        const uint64_t rc1  = m.emu.rewind_to_cycle(here);        // crossing
+        const auto     f3   = m.emu.last_rewind_crossing_frame();
+        const uint64_t rc2  = m.emu.rewind_to_cycle(m.c0 + 32);   // before C: allowed
+        const auto     f4   = m.emu.last_rewind_crossing_frame();
+        check("RWM-53", "the crossing frame is per call: step_back() refused for the trace "
+                        "after a crossing refusal, and rewind_to_cycle() allowed after one, "
+                        "both report no crossing",
+              !sb1 && f1.has_value() && !sb2 && !f2.has_value() && rc1 == UINT64_MAX &&
+                  f3.has_value() && *f3 == *f1 && rc2 == m.c0 + 32 && !f4.has_value(),
+              std::string("f1=") + (f1 ? std::to_string(*f1) : "-") +
+                  " f2=" + (f2 ? std::to_string(*f2) : "-") +
+                  " f3=" + (f3 ? std::to_string(*f3) : "-") +
+                  " f4=" + (f4 ? std::to_string(*f4) : "-") + " rc2=" + std::to_string(rc2));
+    }
 
     // ── In-place machine replacement ─────────────────────────────────────
     {

@@ -43,7 +43,7 @@ window's status bar says why for ten seconds, and the same line goes to the
 log, for example:
 
 ```
-Step Back refused: it would undo a change you made from the debugger in frame 12 — step back to before the change, or use Frame Back. See the user guide: Debugger ▸ Functions ▸ Backward execution (rewind)
+Step Back refused: it would undo a change you made from the debugger in frame 12 — use Frame Back (or the slider) to that frame's start, which undoes the change, or carry on forward. See the user guide: Debugger ▸ Functions ▸ Backward execution (rewind)
 ```
 
 | The message says | What to do |
@@ -54,7 +54,8 @@ Step Back refused: it would undo a change you made from the debugger in frame 12
 | the instruction trace is empty | Run forward first |
 | an RZX recording is being made / is playing | Stop the recording or the playback |
 | frame N is not in the rewind buffer | Pick a frame inside the slider's range |
-| it would undo a change you made from the debugger in frame N | Step back to before the change, or use Frame Back to the start of that frame (both undo the change), or carry on forward |
+| frame N has no snapshot in the rewind buffer | That frame was not recorded, typically because it ran while **Debug ▸ Rewind ▸ Enable Rewind** was off: pick another frame on the slider |
+| it would undo a change you made from the debugger in frame N | Use **Frame Back** (or the slider) to the start of that frame, which undoes the change, or carry on forward. Pressing Step Back again does not help: every further step back is refused the same way |
 
 Step Back is greyed out when the trace log is off, when the buffer is empty,
 and while an RZX recording plays or is being made: a recording replays one

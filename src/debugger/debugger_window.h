@@ -46,6 +46,10 @@ public:
     /// update_rewind_ui() keeps there does not overwrite it meanwhile.
     void show_rewind_refusal(const QString& msg);
     static constexpr int kRewindRefusalMs = 10000;
+    /// A new rewind verb is running: a refusal still on show describes the
+    /// previous one, so it goes, and the rewind status line takes the status
+    /// bar back.
+    void clear_rewind_refusal();
 
     /// Wire up the debugger manager and create menus/toolbar.
     void set_debugger_manager(DebuggerManager* mgr);

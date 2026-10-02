@@ -447,7 +447,9 @@ std::string rewind_refusal_reason(Emulator& emu, std::optional<uint32_t> frame) 
     }
     if (const auto f = emu.last_rewind_crossing_frame())
         return "it would undo a change you made from the debugger in frame " +
-               std::to_string(*f) + " — step back to before the change, or use Frame Back";
+               std::to_string(*f) +
+               " — use Frame Back (or the slider) to that frame's start, which undoes the "
+               "change, or carry on forward";
     if (!emu.trace_log().enabled())
         return "the instruction trace is off — turn on Debug \u25B8 Trace \u25B8 Enable Trace "
                "and run forward";

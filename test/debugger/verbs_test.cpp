@@ -2444,11 +2444,13 @@ static void test_rewind_refusal_ui() {
         // The wall: a change at C mid-frame, two steps, Step Back past C.
         Fixture fx(MachineType::ZX48K, 10);
         const char* desc = "Step Back across a debugger change: \"Step Back refused: it would "
-                           "undo a change you made from the debugger in frame N — step back to "
-                           "before the change, or use Frame Back\"";
+                           "undo a change you made from the debugger in frame N — use Frame "
+                           "Back (or the slider) to that frame's start, which undoes the "
+                           "change, or carry on forward\"";
         if (!fx.ok || !fx.emu.rewind_buffer()) {
             check("QRF-07", desc, false, "fixture");
             check("QRF-08", "the refusal holds the status bar", false, "fixture");
+            check("QRF-10", "a later refusal names its own reason", false, "fixture");
         } else {
             load_counter(fx);
             fx.enable();
@@ -2464,8 +2466,10 @@ static void test_rewind_refusal_ui() {
             const uint16_t pc0 = fx.pc();
             fx.mgr->on_step_back();
             const QString want = QStringLiteral("Step Back refused: it would undo a change you "
-                                                "made from the debugger in frame %1 — step "
-                                                "back to before the change, or use Frame Back")
+                                                "made from the debugger in frame %1 — use "
+                                                "Frame Back (or the slider) to that frame's "
+                                                "start, which undoes the change, or carry on "
+                                                "forward")
                                      .arg(frame);
             check("QRF-07", desc, p.shows(want) && fx.pc() == pc0, p.detail());
             // The rewind status line is refreshed on every tick; it must not
@@ -2474,6 +2478,82 @@ static void test_rewind_refusal_ui() {
             check("QRF-08", "a panel refresh (the rewind status line) does not overwrite "
                             "the refusal while it is on show",
                   status_of(fx.dbg()).startsWith(want), p.detail());
+            // The crossing is remembered per call, not between calls: the trace
+            // switched off after a crossing refusal, the next Step Back's reason
+            // is the trace, not the stale crossing.
+            fx.emu.trace_log().set_enabled(false);
+            fx.mgr->on_step_back();
+            const QString want2 =
+                QStringLiteral("Step Back refused: the instruction trace is off");
+            check("QRF-10", "a crossing refusal, then the trace switched off: the next Step "
+                            "Back says \"…the instruction trace is off\", not the crossing",
+                  p.shows(want2) && !status_of(fx.dbg()).contains("would undo"), p.detail());
+        }
+    }
+    {
+        // A frame inside the ring's range with no snapshot: it ran while
+        // snapshotting was paused (Enable Rewind off).
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "the slider / Frame Back to a frame the ring has no snapshot of "
+                           "(a gap): \"Rewind to frame N refused: frame N has no snapshot in "
+                           "the rewind buffer\"";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QRF-11", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 3);
+            fx.backend->set_rewind_enabled(false);
+            run_frames_then_break(fx, 2);
+            fx.backend->set_rewind_enabled(true);
+            run_frames_then_break(fx, 3);
+            const RewindBuffer* rb = fx.emu.rewind_buffer();
+            uint32_t hole = 0;
+            bool     found = false;
+            for (uint32_t f = rb->oldest_frame_num(); f <= rb->newest_frame_num() && !found; ++f)
+                if (rb->frame_cycle_for(f) == UINT64_MAX) { hole = f; found = true; }
+            RefusalProbe p(fx);
+            fx.mgr->on_rewind_to_frame(hole);
+            const QString want = QStringLiteral("Rewind to frame %1 refused: frame %1 has no "
+                                                "snapshot in the rewind buffer").arg(hole);
+            check("QRF-11", desc, found && p.shows(want),
+                  "hole=" + std::to_string(hole) + " found=" + std::to_string(found) + " " +
+                      p.detail());
+        }
+    }
+    {
+        // A refusal on show describes the verb that was refused. The next rewind
+        // verb clears it, so a SUCCESS does not leave the old reason beside it
+        // for the rest of the hold: once for Frame Back, once for Step Back.
+        Fixture fx(MachineType::ZX48K, 10);
+        const char* desc = "a refusal on show, then a Frame Back and a Step Back that "
+                           "succeed: each success clears the refusal, and the rewind status "
+                           "line comes back";
+        if (!fx.ok || !fx.emu.rewind_buffer()) { check("QRF-12", desc, false, "fixture"); }
+        else {
+            load_counter(fx);
+            fx.enable();
+            run_frames_then_break(fx, 4);
+            const RewindBuffer* rb  = fx.emu.rewind_buffer();
+            const uint32_t      out = rb->newest_frame_num() + 50;
+            RefusalProbe p(fx);
+            fx.mgr->on_rewind_to_frame(out);
+            const bool    shown1 = status_of(fx.dbg()).contains("refused");
+            fx.mgr->on_rewind_to_frame(rb->oldest_frame_num());
+            const QString after_fb = status_of(fx.dbg());
+            fx.mgr->on_rewind_to_frame(out);
+            const bool    shown2 = status_of(fx.dbg()).contains("refused");
+            fx.mgr->on_step_into();
+            fx.mgr->on_step_into();
+            const uint16_t pc_before = fx.pc();
+            fx.mgr->on_step_back();
+            const QString after_sb = status_of(fx.dbg());
+            check("QRF-12", desc,
+                  shown1 && shown2 && !after_fb.contains("refused") &&
+                      after_fb.startsWith(QStringLiteral("\u23EE Rewound")) &&
+                      fx.pc() != pc_before && !after_sb.contains("refused") &&
+                      after_sb.startsWith(QStringLiteral("\u23EE")),
+                  "after Frame Back '" + s(after_fb) + "' after Step Back '" + s(after_sb) +
+                      "' shown=" + std::to_string(shown1) + std::to_string(shown2));
         }
     }
 }
