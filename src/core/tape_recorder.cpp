@@ -257,13 +257,25 @@ uint16_t TapeRecorder::pause_ms(uint64_t gap, bool rest) {
     return static_cast<uint16_t>(std::min<uint64_t>(r, MAX_PAUSE_MS));
 }
 
-std::vector<uint8_t> TapeRecorder::decode_segment(const std::vector<uint64_t>& edges,
+std::vector<uint8_t> TapeRecorder::decode_segment(const std::vector<uint64_t>& raw,
                                                   uint64_t next_event,
                                                   size_t* tail_pause_at,
-                                                  bool* tail_is_rest) {
+                                                  bool* tail_is_rest,
+                                                  uint64_t* tail_from) {
     std::vector<uint8_t> out;
+    // Two edges closer than half a T-state make a pulse TZX cannot hold (it
+    // would round to 0 T, and a 0 in 0x13 is no pulse at all). Such a glitch
+    // returns the line to where it was, so the pair is dropped: at 28 MHz a
+    // CPU or DMA can toggle MIC 1-3 master cycles apart.
+    std::vector<uint64_t> edges;
+    edges.reserve(raw.size());
+    for (uint64_t t : raw) {
+        if (!edges.empty() && t - edges.back() < MASTER_PER_T / 2) edges.pop_back();
+        else edges.push_back(t);
+    }
     const size_t n = edges.size();
     if (n == 0) return out;
+    if (tail_from) *tail_from = edges[n - 1];
 
     std::vector<uint32_t> T(n - 1);
     for (size_t i = 0; i + 1 < n; ++i)
@@ -430,10 +442,11 @@ void TapeRecorder::flush_tzx(uint64_t next, bool final) {
     size_t tail_at = 0;
     bool rest = false;
     const uint64_t at = static_cast<uint64_t>(file_.tellp());
-    const uint64_t from = seg_.back();
-    write_bytes(decode_segment(seg_, next, &tail_at, &rest));
+    uint64_t from = 0;
+    const std::vector<uint8_t> bytes = decode_segment(seg_, next, &tail_at, &rest, &from);
+    write_bytes(bytes);
     seg_.clear();
-    have_pending_ = !final;
+    have_pending_ = !final && !bytes.empty();
     if (!final) {
         pending_at_ = at + tail_at;
         pending_from_ = from;

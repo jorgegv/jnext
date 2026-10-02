@@ -79,12 +79,16 @@ public:
     /// the segment (it sets the last block's pause). Returns the TZX bytes.
     /// `tail_pause_at` (if given) receives the offset, in those bytes, of the
     /// pause WORD that depends on `next_event` (it is measured from the last
-    /// edge), and `tail_is_rest` whether it is a 0x20 written as "the gap less
-    /// the 1 ms closing pulse" rather than a 0x10/0x11 pause.
+    /// edge), `tail_is_rest` whether it is a 0x20 written as "the gap less
+    /// the 1 ms closing pulse" rather than a 0x10/0x11 pause, and `tail_from`
+    /// the time that pause is measured from. Two edges less than half a
+    /// T-state apart cancel (a pulse TZX cannot hold), so no 0 T pulse is
+    /// ever written.
     static std::vector<uint8_t> decode_segment(const std::vector<uint64_t>& edges,
                                                uint64_t next_event,
                                                size_t* tail_pause_at = nullptr,
-                                               bool* tail_is_rest = nullptr);
+                                               bool* tail_is_rest = nullptr,
+                                               uint64_t* tail_from = nullptr);
 
     /// The pause WORD for a gap (master cycles): a block's (ms, capped), or a
     /// 0x20 after a closing 1 ms pulse (ms - 1, at least 1, capped).

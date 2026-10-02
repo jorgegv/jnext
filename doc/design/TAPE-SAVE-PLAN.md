@@ -63,10 +63,11 @@ RZX recording or playback) applies to every format, unchanged.
 ## 4. Timing source
 
 Edge times are the emulator's master clock (`Clock::get()`, 28 MHz cycles). Tape-out is
-sampled only where it can change: at every port 0xFE write, at the write's bus request
+sampled where it can change: at every port 0xFE write — a CPU OUT at its bus request
 edge (`Emulator::io_request_edge()`, the CLK_28 edge that latches `port_fe_reg`,
-zxnext.vhd:3588-3594), and, while a tape plays in real time, at the end of every
-instruction (the echoed input). It is emulated time, never wall clock, so a run is
+zxnext.vhd:3588-3594), a DMA transfer (the DMA drives the bus, zxnext.vhd:1829, :1834)
+at its place in the burst — and, while a tape plays in real time, at the end of every
+instruction (the echoed input), plus once at the end of every frame. It is emulated time, never wall clock, so a run is
 deterministic. Master cycles are independent of the CPU speed (NR 0x07): a CPU T-state
 is 8, 4, 2 or 1 master cycles, so a saver running at 7 MHz writes pulses half as long in
 TZX terms, which is what a tape recorder on the real board would see.
@@ -152,9 +153,9 @@ at the midpoint. Nothing is written before the first event. Stopping writes the 
 for the time since the last event (same cap) and patches the RIFF and data sizes. The
 sizes are also refreshed after every trapped block and, when samples were added, once per
 frame, and the file is flushed, so a killed run leaves a WAV whose header matches its
-samples up to the last edge. The RIFF pad byte for an odd data size is not written: the
-file is appended to in later sessions, and every reader tried (FUSE/libspectrum,
-libaudiofile, sox) accepts it without.
+samples up to the last edge. The RIFF pad byte for an odd data size is not written:
+every reader tried (FUSE/libspectrum, libaudiofile, sox) accepts the file without it,
+and it would have to be overwritten whenever a later session appends.
 
 ## 7. GUI and frontends
 
@@ -192,8 +193,14 @@ and the file is finished when the emulator is destroyed at exit.
 
 ## 9. Known limits
 
-- When a tape playing in real time stops, the echo's last level change is recorded at
-  the next port 0xFE write rather than at the moment it stopped.
+- Tape-out changes that happen outside a port 0xFE write and outside a playing tape —
+  a tape stopped or ejected between instructions, a reset (which clears `port_fe_reg`,
+  zxnext.vhd:3590-3591), a snapshot load — are recorded at the end of that frame (one
+  sample per frame while saving), not at the instant they happened.
+- A DMA write to port 0xFE is timed by its place in the burst at the cost jnext charges
+  a transfer (2 T + read waits), which is jnext's DMA timing model, not the VHDL's
+  per-cycle one. Two edges less than half a T-state apart (MIC toggled by the DMA, or a
+  CPU, at 28 MHz) cancel: TZX cannot hold the pulse, and the line ends where it began.
 - The level before the first edge, and the absolute polarity, are not recorded; Spectrum
   loaders are edge-triggered.
 - The issue-2 EAR relaxation (`symmetric_relaxation`, ~1.15 ms) is modelled only in its

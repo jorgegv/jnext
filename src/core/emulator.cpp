@@ -4894,7 +4894,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // latches port_fe_reg (zxnext.vhd:3588-3594). One flag test when
             // nothing is saving, and none at all on other instructions.
             if (tape_capture_live_)
-                tape_recorder_.sample(tape_out_level(), io_request_edge());
+                tape_recorder_.sample(tape_out_level(), port_fe_write_time());
         });
 
     // Timex screen mode — port 0xFF (full 16-bit match).
@@ -8525,6 +8525,20 @@ void Emulator::stop_tape_save()
     refresh_tape_capture_live();
 }
 
+uint64_t Emulator::port_fe_write_time() const
+{
+    // A DMA transfer drives the bus itself (zxnext.vhd:1829, :1834), so its
+    // write to port 0xFE latches port_fe_reg too. The burst runs before the
+    // clock advances: transfer i lands at burst start + i x the cost the slot
+    // is charged per byte (+ the read waits so far), the same timeline the
+    // clock then moves along. A CPU write lands at its bus request edge.
+    if (in_dma_burst_)
+        return dma_burst_start_ +
+               (static_cast<uint64_t>(dma_.burst_done()) * Dma::CHARGED_TSTATES_PER_BYTE +
+                dma_.last_burst_read_wait_tstates()) * clock_.cpu_divisor();
+    return io_request_edge();
+}
+
 bool Emulator::tape_out_level() const
 {
     // The MIC jack carries beep_mic_final (zxnext.vhd:1638 o_AUDIO_MIC;
@@ -9782,9 +9796,16 @@ void Emulator::end_of_frame(uint64_t frame_end)
     // that call resumes this frame instead of restarting it.
     frame_in_progress_ = false;
 
-    // GH #89 — a TZX save writes a segment once it has gone silent, a WAV
-    // refreshes its header, and both flush: a killed run keeps the file.
-    if (tape_capture_live_) tape_recorder_.poll(clock_.get());
+    // GH #89 — tape-out also changes where nothing samples it: a tape stopped
+    // or ejected between instructions, a reset (zxnext.vhd:3590-3591 clears
+    // port_fe_reg), a snapshot load. One sample per frame records that change
+    // at the frame's end. Then a TZX save writes a segment once it has gone
+    // silent, a WAV refreshes its header, and both flush: a killed run keeps
+    // the file.
+    if (tape_capture_live_) {
+        tape_recorder_.sample(tape_out_level(), clock_.get());
+        tape_recorder_.poll(clock_.get());
+    }
 
     // G156 — one held frame has now completed in full (rendering/audio/
     // scheduler all ran normally above); count it down.
@@ -10100,7 +10121,10 @@ uint64_t Emulator::step_one_instruction()
         // of whether the bus has actually been granted yet — mirrors real
         // hardware, where BUSRQ can be asserted for multiple cycles before
         // BUSAK is granted.
+        dma_burst_start_ = clock_.get();
+        in_dma_burst_ = true;
         int transferred = dma_.execute_burst(16);
+        in_dma_burst_ = false;
 
         // GH #102 fix (was: `if (dma_.is_active())` gating the whole
         // branch). VHDL zxnext.vhd `dma_holds_bus <= '1' when
@@ -10145,7 +10169,7 @@ uint64_t Emulator::step_one_instruction()
             // burst's source memory reads (zxnext.vhd:3171-3181 via the
             // dma_.read_mem_wait_tstates lambda in init(); +1 T-state per
             // waiting read, 0 at cpu_speed != 3).
-            master_cycles = (static_cast<uint64_t>(transferred) * 2
+            master_cycles = (static_cast<uint64_t>(transferred) * Dma::CHARGED_TSTATES_PER_BYTE
                              + dma_.last_burst_read_wait_tstates())
                             * clock_.cpu_divisor();
             if (master_cycles == 0) master_cycles = clock_.cpu_divisor();  // minimum advance

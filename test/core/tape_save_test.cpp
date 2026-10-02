@@ -994,6 +994,66 @@ void emulator_rows() {
               "the frame that sees the silence, with the save still running (a killed run keeps "
               "them)", on_disk, hex(read_file(path), 64));
     }
+    {
+        // Round 2 / R2-B1: the DMA drives the bus (zxnext.vhd:1829, :1834), so its
+        // writes to port 0xFE latch port_fe_reg one by one. A memory -> port 0xFE
+        // transfer of 64 bytes alternating MIC: each write is timed at its place
+        // in the burst (2 T per byte, what a burst is charged), so 63 pulses of
+        // exactly 2 T and no two edges at one time.
+        auto emu = next_machine();
+        const std::string path = tmp("dma.tzx");
+        std::filesystem::remove(path);
+        emu->start_tape_save(path);
+        Bytes src(64);
+        for (size_t i = 0; i < src.size(); ++i) src[i] = i % 2 ? 0x00 : 0x08;
+        poke(*emu, 0x9000, src);
+        poke(*emu, 0x8000, {0xF3, 0x18, 0xFE});                  // DI / JR $
+        start_at(*emu, 0x8000);
+        // R0 A->B, port A 0x9000, length 64; R1 memory, increment; R2 I/O, fixed;
+        // R4 continuous, port B 0x00FE; LOAD; ENABLE (dma_test.cpp's sequence).
+        for (uint8_t b : {0x7D, 0x00, 0x90, 0x40, 0x00, 0x14, 0x28, 0xAD, 0xFE, 0x00, 0xCF, 0x87})
+            emu->port().write(0x006B, b);
+        emu->run_frame();
+        const uint64_t edges = emu->tape_recorder().edges_recorded();
+        emu->stop_tape_save();
+        const TzxView v = view(read_file(path));
+        size_t two = 0;
+        for (size_t i = 0; i + 1 < v.pulses.size(); ++i) if (v.pulses[i] == 2) ++two;
+        check("TSAVE-55", "a DMA burst writing port 0xFE times each transfer at its place in the "
+              "burst: 64 alternating MIC bytes give 64 edges and 63 pulses of exactly 2 T",
+              edges == 64 && v.pulses.size() == 64 && two == 63 && v.pulses.back() == 3500,
+              "edges=" + std::to_string(edges) + " pulses=" + std::to_string(v.pulses.size()) +
+                  " two=" + std::to_string(two));
+    }
+    {
+        // The same transfer at 28 MHz: 2 master cycles per byte, under half a
+        // T-state. Every pulse would round to 0 T; the glitch pairs cancel, and
+        // no 0 T pulse reaches the file.
+        auto emu = next_machine();
+        const std::string path = tmp("dma28.tzx");
+        std::filesystem::remove(path);
+        emu->start_tape_save(path);
+        emu->nextreg().write(0x07, 0x03);
+        Bytes src(64);
+        for (size_t i = 0; i < src.size(); ++i) src[i] = i % 2 ? 0x00 : 0x08;
+        poke(*emu, 0x9000, src);
+        poke(*emu, 0x8000, {0xF3, 0x18, 0xFE});
+        start_at(*emu, 0x8000);
+        emu->run_frame();                                     // settle the speed change
+        for (uint8_t b : {0x7D, 0x00, 0x90, 0x40, 0x00, 0x14, 0x28, 0xAD, 0xFE, 0x00, 0xCF, 0x87})
+            emu->port().write(0x006B, b);
+        emu->run_frame();
+        const uint64_t edges = emu->tape_recorder().edges_recorded();
+        emu->stop_tape_save();
+        const TzxView v = view(read_file(path));
+        size_t zero = 0;
+        for (uint32_t p : v.pulses) if (p == 0) ++zero;
+        check("TSAVE-56", "at 28 MHz the DMA's 64 MIC writes (2 master cycles apart) are all "
+              "captured, and the file holds no 0 T pulse: sub-half-T glitch pairs cancel",
+              edges == 64 && zero == 0 && v.pulses.empty(),
+              "edges=" + std::to_string(edges) + " pulses=" + std::to_string(v.pulses.size()) +
+                  " zero=" + std::to_string(zero));
+    }
 }
 
 void round1_rows() {
@@ -1145,6 +1205,102 @@ void round1_rows() {
         check("TSAVE-53", "WAV append: the tape position resumes at ceil(size * 28 MHz / 44100), so "
               "a 27937-cycle hold after 44 samples ends at sample 88", got.size() == 44 + 88,
               "size=" + std::to_string(got.size()));
+    }
+    {
+        // Round 2 / R2-B2: a block poll() wrote gets its pause patched in its own
+        // field — 0x11 at offset 14 (not the used-bits byte), 0x10 at offset 1.
+        auto run = [&](const std::vector<uint32_t>& p, const std::string& name,
+                       Bytes& provisional, Bytes& patched) {
+            const std::string path = tmp(name.c_str());
+            std::filesystem::remove(path);
+            TapeRecorder r;
+            std::string why;
+            r.open(path, why);
+            const auto e = edges_of(p);
+            bool level = false;
+            r.sample(level, 0);
+            for (uint64_t t : e) { level = !level; r.sample(level, t); }
+            r.poll(e.back() + 30 * MS);                    // silent 30 ms: written, pause 30
+            provisional = read_file(path);
+            level = !level;
+            r.sample(level, e.back() + 700 * MS);          // the next event, 700 ms on
+            r.poll(e.back() + 700 * MS);
+            patched = read_file(path);
+            r.close(e.back() + 710 * MS);
+        };
+        auto turbo = block_pulses(1900, 500, 500, 600, 700, 1600, {0xA5, 0x3C}, 16);
+        turbo.push_back(700);
+        auto rom = block_pulses(2168, 3223, 667, 735, 855, 1710, {0xFF, 0x42}, 16);
+        rom.push_back(855);
+        Bytes t_prov, t_pat, r_prov, r_pat;
+        run(turbo, "patch11.tzx", t_prov, t_pat);
+        run(rom, "patch10.tzx", r_prov, r_pat);
+        auto b11 = [](uint8_t lo, uint8_t hi) {
+            Bytes v = TZX_HDR;
+            cat(v, {0x11, 0x6C, 0x07, 0xF4, 0x01, 0x58, 0x02, 0xBC, 0x02, 0x40, 0x06, 0xF4, 0x01,
+                    0x08, lo, hi, 0x02, 0x00, 0x00, 0xA5, 0x3C});
+            return v;
+        };
+        auto b10 = [](uint8_t lo, uint8_t hi) {
+            Bytes v = TZX_HDR;
+            cat(v, {0x10, lo, hi, 0x02, 0x00, 0xFF, 0x42});
+            return v;
+        };
+        check("TSAVE-57", "a 0x11 and a 0x10 written by poll() carry a provisional pause (30 ms), "
+              "patched in their own pause WORD to the real gap (700 ms) when the next edge comes; "
+              "the 0x11's used-bits byte stays 8",
+              t_prov == b11(0x1E, 0x00) && t_pat == b11(0xBC, 0x02) &&
+                  r_prov == b10(0x1E, 0x00) && r_pat == b10(0xBC, 0x02),
+              hex(t_pat, 64) + " / " + hex(r_pat, 64));
+    }
+    {
+        // Round 2: no 0 T pulse — two edges under half a T-state apart cancel.
+        const uint64_t t0 = 1000, t1 = t0 + 800 * 8, t2 = t1 + 2, t3 = t2 + 800 * 8;
+        const Bytes got = TR::decode_segment({t0, t1, t2, t3}, t3 + 100 * MS);
+        Bytes want = b13({1600, 3500});
+        cat(want, b20(99));
+        check("TSAVE-58", "a glitch (two edges 2 master cycles apart) is dropped: the pulses each "
+              "side join into one (800 + 800 T), never a 0 T pulse", got == want, hex(got));
+    }
+    {
+        // Round 2: a trapped block's pause, patched after the clock went back
+        // (a rewind, a reset), counts the 1 s backwards gap, not 0.
+        const std::string path = tmp("patch-back.tzx");
+        std::filesystem::remove(path);
+        TapeRecorder r;
+        std::string why;
+        r.open(path, why);
+        r.rom_block({0xFF, 0x01, 0xFE}, 1000000000);
+        r.sample(false, 5);
+        r.sample(true, 10);                                  // after the clock went back
+        r.poll(10);
+        const Bytes got = read_file(path);
+        Bytes want = TZX_HDR;
+        cat(want, {0x10, 0xE8, 0x03, 0x03, 0x00, 0xFF, 0x01, 0xFE});
+        check("TSAVE-59", "a pause patched after the clock went backwards is the 1 s gap (1000 ms), "
+              "not 0", got == want, hex(got));
+        r.close(20);
+    }
+    {
+        // Round 2: a change no write makes — the machine reset with MIC high
+        // (port_fe_reg cleared, zxnext.vhd:3590-3591) — is recorded at the end
+        // of that frame.
+        auto emu = next_machine();
+        const std::string path = tmp("reset.tzx");
+        std::filesystem::remove(path);
+        emu->start_tape_save(path);
+        poke(*emu, 0x8000, {0xF3, 0x3E, 0x08, 0xD3, 0xFE, 0x18, 0xFE});   // MIC up, JR $
+        start_at(*emu, 0x8000);
+        emu->run_frame();
+        const uint64_t before = emu->tape_recorder().edges_recorded();
+        emu->init(emu->config(), true);                     // soft reset: MIC low
+        start_at(*emu, 0x8005);                             // JR $: no port 0xFE write
+        emu->run_frame();
+        const uint64_t after = emu->tape_recorder().edges_recorded();
+        emu->stop_tape_save();
+        check("TSAVE-60", "a reset that clears MIC is an edge on the saved tape, recorded at the "
+              "end of the next frame (1 edge before, 2 after)", before == 1 && after == 2,
+              "before=" + std::to_string(before) + " after=" + std::to_string(after));
     }
 }
 

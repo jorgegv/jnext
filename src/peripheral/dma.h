@@ -189,6 +189,16 @@ public:
         return last_burst_read_wait_tstates_;
     }
 
+    /// The T-states the emulator charges a burst per transferred byte (plus
+    /// the read waits above): Emulator::step_one_instruction() advances the
+    /// clock by this, and the tape-out capture times each transfer by it.
+    static constexpr uint32_t CHARGED_TSTATES_PER_BYTE = 2;
+
+    /// GH #89 — bytes completed so far by the execute_burst() call in
+    /// progress. Inside a write_io callback it is the index of the transfer
+    /// being written. Transient, like the read waits: not save state.
+    uint32_t burst_done() const { return burst_done_; }
+
     // DMA_timer_s — 14-bit prescaler counter.  Exposed for test observation.
     uint16_t dma_timer() const     { return dma_timer_s_; }
 
@@ -344,6 +354,7 @@ private:
     // execute_burst() call and consumed by the caller in the same
     // emulator step — deliberately NOT serialized in save_state().
     uint32_t last_burst_read_wait_tstates_ = 0;
+    uint32_t burst_done_ = 0;
 
     // VHDL dma.vhd:424 / :451 wait gate:
     //   R2_portB_preescaler_s > 0 AND ('0' & preescaler) > DMA_timer_s(13:5)

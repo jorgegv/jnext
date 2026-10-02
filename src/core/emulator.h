@@ -575,6 +575,9 @@ public:
     /// The tape-out (MIC jack) level, zxnext.vhd:6503 `beep_mic_final` — see
     /// the definition.
     bool tape_out_level() const;
+    /// When a port 0xFE write lands: a CPU OUT's bus request edge, or a DMA
+    /// transfer's place in its burst (see the definition).
+    uint64_t port_fe_write_time() const;
 
     /// Access the TZX loader.
     TzxLoader& tzx_tape() { return tzx_tape_; }
@@ -1648,6 +1651,10 @@ private:
     // date by start/stop_tape_save() and every replay_mode_ change, so the
     // per-instruction capture costs one flag test when nothing is saving.
     bool            tape_capture_live_ = false;
+    // GH #89 round 2 — set around dma_.execute_burst() so a port 0xFE write
+    // made by the DMA is timed by its place in the burst, not the burst start.
+    bool            in_dma_burst_ = false;
+    uint64_t        dma_burst_start_ = 0;
     // Becoming live takes the current level as the baseline: the capture
     // samples only where the level can change (port 0xFE writes, a playing
     // tape), so a change made while it was off must not read as an edge.
