@@ -2398,8 +2398,9 @@
 </table>
 <p>They are a frozen interface. A verb is added only by owner decision, and each
 declaration says which capability id of <code>doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md</code>
-§4 it serves. <code>doc/design/debug-subsystem/b0-cap-traceability.md</code> maps every
-capability id to its declaration.</p>
+§4 it serves. <code>doc/design/debug-subsystem/b0-cap-traceability.md</code> maps each
+capability id to its declarations, though not completely: <code>rgb333_to_argb()</code>,
+for one, is missing from it.</p>
 <h2 id="conventions">Conventions<a class="headerlink" href="#conventions" title="Permanent link">&para;</a></h2>
 <p><strong>Every verb that can refuse returns a <code>Result</code>.</strong> The set is closed, and every
 value is pinned by <code>debug_types_check.cpp</code>:</p>
@@ -2548,7 +2549,7 @@ the design documents refer to it.</p>
 </tr>
 <tr>
 <td><code>step_back(by, n)</code>, <code>rewind_to_frame(by, f)</code></td>
-<td>rewind, synchronously</td>
+<td>rewind, synchronously. A benign refusal is <code>RefusedRzx</code> or <code>RefusedUnavailable</code> (no ring or an empty one, a frame outside it or not recorded, the trace off or empty, or a step back that would replay across a debugger change), and logs its reason</td>
 </tr>
 <tr>
 <td><code>resume_blocked_by_corruption()</code>, <code>acknowledge_corruption(gen)</code></td>
@@ -2676,7 +2677,7 @@ and raises the data-breakpoint latch on a READ watchpoint. <code>Mmu::peek()</co
 <code>read()</code> under <code>DebugState::InspectionScope</code> and puts the floating-bus byte
 back. It wraps rather than copies, so the overlay arbitration (boot ROM,
 Multiface, DivMMC, Layer 2, alternate ROM, config mode) cannot drift between
-the two. The trace's word-at-SP and the call-stack tracker read the same way.</p>
+the two. The trace's word at SP reads the same way.</p>
 <p><strong>The frame number is a tag, not the raw counter.</strong> <code>Emulator::frame_num()</code> is
 post-incremented at the start of each frame, so during frame K it reads K+1.
 <code>time().frame</code> and <code>state().frame</code> report <code>frame_num() - 1</code>. That is the tag
@@ -2786,7 +2787,20 @@ are bookmarks.</p>
 which the CTL-11 gate then holds every resume on. The rewind controls are
 <code>rewind_enabled</code>, <code>set_rewind_enabled</code>, <code>rewind_range()</code>, <code>resize_rewind_buffer</code>
 and <code>rewind_blocked()</code>, which returns the <code>Result</code> a rewind would refuse with,
-for greying a control before it is clicked.</p>
+for greying a control before it is clicked. It knows only the refusals that do
+not depend on the target: an RZX, no ring, an empty ring. The rest — no trace
+entry, a frame outside the ring or not recorded, a replay that would cross a
+debugger change (<a href="09-2-event-delivery-and-mutation.html">3.9.2</a>) — are known only
+when the verb runs.</p>
+<p><strong>A refused rewind says why.</strong> On every <code>RefusedRzx</code> or <code>RefusedUnavailable</code>,
+<code>step_back</code> and <code>rewind_to_frame</code> log one <code>Warn</code> line to every listener:</p>
+<pre><code>REWIND REFUSED: Step Back refused: the instruction trace is off — turn on Debug ▸ Trace ▸ Enable Trace and run forward. See the user guide: Debugger ▸ Functions ▸ Backward execution (rewind)
+</code></pre>
+<p>The verb is <code>Step Back</code> or <code>Rewind to frame N</code>, and the reason is read from the
+machine after the refusal (<code>rewind_refusal_reason()</code> in
+<code>debugger_control.cpp</code>). The prefix is what the Qt debugger matches to put the
+reason in its status bar. <code>RefusedCorrupt</code> logs no reason line: the corruption
+incident is reported on its own.</p>
 <h3 id="symbols-cap-sym">Symbols — CAP-SYM<a class="headerlink" href="#symbols-cap-sym" title="Permanent link">&para;</a></h3>
 <p>There is one symbol table, and the backend owns it. <code>load_map(path, format)</code>
 reads a z88dk map (<code>MapFormat::Z88dk</code>) or a plain <code>SYMBOL = $ADDR</code> list

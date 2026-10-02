@@ -177,8 +177,26 @@ Two of its properties are load-bearing here:
   (`acknowledge_corruption()`): the `ResumeGuard` policy in
   `src/debug/resume_guard.h`. The Qt debugger asks the question in a modal.
 
-Rewind is refused with `RefusedRzx` while an RZX records or plays, and with
-`RefusedUnavailable` when the ring is empty or the target frame is outside it.
+Rewind is refused with `RefusedRzx` while an RZX records or plays. It is
+refused with `RefusedUnavailable` when:
+
+- there is no ring, or it is empty;
+- the target frame is outside the ring, or has no snapshot (a gap left while
+  snapshotting was paused);
+- for `step_back`, the trace is off or empty;
+- for `step_back` and `rewind_to_cycle`, the replay would cross a change made
+  from the debugger: the rewind wall of
+  [3.9.2](09-2-event-delivery-and-mutation.md). A change also ends the
+  recorded future: the ring's slots past it are dropped.
+
+Every such refusal is checked before anything is restored, so the machine, the
+trace and the change are left as they were. The backend says why: the facade's
+`step_back` and `rewind_to_frame` log one `Warn` line, `REWIND REFUSED: <verb>
+refused: <reason>. See the user guide: …`, to every listener (SES-06), and the
+Qt debugger shows it in its status bar
+([3.10.2](10-2-the-qt-debugger.md)). Most refusals also leave a line on the
+`emulator` log channel. The `STEP_BACK` step mode ends paused on any refusal,
+and `RUN_BACK_TO_CYCLE` on a crossing refusal or a failed restore.
 
 ## The magic breakpoint and the magic port
 

@@ -61,7 +61,7 @@ work. A breakpoint change another client made arrives as
 |---|---|---|
 | CPU Registers | `registers()`, `paging_ports()`, `ula_screen_regs()` | — |
 | MMU | `mmu_slots()`, `paging_ports()` | — |
-| Disassembly | `disassemble` over `memory_reader()`, with symbols, a breakpoint gutter and a selection you can copy as assembly | breakpoints, through the model |
+| Disassembly | `disasm_one()` over `memory_reader()`, with symbols, a breakpoint gutter and a selection you can copy as assembly | breakpoints, through the model |
 | Memory | `peek(MemSpace::cpu())`, or a slot's or NR page's backing store | `poke` |
 | Stack | the words at and above SP, through `peek` | — |
 | Call Stack | `call_stack()`, a shadow stack built from SP deltas plus a frame per accepted INT or NMI | — |
@@ -98,6 +98,24 @@ attributed to the window's client — to no client while the window is closed;
 and each produces a `MUTATE` line. Both are refused while an RZX records or
 plays: the NextREG cell shows the register's value again at the next refresh,
 and the Memory byte does not change.
+
+**A refused rewind says why in the status bar.** `DebuggerManager` is also a
+`Listener` of the window's client, installed at attach and removed before
+detach, and only its `on_log` does anything. It records a line that starts with
+`REWIND REFUSED: ` ([3.9.1](09-1-the-backend-api.md)), minus that prefix and
+the backend's ` [client N]` tag, and does no UI work in the push.
+`on_step_back()` and `on_rewind_to_frame()` serve Step Back, Frame Back and the
+slider. Each first clears the recorded line and any refusal still on show
+(`DebuggerWindow::clear_rewind_refusal()`), because that refusal described the
+previous verb. Each then calls the verb, and on a benign refusal hands the
+recorded line to `DebuggerWindow::show_rewind_refusal()`.
+
+That puts it in the debugger window's status bar for `kRewindRefusalMs`
+(10 s), with no modal. Meanwhile `update_rewind_ui()` leaves the status bar
+alone, instead of writing its rewind status line there on every tick.
+`RefusedCorrupt` is reported differently: a "Rewind Failed" modal and a line in
+the main window's status bar. `debugger_verbs_test`'s `QRF-*` rows pin each
+reason's text, the hold and the clear.
 
 **The Memory panel's slot view reads the physical backing store.** For a slot it
 uses the `space` and `space_offset` that `mmu_slots()` reports — `Page{nr_page}`

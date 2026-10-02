@@ -217,8 +217,8 @@ instruction that, on the machine now in memory, never ran.
 `Emulator::debug_after_machine_transition_()` is the one place that reconciles
 it. `load_state()` calls it (every restore routes through `load_state()`:
 `load_state_bytes`, `step_back`, `rewind_to_frame`, `run_back_to_cycle`, a
-`.jns` load's round trip), and so does the end of `init()`, which is
-`soft_reset()`. It clears `DebugState`'s stop records, the pending stop, the
+`.jns` load's round trip), and so does the end of `init()`, which
+`soft_reset()` and every cold boot run through. It clears `DebugState`'s stop records, the pending stop, the
 latch ring, and — through `DebugState::set_machine_replaced_hook()` — the
 backend's armed verb and delivery state. It then re-derives the eight slot pages
 the masks are computed from.
@@ -243,7 +243,11 @@ frontend and to script handlers, under one contract.
 | `set_mmu_slot` | through the NR 0x50+slot handler, so page 0xFF on slot 0 or 1 re-engages legacy ROM paging as the guest's `NEXTREG` does |
 | `nextreg_write` | the register's own write handler, synchronously, side effects included |
 | `port_out` | dispatched like the guest's `OUT` |
-| `set_sprite_attr_raw`, `write_pattern_ram`, `set_palette`, `set_border`, `set_audio_mute_mask` | through the engine's own setters, not as port traffic |
+| `set_sprite_attr_raw`, `write_pattern_ram`, `set_palette`, `set_border` | through the engine's own setters, not as port traffic |
+
+`set_audio_mute_mask` is not in the table: the mute mask is host-side state, in
+neither a snapshot nor an RZX recording. It logs a `MUTATE` line like a write,
+but neither the RZX refusal nor the rewind wall below applies to it.
 
 **When a write lands.** Always at a delivery point, never inside a hot-path
 hook. From a frontend command the machine is paused at an instruction boundary.
@@ -292,11 +296,34 @@ leaving the value as it was.
 
 **Rewind.** A write is machine state, so the next frame-boundary snapshot
 carries it. Interpreter state — script variables, `once` flags — is not in a
-snapshot, and nothing is delivered during a replay. A rewind to a point inside
-the frame a write happened in therefore replays that frame without the write,
-and nothing refuses such a rewind: `step_back` and `rewind_to_frame` check only
-the RZX state and the ring. The script engine logs a warning the first time a
-script mutates a machine with the rewind buffer on.
+snapshot, and nothing is delivered during a replay, so a replay never
+reproduces a debugger change. A rewind that would have to replay across one is
+refused instead: the §4.2a rewind wall.
+
+- **What counts as a change.** Every verb that changes guest state a replay
+  would not reproduce calls `Impl::note_mutation()` beside its `MUTATE` line:
+  the writes in the table above, `port_in` (a read with side effects), the
+  input verbs (`set_key`, `set_extended_key`, `press_key`, `set_joystick`,
+  `press_nmi`), `reset(Soft)`, an in-place `load()` or `load_state_bytes()`,
+  and the `.sna` saver's PC push. `note_mutation()` calls
+  `RewindBuffer::mark_mutated(C)` with the current cycle C.
+- **The mark.** Each slot keeps the earliest change cycle in its span: the
+  slot at or before C takes the mark. The mark ends when the slot is re-taken
+  (a wrap included) or the ring cleared, or when a restore lands at or before
+  it (`unmark_from()`). `reset(Hard)` rebuilds the ring.
+- **The refusal.** `step_back` and `rewind_to_cycle` replay from the slot S at
+  or before their target T. They are refused with `RefusedUnavailable`, before
+  anything is restored, when S's mark is at or before T and T lies past the
+  point S restores (`replay_crosses_mutation()`). A target before the change
+  is allowed and undoes it. So is `rewind_to_frame`, a pure restore of a frame
+  start that replays nothing.
+- **A change ends the recorded future.** `mark_mutated` also drops the ring's
+  slots that start after C — an abandoned future left by a rewind or a
+  backwards state load, recorded without the change. After an edit, the
+  slider and Frame Back can no longer go forward into those frames.
+
+The script engine logs a warning the first time a script mutates a machine
+with the rewind buffer on.
 
 ## Tests
 

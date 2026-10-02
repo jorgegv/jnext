@@ -2625,8 +2625,8 @@ instruction that, on the machine now in memory, never ran.
 <code>Emulator::debug_after_machine_transition_()</code> is the one place that reconciles
 it. <code>load_state()</code> calls it (every restore routes through <code>load_state()</code>:
 <code>load_state_bytes</code>, <code>step_back</code>, <code>rewind_to_frame</code>, <code>run_back_to_cycle</code>, a
-<code>.jns</code> load's round trip), and so does the end of <code>init()</code>, which is
-<code>soft_reset()</code>. It clears <code>DebugState</code>'s stop records, the pending stop, the
+<code>.jns</code> load's round trip), and so does the end of <code>init()</code>, which
+<code>soft_reset()</code> and every cold boot run through. It clears <code>DebugState</code>'s stop records, the pending stop, the
 latch ring, and — through <code>DebugState::set_machine_replaced_hook()</code> — the
 backend's armed verb and delivery state. It then re-derives the eight slot pages
 the masks are computed from.</p>
@@ -2675,11 +2675,14 @@ frontend and to script handlers, under one contract.</p>
 <td>dispatched like the guest's <code>OUT</code></td>
 </tr>
 <tr>
-<td><code>set_sprite_attr_raw</code>, <code>write_pattern_ram</code>, <code>set_palette</code>, <code>set_border</code>, <code>set_audio_mute_mask</code></td>
+<td><code>set_sprite_attr_raw</code>, <code>write_pattern_ram</code>, <code>set_palette</code>, <code>set_border</code></td>
 <td>through the engine's own setters, not as port traffic</td>
 </tr>
 </tbody>
 </table>
+<p><code>set_audio_mute_mask</code> is not in the table: the mute mask is host-side state, in
+neither a snapshot nor an RZX recording. It logs a <code>MUTATE</code> line like a write,
+but neither the RZX refusal nor the rewind wall below applies to it.</p>
 <p><strong>When a write lands.</strong> Always at a delivery point, never inside a hot-path
 hook. From a frontend command the machine is paused at an instruction boundary.
 From an <code>Execute</code> handler the instruction at PC sees the write: setting PC
@@ -2718,11 +2721,34 @@ is recording or playing. The Qt Memory and NextREG panels show the refusal by
 leaving the value as it was.</p>
 <p><strong>Rewind.</strong> A write is machine state, so the next frame-boundary snapshot
 carries it. Interpreter state — script variables, <code>once</code> flags — is not in a
-snapshot, and nothing is delivered during a replay. A rewind to a point inside
-the frame a write happened in therefore replays that frame without the write,
-and nothing refuses such a rewind: <code>step_back</code> and <code>rewind_to_frame</code> check only
-the RZX state and the ring. The script engine logs a warning the first time a
-script mutates a machine with the rewind buffer on.</p>
+snapshot, and nothing is delivered during a replay, so a replay never
+reproduces a debugger change. A rewind that would have to replay across one is
+refused instead: the §4.2a rewind wall.</p>
+<ul>
+<li><strong>What counts as a change.</strong> Every verb that changes guest state a replay
+  would not reproduce calls <code>Impl::note_mutation()</code> beside its <code>MUTATE</code> line:
+  the writes in the table above, <code>port_in</code> (a read with side effects), the
+  input verbs (<code>set_key</code>, <code>set_extended_key</code>, <code>press_key</code>, <code>set_joystick</code>,
+  <code>press_nmi</code>), <code>reset(Soft)</code>, an in-place <code>load()</code> or <code>load_state_bytes()</code>,
+  and the <code>.sna</code> saver's PC push. <code>note_mutation()</code> calls
+  <code>RewindBuffer::mark_mutated(C)</code> with the current cycle C.</li>
+<li><strong>The mark.</strong> Each slot keeps the earliest change cycle in its span: the
+  slot at or before C takes the mark. The mark ends when the slot is re-taken
+  (a wrap included) or the ring cleared, or when a restore lands at or before
+  it (<code>unmark_from()</code>). <code>reset(Hard)</code> rebuilds the ring.</li>
+<li><strong>The refusal.</strong> <code>step_back</code> and <code>rewind_to_cycle</code> replay from the slot S at
+  or before their target T. They are refused with <code>RefusedUnavailable</code>, before
+  anything is restored, when S's mark is at or before T and T lies past the
+  point S restores (<code>replay_crosses_mutation()</code>). A target before the change
+  is allowed and undoes it. So is <code>rewind_to_frame</code>, a pure restore of a frame
+  start that replays nothing.</li>
+<li><strong>A change ends the recorded future.</strong> <code>mark_mutated</code> also drops the ring's
+  slots that start after C — an abandoned future left by a rewind or a
+  backwards state load, recorded without the change. After an edit, the
+  slider and Frame Back can no longer go forward into those frames.</li>
+</ul>
+<p>The script engine logs a warning the first time a script mutates a machine
+with the rewind buffer on.</p>
 <h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
 <p><code>debugger_backend_test</code>'s <code>EVT-*</code> rows pin the event table: one family per
 kind, the filters, delivery timing, <code>once</code> and transients, the master and

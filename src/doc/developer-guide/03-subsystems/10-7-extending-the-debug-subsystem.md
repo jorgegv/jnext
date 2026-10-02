@@ -73,9 +73,11 @@ is refused without a server port; add yours to that check in `main.cpp`.
 The four published headers are frozen. A new declaration is made only by owner
 decision, and recorded in three places: at the declaration itself, in
 `doc/design/debug-subsystem/b0-cap-traceability.md` under its capability id, and
-in `doc/design/debug-subsystem/backend.md`. Every addition so far
-(`on_cold_boot_begin()`, `flush_captures()`, `rom_select()`, `rgb333_to_argb()`)
-followed that path. The rules the verb has to follow:
+in `doc/design/debug-subsystem/backend.md`. `on_cold_boot_begin()`,
+`flush_captures()` and `rom_select()` followed that path. `rgb333_to_argb()` in
+`inspect.h` did not: it is recorded at its declaration and in `backend.md`, but
+the traceability table names only its sibling `rrrgggbb_to_argb()`. The rules
+the verb has to follow:
 
 - **Return type.** `Result` if it acts, `Expected<T>` if it acts and yields
   data, a plain value only if it is a query that cannot refuse — and then it
@@ -88,6 +90,10 @@ followed that path. The rules the verb has to follow:
 - **Mutation.** If it writes, it emits a `MUTATE` line through `log_mutate()` or
   `log_mutate_range()`, refuses with `RefusedRzx` while an RZX records or plays,
   and runs its write under `DebugState::InspectionScope` so it fires no event.
+  If it changes guest state a replay would not reproduce, it also calls
+  `impl_->note_mutation()` beside its `MUTATE` line, so a rewind cannot replay
+  across the change ([3.9.2](09-2-event-delivery-and-mutation.md)). A
+  host-side setting, such as the audio mute mask, does neither.
 - **State.** New state goes into `Debugger::Impl`, never into the header. If it
   must survive a hard reset and it lives on the `Emulator`, record the request
   on `Impl` and re-apply it in `reapply_after_machine_rebuild()`.

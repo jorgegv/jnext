@@ -2534,8 +2534,26 @@ Two of its properties are load-bearing here:</p>
   (<code>acknowledge_corruption()</code>): the <code>ResumeGuard</code> policy in
   <code>src/debug/resume_guard.h</code>. The Qt debugger asks the question in a modal.</li>
 </ul>
-<p>Rewind is refused with <code>RefusedRzx</code> while an RZX records or plays, and with
-<code>RefusedUnavailable</code> when the ring is empty or the target frame is outside it.</p>
+<p>Rewind is refused with <code>RefusedRzx</code> while an RZX records or plays. It is
+refused with <code>RefusedUnavailable</code> when:</p>
+<ul>
+<li>there is no ring, or it is empty;</li>
+<li>the target frame is outside the ring, or has no snapshot (a gap left while
+  snapshotting was paused);</li>
+<li>for <code>step_back</code>, the trace is off or empty;</li>
+<li>for <code>step_back</code> and <code>rewind_to_cycle</code>, the replay would cross a change made
+  from the debugger: the rewind wall of
+  <a href="09-2-event-delivery-and-mutation.html">3.9.2</a>. A change also ends the
+  recorded future: the ring's slots past it are dropped.</li>
+</ul>
+<p>Every such refusal is checked before anything is restored, so the machine, the
+trace and the change are left as they were. The backend says why: the facade's
+<code>step_back</code> and <code>rewind_to_frame</code> log one <code>Warn</code> line, <code>REWIND REFUSED: &lt;verb&gt;
+refused: &lt;reason&gt;. See the user guide: …</code>, to every listener (SES-06), and the
+Qt debugger shows it in its status bar
+(<a href="10-2-the-qt-debugger.html">3.10.2</a>). Most refusals also leave a line on the
+<code>emulator</code> log channel. The <code>STEP_BACK</code> step mode ends paused on any refusal,
+and <code>RUN_BACK_TO_CYCLE</code> on a crossing refusal or a failed restore.</p>
 <h2 id="the-magic-breakpoint-and-the-magic-port">The magic breakpoint and the magic port<a class="headerlink" href="#the-magic-breakpoint-and-the-magic-port" title="Permanent link">&para;</a></h2>
 <p>Both are hooks a Z80 programmer puts in their own source; neither exists on
 real hardware.</p>

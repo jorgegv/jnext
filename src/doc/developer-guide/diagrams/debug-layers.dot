@@ -58,7 +58,7 @@ digraph debug_layers {
     zrcp -> transport [arrowhead=none];
 
     qt        -> facade;
-    transport -> facade [label=" pump() drives it"];
+    transport -> facade [label=" adapters call it;\l its pump() runs the server\l"];
     dsl       -> facade;
 
     facade -> impl [arrowhead=none];

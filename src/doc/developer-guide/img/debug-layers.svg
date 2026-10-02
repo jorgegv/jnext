@@ -101,15 +101,16 @@
 <!-- dsl&#45;&gt;facade -->
 <g id="edge6" class="edge">
 <title>dsl&#45;&gt;facade</title>
-<path fill="none" stroke="#8c6b70" d="M562.43,-499.48C549.65,-488.57 534.36,-475.25 521,-462.86 474.54,-419.79 467.39,-404.01 418,-364.34 413.54,-360.76 408.85,-357.13 404.08,-353.56"/>
-<polygon fill="#8c6b70" stroke="#8c6b70" points="406.23,-350.8 396.11,-347.68 402.08,-356.43 406.23,-350.8"/>
+<path fill="none" stroke="#8c6b70" d="M559.35,-499.39C546.69,-488.98 532.35,-476.09 521,-462.86 487.3,-423.6 498.07,-398.25 459,-364.34 454.15,-360.13 448.88,-356.22 443.37,-352.6"/>
+<polygon fill="#8c6b70" stroke="#8c6b70" points="445.53,-349.81 435.17,-347.56 441.86,-355.78 445.53,-349.81"/>
 </g>
 <!-- transport&#45;&gt;facade -->
 <g id="edge5" class="edge">
 <title>transport&#45;&gt;facade</title>
 <path fill="none" stroke="#8c6b70" d="M348,-414.78C348,-399.92 348,-377.86 348,-358.23"/>
 <polygon fill="#8c6b70" stroke="#8c6b70" points="351.5,-358.24 348,-348.24 344.5,-358.24 351.5,-358.24"/>
-<text xml:space="preserve" text-anchor="middle" x="380.62" y="-371.54" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5a3f43"> pump() drives it</text>
+<text xml:space="preserve" text-anchor="start" x="348" y="-376.79" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5a3f43"> adapters call it;</text>
+<text xml:space="preserve" text-anchor="start" x="348" y="-366.29" font-family="Helvetica,sans-Serif" font-size="9.00" fill="#5a3f43"> its pump() runs the server</text>
 </g>
 <!-- impl -->
 <g id="node8" class="node">

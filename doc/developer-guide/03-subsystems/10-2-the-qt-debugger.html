@@ -2386,7 +2386,7 @@ work. A breakpoint change another client made arrives as
 </tr>
 <tr>
 <td>Disassembly</td>
-<td><code>disassemble</code> over <code>memory_reader()</code>, with symbols, a breakpoint gutter and a selection you can copy as assembly</td>
+<td><code>disasm_one()</code> over <code>memory_reader()</code>, with symbols, a breakpoint gutter and a selection you can copy as assembly</td>
 <td>breakpoints, through the model</td>
 </tr>
 <tr>
@@ -2468,6 +2468,22 @@ attributed to the window's client — to no client while the window is closed;
 and each produces a <code>MUTATE</code> line. Both are refused while an RZX records or
 plays: the NextREG cell shows the register's value again at the next refresh,
 and the Memory byte does not change.</p>
+<p><strong>A refused rewind says why in the status bar.</strong> <code>DebuggerManager</code> is also a
+<code>Listener</code> of the window's client, installed at attach and removed before
+detach, and only its <code>on_log</code> does anything. It records a line that starts with
+<code>REWIND REFUSED:</code> (<a href="09-1-the-backend-api.html">3.9.1</a>), minus that prefix and
+the backend's <code>[client N]</code> tag, and does no UI work in the push.
+<code>on_step_back()</code> and <code>on_rewind_to_frame()</code> serve Step Back, Frame Back and the
+slider. Each first clears the recorded line and any refusal still on show
+(<code>DebuggerWindow::clear_rewind_refusal()</code>), because that refusal described the
+previous verb. Each then calls the verb, and on a benign refusal hands the
+recorded line to <code>DebuggerWindow::show_rewind_refusal()</code>.</p>
+<p>That puts it in the debugger window's status bar for <code>kRewindRefusalMs</code>
+(10 s), with no modal. Meanwhile <code>update_rewind_ui()</code> leaves the status bar
+alone, instead of writing its rewind status line there on every tick.
+<code>RefusedCorrupt</code> is reported differently: a "Rewind Failed" modal and a line in
+the main window's status bar. <code>debugger_verbs_test</code>'s <code>QRF-*</code> rows pin each
+reason's text, the hold and the clear.</p>
 <p><strong>The Memory panel's slot view reads the physical backing store.</strong> For a slot it
 uses the <code>space</code> and <code>space_offset</code> that <code>mmu_slots()</code> reports — <code>Page{nr_page}</code>
 for a RAM slot, <code>Rom{...}</code> for a ROM slot, whose <code>poke</code> is refused — at

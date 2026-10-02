@@ -2338,9 +2338,11 @@ is refused without a server port; add yours to that check in <code>main.cpp</cod
 <p>The four published headers are frozen. A new declaration is made only by owner
 decision, and recorded in three places: at the declaration itself, in
 <code>doc/design/debug-subsystem/b0-cap-traceability.md</code> under its capability id, and
-in <code>doc/design/debug-subsystem/backend.md</code>. Every addition so far
-(<code>on_cold_boot_begin()</code>, <code>flush_captures()</code>, <code>rom_select()</code>, <code>rgb333_to_argb()</code>)
-followed that path. The rules the verb has to follow:</p>
+in <code>doc/design/debug-subsystem/backend.md</code>. <code>on_cold_boot_begin()</code>,
+<code>flush_captures()</code> and <code>rom_select()</code> followed that path. <code>rgb333_to_argb()</code> in
+<code>inspect.h</code> did not: it is recorded at its declaration and in <code>backend.md</code>, but
+the traceability table names only its sibling <code>rrrgggbb_to_argb()</code>. The rules
+the verb has to follow:</p>
 <ul>
 <li><strong>Return type.</strong> <code>Result</code> if it acts, <code>Expected&lt;T&gt;</code> if it acts and yields
   data, a plain value only if it is a query that cannot refuse — and then it
@@ -2352,7 +2354,11 @@ followed that path. The rules the verb has to follow:</p>
   <code>impl_-&gt;refuse_inside_delivery("&lt;verb&gt;")</code>.</li>
 <li><strong>Mutation.</strong> If it writes, it emits a <code>MUTATE</code> line through <code>log_mutate()</code> or
   <code>log_mutate_range()</code>, refuses with <code>RefusedRzx</code> while an RZX records or plays,
-  and runs its write under <code>DebugState::InspectionScope</code> so it fires no event.</li>
+  and runs its write under <code>DebugState::InspectionScope</code> so it fires no event.
+  If it changes guest state a replay would not reproduce, it also calls
+  <code>impl_-&gt;note_mutation()</code> beside its <code>MUTATE</code> line, so a rewind cannot replay
+  across the change (<a href="09-2-event-delivery-and-mutation.html">3.9.2</a>). A
+  host-side setting, such as the audio mute mask, does neither.</li>
 <li><strong>State.</strong> New state goes into <code>Debugger::Impl</code>, never into the header. If it
   must survive a hard reset and it lives on the <code>Emulator</code>, record the request
   on <code>Impl</code> and re-apply it in <code>reapply_after_machine_rebuild()</code>.</li>

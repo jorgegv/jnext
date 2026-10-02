@@ -11,8 +11,9 @@ Four headers in `src/debug/` are the whole interface a frontend sees:
 
 They are a frozen interface. A verb is added only by owner decision, and each
 declaration says which capability id of `doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md`
-§4 it serves. `doc/design/debug-subsystem/b0-cap-traceability.md` maps every
-capability id to its declaration.
+§4 it serves. `doc/design/debug-subsystem/b0-cap-traceability.md` maps each
+capability id to its declarations, though not completely: `rgb333_to_argb()`,
+for one, is missing from it.
 
 ## Conventions
 
@@ -83,7 +84,7 @@ the design documents refer to it.
 | `step_into(by)` | one instruction, **synchronously**, frame-loop aware: a step at a `HALT` runs the halt out |
 | `step_over(by)`, `step_out(by)` | **asynchronous**: the stop arrives later as a `Paused` push |
 | `run_to(by, addr)`, `run_to_cycle(by, c)`, `run_to_frame(by, f)`, `run_to_end_of_frame(by)`, `run_to_end_of_scanline(by)` | resume until a target |
-| `step_back(by, n)`, `rewind_to_frame(by, f)` | rewind, synchronously |
+| `step_back(by, n)`, `rewind_to_frame(by, f)` | rewind, synchronously. A benign refusal is `RefusedRzx` or `RefusedUnavailable` (no ring or an empty one, a frame outside it or not recorded, the trace off or empty, or a step back that would replay across a debugger change), and logs its reason |
 | `resume_blocked_by_corruption()`, `acknowledge_corruption(gen)` | the CTL-11 gate after a failed restore |
 | `reset(by, Soft \| Hard)` | `Soft` is `Emulator::soft_reset()`. `Hard` is the reconstruct contract of [3.9.3](09-3-sessions-the-pump-and-reconstruct.md) |
 | `load(by, path)` | through the loop owner's `LoopDriver::load`; same contract when the load rebuilds the machine |
@@ -127,7 +128,7 @@ and raises the data-breakpoint latch on a READ watchpoint. `Mmu::peek()` wraps
 `read()` under `DebugState::InspectionScope` and puts the floating-bus byte
 back. It wraps rather than copies, so the overlay arbitration (boot ROM,
 Multiface, DivMMC, Layer 2, alternate ROM, config mode) cannot drift between
-the two. The trace's word-at-SP and the call-stack tracker read the same way.
+the two. The trace's word at SP reads the same way.
 
 **The frame number is a tag, not the raw counter.** `Emulator::frame_num()` is
 post-incremented at the start of each frame, so during frame K it reads K+1.
@@ -227,7 +228,24 @@ are bookmarks.
 which the CTL-11 gate then holds every resume on. The rewind controls are
 `rewind_enabled`, `set_rewind_enabled`, `rewind_range()`, `resize_rewind_buffer`
 and `rewind_blocked()`, which returns the `Result` a rewind would refuse with,
-for greying a control before it is clicked.
+for greying a control before it is clicked. It knows only the refusals that do
+not depend on the target: an RZX, no ring, an empty ring. The rest — no trace
+entry, a frame outside the ring or not recorded, a replay that would cross a
+debugger change ([3.9.2](09-2-event-delivery-and-mutation.md)) — are known only
+when the verb runs.
+
+**A refused rewind says why.** On every `RefusedRzx` or `RefusedUnavailable`,
+`step_back` and `rewind_to_frame` log one `Warn` line to every listener:
+
+```
+REWIND REFUSED: Step Back refused: the instruction trace is off — turn on Debug ▸ Trace ▸ Enable Trace and run forward. See the user guide: Debugger ▸ Functions ▸ Backward execution (rewind)
+```
+
+The verb is `Step Back` or `Rewind to frame N`, and the reason is read from the
+machine after the refusal (`rewind_refusal_reason()` in
+`debugger_control.cpp`). The prefix is what the Qt debugger matches to put the
+reason in its status bar. `RefusedCorrupt` logs no reason line: the corruption
+incident is reported on its own.
 
 ### Symbols — CAP-SYM
 

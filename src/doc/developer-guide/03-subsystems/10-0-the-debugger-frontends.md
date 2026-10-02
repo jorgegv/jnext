@@ -118,7 +118,7 @@ a write.
 | sprites, patterns | r | r | — | r w | — | — |
 | Copper, AY | r | — | — | — | — | — |
 | audio mute mask | r w | — | — | — | r w | — |
-| disassembly, call stack | r | — | — | r | — | — |
+| disassembly, call stack | r w | — | — | r w | — | — |
 | trace | r w | — | — | r w | — | — |
 | coverage | — | — | — | r w | — | — |
 | palettes, clip windows | r | r (sprite palette, clip) | — | r w | — | — |
@@ -129,6 +129,7 @@ a write.
 | `subscribe` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `subscriptions` listing | ✓ | — | ✓ | ✓ | — | — |
 | master switch | ✓ | — | — | — | — | — |
+| magic breakpoint switch | r w (the main window's Debug ▸ Magic Breakpoint) | — | — | — | — | — |
 | `probe_execute` | — | — | — | ✓ | — | — |
 | `raise_host_event` | ✓ | — | — | — | ✓ | — |
 | bookmarks | — | ✓ | — | ✓ | — | — |
