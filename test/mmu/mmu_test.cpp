@@ -3877,7 +3877,7 @@ void test_nex_loader() {
     //   * page 11 [0..0x1FFF]              = 0x00  (residual zeroed)
     // Without the fix, those residual ranges would still hold the 0xCC
     // junk. Citation: doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md G16,
-    // doc/issues/BEAST-NEX-INVESTIGATION.md § Verdict.
+    // doc/issues/beast-demo/BEAST-NEX-INVESTIGATION.md § Verdict.
     {
         Fixture f;
         f.fresh();

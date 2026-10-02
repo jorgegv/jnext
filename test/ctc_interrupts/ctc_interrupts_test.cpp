@@ -269,7 +269,7 @@ static void test_ula_int_integration(Emulator& emu) {
     // emulator schedules the callback for line_int_value=0 at frame_cycle
     // (value < lines_per_frame gate at emulator.cpp:2392 passes; the
     // exact cycle is a separate VHDL-timing concern re-homed to
-    // doc/design/VIDEOTIMING-EXPANSION-PLAN.md).
+    // doc/design/TASK-VIDEOTIMING-EXPANSION-PLAN.md).
     //
     // Stimulus: NR 0x22 bit 1 = 1 + NR 0x23 = 0. After one run_frame,
     // NR 0xC8 bit 1 must be set (i.e. line_int_value=0 is NOT ignored —

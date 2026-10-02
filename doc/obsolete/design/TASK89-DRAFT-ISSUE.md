@@ -1,7 +1,7 @@
 # GitHub feature issue — FILED as #31
 
 > Filed as https://github.com/jorgegv/jnext/issues/31 after user review (2026-07-18). The scope below reflects the user's
-> decision recorded in [TASK89-ESXDOS-HOST-FILESYSTEM.md](TASK89-ESXDOS-HOST-FILESYSTEM.md) §0.1:
+> decision recorded in [TASK89-ESXDOS-HOST-FILESYSTEM.md](../../design/TASK89-ESXDOS-HOST-FILESYSTEM.md) §0.1:
 > enhance the existing `--esxdos-stub` rather than add a separate mount, gate the host
 > directory behind `--esxdos-stub-root`, and draw a permanent scope boundary at NextZXOS.
 >
@@ -129,5 +129,5 @@ Builds on #29 (extended NEX loading needs exactly this host-backed `F_READ`/`F_S
 machinery for self-streaming payloads) and #30 (tracing is the instrument for the
 verification step above).
 
-Full evidence: [`doc/design/TASK89-ESXDOS-HOST-FILESYSTEM.md`](doc/design/TASK89-ESXDOS-HOST-FILESYSTEM.md),
+Full evidence: [`doc/design/TASK89-ESXDOS-HOST-FILESYSTEM.md`](../../design/TASK89-ESXDOS-HOST-FILESYSTEM.md),
 with the scope decision recorded in its §0.1.

@@ -123,7 +123,7 @@ order):
    If the demo points L2 at different banks for different bands of
    the screen, each band would carry different artwork and jnext
    would see only the last bank's content. (Cat-A item in
-   `doc/design/PER-SCANLINE-DISPLAY-STATE-AUDIT.md`.)
+   `doc/analysis/PER-SCANLINE-DISPLAY-STATE-AUDIT.md`.)
 2. **LoRes layer** — PARKED earlier; per the 2026-04-25 trace LoRes
    bit toggling was claimed but the 2026-04-26 trace shows only ONE
    init-time write to NR 0x15 bit 7. So LoRes is NOT an active driver
@@ -457,11 +457,11 @@ wraps via 8-bit `ADD 0x10` overflow — line 4 is in the *next* frame.
 
 ### What jnext does wrong
 
-[`emulator.cpp:2991-3016`](../../src/core/emulator.cpp#L2991-L3016)
+[`emulator.cpp:2991-3016`](../../../src/core/emulator.cpp#L2991-L3016)
 schedules the line-interrupt event ONCE per frame at frame start in
 `run_frame`, based on the line-int target valid at that moment.
 
-[`emulator.cpp:864-868`](../../src/core/emulator.cpp#L864-L868) — the
+[`emulator.cpp:864-868`](../../../src/core/emulator.cpp#L864-L868) — the
 NR 0x23 write handler updates `video_timing_.line_interrupt_target()`
 but **does not re-schedule** for the current frame. The new target
 only takes effect at the NEXT frame's start.
@@ -886,7 +886,7 @@ Script fix: `test/00regression/regression.sh`. Reference updates:
 - Beast.nex regression: full forest scene renders perfectly post-fix.
 
 ## Companion docs
-- `doc/design/PER-SCANLINE-DISPLAY-STATE-AUDIT.md` — Cat-A list of
+- `doc/analysis/PER-SCANLINE-DISPLAY-STATE-AUDIT.md` — Cat-A list of
   remaining per-scanline replay candidates (NR 0x12/0x13 L2 bank,
   NR 0x14 transparency, NR 0x15 sprite/LoRes priority, NR 0x18-0x1B
   clip windows, NR 0x70 L2 mode, port 0xFF Timex screen, NR 0x26/0x27
@@ -894,5 +894,5 @@ Script fix: `test/00regression/regression.sh`. Reference updates:
   index).
 - `~/.claude/projects/-home-jorgegv-src-spectrum-jnext/memory/project_per_scanline_pattern_reusable.md`
   — canonical pattern shape for future per-scanline change-log work.
-- `doc/issues/BEAST-NEX-INVESTIGATION.md` — companion investigation
+- `doc/issues/beast-demo/BEAST-NEX-INVESTIGATION.md` — companion investigation
   (RESOLVED).

@@ -1,6 +1,6 @@
 # Task 27 — Optimization Plan (executable, task by task)
 
-> **Supersedes** `doc/design/PROFILING-OPTIMIZATION-PLAN.md` (whose Phase A is right, whose
+> **Supersedes** `doc/obsolete/design/PROFILING-OPTIMIZATION-PLAN.md` (whose Phase A is right, whose
 > ranking is guesswork, and whose item C2 is now *wrong* — see §0.3).
 > **Input:** [TASK27A-ARCHITECTURE-ASSESSMENT.md](TASK27A-ARCHITECTURE-ASSESSMENT.md) (rev 3).
 > **Written to be executed autonomously**, one task per branch, in the stated order.

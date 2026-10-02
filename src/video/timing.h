@@ -129,7 +129,7 @@ public:
     /// raw VC scanlines onto the framebuffer correctly for every machine.
     /// Pre-G164v2 callers used `Renderer::DISP_Y` as the offset, which is
     /// numerically correct only for `min_vactive == 64` (a NEXT-family
-    /// coincidence). See doc/issues/PARALLAX-NEX-INVESTIGATION.md.
+    /// coincidence). See doc/issues/parallax-demo/PARALLAX-NEX-INVESTIGATION.md.
     int vblank_top() const {
         constexpr int kFbDispY = 32;  // matches Renderer::DISP_Y
         return static_cast<int>(min_vactive_) - kFbDispY;

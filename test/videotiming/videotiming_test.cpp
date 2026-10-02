@@ -565,7 +565,7 @@ static void section7_scheduler_wiring() {
 // jnext scheduled the line-int once at frame start in run_frame() and
 // the NR write handlers updated VideoTiming state without rescheduling,
 // silently swallowing 12/13 chained line interrupts per frame on
-// parallax.nex. See doc/issues/PARALLAX-NEX-INVESTIGATION.md and gap
+// parallax.nex. See doc/issues/parallax-demo/PARALLAX-NEX-INVESTIGATION.md and gap
 // doc G163 for the root cause + fix shape.
 //
 // Test harness: drive the real Emulator (ZXN_ISSUE2 — 128K/Next timing,

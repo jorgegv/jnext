@@ -1,7 +1,7 @@
 # Phase 9: Performance Profiling & Optimization Plan
 
-> **⛔ OBSOLETE (2026-07-15) — superseded by [TASK27-OPTIMIZATION-PLAN.md](TASK27-OPTIMIZATION-PLAN.md)
-> and [TASK27-PROFILE-REPORT.md](TASK27-PROFILE-REPORT.md).**
+> **⛔ OBSOLETE (2026-07-15) — superseded by [TASK27-OPTIMIZATION-PLAN.md](../../design/TASK27-OPTIMIZATION-PLAN.md)
+> and [TASK27-PROFILE-REPORT.md](../../design/TASK27-PROFILE-REPORT.md).**
 > Task 27 (2026-07-14/15) executed the optimization campaign: the measurement
 > infrastructure below (Phase A) is realized as `--benchmark`/`make bench` +
 > `perf`-attributed profiling; Phase B/C/D were re-ranked from an actual profile.

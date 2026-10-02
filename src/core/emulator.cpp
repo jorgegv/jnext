@@ -1070,7 +1070,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   divmmc/mmc/nmi-shadow signals. If a regression surfaces in
     //   tbblue.fw boot or a divmmc test, revisit this decision (the
     //   proper fix would be to widen im2_control.vhd:236 — see
-    //   doc/issues/NEXTZXOS-BOOT-INVESTIGATION.md for context).
+    //   doc/issues/nextzxos-boot/NEXTZXOS-BOOT-INVESTIGATION.md for context).
     cpu_.on_m1_cycle = [this](uint16_t pc, uint8_t opcode) {
         ++slot_m1_count_;   // GH #265 — see Im2Controller::tick(..., m1_cycles)
         im2_.on_m1_cycle(pc, opcode);

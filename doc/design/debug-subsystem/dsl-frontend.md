@@ -77,7 +77,7 @@ From #279 and #277 (owner, 2026-09-26):
 
 ## 1. Scope, and what this drops from `SCRIPTABLE-DEBUGGER.md`
 
-`doc/design/SCRIPTABLE-DEBUGGER.md` (2026-04-09, 923 lines) predates every
+`doc/obsolete/design/SCRIPTABLE-DEBUGGER.md` (2026-04-09, 923 lines) predates every
 decision above and was designed with no backend: its §4.1 wires the engine
 straight into `Z80Cpu::on_m1_cycle`, `Mmu` and a `port_manager.h` that does not
 exist. It also predates the GH #219/#225 `DebugState` gating model

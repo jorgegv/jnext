@@ -7,7 +7,7 @@ single session (Phases 0 → 2 + archive). Mirrors the structure of
 
 Plan doc: [doc/design/TASK-COMPOSITOR-ULA-BLEND-MODE-PLAN.md](../../design/TASK-COMPOSITOR-ULA-BLEND-MODE-PLAN.md).
 Predecessor (parked UDIS-01/02 sibling rows): [doc/design/TASK-COMPOSITOR-NR68-BLEND-PLAN.md](../../design/TASK-COMPOSITOR-NR68-BLEND-PLAN.md).
-Parallel investigation spawned mid-plan: [doc/issues/BEAST-NEX-INVESTIGATION.md](../../issues/BEAST-NEX-INVESTIGATION.md).
+Parallel investigation spawned mid-plan: [doc/issues/beast-demo/BEAST-NEX-INVESTIGATION.md](../../issues/beast-demo/BEAST-NEX-INVESTIGATION.md).
 Closing commit: `60145d0` (`doc(issues): beast.nex rendering investigation archive`).
 Main tip at audit: `60145d0b4f42edf880fb92e2354705d12b3840bd`.
 
@@ -73,7 +73,7 @@ repro of ULA-leaking-through-layer-2 cells; plan-doc updated in
 `98ff825` to cite beast as the driver.
 
 Post-Phase-1 investigation (archived at
-`doc/issues/BEAST-NEX-INVESTIGATION.md`) proved beast never writes
+`doc/issues/beast-demo/BEAST-NEX-INVESTIGATION.md`) proved beast never writes
 NR 0x68 (default blend_mode = 00, which Phase 1 preserves
 pixel-identically), and in fact uses priority mode 0 (SLU) — which
 doesn't consult `blend_mode` at all. Beast's real bug is tilemap-
@@ -189,7 +189,7 @@ Cascade routed `tm_px` when mix_top/mix_bot was opaque — correct for
    incidental cleanup (plan §Q1 resolution).
 
 2. **beast.nex tilemap-transparency / ULA-leak bug** — archived at
-   `doc/issues/BEAST-NEX-INVESTIGATION.md`; root causes narrowed to
+   `doc/issues/beast-demo/BEAST-NEX-INVESTIGATION.md`; root causes narrowed to
    uninitialised bank-5 ULA memory + possible Copper-MOVE
    interpretation gap. Needs its own plan doc. Untouched by this plan.
 

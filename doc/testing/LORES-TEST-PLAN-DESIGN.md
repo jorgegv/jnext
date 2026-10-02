@@ -607,7 +607,7 @@ row for an oversight.
   mid-scanline on hardware. jnext snapshots display state once per scanline
   (`Renderer::snapshot_*`), so a mid-line change is applied from the next line.
   This is the same limitation already accepted for every other layer — see
-  [PER-SCANLINE-DISPLAY-STATE-AUDIT.md](../design/PER-SCANLINE-DISPLAY-STATE-AUDIT.md).
+  [PER-SCANLINE-DISPLAY-STATE-AUDIT.md](../analysis/PER-SCANLINE-DISPLAY-STATE-AUDIT.md).
   **NR `$15` is a live case, not a hypothetical**: beast.nex toggles `$15`
   between `0x80` and `0x01` mid-frame, and NR `$15` is already listed in that
   audit as needing per-line replay. The LoRes implementer must add NR `$15`

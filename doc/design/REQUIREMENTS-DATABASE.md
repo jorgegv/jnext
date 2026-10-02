@@ -105,5 +105,5 @@ The script is **idempotent** and emits a diff against the existing DB so CI can 
 ## Context (for future pickup)
 
 - Today's instigator: session 2026-04-20 NextREG Phase 1 SKIP-reduction, commit `d455e23`. After re-homing 32 skip()s to source comments, the matrix's "missing" count jumped from 11 to 43 for NextREG alone — entirely because the extractor can't follow the re-home pointers. That session put the issue on the map.
-- Related memory: [`project_test_plan_audit_20260414.md`](../../../../Nextcloud/Claude/_claude/projects/-home-jorgegv-src-spectrum-jnext/memory/project_test_plan_audit_20260414.md) (the audit that established the current plan→matrix→dashboard hierarchy).
+- Related memory: `project_test_plan_audit_20260414.md`, in the owner's auto-memory outside the repository (the audit that established the current plan→matrix→dashboard hierarchy).
 - The existing refresh script's behaviour is documented in [UNIT-TEST-PLAN-EXECUTION.md](../testing/UNIT-TEST-PLAN-EXECUTION.md) §6a.
