@@ -1,11 +1,11 @@
-# 3.12 The ZRCP server (ZEsarUX's protocol)
+# 3.10.5 The ZRCP server (ZEsarUX's protocol)
 
 `--zrcp-port N` makes JNEXT serve ZRCP, the line-based text protocol ZEsarUX
 offers on its `--remoteprotocol-port`, speaking as ZEsarUX 12.0 does. Its main
 client is DeZog's `zrcp` remote (the one DeZog uses for ZEsarUX); because every
 command is a line of text, `telnet` is a client too. The server is
-`src/remote/zrcp/`, one adapter over the shared socket transport of 3.9,
-reaching the machine only through `jnext::dbg::Debugger`. The design, with the
+`src/remote/zrcp/`, one adapter over the shared socket transport
+([3.10.1](10-1-the-socket-transport.md)), reaching the machine only through `jnext::dbg::Debugger`. The design, with the
 ZEsarUX transcripts and DeZog source lines every rule below comes from, is
 `doc/design/debug-subsystem/zrcp-frontend.md` (§11 records what was built and
 every deviation; §10 lists the deliberate divergences from ZEsarUX).
@@ -16,14 +16,15 @@ every deviation; §10 lists the deliberate divergences from ZEsarUX).
 |---|---|
 | `src/remote/zrcp/zrcp_server.{h,cpp}` | `ZrcpServer`, a `remote::Protocol` and a `dbg::Listener`: the line reader, the command table — every one of the 125 names ZEsarUX 12.0's own `ls` prints: 67 served, 1 declined (`exit-emulator`), 57 answered `Error. Unsupported command in jnext:` — the session state, the `run` state machine, the breakpoint slots and the memory-breakpoint map |
 | `src/remote/zrcp/zrcp_format.{h,cpp}` | the reply formatters: the register line at the widths DeZog's `decodezesaruxdata.ts` reads, `MMU=`, disassembly at column 7, hexdump, the `cpu-history` line, quoted-argument splitting |
-| `src/remote/zrcp/zrcp_condition.{h,cpp}` | ZEsarUX's breakpoint-condition dialect: its tokeniser and its operator grouping, translated into a fully bracketed DSL expression that `script::compile_expr` (3.9, package S) compiles; `SEGn` / `ROM` / `RAM` are evaluated here, since the DSL cannot read whether a slot is ROM |
+| `src/remote/zrcp/zrcp_condition.{h,cpp}` | ZEsarUX's breakpoint-condition dialect: its tokeniser and its operator grouping, translated into a fully bracketed DSL expression that `script::compile_expr` ([3.10.6](13-the-debugger-scripting-language.md)) compiles; `SEGn` / `ROM` / `RAM` are evaluated here, since the DSL cannot read whether a slot is ROM |
 | `src/platform/debug_servers.{h,cpp}` | `DebugServers` opens it beside the DZRP and GDB servers — its own listener, its own backend client — in all three loop owners |
 
 ## The session and `run`
 
 The client is attached on connect and detached on disconnect or `quit`, which
-removes everything it subscribed and releases a pause that is its own (the
-backend's rule, 3.9). cpu-step mode, the prompt, `set-cr`, the debug-settings
+removes everything it subscribed and releases a pause that is its own, or hands
+it to another arming client if one is attached (the backend's rule,
+[3.9.3](09-3-sessions-the-pump-and-reconstruct.md)). cpu-step mode, the prompt, `set-cr`, the debug-settings
 byte and the partial T-state base are adapter state; the backend learns none
 of them.
 
@@ -35,7 +36,7 @@ one is in flight no line is executed: any byte received stops the machine and
 the line it belongs to is discarded, which is how ZEsarUX's clients interrupt a
 run. `run n` is a loop of `step_into` in time slices, so a large `n` never
 holds one pump. `hard-reset-cpu` is a cold boot completed inside the reply,
-through the loop owner's `LoopDriver` (the CTL-12 contract of 3.9): the session
+through the loop owner's `LoopDriver` (the reconstruct contract of [3.9.3](09-3-sessions-the-pump-and-reconstruct.md)): the session
 and its subscriptions survive it, and a stopped machine stays stopped.
 
 ## Breakpoints, history, loading
@@ -56,7 +57,7 @@ session.
 ## Tests
 
 - `zrcp_adapter_test` (Qt-free, both configurations) runs the production
-  `Server` over T's in-memory fake, on a real machine through `pump()`: the
+  `Server` over the transport's in-memory fake, on a real machine through `pump()`: the
   framing, the command census, every formatter against ZEsarUX's bytes, the
   run state machine (a stop is proved by the machine being stopped where it
   should be), the condition translator on both sides of every grouping rule,

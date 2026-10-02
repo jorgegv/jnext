@@ -14,7 +14,7 @@
         <link rel="prev" href="08-media-and-loaders.html">
       
       
-        <link rel="next" href="10-the-dzrp-server.html">
+        <link rel="next" href="09-1-the-backend-api.html">
       
       
         
@@ -25,7 +25,7 @@
     
     
       
-        <title>3.9 Debug and the debugger - JNEXT Developer Guide</title>
+        <title>3.9 Overview - JNEXT Developer Guide</title>
       
     
     
@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#39-debug-and-the-debugger" class="md-skip">
+        <a href="#39-the-debug-subsystem" class="md-skip">
           Skip to content
         </a>
       
@@ -114,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              3.9 Debug and the debugger
+              3.9 Overview
             
           </span>
         </div>
@@ -761,12 +761,6 @@
       
         
       
-        
-      
-        
-      
-        
-      
     
     
     
@@ -1048,6 +1042,67 @@
   
   
   
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_10" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_10" id="__nav_4_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9 The debug subsystem
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_10_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    3.9 The debug subsystem
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
     <li class="md-nav__item md-nav__item--active">
       
       <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
@@ -1063,7 +1118,7 @@
   <span class="md-ellipsis">
     
   
-    3.9 Debug and the debugger
+    3.9 Overview
   
 
     
@@ -1081,7 +1136,7 @@
   <span class="md-ellipsis">
     
   
-    3.9 Debug and the debugger
+    3.9 Overview
   
 
     
@@ -1107,41 +1162,57 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#two-directories-and-the-split-is-the-design" class="md-nav__link">
+  <a href="#the-layers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Two directories, and the split is the design
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Two directories, and the split is the design">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#the-four-published-headers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The four published headers
+        The layers
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#what-is-behind-the-facade-today" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#where-the-code-lives" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What is behind the facade today
+        Where the code lives
       
     </span>
   </a>
   
 </li>
-        
-      </ul>
-    </nav>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-gates-enforce" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the gates enforce
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-enable_debuggeroff-removes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What ENABLE_DEBUGGER=OFF removes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#in-this-section" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In this section
+      
+    </span>
+  </a>
   
 </li>
       
@@ -1161,6 +1232,275 @@
   
   
     <li class="md-nav__item">
+      <a href="09-1-the-backend-api.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.1 The backend API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-2-event-delivery-and-mutation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.2 Event delivery and mutation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-3-sessions-the-pump-and-reconstruct.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.3 Sessions, the pump and the reconstruct contract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-4-execution-control-and-rewind.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.4 Execution control and rewind
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_11" id="__nav_4_11_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10 The debugger frontends
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    3.10 The debugger frontends
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-0-the-debugger-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10 Overview and capability matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-1-the-socket-transport.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.1 The shared socket transport
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-2-the-qt-debugger.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.2 The Qt debugger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="10-the-dzrp-server.html" class="md-nav__link">
         
   
@@ -1168,7 +1508,7 @@
   <span class="md-ellipsis">
     
   
-    3.10 The DZRP server (DeZog)
+    3.10.3 The DZRP server (DeZog)
   
 
     
@@ -1196,7 +1536,7 @@
   <span class="md-ellipsis">
     
   
-    3.11 The GDB RSP server (z88dk-gdb)
+    3.10.4 The GDB RSP server (z88dk-gdb)
   
 
     
@@ -1224,7 +1564,7 @@
   <span class="md-ellipsis">
     
   
-    3.12 The ZRCP server (ZEsarUX's protocol)
+    3.10.5 The ZRCP server (ZEsarUX's protocol)
   
 
     
@@ -1252,7 +1592,7 @@
   <span class="md-ellipsis">
     
   
-    3.13 The debugger scripting language
+    3.10.6 The debugger scripting language
   
 
     
@@ -1261,6 +1601,42 @@
   
 
       </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-7-extending-the-debug-subsystem.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.7 Extending the debug subsystem
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
     </li>
   
 
@@ -1920,1365 +2296,213 @@
   
 
 
-<h1 id="39-debug-and-the-debugger">3.9 Debug and the debugger<a class="headerlink" href="#39-debug-and-the-debugger" title="Permanent link">&para;</a></h1>
-<p>The debugger is the developer-facing half of jnext: a way to stop the machine,
-look at everything inside it, change some of it, start it again — and, when
-rewind is on, run it backwards. It is not a separate program talking to the
-emulator over a wire. It lives in the same process and the same thread as the
-emulation, so a panel reads machine state by a direct call — through the
-debugger backend, <code>jnext::dbg::Debugger</code>, since GH #278 — rather than
-marshalling it across a boundary, and the run loop consults the
-debugger's state once per instruction, before the fetch. That single
-consultation point is what makes stepping exact and breakpoints cheap.</p>
-<p>The dependency runs one way and stops halfway. The emulator core owns and
-consults the debug <em>backend</em> — it is an ordinary member, present in every
-build — while the Qt <em>UI</em> sits above both and can be compiled out entirely.</p>
-<h2 id="two-directories-and-the-split-is-the-design">Two directories, and the split is the design<a class="headerlink" href="#two-directories-and-the-split-is-the-design" title="Permanent link">&para;</a></h2>
-<p><strong><code>src/debug/</code></strong> (target <code>jnext_debug</code>) is the backend: disassembler,
-breakpoint and watchpoint sets, execution-control state, instruction trace log,
-call-stack tracker, symbol table, rewind ring buffer, and the raster-state
-derivation (<code>raster_state.*</code>) behind the Video panel's beam/fetch indicator. It
-has <strong>no Qt dependency at all</strong>, and that is gated rather than stated:
-<code>debug_qt_free_test</code> fails every <code>make unit-test</code> if a Qt include directive or a
-<code>*_qt.*</code> file appears under <code>src/debug/</code>. The Qt code both Qt libraries share —
-the debugger keymap's Qt conversions, the menu-bar Alt-navigation style — lives in
-the header-only <code>src/qt/</code> instead. <strong><code>src/debugger/</code></strong> (target <code>jnext_debugger</code>) is the Qt 6 UI and
-nothing else — panels, menus, the debugger window — and it reaches the machine
-only through the backend: since GH #278 WP7 no file there includes a header of
-the core layers (<code>core/</code>, <code>cpu/</code>, <code>memory/</code>, <code>video/</code>, <code>audio/</code>,
-<code>peripheral/</code>, <code>port/</code>) or names <code>Emulator</code> in code, and <code>debug_qt_free_test</code>
-(QTF-09..11) fails the run if one does. <code>DebuggerManager</code> and
-<code>DebuggerWindow</code> are constructed on the <code>Debugger</code> alone.</p>
-<p>Three things fall out of that. The backend is testable without a GUI:
-<code>rewind_test</code> and <code>resume_guard_test</code> link it with no Qt anywhere, while the
-<code>debugger_*</code> suites are the ones that need a Qt build. The emulator can own
-debug state permanently without dragging Qt into the core. And because the
-backend is present in <em>every</em> build, <code>--magic-breakpoint</code> and <code>--trace</code> are
-plain CLI flags rather than GUI-only features.</p>
-<p>One caveat about "pure": <code>jnext_debug</code> does link SDL3, because
+<h1 id="39-the-debug-subsystem">3.9 The debug subsystem<a class="headerlink" href="#39-the-debug-subsystem" title="Permanent link">&para;</a></h1>
+<p>The debug subsystem is the developer-facing half of JNEXT. It stops the machine,
+shows everything inside it, changes some of it, starts it again and, with
+rewind on, runs it backwards. Six programs drive it:</p>
+<ul>
+<li>the Qt debugger window;</li>
+<li>three protocol servers, so DeZog, <code>z88dk-gdb</code> and ZEsarUX clients can attach
+  over a socket;</li>
+<li>the debugger scripting language (<code>.jds</code>);</li>
+<li>the record/replay recorder, which writes <code>.jds</code> scripts.</li>
+</ul>
+<p>All six are <strong>frontends</strong> of one backend. None of them holds an <code>Emulator</code>.
+Each holds a <code>jnext::dbg::Debugger</code>, the one facade declared in four published
+headers. The backend lives in the same process and on the same thread as the
+emulation, so reading machine state is a direct call rather than a message, and
+the run loop consults the backend once per instruction, before the fetch.</p>
+<p>This section describes the backend and the contracts every frontend relies on.
+<a href="10-0-the-debugger-frontends.html">3.10</a> describes the frontends.</p>
+<p><img alt="The debug subsystem's layers" src="../img/debug-layers.svg" /></p>
+<p><em>The frontends hold only the facade. The backend's internals are reached from
+the <code>Emulator</code>'s hook sites. The loop owners host the facade and are the only
+callers of <code>run_frame()</code> and <code>pump()</code>.</em></p>
+<h2 id="the-layers">The layers<a class="headerlink" href="#the-layers" title="Permanent link">&para;</a></h2>
+<p><strong>Frontends.</strong> A frontend is one or more backend <em>clients</em>. It attaches, gets a
+<code>ClientId</code>, issues verbs with that id, and installs a <code>Listener</code> for the
+backend's pushes. The three socket servers also register a <code>Service</code>, which the
+loop owner's <code>pump()</code> drives. Protocol models stay in the frontend: DZRP's bank
+bytes, ZRCP's 100 breakpoint slots and cpu-step mode, RSP's register packing and
+the DSL's grammar are not in <code>src/debug/</code>.</p>
+<p><strong>The facade.</strong> <code>jnext::dbg::Debugger</code> (<code>src/debug/debugger.h</code>) and its value
+types (<code>events.h</code>, <code>inspect.h</code>, <code>result.h</code>) are the published API. They cover
+control, inspection and mutation, events and conditions, deterministic time,
+input injection and capture, state and rewind, symbols, and the session.
+<a href="09-1-the-backend-api.html">3.9.1</a> describes them.</p>
+<p><strong>The backend internals.</strong> All of the facade's state lives in
+<code>Debugger::Impl</code> (<code>src/debug/debugger_impl.h</code>), behind one <code>unique_ptr</code>. That
+covers the client table, the services, the stop evidence, the bookmarks and the
+queued captures. Next to it are the event table, <code>DebugState</code>, the legacy
+breakpoint store, and the older primitives the facade is built on: the trace
+log, the call-stack tracker, the symbol table, the rewind ring, the
+disassembler and the raster derivation. No frontend includes any of these
+headers.</p>
+<p><strong>The hook sites.</strong> The <code>Emulator</code> keeps the places where the backend is
+consulted, and nothing else:</p>
+<ul>
+<li>the pre-instruction gate in <code>run_frame()</code>;</li>
+<li>the latch sites in <code>Mmu</code>, <code>PortDispatch</code>, <code>NextReg::write</code>, the Copper, the
+  DMA and the frame and scanline edges;</li>
+<li>the boundary drain after each instruction.</li>
+</ul>
+<p>It learns nothing about any frontend. <code>DebugState</code> holds a <em>pointer</em> to the
+event table, which is how the eight <code>Mmu</code> sites reach it without seeing a
+<code>Debugger</code>.</p>
+<p><strong>The loop owners.</strong> <code>QtApp</code>, <code>SdlApp</code> and <code>HeadlessApp</code> each build one
+<code>Debugger</code> in <code>init()</code> and keep it for the life of the process. Each also holds
+a <code>DebugServers</code> (the protocol servers the command line asked for) and a
+<code>ScriptHost</code> (scripts and the recorder). The backend owns no thread and no frame
+loop. The loop owner runs the frames and then calls <code>pump()</code>, once per tick.
+<a href="09-3-sessions-the-pump-and-reconstruct.html">3.9.3</a> describes that seam.</p>
+<h2 id="where-the-code-lives">Where the code lives<a class="headerlink" href="#where-the-code-lives" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Target</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>src/debug/debugger.h</code>, <code>events.h</code>, <code>inspect.h</code>, <code>result.h</code></td>
+<td><code>jnext_debug</code></td>
+<td>the published facade and its value types</td>
+</tr>
+<tr>
+<td><code>src/debug/debugger*.cpp</code>, <code>debugger_impl.h</code>, <code>event_table.*</code>, <code>inspect.cpp</code>, <code>result.cpp</code></td>
+<td><code>jnext_debug</code></td>
+<td>the facade's implementation</td>
+</tr>
+<tr>
+<td><code>src/debug/debug_state.*</code>, <code>breakpoints.*</code>, <code>trace.*</code>, <code>call_stack.*</code>, <code>symbol_table.*</code>, <code>rewind_buffer.*</code>, <code>disasm*.*</code>, <code>raster_state.*</code>, <code>resume_guard.h</code>, <code>debug_keymap.*</code></td>
+<td><code>jnext_debug</code></td>
+<td>the primitives under the facade, and the debugger keymap model</td>
+</tr>
+<tr>
+<td><code>src/debugger/</code></td>
+<td><code>jnext_debugger</code> (Qt)</td>
+<td>the Qt debugger window and its panels (<a href="10-2-the-qt-debugger.html">3.10.2</a>)</td>
+</tr>
+<tr>
+<td><code>src/qt/</code></td>
+<td>none (header-only)</td>
+<td>the Qt conversions of the debugger keymap, the menu-bar Alt-navigation style</td>
+</tr>
+<tr>
+<td><code>src/remote/</code></td>
+<td><code>jnext_remote</code></td>
+<td>the shared socket transport (<a href="10-1-the-socket-transport.html">3.10.1</a>) and the three servers in <code>dzrp/</code>, <code>gdb/</code>, <code>zrcp/</code></td>
+</tr>
+<tr>
+<td><code>src/script/</code></td>
+<td><code>jnext_script</code></td>
+<td>the scripting language, its host and the recorder (<a href="13-the-debugger-scripting-language.html">3.10.6</a>)</td>
+</tr>
+<tr>
+<td><code>src/platform/debug_servers.*</code></td>
+<td>platform</td>
+<td>how a loop owner opens the servers and picks each tick's pump budget</td>
+</tr>
+<tr>
+<td><code>src/platform/cli_capture.h</code>, <code>host_key_wiring.h</code>, <code>host_probe.h</code>, <code>recording_info.h</code></td>
+<td>platform</td>
+<td>the CLI screenshot path, the script host keys, the host-probe fixture, the recorder's header facts</td>
+</tr>
+</tbody>
+</table>
+<p><code>jnext_debug</code>, <code>jnext_remote</code> and <code>jnext_script</code> have no toolkit dependency and
+are built in every configuration. <code>jnext_remote</code> links <code>jnext_script</code>, because
+the ZRCP server compiles its breakpoint conditions with the DSL's expression
+compiler.</p>
+<h2 id="what-the-gates-enforce">What the gates enforce<a class="headerlink" href="#what-the-gates-enforce" title="Permanent link">&para;</a></h2>
+<p>Three rules hold the layering in place, and each is checked, not just written
+down.</p>
+<p><strong>No Qt below the Qt frontend.</strong> <code>debug_qt_free_test</code> fails every
+<code>make unit-test</code> if:</p>
+<ul>
+<li>a Qt include directive or a <code>*_qt.*</code> file appears under <code>src/debug/</code>;</li>
+<li>a file under <code>src/debugger/</code> includes a header of the core layers (<code>core/</code>,
+  <code>cpu/</code>, <code>memory/</code>, <code>video/</code>, <code>audio/</code>, <code>peripheral/</code>, <code>port/</code>);</li>
+<li>a file under <code>src/debugger/</code> names <code>Emulator</code> in code.</li>
+</ul>
+<p>Rows QTF-06..08 and QTF-12/13 test the detectors themselves on planted files.
+The Qt code that both Qt libraries share lives in the header-only <code>src/qt/</code>.</p>
+<p><strong>No <code>Emulator</code> below a frontend.</strong> <code>Emulator</code> is only forward-declared in the
+four published headers. None of them may reach any of these:</p>
+<ul>
+<li><code>core/emulator.h</code>, <code>src/platform/</code>, Qt or SDL;</li>
+<li><code>memory/mmu.h</code>, <code>video/renderer.h</code>, <code>video/palette.h</code>, <code>video/timing.h</code>;</li>
+<li><code>debug/debug_state.h</code> or <code>debug/breakpoints.h</code>.</li>
+</ul>
+<p><code>test/lint-debug-headers.sh</code> preprocesses a one-line translation unit per
+published header and matches that set against the <code>-M</code> dependency list, so a
+forbidden header pulled in three levels down is caught like a direct include.
+The lint is row 5 of the regression preflight (<code>lint-debug-headers</code>). In
+<code>make harness-selftest</code>, HS-57a and HS-57b prove the row is wired and that its
+verdict turns the row red. HS-57c proves the verdict does not depend on the temp
+or source path.</p>
+<p><code>debugger_impl.h</code> <em>does</em> include <code>core/emulator.h</code>. That is the reason it is
+internal, and the lint checks only the four published headers.</p>
+<p><strong>The published types do not drift.</strong> <code>src/debug/debug_types_check.cpp</code> is a
+translation unit of <code>static_assert</code>s, built in all four configurations. It pins:</p>
+<ul>
+<li>the backend-owned mirrors against what they mirror: <code>StepMode</code> against
+  <code>::StepMode</code>, <code>PaletteId</code> against <code>::PaletteId</code>, the screenshot layer mask
+  against <code>Renderer::LAYER_*</code>;</li>
+<li>every <code>Result</code> enumerator's value, because adapters map a <code>Result</code> to a wire
+  error by index;</li>
+<li>each of <code>Listener</code>'s seven methods separately. <code>is_abstract</code> on the class
+  would still pass if one method gained a default body;</li>
+<li><code>MachineInfo</code>'s two clock domains against <code>MachineTiming</code>, and the relation
+  of eight master cycles to one T-state.</li>
+</ul>
+<p><code>EventKind</code>, <code>Layer</code>, <code>RegId</code> and <code>ClipLayer</code> each end in a <code>Count</code> sentinel,
+and every count is derived from it. A count derived from the last real
+enumerator is blind to an append: a new kind would ship with no mask bit and no
+switch arm. <code>jnext_debug</code> and <code>jnext_script</code> are also built with
+<code>-Werror=switch</code>, so a switch without a <code>default</code> that misses a new enumerator
+fails the build.</p>
+<p>One caveat about "no toolkit": <code>jnext_debug</code> links SDL3, because
 <code>rewind_buffer.cpp</code> includes <code>core/emulator.h</code>, which reaches <code>input/keyboard.h</code>
-and thence <code>SDL.h</code>. The rule the split enforces is <em>no GUI toolkit</em>, not <em>no
-dependencies</em>.</p>
-<h3 id="the-four-published-headers">The four published headers<a class="headerlink" href="#the-four-published-headers" title="Permanent link">&para;</a></h3>
-<p><code>src/debug/</code> also holds four headers that are a <em>contract</em> rather than code:
-<code>debugger.h</code>, <code>events.h</code>, <code>inspect.h</code> and <code>result.h</code>. They declare
-<code>jnext::dbg::Debugger</code> — one frontend-agnostic facade over control, inspection,
-mutation, events, time, input injection, capture, bookmarks, symbols and
-sessions — together with its value types (<code>Result</code>, <code>Expected&lt;T&gt;</code>, <code>Event</code>,
-<code>Subscription</code>, <code>MemSpace</code>, <code>RunState</code>, <code>Listener</code>, <code>Service</code>). They are the frozen
-interface of epic <a href="https://github.com/jorgegv/jnext/issues/276">#276</a>, landed
-first and alone so that the Qt refactor, three protocol servers (DZRP, ZRCP, GDB
-RSP) and the scripting DSL can all be written against one agreed shape. The design is
-<code>doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md</code>; the map from each of its
-capability ids to each declaration is
-<code>doc/design/debug-subsystem/b0-cap-traceability.md</code>.</p>
-<p>Two properties are worth knowing before the implementation exists, and both are
-<strong>gated</strong> rather than merely documented — the first review of these headers found
-them asserting things nothing checked.</p>
-<p><code>Emulator</code> is only <em>forward-declared</em>, and none of the four reaches
-<code>core/emulator.h</code>, <code>src/platform/</code>, Qt, SDL, <code>memory/mmu.h</code>, <code>video/renderer.h</code>,
-<code>video/palette.h</code>, <code>video/timing.h</code>, <code>debug/debug_state.h</code> or
-<code>debug/breakpoints.h</code> — the point of the epic is that a frontend stops holding an
-<code>Emulator*</code>. <strong><code>test/lint-debug-headers.sh</code></strong> proves it: for each published header
-it preprocesses a one-line translation unit and matches that forbidden set
-against the <code>-M</code> dependency list, so a forbidden header pulled in three levels
-down is caught like a direct include. The patterns see each header's path
-relative to the include root, never the directory the run happens to live in. It
-is row 5 of the regression preflight, and <code>make harness-selftest</code>'s HS-57a/b
-prove it stays wired and that its verdict still turns that row red; HS-57c that
-the verdict does not depend on the temp or source path.</p>
-<p><strong><code>src/debug/debug_types_check.cpp</code></strong> is what makes the headers compile at all —
-a translation unit of nothing but <code>static_assert</code>s, built in all four
-configurations. It pins the three backend-owned enums that mirror something else
-(<code>StepMode</code> against the internal <code>::StepMode</code>, <code>PaletteId</code> against <code>::PaletteId</code>,
-the screenshot layer mask against <code>Renderer::LAYER_*</code>) value by value; every
-<code>Result</code> enumerator's number, because the order is a contract adapters map by
-index; each of <code>Listener</code>'s seven methods individually, since
-<code>is_abstract</code> on the class passes even when one method gains a body; and
-<code>MachineInfo</code>'s two clock domains against <code>MachineTiming</code>, names and types and the
-eight-master-cycles-per-T-state relation.</p>
-<p>One idiom in those headers is worth recognising, because it is the only C++
-mechanism that does the job: <code>EventKind</code>, <code>Layer</code>, <code>RegId</code> and <code>ClipLayer</code> each
-end in a <code>Count</code> sentinel, and every count is derived from it. Deriving a count
-from the last real enumerator is blind to an <em>append</em> — the enumerator keeps its
-value, the count keeps its number, and a new kind ships with no mask bit and no
-switch arm.</p>
-<h3 id="what-is-behind-the-facade-today">What is behind the facade today<a class="headerlink" href="#what-is-behind-the-facade-today" title="Permanent link">&para;</a></h3>
-<p>The bodies arrive in five sub-packages on one branch, and three of them are in.</p>
-<p><strong>B1 — control and inspection over the existing primitives</strong>, with no change to
-the hot path. <code>src/debug/debugger.cpp</code> holds construction, the mutation log,
-symbols and the state/rewind verbs; <code>debugger_control.cpp</code> the CAP-CTL verbs;
-<code>debugger_inspect.cpp</code> the CAP-INS read and write surface; <code>debugger_input.cpp</code>
-the level half of input injection. All of the state lives in a <code>struct Impl</code>
-behind one <code>unique_ptr</code> (<code>debugger_impl.h</code>, internal), so the later sub-packages
-add their own state — the event table, the client list, the bookmarks — without
-editing a header five frontends compile against.</p>
-<p><strong>B2 — the event pipeline</strong>, which is the first part of the epic that touches
-the hot path at all. It is described in its own section below.</p>
-<p><strong>B3 — the session</strong>: clients, listeners, the service list that <code>pump()</code> drives,
-the stop policy, <code>live_raster</code> / <code>attached</code>, and the cold-boot reconstruct
-contract. Also described in its own section below.</p>
-<p>The control verbs are the bodies of <code>DebuggerManager</code>'s slots with the Qt taken
-out: the same <code>DebugState</code> calls in the same order, the same GH #207 / #221 /</p>
-<h1 id="223-behaviour-the-same-two-target-computations-for-run-to-end-of-frame-and">223 behaviour, the same two target computations for "run to end of frame" and<a class="headerlink" href="#223-behaviour-the-same-two-target-computations-for-run-to-end-of-frame-and" title="Permanent link">&para;</a></h1>
-<p>"run to end of scanline". What the Qt version did <em>around</em> them — four panel
-<code>set_paused()</code> calls, <code>emit paused()</code>, <code>update_actions()</code> — is a frontend
-reacting to a transition, and becomes a pushed notification later.</p>
-<p>Two things had to be fixed in the emulator for the inspection surface to be
-honest, and both are worth knowing:</p>
-<p><strong><code>Mmu::peek()</code></strong> is a non-perturbing read of the live CPU map. <code>Mmu::read()</code> is
-the <em>guest's</em> read: it captures the byte into the +3 floating-bus latch on every
-contended access and it raises the data-breakpoint latch on a READ watchpoint.
-A debugger read must do neither — and not merely because the panels happen to
-run outside <code>GuestExecutionScope</code>, since a script handler runs <em>inside</em> it. So
-<code>peek()</code> wraps <code>read()</code> under <code>DebugState::InspectionScope</code> and puts the
-floating-bus byte back. It wraps rather than copies, so the overlay arbitration
-(boot ROM, Multiface, DivMMC, Layer 2, alt-ROM, config mode) cannot drift
-between the two.</p>
-<p><strong>The frame counter</strong> now advances on every frame boundary. It used to be
-incremented as an argument of <code>take_snapshot()</code>, so without
-<code>--rewind-buffer-size</code> it stayed at 0 for the whole run and every consumer asking
-"which frame is this?" got the same answer forever. The counter is
-<em>post</em>-incremented, so during frame K it reads K+1: the backend reports
-<code>frame_num() - 1</code>, which is the tag the rewind slot for that frame carries and
-the frame <code>--delayed-keypress-frames N</code> lands on. A rewind lands on a frame
-start the ring has already counted (<code>Emulator::at_restored_frame_start()</code>,
-published as <code>RewindRange::at_restored_frame_start</code> for a frontend's Frame Back),
-so <code>run_to_frame()</code> takes its base from that flag too, and the session's
-<code>FrameEnded</code> detector watches the frame's <em>start cycle</em> rather than the
-counter: the first frame run again after a rewind ends without the counter
-moving (GH #278).</p>
-<p>While epic #276 was being built, a verb whose machinery belonged to a later
-package was defined in ONE file, <code>debugger_pending.cpp</code>, and returned
-<code>Result::Unsupported</code> — never a silent no-op — so "what is not implemented yet"
-was something you could count rather than a claim in a comment. GH #278 WP4d
-moved the last one, <code>render_layer</code> (INS-14), out of the Qt video panel into
-<code>debugger_render.cpp</code>, and the empty file was deleted: every verb the published
-header declares is implemented.</p>
-<p><code>debugger_backend_test</code> is the backend's suite, headless and Qt-free: a wiring
-row per control verb (arm it through the facade, run, assert the machine stopped
-where the verb promises — PC, cycle, pause reason), a <em>control</em> row per verb that
-the same program runs straight past, and the non-perturbation and frame-counter
-rows above.</p>
-<p>The Qt debugger's control verbs go through the facade (GH #278 WP2):
-<code>DebuggerManager</code> is an adapter whose slots call <code>run()</code>, <code>pause()</code>, the three
-steps, <code>run_to()</code> and the two end-of-* verbs, asks the corruption modal's
-question through <code>resume_blocked_by_corruption()</code>, and reads the pause state
-from <code>state()</code> on every tick — see "The Qt adapter" below. Since WP3 the rewind,
-trace and corruption controls are the facade's too, and since WP4c the GUI's
-breakpoints are backend subscriptions. What the rest of this chapter describes
-as <code>BreakpointSet</code> is the core's legacy breakpoint store, which the hot loop
-still obeys (and the core suites still drive) but no frontend writes any more.
-Since WP4a/b the CPU, MMU, Stack, Call Stack, Sprites, Copper, NextREG and
-Audio panels read — and the NextREG and Audio panels write — through the
-facade as well, since WP4d so does the Video panel, and since WP5 the
-Disassembly and Memory panels (the Memory panel writes through it too): no
-panel reads the <code>Emulator</code> any more. Since WP6 the symbol table is the
-facade's (CAP-SYM) and the Magic Breakpoint item arms it through CTL-14. Since
-WP7 nothing in <code>src/debugger/</code> holds an <code>Emulator</code> at all: the last reach, the
-raster snapshot the manager took before a paused refresh, is the backend's —
-<code>raster()</code> and <code>time()</code> take a paused machine's snapshot at the query, for every
-client. Running, they report the live beam from the clock and leave that
-snapshot alone (GH #26 WP9: a script's <code>CVC</code> in a <code>scanline</code> rule used to read
-the last pause's value).</p>
-<h3 id="the-event-pipeline-b2">The event pipeline (B2)<a class="headerlink" href="#the-event-pipeline-b2" title="Permanent link">&para;</a></h3>
-<p>Today's event vocabulary is "a PC breakpoint, a watchpoint, one one-shot, and
-nothing is conditional". B2 replaces it with the fourteen kinds of §4.3 of the
-architecture document, and the shape of the replacement is one sentence:</p>
-<blockquote>
-<p>A site inside an instruction <strong>latches</strong>; a boundary with the machine stopped
-<strong>delivers</strong>.</p>
-</blockquote>
-<pre><code>site  -&gt;  cheap filter  -&gt;  LATCH into the ring          (inside an instruction)
-----------------------------------------------------------------------------
-boundary  -&gt;  drain  -&gt;  build Event  -&gt;  per-subscription filter
-          -&gt;  Condition  -&gt;  Handler  -&gt;  verdict  -&gt;  Stop / Log / Continue
-                                                        (machine stopped)
-</code></pre>
-<p>No user code runs inside <code>Mmu::write</code>, the CPU or a device tick. That is what
-makes "an inspection read is side-effect free" a property of the code rather
-than of the caller's discipline.</p>
-<p><strong>The subscription table.</strong> <code>EventTable</code> (<code>src/debug/event_table.h</code>, internal)
-holds the subscriptions, the 512-entry latch ring and the INS-17 delivery
-history. It lives in <code>Debugger::Impl</code>, and <code>DebugState</code> holds a POINTER to it —
-which is how the eight <code>Mmu</code> watchpoint sites, <code>PortDispatch</code>, <code>NextReg::write</code>,
-<code>Copper::execute</code> and <code>Dma::execute_burst</code> all reach it without any of them
-seeing an <code>Emulator*</code> or a <code>Debugger*</code>.</p>
-<p>Each entry caches one bool, <code>live</code> = <code>enabled &amp;&amp; (transient || master) &amp;&amp;
-client_enabled(owner)</code>, recomputed whenever anything changes and never
-per instruction. <code>transient</code> is exempt from the master switch, which is what
-keeps Step Over working on a machine whose breakpoints the user has all
-suspended.</p>
-<p><strong>The hot path is one byte.</strong> The eight <code>Mmu</code> sites used to open with
-<code>debug_state_ &amp;&amp; watchpoints_live() &amp;&amp; has_any_watchpoints()</code> and then scan a
-<code>vector&lt;Watchpoint&gt;</code> linearly on every access. They now open with
-<code>debug_state_ &amp;&amp; watchpoints_live() &amp;&amp; rd_watch_armed(addr)</code>, where the third
-term is a per-8-KB-slot mask byte: one load, a shift and a test. Everything
-behind it — the legacy <code>has_watchpoint()</code> scan, the precise range match and the
-ring append — is out of line in <code>Mmu::watch_read_</code> / <code>watch_write_</code>.</p>
-<p>The mask bytes live on <code>BreakpointSet</code>, not on <code>DebugState</code> where §6.1 of the
-design puts them, and the reason is lifetime rather than taste. They have TWO
-contributors — that class's own live watchpoints and the <code>EventTable</code>'s <code>Mem</code>
-subscriptions — so the two have to be pre-ORed somewhere; and putting them on
-<code>DebugState</code> means <code>DebugState</code> has to learn about every mutation of the
-breakpoint set, i.e. register a <code>BreakpointSet</code> observer. When B2 placed them,
-<code>emulator_cold_boot()</code> copied <code>BreakpointSet</code> out and moved it back with its
-observers, so such an observer would have come back pointing at the destroyed
-<code>Emulator</code>'s <code>DebugState</code> (that copy is retired since GH #278 WP4c). Where they
-are, the legacy half is recomputed by <code>rebuild_live_()</code> — which every mutator
-already calls — so there is no notification to forget.</p>
-<p>The mask is strictly NARROWER than the bool it replaced: an I/O watchpoint
-contributes to a separate <code>port_watch_armed()</code> flag and to no memory slot at
-all, where before it opened the memory gate on every access and then failed the
-scan.</p>
-<p><strong>Delivery, and where each kind lands in time.</strong> <code>Execute</code> is the only kind
-delivered BEFORE the instruction runs — that is what lets a handler write PC
-and redirect. Everything else is delivered at an instruction boundary:</p>
-<table>
-<thead>
-<tr>
-<th>Latched at</th>
-<th>Delivered</th>
-<th>Late by</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>Mmu</code> read/write site</td>
-<td>the raising instruction's own boundary</td>
-<td>nothing</td>
-</tr>
-<tr>
-<td><code>PortDispatch</code> (reads AFTER dispatch, so the value is the one the guest got)</td>
-<td>same</td>
-<td>nothing</td>
-</tr>
-<tr>
-<td><code>Dma::execute_burst</code> (Start / Byte / End)</td>
-<td>the boundary of the slot the burst ran in</td>
-<td>nothing</td>
-</tr>
-<tr>
-<td><code>NextReg::write</code>, CPU writer</td>
-<td>the NEXT boundary</td>
-<td>≤1 instruction</td>
-</tr>
-<tr>
-<td><code>NextReg::write</code>, Copper writer</td>
-<td>the NEXT boundary</td>
-<td>≤1 instruction</td>
-</tr>
-<tr>
-<td><code>Copper::execute</code> (Move / Wait / Halt)</td>
-<td>the NEXT boundary</td>
-<td>≤1 instruction</td>
-</tr>
-<tr>
-<td><code>on_scanline</code></td>
-<td>the NEXT boundary</td>
-<td>≤1 instruction</td>
-</tr>
-<tr>
-<td><code>end_of_frame</code></td>
-<td>that frame edge, before its auto-type tick (B4)</td>
-<td>nothing</td>
-</tr>
-</tbody>
-</table>
-<p>The <code>≤1 instruction</code> entries are all the same fact: the boundary drain runs
-BEFORE <code>tick_devices_after_instruction()</code>, and that is where the Copper and the
-deferred CPU NextREG queue run. Moving the drain behind the device cluster would
-change the GH #265 early-return contract for every data breakpoint, so the delay
-is accepted and stated instead.</p>
-<p><strong>DMA is not one of them</strong>, and the first version of this table said it was. A
-burst runs from <code>dma_.execute_burst()</code> inside <code>step_one_instruction()</code>, before
-that slot's drain — <code>tick_devices_after_instruction()</code> contains no <code>dma_.</code> call
-at all — so a <code>Dma</code> event, and the <code>Mem</code>/<code>Port</code> events of its own bytes, are
-delivered at that slot's own boundary like the CPU's accesses. A DMA NextREG
-write is the one DMA-adjacent case that IS late, because it goes through the same
-deferred CPU queue as any other NR write.</p>
-<p><strong><code>cycle</code> is slot-granular for a site-latched kind.</strong> The master clock ticks once
-per instruction slot, so every event one instruction raises shares that slot's
-start cycle — two <code>Mem{Write}</code>s from a single <code>LD (nn),HL</code> are indistinguishable
-by <code>cycle</code>. <code>Scanline</code> is the exception and is exact: the site hands the latch the
-line's own boundary cycle, and the stamper derives <code>vc</code>/<code>hc</code> from whichever cycle
-it is given. Its <code>cvc</code> comes from the line NUMBER rather than from a cycle,
-because <code>cvc</code> steps at raw <code>hc == hc_ula_zero_raw_hc()</code> and not at raw <code>hc</code> 0
-(GH #257) — sampling it at the boundary would report the previous <code>hc_ula</code> line
-and put a one-line error in the user-visible filter.</p>
-<p><strong>The whole of a delivery runs under one <code>DebugState::InspectionScope</code></strong>, and
-that is not optional. A delivery happens inside <code>run_frame()</code>'s
-<code>GuestExecutionScope</code>, where <code>watchpoints_live()</code> is true — so a handler that
-pokes an address it is watching would latch a watch on itself. <code>poke(Cpu)</code> takes
-a second scope of its own, so the property holds for any caller on any path.</p>
-<p><strong><code>poke(Cpu)</code> reports what landed.</strong> Every byte goes through
-<code>Mmu::write_landed()</code> — <code>Mmu::write</code> itself, returning its routing decision —
-so a byte an overlay takes (Layer 2 write-over, DivMMC or Multiface RAM, the
-alt-ROM write-over, config-mode SRAM) counts, and a byte dropped on ROM does
-not. The result is <code>Ok</code> only when every byte landed; otherwise
-<code>RefusedReadOnly</code>, carrying how many did (GH #281). Nothing is refused up
-front: a range across ROM and RAM still lands its RAM bytes, as the CPU's own
-write would.</p>
-<p><strong><code>Mmu::write</code> latches before the overlay arbitration.</strong> The watch check is at the
-TOP of the function, before the Multiface / DivMMC / Layer 2 / alt-ROM /
-config-mode cascade and before the <code>read_only_</code> drop, so a guest write into ROM
-that lands nowhere still raises <code>Mem{Write}</code> — with <code>prev == value</code>, and nothing
-in the payload saying the write was dropped. That is what a pre-B2 WRITE
-watchpoint did, and it is what a user watching "who writes here" wants.</p>
-<p><strong>A debugger write is not an event.</strong> <code>NextReg::write</code> is the ONE hook for every
-NextREG writer, and it is gated on <code>DebugState::guest_access()</code>: a panel's
-<code>nextreg().write()</code> and a script's <code>nextreg_write</code> both run with that false, so
-neither fires a <code>NextRegWrite</code> on itself. A Copper MOVE is additionally excluded
-from that hook, because the Copper's own site already latches it and §4.3
-requires ONE ring entry fanned out at the drain to both <code>Copper{Move}</code> and
-<code>NextRegWrite{source=Copper}</code> — never two.</p>
-<p><strong>The ring is bounded, and says so.</strong> 512 entries, derived in §4.3 from the
-Copper's per-master-cycle cadence. On overflow it keeps the FIRST N entries in
-order, counts the rest, and marks every delivery of that boundary
-<code>overflowed{dropped}</code> — a subscriber whose own event survived still has to know
-the boundary was lossy. It is a tested path, not a defensive comment:
-<code>EventTable::shrink_ring_for_test()</code> shrinks the ring and a Copper MOVE burst is
-driven over it on purpose (<code>EVT-OVF-*</code>).</p>
-<p><strong>The no-subscriber cost.</strong> <code>Copper::execute</code> runs once per master cycle and is
-8-12 % of the <code>copper-demo</code> / <code>beast</code> profiles, and <code>Dma::execute_burst</code> runs
-once per byte, so neither reads the table at its site: each carries plain bools
-that the backend sets from <code>subscribe()</code> — and there is <strong>one per sub-kind</strong>, not
-one per engine. A <code>Copper{Halt}</code>-only subscriber must not accumulate a <code>Move</code>
-entry per master cycle, and ring space is observable, so
-<code>EventTable::has_copper_sub_kind()</code> / <code>has_dma_sub_kind()</code> are what
-<code>gates_changed()</code> reads. (The first version armed the whole Copper engine from
-<code>has_kind(Copper) || has_kind(NextRegWrite)</code> and left <code>has_copper_sub_kind()</code>
-with no caller at all.)</p>
-<p>The one thing EVERY user pays is a single 16-bit store per instruction,
-<code>debug_slot_pc_ = pc_pre_exec</code> — the pre-execution PC a latch cannot recover once
-<code>cpu_.execute()</code> has moved on. So "the no-subscriber cost is none" is properly
-"one store, measured as noise": <code>test/bench/ab-hotlatch.sh</code> bounds it below the
-run-to-run spread.</p>
-<p><strong>The measurement lives in the tree.</strong> <code>test/bench/bench.sh</code> measures one binary
-at a time and cannot arm a watch, so <code>test/bench/ab-hotlatch.sh</code> (<code>make
-bench-hotlatch</code>) runs the interleaved A/B §6.2 prescribes over the
-<code>JNEXT_BENCH_WATCH</code> fixture in <code>headless_app.cpp</code>, and prints each variant's own
-hit count so a run states whether the watch actually fired.</p>
-<p><strong><code>pause_reason</code> (CTL-13) needs evidence that survives the stop.</strong> Nothing in
-the tree used to record WHY the machine stopped: <code>DebugState::pause()</code> clears
-the step mode, and the hot loop consumes the data-breakpoint latch in the same
-breath as the pause. So there are now three records — the backend's armed-verb
-reason, <code>DebugState::note_watch_stop()</code> / <code>note_magic_stop()</code> for the two stops
-the machine causes, and the drain's own latch for a subscription stop — and
-<code>Debugger::state()</code> reads them in a documented order: <code>Corrupt</code> first (CTL-11
-makes it the thing that refuses every resume), then the armed verb, then the
-subscription, then Magic, then a legacy watch, then a legacy PC breakpoint.</p>
-<p><strong>Step Over and Run to Here</strong> no longer use <code>BreakpointSet</code>'s single one-shot:
-they arm a transient <code>Execute</code> subscription, which §4.3 makes unlimited in
-number (DeZog needs two temporary breakpoints per <code>CMD_CONTINUE</code>), exempt from
-the master switch, and auto-removed at the next stop. <code>run()</code> deliberately does
-NOT drop them — a continue that cleared what the same operation had just armed
-could not work — so the drop happens at a stop the backend causes, or on an
-explicit <code>Debugger::pause()</code>, which is the transition <code>resume()</code>'s
-<code>clear_oneshot()</code> was really standing in for.</p>
-<p><strong>That evidence must not outlive the machine it describes.</strong> Every restore and
-every reset replaces the machine wholesale, so a <code>pause_reason</code> left over from
-before it names an instruction that, on the machine now in memory, never ran.
-There is exactly one place that reconciliation happens:
-<code>Emulator::debug_after_machine_transition_()</code>, called from <code>load_state()</code> (which
-every restore routes through — <code>load_state_bytes</code>, <code>step_back</code>,
-<code>rewind_to_frame</code>, <code>run_back_to_cycle</code>, a <code>.jns</code> load's closing round trip) and
-from the end of <code>init()</code> (which is <code>soft_reset()</code>). It clears <code>DebugState</code>'s stop
-records, the pending Stop, the latch ring, and — through
-<code>DebugState::set_machine_replaced_hook()</code>, because nothing below a frontend may
-hold a <code>Debugger*</code> — the backend's own armed verb and <code>EventTable::hits_</code>. It
-then re-derives the eight slot pages, since the restore rewrote the page map the
-§6 masks are computed from.</p>
-<p>Two details are load-bearing. The ring is <strong>kept</strong> for a reset and discarded for
-a restore: <code>soft_reset()</code> latches its own <code>Reset</code> event before calling <code>init()</code>,
-so that the event carries the pre-reset cycle, and discarding the ring there
-would throw away the event that reports the transition. And the reconciliation
-runs from a scope guard at the <strong>top</strong> of <code>load_state()</code>, not as its last
-statement: <code>load_state()</code> has some thirty sentinel early-returns and the first
-thing it does is load the clock, so a torn restore is a machine transition too —
-<code>state()</code>'s Corrupt-first precedence merely hides the stale reason until
-<code>acknowledge_corruption()</code> drops the mask.</p>
-<h3 id="the-session-b3">The session (B3)<a class="headerlink" href="#the-session-b3" title="Permanent link">&para;</a></h3>
-<p>The backend does not own a thread and does not own the frame loop. A <strong>loop
-owner</strong> — <code>QtApp</code>'s timer tick, the SDL loop, <code>HeadlessApp::run()</code> — owns both,
-and B3 is the seam between them.</p>
-<p><strong>Clients.</strong> <code>attach(ClientInfo)</code> returns a <code>ClientId</code>; every verb that mutates
-or transitions takes one as its first argument, because §4.1 requires each
-transition to be broadcast with the client that caused it. The client list holds
-each client's listener, its <code>live_raster</code> request and its bookmarks (B4) —
-<em>outside</em> <code>Emulator</code>, which is what lets all of it survive a machine
-reconstruct.</p>
-<p><code>detach(cid)</code> removes that client's subscriptions — and every other record
-keyed by its id (its per-client event switch, its unflushed capture failures:
-ids are never reused, so anything left behind would be kept for ever) — and,
-<strong>iff the machine is paused by this client</strong>, hands that pause on. While another
-<em>arming</em> client remains the machine stays paused and the pause becomes that
-client's (<code>pause_reason.by</code> is rewritten, nothing is pushed): the client the
-machine was paused by before the leaver single-stepped it, if it is still
-attached (<code>step_into()</code> on a paused machine keeps that origin in
-<code>Impl::pause_origin</code>; every other control verb clears it), otherwise the
-earliest-attached remaining client. Only the last arming client out releases
-it, which is what keeps a crashed DeZog from leaving the machine hung (owner
-decision, GH #280 N1). An observer (REQ-qt-32) neither inherits a pause nor
-holds one back from release — the Qt GUI keeps one for its whole life. A pause
-by another client survives, and an <em>unowned</em> pause is never released by any
-detach however many clients come and go: <code>PauseReason::Magic</code> and
-<code>PauseReason::Corrupt</code> carry <code>by == CLIENT_NONE</code> because neither is anyone's
-verb. (The design once attached the Qt adapter for the process lifetime; as
-built it is attached only while its window is open, because an attach ARMS the
-machine — see "The Qt adapter" below.)</p>
-<p><strong><code>attached()</code> is the ARMING client list.</strong> <code>DebugState::active()</code> was the
-legacy "a frontend is driving this machine" bit: the Qt debugger window set it
-until GH #278 WP2 made the window a backend client, the rewind paths until WP3,
-and the magic-breakpoint hook until WP4c retired the bit. So <code>attached()</code> is
-<code>live arming clients &gt; 0</code> — an OBSERVER client (<code>ClientInfo::observer</code>,
-REQ-qt-32) counts toward no arm bit — and the client term is its <strong>own bit</strong> on
-<code>DebugState</code> (<code>clients_attached_</code>), published by <code>clients_changed()</code> from the
-list. Each <code>armed()</code> contributor keeps its own bit, because a shared one would
-let one owner's release clear another's arm, and nothing in <code>DebugState</code> can
-tell owners apart. <code>refresh_gates_()</code> ORs them — <code>clients_attached_ ||
-persistent_ || replay_armed_ || magic_hold_</code> — where <code>replay_armed_</code> is
-<code>DebugState::ReplayArmScope</code>'s, set for the length of a rewind's replay loop
-alone (the replay's stop at its target is tested in <code>run_frame()</code>'s armed
-block), and <code>magic_hold_</code> is the magic breakpoint's, set by the hook and
-released by the resume that ends its stop (see "Magic breakpoint and magic
-port" below). So
-the identity <code>armed() == attached() || persistent()</code> holds outside the two
-holds, and <code>SuspendScope</code> clears every contributor — its promise is "disarms
-breakpoints", and that is only true if it clears them all.</p>
-<p><strong>The two flags that replaced <code>active()</code> in the hot path.</strong> §4.1 splits what
-<code>active()</code> used to switch on: <code>attached</code> gates the <em>step machinery</em> (Step Out's
-per-instruction test, the <code>STEP_BACK</code> / <code>RUN_BACK_TO_CYCLE</code> step modes), and
-<code>live_raster</code> — per client, ORed — gates only the <em>render-every-frame hint</em> and
-the per-instruction <code>VideoTiming::advance()</code> walk. <code>refresh_gates_()</code>
-precomputes both into <code>DebugState</code> bits (<code>attached_ = clients_attached_</code>,
-<code>raster_live_ = live_raster_</code>), so each hot-path reader still pays one bool
-load. Before the split a machine driven only by a remote client never finished
-a Step Out. <code>Debugger::attached()</code> and <code>live_raster()</code> read those same bits back
-rather than re-deriving them, so the answer a client gets and the gate the hot
-loop obeys cannot disagree.</p>
-<p><strong>Listeners.</strong> Seven pushes, all pure virtual (a silently ignored notification is
-what a default empty override invites): <code>Paused</code>, <code>Resumed</code>, <code>Reset</code>,
-<code>FrameEnded</code>, <code>SubscriptionsChanged</code>, <code>ExitRequested</code>, <code>Log</code>. They are
-synchronous, on the emulation thread, and must do no UI work — the Qt listener
-records and acts on its own tick.</p>
-<p><code>Paused</code> / <code>Resumed</code> / <code>FrameEnded</code> / <code>SubscriptionsChanged</code> are <strong>not pushed at
-each transition site</strong>. There are seven ways out of paused and a dozen into it,
-and a push at each is the two-lists failure. Instead one function compares
-<code>paused()</code>, <code>DebugState::resume_generation()</code>, the raw frame counter
-(<code>Emulator::frame_num()</code> — not the clamped frame tag, which reads 0 both before
-anything has run and after frame 0 ends) and <code>EventTable::revision()</code> against
-what was last pushed, and it is called from
-<code>pump()</code> — the slot §4.8 specifies, so "a stop in this tick's frames is notified
-in this tick's pump". The resume generation is what makes a
-stop-resume-stop between two pumps two pushes rather than none: <code>paused</code> is true
-at both ends. <code>Reset</code> is the exception and is pushed synchronously by the verb,
-because CTL-12 requires it to reach every listener <em>before</em> the verb returns —
-that is how an adapter whose client is blocked in a <code>run</code> completes the reply.</p>
-<p><strong><code>pump(PumpBudget)</code></strong> is the loop owner's once-per-tick service call, made after
-the tick's frame batch. It drains the registered <code>Service</code>s, flushes their
-notifications and syncs the pushes. The drain has two arms and they differ in
-kind, not degree: while <strong>running</strong>, each service is asked for at most one
-command whatever the budget says, because the loop owner needs its thread back
-for the next frame; while <strong>paused</strong> it keeps answering while the peer keeps
-talking, bounded by <code>budget_ms</code> — a DeZog ZRCP step is ~15 sequential round
-trips, which at one per tick would be 300 ms. "Paused" is the machine's state
-<em>after each command</em>, not at entry: a <code>run</code> in the chain hands the loop owner
-its frames back at once, and a <code>pause</code> arriving while running lets the reads
-behind it be answered in the same pump. <code>budget_ms == 0</code> therefore means
-<em>one</em> command, not "unbounded". The budgets are the one place in the backend that
-reads a wall clock, and legitimately: §4.8 calls them host service parameters,
-and nothing in the emulated timeline depends on any of them.</p>
-<p><code>pump()</code> refuses to run from inside an event delivery, and refuses rather than
-asserting — an <code>assert</code> compiles away in the build where a frontend bug would
-ship, and re-entering the drain would deliver a boundary's events twice.</p>
-<p><strong>The stop policy</strong> (<code>StopPolicy::Pause</code> | <code>ExitNonZero</code>) is the loop owner's to
-set, never an adapter's: Qt is <code>Pause</code>, SDL and <code>--headless</code> are <code>ExitNonZero</code>,
-because the SDL frontend has no pause path at all and a headless run is a CI
-verdict. <code>stop_policy()</code> returns <strong>what was set</strong> — a setting that reads back as
-something else is a trap for whoever wrote it — and the §4.8 override
-(<code>ExitNonZero</code> becomes <code>Pause</code> while a remote client is <em>connected</em>, so a client
-blocked on <code>run</code> gets its stop reply) lives at the one place the policy is
-consumed. The exit code with no script to name one is <strong>3</strong>: never 2, which both
-harnesses use for a harness fault, and 1 stays "jnext could not run". The
-backend logs that request at info and neutrally (<code>… — asking the loop owner to
-exit</code>): a script's own <code>exit n</code> stops the machine too, and only the listener
-that decides — <code>ScriptHost</code>'s — knows which code is taken, so it logs the
-<code>requesting exit 3</code> warning when it is the stop's (GH #26 WP9).</p>
-<p>An explicit <code>pause()</code> is a stop that drops the transient subscriptions but is
-<strong>not</strong> an <code>Action::Stop</code>, so it never requests an exit. One function serves both
-with a parameter, so the two arms stay next to each other.</p>
-<h3 id="the-cold-boot-reconstruct-contract-ctl-12">The cold-boot reconstruct contract (CTL-12)<a class="headerlink" href="#the-cold-boot-reconstruct-contract-ctl-12" title="Permanent link">&para;</a></h3>
-<p>A hard reset is modelled as a power-on cold boot the <em>frontend</em> performs:
-<code>emulator_frontend_cold_boot()</code> destroys the <code>Emulator</code> and placement-news a new
-one at the same address, then re-runs <code>init()</code>. <code>&amp;emu</code> stays valid, which is what
-lets a <code>Debugger</code> live across it — but every sub-object is new, and in particular
-the <code>DebugState</code> is. A surviving <code>Debugger</code> is then <strong>silently disconnected</strong>:
-every subscription still exists and lists as live, and not one can ever fire.
-Nothing in the frontend can detect it.</p>
-<p>So the backend re-applies, from one function, whatever route landed the new
-machine — <code>reset(Hard)</code>, <code>load()</code>, or the loop owner's <code>on_cold_boot_done()</code>
-after a guest NR 0x02 reset:</p>
-<ol>
-<li>the three publications the constructor makes (<code>set_event_table</code>,
-   <code>set_event_hooks</code>, <code>set_machine_replaced_hook</code>) — the fourth hook on
-   <code>DebugState</code>, the latch stamper, is the Emulator's own and <code>init()</code>
-   re-installs it, which is also why the destructor leaves it alone;</li>
-<li>the eight-page seed — <code>on_slot_remapped()</code> early-returns while the table is
-   null, so every <code>rebuild_ptr()</code> during the new <code>init()</code> was discarded, which
-   makes a page-qualified <code>Mem</code> filter wrong in <em>both</em> directions;</li>
-<li><code>gates_changed()</code>, the only writer of the event-mask half of the hot-path
-   gate across the boot — the platform carries no <code>BreakpointSet</code> copy any more,
-   so the rebuilt machine's gate stays closed until the backend re-opens it from
-   the live subscription table — and, before it, the master switch's mirror into
-   the rebuilt <code>BreakpointSet</code>, whose fresh <code>true</code> would otherwise contradict a
-   switch the user left off;</li>
-<li>the latch ring — it lives on <code>Debugger::Impl</code>, so it <em>survives</em> the
-   reconstruct while everything in it describes a machine that is gone;</li>
-<li><code>arm(Kind::None)</code>, because <code>init()</code> fired
-   <code>debug_after_machine_transition_()</code> while the hook was still null. <code>None</code> and
-   not <code>User</code>: <code>state()</code>'s precedence falls <em>through</em> <code>None</code> to the legacy
-   PC-breakpoint check and matches <code>User</code> immediately, so <code>User</code> would silently
-   swallow a breakpoint at the landing address;</li>
-<li>the pause, iff the machine was paused — "paused stays paused, running stays
-   running", and there is no <code>Reset</code> pause reason, so a client's <code>reset(Hard)</code>
-   never pauses a running machine. The pause keeps its <em>owner</em>: all three routes
-   share one capture taken before the machine goes (the pause in force and whose
-   it is), and a pause a client owned comes back as <code>User{that client}</code> — held
-   for it — so SES-01's detach can still release it. Re-applied bare, it would
-   read as the unowned fallback, which no detach releases: a remote that
-   hard-reset a paused machine and then crashed would leave it hung. An unowned
-   pause stays unowned (the <code>None</code> fall-through of item 5);</li>
-<li>the enable flags a client set through a verb — call-stack tracking, the
-   trace and <code>persistent_breakpoints</code>, which live on the <code>Emulator</code> and are reset
-   by the reconstruct. The backend keeps its own record of each request
-   (<code>Impl::want_*</code>, empty until a client sets it) and re-applies only what was
-   asked for, so a machine nobody configured comes back with its defaults and a
-   config-set <code>--persistent-breakpoints</code> is not clobbered. It never reads the
-   dead machine, which is why the guest path can do it too. The Qt panels still
-   switch call-stack tracking and the trace directly on the <code>Emulator</code> until
-   package Q, so those are not captured;</li>
-<li>the per-client state, which is only the arm bit and the <code>live_raster</code> OR: the
-   subscriptions, switches and symbol table live on <code>Impl</code> and never went
-   anywhere;</li>
-<li>on a machine that was actually rebuilt, a fresh CTL-11 corruption guard: its
-   acknowledgement is keyed to the <code>Emulator</code>'s <code>state_error_generation()</code>,
-   which the rebuilt machine restarts at 0, so a kept acknowledgement would
-   pre-acknowledge the new machine's own first corruption;</li>
-<li>the notification edge detector, re-based on the rebuilt machine: its resume
-   generation and frame counter restart at 0 while the detector's baseline lives
-   on <code>Impl</code>. Every route first <em>flushes</em> the old machine's pending edges (a
-   stop, a resume, the frames since the last pump), so re-basing loses nothing;
-   the one exception is a <code>done</code> with no <code>begin</code>, whose machine is gone before
-   the backend hears of it. <code>last_paused</code> is not re-based: it is what listeners
-   were last told, so paused-to-paused pushes nothing and paused-to-running
-   pushes <code>Resumed</code>;</li>
-<li>(B4) the INS-20 coverage sink — the only thing of coverage's the machine
-   held, a pointer into the backend's bit set; the set recorded before the boot
-   is kept, because "since clear" is not "since boot";</li>
-<li>(B4) the queued screenshots' hold on the machine: the head's layer mask on
-   the new <code>Renderer</code> and the force-render bit on the new <code>DebugState</code>, with every
-   capture's wait re-based on the rebuilt machine's rendered-frame counter, which
-   restarted at 0. Bookmarks need nothing: they live on the client rows.</li>
-</ol>
-<p><strong>No verb that drives the machine runs from inside a delivery.</strong> A handler runs
-with <code>run_frame()</code> — or the pre-instruction gate inside it — still on the stack,
-and the drain walking the latch ring and building the boundary's <code>matched[]</code>. So
-every verb that would EXECUTE the machine (the step verbs, a <code>save_state_bytes()</code>
-that has to advance to a frame boundary), CHANGE ITS RUN STATE (<code>pause</code>, <code>run</code>,
-<code>step_out</code>, the <code>run_to</code> family — each re-arms the stop evidence, which would
-rewrite the very stop the handler is part of), REWIND or RESTORE it (<code>step_back</code>,
-<code>rewind_to_frame</code>, <code>load_state_bytes</code>, <code>bookmark_restore</code>), or RESET or REPLACE
-it (<code>reset</code> of either kind, <code>load</code>, <code>on_cold_boot_done</code>, and the one NextREG
-write that resets — NR 0x02 with the soft bit, through <code>nextreg_write</code> or
-<code>port_out</code>) refuses there with <code>Unsupported</code>, through one helper. The three
-verbs that save the machine — <code>save_state_bytes</code>, <code>bookmark_save</code>,
-<code>save_snapshot</code> — refuse only when they would have to <em>advance</em> to a frame
-boundary, through the one frame-boundary helper they share. A handler stops the machine by returning
-<code>Action::Stop</code>. Mutations stay allowed (§4.2a), <code>raise_host_event</code> is designed to
-nest, and <code>detach</code> is a session verb — its release of the departing client's own
-pause goes through <code>run()</code>'s body rather than the refused public verb.</p>
-<p>Then the <code>Reset{Hard}</code> event is latched (after the ring discard, or it would go
-with the stale entries) and <code>Reset{Hard}</code> is pushed to every listener before the
-verb returns.</p>
-<p><code>reset(Hard)</code> runs the loop owner's sequence <strong>synchronously</strong>, through the
-<code>LoopDriver</code> closure registered by <code>set_loop_driver()</code> — the sequence lives in
-<code>src/platform/</code>, above the backend, so a closure is the only way the backend can
-reach it. With no closure registered the verb refuses with
-<code>RefusedUnavailable</code>. <code>load()</code> re-applies <strong>unconditionally</strong> — idempotent on a
-load that replaced nothing — because the loop owner's closure may load in place
-(<code>emulator_apply_load()</code>), cold-boot first (the Qt menu route), or re-<code>init()</code>
-in place (<code>load_rzx</code> with an embedded snapshot). What it does need to know is
-whether the machine was <em>reconstructed</em>, because a reconstructing load is a cold
-boot and owes every other client the <code>Reset{Hard}</code> push and event, exactly as
-<code>reset(Hard)</code> does; a load that did not reconstruct pushes nothing. The backend
-tells the two apart from its own publication: <code>DebugState::events_</code> points at
-<code>Impl::events</code> from the constructor on, and only a brand-new <code>DebugState</code> — a
-reconstruct — can make it point anywhere else.</p>
-<p><strong>The guest path is a pair of notifications.</strong> A guest NR 0x02 hard reset is
-performed by the loop owner, not by the backend, and by the time
-<code>on_cold_boot_done()</code> runs the paused machine is gone — so the loop owner calls
-<code>on_cold_boot_begin()</code> immediately <em>before</em> it destroys the machine, and the
-backend takes the same capture there that <code>reset(Hard)</code> takes before its driver.
-<code>on_cold_boot_begin()</code> is the one declaration added to the frozen header after
-B0 (owner decision). The pairing is pinned state by state: <code>begin</code> then <code>done</code>
-keeps the pause and its owner; <code>done</code> without a <code>begin</code> re-applies the rebuilt
-machine's own state, unowned; a second <code>begin</code> replaces the first; a
-<code>reset(Hard)</code> or <code>load()</code> in between discards a pending capture; a detach of the
-capture's owner releases the pause it recorded; and neither call needs a driver
-or refuses on a corrupt machine.</p>
-<p><strong>The single-owner rule.</strong> §4.1 CTL-12 says the platform-side <code>BreakpointSet</code>
-/ <code>active()</code> save-and-restore in <code>emulator_cold_boot()</code> becomes "a second owner
-of the same state" once the backend re-applies subscriptions. B3 retired the
-half that was backend state — the event-mask half of the hot-path gate — and
-kept the rest, because before package Q it was the only owner of the Qt panels'
-breakpoints, of the observers that kept those panels subscribed, and of the bit
-that kept an open window armed. GH #278 WP4c retired the rest: the GUI's
-breakpoints are an observer client's subscriptions, the panels follow
-<code>BreakpointModel</code> (which lives outside the <code>Emulator</code>), the open window is a
-client whose arm <code>clients_changed()</code> re-derives, and <code>active()</code> is gone.
-<code>emulator_cold_boot()</code> now carries nothing of the debugger's.
-The reasoning is recorded at the site.</p>
-<h3 id="input-capture-bookmarks-and-coverage-b4">Input, capture, bookmarks and coverage (B4)<a class="headerlink" href="#input-capture-bookmarks-and-coverage-b4" title="Permanent link">&para;</a></h3>
-<p><strong>Pulses append.</strong> <code>press_key(name | matrix position, hold_frames)</code> (IN-01)
-queues a pulse on <code>Keyboard</code>'s auto-type queue, and <code>queue_auto_type()</code> itself
-now APPENDS for every producer — the phantom typist, the two tape <code>LOAD ""</code>
-sites, <code>--delayed-keypress</code> and the backend. Replacing, it let a second
-producer in the same frame clobber the first and stranded a held key down. An
-append behind an entry in flight leaves that entry's counters alone (a held key
-does not restart its hold); onto an <em>idle</em> queue the counters reset exactly as
-the replacing version did, so a producer that finds nothing queued sees no
-change. The 16-entry cap covers the union of what every producer queued, and a
-pulse that does not fit is refused with the count that was queued (0).</p>
-<p><strong>The injection edge (REQ-dsl-20).</strong> Every pulse and every level set issued
-during frame N — from a handler, from a remote command in a pump, from a CLI
-countdown — lands at the END of frame N and is visible from frame N+1. For the
-levels (<code>set_key</code>, <code>set_extended_key</code>) that means a queue: they no longer touch
-the matrix at once, they are queued on <code>Keyboard</code> and applied first thing in
-the edge's <code>tick_auto_type()</code>, so a handler mid-frame cannot change what the
-rest of its own frame reads. And <code>end_of_frame()</code> now delivers the <code>Frame</code>
-event BEFORE that tick (B2 had it after), so an <code>on frame N</code> handler's pulse is
-pressed by frame N's own tick — the frame <code>--delayed-keypress-frames N</code> gives.
-The price is that the window between that drain and the end of the tick is not
-the state <code>run_frame()</code> hands back (the tick has not run), so the backend does
-not treat it as a frame boundary: a save from a <code>Frame</code> handler answers
-<code>NotAtFrameBoundary</code>, or is refused if it would advance. A restore drops queued
-levels, like the pulses it replaces; a reconstruct drops both with the old
-<code>Keyboard</code>. <code>set_joystick</code> and <code>press_nmi</code> stay immediate — the contract names
-IN-01 and IN-02 only.</p>
-<p><strong>Hosted by every loop owner.</strong> <code>HeadlessApp</code>, <code>SdlApp</code> and <code>QtApp</code> each build
-one <code>Debugger</code> in <code>init()</code> and keep it for the process: they register the
-<code>LoopDriver</code> (a client's <code>reset(Hard)</code> runs the loop owner's own boot; <code>load()</code>
-its load dispatch), bracket every cold boot THEY decide on — a guest NR 0x02
-hard reset, a NEX load request, F1, a menu load — with <code>on_cold_boot_begin()</code> /
-<code>on_cold_boot_done()</code>, and call <code>pump()</code> once per tick after the frames and
-after the cold-boot polls (Qt in <code>post_frames()</code>, since GH #278 WP2 — it used to
-poll in <code>pre_frames()</code>, i.e. next tick, so a client <code>reset(Hard)</code> in this tick's
-pump destroyed the machine with the guest's request still pending). With no
-client attached this arms nothing, so a run with it is bit-identical to a run
-without it (rows HOST-01..05, the last three through the real <code>HeadlessApp</code>).
-<code>QtApp::debugger()</code> is the instance the Qt <code>DebuggerManager</code> adapts
-(<code>MainWindow::set_debugger()</code>).</p>
-<p>Because none of those calls changes an unattached run, nothing a normal run does
-can show one missing. The <code>JNEXT_HOST_PROBE</code> fixture (<code>src/platform/host_probe.h</code>,
-env-gated, zero-cost unset, deliberately not a CLI flag) makes them observable:
-a client that runs inside <code>pump()</code> as a <code>Service</code>, pauses the machine, raises the
-guest hard-reset request, reports whether the loop owner's cold boot came back
-with <code>Reset{Hard}</code> pushed and the pause still its own, resumes, and then asks for
-<code>reset(Hard)</code> through the registered driver — one <code>HOSTPROBE</code> log line each. The
-regression rows <code>sdl-host-probe-func</code> and <code>qt-host-probe-func</code> read those lines
-for <code>SdlApp</code> and <code>QtApp</code>; row HOST-07 runs the same probe through <code>HeadlessApp</code>.
-<code>JNEXT_HOST_PROBE=order</code> runs a second script for the POLL ORDER: a <code>Frame</code>
-handler raises the guest hard-reset request from inside the frames, and in the
-next pump the probe issues its own <code>reset(Hard)</code> — a loop owner that polls before
-it pumps boots twice, guest first; one that pumps first boots once
-(<code>qt-host-order-func</code> for <code>QtApp</code>, HOST-08 for <code>HeadlessApp</code>).
-<code>JNEXT_HOST_PROBE=sdcard:&lt;image&gt;</code> runs a third, for the SD-card change poll
-(GH #93): it requests a card change AND a guest hard reset in one pump, and
-reports which card the rebuilt machine has — the new one only if the loop owner
-performed the change before its cold boot and updated its own config too
-(<code>sdcard-swap-func</code> for <code>QtApp</code>).</p>
-<p><strong>The CLI <code>--delayed-*</code> flags keep their own countdowns.</strong> Each loop owner counts
-LOOP TICKS for every <code>--delayed-*</code> flag, as before — a tick count survives a
-cold boot and keeps counting while the machine is paused, which is what keeps
-<code>--delayed-automatic-exit</code> a hard bound; a <code>Frame</code> tag does neither. Only the
-ACTIONS go through the backend: <code>press_key</code>, <code>press_nmi</code> (which now calls the
-F9/F10 hotkey functions themselves, gates included), <code>save_snapshot</code>, and
-<code>screenshot()</code> — queued when the count reaches zero, written by the tick's pump,
-its outcome read back with <code>flush_captures()</code>. The CLI-facing messages and exit
-codes are the loop owners' and did not change.</p>
-<p><strong>Screenshots are deferred to the next rendered frame.</strong> <code>screenshot()</code> only
-queues. <code>pump()</code> — the loop owner's post-frames slot — writes every capture
-whose frame has been rendered since it was armed (<code>Emulator::rendered_frames()</code>
-moved), before any command of that pump can touch the machine. While a capture
-waits, its layer mask is armed on the renderer and a force-render bit makes sure
-the next frame IS rendered, whatever the frontend's render-skip hint says. A
-paused machine renders nothing, so the capture is held, with one warning.
-<code>flush_captures(by)</code> — the one declaration B4 added to the frozen header, by
-owner decision — is the exit bound: <code>NoFrame</code> if any of <code>by</code>'s captures is still
-pending (they are dropped), <code>RefusedUnavailable</code> if one failed to write since
-the last call, else <code>Ok</code>. A capture survives its requester's detach and every
-machine rebuild; once its requester has detached, its outcome is still logged
-but no longer recorded for a client that is gone. The
-PNG and <code>.SCR</code> writers moved from <code>src/platform/</code> to <code>src/core/screenshot.*</code> so
-the backend, which sits below the platform layer, can call them.</p>
-<p><strong>Saves share one rule.</strong> <code>save_state_bytes</code>, <code>bookmark_save</code> and
-<code>save_snapshot</code> reach the frame boundary through one helper: at a boundary they
-save; mid-frame, <code>RefuseMidFrame</code> refuses and <code>AdvanceToBoundary</code> runs the frame
-out under <code>SuspendScope</code> and says so in a <code>MUTATE clock … by &lt;client&gt;</code> line.
-<code>save_snapshot</code> always advances (the <code>--delayed-snapshot</code> rule) and writes the
-file by extension through <code>save_snapshot_file()</code> in <code>src/core/</code>. Bookmarks are
-per client, at most 8 (a 9th new name is refused; re-saving a name replaces it),
-freed at detach, and survive a hard reconstruct; a restore into a machine of
-another type or snapshot width is refused before <code>load_state</code> runs, so nothing
-is latched.</p>
-<p><strong>Coverage and the trace.</strong> INS-20 coverage is recorded in
-<code>step_one_instruction()</code>, the one body <code>run_frame()</code>, the debugger's Step and
-<code>execute_single_instruction()</code> share — not in <code>run_frame()</code>'s armed block,
-which a Step never passes through — and only for a slot that actually fetched
-the opcode at PC (an NMI or INT acknowledge does not run it). Switched off it is
-one pointer test per instruction. Each trace entry now carries I, R, IM, IFF1,
-IFF2, the word at SP (read with <code>peek()</code>, so the trace moves no watch and no +3
-floating-bus latch), the eight MMU pages and <code>rom_slots</code>, a bit per slot that
-held ROM (GH #280; it fills the struct's tail padding, so an entry stays 56
-bytes). <code>trace_export()</code> writes every one of them; the mask is the <code>ROM=</code> column
-after the pages.</p>
-<h3 id="the-qt-adapter-gh-278-wp2-wp4a-c-wp7">The Qt adapter (GH #278 WP2, WP4a-c, WP7)<a class="headerlink" href="#the-qt-adapter-gh-278-wp2-wp4a-c-wp7" title="Permanent link">&para;</a></h3>
-<p><code>DebuggerManager</code> holds the loop owner's <code>Debugger</code> — handed over by
-<code>MainWindow::set_debugger()</code>, without which <code>set_emulator()</code> throws rather than
-build a window with no debugger — and is TWO clients of it.</p>
-<p>The <strong>window's client</strong> is attached <strong>exactly while the debugger window is
-open</strong>: <code>set_enabled(true)</code> attaches and requests the live raster,
-<code>set_enabled(false)</code> resumes a paused machine — whoever paused it, as closing
-the debugger always has — and detaches. Every verb is attributed to it. Not for
-the process lifetime, which is what the design first said: an attach arms the
-machine (<code>armed = attached || persistent</code>), and a window that armed breakpoints
-while closed would make <code>--persistent-breakpoints</code> the default
-(<code>debugger_persistent_bp_test</code> PBPUI-03 pins the opposite).</p>
-<p>The <strong>breakpoints' owner</strong> is a non-arming OBSERVER client
-(<code>ClientInfo::observer</code>, REQ-qt-32), attached by <code>BreakpointModel</code>
-(<code>src/debugger/breakpoint_model.*</code>) for the manager's lifetime. The GUI's
-breakpoints are its backend subscriptions — single-address <code>Execute</code>, <code>Mem</code> and
-<code>Port</code> subscriptions with no condition, <code>once = false</code>, action <code>Stop</code>; READ /
-WRITE / READ_WRITE is one <code>Mem</code> row with an access mask, and an I/O address
-<code>00-FF</code> is a low-byte match (<code>port_mask 0x00FF</code>) while <code>0100</code> and up is exact
-(GH #222). Because the observer never detaches while the GUI exists and arms
-nothing, a breakpoint survives closing the window, fires with the window shut
-exactly when something else arms the machine (<code>--persistent-breakpoints</code>, a
-remote client), and costs a closed window nothing. The Breakpoints panel, the
-disassembly gutter and context menu and the window's Breakpoints menu all edit
-this one model; the panel lists every client's subscriptions, another client's
-read-only and named by its client id.</p>
-<p>A pause the window did not cause still opens it, because the pause state is
-PULLED: <code>check_breakpoint_hit()</code> reads <code>state()</code> once per tick, after the pump,
-and brings the window to it in both directions — a pause it has not shown gets
-the pause-edge sequence (opening the window first if it is closed: a breakpoint,
-a magic breakpoint, a persistent breakpoint, another client's pause), a resume it
-did not cause gets the running one. What the window last showed is the one piece
-of state the adapter keeps for this, and it is presentation state, not a copy of
-the machine's. The eleven copies of the four panels' <code>set_paused()</code> sequence
-are one <code>apply_pause_state(bool)</code>. The same tick first lets the model publish a
-breakpoint change another client made (below).</p>
-<p>The Watches panel stays a GUI-side list — a watch is a peek, not an event — and
-reads its values through <code>peek(MemSpace::cpu())</code>, so it moves neither a
-watchpoint nor the +3 floating-bus latch. The Stack, Memory and Disassembly
-panels read guest memory the same way (the Memory panel a row per peek, the
-disassembly through <code>memory_reader()</code>).</p>
-<p>The register panels (WP4a/b) are projections of the facade's inspection calls:
-<code>registers()</code>, <code>mmu_slots()</code> and <code>paging_ports()</code>, <code>ula_screen_regs()</code>,
-<code>call_stack()</code>, <code>sprites()</code>, <code>copper()</code>, <code>nextreg_peek()</code>, <code>ay_registers()</code> and
-the three live audio signals. Three panels write, and a write is a mutation the
-backend logs as one line, <code>MUTATE &lt;what&gt; &lt;old&gt; -&gt; &lt;new&gt; by &lt;client&gt;</code>, attributed
-like a verb to the window's client (to no client while the window is closed —
-<code>DebuggerManager::set_panels_client()</code> keeps all three told). A NextREG edit
-is <code>nextreg_write()</code>, so the register's own handler runs exactly as for
-<code>NEXTREG nn,n</code>; a Memory hex edit is <code>poke(MemSpace::cpu())</code>, i.e.
-<code>Mmu::write</code> through the live map (ROM ignored, overlays honoured, no watch).
-Both are refused while an RZX records or plays, since a write the recording
-does not contain would make its replay diverge; the NextREG cell shows the
-register's value again at the next refresh, the Memory byte simply does not
-change. The Audio panel's mute boxes are <code>set_audio_mute_mask()</code>. The Memory
-panel's slot view (WP8, owner decision Q7) reads and writes the slot's PHYSICAL
-backing store in the space <code>mmu_slots()</code> names — <code>Page{nr_page}</code> for a RAM
-slot, <code>Rom{...}</code> for a ROM slot, whose <code>poke</code> is <code>RefusedReadOnly</code> — at
-<code>space_offset + (addr &amp; 0x1FFF)</code>; the panel never composes a space from
-<code>effective_page</code> and <code>is_rom</code> (a ROM slot's effective page is SRAM-physical,
-outside <code>Page{}</code>'s numbering). So an overlay over the slot (DivMMC, Multiface,
-Layer 2) no longer shows in it, and its "Page..." item reads any <code>Page{p}</code>,
-mapped in a slot or not.</p>
-<h3 id="the-shared-socket-transport-package-t">The shared socket transport (package T)<a class="headerlink" href="#the-shared-socket-transport-package-t" title="Permanent link">&para;</a></h3>
-<p>The three protocol servers the epic plans — DZRP, ZRCP and GDB RSP — share one
-transport, in <strong><code>src/remote/</code></strong> (target <code>jnext_remote</code>). It has no toolkit
-dependency and is built in every configuration. It carries no protocol: it
-never parses a byte. The servers on it are DZRP (<code>--dzrp-port</code>, 3.10), GDB
-RSP (<code>--gdb-port</code>, <code>src/remote/gdb/</code>) and ZRCP (<code>--zrcp-port</code>, 3.12,
-<code>src/remote/zrcp/</code>); each is its own listener with its own backend
-client, so all may run at once. The loop owners open them through
-<code>src/platform/debug_servers.*</code>.</p>
-<p><code>remote::Server</code> is a <code>jnext::dbg::Service</code>, so <code>pump()</code> drives it: each
-<code>service_once(wait_ms)</code> accepts, reads, asks the adapter's <code>Protocol</code> to execute
-<strong>at most one</strong> complete command, and writes — repeated until a command ran or
-<code>wait_ms</code> passed, with <code>wait_ms</code> 0 being exactly one pass. The adapter sees its
-one client as a <code>Connection</code>: <code>read</code>, <code>write</code> (never blocks and never drops:
-it queues, the Server sends once the adapter's callback returns, and what the
-kernel does not take then goes out on later passes), <code>close</code> (what is queued
-is still delivered, for a bounded time). <code>on_disconnect()</code> is called
-exactly once per <code>on_connect()</code>, whoever ended the session, and every byte a
-client sent before hanging up is offered to the adapter first. One client per
-listener: a second one is sent the adapter's <code>busy_reply</code> and closed — but a
-client that hangs up and dials again is not a second one. A pass serves the
-current client first, so a hang-up is seen before a redial is judged; takes one
-more look at it after the listener has parked an arrival, since the client may
-have read its reply, hung up and redialled in between; and leaves the redial
-parked until the old session is retired (<code>XPT-SRV-30..33</code>). Two
-bounds keep a stuck client from costing the host memory: reading stops at
-<code>max_input</code> unconsumed bytes (backpressure through the kernel), and a client
-<code>max_output</code> bytes behind on its replies is disconnected.</p>
-<p>Sockets come only from esp01's public seam (<code>esp::make_socket_listener</code>,
-<code>EspListener</code>, <code>EspTransport</code>), which is already non-blocking and
-Windows-twinned; <code>src/remote/</code> makes no socket call of its own. That seam has
-no readiness wait, so the one wait — the headless <code>pump(wait)</code> — is a bounded
-1 ms sleep between non-blocking passes. The log lines go to the <code>debugger</code>
-channel, among them <code>&lt;name&gt;: listening on &lt;addr&gt;:&lt;port&gt;</code> with the port actually
-bound, which is what a <code>--&lt;proto&gt;-port 0</code> regression row reads.</p>
-<p>The in-memory fake the adapter suites use — <code>FakeListener</code> / <code>FakeTransport</code> /
-<code>FakePeer</code> in <code>src/remote/fake_transport.*</code> — implements the same esp
-interfaces, so an adapter's unit suite runs the production <code>Server</code> with only
-the kernel replaced; a peer's window and receive chunk model partial writes
-and reads. <code>remote_transport_test</code> pins the transport over the fake, over the
-real socket on <code>127.0.0.1</code> port 0, and through <code>pump()</code>.</p>
-<p><code>--debug-listen-address ADDR</code> (numeric only, default <code>127.0.0.1</code>) is validated
-in <code>main.cpp</code> and held in <code>EmulatorConfig::debug_listen_address</code> for the servers
-to bind; it is refused unless a server port (<code>--dzrp-port</code>, <code>--gdb-port</code> or
-<code>--zrcp-port</code>) is given too. The design, and the reason behind each rule above, is
-<code>doc/design/debug-subsystem/transport.md</code>.</p>
-<h3 id="the-scripting-language-package-s">The scripting language (package S)<a class="headerlink" href="#the-scripting-language-package-s" title="Permanent link">&para;</a></h3>
-<p>The debugger scripting language (<code>.jds</code>, GH #26) lives in <strong><code>src/script/</code></strong>
-(target <code>jnext_script</code>), with no toolkit dependency and reaching the machine
-only through this facade. A loaded script is ONE backend client
-(<code>ClientKind::Script</code>): each rule becomes a subscription whose <code>Condition</code> is
-the compiled <code>when</code> and whose <code>Handler</code> runs the body at the delivery, and a
-stop-only <code>execute</code> rule is registered as a static <code>Stop</code>, so <code>probe_execute()</code>
-and <code>subscriptions()</code> show it like any breakpoint. The loop owners run it
-through <code>ScriptHost</code>, which also carries the GH #20 recorder (a second,
-observing client). Its whole architecture — the front end, the expression
-compiler as a library, the engine, stop and exit, the host keys, the recorder,
-and how to add a name or an event kind — is <a href="13-the-debugger-scripting-language.html">3.13 The debugger scripting
-language</a>. The ZRCP server (<a href="12-the-zrcp-server.html">3.12</a>)
-compiles its breakpoint conditions through the same expression compiler.</p>
+and from there <code>SDL.h</code>. The rule is <em>no GUI toolkit</em>, not <em>no dependencies</em>.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
-<p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
-<code>jnext_debugger</code> is neither compiled nor linked and every use site in
-<code>src/gui/</code> sits inside an <code>#ifdef</code>. <code>jnext_debug</code> is linked unconditionally,
-and <code>Emulator::debug_state_</code> is an ordinary member either way.</p>
-<p>That is deliberate, because the hot loop's cost is not "is the debugger
-compiled in" but "is it <em>armed</em>". Nothing is armed until the debugger window
-opens (its backend client), a remote client attaches, <code>--persistent-breakpoints</code>
-is given, or a magic breakpoint fires (which holds only its own stop).</p>
-<p>The split between <em>driving</em> and <em>armed</em> is load-bearing (GH #219). The
-debugger <em>driving the machine</em> — an arming client attached, plus the live
-raster it asks for — gates the step modes (<code>OUT</code>, <code>STEP_BACK</code>,
-<code>RUN_BACK_TO_CYCLE</code>), the "render every frame" hint that keeps the panels
-showing a live framebuffer, and <code>video_timing_.advance()</code>, which maintains
-raster counters nothing but a human inspector ever reads. <code>armed_</code> is the
-narrower <em>are breakpoints live</em>, and it is what the per-instruction breakpoint
-test hangs off. <code>persistent_</code> comes from <code>--persistent-breakpoints</code> via
-<code>EmulatorConfig</code>, and is what lets breakpoints survive closing the debugger
-window without switching the rest of that machinery back on. The call-stack
-pre/post hooks sit behind their own <code>enabled()</code> flag. (Until GH #278 WP4c one
-<code>active()</code> bit meant "driving" and fed all three; it was the Qt window's, and
-the window is a client now.)</p>
-<p><code>armed_</code> is a cached bool recomputed by the setters rather than an expression,
-so the default configuration executes exactly the load-and-branch the single
-<code>active()</code> gate used to.</p>
-<p>So "the debugger costs nothing when closed" is a claim about a predictable
-branch, not about conditional compilation.</p>
-<h3 id="a-debugger-read-is-not-a-guest-access">A debugger read is not a guest access<a class="headerlink" href="#a-debugger-read-is-not-a-guest-access" title="Permanent link">&para;</a></h3>
-<p>There is a <strong>third</strong> boolean, and it exists because <code>Mmu::read()</code> is not the
-CPU's read. The Watches, Memory, Stack and Disassembly panels all
-inspected guest memory through the same <code>Mmu::read()</code> the CPU uses (all four
-peek since GH #278 WP4c-WP5), so before
-this gate existed a READ watchpoint on any address a panel happened to display
-was latched by the panel's own refresh — at roughly 4 Hz while the machine ran
-— and the next Run or Step stopped one instruction later at an unrelated
-address. The snapshot savers did the same on every File &gt; Save Snapshot: all
-three sweep RAM through a temporary slot-7 window at <code>$E000</code>, and the 48K SNA
-saver additionally pushes PC at <code>SP-2</code>.</p>
-<p><code>watchpoints_live_</code> is <code>armed_</code> <strong>and</strong> <code>guest_access_</code>, and <code>guest_access_</code> is
-false unless the emulator has declared that it is executing — the RAII
-<code>DebugState::GuestExecutionScope</code>, taken by exactly three functions:
-<code>Emulator::run_frame()</code>, <code>step_frame_slot()</code> and
-<code>execute_single_instruction()</code>. The watchpoint checks are therefore triple-
-gated on pointer non-null, <code>watchpoints_live()</code> and — since B2 — the per-slot
-mask byte <code>rd_watch_armed()</code> / <code>wr_watch_armed()</code>, which replaced
-<code>has_any_watchpoints()</code> there (see "The event pipeline (B2)" above).</p>
-<p>The point of putting the gate there rather than around panel refresh is that
-it does not depend on the caller. A panel added tomorrow cannot fire a
-watchpoint whatever it calls, because it cannot make <code>guest_access_</code> true; and
-<code>MemoryPanel</code> in particular reads from its <code>paintEvent</code>, not from <code>refresh()</code>,
-so a scope around the refresh call would have missed it anyway.</p>
-<p>Its counterpart <code>DebugState::InspectionScope</code> covers the two debugger readers
-that necessarily run <em>inside</em> execution: the trace log captures four opcode
-bytes at <code>PC</code> and the call-stack tracker three, whatever the instruction's real
-length, so both read data bytes past a short instruction that the CPU never
-fetches. Both are switched on by the debugger, so both hurt exactly the user
-who had it open.</p>
-<p>The hot path pays nothing for any of this: <code>Mmu::read</code> and <code>Mmu::write</code> compile
-to the same 395 and 285 instructions they did before, every difference being a
-structure offset.</p>
-<h2 id="execution-control">Execution control<a class="headerlink" href="#execution-control" title="Permanent link">&para;</a></h2>
-<p><code>DebugState</code> holds <code>paused_</code>, a <code>StepMode</code>, and a <code>BreakpointSet</code>. The run loop
-consults it once per instruction, before the fetch:</p>
-<table>
-<thead>
-<tr>
-<th>Mode</th>
-<th>Set by</th>
-<th>How it terminates</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>NONE</code> + <code>paused_</code></td>
-<td><code>pause()</code></td>
-<td><code>run_frame()</code> returns immediately</td>
-</tr>
-<tr>
-<td>PC breakpoint</td>
-<td><code>BreakpointSet::add_pc</code></td>
-<td><code>should_break(pc)</code> matches</td>
-</tr>
-<tr>
-<td><code>INTO</code></td>
-<td><code>step_into()</code></td>
-<td>loop pauses on the next iteration</td>
-</tr>
-<tr>
-<td><code>OVER</code></td>
-<td><code>step_over(next_pc)</code>, or the backend's <code>step_over_subscribed()</code></td>
-<td>one-shot breakpoint at <code>next_pc</code>; through the backend, a transient <code>Execute</code> subscription there</td>
-</tr>
-<tr>
-<td><code>OUT</code></td>
-<td><code>step_out(sp)</code></td>
-<td><code>check_step_out()</code> matches, after the instruction</td>
-</tr>
-<tr>
-<td><code>RUN_TO_CYCLE</code></td>
-<td><code>run_to_cycle()</code></td>
-<td>master clock reaches the target</td>
-</tr>
-<tr>
-<td><code>STEP_BACK</code> / <code>RUN_BACK_TO_CYCLE</code></td>
-<td><code>step_back()</code>, <code>run_back_to_cycle()</code></td>
-<td>handled before the loop starts, by rewinding</td>
-</tr>
-<tr>
-<td>watchpoint</td>
-<td><code>add_watchpoint</code></td>
-<td><code>Mmu</code> latches <code>data_bp_hit</code> (guest accesses only); checked after the instruction</td>
-</tr>
-</tbody>
-</table>
-<h3 id="enabling-and-disabling-breakpoints">Enabling and disabling breakpoints<a class="headerlink" href="#enabling-and-disabling-breakpoints" title="Permanent link">&para;</a></h3>
-<p><code>BreakpointSet</code> keeps two things, not one. The <strong>model</strong> — <code>pc_all_</code>
-(<code>addr -&gt; enabled</code>) and <code>wp_all_</code> (each <code>Watchpoint</code> carrying its own
-<code>enabled</code>) — is what the Breakpoints panel listed until GH #278 WP4c moved the
-GUI's breakpoints to backend subscriptions, whose <code>EventTable</code> keeps the same
-own-flag / live split (<code>SubscriptionInfo::enabled</code> / <code>live</code>). The <strong>live cache</strong> —
-<code>pc_live_</code> and <code>wp_live_</code>, the same container types the class had before any of
-this existed — holds only what can actually fire, and is what <code>has_pc()</code>,
-<code>has_watchpoint()</code>, <code>has_io_watchpoint()</code> and <code>has_any_watchpoints()</code> read.
-<code>rebuild_live_()</code> recomputes the cache, and is called only by mutators; nothing
-on the hot path ever rebuilds or filters.</p>
-<p>That split is what makes a disabled breakpoint cost <em>nothing</em> rather than
-merely little. The hot path's structures are unchanged and their contents are a
-subset of the model, so a disabled breakpoint is not hashed, not compared and
-not iterated. Disable the only watchpoint and its bit leaves the per-slot mask
-<code>rebuild_live_()</code> maintains, so the eight <code>Mmu</code> watchpoint sites and
-<code>PortDispatch</code> short-circuit exactly as on a machine that never had one.
-(<code>has_any_watchpoints()</code> is still there and still true of the model; since B2 it
-is no longer what the sites read.)</p>
-<p>The <strong>master switch</strong> (<code>set_master_enabled()</code>) is the whole of
-<code>rebuild_live_()</code>'s first line: with it off, the cache is left empty and the
-model is not read at all. It therefore cannot consume a per-breakpoint flag,
-which is what makes the off/on round trip exact by construction rather than by
-a save-and-restore that has to be kept correct. One-shots sit outside the model
-entirely, so Step Over, Step Out and Run to Here still work while every
-breakpoint is suspended.</p>
-<p>Two queries exist where there used to be one, and they are not
-interchangeable: <code>has_pc()</code> is <em>live</em> (will this stop the CPU) and is what the
-run loop asks; <code>pc_exists()</code> / <code>pc_enabled()</code> are the <em>model</em> and are what the
-panel's checkbox and the gutter's marker ask. The gutter draws a filled dot for
-live and a hollow ring for a breakpoint that exists but is suspended, and the
-gutter's click-to-toggle asks <code>pc_exists()</code> — asking <code>has_pc()</code> there would
-read a disabled breakpoint as absent and stack a second one on top of it.</p>
-<p>Every one of those modes leaves <code>paused_</code> through <code>DebugState::unpause_()</code>,
-which also arms a one-instruction <strong>step-off</strong>. The loop consumes it
-immediately before <code>should_break()</code>, and that first test of a resumed run is
-the only one it suppresses. It has to exist because the breakpoint check sits
-<em>before</em> the fetch: without it, resuming with PC still on a breakpoint
-re-matched the unchanged address and the machine re-paused having executed
-nothing — issue #221, and it pinned Step Over, Step Out, Run to Cursor and Run
-to EOF in place exactly as it pinned F5.</p>
-<p>The arm suppresses the resumed-from address without storing one, and the
-property that makes that sound is a <strong>precondition</strong>, not an accident of the
-call sites: <code>unpause_()</code> raises the arm only on a real paused → running edge.
-Given that, the machine was stopped between the arm and its consumption, so the
-PC the gate sees is necessarily the PC the resume was issued at. Without the
-edge check the guarantee is simply false — a resume issued on an
-already-running machine arms against a PC that keeps moving, and the arm lands
-on a later, unrelated breakpoint and swallows it. The UI reaches that state by
-ordinary use: the debugger toolbar's Continue button is a plain <code>QPushButton</code>
-with no enable gating, and <code>MainWindow</code> forwards the Run binding to <code>on_run()</code>
-whenever the debugger is enabled, regardless of whether the machine is paused. The arm is also dropped by <code>refresh_gates_()</code> when
-breakpoints go dead, because the consumer stops running there while PC does
-not.</p>
-<p>Step Over is not a special CPU mode. The backend's <code>step_over()</code> (CTL-04, which
-the Qt debugger's Step Over calls) asks the disassembler whether the current
-instruction <code>is_call_like()</code> — <code>CALL nn</code>, <code>CALL cc,nn</code>, <code>RST n</code>, <code>DJNZ</code> — and if
-it is, arms a transient <code>Execute</code> subscription at <code>PC + instruction_length()</code> and
-resumes; otherwise it is a Step Into. Run to Cursor is the same transient with a
-user-chosen address, and Run to End of Frame and End of Scanline are
-<code>run_to_cycle()</code> with a computed target.</p>
-<p>Step Out is the one mode whose termination is decided <em>after</em> the instruction
-rather than before it. <code>step_out()</code> records SP at the moment F8 was pressed;
-<code>check_step_out()</code> is then called from the shared per-instruction body once per
-instruction and ends the step when three things hold together: the instruction
-popped exactly one return address (<code>sp_after == sp_before + 2</code>, which is what
-tells a taken <code>RET cc</code> from an untaken one), its opcode was a return form
-(<code>RET</code>, <code>RET cc</code>, <code>RETI</code>/<code>RETN</code> including the undocumented <code>ED</code> aliases), and
-the pop unwound the stack <em>strictly past</em> the armed SP. That last condition is
-what makes a nested call's own <code>RET</code> — and an interrupt handler's <code>RETI</code> —
-return <em>into</em> the routine being stepped out of rather than end the step.</p>
-<p>It is called from <code>step_one_instruction()</code>, not from <code>run_frame()</code>'s loop, so
-free-running and single-stepping cannot disagree about where a step out ends.
-That call did not exist at all until issue #203 was fixed: the mode was written
-and never read, and F8 had the observable behaviour of Run.</p>
-<p>Its position inside that body is load-bearing in both directions, and the
-reason is the general one for any debugger hook here — <strong>it may only read
-memory the CPU itself read</strong>. <code>Mmu::read()</code> is not inert: inside a
-<code>GuestExecutionScope</code> it fires read watchpoints, and it latches the +3
-floating bus whatever the scope. Reading the opcode speculatively
-before the instruction runs is therefore unsafe, because <code>Z80Cpu::execute()</code>
-has <em>three</em> early returns that complete a step without ever fetching at <code>PC</code> —
-an accepted NMI, an accepted <code>INT</code>, and the esxdos shim. In those slots the
-debugger's read is the only touch of that address, and with a watchpoint on it
-the phantom hit ends the step at the interrupt vector instead of the routine's
-return.</p>
-<p>So the CPU is <strong>asked</strong> rather than deduced: <code>fetched_opcode_last_execute()</code>
-is false through all three early returns and true only once the fetch has
-happened, and the read is gated on it. Deducing it from <code>SP</code> movement does not
-work, and the reason is worth knowing before inventing a fourth shim: NMI and
-<code>INT</code> push, so they <em>do</em> move <code>SP</code> the wrong way and an arithmetic test catches
-them — but the esxdos shim deliberately fakes a return's own <code>+2</code>, and is
-indistinguishable from a real <code>RET</code> by arithmetic alone.</p>
-<p>The decision also sits <em>before</em> the deferred RETN overlay clear, because a
-<code>RETN</code> leaving a DivMMC-mapped routine unmaps it there, and a later read would
-see the underlying page rather than the <code>ED 45</code> the CPU fetched.</p>
-<p>Single-stepping goes through <code>Emulator::execute_single_instruction()</code>, which
-shares its per-instruction body verbatim with the free-running loop
-(<code>step_one_instruction()</code>), specifically so that the two paths cannot drift.
-Stepping must <em>observe</em> the emulation and never alter it — see
-<a href="../02-architecture/02-the-emulator-core.html">2.2 The emulator core</a> for why
-<code>run_frame()</code> refuses to re-begin a frame that is already in progress.</p>
-<p>That function is the <em>raw</em> one-slot primitive, though, and the debugger does
-not use it directly: the backend's <code>step_into()</code>, which the Qt debugger's Step
-Into calls, runs <code>Emulator::debugger_step()</code>. The difference is the frame boundary, which is
-easy to overlook — while the debugger holds the machine the frontends stop
-calling <code>run_frame()</code> altogether, so a step is the machine's only driver and
-inherits its frame loop as well as its inner one. <code>step_frame_slot()</code> begins a
-frame when none is in flight and calls the shared <code>end_of_frame()</code> once the
-clock reaches the frame's last cycle. Without it, everything scheduled per
-frame — the ULA frame interrupt above all — stops being scheduled the moment
-the debugger pauses, and a <code>HALT</code>ed CPU can never be woken (GH #207). A step
-issued at a <code>HALT</code> consequently runs the halt out rather than stepping one of
-its internal NOP slots, bounded to two frames: the CPU leaves the halt only on
-an accepted interrupt or NMI, and stepping a slot in which nothing observable
-can change is not a step.</p>
-<p>The primitive keeps its frame-agnostic behaviour deliberately. Much of the
-test tree uses it to advance a machine whose frames the test drives itself,
-and several suites depend on a step not touching frame state at all.</p>
-<p>Two consequences of the halt-run are worth knowing. A Step that ends on a
-watchpoint <strong>consumes</strong> <code>data_bp_hit_</code>, exactly as <code>run_frame()</code> does — the
-halt-run loop reads that flag, so a latch left set would make every later Step
-collapse back to a single NOP slot. And <strong>Step and Step Back stop being
-inverses across a halt</strong>: one Step can execute ~10 000 internal NOP slots,
-enough to saturate the circular trace buffer, while Step Back still undoes N
-raw instructions. Nothing corrupts — the rewind buffer's own frame snapshots
-are taken normally — but the two controls are counting different things, so
-stepping <em>back</em> out of a halt is not one press.</p>
-<h2 id="the-key-bindings-are-data-gh-1">The key bindings are data (GH #1)<a class="headerlink" href="#the-key-bindings-are-data-gh-1" title="Permanent link">&para;</a></h2>
-<p>No shortcut in the debugger window is written at its call site. The inventory
-is a table in <code>src/debug/debug_keymap.cpp</code> — twelve actions, each with a
-config-file id, a label and a compiled-in default — and
-<code>DebuggerWindow::apply_keymap()</code> is the single place that pushes a
-<code>jnext::dbgkeys::Keymap</code> onto the <code>QAction</code>s. It also rewrites every toolbar
-caption and tooltip that quotes a key, so <code>F5: Continue</code> is <em>generated</em> from
-the binding rather than typed next to it; with the default map it produces
-exactly the strings the toolbar carried before the mechanism existed.</p>
-<p>Three properties of the layout are worth understanding before changing it.</p>
-<p><strong>The model is Qt-free and lives in <code>jnext_debug</code>.</strong> Not in <code>src/debugger/</code>,
-because <code>src/gui/</code> has to read and write the same table with
-<code>ENABLE_DEBUGGER=OFF</code>: <code>AppConfig</code> must round-trip <code>[debugger_keys]</code> in a
-debugger-less build, or <code>PreferencesDialog::collect()</code> — which rebuilds an
-<code>AppConfigData</code> from scratch — would wipe a user's bindings the moment they
-pressed OK. And not in <code>src/gui/</code> either, because <code>ENABLE_QT_UI=OFF</code> with
-<code>ENABLE_DEBUGGER=ON</code> is a real build-matrix combination in which <code>jnext_gui</code>
-does not exist. The Qt conversions sit in the header-only
-<code>src/qt/debug_keymap_qt.h</code>, beside the model's other Qt-only consumers rather
-than inside the Qt-free library's directory.</p>
-<p><strong>The vocabulary is bounded.</strong> <code>Key</code> is an enum of function keys, letters,
-digits and sixteen named keys, not a mirror of <code>Qt::Key</code>. That is what makes
-<code>parse_combo()</code> able to refuse a value <em>by name</em>, makes <code>render_combo()</code>
-canonical, and makes the whole grammar testable without a widget.
-<code>validate_combo()</code> then refuses the combinations that would break something
-else: anything without Ctrl/Alt/Meta that is not <code>F1</code>–<code>F12</code> (Qt's shortcut map
-outranks the focused panel, and the memory panel types hex with bare keys),
-<code>Alt</code>+letter (the menu bar's namespace), and <code>Ctrl+C</code>/<code>Ctrl+A</code> (GH #21).</p>
-<p><strong>Two claimants in one shortcut map is a conflict; two windows is not.</strong> A
-chord the <em>emulator</em> window binds — <code>Ctrl+F5</code>, <code>Ctrl+F6</code>, <code>F4</code>, <code>F11</code>, the set
-<code>harvest_host_chords()</code> reads off the real <code>QAction</code>s — is accepted with a
-warning rather than refused, because <code>Qt::WindowShortcut</code> matches against the
-ACTIVE window and each window keeps its own binding. Measured both ways in
-<code>debugger_keymap_test</code>'s DKH group; refusing the class would make <code>F11</code> = Step
-Into impossible, which is the binding GH #1 asked for.</p>
-<p><strong>Conflicts are refused, not resolved, wherever a human is present.</strong> Qt
-classifies two identical sequences as AMBIGUOUS and dispatches them
-round-robin, so a clash breaks <em>both</em> bindings — the GH #124 defect this window
-shipped five times. The Preferences tab therefore rejects a capture that
-another action already holds. <code>build_keymap()</code> still has to resolve a
-hand-edited file, and does so deterministically: explicit beats default,
-earlier action beats later, and the loser is left unbound and reported. Every
-refusal — unparseable, illegal, unknown id, conflict — becomes a <code>LoadIssue</code>
-that <code>MainWindow</code> logs at error level and the tab lists in red. Nothing is
-dropped quietly.</p>
-<p><code>MainWindow</code> keeps its own <code>debug_keys_</code>, the map that is <em>in effect</em>, seeded
-after <code>app_config_.load()</code> and replaced by <code>apply_preferences()</code>. Both the
-emulator window's forwarding of the five execution keys and the push into
-<code>DebuggerWindow::set_keymap()</code> read that member, so the two windows cannot end
-up on different maps. The forwarding covers exactly <code>run</code>, <code>pause</code>,
-<code>step_into</code>, <code>step_over</code> and <code>step_out</code>; it matches modifiers exactly, and it
-deliberately excludes <code>trace_toggle</code>, whose default <code>F2</code> is that window's
-scale cycler.</p>
-<h2 id="panels">Panels<a class="headerlink" href="#panels" title="Permanent link">&para;</a></h2>
-<p>Thirteen panels, created by <code>DebuggerWindow::create_panels()</code>. What each one
-introspects:</p>
-<table>
-<thead>
-<tr>
-<th>Panel</th>
-<th>Reads</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>CPU Registers</td>
-<td>the Z80 register file, flags, IFF/IM, halt state, active ULA screen</td>
-</tr>
-<tr>
-<td>MMU</td>
-<td>the 8 slot→page map with RAM/ROM type, plus the 128K bank view</td>
-</tr>
-<tr>
-<td>Disassembly</td>
-<td><code>src/debug/disasm.*</code> over the backend's <code>memory_reader()</code> (a peek), with symbol substitution, a breakpoint gutter, and a selection you can copy as assembly</td>
-</tr>
-<tr>
-<td>Memory</td>
-<td>raw bytes through the CPU's address space, or the physical page of a chosen MMU slot or of any NR page</td>
-</tr>
-<tr>
-<td>Stack</td>
-<td>words at and above <code>SP</code></td>
-</tr>
-<tr>
-<td>Call Stack</td>
-<td><code>src/debug/call_stack.*</code>, a shadow stack built from SP deltas, plus a frame for each accepted INT or NMI (<code>Z80Cpu::last_slot_kind()</code> says which kind of slot ran); a return pops only the frames below the new SP</td>
-</tr>
-<tr>
-<td>Watches</td>
-<td>byte / word / long at user addresses</td>
-</tr>
-<tr>
-<td>Breakpoints</td>
-<td>the backend's subscriptions (<code>BreakpointModel</code>): the GUI's own, editable, and any other client's, read-only</td>
-</tr>
-<tr>
-<td>Video</td>
-<td>the raster position in all four counter domains plus the ULA fetch phase (<code>src/debug/raster_state.*</code>), and each layer rendered separately — composite, ULA primary and shadow, Layer 2 active and shadow, sprites, tilemap, and the NR 0x4A fallback colour</td>
-</tr>
-<tr>
-<td>Sprites</td>
-<td>all 128 sprite attribute slots</td>
-</tr>
-<tr>
-<td>Copper</td>
-<td>the decoded Copper program and its PC</td>
-</tr>
-<tr>
-<td>NextREG</td>
-<td>the whole 256-entry register file, editable</td>
-</tr>
-<tr>
-<td>Audio</td>
-<td>AY registers per chip, and the per-source mute mask</td>
-</tr>
-</tbody>
-</table>
-<p>For what these look like and how to drive them, see chapter 6 of the <strong>user
-guide</strong>, <em>The debugger</em> — a UI reference written against the running product,
-and not repeated here.</p>
-<p>The Video panel's layer views are drawn by the backend, not by the panel. The
-backend verb is <code>Debugger::render_layer()</code> (INS-14, <code>src/debug/debugger_render.cpp</code>,
-Qt-free). It fills rows 0..vc of a 640-wide buffer with <code>0x00000000</code>, so alpha 0
-means transparent, and then renders the view. It does this after rewinding and
-replaying every per-scanline change log exactly as <code>Renderer::render_frame</code>
-does, so a raster split shows as it does on screen. Rows past the raster are
-left alone. The panel keeps the presentation:</p>
+<p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt debugger UI</strong>. With it
+off, <code>jnext_debugger</code> is neither compiled nor linked, and every use site in
+<code>src/gui/</code> sits inside an <code>#ifdef</code>. The backend, the servers, the scripting
+language and <code>Emulator::debug_state_</code> are present in every build. That is why
+<code>--magic-breakpoint</code>, <code>--trace</code>, <code>--dzrp-port</code>, <code>--gdb-port</code>, <code>--zrcp-port</code> and
+<code>--script</code> work in an SDL-only build.</p>
+<p>What a run pays for the debugger does not depend on whether it is compiled in.
+It depends on whether it is <strong>armed</strong>. Nothing is armed until one of these
+happens:</p>
 <ul>
-<li>the <code>QImage</code>;</li>
-<li>the dark "not yet rendered" rows;</li>
-<li>the checkerboard under every alpha-0 cell, the same rule for all eight views;</li>
-<li>the scaling, the red raster line and the titles.</li>
+<li>an arming client attaches (the open debugger window, a remote client, a
+  loaded script, the recorder);</li>
+<li><code>--persistent-breakpoints</code> is given;</li>
+<li>a magic breakpoint fires, which holds the machine only for its own stop.</li>
 </ul>
-<p>The render is state-preserving. The replay walks each log to its end, which
-puts every live register back. The port 0x303B sprite status bits, which
-drawing sprites latches, are saved and restored explicitly.
-<code>debugger_backend_test</code> INS-14-08 compares the whole serialised machine state
-around each view.</p>
-<p>The Video panel's raster block is worth a note, because it is the one place a
-user sees <code>hc</code>/<code>vc</code>, <code>hc_ula</code>/<code>vc_ula</code>, <code>cvc</code> and <code>phc</code> side by side. Every
-number is labelled with the VHDL signal it mirrors, and <code>cvc</code> is labelled as
-what NR 0x1E/0x1F report — reading that register as a raw frame line is GH #16,
-and comparing a 28 MHz count against the 7 MHz <code>hc_ula</code> is GH #181. The
-derivation lives in <code>src/debug/raster_state.*</code> and takes the live <code>VideoTiming</code>
-by reference, so a machine-timing change moves the readout, the region
-classification, the fetch schedule and the frame diagram together; there is
-deliberately no second table of raster constants in <code>src/debugger/</code>.</p>
-<p>Four panels (CPU, Disassembly, Stack, Call Stack) update only while paused.
-That is a performance decision as much as a legibility one: reading the
-register file every frame while the machine runs produces a blur, at real cost.</p>
-<p>Everything else refreshes on <code>DebuggerManager</code>'s timer — with one exception.
-The <strong>two views of the breakpoints</strong> (the Breakpoints list and the disassembly
-gutter) follow <code>BreakpointModel::changed(kinds)</code> (GH #220; GH #278 WP4c), so a
-breakpoint appears the instant it is set rather than on the next tick. <code>kinds</code>
-is the set of event kinds whose LISTED state changed, found by diffing the
-backend's <code>subscriptions()</code> listing against the last one the model published:
-the list acts on any kind, the gutter only on <code>Execute</code>, since it paints
-Execute breakpoints and nothing else. A transient subscription (Step Over, Run
-to Here) is not listed, so it changes nothing drawn and notifies nobody; a
-master-switch flip notifies all three GUI kinds, since it changes every
-checkbox in the list and every dot in the gutter at once.</p>
-<p>The point is where the notification comes <em>from</em>. A dozen call sites mutate the
-breakpoints, and each one used to be responsible for repainting the views
-itself; twice a site was added that did not, and the panels lied until the next
-tick. So every model mutator publishes before it returns, and a new call site
-cannot get it wrong. A change ANOTHER client makes arrives as the backend's
-<code>SubscriptionsChanged</code> push, which the observer's listener only records — a
-listener runs inside <code>pump()</code> and does no UI work (REQ-qt-15b) — and the tick
-publishes it. The backend's push carries the LIVE kind set, not the changed one,
-which is why the model diffs rather than trusting the payload.</p>
-<h2 id="symbols">Symbols<a class="headerlink" href="#symbols" title="Permanent link">&para;</a></h2>
-<p><code>src/debug/symbol_table.*</code> is a bidirectional address↔name map with two
-readers: <code>load_z88dk_map()</code> for z88dk linker output, and <code>load_simple_map()</code>
-for a plain <code>SYMBOL = $ADDR</code> list. The debugger backend owns the ONE table
-(CAP-SYM, since GH #278 WP6): the Map menu loads into it with <code>load_map()</code>, and
-the disassembly, call stack and breakpoint panels read <code>symbols()</code> — which is
-why a breakpoint set on a symbol keeps its name in the breakpoint list, and why
-a symbol any other client loads shows in the panels too.</p>
-<h2 id="copying-out-of-a-custom-painted-panel">Copying out of a custom-painted panel<a class="headerlink" href="#copying-out-of-a-custom-painted-panel" title="Permanent link">&para;</a></h2>
-<p>The disassembly panel paints itself, so there is no Qt text widget to inherit a
-selection from — it has to be built against the panel's own line model. Two
-choices in <code>src/debugger/disasm_panel.*</code> are worth knowing before touching it.</p>
-<p>The selection is an <strong>address range</strong>, an anchor and a cursor, not a pair of
-line indices. <code>entries_</code> is rebuilt from scratch by every scroll, every
-<code>refresh()</code> and every <code>activate_follow_pc()</code>, so an index into it survives none
-of those while an address survives all of them. That one choice is why the
-selection holds still while the view moves under it.</p>
-<p>The text is produced by <strong><code>src/debug/disasm_text.*</code></strong> — pure C++, no Qt — which
-re-disassembles the selected range from live memory rather than reusing the
-painted lines. That is what lets a selection copy in full after its lines have
-scrolled out of the view, and what makes copying work while the panel has
-stopped updating. The same file holds <code>apply_symbols()</code>, and the painter calls
-it too: the issue required the copied text to carry the MAP-file symbolic form,
-and one shared rule is what stops the two from drifting. Being Qt-free, all of
-it is assertable without a display — <code>debugger_disasm_copy_test</code> drives the
-real panel with real events and reads the real clipboard.</p>
-<h2 id="rewind">Rewind<a class="headerlink" href="#rewind" title="Permanent link">&para;</a></h2>
-<p>Rewind lets you run the machine <em>backwards</em>: step back an instruction at a
-time, jump back a whole frame, or drag a slider to somewhere earlier in the
-session and carry on from there. For a Z80 developer that turns the usual
-debugging move inside out — instead of guessing where to put a breakpoint,
-re-running, and finding you have overshot again, you take the crash and walk
-back from it to the instruction that caused it. It is off by default, because
-it costs a full machine save every frame plus the memory the ring occupies;
-<code>--rewind-buffer-size N</code> or the debugger's own toggle turns it on.</p>
-<p>The implementation is not an undo log. It is a ring of <strong>whole-machine
-snapshots taken at frame boundaries</strong>. <code>RewindBuffer</code> allocates one <code>mmap</code>
-region of <code>max_frames × snapshot_bytes</code> up front, so pages fault in lazily
-rather than being memset, and <code>Emulator::run_frame()</code> writes a slot at the top
-of each frame, overwriting the oldest once the ring is full. Stepping back to a
-point <em>inside</em> a frame means restoring that frame's snapshot and replaying
-forward to the target instruction, which is why enabling rewind also
-force-enables the trace log: <code>step_back()</code> needs the trace to know which cycle
-the target instruction started at. The replay runs with audio and video
-suppressed, so a long rewind neither screeches nor flickers.</p>
-<p>The snapshot itself is produced by the same <code>save_state</code> / <code>load_state</code>
-interface every subsystem implements, described in
-<a href="../02-architecture/05-save-state-and-rewind.html">2.5 Save state and rewind</a>.
-Two of its properties are load-bearing here:</p>
+<p>Unarmed, the per-instruction test is a cached bool: one load and a
+predictable branch. <a href="09-4-execution-control-and-rewind.html">3.9.4</a> describes the
+bits behind it.</p>
+<h2 id="in-this-section">In this section<a class="headerlink" href="#in-this-section" title="Permanent link">&para;</a></h2>
 <ul>
-<li>
-<p><strong>The stream must be fixed-width.</strong> Slot size is measured once at
-  construction, by a dry run in measure mode. Any field that serialises a
-  runtime length silently widens the stream, and from that moment every
-  snapshot is dropped. That is not hypothetical — it shipped once, and a single
-  <code>OUT (0xFF),A</code> was enough to trigger it. <code>rewind_buffer.h</code> carries the
-  audited enumeration of every variable-length candidate and what was done
-  about each.</p>
-</li>
-<li>
-<p><strong>A failed restore is loud.</strong> A snapshot that does not round-trip is never
-  published, a restore that fails verification returns a sentinel instead of
-  reporting success, and the emulator latches <code>last_state_error()</code>. The UI then
-  refuses to resume a machine known to be corrupt without explicit
-  confirmation, via the <code>ResumeGuard</code> policy in <code>src/debug/resume_guard.h</code>.</p>
-</li>
+<li><a href="09-1-the-backend-api.html">3.9.1 The backend API</a>: the four headers, their
+  conventions, and every capability family.</li>
+<li><a href="09-2-event-delivery-and-mutation.html">3.9.2 Event delivery and mutation</a>:
+  how an event gets from a hook site to a subscriber, and what a write from a
+  frontend may do.</li>
+<li><a href="09-3-sessions-the-pump-and-reconstruct.html">3.9.3 Sessions, the pump and the reconstruct contract</a>:
+  clients, listeners, the loop owners, and how a client survives a hard reset.</li>
+<li><a href="09-4-execution-control-and-rewind.html">3.9.4 Execution control and rewind</a>:
+  <code>DebugState</code>, the step modes, the legacy breakpoint store, rewind, and the
+  magic breakpoint and port.</li>
 </ul>
-<h2 id="magic-breakpoint-and-magic-port">Magic breakpoint and magic port<a class="headerlink" href="#magic-breakpoint-and-magic-port" title="Permanent link">&para;</a></h2>
-<p>These two are hooks a Z80 programmer puts in their <em>own</em> source, and neither
-exists on real hardware. They solve the two problems that come up constantly
-when the code under test is on the other side of the emulator: stopping at a
-place you marked in your source rather than at an address you had to look up,
-and getting a value out of a running program without opening a debugger at all
-— a <code>printf</code> that lands on the host's terminal instead of on the screen the
-program is busy drawing.</p>
-<p>The <strong>magic breakpoint</strong> is an opcode that pauses the debugger where it
-executes. jnext intercepts it in <code>src/cpu/z80_cpu.cpp</code> before the FUSE core
-sees it, and recognises both community conventions: <code>ED FF</code>
-(ZEsarUX/Spectaculator) and <code>DD 01</code> (CSpect). With <code>--magic-breakpoint</code> set,
-<code>Emulator::init</code> installs an <code>on_magic_breakpoint</code> callback that pauses
-<code>DebugState</code> and HOLDS the stop (<code>hold_for_magic_stop()</code>); the opcode then
-advances PC by two and costs 8 T-states. The hold is there because the hook
-fires on a machine nothing may arm (headless, SDL, a closed debugger window),
-and the hot loop honours a pause only inside its armed block: without it the
-machine would run on to the end of the frame past the opcode. It arms nothing
-else — not the step machinery, not the raster walk — and the resume that ends
-the stop releases it, so the machine is then armed by exactly what armed it
-before. (Until GH #278 WP4c the hook set the Qt window's <code>active()</code> bit
-instead, which only the window's close cleared: a remote client's <code>run()</code> of a
-magic stop left the machine armed for the rest of the session.)
-With the flag unset the callback is null and both sequences fall straight
-through to normal Z80 decoding — which is the point, because it means the hook
-can be left in shipped source instead of being conditionally assembled out.</p>
-<p>The <strong>magic port</strong> is not a CPU feature at all. It is an ordinary port handler
-registered on a full 16-bit decode (<code>register_handler(0xFFFF, addr, …)</code>) whose
-write side prints to <code>stderr</code> in one of four modes: <code>hex</code>, <code>dec</code>, <code>ascii</code> or
-<code>line</code>, the last buffering until CR/LF so a whole string arrives as one line.
-Reads are not intercepted. Being a normal registration, it obeys exactly the
-same dispatch rules as everything else in
-<a href="06-peripherals.html">3.6 Peripherals</a>.</p>
+<p>The design that produced all of this is <code>doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md</code>,
+with one document per frontend in <code>doc/design/debug-subsystem/</code>. The design
+documents record why each choice was made. Where they and these pages disagree,
+these pages follow the code.</p>
 
 
 

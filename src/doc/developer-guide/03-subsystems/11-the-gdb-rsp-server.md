@@ -1,10 +1,10 @@
-# 3.11 The GDB RSP server (z88dk-gdb)
+# 3.10.4 The GDB RSP server (z88dk-gdb)
 
 `--gdb-port N` makes JNEXT serve the GDB Remote Serial Protocol to
 `z88dk-gdb`, z88dk's debugger (a distribution's `gdb` has no Z80 target, so the
 Z80 register model lives on this side, in the target description the server
 hands the client). The server is `src/remote/gdb/`, one adapter over the shared
-socket transport of 3.9, reaching the machine only through `jnext::dbg::Debugger`.
+socket transport ([3.10.1](10-1-the-socket-transport.md)), reaching the machine only through `jnext::dbg::Debugger`.
 The design, with the client measurements every rule below comes from, is
 `doc/design/debug-subsystem/gdb-rsp-frontend.md` (§12 records what was built
 and every deviation).
@@ -52,7 +52,7 @@ client can never leave a stopping breakpoint behind.
 ## Tests
 
 - `gdb_rsp_test` (Qt-free, both configurations) runs the production `Server`
-  over T's in-memory fake, on a real machine through `pump()`: the wire, the
+  over the transport's in-memory fake, on a real machine through `pump()`: the wire, the
   target description under the ceiling, every packet class, the stop-reply
   state machine, `monitor`, and DZRP and GDB on one backend.
 - `gdb-cli-func`, `gdb-sdl-func` and `gdb-qt-func` drive the real binary over a

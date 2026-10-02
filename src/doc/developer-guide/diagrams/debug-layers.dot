@@ -1,0 +1,74 @@
+// The debug subsystem's layers: chapter 3.9.
+//
+// Rendered by `make docs-devguide-diagrams` into ../img/debug-layers.svg,
+// which is COMMITTED. Edit this file, never the SVG.
+//
+// Top to bottom: the frontends, the one facade they all hold, the backend's
+// internals behind it, and the Emulator hook sites those internals are reached
+// from. The loop owners sit beside the stack: they host the Debugger, the
+// protocol servers and the script host, and they are the only callers of
+// run_frame() and pump().
+//
+// Palette: the page theme's pastel dark red family (see css/theme.css), as the
+// other figures. Light fills, dark labels, transparent canvas.
+digraph debug_layers {
+    bgcolor="transparent";
+    rankdir=TB;
+    fontname="Helvetica";
+    ranksep=0.5;
+    nodesep=0.30;
+    node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=10,
+          fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.14,0.08"];
+    edge [color="#8c6b70", fontname="Helvetica", fontsize=9, fontcolor="#5a3f43"];
+
+    subgraph cluster_frontends {
+        label="frontends — each one or more backend clients";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        qt   [label="Qt debugger\lsrc/debugger (jnext_debugger)\lENABLE_DEBUGGER\l"];
+        dzrp [label="DZRP server\lsrc/remote/dzrp\l--dzrp-port\l"];
+        gdb  [label="GDB RSP server\lsrc/remote/gdb\l--gdb-port\l"];
+        zrcp [label="ZRCP server\lsrc/remote/zrcp\l--zrcp-port\l"];
+        dsl  [label="script engine + recorder\lsrc/script (jnext_script)\l--script  --record-script\l"];
+    }
+
+    transport [label="remote::Server — shared socket transport\lsrc/remote (jnext_remote), a dbg::Service\l"];
+
+    facade [label="jnext::dbg::Debugger — the one facade\ldebugger.h · events.h · inspect.h · result.h\lcontrol · inspection + mutation · events · time · input + capture\lstate + rewind · symbols · session\l",
+            shape=box3d, style="filled", fillcolor="#e9d3d6", margin="0.22,0.12"];
+
+    subgraph cluster_backend {
+        label="backend internals — src/debug (jnext_debug), never included by a frontend";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        impl  [label="Debugger::Impl\lclients · listeners · services\lstop evidence · bookmarks · captures\l"];
+        table [label="EventTable\lsubscriptions · 512-entry latch ring\ldelivery history\l"];
+        state [label="DebugState + BreakpointSet\lpause · step modes · arm bits\lslot masks · step-off\l"];
+        prims [label="TraceLog · CallStack · SymbolTable\lRewindBuffer · disasm · raster_state\l"];
+    }
+
+    emu [label="Emulator — the hook sites\linstruction boundary · Mmu / port / NextREG / Copper / DMA latches\lframe edge · cold boot (loop driver)\l",
+         fillcolor="#e9d3d6"];
+
+    owners [label="loop owners\lQtApp · SdlApp · HeadlessApp\lhost Debugger, DebugServers, ScriptHost\lrun_frame(), then pump()\l",
+            fillcolor="#f5dfe2"];
+
+    dzrp -> transport [arrowhead=none];
+    gdb  -> transport [arrowhead=none];
+    zrcp -> transport [arrowhead=none];
+
+    qt        -> facade;
+    transport -> facade [label=" pump() drives it"];
+    dsl       -> facade;
+
+    facade -> impl [arrowhead=none];
+    impl   -> table [arrowhead=none];
+    impl   -> state [arrowhead=none];
+    impl   -> prims [arrowhead=none];
+
+    table -> emu [dir=back, label=" latch at the site"];
+    state -> emu [dir=back, label=" consulted per instruction"];
+
+    owners -> facade [style=dashed, label=" pump · LoopDriver\l cold-boot begin/done\l"];
+    owners -> emu    [style=dashed, label=" run_frame()"];
+}

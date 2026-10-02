@@ -1,0 +1,54 @@
+// The loop owner and the pump: chapter 3.9.3.
+//
+// Rendered by `make docs-devguide-diagrams` into ../img/debug-pump.svg,
+// which is COMMITTED. Edit this file, never the SVG.
+//
+// One tick of a loop owner (QtApp, SdlApp, HeadlessApp), left column, and what
+// Debugger::pump() does inside it, right column. The backend owns no thread
+// and no frame loop: every command a frontend executes, and every push a
+// listener receives, happens inside the loop owner's pump() call, on the
+// emulation thread, between two frame batches. The ServiceHint it returns
+// chooses the NEXT tick's budget.
+//
+// Palette: the page theme's pastel dark red family (see css/theme.css), as the
+// other figures. Light fills, dark labels, transparent canvas.
+digraph debug_pump {
+    bgcolor="transparent";
+    rankdir=TB;
+    fontname="Helvetica";
+    ranksep=0.35;
+    nodesep=0.45;
+    newrank=true;
+    node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=10,
+          fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.14,0.08"];
+    edge [color="#8c6b70", fontname="Helvetica", fontsize=9, fontcolor="#5a3f43"];
+
+    subgraph cluster_tick {
+        label="one loop-owner tick";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        wait   [label="headless only: paused with a remote attached?\lpump(PumpBudget{50, 2, 10}) and no frame this tick\l"];
+        frames [label="frame batch — run_frame()\lreturns at once on a paused machine\l"];
+        polls  [label="cold-boot polls\lNEX load request · guest NR 0x02 hard reset\lon_cold_boot_begin() · boot · on_cold_boot_done()\l"];
+        call   [label="pump(budget)\lQt/SDL: frame_loop_budget(paused, last hint)\lheadless: PumpBudget{}\l",
+                fillcolor="#e9d3d6"];
+        after  [label="after the pump\l--delayed-* outcomes · script exit code\lQt: check_breakpoint_hit() reads state()\l"];
+        wait -> frames -> polls -> call -> after;
+    }
+
+    subgraph cluster_pump {
+        label="Debugger::pump() — refused when called inside an event delivery";
+        fontname="Helvetica"; fontsize=10; fontcolor="#5a3f43";
+        color="#d3bdc0"; style="rounded";
+        caps    [label="service_captures()\lwrite queued screenshots of the frame just rendered\l"];
+        first   [label="each Service: service_once(max_wait_ms)\lat most one command\l"];
+        more    [label="while Serviced && paused (asked after each command)\l&& elapsed < budget_ms: service_once(drain_ms)\l"];
+        sync    [label="sync_notifications()\lPaused · Resumed · FrameEnded · SubscriptionsChanged\lby comparing against what was last pushed\l"];
+        flush   [label="each Service: flush_notifications()\le.g. a Paused turned into a packet\l"];
+        hint    [label="ServiceHint{remote_attached, paused}\l", fillcolor="#f5dfe2"];
+        caps -> first -> more -> sync -> flush -> hint;
+    }
+
+    call -> caps [style=dashed];
+    hint -> call [style=dashed, constraint=false, label=" next tick's budget"];
+}
