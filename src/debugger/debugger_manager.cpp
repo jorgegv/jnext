@@ -81,6 +81,7 @@ void DebuggerManager::attach_backend() {
     // exactly what `DebugState::set_active(true)` switched on before WP2.
     const auto r = dbg_.attach(jnext::dbg::ClientInfo{"Qt GUI", jnext::dbg::ClientKind::Gui});
     client_ = r.value;
+    dbg_.set_listener(client_, this);
     dbg_.set_live_raster(client_, true);
     // INS-12 — call-stack tracking while the window is open, as before; through
     // the backend it is also re-applied across a cold boot (CTL-12 rule 2), where
@@ -96,6 +97,7 @@ void DebuggerManager::detach_backend() {
     // target still in flight goes with the window) and its live-raster request.
     // It resumes nothing here: set_enabled(false) has already resumed a paused
     // machine, whoever paused it, before it gets here.
+    dbg_.set_listener(client_, nullptr);
     dbg_.detach(client_);
     client_ = jnext::dbg::CLIENT_NONE;
     set_panels_client();
@@ -503,28 +505,56 @@ void DebuggerManager::on_step_back() {
     // CTL-09 — the three outcomes are the backend's: Ok (the machine is one
     // instruction back, paused), a benign refusal — RefusedRzx (an RZX is
     // recording or playing) or RefusedUnavailable (empty buffer, trace off or
-    // empty) — which is silent, as it always was, and RefusedCorrupt (the
-    // restore tore the machine), which is the only one that warns.
+    // empty, or a replay that would cross a debugger change, §4.2a) — whose
+    // reason, logged by the backend and recorded by on_log(), goes to the
+    // window's status bar — and RefusedCorrupt (the restore tore the machine),
+    // the only one that warns with a modal. A refusal still on show from an
+    // earlier verb is cleared first: it describes that verb, not this one.
+    rewind_refusal_.clear();
+    if (debugger_window_) debugger_window_->clear_rewind_refusal();
     const jnext::dbg::Result r = dbg_.step_back(client_, 1);
     if (r == jnext::dbg::Result::RefusedCorrupt) {
         warn_state_corrupt(QObject::tr("Step Back"));
         return;
     }
-    if (r != jnext::dbg::Result::Ok) return;
+    if (r != jnext::dbg::Result::Ok) {
+        show_rewind_refusal();
+        return;
+    }
 
     apply_pause_state(true);
+}
+
+void DebuggerManager::on_log(jnext::dbg::LogLevel, const std::string& text) {
+    static const std::string kTag = "REWIND REFUSED: ";
+    if (text.compare(0, kTag.size(), kTag) != 0) return;
+    std::string msg = text.substr(kTag.size());
+    // The backend tags a client's line " [client N]"; the status bar is this
+    // client's own, so the tag says nothing there.
+    if (const auto at = msg.rfind(" [client "); at != std::string::npos) msg.erase(at);
+    rewind_refusal_ = msg;
+}
+
+void DebuggerManager::show_rewind_refusal() {
+    if (rewind_refusal_.empty() || !debugger_window_) return;
+    debugger_window_->show_rewind_refusal(QString::fromStdString(rewind_refusal_));
 }
 
 void DebuggerManager::on_rewind_to_frame(uint32_t frame_num) {
     if (!enabled_) return;
     // CTL-10 — as on_step_back(): a frame outside the ring is RefusedUnavailable
-    // (silent), a torn restore RefusedCorrupt (warned).
+    // (its reason in the status bar), a torn restore RefusedCorrupt (warned).
+    rewind_refusal_.clear();
+    if (debugger_window_) debugger_window_->clear_rewind_refusal();
     const jnext::dbg::Result r = dbg_.rewind_to_frame(client_, frame_num);
     if (r == jnext::dbg::Result::RefusedCorrupt) {
         warn_state_corrupt(QObject::tr("Rewind To Frame"));
         return;
     }
-    if (r != jnext::dbg::Result::Ok) return;
+    if (r != jnext::dbg::Result::Ok) {
+        show_rewind_refusal();
+        return;
+    }
 
     apply_pause_state(true);
 }

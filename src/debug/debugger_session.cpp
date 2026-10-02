@@ -558,9 +558,9 @@ StopPolicy Debugger::Impl::effective_stop_policy() const {
     if (stop_policy == StopPolicy::Pause) return StopPolicy::Pause;
     // §4.8 SES-04 / architecture §1.3 item 11: `ExitNonZero` becomes `Pause`
     // while a remote client is connected — "a client blocked on `run` must get
-    // its stop reply". A CONNECTED PEER, not an attached client: the Qt adapter
-    // is attached for the process lifetime, so `attached()` would make the
-    // override permanent in every GUI build and `ExitNonZero` unreachable.
+    // its stop reply". A CONNECTED PEER, not an attached client: an open Qt
+    // debugger window or a loaded script is an attached client too, and neither
+    // is waiting on a stop reply.
     return any_peer_connected() ? StopPolicy::Pause : StopPolicy::ExitNonZero;
 }
 

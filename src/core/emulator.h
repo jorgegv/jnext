@@ -632,6 +632,7 @@ public:
     // -----------------------------------------------------------------------
 
     Clock&        clock()     { return clock_; }
+    const Clock&  clock() const { return clock_; }
     Scheduler&    scheduler() { return scheduler_; }
     Ram&          ram()       { return ram_; }
     Mmu&          mmu()       { return mmu_; }
@@ -1087,11 +1088,14 @@ public:
     /// fast-forward to that exact cycle. Pauses the debugger at the target.
     /// Returns the cycle actually reached (may differ if the trace doesn't
     /// contain target_cycle exactly — lands on the nearest instruction boundary).
-    /// Returns UINT64_MAX if the rewind buffer is empty or disabled.
+    /// Returns UINT64_MAX if the rewind buffer is empty or disabled, or if the
+    /// replay would cross a debugger change (RewindBuffer::replay_crosses_mutation(),
+    /// §4.2a) — refused, logged, nothing restored, and the debugger paused.
     uint64_t rewind_to_cycle(uint64_t target_cycle);
 
     /// Step back N instructions using the TraceLog for target-cycle lookup.
-    /// Requires TraceLog to be enabled.  Returns true on success.
+    /// Requires TraceLog to be enabled.  Returns true on success; false, with
+    /// nothing changed, when the replay would cross a debugger change (§4.2a).
     bool step_back(int n = 1);
 
     /// Rewind to the start of frame frame_num (must be in the rewind buffer).
@@ -1103,6 +1107,12 @@ public:
     /// rewind_to_frame() refuse then, because a recording cannot replay a
     /// rewound history and a playback does not rewind with the machine.
     bool rzx_blocks_rewind(const char* what) const;
+
+    /// The frame whose recorded history the LAST step_back() / rewind_to_cycle()
+    /// call refused to replay across a debugger change (§4.2a), or empty if that
+    /// call was not refused for it. Read by the debugger backend to tell its
+    /// clients why.
+    std::optional<uint32_t> last_rewind_crossing_frame() const { return rewind_crossing_frame_; }
 
     /// Port 0xFF read mux (VHDL zxnext.vhd:2813) — Timex register when
     /// NR 0x08 b2 + NR 0x82 b0 are set, else the ULA floating bus in
@@ -2296,6 +2306,12 @@ private:
     /// {cycle, frame, pc, vc, hc} common header of §4.3, which only this class
     /// knows. Called once from init().
     void install_debug_latch_stamper_();
+
+    /// The §4.2a rewind-wall refusal, shared by step_back() and rewind_to_cycle():
+    /// records the frame for last_rewind_crossing_frame() and logs a user-facing
+    /// line that points at the user guide.
+    void refuse_rewind_into_mutation_(const char* what, uint64_t target_cycle, uint32_t frame);
+    std::optional<uint32_t> rewind_crossing_frame_;
 
     /// GH #276 B2 — reconcile the debugger's event state with a machine that has
     /// just been REPLACED or RESET.

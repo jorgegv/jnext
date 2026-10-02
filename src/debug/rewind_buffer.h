@@ -46,6 +46,33 @@ public:
     /// machine is partially restored and must not be reported as rewound.
     uint64_t restore_nearest(uint64_t target_cycle, Emulator& emu) const;
 
+    /// §4.2a's rewind wall (DEBUG-SUBSYSTEM-ARCHITECTURE.md, refined 2026-10-02):
+    /// a replay from slot S to target T loses a debugger change made at cycle C
+    /// exactly when S <= C <= T and T is past the clock S restores — the replay
+    /// crosses the change.
+    ///
+    /// mark_mutated(C) first DROPS every slot whose frame_cycle is past C — an
+    /// abandoned future, recorded before the change — and then records C on the
+    /// slot a replay to C would start from (the one restore_nearest() would
+    /// pick), keeping the EARLIEST such C per slot: that slot was taken before
+    /// the change and cannot carry it. The mark lasts as long as the slot (a ring
+    /// wrap, a re-take, clear()) or until a restore lands at or before it
+    /// (unmark_from()). No-op on an empty ring.
+    void mark_mutated(uint64_t cycle);
+
+    /// True iff a replay to `target_cycle` would cross a marked change: it starts
+    /// from a marked slot, actually replays (target past the clock the slot
+    /// restores — a frame's first instruction boundary can sit a few cycles past
+    /// its nominal frame_cycle — so a pure restore is never refused) and reaches
+    /// the change (target >= its cycle). A target before the change precedes it,
+    /// as any rewind precedes what came after it. On true, `frame` (if given)
+    /// receives the frame tag of the slot whose span holds the change.
+    bool replay_crosses_mutation(uint64_t target_cycle, uint32_t* frame = nullptr) const;
+
+    /// A restore landed at `landing_cycle`: the mark on the slot it restored from
+    /// describes changes at or after the landing, which the restore undid.
+    void unmark_from(uint64_t landing_cycle);
+
     /// Drop every snapshot, keeping the allocation (GH #93: an SD card change
     /// makes the held history restore one card's state machine onto another).
     void clear() { head_ = 0; count_ = 0; }
@@ -137,6 +164,8 @@ private:
         uint64_t frame_cycle = 0;
         uint32_t frame_num   = 0;
         uint8_t* data        = nullptr;  ///< Points into block_ (mmap region)
+        uint64_t clock       = 0;           ///< the master clock the slot restores (>= frame_cycle)
+        uint64_t mutated_at  = UINT64_MAX;  ///< earliest marked change; see mark_mutated()
     };
 
     std::vector<Slot> slots_;
@@ -150,4 +179,8 @@ private:
     size_t slot_index(size_t i) const {
         return (head_ + i) % slots_.size();
     }
+
+    /// Slot index of the newest snapshot with frame_cycle <= target_cycle, or
+    /// SIZE_MAX if every snapshot is newer (or the ring is empty).
+    size_t nearest_index(uint64_t target_cycle) const;
 };

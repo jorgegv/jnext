@@ -45,7 +45,7 @@ class DebuggerWindow;
 /// BreakpointModel), and the Disassembly and Memory panels still take the
 /// `Emulator*` until WP5 moves them. The window reaches the backend through
 /// backend() for its rewind, trace and action controls (WP3).
-class DebuggerManager : public QObject {
+class DebuggerManager : public QObject, private jnext::dbg::Listener {
     Q_OBJECT
 public:
     /// `dbg` is the loop owner's backend (`QtApp::debugger()`) — the ONE
@@ -196,6 +196,23 @@ private:
     /// The backend client this window is while it is open (CLIENT_NONE while
     /// closed). Every verb is attributed to it.
     jnext::dbg::ClientId client_ = jnext::dbg::CLIENT_NONE;
+
+    // jnext::dbg::Listener, installed for `client_` — only `on_log` is used: it
+    // RECORDS the backend's `REWIND REFUSED:` line (pushed synchronously inside
+    // the refused verb), and the slot that called the verb shows it. No UI work
+    // in the push; the pause state stays PULLED (check_breakpoint_hit()).
+    void on_paused(const jnext::dbg::PausedInfo&) override {}
+    void on_resumed(jnext::dbg::ClientId) override {}
+    void on_reset(jnext::dbg::ResetKind) override {}
+    void on_frame_ended(uint32_t) override {}
+    void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+    void on_exit_requested(int) override {}
+    void on_log(jnext::dbg::LogLevel level, const std::string& text) override;
+
+    /// The reason the last rewind verb was refused, as recorded by on_log().
+    std::string rewind_refusal_;
+    /// Show `rewind_refusal_` in the debugger window's status bar, if any.
+    void show_rewind_refusal();
 
     // The separate debugger window (created lazily on first enable)
     DebuggerWindow* debugger_window_ = nullptr;

@@ -986,6 +986,32 @@ static void mutation_rows() {
                   g.peek(0xA000) == 0x77,
               g.sink.tail());
     }
+    {
+        // ... and the warning's second half is true: "a rewind into a mutated
+        // span is refused" (§2.7; DEBUG-SUBSYSTEM-ARCHITECTURE.md §4.2a, refined
+        // 2026-10-02: a replay that would cross the change). The rule writes at
+        // 0x8005 and stops there; two steps on, a step back to 0x8007 would
+        // replay from the frame's snapshot past the write without it.
+        Rig g(kWriter);
+        g.dbg->resize_rewind_buffer(4);
+        g.dbg->set_rewind_enabled(true);
+        g.dbg->set_trace_enabled(true);
+        const bool ok = g.load("on execute 0x8005 do set mem[0xA000] = 0x42 stop end\n");
+        g.frames(1);
+        const bool stopped = g.paused() && g.pc() == 0x8005;
+        g.dbg->step_into(g.tc);
+        g.dbg->step_into(g.tc);
+        const uint16_t pc0 = g.pc();
+        const uint64_t cyc = g.dbg->state().cycle;
+        const auto     r   = g.dbg->step_back(g.tc, 1);
+        check("SCRIPT-EV-REWIND-REFUSED", "a step back whose replay would cross a script `set` is "
+                                          "refused (RefusedUnavailable): the write stands and the "
+                                          "machine has not moved — the warning's claim holds",
+              ok && stopped && pc0 == 0x800A && g.sink.count("rewind buffer is on") == 1 &&
+                  r == jnext::dbg::Result::RefusedUnavailable && g.peek(0xA000) == 0x42 &&
+                  g.pc() == pc0 && g.dbg->state().cycle == cyc,
+              "rc=" + std::to_string(static_cast<int>(r)) + " pc=" + hex(g.pc()) + " " + g.sink.tail());
+    }
 }
 
 // =========================================================================

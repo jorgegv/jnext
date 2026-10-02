@@ -27,7 +27,35 @@ emulator window redrawn to match. The status bar reports the buffer's size in
 frames and megabytes, and when you are rewound it shows which frame you are on,
 numbered as the slider numbers it. Running forward again from a rewound frame
 discards the frames after it: the slider then ends at the frame you are on.
-Press **F5** to carry on from there.
+So does changing the machine from the debugger while rewound — a memory,
+register or NextREG edit, a script's `set`, a state load: the frames after it
+were recorded without that change, so they are dropped, and the slider can no
+longer go forward into them. Press **F5** to carry on from there.
+
+Step Back also refuses a step that would have to replay across a change you
+made from the debugger, because the replay would silently lose it. A step back
+to before the change is allowed, and undoes it.
+
+### When a rewind is refused
+
+When Step Back, Frame Back or the slider cannot do what you asked, the debugger
+window's status bar says why for ten seconds, and the same line goes to the
+log, for example:
+
+```
+Step Back refused: it would undo a change you made from the debugger in frame 12 — use Frame Back (or the slider) to that frame's start, which undoes the change, or carry on forward. See the user guide: Debugger ▸ Functions ▸ Backward execution (rewind)
+```
+
+| The message says | What to do |
+|---|---|
+| rewind is off | Turn on **Debug ▸ Rewind ▸ Enable Rewind**, then run forward |
+| the rewind buffer holds no frames yet | Run forward first: there is nothing recorded to go back to |
+| the instruction trace is off | Turn on **Debug ▸ Trace ▸ Enable Trace**, then run forward |
+| the instruction trace is empty | Run forward first |
+| an RZX recording is being made / is playing | Stop the recording or the playback |
+| frame N is not in the rewind buffer | Pick a frame inside the slider's range |
+| frame N has no snapshot in the rewind buffer | That frame was not recorded, typically because it ran while **Debug ▸ Rewind ▸ Enable Rewind** was off: pick another frame on the slider |
+| it would undo a change you made from the debugger in frame N | Use **Frame Back** (or the slider) to the start of that frame, which undoes the change, or carry on forward. Pressing Step Back again does not help: every further step back is refused the same way |
 
 Step Back is greyed out when the trace log is off, when the buffer is empty,
 and while an RZX recording plays or is being made: a recording replays one

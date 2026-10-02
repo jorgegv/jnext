@@ -43,9 +43,7 @@ struct Debugger::Impl {
     Debugger* self = nullptr;
 
     /// CAP-SYM — THE symbol table: the panels' `@name`, the servers' lookups
-    /// and `--map` all read this one, per §4.7. `DebuggerManager` still owns a
-    /// second instance of its own; retiring it needs the Qt frontend to hold a
-    /// `Debugger`, which is the loop-owner wiring of B3 / Q's WP2-WP6.
+    /// and `--map` all read this one, per §4.7. There is no other.
     SymbolTable symbols;
 
     /// SES-04 — what a `Stop` action does here. Held by the backend, set by the
@@ -132,10 +130,26 @@ struct Debugger::Impl {
     void log_mutate_range(ClientId by, const std::string& what,
                           const std::string& detail);
 
-    /// ST-03 / CTL-09 / CTL-10 — why a rewind would be refused right now, or
-    /// `Ok` if it would not. ONE predicate: `rewind_blocked()` greys the control
-    /// with it and both rewind verbs gate on it, so what the UI shows and what
-    /// the verb does cannot disagree (which is the whole point of ST-03).
+    /// §4.2a's rewind wall, the recording half: a debugger change of guest state
+    /// a replay would not reproduce — every §4.2a write, `port_in`, input
+    /// injection, a soft reset, an in-place state load — records the current
+    /// cycle on the rewind slot a replay to it would start from;
+    /// `Emulator::step_back()` / `rewind_to_cycle()` then refuse a replay that
+    /// would cross it (`RewindBuffer::replay_crosses_mutation()`).
+    void note_mutation();
+
+    /// Tell every client WHY a rewind verb was refused (a benign refusal:
+    /// RefusedRzx / RefusedUnavailable), as one SES-06 warning:
+    /// `REWIND REFUSED: <verb> refused: <reason>. See the user guide: …`. The
+    /// `Result` alone cannot say which of its causes it was; this line can, and
+    /// the Qt debugger shows it in its status bar.
+    void explain_rewind_refusal(ClientId by, const std::string& verb, const std::string& reason);
+
+    /// ST-03 / CTL-09 / CTL-10 — the target-independent refusals (RZX, an empty
+    /// ring), or `Ok`. ONE predicate: `rewind_blocked()` greys the control with it
+    /// and both rewind verbs gate on it. The target-dependent ones — no trace
+    /// entry, a replay crossing a debugger change (§4.2a) — come from the
+    /// `Emulator` when the verb runs.
     Result rewind_refusal() const;
 
     // ── B2 (§4.3 CAP-EVT) — the event machinery ─────────────────────────────

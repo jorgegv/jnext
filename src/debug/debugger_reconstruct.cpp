@@ -57,20 +57,15 @@
 // disagrees; B2's review reproduced a real segfault from the dtor's half alone
 // and found no row that saw it.
 //
-// ── THE SINGLE-OWNER RULE, SPLIT (manager decision, B3 milestone 2) ────────
+// ── THE SINGLE-OWNER RULE ───────────────────────────────────────────────────
 //
-// §4.1 CTL-12 says the platform-side `BreakpointSet` / `active()` save and
-// restore in `emulator_cold_boot()` is "a second owner of the same state" once
-// the backend re-applies subscriptions. Measured, only ONE part of what it
-// carries is backend state: the event-mask half (`ev_mask_*`) of the hot-path
-// gate. B3 retired THAT half — `emulator_cold_boot()` zeroes it on its copy and
-// `gates_changed()` below is its single owner. The rest is the Qt panels'
-// breakpoint model, the observers that travel on its copy, and `active_` (the
-// Qt window's and the magic hook's bit); before package Q the restore is their
-// ONLY owner, so retiring it now would lose a user's breakpoints on every hard
-// reset, unsubscribe two panels and leave an open window unarmed. That half is
-// retired by package Q when the panels become clients (§10.1 Q WP2/WP6) —
-// recorded in `backend.md` CAP-CTL-12 and in `qt-frontend.md`.
+// §4.1 CTL-12: once the backend re-applies subscriptions, the platform-side
+// `BreakpointSet` / `active()` save and restore in `emulator_cold_boot()` would
+// be "a second owner of the same state". Both halves are retired: the
+// event-mask half (`gates_changed()` below is its single owner) and the Qt
+// panels' half (the GUI's breakpoints are backend subscriptions, `active()` is
+// gone). `emulator_cold_boot()` carries nothing of the debugger's — recorded in
+// `backend.md` CAP-CTL-12 and in `qt-frontend.md`.
 // ---------------------------------------------------------------------------
 
 #include "debug/debugger_impl.h"
@@ -506,6 +501,9 @@ Result Debugger::load(ClientId by, const std::string& path) {
                                       (reconstructed ? " (cold boot)" : ""))
                                    : ("load FAILED \"" + path + "\""));
 
+    // §4.2a wall: a load that kept the ring replaced the machine in place, which
+    // no replay from the ring reproduces. (A cold boot builds a new, empty ring.)
+    if (loaded) impl_->note_mutation();
     if (reconstructed) impl_->notify_reset(ResetKind::Hard);
     return loaded ? Result::Ok : Result::RefusedUnavailable;
 }
