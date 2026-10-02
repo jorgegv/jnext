@@ -43,9 +43,7 @@ struct Debugger::Impl {
     Debugger* self = nullptr;
 
     /// CAP-SYM — THE symbol table: the panels' `@name`, the servers' lookups
-    /// and `--map` all read this one, per §4.7. `DebuggerManager` still owns a
-    /// second instance of its own; retiring it needs the Qt frontend to hold a
-    /// `Debugger`, which is the loop-owner wiring of B3 / Q's WP2-WP6.
+    /// and `--map` all read this one, per §4.7. There is no other.
     SymbolTable symbols;
 
     /// SES-04 — what a `Stop` action does here. Held by the backend, set by the
@@ -131,6 +129,14 @@ struct Debugger::Impl {
     /// a pattern-RAM run). `detail` completes the line after the target.
     void log_mutate_range(ClientId by, const std::string& what,
                           const std::string& detail);
+
+    /// §4.2a's rewind wall, the recording half: a §4.2a write (register, memory,
+    /// MMU slot, NextREG, port out, sprite, pattern, palette, border) made while a
+    /// frame is in progress taints the rewind slot that frame replays from, which
+    /// predates the write; `Emulator::step_back()` / `rewind_to_cycle()` then
+    /// refuse a target inside that span. Between frames nothing is tainted: the
+    /// next frame's snapshot is taken after the write and carries it.
+    void note_mutation();
 
     /// ST-03 / CTL-09 / CTL-10 — why a rewind would be refused right now, or
     /// `Ok` if it would not. ONE predicate: `rewind_blocked()` greys the control

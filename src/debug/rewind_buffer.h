@@ -46,6 +46,25 @@ public:
     /// machine is partially restored and must not be reported as rewound.
     uint64_t restore_nearest(uint64_t target_cycle, Emulator& emu) const;
 
+    /// §4.2a's rewind wall (DEBUG-SUBSYSTEM-ARCHITECTURE.md): "a rewind target
+    /// inside the frame the mutation happened in would replay that frame without
+    /// the mutation and diverge … the backend refuses step_back / rewind_to_cycle
+    /// into a mutated span; a frame-boundary target is always fine".
+    ///
+    /// A MUTATED SPAN is the replay span of one slot: from its frame_cycle up to
+    /// the next slot. mark_mutated(cycle) taints the slot a replay to `cycle`
+    /// would start from (the one restore_nearest() would pick), because that slot
+    /// was taken before the mutation and cannot carry it. The taint lasts as long
+    /// as the slot: a ring wrap, a re-take of the frame after a rewind, or clear()
+    /// ends it. No-op on an empty ring.
+    void mark_mutated(uint64_t cycle);
+
+    /// True iff a replay to `target_cycle` would start from a tainted slot and
+    /// actually replay (target past the slot's own frame start). A target equal
+    /// to the slot's frame_cycle is a pure restore — the frame-boundary case
+    /// §4.2a allows.
+    bool replay_crosses_mutation(uint64_t target_cycle) const;
+
     /// Drop every snapshot, keeping the allocation (GH #93: an SD card change
     /// makes the held history restore one card's state machine onto another).
     void clear() { head_ = 0; count_ = 0; }
@@ -137,6 +156,7 @@ private:
         uint64_t frame_cycle = 0;
         uint32_t frame_num   = 0;
         uint8_t* data        = nullptr;  ///< Points into block_ (mmap region)
+        bool     mutated     = false;    ///< see mark_mutated(); reset on (re)write
     };
 
     std::vector<Slot> slots_;
@@ -150,4 +170,8 @@ private:
     size_t slot_index(size_t i) const {
         return (head_ + i) % slots_.size();
     }
+
+    /// Slot index of the newest snapshot with frame_cycle <= target_cycle, or
+    /// SIZE_MAX if every snapshot is newer (or the ring is empty).
+    size_t nearest_index(uint64_t target_cycle) const;
 };

@@ -1065,11 +1065,14 @@ public:
     /// fast-forward to that exact cycle. Pauses the debugger at the target.
     /// Returns the cycle actually reached (may differ if the trace doesn't
     /// contain target_cycle exactly — lands on the nearest instruction boundary).
-    /// Returns UINT64_MAX if the rewind buffer is empty or disabled.
+    /// Returns UINT64_MAX if the rewind buffer is empty or disabled, or if the
+    /// target lies in a mutated span (RewindBuffer::replay_crosses_mutation(),
+    /// §4.2a) — refused, logged, nothing restored, and the debugger paused.
     uint64_t rewind_to_cycle(uint64_t target_cycle);
 
     /// Step back N instructions using the TraceLog for target-cycle lookup.
-    /// Requires TraceLog to be enabled.  Returns true on success.
+    /// Requires TraceLog to be enabled.  Returns true on success; false, with
+    /// nothing changed, for a target in a mutated span (§4.2a).
     bool step_back(int n = 1);
 
     /// Rewind to the start of frame frame_num (must be in the rewind buffer).
@@ -2248,6 +2251,10 @@ private:
     /// {cycle, frame, pc, vc, hc} common header of §4.3, which only this class
     /// knows. Called once from init().
     void install_debug_latch_stamper_();
+
+    /// The §4.2a rewind-wall refusal's log line, shared by step_back() and
+    /// rewind_to_cycle().
+    void log_rewind_into_mutation_(const char* what, uint64_t target_cycle) const;
 
     /// GH #276 B2 — reconcile the debugger's event state with a machine that has
     /// just been REPLACED or RESET.

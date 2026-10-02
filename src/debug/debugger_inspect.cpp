@@ -44,6 +44,7 @@
 #include "debug/disasm.h"
 #include "debug/disasm_text.h"
 #include "debug/raster_state.h"
+#include "debug/rewind_buffer.h"
 #include "debug/trace.h"
 #include "video/palette.h"
 #include "video/renderer.h"
@@ -94,6 +95,13 @@ bool resolve_palette(Emulator& emu, PaletteId id, ::PaletteId& out) {
 constexpr uint32_t PAGE_BYTES = 0x2000;
 
 }  // namespace
+
+void Debugger::Impl::note_mutation() {
+    RewindBuffer* rb = emu.rewind_buffer();
+    if (!rb) return;
+    if (!emu.frame_in_progress() && emu.rewind_enabled()) return;
+    rb->mark_mutated(emu.clock().get());
+}
 
 // ---------------------------------------------------------------------------
 // INS-01 — registers
@@ -187,6 +195,7 @@ Result Debugger::set_register(ClientId by, RegId reg, uint16_t value) {
 
     impl_->emu.cpu().set_registers(r);
     impl_->log_mutate(by, std::string("reg ") + name, old_value, value);
+    impl_->note_mutation();
     return Result::Ok;
 }
 
@@ -338,6 +347,7 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
                                                 : std::to_string(landed) + " of " +
                                                       std::to_string(n) +
                                                       " bytes (the rest read-only)");
+        if (landed > 0) impl_->note_mutation();
         return Expected<size_t>{landed == n ? Result::Ok : Result::RefusedReadOnly, landed};
     } else {
         // Same two guards as the peek path, in the same order and for the same
@@ -353,6 +363,7 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
     if (n == 1) impl_->log_mutate(by, space_name(space, addr), old_first, buf[0]);
     else        impl_->log_mutate_range(by, space_name(space, addr),
                                         std::to_string(done) + " bytes");
+    impl_->note_mutation();
 
     return Expected<size_t>{done == n ? Result::Ok : Result::RefusedUnavailable, done};
 }
@@ -399,6 +410,7 @@ Result Debugger::set_mmu_slot(ClientId by, int slot, uint8_t page) {
     // 0/1 on every DeZog .sna/.z80/.nex load, then did to the ROM.
     impl_->emu.nextreg().write(static_cast<uint8_t>(0x50 + slot), page);
     impl_->log_mutate(by, "mmu slot " + std::to_string(slot), old_page, page);
+    impl_->note_mutation();
     return Result::Ok;
 }
 
@@ -458,6 +470,7 @@ Result Debugger::nextreg_write(ClientId by, uint8_t reg, uint8_t value) {
     char what[24];
     std::snprintf(what, sizeof(what), "nextreg 0x%02X", reg);
     impl_->log_mutate(by, what, old_value, value);
+    impl_->note_mutation();
     return Result::Ok;
 }
 
@@ -509,6 +522,7 @@ Result Debugger::port_out(ClientId by, uint16_t port, uint8_t value) {
     char val[12];
     std::snprintf(val, sizeof(val), "= 0x%02X", value);
     impl_->log_mutate_range(by, what, val);
+    impl_->note_mutation();
     return Result::Ok;
 }
 
@@ -632,6 +646,7 @@ Result Debugger::set_sprite_attr_raw(ClientId by, uint8_t idx,
     for (size_t i = 0; i < n; ++i)
         impl_->emu.sprites().write_attr_byte_at(idx, static_cast<uint8_t>(i), bytes[i]);
     impl_->log_mutate_range(by, "sprite " + std::to_string(idx), "5 attribute bytes");
+    impl_->note_mutation();
     return Result::Ok;
 }
 
@@ -652,6 +667,7 @@ Result Debugger::write_pattern_ram(ClientId by, uint16_t addr,
     char what[32];
     std::snprintf(what, sizeof(what), "sprite pattern 0x%04X", static_cast<unsigned>(addr));
     impl_->log_mutate_range(by, what, std::to_string(n) + " bytes");
+    impl_->note_mutation();
     return Result::Ok;
 }
 
@@ -906,6 +922,7 @@ Result Debugger::set_palette(ClientId by, PaletteId id, uint8_t index,
     std::snprintf(what, sizeof(what), "palette %u[%u]",
                   static_cast<unsigned>(hw), static_cast<unsigned>(index));
     impl_->log_mutate(by, what, old_value, rgb333 & 0x01FF);
+    impl_->note_mutation();
     return Result::Ok;
 }
 
@@ -1000,6 +1017,7 @@ Result Debugger::set_border(ClientId by, uint8_t colour) {
     const uint8_t old_colour = impl_->emu.ula().get_border();
     impl_->emu.ula().set_border(colour);
     impl_->log_mutate(by, "border", old_colour, colour & 0x07);
+    impl_->note_mutation();
     return Result::Ok;
 }
 
