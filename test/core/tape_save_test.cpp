@@ -1054,6 +1054,39 @@ void emulator_rows() {
               "edges=" + std::to_string(edges) + " pulses=" + std::to_string(v.pulses.size()) +
                   " zero=" + std::to_string(zero));
     }
+    {
+        // Round 3: a CPU write is timed at its own I/O cycle, also after a DMA
+        // burst has run. OUT (n),A starts its I/O cycle 7 T in, OUT (C),A 8 T
+        // in, so alternating them (18 and 31 T apart by instruction start)
+        // gives pulses of 19 and 30 T.
+        //   LD A,8 / LD BC,$00FE / loop: OUT ($FE),A (11) / XOR 8 (7) /
+        //   OUT (C),A (12) / XOR 8 (7) / JR loop (12)
+        auto emu = next_machine();
+        const std::string path = tmp("cpu-after-dma.tzx");
+        std::filesystem::remove(path);
+        emu->start_tape_save(path);
+        poke(*emu, 0x9000, {0x08, 0x00});
+        poke(*emu, 0x8000, {0x3E, 0x08, 0x01, 0xFE, 0x00, 0xD3, 0xFE, 0xEE, 0x08,
+                            0xED, 0x79, 0xEE, 0x08, 0x18, 0xF6});
+        start_at(*emu, 0x8000);
+        for (uint8_t b : {0x7D, 0x00, 0x90, 0x02, 0x00, 0x14, 0x28, 0xAD, 0xFE, 0x00, 0xCF, 0x87})
+            emu->port().write(0x006B, b);                        // a 2-byte burst first
+        emu->run_frame();
+        emu->run_frame();
+        emu->stop_tape_save();
+        const TzxView v = view(read_file(path));
+        size_t good = 0, starts = 0;
+        for (uint32_t p : v.pulses) {
+            if (p == 19 || p == 30) ++good;
+            if (p == 18 || p == 31) ++starts;
+        }
+        check("TSAVE-62", "after a DMA burst, CPU writes are timed at their own I/O cycle again: "
+              "OUT (n),A and OUT (C),A alternating give 19/30 T pulses, never the 18/31 T "
+              "their instruction starts are apart",
+              good > 400 && starts == 0,
+              "good=" + std::to_string(good) + " starts=" + std::to_string(starts) +
+                  " pulses=" + std::to_string(v.pulses.size()));
+    }
 }
 
 void round1_rows() {
