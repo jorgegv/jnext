@@ -77,7 +77,7 @@ jobs:
     # docs-check on every run from the day the man page landed. Matching the
     # distro removes that whole class instead of pinning tool by tool.
     container: fedora:44
-    timeout-minutes: 120
+    timeout-minutes: 90
     # GH #202. Supplied as ENVIRONMENT, never by rewriting the commands: every
     # `run:` below stays the plain make target a human types locally, which is
     # the hard rule in CLAUDE.md. The generator reads $JNEXT_FPGA_SRC (and also
