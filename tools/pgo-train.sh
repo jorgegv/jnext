@@ -21,8 +21,8 @@
 # SKIPPED, exit 0, when nothing that decides the profile changed since the
 # last training: the fingerprint below covers the instrumented binary (which
 # changes with any source compiled into jnext and with any compile flag),
-# the compiler, this script, every training input and the SD master's
-# identity. On a skip <profile dir>/.trained keeps its mtime, which is how the
+# the compiler and the configured flags, this script, every training input
+# and the SD master's identity. On a skip <profile dir>/.trained keeps its mtime, which is how the
 # Makefile knows not to rebuild the optimised tree.
 #
 # The SD image: training boots NextZXOS and every machine's ROMs come from
@@ -105,6 +105,11 @@ fingerprint() {
     {
         echo "binary $(sha256 < "$BIN")"
         echo "compiler $("$COMPILER" --version 2>&1 | head -1)"
+        # The instrumented binary already changes with any flag that changes
+        # code; the configured flags are listed too, so ANY flag change
+        # retrains, even one that happens to leave the binary identical.
+        grep -E '^(CMAKE_BUILD_TYPE|CMAKE_[A-Z_]*FLAGS[A-Z_]*|CMAKE_C_COMPILER|CMAKE_CXX_COMPILER|JNEXT_[A-Z_]*|ENABLE_[A-Z_]*):' \
+            "$TREE/CMakeCache.txt" | sort
         echo "script $(sha256 < "${BASH_SOURCE[0]}")"
         echo "runner ${RUNNER[*]:-native} gui=${JNEXT_PGO_NO_GUI:-0}"
         local spec files f
