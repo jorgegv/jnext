@@ -195,7 +195,7 @@ Requirements, all derived from mistakes made while producing this document:
   it, or use `--call-graph dwarf`.
 - `src/profiler/` is a **guest** profiler (T-states per Z80 address). It cannot say which C++
   function is hot. Do not extend it for 27d.
-- **`doc/design/PROFILING-OPTIMIZATION-PLAN.md` already specifies this harness** (`--benchmark N`,
+- **`doc/obsolete/design/PROFILING-OPTIMIZATION-PLAN.md` already specifies this harness** (`--benchmark N`,
   a per-frame zone profiler, a `perf` baseline) and should be superseded by, not duplicated in,
   the 27d plan. Note its item **C2 ("Pentagon/Next don't have contention — null the callback") is
   now WRONG** and would break Next-mode contention (Tasks 50/54).

@@ -451,7 +451,7 @@ public:
     /// RAM contents from before the load. That residue is observable as
     /// attribute / pixel leak in shadow-screen / Layer 2 / certain ULA
     /// modes that consume past the ULA classic 0x1AFF boundary. See
-    /// `doc/issues/BEAST-NEX-INVESTIGATION.md` § Verdict and
+    /// `doc/issues/beast-demo/BEAST-NEX-INVESTIGATION.md` § Verdict and
     /// `doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md` G16. The Layer 2
     /// screen ingest writes pages 16-21 (banks 8/9/10) — bank 5 / pages
     /// 10-11 are not in that range, so Layer 2 stays clean.

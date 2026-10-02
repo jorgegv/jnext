@@ -649,4 +649,4 @@ plans landed). The NextZXOS firmware does write NR 0x02 at various
 points — if its writes currently trigger unintended paging / NMI (because
 NR 0x02 was previously a no-op) we may see a shift in boot fingerprint
 after Wave A. Document any new fingerprint in
-`doc/issues/NEXTZXOS-BOOT-INVESTIGATION.md` as a post-plan amendment.
+`doc/issues/nextzxos-boot/NEXTZXOS-BOOT-INVESTIGATION.md` as a post-plan amendment.

@@ -1,7 +1,7 @@
 # Unit Test Plan Execution Process
 
 This document describes how the VHDL-derived unit test plans in
-`doc/design/*-TEST-PLAN-DESIGN.md` are authored, executed, maintained, and
+`doc/testing/*-TEST-PLAN-DESIGN.md` are authored, executed, maintained, and
 evolved in lockstep with emulator fixes. Read it before touching any
 test plan, any `test/<subsystem>/<subsystem>_test.cpp`, or any emulator fix
 that flips tests from skip/fail to pass.
@@ -265,9 +265,12 @@ whenever:
   the suite on main.
 - A new row is added or retracted — update the denominator.
 
-`doc/design/EMULATOR-DESIGN-PLAN.md` carries the aggregate table across
-all 16 subsystems and the unit-test grand total. Keep that table and the
-per-plan Current status blocks in sync.
+The aggregate numbers are not kept by hand: `test/SUBSYSTEM-TESTS-STATUS.md`
+(refreshed by `make unit-test-dashboard`) carries the per-subsystem and grand
+totals, and `doc/testing/TRACEABILITY-MATRIX.md` (generated, staleness-gated by
+`make traceability-check`) carries every row's status. Keep the per-plan
+Current status blocks consistent with them. `doc/design/EMULATOR-DESIGN-PLAN.md`
+is a frozen historical roadmap and is not updated.
 
 **Never publish a 100% pass rate for a plan that still has skips.** 100%
 pass on a live subset is honest; 100% pass on the whole plan is only
@@ -615,7 +618,7 @@ short-cut would have let slip through in the original theatre suites.
   process plugs into.
 - `doc/testing/REGRESSION-TEST-SUITE.md` — the golden-output screenshot
   suite (separate track from unit tests).
-- `doc/design/*-TEST-PLAN-DESIGN.md` — the 16 per-subsystem plans.
+- `doc/testing/*-TEST-PLAN-DESIGN.md` — the per-subsystem plans.
 - `.prompts/YYYY-MM-DD.md` Emulator Bug backlog sections — the live emulator-bug
   backlog sourced from these plans.
 - `memory/feedback_test_from_vhdl.md` — the no-C++-as-oracle rule.

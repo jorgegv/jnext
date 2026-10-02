@@ -249,8 +249,8 @@ where possible.
   scroll) have no `set_write_handler` (verified by grep). NR 0x1A
   clip-window already wired.
 - **User impact**: parallax.nex broken; any LoRes demo blocked.
-- **Source ref**: `doc/issues/PARALLAX-NEX-INVESTIGATION.md`;
-  `doc/issues/BEAST-NEX-INVESTIGATION.md` "Parallax — separate
+- **Source ref**: `doc/issues/parallax-demo/PARALLAX-NEX-INVESTIGATION.md`;
+  `doc/issues/beast-demo/BEAST-NEX-INVESTIGATION.md` "Parallax — separate
   finding"; `EMULATOR-DESIGN-PLAN.md:767`.
 - **Test coverage today**: zero passing rows reference `lores`.
 - **Dependencies**: foundational. NR 0x14 transparency + NR 0x68
@@ -831,7 +831,7 @@ where possible.
 - **What**: VHDL `zxula_timing.vhd:577` fires the line-int pulse every cycle when `(hc_ula==255 AND cvc==int_line_num)` — fully dynamic. jnext scheduled the line-int ONCE per frame in `Emulator::run_frame()`; the NR 0x22 / NR 0x23 / NR 0xC4 write handlers updated `VideoTiming` state but did not re-schedule. Demos that chain line interrupts mid-frame (writing a new target into NR 0x23 from inside the line-IRQ handler) silently lost every chained re-arm — only the FIRST line-int per frame fired. NR 0xC4 bit 1 is a hardware mirror of NR 0x22 bit 1 (both write the same `nr_22_line_interrupt_en` flip-flop at zxnext.vhd:5607-5610, which feeds `i_inten_line` of the comparator at :6752), so the same defect applies on every NR 0xC4 write.
 - **Driver demo**: `parallax.nex` (Phase B disassembly 2026-04-30, bank 6 `z88dk-dis -mz80n`). The demo's per-frame IRQ handler at offset `0x062E` writes NR 0x23 thirteen times per frame (`target += 0x10`, lines 198, 244, 4, 20, 36, 52, 68, 84, 100, 116, 132, 148, 164, then stops). Each chained line-IRQ DMA-pages alternate L2 source banks (0x1D / 0x1E / 0x21 / 0x22) into slot 7 and copies pixel data into them. With 12/13 IRQs swallowed those banks stayed zero, producing the 69%-black L2 output observed in `--compositor-trace` at frame 250.
 - **User impact**: any demo that uses chained line interrupts to drive mid-frame state (palette rotation, L2 source-bank flip, raster splits via NR 0x14/0x15/0x16) renders flat. parallax.nex was the most prominent affected title.
-- **Source ref**: `doc/issues/PARALLAX-NEX-INVESTIGATION.md`; memory note `project_parallax_line_int_root_cause.md`.
+- **Source ref**: `doc/issues/parallax-demo/PARALLAX-NEX-INVESTIGATION.md`; memory note `project_parallax_line_int_root_cause.md`.
 - **Fix**: introduced `Emulator::reschedule_line_interrupt()` (Shape B with generation counter — strict superset of "compare target at fire time" because same-target rewrites also produce a fresh schedule). Wired from four call sites: NR 0x22 write handler (`emulator.cpp:864`), NR 0x23 write handler (`emulator.cpp:875`), NR 0xC4 write handler (mirror of NR 0x22 bit 1, `emulator.cpp:1241`), and frame-start in `run_frame()`. The lambda captures the gen by-value and no-ops at fire time when the captured value differs from `line_int_schedule_gen_`. Out-of-range or already-passed targets are handled per Shape B (roll forward by one frame for the parallax 8-bit ADD-0x10 wrap; bump-and-return for disable; bump-and-return for offset >= master_cycles_per_frame).
 - **VHDL reference**: `zxula_timing.vhd:577` (fire predicate, fully dynamic), `:566-570` (target=0 → c_max_vc; target=N → N-1), `zxnext.vhd:5607-5610` (NR 0x22 bit 1 / NR 0xC4 bit 1 mirror → `nr_22_line_interrupt_en`), `:6752-6753` (FF feeds `i_inten_line` / `i_int_line`).
 - **Status**: closed by this commit.
@@ -2121,7 +2121,7 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Effort**: M.
 
 ### G70. Requirements DB (SQLite proposal — queued)
-- **What**: `doc/design/REQUIREMENTS-DATABASE.md` proposes a SQLite
+- **What**: `doc/obsolete/design/REQUIREMENTS-DATABASE.md` proposes a SQLite
   `test/requirements.db` populated from plans + test source + VHDL
   citations, with priority/blocker tags + `comment-rehome`. Queued
   since 2026-04-20 behind SKIP-reduction.
@@ -2258,7 +2258,7 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Effort**: L.
 
 ### G83. Profiling/benchmark mode + 400% speed bottleneck
-- **What**: `doc/design/PROFILING-OPTIMIZATION-PLAN.md` written but
+- **What**: `doc/obsolete/design/PROFILING-OPTIMIZATION-PLAN.md` written but
   unstarted. Phase A (`--benchmark N` + `--profile`) has zero
   deliverables. Concrete known regression: "400% speed only reaches
   ~75 FPS with 100% CPU instead of expected 200 FPS"

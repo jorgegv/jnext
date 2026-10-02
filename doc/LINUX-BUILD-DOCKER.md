@@ -54,6 +54,13 @@ The output executable is `build/gui-release/jnext`.
 
 ## Step 3 — Run the regression test suite
 
+> **Out of date — this step and the "Makefile targets" section below predate
+> the current test harness and have not been re-verified in Docker.** The suite
+> lives at `test/00regression/regression.sh` and is run with `make regression`,
+> never the bare script (some rows need binaries only that target builds); it
+> also needs the NextZXOS SD image that jnext provisions under `~/.jnext/sdcard/`.
+> See [BUILD.md](../BUILD.md#tests) for how the tests are run today.
+
 The regression script expects `build/jnext` (SDL-only headless build) and `build/test/fuse_z80_test`. Build these first:
 
 ```sh
@@ -130,14 +137,12 @@ docker-test: docker-image
 
 ## ROM files
 
-The `fuse-emulator-roms` package installs ROMs to `/usr/share/fuse/` inside the container, which is the default path used by jnext. No extra configuration is needed.
-
-| Machine  | ROM files                           |
-|----------|-------------------------------------|
-| 48K      | `48.rom`                            |
-| 128K     | `128-0.rom`, `128-1.rom`            |
-| +3       | `plus3-0.rom` through `plus3-3.rom` |
-| Pentagon | `128p-0.rom`, `128p-1.rom`          |
+jnext does not read ROM files from the host. The FPGA boot ROM is built into
+the binary, and every other ROM is extracted from the NextZXOS SD-card image
+(`/MACHINES/NEXT/` on the image). jnext offers to download that image on first
+run and caches it under `~/.jnext/sdcard/` (`--sdcard-download-confirm` accepts
+without a prompt, as a container needs), or takes one from `--sdcard FILE`. The
+`fuse-emulator-roms` package the Dockerfile installs is not used by jnext.
 
 ## Notes
 

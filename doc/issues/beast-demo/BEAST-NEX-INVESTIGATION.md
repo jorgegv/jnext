@@ -12,10 +12,10 @@
 ### Beast — root cause + fix
 
 **Root cause**: `Ula::set_shadow_screen_en(bool)` at
-[src/video/ula.h:254](src/video/ula.h#L254) was half-implemented — it
+[src/video/ula.h:254](../../../src/video/ula.h#L254) was half-implemented — it
 recorded `shadow_screen_en_` and masked `screen_mode` per VHDL
 zxula.vhd:191, but **never set `vram_use_bank7_`**, the flag the
-actual bank-switch logic at [src/video/ula.cpp:46](src/video/ula.cpp#L46)
+actual bank-switch logic at [src/video/ula.cpp:46](../../../src/video/ula.cpp#L46)
 consults (`page = vram_use_bank7_ ? 14u : 10u`). On real hardware the
 two are the same signal `i_ula_shadow_en` (VHDL `ula_bank_do <=
 vram_bank7_do when port_7ffd_shadow='1'`); jnext had two flags out of

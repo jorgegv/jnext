@@ -37,7 +37,7 @@
 // speeds), so per-SCANLINE replay granularity reproduces the visible
 // effect faithfully. Sub-scanline (mid-row column split) racing is a
 // separate, much rarer effect and is explicitly out of scope — see
-// doc/design/PER-SCANLINE-DISPLAY-STATE-AUDIT.md "Out of scope for this
+// doc/analysis/PER-SCANLINE-DISPLAY-STATE-AUDIT.md "Out of scope for this
 // audit".
 //
 // AttributeMux therefore replays, for a target scanline, the most

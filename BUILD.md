@@ -279,7 +279,7 @@ make regression     # screenshot comparisons + functional tests, headless
   compares the output against the reference images. Details, and how to add a
   test, in [doc/testing/REGRESSION-TEST-SUITE.md](doc/testing/REGRESSION-TEST-SUITE.md);
   the current state of the suite is tracked in
-  [doc/CURRENT-REGRESSION-STATE.md](doc/CURRENT-REGRESSION-STATE.md).
+  [doc/testing/CURRENT-REGRESSION-STATE.md](doc/testing/CURRENT-REGRESSION-STATE.md).
 
   The reference screenshots are only regenerated after an *intentional*
   rendering change, and never without checking every image that moves:

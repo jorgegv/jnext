@@ -922,7 +922,7 @@ public:
     // banks on +3 mode without writing 0x1FFD) would read stale ROM
     // bytes from `read_ptr_[0..1]` until the next paging port write
     // reseeds them. See finding 1 in
-    // doc/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY-MEMORY.md.
+    // doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY-MEMORY.md.
     void    set_nr_8c(uint8_t v);
     uint8_t get_nr_8c() const { return nr_8c_reg_; }
     bool    nr_8c_altrom_en()        const { return (nr_8c_reg_ & 0x80) != 0; }

@@ -3,7 +3,7 @@
 > **Status:** design note / future work (2026-07-17). Not implemented. Captures
 > the analysis behind *why* a fully-static, self-compiled binary is the right way
 > to get LTO back on the Flatpak build, and how to do it without reintroducing the
-> Flatpak-SDK LTO bug. See also [../FLATPAK-LTO-PROBLEMS.md](../FLATPAK-LTO-PROBLEMS.md)
+> Flatpak-SDK LTO bug. See also [../issues/FLATPAK-LTO-PROBLEMS.md](../issues/FLATPAK-LTO-PROBLEMS.md)
 > (the shipped LTO-off workaround) and `project_flatpak_sigsegv_lto_rootcause.md`
 > in auto-memory.
 

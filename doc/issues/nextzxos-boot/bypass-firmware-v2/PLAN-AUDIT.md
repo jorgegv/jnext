@@ -1,7 +1,7 @@
 # Task 18 — Audit of `FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md`
 
 Audit date: 2026-05-17 (re-check against `main` HEAD `1d4b82c7`).
-Plan reviewed: `doc/design/FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md` (Task 13/18).
+Plan reviewed: `doc/obsolete/design/FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md` (Task 13/18).
 
 The plan was authored before Task 8 Wave 0.3 and the G46(b)-v2 series landed.
 This audit re-checks every assumption in the plan against current `main`.

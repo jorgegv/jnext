@@ -426,9 +426,9 @@ regression: lint-makefile-help regression-doc-check unit-test-build gui-release 
 	@# deletes it (clean depends on sdl-release-clean), hence building it here.
 	bash test/00regression/regression.sh
 
-# Fail if doc/CURRENT-REGRESSION-STATE.md and regression_tests.conf disagree
+# Fail if doc/testing/CURRENT-REGRESSION-STATE.md and regression_tests.conf disagree
 regression-doc-check:
-	@# doc/CURRENT-REGRESSION-STATE.md is the visual index of the screenshot suite
+	@# doc/testing/CURRENT-REGRESSION-STATE.md is the visual index of the screenshot suite
 	@# — README.md and BUILD.md both point users at it — and test/00regression/
 	@# check-doc-consistency.sh has verified it against the conf since Task 29.
 	@# Nothing ever invoked that script: no make target, no regression.sh step, no

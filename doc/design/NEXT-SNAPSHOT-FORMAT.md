@@ -1,5 +1,10 @@
 # Next-Specific Snapshot Save/Load Format — design
 
+> Status: **implemented.** #27 is closed; `.jns` save and load ship
+> (`src/save/`, `src/core/emulator_jns.cpp`; `--load`, `--delayed-snapshot`,
+> `--snapshot-mode`, `--snapshot-compression`). The original status line
+> follows, kept as history.
+>
 > Status: **design approved, not implemented**. Tracking issue:
 > [#27](https://github.com/jorgegv/jnext/issues/27). Milestone v1.1.
 >

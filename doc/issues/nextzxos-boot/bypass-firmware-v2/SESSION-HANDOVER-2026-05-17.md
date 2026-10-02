@@ -27,7 +27,7 @@ rendering pipeline isn't painting (BASIC prompt / NextZXOS menu).
 Three parallel agents established the empirical groundwork. Doc set:
 - `doc/issues/nextzxos-boot/bypass-firmware-v2/CSPECT-STATE-CAPTURE.md` — CSpect cold-reset and post-boot DZRP captures (confirms NR $03=$33 cold-reset is CSpect's VHDL deviation; jnext is VHDL-correct).
 - `doc/issues/nextzxos-boot/bypass-firmware-v2/JNEXT-COLD-RESET-STATE.md` — full NR-sweep / MMU-slot / Z80-reg / SRAM baseline of jnext init().
-- `doc/issues/nextzxos-boot/bypass-firmware-v2/PLAN-AUDIT.md` — re-audit of the prior `doc/design/FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md` plan; Q1/Q2/Q3 RESOLVED, Branch 1/2/3/4 sized at ~5/50-100/30-50/100-150 LOC.
+- `doc/issues/nextzxos-boot/bypass-firmware-v2/PLAN-AUDIT.md` — re-audit of the prior `doc/obsolete/design/FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md` plan; Q1/Q2/Q3 RESOLVED, Branch 1/2/3/4 sized at ~5/50-100/30-50/100-150 LOC.
 
 ### Implementation (`c0a0ff1b`)
 

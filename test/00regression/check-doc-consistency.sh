@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verify that doc/CURRENT-REGRESSION-STATE.md documents exactly the
+# Verify that doc/testing/CURRENT-REGRESSION-STATE.md documents exactly the
 # screenshot tests defined in regression_tests.conf — no more, no less.
 # Exits non-zero on any drift. Keeps the doc from silently diverging
 # from the conf (Task 29).
@@ -7,7 +7,7 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 conf="$here/regression_tests.conf"
-doc="$here/../../doc/CURRENT-REGRESSION-STATE.md"
+doc="$here/../../doc/testing/CURRENT-REGRESSION-STATE.md"
 
 # Non-screenshot tests bundled into regression.sh — documented in the
 # doc but not present as screenshot rows in the conf. Excluded from the

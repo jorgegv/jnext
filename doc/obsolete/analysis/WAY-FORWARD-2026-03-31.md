@@ -428,7 +428,7 @@ the firmware now completes its entire boot sequence — loading config files, al
 ROMs, displaying the firmware version screen, and triggering soft reset. However,
 the ROM data does not reach the correct RAM pages due to a fundamental conflict
 between DivMMC automap and config page writes. See
-[nextzxos-boot-investigation.md](nextzxos-boot-investigation.md) for the full
+[nextzxos-boot-investigation.md](../../issues/nextzxos-boot/NEXTZXOS-BOOT-INVESTIGATION.md) for the full
 root cause analysis and 13+ approaches attempted.
 
 ### Why deferral is the right call

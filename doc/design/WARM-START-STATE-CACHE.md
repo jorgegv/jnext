@@ -112,7 +112,7 @@ it performed `boot.c::main`'s Z80-side work — SRAM ROM load, NextREG init, the
 post-reset state pre-established. It was **removed on 2026-07-11** once native
 boot worked, on the judgment that approximating firmware in code is worse than
 running it. Its design survives for reference in
-[FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md](FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md).
+[FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md](../obsolete/design/FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md).
 
 This proposal does not fall to that objection: it does not model what the
 firmware does, it records what the firmware did. The state is the firmware's own

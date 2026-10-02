@@ -28,9 +28,9 @@ first was rejected to keep the narrative readable).
 
 Related documents:
 
-- `doc/design/FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md` — design plan for bypassing
+- `doc/obsolete/design/FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md` — design plan for bypassing
   tbblue.fw by initialising NextZXOS from the emulator directly (Task 13).
-- `doc/analysis/WAY-FORWARD-2026-03-31.md` — project state + strategy overview
+- `doc/obsolete/analysis/WAY-FORWARD-2026-03-31.md` — project state + strategy overview
   written when the investigation first hit a wall.
 
 ---
@@ -244,7 +244,7 @@ Likely BPB processing logic or a missing emulator feature.
 
 Added CLI options `--delayed-screenshot`, `--delayed-screenshot-time`,
 `--delayed-automatic-exit` to allow headless automated testing. Comprehensive
-analysis written at `doc/analysis/WAY-FORWARD-2026-03-31.md`.
+analysis written at `doc/obsolete/analysis/WAY-FORWARD-2026-03-31.md`.
 
 Task 2 status: "NextZXOS boot — root cause fully analyzed, closest approach was
 config page write recording + soft_reset replay (96K across 6 banks replayed,
@@ -1151,7 +1151,7 @@ RETN-alias instructions in normal code, not DivMMC return paths.
 - VHDL `im2_control.vhd:137` only matches canonical 0x45 (verified).
 - Real Next executes alias bytes as RETN micro-ops on silicon (not a
   Z80N redefinition: the Z80N opcode list at
-  [src/cpu/z80n_ext.h](../../src/cpu/z80n_ext.h) does NOT cover any
+  [src/cpu/z80n_ext.h](../../../src/cpu/z80n_ext.h) does NOT cover any
   of those alias bytes).
 - Real DivMMC therefore does NOT receive `i_retn_seen` on alias
   bytes either.
@@ -1181,7 +1181,7 @@ The fix has to be on jnext's side.
 #### Band-aid (current)
 
 Restored the alias-firing in `cpu_.on_m1_cycle` (Emulator::init,
-[src/core/emulator.cpp:228-243](../../src/core/emulator.cpp#L228-L243))
+[src/core/emulator.cpp:228-243](../../../src/core/emulator.cpp#L228-L243))
 explicitly marked as a **KNOWN DIVERGENCE FROM VHDL** with a TODO
 pointing here. Boot renders the TBBlue logo cleanly again. Unit
 3333/3217/0/116 + regression 34/0/0.
@@ -1249,7 +1249,7 @@ post-soft-reset → I hypothesised G62/G63 (machine-type latch not
 preserved across soft reset). Wrong: `0` is just
 `MachineType::ZXN_ISSUE2` (the enum value for "Next") in the log
 formatter; G62/G63 are correctly handled in
-[src/port/nextreg.cpp:84-117](../../src/port/nextreg.cpp#L84-L117).
+[src/port/nextreg.cpp:84-117](../../../src/port/nextreg.cpp#L84-L117).
 
 Real root cause found via DivMMC trace at `--log-level divmmc=debug`:
 

@@ -7,7 +7,7 @@
 
 ## TL;DR — root cause found and fixed
 
-The NR $8E write handler ([src/core/emulator.cpp:2889](../../../src/core/emulator.cpp#L2889))
+The NR $8E write handler ([src/core/emulator.cpp:2889](../../../../src/core/emulator.cpp#L2889))
 calls `mmu_.write_nr_8e(v)` (which updates `port_7ffd` and `port_1ffd`
 internally per VHDL `:3662-3734`) but **never refreshes
 `divmmc_.set_rom3_active(mmu_.sram_rom3())`** afterward — unlike every
@@ -18,7 +18,7 @@ Consequence at PC=$3CFC (the supervisor's `NEXTREG $8E,$03` boot-time
 bank flip): the write switches slot 0/1 to `enNextZX.rom` block 3 but
 leaves `divmmc_.rom3_active_` stale (false). The next M1 fetch at
 PC=$3D00 evaluates the DivMMC `$3Dxx` wildcard entry-point gate
-([divmmc.cpp:419](../../../src/peripheral/divmmc.cpp#L419)), which
+([divmmc.cpp:419](../../../../src/peripheral/divmmc.cpp#L419)), which
 requires `rom3_path_eligible = sram_pre_override_2 && sram_pre_override_0 && !layer2_map_read_ && rom3_active_`.
 With `rom3_active_=0`, the gate stays cold in jnext — but CSpect's VHDL
 combinational `sram_rom3` updates same-cycle with the port writes, so

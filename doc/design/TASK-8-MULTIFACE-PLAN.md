@@ -1,6 +1,10 @@
 # Task 8 — Multiface Peripheral Emulation
 
-**Status:** Active 2026-05-04. Wave 0 (SD ROM foundation) starting; Wave 1
+**Status:** done. The Multiface shipped in the Task 8 waves of 2026-05
+(`src/peripheral/multiface.{h,cpp}`, `multiface_test`). The original status
+follows, kept as history.
+
+**Original status:** Active 2026-05-04. Wave 0 (SD ROM foundation) starting; Wave 1
 (Multiface core) gated on Wave 0.
 **Last updated:** 2026-05-04.
 **Predecessors:**
@@ -466,7 +470,7 @@ soft-reset behaviour before Branch B.
 ## 8. Relation to NextZXOS boot
 
 As of 2026-04-19, NextZXOS boot hangs in an infinite RAM-test loop at
-`enNextZX.rom:0x0168` (see `doc/issues/NEXTZXOS-BOOT-INVESTIGATION.md`,
+`enNextZX.rom:0x0168` (see `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-INVESTIGATION.md`,
 session 2026-04-19 journal entry). The diagnosis explicitly rules out
 Multiface as the blocker:
 - All four SD-loaded ROMs (`keymap.bin`, `enNxtmmc.rom`, `enNextMf.rom`,

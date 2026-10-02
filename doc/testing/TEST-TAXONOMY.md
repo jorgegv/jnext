@@ -2,7 +2,7 @@
 
 Every screenshot/functional row in the regression suite belongs to one of three layers. Each layer probes a different slice of the emulator stack; conflating them during investigation hides where the bug really lives. Use this document to map a failing test back to its layer (and therefore the subsystems whose audit/probes are likely to find the cause).
 
-The taxonomy was formalised after Task 14's [test-strategy analysis](../issues/nextzxos-boot/TASK-14-TEST-STRATEGY-ANALYSIS.md) and the esxdos-shim work that lets game NEX assets boot without the full NextZXOS supervisor (see [feat(esxdos): RST $08 shim](../../src/cpu/z80_cpu.h) and the `--esxdos-stub` flag).
+The taxonomy was formalised after Task 14's test-strategy analysis (never committed to the repository) and the esxdos-shim work that lets game NEX assets boot without the full NextZXOS supervisor (see [feat(esxdos): RST $08 shim](../../src/cpu/z80_cpu.h) and the `--esxdos-stub` flag).
 
 ---
 
