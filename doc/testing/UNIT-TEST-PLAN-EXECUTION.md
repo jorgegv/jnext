@@ -1,7 +1,7 @@
 # Unit Test Plan Execution Process
 
 This document describes how the VHDL-derived unit test plans in
-`doc/design/*-TEST-PLAN-DESIGN.md` are authored, executed, maintained, and
+`doc/testing/*-TEST-PLAN-DESIGN.md` are authored, executed, maintained, and
 evolved in lockstep with emulator fixes. Read it before touching any
 test plan, any `test/<subsystem>/<subsystem>_test.cpp`, or any emulator fix
 that flips tests from skip/fail to pass.
@@ -615,7 +615,7 @@ short-cut would have let slip through in the original theatre suites.
   process plugs into.
 - `doc/testing/REGRESSION-TEST-SUITE.md` — the golden-output screenshot
   suite (separate track from unit tests).
-- `doc/design/*-TEST-PLAN-DESIGN.md` — the 16 per-subsystem plans.
+- `doc/testing/*-TEST-PLAN-DESIGN.md` — the per-subsystem plans.
 - `.prompts/YYYY-MM-DD.md` Emulator Bug backlog sections — the live emulator-bug
   backlog sourced from these plans.
 - `memory/feedback_test_from_vhdl.md` — the no-C++-as-oracle rule.

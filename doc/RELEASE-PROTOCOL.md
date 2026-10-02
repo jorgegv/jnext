@@ -178,6 +178,7 @@ covered by `test/packaging/sync-version-test.sh` (run inside `make package-test`
 | `make package-src` | source tarball (vendors submodule content) |
 | `make package-rpm` / `package-deb` | Fedora/RHEL `.rpm` / Debian/Ubuntu `.deb` (CPack) |
 | `make package-win` | Windows `.zip` — MinGW cross-build, Qt6/SDL3 DLLs + `qwindows` plugin bundled by `packaging/windows/bundle-dlls.sh` (`build/win-release/`) |
+| `make package-win-qt5` / `package-win32-qt5` | Windows 7/8 `-legacy` `.zip`s, x64 and 32-bit — the Qt5 full-GUI builds (GH #108) |
 | `make package-flatpak` | Flatpak bundle (needs `flatpak-builder` + `org.kde.Sdk//6.10`); ends by running `make verify-flatpak-permissions` on it |
 | `make package-macos` | macOS `.dmg` (Darwin only) |
 | `make package-test` | build every package (except macOS) and assert each artifact |
@@ -228,11 +229,14 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
 ## 5. CI / CD workflows
 
 - **`.github/workflows/ci.yml`** — tests. Triggers on **push to `main` and PRs**
-  (not on tags). Two jobs: **`test`** runs the full triplet (unit + FUSE +
-  screenshot regression), self-provisioning the SD image; **`package`** runs
+  (not on tags). Five jobs, in parallel: **`test`** builds `gui-release` and
+  `make build-matrix`, then runs `make regression`, `make unit-test` (which
+  includes the FUSE suite) and `make unit-test-sdl`, self-provisioning the SD
+  image; **`qt5-guard`** runs `make qt5-guard-build`; **`package`** runs
   `make package-test` in a `fedora:44` container, building every package and
-  asserting its contents. They run in parallel, so packaging costs nothing on
-  the critical path.
+  asserting its contents; **`macos`** runs `make package-macos` on
+  `macos-latest`; **`flatpak`** calls `flatpak-build.yml` (§4). Packaging
+  therefore costs nothing on the critical path.
 
 - **`.github/workflows/release.yml`** — one tag-triggered workflow (it replaced
   the old `packaging.yml` + `release.yml` `workflow_run` hand-off). Triggers on
@@ -248,9 +252,11 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
      the RPM via CPack inside a
      `fedora:44` container (so its deps are Fedora-native, not the Ubuntu
      `CURL_OPENSSL_4` libcurl node); `src` runs `make package-src` to emit the
-     submodule-aware `jnext-<ver>-src.zip`; Windows via `make package-win` in a
-     `fedora:44` container; `flatpak` via `flatpak-builder` in the KDE 6.10
-     container (the one declared divergence from the make-target rule, §4);
+     submodule-aware `jnext-<ver>-src.zip`; Windows via `make package-win`,
+     `make package-win-qt5` and `make package-win32-qt5` (the x64 zip plus the
+     two `-legacy` zips) in a `fedora:44` container; `flatpak` via
+     `flatpak-builder` in the KDE 6.10 container (the one declared divergence
+     from the make-target rule, §4);
      macOS native on `macos-latest` via `make package-macos`, **no longer
      `continue-on-error`** since issue #61 (it carries the GH #46
      `verify-bundle` gate, and a gate that cannot fail anything is not a gate).
@@ -314,8 +320,9 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
 
 1. **Green triplet** on `main`: `make unit-test`, FUSE suite, `make regression`
    — no FAIL (per CLAUDE.md "Version bumping").
-2. Update the traceability matrix, unit-test status report,
-   `doc/DEVELOPMENT-SESSIONS.md`, and the ChangeLog (to the future version).
+2. Update the unit-test status report, `doc/DEVELOPMENT-SESSIONS.md`, and the
+   ChangeLog (to the future version). The traceability matrix is generated, not
+   hand-updated: commit it only if `make unit-test` regenerated it (GH #196).
    Commit those.
 3. `make bump-minor` (or `bump-major`) and answer the
    `Add … to releases.yaml?` prompt **`y`** — this is the step that makes it a

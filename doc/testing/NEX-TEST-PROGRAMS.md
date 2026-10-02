@@ -1,9 +1,9 @@
 # NEX test programs
 
-References for some of the NEX test files in `test/nex`:
+References for some of the NEX test files in `test/00regression/nex`:
 
 - `celeste.nex`: source code in https://github.com/dcrespo3d/CelesteNext
-- `beanbros-en-1_1.nex`: source code in https://github.com/dcrespo3d/BeanBrosRemake
+- `beanbros.nex`: source code in https://github.com/dcrespo3d/BeanBrosRemake
 - `trainyard-express.nex`: source code in https://github.com/dcrespo3d/TrainyardExpress-ZXNext
 - `show512.nex`: "Show 512 colors" example v1.2 (2020-11-15), (C) Peter
   Helcmanovsky, **MIT licence** (GPLv3-compatible). Source in the tbblue
