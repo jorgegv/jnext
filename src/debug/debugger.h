@@ -9,9 +9,9 @@
 // (§10.1). Every declaration carries the CAP id it serves; the full map is
 // doc/design/debug-subsystem/b0-cap-traceability.md.
 //
-// B0 IS THE FROZEN INTERFACE AND NOTHING ELSE. There are no bodies behind these
-// verbs; B1..B5 put them there. A frontend that needs a signature this file
-// lacks files a finding against B0 rather than declaring its own.
+// THIS IS THE FROZEN INTERFACE. Its bodies are in `src/debug/debugger*.cpp`. A
+// frontend that needs a signature this file lacks files a finding against it
+// rather than declaring its own; additions are by owner decision only.
 //
 // ── FIVE RULES THIS FILE IS THE STATEMENT OF ────────────────────────────────
 //
@@ -945,7 +945,8 @@ public:
     /// per `PumpBudget`; `PumpBudget{}` while running never blocks.
     ///
     /// NEVER called from inside `run_frame()`, and never from inside an event
-    /// delivery (asserted).
+    /// delivery (refused, with an error logged — not an assert, which would
+    /// compile away in the build where the bug ships).
     ServiceHint pump(const PumpBudget& budget);
 
     /// SES-04 — what a `Stop` action does here. The LOOP OWNER sets it; an

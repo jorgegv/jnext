@@ -222,8 +222,8 @@ struct PagingPorts {
 /// setter today — assigns the whole struct, which is how a frontend clobbers
 /// `I` and `R` while writing `A` (a real GDB `G`-packet hazard).
 ///
-/// `PC` carries an obligation on the implementation, not a property of the
-/// code: setting it must CLEAR `Z80Registers::halted`. Nothing does that today.
+/// `PC` carries an obligation on the implementation: setting it must CLEAR
+/// `Z80Registers::halted`, which `Debugger::set_register()` does.
 enum class RegId : uint8_t {
     // 16-bit pairs
     AF = 0, BC, DE, HL,
