@@ -73,7 +73,8 @@ enum class Result : uint8_t {
     /// rewind buffer, the trace switched off, a frame out of range, a bookmark
     /// name that was never saved, a `reset(Hard)` with no loop driver
     /// registered (CTL-12), an IN-01 pulse that would overrun
-    /// `MAX_AUTO_TYPE_KEYS`, a rewind target inside a mutated span (§4.2a).
+    /// `MAX_AUTO_TYPE_KEYS`, a rewind whose replay would cross a debugger
+    /// change (§4.2a).
     /// §4 names this one "benign" explicitly: it is not an error to report, it
     /// is an answer to act on.
     RefusedUnavailable = 5,

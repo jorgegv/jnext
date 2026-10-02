@@ -501,8 +501,47 @@ def sc_m3(port, tmpdir):
             "8000 8010 8011, CALL typed, load/save-binary, snapshot round trip at %04x" % pc0)
 
 
+def wait_rom_booted(port):
+    """Wait until the 48K ROM has finished its start-up — a deterministic
+    EMULATED condition, never a sleep.
+
+    The `memory` scene writes 8000H while the machine runs. Written during the
+    ROM's RAM test (the first few milliseconds of a headless run), the write
+    both lost itself to the test's fill (a 3F or 00 where ZEsarUX has 41, about
+    one run in five) and broke the test, which then put RAMTOP below 8000H.
+
+    Two facts together prove start-up is over:
+    - FRAMES (5C78H) is COUNTING: three reads in a row each larger than the
+      last. Only the ROM's IM 1 handler increments it, after the RAM test; the
+      test itself only fills with 02 and counts down to 00, so it can produce
+      at most one rise (from whatever RAM held at power-on to 0202H);
+    - SP is the 48K stack under RAMTOP (>= FF00H): RAMTOP was found at the top
+      of a 48K machine, i.e. the test ran undisturbed."""
+    z = Zrcp(port)
+    check(z.reply() == WELCOME, "boot wait: the welcome is not ZEsarUX's")
+    deadline = time.time() + TIMEOUT
+    last, rises, sp = None, 0, 0
+    while time.time() < deadline:
+        r = z.cmd("read-memory 23672 2")
+        m = re.match(rb"^([0-9A-Fa-f]{4})\n", r)
+        regs = z.cmd("get-registers")
+        sp = dezog_regs(regs[:-len(b"\n" + PROMPT)])["SP="] if regs.endswith(b"\n" + PROMPT) else 0
+        if m:
+            raw = bytes.fromhex(m.group(1).decode())
+            frames = raw[0] | (raw[1] << 8)
+            rises = rises + 1 if last is not None and frames > last else 0
+            last = frames
+            if rises >= 2 and sp >= 0xFF00:
+                break
+        time.sleep(0.02)   # poll interval only: the condition is FRAMES and SP, not time
+    z.close()
+    check(rises >= 2 and sp >= 0xFF00,
+          "the 48K ROM did not finish start-up (FRAMES rises=%d, SP=%04x)" % (rises, sp))
+
+
 def sc_fixture(port):
     """Every scene of FIXTURE, each on a new connection, byte for byte."""
+    wait_rom_booted(port)
     scenes = load_fixture()
     got_shape = [(name, len(ex)) for name, _, ex in scenes]
     check(got_shape == FIXTURE_SCENES,

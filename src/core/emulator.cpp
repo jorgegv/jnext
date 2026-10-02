@@ -9535,7 +9535,9 @@ void Emulator::run_frame()
     // Qt window closed (§4.1; row SES-05-17).
     if (debug_state_.attached() && !replay_mode_) {
         if (debug_state_.step_mode() == StepMode::STEP_BACK) {
-            step_back(debug_state_.step_back_count());
+            // A refused or failed step back (logged by step_back()) ends the
+            // request: retried every frame it would log forever.
+            if (!step_back(debug_state_.step_back_count())) debug_state_.pause();
             return;
         }
         if (debug_state_.step_mode() == StepMode::RUN_BACK_TO_CYCLE) {
@@ -13417,11 +13419,33 @@ bool Emulator::rzx_blocks_rewind(const char* what) const
     return true;
 }
 
+void Emulator::refuse_rewind_into_mutation_(const char* what, uint64_t target_cycle,
+                                            uint32_t frame)
+{
+    rewind_crossing_frame_ = frame;
+    Log::emulator()->error(
+        "{}: refused — it would undo a change you made from the debugger in frame {} "
+        "(replaying to cycle {} cannot reproduce it). Use Frame Back (or the slider) to "
+        "that frame's start, which undoes the change, or carry on forward. See the user "
+        "guide: Debugger \u25B8 Functions \u25B8 "
+        "Backward execution (rewind)",
+        what, frame, target_cycle);
+}
+
 uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
 {
+    rewind_crossing_frame_.reset();
     if (rzx_blocks_rewind("rewind_to_cycle")) return UINT64_MAX;
     if (!rewind_buffer_ || rewind_buffer_->empty()) {
         Log::emulator()->warn("rewind_to_cycle: rewind buffer is empty or disabled");
+        return UINT64_MAX;
+    }
+
+    // §4.2a's rewind wall — refused BEFORE anything is restored, so the machine
+    // (and any debugger mutation in it) is left exactly as it was.
+    if (uint32_t f = 0; rewind_buffer_->replay_crosses_mutation(target_cycle, &f)) {
+        refuse_rewind_into_mutation_("rewind_to_cycle", target_cycle, f);
+        debug_state_.pause();   // ends a RUN_BACK_TO_CYCLE request; the caller was paused
         return UINT64_MAX;
     }
 
@@ -13488,12 +13512,14 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
     uint64_t reached = clock_.get();
     Log::emulator()->debug("rewind_to_cycle: reached cycle {} after {} replay frames",
                             reached, frames);
+    rewind_buffer_->unmark_from(reached);   // §4.2a: changes after the landing are undone
     return reached;
 }
 
 bool Emulator::step_back(int n)
 {
     if (n <= 0) n = 1;
+    rewind_crossing_frame_.reset();
     if (rzx_blocks_rewind("step_back")) return false;
 
     if (!rewind_buffer_ || rewind_buffer_->empty()) {
@@ -13537,6 +13563,13 @@ bool Emulator::step_back(int n)
     uint64_t target_cycle = trace_log_.at(target_idx).cycle;
 
     Log::emulator()->debug("step_back({}): target trace idx={} cycle={}", n, target_idx, target_cycle);
+
+    // §4.2a's rewind wall, checked BEFORE the trace is cleared: a refused step
+    // leaves the trace, the machine and the mutation untouched.
+    if (uint32_t f = 0; rewind_buffer_->replay_crosses_mutation(target_cycle, &f)) {
+        refuse_rewind_into_mutation_("step_back", target_cycle, f);
+        return false;
+    }
 
     // Clear the trace before rewind: entries above target_idx are stale "future" state.
     trace_log_.clear();
@@ -13597,6 +13630,7 @@ bool Emulator::rewind_to_frame(uint32_t target_frame_num)
         return false;
     }
     restored_frame_start_ = true;   // GH #278: sits on a counted frame start
+    rewind_buffer_->unmark_from(snap);   // §4.2a: changes after the landing are undone
 
     // Re-render so the main window framebuffer reflects the restored state.
     renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
