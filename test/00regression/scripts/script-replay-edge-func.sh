@@ -46,11 +46,11 @@ JDS
         fails+=("script: exit $rc $(grep -E 'ASSERT|STOP|SCRIPT ERROR' <<<"$out" | tail -n 1)")
     fi
     # 2. the recording, from a real window
-    skip=""
+    edge_skip_reason=""
     if [[ ! -x "$sdl_bin" ]]; then
         fails+=("SDL-only binary not built: $sdl_bin")
     elif ! command -v xvfb-run &>/dev/null || ! command -v xdotool &>/dev/null; then
-        skip="xvfb-run or xdotool not available"
+        edge_skip_reason="xvfb-run or xdotool not available"
     else
         # shellcheck disable=SC2016
         env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy LANG=C \
@@ -83,7 +83,7 @@ JDS
         rec_latch=$(grep -oE 'LATCH [0-9]+ at FRAME [0-9]+' "$dir/record.log" 2>/dev/null | head -n 1) || rec_latch=""
         press=$(grep -oE '^on frame [0-9]+ do press "q" end' "$dir/rec.jds" 2>/dev/null | head -n 1) || press=""
         if [[ -z "$press" ]]; then
-            skip="the X server delivered no Q to the window"
+            edge_skip_reason="the X server delivered no Q to the window"
         elif [[ -z "$rec_latch" ]]; then
             fails+=("recording: Q pressed but the program latched nothing")
         else
@@ -105,8 +105,8 @@ JDS
     fi
     if [[ ${#fails[@]} -gt 0 ]]; then
         fail_row " (${fails[*]})"
-    elif [[ -n "$skip" ]]; then
-        skip_row " (script half PASS; recording half: $skip)"
+    elif [[ -n "$edge_skip_reason" ]]; then
+        skip_row " (script half PASS; recording half: $edge_skip_reason)"
     else
         pass_row " (script: seen in frame 31; recorded: press at F-1 for $rec_latch, replayed identically, a frame late latches later)"
     fi
