@@ -156,6 +156,14 @@ The name after `@` can be any identifier, keywords included (`@start`).
 An accessor out of range is a run-time error, which switches the rule off:
 
 ```
-[debugger] [error] SCRIPT ERROR probe.jds:6:30: `mmu[]` slot 8 is outside 0..7 — rule at 6:1 disabled
-[debugger] [error] SCRIPT ERROR probe.jds:7:28: `phys[]` page 0x1FF cannot be read (invalid_page) — rule at 7:1 disabled
+on frame 51 do log "mmu[8]=${mmu[8]}" end
+on frame 52 do log "phys=${phys[0x1FF, 0]}" end
+on frame 60 do exit 0 end
+```
+
+```
+[debugger] [error] SCRIPT ERROR accessors.jds:1:30: `mmu[]` slot 8 is outside 0..7 — rule at 1:1 disabled
+[debugger] [error] SCRIPT ERROR accessors.jds:2:28: `phys[]` page 0x1FF cannot be read (invalid_page) — rule at 2:1 disabled
+[debugger] [error] SCRIPT: a run-time error disabled a rule; exiting 1
+[platform] [info] script requested exit 1
 ```

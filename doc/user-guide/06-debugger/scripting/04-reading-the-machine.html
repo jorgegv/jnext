@@ -3843,8 +3843,14 @@ and a constant is the label.</p>
 <p>The name after <code>@</code> can be any identifier, keywords included (<code>@start</code>).</p>
 <h2 id="reading-something-that-is-not-there">Reading something that is not there<a class="headerlink" href="#reading-something-that-is-not-there" title="Permanent link">&para;</a></h2>
 <p>An accessor out of range is a run-time error, which switches the rule off:</p>
-<pre><code>[debugger] [error] SCRIPT ERROR probe.jds:6:30: `mmu[]` slot 8 is outside 0..7 — rule at 6:1 disabled
-[debugger] [error] SCRIPT ERROR probe.jds:7:28: `phys[]` page 0x1FF cannot be read (invalid_page) — rule at 7:1 disabled
+<pre><code>on frame 51 do log &quot;mmu[8]=${mmu[8]}&quot; end
+on frame 52 do log &quot;phys=${phys[0x1FF, 0]}&quot; end
+on frame 60 do exit 0 end
+</code></pre>
+<pre><code>[debugger] [error] SCRIPT ERROR accessors.jds:1:30: `mmu[]` slot 8 is outside 0..7 — rule at 1:1 disabled
+[debugger] [error] SCRIPT ERROR accessors.jds:2:28: `phys[]` page 0x1FF cannot be read (invalid_page) — rule at 2:1 disabled
+[debugger] [error] SCRIPT: a run-time error disabled a rule; exiting 1
+[platform] [info] script requested exit 1
 </code></pre>
 
 

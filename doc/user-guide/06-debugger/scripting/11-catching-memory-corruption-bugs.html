@@ -3827,8 +3827,17 @@ checks</a> for <code>snap</code>, <code>changed()</code> and <code>dump_diff</co
 [debugger] [info] [jds F:564 C:319939512] PASS span_invariants: 64 frames of clean handler exits
 </code></pre>
 <p>The demo's handler can be made to break each invariant on its own, by a byte
-the script sets (<code>isr_fault</code>, 1 in the buggy build). Each fault is caught, and
-named:</p>
+<code>isr_fault</code>: 1 in the buggy build, and any other value set by a second script —
+as JNEXT's own test row does, on the buggy build:</p>
+<pre><code>on execute @main_loop once when mem16[@magic] == 0xD5D5 do
+    set mem[@isr_fault] = 2
+end
+</code></pre>
+<pre><code class="language-console">$ jnext --headless --machine next --load test/00regression/nex/dsl_demo_buggy.nex \
+      --map test/00regression/nex/dsl_demo.map --script test/scripts/dsl/span_invariants.jds \
+      --script fault2.jds --delayed-automatic-exit-frames 900
+</code></pre>
+<p>Each fault is caught, and named:</p>
 <p><strong>IY returned one higher</strong> (a register the handler did not save):</p>
 <pre><code>[debugger] [info] [jds F:502 C:284769133] Warning: registers differ on exit from isr
 [debugger] [info] [jds F:502 C:284769133] dump_diff isr: IY 5C3B -&gt; 5C3C
@@ -3837,21 +3846,21 @@ named:</p>
 [debugger] [warning] SCRIPT STOP: isr clobbered registers at PC=820B FRAME=502 CYCLE=284769133
 </code></pre>
 <p><strong>MMU slot 7 left on page 0x0F</strong>:</p>
-<pre><code>[debugger] [info] [jds F:502 C:284769143] dump_diff isr: MMU7 01 -&gt; 0F
-[debugger] [warning] SCRIPT STOP: isr changed an MMU slot at PC=820B FRAME=502 CYCLE=284769143
+<pre><code>[debugger] [info] [jds F:502 C:284769145] dump_diff isr: MMU7 01 -&gt; 0F
+[debugger] [warning] SCRIPT STOP: isr changed an MMU slot at PC=820B FRAME=502 CYCLE=284769145
 </code></pre>
 <p><strong>The return address rewritten</strong>:</p>
-<pre><code>[debugger] [info] [jds F:502 C:284769175] Warning: top of stack modified 8139 vs 8138
-[debugger] [warning] SCRIPT STOP: isr modified return address at PC=820B FRAME=502 CYCLE=284769175
+<pre><code>[debugger] [info] [jds F:502 C:284769177] Warning: top of stack modified 8139 vs 8138
+[debugger] [warning] SCRIPT STOP: isr modified return address at PC=820B FRAME=502 CYCLE=284769177
 </code></pre>
 <p><strong>A return without <code>EI</code></strong>:</p>
-<pre><code>[debugger] [warning] SCRIPT STOP: isr exit with interrupts disabled at PC=820B FRAME=502 CYCLE=284769119
+<pre><code>[debugger] [warning] SCRIPT STOP: isr exit with interrupts disabled at PC=820B FRAME=502 CYCLE=284769121
 </code></pre>
 <p><strong>One <code>PUSH</code> more than <code>POP</code>s</strong> (SP two bytes deeper):</p>
-<pre><code>[debugger] [info] [jds F:502 C:284769154] Warning: registers differ on exit from isr
-[debugger] [info] [jds F:502 C:284769154] dump_diff isr: SP BCFE -&gt; BCFC
+<pre><code>[debugger] [info] [jds F:502 C:284769156] Warning: registers differ on exit from isr
+[debugger] [info] [jds F:502 C:284769156] dump_diff isr: SP BCFE -&gt; BCFC
 …
-[debugger] [warning] SCRIPT STOP: isr clobbered registers at PC=820B FRAME=502 CYCLE=284769154
+[debugger] [warning] SCRIPT STOP: isr clobbered registers at PC=820B FRAME=502 CYCLE=284769156
 </code></pre>
 <p>The <code>IFF1 0 -&gt; 1</code> lines are expected in every <code>dump_diff</code>: interrupts are off on
 entry and on again at the exit. That is why the interrupt check is <code>not IFF1</code>

@@ -177,7 +177,6 @@ refuse a machine they cannot represent.
 
 ```
 [debugger] [info] SNAPSHOT "basic.szx" saved (49254 bytes)
-[debugger] [info] SNAPSHOT "basic.jns" saved (15098 bytes)
 ```
 
 Saving a `.sna` pushes the PC onto the guest stack, as the format requires; the
