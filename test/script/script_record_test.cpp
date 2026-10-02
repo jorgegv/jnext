@@ -160,7 +160,10 @@ struct Sink : jnext::dbg::Listener {
 };
 
 struct Rig {
-    Emulator                  emu;
+    // On the heap: an Emulator is ~1.2 MB, and Clang inlines several rows'
+    // Rigs into one frame, which overflowed the 8 MB stack (GH #294).
+    std::unique_ptr<Emulator> emu_heap = std::make_unique<Emulator>();
+    Emulator&                 emu      = *emu_heap;
     std::unique_ptr<Debugger> dbg;
     Sink                      sink;
     ClientId                  tc = jnext::dbg::CLIENT_NONE;
