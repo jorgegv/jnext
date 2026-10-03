@@ -11,14 +11,29 @@
 # rebuild then reads that profile (cmake/JnextPgo.cmake).
 #
 # NOT the regression suite: profiles saturate quickly (GH #294 measured +17-20%
-# on titles an 8-workload profile never saw). The set is the GH #294 one —
-# the `make bench` workloads at half their frames plus parallax and
-# trainyard-express — plus the paths those miss: the DMA copying memory to
-# memory and reading a port into memory (the games only write memory to a
-# port), a 128K machine driving the AY, a game with AY music, a real-time tape
-# load, the Next's MOD player (NXModPlayer: Paula emulation on the DACs, one
-# CTC interrupt per sample), and a short GUI run on Qt's offscreen platform so
-# the frontend's paint/scale path is profiled too. Every run pins --rtc.
+# on titles an 8-workload profile never saw), so the set is BROAD, not big:
+# the `make bench` workloads, the games parallax, trainyard-express and
+# beanbros (AY music), a 128K machine driving the AY, a real-time tape load,
+# one program per video mode (Layer 2 256/320/640, LoRes, tilemaps, sprites
+# and scaling, the 512-colour palette, stencil), demo/dma_all (every zxnDMA
+# feature, self-checking), the Next's MOD player (NXModPlayer: Paula emulation
+# on the DACs, one CTC interrupt per sample), and a short GUI run on Qt's
+# offscreen platform so the frontend's paint/scale path is profiled too. Every
+# run pins --rtc.
+#
+# BALANCED: a run's weight in the profile is its total execution count, and in
+# LTO mode gcc calls a block hot only if it is part of the most-executed 99% of
+# ALL counts (--param hot-bb-count-ws-permille=990). One heavy run would push
+# the others' hot code out of that set, so every run's length is chosen for
+# about the same total count (JNEXT_PGO_REPORT_WEIGHTS=1 below measures them;
+# re-measure after adding or changing a run). The MOD player's navigation
+# through NextZXOS is therefore NOT profiled — it would outweigh five other
+# runs — only 150 frames of play from a snapshot taken at frame 900.
+#
+# HELD OUT, never trained, so they measure how well the profile generalises:
+# santaspressie, celeste, celeste2, odemo, test02layer2, shift, nirvana. A new
+# training run is accepted only if every held-out title stays within retrain
+# noise of the previous PGO build or gets faster (developer guide 5.5).
 #
 # Fixtures come from the repository, except the MOD player and its MOD, which
 # come from the SD image the training already needs (the distribution's
@@ -46,6 +61,10 @@
 #                     tools/pgo-build.sh sets it for the package trees.
 #   JNEXT_PGO_NO_GUI  =1 skips the Qt-offscreen GUI run; the build is then
 #                     byte-reproducible (see REPRODUCIBILITY below).
+#   JNEXT_PGO_REPORT_WEIGHTS  =1 (gcc only; needs gcov-dump next to the
+#                     compiler): profile every run into its own directory,
+#                     print each run's total count, and stop WITHOUT a usable
+#                     profile — the tool for keeping the set balanced.
 #
 # Portable to macOS's bash 3.2 and BSD userland (no GNU timeout, flock,
 # setarch, sha256sum or stat -c there): every such tool has a fallback.
@@ -95,30 +114,46 @@ RTC="2026-07-10T08:55:00"
 
 # name|machine|frames|extra args (word-split)|fixture files (for the fingerprint)
 WORKLOADS=(
-    "boot-48k|48k|300||"
-    "boot-nextzxos|next|200||"
-    "copper-demo|next|200|--load $NEX/copper_demo.nex|$NEX/copper_demo.nex"
-    "beast|next|200|--load $NEX/beast.nex|$NEX/beast.nex"
-    "bifrost|48k|300|--load $TAP/bifrost.tap|$TAP/bifrost.tap"
-    "parallax|next|200|--load $NEX/parallax.nex|$NEX/parallax.nex"
-    "trainyard|next|200|--load $NEX/trainyard-express.nex --esxdos-stub|$NEX/trainyard-express.nex"
-    "dma-48k|48k|150|--inject test/00regression/bin/rzx_dma_demo.bin --delayed-keypress-frames 20 space|test/00regression/bin/rzx_dma_demo.bin"
-    "dma-loop|48k|150|--inject test/00regression/bin/dmaloop.bin|test/00regression/bin/dmaloop.bin"
-    "ay-128k|128k|340|--inject test/00regression/bin/ay_envelope_sweep.bin --inject-org 8000 --inject-pc 8000 --inject-delay 100|test/00regression/bin/ay_envelope_sweep.bin"
-    "beanbros-ay|next|250|--load $NEX/beanbros.nex --esxdos-stub --delayed-keypress-frames 50 ENTER --delayed-keypress-frames 100 ENTER --delayed-keypress-frames 150 ENTER|$NEX/beanbros.nex"
-    "tape-realtime|48k|1300|--load $TAP/beeper_demo.tap --tape-realtime|$TAP/beeper_demo.tap"
+    "boot-48k|48k|500||"
+    "boot-nextzxos|next|250||"
+    "copper-demo|next|115|--load $NEX/copper_demo.nex|$NEX/copper_demo.nex"
+    "beast|next|130|--load $NEX/beast.nex|$NEX/beast.nex"
+    "bifrost|48k|500|--load $TAP/bifrost.tap|$TAP/bifrost.tap"
+    "parallax|next|170|--load $NEX/parallax.nex|$NEX/parallax.nex"
+    "trainyard|next|170|--load $NEX/trainyard-express.nex --esxdos-stub|$NEX/trainyard-express.nex"
+    "ay-128k|128k|485|--inject test/00regression/bin/ay_envelope_sweep.bin --inject-org 8000 --inject-pc 8000 --inject-delay 100|test/00regression/bin/ay_envelope_sweep.bin"
+    "beanbros-ay|next|185|--load $NEX/beanbros.nex --esxdos-stub --delayed-keypress-frames 50 ENTER --delayed-keypress-frames 100 ENTER --delayed-keypress-frames 150 ENTER|$NEX/beanbros.nex"
+    "tape-realtime|48k|460|--load $TAP/beeper_demo.tap --tape-realtime|$TAP/beeper_demo.tap"
+    "layer2-320|next|120|--load $NEX/layer2_320x256_test.nex|$NEX/layer2_320x256_test.nex"
+    "layer2-640|next|125|--load $NEX/layer2_640x256_test.nex|$NEX/layer2_640x256_test.nex"
+    "lores|next|120|--load $NEX/lores_demo.nex|$NEX/lores_demo.nex"
+    "tilemap|next|115|--load $NEX/tilemap_demo.nex|$NEX/tilemap_demo.nex"
+    "sprite-scale|next|120|--load $NEX/sprite_scaling_test.nex|$NEX/sprite_scaling_test.nex"
+    "show512|next|175|--load $NEX/show512.nex|$NEX/show512.nex"
+    "stencil|next|120|--load $NEX/stencil_test.nex|$NEX/stencil_test.nex"
+    "palette|next|125|--load $NEX/palette_demo.nex|$NEX/palette_demo.nex"
+    "tilemapper|next|190|--load $NEX/test10tilemapper.nex --delayed-keypress-frames 100 0|$NEX/test10tilemapper.nex"
+    "dapr-tilemap|next|190|--load $NEX/test04tilemap.nex --delayed-keypress-frames 100 1|$NEX/test04tilemap.nex"
+    "dapr-sprite|next|200|--load $NEX/test03sprite.nex|$NEX/test03sprite.nex"
 )
+# demo/dma_all: every zxnDMA feature, each pass checked by the program itself;
+# its signature is in RAM only after a fully checked pass (the proof below).
+DMA_ALL=test/00regression/bin/dma_all.bin
+DMA_FRAMES=165
+DMA_PROOF="DMA-ALL-OK!!"
 GUI_FRAMES=150
 GUI_ARGS=(--machine next --load "$NEX/parallax.nex")
 
 # The MOD player, launched as a user launches it: the NextZXOS Browser down to
 # /apps/audio/NXModPlayer/nxmodplayer.nex, then the player's own Mod Browser to
-# mods/Jarresque.mod, then 4 s of play. Every key is pressed at a fixed frame
-# (frame, key pairs below; the cursor positions are those of the 24.11 image),
-# so the run is as deterministic as the others. A key pressed at a fixed frame
-# cannot tell whether the guest acted on it, so the run also saves a snapshot
-# one frame before its exit, and the training FAILS unless the MOD's own text
-# is in that RAM: a changed image or a slower boot must not quietly leave the
+# mods/Jarresque.mod. Every key is pressed at a fixed frame (frame, key pairs
+# below; the cursor positions are those of the 24.11 image), so the run is as
+# deterministic as the others. That navigation runs UNPROFILED (see BALANCED)
+# and saves a .jns at frame 900, with the MOD playing; the profiled run then
+# plays MOD_PLAY frames from it. A key pressed at a fixed frame cannot tell
+# whether the guest acted on it, so the profiled run also saves a snapshot one
+# frame before its exit, and the training FAILS unless the MOD's own text is
+# in that RAM: a changed image or a slower boot must not quietly leave the
 # player out of the profile.
 MOD_KEYS=(
     400 space  430 enter                             # welcome, menu: Browser at C:/ on APPS
@@ -128,7 +163,8 @@ MOD_KEYS=(
     760 down  775 enter                              # Mod Browser: .. MODS
     800 down  815 down  830 down  845 enter          # .. AWESOME5 DUNE_ECOLOVE JARRESQUE: play
 )
-MOD_FRAMES=1045
+MOD_SNAP_FRAME=900
+MOD_PLAY=150
 MOD_PROOF="by hollywood/lunatics"   # the MOD's second sample name (Jarresque.mod offset 20)
 
 # --- Fingerprint: everything that decides what training would produce -------
@@ -142,13 +178,14 @@ fingerprint() {
         grep -E '^(CMAKE_BUILD_TYPE|CMAKE_[A-Z_]*FLAGS[A-Z_]*|CMAKE_C_COMPILER|CMAKE_CXX_COMPILER|JNEXT_[A-Z_]*|ENABLE_[A-Z_]*):' \
             "$TREE/CMakeCache.txt" | sort
         echo "script $(sha256 < "${BASH_SOURCE[0]}")"
-        echo "runner ${RUNNER[*]:-native} gui=${JNEXT_PGO_NO_GUI:-0}"
+        echo "runner ${RUNNER[*]:-native} gui=${JNEXT_PGO_NO_GUI:-0} weights=${JNEXT_PGO_REPORT_WEIGHTS:-0}"
         local spec files f
         for spec in "${WORKLOADS[@]}"; do
             IFS='|' read -r _ _ _ _ files <<< "$spec"
             for f in $files; do echo "input $f $(sha256 < "$PROJECT_DIR/$f")"; done
         done
         echo "input gui $(sha256 < "$PROJECT_DIR/$NEX/parallax.nex")"
+        echo "input dma-all $(sha256 < "$PROJECT_DIR/$DMA_ALL")"
         echo "sd $(ls -ln "$SD_MASTER" 2>/dev/null | awk '{print $5, $6, $7, $8}')"
     } | sha256 | cut -d' ' -f1
 }
@@ -223,11 +260,23 @@ fi
 find "$PROFILE_DIR" -mindepth 1 -delete
 t0=$(now)
 
+# JNEXT_PGO_REPORT_WEIGHTS: each run's profile goes to its own directory
+# (GCOV_PREFIX + GCOV_PREFIX_STRIP replace the baked profile directory).
+WEIGHTS=()
+if [[ "${JNEXT_PGO_REPORT_WEIGHTS:-0}" == 1 ]]; then
+    [[ $CLANG -eq 0 ]] || die "JNEXT_PGO_REPORT_WEIGHTS is gcc-only"
+    GCOV_DUMP="${COMPILER%[gc]++}gcov-dump"
+    command -v "$GCOV_DUMP" >/dev/null 2>&1 || die "no $GCOV_DUMP for JNEXT_PGO_REPORT_WEIGHTS"
+    STRIP=$(awk -F/ '{print NF-1}' <<< "$PROFILE_DIR")
+fi
 run() {   # run <name> <timeout s> <jnext args...>
     local name=$1 limit=$2 rc=0 t
     shift 2
     t=$(now)
-    bounded "$limit" "${RUN_ENV[@]}" ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"} ${NORAND[@]+"${NORAND[@]}"} \
+    WEIGHTS=()
+    [[ "${JNEXT_PGO_REPORT_WEIGHTS:-0}" == 1 && " ${EXTRA_ENV[*]:-} " != *" GCOV_PREFIX="* ]] &&
+        WEIGHTS=("GCOV_PREFIX=$RUN_DIR/w/$name" "GCOV_PREFIX_STRIP=$STRIP")
+    bounded "$limit" "${RUN_ENV[@]}" ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"} ${WEIGHTS[@]+"${WEIGHTS[@]}"} ${NORAND[@]+"${NORAND[@]}"} \
         ${RUNNER[@]+"${RUNNER[@]}"} "$BIN" --rtc "$RTC" --log-level off --sdcard "$SD" "$@" \
         >"$RUN_DIR/$name.log" 2>&1 || rc=$?
     if [[ $rc -ne 0 ]]; then
@@ -237,8 +286,14 @@ run() {   # run <name> <timeout s> <jnext args...>
     printf 'pgo-train:   %-14s %6.1f s\n' "$name" "$(elapsed "$t")"
 }
 
-EXTRA_ENV=()
 echo "pgo-train: training $BIN -> $PROFILE_DIR"
+# Unprofiled warm-up: the first NEX loaded on a Next records jnext's warm-start
+# cache (a 500-frame NextZXOS cold boot, once per SD image) into this run's
+# config directory. Profiled, that one-off boot would land on whichever run
+# came first and outweigh it several times over.
+EXTRA_ENV=("GCOV_PREFIX=$RUN_DIR/unprofiled" "LLVM_PROFILE_FILE=$RUN_DIR/unprofiled/%p.profraw")
+run warm-start 300 --headless --machine next --load "$NEX/copper_demo.nex" --delayed-automatic-exit-frames 1
+EXTRA_ENV=()
 for spec in "${WORKLOADS[@]}"; do
     IFS='|' read -r name machine frames extra _ <<< "$spec"
     extra_args=()
@@ -246,20 +301,46 @@ for spec in "${WORKLOADS[@]}"; do
     run "$name" 300 --headless --machine "$machine" ${extra_args[@]+"${extra_args[@]}"} \
         --delayed-automatic-exit-frames "$frames"
 done
+# dma_all, then its proof: the signature only a fully checked pass writes.
+run dma-all 300 --headless --machine 48k --inject "$DMA_ALL" \
+    --delayed-snapshot "$RUN_DIR/dma-all.sna" --delayed-snapshot-frames $((DMA_FRAMES - 1)) \
+    --delayed-automatic-exit-frames "$DMA_FRAMES"
+grep -a -q "$DMA_PROOF" "$RUN_DIR/dma-all.sna" ||
+    die "training run 'dma-all' did not complete a checked pass (no \"$DMA_PROOF\" in its RAM at frame $((DMA_FRAMES - 1))): a zxnDMA result no longer matches what the program expects (demo/dma_all/dma_all.asm; FAILID at \$9F02 names the step)"
+
+# The MOD player: navigation unprofiled (its counts go to a scratch directory),
+# then MOD_PLAY profiled frames of play from the snapshot it leaves.
 mod_args=()
 for (( i = 0; i < ${#MOD_KEYS[@]}; i += 2 )); do
     mod_args+=(--delayed-keypress-frames "${MOD_KEYS[i]}" "${MOD_KEYS[i+1]}")
 done
-run modplayer 300 --headless --machine next "${mod_args[@]}" \
-    --delayed-snapshot "$RUN_DIR/modplayer.nex" --delayed-snapshot-frames $((MOD_FRAMES - 1)) \
-    --delayed-automatic-exit-frames "$MOD_FRAMES"
+EXTRA_ENV=("GCOV_PREFIX=$RUN_DIR/unprofiled" "LLVM_PROFILE_FILE=$RUN_DIR/unprofiled/%p.profraw")
+run modplayer-nav 300 --headless --machine next "${mod_args[@]}" \
+    --delayed-snapshot "$RUN_DIR/modplayer.jns" --delayed-snapshot-frames "$MOD_SNAP_FRAME" \
+    --delayed-automatic-exit-frames $((MOD_SNAP_FRAME + 1))
+EXTRA_ENV=()
+run modplayer 300 --headless --load "$RUN_DIR/modplayer.jns" \
+    --delayed-snapshot "$RUN_DIR/modplayer.nex" --delayed-snapshot-frames $((MOD_PLAY - 1)) \
+    --delayed-automatic-exit-frames "$MOD_PLAY"
 grep -a -q "$MOD_PROOF" "$RUN_DIR/modplayer.nex" ||
-    die "training run 'modplayer' never loaded the MOD (no \"$MOD_PROOF\" in its RAM at frame $((MOD_FRAMES - 1))): the key sequence no longer reaches NXModPlayer's Jarresque.mod in this SD image"
+    die "training run 'modplayer' never loaded the MOD (no \"$MOD_PROOF\" in its RAM): the key sequence no longer reaches NXModPlayer's Jarresque.mod in this SD image"
 if [[ "${JNEXT_PGO_NO_GUI:-0}" != 1 ]]; then
     # 100% speed, real pacing, sound on through SDL's dummy driver, so the
     # GUI's frame, paint and audio paths run as a user would run them.
     EXTRA_ENV=(QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy)
     run gui-offscreen 120 "${GUI_ARGS[@]}" --delayed-automatic-exit-frames "$GUI_FRAMES"
+fi
+
+if [[ "${JNEXT_PGO_REPORT_WEIGHTS:-0}" == 1 ]]; then
+    # Each run's total count: the sum of all its arc counters.
+    echo "pgo-train: total count per run (the weight it has in the profile):"
+    for d in "$RUN_DIR"/w/*/; do
+        printf '  %-15s %s\n' "$(basename "$d")" "$(for f in "$d"*.gcda; do "$GCOV_DUMP" -l "$f"; done |
+            awk '/COUNTERS /{arcs = ($0 ~ / arcs /); next}
+                 arcs && /:[ ]+[0-9]+: / {sub(/.*:[ ]+[0-9]+: /, ""); for (i = 1; i <= NF; i++) t += $i}
+                 END {printf "%.0f", t}')"
+    done
+    die "JNEXT_PGO_REPORT_WEIGHTS=1: report only, no profile was written"
 fi
 
 if [[ $CLANG -eq 1 ]]; then
