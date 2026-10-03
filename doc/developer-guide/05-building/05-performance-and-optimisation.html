@@ -2120,6 +2120,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#why-pgo-trades-between-code-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why PGO trades between code paths
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#keeping-the-training-fair" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keeping the training fair
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#partial-training" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2495,8 +2517,7 @@ own tree, and needs no SD image.</p>
 <p>A profile saturates quickly. GH #294 measured that a profile trained on eight
 workloads made four titles it had never seen 17–20% faster, against 17–45% on
 the ones it had seen. So the training set exists to reach every kind of hot
-path, once, rather than to run a lot of anything. Adding a long run of a path
-that is already trained costs build time and buys nothing.</p>
+path, once, rather than to run a lot of anything.</p>
 <p><code>tools/pgo-train.sh</code> runs, headless and with the RTC pinned:</p>
 <table>
 <thead>
@@ -2508,31 +2529,31 @@ that is already trained costs build time and buys nothing.</p>
 <tbody>
 <tr>
 <td>boot-48k, boot-nextzxos, copper-demo, beast, bifrost</td>
-<td>the <code>make bench</code> workloads, at half their frames</td>
+<td>the <code>make bench</code> workloads</td>
 </tr>
 <tr>
-<td>parallax, trainyard-express</td>
-<td>two more Next games; both use the DMA, from memory to the sprite ports</td>
-</tr>
-<tr>
-<td><code>rzx_dma_demo.bin</code> (48K)</td>
-<td>the DMA reading a port into memory</td>
-</tr>
-<tr>
-<td><code>dmaloop.bin</code> (48K)</td>
-<td>the DMA copying memory to memory, back to back at 28 MHz — GH #294's workload</td>
+<td>parallax, trainyard-express, beanbros</td>
+<td>three Next games; the first two upload sprites by DMA, beanbros plays AY music</td>
 </tr>
 <tr>
 <td><code>ay_envelope_sweep.bin</code> (128K)</td>
 <td>a 128K machine driving the AY</td>
 </tr>
 <tr>
-<td>beanbros</td>
-<td>a Next game with AY music</td>
-</tr>
-<tr>
 <td><code>beeper_demo.tap</code></td>
 <td>a real-time tape load: the EAR input, edge by edge</td>
+</tr>
+<tr>
+<td>Layer 2 320×256 and 640×256, LoRes, tilemap, sprite scaling, 512 colours, stencil, palette</td>
+<td>one program per video mode (<code>test/00regression/nex/</code>)</td>
+</tr>
+<tr>
+<td>test10tilemapper, test04tilemap, test03sprite</td>
+<td>three of the dapr test programs</td>
+</tr>
+<tr>
+<td><code>dma_all.bin</code> (48K, <code>demo/dma_all</code>)</td>
+<td>every zxnDMA feature, each pass checked by the program itself — see below</td>
 </tr>
 <tr>
 <td>NXModPlayer</td>
@@ -2544,6 +2565,15 @@ that is already trained costs build time and buys nothing.</p>
 </tr>
 </tbody>
 </table>
+<p><code>demo/dma_all</code> drives the DMA through both ports (ZXN <code>0x6B</code> and Z80-DMA
+<code>0x0B</code>), all three directions (memory to memory, memory to port, port to
+memory), A to B and B to A, incrementing, decrementing and fixed addresses on
+both sides, continuous, burst and byte mode, a prescaled burst to the SpecDrum
+DAC with auto-restart, CONTINUE, the timing bytes and the R6 commands, and it
+reads the status, the counter and the addresses back. It compares every
+result with what <code>dma.vhd</code> says, and writes its signature to RAM only after a
+pass in which everything matched. DMA interrupts are not covered: <code>dma.vhd</code>
+does not implement them.</p>
 <p>Every fixture is in the repository except the MOD player. That one, and its MOD,
 are on the SD image the training already needs (<code>/apps/audio/NXModPlayer</code> in
 the 24.11 distribution), so nothing of the distribution is copied into the
@@ -2551,16 +2581,82 @@ repository. jnext has no way to pull a file out of the image from the command
 line, and the player browses its MODs through NextZXOS anyway, so the run
 launches it the way a user would: NextZXOS's Browser down to the <code>.nex</code>, then
 the player's own Mod Browser to <code>mods/Jarresque.mod</code>, every key at a fixed
-frame, then four seconds of play.</p>
-<p>A key pressed at a fixed frame cannot tell whether the guest acted on it. So the
-run also saves a snapshot one frame before its exit, and the training <strong>fails</strong>
-unless the MOD's own text is in that RAM. A changed image or a slower boot
-cannot quietly leave the player out of the profile.</p>
-<p>The titles the GH #294 and GH #297 measurements used as <em>untrained</em> — celeste,
-santaspressie, odemo, test02layer2 — are kept out of the set on purpose, so that
-they keep measuring how well the profile generalises. GH #297's fifth untrained
-title, the DMA copy loop, is trained now, so its numbers are no longer
-comparable with GH #297's.</p>
+frame. That navigation is not profiled (see below); it saves a snapshot with
+the MOD playing, and the profiled run plays 150 frames from it.</p>
+<p>A key pressed at a fixed frame cannot tell whether the guest acted on it, and
+a DMA program that stopped working would still run. So both of those runs save
+a snapshot one frame before they exit, and the training <strong>fails</strong> unless the
+MOD's own text, or <code>dma_all</code>'s signature, is in that RAM.</p>
+<p>Seven titles are <strong>held out</strong>, never trained, so that they measure how well
+the profile generalises: santaspressie, celeste, celeste2, odemo,
+test02layer2, shift and nirvana. They are listed in the script's header.</p>
+<h3 id="why-pgo-trades-between-code-paths">Why PGO trades between code paths<a class="headerlink" href="#why-pgo-trades-between-code-paths" title="Permanent link">&para;</a></h3>
+<p>Without a profile, <code>-O3</code> guesses: gcc estimates branch probabilities and block
+frequencies from static heuristics (<code>-fguess-branch-probability</code>) and spreads
+its effort over the code by those estimates. <code>-fprofile-use</code> replaces the
+guesses with measured counts, and turns on the optimisations that need them
+(gcc's documentation lists, among others, <code>-fbranch-probabilities</code>,
+<code>-fprofile-values</code>, <code>-funroll-loops</code>, <code>-fpeel-loops</code>, <code>-ftracer</code> and
+<code>-fvpt</code>). That is where PGO's gain comes from.</p>
+<p>Several of the decisions it then makes spend a limited room:</p>
+<ul>
+<li><strong>inlining</strong> grows the code, and gcc caps the growth (<code>--param
+  inline-unit-growth</code>, <code>large-function-growth</code>); the room goes to the call
+  sites the profile calls hot;</li>
+<li><strong>code layout</strong>: each branch's likely path is made the fall-through, and
+  functions and blocks are split into hot and cold sections
+  (<code>-freorder-blocks-and-partition</code>, <code>-freorder-functions</code>), which keeps the
+  hot code dense in the instruction cache.</li>
+</ul>
+<p>"Hot" is relative to the whole profile. With LTO, which every release build
+here uses except the Flatpak, a block is hot if it belongs to the most-executed
+99% of all the counts in the profile (<code>--param hot-bb-count-ws-permille</code>,
+default 990). Without LTO the test is relative to the largest single count
+(<code>--param hot-bb-count-fraction</code>, default 10000).</p>
+<p>So code that ran a lot in training gets that room, and code that ran only a
+little falls outside the hot set and loses the treatment hot code gets: its
+call sites get less of the inlining room, and its blocks are not laid out and
+optimised as hot ones. A program that uses that code heavily can then run
+slower than it would under a better-balanced profile. An earlier, unbalanced version of this training set did exactly that
+to santaspressie, which is never trained: <strong>2.3–2.7% slower</strong> than the
+previous PGO build, in two retrains — though still about 9% faster than the
+build without PGO. Which title pays depends on the mix: cutting 100 frames from
+two runs moved the loss from test02layer2 (+2.3–2.8%) to santaspressie.</p>
+<p>Code that the training never reaches at all is a different case: with
+<code>-fprofile-partial-training</code> it is compiled as it would be without a profile
+(next section).</p>
+<h3 id="keeping-the-training-fair">Keeping the training fair<a class="headerlink" href="#keeping-the-training-fair" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Every run carries the same weight.</strong> A run's weight in the merged profile
+  is its total count, and the hot set is a share of the total, so one heavy run
+  pushes the others' hot code out of it. Each run's length is therefore chosen
+  so that its total is about 3 G counts (measured on v1.0.76: every run
+  between 2.75 and 3.11 G). <code>JNEXT_PGO_REPORT_WEIGHTS=1 tools/pgo-train.sh
+  &lt;instrumented jnext&gt; &lt;profile dir&gt;</code> profiles each run into its own directory
+  (<code>GCOV_PREFIX</code>), prints each run's total, and stops without writing a
+  profile. It is gcc-only and needs <code>gcov-dump</code> beside the compiler.</li>
+<li><strong>One-off work is not profiled.</strong> The MOD player's navigation through
+  NextZXOS (16 G counts, more than five other runs together) and jnext's
+  warm-start boot (the first NEX loaded on a Next records a 500-frame NextZXOS
+  cold boot, once per SD image) run with their profile redirected into a
+  scratch directory (<code>GCOV_PREFIX</code>; <code>LLVM_PROFILE_FILE</code> for clang).</li>
+<li><strong>Weighting by run length, not by tool.</strong> gcc's own tool for this,
+  <code>gcov-tool merge -w</code> (and <code>gcov-tool rewrite -n/-s</code> to normalise), does not
+  work on jnext's profiles with gcc 16: rewriting and any merge weight above 1
+  crash on the value-profile counters, and weights of 1 or less are ignored.
+  Run length works the same with every toolchain the build uses: native gcc,
+  MinGW under wine, the Flatpak SDK's gcc and macOS clang.</li>
+<li><strong>Broad, real software</strong>, as in the table above, and <strong>a held-out set</strong> that
+  is never trained.</li>
+<li><strong>The acceptance rule.</strong> A change to the training set is accepted only if,
+  measured with at least two retrains on each side against the current shipped
+  PGO build, every held-out title is within retrain noise (the spread between
+  the shipped build's own retrains) or faster, and every title is faster than
+  the build without PGO.</li>
+</ul>
+<p><strong>When you add a training workload,</strong> size it to the same total with
+<code>JNEXT_PGO_REPORT_WEIGHTS=1</code>, then re-measure the held-out set against the
+shipped PGO build with the method in <a href="#measuring-a-change">Measuring a change</a>.</p>
 <h3 id="partial-training">Partial training<a class="headerlink" href="#partial-training" title="Permanent link">&para;</a></h3>
 <p><code>-fprofile-partial-training</code> matters as much as the profile. Without it, gcc
 optimises code the training never reached <em>for size</em>, as cold code, and the
@@ -2580,8 +2676,9 @@ only the trained paths get the profile's benefit.</p>
   <code>cmake/JnextPgo.cmake</code> reads it to exempt exactly those members. The map
   decides, not the presence of a <code>.gcda</code>, so a naming mismatch still fails
   every unit <code>jnext</code> links;</li>
-<li>every training run must exit 0, the MOD run must prove the MOD loaded, and a
-  training that writes no profile at all fails;</li>
+<li>every training run must exit 0, the MOD run must prove the MOD loaded and
+  <code>dma_all</code> that a fully checked pass completed, and a training that writes no
+  profile at all fails;</li>
 <li>with no SD image and no way to provision one, the training fails and says
   which non-PGO target to use instead. No platform falls back to a non-PGO
   binary on its own.</li>
@@ -2757,13 +2854,18 @@ detail lives in the documents named.</p>
   RelWithDebInfo + PGO build it replaced; LTO alone already matched or beat the
   old PGO build, and PGO adds 7–31% on top of LTO, where it had added only
   2–8% without it. Wine is not Windows, so these are indicative.</li>
-<li><strong>The MOD player and memory-to-memory DMA in the training set (GH #297
-  follow-up).</strong> Training went from about 28 s to about 38 s: 9 s for the MOD
-  player run, 1 s for the DMA copy loop. Against the v1.0.74 PGO build, ten
-  interleaved rounds: the MOD player playing <strong>+7%</strong> fps and the DMA copy loop
-  <strong>+22%</strong>, while boot-48k, beast, celeste and santaspressie moved by less than
-  1% either way — the size of the difference between two retrains. Against the
-  build without PGO, the MOD player is now +21% where it was +13%.</li>
+<li><strong>The balanced, broad training set (GH #297 follow-up, measured on
+  v1.0.76).</strong> Against the shipped v1.0.76 PGO build, with two retrains on each
+  side and the minimum cycles of five interleaved rounds: santaspressie -2.2 to
+  -2.4% (-3.5% over 1200 frames), celeste -0.9 to -1.0%, celeste2 -0.7 to
+  -0.8%, shift -1.1%, nirvana -0.6 to 0.0%, test02layer2 -0.1% (+0.3% over 1200
+  frames) and odemo +0.1 to +0.2%. The last two are within the shipped build's
+  own retrain spread on those titles: 0.5% and 0.8%. The MOD player plays 4.7
+  to 4.9% faster. The build without PGO needs 15 to 41% more cycles than the
+  new one on every title, trained or not. Training takes about a minute,
+  where it took about 30 s. Before the balancing, the same additions made
+  santaspressie or test02layer2 2.3 to 2.8% slower, depending on the run
+  lengths.</li>
 </ul>
 
 

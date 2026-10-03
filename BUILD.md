@@ -72,11 +72,17 @@ optimisation** ([GH #297](https://github.com/jorgegv/jnext/issues/297)), in
 three steps:
 
 1. an **instrumented** jnext in `build/gui-release-pgo-gen`;
-2. a short **training** run of it (`tools/pgo-train.sh`, under a minute:
-   a few demos and games headless, DMA programs, a real-time tape load, the
-   Next's MOD player launched from NextZXOS, and a few seconds of the GUI on
-   Qt's offscreen platform), which writes the profile into
-   `build/gui-release-pgo-profile`;
+2. a short **training** run of it (`tools/pgo-train.sh`, about a minute:
+   games, demos and one program per video mode headless, a program that
+   exercises every DMA feature, a real-time tape load, the Next's MOD player
+   launched from NextZXOS, and a few seconds of the GUI on Qt's offscreen
+   platform, each run sized to the same weight in the profile), which writes
+   the profile into `build/gui-release-pgo-profile`. On the titles it never
+   trains on, measured against the v1.0.76 PGO build: santaspressie 2.2-3.5%
+   faster, celeste, celeste2 and shift 0.7-1.1% faster, nirvana 0-0.6% faster,
+   odemo +0.1-0.2% and test02layer2 -0.1/+0.3% (both within the old build's
+   own retrain spread); the build without PGO needs 15-41% more cycles than it
+   on every title (developer guide, 5.5);
 3. the **optimised** build in `build/gui-release`, compiled with that profile.
 
 Training needs the **NextZXOS SD image**, because the machines' ROMs come from
