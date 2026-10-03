@@ -82,12 +82,15 @@ uses it): its speed does not move when a PGO profile is retrained. To ask how
 fast the shipped binary is, use `build/gui-release/jnext`, the PGO build
 (`make bench BENCH_BUILD=gui-release`). When you do need to profile a release
 binary, use `perf record --call-graph dwarf`.
+[5.5](05-performance-and-optimisation.md#measuring-a-change) describes how to
+measure a change.
 
 LTO is enabled for **Release only**, through
 `CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE`, and it is guarded by
 `check_ipo_supported()` so that a toolchain without working LTO simply builds as
 it did before. It earns its keep here because the emulator is split into
-fourteen per-subsystem static libraries, and that split makes every hot
+per-subsystem static libraries — seventeen in the shipped build with the Qt
+GUI and the debugger, fifteen in the SDL-only one — and that split makes every hot
 cross-library call — the CPU into `Mmu::read`, the CPU into `PortDispatch` —
 un-inlinable at compile time.
 
@@ -104,45 +107,16 @@ RelWithDebInfo, and shipped without LTO.
 ## Profile-guided optimisation
 
 `make gui-release` — and every package, see
-[5.3](03-packaging-and-release.md) — is a gcc **PGO** build (GH #297). Measured
-headless on the development host, it runs 13–22% faster than the same build
-without PGO on titles the training never saw, and 15–31% on the ones it did.
-`cmake/JnextPgo.cmake` adds the flags under the CMake option `JNEXT_PGO`
-(`GENERATE` or `USE`, with the profile in `JNEXT_PGO_DIR`), and the build runs
-in three trees:
-
-1. `build/gui-release-pgo-gen`, instrumented with `-fprofile-generate`;
-2. `tools/pgo-train.sh`, about half a minute of training with that binary — the
-   `make bench` workloads plus parallax, trainyard-express, a 128K machine
-   driving the AY, a game with AY music, a real-time tape load and a few
-   seconds of the GUI on Qt's offscreen platform — which writes one `.gcda` per
-   translation unit into `build/gui-release-pgo-profile`;
-3. `build/gui-release`, compiled with `-fprofile-use -fprofile-partial-training`
-   (code the training never reaches is optimised normally, not for size).
-
-The flags go only on the sources of `jnext` and of the in-tree libraries it
-links, never on generated code (Qt's moc output: gcc's profile checksum
-includes the file's path, which differs between the two trees) and never on
-other executables. **A profile problem fails the build**: a mismatched profile
-is already an error in gcc, and a missing one is made an error for every
-library member the instrumented link actually pulled in — the link map of the
-instrumented build, filed with the profile, says which members those are, so
-the SDL frontend in a Qt build, say, is not asked for a profile it can never
-have.
-
-Training is skipped when nothing that decides the profile changed: the
-instrumented binary (which changes with any source or flag), the compiler, the
-training script and its inputs. The training needs the NextZXOS SD image,
-because the ROMs come from it, and provisions it through jnext's own download
-when it is missing. A retrain forces a clean rebuild of `build/gui-release`;
-ccache cannot help there, because it does not find gcc's mangled `.gcda` names
-and treats every `-fprofile-use` compile as uncacheable — safe, never stale,
-never a hit.
-
-The headless training is **byte-reproducible**: with address-space
-randomisation off, one fixed minimal environment and logging off, two trainings
-give identical profiles and identical binaries. The few seconds of real-time
-GUI do not, so the shipped build is not; `JNEXT_PGO_NO_GUI=1` leaves them out.
+[5.3](03-packaging-and-release.md) — is a gcc **PGO** build (GH #297): an
+instrumented twin in `build/gui-release-pgo-gen` runs a short training set
+(`tools/pgo-train.sh`), and `build/gui-release` is then compiled with the
+profile it wrote to `build/gui-release-pgo-profile`. `cmake/JnextPgo.cmake`
+adds the flags under the CMake option `JNEXT_PGO` (`GENERATE` or `USE`, with
+the profile in `JNEXT_PGO_DIR`). Training needs the NextZXOS SD image, is
+skipped when nothing that decides the profile changed, and a missing or
+mismatched profile fails the build.
+[5.5 Performance and optimisation](05-performance-and-optimisation.md#profile-guided-optimisation)
+describes the pipeline, the training set, the gates and the measured gains.
 
 ## ccache
 
@@ -160,4 +134,5 @@ $ ccache -M 20G
 ```
 
 That is a user-level setting rather than repository state, so it has to be
-re-applied on any new machine.
+re-applied on any new machine. ccache never hits on the PGO build's optimised
+tree; [5.5](05-performance-and-optimisation.md#ccache) explains why.

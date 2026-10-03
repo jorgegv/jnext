@@ -30,9 +30,10 @@ if(NOT MSVC)
     string(APPEND CMAKE_CXX_FLAGS_RELWITHDEBINFO " -fno-omit-frame-pointer")
 endif()
 
-# LTO/IPO for the Release (gui-release) build ONLY (Task 27 B1). The 14
-# per-subsystem static libs mean every hot cross-TU call — CPU→Mmu::read,
-# CPU→PortDispatch — is un-inlinable and un-devirtualisable at compile time.
+# LTO/IPO for the Release (gui-release) build ONLY (Task 27 B1). The
+# per-subsystem static libs (17 with Qt + debugger, 15 SDL-only) mean every hot cross-TU
+# call — CPU→Mmu::read, CPU→PortDispatch — is un-inlinable and
+# un-devirtualisable at compile time.
 # LTO lets the linker inline/devirtualise across those library boundaries.
 # Release-only (CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE): RelWithDebInfo
 # (the dev/profiling binary) and Debug stay LTO-free so dev iteration and

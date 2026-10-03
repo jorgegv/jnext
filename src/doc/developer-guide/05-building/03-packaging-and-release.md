@@ -25,7 +25,7 @@ anyone tries to build from it; `package-src` instead runs
 `packaging/make-dist-tarball.sh`, which vendors the submodule content properly.
 
 Every package's `jnext` is a **PGO build**, the same as `make gui-release`
-([5.2](02-build-configurations.md#profile-guided-optimisation)): the package
+([5.5](05-performance-and-optimisation.md#profile-guided-optimisation)): the package
 targets call `tools/pgo-build.sh`, which configures an instrumented twin of the
 package's tree, trains it and rebuilds the tree with the profile. Each package
 build therefore needs the SD image (provisioned by download when missing), and

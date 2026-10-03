@@ -98,7 +98,7 @@ made it stale.
 | 2 | [Architecture](02-architecture/index.md) | Startup, the core, a frame end to end, video, save state |
 | 3 | [Subsystems](03-subsystems/index.md) | CPU, memory, video, audio, ports, peripherals, input, media, debug |
 | 4 | [Testing](04-testing/index.md) | The triplet, declared suites, regression, traceability, the gates |
-| 5 | [Building and packaging](05-building/index.md) | Make targets, build configurations, packaging, CI |
+| 5 | [Building and packaging](05-building/index.md) | Make targets, build configurations, packaging, CI, performance and optimisation |
 | 6 | [Contributing](06-contributing/index.md) | Issues, pull requests, branches and worktrees, house style |
 
 If you are about to make a change and have time for only one page, read

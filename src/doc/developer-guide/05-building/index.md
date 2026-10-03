@@ -62,3 +62,4 @@ tree: it is where `build/jnext` and every test binary end up.
 - [5.2 Build configurations](02-build-configurations.md)
 - [5.3 Packaging and release](03-packaging-and-release.md)
 - [5.4 Continuous integration](04-continuous-integration.md)
+- [5.5 Performance and optimisation](05-performance-and-optimisation.md)

@@ -28,8 +28,9 @@
 #
 # -fprofile-prefix-path=<build dir> makes the mangled .gcda names relative to
 # the build directory, so the instrumented tree and the optimised tree can be
-# two different directories (each keeps its own ccache-warm objects) and still
-# agree on the file names.
+# two different directories and still agree on the file names. Only the
+# instrumented tree stays ccache-warm: ccache never caches a -fprofile-use
+# compile (it cannot find gcc's mangled .gcda names).
 #
 # A profile problem FAILS the build: gcc already treats a mismatched profile
 # (-Wcoverage-mismatch) as an error by default, and a TU with no profile at

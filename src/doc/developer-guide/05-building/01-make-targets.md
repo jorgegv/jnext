@@ -48,7 +48,7 @@ them along with `build/`.
 `gui-release` is the binary JNEXT ships and tests, and it is a **PGO build**
 (GH #297): it depends on `gui-release-pgo-gen`, the instrumented twin, runs the
 training and then compiles `build/gui-release` with the profile — see
-[5.2](02-build-configurations.md#profile-guided-optimisation).
+[5.5](05-performance-and-optimisation.md#profile-guided-optimisation).
 `gui-release-non-pgo` is the same Release build without PGO, in its own tree;
 it is the one to measure code changes with.
 

@@ -1845,6 +1845,8 @@
       
         
       
+        
+      
     
     
     
@@ -2095,6 +2097,34 @@
     
   
     5.4 Continuous integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="05-performance-and-optimisation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.5 Performance and optimisation
   
 
     
@@ -2414,12 +2444,15 @@ build depends on the question. To compare two code changes, use
 uses it): its speed does not move when a PGO profile is retrained. To ask how
 fast the shipped binary is, use <code>build/gui-release/jnext</code>, the PGO build
 (<code>make bench BENCH_BUILD=gui-release</code>). When you do need to profile a release
-binary, use <code>perf record --call-graph dwarf</code>.</p>
+binary, use <code>perf record --call-graph dwarf</code>.
+<a href="05-performance-and-optimisation.html#measuring-a-change">5.5</a> describes how to
+measure a change.</p>
 <p>LTO is enabled for <strong>Release only</strong>, through
 <code>CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE</code>, and it is guarded by
 <code>check_ipo_supported()</code> so that a toolchain without working LTO simply builds as
 it did before. It earns its keep here because the emulator is split into
-fourteen per-subsystem static libraries, and that split makes every hot
+per-subsystem static libraries — seventeen in the shipped build with the Qt
+GUI and the debugger, fifteen in the SDL-only one — and that split makes every hot
 cross-library call — the CPU into <code>Mmu::read</code>, the CPU into <code>PortDispatch</code> —
 un-inlinable at compile time.</p>
 <p><code>JNEXT_ENABLE_LTO=OFF</code> exists for exactly one build, the Flatpak one: the
@@ -2433,43 +2466,16 @@ Makefile). Before GH #298 they passed no build type, fell back to
 RelWithDebInfo, and shipped without LTO.</p>
 <h2 id="profile-guided-optimisation">Profile-guided optimisation<a class="headerlink" href="#profile-guided-optimisation" title="Permanent link">&para;</a></h2>
 <p><code>make gui-release</code> — and every package, see
-<a href="03-packaging-and-release.html">5.3</a> — is a gcc <strong>PGO</strong> build (GH #297). Measured
-headless on the development host, it runs 13–22% faster than the same build
-without PGO on titles the training never saw, and 15–31% on the ones it did.
-<code>cmake/JnextPgo.cmake</code> adds the flags under the CMake option <code>JNEXT_PGO</code>
-(<code>GENERATE</code> or <code>USE</code>, with the profile in <code>JNEXT_PGO_DIR</code>), and the build runs
-in three trees:</p>
-<ol>
-<li><code>build/gui-release-pgo-gen</code>, instrumented with <code>-fprofile-generate</code>;</li>
-<li><code>tools/pgo-train.sh</code>, about half a minute of training with that binary — the
-   <code>make bench</code> workloads plus parallax, trainyard-express, a 128K machine
-   driving the AY, a game with AY music, a real-time tape load and a few
-   seconds of the GUI on Qt's offscreen platform — which writes one <code>.gcda</code> per
-   translation unit into <code>build/gui-release-pgo-profile</code>;</li>
-<li><code>build/gui-release</code>, compiled with <code>-fprofile-use -fprofile-partial-training</code>
-   (code the training never reaches is optimised normally, not for size).</li>
-</ol>
-<p>The flags go only on the sources of <code>jnext</code> and of the in-tree libraries it
-links, never on generated code (Qt's moc output: gcc's profile checksum
-includes the file's path, which differs between the two trees) and never on
-other executables. <strong>A profile problem fails the build</strong>: a mismatched profile
-is already an error in gcc, and a missing one is made an error for every
-library member the instrumented link actually pulled in — the link map of the
-instrumented build, filed with the profile, says which members those are, so
-the SDL frontend in a Qt build, say, is not asked for a profile it can never
-have.</p>
-<p>Training is skipped when nothing that decides the profile changed: the
-instrumented binary (which changes with any source or flag), the compiler, the
-training script and its inputs. The training needs the NextZXOS SD image,
-because the ROMs come from it, and provisions it through jnext's own download
-when it is missing. A retrain forces a clean rebuild of <code>build/gui-release</code>;
-ccache cannot help there, because it does not find gcc's mangled <code>.gcda</code> names
-and treats every <code>-fprofile-use</code> compile as uncacheable — safe, never stale,
-never a hit.</p>
-<p>The headless training is <strong>byte-reproducible</strong>: with address-space
-randomisation off, one fixed minimal environment and logging off, two trainings
-give identical profiles and identical binaries. The few seconds of real-time
-GUI do not, so the shipped build is not; <code>JNEXT_PGO_NO_GUI=1</code> leaves them out.</p>
+<a href="03-packaging-and-release.html">5.3</a> — is a gcc <strong>PGO</strong> build (GH #297): an
+instrumented twin in <code>build/gui-release-pgo-gen</code> runs a short training set
+(<code>tools/pgo-train.sh</code>), and <code>build/gui-release</code> is then compiled with the
+profile it wrote to <code>build/gui-release-pgo-profile</code>. <code>cmake/JnextPgo.cmake</code>
+adds the flags under the CMake option <code>JNEXT_PGO</code> (<code>GENERATE</code> or <code>USE</code>, with
+the profile in <code>JNEXT_PGO_DIR</code>). Training needs the NextZXOS SD image, is
+skipped when nothing that decides the profile changed, and a missing or
+mismatched profile fails the build.
+<a href="05-performance-and-optimisation.html#profile-guided-optimisation">5.5 Performance and optimisation</a>
+describes the pipeline, the training set, the gates and the measured gains.</p>
 <h2 id="ccache">ccache<a class="headerlink" href="#ccache" title="Permanent link">&para;</a></h2>
 <p><code>CMakeLists.txt</code> finds ccache and uses it as <code>CMAKE_{C,CXX}_COMPILER_LAUNCHER</code>.
 This is what makes the project's mandatory clean-rebuild discipline affordable:
@@ -2481,7 +2487,8 @@ source is byte-identical to a state that has already been compiled once.</p>
 <pre><code class="language-console">$ ccache -M 20G
 </code></pre>
 <p>That is a user-level setting rather than repository state, so it has to be
-re-applied on any new machine.</p>
+re-applied on any new machine. ccache never hits on the PGO build's optimised
+tree; <a href="05-performance-and-optimisation.html#ccache">5.5</a> explains why.</p>
 
 
 
