@@ -139,11 +139,15 @@ check "no-op after recovery: cmake was not invoked" "$(cat "$WORK/cmake.out")" "
 
 echo "  -- 6: gui-release/sdl-release's own -D args stay one shell word each (space-safe) --"
 SPACE_CXX="a weird/path with spaces/g++"
-for target in gui-release sdl-release; do
+# GH #297: gui-release configures TWO trees (its instrumented PGO twin is a
+# prerequisite), so `make -n` prints the argument once per tree; every
+# occurrence must be the quoted one-word form, and there must be one per tree.
+for spec in gui-release:2 gui-release-non-pgo:1 sdl-release:1; do
+	target=${spec%:*}; want=${spec#*:}
 	recipe=$(cd "$REPO_ROOT" && LANG=C make -n "CXX=$SPACE_CXX" "$target" 2>&1)
-	check "$target: -DCMAKE_CXX_COMPILER is one quoted shell word" \
-		"$(printf '%s\n' "$recipe" | grep -cF "\"-DCMAKE_CXX_COMPILER=$SPACE_CXX\"")" \
-		"1"
+	check "$target: -DCMAKE_CXX_COMPILER is one quoted shell word in each of its $want configure(s)" \
+		"$(printf '%s\n' "$recipe" | grep -cF "\"-DCMAKE_CXX_COMPILER=$SPACE_CXX\"") $(printf '%s\n' "$recipe" | grep -c -- '-DCMAKE_CXX_COMPILER=')" \
+		"$want $want"
 done
 
 # ---------------------------------------------------------------------------

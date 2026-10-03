@@ -24,6 +24,27 @@ The source tarball is deliberately not a `git archive`. That would produce an
 anyone tries to build from it; `package-src` instead runs
 `packaging/make-dist-tarball.sh`, which vendors the submodule content properly.
 
+Every package's `jnext` is a **PGO build**, the same as `make gui-release`
+([5.2](02-build-configurations.md#profile-guided-optimisation)): the package
+targets call `tools/pgo-build.sh`, which configures an instrumented twin of the
+package's tree, trains it and rebuilds the tree with the profile. Each package
+build therefore needs the SD image (provisioned by download when missing), and
+some platforms need more:
+
+- the Windows legs are trained under **wine**, headless only: in a
+  display-less container the Qt exe under wine never terminates after its
+  automatic exit, so the training's GUI run is left out there. No wine is a
+  hard error; `WIN_PGO=0` (or `make win-release-non-pgo`) builds without PGO.
+  The repository-internal SDL-only Windows legs are not PGO builds;
+- the **Flatpak** trains inside the build sandbox: the distribution zip is a
+  manifest source, jnext's own provisioner turns it into the SD image there,
+  and the FUSE Z80 suite must pass against the PGO-built CPU core before the
+  bundle is installed — the KDE SDK's gcc is the one that miscompiles jnext
+  under LTO, so its output gets that extra check;
+- **macOS** uses clang's instrumentation (`-fprofile-instr-generate`, merged
+  with `llvm-profdata` from Xcode). There a stale profile is an error but a
+  translation unit with no profile at all is not detected per unit.
+
 `package-test` matters more than its name suggests. It does not merely build
 each package: it then looks inside and checks what is there — that the rpm and
 deb carry `bin/jnext`, that the source zip carries the vendored submodule, that

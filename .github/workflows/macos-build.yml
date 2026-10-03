@@ -20,7 +20,9 @@ jobs:
     # Backstop. The per-phase bound in run-bounded.sh is the loud, specific
     # mechanism ("which phase"); this is the guarantee ("never again"). Two runs
     # had to be cancelled by hand after 16-21 minutes of silence.
-    timeout-minutes: 45
+    # 45 -> 90 for GH #297: gui-release and package-macos are both PGO builds
+    # now (instrument, train, rebuild), each roughly twice the work.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
         with:
@@ -28,6 +30,17 @@ jobs:
 
       - name: Install dependencies (Homebrew)
         run: brew install cmake sdl3 qt@6 curl openssl libpng
+      # GH #297: the PGO training needs the NextZXOS SD image (the ROMs come
+      # from it). Cached like ci.yml's `test` job, under its own -macos key:
+      # a macOS runner's home is /Users/runner, not a container's /github/home,
+      # so the Linux entries are not usable here. Only a cache miss lets jnext's
+      # own provisioner download the image (and this step then saves it). Bump
+      # the key together with ci.yml's.
+      - name: Cache NextZXOS SD-card image
+        uses: actions/cache@v5
+        with:
+          path: ~/.jnext/sdcard
+          key: sdcard-image-distro-24.11-recipe2-macos
 
       # The project's own target, same as a local Mac build (CLAUDE.md: CI runs
       # the EXACT same commands as a local run). CMAKE_PREFIX_PATH goes through
@@ -46,7 +59,7 @@ jobs:
       # otool that nothing inside it points at Homebrew (GH #46).
       - name: Package and verify (make package-macos)
         if: ${{ inputs.package }}
-        timeout-minutes: 30
+        timeout-minutes: 60
         run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" make package-macos
 
       - name: Upload package

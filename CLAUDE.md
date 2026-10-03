@@ -90,7 +90,7 @@ code comments.
 The single authoritative protocol for landing any implemented change on `main`:
 
 1. **Dedicated branch + worktree** off current `main` — never edit `main` directly. Each independent feature gets its own branch (so parallel agents don't trash each other).
-2. **Full test triplet green on the branch, plus the SDL-only unit run** before review: `make clean && make gui-release`, then `make unit-test`, **`make unit-test-sdl`**, the FUSE Z80 suite (`./build/test/fuse_z80_test build/test/fuse` → 1356/1356), and `JNEXT_TEST_JOBS=4 make regression`. No FAIL anywhere (SKIPs only where already declared).
+2. **Full test triplet green on the branch, plus the SDL-only unit run** before review: `make clean && make gui-release`, then `make unit-test`, **`make unit-test-sdl`**, the FUSE Z80 suite (`./build/test/fuse_z80_test build/test/fuse` → 1356/1356), and `JNEXT_TEST_JOBS=4 make regression`. `make gui-release` is the PGO build (GH #297), so `make regression` tests the shipped binary and also runs FUSE against the PGO build's CPU core (`make fuse-pgo`, a prerequisite). No FAIL anywhere (SKIPs only where already declared).
    - `make unit-test-sdl` applies to **every** branch, not only GUI-touching ones (owner decision, 2026-09-25). Its 102 suites are the core emulator plus the platform decision-logic both frontends share, minus Qt and the debugger — and they INCLUDE `host_key_latch_test`, which drives the real `SdlInput::poll()` (GH #268) precisely because an SDL-only build is the only place that coverage survives. So an SDL-frontend change needs this run just as much as a core one does; do not read “the non-Qt set” as “no frontends”. Cost on a branch that actually changed code: ~17 s with a warm ccache (a no-op re-run of just the suites is ~9 s). See the two-configuration rule under **Testing**.
    - Use **`make regression`**, never bare `bash test/00regression/regression.sh`: the suite's `sdl-keypress-func` row needs `build/sdl-release`, which only the make target builds, so the bare script aborts as a harness fault. Two separate agents lost a run to this on 2026-09-25.
    - **A DOCUMENTATION-ONLY change runs NO code gate** (owner rule, 2026-09-27). If the branch or
@@ -175,8 +175,19 @@ The build uses CMake with Qt6 UI enabled (`-DENABLE_QT_UI=ON`). The executable i
 
 `build/jnext` is a **RelWithDebInfo dev binary** (the CMake default when no
 `-DCMAKE_BUILD_TYPE` is given — Task 27 T0). Any **performance measurement or
-benchmark must use `build/gui-release/jnext`** (`make gui-release`), never
-`build/jnext`.
+benchmark must use a Release build**, never `build/jnext` — and which one
+depends on the question (GH #297):
+
+- **A/B between two code changes: `build/gui-release-non-pgo/jnext`**
+  (`make gui-release-non-pgo`; `make bench` uses it). Its speed does not move
+  with a retrained PGO profile, so a difference is the code's.
+- **"How fast is what we ship": `build/gui-release/jnext`** (`make
+  gui-release`, the PGO build; `make bench BENCH_BUILD=gui-release`).
+
+`make gui-release` is a gcc **PGO build**: instrument, train
+(`tools/pgo-train.sh`, needs the SD image — provisioned through jnext's own
+download if missing), rebuild with the profile. Training is skipped when
+nothing changed; a missing or mismatched profile is a build error.
 
 ## Testing
 
@@ -436,7 +447,8 @@ fresh worktree has no SD-card image and cannot run the tests at all.
 ./build/test/fuse_z80_test build/test/fuse
 ```
 
-Result: 1356/1356 pass (100%).
+Result: 1356/1356 pass (100%). That is the `build/` tree's CPU core; `make fuse-pgo`
+(run by `make regression`) runs the same suite against the PGO `gui-release` one.
 
 ### Full regression test suite
 

@@ -78,10 +78,11 @@ then runs, in order: `make clean && make gui-release`, `make build-matrix`,
 `JNEXT_TEST_JOBS=4 make regression`, and `make unit-test`. On failure it uploads
 the screenshot diffs and the test summary.
 
-That order is not arbitrary. `make regression` self-provisions the SD image as
-one of its own rows, and `make unit-test` needs the same image for
-`sd_rom_extractor_test` — running regression first means the image is already
-there when the unit tests ask for it.
+That order is not arbitrary. `make gui-release` is a PGO build whose training
+needs the SD image, so the image is restored from the cache before it — and if
+the cache misses, the training downloads it through jnext's own provisioner.
+`make regression`'s provisioning row then finds it, and `make unit-test` needs
+the same image for `sd_rom_extractor_test`.
 
 **`qt5-guard`** runs `make qt5-guard-build`, which is the same GUI and debugger
 sources compiled against native Linux Qt5. Nothing else in CI compiles that
@@ -90,8 +91,12 @@ only at release time, inside the MinGW cross job, which is a slow and confusing
 place to find out. It is build-only by design.
 
 **`package`** runs `make package-test` in its own parallel job, because it is
-roughly four minutes of package builds using a toolchain the test job has no
-other use for. One detail matters here: in CI a missing packaging tool is a
+several minutes of package builds using a toolchain the test job has no other
+use for. Each package is a PGO build, so the job also installs wine, for the
+Windows legs' training, and restores the SD image from the same cache entry as
+the `test` job. Every release and manual-build job that builds a PGO binary
+does the same; the macOS jobs keep their own entry, since a macOS runner's home
+directory differs from a container's. One detail matters here: in CI a missing packaging tool is a
 **FAIL, not a SKIP**, so a row that has quietly stopped running cannot read as
 a pass.
 

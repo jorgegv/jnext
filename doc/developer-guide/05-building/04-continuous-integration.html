@@ -2361,18 +2361,23 @@ against the real source tree, and produces different bytes without it. The job
 then runs, in order: <code>make clean &amp;&amp; make gui-release</code>, <code>make build-matrix</code>,
 <code>JNEXT_TEST_JOBS=4 make regression</code>, and <code>make unit-test</code>. On failure it uploads
 the screenshot diffs and the test summary.</p>
-<p>That order is not arbitrary. <code>make regression</code> self-provisions the SD image as
-one of its own rows, and <code>make unit-test</code> needs the same image for
-<code>sd_rom_extractor_test</code> — running regression first means the image is already
-there when the unit tests ask for it.</p>
+<p>That order is not arbitrary. <code>make gui-release</code> is a PGO build whose training
+needs the SD image, so the image is restored from the cache before it — and if
+the cache misses, the training downloads it through jnext's own provisioner.
+<code>make regression</code>'s provisioning row then finds it, and <code>make unit-test</code> needs
+the same image for <code>sd_rom_extractor_test</code>.</p>
 <p><strong><code>qt5-guard</code></strong> runs <code>make qt5-guard-build</code>, which is the same GUI and debugger
 sources compiled against native Linux Qt5. Nothing else in CI compiles that
 combination, so a Qt6-only API creeping into the GUI would otherwise surface
 only at release time, inside the MinGW cross job, which is a slow and confusing
 place to find out. It is build-only by design.</p>
 <p><strong><code>package</code></strong> runs <code>make package-test</code> in its own parallel job, because it is
-roughly four minutes of package builds using a toolchain the test job has no
-other use for. One detail matters here: in CI a missing packaging tool is a
+several minutes of package builds using a toolchain the test job has no other
+use for. Each package is a PGO build, so the job also installs wine, for the
+Windows legs' training, and restores the SD image from the same cache entry as
+the <code>test</code> job. Every release and manual-build job that builds a PGO binary
+does the same; the macOS jobs keep their own entry, since a macOS runner's home
+directory differs from a container's. One detail matters here: in CI a missing packaging tool is a
 <strong>FAIL, not a SKIP</strong>, so a row that has quietly stopped running cannot read as
 a pass.</p>
 <p><strong><code>macos</code></strong> runs <code>make package-macos</code> on a real <code>macos-latest</code> runner, and

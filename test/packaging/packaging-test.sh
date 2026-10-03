@@ -238,7 +238,16 @@ else
 fi
 
 # --- package-win (MinGW cross-build ZIP) -------------------------------------
-if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && [ -f "$MINGW_QT6" ]; then
+# GH #297: the three published Windows zips (package-win, -win-qt5,
+# -win32-qt5) are PGO builds whose instrumented exe is trained under wine, so
+# each row needs wine as well as its MinGW toolchain. Without wine it SKIPs
+# saying so — and, like a missing toolchain, FAILs in CI, which installs it.
+HAVE_WINE=0
+command -v wine >/dev/null 2>&1 && HAVE_WINE=1
+NO_WINE="wine not installed (the zip's jnext.exe is a PGO build trained under wine; WIN_PGO=0 builds it without)"
+TC=0
+command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && [ -f "$MINGW_QT6" ] && TC=1
+if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
     if make package-win >"$LOGDIR/win.log" 2>&1; then
         z=$(ls -1 build/win-release/*.zip 2>/dev/null | head -1)
         # The ZIP must contain the exe AND its bundled runtime — the Qt6 core DLL,
@@ -272,7 +281,8 @@ if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc
         bad package-win "make package-win failed" "$LOGDIR/win.log"
     fi
 else
-    skp_ci_fail package-win "MinGW Qt6 cross toolchain not installed"
+    if [ "$TC" = 1 ]; then skp_ci_fail package-win "$NO_WINE"
+    else skp_ci_fail package-win "MinGW Qt6 cross toolchain not installed"; fi
 fi
 
 # --- package-win subsystem (GUI, not console) --------------------------------
@@ -345,10 +355,10 @@ fi
 # confirmation of a fix in shipped form needs a real-Windows retest (the
 # "Windows Build (manual)" workflow exists for exactly that).
 #
-# Plain skp(), not skp_ci_fail(): ci.yml's fedora:44 container does not install
-# wine and provisioning it (plus a prefix bootstrap) for these rows is not
-# worth it, exactly as with the flatpak row below. These rows guard the
-# maintainer's local `make package-test`.
+# Plain skp(), not skp_ci_fail(): these rows were written for the maintainer's
+# local `make package-test`, when ci.yml's fedora:44 package job had no wine.
+# Since GH #297 it installs wine (the Windows zips' PGO training runs under
+# it), so in CI they now run too whenever python3 is present.
 #
 # Discriminative both ways: against a binary without the reopen fix the `text`
 # assertion passes and the `prompt` assertion fails; against the pre-#212
@@ -532,7 +542,9 @@ fi
 # fedora's Qt5Core imports it (audited Win7-clean); it is only forbidden in the
 # SDL bundle's list. The exe must also be a GUI-subsystem binary, same
 # assertion as package-win-subsys.
-if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && [ -f "$MINGW_QT5" ]; then
+TC=0
+command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && [ -f "$MINGW_QT5" ] && TC=1
+if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
     if make package-win-qt5 >"$LOGDIR/win-qt5.log" 2>&1; then
         z=$(ls -1 build/win-qt5-release/*.zip 2>/dev/null | head -1)
         if [ -n "$z" ]; then
@@ -561,7 +573,8 @@ if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc
         bad package-win-qt5 "make package-win-qt5 failed" "$LOGDIR/win-qt5.log"
     fi
 else
-    skp_ci_fail package-win-qt5 "MinGW Qt5 cross toolchain not installed"
+    if [ "$TC" = 1 ]; then skp_ci_fail package-win-qt5 "$NO_WINE"
+    else skp_ci_fail package-win-qt5 "MinGW Qt5 cross toolchain not installed"; fi
 fi
 
 # --- package-win32-sdl (SDL-only 32-bit i686 variant, GH #108 Phase C) -------
@@ -601,8 +614,10 @@ fi
 # floor). iconv.dll is legitimate here too (Qt5Core imports it, audited
 # Win7-clean). Toolchain: the i686 guard — mingw32-cmake + i686 gcc + the i686
 # Qt5Config.cmake + the cross moc from mingw32-qt5-qmake.
-if command -v mingw32-cmake >/dev/null 2>&1 && command -v i686-w64-mingw32-gcc >/dev/null 2>&1 \
-   && [ -f "$MINGW32_QT5" ] && command -v i686-w64-mingw32-moc-qt5 >/dev/null 2>&1; then
+TC=0
+command -v mingw32-cmake >/dev/null 2>&1 && command -v i686-w64-mingw32-gcc >/dev/null 2>&1 \
+   && [ -f "$MINGW32_QT5" ] && command -v i686-w64-mingw32-moc-qt5 >/dev/null 2>&1 && TC=1
+if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
     if make package-win32-qt5 >"$LOGDIR/win32-qt5.log" 2>&1; then
         z=$(ls -1 build/win32-qt5-release/*.zip 2>/dev/null | head -1)
         if [ -n "$z" ]; then
@@ -631,7 +646,8 @@ if command -v mingw32-cmake >/dev/null 2>&1 && command -v i686-w64-mingw32-gcc >
         bad package-win32-qt5 "make package-win32-qt5 failed" "$LOGDIR/win32-qt5.log"
     fi
 else
-    skp_ci_fail package-win32-qt5 "MinGW i686 (mingw32) Qt5 cross toolchain not installed"
+    if [ "$TC" = 1 ]; then skp_ci_fail package-win32-qt5 "$NO_WINE"
+    else skp_ci_fail package-win32-qt5 "MinGW i686 (mingw32) Qt5 cross toolchain not installed"; fi
 fi
 
 # --- package-flatpak ---------------------------------------------------------

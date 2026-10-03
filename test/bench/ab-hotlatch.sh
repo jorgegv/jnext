@@ -30,7 +30,8 @@
 #
 # <baseline-jnext> is a Release binary from the commit being compared against
 # (build it in its own worktree); <new-jnext> defaults to this tree's
-# build/gui-release/jnext. Output goes to stdout and to
+# build/gui-release-non-pgo/jnext (GH #297: A/B work uses the non-PGO build,
+# whose speed does not move with a retrained profile). Output goes to stdout and to
 # test/bench/hotlatch-<git-sha>.txt.
 #
 # VARIANTS
@@ -61,11 +62,11 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 die() { echo "ab-hotlatch: ERROR: $*" >&2; exit 2; }
 
 BASE_BIN="${1:-}"
-NEW_BIN="${2:-$PROJECT_DIR/build/gui-release/jnext}"
+NEW_BIN="${2:-$PROJECT_DIR/build/gui-release-non-pgo/jnext}"
 PAIRS="${3:-5}"
 [[ -n "$BASE_BIN" ]] || die "usage: $0 <baseline-jnext> [<new-jnext>] [pairs]"
 [[ -x "$BASE_BIN" ]] || die "baseline binary not executable: $BASE_BIN"
-[[ -x "$NEW_BIN"  ]] || die "new binary not executable: $NEW_BIN (make gui-release)"
+[[ -x "$NEW_BIN"  ]] || die "new binary not executable: $NEW_BIN (make gui-release-non-pgo)"
 
 # Both binaries must be Release, for the reason bench.sh refuses otherwise.
 for b in "$BASE_BIN" "$NEW_BIN"; do
