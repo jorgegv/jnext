@@ -389,8 +389,8 @@ This means Z80 mode transfers block_len + 1 bytes for block_len >= 1.
 | 17.2 | End-of-block flag clear initially | `status_endofblock_n = '1'` (bit 5 = 1) | Bit 5 = 1 means not ended |
 | 17.3 | End-of-block set after transfer | `status_endofblock_n <= '0'` in FINISH_DMA | Bit 5 = 0 after block done |
 | 17.4 | At-least-one flag, mid-block (rewritten GH #300) | `status_atleastone <= '1'` in WRITE_4 (`dma.vhd:412`) | Burst with prescaler, after the first byte (transfer still live, `:423-425`): status = 0x3B. The old row read the flag after the block had finished, but by then the DMA is back in IDLE, which clears it (17.11) |
-| 17.5 | Status cleared by 0x8B | Both flags reset | Status = 0x2E (00_1_01101_0) |
-| 17.6 | Status cleared by 0xC3 (reset) | Both flags reset | Status = 0x2E |
+| 17.5 | Status cleared by 0x8B | Both flags reset: `status_endofblock_n <= '1'`, `status_atleastone <= '0'` (`dma.vhd:691-692`) | Status = `"00" & '1' & "1101" & '0'` = 0x3A (00_1_1101_0) |
+| 17.6 | Status cleared by 0xC3 (reset) | Both flags reset (`dma.vhd:639-640`) | Status = 0x3A |
 | 17.7 | Default read mask | `R6_read_mask_s <= "01111111"` on reset | All 7 fields enabled |
 | 17.8 | Read sequence cycles through mask | Each read advances to next enabled field | 7 reads return all fields |
 | 17.9 | Custom read mask (status+counter only) | Mask = 0x07 (bits 0,1,2) | Only 3 fields in sequence |
