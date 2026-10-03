@@ -13,10 +13,17 @@
 # NOT the regression suite: profiles saturate quickly (GH #294 measured +17-20%
 # on titles an 8-workload profile never saw). The set is the GH #294 one —
 # the `make bench` workloads at half their frames plus parallax and
-# trainyard-express — plus the paths those miss: a 128K machine driving the
-# AY, a game with AY music, a real-time tape load, and a short GUI run on Qt's
-# offscreen platform so the frontend's paint/scale path is profiled too.
-# Only fixtures that are in the repository; every run pins --rtc.
+# trainyard-express — plus the paths those miss: the DMA copying memory to
+# memory and reading a port into memory (the games only write memory to a
+# port), a 128K machine driving the AY, a game with AY music, a real-time tape
+# load, the Next's MOD player (NXModPlayer: Paula emulation on the DACs, one
+# CTC interrupt per sample), and a short GUI run on Qt's offscreen platform so
+# the frontend's paint/scale path is profiled too. Every run pins --rtc.
+#
+# Fixtures come from the repository, except the MOD player and its MOD, which
+# come from the SD image the training already needs (the distribution's
+# /apps/audio/NXModPlayer): nothing of the distribution is copied into the
+# repository, and nothing beyond jnext itself is needed to reach them.
 #
 # SKIPPED, exit 0, when nothing that decides the profile changed since the
 # last training: the fingerprint below covers the instrumented binary (which
@@ -96,12 +103,33 @@ WORKLOADS=(
     "parallax|next|200|--load $NEX/parallax.nex|$NEX/parallax.nex"
     "trainyard|next|200|--load $NEX/trainyard-express.nex --esxdos-stub|$NEX/trainyard-express.nex"
     "dma-48k|48k|150|--inject test/00regression/bin/rzx_dma_demo.bin --delayed-keypress-frames 20 space|test/00regression/bin/rzx_dma_demo.bin"
+    "dma-loop|48k|150|--inject test/00regression/bin/dmaloop.bin|test/00regression/bin/dmaloop.bin"
     "ay-128k|128k|340|--inject test/00regression/bin/ay_envelope_sweep.bin --inject-org 8000 --inject-pc 8000 --inject-delay 100|test/00regression/bin/ay_envelope_sweep.bin"
     "beanbros-ay|next|250|--load $NEX/beanbros.nex --esxdos-stub --delayed-keypress-frames 50 ENTER --delayed-keypress-frames 100 ENTER --delayed-keypress-frames 150 ENTER|$NEX/beanbros.nex"
     "tape-realtime|48k|1300|--load $TAP/beeper_demo.tap --tape-realtime|$TAP/beeper_demo.tap"
 )
 GUI_FRAMES=150
 GUI_ARGS=(--machine next --load "$NEX/parallax.nex")
+
+# The MOD player, launched as a user launches it: the NextZXOS Browser down to
+# /apps/audio/NXModPlayer/nxmodplayer.nex, then the player's own Mod Browser to
+# mods/Jarresque.mod, then 4 s of play. Every key is pressed at a fixed frame
+# (frame, key pairs below; the cursor positions are those of the 24.11 image),
+# so the run is as deterministic as the others. A key pressed at a fixed frame
+# cannot tell whether the guest acted on it, so the run also saves a snapshot
+# one frame before its exit, and the training FAILS unless the MOD's own text
+# is in that RAM: a changed image or a slower boot must not quietly leave the
+# player out of the profile.
+MOD_KEYS=(
+    400 space  430 enter                             # welcome, menu: Browser at C:/ on APPS
+    470 enter  495 down  510 down  525 enter         # APPS: . .. AUDIO
+    550 down  565 down  580 down  595 down  610 enter    # . .. NextDAW-demo NextSID NXModPlayer
+    635 down  650 down  665 down  680 enter          # . .. MODS nxmodplayer.nex: run it
+    760 down  775 enter                              # Mod Browser: .. MODS
+    800 down  815 down  830 down  845 enter          # .. AWESOME5 DUNE_ECOLOVE JARRESQUE: play
+)
+MOD_FRAMES=1045
+MOD_PROOF="by hollywood/lunatics"   # the MOD's second sample name (Jarresque.mod offset 20)
 
 # --- Fingerprint: everything that decides what training would produce -------
 fingerprint() {
@@ -218,6 +246,15 @@ for spec in "${WORKLOADS[@]}"; do
     run "$name" 300 --headless --machine "$machine" ${extra_args[@]+"${extra_args[@]}"} \
         --delayed-automatic-exit-frames "$frames"
 done
+mod_args=()
+for (( i = 0; i < ${#MOD_KEYS[@]}; i += 2 )); do
+    mod_args+=(--delayed-keypress-frames "${MOD_KEYS[i]}" "${MOD_KEYS[i+1]}")
+done
+run modplayer 300 --headless --machine next "${mod_args[@]}" \
+    --delayed-snapshot "$RUN_DIR/modplayer.nex" --delayed-snapshot-frames $((MOD_FRAMES - 1)) \
+    --delayed-automatic-exit-frames "$MOD_FRAMES"
+grep -a -q "$MOD_PROOF" "$RUN_DIR/modplayer.nex" ||
+    die "training run 'modplayer' never loaded the MOD (no \"$MOD_PROOF\" in its RAM at frame $((MOD_FRAMES - 1))): the key sequence no longer reaches NXModPlayer's Jarresque.mod in this SD image"
 if [[ "${JNEXT_PGO_NO_GUI:-0}" != 1 ]]; then
     # 100% speed, real pacing, sound on through SDL's dummy driver, so the
     # GUI's frame, paint and audio paths run as a user would run them.

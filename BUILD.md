@@ -72,9 +72,10 @@ optimisation** ([GH #297](https://github.com/jorgegv/jnext/issues/297)), in
 three steps:
 
 1. an **instrumented** jnext in `build/gui-release-pgo-gen`;
-2. a short **training** run of it (`tools/pgo-train.sh`, about half a minute:
-   a few demos and games headless, a real-time tape load and a few seconds of
-   the GUI on Qt's offscreen platform), which writes the profile into
+2. a short **training** run of it (`tools/pgo-train.sh`, under a minute:
+   a few demos and games headless, DMA programs, a real-time tape load, the
+   Next's MOD player launched from NextZXOS, and a few seconds of the GUI on
+   Qt's offscreen platform), which writes the profile into
    `build/gui-release-pgo-profile`;
 3. the **optimised** build in `build/gui-release`, compiled with that profile.
 
