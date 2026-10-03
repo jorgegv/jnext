@@ -421,14 +421,8 @@ if command -v wine >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     else
         skp package-win-console "jnext.exe not built here (package-win)"
     fi
-    # Same rows against the Qt5 -legacy exe: the Windows-8.1 reporter of the
-    # #212 reopen runs THIS binary, and its startup path differs (qt5main
-    # WinMain bridge vs Qt6::EntryPointPrivate).
-    if [ -f "$WIN_QT5_EXE" ]; then
-        win_console_help_row package-win-console-qt5 "$WIN_QT5_EXE"
-    else
-        skp package-win-console-qt5 "legacy jnext.exe not built here (package-win-qt5)"
-    fi
+    # The same rows against the Qt5 -legacy exe run after package-win-qt5
+    # below, which is what builds it.
     # Redirection through the same real console: `--version >file` must land
     # the version in the FILE (stdout stays on the shell's redirect handle —
     # the fc36a59b handle restoration — and --help/--version go to stdout,
@@ -494,7 +488,6 @@ if command -v wine >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     fi
 else
     skp package-win-console "wine or python3 absent"
-    skp package-win-console-qt5 "wine or python3 absent"
     skp package-win-redirect "wine or python3 absent"
     skp package-win-download-prefix "wine or python3 absent"
 fi
@@ -575,6 +568,22 @@ if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
 else
     if [ "$TC" = 1 ]; then skp_ci_fail package-win-qt5 "$NO_WINE"
     else skp_ci_fail package-win-qt5 "MinGW Qt5 cross toolchain not installed"; fi
+fi
+
+# --- package-win-console-qt5 (GH #212) ---------------------------------------
+# The package-win console rows against the Qt5 -legacy exe: the Windows-8.1
+# reporter of the #212 reopen runs THIS binary, and its startup path differs
+# (qt5main WinMain bridge vs Qt6::EntryPointPrivate). It runs here, after
+# package-win-qt5 has built the exe; placed with the other console rows it ran
+# before that build, so on a fresh tree (every CI run) it always skipped.
+if command -v wine >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+    if [ -f "$WIN_QT5_EXE" ]; then
+        win_console_help_row package-win-console-qt5 "$WIN_QT5_EXE"
+    else
+        skp package-win-console-qt5 "legacy jnext.exe not built here (package-win-qt5)"
+    fi
+else
+    skp package-win-console-qt5 "wine or python3 absent"
 fi
 
 # --- package-win32-sdl (SDL-only 32-bit i686 variant, GH #108 Phase C) -------
