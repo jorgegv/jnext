@@ -412,9 +412,11 @@ jobs:
     # GH #297: every package-* target is a PGO build (instrument, train,
     # rebuild), so this job needs the NextZXOS SD image for the training —
     # restored by the same cache step as the `test` job (below) — and wine for
-    # the Windows legs' training. The backstop went from 30 to 60 minutes: each
-    # leg is two builds plus a training run now.
-    timeout-minutes: 60
+    # the Windows legs' training. The backstop went from 30 to 90 minutes: each
+    # leg is two builds plus a training run now. Measured in a fedora:44
+    # podman replay of this job on a 12-thread host: 19 min wall, 94 min of
+    # user CPU — so a 4-vCPU runner needs roughly 30-45 min.
+    timeout-minutes: 90
     steps:
       # Before the checkout: a bare fedora:44 has no git, and actions/checkout
       # rejects `submodules` without it.
