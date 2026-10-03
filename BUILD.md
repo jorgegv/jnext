@@ -296,7 +296,8 @@ Packages are the recommended way for end users to install JNEXT (see the main
 Every packaged binary is a **PGO build**, like `gui-release`: each package
 target runs `tools/pgo-build.sh`, which instruments, trains and rebuilds in
 that package's own build tree. So every package build needs the SD image (it
-is downloaded if missing, as above), and:
+is downloaded if missing, as above; the Linux packages and the Flatpak have no
+non-PGO variant, so without the image they stop and say so), and:
 
 - the **Windows** executables are trained under **wine** (`wine-core` and
   `wine-common` on Fedora), without the training's GUI run. Without wine the build stops; `make

@@ -93,7 +93,10 @@ place to find out. It is build-only by design.
 **`package`** runs `make package-test` in its own parallel job, because it is
 several minutes of package builds using a toolchain the test job has no other
 use for. Each package is a PGO build, so the job also installs wine, for the
-Windows legs' training. One detail matters here: in CI a missing packaging tool is a
+Windows legs' training, and restores the SD image from the same cache entry as
+the `test` job. Every release and manual-build job that builds a PGO binary
+does the same; the macOS jobs keep their own entry, since a macOS runner's home
+directory differs from a container's. One detail matters here: in CI a missing packaging tool is a
 **FAIL, not a SKIP**, so a row that has quietly stopped running cannot read as
 a pass.
 

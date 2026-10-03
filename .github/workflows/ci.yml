@@ -37,7 +37,10 @@ name: CI
 # or private asset and nothing here duplicates or bypasses the emulator's
 # own sanctioned download path. The download+patch is cached (keyed on the
 # distro URL) so the network is only actually hit once per cache
-# generation. Because the image is now always the pristine distro copy
+# generation. (GH #297: every job that builds a PGO binary needs the image
+# too and restores the same entry — this file's `package` job, and the
+# matching release.yml / windows-build.yml jobs; the macOS jobs keep their own
+# -macos entry.) Because the image is now always the pristine distro copy
 # (never a locally-contaminated fixture), the regression suite runs EVERY
 # declared row, including `boot-nextzxos-dotls` (its SD-listing screenshot
 # reference was regenerated against this same pristine image).
@@ -407,11 +410,10 @@ jobs:
     # packages a MinGW Qt6, so this is the one host the cross-build works on.
     container: fedora:44
     # GH #297: every package-* target is a PGO build (instrument, train,
-    # rebuild), so this job needs the NextZXOS SD image for the training — it is
-    # downloaded by jnext's own provisioner on the first leg, as the `test`
-    # job's regression does — and wine for the Windows legs' training. The
-    # backstop went from 30 to 60 minutes: each leg is two builds plus a
-    # training run now.
+    # rebuild), so this job needs the NextZXOS SD image for the training —
+    # restored by the same cache step as the `test` job (below) — and wine for
+    # the Windows legs' training. The backstop went from 30 to 60 minutes: each
+    # leg is two builds plus a training run now.
     timeout-minutes: 60
     steps:
       # Before the checkout: a bare fedora:44 has no git, and actions/checkout
@@ -464,6 +466,17 @@ jobs:
           restore-keys: |
             ccache-fedora44-package-
 
+      # GH #297: the PGO training needs the NextZXOS SD image (the ROMs come
+      # from it). The SAME cache entry as the `test` job above — same path, same
+      # key — so the image is restored, not downloaded from specnext.com; only a
+      # cache miss lets jnext's own provisioner download it (and this step then
+      # saves it). The key's comment in ci.yml says when to bump it.
+      - name: Cache NextZXOS SD-card image
+        uses: actions/cache@v5
+        with:
+          path: ~/.jnext/sdcard
+          key: sdcard-image-distro-24.11-recipe2-fedora44
+
       - name: make package-test (build every package, assert its contents)
         run: LANG=C make package-test
 
@@ -504,6 +517,17 @@ jobs:
 
       - name: Install dependencies (Homebrew)
         run: brew install cmake sdl3 qt@6 curl openssl libpng
+      # GH #297: the PGO training needs the NextZXOS SD image (the ROMs come
+      # from it). Cached like ci.yml's `test` job, under its own -macos key:
+      # a macOS runner's home is /Users/runner, not a container's /github/home,
+      # so the Linux entries are not usable here. Only a cache miss lets jnext's
+      # own provisioner download the image (and this step then saves it). Bump
+      # the key together with ci.yml's.
+      - name: Cache NextZXOS SD-card image
+        uses: actions/cache@v5
+        with:
+          path: ~/.jnext/sdcard
+          key: sdcard-image-distro-24.11-recipe2-macos
 
       - name: make package-macos (build, package, verify self-containment)
         run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" make package-macos

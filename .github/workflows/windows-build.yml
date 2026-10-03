@@ -57,6 +57,16 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
+      # GH #297: the PGO training needs the NextZXOS SD image (the ROMs come
+      # from it). The SAME cache entry as ci.yml's `test` job — same path, same
+      # key — so the image is restored, not downloaded from specnext.com; only a
+      # cache miss lets jnext's own provisioner download it (and this step then
+      # saves it). The key's comment in ci.yml says when to bump it.
+      - name: Cache NextZXOS SD-card image
+        uses: actions/cache@v5
+        with:
+          path: ~/.jnext/sdcard
+          key: sdcard-image-distro-24.11-recipe2-fedora44
       - name: make package-win
         if: ${{ inputs.qt6 }}
         run: make package-win

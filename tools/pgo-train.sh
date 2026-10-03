@@ -34,6 +34,9 @@
 # Env:
 #   JNEXT_PGO_RUNNER  command prefix for every jnext run (e.g. "wine" to train
 #                     a MinGW jnext.exe); word-split on purpose.
+#   JNEXT_PGO_NO_SD_HINT  what to tell the user when there is no SD image
+#                     (default: the gui-release case, `make gui-release-non-pgo`);
+#                     tools/pgo-build.sh sets it for the package trees.
 #   JNEXT_PGO_NO_GUI  =1 skips the Qt-offscreen GUI run; the build is then
 #                     byte-reproducible (see REPRODUCIBILITY below).
 #
@@ -142,7 +145,7 @@ if [[ ! -f "$SD_MASTER" ]]; then
     if [[ ! -f "$SD_MASTER" ]]; then
         echo "pgo-train: ERROR: the PGO build needs the NextZXOS SD image to train its profile," >&2
         echo "pgo-train: ERROR: and it could not be provisioned at $SD_MASTER (network?)." >&2
-        echo "pgo-train: ERROR: Build without PGO instead:  make gui-release-non-pgo" >&2
+        echo "pgo-train: ERROR: ${JNEXT_PGO_NO_SD_HINT:-Build without PGO instead:  make gui-release-non-pgo}" >&2
         exit 1
     fi
 fi
@@ -225,8 +228,11 @@ fi
 if [[ $CLANG -eq 1 ]]; then
     n=$(find "$PROFILE_DIR" -name '*.profraw' | wc -l | tr -d ' ')
     [[ $n -gt 0 ]] || die "training wrote no .profraw files into $PROFILE_DIR — is $BIN instrumented for that directory?"
-    if command -v llvm-profdata >/dev/null 2>&1; then PROFDATA=(llvm-profdata)
-    elif command -v xcrun >/dev/null 2>&1; then PROFDATA=(xcrun llvm-profdata)
+    # xcrun first: on macOS the llvm-profdata that matches AppleClang is
+    # Xcode's; a newer Homebrew LLVM earlier in PATH can write a profile
+    # format AppleClang cannot read.
+    if command -v xcrun >/dev/null 2>&1 && xcrun -f llvm-profdata >/dev/null 2>&1; then PROFDATA=(xcrun llvm-profdata)
+    elif command -v llvm-profdata >/dev/null 2>&1; then PROFDATA=(llvm-profdata)
     else die "llvm-profdata not found (clang PGO needs it to merge the profile)"; fi
     "${PROFDATA[@]}" merge -o "$PROFILE_DIR/jnext.profdata" "$PROFILE_DIR"/*.profraw ||
         die "llvm-profdata merge failed"
