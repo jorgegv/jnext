@@ -239,6 +239,27 @@ struct Zc {
         rig.pump();
         return p->take();
     }
+
+    /// Pump (no frames) until `got` plus what arrives holds `n` prompts, or
+    /// `max` pumps. For a pipelined chain while paused: a pump always answers
+    /// its first command, but the drain behind it stops at the WALL-CLOCK
+    /// `budget_ms` (Debugger::pump), so how many more land in that same pump
+    /// depends on the host's load.
+    std::string wait_prompts(std::string got, int n, int max = 16) {
+        const auto prompts = [&got] {
+            int k = 0;
+            for (const char* pr : {PROMPT, PROMPT_STEP})
+                for (std::size_t at = got.find(pr); at != std::string::npos;
+                     at = got.find(pr, at + 1))
+                    ++k;
+            return k;
+        };
+        for (int i = 0; i < max && prompts() < n; ++i) {
+            rig.pump();
+            got += p->take();
+        }
+        return got;
+    }
 };
 
 static std::string reply_of(const std::string& body, bool step = false) {
@@ -1457,10 +1478,27 @@ static void run_rows() {
         const auto                      other = rig.dbg->attach({"loader", ClientKind::Test}).value;
         const std::vector<std::uint8_t> junk(64, 0x5A);
         rig.dbg->load_state_bytes(other, junk.data(), junk.size());
-        const std::string r    = c.send_once("run\nabout\n");
-        const std::size_t cut  = r.find(PROMPT_STEP);
-        const std::string stop = cut == std::string::npos ? r : r.substr(0, cut + std::strlen(PROMPT_STEP));
-        const std::string next = cut == std::string::npos ? "" : r.substr(cut + std::strlen(PROMPT_STEP));
+        // The stop must be complete in the FIRST pump's bytes (the run is that
+        // pump's first command, which is always answered). The pipelined
+        // `about` is the drain's next command. Under the rig's 10 ms
+        // wall-clock budget a loaded host cuts the drain before it, and then
+        // the pump's notify closes the run first, so even an adapter that
+        // took `about` as run data would print the right bytes. A budget no
+        // stall reaches keeps `about` inside the live drain, where the row
+        // means it — and the row REQUIRES it there: an adapter that answers
+        // one command per pass while paused (REQ-zrcp-01) must fail. Only a
+        // pump that measurably spent that whole budget may defer `about`, and
+        // only then is the rest collected.
+        constexpr auto kDrainBudget = std::chrono::milliseconds(2000);
+        c.p->send("run\nabout\n");
+        const auto t0 = SteadyClock::now();
+        rig.dbg->pump(PumpBudget{0, 2, static_cast<int>(kDrainBudget.count())});
+        const bool budget_spent = SteadyClock::now() - t0 >= kDrainBudget;
+        const std::string first = c.p->take();
+        const std::size_t cut   = first.find(PROMPT_STEP);
+        const std::string stop  = cut == std::string::npos ? first : first.substr(0, cut + std::strlen(PROMPT_STEP));
+        const std::string r     = cut == std::string::npos || !budget_spent ? first : c.wait_prompts(first, 2);
+        const std::string next  = cut == std::string::npos ? "" : r.substr(cut + std::strlen(PROMPT_STEP));
         check("ZRCP-RUN-08", "a run the backend refuses (a corrupt machine) is answered in its "
                              "own pass with the first line and the stop, fired \"Machine corrupt "
                              "after failed rewind\"; the machine stays paused, and a line "
