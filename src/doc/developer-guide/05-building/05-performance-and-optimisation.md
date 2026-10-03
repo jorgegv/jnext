@@ -8,8 +8,10 @@ measure a change, then what has been measured so far.
 
 ## Link-time optimisation
 
-The emulator is fourteen per-subsystem static libraries. That split is good for
-the code and bad for the compiler: every hot call that crosses a library — the
+The emulator is built as per-subsystem static libraries — seventeen in the
+shipped build with the Qt GUI and the debugger, fifteen in the SDL-only build
+(`add_library(... STATIC ...)` in each `src/*/CMakeLists.txt`). That split is good for the code and bad for the
+compiler: every hot call that crosses a library — the
 CPU into `Mmu::read`, the CPU into `PortDispatch` — cannot be inlined or
 devirtualised when each library is compiled on its own. LTO hands the whole
 program to the optimiser at link time, so it can.
@@ -61,7 +63,8 @@ profile checksum includes the file's path, which differs between the two trees)
 and not on other executables (the tests and `gen-snapshot-schema` never run in
 training). `-fprofile-prefix-path` makes the profile's file names relative to
 the build directory, so the instrumented tree and the optimised tree can be two
-separate directories that both stay warm in ccache.
+separate directories and still agree on those names. Only the instrumented tree
+stays warm in ccache; the optimised one never hits it (see [ccache](#ccache)).
 
 `make gui-release` runs the three steps in three trees:
 
@@ -116,7 +119,10 @@ unless the MOD's own text is in that RAM. A changed image or a slower boot
 cannot quietly leave the player out of the profile.
 
 The titles the GH #294 and GH #297 measurements used as *untrained* — celeste,
-santaspressie, odemo, test02layer2 — are kept out of the set on purpose, so that they keep measuring how well the profile generalises.
+santaspressie, odemo, test02layer2 — are kept out of the set on purpose, so that
+they keep measuring how well the profile generalises. GH #297's fifth untrained
+title, the DMA copy loop, is trained now, so its numbers are no longer
+comparable with GH #297's.
 
 ### Partial training
 
@@ -261,9 +267,13 @@ binaries. To compare binaries, run them **interleaved**:
   the median and IQR of those ratios over the rounds.
 
 A slow drift then hits every variant in a round equally and cancels in the
-ratio. `test/bench/ab-hotlatch.sh` (`make bench-hotlatch`) is a committed
-harness built this way, and GH #294, GH #297 and GH #298 measured with the same
-method.
+ratio. GH #294, GH #297 and GH #298 measured this way, with scripts that are not
+committed; `doc/analysis/CLANG-LLVM-EVALUATION.md` §3 records the method as GH
+#294 ran it. The one committed interleaved harness, `test/bench/ab-hotlatch.sh`
+(`make bench-hotlatch`), does only part of it: it interleaves the variants on
+one core, but in a fixed order, from one shared SD clone, without `perf stat`,
+and it reports each variant's median T-states per second against the baseline
+rather than per-round ratios.
 
 **Host load.** Read `/proc/loadavg` before you start and record it. A busy host
 does not inflate a spread — it depresses every run equally — so neither a

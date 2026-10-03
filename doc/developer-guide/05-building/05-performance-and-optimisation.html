@@ -2201,17 +2201,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#what-has-been-measured" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What has been measured
-      
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -2414,8 +2403,10 @@ and profile-guided optimisation — and a third, ccache, decides how long you wa
 for it. This page describes all three as the code has them today, then how to
 measure a change, then what has been measured so far.</p>
 <h2 id="link-time-optimisation">Link-time optimisation<a class="headerlink" href="#link-time-optimisation" title="Permanent link">&para;</a></h2>
-<p>The emulator is fourteen per-subsystem static libraries. That split is good for
-the code and bad for the compiler: every hot call that crosses a library — the
+<p>The emulator is built as per-subsystem static libraries — seventeen in the
+shipped build with the Qt GUI and the debugger, fifteen in the SDL-only build
+(<code>add_library(... STATIC ...)</code> in each <code>src/*/CMakeLists.txt</code>). That split is good for the code and bad for the
+compiler: every hot call that crosses a library — the
 CPU into <code>Mmu::read</code>, the CPU into <code>PortDispatch</code> — cannot be inlined or
 devirtualised when each library is compiled on its own. LTO hands the whole
 program to the optimiser at link time, so it can.</p>
@@ -2483,7 +2474,8 @@ profile checksum includes the file's path, which differs between the two trees)
 and not on other executables (the tests and <code>gen-snapshot-schema</code> never run in
 training). <code>-fprofile-prefix-path</code> makes the profile's file names relative to
 the build directory, so the instrumented tree and the optimised tree can be two
-separate directories that both stay warm in ccache.</p>
+separate directories and still agree on those names. Only the instrumented tree
+stays warm in ccache; the optimised one never hits it (see <a href="#ccache">ccache</a>).</p>
 <p><code>make gui-release</code> runs the three steps in three trees:</p>
 <ol>
 <li><code>gui-release-pgo-gen</code> builds the instrumented <code>jnext</code> in
@@ -2565,7 +2557,10 @@ run also saves a snapshot one frame before its exit, and the training <strong>fa
 unless the MOD's own text is in that RAM. A changed image or a slower boot
 cannot quietly leave the player out of the profile.</p>
 <p>The titles the GH #294 and GH #297 measurements used as <em>untrained</em> — celeste,
-santaspressie, odemo, test02layer2 — are kept out of the set on purpose, so that they keep measuring how well the profile generalises.</p>
+santaspressie, odemo, test02layer2 — are kept out of the set on purpose, so that
+they keep measuring how well the profile generalises. GH #297's fifth untrained
+title, the DMA copy loop, is trained now, so its numbers are no longer
+comparable with GH #297's.</p>
 <h3 id="partial-training">Partial training<a class="headerlink" href="#partial-training" title="Permanent link">&para;</a></h3>
 <p><code>-fprofile-partial-training</code> matters as much as the profile. Without it, gcc
 optimises code the training never reached <em>for size</em>, as cold code, and the
@@ -2723,9 +2718,13 @@ binaries. To compare binaries, run them <strong>interleaved</strong>:</p>
   the median and IQR of those ratios over the rounds.</li>
 </ul>
 <p>A slow drift then hits every variant in a round equally and cancels in the
-ratio. <code>test/bench/ab-hotlatch.sh</code> (<code>make bench-hotlatch</code>) is a committed
-harness built this way, and GH #294, GH #297 and GH #298 measured with the same
-method.</p>
+ratio. GH #294, GH #297 and GH #298 measured this way, with scripts that are not
+committed; <code>doc/analysis/CLANG-LLVM-EVALUATION.md</code> §3 records the method as GH</p>
+<h1 id="294-ran-it-the-one-committed-interleaved-harness-testbenchab-hotlatchsh">294 ran it. The one committed interleaved harness, <code>test/bench/ab-hotlatch.sh</code><a class="headerlink" href="#294-ran-it-the-one-committed-interleaved-harness-testbenchab-hotlatchsh" title="Permanent link">&para;</a></h1>
+<p>(<code>make bench-hotlatch</code>), does only part of it: it interleaves the variants on
+one core, but in a fixed order, from one shared SD clone, without <code>perf stat</code>,
+and it reports each variant's median T-states per second against the baseline
+rather than per-round ratios.</p>
 <p><strong>Host load.</strong> Read <code>/proc/loadavg</code> before you start and record it. A busy host
 does not inflate a spread — it depresses every run equally — so neither a
 median nor a VOID check can see it. <code>bench.sh</code> warns above a load of 1.5, and

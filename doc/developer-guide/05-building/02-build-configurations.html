@@ -2451,7 +2451,8 @@ measure a change.</p>
 <code>CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE</code>, and it is guarded by
 <code>check_ipo_supported()</code> so that a toolchain without working LTO simply builds as
 it did before. It earns its keep here because the emulator is split into
-fourteen per-subsystem static libraries, and that split makes every hot
+per-subsystem static libraries — seventeen in the shipped build with the Qt
+GUI and the debugger, fifteen in the SDL-only one — and that split makes every hot
 cross-library call — the CPU into <code>Mmu::read</code>, the CPU into <code>PortDispatch</code> —
 un-inlinable at compile time.</p>
 <p><code>JNEXT_ENABLE_LTO=OFF</code> exists for exactly one build, the Flatpak one: the

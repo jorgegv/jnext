@@ -89,7 +89,8 @@ LTO is enabled for **Release only**, through
 `CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE`, and it is guarded by
 `check_ipo_supported()` so that a toolchain without working LTO simply builds as
 it did before. It earns its keep here because the emulator is split into
-fourteen per-subsystem static libraries, and that split makes every hot
+per-subsystem static libraries — seventeen in the shipped build with the Qt
+GUI and the debugger, fifteen in the SDL-only one — and that split makes every hot
 cross-library call — the CPU into `Mmu::read`, the CPU into `PortDispatch` —
 un-inlinable at compile time.
 
