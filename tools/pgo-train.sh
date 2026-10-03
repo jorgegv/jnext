@@ -341,6 +341,15 @@ if [[ "${JNEXT_PGO_NO_GUI:-0}" != 1 ]]; then
     # then throttled by the wall clock.) What still depends on the wall clock is
     # GUI-only: the 1 s status-bar timer, paint coalescing, the event-loop polls.
     EXTRA_ENV=(QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy)
+    # Under wine these two never reach the exe: wine drops QT_* and
+    # SDL_AUDIODRIVER from the Unix environment (is_ignored_env_var(),
+    # dlls/ntdll/unix/env.c) and imports WINEQT_* / WINESDL_AUDIODRIVER as
+    # them instead (GH #299). Without the offscreen platform the Qt exe uses
+    # "windows", whose window wine cannot create without a display; the window
+    # is then visible with no platform window, and quit() spins forever in
+    # QApplicationPrivate::tryCloseAllWidgetWindows().
+    [[ "${RUNNER[0]:-}" == wine* ]] &&
+        EXTRA_ENV+=(WINEQT_QPA_PLATFORM=offscreen WINESDL_AUDIODRIVER=dummy)
     run gui-offscreen 120 "${GUI_ARGS[@]}" --delayed-automatic-exit-frames "$GUI_FRAMES"
 fi
 
