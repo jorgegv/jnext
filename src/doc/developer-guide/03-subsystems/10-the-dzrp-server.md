@@ -38,8 +38,9 @@ carries its minimum payload length and a `session` flag.
   `SET_SLOT`, `GET_TBBLUE_REG`, ports in/out, `LOOPBACK`, `INTERRUPT_ON_OFF`,
   `CONTINUE`, `PAUSE`, breakpoints and watchpoints add/remove, the four sprite
   commands, `READ_STATE`/`WRITE_STATE`, and the DZRP 2.2.0 additions
-  `GET_SUPPORTED_COMMANDS`, `READ_BANK_MEM`, `WRITE_BANK_MEM` and
-  `ENABLE_BREAK_ON_INTERRUPT`. The bitfield is `DE 8F BF 07 80 0F 0C`.
+  `GET_SUPPORTED_COMMANDS`, `READ_BANK_MEM`, `WRITE_BANK_MEM`,
+  `SET_NEXTREGS`, `READ_MEM_BLOCKS` and `ENABLE_BREAK_ON_INTERRUPT`. The
+  bitfield is `DE 8F BF 1F 80 0F 0C`.
 - **Legacy**: `WRITE_BANK` and `SET_BORDER`, which DZRP 2.2.0 removed, are
   still served — DeZog 3.7.4 loads programs with `WRITE_BANK` — but never
   advertised; to a 2.2.0 client that uses them the server says so at debug
@@ -127,7 +128,7 @@ backend's fan-out.
 | `ADD/REMOVE_WATCHPOINT` | a `Mem` subscription over the range; removed by the exact tuple the add carried (DZRP watchpoints have no id) |
 | `ENABLE_BREAK_ON_INTERRUPT` | an `IntAck` subscription that stops |
 | `READ_STATE` / `WRITE_STATE` | a named **bookmark** (at most 8), sent as the token `JNXB` + its name; refused mid-frame, since DeZog does not re-read registers after a save; a restore validates the token before any backend call |
-| memory, banks, ports, NextREGs, sprites | `peek`/`poke` of `MemSpace::cpu()`/`page(n)`, `set_mmu_slot`, `port_in`/`port_out`, `nextreg_peek`, the sprite and pattern accessors |
+| memory, banks, ports, NextREGs, sprites | `peek`/`poke` of `MemSpace::cpu()`/`page(n)` (`READ_MEM_BLOCKS`: one `peek(cpu)` per block), `set_mmu_slot`, `port_in`/`port_out`, `nextreg_peek`/`nextreg_write` (`SET_NEXTREGS`: one write per pair, in order), the sprite and pattern accessors |
 
 **"Owner = internal" temporaries.** The design calls DeZog's per-step temporary
 breakpoints "owner=internal". In code that means **not user-visible**, not

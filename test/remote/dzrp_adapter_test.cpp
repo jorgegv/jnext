@@ -931,9 +931,9 @@ static void supported_rows() {
     // The whole of design §2 row 24: the legacy 5 and 12 are served but never
     // advertised, and 13, 14 and 22 are unsupported.
     check("DZRP-SUP-01", "the bitfield names exactly the commands served, little endian, bit "
-                         "n = command n: DE 8F BF 07 80 0F 0C (design §2 row 24: 1-4, 6-11, 15-21, "
-                         "23-26, 39-43, 50, 51)",
-          r.payload == bytes({0xDE, 0x8F, 0xBF, 0x07, 0x80, 0x0F, 0x0C}), hex(r.payload));
+                         "n = command n: DE 8F BF 1F 80 0F 0C (design §2 row 24: 1-4, 6-11, 15-21, "
+                         "23-28, 39-43, 50, 51)",
+          r.payload == bytes({0xDE, 0x8F, 0xBF, 0x1F, 0x80, 0x0F, 0x0C}), hex(r.payload));
 
     // THE ONE TABLE, BOTH WAYS: every id 0..255 sent before CMD_INIT (so no
     // machine is touched) with an empty payload. "Unsupported" must be said for
@@ -1256,6 +1256,109 @@ static void memory_rows() {
                   rig.emu.mmu().peek(0x0010) == rom && log.count("CMD_WRITE_MEM at 0x0010") == 0,
               "l2=" + std::to_string(l2));
     }
+    {
+        // CMD_READ_MEM_BLOCKS (28), DZRP 2.2.0: DeZog 3.8's only memory read.
+        Rig    rig;
+        LogTap log;
+        Dz     c(rig);
+        c.init();
+        for (int i = 0; i < 4; ++i)
+            rig.emu.mmu().write(static_cast<std::uint16_t>(0x9000 + i),
+                                static_cast<std::uint8_t>(0x50 + i));
+        rig.emu.mmu().write(0xFFFE, 0xB1);
+        rig.emu.mmu().write(0xFFFF, 0xB2);
+        const std::string blocks = u16s(0x9000) + u16s(4) + u16s(0xFFFE) + u16s(3) +
+                                   u16s(0x4000) + u16s(0) + u16s(0x9001) + u16s(2);
+        const Resp r = c.cmd(CMD_READ_MEM_BLOCKS, le32(4 + 3 + 0 + 2 + 1) + blocks);
+        const std::string want = bytes({0x50, 0x51, 0x52, 0x53, 0xB1, 0xB2,
+                                        rig.emu.mmu().peek(0x0000), 0x51, 0x52});
+        check("DZRP-MEM-11", "CMD_READ_MEM_BLOCKS answers the blocks back to back, in the order "
+                             "asked: a block past 0xFFFF wraps, a zero-size block adds nothing, "
+                             "blocks may overlap",
+              r.len == 10 && r.payload == want, hex(r.payload));
+
+        const Resp z = c.cmd(CMD_READ_MEM_BLOCKS, le32(1));
+        check("DZRP-MEM-12", "a CMD_READ_MEM_BLOCKS with no blocks is answered with the seq alone "
+                             "— as a served command, not as an unsupported one",
+              z.len == 1 && z.seq == c.seq && log.count("unsupported DZRP command 28") == 0);
+
+        // DeZog's 64 KB read: two 0x8000 blocks (it cannot say 0x10000 in u16).
+        const Resp f =
+            c.cmd(CMD_READ_MEM_BLOCKS, le32(0x10001) + u16s(0x0000) + u16s(0x8000) +
+                                           u16s(0x8000) + u16s(0x8000));
+        check("DZRP-MEM-13", "DeZog's whole-64K read (two 0x8000 blocks) is answered with all "
+                             "65536 bytes",
+              f.payload.size() == 0x10000 &&
+                  static_cast<unsigned char>(f.payload[0x9002]) == 0x52 &&
+                  static_cast<unsigned char>(f.payload[0xFFFF]) == 0xB2);
+
+        const auto level = Log::debugger()->level();
+        Log::debugger()->set_level(spdlog::level::debug);
+        const Resp l = c.cmd(CMD_READ_MEM_BLOCKS, le32(99) + u16s(0x9000) + u16s(2));
+        Log::debugger()->set_level(level);
+        check("DZRP-MEM-14", "resp_length is advisory (spec: the receiver need not use it): a "
+                             "wrong one still gets the blocks, and a debug line says so",
+              l.payload == bytes({0x50, 0x51}) &&
+                  log.count("CMD_READ_MEM_BLOCKS resp_length 99 but the blocks make 3") == 1);
+
+        const Resp m = c.cmd(CMD_READ_MEM_BLOCKS, le32(3) + u16s(0x9000) + bytes({2}));
+        check("DZRP-MEM-15", "a block list that is not a multiple of 4 bytes reads nothing: "
+                             "seq-only reply and a warn line",
+              m.len == 1 && log.count("malformed CMD_READ_MEM_BLOCKS: 3 bytes of blocks") == 1);
+
+        std::string many;
+        for (int i = 0; i < 257; ++i) many += u16s(0x0000) + u16s(0xFFFF);
+        const Resp big = c.cmd(CMD_READ_MEM_BLOCKS, le32(257u * 0xFFFF + 1) + many);
+        check("DZRP-MEM-16", "a request for more than the 16 MiB cap (257 blocks of 0xFFFF) reads "
+                             "nothing: seq-only reply and a warn line",
+              big.len == 1 &&
+                  log.count("CMD_READ_MEM_BLOCKS asks for 16842495 bytes, over the") == 1);
+
+        const Resp s = c.cmd(CMD_READ_MEM_BLOCKS, bytes({0x05, 0x00, 0x00}));
+        check("DZRP-MEM-17", "a CMD_READ_MEM_BLOCKS shorter than its 4-byte resp_length reads "
+                             "nothing: seq-only reply and the malformed-command warn line",
+              s.len == 1 &&
+                  log.count("malformed CMD_READ_MEM_BLOCKS: payload is 3 bytes, needs at "
+                            "least 4") == 1);
+
+        // The cap at its edge. The response length field counts FROM the seq
+        // byte (dzrp_frame.h), so seq + blocks <= MAX_PAYLOAD_BYTES (16 MiB):
+        // the largest legal block total is 16 MiB - 1 = 256 x 0xFFFF + 0xFF.
+        std::string edge;
+        for (int i = 0; i < 256; ++i) edge += u16s(0x0000) + u16s(0xFFFF);
+        std::string low(0xFFFF, '\0');
+        for (std::size_t i = 0; i < low.size(); ++i)
+            low[i] = static_cast<char>(rig.emu.mmu().peek(static_cast<std::uint16_t>(i)));
+        std::string want_edge;
+        want_edge.reserve(16777215);
+        for (int i = 0; i < 256; ++i) want_edge += low;
+        want_edge += low.substr(0x9000, 0xFF);
+        const Resp at_cap =
+            c.cmd(CMD_READ_MEM_BLOCKS, le32(16777216) + edge + u16s(0x9000) + u16s(0x00FF));
+        check("DZRP-MEM-18", "a block total of exactly 16 MiB - 1 (256 blocks of 0xFFFF + one of "
+                             "0xFF: seq + blocks = the 16 MiB cap) is served in full",
+              at_cap.len == 16777216 && at_cap.payload.size() == 16777215 &&
+                  at_cap.payload == want_edge,
+              "len=" + std::to_string(at_cap.len));
+
+        const Resp over_cap =
+            c.cmd(CMD_READ_MEM_BLOCKS, le32(16777217) + edge + u16s(0x9000) + u16s(0x0100));
+        check("DZRP-MEM-19", "one byte more (256 blocks of 0xFFFF + one of 0x100: a 16 MiB block "
+                             "total) reads nothing: seq-only reply and a warn line",
+              over_cap.len == 1 &&
+                  log.count("CMD_READ_MEM_BLOCKS asks for 16777216 bytes, over the") == 1);
+
+        // 65538 x 0xFFFF = 4295032830: in 32 bits that wraps to 65534, under
+        // the cap. The sum must not wrap.
+        std::string wrap;
+        for (int i = 0; i < 65538; ++i) wrap += u16s(0x0000) + u16s(0xFFFF);
+        const Resp wrapped = c.cmd(CMD_READ_MEM_BLOCKS, le32(65535) + wrap);
+        check("DZRP-MEM-20", "a block list whose size sum wraps 32 bits (65538 blocks of 0xFFFF) "
+                             "reads nothing: seq-only reply and a warn line with the full sum",
+              wrapped.len == 1 &&
+                  log.count("CMD_READ_MEM_BLOCKS asks for 4295032830 bytes, over the") == 1,
+              "len=" + std::to_string(wrapped.len));
+    }
 }
 
 // ── DZRP-BANK — banks, DZRP bank N = MMU page N (WP-2) ─────────────────────
@@ -1576,6 +1679,55 @@ static void nextreg_port_rows() {
                               "still reads the register 0x243B selected before it",
               g.payload == bytes({0x21}) && v.payload == bytes({0x5A}) &&
                   rig.dbg->nextreg_selected() == 0x14);
+    }
+    {
+        // CMD_SET_NEXTREGS (27), DZRP 2.2.0: the pairs in order, so a repeated
+        // register keeps its last value; each through the register's own write
+        // handler (NR 0x56 maps page 14 into slot 6).
+        Rig    rig;
+        LogTap log;
+        Dz     c(rig);
+        c.init();
+        const Resp r = c.cmd(CMD_SET_NEXTREGS,
+                             bytes({0x14, 0x11, 0x4A, 0x22, 0x14, 0x33, 0x56, 14}));
+        check("DZRP-NR-03", "CMD_SET_NEXTREGS writes the pairs in order (NR 0x14 written twice "
+                            "keeps 0x33), seq-only reply",
+              r.len == 1 && rig.dbg->nextreg_peek(0x14) == 0x33 &&
+                  rig.dbg->nextreg_peek(0x4A) == 0x22);
+        check("DZRP-NR-04", "and through the register's write handler: NR 0x56 = 14 maps page 14 "
+                            "into slot 6",
+              rig.dbg->mmu_slots()[6].nr_page == 14);
+
+        const Resp e = c.cmd(CMD_SET_NEXTREGS);
+        check("DZRP-NR-05", "an empty CMD_SET_NEXTREGS writes nothing and is answered with the "
+                            "seq alone, without a warning — as a served command, not as an "
+                            "unsupported one",
+              e.len == 1 && log.count("CMD_SET_NEXTREGS") == 0 &&
+                  log.count("unsupported DZRP command 27") == 0);
+
+        const Resp o = c.cmd(CMD_SET_NEXTREGS, bytes({0x14, 0x44, 0x4A}));
+        check("DZRP-NR-06", "an odd length writes NOTHING (not even the first whole pair): "
+                            "seq-only reply and a warn line",
+              o.len == 1 && rig.dbg->nextreg_peek(0x14) == 0x33 &&
+                  log.count("malformed CMD_SET_NEXTREGS: payload is 3 bytes") == 1);
+    }
+    {
+        Rig    rig;
+        LogTap log;
+        Dz     c(rig);
+        c.init();
+        rig.emu.nextreg().write(0x14, 0x5A);
+        Resp r;
+        {
+            RzxOn rzx(rig.emu);
+            r = c.cmd(CMD_SET_NEXTREGS, bytes({0x14, 0x11, 0x4A, 0x22}));
+        }
+        check("DZRP-NR-07", "under an RZX playback CMD_SET_NEXTREGS writes nothing and says so "
+                            "ONCE, with how far it got",
+              r.len == 1 && rig.dbg->nextreg_peek(0x14) == 0x5A &&
+                  log.count("CMD_SET_NEXTREGS NR 0x14 refused: refused_rzx — 0 of 2 pairs "
+                            "written") == 1 &&
+                  log.count("CMD_SET_NEXTREGS NR 0x4A") == 0);
     }
     {
         Rig    rig;

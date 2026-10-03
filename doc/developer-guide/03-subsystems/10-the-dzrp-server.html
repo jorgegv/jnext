@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.78</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.80</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.78</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.80</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2402,8 +2402,9 @@ carries its minimum payload length and a <code>session</code> flag.</p>
   <code>SET_SLOT</code>, <code>GET_TBBLUE_REG</code>, ports in/out, <code>LOOPBACK</code>, <code>INTERRUPT_ON_OFF</code>,
   <code>CONTINUE</code>, <code>PAUSE</code>, breakpoints and watchpoints add/remove, the four sprite
   commands, <code>READ_STATE</code>/<code>WRITE_STATE</code>, and the DZRP 2.2.0 additions
-  <code>GET_SUPPORTED_COMMANDS</code>, <code>READ_BANK_MEM</code>, <code>WRITE_BANK_MEM</code> and
-  <code>ENABLE_BREAK_ON_INTERRUPT</code>. The bitfield is <code>DE 8F BF 07 80 0F 0C</code>.</li>
+  <code>GET_SUPPORTED_COMMANDS</code>, <code>READ_BANK_MEM</code>, <code>WRITE_BANK_MEM</code>,
+  <code>SET_NEXTREGS</code>, <code>READ_MEM_BLOCKS</code> and <code>ENABLE_BREAK_ON_INTERRUPT</code>. The
+  bitfield is <code>DE 8F BF 1F 80 0F 0C</code>.</li>
 <li><strong>Legacy</strong>: <code>WRITE_BANK</code> and <code>SET_BORDER</code>, which DZRP 2.2.0 removed, are
   still served — DeZog 3.7.4 loads programs with <code>WRITE_BANK</code> — but never
   advertised; to a 2.2.0 client that uses them the server says so at debug
@@ -2517,7 +2518,7 @@ backend's fan-out.</p>
 </tr>
 <tr>
 <td>memory, banks, ports, NextREGs, sprites</td>
-<td><code>peek</code>/<code>poke</code> of <code>MemSpace::cpu()</code>/<code>page(n)</code>, <code>set_mmu_slot</code>, <code>port_in</code>/<code>port_out</code>, <code>nextreg_peek</code>, the sprite and pattern accessors</td>
+<td><code>peek</code>/<code>poke</code> of <code>MemSpace::cpu()</code>/<code>page(n)</code> (<code>READ_MEM_BLOCKS</code>: one <code>peek(cpu)</code> per block), <code>set_mmu_slot</code>, <code>port_in</code>/<code>port_out</code>, <code>nextreg_peek</code>/<code>nextreg_write</code> (<code>SET_NEXTREGS</code>: one write per pair, in order), the sprite and pattern accessors</td>
 </tr>
 </tbody>
 </table>

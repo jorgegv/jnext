@@ -295,13 +295,19 @@ smaller (measured when the run still had sound).
 |---|---|---|---|
 | `gui-release` (Linux) | gcc | natively, with the GUI run | `make fuse-pgo`, a prerequisite of `make regression`: the FUSE Z80 suite against the PGO tree's CPU core |
 | rpm, debs (Fedora; Ubuntu 24.04, 26.04) | gcc | where the package is built (release.yml: that distribution's container), with the GUI run | — |
-| Windows (x64 Qt6, x64 Qt5, i686 Qt5) | MinGW gcc | under **wine**, headless only | the FUSE Z80 suite under wine against the optimised tree, all 1356 cases |
+| Windows (x64 Qt6, x64 Qt5, i686 Qt5) | MinGW gcc | under **wine**, with no display, with the GUI run (offscreen) | the FUSE Z80 suite under wine against the optimised tree, all 1356 cases |
 | Flatpak | the KDE SDK's gcc, LTO off | inside the build sandbox, with the GUI run | the FUSE Z80 suite against the optimised CPU core, before the bundle is installed |
 | macOS | AppleClang | on the macOS runner; the profile is merged with `llvm-profdata` (Xcode's first) | — |
 
-Windows trains headless only because, in a container with no display, the Qt
-executable under wine reaches its automatic exit and then never terminates;
-partial training keeps the untrained GUI code as fast as without PGO. Each
+Wine gets no display on any host (`DISPLAY`, `WAYLAND_DISPLAY` and
+`XDG_RUNTIME_DIR` unset), as in release.yml's container. The GUI run's
+`QT_QPA_PLATFORM=offscreen` and `SDL_AUDIODRIVER=dummy` are also passed as
+`WINEQT_QPA_PLATFORM` and `WINESDL_AUDIODRIVER`: wine drops `QT_*` and
+`SDL_AUDIODRIVER` from the Unix environment and imports the `WINE`-prefixed
+names instead. Without that the exe ran on Qt's `windows` platform, whose
+window wine cannot create without a display; Qt then left the main window
+visible with no platform window, and `quit()` looped forever in
+`QApplicationPrivate::tryCloseAllWidgetWindows()` (GH #299). Each
 Windows PGO build also refreshes its wine prefix (`wineboot -u`), because a
 prefix created while the host's wine was broken stays broken after wine is
 fixed. `WIN_PGO=0`, or `make win-release-non-pgo` for the x64 leg, builds

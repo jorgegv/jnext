@@ -101,7 +101,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger resume step-off |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raster State (beam + ULA fetch) |       86 |       86 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger socket transport (GH #287) |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
-| DZRP remote debugger adapter (GH #12) |      146 |      146 |      0 |       0 |    100% | 🟢 All tests pass. |
+| DZRP remote debugger adapter (GH #12) |      161 |      161 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GDB RSP remote debugger adapter (GH #281) |       97 |       97 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger DSL front end (GH #26) |      257 |      257 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger DSL evaluator (GH #26) |       60 |       60 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -136,6 +136,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12236**| **12236**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12251**| **12251**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

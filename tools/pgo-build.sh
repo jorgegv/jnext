@@ -16,13 +16,14 @@
 # the profile is new (make cannot see .gcda files as dependencies).
 #
 # A Windows (.exe) instrumented build is trained under wine: its runtime DLLs
-# are bundled next to it first, and wine runs in its own prefix under build/.
-# No wine is a hard error that says how to build without PGO. The GUI run of
-# the training set is left out there (JNEXT_PGO_NO_GUI=1): in a display-less
-# container (release.yml's) the Qt exe under wine reaches its automatic exit
-# and then never terminates, so the run could only time out. The headless
-# runs are unaffected, and -fprofile-partial-training keeps the untrained GUI
-# code optimised as it is without PGO.
+# (and Qt's offscreen platform plugin, for the GUI run) are bundled next to it
+# first, and wine runs in its own prefix under build/. No wine is a hard error
+# that says how to build without PGO. Wine gets NO display on any host
+# (DISPLAY, WAYLAND_DISPLAY and XDG_RUNTIME_DIR unset; without the last, wine
+# would still find the desktop's wayland-0 socket), so the training runs as it
+# does in release.yml's display-less container and never opens a window on a
+# developer's desktop. The GUI run gets the offscreen platform through wine's
+# WINE-prefixed variables (tools/pgo-train.sh, GH #299).
 #
 # A Windows build then runs the FUSE Z80 suite under wine against the
 # optimised tree and fails unless every case passes (step 4).
@@ -62,11 +63,12 @@ if [[ "$BIN" == *.exe ]]; then
     command -v wine >/dev/null 2>&1 ||
         die "training the Windows PGO build needs wine (e.g. 'dnf install wine').
 pgo-build: Without it, build the non-PGO executable instead (make win-release-non-pgo)."
-    bash "$SCRIPT_DIR/../packaging/windows/bundle-dlls.sh" "$BIN" "$GEN" >/dev/null
-    export JNEXT_PGO_RUNNER=wine JNEXT_PGO_NO_GUI=1
+    BUNDLE_EXTRA_QT_PLUGINS="platforms/qoffscreen.dll" \
+        bash "$SCRIPT_DIR/../packaging/windows/bundle-dlls.sh" "$BIN" "$GEN" >/dev/null
+    export JNEXT_PGO_RUNNER=wine
     export WINEPREFIX="${WINEPREFIX:-$(cd "$(dirname "$DIR")" && pwd)/wine-pgo}"
     export WINEDLLOVERRIDES="mscoree,mshtml=" WINEDEBUG=-all
-    unset DISPLAY WAYLAND_DISPLAY
+    unset DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR
     # An existing prefix is refreshed every time (wineboot -u), not only
     # created once: a prefix made while the host wine was broken keeps that
     # state after wine is fixed. One made while the i386 d3d11/dxgi links were

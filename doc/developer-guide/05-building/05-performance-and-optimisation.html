@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.78</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.80</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.78</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.80</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2725,7 +2725,7 @@ reproducible. The GUI run is kept by default because it is worth it: in GH</p>
 <tr>
 <td>Windows (x64 Qt6, x64 Qt5, i686 Qt5)</td>
 <td>MinGW gcc</td>
-<td>under <strong>wine</strong>, headless only</td>
+<td>under <strong>wine</strong>, with no display, with the GUI run (offscreen)</td>
 <td>the FUSE Z80 suite under wine against the optimised tree, all 1356 cases</td>
 </tr>
 <tr>
@@ -2742,9 +2742,15 @@ reproducible. The GUI run is kept by default because it is worth it: in GH</p>
 </tr>
 </tbody>
 </table>
-<p>Windows trains headless only because, in a container with no display, the Qt
-executable under wine reaches its automatic exit and then never terminates;
-partial training keeps the untrained GUI code as fast as without PGO. Each
+<p>Wine gets no display on any host (<code>DISPLAY</code>, <code>WAYLAND_DISPLAY</code> and
+<code>XDG_RUNTIME_DIR</code> unset), as in release.yml's container. The GUI run's
+<code>QT_QPA_PLATFORM=offscreen</code> and <code>SDL_AUDIODRIVER=dummy</code> are also passed as
+<code>WINEQT_QPA_PLATFORM</code> and <code>WINESDL_AUDIODRIVER</code>: wine drops <code>QT_*</code> and
+<code>SDL_AUDIODRIVER</code> from the Unix environment and imports the <code>WINE</code>-prefixed
+names instead. Without that the exe ran on Qt's <code>windows</code> platform, whose
+window wine cannot create without a display; Qt then left the main window
+visible with no platform window, and <code>quit()</code> looped forever in
+<code>QApplicationPrivate::tryCloseAllWidgetWindows()</code> (GH #299). Each
 Windows PGO build also refreshes its wine prefix (<code>wineboot -u</code>), because a
 prefix created while the host's wine was broken stays broken after wine is
 fixed. <code>WIN_PGO=0</code>, or <code>make win-release-non-pgo</code> for the x64 leg, builds

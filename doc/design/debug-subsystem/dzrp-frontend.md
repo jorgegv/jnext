@@ -70,6 +70,9 @@
 >   APPROVED): the owner-approved INS-03 `rom_select()` retires §12.2's
 >   deviation 1 (§2 row 25 and §5.2 now say so); §13 records WP-3/WP-4, their
 >   deviations and findings.
+> - v1.9 (2026-10-03): DZRP 2.2.0's late additions `CMD_SET_NEXTREGS` (27)
+>   and `CMD_READ_MEM_BLOCKS` (28) served — current DeZog 3.8 reads all memory
+>   with 28. §2 rows 24, 27, 28; §16 records the use case and the decisions.
 
 Every claim below carries a `file:line` citation. Sources and their versions:
 
@@ -343,9 +346,11 @@ CAP ids are `backend.md` v1.
 | 21 | `CMD_WRITE_PORT` | load (0x7FFD), console | T1 | CAP-INS-05 | A real OUT. Same note. |
 | 22 | `CMD_EXEC_ASM` | console | UNS (deferred) | — | "Executed in the debugger context … does not change anything in the debugged program" (spec:702) needs a scratch execution context jnext does not have. Reply seq only + warn log; DeZog's console prints `error: undefined` — visible, not silent. Reconsider only if a client other than the console asks. |
 | 23 | `CMD_INTERRUPT_ON_OFF` | load | T1 | CAP-INS-01 | IFF1 = IFF2 = flag (spec:697-708; sent on every .sna/.z80 load, remote:1649,1705; up `:1700,1759`). |
-| 24 | `CMD_GET_SUPPORTED_COMMANDS` | dzrp, cspect, zxnext (3.8, right after `INIT`) | T1 | — (adapter-only) | 2.2.0, MUST (spec:710-731). Reply: 7 bytes LE, bit *n* = command *n* served. **Set:** 1 2 3 4 6 7 8 9 10 11 15 16 17 18 19 20 21 23 24 25 26 39 40 41 42 43 50 51 (28 bits) — **on the wire: `DE 8F BF 07 80 0F 0C`** (the unit row's expected bytes). **Clear:** 5 and 12 (removed in 2.2.0, still served for older clients), 13 14 22 (unsupported). Clearing 5/12 is safe because 3.8's `DZRP` enum no longer contains them (up `dzrpremote.ts:41,48` commented out), so `disableUnsupportedCommands` (up `:147-160`, which throws "Methode … does not exist" for an enum entry without a sender) never iterates them (N-6). DeZog turns every other clear bit into a client-side thrower, so an unsupported feature fails with a named error instead of a timeout — this is the 2.2 form of "reported, never silent". The pairs 40/41, 42/43, 50/51 are advertised together (up `:209-216` refuses an inconsistent field). DeZog's own gating of `-state` is swapped (up `:197-206`: `stateSave` disabled when 51 is clear, `stateRestore` when 50 is) — harmless here since both are set (N-7). |
+| 24 | `CMD_GET_SUPPORTED_COMMANDS` | dzrp, cspect, zxnext (3.8, right after `INIT`) | T1 | — (adapter-only) | 2.2.0, MUST (spec:710-731). Reply: 7 bytes LE, bit *n* = command *n* served. **Set:** 1 2 3 4 6 7 8 9 10 11 15 16 17 18 19 20 21 23 24 25 26 27 28 39 40 41 42 43 50 51 (30 bits) — **on the wire: `DE 8F BF 1F 80 0F 0C`** (the unit row's expected bytes). **Clear:** 5 and 12 (removed in 2.2.0, still served for older clients), 13 14 22 (unsupported). Clearing 5/12 is safe because 3.8's `DZRP` enum no longer contains them (up `dzrpremote.ts:41,48` commented out), so `disableUnsupportedCommands` (up `:147-160`, which throws "Methode … does not exist" for an enum entry without a sender) never iterates them (N-6). DeZog turns every other clear bit into a client-side thrower, so an unsupported feature fails with a named error instead of a timeout — this is the 2.2 form of "reported, never silent". The pairs 40/41, 42/43, 50/51 are advertised together (up `:209-216` refuses an inconsistent field). DeZog's own gating of `-state` is swapped (up `:197-206`: `stateSave` disabled when 51 is clear, `stateRestore` when 50 is) — harmless here since both are set (N-7). |
 | 25 | `CMD_READ_BANK_MEM` | dzrp, cspect (3.8: bank-qualified memory views, `-md … bank=`) | T1 | CAP-INS-02 `Page{bank}` peek; CAP-INS-03 `SlotInfo.space` → CAP-INS-02 `Rom{index}` for 0xFF | Cmd: bank, offset u16, size u16 (spec:735-754; DeZog splits 64K into 2×32K, up `:853-875`). bank 0..223 → `peek(Page{bank}, offset, size)`; **offset + size must stay inside 8 KB** — bytes past the page are not served (reply the bytes that fit; a wholly out-of-range request gets an empty reply + warn). bank 0xFF (3.8's ROM id, one 16 KB bank spanning both slots — `zxnextmemorymodels.ts:64-104`, `bankSize: 0x4000`, slot 1 `bankOffset: 0x2000`) → offset 0x0000-0x1FFF is read through `SlotInfo(0).space`, 0x2000-0x3FFF through `SlotInfo(1).space` (settled by REQ-dzrp-12 / REQ-qt-31: `Rom{index}` names a **16 KB ROM image** 0..3, addresses 0..0x3FFF, read-only — on a ROM-in-SRAM machine SRAM pages 2·index / 2·index+1; a ROM slot's `SlotInfo.space` is `Rom{effective_page >> 1}` with `space_offset = (effective_page & 1)·0x2000` selecting its 8 KB half, so the adapter reads `peek(space, space_offset + (offset & 0x1FFF), n)` and composes nothing itself), **while that slot `is_rom`**; when RAM is paged at 0x0000 (NR 0x50 ≠ 0xFF, or port 0xEFF7 bit 3, `mmu.cpp:536-538`) the half is read through CAP-INS-03 **`rom_select()`** — the image legacy paging selects (VHDL `sram_rom`: machine type, 7FFD b4 / 1FFD b2 and the NR 0x8C locks folded by the backend) — as `peek(rom_select(), half·0x2000 + (offset & 0x1FFF), n)` (N-1; v1.8, §13.1 — the first formula here, "`paging_ports()` 7FFD b4 \| 1FFD b2", was wrong on the Next and ignored the locks). |
 | 26 | `CMD_WRITE_BANK_MEM` | load (3.8), dzrp console | T1 | CAP-INS-02 `Page{bank}` poke | Cmd: bank, offset u16, data (spec:756-775). Same range rule; ROM bank → nothing written, warn log (the command has no error field, unlike the removed `WRITE_BANK`). Loaders send offset 0 with 8192 bytes (up `dzrpremote.ts:1660-1661`). |
+| 27 | `CMD_SET_NEXTREGS` | load (3.8: the NEX loading screen's palette and layer registers) | T1 | CAP-INS-04 `nextreg_write` | 2.2.0, added upstream after 3.8.0-rc7's first cut (DeZog `8e09aa68`). Cmd: N × (register, value), no count — N is the length / 2. Each pair is `nextreg_write(reg, value)`, the register's own write handler, **in order** (a register may repeat: DeZog writes 0x43, 0x40, then 512 × 0x44 for a palette). Reply seq only. An odd length writes nothing + warn. A refusal (RZX) stops at that pair with one warn line naming how many were written — not one per pair. Each write is a backend `MUTATE` line (info). |
+| 28 | `CMD_READ_MEM_BLOCKS` | every memory read of 3.8 (memory views, call stack, disassembly) — `CMD_READ_MEM` is gone from its enum | T1 | CAP-INS-02 `Cpu` peek | 2.2.0, added upstream after 3.8.0-rc7's first cut (DeZog `5ff6b640`). Cmd: resp_length u32, then N × (addr u16, size u16). Reply: the blocks back to back, in order, each read as row 8 (CPU view, side-effect free, wrapping at 0xFFFF). resp_length counts the seq byte and is advisory (spec: the receiver need not use it) — a mismatch is served and logged at debug. A block list not a multiple of 4 → seq-only reply + warn; a total over `MAX_PAYLOAD_BYTES` → seq-only reply + warn (a 16 MiB command could otherwise ask for 4M × 64 KB). DeZog sends a 64 KB read as two 0x8000 blocks. |
 | 39 | `CMD_ENABLE_BREAK_ON_INTERRUPT` | **none in 3.8.0-rc7** — the sender `sendDzrpCmdEnableBreakOnInterrupt` (up `dzrptransportremote.ts:1132-1135`) has no caller; the UI (`exceptionbreakpoints.ts:86-88, 299-301`) calls `Remote.enableBreakOnInterrupt`, which no DZRP class overrides and which returns `false` ("Only supported by zsim", `remotebase.ts:1115-1117`), so enabling the option prints "Break on interrupt: disabled." and puts nothing on the wire. Reachable today only from a foreign client (`cspect_dzrp.py`) | T1 | CAP-EVT `IntAck` subscription, `Stop`, owner=client | 2.2.0 (spec:776-789). Served and **advertised** (bit 39): the spec defines it, a later DeZog will wire it, and advertising costs only that 3.8 shows the "Break on Interrupt" exception option (`funcSupported`, up `:194`) — which then does nothing, DeZog's defect, not ours. 1 → subscribe `IntAck{Stop}` (the accepted-maskable-interrupt seam, `backend.md` §4.3, `emulator.cpp:1114`); 0 → unsubscribe. NMI is not an "interrupt" here. Stop → `NTF_PAUSE` reason 255, address PC, string `"Break on interrupt."` (§3.3). No DeZog-coverage claim in the man page (R-2). |
 | 40 | `CMD_ADD_BREAKPOINT` | cspect, dzrp | T1 | CAP-EVT Execute[a,a] Stop, owner=client, **no predicate** | §3.1. Cmd: addr u16, bank+1, condition\0 (spec:738-743). The condition string is **ignored** (decision 2). Reply u16 id; 0 = refused (spec:750; DeZog marks the bp unverified, remote:1378-1379). |
 | 41 | `CMD_REMOVE_BREAKPOINT` | cspect | T1 | CAP-EVT unsubscribe | By id. Unknown id → seq-only reply + warn. |
@@ -1179,7 +1184,8 @@ GH #221 step-off arm applies), the reply before anything runs; `NTF_PAUSE` built
 from `Paused{reason, matched[]}` in the post-frame flush (`on_notify`), temp
 first (F8), `bank+1` of the address's page (F7), once per `CONTINUE` or per
 `PAUSE` that stopped a running machine; a hard reset sends nothing. The
-bitfield is now §2 row 24's `DE 8F BF 07 80 0F 0C` (`DZRP-SUP-01`).
+bitfield was then `DE 8F BF 07 80 0F 0C` (`DZRP-SUP-01`) — superseded by v1.9
+(§16), which serves 27 and 28: `DE 8F BF 1F 80 0F 0C`, §2 row 24.
 
 ### 13.3 WP-4 — what is served
 
@@ -1398,3 +1404,78 @@ guide page, `FEATURES.md`, ChangeLog) is the final milestone's.
    binary (the log line now shows its real form; a DZRP breakpoint was
    confirmed to fire in the Qt frontend with the debugger window closed, as
    both pages say).
+
+## 16. Implementation record — the two late DZRP 2.2.0 commands (27, 28)
+
+### 16.1 Use case
+
+DeZog's 2.2.0 grew after this design was verified against upstream `main` @
+`0de07af6` (v1.4): `8e09aa68` (2026-09-27) added `CMD_SET_NEXTREGS` (27) for
+the NEX loading screen, and `5ff6b640` (2026-09-30) added `CMD_READ_MEM_BLOCKS`
+(28) and **removed `CMD_READ_MEM` (8)** from the client's enum. A current
+DeZog 3.8 build therefore sends 28 for every memory read — memory views, call
+stack, disassembly — and, since jnext's bitfield left bit 28 clear, its
+`disableUnsupportedCommands` replaced the sender with a thrower: a session
+against jnext failed on its first memory read with *"Feature is not supported
+by the remote "cspect". Details: DZRP command 'CMD_READ_MEM_BLOCKS (28)' is not
+supported."* Observed with a DeZog build of upstream `main` (3.8.0-rc7
+version string) driving jnext 1.0.71 over `remoteType: "cspect"`. 27 failed
+the same way, but DeZog catches that one ("Failed to show loading screen"),
+so a missing 27 only loses the loading screen.
+
+### 16.2 What is served
+
+Both are rows of `COMMANDS[]`, so both are advertised: the bitfield becomes
+**`DE 8F BF 1F 80 0F 0C`** (§2 row 24; bits 27 and 28 added). The spec text is
+upstream `design/DeZogProtocol.md` "CMD_SET_NEXTREGS=27" and
+"CMD_READ_MEM_BLOCKS=28"; the client is `dzrptransportremote.ts`
+`sendDzrpCmdReadMemBlocks` / `sendDzrpCmdSetNextregs`.
+
+- **28 `CMD_READ_MEM_BLOCKS`** — §2 row 28. `resp_length` u32, then N ×
+  (addr u16, size u16); the reply is the blocks back to back. Each block is one
+  `peek(MemSpace::cpu(), addr, size)` — row 8's read: side-effect free, and the
+  CPU space wraps at 0xFFFF in the backend, which is the spec's "a block wraps
+  at the 64k boundary". DeZog never sends size 0x10000 (it splits it into two
+  0x8000 blocks), so a u16 size of 0 is an empty block.
+- **27 `CMD_SET_NEXTREGS`** — §2 row 27. N × (register, value), each
+  `nextreg_write()` in order, which is the spec's "the remote executes a
+  'NEXTREG register,value' for each pair": the register's own write handler,
+  side effects included (an NR 0x50-0x57 write remaps the slot).
+
+`CMD_READ_MEM` (8) stays served and advertised: DeZog 3.7.4 and the CSpect
+plugin's 2.0/2.1 clients use it, and a set bit for a command a 2.2 client no
+longer has in its enum is harmless (the same reasoning as N-6 for 5/12, the
+other way round).
+
+### 16.3 Decisions, each with its reason
+
+1. **`resp_length` is advisory.** The spec says the receiver need not use it;
+   the blocks are the truth. A mismatch is served as the blocks say and logged
+   at debug — a wrong client should be visible, not punished.
+2. **The reply is capped at `MAX_PAYLOAD_BYTES`.** The command's own 16 MiB
+   cap applied to the reply: without it a 16 MiB command could ask for 4M
+   blocks of 64 KB. Over the cap → seq-only reply + warn, nothing read.
+3. **Malformed input changes nothing.** A block list not a multiple of 4, or
+   an odd `SET_NEXTREGS` length, is a seq-only reply + warn and touches no
+   state — the pairs/blocks cannot be trusted, so none are acted on.
+4. **A refusal stops `SET_NEXTREGS` with one line.** Under RZX
+   `nextreg_write()` returns `refused_rzx` for every pair; the handler stops at
+   the first refusal and warns once with how many pairs landed, instead of one
+   warn per pair (a palette is 514 pairs).
+5. **One `MUTATE` line per register, unchanged.** Each `nextreg_write()` logs
+   its backend mutation line, so a palette load logs 514 of them at info. That
+   is the backend's §4.2a contract for every client; batching it would be a
+   backend change and is left out of this adapter-only change.
+
+### 16.4 Validation
+
+`dzrp_adapter_test` rows DZRP-MEM-11..17 (28: order, wrap, zero-size and
+overlapping blocks, no blocks, DeZog's 64 KB read, advisory `resp_length`,
+malformed list, the cap, the short payload), DZRP-MEM-18..20 (28: the cap at
+its edge — the response length counts from the seq byte, so a block total of
+16 MiB − 1 is the largest served (MEM-18) and 16 MiB is refused (MEM-19); a
+block list whose size sum wraps 32 bits, 65538 × 0xFFFF, is refused (MEM-20))
+and DZRP-NR-03..07 (27: order and repetition, the write handler's side effect,
+empty, odd length, RZX), plus the updated DZRP-SUP-01. All fifteen new rows and
+SUP-01 FAIL with the two table rows removed (the commands then reported
+unsupported) and PASS with them.

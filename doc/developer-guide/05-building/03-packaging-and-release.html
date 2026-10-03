@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.78</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.80</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.78</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.0.80</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2380,10 +2380,10 @@ build therefore needs the SD image (provisioned by download when missing), and
 some platforms need more:</p>
 <ul>
 <li>the Windows legs are Release builds with LTO, like the Linux packages,
-  and are trained under <strong>wine</strong>, headless only: in a
-  display-less container the Qt exe under wine never terminates after its
-  automatic exit, so the training's GUI run is left out there. No wine is a
-  hard error; <code>WIN_PGO=0</code> (or <code>make win-release-non-pgo</code>) builds without PGO.
+  and are trained under <strong>wine</strong> with no display, the GUI run on Qt's
+  offscreen platform (its plugin is bundled next to the instrumented exe
+  only). No wine is a hard error; <code>WIN_PGO=0</code> (or <code>make win-release-non-pgo</code>)
+  builds without PGO.
   The wine prefix is refreshed (<code>wineboot -u</code>) on every build, so a prefix
   made while the host wine was broken does not stay broken. After the
   optimised build, <code>tools/pgo-build.sh</code> builds <code>fuse_z80_test.exe</code> in the
