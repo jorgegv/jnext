@@ -14495,15 +14495,31 @@ int main() {
               !svc.calls.empty() && svc.calls[0] == 7,
               svc.trail());
 
+        // `budget_ms` is WALL-CLOCK: a host stall of 50 ms inside the first call
+        // spends `generous` and legitimately ends the drain after it. A row that
+        // needs the drain to GO ON therefore uses a budget no stall reaches and
+        // a peer that stops talking by itself; only the row about the budget
+        // ENDING a drain keeps the never-silent peer and the small budget.
+        jnext::dbg::PumpBudget unstallable = generous;
+        unstallable.budget_ms              = 2000;
+
         dbg.pause(a);
         svc.reset();
         dbg.pump(generous);
+        const bool budget_ended_it = !svc.runaway;
+        const size_t ended_calls   = svc.calls.size();
+
+        svc.reset();
+        svc.always_serviced = false;
+        svc.serviced_budget = 3;                  // a chain of 4, then Idle
+        dbg.pump(unstallable);
+        svc.always_serviced = true;
         check("SES-03-09", "while PAUSED the chain is DRAINED — more than one command "
                            "in one pump",
               svc.calls.size() > 1, "calls=" + std::to_string(svc.calls.size()));
         check("SES-03-09a", "and the drain ENDS once budget_ms is spent — a peer that "
                             "never stops talking cannot keep the loop owner's thread",
-              !svc.runaway, "calls=" + std::to_string(svc.calls.size()));
+              budget_ended_it, "calls=" + std::to_string(ended_calls));
         check("SES-03-10", "the first call gets max_wait_ms and the rest drain_ms",
               svc.calls.size() > 1 && svc.calls[0] == 7 && svc.calls[1] == 1,
               svc.trail());
@@ -14518,7 +14534,7 @@ int main() {
         svc.reset();
         svc.always_serviced = false;
         svc.serviced_budget = 3;                  // 3 commands, then Idle
-        dbg.pump(generous);
+        dbg.pump(unstallable);
         check("SES-03-12", "and the drain stops on Idle with budget to spare",
               svc.calls.size() == 4, "calls=" + std::to_string(svc.calls.size()));
 
@@ -14567,15 +14583,22 @@ int main() {
         generous.drain_ms    = 1;
         generous.budget_ms   = 50;
 
+        // The drain must GO ON after the pause, so (as SES-03-09) a chain that
+        // ends by itself and a budget no host stall reaches.
+        jnext::dbg::PumpBudget unstallable = generous;
+        unstallable.budget_ms              = 2000;
         svc.reset();
+        svc.always_serviced = false;
+        svc.serviced_budget = 3;                       // a chain of 4, then Idle
         svc.on_call = [&]() { if (svc.calls.size() == 1) dbg.pause(a); };
-        dbg.pump(generous);
+        dbg.pump(unstallable);
         check("SES-03-20", "running at entry, a command that PAUSES the machine is "
                            "followed by the rest of the chain in the same pump",
               dbg.state().paused && svc.calls.size() > 1 && !svc.runaway,
               "calls=" + std::to_string(svc.calls.size()));
 
         svc.reset();
+        svc.always_serviced = true;                    // the peer keeps talking
         svc.on_call = [&]() { if (svc.calls.size() == 1) dbg.run(a); };
         dbg.pump(generous);
         check("SES-03-21", "paused at entry, a command that RESUMES it ends the drain "
