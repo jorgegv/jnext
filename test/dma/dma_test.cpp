@@ -166,6 +166,33 @@ void program_mem_to_mem_AB(Dma& dma, uint16_t src, uint16_t dst, uint16_t len,
     wr(dma, 0x87);  // ENABLE (dma.vhd:725)
 }
 
+// Program an A->B mem/inc -> mem/inc BURST transfer with a port-B prescaler,
+// then LOAD + ENABLE. GH #300 rows.
+// - R2 base 0x50 = mem, inc, bit6=1 (timing byte follows, dma.vhd:554-569);
+//   timing byte 0x21 = cycle "01" + bit5 (prescaler follows, :789-796);
+//   then the prescaler byte (R2_portB_preescaler_s, :798-799).
+// - R4 base 0xCD: bits[6:5]=10 (burst), portB LO/HI follow (dma.vhd:596-614).
+// - R5 0xA2 (auto-restart, dma.vhd:616-627) when `restart`.
+void program_burst_prescaled(Dma& dma, uint16_t src, uint16_t dst, uint16_t len,
+                             uint8_t prescaler, bool restart) {
+    if (restart) zxn(dma, 0xA2);
+    zxn(dma, 0x7D);
+    zxn(dma, src & 0xFF); zxn(dma, (src >> 8) & 0xFF);
+    zxn(dma, len & 0xFF); zxn(dma, (len >> 8) & 0xFF);
+    zxn(dma, 0x14);
+    zxn(dma, 0x50); zxn(dma, 0x21); zxn(dma, prescaler);
+    zxn(dma, 0xCD);
+    zxn(dma, dst & 0xFF); zxn(dma, (dst >> 8) & 0xFF);
+    zxn(dma, 0xCF); zxn(dma, 0x87);
+}
+
+// Read the status byte: R6 0xBF selects it (dma.vhd:687-688), the next read
+// of port 0x6B returns it (:900-902).
+uint8_t read_status(Dma& dma) {
+    zxn(dma, 0xBF);
+    return dma.read(false);
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // Group 1 — Port decoding and mode selection
 // VHDL: zxnext.vhd port decode sets dma_mode <= port_0b_lsb per access.
@@ -247,6 +274,40 @@ void group1_port_decode() {
               zxn_ok && z80_ok,
               fmt("zxn_load=%d z80_load=%d  VHDL dma.vhd:664-668",
                   (int)zxn_ok, (int)z80_ok));
+    }
+
+    // 1.7 A READ of port 0x6B latches ZXN mode too (GH #300): zxnext.vhd:1816-
+    // 1817 updates dma_mode on `port_dma_rd = '1' or port_dma_wr = '1'`. The
+    // mode is consumed by FINISH_DMA's auto-restart counter reload
+    // (dma.vhd:482-486). Programmed through 0x0B (Z80: LOAD counter = -1, so
+    // a 2-byte block moves 3 bytes, :426), then one read of 0x6B: the reload
+    // at the end of the block must be the ZXN value, 0.
+    {
+        fresh(dma);
+        for (int i = 0; i < 3; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0x51 + i);
+        z80(dma, 0xA2);                  // R5 auto-restart (dma.vhd:623)
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 2, true);
+        (void)dma.read(false);           // IN from port 0x6B
+        int n = dma.execute_burst(3);
+        check("1.7", "A read of 0x6B latches ZXN: auto-restart reloads counter 0",
+              n == 3 && dma.counter() == 0x0000,
+              fmt("n=%d counter=0x%04X  VHDL zxnext.vhd:1816-1817, dma.vhd:482-483",
+                  n, dma.counter()));
+    }
+
+    // 1.8 The mirror: a READ of port 0x0B latches Z80 mode, so a block
+    // programmed through 0x6B reloads the counter to -1 on auto-restart.
+    {
+        fresh(dma);
+        for (int i = 0; i < 2; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0x61 + i);
+        zxn(dma, 0xA2);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 2);
+        (void)dma.read(true);            // IN from port 0x0B
+        int n = dma.execute_burst(2);
+        check("1.8", "A read of 0x0B latches Z80: auto-restart reloads counter 0xFFFF",
+              n == 2 && dma.counter() == 0xFFFF,
+              fmt("n=%d counter=0x%04X  VHDL zxnext.vhd:1816-1817, dma.vhd:484-485",
+                  n, dma.counter()));
     }
 }
 
@@ -865,7 +926,7 @@ void group8_r6_commands() {
         run_to_idle(dma);                // sets end-of-block
         zxn(dma, 0xCF);                  // LOAD again
         zxn(dma, 0xBF);                  // read status next
-        uint8_t s = dma.read();
+        uint8_t s = dma.read(false);
         check("8.4", "LOAD clears status_endofblock_n (bit5=1)",
               (s & 0x20) == 0x20,
               fmt("status=0x%02X  VHDL dma.vhd:654", s));
@@ -987,7 +1048,7 @@ void group8_r6_commands() {
         run_to_idle(dma);
         zxn(dma, 0x8B);
         zxn(dma, 0xBF);
-        uint8_t s = dma.read();
+        uint8_t s = dma.read(false);
         check("8.14", "0x8B status reinit: byte = 0x3A",
               s == 0x3A,
               fmt("status=0x%02X  VHDL dma.vhd:691-692,902", s));
@@ -1002,8 +1063,8 @@ void group8_r6_commands() {
         zxn(dma, 0xBB);
         zxn(dma, 0x01);                  // mask = bit0 only (status)
         zxn(dma, 0xA7);                  // init read sequence
-        uint8_t s1 = dma.read();
-        uint8_t s2 = dma.read();
+        uint8_t s1 = dma.read(false);
+        uint8_t s2 = dma.read(false);
         check("8.15", "0xBB mask=0x01: read sequence locked to status",
               s1 == 0x3A && s2 == 0x3A,
               fmt("s1=0x%02X s2=0x%02X  VHDL dma.vhd:731,859-860",
@@ -1011,15 +1072,15 @@ void group8_r6_commands() {
     }
 
     // 8.16 0xBF Read status byte: sets reg_rd_seq_s := RD_STATUS, so the
-    // very next dma.read() returns the status byte regardless of where
+    // very next dma.read(false) returns the status byte regardless of where
     // the read sequence previously was.  VHDL dma.vhd:696-699.
     {
         fresh(dma);
         // Walk the read pointer off of STATUS first.
         zxn(dma, 0xA7);
-        dma.read();                      // consumes STATUS, advances
+        dma.read(false);                      // consumes STATUS, advances
         zxn(dma, 0xBF);                  // force next read = status
-        uint8_t s = dma.read();
+        uint8_t s = dma.read(false);
         check("8.16", "0xBF forces next read = status byte",
               s == 0x3A,
               fmt("status=0x%02X  VHDL dma.vhd:696-699", s));
@@ -1727,6 +1788,59 @@ void group13_prescaler_timing() {
                   dma.dma_timer(), hi9));
     }
 
+    // 13.9 The prescaler wait follows the LAST byte of a block too (GH #300).
+    // dma.vhd:423-436 (TRANSFERING_WRITE_4) tests the prescaler wait BEFORE
+    // the block-length test, so the last byte enters WAITING_CYCLES like any
+    // other; only when that wait ends does :458-464 go to FINISH_DMA, which
+    // sets status_endofblock_n <= '0' (:471). Burst, 2 bytes, prescaler 1;
+    // tick_burst_wait(8) at turbo 00 = timer 64, hi9 = 2 > 1 (gate open).
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x71; g_mem[0x8001] = 0x72;
+        program_burst_prescaled(dma, 0x8000, 0x9000, 2, 0x01, false);
+        dma.set_turbo(0);
+        int n1 = dma.execute_burst(1000);
+        dma.tick_burst_wait(8);
+        int n2 = dma.execute_burst(1000);      // the last byte
+        bool waiting = dma.state() == Dma::State::TRANSFERRING
+                    && dma.cpu_busreq_n() == true;
+        uint8_t mid = read_status(dma);        // endofblock_n still '1'
+        dma.tick_burst_wait(8);
+        dma.execute_burst(1000);               // wait over -> FINISH_DMA
+        uint8_t end = read_status(dma);
+        check("13.9", "Burst+prescaler: the last byte is followed by a wait; "
+              "end of block only after it",
+              n1 == 1 && n2 == 1 && waiting && (mid & 0x20) == 0x20 &&
+              dma.state() == Dma::State::IDLE && (end & 0x20) == 0x00,
+              fmt("n1=%d n2=%d waiting=%d mid=0x%02X state=%d end=0x%02X  "
+                  "VHDL dma.vhd:423-436, :458-464, :471",
+                  n1, n2, (int)waiting, mid, (int)dma.state(), end));
+    }
+
+    // 13.10 Auto-restart keeps the prescaler spacing across the pass
+    // boundary (GH #300): the first byte of the next pass needs a full
+    // prescaler wait after the last byte of the previous one, as every
+    // other pair does (dma.vhd:423-436 -> :458-464 -> FINISH_DMA :473-488).
+    // With no tick after the last byte, no byte may move.
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x81; g_mem[0x8001] = 0x82;
+        program_burst_prescaled(dma, 0x8000, 0x9000, 2, 0x01, true);
+        dma.set_turbo(0);
+        dma.execute_burst(1000);               // pass 1, byte 1
+        dma.tick_burst_wait(8);
+        dma.execute_burst(1000);               // pass 1, byte 2 (last)
+        g_mem[0x9000] = 0x00;                  // so pass 2's first byte shows
+        int early = dma.execute_burst(1000);   // no wait elapsed: nothing
+        dma.tick_burst_wait(8);
+        int after = dma.execute_burst(1000);   // FINISH_DMA + restart
+        after += dma.execute_burst(1000);      // pass 2, byte 1
+        check("13.10", "Auto-restart: no byte of the next pass before a prescaler wait",
+              early == 0 && after == 1 && g_mem[0x9000] == 0x81,
+              fmt("early=%d after=%d dst0=0x%02X  VHDL dma.vhd:423-436, :458-464, :473-488",
+                  early, after, g_mem[0x9000]));
+    }
+
     // ─── WONT rows (no skip()) ────────────────────────────────────────
     //
     // WONT 13.7 (G122) — turbo=10 (14MHz) source byte rising-edge latch
@@ -1869,8 +1983,8 @@ void group14_counter() {
         zxn(dma, 0xBB);
         zxn(dma, 0x06);                  // mask bits 1,2 = counter LO + HI
         zxn(dma, 0xA7);                  // init sequence
-        uint8_t lo = dma.read();
-        uint8_t hi = dma.read();
+        uint8_t lo = dma.read(false);
+        uint8_t hi = dma.read(false);
         uint16_t cnt = static_cast<uint16_t>((hi << 8) | lo);
         check("14.8", "Counter readback = 5 after 5-byte block",
               cnt == 5,
@@ -2087,6 +2201,27 @@ void group16_autorestart_continue() {
               fmt("load=%d cont=%d  VHDL dma.vhd:656-662 vs :670-676",
                   (int)load_restored, (int)cont_preserved));
     }
+
+    // 16.7 Auto-restart leaves end-of-block set (GH #300). FINISH_DMA sets
+    // status_endofblock_n <= '0' (dma.vhd:471) and the restart reloads the
+    // addresses and counter itself (:473-488) — it is not a LOAD, and only
+    // LOAD (:654), CONTINUE (:671), 0x8B (:691) and RESET (:639) set the flag
+    // back to '1'. The DMA never passes IDLE (:265), so atleastone stays '1'
+    // (:412). Status after each of two passes: 0b00_0_1101_1 = 0x1B.
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x91; g_mem[0x8001] = 0x92;
+        zxn(dma, 0xA2);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 2);
+        dma.execute_burst(2);                  // pass 1 + restart
+        uint8_t s1 = read_status(dma);
+        dma.execute_burst(2);                  // pass 2 + restart
+        uint8_t s2 = read_status(dma);
+        check("16.7", "Auto-restart: status keeps end-of-block (0x1B) across passes",
+              s1 == 0x1B && s2 == 0x1B && dma.state() == Dma::State::TRANSFERRING,
+              fmt("s1=0x%02X s2=0x%02X  VHDL dma.vhd:471, :473-488, :412",
+                  s1, s2));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -2094,7 +2229,11 @@ void group16_autorestart_continue() {
 // VHDL dma.vhd:902 status byte layout, :691-692 reinit, :638-645 hard reset,
 // :239 read mask reset default, :859-861 mask programming.
 // Layout: [7:6]=00, [5]=endofblock_n, [4:1]=1101, [0]=atleastone
-// Idle: 0b00_1_1101_0 = 0x3A.  After full block: 0b00_0_1101_1 = 0x1B.
+// Idle: 0b00_1_1101_0 = 0x3A.  Mid-block: 0b00_1_1101_1 = 0x3B.
+// After a full block, back in IDLE: 0b00_0_1101_0 = 0x1A — FINISH_DMA set
+// endofblock_n to '0' (:471) and IDLE clears atleastone on every clock (:265)
+// (GH #300). Only an auto-restarting transfer, which never reaches IDLE,
+// shows 0x1B (16.7).
 // ══════════════════════════════════════════════════════════════════════
 
 void group17_status() {
@@ -2105,7 +2244,7 @@ void group17_status() {
     {
         fresh(dma);
         zxn(dma, 0xBF);
-        uint8_t s = dma.read();
+        uint8_t s = dma.read(false);
         check("17.1", "Status bits [4:1] = 1101",
               (s & 0x1E) == 0x1A,
               fmt("status=0x%02X middle_nibble=0x%02X  VHDL dma.vhd:902",
@@ -2116,7 +2255,7 @@ void group17_status() {
     {
         fresh(dma);
         zxn(dma, 0xBF);
-        uint8_t s = dma.read();
+        uint8_t s = dma.read(false);
         check("17.2", "Initial endofblock_n = 1 (bit5 set)",
               (s & 0x20) == 0x20,
               fmt("status=0x%02X  VHDL dma.vhd:242", s));
@@ -2129,23 +2268,26 @@ void group17_status() {
         program_mem_to_mem_AB(dma, 0x8000, 0x9000, 1);
         run_to_idle(dma);
         zxn(dma, 0xBF);
-        uint8_t s = dma.read();
+        uint8_t s = dma.read(false);
         check("17.3", "After block: endofblock_n = 0 (bit5 clear)",
               (s & 0x20) == 0x00,
               fmt("status=0x%02X  VHDL dma.vhd:471", s));
     }
 
-    // 17.4 At-least-one flag set after first byte transferred.
+    // 17.4 At-least-one flag: set by TRANSFERING_WRITE_4 (dma.vhd:412) and
+    // visible while the block is still running. A burst with a prescaler
+    // stops after the first byte to wait (:423-425), with the transfer still
+    // live, so the status is 0b00_1_1101_1 = 0x3B. (Once the DMA is back in
+    // IDLE the flag is cleared again — 17.11.)
     {
         fresh(dma);
         g_mem[0x8000] = 0x22;
-        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 1);
-        run_to_idle(dma);
-        zxn(dma, 0xBF);
-        uint8_t s = dma.read();
-        check("17.4", "After 1 byte: atleastone = 1 (bit0 set)",
-              (s & 0x01) == 0x01,
-              fmt("status=0x%02X  VHDL dma.vhd:412", s));
+        program_burst_prescaled(dma, 0x8000, 0x9000, 4, 0x08, false);
+        int n = dma.execute_burst(1000);
+        uint8_t s = read_status(dma);
+        check("17.4", "Mid-block, after the first byte: atleastone = 1 (0x3B)",
+              n == 1 && dma.state() == Dma::State::TRANSFERRING && s == 0x3B,
+              fmt("n=%d status=0x%02X  VHDL dma.vhd:412, :423-425", n, s));
     }
 
     // 17.5 Status cleared by 0x8B reinit (status = 0x3A).
@@ -2156,7 +2298,7 @@ void group17_status() {
         run_to_idle(dma);
         zxn(dma, 0x8B);
         zxn(dma, 0xBF);
-        uint8_t s = dma.read();
+        uint8_t s = dma.read(false);
         check("17.5", "0x8B reinit: status = 0x3A",
               s == 0x3A,
               fmt("status=0x%02X  VHDL dma.vhd:691-692", s));
@@ -2170,7 +2312,7 @@ void group17_status() {
         run_to_idle(dma);
         zxn(dma, 0xC3);
         zxn(dma, 0xBF);
-        uint8_t s = dma.read();
+        uint8_t s = dma.read(false);
         check("17.6", "0xC3 reset: status = 0x3A",
               s == 0x3A,
               fmt("status=0x%02X  VHDL dma.vhd:638-641", s));
@@ -2189,7 +2331,7 @@ void group17_status() {
         zxn(dma, 0xCF);
         zxn(dma, 0xA7);                  // init read sequence
         uint8_t v[8];
-        for (int i = 0; i < 8; ++i) v[i] = dma.read();
+        for (int i = 0; i < 8; ++i) v[i] = dma.read(false);
         // Expected sequence: status, cnt_lo, cnt_hi, pA_lo, pA_hi, pB_lo, pB_hi,
         // then wrap back to status.
         bool ok = v[0] == 0x3A && v[1] == 0x00 && v[2] == 0x00 &&
@@ -2213,7 +2355,7 @@ void group17_status() {
         zxn(dma, 0xCF);
         zxn(dma, 0xA7);
         uint8_t v[7];
-        for (int i = 0; i < 7; ++i) v[i] = dma.read();
+        for (int i = 0; i < 7; ++i) v[i] = dma.read(false);
         check("17.8", "Read sequence advances mask bits 0..6 in order",
               v[1] == 0x00 && v[2] == 0x00 &&
               v[3] == 0x11 && v[4] == 0x22 &&
@@ -2228,10 +2370,10 @@ void group17_status() {
         zxn(dma, 0xBB);
         zxn(dma, 0x07);                  // bits 0,1,2
         zxn(dma, 0xA7);
-        uint8_t a = dma.read();          // status
-        uint8_t b = dma.read();          // counter LO
-        uint8_t c = dma.read();          // counter HI
-        uint8_t d = dma.read();          // wrap to status
+        uint8_t a = dma.read(false);          // status
+        uint8_t b = dma.read(false);          // counter LO
+        uint8_t c = dma.read(false);          // counter HI
+        uint8_t d = dma.read(false);          // wrap to status
         check("17.9", "Mask 0x07: 3 fields (status, cnt LO/HI) then wrap",
               a == 0x3A && b == 0x00 && c == 0x00 && d == a,
               fmt("[a=%02X b=%02X c=%02X d=%02X]  VHDL dma.vhd:696-717",
@@ -2250,13 +2392,45 @@ void group17_status() {
         zxn(dma, 0x00); zxn(dma, 0xEE);
         zxn(dma, 0xCF);
         zxn(dma, 0xA7);
-        uint8_t s1 = dma.read();         // status
-        uint8_t pbh = dma.read();        // portB HI = 0xEE
-        uint8_t s2 = dma.read();         // wrap to status
+        uint8_t s1 = dma.read(false);         // status
+        uint8_t pbh = dma.read(false);        // portB HI = 0xEE
+        uint8_t s2 = dma.read(false);         // wrap to status
         check("17.10", "Mask with two bits: wraps after last enabled field",
               s1 == 0x3A && pbh == 0xEE && s2 == 0x3A,
               fmt("[s1=%02X pbh=%02X s2=%02X]  VHDL dma.vhd:919-922",
                   s1, pbh, s2));
+    }
+
+    // 17.11 After a completed block the status reads 0x1A (GH #300):
+    // FINISH_DMA sets endofblock_n <= '0' (dma.vhd:471) and, with no
+    // auto-restart, goes to IDLE (:493-494), which clears status_atleastone
+    // on every clock (:265).
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x33;
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 1);
+        run_to_idle(dma);
+        uint8_t s = read_status(dma);
+        check("17.11", "After a completed block (IDLE): status = 0x1A",
+              dma.state() == Dma::State::IDLE && s == 0x1A,
+              fmt("status=0x%02X  VHDL dma.vhd:471, :493-494, :265", s));
+    }
+
+    // 17.12 R6 DISABLE (0x83) mid-block puts the DMA in IDLE (dma.vhd:727-
+    // 728), which clears atleastone (:265); endofblock_n is untouched, so the
+    // status goes from 0x3B back to 0x3A (GH #300).
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x44;
+        program_burst_prescaled(dma, 0x8000, 0x9000, 4, 0x08, false);
+        dma.execute_burst(1000);               // one byte, then the wait
+        uint8_t before = read_status(dma);
+        zxn(dma, 0x83);                        // DISABLE
+        uint8_t after = read_status(dma);
+        check("17.12", "DISABLE mid-block: IDLE clears atleastone (0x3B -> 0x3A)",
+              before == 0x3B && after == 0x3A,
+              fmt("before=0x%02X after=0x%02X  VHDL dma.vhd:727-728, :265",
+                  before, after));
     }
 }
 
@@ -2290,7 +2464,7 @@ void group18_read_fields() {
     {
         program_and_init(false, 0x1234, 0x5678, true);
         // The sequence starts at mask bit 0 = STATUS.
-        uint8_t s = dma.read();
+        uint8_t s = dma.read(false);
         check("18.1", "Read field: status byte",
               s == 0x3A,
               fmt("status=0x%02X  VHDL dma.vhd:902", s));
@@ -2299,8 +2473,8 @@ void group18_read_fields() {
     // 18.2 Read counter LO.
     {
         program_and_init(false, 0x1234, 0x5678, true);
-        dma.read();                      // consume status
-        uint8_t lo = dma.read();
+        dma.read(false);                      // consume status
+        uint8_t lo = dma.read(false);
         check("18.2", "Read field: counter LO = 0x00 (ZXN just LOADed)",
               lo == 0x00,
               fmt("cnt_lo=0x%02X  VHDL dma.vhd:933", lo));
@@ -2309,8 +2483,8 @@ void group18_read_fields() {
     // 18.3 Read counter HI.
     {
         program_and_init(false, 0x1234, 0x5678, true);
-        dma.read(); dma.read();          // consume status, cnt_lo
-        uint8_t hi = dma.read();
+        dma.read(false); dma.read(false);          // consume status, cnt_lo
+        uint8_t hi = dma.read(false);
         check("18.3", "Read field: counter HI = 0x00 (ZXN just LOADed)",
               hi == 0x00,
               fmt("cnt_hi=0x%02X  VHDL dma.vhd:935", hi));
@@ -2320,8 +2494,8 @@ void group18_read_fields() {
     // VHDL dma.vhd:910-912 uses R0_dir_AtoB_s to select src vs dest.
     {
         program_and_init(false, 0x1234, 0x5678, true);
-        for (int i = 0; i < 3; ++i) dma.read();
-        uint8_t pa_lo = dma.read();
+        for (int i = 0; i < 3; ++i) dma.read(false);
+        uint8_t pa_lo = dma.read(false);
         check("18.4", "Read field: portA LO = src LO (0x34) under A->B",
               pa_lo == 0x34,
               fmt("pA_lo=0x%02X  VHDL dma.vhd:910-912", pa_lo));
@@ -2330,8 +2504,8 @@ void group18_read_fields() {
     // 18.5 Read port A HI when A->B.
     {
         program_and_init(false, 0x1234, 0x5678, true);
-        for (int i = 0; i < 4; ++i) dma.read();
-        uint8_t pa_hi = dma.read();
+        for (int i = 0; i < 4; ++i) dma.read(false);
+        uint8_t pa_hi = dma.read(false);
         check("18.5", "Read field: portA HI = src HI (0x12) under A->B",
               pa_hi == 0x12,
               fmt("pA_hi=0x%02X  VHDL dma.vhd:913-915", pa_hi));
@@ -2340,8 +2514,8 @@ void group18_read_fields() {
     // 18.6 Read port B LO when A->B.
     {
         program_and_init(false, 0x1234, 0x5678, true);
-        for (int i = 0; i < 5; ++i) dma.read();
-        uint8_t pb_lo = dma.read();
+        for (int i = 0; i < 5; ++i) dma.read(false);
+        uint8_t pb_lo = dma.read(false);
         check("18.6", "Read field: portB LO = dst LO (0x78) under A->B",
               pb_lo == 0x78,
               fmt("pB_lo=0x%02X  VHDL dma.vhd:916-918", pb_lo));
@@ -2350,8 +2524,8 @@ void group18_read_fields() {
     // 18.7 Read port B HI when A->B.
     {
         program_and_init(false, 0x1234, 0x5678, true);
-        for (int i = 0; i < 6; ++i) dma.read();
-        uint8_t pb_hi = dma.read();
+        for (int i = 0; i < 6; ++i) dma.read(false);
+        uint8_t pb_hi = dma.read(false);
         check("18.7", "Read field: portB HI = dst HI (0x56) under A->B",
               pb_hi == 0x56,
               fmt("pB_hi=0x%02X  VHDL dma.vhd:919-921", pb_hi));
@@ -2362,11 +2536,11 @@ void group18_read_fields() {
     {
         program_and_init(false, 0x1234, 0x5678, false);  // B->A
         // src = portB = 0x5678; dst = portA = 0x1234
-        for (int i = 0; i < 3; ++i) dma.read();
-        uint8_t pa_lo = dma.read();      // should be dst LO = 0x34
-        uint8_t pa_hi = dma.read();      // dst HI = 0x12
-        uint8_t pb_lo = dma.read();      // src LO = 0x78
-        uint8_t pb_hi = dma.read();      // src HI = 0x56
+        for (int i = 0; i < 3; ++i) dma.read(false);
+        uint8_t pa_lo = dma.read(false);      // should be dst LO = 0x34
+        uint8_t pa_hi = dma.read(false);      // dst HI = 0x12
+        uint8_t pb_lo = dma.read(false);      // src LO = 0x78
+        uint8_t pb_hi = dma.read(false);      // src HI = 0x56
         check("18.8", "B->A: portA reads dst, portB reads src",
               pa_lo == 0x34 && pa_hi == 0x12 && pb_lo == 0x78 && pb_hi == 0x56,
               fmt("[pA=%02X%02X pB=%02X%02X]  VHDL dma.vhd:910-921",
@@ -2412,7 +2586,7 @@ void group19_reset() {
         zxn(dma, 0x87);                  // ENABLE
         zxn(dma, 0xC3);
         zxn(dma, 0xBF);
-        uint8_t s = dma.read();
+        uint8_t s = dma.read(false);
         check("19.2", "0xC3 soft reset: state=IDLE and status=0x3A",
               dma.state() == Dma::State::IDLE && s == 0x3A,
               fmt("state=%d status=0x%02X  VHDL dma.vhd:638-641",

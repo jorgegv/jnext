@@ -59,7 +59,9 @@ controller drives the bus itself.
 
 `dma.{h,cpp}` models `device/dma.vhd`: one transfer engine behind two
 programming ports, `0x6B` (ZXN) and `0x0B` (Z80-DMA compatible). The difference
-between them is the counter's initial value, not the register protocol.
+between them is the counter's initial value, not the register protocol, and the
+mode is latched by every access to either port, reads included
+(`zxnext.vhd:1816-1817`).
 
 Memory and I/O access go through four callbacks bound to `Mmu` and
 `PortDispatch`, so a DMA-driven `OUT` re-enters the normal dispatcher — which is
@@ -68,7 +70,11 @@ through `PortDispatch::guest_read()`, so an RZX records and replays it like the
 CPU's `IN` (GH #283). `execute_burst(16)`
 runs from the instruction loop, and `dma_holds_bus()` both stalls the CPU and
 silences the DMA ports. In burst mode the CPU is released during the prescaler
-wait; in continuous and byte mode it is not.
+wait; in continuous and byte mode it is not. The wait follows every byte, the
+last one of a block included, so a looping sample keeps its spacing across the
+auto-restart. The status byte follows the VHDL's two flags exactly: the end of a
+block sets *end of block* and an auto-restart does not clear it, and the return
+to idle clears *at least one* (GH #300).
 
 ## DivMMC
 

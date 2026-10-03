@@ -6114,7 +6114,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x00FF, 0x006B,
         [this](uint16_t) -> uint8_t {
             if ((effective_internal_port_enable(0x82) & 0x20) == 0) return 0xFF;
-            return dma_.dma_holds_bus() ? 0xFF : dma_.read();
+            return dma_.dma_holds_bus() ? 0xFF : dma_.read(false);
         },
         [this](uint16_t, uint8_t val) {
             if ((effective_internal_port_enable(0x82) & 0x20) == 0) return;  // NR 0x82 b5 gate
@@ -6123,7 +6123,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x00FF, 0x000B,
         [this](uint16_t) -> uint8_t {
             if ((effective_internal_port_enable(0x85) & 0x02) == 0) return 0xFF;
-            return dma_.dma_holds_bus() ? 0xFF : dma_.read();
+            return dma_.dma_holds_bus() ? 0xFF : dma_.read(true);
         },
         [this](uint16_t, uint8_t val) {
             if ((effective_internal_port_enable(0x85) & 0x02) == 0) return;  // NR 0x85 b1 gate

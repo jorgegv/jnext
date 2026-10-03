@@ -125,6 +125,8 @@ Each test case specifies:
 | 1.4 | Read from port 0x0B sets Z80 mode | Same latch on `port_dma_rd` | Read from 0x0B, mode = 1 |
 | ~~1.5~~ | ~~Mode defaults to ZXN (0) on reset~~ | ~~`dma_mode <= '0'` on reset~~ | **RETIRED 2026-09-24 (GH #201)** — the reset value is unreachable, not merely redundant. `dma_mode` is re-latched on **every** port access (`zxnext.vhd:1816-1817`), and its only three consumers are `dma_mode_i` at `dma.vhd:482` (FINISH_DMA auto-restart reload) and `:664`/`:673` (R6 LOAD / CONTINUE counter init) — all of which are reached only after the guest has programmed the DMA through port 0x0B or 0x6B, which is itself an access that latches the mode. jnext carries the mode as a per-access parameter (`Dma::write(val, z80_compat)`), which is the same semantics with no separate reset state to observe. Rows **1.1/1.2** (LOAD counter 0 vs 0xFFFF per port) and **1.6** (re-latch on each access) are live passes covering the reachable behaviour. |
 | 1.6 | Mode switches on each access | Alternate 0x6B/0x0B writes | Mode tracks last accessed port |
+| 1.7 | A read of 0x6B latches ZXN mode (GH #300) | `zxnext.vhd:1816-1817` latches `dma_mode` on `port_dma_rd` as well as `port_dma_wr`; consumed by FINISH_DMA's restart reload, `dma.vhd:482-483` | Program an auto-restart block through 0x0B (Z80: 2-byte block moves 3), read 0x6B once: the restart reloads the counter to 0 |
+| 1.8 | A read of 0x0B latches Z80 mode (GH #300) | Same latch; `dma.vhd:484-485` | Program through 0x6B, read 0x0B once: the restart reloads the counter to 0xFFFF |
 
 ### 2. Register Programming — R0 (Direction, Port A Address, Block Length) (~8 tests)
 
@@ -331,6 +333,9 @@ at 3.5MHz (since 8 increments per clock * 4 clocks to shift into bits 13:5
 = 32 base clocks per prescaler unit). At higher speeds, more real clocks
 elapse for the same prescaler value, keeping the delay constant in real time.
 
+| 13.9 | The last byte of a block is followed by a prescaler wait (GH #300) | `TRANSFERING_WRITE_4` tests the prescaler wait before the block length (`dma.vhd:423-436`); the wait's end goes to FINISH_DMA (`:458-464`), which sets endofblock_n (`:471`) | Burst, 2 bytes, prescaler 1: after the 2nd byte the DMA is still TRANSFERRING with the bus released and status bit 5 = 1; after the wait it is IDLE with bit 5 = 0 |
+| 13.10 | Auto-restart keeps the prescaler spacing across passes (GH #300) | `dma.vhd:423-436` -> `:458-464` -> FINISH_DMA restart `:473-488` | Burst, 2 bytes, prescaler 1, auto-restart: with no time elapsed after the last byte, no byte moves; after one wait, the next pass's first byte moves |
+
 ### 14. Counter Behaviour — ZXN vs Z80 Mode (~8 tests)
 
 | # | Test | VHDL Reference | Verification |
@@ -374,6 +379,7 @@ This means Z80 mode transfers block_len + 1 bytes for block_len >= 1.
 | 16.4 | Auto-restart direction B->A | `dma_src_s <= R4_start_addr_port_B_s` | Reversed reload |
 | 16.5 | Continue preserves addresses | 0xD3 resets counter but not src/dest | Transfer resumes from current position |
 | 16.6 | Continue vs Load | Load resets both addresses and counter; Continue only counter | Different behaviour verified |
+| 16.7 | Auto-restart keeps end-of-block set (GH #300) | FINISH_DMA sets `status_endofblock_n <= '0'` (`dma.vhd:471`); the restart reload (`:473-488`) is not a LOAD — only LOAD `:654`, CONTINUE `:671`, 0x8B `:691`, RESET `:639` set it to '1'; never IDLE, so atleastone stays '1' (`:412`) | Status after each of two passes = 0x1B |
 
 ### 17. Status Register and Read Sequence (~10 tests)
 
@@ -382,18 +388,21 @@ This means Z80 mode transfers block_len + 1 bytes for block_len >= 1.
 | 17.1 | Status byte format | `"00" & status_endofblock_n & "1101" & status_atleastone` | Bits 5:2 = "1101" fixed |
 | 17.2 | End-of-block flag clear initially | `status_endofblock_n = '1'` (bit 5 = 1) | Bit 5 = 1 means not ended |
 | 17.3 | End-of-block set after transfer | `status_endofblock_n <= '0'` in FINISH_DMA | Bit 5 = 0 after block done |
-| 17.4 | At-least-one flag | `status_atleastone <= '1'` in WRITE_4 | Bit 0 = 1 after first byte |
+| 17.4 | At-least-one flag, mid-block (rewritten GH #300) | `status_atleastone <= '1'` in WRITE_4 (`dma.vhd:412`) | Burst with prescaler, after the first byte (transfer still live, `:423-425`): status = 0x3B. The old row read the flag after the block had finished, but by then the DMA is back in IDLE, which clears it (17.11) |
 | 17.5 | Status cleared by 0x8B | Both flags reset | Status = 0x2E (00_1_01101_0) |
 | 17.6 | Status cleared by 0xC3 (reset) | Both flags reset | Status = 0x2E |
 | 17.7 | Default read mask | `R6_read_mask_s <= "01111111"` on reset | All 7 fields enabled |
 | 17.8 | Read sequence cycles through mask | Each read advances to next enabled field | 7 reads return all fields |
 | 17.9 | Custom read mask (status+counter only) | Mask = 0x07 (bits 0,1,2) | Only 3 fields in sequence |
 | 17.10 | Read sequence wraps around | After last enabled field, wraps to first | Cyclic readback |
+| 17.11 | Status after a completed block (GH #300) | FINISH_DMA endofblock_n '0' (`dma.vhd:471`), then IDLE (`:493-494`) clears atleastone every clock (`:265`) | Status = 0x1A |
+| 17.12 | DISABLE mid-block clears atleastone (GH #300) | R6 0x83 -> IDLE (`dma.vhd:727-728`), IDLE `:265`; endofblock_n untouched | Status 0x3B before, 0x3A after |
 
 Status byte layout: `[7:6]=00, [5]=endofblock_n, [4:1]=1101, [0]=atleastone`
 - Initial/reset: `0b00_1_1101_0 = 0x3A` (end-of-block not reached, no bytes)
 - After partial: `0b00_1_1101_1 = 0x3B` (not done, at least one byte)
-- After complete: `0b00_0_1101_1 = 0x1B` (end of block, at least one byte)
+- After complete, back in IDLE: `0b00_0_1101_0 = 0x1A` (end of block; IDLE clears atleastone, `dma.vhd:265`)
+- Looping auto-restart, after the first pass: `0b00_0_1101_1 = 0x1B` (never IDLE; the restart does not reset endofblock_n)
 
 ### 18. Read Sequence Fields (~8 tests)
 
@@ -532,7 +541,7 @@ drive a real 48K `Emulator`, the DMA programmed through port 0x6B.
 
 | Section | Tests |
 |---------|------:|
-| 1. Port decoding and mode | 6 |
+| 1. Port decoding and mode | 8 |
 | 2. R0 programming | 8 |
 | 3. R1 programming | 6 |
 | 4. R2 programming | 8 |
@@ -544,11 +553,11 @@ drive a real 48K `Emulator`, the DMA programmed through port 0x6B.
 | 10. Memory-to-IO | 6 |
 | 11. Address modes | 6 |
 | 12. Transfer modes | 8 |
-| 13. Prescaler and timing | 8 |
+| 13. Prescaler and timing | 10 |
 | 14. Counter behaviour | 8 |
 | 15. Bus arbitration | 8 |
-| 16. Auto-restart/continue | 6 |
-| 17. Status and read sequence | 10 |
+| 16. Auto-restart/continue | 7 |
+| 17. Status and read sequence | 12 |
 | 18. Read sequence fields | 8 |
 | 19. Reset behaviour | 6 |
 | 20. DMA delay/interrupt | 4 |
@@ -556,7 +565,7 @@ drive a real 48K `Emulator`, the DMA programmed through port 0x6B.
 | 22. Edge cases | 6 |
 | 23. 28 MHz SRAM read wait (DMA, GH #106); 23.7 bus-arbitration deadlock (GH #102) | 7 |
 | 25. RZX record/replay of DMA port reads (GH #283) | 12 |
-| **Total** | **~151** |
+| **Total** | **~158** |
 
 ## Implementation Notes
 

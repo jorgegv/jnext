@@ -585,10 +585,7 @@ void Dma::process_r6_command(uint8_t val) {
 
     case 0x83:  // Disable DMA
         dma_log()->debug("R6: DISABLE DMA -> IDLE");
-        state_ = State::IDLE;
-        phase_ = Phase::IDLE;
-        cpu_busreq_n_ = true;
-        cpu_bao_n_    = cpu_bai_n_;
+        go_idle_();             // dma.vhd:727-728, then IDLE (:260-265)
         in_waiting_cycles_ = false;
         break;
 
@@ -606,7 +603,11 @@ void Dma::process_r6_command(uint8_t val) {
 
 // ─── Read protocol ───────────────────────────────────────────────────
 
-uint8_t Dma::read() {
+uint8_t Dma::read(bool z80_compat) {
+    // zxnext.vhd:1816-1817: dma_mode <= port_0b_lsb on a READ of the DMA port
+    // as well as on a write.
+    z80_compat_ = z80_compat;
+
     uint8_t result = 0;
 
     switch (rd_seq_) {
@@ -682,7 +683,15 @@ void Dma::advance_read_seq(int after_bit) {
 
 void Dma::cmd_load() {
     status_end_of_block_ = false;
+    reload_addresses_and_counter_();
 
+    dma_log()->debug("LOAD: src={:#06x} dst={:#06x} len={:#06x} dir={}",
+                     src_, dst_, block_len_, dir_a_to_b_ ? "A->B" : "B->A");
+}
+
+// ─── Block completion (VHDL FINISH_DMA, dma.vhd:469-491) ─────────────
+
+void Dma::reload_addresses_and_counter_() {
     if (dir_a_to_b_) {
         src_ = port_a_addr_;
         dst_ = port_b_addr_;
@@ -695,9 +704,48 @@ void Dma::cmd_load() {
         counter_ = 0;
     else
         counter_ = 0xFFFF;  // Z80 DMA loads -1
+}
 
-    dma_log()->debug("LOAD: src={:#06x} dst={:#06x} len={:#06x} dir={}",
-                     src_, dst_, block_len_, dir_a_to_b_ ? "A->B" : "B->A");
+void Dma::finish_block_() {
+    // FINISH_DMA: status_endofblock_n <= '0' (dma.vhd:471).
+    status_end_of_block_ = true;
+    dma_log()->debug("DMA transfer complete: {} bytes", counter_);
+
+    // §4.3 `Dma{End}` — block completion, at the on_interrupt site.
+    // Latched BEFORE the reload below, which resets `counter_` and the
+    // addresses: an auto-restart is `End` THEN `Start`, and the End's
+    // payload has to describe the block that just finished.
+    if (end_events_armed_ && debug_state_->armed()) latch_end_();
+
+    if (on_interrupt) {
+        on_interrupt();
+    }
+
+    if (auto_restart_) {
+        // dma.vhd:473-488: the restart reloads the addresses and the counter
+        // ITSELF — it is not a LOAD, so status_endofblock_n stays '0' for the
+        // rest of the looping transfer (GH #300 D2). Only LOAD, CONTINUE,
+        // 0x8B and RESET set it back to '1' (dma.vhd:654, :671, :691, :639).
+        reload_addresses_and_counter_();
+        phase_ = Phase::START_DMA;
+        if (start_events_armed_ && debug_state_->armed())
+            latch_start_();             // §4.3 `Dma{Start}`, 3/3
+        dma_log()->debug("DMA auto-restart");
+    } else {
+        go_idle_();
+    }
+    in_waiting_cycles_ = false;
+}
+
+void Dma::go_idle_() {
+    // dma.vhd:260-265 (IDLE): busreq released, bao pass-through, and
+    // status_atleastone <= '0' on every clock spent there (GH #300 D1) —
+    // so a block that ran to completion reads back atleastone = 0.
+    state_ = State::IDLE;
+    phase_ = Phase::IDLE;
+    cpu_busreq_n_ = true;
+    cpu_bao_n_    = cpu_bai_n_;
+    status_at_least_one_ = false;
 }
 
 // ─── Transfer execution ─────────────────────────────────────────────
@@ -719,6 +767,12 @@ int Dma::execute_burst(int max_bytes) {
     if (in_waiting_cycles_) {
         if (prescaler_wait_active()) return 0;
         in_waiting_cycles_ = false;
+        // dma.vhd:458-464: the wait that follows a block's last byte ends in
+        // FINISH_DMA, not in another read (GH #300 D3).
+        if (counter_ >= block_len_) {
+            finish_block_();
+            return 0;
+        }
     }
 
     // Progress the arbitration FSM (START_DMA -> WAITING_ACK -> TRANSFER).
@@ -815,57 +869,18 @@ int Dma::execute_burst(int max_bytes) {
         if (dst_mode == 0x01)       dst_++;
         else if (dst_mode == 0x00)  dst_--;
 
-        // Check for end of block
-        if (counter_ >= block_len_) {
-            // Transfer complete
-            status_end_of_block_ = true;
-            dma_log()->debug("DMA transfer complete: {} bytes", transferred);
-
-            // §4.3 `Dma{End}` — block completion, at the on_interrupt site.
-            // Latched BEFORE cmd_load() below, which resets `counter_` and the
-            // addresses: an auto-restart is `End` THEN `Start`, and the End's
-            // payload has to describe the block that just finished.
-            if (end_events_armed_ && debug_state_->armed()) latch_end_();
-
-            if (on_interrupt) {
-                on_interrupt();
-            }
-
-            if (auto_restart_) {
-                // Reload addresses and counter for next pass
-                cmd_load();
-                phase_ = Phase::START_DMA;
-                if (start_events_armed_ && debug_state_->armed())
-                    latch_start_();             // §4.3 `Dma{Start}`, 3/3
-                dma_log()->debug("DMA auto-restart");
-            } else {
-                state_ = State::IDLE;
-                phase_ = Phase::IDLE;
-                cpu_busreq_n_ = true;
-                cpu_bao_n_    = cpu_bai_n_;
-            }
-            in_waiting_cycles_ = false;
-            break;
-        }
-
-        // VHDL dma.vhd:420-432: mid-transfer the FSM re-evaluates dma_delay_i
-        // and drops back to START_DMA when it is asserted, releasing the bus.
-        // Observable via cpu_busreq_n() returning true momentarily.
-        if (dma_delay_) {
-            phase_ = Phase::START_DMA;
-            cpu_busreq_n_ = true;
-            cpu_bao_n_    = cpu_bai_n_;
-            break;
-        }
-
-        // VHDL dma.vhd:424 enters WAITING_CYCLES whenever the prescaler
-        // comparison is active, regardless of transfer mode.  With the
-        // per-byte timer reset above, DMA_timer_s(13:5) is still 0 here,
-        // so any nonzero prescaler immediately trips the wait gate.
-        // In burst mode the CPU bus is released during the wait
-        // (:441-449) and phase_ moves to WAITING_CYCLES so cpu_busreq_n()
-        // reflects it; in other modes the bus stays held.  is_active()
-        // handles the burst vs non-burst CPU-stall distinction.
+        // VHDL dma.vhd:423-436 (TRANSFERING_WRITE_4) tests the prescaler
+        // wait FIRST, then the end of the block, then dma_delay_i. So the
+        // last byte of a block is followed by a full prescaler wait like any
+        // other, and the block only finishes when that wait ends
+        // (WAITING_CYCLES, dma.vhd:458-464 -> FINISH_DMA) — GH #300 (D3).
+        //
+        // With the per-byte timer reset above, DMA_timer_s(13:5) is still 0
+        // here, so any nonzero prescaler trips the wait gate. In burst mode
+        // the CPU bus is released during the wait (:441-449) and phase_ moves
+        // to WAITING_CYCLES so cpu_busreq_n() reflects it (:441-449); in other
+        // modes the bus stays held. is_active() handles the burst vs non-burst
+        // CPU-stall distinction.
         if (prescaler_wait_active()) {
             in_waiting_cycles_ = true;
             if (mode_ == 2) {
@@ -874,6 +889,22 @@ int Dma::execute_burst(int max_bytes) {
                 cpu_busreq_n_ = true;
                 cpu_bao_n_    = cpu_bai_n_;
             }
+            break;
+        }
+
+        // Check for end of block
+        if (counter_ >= block_len_) {
+            finish_block_();
+            break;
+        }
+
+        // VHDL dma.vhd:427-431: mid-transfer the FSM re-evaluates dma_delay_i
+        // and drops back to START_DMA when it is asserted, releasing the bus.
+        // Observable via cpu_busreq_n() returning true momentarily.
+        if (dma_delay_) {
+            phase_ = Phase::START_DMA;
+            cpu_busreq_n_ = true;
+            cpu_bao_n_    = cpu_bai_n_;
             break;
         }
 
@@ -912,7 +943,10 @@ void Dma::tick_burst_wait(uint64_t master_cycles) {
     // (VHDL dma.vhd:451-460 returns through START_DMA).  Test 12.5 observes
     // cpu_busreq_n() going back to false after the wait, so drive the
     // arbitration FSM with the current inputs as soon as the gate opens.
-    if (phase_ == Phase::WAITING_CYCLES && !prescaler_wait_active()) {
+    // The wait after a block's LAST byte goes straight to FINISH_DMA with the
+    // bus still released (dma.vhd:458-464); execute_burst() finishes it.
+    if (phase_ == Phase::WAITING_CYCLES && !prescaler_wait_active()
+        && counter_ < block_len_) {
         phase_ = Phase::START_DMA;
         tick_arbitration();
     }
@@ -1029,7 +1063,7 @@ void Dma::load_state(StateReader& r)
 //
 // `direction` and `mode` are the DMA registers as they stand: R0's A->B flag and
 // R4's mode field, which is what §4.3's "direction, mode" name. `src`/`dst` on a
-// Start are the block's current addresses (cmd_load has already run for an
+// Start are the block's current addresses (the reload has already run for an
 // auto-restart, which is why the End latch above precedes it).
 // ---------------------------------------------------------------------------
 
