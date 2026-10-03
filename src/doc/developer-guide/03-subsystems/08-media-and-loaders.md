@@ -579,7 +579,9 @@ NEX launched from its Browser, listing one directory in every mode:
 `F_GETCWD` answers in NextZXOS's form, `C:/` then each component's 8.3 name and
 a `/` (`C:/AAA/T/SUBDIR~1/` was measured for an LFN of "sub dir long"), and
 with A = `$FF` for the filespec in DE. Since the guest then builds paths out of
-8.3 names, `resolve()` accepts an entry's 8.3 name as well as its host name;
+8.3 names, `resolve()` accepts an entry's 8.3 name (in any case) as well as its
+host name; the 8.3 synthesis follows FAT's basis-name rule, including stripping
+leading dots first (`.git` is `GIT~1`, `.hidden` is `HIDDEN~1`, as measured);
 `list_host_dir()` is the one place a listing and its short names are made, so
 F_READDIR, F_GETCWD and `resolve()` cannot disagree on one. The error codes for
 bad paths are NextZXOS's measured ones too: a missing or non-directory
@@ -610,7 +612,7 @@ volume at the block layer, which the project declined
 `--help`, the man page and the user guide because the flag's name invites the
 opposite assumption.
 
-**Tests.** `HFS-01..109` in `test/esxdos_stub/esxdos_hostfs_rows.cpp` (linked
+**Tests.** `HFS-01..122` in `test/esxdos_stub/esxdos_hostfs_rows.cpp` (linked
 into `esxdos_stub_test`): the sandbox and the 8.3/timestamp synthesis against
 the class, every register convention through the real dispatcher. The
 regression row `esxdos-hostfs-func` runs a real guest program that opens, seeks

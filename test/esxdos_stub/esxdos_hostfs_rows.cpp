@@ -118,6 +118,24 @@ uint8_t do_open(Emulator& emu, const std::string& name, uint8_t mode,
     return rega(r);
 }
 
+/// F_STAT through the dispatcher. Returns 0 and fills `st` (attr, size), or the
+/// esxDOS error code; 0xFF when the call was not handled at all.
+uint8_t esxdos_stat(Emulator& emu, const std::string& name,
+                    EsxdosHostFs::StatInfo& st) {
+    poke_str(emu, kName, name);
+    Z80Registers r{};
+    r.IX = kName;
+    r.DE = kStat;
+    if (!esx(emu, 0xAC, r)) return 0xFF;
+    if (cy(r)) return rega(r);
+    st = EsxdosHostFs::StatInfo{};
+    st.attr = emu.mmu().read(kStat + 2);
+    for (int k = 0; k < 4; ++k)
+        st.size |= static_cast<uint32_t>(emu.mmu().read(
+                       static_cast<uint16_t>(kStat + 7 + k))) << (8 * k);
+    return 0;
+}
+
 }  // namespace
 
 void run_esxdos_hostfs_rows(int& passed, int& failed);
@@ -136,6 +154,9 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
     //   <root>/sub/inner.bin        "INNER"         -> subdirectory access
     //   <root>/Long Dir Name/deep.bin "DEEP"        -> a directory with an
     //                                                  8.3 alias (GH #301)
+    //   <root>/.git/conf.bin        "CONF"          -> a dot-DIRECTORY: 8.3
+    //   <root>/.hidden              "HID"              name GIT~1, and
+    //   <root>/.a.b                 "AB"               dot-files (GH #301)
     //   <root>/link-out             symlink -> <outside>/secret.txt
     //   <root>/link-dir             symlink -> <outside>
     //   <root>/link-in              symlink -> <root>/hello.txt
@@ -153,6 +174,9 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
     put_file(root / "another long.txt", "long2");
     put_file(root / "sub" / "inner.bin", "INNER");
     put_file(root / "Long Dir Name" / "deep.bin", "DEEP");
+    put_file(root / ".git" / "conf.bin", "CONF");
+    put_file(root / ".hidden", "HID");
+    put_file(root / ".a.b", "AB");
     put_file(outside / "secret.txt", "SECRET");
     std::error_code ln_ec;
     fs::create_symlink(outside / "secret.txt", root / "link-out", ln_ec);
@@ -1247,8 +1271,14 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
                 if (!esx(emu, 0xA4, e) || cy(e)) return L;
                 if (rega(e) == 0) { L.ok = true; break; }
                 uint16_t end = 0;
-                L.entries.push_back(hex2(emu.mmu().read(kBuf)) + " " +
-                                    peek_str(emu, kBuf + 1, end));
+                std::string ent = hex2(emu.mmu().read(kBuf)) + " " +
+                                  peek_str(emu, kBuf + 1, end);
+                if ((b & EsxdosHostFs::kDirNameMask) ==
+                    EsxdosHostFs::kDirLfnAndShort) {
+                    uint16_t end2 = 0;
+                    ent += " / " + peek_str(emu, end, end2);
+                }
+                L.entries.push_back(ent);
             }
             Z80Registers cl{};
             cl.AF = static_cast<uint16_t>(h << 8);
@@ -1382,8 +1412,9 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
         const int r3 = cwd_of("nope/x", o3);
         hcheck("HFS-103",
                "F_GETCWD with A=$FF answers for the filespec in DE, ignoring "
-               "its part after the last separator ('sub/x' -> C:/SUB/, 'x' -> "
-               "the CWD), and refuses a directory that is not there",
+               "its part after the last separator ('sub/x' -> C:/SUB/; 'x' -> "
+               "the CWD, which is the root here — HFS-115 runs from a non-root "
+               "CWD), and refuses a directory that is not there",
                r1 == 0 && o1 == "C:/SUB/" && r2 == 0 && o2 == "C:/" &&
                    r3 == EsxdosHostFs::kEnotdir,
                "r1=" + std::to_string(r1) + " '" + o1 + "' r2=" +
@@ -1421,6 +1452,220 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
         Z80Registers wc{};
         wc.AF = static_cast<uint16_t>(wh << 8);
         esx(emu, 0x9B, wc);
+    }
+
+    // ── GH #301 round 2: dot names, name modes, A=$FF, lookups ───────────
+    {
+        // The same plain/wildcard comparison as HFS-97, for the two other name
+        // modes: a wildcard bit leaking into the name mode would make $20 emit
+        // long names and $38 drop the short one.
+        auto list2 = [&](uint8_t b, const std::string& pat,
+                         std::vector<std::string>& out) {
+            out.clear();
+            poke_str(emu, kName, "/");
+            poke_str(emu, kStat, pat);
+            Z80Registers o{};
+            o.IX = kName;
+            o.DE = kStat;
+            o.BC = static_cast<uint16_t>(b << 8);
+            if (!esx(emu, 0xA3, o) || cy(o)) return false;
+            const uint8_t h = rega(o);
+            bool ok = false;
+            for (int i = 0; i < 60; ++i) {
+                Z80Registers e{};
+                e.AF = static_cast<uint16_t>(h << 8);
+                e.IX = kBuf;
+                e.DE = kStat;
+                if (!esx(emu, 0xA4, e) || cy(e)) break;
+                if (rega(e) == 0) { ok = true; break; }
+                uint16_t end = 0;
+                std::string ent = peek_str(emu, kBuf + 1, end);
+                if ((b & EsxdosHostFs::kDirNameMask) ==
+                    EsxdosHostFs::kDirLfnAndShort) {
+                    uint16_t end2 = 0;
+                    ent += " / " + peek_str(emu, end, end2);
+                }
+                out.push_back(ent);
+            }
+            Z80Registers cl{};
+            cl.AF = static_cast<uint16_t>(h << 8);
+            esx(emu, 0x9B, cl);
+            return ok;
+        };
+        auto has = [](const std::vector<std::string>& v, const std::string& x) {
+            return std::find(v.begin(), v.end(), x) != v.end();
+        };
+        std::vector<std::string> s_plain, s_wild, b_plain, b_wild;
+        const bool sp = list2(0x00, "", s_plain);
+        const bool sw = list2(0x20, "*.*", s_wild);
+        const bool bp = list2(0x18, "", b_plain);
+        const bool bw = list2(0x38, "*.*", b_wild);
+
+        hcheck("HFS-110",
+               "a leading dot is stripped before the 8.3 split, as FAT does: "
+               ".hidden -> HIDDEN~1, .git -> GIT~1, .a.b -> A~1.B (measured "
+               "NextZXOS listing), not ~1.HID",
+               sp && has(s_plain, "HIDDEN~1") && has(s_plain, "GIT~1") &&
+                   has(s_plain, "A~1.B") && bp &&
+                   has(b_plain, ".hidden / HIDDEN~1") &&
+                   has(b_plain, ".git / GIT~1"),
+               "n=" + std::to_string(s_plain.size()));
+        hcheck("HFS-111",
+               "a wildcard short-only listing ($20, '*.*') is the plain "
+               "short-only listing — the wildcard bit does not leak into the "
+               "name mode",
+               sp && sw && !s_plain.empty() && s_wild == s_plain);
+        hcheck("HFS-112",
+               "and so is a wildcard LFN-and-short listing ($38) against $18: "
+               "both names, in the same order",
+               bp && bw && !b_plain.empty() && b_wild == b_plain);
+
+        // The dot-directory as a CWD: printed by its 8.3 name, and that name
+        // works as a path prefix.
+        poke_str(emu, kName, ".git");
+        Z80Registers cd{};
+        cd.IX = kName;
+        const bool cdok = esx(emu, 0xA9, cd) && !cy(cd);
+        Z80Registers g{};
+        g.IX = kBuf;
+        esx(emu, 0xA8, g);
+        uint16_t gend = 0;
+        const std::string cwd = peek_str(emu, kBuf, gend);
+        hcheck("HFS-113",
+               "F_CHDIR into a dot-directory, then F_GETCWD, gives its 8.3 "
+               "name as NextZXOS does (measured C:/AAA/T/GIT~1/)",
+               cdok && cwd == "C:/GIT~1/", "cwd='" + cwd + "'");
+        uint8_t oe = 0;
+        const uint8_t fh = do_open(emu, cwd + "conf.bin", EsxdosHostFs::kModeRead, oe);
+        Z80Registers rd{};
+        rd.AF = static_cast<uint16_t>(fh << 8);
+        rd.IX = kBuf;
+        rd.BC = 4;
+        const bool rok = oe == 0 && esx(emu, 0x9D, rd) && !cy(rd);
+        std::string body;
+        for (int i = 0; i < 4; ++i)
+            body.push_back(static_cast<char>(emu.mmu().read(kBuf + i)));
+        Z80Registers fc{};
+        fc.AF = static_cast<uint16_t>(fh << 8);
+        esx(emu, 0x9B, fc);
+        uint8_t he = 0;
+        const uint8_t hh = do_open(emu, "/HIDDEN~1", EsxdosHostFs::kModeRead, he);
+        Z80Registers hr{};
+        hr.AF = static_cast<uint16_t>(hh << 8);
+        hr.IX = kBuf;
+        hr.BC = 3;
+        const bool hok = he == 0 && esx(emu, 0x9D, hr) && !cy(hr);
+        std::string hbody;
+        for (int i = 0; i < 3; ++i)
+            hbody.push_back(static_cast<char>(emu.mmu().read(kBuf + i)));
+        Z80Registers hc{};
+        hc.AF = static_cast<uint16_t>(hh << 8);
+        esx(emu, 0x9B, hc);
+        hcheck("HFS-114",
+               "cwd + name opens a file inside the dot-directory, and a "
+               "dot-file opens by its 8.3 name /HIDDEN~1",
+               rok && body == "CONF" && hok && hbody == "HID",
+               "conf='" + body + "' e=" + hex2(oe) + " hidden='" + hbody +
+                   "' e=" + hex2(he));
+
+        // F_GETCWD A=$FF from a NON-root CWD, so "the CWD" and "the root"
+        // are different answers.
+        auto cwd_of = [&](const std::string& spec, std::string& out) {
+            poke_str(emu, kName, spec);
+            Z80Registers q{};
+            q.AF = 0xFF00;
+            q.DE = kName;
+            q.IX = kBuf;
+            const bool qok = esx(emu, 0xA8, q);
+            uint16_t qend = 0;
+            out = peek_str(emu, kBuf, qend);
+            return qok ? (cy(q) ? static_cast<int>(rega(q)) : 0) : -1;
+        };
+        poke_str(emu, kName, "/sub");
+        Z80Registers cs{};
+        cs.IX = kName;
+        esx(emu, 0xA9, cs);
+        std::string o1, o2, o3, o4;
+        const int r1 = cwd_of("x", o1);
+        const int r2 = cwd_of("C:x", o2);
+        hcheck("HFS-115",
+               "F_GETCWD A=$FF with no directory part answers the CWD — "
+               "measured 'x' and 'C:x' -> C:/AAA/ with the CWD there — not the "
+               "root: from C:/SUB/ both give C:/SUB/",
+               r1 == 0 && o1 == "C:/SUB/" && r2 == 0 && o2 == "C:/SUB/",
+               "'" + o1 + "' '" + o2 + "'");
+        const int r3 = cwd_of("..\\Long Dir Name\\y", o3);
+        hcheck("HFS-116",
+               "'\\' separates as '/' does for the directory part (measured "
+               "T\\SUBDIR\\y -> C:/AAA/T/SUBDIR/)",
+               r3 == 0 && o3 == "C:/LONGDI~1/", "r=" + std::to_string(r3) +
+                   " '" + o3 + "'");
+        const int r4 = cwd_of("/hello.txt/x", o4);
+        hcheck("HFS-117",
+               "a directory part that names a FILE is refused with esx_enotdir "
+               "(NextZXOS answers junk; the code is the one it gives every "
+               "other call for that path)",
+               r4 == EsxdosHostFs::kEnotdir, "r=" + std::to_string(r4));
+        std::string o5;
+        const int r5 = cwd_of("/sub/a:x", o5);
+        hcheck("HFS-122",
+               "':' ends the directory part too, as the API says: '/sub/a:x' "
+               "asks for a directory '/sub/a:', which is not there, and is "
+               "refused like any missing directory (NextZXOS: the same junk "
+               "answer as for one, measured with 'T/a:x')",
+               r5 == EsxdosHostFs::kEnotdir, "r=" + std::to_string(r5) +
+                   " '" + o5 + "'");
+        poke_str(emu, kName, "/");
+        Z80Registers home{};
+        home.IX = kName;
+        esx(emu, 0xA9, home);
+
+        // Case-insensitive lookup of a LONG name, and of an 8.3 alias. The
+        // 8.3-native rows (HFS-18/19) now resolve through the alias pass too,
+        // so these are the rows that pin each pass on its own.
+        EsxdosHostFs::StatInfo st;
+        hcheck("HFS-118",
+               "a long name is found whatever its case: 'A LONG NAME.TXT' is "
+               "\"a long name.txt\"",
+               esxdos_stat(emu, "A LONG NAME.TXT", st) == 0 && st.size == 4,
+               "size=" + std::to_string(st.size));
+        hcheck("HFS-119",
+               "and so is an 8.3 alias: 'alongn~1.txt' is ALONGN~1.TXT",
+               esxdos_stat(emu, "alongn~1.txt", st) == 0 && st.size == 4,
+               "size=" + std::to_string(st.size));
+
+        poke_str(emu, kName, "/");
+        Z80Registers hd{};
+        hd.IX = kName;
+        hd.BC = static_cast<uint16_t>(
+            (EsxdosHostFs::kDirLfnOnly | EsxdosHostFs::kModeUseHeader) << 8);
+        hcheck("HFS-120",
+               "F_OPENDIR with esx_mode_use_header ($40) is still refused with "
+               "esx_enosys: a host file has no +3DOS header",
+               esx(emu, 0xA3, hd) && cy(hd) && rega(hd) == EsxdosHostFs::kEnosys,
+               "A=" + hex2(rega(hd)));
+
+        bool all_refused = true;
+        std::string got;
+        for (const uint8_t c : {uint8_t{0x10}, uint8_t{0x40}, uint8_t{0x80}}) {
+            Z80Registers x{};
+            x.IX = kName;
+            x.BC = static_cast<uint16_t>(
+                ((EsxdosHostFs::kDirLfnOnly | EsxdosHostFs::kDirSfEnable) << 8) | c);
+            const bool refused = esx(emu, 0xA3, x) && cy(x) &&
+                                 rega(x) == EsxdosHostFs::kEnosys;
+            got += hex2(c) + "->" + hex2(rega(x)) + (cy(x) ? "c " : " ");
+            if (!refused) {
+                all_refused = false;
+                Z80Registers cl{};
+                cl.AF = static_cast<uint16_t>(rega(x) << 8);
+                esx(emu, 0x9B, cl);
+            }
+        }
+        hcheck("HFS-121",
+               "sf_enable with any other exclude bit — sys $10, dirs $40, "
+               "files $80 — is refused with esx_enosys too",
+               all_refused, got);
     }
 
     // ── GH #301: NextZXOS's answers for missing and mistyped paths ───────

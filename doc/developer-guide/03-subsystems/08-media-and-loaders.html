@@ -3001,7 +3001,9 @@ NEX launched from its Browser, listing one directory in every mode:</p>
 <p><code>F_GETCWD</code> answers in NextZXOS's form, <code>C:/</code> then each component's 8.3 name and
 a <code>/</code> (<code>C:/AAA/T/SUBDIR~1/</code> was measured for an LFN of "sub dir long"), and
 with A = <code>$FF</code> for the filespec in DE. Since the guest then builds paths out of
-8.3 names, <code>resolve()</code> accepts an entry's 8.3 name as well as its host name;
+8.3 names, <code>resolve()</code> accepts an entry's 8.3 name (in any case) as well as its
+host name; the 8.3 synthesis follows FAT's basis-name rule, including stripping
+leading dots first (<code>.git</code> is <code>GIT~1</code>, <code>.hidden</code> is <code>HIDDEN~1</code>, as measured);
 <code>list_host_dir()</code> is the one place a listing and its short names are made, so
 F_READDIR, F_GETCWD and <code>resolve()</code> cannot disagree on one. The error codes for
 bad paths are NextZXOS's measured ones too: a missing or non-directory
@@ -3042,7 +3044,7 @@ volume at the block layer, which the project declined
 (<code>doc/design/TASK89-ESXDOS-HOST-FILESYSTEM.md</code> §0.1 decision 5). The boundary is permanent, and the user-facing docs say so in
 <code>--help</code>, the man page and the user guide because the flag's name invites the
 opposite assumption.</p>
-<p><strong>Tests.</strong> <code>HFS-01..109</code> in <code>test/esxdos_stub/esxdos_hostfs_rows.cpp</code> (linked
+<p><strong>Tests.</strong> <code>HFS-01..122</code> in <code>test/esxdos_stub/esxdos_hostfs_rows.cpp</code> (linked
 into <code>esxdos_stub_test</code>): the sandbox and the 8.3/timestamp synthesis against
 the class, every register convention through the real dispatcher. The
 regression row <code>esxdos-hostfs-func</code> runs a real guest program that opens, seeks

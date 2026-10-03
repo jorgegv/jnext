@@ -371,11 +371,19 @@ std::string EsxdosHostFs::short_name(const std::string& name, unsigned ordinal)
 {
     if (name == "." || name == "..") return name;
 
-    const std::size_t dot = name.rfind('.');
-    const std::string raw_base = dot == std::string::npos ? name
-                                                          : name.substr(0, dot);
+    // FAT's basis-name rule strips LEADING periods before the name is split
+    // into base and extension, so a leading dot never starts an extension.
+    // Measured (GH #301): the card's own short names, as NextZXOS lists them,
+    // are .hidden -> HIDDEN~1, .gitignore -> GITIGN~1, .git -> GIT~1,
+    // .a.b -> A~1.B, ..dd -> DD~1, .x -> X~1. Without this, ".hidden" split as
+    // base "" / ext "hidden" and came out "~1.HID".
+    const std::string bare = name.substr(
+        std::min(name.find_first_not_of('.'), name.size()));
+    const std::size_t dot = bare.rfind('.');
+    const std::string raw_base = dot == std::string::npos ? bare
+                                                          : bare.substr(0, dot);
     const std::string raw_ext  = dot == std::string::npos ? std::string()
-                                                          : name.substr(dot + 1);
+                                                          : bare.substr(dot + 1);
 
     auto filter = [](const std::string& in, std::size_t limit) {
         std::string out;
@@ -900,10 +908,12 @@ uint8_t EsxdosHostFs::getcwd_of(const std::string& filespec,
     // A=$FF: the working directory of `filespec`, "the filename part (after
     // the final /, \ or :) is ignored" (NextZXOS API, F_GETCWD). Measured:
     // "T/x" -> C:/AAA/T/, "x" and "C:x" -> the CWD, "T/sub dir long/" ->
-    // C:/AAA/T/SUBDIR~1/. A directory that does not exist got Fc=0 and a
-    // buffer of junk from NextZXOS, which is not an answer to reproduce: it
-    // is refused with esx_enotdir, NextZXOS's answer for a missing directory
-    // everywhere else (see resolve()).
+    // C:/AAA/T/SUBDIR~1/. A directory that does not exist ("nonexist/x"), and
+    // a path through a FILE ("T/README/x"), both got Fc=0 and a buffer of junk
+    // from NextZXOS, which is not an answer to reproduce. They are refused
+    // instead, with esx_enotdir. That code is INFERRED, not measured: it is
+    // what NextZXOS answers for a missing or non-directory component in every
+    // other call that was measured (see resolve()), not what it answers here.
     const std::size_t cut = filespec.find_last_of("/\\:");
     std::string dir = cut == std::string::npos ? std::string()
                                                : filespec.substr(0, cut + 1);
