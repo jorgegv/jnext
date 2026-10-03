@@ -14,7 +14,7 @@
         <link rel="prev" href="03-packaging-and-release.html">
       
       
-        <link rel="next" href="../06-contributing/index.html">
+        <link rel="next" href="05-performance-and-optimisation.html">
       
       
         
@@ -1845,6 +1845,8 @@
       
         
       
+        
+      
     
     
     
@@ -2108,6 +2110,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="05-performance-and-optimisation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.5 Performance and optimisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2361,8 +2391,9 @@ against the real source tree, and produces different bytes without it. The job
 then runs, in order: <code>make clean &amp;&amp; make gui-release</code>, <code>make build-matrix</code>,
 <code>JNEXT_TEST_JOBS=4 make regression</code>, and <code>make unit-test</code>. On failure it uploads
 the screenshot diffs and the test summary.</p>
-<p>That order is not arbitrary. <code>make gui-release</code> is a PGO build whose training
-needs the SD image, so the image is restored from the cache before it — and if
+<p>That order is not arbitrary. <code>make gui-release</code> is a PGO build
+(<a href="05-performance-and-optimisation.html#profile-guided-optimisation">5.5</a>) whose
+training needs the SD image, so the image is restored from the cache before it — and if
 the cache misses, the training downloads it through jnext's own provisioner.
 <code>make regression</code>'s provisioning row then finds it, and <code>make unit-test</code> needs
 the same image for <code>sd_rom_extractor_test</code>.</p>

@@ -103,6 +103,7 @@ nav:
       - 5.2 Build configurations: 05-building/02-build-configurations.md
       - 5.3 Packaging and release: 05-building/03-packaging-and-release.md
       - 5.4 Continuous integration: 05-building/04-continuous-integration.md
+      - 5.5 Performance and optimisation: 05-building/05-performance-and-optimisation.md
   - 6. Contributing:
       - 06-contributing/index.md
       - 6.1 Issues and pull requests: 06-contributing/01-issues-and-pull-requests.md

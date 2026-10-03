@@ -1845,6 +1845,8 @@
       
         
       
+        
+      
     
     
     
@@ -2084,6 +2086,34 @@
     
   
     5.4 Continuous integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="05-performance-and-optimisation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.5 Performance and optimisation
   
 
     
@@ -2343,7 +2373,7 @@ you read it; it is not a replacement for it.</p>
 anyone tries to build from it; <code>package-src</code> instead runs
 <code>packaging/make-dist-tarball.sh</code>, which vendors the submodule content properly.</p>
 <p>Every package's <code>jnext</code> is a <strong>PGO build</strong>, the same as <code>make gui-release</code>
-(<a href="02-build-configurations.html#profile-guided-optimisation">5.2</a>): the package
+(<a href="05-performance-and-optimisation.html#profile-guided-optimisation">5.5</a>): the package
 targets call <code>tools/pgo-build.sh</code>, which configures an instrumented twin of the
 package's tree, trains it and rebuilds the tree with the profile. Each package
 build therefore needs the SD image (provisioned by download when missing), and

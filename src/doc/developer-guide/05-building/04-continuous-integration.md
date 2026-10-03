@@ -78,8 +78,9 @@ then runs, in order: `make clean && make gui-release`, `make build-matrix`,
 `JNEXT_TEST_JOBS=4 make regression`, and `make unit-test`. On failure it uploads
 the screenshot diffs and the test summary.
 
-That order is not arbitrary. `make gui-release` is a PGO build whose training
-needs the SD image, so the image is restored from the cache before it — and if
+That order is not arbitrary. `make gui-release` is a PGO build
+([5.5](05-performance-and-optimisation.md#profile-guided-optimisation)) whose
+training needs the SD image, so the image is restored from the cache before it — and if
 the cache misses, the training downloads it through jnext's own provisioner.
 `make regression`'s provisioning row then finds it, and `make unit-test` needs
 the same image for `sd_rom_extractor_test`.
