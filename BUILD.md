@@ -74,18 +74,20 @@ three steps:
 1. an **instrumented** jnext in `build/gui-release-pgo-gen`;
 2. a short **training** run of it (`tools/pgo-train.sh`, about a minute:
    games, demos and one program per video mode headless, a program that
-   exercises every DMA feature, a real-time tape load, the Next's MOD player
+   exercises the DMA's features, a real-time tape load, the Next's MOD player
    launched from NextZXOS, and a few seconds of the GUI on Qt's offscreen
-   platform, each run sized to the same weight in the profile), which writes
-   the profile into `build/gui-release-pgo-profile`. On the titles it never
-   trains on, measured against the v1.0.76 PGO build: santaspressie 2.1-3.2%
-   faster, celeste, celeste2 and shift 0.6-1.9% faster, and nirvana (-0.4 to
-   +0.8%), odemo (+1.1-1.3%) and test02layer2 (+0.1-2.2%) within the old
-   build's own retrain spread on them (0.7%, 2.3%, up to 5.6%); the build
-   without PGO needs 15-44% more cycles than it on every title (developer
-   guide, 5.5). The emulation it profiles is the same whatever the load on the
-   build host; `JNEXT_PGO_NO_GUI=1` leaves out the few seconds of GUI and makes
-   the whole build byte-reproducible;
+   platform, each headless run sized to about the same weight in the profile),
+   which writes the profile into `build/gui-release-pgo-profile`. On the titles
+   it never trains on, measured against the v1.0.76 PGO build: santaspressie
+   2.1-3.2% faster, celeste, celeste2 and shift 0.6-1.9% faster, odemo
+   (+1.1-1.3%) and test02layer2 (+0.1-2.2%) within the old build's own retrain
+   spread on them, and nirvana -0.4% when trained on a host without added load
+   but +0.8% when trained under heavy load, 0.1 point above that spread (a
+   second session measured nirvana at -0.2 to +0.1%); the build without PGO
+   needs 14.9-43.5% more cycles than it on each title (developer guide, 5.5).
+   Under load, only the GUI run's timing-related counters change (7 of 176
+   profile files); `JNEXT_PGO_NO_GUI=1` leaves out the few seconds of GUI and
+   makes the whole build byte-reproducible at any load;
 3. the **optimised** build in `build/gui-release`, compiled with that profile.
 
 Training needs the **NextZXOS SD image**, because the machines' ROMs come from

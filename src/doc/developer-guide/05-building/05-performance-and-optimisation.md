@@ -99,9 +99,9 @@ path, once, rather than to run a lot of anything.
 | `beeper_demo.tap` | a real-time tape load: the EAR input, edge by edge |
 | Layer 2 320×256 and 640×256, LoRes, tilemap, sprite scaling, 512 colours, stencil, palette | one program per video mode (`test/00regression/nex/`) |
 | test10tilemapper, test04tilemap, test03sprite | three of the dapr test programs |
-| `dma_all.bin` (48K, `demo/dma_all`) | every zxnDMA feature, each pass checked by the program itself — see below |
+| `dma_all.bin` (48K, `demo/dma_all`) | the zxnDMA's features, each pass checked by the program itself — see below |
 | NXModPlayer | the Next's MOD player playing a MOD: Paula emulation on the DACs, driven by CTC interrupts in hardware IM2 mode, about 34,000 a second |
-| GUI, offscreen | 150 frames of parallax in the Qt GUI on Qt's offscreen platform, at real speed and `--silent`, every frame composited and presented, so the frontend's frame and paint paths are profiled too |
+| GUI, offscreen | 150 frames of parallax in the Qt GUI on Qt's offscreen platform, at real speed and `--silent`, one composited frame handed to the display per tick, so the frontend's frame and paint paths are profiled too |
 
 `demo/dma_all` drives the DMA through both ports (ZXN `0x6B` and Z80-DMA
 `0x0B`), all three directions (memory to memory, memory to port, port to
@@ -110,8 +110,9 @@ both sides, continuous, burst and byte mode, a prescaled burst to the SpecDrum
 DAC with auto-restart, CONTINUE, the timing bytes and the R6 commands, and it
 reads the status, the counter and the addresses back. It compares every
 result with what `dma.vhd` says, and writes its signature to RAM only after a
-pass in which everything matched. DMA interrupts are not covered: `dma.vhd`
-does not implement them.
+pass in which everything matched. Two things are not covered: DMA
+interrupts, which `dma.vhd` does not implement, and the mode latch on a read
+of a DMA port, which `dma_test` checks instead.
 
 Every fixture is in the repository except the MOD player. That one, and its MOD,
 are on the SD image the training already needs (`/apps/audio/NXModPlayer` in
@@ -152,11 +153,12 @@ Several of the decisions it then makes spend a limited room:
   (`-freorder-blocks-and-partition`, `-freorder-functions`), which keeps the
   hot code dense in the instruction cache.
 
-"Hot" is relative to the whole profile. With LTO, which every release build
-here uses except the Flatpak, a block is hot if it belongs to the most-executed
-99% of all the counts in the profile (`--param hot-bb-count-ws-permille`,
-default 990). Without LTO the test is relative to the largest single count
-(`--param hot-bb-count-fraction`, default 10000).
+"Hot" is relative to the whole profile. In gcc with LTO — every gcc release
+build here except the Flatpak — a block is hot if it belongs to the
+most-executed 99% of all the counts in the profile (`--param
+hot-bb-count-ws-permille`, default 990). Without LTO the test is relative to
+the largest single count (`--param hot-bb-count-fraction`, default 10000).
+(macOS builds with clang, whose thresholds are its own.)
 
 So code that ran a lot in training gets that room, and code that ran only a
 little falls outside the hot set and loses the treatment hot code gets: its
@@ -165,8 +167,9 @@ optimised as hot ones. A program that uses that code heavily can then run
 slower than it would under a better-balanced profile. An earlier, unbalanced version of this training set did exactly that
 to santaspressie, which is never trained: **2.3–2.7% slower** than the
 previous PGO build, in two retrains — though still about 9% faster than the
-build without PGO. Which title pays depends on the mix: cutting 100 frames from
-two runs moved the loss from test02layer2 (+2.3–2.8%) to santaspressie.
+build without PGO. Which title pays depends on the mix: with the full-length
+runs the loser was test02layer2 instead (+1.0% to +2.8% over three retrains),
+and cutting 100 frames from two runs moved the loss to santaspressie.
 
 Code that the training never reaches at all is a different case: with
 `-fprofile-partial-training` it is compiled as it would be without a profile
@@ -177,8 +180,9 @@ Code that the training never reaches at all is a different case: with
 - **Every run carries the same weight.** A run's weight in the merged profile
   is its total count, and the hot set is a share of the total, so one heavy run
   pushes the others' hot code out of it. Each run's length is therefore chosen
-  so that its total is about 3 G counts (measured on v1.0.76: every run
-  between 2.75 and 3.11 G). `JNEXT_PGO_REPORT_WEIGHTS=1 tools/pgo-train.sh
+  so that its total is about 3 G counts. Measured on v1.0.76, 23 runs total
+  2.94 to 3.11 G; the GUI run, the one exception, totals 2.41 G since it went
+  `--silent` (it was 2.75 G with sound). `JNEXT_PGO_REPORT_WEIGHTS=1 tools/pgo-train.sh
   <instrumented jnext> <profile dir>` profiles each run into its own directory
   (`GCOV_PREFIX`), prints each run's total, and stops without writing a
   profile. It is gcc-only and needs `gcov-dump` beside the compiler.
@@ -191,8 +195,8 @@ Code that the training never reaches at all is a different case: with
   `gcov-tool merge -w` (and `gcov-tool rewrite -n/-s` to normalise), does not
   work on jnext's profiles with gcc 16: rewriting and any merge weight above 1
   crash on the value-profile counters, and weights of 1 or less are ignored.
-  Run length works the same with every toolchain the build uses: native gcc,
-  MinGW under wine, the Flatpak SDK's gcc and macOS clang.
+  Run length needs no tool, so it works with every toolchain the build uses:
+  native gcc, MinGW under wine, the Flatpak SDK's gcc and macOS clang.
 - **Broad, real software**, as in the table above, and **a held-out set** that
   is never trained.
 - **The acceptance rule.** A change to the training set is accepted only if,
@@ -259,26 +263,28 @@ default seccomp profile does not), one minimal environment for every run
 manifest records the time and the run directory, and deflated those bytes
 change the archive's layout, and with it the counts of the run that loads it).
 With those, **two trainings without the GUI run produce byte-identical
-profiles, whatever the load on the host**: checked at load 1 and under twelve
-busy loops on a twelve-CPU host. GH #297 showed that identical profiles give
-byte-identical binaries.
+profiles, whatever the load on the host**: checked with no added load and with
+twelve extra busy loops on a twelve-CPU host, twice independently, and the
+optimised binaries built from those profiles are byte-identical too.
 
 The GUI run is the one part that follows the wall clock. It runs `--silent`:
 with an audio device, the frame pacer runs one or two frames per tick
 depending on how full the device's queue is, so how many frames skipped the
 compositor depended on the host's load, and that moved the profile of the
-renderer itself. Without one it runs exactly one composited frame per tick, so
-**the emulation the GUI run profiles is the same at any load** — every
-emulator, video, audio and peripheral profile is byte-identical between the
-two trainings above. What still differs comes from the GUI run's timing: the
-one-second status-bar timer, the debugger window's refresh, paints that Qt
-coalesces and the event loop's polls (`main.cpp`, `qt_app.cpp`,
-`main_window.cpp`, `emulator_widget.cpp`, `debugger_manager.cpp`), a log-level
-check count in spdlog, and one pointer-alignment value in `i2c.cpp` that
-records a heap address the GUI run allocates at a timing-dependent moment —
-seven `.gcda` files out of 176. Through LTO those differences still change
-cold GUI and debugger code, so the default build is not byte-reproducible; the
-emulation core's functions come out the same size. `JNEXT_PGO_NO_GUI=1` leaves the GUI run out, and the build is then
+renderer itself. Without one it runs exactly one composited frame per tick.
+Between two full trainings, one with no added load and one under twelve busy
+loops, 169 of the 176 `.gcda` files are byte-identical. The other seven differ
+because of the GUI run's timing: `main.cpp`, `qt_app.cpp`, `main_window.cpp`,
+`emulator_widget.cpp` and `debugger_manager.cpp` through the GUI's timer- and
+event-loop-driven code (the one-second status-bar timer ticked 3 times in one
+training and 9 in the other; 146 and 140 of the 150 frames were painted,
+the rest coalesced by Qt); `spdlog.cpp` through one call count; and
+`i2c.cpp` through a single value-profile counter (an `ior` of pointer
+alignment) that records a heap address the GUI run allocates at a
+timing-dependent moment — its execution counts are identical. Through LTO those
+differences still change some cold GUI, debugger and snapshot code, so the
+default build is not byte-reproducible; no CPU, memory, video, audio, DMA or
+Copper function changes size. `JNEXT_PGO_NO_GUI=1` leaves the GUI run out, and the build is then
 reproducible. The GUI run is kept by default because it is worth it: in GH
 #297, without it, the Qt binary's CPU saving at 100% speed was 4–6 points
 smaller (measured when the run still had sound).
@@ -412,16 +418,22 @@ detail lives in the documents named.
   old PGO build, and PGO adds 7–31% on top of LTO, where it had added only
   2–8% without it. Wine is not Windows, so these are indicative.
 - **The balanced, broad training set (GH #297 follow-up, measured on
-  v1.0.76).** Against the shipped v1.0.76 PGO build, two retrains of the new
-  set — one trained at load 1, one under twelve busy loops — and three of the
-  shipped one, minimum cycles over six interleaved rounds: santaspressie -2.2
-  to -2.5% (-2.1 to -3.2% over 1200 frames), celeste -0.6 to -1.7%, celeste2
-  -0.7 to -1.7%, shift -1.6 to -1.9%, nirvana -0.4 to +0.8%, odemo +1.1 to
-  +1.3%, test02layer2 +0.1 to +2.2%. The last three are within the shipped
-  build's own retrain spread on those titles (0.7%, 2.3% and up to 5.6%). The
-  MOD player plays 5.1 to 5.3% faster. The build without PGO needs 15 to 44%
-  more cycles than the new one on every title. Training takes about a minute,
-  where it took about 30 s. Before the balancing, the same additions made
-  santaspressie or test02layer2 2.3 to 2.8% slower, depending on the run
-  lengths; and before the GUI run went `--silent`, a retrain made under load
-  moved test02layer2 by about a point.
+  v1.0.76).** Against the shipped v1.0.76 PGO build, minimum cycles over six
+  interleaved rounds, two retrains of the new set — one with no added load
+  (the host was busy with other work, 1-minute load 7–18), one under twelve
+  extra busy loops — and three of the shipped one: santaspressie -2.2 to -2.5%
+  (-2.1 to -3.2% over 1200 frames), celeste -0.6 to -1.7%, celeste2 -0.7 to
+  -1.7%, shift -1.6 to -1.9%, odemo +1.1 to +1.3%, test02layer2 +0.1 to +2.2%,
+  nirvana -0.4% (no added load) and +0.8% (busy loops). odemo and test02layer2
+  are within the shipped build's own retrain spread on them (2.3%, and 3.6% /
+  5.6% over 400 / 1200 frames); nirvana's +0.8% is 0.1 point above its 0.7%
+  spread. A second, independent session — three retrains of the new set, one
+  under twelve busy loops, on a quieter host — measured every held-out title
+  between -3.4% and +0.1% (nirvana -0.2% to +0.1%, test02layer2 -0.3% to
+  -0.7%). The MOD player plays 5.1 to 5.3% faster. The build without PGO needs
+  14.9 to 43.5% more cycles than the new one on each title. Training takes
+  about a minute, where it took about 30 s. Before the balancing, the same
+  additions made test02layer2 1.0 to 2.8% slower (three retrains), or
+  santaspressie 2.3 to 2.7% with two runs shortened; and before the GUI run
+  went `--silent`, a retrain made under load moved test02layer2 by about a
+  point.
