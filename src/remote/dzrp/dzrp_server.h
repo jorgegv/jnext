@@ -77,6 +77,8 @@ enum CommandId : std::uint8_t {
     CMD_GET_SUPPORTED_COMMANDS              = 24,
     CMD_READ_BANK_MEM                       = 25,
     CMD_WRITE_BANK_MEM                      = 26,
+    CMD_SET_NEXTREGS                        = 27,
+    CMD_READ_MEM_BLOCKS                     = 28,
     CMD_ENABLE_BREAK_ON_INTERRUPT           = 39,
     CMD_ADD_BREAKPOINT                      = 40,
     CMD_REMOVE_BREAKPOINT                   = 41,
@@ -216,6 +218,8 @@ private:
     void cmd_get_supported_commands(const Command& cmd);
     void cmd_read_bank_mem(const Command& cmd);
     void cmd_write_bank_mem(const Command& cmd);
+    void cmd_set_nextregs(const Command& cmd);
+    void cmd_read_mem_blocks(const Command& cmd);
     // WP-3
     void cmd_continue(const Command& cmd);
     void cmd_pause(const Command& cmd);

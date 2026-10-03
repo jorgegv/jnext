@@ -210,7 +210,7 @@ def sc_init_regs(port):
     c = connect(port)
     try:
         bits = c.get_supported_commands()
-        check(bits == bytes([0xDE, 0x8F, 0xBF, 0x07, 0x80, 0x0F, 0x0C]),
+        check(bits == bytes([0xDE, 0x8F, 0xBF, 0x1F, 0x80, 0x0F, 0x0C]),
               "GET_SUPPORTED_COMMANDS answered %s" % bits.hex(" "))
         for clear in (5, 12, 13, 14, 22):
             check(not (bits[clear // 8] >> (clear % 8)) & 1, "bit %d is set" % clear)
@@ -235,7 +235,7 @@ def sc_init_regs(port):
               % (bad[0] if bad else -1))
     finally:
         c.close()
-    return ("INIT as %s answered 2.2.0/ZXNEXT/'jnext v'; bitfield DE 8F BF 07 80 0F 0C, "
+    return ("INIT as %s answered 2.2.0/ZXNEXT/'jnext v'; bitfield DE 8F BF 1F 80 0F 0C, "
             "bits 5/12/13/14/22 clear; 37-byte registers, slots FF FF 0A 0B 04 05 00 01; "
             "270 seqs across the wrap; version-less INIT error 1" % " and ".join(out))
 
