@@ -14597,8 +14597,19 @@ int main() {
               dbg.state().paused && svc.calls.size() > 1 && !svc.runaway,
               "calls=" + std::to_string(svc.calls.size()));
 
+        // The budget arm of the same transition (split as SES-03-09/09a): a
+        // never-silent peer, the small budget. A stall only ends it sooner.
+        dbg.run(a);
         svc.reset();
         svc.always_serviced = true;                    // the peer keeps talking
+        svc.on_call = [&]() { if (svc.calls.size() == 1) dbg.pause(a); };
+        dbg.pump(generous);
+        check("SES-03-20a", "and that drain still ENDS once budget_ms is spent — the "
+                            "budget bounds a drain that began RUNNING",
+              dbg.state().paused && !svc.runaway,
+              "calls=" + std::to_string(svc.calls.size()));
+
+        svc.reset();
         svc.on_call = [&]() { if (svc.calls.size() == 1) dbg.run(a); };
         dbg.pump(generous);
         check("SES-03-21", "paused at entry, a command that RESUMES it ends the drain "
