@@ -80,7 +80,7 @@ jobs:
     # docs-check on every run from the day the man page landed. Matching the
     # distro removes that whole class instead of pinning tool by tool.
     container: fedora:44
-    timeout-minutes: 90
+    timeout-minutes: 120
     # GH #202. Supplied as ENVIRONMENT, never by rewriting the commands: every
     # `run:` below stays the plain make target a human types locally, which is
     # the hard rule in CLAUDE.md. The generator reads $JNEXT_FPGA_SRC (and also
@@ -412,11 +412,11 @@ jobs:
     # GH #297: every package-* target is a PGO build (instrument, train,
     # rebuild), so this job needs the NextZXOS SD image for the training —
     # restored by the same cache step as the `test` job (below) — and wine for
-    # the Windows legs' training. The backstop went from 30 to 90 minutes: each
+    # the Windows legs' training. The backstop went from 30 to 90 minutes (120 since 2026-10-03, owner): each
     # leg is two builds plus a training run now. Measured in a fedora:44
     # podman replay of this job on a 12-thread host: 19 min wall, 94 min of
     # user CPU — so a 4-vCPU runner needs roughly 30-45 min.
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       # Before the checkout: a bare fedora:44 has no git, and actions/checkout
       # rejects `submodules` without it.
@@ -509,9 +509,9 @@ jobs:
   # macos job records).
   macos:
     runs-on: macos-latest
-    # 45 -> 90 for GH #297: package-macos is a PGO build (instrument,
+    # 45 -> 90 for GH #297 (120 since 2026-10-03, owner): package-macos is a PGO build (instrument,
     # train, rebuild), roughly twice the work.
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5
         with:
