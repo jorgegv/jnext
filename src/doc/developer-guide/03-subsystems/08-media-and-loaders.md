@@ -576,6 +576,13 @@ NEX launched from its Browser, listing one directory in every mode:
   given.
 - `esx_mode_use_header` stays refused: a host file has no header.
 
+"Exactly" governs WHICH listing modes are served, i.e. which entries a listing
+returns. Entry order (host-name sort, not FAT directory order), name spelling
+(the host's case: NextZXOS lists a lower-case 8.3 FAT name as `A.TXT`, the stub
+`a.txt`) and the attribute bits (read-only on a read-only mount, hidden for a
+leading-dot name) follow the host and cannot be reproduced from it; lookup is
+case-insensitive, so no path call is affected.
+
 `F_GETCWD` answers in NextZXOS's form, `C:/` then each component's 8.3 name and
 a `/` (`C:/AAA/T/SUBDIR~1/` was measured for an LFN of "sub dir long"), and
 with A = `$FF` for the filespec in DE. Since the guest then builds paths out of

@@ -93,7 +93,9 @@ wrong answer is worse than a clear refusal:
 - sorted and filtered directory listings, and wildcard listings other than
   `*.*`. A listing request that NextZXOS answers with the plain listing, such
   as `*.*` or a sort/filter request with nothing selected, gets the plain
-  listing here too
+  listing here too. The entries are the same ones NextZXOS would list, but
+  their order, the spelling of their names (your files' own case) and their
+  read-only and hidden flags follow your host files, not a FAT card
 - the `+3DOS` header modes of `F_OPEN` and `F_OPENDIR` — a host file has no
   `+3DOS` header and inventing one would feed the program eight bytes of
   fiction

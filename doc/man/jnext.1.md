@@ -1060,7 +1060,10 @@ the plain listing, which is also what NextZXOS returns for a sort/filter request
 with nothing selected and for the wildcard `*.*` (NextZXOS matches a wildcard
 against the 8.3 name, so `*.*` matches every entry). Sorting, filtering, every
 other wildcard and the `+3DOS` header modes are refused rather than answered
-approximately. `M_P3DOS`, which lets a program
+approximately. "Exactly" is about which entries a listing returns: their order,
+the spelling of their names (the host's case, where NextZXOS shows an 8.3 name
+in capitals) and the read-only and hidden attribute bits follow the host files,
+not a FAT directory. `M_P3DOS`, which lets a program
 call NextZXOS ROM routines directly — including raw sector reads — is not
 answered either: a host directory cannot supply sectors.
 
