@@ -72,7 +72,9 @@ public:
     void write(uint8_t val, bool z80_compat);
 
     /// Read from the DMA port — returns data according to the read sequence.
-    uint8_t read();
+    /// @param z80_compat  true if port 0x0B, false if port 0x6B: a read latches
+    ///                    the mode exactly as a write does (zxnext.vhd:1816-1817)
+    uint8_t read(bool z80_compat);
 
     /// Execute a burst of transfers (called while DMA is active).
     /// @param max_bytes  maximum bytes to transfer this call
@@ -90,9 +92,10 @@ public:
         return mode_ != 2;
     }
 
-    /// Tick the burst prescaler wait counter.  Called each emulator step
-    /// with the number of master clock cycles that just elapsed.
-    void tick_burst_wait(uint64_t master_cycles);
+    /// Tick the burst prescaler wait counter by `cpu_clocks` CPU clocks at the
+    /// current turbo_ (set_turbo). The emulator calls it each step with the
+    /// step's CPU clocks and the effective CPU speed (zxnext.vhd:1776-1777).
+    void tick_burst_wait(uint64_t cpu_clocks);
 
     // ── Callbacks ─────────────────────────────────────────────────────
 
@@ -265,6 +268,17 @@ private:
     /// Perform the LOAD command: set src/dst from port A/B addresses per direction.
     void cmd_load();
 
+    /// src/dst from the start registers and the counter from the mode — the
+    /// part LOAD and FINISH_DMA's auto-restart share (dma.vhd:656-668, :473-486).
+    void reload_addresses_and_counter_();
+
+    /// FINISH_DMA (dma.vhd:466-491): end-of-block status, the End event, then
+    /// the auto-restart reload or IDLE.
+    void finish_block_();
+
+    /// Enter IDLE (dma.vhd:260-265), clearing status_atleastone as IDLE does.
+    void go_idle_();
+
     /// Advance the bus-arbitration FSM one tick (VHDL dma.vhd:260-305).
     /// Called at the top of execute_burst to resolve START_DMA -> WAITING_ACK
     /// -> TRANSFER transitions and to re-acquire the bus on WAITING_CYCLES exit.
@@ -388,7 +402,7 @@ private:
 
     /// §4.3 `Dma{Start}` — ONE definition: `phase_` enters `START_DMA` while
     /// `state_ == TRANSFERRING`, which is the R6 `0x87` enable, the R3 `dma_en`
-    /// path and the auto-restart alike (`cmd_load` is an address reload, not a
+    /// path and the auto-restart alike (the restart's address reload is not a
     /// transition).
     ///
     /// The two OTHER assignments of `phase_ = START_DMA` in the .cpp are

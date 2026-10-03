@@ -434,7 +434,7 @@ int main()
             for (uint8_t b : {0x00, 0x80, 0x10, 0x00}) dma.write(b, false);
             dma.write(0xC6, false);
             dma.write(0xFF, false);
-            (void)dma.read();
+            (void)dma.read(false);
         };
         t.level(spdlog::level::trace);
         Dma dma;
