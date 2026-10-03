@@ -276,9 +276,9 @@ Between two full trainings, one with no added load and one under twelve busy
 loops, 169 of the 176 `.gcda` files are byte-identical. The other seven differ
 because of the GUI run's timing: `main.cpp`, `qt_app.cpp`, `main_window.cpp`,
 `emulator_widget.cpp` and `debugger_manager.cpp` through the GUI's timer- and
-event-loop-driven code (the one-second status-bar timer ticked 3 times in one
-training and 9 in the other; 146 and 140 of the 150 frames were painted,
-the rest coalesced by Qt); `spdlog.cpp` through one call count; and
+event-loop-driven code (in one such pair of trainings the one-second
+status-bar timer ticked 3 and 9 times, and Qt painted 146 and 140 of the 150
+frames, coalescing the rest); `spdlog.cpp` through one call count; and
 `i2c.cpp` through a single value-profile counter (an `ior` of pointer
 alignment) that records a heap address the GUI run allocates at a
 timing-dependent moment — its execution counts are identical. Through LTO those
