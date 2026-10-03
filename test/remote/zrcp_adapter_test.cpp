@@ -1485,13 +1485,19 @@ static void run_rows() {
         // the pump's notify closes the run first, so even an adapter that
         // took `about` as run data would print the right bytes. A budget no
         // stall reaches keeps `about` inside the live drain, where the row
-        // means it; anything a longer stall still defers is collected.
+        // means it — and the row REQUIRES it there: an adapter that answers
+        // one command per pass while paused (REQ-zrcp-01) must fail. Only a
+        // pump that measurably spent that whole budget may defer `about`, and
+        // only then is the rest collected.
+        constexpr auto kDrainBudget = std::chrono::milliseconds(2000);
         c.p->send("run\nabout\n");
-        rig.dbg->pump(PumpBudget{0, 2, 2000});
+        const auto t0 = SteadyClock::now();
+        rig.dbg->pump(PumpBudget{0, 2, static_cast<int>(kDrainBudget.count())});
+        const bool budget_spent = SteadyClock::now() - t0 >= kDrainBudget;
         const std::string first = c.p->take();
         const std::size_t cut   = first.find(PROMPT_STEP);
         const std::string stop  = cut == std::string::npos ? first : first.substr(0, cut + std::strlen(PROMPT_STEP));
-        const std::string r     = cut == std::string::npos ? first : c.wait_prompts(first, 2);
+        const std::string r     = cut == std::string::npos || !budget_spent ? first : c.wait_prompts(first, 2);
         const std::string next  = cut == std::string::npos ? "" : r.substr(cut + std::strlen(PROMPT_STEP));
         check("ZRCP-RUN-08", "a run the backend refuses (a corrupt machine) is answered in its "
                              "own pass with the first line and the stop, fired \"Machine corrupt "
