@@ -36,6 +36,12 @@ some platforms need more:
   display-less container the Qt exe under wine never terminates after its
   automatic exit, so the training's GUI run is left out there. No wine is a
   hard error; `WIN_PGO=0` (or `make win-release-non-pgo`) builds without PGO.
+  The wine prefix is refreshed (`wineboot -u`) on every build, so a prefix
+  made while the host wine was broken does not stay broken. After the
+  optimised build, `tools/pgo-build.sh` builds `fuse_z80_test.exe` in the
+  same tree and runs it under wine, and the build fails unless all 1356 FUSE
+  cases pass. It is the same check as the Flatpak's, for the same reason: a
+  different toolchain plus LTO.
   The repository-internal SDL-only Windows legs are not PGO builds, but
   are Release builds with LTO too;
 - the **Flatpak** trains inside the build sandbox: the distribution zip is a

@@ -303,7 +303,10 @@ non-PGO variant, so without the image they stop and say so), and:
   packages, and are trained under **wine** (`wine-core` and
   `wine-common` on Fedora), without the training's GUI run. Without wine the build stops; `make
   win-release-non-pgo`, or `WIN_PGO=0` on any `win-*-release` target, builds
-  without PGO. The repository-internal SDL-only Windows builds
+  without PGO. Each Windows PGO build refreshes its wine prefix
+  (`wineboot -u`) and then runs the FUSE Z80 suite (`fuse_z80_test.exe`,
+  built in the same tree) under wine; the build fails unless all 1356 cases
+  pass. The repository-internal SDL-only Windows builds
   (`win-sdl-release`, `win32-sdl-release`) are not PGO builds, but are
   Release + LTO too;
 - the **Flatpak** trains inside the build sandbox: the manifest carries the

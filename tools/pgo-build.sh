@@ -24,7 +24,10 @@
 # runs are unaffected, and -fprofile-partial-training keeps the untrained GUI
 # code optimised as it is without PGO.
 #
-# Env: JOBS (default: nproc).
+# A Windows build then runs the FUSE Z80 suite under wine against the
+# optimised tree and fails unless every case passes (step 4).
+#
+# Env: JOBS (default: nproc); FUSE_CASES (the FUSE case count, default 1356).
 set -euo pipefail
 export LC_ALL=C LANG=C
 
@@ -64,10 +67,18 @@ pgo-build: Without it, build the non-PGO executable instead (make win-release-no
     export WINEPREFIX="${WINEPREFIX:-$(cd "$(dirname "$DIR")" && pwd)/wine-pgo}"
     export WINEDLLOVERRIDES="mscoree,mshtml=" WINEDEBUG=-all
     unset DISPLAY WAYLAND_DISPLAY
+    # An existing prefix is refreshed every time (wineboot -u), not only
+    # created once: a prefix made while the host wine was broken keeps that
+    # state after wine is fixed. One made while the i386 d3d11/dxgi links were
+    # missing had no d3d11.dll in syswow64, so the i686 Qt5 training kept
+    # failing (Qt5Gui import, exit 53) until `wineboot -u` repaired it.
     if [[ ! -f "$WINEPREFIX/system.reg" ]]; then
         echo "pgo-build: creating the wine prefix $WINEPREFIX"
         timeout --kill-after=5s 600s wineboot -i >/dev/null 2>&1 ||
             die "cannot initialise the wine prefix $WINEPREFIX"
+    else
+        timeout --kill-after=5s 600s wineboot -u >/dev/null 2>&1 ||
+            die "cannot update the wine prefix $WINEPREFIX"
     fi
 fi
 bash "$SCRIPT_DIR/pgo-train.sh" "$BIN" "$PROF"
@@ -82,3 +93,26 @@ else
     cmake --build "$DIR" -j"$JOBS" --clean-first
 fi
 touch "$DIR/.pgo-applied"
+
+# 4. Windows: the FUSE Z80 suite must pass against the PGO+LTO CPU core under
+# wine, or the build fails (GH #298). The same contract as the Flatpak's
+# in-build FUSE gate: a different toolchain plus LTO is where the Flatpak
+# miscompile came from. fuse_z80_test is built in this tree with its flags
+# (EXCLUDE_FROM_ALL, linked against the same jnext_cpu objects); its DLLs are
+# bundled beside it first. LANG=C/LC_ALL=C are exported above, so wine and the
+# test inherit them. FUSE_CASES is the suite's case count (the Makefile passes
+# its own).
+if [[ "$BIN" == *.exe ]]; then
+    FUSE_CASES=${FUSE_CASES:-1356}
+    cmake --build "$DIR" -j"$JOBS" --target fuse_z80_test
+    bash "$SCRIPT_DIR/../packaging/windows/bundle-dlls.sh" "$DIR/fuse_z80_test.exe" "$DIR" >/dev/null
+    FUSE_LOG="$DIR/fuse-wine.log"
+    rc=0
+    (cd "$DIR" && timeout --kill-after=5s 600s wine fuse_z80_test.exe "$SCRIPT_DIR/../test/fuse") \
+        >"$FUSE_LOG" 2>&1 || rc=$?
+    if [[ $rc -ne 0 ]] || ! grep -Eq "^Total: +$FUSE_CASES +Passed: +$FUSE_CASES " "$FUSE_LOG"; then
+        tail -20 "$FUSE_LOG" >&2
+        die "FUSE Z80 on the Windows PGO build under wine: exit $rc, expected $FUSE_CASES of $FUSE_CASES passed (log: $FUSE_LOG)"
+    fi
+    echo "pgo-build: FUSE Z80 under wine: $FUSE_CASES/$FUSE_CASES"
+fi

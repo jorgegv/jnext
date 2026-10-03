@@ -41,12 +41,13 @@ PGO_PROFILE_ABS   = $(CURDIR)/$(PGO_PROFILE_DIR)
 # `make bench` measures the non-PGO build: its speed does not move with a
 # retrained profile, so it is the one to compare two code changes with.
 BENCH_BUILD      ?= gui-release-non-pgo
-# The FUSE suite's case count (test/fuse/tests.in), pinned for fuse-pgo.
+# The FUSE suite's case count (test/fuse/tests.in), pinned for fuse-pgo and for
+# the Windows PGO builds' FUSE-under-wine gate (tools/pgo-build.sh).
 FUSE_CASES        = 1356
 # GH #297 — the release trees other than gui-release (packages, Windows) are
 # PGO builds through tools/pgo-build.sh: instrument, train, rebuild.
 # $(call PGO_BUILD,<build dir>,<configure command, without -B>)
-PGO_BUILD         = JOBS=$(JOBS) bash tools/pgo-build.sh $(1) -- $(2)
+PGO_BUILD         = JOBS=$(JOBS) FUSE_CASES=$(FUSE_CASES) bash tools/pgo-build.sh $(1) -- $(2)
 # The Windows executables are PGO builds trained under wine. WIN_PGO=0 builds
 # any of them the plain way instead (win-release-non-pgo does that for x64).
 WIN_PGO          ?= 1
