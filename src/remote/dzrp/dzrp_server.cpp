@@ -187,6 +187,8 @@ const DzrpServer::CommandDef DzrpServer::COMMANDS[] = {
     {CMD_GET_SUPPORTED_COMMANDS,              "CMD_GET_SUPPORTED_COMMANDS",                0, false, false, &DzrpServer::cmd_get_supported_commands},
     {CMD_READ_BANK_MEM,                       "CMD_READ_BANK_MEM",                         5, false, true,  &DzrpServer::cmd_read_bank_mem},
     {CMD_WRITE_BANK_MEM,                      "CMD_WRITE_BANK_MEM",                        3, false, true,  &DzrpServer::cmd_write_bank_mem},
+    {CMD_SET_NEXTREGS,                        "CMD_SET_NEXTREGS",                          0, false, true,  &DzrpServer::cmd_set_nextregs},
+    {CMD_READ_MEM_BLOCKS,                     "CMD_READ_MEM_BLOCKS",                       4, false, true,  &DzrpServer::cmd_read_mem_blocks},
     {CMD_ENABLE_BREAK_ON_INTERRUPT,           "CMD_ENABLE_BREAK_ON_INTERRUPT",             1, false, true,  &DzrpServer::cmd_enable_break_on_interrupt},
     {CMD_ADD_BREAKPOINT,                      "CMD_ADD_BREAKPOINT",                        3, false, true,  &DzrpServer::cmd_add_breakpoint},
     {CMD_REMOVE_BREAKPOINT,                   "CMD_REMOVE_BREAKPOINT",                     2, false, true,  &DzrpServer::cmd_remove_breakpoint},
@@ -610,6 +612,50 @@ void DzrpServer::cmd_write_mem(const Command& cmd) {
     reply(cmd.seq);
 }
 
+// CMD_READ_MEM_BLOCKS (28), DZRP 2.2.0 — DeZog 3.8 reads ALL of its memory with
+// it (CMD_READ_MEM is gone from its enum). resp_length u32, then N × (addr u16,
+// size u16); the reply is the blocks back to back, in order. Each block is read
+// like CMD_READ_MEM: the CPU view, side-effect free, wrapping at 0xFFFF.
+// resp_length is "to help remotes that have limited space" — the receiver need
+// not use it, so it is only checked against the blocks, at debug level.
+void DzrpServer::cmd_read_mem_blocks(const Command& cmd) {
+    const std::vector<std::uint8_t>& p = cmd.payload;
+    if ((p.size() - 4) % 4 != 0) {
+        Log::debugger()->warn("dzrp: malformed CMD_READ_MEM_BLOCKS: {} bytes of blocks, not a "
+                              "multiple of 4 — nothing read",
+                              p.size() - 4);
+        reply(cmd.seq);
+        return;
+    }
+    std::size_t total = 0;
+    for (std::size_t at = 4; at < p.size(); at += 4) total += le16(p, at + 2);
+    if (total + 1 > MAX_PAYLOAD_BYTES) {
+        // The command's own cap, applied to the reply: a 16 MiB command could
+        // otherwise ask for 4M blocks of 64 KB each.
+        Log::debugger()->warn("dzrp: CMD_READ_MEM_BLOCKS asks for {} bytes, over the {}-byte "
+                              "maximum — nothing read",
+                              total, MAX_PAYLOAD_BYTES - 1);
+        reply(cmd.seq);
+        return;
+    }
+    const std::uint32_t resp_length =
+        static_cast<std::uint32_t>(p[0] | (p[1] << 8) | (p[2] << 16)) |
+        (static_cast<std::uint32_t>(p[3]) << 24);
+    if (resp_length != total + 1)
+        Log::debugger()->debug("dzrp: CMD_READ_MEM_BLOCKS resp_length {} but the blocks make {} "
+                               "— the blocks are served",
+                               resp_length, total + 1);
+
+    std::vector<std::uint8_t> out(total);
+    std::size_t               filled = 0;
+    for (std::size_t at = 4; at < p.size(); at += 4) {
+        const std::uint16_t size = le16(p, at + 2);
+        if (size > 0) dbg_.peek(MemSpace::cpu(), le16(p, at), size, out.data() + filled);
+        filled += size;
+    }
+    reply(cmd.seq, out);
+}
+
 // ---------------------------------------------------------------------------
 // Banks — DZRP bank N = MMU page N as NR 0x50-0x57 spell it (design §5.2)
 // ---------------------------------------------------------------------------
@@ -756,6 +802,33 @@ void DzrpServer::cmd_set_slot(const Command& cmd) {
 // trace lines, the 0x243B selection untouched).
 void DzrpServer::cmd_get_tbblue_reg(const Command& cmd) {
     reply(cmd.seq, {dbg_.nextreg_peek(cmd.payload[0])});
+}
+
+// CMD_SET_NEXTREGS (27), DZRP 2.2.0: N × (register, value), each written as a
+// `NEXTREG register,value` would — `nextreg_write()`, the register's own write
+// handler — in the order given, so a register may repeat (DeZog 3.8 sets the NEX
+// loading screen's palette as 0x43, 0x40 and then 512 × 0x44). An odd length
+// writes NOTHING: the pairs cannot be trusted. A refusal (an RZX) stops at the
+// pair refused, with one warn line naming how far it got rather than one per
+// pair. Seq-only reply: the command has no error field.
+void DzrpServer::cmd_set_nextregs(const Command& cmd) {
+    const std::vector<std::uint8_t>& p = cmd.payload;
+    if (p.size() % 2 != 0) {
+        Log::debugger()->warn("dzrp: malformed CMD_SET_NEXTREGS: payload is {} bytes, not "
+                              "register/value pairs — nothing written",
+                              p.size());
+        reply(cmd.seq);
+        return;
+    }
+    for (std::size_t at = 0; at < p.size(); at += 2) {
+        if (const Result r = dbg_.nextreg_write(cid_, p[at], p[at + 1]); r != Result::Ok) {
+            Log::debugger()->warn("dzrp: CMD_SET_NEXTREGS NR 0x{:02X} refused: {} — {} of {} "
+                                  "pairs written",
+                                  p[at], result_name(r), at / 2, p.size() / 2);
+            break;
+        }
+    }
+    reply(cmd.seq);
 }
 
 // CMD_SET_BORDER (12), LEGACY — removed in 2.2.0 ("use CMD_WRITE_PORT").
