@@ -1184,7 +1184,8 @@ GH #221 step-off arm applies), the reply before anything runs; `NTF_PAUSE` built
 from `Paused{reason, matched[]}` in the post-frame flush (`on_notify`), temp
 first (F8), `bank+1` of the address's page (F7), once per `CONTINUE` or per
 `PAUSE` that stopped a running machine; a hard reset sends nothing. The
-bitfield is now §2 row 24's `DE 8F BF 07 80 0F 0C` (`DZRP-SUP-01`).
+bitfield was then `DE 8F BF 07 80 0F 0C` (`DZRP-SUP-01`) — superseded by v1.9
+(§16), which serves 27 and 28: `DE 8F BF 1F 80 0F 0C`, §2 row 24.
 
 ### 13.3 WP-4 — what is served
 
@@ -1470,7 +1471,11 @@ other way round).
 
 `dzrp_adapter_test` rows DZRP-MEM-11..17 (28: order, wrap, zero-size and
 overlapping blocks, no blocks, DeZog's 64 KB read, advisory `resp_length`,
-malformed list, the cap, the short payload) and DZRP-NR-03..07 (27: order and
-repetition, the write handler's side effect, empty, odd length, RZX), plus the
-updated DZRP-SUP-01. All twelve new rows and SUP-01 FAIL with the two table
-rows removed (the commands then reported unsupported) and PASS with them.
+malformed list, the cap, the short payload), DZRP-MEM-18..20 (28: the cap at
+its edge — the response length counts from the seq byte, so a block total of
+16 MiB − 1 is the largest served (MEM-18) and 16 MiB is refused (MEM-19); a
+block list whose size sum wraps 32 bits, 65538 × 0xFFFF, is refused (MEM-20))
+and DZRP-NR-03..07 (27: order and repetition, the write handler's side effect,
+empty, odd length, RZX), plus the updated DZRP-SUP-01. All fifteen new rows and
+SUP-01 FAIL with the two table rows removed (the commands then reported
+unsupported) and PASS with them.

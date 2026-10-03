@@ -1320,6 +1320,44 @@ static void memory_rows() {
               s.len == 1 &&
                   log.count("malformed CMD_READ_MEM_BLOCKS: payload is 3 bytes, needs at "
                             "least 4") == 1);
+
+        // The cap at its edge. The response length field counts FROM the seq
+        // byte (dzrp_frame.h), so seq + blocks <= MAX_PAYLOAD_BYTES (16 MiB):
+        // the largest legal block total is 16 MiB - 1 = 256 x 0xFFFF + 0xFF.
+        std::string edge;
+        for (int i = 0; i < 256; ++i) edge += u16s(0x0000) + u16s(0xFFFF);
+        std::string low(0xFFFF, '\0');
+        for (std::size_t i = 0; i < low.size(); ++i)
+            low[i] = static_cast<char>(rig.emu.mmu().peek(static_cast<std::uint16_t>(i)));
+        std::string want_edge;
+        want_edge.reserve(16777215);
+        for (int i = 0; i < 256; ++i) want_edge += low;
+        want_edge += low.substr(0x9000, 0xFF);
+        const Resp at_cap =
+            c.cmd(CMD_READ_MEM_BLOCKS, le32(16777216) + edge + u16s(0x9000) + u16s(0x00FF));
+        check("DZRP-MEM-18", "a block total of exactly 16 MiB - 1 (256 blocks of 0xFFFF + one of "
+                             "0xFF: seq + blocks = the 16 MiB cap) is served in full",
+              at_cap.len == 16777216 && at_cap.payload.size() == 16777215 &&
+                  at_cap.payload == want_edge,
+              "len=" + std::to_string(at_cap.len));
+
+        const Resp over_cap =
+            c.cmd(CMD_READ_MEM_BLOCKS, le32(16777217) + edge + u16s(0x9000) + u16s(0x0100));
+        check("DZRP-MEM-19", "one byte more (256 blocks of 0xFFFF + one of 0x100: a 16 MiB block "
+                             "total) reads nothing: seq-only reply and a warn line",
+              over_cap.len == 1 &&
+                  log.count("CMD_READ_MEM_BLOCKS asks for 16777216 bytes, over the") == 1);
+
+        // 65538 x 0xFFFF = 4295032830: in 32 bits that wraps to 65534, under
+        // the cap. The sum must not wrap.
+        std::string wrap;
+        for (int i = 0; i < 65538; ++i) wrap += u16s(0x0000) + u16s(0xFFFF);
+        const Resp wrapped = c.cmd(CMD_READ_MEM_BLOCKS, le32(65535) + wrap);
+        check("DZRP-MEM-20", "a block list whose size sum wraps 32 bits (65538 blocks of 0xFFFF) "
+                             "reads nothing: seq-only reply and a warn line with the full sum",
+              wrapped.len == 1 &&
+                  log.count("CMD_READ_MEM_BLOCKS asks for 4295032830 bytes, over the") == 1,
+              "len=" + std::to_string(wrapped.len));
     }
 }
 
