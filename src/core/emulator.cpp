@@ -10565,8 +10565,20 @@ uint64_t Emulator::step_one_instruction()
     // move the counter with it or contention would lag the raster.
     if (!cpu_executed) advance_fuse_tstates_(master_cycles);
 
-    // Tick DMA burst prescaler (counts down between burst-mode transfers).
-    dma_.tick_burst_wait(master_cycles);
+    // Tick the DMA prescaler timer. dma.vhd runs on i_CLK_CPU with
+    // turbo_i => cpu_speed (zxnext.vhd:1776-1777), so it gets this step's CPU
+    // clocks and the speed they ran at: +8/+4/+2/+1 per clock at 3.5/7/14/28
+    // MHz (dma.vhd:250-254) is +1 per master cycle, one prescaler unit = 32
+    // master cycles. Every path above makes master_cycles a whole number of
+    // CPU clocks. (Feeding master cycles at the reset turbo 00 ran the wait
+    // 8x short, GH #300.) Set every step, so a speed change or a state load
+    // can never leave turbo_ behind the clock.
+    {
+        const int div = clock_.cpu_divisor();             // 8, 4, 2, 1
+        const uint8_t turbo = div == 8 ? 0 : div == 4 ? 1 : div == 2 ? 2 : 3;
+        dma_.set_turbo(turbo);
+        dma_.tick_burst_wait(master_cycles >> (3 - turbo));
+    }
 
     return master_cycles;
 }

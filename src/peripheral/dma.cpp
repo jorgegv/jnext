@@ -422,9 +422,10 @@ void Dma::write(uint8_t val, bool z80_compat) {
         dma_log()->debug("R3: dma_en={}", dma_en_);
 
         if (dma_en_) {
+            // dma.vhd:578-580: START_DMA only. status_atleastone is not
+            // touched (IDLE clears it, :265), so a re-enable mid-block keeps it.
             state_ = State::TRANSFERRING;
             phase_ = Phase::START_DMA;
-            status_at_least_one_ = false;
             in_waiting_cycles_ = false;
             dma_log()->debug("DMA enabled via R3 -> TRANSFERRING");
             if (start_events_armed_ && debug_state_->armed())
@@ -575,9 +576,9 @@ void Dma::process_r6_command(uint8_t val) {
 
     case 0x87:  // Enable DMA
         dma_log()->debug("R6: ENABLE DMA -> TRANSFERRING");
+        // dma.vhd:724-725: START_DMA only; status_atleastone untouched (as R3).
         state_ = State::TRANSFERRING;
         phase_ = Phase::START_DMA;
-        status_at_least_one_ = false;
         in_waiting_cycles_ = false;
         if (start_events_armed_ && debug_state_->armed())
             latch_start_();                      // §4.3 `Dma{Start}`, site 2/3
@@ -919,10 +920,11 @@ int Dma::execute_burst(int max_bytes) {
     return transferred;
 }
 
-void Dma::tick_burst_wait(uint64_t master_cycles) {
-    // VHDL dma.vhd:249-255 — DMA_timer_s increments per clock by a value
-    // that depends on turbo_i (higher turbo = smaller increment, so
-    // prescaler waits take more real clocks):
+void Dma::tick_burst_wait(uint64_t cpu_clocks) {
+    // VHDL dma.vhd:249-255 — DMA_timer_s increments per clock_i (= the CPU
+    // clock, zxnext.vhd:1776) by a value that depends on turbo_i (= cpu_speed,
+    // :1777): higher speed, smaller increment, so +1 per 28 MHz master cycle
+    // at every speed and one prescaler unit (timer bits 13:5) = 32 master cycles:
     //   "00" 3.5MHz → +8, "01" 7MHz → +4, "10" 14MHz → +2, "11" 28MHz → +1
     uint16_t inc_per_clock;
     switch (turbo_ & 0x03) {
@@ -936,7 +938,7 @@ void Dma::tick_burst_wait(uint64_t master_cycles) {
     // 255*32 = 8160 < 16384, so no in-wait wrap can confuse the gate.
     uint32_t next = static_cast<uint32_t>(dma_timer_s_) +
                     static_cast<uint32_t>(inc_per_clock) *
-                    static_cast<uint32_t>(master_cycles);
+                    static_cast<uint32_t>(cpu_clocks);
     dma_timer_s_ = static_cast<uint16_t>(next & 0x3FFF);
 
     // When the burst-mode prescaler wait expires, the DMA must re-arbitrate
@@ -1051,9 +1053,11 @@ void Dma::load_state(StateReader& r)
     // (`turbo_ = r.read_u8() & 0x03`, `dma_timer_s_ = r.read_u16() & 0x3FFF`)
     // and a declaration has no room for them, so they move here — applied
     // after the walk, to the same two fields, with the same widths. `turbo_`
-    // is NR 0x06 bits 1:0 (zxnext.vhd:4966) and `dma_timer_s_` is the 14-bit
-    // burst-mode prescaler timer of device/dma.vhd, so a wider value in the
-    // stream is not a state the hardware can be in.
+    // is the 2-bit cpu_speed (zxnext.vhd:1777; the emulator sets it from the
+    // clock before every tick, so a loaded value is never used) and
+    // `dma_timer_s_` is the 14-bit burst-mode prescaler timer of
+    // device/dma.vhd, so a wider value in the stream is not a state the
+    // hardware can be in.
     turbo_       = static_cast<uint8_t>(turbo_ & 0x03);
     dma_timer_s_ = static_cast<uint16_t>(dma_timer_s_ & 0x3FFF);
 }

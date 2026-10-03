@@ -72,9 +72,14 @@ runs from the instruction loop, and `dma_holds_bus()` both stalls the CPU and
 silences the DMA ports. In burst mode the CPU is released during the prescaler
 wait; in continuous and byte mode it is not. The wait follows every byte, the
 last one of a block included, so a looping sample keeps its spacing across the
-auto-restart. The status byte follows the VHDL's two flags exactly: the end of a
-block sets *end of block* and an auto-restart does not clear it, and the return
-to idle clears *at least one* (GH #300).
+auto-restart. The prescaler timer runs on the CPU clock at the CPU speed's
+increment (`zxnext.vhd:1776-1777`, `dma.vhd:250-254`), which is one count per
+28 MHz master cycle at any speed: the emulator hands `tick_burst_wait()` each
+step's CPU clocks and sets `set_turbo()` from the clock's divisor, so a
+prescaler of N spaces bytes N×32 master cycles apart. The status byte follows
+the VHDL's two flags exactly: the end of a block sets *end of block* and an
+auto-restart does not clear it, and the return to idle clears *at least one*
+(GH #300).
 
 ## DivMMC
 

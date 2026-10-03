@@ -92,9 +92,10 @@ public:
         return mode_ != 2;
     }
 
-    /// Tick the burst prescaler wait counter.  Called each emulator step
-    /// with the number of master clock cycles that just elapsed.
-    void tick_burst_wait(uint64_t master_cycles);
+    /// Tick the burst prescaler wait counter by `cpu_clocks` CPU clocks at the
+    /// current turbo_ (set_turbo). The emulator calls it each step with the
+    /// step's CPU clocks and the effective CPU speed (zxnext.vhd:1776-1777).
+    void tick_burst_wait(uint64_t cpu_clocks);
 
     // ── Callbacks ─────────────────────────────────────────────────────
 

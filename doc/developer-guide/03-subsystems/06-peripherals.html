@@ -2440,9 +2440,14 @@ runs from the instruction loop, and <code>dma_holds_bus()</code> both stalls the
 silences the DMA ports. In burst mode the CPU is released during the prescaler
 wait; in continuous and byte mode it is not. The wait follows every byte, the
 last one of a block included, so a looping sample keeps its spacing across the
-auto-restart. The status byte follows the VHDL's two flags exactly: the end of a
-block sets <em>end of block</em> and an auto-restart does not clear it, and the return
-to idle clears <em>at least one</em> (GH #300).</p>
+auto-restart. The prescaler timer runs on the CPU clock at the CPU speed's
+increment (<code>zxnext.vhd:1776-1777</code>, <code>dma.vhd:250-254</code>), which is one count per
+28 MHz master cycle at any speed: the emulator hands <code>tick_burst_wait()</code> each
+step's CPU clocks and sets <code>set_turbo()</code> from the clock's divisor, so a
+prescaler of N spaces bytes N×32 master cycles apart. The status byte follows
+the VHDL's two flags exactly: the end of a block sets <em>end of block</em> and an
+auto-restart does not clear it, and the return to idle clears <em>at least one</em>
+(GH #300).</p>
 <h2 id="divmmc">DivMMC<a class="headerlink" href="#divmmc" title="Permanent link">&para;</a></h2>
 <p>DivMMC is the Next's SD-card interface, inherited from a family of third-party
 Spectrum add-ons. It is more than a card reader: it carries its own 8 KB ROM and

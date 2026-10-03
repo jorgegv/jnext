@@ -193,6 +193,38 @@ uint8_t read_status(Dma& dma) {
     return dma.read(false);
 }
 
+// Rows 1.3/1.4 (GH #300) need the production port handlers: a real 48K
+// Emulator (the DMA port decode has no machine-type term, zxnext.vhd:2405,
+// 2440, 2643).
+bool g1_build_48k(Emulator& emu) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZX48K;
+    cfg.rewind_buffer_frames = 0;
+    return emu.init(cfg);
+}
+
+// Program, through I/O port `port` (0x6B or 0x0B) as a guest's OUT would, an
+// auto-restarting A->B mem/inc -> mem/inc continuous block of `len` bytes,
+// then LOAD + ENABLE. R5 0xA2 = auto-restart (dma.vhd:616-627); the rest as
+// program_mem_to_mem_AB. Source bytes 0x51.. are written first.
+void g1_program_restart(Emulator& emu, uint16_t port, uint16_t src, uint16_t dst,
+                        uint16_t len) {
+    for (int i = 0; i <= len; ++i)
+        emu.mmu().write(static_cast<uint16_t>(src + i), static_cast<uint8_t>(0x51 + i));
+    const uint8_t prog[] = {
+        0xA2,                                            // R5 auto-restart
+        0x7D, static_cast<uint8_t>(src & 0xFF), static_cast<uint8_t>(src >> 8),
+              static_cast<uint8_t>(len & 0xFF), static_cast<uint8_t>(len >> 8),
+        0x14, 0x10,                                      // R1, R2: memory, inc
+        0xAD, static_cast<uint8_t>(dst & 0xFF), static_cast<uint8_t>(dst >> 8),
+        0xCF, 0x87,                                      // LOAD, ENABLE
+    };
+    for (uint8_t b : prog) emu.port().out(port, b);
+}
+
+// Defined with group 23: NR 0x07 write + bus-idle commit.
+void g23_set_speed(Emulator& emu, uint8_t speed);
+
 // ══════════════════════════════════════════════════════════════════════
 // Group 1 — Port decoding and mode selection
 // VHDL: zxnext.vhd port decode sets dma_mode <= port_0b_lsb per access.
@@ -224,29 +256,44 @@ void group1_port_decode() {
               fmt("counter=0x%04X  VHDL dma.vhd:666-667", dma.counter()));
     }
 
-    // 1.3 Read from 0x6B -> ZXN mode.  The C++ read() path latches the
-    // mode via the same write(bool) parameter through a preceding access;
-    // we model it by doing a Z80 LOAD, then a ZXN CONTINUE which the VHDL
-    // treats as a mode latch on port access (dma.vhd:670-676).
+    // 1.3 A READ of port 0x6B latches ZXN mode (GH #300). zxnext.vhd:1816-1817
+    // updates dma_mode on `port_dma_rd = '1' or port_dma_wr = '1'`; its
+    // consumer here is FINISH_DMA's auto-restart counter reload
+    // (dma.vhd:482-483). Driven through a real Emulator's port handlers, so
+    // the row sees which mode each port's read passes: programmed through
+    // 0x0B (Z80: LOAD counter = -1, so a 2-byte block moves 3, :426), then
+    // one IN from 0x6B — the reload at the end of the block must be ZXN's 0.
     {
-        fresh(dma);
-        z80(dma, 0x05);
-        z80(dma, 0xCF);  // counter = 0xFFFF
-        zxn(dma, 0xD3);  // CONTINUE with ZXN mode -> counter = 0
-        check("1.3", "Subsequent 0x6B access latches ZXN: CONTINUE counter=0",
-              dma.counter() == 0,
-              fmt("counter=0x%04X  VHDL dma.vhd:673-674", dma.counter()));
+        Emulator emu;
+        if (!g1_build_48k(emu)) {
+            check("1.3", "Emulator::init failed (48K)", false, "init returned false");
+        } else {
+            g1_program_restart(emu, 0x000B, 0x8000, 0x9000, 2);
+            (void)emu.port().in(0x006B);
+            int n = emu.dma().execute_burst(3);
+            check("1.3", "IN from 0x6B latches ZXN: auto-restart reloads counter 0",
+                  n == 3 && emu.dma().counter() == 0x0000,
+                  fmt("n=%d counter=0x%04X  VHDL zxnext.vhd:1816-1817, dma.vhd:482-483",
+                      n, emu.dma().counter()));
+        }
     }
 
-    // 1.4 Read from 0x0B -> Z80 mode.
+    // 1.4 The mirror: a READ of port 0x0B latches Z80 mode, so a block
+    // programmed through 0x6B reloads the counter to -1 on auto-restart
+    // (dma.vhd:484-485).
     {
-        fresh(dma);
-        zxn(dma, 0x05);
-        zxn(dma, 0xCF);  // ZXN LOAD -> counter=0
-        z80(dma, 0xD3);  // Z80 CONTINUE -> counter=0xFFFF
-        check("1.4", "Subsequent 0x0B access latches Z80: CONTINUE counter=0xFFFF",
-              dma.counter() == 0xFFFF,
-              fmt("counter=0x%04X  VHDL dma.vhd:675-676", dma.counter()));
+        Emulator emu;
+        if (!g1_build_48k(emu)) {
+            check("1.4", "Emulator::init failed (48K)", false, "init returned false");
+        } else {
+            g1_program_restart(emu, 0x006B, 0x8000, 0x9000, 2);
+            (void)emu.port().in(0x000B);
+            int n = emu.dma().execute_burst(2);
+            check("1.4", "IN from 0x0B latches Z80: auto-restart reloads counter 0xFFFF",
+                  n == 2 && emu.dma().counter() == 0xFFFF,
+                  fmt("n=%d counter=0x%04X  VHDL zxnext.vhd:1816-1817, dma.vhd:484-485",
+                      n, emu.dma().counter()));
+        }
     }
 
     // 1.5 — RETIRED 2026-09-24 (GH #201).  The reset value of dma_mode is
@@ -274,40 +321,6 @@ void group1_port_decode() {
               zxn_ok && z80_ok,
               fmt("zxn_load=%d z80_load=%d  VHDL dma.vhd:664-668",
                   (int)zxn_ok, (int)z80_ok));
-    }
-
-    // 1.7 A READ of port 0x6B latches ZXN mode too (GH #300): zxnext.vhd:1816-
-    // 1817 updates dma_mode on `port_dma_rd = '1' or port_dma_wr = '1'`. The
-    // mode is consumed by FINISH_DMA's auto-restart counter reload
-    // (dma.vhd:482-486). Programmed through 0x0B (Z80: LOAD counter = -1, so
-    // a 2-byte block moves 3 bytes, :426), then one read of 0x6B: the reload
-    // at the end of the block must be the ZXN value, 0.
-    {
-        fresh(dma);
-        for (int i = 0; i < 3; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0x51 + i);
-        z80(dma, 0xA2);                  // R5 auto-restart (dma.vhd:623)
-        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 2, true);
-        (void)dma.read(false);           // IN from port 0x6B
-        int n = dma.execute_burst(3);
-        check("1.7", "A read of 0x6B latches ZXN: auto-restart reloads counter 0",
-              n == 3 && dma.counter() == 0x0000,
-              fmt("n=%d counter=0x%04X  VHDL zxnext.vhd:1816-1817, dma.vhd:482-483",
-                  n, dma.counter()));
-    }
-
-    // 1.8 The mirror: a READ of port 0x0B latches Z80 mode, so a block
-    // programmed through 0x6B reloads the counter to -1 on auto-restart.
-    {
-        fresh(dma);
-        for (int i = 0; i < 2; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0x61 + i);
-        zxn(dma, 0xA2);
-        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 2);
-        (void)dma.read(true);            // IN from port 0x0B
-        int n = dma.execute_burst(2);
-        check("1.8", "A read of 0x0B latches Z80: auto-restart reloads counter 0xFFFF",
-              n == 2 && dma.counter() == 0xFFFF,
-              fmt("n=%d counter=0x%04X  VHDL zxnext.vhd:1816-1817, dma.vhd:484-485",
-                  n, dma.counter()));
     }
 }
 
@@ -1702,13 +1715,53 @@ void group12_transfer_modes() {
 
 // ══════════════════════════════════════════════════════════════════════
 // Group 13 — Prescaler and timing
-// All VHDL references point at the 14-bit DMA_timer_s (dma.vhd:109-159)
-// and the prescaler comparison `(0 & preescaler) > timer(13:5)` at :424.
-// The C++ implementation approximates this with `burst_wait_ = prescaler*32`
-// (dma.cpp:582-583), but the timer is not reset/exposed and cycle counts
-// are not comparable.  All rows describing exact wait-cycle counts are
-// unreachable.
+// All VHDL references point at the 14-bit DMA_timer_s (dma.vhd:129, stepped
+// at :250-254, cleared at READ_1 :309) and the prescaler comparison
+// `(0 & preescaler) > timer(13:5)` at :424 / :451. Rows 13.2-13.6 drive the
+// Dma timer per CPU clock; 13.12-13.15 measure the resulting wait in master
+// cycles through a real Emulator (GH #300).
 // ══════════════════════════════════════════════════════════════════════
+
+// GH #300 rows 13.12-13.15. Master (28 MHz) cycles between the starts of the
+// emulator steps that move bytes 1 and 2 of a burst DMA with port-B prescaler
+// `presc`, on a real Next Emulator at CPU speed `speed` (NR 0x07), programmed
+// through port 0x6B, with the CPU parked in DI; HALT so every CPU step is a
+// plain 4 T fetch. -1 when init fails or the two bytes never move.
+long g13_burst_spacing(uint8_t speed, uint8_t presc) {
+    Emulator emu;
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    if (!emu.init(cfg)) return -1;
+    g23_set_speed(emu, speed);
+    emu.mmu().write(0x9800, 0xF3);                 // DI
+    emu.mmu().write(0x9801, 0x76);                 // HALT
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = 0x9800; r.IFF1 = 0; r.IFF2 = 0; r.halted = false;
+    emu.cpu().set_registers(r);
+    for (int i = 0; i < 3; ++i)
+        emu.mmu().write(static_cast<uint16_t>(0x8000 + i), static_cast<uint8_t>(0xC1 + i));
+    const uint8_t prog[] = {
+        0x7D, 0x00, 0x80, 0x03, 0x00,              // R0 A->B, src 0x8000, len 3
+        0x14,                                      // R1 port A memory, inc
+        0x50, 0x21, presc,                         // R2 memory, inc, timing + prescaler
+        0xCD, 0x00, 0x90,                          // R4 burst, dst 0x9000
+        0xCF, 0x87,                                // LOAD, ENABLE
+    };
+    for (uint8_t b : prog) emu.port().out(0x006B, b);
+    uint64_t t[2] = {0, 0};
+    int got = 0;
+    uint16_t last = emu.dma().counter();
+    for (int i = 0; i < 200000 && got < 2; ++i) {
+        const uint64_t before = emu.clock().get();
+        emu.execute_single_instruction();
+        if (emu.dma().counter() != last) {
+            last = emu.dma().counter();
+            t[got++] = before;
+        }
+    }
+    return got == 2 ? static_cast<long>(t[1] - t[0]) : -1;
+}
 
 void group13_prescaler_timing() {
     set_group("G13 Prescaler/Timing");
@@ -1839,6 +1892,69 @@ void group13_prescaler_timing() {
               early == 0 && after == 1 && g_mem[0x9000] == 0x81,
               fmt("early=%d after=%d dst0=0x%02X  VHDL dma.vhd:423-436, :458-464, :473-488",
                   early, after, g_mem[0x9000]));
+    }
+
+    // 13.11 The wait after a block's LAST byte ends in FINISH_DMA with the bus
+    // still released (GH #300): WAITING_CYCLES re-requests the bus only when
+    // dma_counter_s < R0_block_len_s (dma.vhd:454-461); otherwise it goes to
+    // FINISH_DMA (:463-464), and FINISH_DMA without restart goes to IDLE (:493-494),
+    // which keeps cpu_busreq_n_s at '1' (:262). So BUSREQ must not reappear
+    // between the end of that wait and the end of the block.
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x91; g_mem[0x8001] = 0x92;
+        program_burst_prescaled(dma, 0x8000, 0x9000, 2, 0x01, false);
+        dma.set_turbo(0);
+        dma.execute_burst(1000);               // byte 1
+        dma.tick_burst_wait(8);
+        dma.execute_burst(1000);               // byte 2 (last), then the wait
+        dma.tick_burst_wait(8);                // the wait ends (timer 64, hi9 2 > 1)
+        bool released = dma.cpu_busreq_n() == true;
+        dma.execute_burst(1000);               // FINISH_DMA -> IDLE
+        check("13.11", "Last byte's wait ends with the bus still released, into FINISH_DMA",
+              released && dma.cpu_busreq_n() == true &&
+                  dma.state() == Dma::State::IDLE,
+              fmt("released=%d busreq_n=%d state=%d  VHDL dma.vhd:454-464, :493-494, :262",
+                  (int)released, (int)dma.cpu_busreq_n(), (int)dma.state()));
+    }
+
+    // 13.12-13.15 The burst prescaler wait in real time (GH #300). The DMA runs
+    // on i_CLK_CPU with turbo_i => cpu_speed (zxnext.vhd:1776-1777), and
+    // DMA_timer_s adds 8/4/2/1 per CPU clock at 3.5/7/14/28 MHz
+    // (dma.vhd:250-254): +1 per 28 MHz master cycle at every speed. The wait
+    // lasts until ('0' & prescaler) > DMA_timer_s(13:5) fails (dma.vhd:451),
+    // so prescaler N spaces two bytes by at least N*32 master cycles from the
+    // READ_1 that cleared the timer (:309). jnext moves the next byte in the
+    // first step after that, so the spacing is N*32 plus less than one
+    // instruction step: bounded here by 8 T-states. N = 104 is nexlib
+    // test08covox's value (3328 master cycles, ~8.4 kHz).
+    {
+        const long sp = g13_burst_spacing(0, 104);
+        check("13.12", "3.5 MHz: burst prescaler 104 spaces bytes 3328 master cycles",
+              sp >= 104 * 32 && sp <= 104 * 32 + 8 * 8,
+              fmt("spacing=%ld (min %d)  VHDL zxnext.vhd:1776-1777, dma.vhd:250-254, :451",
+                  sp, 104 * 32));
+    }
+    {
+        const long sp = g13_burst_spacing(1, 104);
+        check("13.13", "7 MHz: burst prescaler 104 spaces bytes 3328 master cycles",
+              sp >= 104 * 32 && sp <= 104 * 32 + 8 * 4,
+              fmt("spacing=%ld (min %d)  VHDL zxnext.vhd:1776-1777, dma.vhd:250-254, :451",
+                  sp, 104 * 32));
+    }
+    {
+        const long sp = g13_burst_spacing(2, 104);
+        check("13.14", "14 MHz: burst prescaler 104 spaces bytes 3328 master cycles",
+              sp >= 104 * 32 && sp <= 104 * 32 + 8 * 2,
+              fmt("spacing=%ld (min %d)  VHDL zxnext.vhd:1776-1777, dma.vhd:250-254, :451",
+                  sp, 104 * 32));
+    }
+    {
+        const long sp = g13_burst_spacing(3, 104);
+        check("13.15", "28 MHz: burst prescaler 104 spaces bytes 3328 master cycles",
+              sp >= 104 * 32 && sp <= 104 * 32 + 8 * 1,
+              fmt("spacing=%ld (min %d)  VHDL zxnext.vhd:1776-1777, dma.vhd:250-254, :451",
+                  sp, 104 * 32));
     }
 
     // ─── WONT rows (no skip()) ────────────────────────────────────────
@@ -2432,6 +2548,39 @@ void group17_status() {
               fmt("before=0x%02X after=0x%02X  VHDL dma.vhd:727-728, :265",
                   before, after));
     }
+
+    // 17.13 R6 ENABLE (0x87) only moves the FSM to START_DMA (dma.vhd:724-725);
+    // it does not touch status_atleastone, which only IDLE (:265), 0x8B (:692)
+    // and RESET (:640) clear. Re-enabled mid-block, the status stays 0x3B
+    // (GH #300).
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x55;
+        program_burst_prescaled(dma, 0x8000, 0x9000, 4, 0x08, false);
+        dma.execute_burst(1000);               // one byte, then the wait
+        uint8_t before = read_status(dma);
+        zxn(dma, 0x87);                        // ENABLE again
+        uint8_t after = read_status(dma);
+        check("17.13", "ENABLE (0x87) mid-block keeps atleastone (0x3B -> 0x3B)",
+              before == 0x3B && after == 0x3B,
+              fmt("before=0x%02X after=0x%02X  VHDL dma.vhd:724-725, :265",
+                  before, after));
+    }
+
+    // 17.14 The same for R3 with bit 6 set (dma.vhd:578-580): START_DMA only.
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x66;
+        program_burst_prescaled(dma, 0x8000, 0x9000, 4, 0x08, false);
+        dma.execute_burst(1000);
+        uint8_t before = read_status(dma);
+        zxn(dma, 0xC0);                        // R3: dma_en = 1, nothing follows
+        uint8_t after = read_status(dma);
+        check("17.14", "R3 enable mid-block keeps atleastone (0x3B -> 0x3B)",
+              before == 0x3B && after == 0x3B,
+              fmt("before=0x%02X after=0x%02X  VHDL dma.vhd:578-580, :265",
+                  before, after));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -2694,6 +2843,42 @@ void group20_dma_delay() {
               dma.cpu_busreq_n() == true,
               fmt("busreq_n=%d  VHDL dma.vhd:427-428",
                   (int)dma.cpu_busreq_n()));
+    }
+
+    // 20.5 TRANSFERING_WRITE_4 tests the prescaler wait BEFORE dma_delay_i
+    // (dma.vhd:424-428; GH #300): with a prescaler, a delay asserted during a
+    // byte does not send the DMA back to START_DMA — it enters WAITING_CYCLES,
+    // which in continuous mode keeps the bus (only burst releases it, :441-449),
+    // and when the wait ends with the bus still held it goes to WAITING_ACK
+    // (:459-460), not START_DMA, so dma_delay_i (only read in START_DMA, :269)
+    // does not hold the next byte. Continuous, prescaler 1, 3 bytes; the
+    // destination write raises dma_delay mid-byte.
+    {
+        fresh(dma);
+        for (int i = 0; i < 3; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0xD1 + i);
+        dma.write_memory = [&dma](uint16_t a, uint8_t v) {
+            g_mem[a] = v;
+            dma.set_dma_delay(true);             // asserted before WRITE_4's test
+        };
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);
+        zxn(dma, 0x03); zxn(dma, 0x00);
+        zxn(dma, 0x14);
+        zxn(dma, 0x50); zxn(dma, 0x21); zxn(dma, 0x01);   // R2 + prescaler 1
+        zxn(dma, 0xAD);                          // continuous, portB follows
+        zxn(dma, 0x00); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        int n1 = dma.execute_burst(1000);
+        bool held = dma.cpu_busreq_n() == false; // WAITING_CYCLES, bus kept
+        dma.set_turbo(0);
+        dma.tick_burst_wait(8);                  // timer 64: hi9 2 > 1, wait over
+        int n2 = dma.execute_burst(1000);        // delay still asserted
+        attach_callbacks(dma);
+        check("20.5", "Prescaler wait is tested before dma_delay: the bus is kept and "
+              "the next byte moves",
+              n1 == 1 && held && n2 == 1 && g_mem[0x9001] == 0xD2,
+              fmt("n1=%d held=%d n2=%d dst1=0x%02X  VHDL dma.vhd:424-428, :441-449, "
+                  ":459-460, :269", n1, (int)held, n2, g_mem[0x9001]));
     }
 
     // 20.3 — COVERED AT INTEGRATION TIER (not a skip).  NR 0xCC/0xCD/0xCE

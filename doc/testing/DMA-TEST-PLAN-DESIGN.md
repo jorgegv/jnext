@@ -121,12 +121,10 @@ Each test case specifies:
 |---|------|----------------|--------------|
 | 1.1 | Write to port 0x6B sets ZXN mode | `dma_mode <= port_0b_lsb` (port_0b_lsb=0 for 0x6B) | After write to 0x6B, dma_mode_i = 0 |
 | 1.2 | Write to port 0x0B sets Z80-DMA mode | `dma_mode <= port_0b_lsb` (port_0b_lsb=1 for 0x0B) | After write to 0x0B, dma_mode_i = 1 |
-| 1.3 | Read from port 0x6B sets ZXN mode | Same latch on `port_dma_rd` | Read from 0x6B, mode = 0 |
-| 1.4 | Read from port 0x0B sets Z80 mode | Same latch on `port_dma_rd` | Read from 0x0B, mode = 1 |
+| 1.3 | Read from port 0x6B sets ZXN mode (GH #300) | Same latch on `port_dma_rd` (`zxnext.vhd:1816-1817`); consumed by FINISH_DMA's restart reload, `dma.vhd:482-483` | Real Emulator: program an auto-restart block with OUTs to 0x0B (Z80: a 2-byte block moves 3), one IN from 0x6B: the restart reloads the counter to 0. Goes through the production port handlers, so swapping their mode flags fails it |
+| 1.4 | Read from port 0x0B sets Z80 mode (GH #300) | Same latch on `port_dma_rd`; `dma.vhd:484-485` | Real Emulator: program through 0x6B, one IN from 0x0B: the restart reloads the counter to 0xFFFF |
 | ~~1.5~~ | ~~Mode defaults to ZXN (0) on reset~~ | ~~`dma_mode <= '0'` on reset~~ | **RETIRED 2026-09-24 (GH #201)** — the reset value is unreachable, not merely redundant. `dma_mode` is re-latched on **every** port access (`zxnext.vhd:1816-1817`), and its only three consumers are `dma_mode_i` at `dma.vhd:482` (FINISH_DMA auto-restart reload) and `:664`/`:673` (R6 LOAD / CONTINUE counter init) — all of which are reached only after the guest has programmed the DMA through port 0x0B or 0x6B, which is itself an access that latches the mode. jnext carries the mode as a per-access parameter (`Dma::write(val, z80_compat)`), which is the same semantics with no separate reset state to observe. Rows **1.1/1.2** (LOAD counter 0 vs 0xFFFF per port) and **1.6** (re-latch on each access) are live passes covering the reachable behaviour. |
 | 1.6 | Mode switches on each access | Alternate 0x6B/0x0B writes | Mode tracks last accessed port |
-| 1.7 | A read of 0x6B latches ZXN mode (GH #300) | `zxnext.vhd:1816-1817` latches `dma_mode` on `port_dma_rd` as well as `port_dma_wr`; consumed by FINISH_DMA's restart reload, `dma.vhd:482-483` | Program an auto-restart block through 0x0B (Z80: 2-byte block moves 3), read 0x6B once: the restart reloads the counter to 0 |
-| 1.8 | A read of 0x0B latches Z80 mode (GH #300) | Same latch; `dma.vhd:484-485` | Program through 0x6B, read 0x0B once: the restart reloads the counter to 0xFFFF |
 
 ### 2. Register Programming — R0 (Direction, Port A Address, Block Length) (~8 tests)
 
@@ -316,6 +314,13 @@ VHDL address update (in TRANSFERING_WRITE_1):
 | 13.6 | Prescaler comparison | `('0' & R2_portB_preescaler_s) > DMA_timer_s(13:5)` | Timer top 9 bits compared to 9-bit prescaler |
 | ~~13.7~~ | ~~turbo=10 (14MHz): source byte latched on rising edge of `dma_d_p_s`~~ **STRUCK 2026-09-24 (GH #201)** — the WONT below was decided 2026-05-03 (G122) but the ID was left unstruck, so the generated matrix reported it as an open `missing` row. Original text: | VHDL `dma.vhd:172-181` — `dma_d_p_s` registers on `rising_edge(clk_i)`, `dma_d_s <= dma_d_p_s when turbo_i = "10"` | Programmed mem-to-mem with a memory model that returns one byte on falling-edge sampling and a different byte on rising-edge sampling: at turbo=10 the destination must contain the rising-edge byte (per `dma_d_p_s`). At turbo=0/1/3 the destination must contain the falling-edge byte (per `dma_d_n_s`, `dma.vhd:166-170`). **WONT 2026-05-03 (G122)** — corner-case 14 MHz edge precision; "edge-of-burst sequencing differs; nil for simple memory-to-memory" per gap entry. No bundled demo exercises 14 MHz DMA precision-burst. Closing requires per-master-cycle bus-strobe model in `Dma::tick()`. Revisit if a specific demo or scheduling test depends on this. |
 | ~~13.8~~ | ~~turbo=10 (14MHz): rd_n / wr_n strobes extended across READ_4/WRITE_4~~ **STRUCK 2026-09-24 (GH #201)** — same: WONT since 2026-05-03 (G122), ID never struck. Original text: | VHDL `dma.vhd:158, 160-161` — `dma_rw_extend = '1' when turbo_i = "10" and (dma_seq_s = TRANSFERING_READ_4 or WRITE_4); dma_rd_n_s = not (dma_rd_s or (dma_rw_extend and dma_read_cycle))` | At turbo=10 the rd_n strobe stays asserted for one extra master cycle when the FSM is in READ_4. Observable as the strobe duration on the dma_rd_n_o output. At turbo=0/1/3 the strobe is one master cycle wide. **WONT 2026-05-03 (G122)** — same per-cycle bus-strobe prerequisite as 13.7. Strobe shape unobservable at byte-granular API; nil functional impact for memory-to-memory. Revisit if a specific demo or scheduling test depends on 14 MHz strobe-extension timing. |
+| 13.9 | The last byte of a block is followed by a prescaler wait (GH #300) | `TRANSFERING_WRITE_4` tests the prescaler wait before the block length (`dma.vhd:423-436`); the wait's end goes to FINISH_DMA (`:458-464`), which sets endofblock_n (`:471`) | Burst, 2 bytes, prescaler 1: after the 2nd byte the DMA is still TRANSFERRING with the bus released and status bit 5 = 1; after the wait it is IDLE with bit 5 = 0 |
+| 13.10 | Auto-restart keeps the prescaler spacing across passes (GH #300) | `dma.vhd:423-436` -> `:458-464` -> FINISH_DMA restart `:473-488` | Burst, 2 bytes, prescaler 1, auto-restart: with no time elapsed after the last byte, no byte moves; after one wait, the next pass's first byte moves |
+| 13.11 | The last byte's wait ends with the bus still released (GH #300) | WAITING_CYCLES re-requests the bus only while `dma_counter_s < R0_block_len_s` (`dma.vhd:454-461`), else FINISH_DMA (`:463-464`) -> IDLE (`:493-494`), `cpu_busreq_n_s` '1' (`:262`) | Burst, 2 bytes, prescaler 1: when the wait after the 2nd byte ends, BUSREQ is still deasserted, and stays so into IDLE |
+| 13.12 | Burst prescaler wait in real time, 3.5 MHz (GH #300) | DMA `clk_i => i_CLK_CPU`, `turbo_i => cpu_speed` (`zxnext.vhd:1776-1777`); timer +8/+4/+2/+1 per CPU clock (`dma.vhd:250-254`) = +1 per master cycle; wait until `prescaler > timer(13:5)` fails (`:451`) | Real Emulator, NR 0x07 = 0, CPU in DI; HALT, burst prescaler 104 programmed through 0x6B: bytes 1 and 2 are 3328..3328+64 master cycles apart (N×32, plus less than one step) |
+| 13.13 | Same at 7 MHz (GH #300) | as 13.12 | NR 0x07 = 1: 3328..3328+32 master cycles |
+| 13.14 | Same at 14 MHz (GH #300) | as 13.12 | NR 0x07 = 2: 3328..3328+16 master cycles |
+| 13.15 | Same at 28 MHz (GH #300) | as 13.12 | NR 0x07 = 3: 3328..3328+8 master cycles |
 
 VHDL timer logic:
 ```
@@ -328,13 +333,16 @@ Timer is reset to 0 at TRANSFERING_READ_1.
 Comparison uses DMA_timer_s(13:5) vs prescaler (9 bits).
 ```
 
-This means the prescaler value represents a delay in units of 32 base clocks
-at 3.5MHz (since 8 increments per clock * 4 clocks to shift into bits 13:5
-= 32 base clocks per prescaler unit). At higher speeds, more real clocks
-elapse for the same prescaler value, keeping the delay constant in real time.
-
-| 13.9 | The last byte of a block is followed by a prescaler wait (GH #300) | `TRANSFERING_WRITE_4` tests the prescaler wait before the block length (`dma.vhd:423-436`); the wait's end goes to FINISH_DMA (`:458-464`), which sets endofblock_n (`:471`) | Burst, 2 bytes, prescaler 1: after the 2nd byte the DMA is still TRANSFERRING with the bus released and status bit 5 = 1; after the wait it is IDLE with bit 5 = 0 |
-| 13.10 | Auto-restart keeps the prescaler spacing across passes (GH #300) | `dma.vhd:423-436` -> `:458-464` -> FINISH_DMA restart `:473-488` | Burst, 2 bytes, prescaler 1, auto-restart: with no time elapsed after the last byte, no byte moves; after one wait, the next pass's first byte moves |
+The DMA's clock is the CPU clock and its `turbo_i` is `cpu_speed`
+(`zxnext.vhd:1776-1777`), so the timer advances by 1 per 28 MHz master cycle
+at every CPU speed, and one prescaler unit (timer bits 13:5) is 32 master
+cycles: 4 CPU clocks at 3.5 MHz, 32 at 28 MHz. A prescaler of N spaces
+burst bytes by N×32 master cycles, about 875 kHz / N, whatever the CPU speed.
+jnext feeds `Dma::tick_burst_wait()` the step's CPU clocks and sets `turbo_`
+from the effective CPU speed every step (GH #300; it used to pass master
+cycles at turbo 00, which ran the wait 8× short). The model does not stop
+the timer while 3.5 MHz contention stretches the CPU clock, because jnext
+charges contention as extra T-states.
 
 ### 14. Counter Behaviour — ZXN vs Z80 Mode (~8 tests)
 
@@ -397,6 +405,8 @@ This means Z80 mode transfers block_len + 1 bytes for block_len >= 1.
 | 17.10 | Read sequence wraps around | After last enabled field, wraps to first | Cyclic readback |
 | 17.11 | Status after a completed block (GH #300) | FINISH_DMA endofblock_n '0' (`dma.vhd:471`), then IDLE (`:493-494`) clears atleastone every clock (`:265`) | Status = 0x1A |
 | 17.12 | DISABLE mid-block clears atleastone (GH #300) | R6 0x83 -> IDLE (`dma.vhd:727-728`), IDLE `:265`; endofblock_n untouched | Status 0x3B before, 0x3A after |
+| 17.13 | ENABLE (0x87) mid-block keeps atleastone (GH #300) | 0x87 only sets `dma_seq_s <= START_DMA` (`dma.vhd:724-725`); atleastone is cleared only by IDLE `:265`, 0x8B `:692`, RESET `:640` | Status 0x3B before and after |
+| 17.14 | R3 enable mid-block keeps atleastone (GH #300) | R3 bit 6 only sets START_DMA (`dma.vhd:578-580`) | Status 0x3B before and after |
 
 Status byte layout: `[7:6]=00, [5]=endofblock_n, [4:1]=1101, [0]=atleastone`
 - Initial/reset: `0b00_1_1101_0 = 0x3A` (end-of-block not reached, no bytes)
@@ -443,6 +453,7 @@ Hardware reset additionally resets: `dma_seq_s <= IDLE`, `dma_a_s <= 0`,
 |---|------|----------------|--------------|
 | 20.1 | DMA delay blocks START_DMA | `if dma_delay_i = '1' then ... wait` | Transfer deferred |
 | 20.2 | DMA delay mid-transfer | After WRITE_4: `if dma_delay_i = '1' then dma_seq_s <= START_DMA` | Transfer interrupted, re-requests bus |
+| 20.5 | The prescaler wait is tested before dma_delay (GH #300) | WRITE_4 tests the prescaler first (`dma.vhd:424-425`), dma_delay only in the block-continues branch (`:426-428`); a non-burst wait keeps the bus (`:441-449`) and ends in WAITING_ACK (`:459-460`), and dma_delay is read only in START_DMA (`:269`) | Continuous, prescaler 1, 3 bytes, dma_delay raised during byte 1: the DMA keeps the bus through the wait, and after it byte 2 moves with dma_delay still set |
 | ~~20.3~~ | ~~IM2 DMA interrupt enable regs~~ | ~~NextREGs 0xCC, 0xCD, 0xCE~~ | **RETIRED 2026-09-24 (GH #201)** — already implemented as its own seven sub-lettered children, all live passes in `test/nextreg/nextreg_integration_test.cpp`; only the parent ID was never struck, so the generated matrix carried it as `missing` beside them. **20.3a-d** pin the write/readback bit layout per register (`zxnext.vhd:5629-5637` write, `:6257-6263` read — NR 0xCC masks to bits 7 and 1:0, NR 0xCD keeps all eight, NR 0xCE masks to 6:4 + 2:0). **20.3e-g** pin the 14-bit `im2_dma_int_en` composition (`:1957-1958`), including the UART Rx/Rx-error OR-term. |
 | ~~20.4~~ | ~~DMA delay signal composition~~ | ~~`im2_dma_delay = im2_dma_int OR (nmi AND nr_cc_7) OR (delay AND dma_delay)`~~ | **RETIRED 2026-09-24 (GH #201)** — same shape as 20.3: six live sub-lettered children in `test/nextreg/nextreg_integration_test.cpp`, parent never struck. **20.4a-f** walk the `zxnext.vhd:2007` truth table disjunct by disjunct — all-deasserted → 0; `im2_dma_int` alone → 1; `nmi` with `nr_cc_7` clear → 0 and with it set → 1; and both directions of the self-holding term (`latched & dma_delay` → stays 1, `latched & !dma_delay` → drops to 0). |
 
@@ -541,7 +552,7 @@ drive a real 48K `Emulator`, the DMA programmed through port 0x6B.
 
 | Section | Tests |
 |---------|------:|
-| 1. Port decoding and mode | 8 |
+| 1. Port decoding and mode | 6 |
 | 2. R0 programming | 8 |
 | 3. R1 programming | 6 |
 | 4. R2 programming | 8 |
@@ -553,19 +564,19 @@ drive a real 48K `Emulator`, the DMA programmed through port 0x6B.
 | 10. Memory-to-IO | 6 |
 | 11. Address modes | 6 |
 | 12. Transfer modes | 8 |
-| 13. Prescaler and timing | 10 |
+| 13. Prescaler and timing | 15 |
 | 14. Counter behaviour | 8 |
 | 15. Bus arbitration | 8 |
 | 16. Auto-restart/continue | 7 |
-| 17. Status and read sequence | 12 |
+| 17. Status and read sequence | 14 |
 | 18. Read sequence fields | 8 |
 | 19. Reset behaviour | 6 |
-| 20. DMA delay/interrupt | 4 |
+| 20. DMA delay/interrupt | 5 |
 | 21. Timing bytes | 6 |
 | 22. Edge cases | 6 |
 | 23. 28 MHz SRAM read wait (DMA, GH #106); 23.7 bus-arbitration deadlock (GH #102) | 7 |
 | 25. RZX record/replay of DMA port reads (GH #283) | 12 |
-| **Total** | **~158** |
+| **Total** (plan rows, retired and struck ones included; the suite runs 185) | **190** |
 
 ## Implementation Notes
 
