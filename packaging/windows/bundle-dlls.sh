@@ -112,10 +112,15 @@ resolve_queue() {
 # Copied and marked SEEN before resolving the exe's imports: the exe imports
 # libspdlog.dll, which is NOT in the sysroot (it is a jnext build output), so
 # resolving it via the sysroot would spuriously warn.
+# Take the build output itself, third_party/spdlog/ under the exe's build
+# tree. Other copies live in the tree too — one beside the exe from an earlier
+# in-place bundle, one per earlier package under dist/ — and picking among them
+# by find's order made `cp` copy the file onto itself on CI's filesystem
+# (GH #298), or could bundle a stale copy.
 build_root=$(dirname "$EXE")
-spdlog=$(find "$build_root" -iname 'libspdlog*.dll' | head -n1)
+spdlog=$(find "$build_root/third_party/spdlog" -maxdepth 1 -iname 'libspdlog*.dll' 2>/dev/null | sort | head -n1)
 if [ -n "$spdlog" ]; then
-    cp -f "$spdlog" "$DEST/"
+    [ "$spdlog" -ef "$DEST/$(basename "$spdlog")" ] || cp -f "$spdlog" "$DEST/"
     SEEN["$(basename "$spdlog" | tr '[:upper:]' '[:lower:]')"]=1
     for sub in $(imports "$spdlog"); do QUEUE+=("$sub"); done
 else
