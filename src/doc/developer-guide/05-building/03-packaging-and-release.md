@@ -32,10 +32,10 @@ build therefore needs the SD image (provisioned by download when missing), and
 some platforms need more:
 
 - the Windows legs are Release builds with LTO, like the Linux packages,
-  and are trained under **wine**, headless only: in a
-  display-less container the Qt exe under wine never terminates after its
-  automatic exit, so the training's GUI run is left out there. No wine is a
-  hard error; `WIN_PGO=0` (or `make win-release-non-pgo`) builds without PGO.
+  and are trained under **wine** with no display, the GUI run on Qt's
+  offscreen platform (its plugin is bundled next to the instrumented exe
+  only). No wine is a hard error; `WIN_PGO=0` (or `make win-release-non-pgo`)
+  builds without PGO.
   The wine prefix is refreshed (`wineboot -u`) on every build, so a prefix
   made while the host wine was broken does not stay broken. After the
   optimised build, `tools/pgo-build.sh` builds `fuse_z80_test.exe` in the

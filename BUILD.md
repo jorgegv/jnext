@@ -313,7 +313,8 @@ non-PGO variant, so without the image they stop and say so), and:
 
 - the **Windows** executables are Release builds with LTO, like the Linux
   packages, and are trained under **wine** (`wine-core` and
-  `wine-common` on Fedora), without the training's GUI run. Without wine the build stops; `make
+  `wine-common` on Fedora), with no display, the GUI run on Qt's offscreen
+  platform. Without wine the build stops; `make
   win-release-non-pgo`, or `WIN_PGO=0` on any `win-*-release` target, builds
   without PGO. Each Windows PGO build refreshes its wine prefix
   (`wineboot -u`) and then runs the FUSE Z80 suite (`fuse_z80_test.exe`,
