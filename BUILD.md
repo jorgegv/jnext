@@ -80,9 +80,11 @@ three steps:
    the profile into `build/gui-release-pgo-profile`. On the titles it never
    trains on, measured against the v1.0.76 PGO build: santaspressie 2.2-3.5%
    faster, celeste, celeste2 and shift 0.7-1.1% faster, nirvana 0-0.6% faster,
-   odemo +0.1-0.2% and test02layer2 -0.1/+0.3% (both within the old build's
-   own retrain spread); the build without PGO needs 15-41% more cycles than it
-   on every title (developer guide, 5.5);
+   odemo +0.1-0.7% (within the old build's own retrain spread) and
+   test02layer2 -0.3% to +0.7% (the top of that range, from a build trained
+   on a loaded host, is just above the old build's 0.3-0.5% retrain spread);
+   the build without PGO needs 15-41% more cycles than it on every title
+   (developer guide, 5.5);
 3. the **optimised** build in `build/gui-release`, compiled with that profile.
 
 Training needs the **NextZXOS SD image**, because the machines' ROMs come from

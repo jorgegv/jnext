@@ -398,8 +398,11 @@ detail lives in the documents named.
   -2.4% (-3.5% over 1200 frames), celeste -0.9 to -1.0%, celeste2 -0.7 to
   -0.8%, shift -1.1%, nirvana -0.6 to 0.0%, test02layer2 -0.1% (+0.3% over 1200
   frames) and odemo +0.1 to +0.2%. The last two are within the shipped build's
-  own retrain spread on those titles: 0.5% and 0.8%. The MOD player plays 4.7
-  to 4.9% faster. The build without PGO needs 15 to 41% more cycles than the
+  own retrain spread on those titles: 0.5% and 0.8%. A third retrain, made on a
+  host under load 10 as a busy CI build would be, measured test02layer2 +0.5%
+  (+0.7% over 1200 frames) and odemo +0.7%: odemo within its spread (1.1% in
+  that session), test02layer2 just above it (0.3-0.5%). The MOD player plays
+  4.7 to 4.9% faster. The build without PGO needs 15 to 41% more cycles than the
   new one on every title, trained or not. Training takes about a minute,
   where it took about 30 s. Before the balancing, the same additions made
   santaspressie or test02layer2 2.3 to 2.8% slower, depending on the run
