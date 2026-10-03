@@ -142,7 +142,7 @@ DMA_ALL=test/00regression/bin/dma_all.bin
 DMA_FRAMES=165
 DMA_PROOF="DMA-ALL-OK!!"
 GUI_FRAMES=150
-GUI_ARGS=(--machine next --load "$NEX/parallax.nex")
+GUI_ARGS=(--machine next --silent --load "$NEX/parallax.nex")
 
 # The MOD player, launched as a user launches it: the NextZXOS Browser down to
 # /apps/audio/NXModPlayer/nxmodplayer.nex, then the player's own Mod Browser to
@@ -243,8 +243,10 @@ SD="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
 # environment for every run (env -i; the stack layout depends on its size), a
 # fixed-length run directory (argv's size), and logging off. With those, two
 # trainings WITHOUT the GUI run give byte-identical .gcda files and binaries.
-# The GUI run is paced in real time and is NOT reproducible (its counts move
-# by well under 1% between runs); JNEXT_PGO_NO_GUI=1 leaves it out.
+# The GUI run is paced in real time and is NOT reproducible: its emulation is
+# (see --silent below), but its GUI-only counters (status timer, paints, event
+# loop polls) follow the wall clock, and through LTO that is enough to change
+# the binary's cold code. JNEXT_PGO_NO_GUI=1 leaves it out.
 RUN_ENV=(env -i "HOME=$HOME" "PATH=$PATH" LANG=C LC_ALL=C
          "JNEXT_CONFIG_DIR=$RUN_DIR" "XDG_CONFIG_HOME=$RUN_DIR/xdg")
 for v in WINEPREFIX WINEDEBUG WINEDLLOVERRIDES XDG_RUNTIME_DIR DYLD_FRAMEWORK_PATH DYLD_LIBRARY_PATH; do
@@ -315,7 +317,11 @@ for (( i = 0; i < ${#MOD_KEYS[@]}; i += 2 )); do
     mod_args+=(--delayed-keypress-frames "${MOD_KEYS[i]}" "${MOD_KEYS[i+1]}")
 done
 EXTRA_ENV=("GCOV_PREFIX=$RUN_DIR/unprofiled" "LLVM_PROFILE_FILE=$RUN_DIR/unprofiled/%p.profraw")
-run modplayer-nav 300 --headless --machine next "${mod_args[@]}" \
+# The snapshot is stored UNCOMPRESSED: its manifest carries the time and this
+# run's directory, and deflated, those bytes change the archive's member sizes
+# and so the counts of the profiled run that loads it. Stored, every training
+# loads the same layout and the headless profile stays byte-reproducible.
+run modplayer-nav 300 --headless --machine next "${mod_args[@]}" --snapshot-compression off \
     --delayed-snapshot "$RUN_DIR/modplayer.jns" --delayed-snapshot-frames "$MOD_SNAP_FRAME" \
     --delayed-automatic-exit-frames $((MOD_SNAP_FRAME + 1))
 EXTRA_ENV=()
@@ -325,8 +331,15 @@ run modplayer 300 --headless --load "$RUN_DIR/modplayer.jns" \
 grep -a -q "$MOD_PROOF" "$RUN_DIR/modplayer.nex" ||
     die "training run 'modplayer' never loaded the MOD (no \"$MOD_PROOF\" in its RAM): the key sequence no longer reaches NXModPlayer's Jarresque.mod in this SD image"
 if [[ "${JNEXT_PGO_NO_GUI:-0}" != 1 ]]; then
-    # 100% speed, real pacing, sound on through SDL's dummy driver, so the
-    # GUI's frame, paint and audio paths run as a user would run them.
+    # 100% speed, frame-bounded, every frame composited and presented, so the
+    # GUI's frame and paint paths run as a user would run them. --silent: with
+    # an audio device the frame pacer runs one OR two frames per tick depending
+    # on how full the device queue is, so how many frames skipped the
+    # compositor depended on the host's load; without one it runs exactly one
+    # composited frame per tick, and the emulation the GUI run profiles is the
+    # same at any load. (Speed above 100% would not help: the compositor is
+    # then throttled by the wall clock.) What still depends on the wall clock is
+    # GUI-only: the 1 s status-bar timer, paint coalescing, the event-loop polls.
     EXTRA_ENV=(QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy)
     run gui-offscreen 120 "${GUI_ARGS[@]}" --delayed-automatic-exit-frames "$GUI_FRAMES"
 fi
