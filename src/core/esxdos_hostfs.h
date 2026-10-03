@@ -58,7 +58,6 @@ public:
         kEacces       = 8,   // esx_eacces
         kEnfile       = 12,  // esx_enfile   — out of handles
         kEbadf        = 13,  // esx_ebadf
-        kEisdir       = 16,  // esx_eisdir
         kEnotdir      = 17,  // esx_enotdir
         kEexist       = 18,  // esx_eexist
         kEpath        = 19,  // esx_epath
@@ -80,8 +79,18 @@ public:
     static constexpr uint8_t kDirLfnOnly      = 0x10;
     static constexpr uint8_t kDirLfnAndShort  = 0x18;
     static constexpr uint8_t kDirNameMask     = 0x18;
-    static constexpr uint8_t kDirUseWildcards = 0x20;  // refused
-    static constexpr uint8_t kDirSfEnable     = 0x80;  // sort/filter: refused
+    static constexpr uint8_t kDirUseWildcards = 0x20;  // only "*.*": readdir()
+    static constexpr uint8_t kDirSfEnable     = 0x80;  // only a no-op C: opendir()
+
+    // F_OPENDIR sort/filter mode in C (esxapi.def:103-116). The exclude bits
+    // ($80/$40/$20/$10) and esx_sf_sort_enable ($08) change the entry stream
+    // and are refused; the sort key and reverse bits ($07) were measured inert
+    // without sort_enable (GH #301), so they are not.
+    static constexpr uint8_t kSfNotServedMask = 0xF8;
+
+    /// The one F_READDIR wildcard served: NextZXOS matches against the 8.3
+    /// name, so this one matches every entry (measured, GH #301).
+    static constexpr const char* kMatchEveryEntry = "*.*";
 
     // FAT attribute bits (esxapi.def:117-123).
     static constexpr uint8_t kAttrReadOnly  = 0x01;
@@ -183,17 +192,30 @@ public:
     uint8_t sync(uint8_t handle);
 
     // ── Directory calls ───────────────────────────────────────────────────
+    /// `sf` is the sort/filter mode F_OPENDIR takes in C; it is read only when
+    /// `mode` has kDirSfEnable.
     uint8_t opendir(const std::string& guest_path, uint8_t mode,
-                    uint8_t& handle);
+                    uint8_t& handle, uint8_t sf = 0);
     /// `have` is false at end of directory (F_READDIR's A=0, Fc=0 answer).
-    uint8_t readdir(uint8_t handle, DirEntry& out, bool& have);
+    /// `wildcard` is the pattern F_READDIR takes in DE; it is read only for a
+    /// handle opened with kDirUseWildcards.
+    uint8_t readdir(uint8_t handle, DirEntry& out, bool& have,
+                    const std::string& wildcard = std::string());
     uint8_t rewinddir(uint8_t handle);
     uint8_t telldir(uint8_t handle, uint32_t& position) const;
     uint8_t seekdir(uint8_t handle, uint32_t position);
     /// The name mode F_OPENDIR was given, so the caller can marshal the right
     /// name(s). Returns kDirNameMask-masked bits.
     uint8_t dir_name_mode(uint8_t handle) const;
+    /// True when the handle was opened with kDirUseWildcards, so the caller
+    /// knows F_READDIR's DE carries a pattern to pass to readdir().
+    bool dir_uses_wildcards(uint8_t handle) const;
+    /// F_GETCWD, in NextZXOS's form: `C:/` then each component's 8.3 name
+    /// followed by '/'.
     uint8_t getcwd(std::string& out) const;
+    /// F_GETCWD with A=$FF: the working directory of `filespec`, whose part
+    /// after the last '/', '\\' or ':' is ignored.
+    uint8_t getcwd_of(const std::string& filespec, std::string& out) const;
     uint8_t chdir(const std::string& guest_path);
 
     /// F_GETFREE returns BCDE = 512-byte blocks free (asm_esx_f_getfree.asm).
@@ -228,7 +250,7 @@ private:
     struct DirHandle {
         bool                  open = false;
         std::string           path;       // host path of the directory
-        uint8_t               mode = 0;
+        uint8_t               mode = 0;   // name mode | kDirUseWildcards
         std::size_t           index = 0;
         std::vector<DirEntry> entries;
     };
@@ -244,8 +266,16 @@ private:
     ///
     /// On success `out` is the host path (which need not exist — F_OPEN with a
     /// create mode needs a resolvable name for a file that is not there yet).
+    /// A component matches an entry's host name, exactly or ignoring case, or
+    /// failing both its 8.3 name. `components`, when given, receives the path
+    /// below the root as the HOST spells it.
     uint8_t resolve(const std::string& guest_path, std::filesystem::path& out,
                     std::vector<std::string>* components = nullptr) const;
+
+    /// `C:/` plus each of `comps` (host-spelled, below the root) as its 8.3
+    /// name followed by '/'. The F_GETCWD form; see the .cpp.
+    uint8_t format_path(const std::vector<std::string>& comps,
+                        std::string& out) const;
 
     /// Re-check containment of an already-resolved path. Cheap, and run again
     /// immediately after the host open so a symlink swapped in between the

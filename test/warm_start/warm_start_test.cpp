@@ -76,6 +76,11 @@
 //                 it was booted off the card that just left
 //   WSR-SWAP-02   …and lifts the per-image failure latch, so the card now in
 //                 the slot is asked again rather than refused unasked
+//   WSR-ROM3-01   the warm-start handover pages ROM 3 AND tells the DivMMC
+//                 (GH #301): its ROM 3 feeder follows the MMU, not the
+//                 recording
+//   WSR-ROM3-02   …so the program's RST $08 automaps at $0008 through the
+//                 ROM3-only entry point NextZXOS leaves (NR 0xB9 = 0)
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -217,9 +222,12 @@ std::string digest(char fill) { return std::string(64, fill); }
 /// init_for_load_from_file(), which is the seam WSR-DEF-01 is about. Modelled
 /// on nex_loader_test's own fixture writer; kept local because what this row
 /// needs is a file that LOADS, not one that renders anything.
-bool write_min_nex(const std::string& path) {
+bool write_min_nex(const std::string& path,
+                   const std::vector<uint8_t>& code = {}) {
     constexpr size_t kBank = 16384;
     std::vector<uint8_t> file(512 + kBank, 0x00);
+    // `code` lands at the start of bank 2, i.e. at the entry point $8000.
+    std::copy(code.begin(), code.end(), file.begin() + 512);
     std::memcpy(file.data() + 0, "Next", 4);
     std::memcpy(file.data() + 4, "V1.2", 4);
     file[8]  = 0;      // ram_required: 768 KB
@@ -979,6 +987,99 @@ int main()
               stored && held && swap_why.empty() && emus.warm_start_state().empty(),
               det("stored=%d held=%d why='%s' size-after=%zu", stored ? 1 : 0,
                   held ? 1 : 0, swap_why.c_str(), emus.warm_start_state().size()));
+    }
+
+    // ── GH #301: the handover tells the DivMMC that ROM 3 is paged ───
+    //
+    // init_for_load_from_file() pages ROM 3 with two direct MMU calls, which
+    // bypass the 0x7FFD/0x1FFD port handlers and so the DivMmc::rom3_active_
+    // feeder they push (VHDL sram_rom3, zxnext.vhd:2981-3008, into
+    // sram_divmmc_automap_rom3_en, :3138). load_state() synced it to the
+    // RECORDED ROM 0. NextZXOS leaves NR 0xB9 = 0x00, RST $08 valid only with
+    // ROM 3, so a call that reached $0008 ran the 48K ROM's error restart.
+    //
+    // The recording is synthesised and planted in the cache under a blob
+    // card's real digest, as WSR-SWAP-01 does. With a card mounted init()
+    // leaves the IPL's work undone, so the fixture does the two things the
+    // residency checks look for: the NR 0x03 commit NextZXOS's firmware ends
+    // on ($B3: +3 timing, +3 machine — measured at NEX entry, GH #301
+    // diagnosis), which also drops the boot-ROM overlay, and the marker in
+    // the ROM pages. Its DivMMC is set as NextZXOS leaves it, with ROM 0.
+    {
+        const std::string card = g_dir + "/rom3-card.img";
+        {
+            std::vector<uint8_t> bytes(64 * 1024, 0x43);
+            std::ofstream f(card, std::ios::binary | std::ios::trunc);
+            f.write(reinterpret_cast<const char*>(bytes.data()),
+                    static_cast<std::streamsize>(bytes.size()));
+        }
+        std::filesystem::remove_all(warm_start::cache_dir(), ec);
+
+        EmulatorConfig cr;
+        cr.type = MachineType::ZXN_ISSUE2;
+        cr.rewind_buffer_frames = 0;
+        cr.sd_card_image = card;
+
+        Emulator rec;
+        rec.init(cr);
+        static const char kMarker[] = "nextzxos/autoexec";
+        std::memcpy(rec.ram().page_ptr(0) + 0x100, kMarker, sizeof(kMarker) - 1);
+        rec.nextreg().write(0x03, 0xB3);   // the firmware's machine commit
+        rec.nextreg().write(0x0A, 0x11);   // NR 0x0A b4: DivMMC automap on
+        rec.nextreg().write(0xB8, 0x02);   // RST $08 is an entry point
+        rec.nextreg().write(0xB9, 0x00);   // …valid only with ROM 3 paged
+        rec.nextreg().write(0xBA, 0x02);   // …and instant
+        std::string res_why;
+        const bool resident = rec.nextzxos_resident(res_why);
+        const bool rom0 = !rec.mmu().sram_rom3() && !rec.divmmc().rom3_active();
+
+        StateWriter measure;
+        rec.save_state(measure);
+        std::vector<uint8_t> state(measure.position());
+        StateWriter w(state.data(), state.size());
+        rec.save_state(w);
+        std::string why;
+        const bool stored = warm_start::store(
+            make_id(sdcard::sha256_file(card),
+                    static_cast<uint8_t>(MachineType::ZXN_ISSUE2), state.size()),
+            state, why);
+
+        // RST $08 : DEFB $00 at the entry point. A DEFB below $80 is the ROM's
+        // error restart, not an esxDOS call, so no esxDOS answer is involved:
+        // what is under test is only whether the DivMMC takes over at $0008.
+        const std::string nex = g_dir + "/rom3.nex";
+        const bool built = write_min_nex(nex, {0xCF, 0x00});
+
+        Emulator emu;
+        EmulatorConfig cl = cr;
+        cl.load_file = nex;
+        emu.init(cl);
+        LogTap tap(Log::emulator());
+        const bool loaded = emu.load_nex(nex);
+        const int warm = tap.count("NextZXOS is resident");
+        check("WSR-ROM3-01",
+              "the warm-start handover pages ROM 3 and the DivMMC's ROM 3 feeder "
+              "follows it, rather than keeping the recording's ROM 0",
+              resident && rom0 && stored && built && loaded && warm == 1 &&
+                  emu.mmu().sram_rom3() && emu.divmmc().rom3_active(),
+              det("resident=%d rom0=%d stored=%d loaded=%d warm=%d sram_rom3=%d "
+                  "divmmc_rom3=%d why='%s'", resident ? 1 : 0, rom0 ? 1 : 0,
+                  stored ? 1 : 0, loaded ? 1 : 0, warm,
+                  emu.mmu().sram_rom3() ? 1 : 0,
+                  emu.divmmc().rom3_active() ? 1 : 0, res_why.c_str()));
+
+        const uint16_t pc0 = emu.cpu().get_registers().PC;
+        emu.execute_single_instruction();             // RST $08
+        const uint16_t pc1 = emu.cpu().get_registers().PC;
+        const bool before = emu.divmmc().automap_active();
+        emu.execute_single_instruction();             // the fetch at $0008
+        check("WSR-ROM3-02",
+              "…so the program's RST $08 automaps the DivMMC at $0008 through "
+              "the ROM3-only entry point NextZXOS leaves (NR 0xB9 = 0)",
+              pc0 == 0x8000 && pc1 == 0x0008 && !before &&
+                  emu.divmmc().automap_active(),
+              det("pc0=%04X pc1=%04X before=%d automap=%d", pc0, pc1,
+                  before ? 1 : 0, emu.divmmc().automap_active() ? 1 : 0));
     }
 
     std::filesystem::remove_all(g_dir, ec);

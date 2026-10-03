@@ -62,6 +62,75 @@ bool fits_8_3(const std::string& name) {
     return true;
 }
 
+/// One host directory entry, as every call that NAMES an entry sees it.
+struct Listed {
+    fs::path    path;
+    std::string lfn;      // the host name
+    std::string sfn;      // its synthesised 8.3 name
+    bool        is_dir = false;
+};
+
+/// The listing of `dir`: sorted by host name, symlinks and anything that is
+/// neither a file nor a directory left out, and each entry given its 8.3 name.
+///
+/// ONE function, because F_READDIR, F_GETCWD and resolve() must agree on what
+/// an entry's short name is (GH #301): NextZXOS answers F_GETCWD in 8.3 names
+/// (`C:/AAA/T/SUBDIR~1/`, measured) and accepts them in every path, so a short
+/// name one call shows and another cannot find is a name the guest was lied to
+/// about.
+///
+/// Sorted by host name so the entry order is identical on every run and on
+/// every host (directory_iterator order is unspecified). The 8.3 synthesis: a
+/// name that already IS 8.3 keeps itself (uppercased); anything else gets the
+/// FAT `~N` tail, with N chosen so the short names are unique within this
+/// listing — deterministic because the list is sorted.
+bool list_host_dir(const fs::path& dir, std::vector<Listed>& out) {
+    out.clear();
+    std::error_code ec;
+    std::vector<fs::directory_entry> raw;
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end;
+         it.increment(ec))
+        raw.push_back(*it);
+    if (ec) return false;
+    std::sort(raw.begin(), raw.end(),
+              [](const fs::directory_entry& a, const fs::directory_entry& b) {
+                  return a.path().filename().string() <
+                         b.path().filename().string();
+              });
+
+    std::vector<std::string> used_short;
+    for (const fs::directory_entry& de : raw) {
+        std::error_code ec2;
+        const fs::file_status dst = fs::symlink_status(de.path(), ec2);
+        if (ec2) continue;
+        // A symlink is not traversed, so it is not listed either — listing it
+        // would advertise a name that every other call refuses.
+        if (fs::is_symlink(dst)) continue;
+        const bool is_dir = fs::is_directory(dst);
+        if (!is_dir && !fs::is_regular_file(dst)) continue;
+
+        Listed l;
+        l.path = de.path();
+        l.lfn = de.path().filename().string();
+        l.is_dir = is_dir;
+        std::string sfn = EsxdosHostFs::short_name(l.lfn, 0);
+        const bool native = fits_8_3(l.lfn);
+        auto taken = [&used_short](const std::string& s) {
+            return std::find(used_short.begin(), used_short.end(), s) !=
+                   used_short.end();
+        };
+        if (!native || taken(sfn)) {
+            unsigned n = 1;
+            do { sfn = EsxdosHostFs::short_name(l.lfn, n++); }
+            while (taken(sfn) && n < 1000);
+        }
+        used_short.push_back(sfn);
+        l.sfn = sfn;
+        out.push_back(std::move(l));
+    }
+    return true;
+}
+
 }  // namespace
 
 // ── Configuration ────────────────────────────────────────────────────────
@@ -233,41 +302,66 @@ uint8_t EsxdosHostFs::resolve(const std::string& guest_path, fs::path& out,
     // Walk the host tree, matching each component case-insensitively (FAT is
     // case-insensitive; Linux is not). An exact match always wins; otherwise
     // the lexicographically smallest case-insensitive match is taken, so the
-    // answer is the same on every run and on every host.
+    // answer is the same on every run and on every host. Failing both, the
+    // component may be an entry's 8.3 name (GH #301): FAT answers to either
+    // name, and F_GETCWD hands the guest 8.3 names to build paths from.
+    //
+    // `actual` collects the components as they are spelled on the HOST, which
+    // is what chdir() stores.
+    //
+    // Only the LAST component may be missing (F_OPEN can create it). Every
+    // one before it must be an existing directory, or the answer is
+    // esx_enotdir — MEASURED under NextZXOS (GH #301): "nonexist/x.txt" and
+    // "T/README/x" (through a FILE) both get $11 from F_OPEN, F_STAT,
+    // F_OPENDIR and F_CHDIR, and so does a create in a missing directory.
     fs::path p = root_;
-    bool missing = false;
+    std::vector<std::string> actual;
     for (const std::string& want : comps) {
-        if (!missing) {
-            std::error_code ec;
-            const fs::path exact = p / want;
-            const fs::file_status st = fs::symlink_status(exact, ec);
-            if (!ec && fs::exists(st)) {
-                if (fs::is_symlink(st)) return kEacces;
-                p = exact;
-                continue;
-            }
-            std::string best;
-            for (fs::directory_iterator it(p, ec), end; !ec && it != end;
-                 it.increment(ec)) {
-                const std::string have = it->path().filename().string();
-                if (!iequal(have, want)) continue;
-                if (best.empty() || have < best) best = have;
-            }
-            if (!best.empty()) {
-                const fs::path picked = p / best;
-                std::error_code ec2;
-                if (fs::is_symlink(fs::symlink_status(picked, ec2))) return kEacces;
-                p = picked;
-                continue;
-            }
-            missing = true;   // and so is everything below it
+        std::error_code dec;
+        if (!fs::is_directory(fs::symlink_status(p, dec)) || dec) return kEnotdir;
+
+        std::error_code ec;
+        const fs::path exact = p / want;
+        const fs::file_status st = fs::symlink_status(exact, ec);
+        if (!ec && fs::exists(st)) {
+            if (fs::is_symlink(st)) return kEacces;
+            p = exact;
+            actual.push_back(want);
+            continue;
         }
+        std::string best;
+        for (fs::directory_iterator it(p, ec), end; !ec && it != end;
+             it.increment(ec)) {
+            const std::string have = it->path().filename().string();
+            if (!iequal(have, want)) continue;
+            if (best.empty() || have < best) best = have;
+        }
+        if (best.empty()) {
+            // The short names are unique within a listing, so at most one
+            // entry can answer. list_host_dir() lists no symlink, so an 8.3
+            // name never reaches one.
+            std::vector<Listed> listed;
+            if (list_host_dir(p, listed))
+                for (const Listed& l : listed)
+                    if (iequal(l.sfn, want)) { best = l.lfn; break; }
+        }
+        if (!best.empty()) {
+            const fs::path picked = p / best;
+            std::error_code ec2;
+            if (fs::is_symlink(fs::symlink_status(picked, ec2))) return kEacces;
+            p = picked;
+            actual.push_back(best);
+            continue;
+        }
+        // Missing. Fine as the last component; anything after it fails the
+        // is-a-directory check at the top of the next pass.
         p /= want;
+        actual.push_back(want);
     }
 
     if (!contained(p)) return kEacces;
     out = p;
-    if (components) *components = comps;
+    if (components) *components = actual;
     return kOk;
 }
 
@@ -401,7 +495,9 @@ uint8_t EsxdosHostFs::open(const std::string& guest_path, uint8_t mode,
     const fs::file_status st = fs::symlink_status(host, ec);
     const bool exists = !ec && fs::exists(st);
     if (exists && fs::is_symlink(st)) return kEacces;
-    if (exists && fs::is_directory(st)) return kEisdir;
+    // A directory opened as a file is esx_einval — measured under NextZXOS
+    // (GH #301), which answers F_OPEN and F_STAT of a directory both that way.
+    if (exists && fs::is_directory(st)) return kEinval;
     if (exists && !fs::is_regular_file(st)) return kEacces;
 
     switch (creat) {
@@ -569,10 +665,14 @@ uint8_t EsxdosHostFs::stat(const std::string& guest_path, StatInfo& out)
     if (ec || !fs::exists(st)) return kEnoent;
     if (fs::is_symlink(st)) return kEacces;
 
+    // F_STAT of a DIRECTORY is esx_einval: measured under NextZXOS (GH #301),
+    // where it fails exactly as F_OPEN of one does. Answering it with a
+    // directory entry would tell a program developed against the host
+    // directory something the Next will not.
+    if (fs::is_directory(st)) return kEinval;
+
     out = StatInfo{};
-    if (fs::is_directory(st)) {
-        out.attr = kAttrDirectory;
-    } else if (fs::is_regular_file(st)) {
+    if (fs::is_regular_file(st)) {
         out.attr = kAttrArchive;
         std::error_code ec2;
         const uint64_t size = fs::file_size(host, ec2);
@@ -601,19 +701,30 @@ uint8_t EsxdosHostFs::sync(uint8_t handle)
 // ── Directory calls ──────────────────────────────────────────────────────
 
 uint8_t EsxdosHostFs::opendir(const std::string& guest_path, uint8_t mode,
-                              uint8_t& handle)
+                              uint8_t& handle, uint8_t sf)
 {
     if (!active_) return kEnoent;
 
-    // Wildcards, sorting/filtering and +3DOS headers are REFUSED rather than
-    // half-implemented: each changes what the entry stream contains, and a
-    // guest that asked for a filtered, sorted listing and silently got an
-    // unfiltered unsorted one is worse off than one told "not supported".
-    // The two modes real software was measured to use (`.ls` asks for
-    // esx_mode_lfn_only and esx_mode_short_only, with no other bits) are
-    // exactly the ones served.
-    if (mode & (kDirUseWildcards | kDirSfEnable | kModeUseHeader))
-        return kEnosys;
+    // A listing mode is SERVED only where the answer is exactly what NextZXOS
+    // gives, and REFUSED everywhere else: a guest that asked for a filtered,
+    // sorted listing and silently got an unfiltered unsorted one is worse off
+    // than one told "not supported" (jnext(1)). What NextZXOS gives was
+    // MEASURED (GH #301), not read off the API document: a probe NEX run from
+    // the NextZXOS Browser listed one directory in each mode, and these modes
+    // returned the plain listing entry for entry, in the same order:
+    //
+    //   * esx_mode_sf_enable with no exclude bit and no esx_sf_sort_enable in
+    //     C ($00, and $07: the sort-key and reverse bits are inert without
+    //     sort_enable). NXModPlayer opens every listing after its first this
+    //     way. Exclusion and sorting are not served.
+    //   * esx_mode_use_wildcards. The pattern that filters is the one passed
+    //     to F_READDIR, not this one: opened with "*.TXT" and read with "*.*"
+    //     the listing is complete, opened with "*.*" and read with "*.TXT" it
+    //     is filtered. So it is checked there — see readdir().
+    //
+    // The +3DOS header mode is still refused: a host file has no header.
+    if (mode & kModeUseHeader) return kEnosys;
+    if ((mode & kDirSfEnable) && (sf & kSfNotServedMask)) return kEnosys;
     const uint8_t name_mode = mode & kDirNameMask;
     if (name_mode != kDirShortOnly && name_mode != kDirLfnOnly &&
         name_mode != kDirLfnAndShort)
@@ -624,7 +735,7 @@ uint8_t EsxdosHostFs::opendir(const std::string& guest_path, uint8_t mode,
 
     std::error_code ec;
     const fs::file_status st = fs::symlink_status(host, ec);
-    if (ec || !fs::exists(st)) return kEnoent;
+    if (ec || !fs::exists(st)) return kEnotdir;   // measured, see resolve()
     if (fs::is_symlink(st)) return kEacces;
     if (!fs::is_directory(st)) return kEnotdir;
 
@@ -657,80 +768,53 @@ uint8_t EsxdosHostFs::opendir(const std::string& guest_path, uint8_t mode,
         }
     }
 
-    std::vector<fs::directory_entry> raw;
-    for (fs::directory_iterator it(host, ec), end; !ec && it != end;
-         it.increment(ec))
-        raw.push_back(*it);
-    if (ec) return kEio;
+    std::vector<Listed> listed;
+    if (!list_host_dir(host, listed)) return kEio;
 
-    // Sorted by host name so the entry order is identical on every run and on
-    // every host; directory_iterator order is unspecified.
-    std::sort(raw.begin(), raw.end(),
-              [](const fs::directory_entry& a, const fs::directory_entry& b) {
-                  return a.path().filename().string() <
-                         b.path().filename().string();
-              });
-
-    std::vector<std::string> used_short;
-    for (const fs::directory_entry& de : raw) {
-        std::error_code ec2;
-        const fs::file_status dst = fs::symlink_status(de.path(), ec2);
-        if (ec2) continue;
-        // A symlink is not traversed, so it is not listed either — listing it
-        // would advertise a name that every other call refuses.
-        if (fs::is_symlink(dst)) continue;
-        const bool is_dir = fs::is_directory(dst);
-        if (!is_dir && !fs::is_regular_file(dst)) continue;
-
+    for (const Listed& l : listed) {
         DirEntry e;
-        e.lfn = de.path().filename().string();
-        e.attr = is_dir ? kAttrDirectory : kAttrArchive;
+        e.lfn = l.lfn;
+        e.sfn = l.sfn;
+        e.attr = l.is_dir ? kAttrDirectory : kAttrArchive;
         if (!writable_) e.attr |= kAttrReadOnly;
         if (!e.lfn.empty() && e.lfn.front() == '.') e.attr |= kAttrHidden;
-        if (!is_dir) {
+        if (!l.is_dir) {
             std::error_code ec3;
-            const uint64_t size = fs::file_size(de.path(), ec3);
+            const uint64_t size = fs::file_size(l.path, ec3);
             e.size = ec3 ? 0 : static_cast<uint32_t>(
                 std::min<uint64_t>(size, 0xFFFFFFFFULL));
         }
         std::error_code ec4;
-        const auto mtime = fs::last_write_time(de.path(), ec4);
+        const auto mtime = fs::last_write_time(l.path, ec4);
         if (!ec4) dos_timestamp(mtime, e.date, e.time);
-
-        // 8.3 synthesis: a name that already IS 8.3 keeps itself (uppercased);
-        // anything else gets the FAT `~N` tail, with N chosen so the short
-        // names are unique within this listing. Deterministic because `raw` is
-        // sorted.
-        std::string sfn = short_name(e.lfn, 0);
-        const bool native = fits_8_3(e.lfn);
-        auto taken = [&used_short](const std::string& s) {
-            return std::find(used_short.begin(), used_short.end(), s) !=
-                   used_short.end();
-        };
-        if (!native || taken(sfn)) {
-            unsigned n = 1;
-            do { sfn = short_name(e.lfn, n++); } while (taken(sfn) && n < 1000);
-        }
-        used_short.push_back(sfn);
-        e.sfn = sfn;
         entries.push_back(std::move(e));
     }
 
     DirHandle& d = dirs_[slot];
     d.open = true;
     d.path = host.string();
-    d.mode = name_mode;
+    d.mode = static_cast<uint8_t>(name_mode | (mode & kDirUseWildcards));
     d.index = 0;
     d.entries = std::move(entries);
     handle = static_cast<uint8_t>(kFirstDirHandle + slot);
     return kOk;
 }
 
-uint8_t EsxdosHostFs::readdir(uint8_t handle, DirEntry& out, bool& have)
+uint8_t EsxdosHostFs::readdir(uint8_t handle, DirEntry& out, bool& have,
+                              const std::string& wildcard)
 {
     have = false;
     DirHandle* d = dir_slot(handle);
     if (!d || !d->open) return kEbadf;
+    // A wildcard handle is filtered HERE, by the pattern this call passes
+    // (measured, see opendir()). NextZXOS matches the pattern against the 8.3
+    // name (measured: "*" lists only the entries whose short name has no
+    // extension), so "*.*" — eight-and-three of anything — matches every
+    // entry, '.' and '..' included: the measured listing was the plain one.
+    // That is the one pattern answered; any other would need NextZXOS's
+    // matcher reproduced exactly, and is refused instead.
+    if ((d->mode & kDirUseWildcards) && wildcard != kMatchEveryEntry)
+        return kEnosys;
     if (d->index >= d->entries.size()) return kOk;   // A=0, Fc=0: no more
     out = d->entries[d->index++];
     have = true;
@@ -765,19 +849,74 @@ uint8_t EsxdosHostFs::seekdir(uint8_t handle, uint32_t position)
 uint8_t EsxdosHostFs::dir_name_mode(uint8_t handle) const
 {
     const DirHandle* d = dir_slot(handle);
-    return d && d->open ? d->mode : kDirShortOnly;
+    return d && d->open ? static_cast<uint8_t>(d->mode & kDirNameMask)
+                        : kDirShortOnly;
+}
+
+bool EsxdosHostFs::dir_uses_wildcards(uint8_t handle) const
+{
+    const DirHandle* d = dir_slot(handle);
+    return d && d->open && (d->mode & kDirUseWildcards) != 0;
+}
+
+// F_GETCWD answers in NextZXOS's own form (GH #301), MEASURED from a probe
+// run under NextZXOS: the drive, then every component as its 8.3 name, each
+// followed by '/' — `C:/` at the root, `C:/AAA/T/SUBDIR~1/` below it (the
+// LFN there was "sub dir long"). A program builds its paths as cwd + name, so
+// the trailing '/' is load-bearing: NXModPlayer asked for "/NXModPlayermods"
+// off the old "/NXModPlayer" form. The one drive is C: (M_GETSETDRV).
+uint8_t EsxdosHostFs::format_path(const std::vector<std::string>& comps,
+                                  std::string& out) const
+{
+    out = "C:/";
+    fs::path walk = root_;
+    for (const std::string& comp : comps) {
+        std::vector<Listed> listed;
+        if (!list_host_dir(walk, listed)) return kEio;
+        const Listed* hit = nullptr;
+        for (const Listed& l : listed)
+            if (l.lfn == comp) { hit = &l; break; }
+        // A directory removed on the host since the guest entered it has no
+        // short name left to print; say so rather than invent one.
+        if (!hit || !hit->is_dir) return kEnoent;
+        out += hit->sfn;
+        out += "/";
+        walk /= comp;
+    }
+    if (out.size() > kMaxPath) return kEinval;
+    return kOk;
 }
 
 uint8_t EsxdosHostFs::getcwd(std::string& out) const
 {
     if (!active_) return kEnoent;
-    out = "/";
-    for (std::size_t i = 0; i < cwd_.size(); ++i) {
-        out += cwd_[i];
-        if (i + 1 < cwd_.size()) out += "/";
-    }
-    if (out.size() > kMaxPath) return kEinval;
-    return kOk;
+    return format_path(cwd_, out);
+}
+
+uint8_t EsxdosHostFs::getcwd_of(const std::string& filespec,
+                                std::string& out) const
+{
+    if (!active_) return kEnoent;
+    // A=$FF: the working directory of `filespec`, "the filename part (after
+    // the final /, \ or :) is ignored" (NextZXOS API, F_GETCWD). Measured:
+    // "T/x" -> C:/AAA/T/, "x" and "C:x" -> the CWD, "T/sub dir long/" ->
+    // C:/AAA/T/SUBDIR~1/. A directory that does not exist got Fc=0 and a
+    // buffer of junk from NextZXOS, which is not an answer to reproduce: it
+    // is refused with esx_enotdir, NextZXOS's answer for a missing directory
+    // everywhere else (see resolve()).
+    const std::size_t cut = filespec.find_last_of("/\\:");
+    std::string dir = cut == std::string::npos ? std::string()
+                                               : filespec.substr(0, cut + 1);
+    if (dir.empty()) dir = ".";
+    fs::path host;
+    std::vector<std::string> comps;
+    if (const uint8_t err = resolve(dir, host, &comps)) return err;
+    std::error_code ec;
+    const fs::file_status st = fs::symlink_status(host, ec);
+    if (ec || !fs::exists(st)) return kEnotdir;   // measured, see resolve()
+    if (fs::is_symlink(st)) return kEacces;
+    if (!fs::is_directory(st)) return kEnotdir;
+    return format_path(comps, out);
 }
 
 uint8_t EsxdosHostFs::chdir(const std::string& guest_path)
@@ -789,27 +928,14 @@ uint8_t EsxdosHostFs::chdir(const std::string& guest_path)
 
     std::error_code ec;
     const fs::file_status st = fs::symlink_status(host, ec);
-    if (ec || !fs::exists(st)) return kEnoent;
+    if (ec || !fs::exists(st)) return kEnotdir;   // measured, see resolve()
     if (fs::is_symlink(st)) return kEacces;
     if (!fs::is_directory(st)) return kEnotdir;
 
-    // Store the components as they exist on the HOST, so getcwd() answers with
-    // the real spelling rather than whatever case the guest happened to type.
-    std::vector<std::string> actual;
-    fs::path walk = root_;
-    for (const std::string& want : comps) {
-        std::error_code ec2;
-        std::string picked = want;
-        for (fs::directory_iterator it(walk, ec2), end; !ec2 && it != end;
-             it.increment(ec2)) {
-            const std::string have = it->path().filename().string();
-            if (have == want) { picked = have; break; }
-            if (iequal(have, want) && (picked == want)) picked = have;
-        }
-        actual.push_back(picked);
-        walk /= picked;
-    }
-    cwd_ = actual;
+    // resolve() hands back the components as they are spelled on the HOST,
+    // so getcwd() can look each one up whatever spelling — any case, or the
+    // 8.3 name — the guest happened to type.
+    cwd_ = comps;
     return kOk;
 }
 

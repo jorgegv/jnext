@@ -2728,7 +2728,14 @@ for the whole menu and command line and is at <code>7FFD=0x10, 1FFD=0x06,
 sram_rom = 3</code> from the program's first instruction. The synthetic machine gets
 this right by having only the 48K image in its SRAM ROM pages; the recording,
 taken at the NextZXOS menu, does not, so <code>init_for_load_from_file()</code> sets the
-two ROM-bank bits after the restore. It is deliberately NOT in
+two ROM-bank bits after the restore. Those are direct MMU calls, so they skip
+what the 0x7FFD / 0x1FFD port handlers push after paging, and of that the
+DivMMC's ROM 3 feeder (<code>DivMmc::rom3_active_</code>, VHDL <code>sram_rom3</code> into
+<code>sram_divmmc_automap_rom3_en</code>, <code>zxnext.vhd:2981-3008, 3138</code>) is the one input
+the two bits change; the handover re-syncs it (GH #301). Without that,
+<code>load_state()</code> left it at the recording's ROM 0, and since NextZXOS leaves NR
+0xB9 = 0x00 (RST $08 valid only with ROM 3) every ROM3-gated automap entry
+point stayed off until the program's first 0x7FFD / 0x1FFD write. It is deliberately NOT in
 <code>NexLoader::apply()</code>, which also runs on the synthetic path. Without it every
 program that reads the character set out of ROM renders noise —
 <code>magic-bp-demo</code> and <code>magic-port-demo</code> did, and row <code>G</code> of <code>warm-start-func</code> is
@@ -2754,19 +2761,26 @@ a CLI <code>--load</code> costs nothing.</p>
 <p><strong>Tests.</strong> <code>test/warm_start/warm_start_test.cpp</code> (<code>WSC-*</code> for the cache file,
 its four invalidation keys and the compressed payload; <code>WSR-*</code> for the
 residency criterion, the announced fallbacks and <code>WSR-DEF-01</code>, which proves the
-path is reached with no flag set) plus the <code>warm-start-func</code> regression row for
+path is reached with no flag set; <code>WSR-ROM3-01/02</code> for the ROM 3 feeder and
+the RST $08 automap it gates) plus the <code>warm-start-func</code> regression row for
 the end-to-end record → cache → restore round trip, which needs a real SD image
 and so cannot be a unit test.</p>
 <h2 id="the-esxdos-stand-in-for-directly-loaded-programs">The esxDOS stand-in for directly loaded programs<a class="headerlink" href="#the-esxdos-stand-in-for-directly-loaded-programs" title="Permanent link">&para;</a></h2>
 <p>On hardware a NEX is always started by NextZXOS's <code>nexload</code>, so the program
 can call the esxDOS / NextZXOS API: <code>RST $08</code> followed by a one-byte call
 number, reached through the DivMMC automap (see
-<a href="06-peripherals.html#divmmc">3.6 Peripherals</a>). A direct load skips NextZXOS, and
-<code>$0008</code> then holds the 48K ROM's ERROR-1 restart, so an unanswered call crashes
-the program. Warhawk's first call, <code>M_GETSETDRV</code>, ended in a DI + HALT at
-<code>$1303</code> that way (GH #250). jnext therefore answers these calls on the host,
+<a href="06-peripherals.html#divmmc">3.6 Peripherals</a>). A direct load skips <code>nexload</code>.
+Before the warm start it skipped NextZXOS altogether, and <code>$0008</code> held the 48K
+ROM's ERROR-1 restart, so an unanswered call crashed the program: Warhawk's
+first call, <code>M_GETSETDRV</code>, ended in a DI + HALT at <code>$1303</code> that way (GH #250).
+jnext therefore answers these calls on the host,
 the way CSpect (<code>esxDOS.dll</code>) and ZEsarUX (<code>esxdos_handler</code>) always do. Neither
-emulator is an oracle for this: both fake every <code>RST $08</code>, DivMMC or not.</p>
+emulator is an oracle for this: both fake every <code>RST $08</code>, DivMMC or not.
+Since the warm start a NextZXOS is usually resident behind the program, and
+jnext's answers still come first: that is the documented design (jnext(1),
+"esxDOS calls from a directly loaded NEX"), because the NEX is a host file
+NextZXOS cannot see. A program that needs NextZXOS's own file calls is started
+from NextZXOS, or run with <code>--esxdos-stub-root</code> (GH #301).</p>
 <p><strong>Where it lives.</strong> <code>Z80Cpu::execute()</code> (<code>src/cpu/z80_cpu.cpp</code>) checks every
 arrival at <code>$0008</code>. When the byte before the pushed return address is <code>$CF</code>
 (<code>RST $08</code>) and the call number after it is <code>$80</code> or above, it calls
@@ -2963,12 +2977,37 @@ only <code>(handle, is_dir, mode, position, path)</code> per open handle plus th
 CWD, and <code>load_state</code> reopens from that. Reads therefore rewind exactly.
 Writes cannot — the host side effect already happened — which is the whole
 reason writes are behind a second flag.</p>
-<p><strong>Refusals rather than approximations.</strong> <code>esx_mode_use_wildcards</code>,
-<code>esx_mode_sf_enable</code> and <code>esx_mode_use_header</code> return <code>esx_enosys</code>: each
-changes what the entry stream contains, and a caller that asked for a filtered
-or sorted listing and silently got neither is worse off than one told no. The
-two modes real software was measured to use (<code>.ls</code> asks for
-<code>esx_mode_lfn_only</code> and <code>esx_mode_short_only</code>, no other bits) are served.
+<p><strong>Exact answers, or refusals.</strong> A listing mode is served only where the answer
+is exactly NextZXOS's, and refused with <code>esx_enosys</code> everywhere else: a caller
+that asked for a filtered or sorted listing and silently got neither is worse
+off than one told no. What NextZXOS answers was measured (GH #301) with a probe
+NEX launched from its Browser, listing one directory in every mode:</p>
+<ul>
+<li><code>esx_mode_sf_enable</code> with no exclude bit and no <code>esx_sf_sort_enable</code> in C
+  (C = <code>$00</code>, and <code>$07</code>: the sort-key and reverse bits are inert without
+  sort_enable) is the plain listing, entry for entry. NXModPlayer opens every
+  listing after its first with <code>$B0</code> (sf_enable, wildcards, LFN; C = 0).
+  Exclusion and sorting are refused.</li>
+<li>The wildcard that filters is the one passed to <strong>F_READDIR</strong>, not
+  F_OPENDIR's: opened <code>*.TXT</code> and read <code>*.*</code> the listing is complete, and the
+  reverse is filtered. NextZXOS matches it against the 8.3 name (<code>*</code> lists only
+  names with no extension), so <code>*.*</code> matches every entry. So F_OPENDIR accepts
+  the wildcard bit, and <code>readdir()</code> serves <code>*.*</code> and refuses any other pattern.
+  The bit travels in the rewind snapshot's mode byte.</li>
+<li>F_OPENDIR returns C = 0 ("sort operation not completed") whatever C it was
+  given.</li>
+<li><code>esx_mode_use_header</code> stays refused: a host file has no header.</li>
+</ul>
+<p><code>F_GETCWD</code> answers in NextZXOS's form, <code>C:/</code> then each component's 8.3 name and
+a <code>/</code> (<code>C:/AAA/T/SUBDIR~1/</code> was measured for an LFN of "sub dir long"), and
+with A = <code>$FF</code> for the filespec in DE. Since the guest then builds paths out of
+8.3 names, <code>resolve()</code> accepts an entry's 8.3 name as well as its host name;
+<code>list_host_dir()</code> is the one place a listing and its short names are made, so
+F_READDIR, F_GETCWD and <code>resolve()</code> cannot disagree on one. The error codes for
+bad paths are NextZXOS's measured ones too: a missing or non-directory
+component before the last is <code>esx_enotdir</code>, as is a missing directory for
+F_OPENDIR and F_CHDIR; a missing last component of F_OPEN / F_STAT is
+<code>esx_enoent</code>; F_OPEN and F_STAT of a directory are <code>esx_einval</code>.
 <code>M_P3DOS</code> is not answered: it bridges into NextZXOS ROM entry points including
 <code>IDE_SECTOR_READ</code>, and a directory has no sectors.</p>
 <p><strong>SCOPE, and the measurement behind it.</strong> This serves programs that reach the
@@ -3003,7 +3042,7 @@ volume at the block layer, which the project declined
 (<code>doc/design/TASK89-ESXDOS-HOST-FILESYSTEM.md</code> §0.1 decision 5). The boundary is permanent, and the user-facing docs say so in
 <code>--help</code>, the man page and the user guide because the flag's name invites the
 opposite assumption.</p>
-<p><strong>Tests.</strong> <code>HFS-01..95</code> in <code>test/esxdos_stub/esxdos_hostfs_rows.cpp</code> (linked
+<p><strong>Tests.</strong> <code>HFS-01..109</code> in <code>test/esxdos_stub/esxdos_hostfs_rows.cpp</code> (linked
 into <code>esxdos_stub_test</code>): the sandbox and the 8.3/timestamp synthesis against
 the class, every register convention through the real dispatcher. The
 regression row <code>esxdos-hostfs-func</code> runs a real guest program that opens, seeks

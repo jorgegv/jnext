@@ -312,7 +312,8 @@ debugger ones.
 
     Inside *DIR*, paths behave as FAT paths: `/` and `\` both separate
     components, a leading separator is the root of *DIR* rather than the host's
-    root, lookup ignores case, and the drive letters `*:`, `$:` and `c:` all
+    root, lookup ignores case, a component can also be given by its 8.3 short
+    name, and the drive letters `*:`, `$:` and `c:` all
     mean *DIR*. A path that would leave *DIR*, and any symbolic link, is
     refused; symbolic links are not listed either. Because `\` is a separator,
     a host file whose name contains one cannot be reached — FAT cannot name
@@ -1053,11 +1054,20 @@ SD-card image.
 
 Some things it deliberately does not do. Writes need the separate
 **\--esxdos-stub-writable** flag, because a guest write is a real and
-irreversible change to a host file that rewinding cannot take back. Wildcard,
-sorted and filtered directory listings, and the `+3DOS` header modes, are
-refused rather than answered approximately. `M_P3DOS`, which lets a program
+irreversible change to a host file that rewinding cannot take back. A directory
+listing is answered only where the answer is exactly the one NextZXOS gives:
+the plain listing, which is also what NextZXOS returns for a sort/filter request
+with nothing selected and for the wildcard `*.*` (NextZXOS matches a wildcard
+against the 8.3 name, so `*.*` matches every entry). Sorting, filtering, every
+other wildcard and the `+3DOS` header modes are refused rather than answered
+approximately. `M_P3DOS`, which lets a program
 call NextZXOS ROM routines directly — including raw sector reads — is not
 answered either: a host directory cannot supply sectors.
+
+`F_GETCWD` answers in NextZXOS's form, `C:/` and then each directory's 8.3 name
+followed by `/` (for example `C:/MYGAME~1/DATA/`), so a program that builds a
+path as the current directory plus a name gets one that works. The error codes
+for missing and mistyped paths are the ones NextZXOS returns.
 
 Paths are confined to *DIR*. A path that climbs out of it is refused, whichever
 separator it uses, a guest absolute path such as `/data/x.bin` means
