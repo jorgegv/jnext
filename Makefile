@@ -80,6 +80,10 @@ CMAKE_CACHE_HAS = ( line=$$(grep "^$(2):" "$(1)/CMakeCache.txt" 2>/dev/null | he
 # natively, dying at find_package(ZLIB) (GH #108 CI failure, run 30200486697).
 MINGW64_RC        := -DCMAKE_RC_COMPILER=/usr/bin/x86_64-w64-mingw32-windres
 MINGW32_RC        := -DCMAKE_RC_COMPILER=/usr/bin/i686-w64-mingw32-windres
+# GH #298: every Windows tree is a Release build, which is what turns LTO on
+# (CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE), as in the Linux packages.
+# Without it the CMakeLists default applies, RelWithDebInfo: -O2 -g, no LTO.
+WIN_BUILD_TYPE    := -DCMAKE_BUILD_TYPE=Release
 
 # Documentation single source (see `make docs-man`). doc/man/jnext.1.md generates
 # ALL THREE outputs below, and all three are committed: building jnext from
@@ -354,7 +358,7 @@ win-release:
 	fi
 	@# GH #297: a PGO build, trained under wine (tools/pgo-build.sh); WIN_PGO=0
 	@# (or `make win-release-non-pgo`) builds it without.
-	$(call WIN_BUILD,$(BUILD_DIR_WIN_RELEASE),mingw64-cmake -S . $(MINGW64_RC) -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF)
+	$(call WIN_BUILD,$(BUILD_DIR_WIN_RELEASE),mingw64-cmake -S . $(MINGW64_RC) $(WIN_BUILD_TYPE) -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF)
 	@# Bundle the Qt6/SDL3 runtime DLLs + Qt plugins next to the exe so it runs
 	@# in place (jnext.exe alone can't start — missing Qt6Core.dll and, even with
 	@# the DLLs, the platforms/qwindows.dll plugin).
@@ -385,7 +389,7 @@ win-sdl-release:
 	@# "Qt6 not needed" toolchain guard above a lie on a Qt-less host. The
 	@# shipped exe is identical either way (the debugger ifdefs live only in
 	@# src/gui, which the SDL build never compiles).
-	mingw64-cmake -S . -B $(BUILD_DIR_WIN_SDL_RELEASE) $(MINGW64_RC) -DENABLE_QT_UI=OFF -DENABLE_DEBUGGER=OFF -DENABLE_TESTS=OFF
+	mingw64-cmake -S . -B $(BUILD_DIR_WIN_SDL_RELEASE) $(MINGW64_RC) $(WIN_BUILD_TYPE) -DENABLE_QT_UI=OFF -DENABLE_DEBUGGER=OFF -DENABLE_TESTS=OFF
 	$(CMAKE) --build $(BUILD_DIR_WIN_SDL_RELEASE) -j$(JOBS)
 	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_SDL_RELEASE)/jnext.exe $(BUILD_DIR_WIN_SDL_RELEASE)
 	@printf "$(BOLD)Windows SDL-only executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN_SDL_RELEASE)/jnext.exe\n"
@@ -406,7 +410,7 @@ win-qt5-release:
 		printf "  (mingw64-filesystem supplies mingw64-cmake.)\n"; \
 		exit 1; \
 	fi
-	$(call WIN_BUILD,$(BUILD_DIR_WIN_QT5_RELEASE),mingw64-cmake -S . $(MINGW64_RC) -DENABLE_QT_UI=ON -DENABLE_DEBUGGER=ON -DJNEXT_FORCE_QT5=ON -DENABLE_TESTS=OFF)
+	$(call WIN_BUILD,$(BUILD_DIR_WIN_QT5_RELEASE),mingw64-cmake -S . $(MINGW64_RC) $(WIN_BUILD_TYPE) -DENABLE_QT_UI=ON -DENABLE_DEBUGGER=ON -DJNEXT_FORCE_QT5=ON -DENABLE_TESTS=OFF)
 	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_QT5_RELEASE)/jnext.exe $(BUILD_DIR_WIN_QT5_RELEASE)
 	@printf "$(BOLD)Windows Qt5 full-GUI executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN_QT5_RELEASE)/jnext.exe\n"
 
@@ -442,7 +446,7 @@ win32-sdl-release:
 	@# ENABLE_DEBUGGER=OFF is load-bearing for the same reason as in
 	@# win-sdl-release: it defaults ON and src/debugger does
 	@# find_package(Qt6 REQUIRED) at configure time.
-	mingw32-cmake -S . -B $(BUILD_DIR_WIN32_SDL_RELEASE) $(MINGW32_RC) -DENABLE_QT_UI=OFF -DENABLE_DEBUGGER=OFF -DENABLE_TESTS=OFF
+	mingw32-cmake -S . -B $(BUILD_DIR_WIN32_SDL_RELEASE) $(MINGW32_RC) $(WIN_BUILD_TYPE) -DENABLE_QT_UI=OFF -DENABLE_DEBUGGER=OFF -DENABLE_TESTS=OFF
 	$(CMAKE) --build $(BUILD_DIR_WIN32_SDL_RELEASE) -j$(JOBS)
 	@# bundle-dlls.sh reads the exe's PE machine field and resolves DLLs from
 	@# the i686 sysroot automatically.
@@ -467,7 +471,7 @@ win32-qt5-release:
 		printf "  (mingw32-filesystem supplies mingw32-cmake.)\n"; \
 		exit 1; \
 	fi
-	$(call WIN_BUILD,$(BUILD_DIR_WIN32_QT5_RELEASE),mingw32-cmake -S . $(MINGW32_RC) -DENABLE_QT_UI=ON -DENABLE_DEBUGGER=ON -DJNEXT_FORCE_QT5=ON -DENABLE_TESTS=OFF)
+	$(call WIN_BUILD,$(BUILD_DIR_WIN32_QT5_RELEASE),mingw32-cmake -S . $(MINGW32_RC) $(WIN_BUILD_TYPE) -DENABLE_QT_UI=ON -DENABLE_DEBUGGER=ON -DJNEXT_FORCE_QT5=ON -DENABLE_TESTS=OFF)
 	@# bundle-dlls.sh reads the exe's PE machine field (i686 sysroot) and the
 	@# qt5core.dll import (Qt5 plugin root) — no flags needed for either.
 	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN32_QT5_RELEASE)/jnext.exe $(BUILD_DIR_WIN32_QT5_RELEASE)
