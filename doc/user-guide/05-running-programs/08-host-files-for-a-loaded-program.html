@@ -3649,7 +3649,9 @@ the SD-card image.</p>
 <li>lookup ignores case, so a program asking for <code>LEVEL1.BIN</code> finds <code>level1.bin</code></li>
 <li>the esxDOS drive prefixes <code>*:</code>, <code>$:</code> and <code>c:</code> all mean the same directory</li>
 <li>long names get a synthesised 8.3 short name, the way FAT does, for programs
-  that ask for short names</li>
+  that ask for short names, and a path can use either name</li>
+<li>the current directory reads back the way NextZXOS reports it: <code>C:/</code>, then
+  each directory's 8.3 name followed by <code>/</code>, such as <code>C:/MYGAME~1/DATA/</code></li>
 </ul>
 <p>Anything that would leave the directory is refused, and so is any symbolic
 link — links are not listed either, so a program is never offered a name it
@@ -3658,7 +3660,12 @@ would then be refused.</p>
 <p>Some calls are refused outright rather than answered approximately, because a
 wrong answer is worse than a clear refusal:</p>
 <ul>
-<li>wildcard, sorted and filtered directory listings</li>
+<li>sorted and filtered directory listings, and wildcard listings other than
+  <code>*.*</code>. A listing request that NextZXOS answers with the plain listing, such
+  as <code>*.*</code> or a sort/filter request with nothing selected, gets the plain
+  listing here too. The entries are the same ones NextZXOS would list, but
+  their order, the spelling of their names (your files' own case) and their
+  read-only and hidden flags follow your host files, not a FAT card</li>
 <li>the <code>+3DOS</code> header modes of <code>F_OPEN</code> and <code>F_OPENDIR</code> — a host file has no
   <code>+3DOS</code> header and inventing one would feed the program eight bytes of
   fiction</li>

@@ -1203,8 +1203,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // next reset) gets these answers without --esxdos-stub. On real
             // hardware a NEX is only ever started by NextZXOS's nexload, so
             // the esxDOS API is always there for it; with no OS behind a
-            // direct load, an unanswered call ran the 48K ROM's ERROR-1 and
-            // the program died (Warhawk: M_GETSETDRV, then DI + HALT).
+            // direct load (as there was none before the GH #234 warm start,
+            // and still is none on the synthetic fallback machine), an
+            // unanswered call ran the 48K ROM's ERROR-1 and the program died
+            // (Warhawk: M_GETSETDRV, then DI + HALT). With a warm start the
+            // answers still come first, ahead of the resident NextZXOS — see
+            // the arming site in load_nex().
             if (!stub_enabled && !host_nex_available && !direct_nex_esxdos_ &&
                 !esxdos_hostfs_.active())
                 return false;   // tracing/direct-load pre-arm only — service nothing
@@ -1640,19 +1644,32 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                         put_stat(r.DE, st);
                         return done(0x00);
                     }
-                    case 0xA3: {  // F_OPENDIR — A=drive, IX=path, B=mode
+                    case 0xA3: {  // F_OPENDIR — A=drive, IX=path, B=mode, C=sort/filter
                         uint8_t h = 0;
                         const uint8_t err = esxdos_hostfs_.opendir(
-                            read_filespec(r.IX), static_cast<uint8_t>(r.BC >> 8), h);
+                            read_filespec(r.IX), static_cast<uint8_t>(r.BC >> 8), h,
+                            static_cast<uint8_t>(r.BC));
                         if (err) return fail(err);
+                        // C on exit is "0 if sort operation not completed"
+                        // (NextZXOS API, F_OPENDIR), and nothing is ever
+                        // sorted here. NextZXOS was measured to return C=0
+                        // for every unsorted open, whatever C it was given
+                        // ($07 and $55 in, $00 out; GH #301).
+                        r.BC = static_cast<uint16_t>(r.BC & 0xFF00);
                         return done(h);
                     }
-                    case 0xA4: {  // F_READDIR — A=handle, IX=entry buffer
+                    case 0xA4: {  // F_READDIR — A=handle, IX=entry buffer, DE=wildcard
                         if (!EsxdosHostFs::owns_handle(handle)) break;
                         EsxdosHostFs::DirEntry e;
                         bool have = false;
+                        // DE carries a pattern only for a handle opened with
+                        // wildcards; anywhere else it is whatever the guest
+                        // left there, and is not read.
+                        const std::string wildcard =
+                            esxdos_hostfs_.dir_uses_wildcards(handle)
+                                ? read_filespec(r.DE) : std::string();
                         const uint8_t err =
-                            esxdos_hostfs_.readdir(handle, e, have);
+                            esxdos_hostfs_.readdir(handle, e, have, wildcard);
                         if (err) return fail(err);
                         if (!have) return done(0x00);   // Fc=0, A=0: no more
                         // Entry layout (readdir.asm `showanentry`, and z88dk
@@ -1700,9 +1717,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                         if (const uint8_t err = esxdos_hostfs_.rewinddir(handle))
                             return fail(err);
                         return done(handle);
-                    case 0xA8: {  // F_GETCWD — A=drive, IX=buffer
+                    case 0xA8: {  // F_GETCWD — A=drive or $FF (DE=filespec), IX=buffer
+                        // DE is read before IX is written: the API allows the
+                        // two to address the same memory.
                         std::string cwd;
-                        const uint8_t err = esxdos_hostfs_.getcwd(cwd);
+                        const uint8_t err = handle == 0xFF
+                            ? esxdos_hostfs_.getcwd_of(read_filespec(r.DE), cwd)
+                            : esxdos_hostfs_.getcwd(cwd);
                         if (err) return fail(err);
                         put_zstr(r.IX, cwd);
                         return done(0x00);
@@ -7762,6 +7783,27 @@ bool Emulator::init_for_load_from_file()
     mmu_.map_plus3_bank(static_cast<uint8_t>(mmu_.port_1ffd() | 0x04));
     mmu_.map_128k_bank(static_cast<uint8_t>(mmu_.port_7ffd() | 0x10));
 
+    // GH #301 — what the 0x7FFD / 0x1FFD port handlers (init()) push after
+    // their map_*_bank() call must follow here too, because these two calls
+    // bypass them. Of what they push, only the ROM 3 feeder can change:
+    //
+    //   * DivMmc::rom3_active_ mirrors VHDL `sram_rom3` (zxnext.vhd:2981-3008),
+    //     which feeds sram_divmmc_automap_rom3_en (:3138). load_state() synced
+    //     it to the RECORDED ROM 0 a moment ago, so without this the
+    //     ROM3-gated automap entry points stay off until the program's first
+    //     0x7FFD / 0x1FFD write. NextZXOS leaves NR 0xB9 = 0x00 (RST $08 valid
+    //     only with ROM 3 paged), so an RST $08 that reached $0008 ran the
+    //     48K ROM's error restart instead of NextZXOS.
+    //   * the ULA shadow-screen enable follows 7FFD bit 3 (zxnext.vhd:4453)
+    //     and the contention slot mirrors follow the 7FFD bank bits and 1FFD
+    //     bits 0-2 in special paging; the handover ORs in only 7FFD bit 4 and
+    //     1FFD bit 2 with 1FFD bit 0 (special paging) clear in the recording,
+    //     so none of them moves. The port handlers are not called instead
+    //     because a port write is a guest event: it fires IO watchpoints and
+    //     observers, and is subject to the NR 0x82 decode gates, none of
+    //     which a loader-internal handover should go through.
+    divmmc_.set_rom3_active(mmu_.sram_rom3());
+
     Log::emulator()->info("warm start: NextZXOS is resident; the program is applied on "
                           "top of it, as nexload does on hardware");
     return true;
@@ -7891,10 +7933,19 @@ bool Emulator::load_nex(const std::string& path)
         mmu_.write(static_cast<uint16_t>(sp - 1), static_cast<uint8_t>(loader.header().pc >> 8));
     }
 
-    // GH #250 — the program now runs with no NextZXOS behind it, so arm the
-    // esxDOS answers nexload's OS would have provided (see the handler in
-    // init()). Disarmed by init() (soft reset, re-initialising loads), like
-    // the host bridge.
+    // GH #250 — arm jnext's own esxDOS answers for the directly loaded
+    // program (see the handler in init()). Disarmed by init() (soft reset,
+    // re-initialising loads), like the host bridge.
+    //
+    // They answer AHEAD of whatever OS is behind the program, and that is
+    // the documented design (jnext(1), "esxDOS calls from a directly loaded
+    // NEX"; GH #301 final scope), not an accident of history. When #250 armed
+    // them there was no OS behind a direct load; since the warm start
+    // (GH #234, init_for_load_from_file()) there usually IS one — a resident
+    // NextZXOS — and the answers still come first. The NEX is a host file,
+    // not an SD path, so NextZXOS could not answer for it, its siblings or
+    // `run NAME.nex` anyway; a program that needs NextZXOS's own file calls
+    // is started from NextZXOS or run with --esxdos-stub-root.
     // A GUI File -> Open load can occur after init(), when no command-line
     // NEX existed and the dormant bridge was deliberately not attached, so
     // attach it here too. When disarmed the handler returns false,

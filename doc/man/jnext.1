@@ -372,8 +372,9 @@ image.\f[R]
 Inside \f[I]DIR\f[R], paths behave as FAT paths: \f[CR]/\f[R] and
 \f[CR]\(rs\f[R] both separate components, a leading separator is the
 root of \f[I]DIR\f[R] rather than the host\(cqs root, lookup ignores
-case, and the drive letters \f[CR]*:\f[R], \f[CR]$:\f[R] and
-\f[CR]c:\f[R] all mean \f[I]DIR\f[R].
+case, a component can also be given by its 8.3 short name, and the drive
+letters \f[CR]*:\f[R], \f[CR]$:\f[R] and \f[CR]c:\f[R] all mean
+\f[I]DIR\f[R].
 A path that would leave \f[I]DIR\f[R], and any symbolic link, is
 refused; symbolic links are not listed either.
 Because \f[CR]\(rs\f[R] is a separator, a host file whose name contains
@@ -1270,12 +1271,27 @@ Some things it deliberately does not do.
 Writes need the separate \f[B]\-\-esxdos\-stub\-writable\f[R] flag,
 because a guest write is a real and irreversible change to a host file
 that rewinding cannot take back.
-Wildcard, sorted and filtered directory listings, and the
-\f[CR]+3DOS\f[R] header modes, are refused rather than answered
-approximately.
+A directory listing is answered only where the answer is exactly the one
+NextZXOS gives: the plain listing, which is also what NextZXOS returns
+for a sort/filter request with nothing selected and for the wildcard
+\f[CR]*.*\f[R] (NextZXOS matches a wildcard against the 8.3 name, so
+\f[CR]*.*\f[R] matches every entry).
+Sorting, filtering, every other wildcard and the \f[CR]+3DOS\f[R] header
+modes are refused rather than answered approximately.
+\(lqExactly\(rq is about which entries a listing returns: their order,
+the spelling of their names (the host\(cqs case, where NextZXOS shows an
+8.3 name in capitals) and the read\-only and hidden attribute bits
+follow the host files, not a FAT directory.
 \f[CR]M_P3DOS\f[R], which lets a program call NextZXOS ROM routines
 directly \(em including raw sector reads \(em is not answered either: a
 host directory cannot supply sectors.
+.PP
+\f[CR]F_GETCWD\f[R] answers in NextZXOS\(cqs form, \f[CR]C:/\f[R] and
+then each directory\(cqs 8.3 name followed by \f[CR]/\f[R] (for example
+\f[CR]C:/MYGAME\(ti1/DATA/\f[R]), so a program that builds a path as the
+current directory plus a name gets one that works.
+The error codes for missing and mistyped paths are the ones NextZXOS
+returns.
 .PP
 Paths are confined to \f[I]DIR\f[R].
 A path that climbs out of it is refused, whichever separator it uses, a

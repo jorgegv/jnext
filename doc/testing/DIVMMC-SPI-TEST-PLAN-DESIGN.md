@@ -310,6 +310,14 @@ present in the memory map. VHDL reference: `zxnext.vhd` lines 3137-3138.
 | R3-03 | M1 at 0x0008 with Layer 2 mapped: no automap | Layer 2 overrides |
 | R3-04 | `automap_active` (non-ROM3 path) always enabled when DivMMC on | `sram_divmmc_automap_en = sram_pre_override(2)` |
 
+> GH #301 — the ROM 3 input itself has to follow every way ROM 3 gets paged.
+> The warm-start handover (`Emulator::init_for_load_from_file()`) pages it with
+> direct MMU calls that bypass the 0x7FFD / 0x1FFD port handlers, so it
+> re-syncs `DivMmc::rom3_active_` itself. That is pinned at the integration
+> tier, not here: `warm_start_test` WSR-ROM3-01 (the feeder follows the MMU,
+> not the recording's ROM 0) and WSR-ROM3-02 (the program's RST $08 automaps
+> through the ROM3-only entry point NextZXOS leaves, NR 0xB9 = 0x00).
+
 ### 9. NMI and DivMMC Button
 
 The NMI button triggers automap at 0x0066 only when `button_nmi` is set.

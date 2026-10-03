@@ -77,7 +77,9 @@ Inside the directory, paths behave like FAT paths rather than host paths:
 - lookup ignores case, so a program asking for `LEVEL1.BIN` finds `level1.bin`
 - the esxDOS drive prefixes `*:`, `$:` and `c:` all mean the same directory
 - long names get a synthesised 8.3 short name, the way FAT does, for programs
-  that ask for short names
+  that ask for short names, and a path can use either name
+- the current directory reads back the way NextZXOS reports it: `C:/`, then
+  each directory's 8.3 name followed by `/`, such as `C:/MYGAME~1/DATA/`
 
 Anything that would leave the directory is refused, and so is any symbolic
 link — links are not listed either, so a program is never offered a name it
@@ -88,7 +90,12 @@ would then be refused.
 Some calls are refused outright rather than answered approximately, because a
 wrong answer is worse than a clear refusal:
 
-- wildcard, sorted and filtered directory listings
+- sorted and filtered directory listings, and wildcard listings other than
+  `*.*`. A listing request that NextZXOS answers with the plain listing, such
+  as `*.*` or a sort/filter request with nothing selected, gets the plain
+  listing here too. The entries are the same ones NextZXOS would list, but
+  their order, the spelling of their names (your files' own case) and their
+  read-only and hidden flags follow your host files, not a FAT card
 - the `+3DOS` header modes of `F_OPEN` and `F_OPENDIR` — a host file has no
   `+3DOS` header and inventing one would feed the program eight bytes of
   fiction
