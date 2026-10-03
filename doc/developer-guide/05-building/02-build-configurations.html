@@ -2426,7 +2426,11 @@ un-inlinable at compile time.</p>
 <code>org.kde.Sdk</code> GCC miscompiles the QApplication init path under whole-program
 LTO and segfaults at GUI launch. That was bisected to the LTO <em>process</em> in that
 toolchain rather than to any single translation unit or transform, which is why
-nothing short of disabling it helps. Every other build keeps LTO on.</p>
+nothing short of disabling it helps. Every other build keeps LTO on —
+including the Windows executables, which is why every <code>win-*-release</code> target
+passes <code>-DCMAKE_BUILD_TYPE=Release</code> explicitly (<code>WIN_BUILD_TYPE</code> in the
+Makefile). Before GH #298 they passed no build type, fell back to
+RelWithDebInfo, and shipped without LTO.</p>
 <h2 id="profile-guided-optimisation">Profile-guided optimisation<a class="headerlink" href="#profile-guided-optimisation" title="Permanent link">&para;</a></h2>
 <p><code>make gui-release</code> — and every package, see
 <a href="03-packaging-and-release.html">5.3</a> — is a gcc <strong>PGO</strong> build (GH #297). Measured

@@ -128,8 +128,8 @@ targets: build variants, per-variant `-run`/`-clean`, tests, packaging, versioni
 | `make gui-debug` | Qt6 GUI, debug (`-Og`, debug symbols, frame pointers) |
 | `make sdl-release` | SDL-only, release → `build/sdl-release/jnext` |
 | `make sdl-debug` | SDL-only, debug |
-| `make win-release` | Cross-compile the Windows `jnext.exe` (Fedora MinGW, PGO trained under wine), DLLs bundled beside it |
-| `make win-release-non-pgo` | The same without PGO (no wine needed) → `build/win-release-non-pgo` |
+| `make win-release` | Cross-compile the Windows `jnext.exe` (Fedora MinGW, Release + LTO, PGO trained under wine), DLLs bundled beside it |
+| `make win-release-non-pgo` | The same without PGO (still Release + LTO; no wine needed) → `build/win-release-non-pgo` |
 | `make gui-release-run` / `gui-debug-run` / `sdl-release-run` / `sdl-debug-run` | Build, then run |
 
 **Test**
@@ -299,11 +299,16 @@ that package's own build tree. So every package build needs the SD image (it
 is downloaded if missing, as above; the Linux packages and the Flatpak have no
 non-PGO variant, so without the image they stop and say so), and:
 
-- the **Windows** executables are trained under **wine** (`wine-core` and
+- the **Windows** executables are Release builds with LTO, like the Linux
+  packages, and are trained under **wine** (`wine-core` and
   `wine-common` on Fedora), without the training's GUI run. Without wine the build stops; `make
   win-release-non-pgo`, or `WIN_PGO=0` on any `win-*-release` target, builds
-  without PGO. The repository-internal SDL-only Windows builds
-  (`win-sdl-release`, `win32-sdl-release`) are not PGO builds;
+  without PGO. Each Windows PGO build refreshes its wine prefix
+  (`wineboot -u`) and then runs the FUSE Z80 suite (`fuse_z80_test.exe`,
+  built in the same tree) under wine; the build fails unless all 1356 cases
+  pass. The repository-internal SDL-only Windows builds
+  (`win-sdl-release`, `win32-sdl-release`) are not PGO builds, but are
+  Release + LTO too;
 - the **Flatpak** trains inside the build sandbox: the manifest carries the
   NextZXOS distribution zip as a source, and the bundle is only produced if
   the FUSE Z80 suite passes against its PGO-built CPU core;

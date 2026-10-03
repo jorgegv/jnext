@@ -95,7 +95,11 @@ un-inlinable at compile time.
 `org.kde.Sdk` GCC miscompiles the QApplication init path under whole-program
 LTO and segfaults at GUI launch. That was bisected to the LTO *process* in that
 toolchain rather than to any single translation unit or transform, which is why
-nothing short of disabling it helps. Every other build keeps LTO on.
+nothing short of disabling it helps. Every other build keeps LTO on —
+including the Windows executables, which is why every `win-*-release` target
+passes `-DCMAKE_BUILD_TYPE=Release` explicitly (`WIN_BUILD_TYPE` in the
+Makefile). Before GH #298 they passed no build type, fell back to
+RelWithDebInfo, and shipped without LTO.
 
 ## Profile-guided optimisation
 

@@ -46,7 +46,8 @@ endif()
 # LTO *process* in that toolchain, not any single unit or transform (per-target
 # LTO, -fno-devirtualize/-fno-ipa-icf, and -O2 all still crashed); only fully
 # disabling LTO fixes it. The native host GCC does not miscompile, so every
-# other build (native, DEB, RPM, gui-release) keeps LTO and its full perf. The
+# other build (native, DEB, RPM, gui-release, and the MinGW Windows builds,
+# which are Release since GH #298) keeps LTO and its full perf. The
 # option defaults ON and is flipped OFF solely in packaging/flatpak/*.yml.
 # Full analysis + bisection record: doc/issues/FLATPAK-LTO-PROBLEMS.md.
 option(JNEXT_ENABLE_LTO "Enable LTO/IPO for Release builds (Flatpak sets OFF; see comment)" ON)

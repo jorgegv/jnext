@@ -650,6 +650,31 @@ else
     else skp_ci_fail package-win32-qt5 "MinGW i686 (mingw32) Qt5 cross toolchain not installed"; fi
 fi
 
+# --- package-win-lto (GH #298) -----------------------------------------------
+# Every Windows tree built above must be a Release build linked with LTO, like
+# the Linux packages. The Windows configures once passed no CMAKE_BUILD_TYPE,
+# so they fell back to RelWithDebInfo and LTO (Release-only) never ran: the
+# zips shipped without it and nothing noticed. The build tree is the evidence:
+# its cache holds the build type and jnext's link command holds the -flto that
+# CMake's IPO adds. Dropping $(WIN_BUILD_TYPE) from any leg FAILs here.
+win_lto_ok=""; win_lto_bad=""
+for d in win-release win-qt5-release win32-qt5-release win-sdl-release win32-sdl-release; do
+    [ -f "build/$d/jnext.exe" ] || continue
+    if grep -q '^CMAKE_BUILD_TYPE:[A-Z]*=Release$' "build/$d/CMakeCache.txt" 2>/dev/null \
+       && grep -q -- '-flto' "build/$d/CMakeFiles/jnext.dir/link.txt" 2>/dev/null; then
+        win_lto_ok="$win_lto_ok $d"
+    else
+        win_lto_bad="$win_lto_bad $d"
+    fi
+done
+if [ -n "$win_lto_bad" ]; then
+    bad package-win-lto "not a Release build linked with -flto:$win_lto_bad"
+elif [ ! -f build/win-release/jnext.exe ]; then
+    skp_ci_fail package-win-lto "jnext.exe absent (package-win not built here)"
+else
+    ok package-win-lto "Release + LTO:$win_lto_ok"
+fi
+
 # --- package-flatpak ---------------------------------------------------------
 # A full flatpak-builder run needs org.kde.Sdk installed (a large runtime) and
 # network access, so it is only attempted when the SDK is present. Always at

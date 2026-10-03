@@ -31,8 +31,11 @@ sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase \
 `mingw64-filesystem` supplies `mingw64-cmake`; the **native** `qt6-qtbase-devel`
 supplies `moc`/`rcc`/`uic`, which run on the build host rather than the target.
 
-The build is configured `-DENABLE_QT_UI=ON -DENABLE_TESTS=OFF` — the test suites
-are not cross-built, because they are run on Linux.
+The build is configured `-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON
+-DENABLE_TESTS=OFF`. Release is what turns LTO on, as in the Linux packages;
+before GH #298 no build type was passed, so the Windows builds fell back to
+RelWithDebInfo and shipped without LTO. The test suites are not cross-built,
+because they are run on Linux.
 
 `packaging/windows/bundle-dlls.sh` then copies the Qt6/SDL2/SDL3 runtime DLLs
 **and the `platforms/qwindows.dll` plugin** next to the executable. Both halves
@@ -51,7 +54,7 @@ Windows hardware.
 
 There is very little, which is the point:
 
-- **`CMakeLists.txt:246-247`** — `-Wl,--stack,16777216`, `WIN32` only. An early
+- **`CMakeLists.txt`, the `WIN32` link options** — `-Wl,--stack,16777216`. An early
   startup path (before `main`; same `__chkstk` address for `--version`,
   `--help` and `--headless`) reserves a >2 MB frame that overflows MinGW's 2 MB
   default. The 16 MB reserve fully resolves the crash; **the frame itself was
