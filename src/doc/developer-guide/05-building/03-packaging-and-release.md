@@ -65,31 +65,38 @@ and its hermetic half, `package-contract-test`, is a prerequisite of
 
 ## `version.yaml` is the single source of truth
 
-Everything else derives from it. CMake reads it into `PROJECT_VERSION`, so every
-CPack-generated package already carries the right version with no further work
-from anyone.
+No other file carries a copy of the version: everything that needs it reads
+`version.yaml` when it is built.
 
-The files that a *person* wrote by hand are the ones that need help, and
-`packaging/sync-version.sh` keeps them in lockstep. The `bump-*` targets call it
-automatically. It knows about four files:
+- CMake reads it into `PROJECT_VERSION`, so the binary and every CPack-generated
+  package carry the right version, and the `package-*` recipes read it to name
+  their artifacts.
+- Both mkdocs configs load the hook `src/doc/version_hook.py`, which sets
+  `extra.doc_release` (the "This version" in each guide's header) from it at
+  render time, and stops the build when it is missing or malformed rather than
+  rendering a wrong version.
+- The native rpm spec takes it as `rpmbuild --define "jnext_version X.Y.Z"` and
+  refuses to parse without it; its top `%changelog` entry is generated from the
+  same value, so it always matches `Version:`.
+- The native Debian package's `debian/changelog` is written at build time by
+  `packaging/gen-debian-changelog.sh`, whose top entry is the version and whose
+  tail is the committed `changelog.history`.
+- The Flatpak manifest builds from the local checkout and carries no version.
 
-- `packaging/rpm/jnext.spec` — the `Version:` field plus a matching
-  `%changelog` entry, because rpmbuild complains when the top changelog version
-  and `Version:` disagree
-- `packaging/assets/io.github.zxjogv.jnext.metainfo.xml` — the AppStream
-  `<releases>` history, **for public releases only**
-- `packaging/debian/changelog`
-- `mkdocs.yml` — the version stamped into every page of the user guide, which is
-  also why the script re-renders that guide
+So a bump edits nothing by hand except `version.yaml`. What it must still
+commit is done by `packaging/sync-version.sh`, which the `bump-*` targets call:
+it re-renders the two committed guides, whose every page shows the version, and
+for a **public release only** adds the AppStream `<release>` entry to
+`packaging/assets/io.github.zxjogv.jnext.metainfo.xml`. That entry stays
+committed because it carries the release date, which `releases.yaml` does not
+record and a source-tarball build has no git history to look up.
 
-The Flatpak manifest is deliberately absent from that list: it builds from the
-local checkout and carries no version tag to rewrite.
-
-**When you add a file that hard-codes the version, add it to
-`sync-version.sh`.** That script is the one place that must know them all. It is
-idempotent; it fails loudly when a target file, or the anchor an edit depends
-on, is missing — aborting the whole bump is better than committing a half-synced
-tree — and it is covered by a contract suite inside `make package-test`.
+**Do not add a hard-coded copy of the version anywhere: read `version.yaml` at
+build time.** The contract suite `test/packaging/sync-version-test.sh`, part of
+`make package-contract-test` and so of `make unit-test`, fails when a copy of
+the current version appears in a packaging, CI, CMake or mkdocs file, and also
+pins the behaviour of the script, the hook, the spec and the changelog
+generator.
 
 ## Bumping, and the public/private distinction
 

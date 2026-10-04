@@ -253,8 +253,16 @@ tarball (equivalent to `git clone --recursive`) before building the RPM:
 
 ```sh
 packaging/make-dist-tarball.sh ~/rpmbuild/SOURCES   # writes v<version>.tar.gz
-rpmbuild -bb packaging/rpm/jnext.spec
+rpmbuild -bb --define "jnext_version $(awk '/^version:/{print $2}' version.yaml)" \
+    packaging/rpm/jnext.spec
 ```
+
+The spec carries no version of its own: `version.yaml` is the single source of
+truth, so the version is passed in with `--define jnext_version`, and the spec
+refuses to parse without it rather than build a wrong or empty version. Its top
+`%changelog` entry is generated from the same value (dated today, or
+`SOURCE_DATE_EPOCH` when set), so it always matches `Version:` and a bump never
+edits the spec. Release notes are the `ChangeLog` file the package installs.
 
 This was verified end-to-end on this host: `rpmbuild -bb` compiled the full
 Qt6 GUI + debugger and produced an installable `jnext` RPM whose
@@ -265,16 +273,26 @@ SDL2, libcurl, libcrypto, libpng, zlib, GL libs, …).
 
 Support policy: Debian Stable + OldStable, Ubuntu current + LTS.
 
-`packaging/debian/` (`control`, `rules`, `changelog`, `copyright`, and
-`source/format`) is a standard `debhelper-compat (= 13)`, `dh --buildsystem
-cmake` source package. Debian tooling expects `debian/` at the repository
-root, so symlink (or copy) it there before building:
+`packaging/debian/` (`control`, `rules`, `changelog.history`, `copyright`,
+and `source/format`) is a standard `debhelper-compat (= 13)`, `dh
+--buildsystem cmake` source package. Debian tooling expects `debian/` at the
+repository root, so copy it there, generate its changelog, and build:
 
 ```sh
-ln -s packaging/debian debian
+cp -r packaging/debian debian
+bash packaging/gen-debian-changelog.sh > debian/changelog
 dpkg-buildpackage -us -uc -b
-rm debian   # remove the symlink afterwards; keep the tree clean
+rm -rf debian   # remove the copy afterwards; keep the tree clean
 ```
+
+`dpkg-buildpackage` takes the package version from the top changelog entry,
+and `version.yaml` is the single source of truth, so that entry is generated at
+build time by `gen-debian-changelog.sh` (dated `SOURCE_DATE_EPOCH` when set,
+else now) and followed by the committed history in `changelog.history`. A copy,
+not a symlink: the generated file must not land in the tracked tree. The
+history file is deliberately not called `changelog`, so a `debian/` copied
+without the generation step has no changelog and the build stops instead of
+packaging a stale version.
 
 `debian/rules` passes `-DENABLE_QT_UI=ON -DENABLE_TESTS=OFF
 -DCMAKE_BUILD_TYPE=Release` to the CMake configure step, matching how the

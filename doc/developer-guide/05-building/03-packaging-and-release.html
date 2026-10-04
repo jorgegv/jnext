@@ -2411,29 +2411,37 @@ survive 46 tags unnoticed. It now runs as its own parallel CI job,
 and its hermetic half, <code>package-contract-test</code>, is a prerequisite of
 <code>make unit-test</code>.</p>
 <h2 id="versionyaml-is-the-single-source-of-truth"><code>version.yaml</code> is the single source of truth<a class="headerlink" href="#versionyaml-is-the-single-source-of-truth" title="Permanent link">&para;</a></h2>
-<p>Everything else derives from it. CMake reads it into <code>PROJECT_VERSION</code>, so every
-CPack-generated package already carries the right version with no further work
-from anyone.</p>
-<p>The files that a <em>person</em> wrote by hand are the ones that need help, and
-<code>packaging/sync-version.sh</code> keeps them in lockstep. The <code>bump-*</code> targets call it
-automatically. It knows about four files:</p>
+<p>No other file carries a copy of the version: everything that needs it reads
+<code>version.yaml</code> when it is built.</p>
 <ul>
-<li><code>packaging/rpm/jnext.spec</code> — the <code>Version:</code> field plus a matching
-  <code>%changelog</code> entry, because rpmbuild complains when the top changelog version
-  and <code>Version:</code> disagree</li>
-<li><code>packaging/assets/io.github.zxjogv.jnext.metainfo.xml</code> — the AppStream
-  <code>&lt;releases&gt;</code> history, <strong>for public releases only</strong></li>
-<li><code>packaging/debian/changelog</code></li>
-<li><code>mkdocs.yml</code> — the version stamped into every page of the user guide, which is
-  also why the script re-renders that guide</li>
+<li>CMake reads it into <code>PROJECT_VERSION</code>, so the binary and every CPack-generated
+  package carry the right version, and the <code>package-*</code> recipes read it to name
+  their artifacts.</li>
+<li>Both mkdocs configs load the hook <code>src/doc/version_hook.py</code>, which sets
+  <code>extra.doc_release</code> (the "This version" in each guide's header) from it at
+  render time, and stops the build when it is missing or malformed rather than
+  rendering a wrong version.</li>
+<li>The native rpm spec takes it as <code>rpmbuild --define "jnext_version X.Y.Z"</code> and
+  refuses to parse without it; its top <code>%changelog</code> entry is generated from the
+  same value, so it always matches <code>Version:</code>.</li>
+<li>The native Debian package's <code>debian/changelog</code> is written at build time by
+  <code>packaging/gen-debian-changelog.sh</code>, whose top entry is the version and whose
+  tail is the committed <code>changelog.history</code>.</li>
+<li>The Flatpak manifest builds from the local checkout and carries no version.</li>
 </ul>
-<p>The Flatpak manifest is deliberately absent from that list: it builds from the
-local checkout and carries no version tag to rewrite.</p>
-<p><strong>When you add a file that hard-codes the version, add it to
-<code>sync-version.sh</code>.</strong> That script is the one place that must know them all. It is
-idempotent; it fails loudly when a target file, or the anchor an edit depends
-on, is missing — aborting the whole bump is better than committing a half-synced
-tree — and it is covered by a contract suite inside <code>make package-test</code>.</p>
+<p>So a bump edits nothing by hand except <code>version.yaml</code>. What it must still
+commit is done by <code>packaging/sync-version.sh</code>, which the <code>bump-*</code> targets call:
+it re-renders the two committed guides, whose every page shows the version, and
+for a <strong>public release only</strong> adds the AppStream <code>&lt;release&gt;</code> entry to
+<code>packaging/assets/io.github.zxjogv.jnext.metainfo.xml</code>. That entry stays
+committed because it carries the release date, which <code>releases.yaml</code> does not
+record and a source-tarball build has no git history to look up.</p>
+<p><strong>Do not add a hard-coded copy of the version anywhere: read <code>version.yaml</code> at
+build time.</strong> The contract suite <code>test/packaging/sync-version-test.sh</code>, part of
+<code>make package-contract-test</code> and so of <code>make unit-test</code>, fails when a copy of
+the current version appears in a packaging, CI, CMake or mkdocs file, and also
+pins the behaviour of the script, the hook, the spec and the changelog
+generator.</p>
 <h2 id="bumping-and-the-publicprivate-distinction">Bumping, and the public/private distinction<a class="headerlink" href="#bumping-and-the-publicprivate-distinction" title="Permanent link">&para;</a></h2>
 <p>There is a distinction here that is easy to miss because most projects do not
 make it. <strong>A git tag is not the same thing as a public release.</strong> Every merge

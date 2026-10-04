@@ -6,7 +6,8 @@
   the same question and must answer it the same way. Keep them in step — a
   change to one almost certainly belongs in the other. Where the comment below
   says `mkdocs.yml`, this copy means `mkdocs-devguide.yml`;
-  packaging/sync-version.sh stamps and re-renders both.
+  src/doc/version_hook.py sets the version for both, and
+  packaging/sync-version.sh re-renders both on a bump.
 
   Original rationale (GH #nit, 2026-07-23) follows.
 
