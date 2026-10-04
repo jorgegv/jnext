@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=117  # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72 (GH #295)
+EXPECTED_TOTAL=121  # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1808,6 +1808,104 @@ racy=$(cd "$PROJECT_DIR" && git ls-files 'test/*.sh' 'test/*.inc' 'tools/*.sh' |
        | xargs grep -nE "$XVFB_RACY_RE" 2>/dev/null || true)
 check "HS-72" "no test script starts Xvfb on a non-atomically chosen display (xvfb-run -a/-n); the matcher's control (GH #295)" 0 0 \
     "control=$ctl racy=[${racy}]" "control=111100 racy=[]"
+
+# ---------------- a nested harness never waits on its ancestor's lock (GH #295) ----------------
+# `make regression-confirm` could not pass harness-selftest-func: the confirm
+# run holds the host lock, JNEXT_REGRESSION_STAMP=confirm leaked into the
+# self-test's own `regression.sh --preflight-only` children, each of them
+# therefore took the slot and waited for the lock its ancestor held, until its
+# bound (HS-21..31 exit 124 at load 0.5). This row is that shape, end to end,
+# in a throwaway repository holding the REAL driver, library, scheduler, row
+# runner and stamp script: a pending record for one row; a confirm run of it,
+# under its own lock file; and the row itself invokes the harness again,
+# exactly as harness-selftest-func does. The confirm must complete and stamp.
+CR="$T/confirmrepo"; CRT="$CR/test/00regression"
+mkdir -p "$CRT/scripts" "$CRT/img" "$T/cfix" "$T/cstamps"
+cp "$PROJECT_DIR/test/00regression/regression.sh" "$PROJECT_DIR/test/00regression/test-functions.inc" \
+   "$PROJECT_DIR/test/00regression/parallel-rows.inc" "$PROJECT_DIR/test/00regression/row-runner.sh" "$CRT/"
+cp "$PROJECT_DIR/test/regression-stamp.sh" "$CR/test/"
+printf '# expect: 0\n' > "$CRT/regression_tests.conf"
+printf '# expect: 1\nnested-func\n' > "$CRT/functional_tests.conf"
+: > "$CRT/scripts/00-preflight-lint.sh"; : > "$CRT/scripts/01-sdcard-provision.sh"
+printf 'ORDERED_TESTS=()\n' > "$CRT/scripts/screenshots.sh"
+# Two nested runs: the self-test's own shape (a plain --preflight-only, which
+# only took the slot because STAMP=confirm leaked into it), and one that asks
+# for the slot outright (LOCK=force, as a nested full run would) — that one
+# must recognise its ancestor's lock instead of waiting for it.
+cat > "$CRT/scripts/nested-func.sh" <<'NESTED'
+if want nested-func; then
+    begin_func nested-func
+    nested_a=$(timeout --kill-after=5s 60s bash "$SCRIPT_DIR/regression.sh" --preflight-only 2>&1); nested_ra=$?
+    nested_b=$(JNEXT_REGRESSION_LOCK=force timeout --kill-after=5s 60s bash "$SCRIPT_DIR/regression.sh" --preflight-only 2>&1); nested_rb=$?
+    if [[ $nested_ra -eq 0 && $nested_rb -eq 0 ]]; then
+        pass_row " (the nested harness ran: plain $(grep -c 'preflight OK' <<<"$nested_a"), forced $(grep -c 'preflight OK' <<<"$nested_b"); $(grep -o 'nested inside a run that holds' <<<"$nested_b"))"
+    else
+        fail_row " (a nested harness did not complete: rc $nested_ra/$nested_rb: $(tail -n 2 <<<"$nested_a$nested_b" | tr '\n' ' '))"
+    fi
+fi
+NESTED
+# the binaries a no-filter preflight insists on, as stand-ins (ignored by git)
+mkdir -p "$CR/build/test" "$CR/build/sdl-release"
+printf '#!/bin/sh\nexit 0\n' > "$CR/build/test/rewind_test"; cp "$CR/build/test/rewind_test" "$CR/build/sdl-release/jnext"
+chmod +x "$CR/build/test/rewind_test" "$CR/build/sdl-release/jnext"
+printf 'build/\n' > "$CR/.gitignore"
+sg_cr() { git -C "$CR" -c user.name=t -c user.email=t@t "$@" >/dev/null 2>&1; }
+sg_cr init -q; sg_cr add -A; sg_cr commit -qm fixture
+cst=$(JNEXT_REGRESSION_STAMP_DIR="$T/cstamps" bash "$CR/test/regression-stamp.sh" state)
+JNEXT_REGRESSION_STAMP_DIR="$T/cstamps" bash "$CR/test/regression-stamp.sh" pending "$cst" \
+    "fails=nested-func" pass=0 fail=1 skip=0 rows=1 >/dev/null 2>&1
+t0=$SECONDS
+out=$(cd "$CR" && HOME="$T/cfix" JNEXT=/bin/true JNEXT_REGRESSION_STAMP_DIR="$T/cstamps" \
+      JNEXT_REGRESSION_LOCK_FILE="$T/confirm.lock" JNEXT_REGRESSION_LOCK_WAIT=6 \
+      JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-idle" JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_HEARTBEAT=0 \
+      JNEXT_REGRESSION_STAMP=confirm JNEXT_TEST_JOBS=1 \
+      timeout --kill-after=5s 120s bash "$CRT/regression.sh" nested-func 2>&1); rc=$?
+out+=$'\n'"$(JNEXT_REGRESSION_STAMP_DIR="$T/cstamps" bash "$CR/test/regression-stamp.sh" check 2>&1)"
+out+=$'\n'"fast=$(( SECONDS - t0 < 60 ? 1 : 0 ))"
+check "HS-73" "a confirm run whose row runs the harness again completes and stamps — no wait on its own ancestor's lock (GH #295)" 0 $rc "$out" \
+    "[nested-func]" "the nested harness ran: plain 1, forced 1; nested inside a run that holds" \
+    "passed solo" "STAMP OK" "confirmed_solo=nested-func" "fast=1"
+
+# ...and the marker is EVIDENCE, never a password (review of HS-73's fix). An
+# entry counts only for a live ancestor, with its /proc start time, that holds
+# the lock right now. A hand-exported marker, an entry naming a live ancestor
+# that does NOT hold the lock, a stale entry of a run that has exited, and a
+# live holder that is NOT an ancestor must each leave this run a normal second
+# full run: it waits for the lock, bounded, and is a harness fault at the bound.
+proc_start() { local st; st=$(cat "/proc/$1/stat" 2>/dev/null) || return 0; st=${st##*) }; set -- $st; echo "${20:-}"; }
+flock "$lockf" sleep 40 & holder=$!
+sleep 1
+gone=$(bash -c 'echo $$'); gone_start=unknown   # a pid that has exited
+out=""
+for marker in "$lockf" "$lockf|$$|$(proc_start $$)" "$lockf|$gone|$gone_start"; do
+    o=$(slot_run JNEXT_REGRESSION_LOCK=force JNEXT_REGRESSION_LOCK_WAIT=5 JNEXT_REGRESSION_ANCESTOR_LOCKS="$marker"); r=$?
+    out+="rc=$r nested=$(count_of "$o" "nested inside") waited=$(count_of "$o" "holds the host lock") "
+done
+check "HS-74a" "a hand-exported, non-holding or stale ancestor-lock marker does NOT bypass the host lock (GH #295)" 0 0 "$out" \
+    "rc=2 nested=0 waited=1 rc=2 nested=0 waited=1 rc=2 nested=0 waited=1"
+o=$(slot_run JNEXT_REGRESSION_LOCK=force JNEXT_REGRESSION_LOCK_WAIT=5 \
+             JNEXT_REGRESSION_ANCESTOR_LOCKS="$lockf|$holder|$(proc_start "$holder")"); r=$?
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+out="rc=$r nested=$(count_of "$o" "nested inside") waited=$(count_of "$o" "holds the host lock")"
+check "HS-74b" "a marker naming the LIVE lock holder that is not an ancestor does not bypass it either (GH #295)" 0 0 "$out" \
+    "rc=2 nested=0 waited=1"
+
+# A SYMLINKED lock path: flock(1) locks the link's TARGET, so the holder check
+# must compare the resolved file — comparing the link's own inode judged a
+# genuine nested child "not held" and it waited on its ancestor (review). The
+# same confirm path as HS-73, its lock file now a symlink.
+ln -sfn "$T/confirm-real.lock" "$T/confirm-sym.lock"; : > "$T/confirm-real.lock"
+JNEXT_REGRESSION_STAMP_DIR="$T/cstamps" bash "$CR/test/regression-stamp.sh" pending "$cst" \
+    "fails=nested-func" pass=0 fail=1 skip=0 rows=1 >/dev/null 2>&1
+t0=$SECONDS
+out=$(cd "$CR" && HOME="$T/cfix" JNEXT=/bin/true JNEXT_REGRESSION_STAMP_DIR="$T/cstamps" \
+      JNEXT_REGRESSION_LOCK_FILE="$T/confirm-sym.lock" JNEXT_REGRESSION_LOCK_WAIT=6 \
+      JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-idle" JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_HEARTBEAT=0 \
+      JNEXT_REGRESSION_STAMP=confirm JNEXT_TEST_JOBS=1 \
+      timeout --kill-after=5s 120s bash "$CRT/regression.sh" nested-func 2>&1); rc=$?
+out+=$'\n'"fast=$(( SECONDS - t0 < 60 ? 1 : 0 ))"
+check "HS-74c" "with a SYMLINKED lock file a genuine nested child still recognises its ancestor's lock (GH #295)" 0 $rc "$out" \
+    "the nested harness ran: plain 1, forced 1; nested inside a run that holds)" "passed solo" "fast=1"
 
 echo ""
 echo "====================================="

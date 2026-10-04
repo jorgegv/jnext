@@ -85,11 +85,19 @@ none, a SKIP or FAIL is never stamped, every non-doc class of path (Makefile,
 CMake, a `.conf`, `tools/`, `.github/`, a gitlink) moves the key while
 documentation does not, the documentation a gate reads does, and the
 pending / solo-confirm path stamps only when every pending row passes. `HS-72`
-bans `xvfb-run -a`/`-n` from the test scripts.
+bans `xvfb-run -a`/`-n` from the test scripts. `HS-73` runs the real confirm
+path in a throwaway repository whose one row invokes the harness again, as
+harness-selftest-func does, and requires it to complete and stamp: a nested
+run never waits for the lock its own ancestor holds. `HS-74a`/`HS-74b` prove
+the marker that says so is evidence, not a password: a hand-exported one, one
+naming a live ancestor that does not hold the lock, a stale one, and one naming
+the live holder that is not an ancestor all leave the run a normal second run
+that waits and faults at its bound; `HS-74c` repeats HS-73 with the lock file
+behind a symlink, which flock(1) resolves and the holder check must too.
 
 ## It pins its own count
 
-`EXPECTED_TOTAL = 117` sits in the script, right next to the rows it counts, and
+`EXPECTED_TOTAL = 121` sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is

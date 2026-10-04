@@ -2401,9 +2401,17 @@ none, a SKIP or FAIL is never stamped, every non-doc class of path (Makefile,
 CMake, a <code>.conf</code>, <code>tools/</code>, <code>.github/</code>, a gitlink) moves the key while
 documentation does not, the documentation a gate reads does, and the
 pending / solo-confirm path stamps only when every pending row passes. <code>HS-72</code>
-bans <code>xvfb-run -a</code>/<code>-n</code> from the test scripts.</p>
+bans <code>xvfb-run -a</code>/<code>-n</code> from the test scripts. <code>HS-73</code> runs the real confirm
+path in a throwaway repository whose one row invokes the harness again, as
+harness-selftest-func does, and requires it to complete and stamp: a nested
+run never waits for the lock its own ancestor holds. <code>HS-74a</code>/<code>HS-74b</code> prove
+the marker that says so is evidence, not a password: a hand-exported one, one
+naming a live ancestor that does not hold the lock, a stale one, and one naming
+the live holder that is not an ancestor all leave the run a normal second run
+that waits and faults at its bound; <code>HS-74c</code> repeats HS-73 with the lock file
+behind a symlink, which flock(1) resolves and the holder check must too.</p>
 <h2 id="it-pins-its-own-count">It pins its own count<a class="headerlink" href="#it-pins-its-own-count" title="Permanent link">&para;</a></h2>
-<p><code>EXPECTED_TOTAL = 117</code> sits in the script, right next to the rows it counts, and
+<p><code>EXPECTED_TOTAL = 121</code> sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is

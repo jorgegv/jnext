@@ -53,6 +53,75 @@ if [[ "${JNEXT_REGRESSION_LOCK:-}" == force || "${JNEXT_REGRESSION_STAMP:-}" == 
    || [[ $# -eq 0 && -z "${JNEXT_REGRESSION_CONF:-}${JNEXT_REGRESSION_FUNC_CONF:-}${JNEXT_REGRESSION_SCRIPTS_DIR:-}" ]]; then
     REGRESSION_SLOT=true
 fi
+reg_lock=${JNEXT_REGRESSION_LOCK_FILE:-${XDG_CACHE_HOME:-$HOME/.cache}/jnext/regression.lock}
+# A run NESTED inside a run that already holds this very lock — a self-test
+# child, a row that drives the harness — is part of that run: it must never
+# wait for the lock its own ancestor holds (it would wait out the bound: the
+# self-test's preflight children inside `make regression-confirm` did, at
+# load 0.5), nor for a quiet host its ancestor is the load of. The locked run
+# exports what it holds in JNEXT_REGRESSION_ANCESTOR_LOCKS (below) as
+# "<lock>|<pid>|<start time>" entries, ';'-separated. The marker is EVIDENCE,
+# not a password: an entry counts only if that pid is alive with that /proc
+# start time (so a recycled pid is not it), is an ancestor of THIS process (a
+# descendant that outlived its run, or a hand-exported marker, is not), and
+# the lock is really held right now. Anything else is not nested and locks
+# normally. A nested run on a DIFFERENT lock file (the self-test's lock rows)
+# still locks normally too.
+reg_proc_field() {   # reg_proc_field <pid> <n> — field n of /proc/<pid>/stat after "(comm)"; 1 = state
+    local st n=$2 IFS=$' \t\n'
+    local -a f
+    st=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
+    st=${st##*) }             # past "(comm) ": a comm may itself hold spaces or ")"
+    read -r -a f <<<"$st"
+    [[ -n "${f[n-1]:-}" ]] || return 1
+    echo "${f[n-1]}"
+}
+reg_lock_holder_is() {   # reg_lock_holder_is <lock> <pid>... — one of the pids holds a FLOCK on <lock>
+    # Two facts, each checked the way the kernel sees the file, so a symlinked
+    # lock path and a btrfs subvolume (whose stat st_dev is not the s_dev that
+    # /proc/locks prints) both come out right: /proc/locks lists a FLOCK held
+    # by that pid on the inode the path RESOLVES to (stat -L: flock(1) locks
+    # the target), and that pid has the very file open (`-ef` compares device
+    # AND inode of both resolved files, so an inode equal by chance on another
+    # filesystem does not match).
+    local ino line pid dev want fd IFS=$' \t\n'
+    ino=$(stat -L -c %i "$1" 2>/dev/null) || return 1
+    while read -r line; do
+        # "<n>: FLOCK ADVISORY WRITE <pid> <maj>:<min>:<inode> <start> <end>"
+        read -r _ _ _ _ pid dev _ <<<"$line"
+        [[ "${dev##*:}" == "$ino" ]] || continue
+        for want in "${@:2}"; do
+            [[ -n "$want" && "$pid" == "$want" ]] || continue
+            for fd in "/proc/$pid/fd/"*; do
+                [[ "$fd" -ef "$1" ]] && return 0
+            done
+        done
+    done < <(grep -E '^[0-9]+: +FLOCK' /proc/locks 2>/dev/null || true)
+    return 1
+}
+reg_held_by_ancestor() {   # reg_held_by_ancestor <lock> — true iff a verified ancestor holds it
+    local entry e_lock e_pid e_start p
+    local IFS=';'
+    for entry in ${JNEXT_REGRESSION_ANCESTOR_LOCKS:-}; do
+        IFS='|' read -r e_lock e_pid e_start <<<"$entry"
+        [[ "$e_lock" == "$1" && "$e_pid" =~ ^[0-9]+$ && -n "$e_start" ]] || continue
+        # field 20 after "(comm)" is starttime (stat field 22); field 2 is ppid
+        [[ "$(reg_proc_field "$e_pid" 20)" == "$e_start" ]] || continue
+        p=$$
+        while [[ -n "$p" && "$p" -gt 1 && "$p" != "$e_pid" ]]; do p=$(reg_proc_field "$p" 2) || p=""; done
+        [[ "$p" == "$e_pid" ]] || continue
+        # ... and THAT run holds the lock right now: /proc/locks names the
+        # process owning each flock — the run's `flock -o` wrapper, i.e. its
+        # parent — by the lock file's inode. Held by anyone else is not it.
+        reg_lock_holder_is "$1" "$e_pid" "$(reg_proc_field "$e_pid" 2)" || continue
+        return 0
+    done
+    return 1
+}
+if $REGRESSION_SLOT && reg_held_by_ancestor "$reg_lock"; then
+    echo "  nested inside a run that holds $reg_lock: not locking again"
+    REGRESSION_SLOT=false
+fi
 if $REGRESSION_SLOT && [[ -z "${JNEXT_REGRESSION_LOCK_HELD:-}" ]]; then
     # flock(1) is util-linux-core, in every Fedora image including the bare CI
     # container; still, a missing one is said, never an exit 127 mid-loop.
@@ -61,7 +130,6 @@ if $REGRESSION_SLOT && [[ -z "${JNEXT_REGRESSION_LOCK_HELD:-}" ]]; then
         echo "  flock(1) (util-linux) is not installed: a full run cannot take the host lock"
         echo ""; exit 2
     fi
-    reg_lock=${JNEXT_REGRESSION_LOCK_FILE:-${XDG_CACHE_HOME:-$HOME/.cache}/jnext/regression.lock}
     reg_lock_bound=${JNEXT_REGRESSION_LOCK_WAIT:-7200}
     mkdir -p "$(dirname "$reg_lock")"
     reg_waited=0
@@ -108,8 +176,17 @@ fi
 if [[ -n "${JNEXT_REGRESSION_LOCK_HELD:-}" ]]; then
     echo "pid $$ since $(date '+%Y-%m-%d %H:%M:%S') in $(cd "$(dirname "$0")/../.." && pwd)" \
         > "$JNEXT_REGRESSION_LOCK_HELD.holder" 2>/dev/null || true
+    reg_entry="$JNEXT_REGRESSION_LOCK_HELD|$$|$(reg_proc_field $$ 20 || echo unknown)"
+    export JNEXT_REGRESSION_ANCESTOR_LOCKS="${JNEXT_REGRESSION_ANCESTOR_LOCKS:+$JNEXT_REGRESSION_ANCESTOR_LOCKS;}$reg_entry"
     unset JNEXT_REGRESSION_LOCK_HELD
 fi
+# What THIS run was asked to do stays with this run: kept in shell variables
+# and taken out of the environment its rows (and anything they start) inherit.
+# Inherited, `JNEXT_REGRESSION_STAMP=confirm` made every nested regression.sh
+# a lock-taking, stamp-writing run of its own; `JNEXT_REGRESSION_LOCK=force`
+# would do the same.
+REG_STAMP_MODE=${JNEXT_REGRESSION_STAMP:-}
+export -n JNEXT_REGRESSION_STAMP JNEXT_REGRESSION_LOCK 2>/dev/null || true
 
 # Shared helpers/constants and the one-time environment setup (locale, jnext
 # binary resolution, SD args, manifest paths, TMP_DIR + EXIT trap, counters,
@@ -330,7 +407,7 @@ REG_T0=$(date +%s)
 # A stamp that cannot be computed is a loud note, not a fault: the run's
 # verdict is the tests', and `make regression-stamp-check` then says "no stamp".
 REG_STAMP_START=""
-if [[ "${JNEXT_REGRESSION_STAMP:-}" == 1 || "${JNEXT_REGRESSION_STAMP:-}" == confirm ]]; then
+if [[ "$REG_STAMP_MODE" == 1 || "$REG_STAMP_MODE" == confirm ]]; then
     REG_STAMP_START=$(bash "$PROJECT_DIR/test/regression-stamp.sh" state) \
         || { REG_STAMP_START=""; echo -e "  ${YELLOW}WARNING: cannot compute the regression stamp key; this run will not be stamped${RESET}"; }
 fi
@@ -431,7 +508,7 @@ reg_stamp() { bash "$PROJECT_DIR/test/regression-stamp.sh" "$@" \
 reg_facts=("pass=$pass" "fail=$fail" "skip=$skip" "rows=$(( pass + fail + skip ))"
            "load_start=${LOAD_START:-unknown}" "load_end=${LOAD_END:-unknown}" "cpus=$HOST_CPUS"
            "lanes=$PAR_LANES/$QUIET_LANES" "wall_s=$REG_WALL")
-case "${JNEXT_REGRESSION_STAMP:-}" in
+case "$REG_STAMP_MODE" in
     1)
         if [[ ${#FILTER_TESTS[@]} -gt 0 ]] || $UPDATE_MODE; then
             echo -e "  no regression stamp: only a full run is stamped"
