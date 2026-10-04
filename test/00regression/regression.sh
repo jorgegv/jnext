@@ -54,6 +54,13 @@ if [[ "${JNEXT_REGRESSION_LOCK:-}" == force || "${JNEXT_REGRESSION_STAMP:-}" == 
     REGRESSION_SLOT=true
 fi
 if $REGRESSION_SLOT && [[ -z "${JNEXT_REGRESSION_LOCK_HELD:-}" ]]; then
+    # flock(1) is util-linux-core, in every Fedora image including the bare CI
+    # container; still, a missing one is said, never an exit 127 mid-loop.
+    if ! command -v flock >/dev/null 2>&1; then
+        echo ""; echo "=== REGRESSION HARNESS FAULT ==="
+        echo "  flock(1) (util-linux) is not installed: a full run cannot take the host lock"
+        echo ""; exit 2
+    fi
     reg_lock=${JNEXT_REGRESSION_LOCK_FILE:-${XDG_CACHE_HOME:-$HOME/.cache}/jnext/regression.lock}
     reg_lock_bound=${JNEXT_REGRESSION_LOCK_WAIT:-7200}
     mkdir -p "$(dirname "$reg_lock")"

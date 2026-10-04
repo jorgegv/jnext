@@ -44,6 +44,47 @@ EXPECTED_TOTAL=117  # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..o
 # pattern as HS-04's TIMEOUT_OVERRIDE) so proving it costs ~3 s, not 30.
 INVOKE_TIMEOUT=30
 
+# EVERY external tool a check's evidence depends on, verified before any check
+# runs. A missing tool must be a loud refusal, never evidence: HS-70e once
+# asked `pgrep`/`ps` (procps-ng, absent from the fedora:44 CI container) for
+# the process it was about to signal, both failed silently behind `|| true`,
+# and the row reported a broken harness that was not broken (GH #295 CI).
+# Process lookups now read /proc directly (proc_* below), so procps is not on
+# this list; a new tool in an evidence path goes ON it, or reads /proc too.
+missing_tools=""
+for tool in awk bash cat chmod cp cut date dirname env find flock git grep head ls make \
+            mkdir mktemp mv rm sed seq sha256sum sleep sort timeout touch tr wc xargs; do
+    command -v "$tool" >/dev/null 2>&1 || missing_tools+=" $tool"
+done
+[[ -r /proc/self/stat && -r /proc/self/cmdline ]] || missing_tools+=" /proc"
+if [[ -n "$missing_tools" ]]; then
+    printf "  REFUSE harness-selftest: required tool(s) missing:%s — install them; a check cannot report evidence it has no tool to collect\n" "$missing_tools"
+    exit 2
+fi
+
+# /proc readers, so no check depends on procps-ng (ps/pgrep).
+proc_args() {   # proc_args <pid> — argv joined by single spaces; "" if gone
+    local a
+    a=$(tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null) || return 0
+    echo "${a% }"
+}
+proc_ppid() {   # proc_ppid <pid> — the parent pid; "" if gone
+    local s
+    s=$(cat "/proc/$1/stat" 2>/dev/null) || return 0
+    s=${s##*) }               # past "(comm) ": comm may itself contain spaces
+    set -- $s                 # $1 = state, $2 = ppid
+    echo "${2:-}"
+}
+proc_comm() { cat "/proc/$1/comm" 2>/dev/null || true; }   # proc_comm <pid>
+proc_with_args() {   # proc_with_args <exact argv string> — the pids running it
+    local d pid
+    for d in /proc/[0-9]*; do
+        pid=${d#/proc/}
+        [[ "$(proc_args "$pid")" == "$1" ]] && echo "$pid"
+    done
+    return 0
+}
+
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 
@@ -1579,14 +1620,14 @@ slot_run JNEXT_REGRESSION_LOCK=force JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-b
 op=$!
 for _ in $(seq 1 50); do grep -q 'waiting for the host' "$T/outer.out" 2>/dev/null && break; sleep 0.2; done
 outer=""   # the regression.sh whose parent is timeout (the locked run's parent is flock)
-for p in $(pgrep -f -x "bash $REG --preflight-only" || true); do
-    [[ "$(ps -o comm= -p "$(ps -o ppid= -p "$p" | tr -d ' ')")" == timeout ]] && outer=$p
+for p in $(proc_with_args "bash $REG --preflight-only"); do
+    [[ "$(proc_comm "$(proc_ppid "$p")")" == timeout ]] && outer=$p
 done
 held=$(flock -n "$lockf" true && echo free || echo held)
 t0=$SECONDS
 kill -TERM "$outer" 2>/dev/null; wait "$op" 2>/dev/null
 sleep 1
-out="outer=${outer:+found} before=$held after=$(flock -n "$lockf" true && echo free || echo held) fast=$(( SECONDS - t0 < 10 ? 1 : 0 )) runs=$(pgrep -fc -x "bash $REG --preflight-only" || true)"
+out="outer=${outer:+found} before=$held after=$(flock -n "$lockf" true && echo free || echo held) fast=$(( SECONDS - t0 < 10 ? 1 : 0 )) runs=$(proc_with_args "bash $REG --preflight-only" | wc -l)"
 check "HS-70e" "a TERM to the outer regression.sh alone stops the locked run and frees the lock (GH #295)" 0 0 "$out" \
     "outer=found before=held after=free" "fast=1" "runs=0"
 
