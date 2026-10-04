@@ -2,96 +2,57 @@
 #
 # sync-version.sh <version>
 #
-# Propagate a version number from version.yaml into the hand-maintained
-# packaging files that carry a hard-coded copy of it. Called by the Makefile
-# `bump-*` targets so a bump updates EVERY version-bearing file at once —
-# version.yaml is the single source of truth, this keeps the rest aligned.
+# Do the part of a version bump that still has to be COMMITTED, after the
+# Makefile `bump-*` targets have written <version> into version.yaml — the
+# single source of truth. Everything else READS version.yaml when it is built,
+# so a bump does not edit it:
+#   - CMake (PROJECT_VERSION -> the binary, every CPack package, the macOS
+#     bundle plist); the package-* recipes read it for artifact names
+#   - packaging/rpm/jnext.spec          `--define jnext_version` at rpmbuild
+#                                       time; the top %changelog entry is
+#                                       generated from it
+#   - packaging/debian/changelog        written at build time by
+#                                       packaging/gen-debian-changelog.sh
+#   - mkdocs.yml, mkdocs-devguide.yml   extra.doc_release, set at render time
+#                                       by src/doc/version_hook.py
+#   - the flatpak manifest              builds from the local checkout, no tag
 #
-# The CPack-generated packages (make package-rpm/deb/win/macos) already derive
-# their version from version.yaml via CMake's PROJECT_VERSION, so they are NOT
-# touched here. This script handles only the files a person wrote by hand:
-#   - packaging/rpm/jnext.spec          Version: + a matching %changelog entry
-#   - packaging/assets/*.metainfo.xml   the AppStream <releases> history
-#                                       (PUBLIC releases only — gated on
-#                                        releases.yaml; private patch tags skip)
-#   - packaging/debian/changelog        the Debian changelog
-#   - mkdocs.yml                        extra.doc_release, shown as "This
-#                                       version" in the user guide header —
-#                                       ALWAYS the current version.yaml, so a
-#                                       reader can compare the guide they are
-#                                       looking at against "Latest version",
-#                                       which the page fetches live from
-#                                       version.yaml on GitHub main.
-#                                       The version is baked into EVERY page at
-#                                       render time, so the guide is re-rendered
-#                                       here too and a bump touches all of it.
-#   - mkdocs-devguide.yml               the same field, for the DEVELOPER guide
-#                                       (GH #44). Same header, same contract,
-#                                       same re-render. Two guides, so two
-#                                       configs to keep in step.
+# What remains, and why it cannot be derived at build time:
+#   - packaging/assets/*.metainfo.xml   the AppStream <releases> history, for
+#                                       PUBLIC releases only (releases.yaml).
+#                                       Each entry carries the release DATE,
+#                                       which releases.yaml does not record and
+#                                       a source tarball has no git to look up,
+#                                       so it is written once, here, on the day.
+#   - doc/user-guide, doc/developer-guide
+#                                       the committed renders show "This
+#                                       version" on every page (offline reading
+#                                       of a clone), so they are re-rendered.
 #
-# The flatpak manifest is NOT listed: it builds from the local checkout
-# (`type: git` + `path`), carrying no `tag: vX.Y.Z` to keep in sync.
-#
-# Idempotent: re-running with the same version is a no-op (each field is only
-# updated/prepended when it does not already reflect <version>).
+# Idempotent: re-running with the same version is a no-op.
 #
 set -euo pipefail
 
 ver=${1:?usage: sync-version.sh <version>}
 root=$(cd "$(dirname "$0")/.." && pwd)
 
-spec="$root/packaging/rpm/jnext.spec"
 metainfo="$root/packaging/assets/io.github.zxjogv.jnext.metainfo.xml"
-debchangelog="$root/packaging/debian/changelog"
-mkdocs="$root/mkdocs.yml"
-mkdocs_dev="$root/mkdocs-devguide.yml"
 
-# Fail loud up front if any target file or the anchor an edit depends on is
-# missing. Without this, e.g. a spec with no `%changelog` line would get its
-# `Version:` rewritten but not its changelog — a silently inconsistent file
-# (rpmbuild warns/errors when the top %changelog version != Version:). Better
-# to abort the whole bump than to commit a half-synced tree.
-for f in "$spec" "$metainfo" "$debchangelog" "$mkdocs" "$mkdocs_dev"; do
-    [ -f "$f" ] || { echo "sync-version: missing file: $f" >&2; exit 1; }
-done
-grep -qE '^Version:'                              "$spec"     || { echo "sync-version: no 'Version:' line in $spec" >&2; exit 1; }
-grep -qE '^%changelog$'                           "$spec"     || { echo "sync-version: no '%changelog' line in $spec" >&2; exit 1; }
-grep -qE '<releases>'                             "$metainfo" || { echo "sync-version: no '<releases>' element in $metainfo" >&2; exit 1; }
-grep -qE '^  doc_release:'                        "$mkdocs"   || { echo "sync-version: no 'doc_release:' line in $mkdocs" >&2; exit 1; }
-grep -qE '^  doc_release:'                    "$mkdocs_dev"   || { echo "sync-version: no 'doc_release:' line in $mkdocs_dev" >&2; exit 1; }
+# Fail loud up front if the file or the anchor the edit depends on is missing,
+# rather than letting a bump commit a tree that silently skipped it.
+[ -f "$metainfo" ] || { echo "sync-version: missing file: $metainfo" >&2; exit 1; }
+grep -qE '<releases>' "$metainfo" || { echo "sync-version: no '<releases>' element in $metainfo" >&2; exit 1; }
 
-maint="ZXjogv <zx@jogv.es>"
 d_iso=$(date +%F)              # 2026-07-16
-d_rpm=$(date '+%a %b %d %Y')   # Thu Jul 16 2026
-d_deb=$(date -R)               # RFC 2822 (Debian changelog format)
-
-# --- rpm spec: Version: field ------------------------------------------------
-sed -i -E "s/^(Version:[[:space:]]*).*/\1$ver/" "$spec"
-
-# --- rpm spec: %changelog — prepend a matching entry (rpmbuild expects the top
-#     changelog version to match Version:, else it warns/errors) --------------
-if ! grep -qE "^\* .* - ${ver}-1\$" "$spec"; then
-    awk -v ver="$ver" -v d="$d_rpm" -v m="$maint" '
-        /^%changelog$/ {
-            print
-            print "* " d " " m " - " ver "-1"
-            print "- New release " ver "."
-            print ""
-            next
-        }
-        { print }
-    ' "$spec" > "$spec.tmp" && mv "$spec.tmp" "$spec"
-fi
 
 # --- AppStream metainfo: prepend a <release> for PUBLIC releases only ---------
 # The metainfo <releases> is the AppStream release history shown in software
 # centres / Flathub. It must list ONLY the public releases — the tags in
 # releases.yaml — not the private per-merge patch tags, otherwise every
 # bump-patch pollutes the history with a version that was never published.
-# bump-minor/major add the tag to releases.yaml BEFORE calling this script (when
-# the user opts in), so a public release is already listed there by the time we
-# get here; a private bump-patch never is.
+# The bump-* targets add the tag to releases.yaml BEFORE calling this script
+# (when the user opts in), so a public release is already listed there by the
+# time we get here; a private bump never is.
 releases_yaml="$root/releases.yaml"
 # Escape dots so the version can't regex-match a sibling (same discipline as
 # packaging/add-release.sh). The trailing anchor rejects prefix matches
@@ -105,53 +66,39 @@ else
     echo "sync-version: v$ver not in releases.yaml (private tag) — metainfo <releases> left unchanged"
 fi
 
-# --- Debian changelog: prepend a new entry -----------------------------------
-if ! head -n1 "$debchangelog" | grep -qE "^jnext \(${ver}-1\)"; then
-    { printf 'jnext (%s-1) unstable; urgency=medium\n\n  * New release %s.\n\n -- %s  %s\n\n' \
-        "$ver" "$ver" "$maint" "$d_deb"
-      cat "$debchangelog"
-    } > "$debchangelog.tmp"
-    mv "$debchangelog.tmp" "$debchangelog"
-fi
-
-# --- user guide: extra.doc_release + re-render -------------------------------
-# The header's "This version" is baked into every rendered page, and
-# docs-userguide-check byte-diffs a fresh render against the committed output.
-# So bumping the value WITHOUT re-rendering leaves a tree that fails its own
-# docs gate. Refuse the bump rather than commit that — same discipline as the
-# half-synced-spec case above.
-sed -i -E "s/^(  doc_release:[[:space:]]*).*/\1v$ver/" "$mkdocs"
-sed -i -E "s/^(  doc_release:[[:space:]]*).*/\1v$ver/" "$mkdocs_dev"
+# --- user guide: re-render ----------------------------------------------------
+# "This version" is baked into every rendered page from version.yaml (by
+# src/doc/version_hook.py), and docs-userguide-check byte-diffs a fresh render
+# against the committed output. So a bump WITHOUT a re-render leaves a tree
+# that fails its own docs gate: refuse the bump rather than commit that.
 # Re-render only where there is a guide to render. The contract test drives this
 # script against a synthetic root holding just the packaging files, so absent
 # sources are a legitimate state — but a tree that HAS the sources and no mkdocs
-# would commit a config saying v$ver beside a guide that does not, so that case
-# fails loud instead.
+# would commit a version.yaml saying v$ver beside a guide that does not, so that
+# case fails loud instead.
 if [ -d "$root/src/doc/user-guide" ]; then
     if command -v mkdocs >/dev/null 2>&1; then
         make -C "$root" --no-print-directory docs-userguide >/dev/null
     else
         echo "sync-version: mkdocs not installed — cannot re-render the user guide," >&2
-        echo "  and mkdocs.yml now says v$ver while the committed guide says otherwise." >&2
-        echo "  Install mkdocs-material, or revert mkdocs.yml, before bumping." >&2
+        echo "  which would then still say the previous version. Install" >&2
+        echo "  mkdocs-material before bumping." >&2
         exit 1
     fi
 fi
 
 # --- developer guide: the same, one document over (GH #44) -------------------
 # It additionally needs graphviz, because make docs-devguide renders the .dot
-# figures before mkdocs runs. Missing either tool is the same fault as above:
-# the config would claim v$ver beside a committed render that does not.
+# figures before mkdocs runs. Missing either tool is the same fault as above.
 if [ -d "$root/src/doc/developer-guide" ]; then
     if command -v mkdocs >/dev/null 2>&1 && command -v dot >/dev/null 2>&1; then
         make -C "$root" --no-print-directory docs-devguide >/dev/null
     else
         echo "sync-version: mkdocs or graphviz not installed — cannot re-render the" >&2
-        echo "  developer guide, and mkdocs-devguide.yml now says v$ver while the" >&2
-        echo "  committed guide says otherwise. Install both, or revert" >&2
-        echo "  mkdocs-devguide.yml, before bumping." >&2
+        echo "  developer guide, which would then still say the previous version." >&2
+        echo "  Install both before bumping." >&2
         exit 1
     fi
 fi
 
-echo "sync-version: aligned $ver into spec, metainfo, debian changelog, user guide, developer guide"
+echo "sync-version: $ver — metainfo checked, user guide and developer guide re-rendered"

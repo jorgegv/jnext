@@ -183,15 +183,21 @@ When the user asks to bump the version, follow these steps in order:
 4. Update the DEVELOPMENT-SESSIONS document (`doc/DEVELOPMENT-SESSIONS.md`)
 5. Update the ChangeLog using the future version that will be bumped to
 6. Commit all the above changes
-7. Bump the version by running `make bump-<bump_type>` (where bump_type is `patch`, `minor`, or `major`) — this bumps `version.yaml`, **propagates the new version into every other version-bearing file** (via `packaging/sync-version.sh`), stages them all, commits, and creates the git tag
+7. Bump the version by running `make bump-<bump_type>` (where bump_type is `patch`, `minor`, or `major`) — this bumps `version.yaml`, runs `packaging/sync-version.sh` (re-renders the two committed guides; for a public release also adds the AppStream `<release>` entry), stages them, commits, and creates the git tag
 
-**`version.yaml` is the single source of truth for the version.** The CPack-generated
-packages derive it automatically from `version.yaml` via CMake's `PROJECT_VERSION`; the
-hand-maintained packaging files (`packaging/rpm/jnext.spec` `Version:` + `%changelog`,
-`packaging/assets/*.metainfo.xml` `<releases>`,
-`packaging/debian/changelog`) are kept in lockstep by `packaging/sync-version.sh`, which the
-`bump-*` targets call automatically. **When adding a new file that hard-codes the version,
-add it to `sync-version.sh` too** — that script is the one place that must know all of them.
+**`version.yaml` is the single source of truth for the version, and the only file a bump
+edits by hand.** Everything else READS it when it is built: CMake (`PROJECT_VERSION`, so
+the binary and every CPack package), the `package-*` recipes (artifact names), both mkdocs
+configs (`src/doc/version_hook.py` sets `extra.doc_release`, the guides' "This version"),
+the native rpm spec (`rpmbuild --define "jnext_version X.Y.Z"`; it refuses to parse
+without it) and the Debian changelog (generated at build time by
+`packaging/gen-debian-changelog.sh`). So a private bump commit is `version.yaml` plus the
+re-rendered `doc/user-guide` and `doc/developer-guide` (committed on purpose: they show
+the version and are read offline from a clone); a public one adds `releases.yaml` and the
+AppStream metainfo `<release>` entry, whose release date nothing else records.
+**Do not add a hard-coded copy of the version anywhere** — read `version.yaml` at build
+time instead. `test/packaging/sync-version-test.sh` (part of `make unit-test`) fails if a
+copy appears in a packaging, CI, CMake or mkdocs file.
 
 ## Building
 

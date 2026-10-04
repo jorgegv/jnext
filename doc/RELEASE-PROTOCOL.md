@@ -11,10 +11,11 @@ complements — does not replace — the "Merging a completed feature/fix to
 ## 1. Core concepts
 
 - **`version.yaml` is the single source of truth for the version.** Everything
-  else is derived from it. CMake reads it into `PROJECT_VERSION`, so every
-  CPack-generated package (rpm/deb/tgz/zip/dmg) already carries the right
-  version. The hand-maintained packaging files are kept in lockstep by
-  `packaging/sync-version.sh` (see §3).
+  else reads it when it is built, so no other file carries a copy and a bump
+  edits nothing else by hand. CMake reads it into `PROJECT_VERSION`, so every
+  CPack-generated package (rpm/deb/tgz/zip/dmg) carries the right version; the
+  mkdocs configs, the native rpm spec and the Debian changelog read it too
+  (§3). What a bump must still commit is done by `packaging/sync-version.sh`.
 
 - **A git tag is NOT the same as a public release.** Every merge to `main`
   gets its own `vX.Y.Z` tag (per-merge patch bump). Those tags are *local
@@ -61,11 +62,14 @@ All three, in order:
    scripted or agent-driven release would produce a *private* tag while
    reporting success, and publish nothing. The variable overrides both the
    prompt and that fallback; unset, behaviour is exactly as before.
-4. Write `version.yaml`, then run `packaging/sync-version.sh <newver>` to
-   propagate the version into every hand-maintained packaging file (§3).
-5. Stage `version.yaml`, the synced packaging files, and (if added)
-   `releases.yaml`; commit `chore: bump version to <newver>`; create tag
-   `v<newver>`.
+4. Write `version.yaml`, then run `packaging/sync-version.sh <newver>` (§3):
+   it re-renders the two committed guides and, for a public release only, adds
+   the AppStream `<release>` entry.
+5. Stage `version.yaml`, the re-rendered `doc/user-guide` and
+   `doc/developer-guide`, the metainfo, and (if added) `releases.yaml`; commit
+   `chore: bump version to <newver>`; create tag `v<newver>`. A private bump
+   commit therefore changes `version.yaml` and the rendered guides only; a
+   public one also `releases.yaml` and the metainfo.
 
 ### 2.1 A public release MUST update the ChangeLog
 
@@ -148,27 +152,41 @@ anyway as a prerequisite of `make regression`.
 
 ---
 
-## 3. Keeping packaging files in sync — `packaging/sync-version.sh`
+## 3. What a bump commits — `packaging/sync-version.sh`
 
-`version.yaml` is the source of truth; this script writes the version into the
-files a person maintains by hand (the CPack path needs none of this):
+`version.yaml` is the source of truth, and nothing else carries a copy of the
+version. Every consumer reads it at build time:
 
-- `packaging/rpm/jnext.spec` — `Version:` + a matching `%changelog` entry
-- `packaging/assets/*.metainfo.xml` — the AppStream `<releases>` history
-  (**public releases only** — `sync-version.sh` adds an entry only when the
-  version is listed in `releases.yaml`, so private per-merge patch tags never
-  appear here)
-- `packaging/debian/changelog` — the Debian changelog
+| Consumer | How it gets the version |
+|----------|-------------------------|
+| the binary, every CPack package (`make package-rpm/deb/win/macos`), the macOS bundle | CMake reads `version.yaml` into `PROJECT_VERSION` |
+| artifact names of the `package-*` recipes | the recipe reads `version.yaml` |
+| `mkdocs.yml`, `mkdocs-devguide.yml` (the guides' "This version") | `src/doc/version_hook.py` sets `extra.doc_release` at render time; a missing or malformed `version.yaml` stops the build |
+| `packaging/rpm/jnext.spec` (native, from-source rpm) | `rpmbuild --define "jnext_version X.Y.Z"`; the spec refuses to parse without it, and its top `%changelog` entry is generated from it |
+| `packaging/debian/` (native Debian source package) | `packaging/gen-debian-changelog.sh` writes `debian/changelog` at build time; the committed history is `changelog.history`, so a `debian/` copied without it has no changelog and the build stops |
+| the flatpak manifest | builds from the local checkout (`type: git`, `path: ../..`, `branch: HEAD`), carries no version |
 
-The flatpak manifest (`packaging/flatpak/*.yml`) is **not** in this list: it
-builds from the local checkout (`type: git`, `path: ../..`, `branch: HEAD`)
-and carries no version tag, so there is nothing for `sync-version.sh` to
-rewrite.
+`sync-version.sh <newver>`, called by every `bump-*` target, does only what
+must still be **committed**:
 
-It is idempotent, fails loud if a target file or its anchor is missing, and is
-covered by `test/packaging/sync-version-test.sh` (run inside `make package-test`).
-**When you add a new file that hard-codes the version, add it to
-`sync-version.sh` too** — that script is the one place that must know them all.
+- **re-renders `doc/user-guide` and `doc/developer-guide`.** They are committed
+  so a clone reads them offline, and every page shows "This version: vX.Y.Z",
+  so a bump changes them; `docs-check` would fail the next test run otherwise.
+- **adds the AppStream `<release>` entry** to
+  `packaging/assets/*.metainfo.xml` — **public releases only**: an entry is
+  added only when the version is listed in `releases.yaml`, so private
+  per-merge patch tags never appear there. This one stays committed rather
+  than generated because each entry carries its release **date**, which
+  `releases.yaml` does not record and a source-tarball build has no git
+  history to look up.
+
+It is idempotent, fails loud if the metainfo or its `<releases>` anchor is
+missing, and is covered by `test/packaging/sync-version-test.sh` (part of
+`make package-contract-test`, a prerequisite of `make unit-test`). That suite
+also fails if a copy of the current version appears in any file under
+`packaging/`, `.github/`, `cmake/`, `CMakeLists.txt` or `mkdocs*.yml` (the
+metainfo excepted). **Do not add a hard-coded copy of the version; read
+`version.yaml` at build time.**
 
 ---
 
@@ -208,8 +226,8 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
 
 **Packaging correctness is gated automatically** (issue #61):
 
-- `make package-contract-test` is a prerequisite of `make unit-test`, so the six
-  packaging-script contract suites — including `verify-bundle`, the GH #46 gate
+- `make package-contract-test` is a prerequisite of `make unit-test`, so the eight
+  packaging contract suites — including `verify-bundle`, the GH #46 gate
   — run on every local test run and every CI push.
 - The full `make package-test` runs as its own parallel `package` job in
   `ci.yml` on every push to `main` and every PR. It is deliberately **not**
@@ -340,7 +358,9 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
 3. `make bump-minor` (or `bump-major`) and answer the
    `Add … to releases.yaml?` prompt **`y`** — this is the step that makes it a
    public release. Non-interactively, pass `PUBLIC_RELEASE=y` (§2); without it
-   the target defaults to a private tag and publishes nothing.
+   the target defaults to a private tag and publishes nothing. The bump commit
+   holds `version.yaml`, `releases.yaml`, the metainfo `<release>` entry and
+   the re-rendered guides, and nothing else (§3).
 4. Get the user's explicit **"push"** authorization.
 5. Push `main`, then push the single release tag (`git push origin vX.Y.Z`).
 6. CI sees the tag is in `releases.yaml` → builds all packages → publishes the
