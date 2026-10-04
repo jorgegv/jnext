@@ -56,7 +56,7 @@ test is not a result.
 ```bash
 short=$(git -C $TARGET rev-parse --short HEAD)
 log=/tmp/regression-$short.log
-JNEXT_TEST_JOBS=4 bash $TARGET/test/00regression/regression.sh > "$log" 2>&1
+LANG=C make -C $TARGET regression > "$log" 2>&1
 status=$?
 tail -30 "$log"
 ```
@@ -93,9 +93,10 @@ New failures vs baseline: <list or "none">
 - **Never update reference screenshots without explicit user authorization**
   (`feedback_regression_refs`). Regenerating a reference to make the suite green
   destroys the only check that would have caught the change.
-- `JNEXT_TEST_JOBS=4` on every invocation, never raised for speed
-  (`feedback_jnext_test_jobs`) — `audio-underrun-func` and
-  `screenshot-paused-func` are real-time-bounded.
+- `JNEXT_TEST_JOBS` is only a lane cap since GH #295: the real-time-bounded
+  rows (`audio-underrun-func`, `screenshot-paused-func`, …) run in their own
+  `quiet` phase. Check `make regression-stamp-check` first — a green stamp for
+  the same non-doc content already satisfies the gate.
 - Those two are examples, not the list (GH #245): rows that spawn short-lived
   processes have also failed under load and passed solo. A FAIL on a loaded
   host is unconfirmed until re-run SOLO (`bash test/00regression/regression.sh

@@ -230,10 +230,11 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
 ## 5. CI / CD workflows
 
 - **`.github/workflows/ci.yml`** — tests. Triggers on **push to `main` and PRs**
-  (not on tags). Five jobs, in parallel: **`test`** builds `gui-release` and
-  `make build-matrix`, then runs `make regression`, `make unit-test` (which
-  includes the FUSE suite) and `make unit-test-sdl`, self-provisioning the SD
-  image; **`qt5-guard`** runs `make qt5-guard-build`; **`package`** runs
+  (not on tags). Five jobs, in parallel: **`test`**, a matrix of three
+  parallel legs (GH #295) — `build-matrix` runs `make build-matrix`; `unit`
+  builds `gui-release` and runs `make unit-test` (which includes the FUSE
+  suite) and `make unit-test-sdl`; `regression` builds `gui-release` and runs
+  `make regression` — self-provisioning the SD image; **`qt5-guard`** runs `make qt5-guard-build`; **`package`** runs
   `make package-test` in a `fedora:44` container, building every package and
   asserting its contents; **`macos`** runs `make package-macos` on
   `macos-latest`; **`flatpak`** calls `flatpak-build.yml` (§4). Packaging
@@ -321,7 +322,17 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
 
 1. **Green triplet** on `main`: `make unit-test`, FUSE suite, `make regression`
    — no FAIL (per CLAUDE.md "Version bumping") — plus `make unit-test-sdl`, as
-   the merge protocol requires.
+   the merge protocol requires. **The regression is not re-run locally when CI
+   already ran it on the same content** (GH #295): on `main`'s tip, *before*
+   the bump (the bump changes `version.yaml`, so its commit has a new key),
+   `make regression-ci-check` looks up the green `ci.yml` runs (`gh run list`,
+   read-only) and passes if one of them, from a push or a manual dispatch, is
+   on a commit with the same content key — docs excluded, so the release prep
+   commits of step 2 keep the key. It prints the run's URL; record it. Pull
+   request runs never count: they test a merge of the PR into `main`, not the
+   commit they name. If there is no match (unpushed code commits, a red or
+   cancelled run), run `make regression` locally — or `make
+   regression-stamp-check`, if a local green run already covers that key.
 2. Update the unit-test status report, `doc/DEVELOPMENT-SESSIONS.md`, and the
    ChangeLog (to the future version). The traceability matrix is generated, not
    hand-updated: commit it only if `make unit-test` regenerated it (GH #196).

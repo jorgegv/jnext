@@ -2382,10 +2382,21 @@ FAIL on an idle one, must name every failed row at the end, must never change
 the count — and the driver must still call it. <code>HS-68a</code>..<code>HS-68e</code> pin the
 sourced-row counter guard: a stub row that clobbers <code>skip</code> after an earlier
 SKIP is a harness fault naming that row, a row reporting two results is one
-too, the NULL control and a filtered-out row pass, and the driver wraps every
-functional row in the guard.</p>
+too, the NULL control and a filtered-out row pass, and the row runner wraps
+every functional row in the guard. <code>HS-69a</code>..<code>HS-69k</code> drive the parallel
+scheduler (GH #295) on stub rows: rows run at once and merge in declared order;
+a row that reports twice or nothing is a harness fault; one that dies or hangs
+is a FAIL naming it while the others run on; one that writes into another
+row's directory, replaces the library's trap, or writes to the shared SD clone
+without <code>private-sd</code> is refused — and the tagged control is clean.
+<code>HS-70a</code>..<code>HS-70d</code> drive <code>regression.sh</code> itself through the host lock (a second
+full run waits, the wait is bounded, a targeted run never locks) and the
+loaded-host wait; <code>HS-71a</code>..<code>HS-71g</code> run the real stamp script in a throwaway
+repository: a clean green run stamps, a docs-only commit keeps the stamp, a
+dirty or changed tree has none, and <code>doc/formats/</code> is keyed while other docs
+are not.</p>
 <h2 id="it-pins-its-own-count">It pins its own count<a class="headerlink" href="#it-pins-its-own-count" title="Permanent link">&para;</a></h2>
-<p><code>EXPECTED_TOTAL = 80</code> sits in the script, right next to the rows it counts, and
+<p><code>EXPECTED_TOTAL = 102</code> sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is

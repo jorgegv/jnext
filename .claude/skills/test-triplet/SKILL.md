@@ -62,7 +62,7 @@ tail -3 /tmp/fuse-$short.log
 
 ```bash
 short=$(git -C $TARGET rev-parse --short HEAD)
-JNEXT_TEST_JOBS=4 bash $TARGET/test/00regression/regression.sh > /tmp/regression-$short.log 2>&1
+LANG=C make -C $TARGET regression > /tmp/regression-$short.log 2>&1
 echo "status=$?"
 tail -30 /tmp/regression-$short.log
 ```

@@ -2330,7 +2330,7 @@ project calls them the triplet, and running them takes four commands:</p>
 <pre><code class="language-console">$ make clean &amp;&amp; make gui-release
 $ make unit-test
 $ ./build/test/fuse_z80_test build/test/fuse
-$ JNEXT_TEST_JOBS=4 bash test/00regression/regression.sh
+$ make regression
 </code></pre>
 <p>There must be no FAIL in any layer. Skips are acceptable only where the suite
 already declares them.</p>
@@ -2385,12 +2385,12 @@ unit-test</code> has already run it. The standalone invocation above runs the sa
 binary against the same data; it is a convenience for reading that one number,
 not a third independent execution.</p>
 <h2 id="layer-3-the-screenshot-and-functional-regression">Layer 3 — the screenshot and functional regression<a class="headerlink" href="#layer-3-the-screenshot-and-functional-regression" title="Permanent link">&para;</a></h2>
-<pre><code class="language-console">$ JNEXT_TEST_JOBS=4 bash test/00regression/regression.sh
+<pre><code class="language-console">$ make regression
 </code></pre>
 <p>This layer launches the real <code>jnext</code> binary headless and looks at what comes
-out of it. It reports <strong>188 rows</strong>, made up of 6 preflight lints, 1 SD-image
-provisioning row, 66 screenshot rows and 115 functional rows. The last two
-numbers come from the <code># expect: 66</code> and <code># expect: 115</code> pins in
+out of it. It reports <strong>215 rows</strong>, made up of 6 preflight lints, 1 SD-image
+provisioning row, 66 screenshot rows and 142 functional rows. The last two
+numbers come from the <code># expect: 66</code> and <code># expect: 142</code> pins in
 <code>regression_tests.conf</code> and <code>functional_tests.conf</code>, and the arithmetic that
 ties them to the total is the harness's own end-of-run accounting assertion.</p>
 <p>A screenshot row compares a whole frame, pixel for pixel, against a committed
@@ -2400,17 +2400,18 @@ the frame changed without telling you why. Functional rows cover the things a
 linked library cannot show at all — recording an MP4, an RZX round trip, audio
 underruns through a real device, the CLI's exit contracts, keypress delivery in
 both frontends.</p>
-<p><code>JNEXT_TEST_JOBS=4</code> caps the screenshot launcher's parallelism, and it is worth
-keeping. The cap is not politeness towards the machine: <code>audio-underrun-func</code>
-and <code>screenshot-paused-func</code> are bounded by real-time pacing and start failing
-under CPU contention, so raising it makes the suite intermittently lie. They
-are examples rather than the whole class — rows that merely spawn short-lived
-processes have failed under load too — which is why the suite itself flags a
-FAIL that happened on a loaded host (see
-<a href="03-the-regression-suite.html">The regression suite</a>). Note
-also that the cap is a caller convention rather than a default — the launcher
-falls back to <code>nproc</code> when the variable is unset, so <code>make regression</code> on its
-own is uncapped. CI sets it explicitly.</p>
+<p>The rows run in parallel — every CPU for the screenshots and the untagged
+functional rows, then the rows tagged <code>quiet</code>, which are bounded by real-time
+pacing (<code>audio-underrun-func</code>, <code>screenshot-paused-func</code> and a few more), a lane
+at a time on a host the first phase no longer loads (see
+<a href="03-the-regression-suite.html">The regression suite</a>). <code>JNEXT_TEST_JOBS</code> caps the
+lanes; it is no longer needed for correctness, and CI passes none. Rows that
+merely spawn short-lived processes have failed under outside load too, which is
+why the suite itself flags a FAIL that happened on a loaded host.</p>
+<p>A green <code>make regression</code> on a committed tree leaves a stamp keyed on the
+tree's non-doc content, and <code>make regression-stamp-check</code> finds it: a reviewer
+checks the author's stamp and runs targeted rows instead of a second full run,
+and a fix round that changed only documentation keeps its stamp.</p>
 <h2 id="what-the-triplet-does-not-prove">What the triplet does not prove<a class="headerlink" href="#what-the-triplet-does-not-prove" title="Permanent link">&para;</a></h2>
 <p>It does not prove that the emulator matches real hardware anywhere no test row
 asserts that it does; making those gaps visible is the job of the traceability

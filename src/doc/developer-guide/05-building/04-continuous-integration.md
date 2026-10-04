@@ -69,21 +69,31 @@ class of problem, instead of pinning tool by tool and waiting for the next one.
 
 ## The jobs in `ci.yml`
 
-**`test`** is the main job. It installs the dependency set, checks out the
-repository with submodules, and then clones the ZX Next FPGA core — sparsely, at
-a pinned commit, into the runner's temp directory outside the workspace. That
-clone is needed because the traceability generator validates every VHDL citation
-against the real source tree, and produces different bytes without it. The job
-then runs, in order: `make clean && make gui-release`, `make build-matrix`,
-`JNEXT_TEST_JOBS=4 make regression`, and `make unit-test`. On failure it uploads
-the screenshot diffs and the test summary.
+**`test`** is the main job: one definition, a matrix of three legs that run in
+parallel on runners of their own (GH #295). Every leg installs the same
+dependency set and checks out the repository with submodules; then
 
-That order is not arbitrary. `make gui-release` is a PGO build
+- **`build-matrix`** runs `make build-matrix`;
+- **`unit`** clones the ZX Next FPGA core — sparsely, at a pinned commit, into
+  the runner's temp directory outside the workspace, because the traceability
+  generator validates every VHDL citation against the real source tree and
+  produces different bytes without it — and runs `make clean && make
+  gui-release`, `make unit-test` and `make unit-test-sdl`;
+- **`regression`** runs `make clean && make gui-release` and `make regression`.
+
+They used to be steps of one job, so the 28-minute build matrix and the
+regression ran back to back although neither uses the other's output. Each leg
+has its own ccache key, and `fail-fast` is off so a red leg never cancels the
+others' evidence. On failure a leg uploads the screenshot diffs and the test
+summary under its own artifact name.
+
+`make gui-release` comes first in both test legs for a reason. It is a PGO build
 ([5.5](05-performance-and-optimisation.md#profile-guided-optimisation)) whose
 training needs the SD image, so the image is restored from the cache before it — and if
 the cache misses, the training downloads it through jnext's own provisioner.
 `make regression`'s provisioning row then finds it, and `make unit-test` needs
-the same image for `sd_rom_extractor_test`.
+the same image for `sd_rom_extractor_test` — which is why the unit leg builds
+`gui-release` although none of its suites runs it.
 
 **`qt5-guard`** runs `make qt5-guard-build`, which is the same GUI and debugger
 sources compiled against native Linux Qt5. Nothing else in CI compiles that
