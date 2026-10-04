@@ -4,7 +4,8 @@ Bugs, questions and feature requests all go to the issue tracker:
 
 **<https://github.com/jorgegv/jnext/issues>**
 
-When reporting a problem, include your JNEXT version (`jnext --version`), your
+When reporting a problem, include your JNEXT version (`jnext --version`, or the
+emulator window's title bar, which shows it), your
 operating system, and — if a specific program misbehaves — which program and
 what you expected to see instead.
 

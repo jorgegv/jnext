@@ -19,6 +19,7 @@
 #include "peripheral/esp_host_policy.h"
 #include "input/mouse_dispatcher.h"
 #include "platform/pointer_capture.h"
+#include "platform/window_title.h"      // GH #155 — the title names the version
 #include "gui/mac_cursor_warp.h"      // GH #303 (macOS only)
 #include "platform/speed_report.h"
 #include "qt/menu_bar_alt_nav_qt.h"   // GH #268
@@ -225,7 +226,7 @@ const char* speed_name(int idx) {
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
-    setWindowTitle("JNEXT \u2014 ZX Spectrum Next Emulator");
+    setWindowTitle(QString::fromUtf8(JNEXT_WINDOW_TITLE));
     base_window_title_ = windowTitle();
 
     // Task 66 \u2014 load persisted GUI preferences. This is the production

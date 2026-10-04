@@ -121,6 +121,8 @@
 #include "debug/debug_state.h"
 #include "debug/debugger.h"
 #include "debug/raster_state.h"
+#include "debugger/breakpoint_model.h"
+#include "debugger/breakpoint_panel.h"
 #include "debugger/cpu_panel.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
@@ -150,6 +152,7 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QStyleFactory>
+#include <QTableWidget>
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -478,19 +481,38 @@ void apply_audio_fixture(Emulator& emu) {
 /// switch, so the table needs at least one row with the box cleared for the
 /// difference to be visible at all (GH #225: the picture it replaced showed
 /// neither control).
-void apply_debug_fixture(Emulator& emu, DebuggerWindow* dbg) {
-    BreakpointSet& bps = emu.debug_state().breakpoints();
-    bps.add_pc(0x0C8F);                                  // the ROM HALT the boot sits on
-    bps.add_pc(0x8000);
-    bps.add_watchpoint(0x5C78, WatchType::WRITE);        // FRAMES, the 48K frame counter
-    bps.add_watchpoint(0x5C3B, WatchType::READ_WRITE);   // FLAGS
-    bps.set_pc_enabled(0x8000, false);                   // one row with On cleared
+///
+/// The breakpoints go in through the GUI's own BreakpointModel, the way the
+/// panel's Add button and the disassembly gutter create them. Since GH #278
+/// WP4c the Breakpoints panel and the gutter list the backend's subscriptions,
+/// not the raw BreakpointSet underneath it, so entries written straight into
+/// that set are drawn nowhere: the fixture did exactly that and rendered an
+/// empty Breakpoints table and a gutter with no breakpoint dot. Returns false,
+/// and the run fails, if the panel does not then list all four rows — an empty
+/// picture of a list must not be written quietly again.
+bool apply_debug_fixture(DebuggerManager* mgr, DebuggerWindow* dbg) {
+    BreakpointModel* bpm = &mgr->breakpoints();
+    bpm->add(BreakpointModel::Execute,   0x0C8F);   // the ROM HALT the boot sits on
+    bpm->add(BreakpointModel::Execute,   0x8000);
+    bpm->add(BreakpointModel::Write,     0x5C78);   // FRAMES, the 48K frame counter
+    bpm->add(BreakpointModel::ReadWrite, 0x5C3B);   // FLAGS
+    bpm->set_enabled(BreakpointModel::Execute, 0x8000, false);   // one row with On cleared
 
     if (auto* wp = dbg->watch_panel()) {
         wp->add_watch(0x5C78, "FRAMES", 1);   // word — the counter is 24-bit LE
         wp->add_watch(0x5C3B, "FLAGS",  0);   // byte
         wp->add_watch(0x4000, "SCREEN", 2);   // long
     }
+
+    const QTableWidget* table = dbg->breakpoint_panel()
+        ? dbg->breakpoint_panel()->findChild<QTableWidget*>() : nullptr;
+    const int listed = table ? table->rowCount() : -1;
+    if (listed != 4) {
+        note("  FAIL: the Breakpoints panel lists %d row(s) after the fixture, want 4\n",
+             listed);
+        return false;
+    }
+    return true;
 }
 
 // ── main ──────────────────────────────────────────────────────────────
@@ -795,7 +817,7 @@ int main(int argc, char** argv)
     // one of them sits on the ROM loop the boot is in, so an armed set would
     // stop the run above on its first instruction and the frame would never
     // be drawn.
-    apply_debug_fixture(emu, dbg);
+    if (!apply_debug_fixture(mgr, dbg)) return 1;
     mgr->refresh_panels();   // the MANAGER's — see run_to_last_paper_line()
     settle();
 
@@ -900,11 +922,13 @@ int main(int argc, char** argv)
         // is exactly what the Breakpoints panel's own master switch is for,
         // and it leaves each row's individual On state untouched — which is
         // what the picture captured above has to keep showing.
-        BreakpointSet& bps = emu.debug_state().breakpoints();
-        const bool master_was = bps.master_enabled();
-        bps.set_master_enabled(false);
+        // Through the GUI's model, i.e. the backend's switch: it suspends the
+        // backend subscriptions the fixture created as well as the legacy set.
+        BreakpointModel* bpm = &mgr->breakpoints();
+        const bool master_was = bpm->master_enabled();
+        bpm->set_master_enabled(false);
         const bool ok = run_to_last_paper_line(emu, backend, mgr);
-        bps.set_master_enabled(master_was);
+        bpm->set_master_enabled(master_was);
         if (!ok) return 1;
         settle();
 
@@ -966,9 +990,13 @@ int main(int argc, char** argv)
             note("  FAIL debugger-script: %s\n", qPrintable(why));
             return 1;
         }
-        BreakpointSet& bps = emu.debug_state().breakpoints();
-        const bool master_was = bps.master_enabled();
-        bps.set_master_enabled(false);
+        // NOT the master switch here: it suspends every client's
+        // subscriptions, the script's rules included, and the picture would
+        // show a script that never fired. Only the GUI's own breakpoints (its
+        // observer client) sit in the way, so only they are switched off.
+        const jnext::dbg::ClientId gui_bp = mgr->breakpoints().client();
+        const bool gui_bp_was = backend.client_enabled(gui_bp);
+        (void)backend.set_client_enabled(gui_bp, false);
         bool ok = run_to_last_paper_line(emu, backend, mgr);
         backend.pump(jnext::dbg::PumpBudget{});
         (void)backend.raise_host_event(jnext::dbg::CLIENT_NONE, "script2");
@@ -976,7 +1004,7 @@ int main(int argc, char** argv)
             ok = run_to_last_paper_line(emu, backend, mgr);
             backend.pump(jnext::dbg::PumpBudget{});
         }
-        bps.set_master_enabled(master_was);
+        (void)backend.set_client_enabled(gui_bp, gui_bp_was);
         if (!ok) return 1;
         settle();
         shoot_tab(left_tabs, "Script", "debugger-script");
