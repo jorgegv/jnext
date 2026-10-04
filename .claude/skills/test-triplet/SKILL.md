@@ -32,7 +32,8 @@ nproc; cat /proc/loadavg; ps -eo pcpu,pid,comm --sort=-pcpu | head -5
 
 Report it with the result. Contention manufactures failures, never passes: a
 green run under load is *stronger* than one on an idle box, a red one costs one
-re-run. Do not wait for a quiet machine.
+re-run. Do not add waiting of your own: a full regression run already waits,
+bounded, for a quiet host, and runs one at a time per host (GH #295).
 
 ### 1. Always rebuild — clean, gui-release
 

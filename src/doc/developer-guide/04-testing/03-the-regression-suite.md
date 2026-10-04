@@ -135,7 +135,14 @@ needs: a row process that dies without a result, or outlives its 600 s bound,
 is a FAIL naming it; a row's directory that already exists when it starts, is
 still there when it exits, or is left over at the end, is a harness fault.
 `JNEXT_TEST_JOBS` is now only a cap, for leaving CPUs to something else; do not
-raise `JNEXT_TEST_QUIET_JOBS` to buy speed.
+raise `JNEXT_TEST_QUIET_JOBS` to buy speed. Output is printed in declared
+order, so a heartbeat line every 60 s names the rows still running.
+
+Parallel rows exposed one shared-resource race the serial suite never could:
+`xvfb-run -a` chooses an X display number by scanning lock files, so two rows
+starting together could pick the same one, and the loser SKIPPED. Every row now
+uses `xvfb-run -d`, where Xvfb picks the display itself, and harness-selftest
+HS-72 bans the racy forms.
 
 ## One full run at a time, and the stamp
 
@@ -149,7 +156,11 @@ key hashed from `git ls-tree` over every non-documentation path.
 `make regression-stamp-check` prints the stamp covering the current tree, which
 is how a reviewer verifies the author's run without repeating it, and
 `make regression-ci-check` finds a green CI run with the same key, which is how
-a release reuses CI.
+a release reuses CI. Only a run with no FAIL and no SKIP is stamped. A run whose
+only FAILs are functional rows that failed on a loaded host is recorded as
+pending, and `make regression-confirm` re-runs exactly those rows solo; if they
+all pass the run is stamped, and the stamp names them. Targeted rows run through
+`make regression-rows ROWS="..."`, which builds the binaries they need.
 
 ## A failure on a loaded host
 
@@ -167,7 +178,7 @@ above `nproc` on the spot, and after the results lists each failed row by name
 with the load at the moment it failed, plus a warning when the run was loaded.
 None of that changes a verdict: a FAIL is still a FAIL and the exit status is
 unchanged. What it changes is the next step — re-run the row SOLO
-(`bash test/00regression/regression.sh <row>`) before treating it as a
+(`make regression-rows ROWS=<row>`) before treating it as a
 regression, and do not dismiss it until that solo run passes. The self-test
 pins the behaviour both ways (`HS-50..55`).
 

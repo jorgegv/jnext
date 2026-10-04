@@ -22,8 +22,8 @@ another program, or a new row nobody has tagged yet. The suite therefore reports
 host's 1-minute load average at the start and end of every run, flags each FAIL
 that happened with the load at or above `nproc`, and lists every failed row by
 name after the results. A flagged FAIL is still a FAIL — the verdict and exit
-status never change. Re-run that row solo (`bash test/00regression/regression.sh
-<row>`) before treating it as a regression, and do not dismiss it until the solo
+status never change. Re-run that row solo (`make regression-rows ROWS=<row>`)
+before treating it as a regression, and do not dismiss it until the solo
 run passes.
 
 ## Parallel rows, phases and tags (GH #295)
@@ -70,7 +70,21 @@ to it. Not caught: a row writing into the directory of a row that is running
 at the same moment, whose cleanup then removes the evidence.
 
 `JNEXT_REGRESSION_ROW_TIMES=<file>` appends `<row> <seconds> <exit>` per row —
-how the quiet set was measured.
+how the quiet set was measured. Every `JNEXT_REGRESSION_HEARTBEAT` seconds
+(default 60, 0 = off) a phase prints how many rows have finished and which are
+still running, so a slow or hung row is visible before its bound.
+
+Rows that need an X server use **`xvfb-run -d`**, which lets Xvfb choose the
+display (`-displayfd`). `xvfb-run -a` picks a number by scanning
+`/tmp/.X<n>-lock`, which is not atomic: under parallel rows two of them got
+`:101`, one lost its server, and `sdl-keypress-func` SKIPPED with the run still
+green. Measured: 64/64 concurrent `-d` starts clean under 16 busy loops, against
+1/64 failing with `-a`. `harness-selftest` HS-72 bans `-a`/`-n` in every tracked
+test script.
+
+Targeted runs: `make regression-rows ROWS="<row> ..."` builds the binaries rows
+execute (gui-release, sdl-release, the unit-test build) and runs the named rows;
+the bare `regression.sh <row>...` form needs them built already.
 
 ## One full run at a time, and green-run stamps (GH #295)
 
@@ -83,18 +97,36 @@ above the CPU count, and starts anyway with a loud note. Targeted runs (row
 names, `--update`, `--preflight-only`) never lock.
 
 `make regression` (not a bare `regression.sh`, which skips the target's
-prerequisites) writes a **stamp** when the run is green and the tree had no
-uncommitted change in a keyed path, at start or end:
+prerequisites) writes a **stamp** when the run has **fail=0 and skip=0** (a SKIP
+is a row that was not tested) and the tree had no uncommitted change in a keyed
+path, at start or end:
 `~/.cache/jnext/regression-stamps/<key>`, holding the commit, the counts, the
 host load at start and end, the lanes and the wall time. The key is a hash of
 `git ls-tree` of the commit over every path except documentation (`doc/`,
-`src/doc/`, `*.md`, `ChangeLog`) — with three documents that a gate of
-`make regression` reads as input kept in: `doc/formats/`, `doc/man/jnext.1.md`,
-`doc/testing/CURRENT-REGRESSION-STATE.md`. That list lives in one place,
-`test/regression-stamp.sh`.
+`src/doc/`, `*.md`, `ChangeLog`) — with the documents that something `make
+regression` runs reads as input (other than docs-check) kept in:
+`doc/formats/`, `doc/man/jnext.1.md`,
+`src/doc/user-guide/09-reference/01-command-line-options.md` (cli-check's
+CLI-DOC-06) and `doc/testing/CURRENT-REGRESSION-STATE.md`. The set was derived
+by tracing every file the non-build gates and a whole suite run open, plus a
+static grep of CMake, the Makefile and the rows; it lives in one place,
+`test/regression-stamp.sh`, and HS-71h..j pin it on the real paths. (The trace
+also showed `lint-paths` reading the rendered guides' `.js`/`.json`; those
+generated trees are now outside its scope — they re-encode prose the lint
+already exempts.)
+
+The owner's timing rule — a timing row that fails under load and passes solo
+counts as a pass — has a path to the stamp that cannot cover an unconfirmed
+FAIL: when the ONLY FAILs of a full run are functional rows that failed with
+the 1-minute load at or above the CPU count, the run records them as PENDING
+(`<key>.pending`); `make regression-confirm` re-runs exactly those rows, one at
+a time, under the lock and the quiet-host wait, on the same tree, and only if
+every one passes writes the stamp, naming them (`confirmed_solo=`). An
+idle-host FAIL, a screenshot or lint FAIL, or a SKIP is never confirmable.
 
 ```bash
 make regression-stamp-check   # the stamp covering this tree, or exit 1 and why
+make regression-confirm       # re-run a full run's loaded-host FAILs solo; stamp if all pass
 make regression-ci-check      # a green push/dispatch CI run on a commit with this key
 ```
 
