@@ -507,7 +507,7 @@ discrepancies bullets, Summary table totals line):
   - `SdlAudio::push_from_mixer()` itself (the max-queue guard and the
     hold-padding).
   What *is* covered, and is the right place to add to: the **policy** in
-  `src/platform/audio_pacing.h` (`audio_pacing_test`, AP-01..AP-17 —
+  `src/platform/audio_pacing.h` (`audio_pacing_test`, AP-01..AP-18 —
   closed-loop models of both the 48K under-production and the 128K/Next
   over-production sides, plus the Task 63 **smoothed band + envelope
   emergencies**: AP-13 boundary-exact estimator/guard rows, AP-14
@@ -515,7 +515,14 @@ discrepancies bullets, Summary table totals line):
   teeth row, AP-15 sustained ±1% drift one-sidedness, rate and
   [FLOOR, MAX] bounds, AP-16 step-disturbance recovery, AP-17 the GH #35
   degradation policy — `plan_for()` on top of the band's answer, including
-  the row that pins the band moving identically under both preferences),
+  the row that pins the band moving identically under both preferences,
+  AP-18 the GH #155 estimate envelope — no runaway and no skip on a starving
+  queue, and no binding on a mean-tracking sawtooth), the **whole loop on a
+  slow fake host** (`frame_sequencer_test` FS-EDGE-01..04: real-time pacing
+  at 15.6 ms frames, back-to-back emulation with no skips and no waits at
+  23 ms), the GUI **frame-timer contract** (`frame_timer_test` FT-01..05, a
+  real QTimer with no display) and the **tick-entry paint**
+  (`present_count_test` PC-FP01..04),
   and the **end-to-end behaviour** via the
   `audio-underrun-func` regression test, which captures jnext's real audio
   output through SDL's `disk` driver and asserts no zeros were spliced into

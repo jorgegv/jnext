@@ -2,6 +2,7 @@
 #include "gui/main_window.h"
 #include "platform/host_key_wiring.h"
 #include "gui/emulator_widget.h"
+#include "gui/frame_timer.h"
 #include "platform/emulator_boot.h"
 #include "platform/cli_capture.h"
 #include "platform/auto_exit.h"
@@ -64,33 +65,29 @@ void QtApp::rebase_frame_timer()
 {
     if (!frame_timer_) return;
     // Explicit re-anchor (timer start, cold boot, speed change): any old
-    // deadline is meaningless, so restart the schedule at now + period.
-    // setInterval on a live timer restarts its period from the moment of the
-    // call — exactly what anchoring at `now` requires.
+    // deadline is meaningless, so restart the schedule at now + period and
+    // arm the timer for its first deadline, from now (frame_timer.h).
     const int64_t period_us = effective_frame_period_us();
-    frame_timer_->setInterval(seq_.rebase(steady_now_us(), period_us));
+    frame_timer::arm(*frame_timer_, seq_.rebase(steady_now_us(), period_us));
     log_frame_pacing(period_us);
 }
 
 void QtApp::reschedule_frame_timer(int interval)
 {
     if (!frame_timer_) return;
-    // Advance the absolute deadline by exactly one (fractional) period and
-    // point the repeating timer at it. Computed against NOW — i.e. at the
-    // END of the tick's work — because setInterval restarts the timer's
-    // period from the moment of the call; the returned interval therefore
-    // alternates (17/18 ms for the 17.198 ms Next-60 period) and the
-    // long-run rate is exact (issue #9: the old fixed round() interval ran
-    // 1.1-1.3% fast). Passing the period each call makes a runtime 50/60 Hz
-    // switch (NR 0x05 bit 2) or speed change glide in with no extra path.
-    // Only touch the timer when the value differs: setInterval with an
-    // unchanged value would still restart the period from now — harmless,
-    // but pointless churn; when the value differs (most ticks, by design)
-    // the restart-from-now is precisely the semantic the deadline math
-    // assumes.
-    if (interval != frame_timer_->interval()) {
-        frame_timer_->setInterval(interval);
-    }
+    // The sequencer has advanced the absolute deadline by exactly one
+    // (fractional) period; `interval` is whole ms from NOW — the END of the
+    // tick's work — to it. It therefore alternates (17/18 ms for the
+    // 17.198 ms Next-60 period) and the long-run rate is exact (issue #9: the
+    // old fixed round() interval ran 1.1-1.3% fast). Passing the period each
+    // call makes a runtime 50/60 Hz switch (NR 0x05 bit 2) or speed change
+    // glide in with no extra path.
+    //
+    // Armed EVERY tick, including when the value equals the last one: the
+    // timer is single-shot and must count from now. Skipping the restart on an
+    // unchanged value lost a frame on Windows whenever a tick outlasted its
+    // interval (GH #155; frame_timer.h has the mechanism).
+    frame_timer::arm(*frame_timer_, interval);
     log_frame_pacing(effective_frame_period_us());
 }
 
@@ -386,19 +383,16 @@ bool QtApp::init(int argc, char* argv[]) {
         main_window_->set_scale(main_window_->current_scale());
     });
 
-    // Drive emulator frames from a repeating timer paced by the fractional
+    // Drive emulator frames from a single-shot timer paced by the fractional
     // deadline scheduler (issue #9): the interval alternates (e.g. 20/21 ms
     // for the 20.259 ms 50 Hz period) so the long-run rate is the EXACT
     // emulated refresh, not its whole-ms rounding. on_frame_tick() advances
-    // the schedule at the end of every tick.
+    // the schedule and re-arms the timer at the end of every tick
+    // (frame_timer.h: precise, single-shot, armed from now — GH #155).
     frame_timer_ = new QTimer(main_window_);
-    // Qt::PreciseTimer is REQUIRED: the default CoarseTimer may fire within
-    // 5% of the interval (~0.9 ms at 17 ms), which would swallow the
-    // 17/18 ms alternation the deadline scheduler relies on.
-    frame_timer_->setTimerType(Qt::PreciseTimer);
+    frame_timer::configure(*frame_timer_);
     QObject::connect(frame_timer_, &QTimer::timeout, [this]() { on_frame_tick(); });
-    rebase_frame_timer();     // anchor the schedule + set the first interval
-    frame_timer_->start();    // no argument: uses the interval just set
+    rebase_frame_timer();     // anchor the schedule and arm the first tick
 
     // Set up a 1-second timer for status bar updates (FPS counter).
     status_timer_ = new QTimer(main_window_);
@@ -539,8 +533,28 @@ void QtApp::on_frame_tick() {
     // Task 91 — the tick's order and its cross-tick state live in
     // frame_sequencer::Sequencer, under unit test (frame_sequencer_test).
     // This is the whole of the Qt-side frame tick.
+    //
+    // GH #155 — a frame the previous tick handed to the widget and no paint
+    // has served yet is painted FIRST, before this tick overwrites the
+    // framebuffer it lives in. On Windows the timer event that starts this
+    // tick can be dispatched ahead of the widget's low-priority repaint
+    // request (frame_timer.h), so without this that frame is lost; elsewhere
+    // the event loop has already painted it and this does nothing.
+    if (main_window_) {
+        if (EmulatorWidget* w = main_window_->emulator_widget())
+            w->flush_pending_present();
+    }
+
     TickEffects fx{*this};
     seq_.tick(fx);
+
+    // The timer is single-shot, so a tick that ended without arming it would
+    // stop the machine. Every path through the sequencer arms it at step 15 and
+    // every re-anchor (cold boot, speed change) arms it in rebase_frame_timer();
+    // this re-anchors if some path ever ends a tick without either — today
+    // only an abandoned tick could (pre_frames() returning false), and the Qt
+    // frontend never abandons one.
+    if (frame_timer_ && !frame_timer_->isActive()) rebase_frame_timer();
 }
 
 // --- TickEffects: the frontend work the sequencer drives -------------------

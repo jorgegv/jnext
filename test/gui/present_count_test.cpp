@@ -302,6 +302,56 @@ int main(int argc, char* argv[])
               w.present_count() == before, got(w.present_count()));
     }
 
+    // --- PC-FP: flush_pending_present(), the tick-entry paint (GH #155) -------
+    // QtApp calls it at the start of every frame tick: a frame the previous
+    // tick handed over and no paint has served yet must be painted NOW, before
+    // the tick overwrites the framebuffer. On Windows the timer event can be
+    // dispatched ahead of the low-priority repaint request, and the frame was
+    // then lost (gui/frame_timer.h). It delivers the UpdateRequest update()
+    // posted — the event loop's own paint path, only earlier.
+    //
+    // Make flush_pending_present() a no-op and PC-FP01 fails.
+    {
+        const uint64_t before = w.present_count();
+        (void)w.take_paint_stats();
+        w.update_frame(frame_b.data(), FB_W, FB_H);
+        w.flush_pending_present();            // NO event processing in between
+        const uint64_t right_after = w.present_count();
+        check("PC-FP01", "a pending new frame is painted synchronously by flush_pending_present()",
+              right_after == before + 1,
+              got(right_after) + " before=" + std::to_string(before));
+        settle();
+        const tick_stats::Stat ps = w.take_paint_stats();
+        check("PC-FP02", "and the event loop does not paint or count it a second time",
+              w.present_count() == before + 1 && ps.count == 1,
+              got(w.present_count()) + " paint_samples=" + std::to_string(ps.count));
+    }
+    {
+        // Nothing pending: an already-painted frame, then a stale re-push.
+        const uint64_t before = w.present_count();
+        w.flush_pending_present();
+        w.update_frame(frame_b.data(), FB_W, FB_H, /*new_content=*/false);
+        w.flush_pending_present();
+        settle();
+        check("PC-FP03", "with no NEW frame pending, flush_pending_present() presents nothing",
+              w.present_count() == before, got(w.present_count()));
+    }
+    {
+        // A hidden window: update() posts nothing, so there is nothing to
+        // deliver; the frame stays pending and is presented once when shown.
+        const uint64_t before = w.present_count();
+        w.hide();
+        settle();
+        w.update_frame(frame_a.data(), FB_W, FB_H);
+        w.flush_pending_present();
+        const uint64_t while_hidden = w.present_count();
+        w.show();
+        settle();
+        check("PC-FP04", "hidden: flush is a harmless no-op, and the frame presents once when shown",
+              while_hidden == before && w.present_count() == before + 1,
+              "while_hidden=" + std::to_string(while_hidden) + " " + got(w.present_count()));
+    }
+
     std::printf("\n============================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);

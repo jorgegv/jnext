@@ -749,6 +749,63 @@ int main()
               fmt_d("audio", band_a.smoothed_ms) + " " + fmt_d("video", band_v.smoothed_ms));
     }
 
+    // --- AP-18: the estimate cannot run away from the readings (GH #155) ---
+    // Feed-forward credits every catch-up with INTERVENTION_MS on the
+    // assumption that the extra frame raises the queue. On a host that cannot
+    // emulate in real time it does not: the readings stay at 0-40 ms however
+    // many catch-ups run. Unbounded, the estimate then climbed to ~620 ms, and
+    // every reading of 39-40 ms — the low band, NOT an emergency — tripped the
+    // HIGH arm and skipped a frame on an almost empty queue: the doubles-and-
+    // skips spiral of janko-jj's v1.1.0 log (queue max 40, 5-13 skips/s).
+    // ESTIMATE_ENVELOPE_MS bounds the estimate to the sawtooth envelope of
+    // each reading.
+    {
+        audio_pacing::BandState b{};
+        int skips = 0;
+        int last_q = 0;
+        for (int i = 0; i < 2000; i++) {
+            last_q = (i * 7) % 41;               // 0..40, every value, no rise
+            if (audio_pacing::frames_for_tick(b, last_q) == 0) ++skips;
+        }
+        check("AP-18a", "sustained under-supply: the estimate stays within one envelope "
+                        "(plus one feed-forward) of the reading",
+              b.smoothed_ms <= last_q + audio_pacing::ESTIMATE_ENVELOPE_MS +
+                                   audio_pacing::INTERVENTION_MS,
+              fmt_d("smoothed", b.smoothed_ms) + " last_q=" + std::to_string(last_q));
+        check("AP-18b", "sustained under-supply: never a 0-frame skip on a 0-40 ms queue",
+              skips == 0, "skips=" + std::to_string(skips));
+
+        audio_pacing::BandState at39 = b, at40 = b, at60 = b;
+        const int f39 = audio_pacing::frames_for_tick(at39, 39);
+        const int f40 = audio_pacing::frames_for_tick(at40, 40);
+        check("AP-18c", "after it, a 39 or 40 ms reading (low band, not an emergency) does not skip",
+              f39 != 0 && f40 != 0,
+              "f39=" + std::to_string(f39) + " f40=" + std::to_string(f40));
+        const int f60 = audio_pacing::frames_for_tick(at60, 60);
+        check("AP-18d", "after it, a mid-band 60 ms reading runs exactly one frame",
+              f60 == 1, "frames=" + std::to_string(f60));
+    }
+    // The envelope must never bind on a controller that is tracking the mean:
+    // readings swinging a full 23 ms chunk either side of a mid-band mean leave
+    // the estimate exactly where the plain EMA puts it.
+    {
+        audio_pacing::BandState b{};
+        double ref = 65.0;
+        bool same = true;
+        double worst = 0.0;
+        for (int i = 0; i < 400; i++) {
+            const int q = i == 0 ? 65 : (i % 2) ? 88 : 42;   // seeded at the mean, then 65 +- 23
+            const int f = audio_pacing::frames_for_tick(b, q);
+            if (i == 0) ref = q;                  // seeded by the first reading
+            ref += (q - ref) / (1 << audio_pacing::SMOOTH_SHIFT);
+            const double d = b.smoothed_ms > ref ? b.smoothed_ms - ref : ref - b.smoothed_ms;
+            if (d > worst) worst = d;
+            if (f != 1 || d > 1e-9) same = false;
+        }
+        check("AP-18e", "a +-23 ms sawtooth around a mid-band mean: the envelope never binds",
+              same, fmt_d("worst", worst));
+    }
+
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);

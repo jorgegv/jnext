@@ -96,6 +96,29 @@ inline constexpr int INTERVENTION_MS = 21;
 /// chunked model: at 39 a jittered double-chunk dip cannot pierce
 /// QUEUE_FLOOR_MS; at 38 it can (AP-15f).
 inline constexpr int EMERGENCY_LOW_MS = 39;
+/// How far the smoothed estimate may sit from the reading it is smoothing
+/// (GH #155). The readings carry a sawtooth of at most one device chunk —
+/// SDL3's default for our 44.1 kHz stream is 1024 sample frames
+/// (SDL_GetDefaultSampleFramesFromFreq), 23.2 ms, and less when the device
+/// itself runs at 48 kHz (1024 frames = 21.3 ms) — so an estimate that tracks
+/// the true mean is ALWAYS within 23.2 ms of any reading, and 24 is the
+/// smallest whole ms that never binds on one. The clamp therefore leaves a
+/// healthy controller exactly as it was (every AP-13..AP-16 model row is
+/// unchanged) and binds only when the estimate disagrees with the reading by
+/// more than any sawtooth phase can explain.
+///
+/// That disagreement has one cause, and it is the overloaded host. The
+/// feed-forward below credits each catch-up with INTERVENTION_MS on the
+/// assumption that the extra frame really raises the queue by one frame; on
+/// a host that cannot emulate in real time it does not, so with readings of
+/// 0-40 ms the estimate climbed without bound (686 ms in the AP-RUN model),
+/// and every reading of 39-40 ms — not an emergency — then tripped the HIGH
+/// arm and SKIPPED a frame on an almost empty queue. That is the
+/// doubles-and-skips spiral in janko-jj's v1.1.0 log (queue max 40 ms, 5-13
+/// skips/s while 12-17 catch-ups/s ran), and the same runaway after a startup
+/// stall is what made some launches settle into a double/skip limit cycle on
+/// a healthy host (AP-RUN-*).
+inline constexpr int ESTIMATE_ENVELOPE_MS = 24;
 
 /// Never let the device queue fall below this. If the host is too slow to
 /// emulate in real time, no amount of pacing can conjure the missing samples,
@@ -148,6 +171,12 @@ inline constexpr int frames_for_tick(BandState& st, int queued_ms)
         st.smoothed_ms = queued_ms;  // seed: first reading for this device
     }
     st.smoothed_ms += (queued_ms - st.smoothed_ms) / (1 << SMOOTH_SHIFT);
+    // Bound the estimate to the sawtooth envelope of this reading, so credit
+    // the device never saw cannot accumulate (ESTIMATE_ENVELOPE_MS, GH #155).
+    if (st.smoothed_ms > queued_ms + ESTIMATE_ENVELOPE_MS)
+        st.smoothed_ms = queued_ms + ESTIMATE_ENVELOPE_MS;
+    if (st.smoothed_ms < queued_ms - ESTIMATE_ENVELOPE_MS)
+        st.smoothed_ms = queued_ms - ESTIMATE_ENVELOPE_MS;
 
     // Envelope emergencies act on the RAW reading (see the WHY above).
     if (queued_ms >= QUEUE_MAX_MS - INTERVENTION_MS) {

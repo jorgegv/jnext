@@ -356,9 +356,10 @@ public:
         fx.post_frames(frames_rendered);
 
         // (15) Advance the deadline by exactly one period and point the timer
-        // at it. At the END of the tick, because setInterval() on a live timer
-        // restarts its period from the moment of the call — so this tick's own
-        // work is subtracted from the wait. Advancing (rather than
+        // at it. At the END of the tick, because the frontend arms its timer
+        // from the moment of the call (gui/frame_timer.h: single-shot, armed
+        // every tick whatever the value, GH #155) — so this tick's own work is
+        // subtracted from the wait. Advancing (rather than
         // re-anchoring) is what makes the long-run rate exact: rounding error
         // cannot accumulate when every interval is recomputed against the wall
         // clock. Re-anchoring here instead would reinstate the +1.1-1.3% fast

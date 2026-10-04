@@ -1,4 +1,6 @@
 #include "gui/emulator_widget.h"
+#include <QCoreApplication>
+#include <QEvent>
 #include <QPainter>
 #include <chrono>
 #include <cstring>
@@ -58,6 +60,14 @@ void EmulatorWidget::update_frame(const uint32_t* framebuffer, int w, int h,
     // Unconditional, and identical for both values of new_content: the
     // repaint request is presentation, and this diagnostic does not alter it.
     update();  // schedule repaint
+}
+
+void EmulatorWidget::flush_pending_present() {
+    // See the header: deliver the repaint request update() posted, through the
+    // same path the event loop would take. frame_pending_ is the "a new frame
+    // has not been painted" flag paintEvent() clears.
+    if (!frame_pending_) return;
+    QCoreApplication::sendPostedEvents(window(), QEvent::UpdateRequest);
 }
 
 void EmulatorWidget::set_scale(int factor) {

@@ -975,6 +975,7 @@ my %NO_MATRIX_SECTION = (
     # dropped present or a speed percentage.
     'present_cadence_test' => 'host present cadence policy (wall-clock, not core timing)',
     'present_count_test'   => 'host present accounting (wall-clock, not core timing)',
+    'frame_timer_test'     => 'host GUI frame-timer contract (Qt timer, not core timing)',
     'render_policy_test'   => 'host render/skip policy (wall-clock, not core timing)',
 
     # ── Screenshot output files ──────────────────────────────────────
