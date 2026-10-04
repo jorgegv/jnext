@@ -53,7 +53,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (AY+DAC+Beeper) |      160 |      160 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (NextREG)       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Audio (pacing)        |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Audio (pacing)        |       58 |       58 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (device fill)   |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (capture)       |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (host gain)     |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -113,7 +113,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio gain configuration |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain Preferences |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Present count (widget) |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
-| frame_timer_test      |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "frame_timer_test" to the label map in refresh-subsystem-status.sh. |
+| frame_timer_test      |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "frame_timer_test" to the label map in refresh-subsystem-status.sh. |
 | ESP-01 status cell (GUI) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX V1.3 GUI warning dialog |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | RZX Menus             |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -139,6 +139,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12358**| **12358**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12362**| **12362**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
