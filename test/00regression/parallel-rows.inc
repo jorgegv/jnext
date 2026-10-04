@@ -220,3 +220,26 @@ func_phases_end() {
                          "A row without the ${BOLD}private-sd${RESET} tag wrote to the card every untagged row boots." \
                          "Find it (run rows alone and fingerprint the card) and tag it private-sd in functional_tests.conf."
 }
+
+# wait_for_quiet_host — before a full run: while the 1-minute load is above the
+# CPU count, wait (bounded), saying why; then go ahead anyway, loudly. A run
+# that starts on a busy host spends its timing-sensitive rows' margin before
+# it begins.
+wait_for_quiet_host() {
+    local bound=${JNEXT_REGRESSION_LOAD_WAIT:-300} waited=0 load
+    load=$(host_load1)
+    while [[ -n "$load" ]] && awk -v l="$load" -v n="$HOST_CPUS" 'BEGIN { exit !(l + 0 > n + 0) }'; do
+        if (( waited >= bound )); then
+            echo -e "  ${YELLOW}${BOLD}NOTE: host load is still ${load} on ${HOST_CPUS} CPUs after waiting ${waited} s — starting anyway.${RESET}"
+            echo -e "  ${YELLOW}Timing-sensitive rows may fail; any FAIL below is flagged with the load it happened at.${RESET}"
+            return 0
+        fi
+        (( waited % 30 == 0 )) \
+            && echo -e "  waiting for the host to quieten: 1-min load ${load} > ${HOST_CPUS} CPUs (waited ${waited} s of at most ${bound} s)"
+        sleep 5
+        waited=$(( waited + 5 ))
+        load=$(host_load1)
+    done
+    (( waited == 0 )) || echo -e "  host quiet after ${waited} s (1-min load ${load})"
+    return 0
+}

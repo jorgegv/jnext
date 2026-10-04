@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=91   # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..k (GH #295)
+EXPECTED_TOTAL=95   # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..k, HS-70a..d (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1480,6 +1480,51 @@ check "HS-69j" "the control: tagged private-sd, the same row writes its own copy
 out=$(par_probe "$(phase 2 fail-func skip-func ok-func); load_summary"); rc=$?
 check "HS-69k" "a row process's FAIL, its failed-row record and the tally all reach the driver (GH #295)" 0 $rc "$out" \
     "after: 1/1/1 [fail-func skip-func ok-func]" "Failed rows:" "fail-func (1-min load 0.50)"
+
+# ---------------- one full run per host, on a quiet host (GH #295) ----------------
+# Driven through regression.sh itself: JNEXT_REGRESSION_LOCK=force makes the
+# fast --preflight-only run take the same lock and load-wait a full run takes.
+lockf="$T/reg.lock"
+# The load is FAKED idle unless a row says otherwise: a forced-slot run also
+# waits for a quiet host, so on a really loaded box (this self-test runs inside
+# the regression's own parallel phase) HS-70a..c would otherwise measure the
+# host instead of the lock — which is exactly how they first failed.
+printf '0.50 0.00 0.00 1/100 12345\n' > "$T/loadavg-idle"
+slot_run() {   # slot_run <env...> — a forced-slot preflight run, bounded
+    env JNEXT_REGRESSION_LOCK_FILE="$lockf" JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-idle" \
+        JNEXT_REGRESSION_NPROC=12 "$@" \
+        timeout --kill-after=5s 60s bash "$REG" --preflight-only 2>&1
+}
+flock "$lockf" sleep 7 & holder=$!
+sleep 1
+t0=$SECONDS
+out=$(slot_run JNEXT_REGRESSION_LOCK=force); rc=$?
+out+=$'\n'"waited=$(( SECONDS - t0 >= 4 ? 1 : 0 ))"
+wait "$holder" 2>/dev/null
+check "HS-70a" "a second full run waits for the host lock, says so, then runs (GH #295)" 0 $rc "$out" \
+    "another FULL regression run holds the host lock" "preflight OK" "waited=1"
+
+flock "$lockf" sleep 20 & holder=$!
+sleep 1
+out=$(slot_run JNEXT_REGRESSION_LOCK=force JNEXT_REGRESSION_LOCK_WAIT=5); rc=$?
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+check "HS-70b" "the lock wait is bounded: a lock held too long is a harness fault (GH #295)" 2 $rc "$out" \
+    "HARNESS FAULT" "for the full-run lock"
+
+flock "$lockf" sleep 8 & holder=$!
+sleep 1
+t0=$SECONDS
+out=$(slot_run); rc=$?
+out+=$'\n'"quick=$(( SECONDS - t0 < 4 ? 1 : 0 )) waits=$(count_of "$out" "holds the host lock")"
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+check "HS-70c" "the control: a targeted run never takes the lock, even while it is held (GH #295)" 0 $rc "$out" \
+    "preflight OK" "quick=1 waits=0"
+
+printf '50.00 0.00 0.00 1/100 12345\n' > "$T/loadavg-busy"
+out=$(slot_run JNEXT_REGRESSION_LOCK=force JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-busy" \
+               JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_LOAD_WAIT=5); rc=$?
+check "HS-70d" "a full run on a loaded host waits (bounded), says why, then starts with a loud note (GH #295)" 0 $rc "$out" \
+    "waiting for the host to quieten: 1-min load 50.00 > 12 CPUs" "starting anyway" "preflight OK"
 
 echo ""
 echo "====================================="

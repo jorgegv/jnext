@@ -3,8 +3,8 @@
 # Runs screenshot tests + a few functional/integration tests, all of whose
 # logic lives in scripts/: one script per declared functional test, plus the
 # three group scripts (00-preflight-lint.sh, 01-sdcard-provision.sh,
-# screenshots.sh). This file only parses arguments, validates the declared-test
-# manifests, sources the group scripts,
+# screenshots.sh). This file only parses arguments, takes the host lock for a
+# full run, validates the declared-test manifests, sources the group scripts,
 # runs each functional row in a process of its own (parallel-rows.inc,
 # row-runner.sh — GH #295), and enforces the end-of-run completeness
 # accounting.
@@ -26,9 +26,59 @@
 #      JNEXT_TEST_JOBS caps the screenshot and parallel functional lanes
 #      (default: every CPU), JNEXT_TEST_QUIET_JOBS the quiet phase (default
 #      1); JNEXT_REGRESSION_ROW_TIMEOUT bounds one row (600 s);
-#      JNEXT_REGRESSION_ROW_TIMES=<file> logs each row's seconds.
+#      JNEXT_REGRESSION_LOCK_FILE / _LOCK_WAIT / _LOAD_WAIT tune the host lock
+#      and the quiet-host wait; JNEXT_REGRESSION_ROW_TIMES=<file> logs each
+#      row's seconds.
 
 set -euo pipefail
+
+# --- One FULL run per host at a time (GH #295) ---
+# A full run is one with no arguments and the real manifests: that is what
+# `make regression` runs, and what loads the whole machine. Two of them at once
+# make each other's timing-sensitive rows lie, so the second one waits for the
+# first, saying who holds the lock. Targeted runs (row names, --update,
+# --preflight-only) and runs on overridden manifests (the self-test's stub
+# suites) never lock. JNEXT_REGRESSION_LOCK=force locks any run shape — the
+# self-test's hook.
+#
+# This happens BEFORE the suite library is sourced, so a waiting run holds no
+# scratch directory and no SD clone. flock -o: the lock is held by flock(1)
+# itself and never inherited by the run's children, so a leftover child can
+# never keep the host locked.
+REGRESSION_SLOT=false
+if [[ "${JNEXT_REGRESSION_LOCK:-}" == force ]] \
+   || [[ $# -eq 0 && -z "${JNEXT_REGRESSION_CONF:-}${JNEXT_REGRESSION_FUNC_CONF:-}${JNEXT_REGRESSION_SCRIPTS_DIR:-}" ]]; then
+    REGRESSION_SLOT=true
+fi
+if $REGRESSION_SLOT && [[ -z "${JNEXT_REGRESSION_LOCK_HELD:-}" ]]; then
+    reg_lock=${JNEXT_REGRESSION_LOCK_FILE:-${XDG_CACHE_HOME:-$HOME/.cache}/jnext/regression.lock}
+    reg_lock_bound=${JNEXT_REGRESSION_LOCK_WAIT:-7200}
+    mkdir -p "$(dirname "$reg_lock")"
+    reg_waited=0
+    while :; do
+        reg_rc=0
+        JNEXT_REGRESSION_LOCK_HELD="$reg_lock" \
+            flock -o -n -E 75 "$reg_lock" bash "$0" "$@" || reg_rc=$?
+        [[ $reg_rc -eq 75 ]] || exit "$reg_rc"
+        if (( reg_waited >= reg_lock_bound )); then
+            echo ""
+            echo "=== REGRESSION HARNESS FAULT ==="
+            echo "  waited ${reg_waited} s for the full-run lock $reg_lock; still held by: $(cat "$reg_lock.holder" 2>/dev/null || echo unknown)"
+            echo ""
+            exit 2
+        fi
+        if (( reg_waited % 60 == 0 )); then
+            echo "  another FULL regression run holds the host lock ($(cat "$reg_lock.holder" 2>/dev/null || echo "holder unknown")) — waiting, at most ${reg_lock_bound} s (waited ${reg_waited} s)"
+        fi
+        sleep 5
+        reg_waited=$(( reg_waited + 5 ))
+    done
+fi
+if [[ -n "${JNEXT_REGRESSION_LOCK_HELD:-}" ]]; then
+    echo "pid $$ since $(date '+%Y-%m-%d %H:%M:%S') in $(cd "$(dirname "$0")/../.." && pwd)" \
+        > "$JNEXT_REGRESSION_LOCK_HELD.holder" 2>/dev/null || true
+    unset JNEXT_REGRESSION_LOCK_HELD
+fi
 
 # Shared helpers/constants and the one-time environment setup (locale, jnext
 # binary resolution, SD args, manifest paths, TMP_DIR + EXIT trap, counters,
@@ -39,6 +89,11 @@ source "$(dirname "$0")/test-functions.inc"
 # shellcheck source=test/00regression/parallel-rows.inc
 source "$(dirname "$0")/parallel-rows.inc"
 regression_lanes
+
+# A full run waits (bounded) for a host that is not already overloaded.
+if $REGRESSION_SLOT; then
+    wait_for_quiet_host
+fi
 
 # Test scripts: scripts/<name>.sh for every functional test declared in
 # functional_tests.conf, plus the three group scripts.
