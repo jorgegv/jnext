@@ -17,10 +17,9 @@
   and show TWO facts instead:
 
     * "This version <X>"   — the jnext version THIS COPY of the guide was
-                     rendered from. Static, from config.extra.doc_release in
-                     mkdocs.yml, which packaging/sync-version.sh rewrites from
-                     version.yaml on every bump (re-rendering the guide in the
-                     same step). Baked at render time, so it is correct offline
+                     rendered from. Static, from config.extra.doc_release,
+                     which src/doc/version_hook.py sets from version.yaml at
+                     render time (a bump re-renders the guide). Baked at render time, so it is correct offline
                      — the guide ships inside the packages. Deterministic:
                      docs-check re-renders and byte-diffs, so nothing here may
                      depend on wall-clock or network.

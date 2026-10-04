@@ -127,13 +127,13 @@ validation:
 # version", beside "Latest version", which the page fetches live from
 # version.yaml on GitHub main (src/doc/developer-guide-overrides/partials/source.html).
 #
-# DO NOT hand-edit: packaging/sync-version.sh rewrites this from version.yaml on
-# every `make bump-*` and re-renders the guide in the same step, exactly as it
-# does for mkdocs.yml. It is a committed literal because the value is baked into
-# every page at render time and docs-devguide-check byte-diffs a fresh render —
-# so config and rendered output must move together.
-extra:
-  doc_release: v1.1.2
+# config.extra.doc_release is set at render time by this hook, which reads
+# version.yaml — the single source of truth — and stops the build if it cannot.
+# No copy of the version lives in this file, so a bump does not edit it; the
+# bump re-renders the committed guide instead, and docs-check byte-diffs a fresh
+# render against it as for any other source change.
+hooks:
+  - src/doc/version_hook.py
 
 markdown_extensions:
   - admonition
