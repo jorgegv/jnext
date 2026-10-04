@@ -36,12 +36,17 @@ fail_row() {
     local load
     load=$(host_load1)
     FAILED_ROWS+=("${CURRENT_ROW:-unnamed row} (1-min load ${load:-unknown})")
+    # The same fact in machine form, for the stamp (GH #295): only a FAIL on a
+    # loaded host can ever become a solo-confirmed one.
+    local fail_class=idle
+    host_load_high "$load" && fail_class=loaded
+    FAIL_RECORDS+=("${CURRENT_ROW:-unnamed-row} $fail_class")
     if host_load_high "$load"; then
         LOADED_FAILS=$((LOADED_FAILS + 1))
         echo -e "        ${YELLOW}^ host load ${load} on ${HOST_CPUS} CPUs when this row failed — re-run it SOLO before calling it real or dismissing it (GH #245)${RESET}"
     fi
 }
-skip_row() { echo -e "${YELLOW}SKIP${RESET}${1-}"; skip=$((skip + 1)); }
+skip_row() { echo -e "${YELLOW}SKIP${RESET}${1-}"; skip=$((skip + 1)); SKIPPED_ROWS+=("${CURRENT_ROW:-unnamed-row}"); }
 
 # row_counters_snapshot <row> / row_counters_check — the guard the driver puts
 # around every SOURCED functional row. The row's name is taken BEFORE it runs,
@@ -192,6 +197,8 @@ write_row_result() {
         echo "loaded $LOADED_FAILS"
         for name in "${REPORTED_FUNC[@]+"${REPORTED_FUNC[@]}"}"; do echo "reported $name"; done
         for row in "${FAILED_ROWS[@]+"${FAILED_ROWS[@]}"}"; do echo "failed $row"; done
+        for row in "${FAIL_RECORDS[@]+"${FAIL_RECORDS[@]}"}"; do echo "failrec $row"; done
+        for row in "${SKIPPED_ROWS[@]+"${SKIPPED_ROWS[@]}"}"; do echo "skipped $row"; done
     } > "$f"
     mv -f "$f" "$ROW_RESULT_FILE"
 }
@@ -207,8 +214,8 @@ write_row_result() {
 # escalates to KILL after its --kill-after, so the wait is bounded.
 regression_cleanup() {
     local p
-    for p in ${ROW_RUNNING_PIDS:-}; do kill -TERM "$p" 2>/dev/null || true; done
-    for p in ${ROW_RUNNING_PIDS:-}; do wait "$p" 2>/dev/null || true; done
+    for p in ${ROW_RUNNING_PIDS:-} ${HEARTBEAT_PID:-}; do kill -TERM "$p" 2>/dev/null || true; done
+    for p in ${ROW_RUNNING_PIDS:-} ${HEARTBEAT_PID:-}; do wait "$p" 2>/dev/null || true; done
     [[ -n "${TMP_DIR:-}" ]] && rm -rf "$TMP_DIR"
     [[ -n "${RUN_DIR:-}" ]] && rm -rf "$RUN_DIR"
     # Prune the (now likely empty) runs/ parent; harmless if other runs are live.
@@ -546,6 +553,8 @@ regression_lib_init() {
     LOAD_END=""
     LOADED_FAILS=0
     FAILED_ROWS=()
+    FAIL_RECORDS=()
+    SKIPPED_ROWS=()
     CURRENT_ROW=""
 
     # ImageMagick availability. Detected here (silently) so every consumer can

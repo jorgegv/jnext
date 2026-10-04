@@ -27,6 +27,8 @@
 #      (default: every CPU), JNEXT_TEST_QUIET_JOBS the quiet phase (default
 #      1); JNEXT_REGRESSION_ROW_TIMEOUT bounds one row (600 s);
 #      JNEXT_REGRESSION_STAMP=1 (set by `make regression`) stamps a green run;
+#      =confirm (set by `make regression-confirm`) re-runs a full run's
+#      loaded-host FAILs solo and, if they pass, stamps it;
 #      JNEXT_REGRESSION_LOCK_FILE / _LOCK_WAIT / _LOAD_WAIT tune the host lock
 #      and the quiet-host wait; JNEXT_REGRESSION_ROW_TIMES=<file> logs each
 #      row's seconds.
@@ -47,7 +49,7 @@ set -euo pipefail
 # itself and never inherited by the run's children, so a leftover child can
 # never keep the host locked.
 REGRESSION_SLOT=false
-if [[ "${JNEXT_REGRESSION_LOCK:-}" == force ]] \
+if [[ "${JNEXT_REGRESSION_LOCK:-}" == force || "${JNEXT_REGRESSION_STAMP:-}" == confirm ]] \
    || [[ $# -eq 0 && -z "${JNEXT_REGRESSION_CONF:-}${JNEXT_REGRESSION_FUNC_CONF:-}${JNEXT_REGRESSION_SCRIPTS_DIR:-}" ]]; then
     REGRESSION_SLOT=true
 fi
@@ -56,10 +58,31 @@ if $REGRESSION_SLOT && [[ -z "${JNEXT_REGRESSION_LOCK_HELD:-}" ]]; then
     reg_lock_bound=${JNEXT_REGRESSION_LOCK_WAIT:-7200}
     mkdir -p "$(dirname "$reg_lock")"
     reg_waited=0
+    # The run itself is flock's child, started as a background JOB (set -m:
+    # its own process group, so its INT/TERM stay trappable — a plain `&`
+    # child of a script would start with SIGINT ignored). A TERM or INT sent
+    # to THIS shell alone (`kill <pid>`, not the group) is forwarded to that
+    # group, so the run cleans up and the lock is released; without it flock
+    # and the run lived on, holding the lock to the end (GH #295 review).
+    # Its stdin is /dev/null: a background process group that read the
+    # terminal would be stopped (SIGTTIN), and nothing in the suite reads it.
+    reg_fpid=""
+    trap '[[ -n "$reg_fpid" ]] && kill -TERM -- "-$reg_fpid" 2>/dev/null' TERM
+    trap '[[ -n "$reg_fpid" ]] && kill -INT -- "-$reg_fpid" 2>/dev/null' INT
     while :; do
-        reg_rc=0
+        set -m
         JNEXT_REGRESSION_LOCK_HELD="$reg_lock" \
-            flock -o -n -E 75 "$reg_lock" bash "$0" "$@" || reg_rc=$?
+            flock -o -n -E 75 "$reg_lock" bash "$0" "$@" < /dev/null &
+        reg_fpid=$!
+        set +m
+        reg_rc=0
+        wait "$reg_fpid" || reg_rc=$?
+        # A trapped signal interrupts `wait`; keep waiting for the run's own end.
+        while kill -0 "$reg_fpid" 2>/dev/null; do
+            reg_rc=0
+            wait "$reg_fpid" || reg_rc=$?
+        done
+        reg_fpid=""
         [[ $reg_rc -eq 75 ]] || exit "$reg_rc"
         if (( reg_waited >= reg_lock_bound )); then
             echo ""
@@ -275,7 +298,7 @@ REG_T0=$(date +%s)
 # A stamp that cannot be computed is a loud note, not a fault: the run's
 # verdict is the tests', and `make regression-stamp-check` then says "no stamp".
 REG_STAMP_START=""
-if [[ "${JNEXT_REGRESSION_STAMP:-}" == 1 ]]; then
+if [[ "${JNEXT_REGRESSION_STAMP:-}" == 1 || "${JNEXT_REGRESSION_STAMP:-}" == confirm ]]; then
     REG_STAMP_START=$(bash "$PROJECT_DIR/test/regression-stamp.sh" state) \
         || { REG_STAMP_START=""; echo -e "  ${YELLOW}WARNING: cannot compute the regression stamp key; this run will not be stamped${RESET}"; }
 fi
@@ -364,19 +387,52 @@ fi
 REG_WALL=$(( $(date +%s) - REG_T0 ))
 echo -e "  wall time: ${REG_WALL} s"
 
-if [[ "${JNEXT_REGRESSION_STAMP:-}" == 1 ]]; then
-    if [[ $fail -gt 0 || ${#FILTER_TESTS[@]} -gt 0 ]] || $UPDATE_MODE; then
-        echo -e "  no regression stamp: only a green full run is stamped"
-    elif [[ -z "$REG_STAMP_START" ]]; then
-        echo -e "  ${YELLOW}WARNING: green, but NOT stamped: the stamp key could not be computed at the start${RESET}"
-    else
-        bash "$PROJECT_DIR/test/regression-stamp.sh" write "$REG_STAMP_START" \
-            "pass=$pass" "fail=$fail" "skip=$skip" "rows=$(( pass + fail + skip ))" \
-            "load_start=${LOAD_START:-unknown}" "load_end=${LOAD_END:-unknown}" "cpus=$HOST_CPUS" \
-            "lanes=$PAR_LANES/$QUIET_LANES" "wall_s=$REG_WALL" \
-            || echo -e "  ${YELLOW}WARNING: green, but the stamp could not be written (test/regression-stamp.sh write)${RESET}"
-    fi
-fi
+# The stamp (GH #295). Only a full run in which every row PASSED is stamped: a
+# SKIP is a row that was not tested. A full run whose only FAILs are
+# functional rows that failed on a LOADED host — the owner's rule: a timing
+# row that fails under load and passes SOLO counts as a pass — is recorded as
+# PENDING instead, and `make regression-confirm` re-runs exactly those rows,
+# one at a time on a quiet host, on the same tree; only if every one passes is
+# the run stamped, and the stamp names them. Any other FAIL is real.
+reg_stamp() { bash "$PROJECT_DIR/test/regression-stamp.sh" "$@" \
+    || echo -e "  ${YELLOW}WARNING: the stamp record could not be written (test/regression-stamp.sh $1)${RESET}"; }
+reg_facts=("pass=$pass" "fail=$fail" "skip=$skip" "rows=$(( pass + fail + skip ))"
+           "load_start=${LOAD_START:-unknown}" "load_end=${LOAD_END:-unknown}" "cpus=$HOST_CPUS"
+           "lanes=$PAR_LANES/$QUIET_LANES" "wall_s=$REG_WALL")
+case "${JNEXT_REGRESSION_STAMP:-}" in
+    1)
+        if [[ ${#FILTER_TESTS[@]} -gt 0 ]] || $UPDATE_MODE; then
+            echo -e "  no regression stamp: only a full run is stamped"
+        elif [[ -z "$REG_STAMP_START" ]]; then
+            echo -e "  ${YELLOW}WARNING: NOT stamped: the stamp key could not be computed at the start${RESET}"
+        elif [[ $skip -gt 0 ]]; then
+            echo -e "  ${YELLOW}no regression stamp: $skip row(s) SKIPPED, i.e. not tested: ${SKIPPED_ROWS[*]}${RESET}"
+        elif [[ $fail -eq 0 ]]; then
+            reg_stamp write "$REG_STAMP_START" "${reg_facts[@]}"
+        elif reg_solo=$(solo_confirmable_fails); then
+            reg_stamp pending "$REG_STAMP_START" "fails=$reg_solo" "${reg_facts[@]}"
+        else
+            echo -e "  no regression stamp: $reg_solo"
+        fi
+        ;;
+    confirm)
+        if [[ -z "$REG_STAMP_START" ]]; then
+            echo -e "  ${YELLOW}WARNING: NOT confirmed: the stamp key could not be computed at the start${RESET}"
+        else
+            reg_missing=""
+            for reg_r in "${FILTER_TESTS[@]+"${FILTER_TESTS[@]}"}"; do
+                reg_seen=""
+                for reg_n in "${REPORTED_FUNC[@]+"${REPORTED_FUNC[@]}"}"; do [[ "$reg_n" == "$reg_r" ]] && reg_seen=1; done
+                [[ -n "$reg_seen" ]] || reg_missing+=" $reg_r"
+            done
+            if [[ -n "$reg_missing" ]]; then
+                echo -e "  no regression stamp: the solo re-run did not report:$reg_missing"
+            else
+                reg_stamp confirm "$REG_STAMP_START" "rows=${FILTER_TESTS[*]}" "${reg_facts[@]}"
+            fi
+        fi
+        ;;
+esac
 
 if [[ $fail -gt 0 ]]; then
     exit 1

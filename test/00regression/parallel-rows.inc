@@ -139,11 +139,12 @@ run_row_merge() {
         rm -rf "${ROWS_TMP:?}/$row" "${ROWS_RUN:?}/$row"
         return 0
     fi
-    local rp=0 rf=0 rs=0 rl=0 names=() frows=()
+    local rp=0 rf=0 rs=0 rl=0 names=() frows=() frecs=() srows=()
     while read -r k v; do
         case $k in
             pass) rp=$v ;; fail) rf=$v ;; skip) rs=$v ;; loaded) rl=$v ;;
             reported) names+=("$v") ;; failed) frows+=("$v") ;;
+            failrec) frecs+=("$v") ;; skipped) srows+=("$v") ;;
             *) harness_fault "row ${BOLD}$row${RESET}'s result file has an unknown line: '$k $v'" ;;
         esac
     done < "$res"
@@ -154,6 +155,8 @@ run_row_merge() {
     LOADED_FAILS=$(( LOADED_FAILS + rl ))
     REPORTED_FUNC+=("${names[@]}")
     FAILED_ROWS+=("${frows[@]+"${frows[@]}"}")
+    FAIL_RECORDS+=("${frecs[@]+"${frecs[@]}"}")
+    SKIPPED_ROWS+=("${srows[@]+"${srows[@]}"}")
     [[ ! -e "$ROWS_TMP/$row" && ! -e "$ROWS_RUN/$row" ]] \
         || harness_fault "row ${BOLD}$row${RESET} exited but its directories are still there" \
                          "$ROWS_TMP/$row / $ROWS_RUN/$row — its cleanup did not run (a trap of its own replaced the library's?), or another row wrote into them."
@@ -173,6 +176,34 @@ run_func_phase() {
     local -A idx_of=()
     local -a rc_of=() t_start=()
     local next=0 shown=0 running=0 pid rc i phase_t0=$SECONDS
+    # The heartbeat: output is printed in declared order, so one slow row
+    # holds back everything after it — for up to its 600 s bound if it hangs.
+    # Every JNEXT_REGRESSION_HEARTBEAT seconds (default 60; 0 = off) say how
+    # far the phase is and which rows are still running. A subshell: it holds
+    # none of the library's traps, and regression_cleanup stops it.
+    local hb=${JNEXT_REGRESSION_HEARTBEAT:-60}
+    if [[ "$hb" =~ ^[1-9][0-9]*$ ]]; then
+        (
+            # Its sleep must die with it: an orphaned sleep would hold the
+            # caller's stdout open (a $(...) around the run waited out the
+            # whole interval). `wait` is interruptible, so the trap runs at once.
+            hb_sleep=""
+            trap '[[ -n "$hb_sleep" ]] && kill "$hb_sleep" 2>/dev/null; exit 0' TERM
+            while :; do
+                sleep "$hb" & hb_sleep=$!
+                wait "$hb_sleep" || true
+                hb_sleep=""
+                local r left="" ndone=0
+                for r in "${rows[@]}"; do
+                    if [[ -e "$ROWS_OUT/$r.done" ]]; then ndone=$(( ndone + 1 ))
+                    elif [[ -e "$ROWS_OUT/$r.log" ]]; then left+=" $r"
+                    fi
+                done
+                echo "  [heartbeat] $label: $ndone/$n finished; still running:${left:- (none)}"
+            done
+        ) &
+        HEARTBEAT_PID=$!
+    fi
     while (( shown < n )); do
         while (( next < n && running < lanes )); do
             run_row_launch "${rows[next]}"
@@ -191,6 +222,7 @@ run_func_phase() {
         ROW_RUNNING_PIDS=${ROW_RUNNING_PIDS/ $pid / }
         rc_of[i]=$rc
         running=$(( running - 1 ))
+        : > "$ROWS_OUT/${rows[i]}.done"
         # JNEXT_REGRESSION_ROW_TIMES: append "<row> <seconds> <exit>" per row —
         # how the quiet set and the lane count were measured (GH #295).
         if [[ -n "${JNEXT_REGRESSION_ROW_TIMES:-}" ]]; then
@@ -202,6 +234,11 @@ run_func_phase() {
             shown=$(( shown + 1 ))
         done
     done
+    if [[ -n "${HEARTBEAT_PID:-}" ]]; then
+        kill "$HEARTBEAT_PID" 2>/dev/null || true
+        wait "$HEARTBEAT_PID" 2>/dev/null || true
+        HEARTBEAT_PID=""
+    fi
     echo -e "  (${label}: $(( SECONDS - phase_t0 )) s)"
 }
 
@@ -219,6 +256,31 @@ func_phases_end() {
         || harness_fault "the run's shared SD clone CHANGED during the run ($SHARED_SD_PRINT -> $now)" \
                          "A row without the ${BOLD}private-sd${RESET} tag wrote to the card every untagged row boots." \
                          "Find it (run rows alone and fingerprint the card) and tag it private-sd in functional_tests.conf."
+}
+
+# solo_confirmable_fails — print the failed rows (space-separated) when EVERY
+# FAIL of the run may be confirmed by a solo re-run: a functional row (a
+# screenshot or a lint is deterministic, never contention) that failed with
+# the 1-minute load at or above the CPU count. Otherwise print why not, and
+# fail. The decision is the stamp's (GH #295), so it is made from the run's own
+# records, never from a reader's memory of which rows are timing-sensitive.
+solo_confirmable_fails() {
+    local rec name class names="" why=""
+    for rec in "${FAIL_RECORDS[@]+"${FAIL_RECORDS[@]}"}"; do
+        name=${rec% *}; class=${rec##* }
+        if [[ -z "${IS_DECLARED_FUNC[$name]:-}" ]]; then
+            why+=" $name (not a functional row)"
+        elif [[ "$class" != loaded ]]; then
+            why+=" $name (failed on an idle host)"
+        else
+            names+=" $name"
+        fi
+    done
+    if [[ -n "$why" || -z "$names" ]]; then
+        echo "FAIL(s) that a solo re-run cannot confirm:${why:- (no failure records)}"
+        return 1
+    fi
+    echo "${names# }"
 }
 
 # wait_for_quiet_host — before a full run: while the 1-minute load is above the

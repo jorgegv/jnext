@@ -8,40 +8,57 @@
 #
 # Usage: regression-stamp.sh [-C <repo>] <command>, where <repo> (default: the
 # checkout this script lives in) is the repository or worktree to describe:
-#   regression-stamp.sh key [<commit>]   the content key of <commit> (default HEAD)
-#   regression-stamp.sh state            "key=<k> commit=<sha> dirty=<n>" for the work tree
-#   regression-stamp.sh write <state> k=v...
-#                                        (regression.sh, at the end of a green full
-#                                        run) stamp <state>'s key, if the tree was
-#                                        clean then and is clean and unchanged now
-#   regression-stamp.sh check            print the stamp matching the work tree, or
-#                                        exit 1 saying why there is none
-#   regression-stamp.sh ci               find a green CI run (gh, read-only) on a
-#                                        commit with the work tree's key
+#   key [<commit>]          the content key of <commit> (default HEAD)
+#   state                   "key=<k> commit=<sha> dirty=<n>" for the work tree
+#   write <state> k=v...    (regression.sh, end of a green full run) stamp
+#                           <state>'s key — refused unless fail=0 and skip=0,
+#                           the tree was clean then and is clean and unchanged now
+#   pending <state> fails=<rows> k=v...
+#                           (regression.sh, end of a full run whose only FAILs
+#                           are functional rows that failed on a loaded host)
+#                           record those rows as awaiting a solo re-run
+#   pending-rows            the rows pending for the work tree's key, or exit 1
+#   confirm <state> rows=<rows> k=v...
+#                           (regression.sh, end of `make regression-confirm`)
+#                           every pending row passed solo on the same key: turn
+#                           the pending record into a stamp that names them
+#   check                   print the stamp matching the work tree, or exit 1
+#   ci                      find a green CI run (gh, read-only) on a commit with
+#                           the work tree's key
 #
 # THE KEY is a sha256 over `git ls-tree -r` of the commit — every path's mode,
-# blob id and name — restricted to the KEYED paths below. It is a function of
-# committed content only, so it is the same in every worktree and on CI, and it
-# needs no checkout of the commit to compute.
+# blob id and name, gitlinks included — restricted to the KEYED paths below. It
+# is a function of committed content only, so it is the same in every worktree
+# and on CI, and it needs no checkout of the commit to compute.
 #
-# THE KEYED PATHS are defined here and nowhere else (KEY_FILTER_AWK): every
-# tracked path EXCEPT documentation — doc/, src/doc/, any *.md, ChangeLog —
-# with three exceptions that live in doc/ but are INPUTS to a gate that
-# `make regression` runs, so a change to them can change its verdict:
+# THE KEYED PATHS are defined here and nowhere else (KEY_AWK_FN): every tracked
+# path EXCEPT documentation — doc/, src/doc/, any *.md, ChangeLog — with the
+# exceptions that are documentation by location but INPUTS to `make
+# regression`, so a change to them can change its verdict. The rule that
+# derives the list: a documentation file is keyed iff something `make
+# regression` runs READS it, other than docs-check (a docs-only change runs
+# docs-check — CLAUDE.md, the doc-only rule). Derived (GH #295 round 1) by
+# tracing every file opened by the gates (lint-makefile-help,
+# regression-doc-check, cli-check) and by a whole traced suite run, and
+# cross-checked by a static grep of CMake, the Makefile, the row scripts and
+# their helpers for documentation paths:
 #   doc/formats/                          snapshot-schema-func validates jnext's
 #                                         output against the schema there;
 #   doc/man/jnext.1.md                    cli-check diffs the CLI table against it;
+#   src/doc/user-guide/09-reference/01-command-line-options.md
+#                                         cli-check (CLI-DOC-06) diffs it too;
 #   doc/testing/CURRENT-REGRESSION-STATE.md  regression-doc-check checks it
 #                                         against regression_tests.conf.
-# A file that only docs-check reads is NOT an input in that sense: a docs-only
-# change runs docs-check (CLAUDE.md, the doc-only rule), not the regression.
+# HS-71h..j pin the classification on these real paths.
 #
 # CLEAN means no uncommitted change, staged or not, and no untracked file, in
-# a KEYED path. A docs-only edit in flight does not stop a stamp; a source
-# edit does, because then the tree that ran is not the commit the key names.
+# a KEYED path — at the start of the run AND at its end, with the key
+# unchanged. A docs-only edit in flight does not stop a stamp; a source edit
+# does, because then the tree that ran is not the commit the key names.
 #
 # Stamps live in ${XDG_CACHE_HOME:-~/.cache}/jnext/regression-stamps/<key>
-# (JNEXT_REGRESSION_STAMP_DIR overrides), shared by every worktree of the user.
+# (JNEXT_REGRESSION_STAMP_DIR overrides), shared by every worktree of the user;
+# a pending record is <key>.pending beside it.
 set -euo pipefail
 export LC_ALL=C
 
@@ -55,7 +72,8 @@ STAMP_DIR=${JNEXT_REGRESSION_STAMP_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/jnext/re
 
 # The one definition of what the key covers: keyed(p) is true for a keyed path.
 KEY_AWK_FN='function keyed(p) {
-    if (p ~ /^doc\/formats\// || p == "doc/man/jnext.1.md" || p == "doc/testing/CURRENT-REGRESSION-STATE.md") return 1
+    if (p ~ /^doc\/formats\// || p == "doc/man/jnext.1.md" || p == "doc/testing/CURRENT-REGRESSION-STATE.md" \
+        || p == "src/doc/user-guide/09-reference/01-command-line-options.md") return 1
     if (p ~ /^doc\// || p ~ /^src\/doc\// || p ~ /\.md$/ || p == "ChangeLog") return 0
     return 1
 }'
@@ -86,8 +104,40 @@ state() {
     echo "key=$key commit=$commit dirty=$n"
 }
 
-# field <state> <name>
+# field <state-or-args> <name> — the value of name=... in a space-separated list
 field() { local f; for f in $1; do [[ "$f" == "$2="* ]] && { echo "${f#*=}"; return 0; }; done; return 1; }
+# arg <name> <k=v...> — the value of name=... among separate arguments
+arg() { local n=$1 a; shift; for a in "$@"; do [[ "$a" == "$n="* ]] && { echo "${a#*=}"; return 0; }; done; return 1; }
+
+# clean_through <start-state> — the run's tree was clean at its start, is clean
+# now, and its key did not move. Prints why not, and fails, otherwise.
+clean_through() {
+    local start=$1 now
+    now=$(state)
+    if [[ "$(field "$start" dirty)" != 0 || "$(field "$now" dirty)" != 0 ]]; then
+        echo "  no regression stamp: the tree had uncommitted non-doc changes (at start: $(field "$start" dirty), at end: $(field "$now" dirty) paths)"
+        dirty_paths | head -n 10 | sed 's/^/      /'
+        return 1
+    fi
+    if [[ "$(field "$now" key)" != "$(field "$start" key)" ]]; then
+        echo "  no regression stamp: the tree's non-doc content changed during the run ($(field "$start" commit) -> $(field "$now" commit))"
+        return 1
+    fi
+    return 0
+}
+
+# header <key> <commit> — the identity lines of a stamp or pending record
+header() {
+    echo "key=$1"
+    echo "commit=$2"
+    echo "subject=$(git_ log -1 --format=%s "$2")"
+    echo "stamped=$(date '+%Y-%m-%dT%H:%M:%S%z')"
+    echo "host=$(hostname 2>/dev/null || uname -n)"
+    echo "worktree=$ROOT"
+}
+
+# sorted_words <words> — the words, one space apart, sorted and deduplicated
+sorted_words() { tr ' ' '\n' <<<"$1" | sed '/^$/d' | sort -u | tr '\n' ' ' | sed 's/ $//'; }
 
 cmd=${1:-}
 case $cmd in
@@ -100,31 +150,87 @@ case $cmd in
     write)
         [[ $# -ge 2 ]] || die "write needs the run's starting state"
         start=$2; shift 2
-        now=$(state)
         skey=$(field "$start" key) || die "bad starting state '$start'"
-        if [[ "$(field "$start" dirty)" != 0 || "$(field "$now" dirty)" != 0 ]]; then
-            echo "  no regression stamp: the tree had uncommitted non-doc changes (at start: $(field "$start" dirty), at end: $(field "$now" dirty) paths)"
-            dirty_paths | head -n 10 | sed 's/^/      /'
+        # A stamp stands in for a run (a reviewer or a release accepts it
+        # instead of running), so it may only describe a run in which every
+        # row PASSED: a skipped row was not tested, and the gate's baseline
+        # declares no skips.
+        f=$(arg fail "$@") || f=missing; s=$(arg skip "$@") || s=missing
+        if [[ "$f" != 0 || "$s" != 0 ]]; then
+            echo "  no regression stamp: only a run with fail=0 and skip=0 is stamped (this one: fail=$f skip=$s)"
             exit 0
         fi
-        if [[ "$(field "$now" key)" != "$skey" ]]; then
-            echo "  no regression stamp: the tree's non-doc content changed during the run ($(field "$start" commit) -> $(field "$now" commit))"
-            exit 0
-        fi
+        clean_through "$start" || exit 0
         commit=$(field "$start" commit)
         mkdir -p "$STAMP_DIR"
         tmp="$STAMP_DIR/.$skey.$$"
+        { header "$skey" "$commit"; printf '%s\n' "$@"; } > "$tmp"
+        mv -f "$tmp" "$STAMP_DIR/$skey"
+        rm -f "$STAMP_DIR/$skey.pending"
+        echo "  regression stamp written: $STAMP_DIR/$skey (commit ${commit:0:12})"
+        ;;
+    pending)
+        [[ $# -ge 2 ]] || die "pending needs the run's starting state"
+        start=$2; shift 2
+        skey=$(field "$start" key) || die "bad starting state '$start'"
+        fails=$(arg fails "$@") || die "pending needs fails=<rows>"
+        [[ -n "$fails" ]] || die "pending with no failed rows"
+        s=$(arg skip "$@") || s=missing
+        [[ "$s" == 0 ]] || { echo "  no pending stamp: skip=$s — a skipped row was not tested"; exit 0; }
+        clean_through "$start" || exit 0
+        commit=$(field "$start" commit)
+        mkdir -p "$STAMP_DIR"
+        tmp="$STAMP_DIR/.$skey.pending.$$"
+        { header "$skey" "$commit"; printf '%s\n' "$@"; } > "$tmp"
+        mv -f "$tmp" "$STAMP_DIR/$skey.pending"
+        echo "  NO STAMP YET: $(wc -w <<<"$fails") row(s) failed on a loaded host: $fails"
+        echo "  They are recorded as pending ($STAMP_DIR/$skey.pending). Re-run them SOLO on this"
+        echo "  tree with 'make regression-confirm': if every one passes, the run is stamped and"
+        echo "  the stamp names them; if any fails again, the FAIL is real."
+        ;;
+    pending-rows)
+        now=$(state)
+        key=$(field "$now" key); n=$(field "$now" dirty)
+        [[ "$n" == 0 ]] || { echo "regression-stamp: the work tree has $n uncommitted non-doc change(s)" >&2; exit 1; }
+        [[ -f "$STAMP_DIR/$key.pending" ]] \
+            || { echo "regression-stamp: no pending solo re-run for this tree's key $key" >&2; exit 1; }
+        sed -n 's/^fails=//p' "$STAMP_DIR/$key.pending"
+        ;;
+    confirm)
+        [[ $# -ge 2 ]] || die "confirm needs the run's starting state"
+        start=$2; shift 2
+        skey=$(field "$start" key) || die "bad starting state '$start'"
+        pend="$STAMP_DIR/$skey.pending"
+        [[ -f "$pend" ]] || { echo "  no regression stamp: nothing is pending for key $skey"; exit 0; }
+        rows=$(arg rows "$@") || die "confirm needs rows=<rows>"
+        want=$(sed -n 's/^fails=//p' "$pend")
+        if [[ "$(sorted_words "$rows")" != "$(sorted_words "$want")" ]]; then
+            echo "  no regression stamp: the solo run covered '$rows', the pending rows are '$want'"
+            exit 0
+        fi
+        f=$(arg fail "$@") || f=missing; s=$(arg skip "$@") || s=missing
+        if [[ "$f" != 0 || "$s" != 0 ]]; then
+            echo "  no regression stamp: the solo re-run did not pass (fail=$f skip=$s) — the pending FAIL stands"
+            exit 0
+        fi
+        clean_through "$start" || exit 0
+        full_pass=$(sed -n 's/^pass=//p' "$pend"); full_fail=$(sed -n 's/^fail=//p' "$pend")
+        mkdir -p "$STAMP_DIR"
+        tmp="$STAMP_DIR/.$skey.$$"
         {
-            echo "key=$skey"
-            echo "commit=$commit"
-            echo "subject=$(git_ log -1 --format=%s "$commit")"
+            grep -vE '^(stamped|host|worktree|pass|fail|fails)=' "$pend"
+            echo "pass=$(( full_pass + full_fail ))"
+            echo "fail=0"
             echo "stamped=$(date '+%Y-%m-%dT%H:%M:%S%z')"
             echo "host=$(hostname 2>/dev/null || uname -n)"
             echo "worktree=$ROOT"
-            printf '%s\n' "$@"
+            echo "full_run_failed_on_loaded_host=$want"
+            echo "confirmed_solo=$rows"
+            for a in "$@"; do [[ "$a" == rows=* ]] || echo "solo_$a"; done
         } > "$tmp"
         mv -f "$tmp" "$STAMP_DIR/$skey"
-        echo "  regression stamp written: $STAMP_DIR/$skey (commit ${commit:0:12})"
+        rm -f "$pend"
+        echo "  regression stamp written: $STAMP_DIR/$skey — the full run's loaded-host FAIL(s) $want passed solo"
         ;;
     check)
         now=$(state)
@@ -137,7 +243,12 @@ case $cmd in
         if [[ ! -f "$STAMP_DIR/$key" ]]; then
             echo "NO STAMP for this tree: no green full 'make regression' has been recorded for content key"
             echo "    $key (commit ${commit:0:12}, docs excluded)"
-            echo "  Run 'make regression' on it, or check out the commit the author stamped."
+            if [[ -f "$STAMP_DIR/$key.pending" ]]; then
+                echo "  A full run is PENDING solo re-runs of: $(sed -n 's/^fails=//p' "$STAMP_DIR/$key.pending")"
+                echo "  — 'make regression-confirm' runs them."
+            else
+                echo "  Run 'make regression' on it, or check out the commit the author stamped."
+            fi
             exit 1
         fi
         echo "STAMP OK: a green full regression run covers this tree (commit ${commit:0:12})"
@@ -170,6 +281,6 @@ case $cmd in
         exit 1
         ;;
     *)
-        die "usage: regression-stamp.sh [-C <repo>] key [<commit>] | state | write <state> k=v... | check | ci"
+        die "usage: regression-stamp.sh [-C <repo>] key [<commit>] | state | write | pending | pending-rows | confirm | check | ci"
         ;;
 esac

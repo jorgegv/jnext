@@ -25,7 +25,7 @@ command -v xvfb-run >/dev/null && command -v xdotool >/dev/null ||
 # The Wayland display would win over Xvfb; the dummy audio driver needs no device.
 env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb SDL_AUDIODRIVER=dummy LANG=C \
 timeout --foreground --kill-after=5s 180s \
-xvfb-run -a --server-args="-screen 0 1600x1200x24" bash -c '
+xvfb-run -d --server-args="-screen 0 1600x1200x24" bash -c '
     set -uo pipefail
     out="$1"; nex="$2"; mode="$3"; shift 3
     build/jnext --machine next --load "$nex" --record-script "$out" \

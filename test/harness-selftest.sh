@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=102  # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..k, HS-70a..d, HS-71a..g (GH #295)
+EXPECTED_TOTAL=117  # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72 (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1481,6 +1481,51 @@ out=$(par_probe "$(phase 2 fail-func skip-func ok-func); load_summary"); rc=$?
 check "HS-69k" "a row process's FAIL, its failed-row record and the tally all reach the driver (GH #295)" 0 $rc "$out" \
     "after: 1/1/1 [fail-func skip-func ok-func]" "Failed rows:" "fail-func (1-min load 0.50)"
 
+out=$(par_probe "ROW_BOUND=4; JNEXT_REGRESSION_HEARTBEAT=1; $(phase 2 hang-func ok-func)"); rc=$?
+check "HS-69l" "a heartbeat names the rows still running while the phase waits on them (GH #295)" 0 $rc "$out" \
+    "[heartbeat] stub:" "still running: hang-func"
+
+out=$(par_probe "$(phase 2 skip-func ok-func); echo \"skipped=[\${SKIPPED_ROWS[*]}]\""); rc=$?
+check "HS-69m" "a row process's SKIP reaches the driver BY NAME, for the stamp's refusal (GH #295)" 0 $rc "$out" \
+    "skipped=[skip-func]"
+
+printf '20.00 0.00 0.00 1/100 12345\n' > "$T/loadavg-busy20"
+solo='declare -A IS_DECLARED_FUNC=([a-func]=1 [b-func]=1); LOADAVG_FILE=$1;'
+solo_case() {   # solo_case <loadavg> <fail-snippet>
+    local fh="$T/solofix"; rm -rf "$fh"; mkdir -p "$fh"
+    HOME="$fh" JNEXT_REGRESSION_NPROC=12 timeout --kill-after=3s 20s bash -c \
+        "set -euo pipefail
+         source '$PROJECT_DIR/test/00regression/test-functions.inc'
+         source '$PROJECT_DIR/test/00regression/parallel-rows.inc'
+         $solo $2
+         if r=\$(solo_confirmable_fails); then echo \"eligible=[\$r]\"; else echo \"refused=[\$r]\"; fi" _ "$1" 2>&1
+}
+out=$(solo_case "$T/loadavg-busy20" 'CURRENT_ROW=a-func; fail_row; CURRENT_ROW=b-func; fail_row')
+out+=$'\n'$(solo_case "$T/loadavg-idle" 'CURRENT_ROW=a-func; fail_row')
+out+=$'\n'$(solo_case "$T/loadavg-busy20" 'CURRENT_ROW=a-func; fail_row; CURRENT_ROW=boot-48k; fail_row')
+check "HS-69n" "only functional rows that FAILED ON A LOADED HOST may go to a solo re-run (GH #295)" 0 0 "$out" \
+    "eligible=[a-func b-func]" "refused=[FAIL(s) that a solo re-run cannot confirm: a-func (failed on an idle host)]" \
+    "boot-48k (not a functional row)"
+
+# The cleanup path: a TERM to the driver while rows run must stop every row
+# process and remove every directory (the review checked it by hand).
+prow sleeper1-func 'echo $BASHPID >> "'"$T"'/sleeper.pids"' 'echo "$TMP_DIR" >> "'"$T"'/sleeper.dirs"' 'sleep 30 & echo $! >> "'"$T"'/sleeper.pids"; wait' 'begin_func sleeper1-func' 'pass_row'
+prow sleeper2-func 'echo $BASHPID >> "'"$T"'/sleeper.pids"' 'sleep 30 & echo $! >> "'"$T"'/sleeper.pids"; wait' 'begin_func sleeper2-func' 'pass_row'
+rm -f "$T/sleeper.pids" "$T/sleeper.dirs"
+rm -f "$T/driver.pid"
+par_probe "echo \$\$ > '$T/driver.pid'; $(phase 2 sleeper1-func sleeper2-func)" > "$T/sleeper.out" 2>&1 &
+sp=$!
+for _ in $(seq 1 50); do [[ $(wc -l < "$T/sleeper.pids" 2>/dev/null || echo 0) -ge 4 ]] && break; sleep 0.2; done
+dp=$(cat "$T/driver.pid" 2>/dev/null || true)
+t0=$SECONDS
+kill -TERM "$dp" 2>/dev/null; wait "$sp" 2>/dev/null
+sleep 1
+alive=0; for p in $(cat "$T/sleeper.pids" 2>/dev/null); do kill -0 "$p" 2>/dev/null && alive=$(( alive + 1 )); done
+rdir=$(head -n1 "$T/sleeper.dirs" 2>/dev/null); tdir=$(dirname "$(dirname "${rdir:-/nonexistent/x/y}")")
+out="pids=$(wc -l < "$T/sleeper.pids" 2>/dev/null) alive=$alive tmp-gone=$([[ -n "$rdir" && ! -e "$tdir" ]] && echo y || echo n) runs-gone=$([[ -z "$(ls -A "$T/parfix/.jnext/runs" 2>/dev/null)" ]] && echo y || echo n) fast=$(( SECONDS - t0 < 15 ? 1 : 0 ))"
+check "HS-69o" "a TERM to the driver stops every running row process and removes every directory (GH #295)" 0 0 "$out" \
+    "pids=4 alive=0 tmp-gone=y runs-gone=y fast=1"
+
 # ---------------- one full run per host, on a quiet host (GH #295) ----------------
 # Driven through regression.sh itself: JNEXT_REGRESSION_LOCK=force makes the
 # fast --preflight-only run take the same lock and load-wait a full run takes.
@@ -1525,6 +1570,25 @@ out=$(slot_run JNEXT_REGRESSION_LOCK=force JNEXT_REGRESSION_LOADAVG_FILE="$T/loa
                JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_LOAD_WAIT=5); rc=$?
 check "HS-70d" "a full run on a loaded host waits (bounded), says why, then starts with a loud note (GH #295)" 0 $rc "$out" \
     "waiting for the host to quieten: 1-min load 50.00 > 12 CPUs" "starting anyway" "preflight OK"
+
+# A TERM to the OUTER regression.sh only (not its process group) must stop the
+# locked run and free the lock; it used to leave flock + the run holding it.
+# The busy fake load keeps the locked run waiting in its quiet-host wait.
+slot_run JNEXT_REGRESSION_LOCK=force JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-busy" \
+         JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_LOAD_WAIT=60 > "$T/outer.out" 2>&1 &
+op=$!
+for _ in $(seq 1 50); do grep -q 'waiting for the host' "$T/outer.out" 2>/dev/null && break; sleep 0.2; done
+outer=""   # the regression.sh whose parent is timeout (the locked run's parent is flock)
+for p in $(pgrep -f -x "bash $REG --preflight-only" || true); do
+    [[ "$(ps -o comm= -p "$(ps -o ppid= -p "$p" | tr -d ' ')")" == timeout ]] && outer=$p
+done
+held=$(flock -n "$lockf" true && echo free || echo held)
+t0=$SECONDS
+kill -TERM "$outer" 2>/dev/null; wait "$op" 2>/dev/null
+sleep 1
+out="outer=${outer:+found} before=$held after=$(flock -n "$lockf" true && echo free || echo held) fast=$(( SECONDS - t0 < 10 ? 1 : 0 )) runs=$(pgrep -fc -x "bash $REG --preflight-only" || true)"
+check "HS-70e" "a TERM to the outer regression.sh alone stops the locked run and frees the lock (GH #295)" 0 0 "$out" \
+    "outer=found before=held after=free" "fast=1" "runs=0"
 
 # ---------------- regression stamps (GH #295) ----------------
 # The REAL stamp script, run inside a throwaway git repository (it keys the
@@ -1576,6 +1640,99 @@ st=$(stamp state); echo 'int y;' >> "$SR/src/main.cpp"; sg commit -qam during
 out=$(stamp write "$st" pass=3 fail=0 skip=0 rows=3); rc=$?
 check "HS-71g" "a non-doc commit DURING the run: no stamp for either tree (GH #295)" 0 $rc "$out" \
     "no regression stamp: the tree's non-doc content changed during the run"
+
+# --- the keyed-path matrix, on the REAL paths (review round 1) ---
+# Each path is committed once, then changed and committed again; the row reads
+# whether the key moved. Non-doc classes MUST move it, documentation must NOT,
+# and the documentation files a regression gate reads as input MUST.
+keymove() {   # keymove <path> — 1 if a committed change to <path> moves the key
+    local k1 k2
+    mkdir -p "$SR/$(dirname "$1")"; echo a > "$SR/$1"; sg add -A; sg commit -qm "add $1"
+    k1=$(stamp key); echo b >> "$SR/$1"; sg add -A; sg commit -qm "change $1"; k2=$(stamp key)
+    [[ "$k1" != "$k2" ]] && echo 1 || echo 0
+}
+out=""
+for kp in Makefile CMakeLists.txt test/00regression/functional_tests.conf tools/pgo-train.sh \
+          .github/workflows/ci.yml src/core/emulator.cpp test/00regression/scripts/x-func.sh; do
+    out+="$kp=$(keymove "$kp") "
+done
+# a gitlink (a submodule pointer) moving to another commit
+k1=$(stamp key)
+sg update-index --add --cacheinfo "160000,$(git -C "$SR" rev-parse HEAD),third_party/sub"; sg commit -qm gitlink
+k2=$(stamp key)
+sg update-index --add --cacheinfo "160000,$(git -C "$SR" rev-parse HEAD~2),third_party/sub"; sg commit -qm gitlink2
+k3=$(stamp key)
+out+="gitlink=$([[ "$k1" != "$k2" && "$k2" != "$k3" ]] && echo 1 || echo 0)"
+check "HS-71h" "every non-doc class of path moves the key — Makefile, CMake, a .conf, tools/, .github/, a gitlink (GH #295)" 0 0 "$out" \
+    "Makefile=1 CMakeLists.txt=1 test/00regression/functional_tests.conf=1 tools/pgo-train.sh=1 .github/workflows/ci.yml=1 src/core/emulator.cpp=1 test/00regression/scripts/x-func.sh=1 gitlink=1"
+
+out=""
+for kp in doc/testing/X-TEST-PLAN-DESIGN.md doc/notes2.txt src/doc/user-guide/01-introduction/x.md \
+          src/doc/developer-guide/diagrams/x.dot doc/user-guide/search/search_index.json \
+          test/00regression/nextsync/README.md ChangeLog README.md; do
+    out+="$kp=$(keymove "$kp") "
+done
+check "HS-71i" "documentation does not move the key — doc/, src/doc/, any *.md, ChangeLog, the rendered guides (GH #295)" 0 0 "$out" \
+    "doc/testing/X-TEST-PLAN-DESIGN.md=0 doc/notes2.txt=0 src/doc/user-guide/01-introduction/x.md=0 src/doc/developer-guide/diagrams/x.dot=0 doc/user-guide/search/search_index.json=0 test/00regression/nextsync/README.md=0 ChangeLog=0 README.md=0"
+
+out=""
+for kp in doc/formats/jns-snapshot.schema.json doc/man/jnext.1.md doc/testing/CURRENT-REGRESSION-STATE.md \
+          src/doc/user-guide/09-reference/01-command-line-options.md; do
+    out+="$kp=$(keymove "$kp") "
+done
+check "HS-71j" "the documentation a regression gate READS moves the key: schema, man page, CLI guide page, regression state (GH #295)" 0 0 "$out" \
+    "doc/formats/jns-snapshot.schema.json=1 doc/man/jnext.1.md=1 doc/testing/CURRENT-REGRESSION-STATE.md=1 src/doc/user-guide/09-reference/01-command-line-options.md=1"
+
+# --- cleanliness at each end separately, and the counts (review round 1) ---
+st=$(stamp state); echo 'int z;' >> "$SR/src/main.cpp"; st_dirty=$(stamp state); sg checkout -- src/main.cpp
+out=$(stamp write "$st_dirty" pass=3 fail=0 skip=0; echo "files=$(find "$SD" -name "$(stamp key)" | wc -l)"); rc=$?
+check "HS-71k" "dirty at the START only (clean again at the end): no stamp (GH #295)" 0 $rc "$out" \
+    "no regression stamp: the tree had uncommitted non-doc changes (at start: 1, at end: 0" "files=0"
+
+echo 'int z;' >> "$SR/src/main.cpp"
+out=$(stamp write "$st" pass=3 fail=0 skip=0; echo "files=$(find "$SD" -name "$(git -C "$SR" rev-parse HEAD >/dev/null; stamp key)" | wc -l)"); rc=$?
+sg checkout -- src/main.cpp
+check "HS-71l" "clean at the start, dirty at the END only: no stamp (GH #295)" 0 $rc "$out" \
+    "no regression stamp: the tree had uncommitted non-doc changes (at start: 0, at end: 1" "files=0"
+
+st=$(stamp state)
+out=$(stamp write "$st" pass=3 fail=0 skip=1; stamp write "$st" pass=3 fail=1 skip=0; stamp write "$st" pass=3)
+out+=$'\n'"files=$(find "$SD" -name "$(stamp key)" | wc -l)"
+check "HS-71m" "a SKIP, a FAIL, or no counts at all: never stamped (GH #295)" 0 0 "$out" \
+    "this one: fail=0 skip=1" "this one: fail=1 skip=0" "this one: fail=missing skip=missing" "files=0"
+
+# --- a loaded-host FAIL, pending, then confirmed solo (review round 1) ---
+st=$(stamp state)
+out=$(stamp pending "$st" "fails=b-func a-func" pass=3 fail=2 skip=0; stamp check; stamp pending-rows); rc=$?
+check "HS-71n" "loaded-host FAILs are recorded as PENDING: not a stamp, and the check says what to re-run (GH #295)" 0 $rc "$out" \
+    "NO STAMP YET: 2 row(s) failed on a loaded host" "NO STAMP for this tree" "PENDING solo re-runs of: b-func a-func" "b-func a-func"
+out=$(stamp confirm "$st" "rows=a-func" fail=0 skip=0; stamp confirm "$st" "rows=a-func b-func" fail=1 skip=0; stamp check); rc=$?
+check "HS-71o" "a solo re-run of the WRONG rows, or one that fails again, confirms nothing (GH #295)" 1 $rc "$out" \
+    "the pending rows are 'b-func a-func'" "the pending FAIL stands" "NO STAMP for this tree"
+out=$(stamp confirm "$st" "rows=a-func b-func" pass=8 fail=0 skip=0; stamp check; echo "pending-left=$(find "$SD" -name '*.pending' | wc -l)"); rc=$?
+check "HS-71p" "every pending row passing solo stamps the run, naming them; the pending record is consumed (GH #295)" 0 $rc "$out" \
+    "passed solo" "STAMP OK" "pass=5" "fail=0" "full_run_failed_on_loaded_host=b-func a-func" "confirmed_solo=a-func b-func" "pending-left=0"
+
+# ---------------- display allocation must be race-free (review round 1) ----------------
+# `xvfb-run -a` scans /tmp/.X<n>-lock for a free number, which is not atomic:
+# with rows in parallel, two of them picked :101, one lost its X server and the
+# row SKIPPED (no screenshot) — and the run stayed green. `-d` lets Xvfb choose
+# the display itself (-displayfd): 64/64 concurrent starts clean under 16 busy
+# loops, against 1/64 failing with -a. Banned in every tracked test script, and
+# so is a fixed -n/--server-num, which two parallel rows would share.
+XVFB_RACY_RE='xvfb-run([[:space:]]+(-[a-zA-Z]|--[a-z-]+(=("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]]+))?))*[[:space:]]+(-a|--auto-servernum|-n|--server-num)([[:space:]=]|$)'
+ctl=""
+for t in 'xvfb-run -a cmd' 'xvfb-run --server-args="-screen 0 1x1x24" -a cmd' 'xvfb-run -n 99 cmd' 'xvfb-run --auto-servernum cmd'; do
+    grep -qE "$XVFB_RACY_RE" <<<"$t" && ctl+=1 || ctl+=0
+done
+for t in 'xvfb-run -d cmd' 'xvfb-run -d --server-args="-screen 0 1x1x24" bash -c '"'"'head -n 5'"'"''; do
+    grep -qE "$XVFB_RACY_RE" <<<"$t" && ctl+=1 || ctl+=0
+done
+# (this file is excluded: the control strings above are deliberate instances)
+racy=$(cd "$PROJECT_DIR" && git ls-files 'test/*.sh' 'test/*.inc' 'tools/*.sh' | grep -vx 'test/harness-selftest.sh' \
+       | xargs grep -nE "$XVFB_RACY_RE" 2>/dev/null || true)
+check "HS-72" "no test script starts Xvfb on a non-atomically chosen display (xvfb-run -a/-n); the matcher's control (GH #295)" 0 0 \
+    "control=$ctl racy=[${racy}]" "control=111100 racy=[]"
 
 echo ""
 echo "====================================="
