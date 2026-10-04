@@ -226,8 +226,8 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
 
 **Packaging correctness is gated automatically** (issue #61):
 
-- `make package-contract-test` is a prerequisite of `make unit-test`, so the six
-  packaging-script contract suites — including `verify-bundle`, the GH #46 gate
+- `make package-contract-test` is a prerequisite of `make unit-test`, so the eight
+  packaging contract suites — including `verify-bundle`, the GH #46 gate
   — run on every local test run and every CI push.
 - The full `make package-test` runs as its own parallel `package` job in
   `ci.yml` on every push to `main` and every PR. It is deliberately **not**

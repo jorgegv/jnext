@@ -6,8 +6,9 @@
 # Two entry points, because the suite has two very different halves (GH #61):
 #
 #   bash packaging-test.sh --contracts-only   (`make package-contract-test`)
-#       The seven packaging-layer contract suites — six on the packaging
-#       scripts, one on the package-* recipes themselves (GH #148). Hermetic:
+#       The eight packaging-layer contract suites — six on the packaging
+#       scripts, one on the package-* recipes themselves (GH #148), one on
+#       the artifact selection the package rows below use. Hermetic:
 #       pure bash on throwaway fake roots, no compiler, no toolchain, ~4 s.
 #       This half holds the highest-value rows (verify-bundle is the GH #46
 #       gate; sync-version is GH #60), so it is a prerequisite of `make
@@ -168,6 +169,15 @@ else
     bad flatpak-perms "contract test failed" "$LOGDIR/fpkperm.log"
 fi
 
+# --- artifact selection contract (the package rows below) --------------------
+# The package rows pick their artifact through artifact-select.sh; this proves
+# a previous version's leftover can no longer pass for the new build.
+if bash test/packaging/artifact-select-test.sh >"$LOGDIR/artsel.log" 2>&1; then
+    ok artifact-select "current-version artifact only; stale leftovers fail loudly"
+else
+    bad artifact-select "contract test failed" "$LOGDIR/artsel.log"
+fi
+
 # ---- end of the hermetic contract half --------------------------------------
 # Everything above needs nothing but bash; everything below builds real
 # packages. `make package-contract-test` (a prerequisite of `make unit-test`)
@@ -178,9 +188,20 @@ if [ "$mode" = contracts ]; then
     exit
 fi
 
+# Every package row clears its earlier artifacts before building, then takes
+# the ONE artifact named for version.yaml's version (artifact-select.sh). A
+# row used to take `ls | head -1`, and a previous version's leftover sorted
+# first and passed for the new build. A pick failure is appended to the row's
+# log, so the bad() dump ends with the reason.
+# shellcheck source=test/packaging/artifact-select.sh
+. test/packaging/artifact-select.sh
+VER=$(artifact_version .) || { bad version "cannot read version.yaml"; summary; exit 1; }
+
 # --- package-src (source tarball + release zip) ------------------------------
+clear_artifacts build/dist '*.tar.gz'
+clear_artifacts build/dist 'jnext-*-src.zip'
 if make package-src >"$LOGDIR/src.log" 2>&1; then
-    tb=$(ls -1 build/dist/*.tar.gz 2>/dev/null | head -1)
+    tb=$(pick_artifact build/dist '*.tar.gz' "v$VER.tar.gz" 2>>"$LOGDIR/src.log")
     if [ -n "$tb" ] && [ -s "$tb" ] && tar tzf "$tb" 2>/dev/null | grep -q "/CMakeLists.txt$"; then
         ok package-src "$(basename "$tb")"
     else
@@ -189,7 +210,7 @@ if make package-src >"$LOGDIR/src.log" 2>&1; then
     # The release source zip: jnext-<ver>-src.zip must exist, be a valid zip,
     # contain the top-level CMakeLists.txt AND the vendored submodule content
     # (third_party/spdlog/CMakeLists.txt) a naive `git archive` would drop.
-    z=$(ls -1 build/dist/jnext-*-src.zip 2>/dev/null | head -1)
+    z=$(pick_artifact build/dist 'jnext-*-src.zip' "jnext-$VER-src.zip" 2>>"$LOGDIR/src.log")
     if [ -n "$z" ] && [ -s "$z" ]; then
         zl=$(unzip -l "$z" 2>/dev/null)
         if printf '%s' "$zl" | grep -q "/CMakeLists.txt$" \
@@ -207,12 +228,13 @@ fi
 
 # --- package-rpm -------------------------------------------------------------
 if command -v rpmbuild >/dev/null 2>&1; then
+    clear_artifacts build/rpm-release 'jnext-*.x86_64.rpm'
     if make package-rpm >"$LOGDIR/rpm.log" 2>&1; then
-        r=$(ls -1 build/rpm-release/jnext-*.x86_64.rpm 2>/dev/null | head -1)
+        r=$(pick_artifact build/rpm-release 'jnext-*.x86_64.rpm' "jnext-$VER-1.x86_64.rpm" 2>>"$LOGDIR/rpm.log")
         if [ -n "$r" ] && rpm -qlp "$r" 2>/dev/null | grep -q "bin/jnext$"; then
             ok package-rpm "$(basename "$r")"
         else
-            bad package-rpm "no .rpm with conventional name, or missing bin/jnext"
+            bad package-rpm "no current-version .rpm, or missing bin/jnext" "$LOGDIR/rpm.log"
         fi
     else
         bad package-rpm "make package-rpm failed" "$LOGDIR/rpm.log"
@@ -223,12 +245,13 @@ fi
 
 # --- package-deb -------------------------------------------------------------
 if command -v dpkg-deb >/dev/null 2>&1; then
+    clear_artifacts build/deb-release 'jnext_*_amd64.deb'
     if make package-deb >"$LOGDIR/deb.log" 2>&1; then
-        d=$(ls -1 build/deb-release/jnext_*_amd64.deb 2>/dev/null | head -1)
+        d=$(pick_artifact build/deb-release 'jnext_*_amd64.deb' "jnext_${VER}_amd64.deb" 2>>"$LOGDIR/deb.log")
         if [ -n "$d" ] && dpkg-deb -c "$d" 2>/dev/null | grep -q "bin/jnext$"; then
             ok package-deb "$(basename "$d")"
         else
-            bad package-deb "no .deb with conventional name, or missing bin/jnext"
+            bad package-deb "no current-version .deb, or missing bin/jnext" "$LOGDIR/deb.log"
         fi
     else
         bad package-deb "make package-deb failed" "$LOGDIR/deb.log"
@@ -248,8 +271,9 @@ NO_WINE="wine not installed (the zip's jnext.exe is a PGO build trained under wi
 TC=0
 command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && [ -f "$MINGW_QT6" ] && TC=1
 if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
+    clear_artifacts build/win-release '*.zip'
     if make package-win >"$LOGDIR/win.log" 2>&1; then
-        z=$(ls -1 build/win-release/*.zip 2>/dev/null | head -1)
+        z=$(pick_artifact build/win-release '*.zip' "jnext-$VER-windows-x64.zip" 2>>"$LOGDIR/win.log")
         # The ZIP must contain the exe AND its bundled runtime — the Qt6 core DLL,
         # the platforms/qwindows.dll plugin (no GUI without it), and SDL3.dll,
         # which jnext links directly (GH #57). SDL2.dll must be ABSENT: its
@@ -275,7 +299,7 @@ if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
                 bad package-win ".zip missing bundled DLLs/qwindows plugin/SDL3.dll, or the SDL2 shim leaked back in" "$LOGDIR/win.log"
             fi
         else
-            bad package-win "no .zip produced" "$LOGDIR/win.log"
+            bad package-win "no current-version .zip produced" "$LOGDIR/win.log"
         fi
     else
         bad package-win "make package-win failed" "$LOGDIR/win.log"
@@ -498,8 +522,9 @@ fi
 # bundle's OS floor to Windows 10 (fedora's Qt6Gui hard-imports d3d12.dll —
 # see doc/design/WINDOWS-COMPAT-PLAN.md). No Qt toolchain needed here.
 if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+    clear_artifacts build/win-sdl-release '*.zip'
     if make package-win-sdl >"$LOGDIR/win-sdl.log" 2>&1; then
-        z=$(ls -1 build/win-sdl-release/*.zip 2>/dev/null | head -1)
+        z=$(pick_artifact build/win-sdl-release '*.zip' "jnext-$VER-windows-x64-sdl.zip" 2>>"$LOGDIR/win-sdl.log")
         if [ -n "$z" ]; then
             list=$(unzip -l "$z" 2>/dev/null)
             # Same GH #108 Phase B assertion as package-win, but here it IS the
@@ -517,7 +542,7 @@ if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc
                 bad package-win-sdl ".zip missing exe or SDL3.dll, or Qt files / the SDL2 shim leaked in" "$LOGDIR/win-sdl.log"
             fi
         else
-            bad package-win-sdl "no .zip produced" "$LOGDIR/win-sdl.log"
+            bad package-win-sdl "no current-version .zip produced" "$LOGDIR/win-sdl.log"
         fi
     else
         bad package-win-sdl "make package-win-sdl failed" "$LOGDIR/win-sdl.log"
@@ -538,8 +563,9 @@ fi
 TC=0
 command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && [ -f "$MINGW_QT5" ] && TC=1
 if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
+    clear_artifacts build/win-qt5-release '*.zip'
     if make package-win-qt5 >"$LOGDIR/win-qt5.log" 2>&1; then
-        z=$(ls -1 build/win-qt5-release/*.zip 2>/dev/null | head -1)
+        z=$(pick_artifact build/win-qt5-release '*.zip' "jnext-$VER-windows-x64-legacy.zip" 2>>"$LOGDIR/win-qt5.log")
         if [ -n "$z" ]; then
             list=$(unzip -l "$z" 2>/dev/null)
             subsys=$(x86_64-w64-mingw32-objdump -p build/win-qt5-release/jnext.exe 2>/dev/null | grep -i "^Subsystem")
@@ -560,7 +586,7 @@ if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
                 bad package-win-qt5 ".zip missing exe/Qt5 DLLs/qwindows plugin/SDL3.dll, or the SDL2 shim leaked back in" "$LOGDIR/win-qt5.log"
             fi
         else
-            bad package-win-qt5 "no .zip produced" "$LOGDIR/win-qt5.log"
+            bad package-win-qt5 "no current-version .zip produced" "$LOGDIR/win-qt5.log"
         fi
     else
         bad package-win-qt5 "make package-win-qt5 failed" "$LOGDIR/win-qt5.log"
@@ -591,8 +617,9 @@ fi
 # DLL/plugin, no curl/OpenSSL chain (each would silently raise the bundle's
 # audited Win7 floor). Toolchain: mingw32-cmake + i686-w64-mingw32-gcc.
 if command -v mingw32-cmake >/dev/null 2>&1 && command -v i686-w64-mingw32-gcc >/dev/null 2>&1; then
+    clear_artifacts build/win32-sdl-release '*.zip'
     if make package-win32-sdl >"$LOGDIR/win32-sdl.log" 2>&1; then
-        z=$(ls -1 build/win32-sdl-release/*.zip 2>/dev/null | head -1)
+        z=$(pick_artifact build/win32-sdl-release '*.zip' "jnext-$VER-windows-x86-sdl.zip" 2>>"$LOGDIR/win32-sdl.log")
         if [ -n "$z" ]; then
             list=$(unzip -l "$z" 2>/dev/null)
             if printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring|iconv"; then
@@ -607,7 +634,7 @@ if command -v mingw32-cmake >/dev/null 2>&1 && command -v i686-w64-mingw32-gcc >
                 bad package-win32-sdl ".zip missing exe or SDL3.dll, or Qt files / the SDL2 shim leaked in" "$LOGDIR/win32-sdl.log"
             fi
         else
-            bad package-win32-sdl "no .zip produced" "$LOGDIR/win32-sdl.log"
+            bad package-win32-sdl "no current-version .zip produced" "$LOGDIR/win32-sdl.log"
         fi
     else
         bad package-win32-sdl "make package-win32-sdl failed" "$LOGDIR/win32-sdl.log"
@@ -627,8 +654,9 @@ TC=0
 command -v mingw32-cmake >/dev/null 2>&1 && command -v i686-w64-mingw32-gcc >/dev/null 2>&1 \
    && [ -f "$MINGW32_QT5" ] && command -v i686-w64-mingw32-moc-qt5 >/dev/null 2>&1 && TC=1
 if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
+    clear_artifacts build/win32-qt5-release '*.zip'
     if make package-win32-qt5 >"$LOGDIR/win32-qt5.log" 2>&1; then
-        z=$(ls -1 build/win32-qt5-release/*.zip 2>/dev/null | head -1)
+        z=$(pick_artifact build/win32-qt5-release '*.zip' "jnext-$VER-windows-x86-legacy.zip" 2>>"$LOGDIR/win32-qt5.log")
         if [ -n "$z" ]; then
             list=$(unzip -l "$z" 2>/dev/null)
             subsys=$(i686-w64-mingw32-objdump -p build/win32-qt5-release/jnext.exe 2>/dev/null | grep -i "^Subsystem")
@@ -649,7 +677,7 @@ if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
                 bad package-win32-qt5 ".zip missing exe/Qt5 DLLs/qwindows plugin/SDL3.dll, or the SDL2 shim leaked back in" "$LOGDIR/win32-qt5.log"
             fi
         else
-            bad package-win32-qt5 "no .zip produced" "$LOGDIR/win32-qt5.log"
+            bad package-win32-qt5 "no current-version .zip produced" "$LOGDIR/win32-qt5.log"
         fi
     else
         bad package-win32-qt5 "make package-win32-qt5 failed" "$LOGDIR/win32-qt5.log"
@@ -698,10 +726,11 @@ if command -v flatpak-builder >/dev/null 2>&1; then
     elif ! flatpak-builder --show-manifest "$manifest" >/dev/null 2>&1; then
         bad package-flatpak "manifest failed to validate (flatpak-builder --show-manifest)"
     elif flatpak list 2>/dev/null | grep -q "org.kde.Sdk"; then
+        clear_artifacts build 'jnext-*-x86_64.flatpak'
         if make package-flatpak >"$LOGDIR/flatpak.log" 2>&1; then
-            b=$(ls -1 build/jnext-*-x86_64.flatpak 2>/dev/null | head -1)
+            b=$(pick_artifact build 'jnext-*-x86_64.flatpak' "jnext-$VER-x86_64.flatpak" 2>>"$LOGDIR/flatpak.log")
             if [ -z "$b" ] || [ ! -s "$b" ]; then
-                bad package-flatpak "no .flatpak bundle produced" "$LOGDIR/flatpak.log"
+                bad package-flatpak "no current-version .flatpak bundle produced" "$LOGDIR/flatpak.log"
             # GH #271 — the bundle must carry --share=network, asserted on the
             # ARTIFACT: the bundle is installed into a throwaway
             # FLATPAK_USER_DIR and its permissions read back with `flatpak
