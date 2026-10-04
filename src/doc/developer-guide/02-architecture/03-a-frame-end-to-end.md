@@ -18,6 +18,42 @@ speed multiplier; in `SdlApp` it comes from that frontend's own paced loop; in
 once the call returns the frontend reads the finished image with
 `get_framebuffer()` and presents it.
 
+### How the Qt frontend paces and presents
+
+The Qt tick is `frame_sequencer::Sequencer::tick()` (`src/platform/frame_sequencer.h`),
+driven by one timer and four rules that only show their worth on a host at the
+edge of real time (GH #155):
+
+- **The timer is single-shot and is re-armed from now at the end of every
+  tick** (`src/gui/frame_timer.h`), whatever the interval. The deadline
+  schedule (`src/platform/frame_deadline.h`) hands back "whole ms from now to
+  the next deadline", which only means that if the timer counts from now. It
+  used to be a periodic timer restarted only when the value changed; after a
+  tick that outlasted an unchanged interval it fired at once on the old phase,
+  and on Windows that timer event (posted at normal priority) was dispatched
+  ahead of the widget's repaint request (posted at `Qt::LowEventPriority`), so
+  the frame the previous tick produced was never shown. Linux hid it, because
+  glib lets posted events run before a timer fires again.
+- **A frame not yet painted is painted at tick entry.**
+  `EmulatorWidget::flush_pending_present()` delivers the repaint request
+  `update()` already posted, through the event loop's own paint path, before
+  the tick overwrites the framebuffer. It closes the residual Windows case: a
+  GUI thread descheduled past a 1 ms interval before its repaint ran.
+- **A stall resync restarts the grid at now.** When a tick finds itself more
+  than two periods late, the backlog is dropped and the next tick runs at once;
+  it used to wait a whole period first, which on a host that cannot keep up
+  idled the machine every other tick while it was already behind.
+- **The audio band's estimate stays within one device chunk of the reading**
+  (`ESTIMATE_ENVELOPE_MS` in `src/platform/audio_pacing.h`; see
+  [Audio](../03-subsystems/04-audio.md)).
+
+The status bar's `emu` and `shown` figures and the `cadence:` / `ticks:` lines
+of `--log-level platform=debug` are the instruments for all of this.
+`frame_sequencer_test`'s FS-EDGE rows run the whole loop on a fake host whose
+frame costs 15.6 ms and 23 ms — the two figures from a real Windows report —
+and pin real-time pacing at the first and back-to-back emulation with no skips
+and no waits at the second.
+
 ## Frame start
 
 `run_frame()` (`src/core/emulator.cpp:7270`) opens with two steps that have to
