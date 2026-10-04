@@ -36,13 +36,16 @@ EXPECTED_TOTAL=117  # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..o
 # invocation, a hang is one loud timeout FAIL at the affected row — check()
 # prints the rc: 124, or 137 when only the follow-up SIGKILL could end it
 # (e.g. a TERM-trapped cleanup that just hangs again) — and the run
-# continues. 30 s is ~14x the slowest legitimate
-# invocation measured on the dev box (HS-04 at ~2.1 s, floor-bound by its own
-# 2 s suite timeout; every other invocation is < 0.3 s) — wide on purpose,
-# this project has been burned by tight wall-clock budgets on loaded boxes.
+# continues. 120 s, because the slowest legitimate invocation is no longer
+# HS-04 (~2.1 s): the HS-49/56/57/67 rows run the whole six-lint preflight,
+# ~4.7 s solo, and since GH #295 this self-test runs inside the regression's
+# parallel phase — where HS-57b's preflight (a C++ preprocessing pass per
+# published header) outlived the old 30 s bound at load 13 on 12 CPUs (exit
+# 124). It is a hang bound, not a budget: wide on purpose, this project has
+# been burned by tight wall-clock budgets on loaded boxes.
 # HS-44 proves the bound fires; INVOKE_TIMEOUT_OVERRIDE is its hook (same
-# pattern as HS-04's TIMEOUT_OVERRIDE) so proving it costs ~3 s, not 30.
-INVOKE_TIMEOUT=30
+# pattern as HS-04's TIMEOUT_OVERRIDE) so proving it costs ~3 s, not 120.
+INVOKE_TIMEOUT=120
 
 # EVERY external tool a check's evidence depends on, verified before any check
 # runs. A missing tool must be a loud refusal, never evidence: HS-70e once
