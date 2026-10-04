@@ -1171,6 +1171,13 @@ if(ENABLE_QT_UI)
     target_include_directories(present_count_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME present_count_tests COMMAND present_count_test)
 
+    # GH #155 — the GUI frame timer's contract (gui/frame_timer.h): single-shot,
+    # armed from now on every tick whatever the value. Qt Core only, no display.
+    add_executable(frame_timer_test gui/frame_timer_test.cpp)
+    target_link_libraries(frame_timer_test PRIVATE jnext_gui)
+    target_include_directories(frame_timer_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME frame_timer_tests COMMAND frame_timer_test)
+
     # Task 77 — Esc is the ZX BREAK key in both window states, and F11 is the
     # only fullscreen toggle (pinned both ways: it is now the only escape).
     # Lives in MainWindow's event path, so it needs a real MainWindow; no

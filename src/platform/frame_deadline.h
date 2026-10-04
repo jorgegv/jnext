@@ -35,8 +35,8 @@
 /// cannot accumulate, because every interval is recomputed against the wall
 /// clock rather than chained onto the previous interval.
 ///
-/// Computing against `now` is load-bearing: QTimer::setInterval() on a live
-/// timer restarts its period from the moment of the call, so the value
+/// Computing against `now` is load-bearing: the GUI arms its single-shot
+/// frame timer from the moment of the call (gui/frame_timer.h), so the value
 /// handed over must be "ms from now to the deadline", not "the ideal
 /// period". It is also why the caller invokes next_interval_ms() at the END
 /// of its tick handler — the emulation work already done this tick is
@@ -44,14 +44,29 @@
 ///
 /// STALL POLICY. If `now` has fallen more than STALL_PERIODS periods past
 /// the deadline (host stall, modal dialog, fastload burst overrunning the
-/// tick, laptop suspend), the schedule RESYNCS to now + period instead of
-/// walking the backlog off with a burst of 1 ms intervals. WHY: catching up
-/// emulated time is the AUDIO pacer's job (frames_for_tick runs 2 frames per
-/// tick when the device queue is low); if the timer also machine-gunned
-/// callbacks after a stall, the two mechanisms would fight — the burst
-/// floods the very queue the pacer is levelling. Lateness WITHIN the
-/// threshold is walked off (clamped-to-1-ms intervals, at most ~2 periods'
-/// worth) so ordinary scheduling jitter never shifts the long-run grid.
+/// tick, laptop suspend, or simply a host that cannot emulate in real time),
+/// the schedule RESYNCS: the backlog is dropped and the grid restarts AT NOW.
+/// The next tick is therefore due at once (the 1 ms floor), and the ones
+/// after it run on the new grid. Two things this deliberately does not do:
+///
+///   * walk the backlog off with a burst of 1 ms intervals. Catching up
+///     emulated time is the AUDIO pacer's job (frames_for_tick runs 2 frames
+///     per tick when the device queue is low); if the timer also
+///     machine-gunned callbacks after a stall, the two mechanisms would fight
+///     — the burst floods the very queue the pacer is levelling. A resync
+///     yields exactly ONE early tick, never a burst (frame_deadline_test
+///     FD-06d).
+///   * resync to now + period, i.e. WAIT a whole period first. That was the
+///     rule until GH #155, and on a host that cannot keep up it is the wrong
+///     answer: such a host crosses STALL_PERIODS every other tick or so, and
+///     each crossing made the machine sit idle for a full period while it was
+///     already behind. janko-jj's v1.1.0 log on real Windows shows it: ticks
+///     40-80 ms apart while the handler took ~32 ms — about 38% of wall time
+///     idle while emulating at half speed (FD-13d, FD-14).
+///
+/// Lateness WITHIN the threshold is walked off (clamped-to-1-ms intervals, at
+/// most ~2 periods' worth) so ordinary scheduling jitter never shifts the
+/// long-run grid.
 ///
 /// PERIOD CHANGES GLIDE. next_interval_ms() takes the period on every call,
 /// so a runtime 50/60 Hz switch (NR 0x05 bit 2) or a speed change needs no
@@ -84,7 +99,10 @@ public:
     int next_interval_ms(int64_t now_us, int64_t period_us)
     {
         if (now_us - deadline_us_ > STALL_PERIODS * period_us) {
-            deadline_us_ = now_us + period_us;  // resync — never machine-gun
+            // Resync at NOW: one tick as soon as possible, then the grid —
+            // never a burst, and never an idle period on a machine already
+            // behind (GH #155; see STALL POLICY above).
+            deadline_us_ = now_us;
             ++resyncs_;
         } else {
             deadline_us_ += period_us;          // the exact fractional grid
@@ -98,16 +116,15 @@ public:
     /// sound card and has declined to drop a frame, so it asks for the next
     /// frame sooner instead of running two frames in this tick.
     ///
-    /// Re-anchoring rather than advancing is what makes the policy stable on a
-    /// host that cannot keep up. Advancing would leave the deadline in the
-    /// past, and every subsequent tick would inherit that lateness until it
-    /// crossed STALL_PERIODS — at which point the stall arm above resyncs to
-    /// now + period and the machine sits IDLE for a whole frame period.
-    /// Measured on a host costing 1.67 periods per tick (~60% of real time,
-    /// the regime this option is for): advancing idles on every OTHER tick and
-    /// delivers 26.5 frames/s, re-anchoring never idles and delivers 33.4.
-    /// That periodic hitch is precisely the judder the video preference exists
-    /// to remove (frame_deadline_test FD-13d..f).
+    /// Re-anchoring rather than advancing keeps the deadline from being left
+    /// in the past for later ticks to inherit. Before GH #155 that inheritance
+    /// was costly: the lateness grew until it crossed STALL_PERIODS, and the
+    /// stall arm then resynced to now + period, parking the machine IDLE for a
+    /// whole frame period (measured on a host costing 1.67 periods per tick:
+    /// 26.5 frames/s advancing against 33.4 re-anchoring). The stall arm now
+    /// resyncs at now as well, so neither path idles on such a host any more
+    /// (frame_deadline_test FD-13d..f); this call remains the explicit,
+    /// uncounted form of the same re-anchor.
     ///
     /// Deliberately does NOT count as a stall resync: resyncs() is the
     /// diagnostic for "the host went away", and a deliberate, requested

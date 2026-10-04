@@ -65,7 +65,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  5451 | 5440 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **5451**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5127**. Rows the 132 suites declared in `test/unit-tests.conf` run live: **12337**.
+Rows the sections above carry: **5451**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5127**. Rows the 133 suites declared in `test/unit-tests.conf` run live: **12362**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -77,7 +77,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 89 suites (7294 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 90 suites (7319 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -93,7 +93,7 @@ These 89 suites (7294 live rows) have no VHDL-derived plan row to map, so they h
 | `warm_start_test` | 43 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
 | `snapshot_test` | 299 | the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file |
 | `sd_identity_test` | 37 | the .jns snapshot SD-card MEDIA IDENTITY (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3): the two-tier identity read off a REAL image -- MBR partition table, FAT32 BS_VolID, whole-image digest -- and the refusal/warning matrix it feeds. The oracle is that design section plus the FAT32 on-disk format; the FPGA core never sees a filesystem, only SPI blocks, which `## SD Card` traces |
-| `audio_pacing_test` | 50 | host SDL audio pacing/underrun policy, downstream of the mixer |
+| `audio_pacing_test` | 58 | host SDL audio pacing/underrun policy, downstream of the mixer |
 | `audio_fill_test` | 39 | host SDL device-boundary fill/hold policy (GH #208), downstream of the mixer |
 | `audio_capture_test` | 17 | host WAV capture of the mixer output |
 | `audio_gain_test` | 11 | host output-gain control (a user setting, not a core register) |
@@ -105,8 +105,8 @@ These 89 suites (7294 live rows) have no VHDL-derived plan row to map, so they h
 | `preferences_apply_policy_test` | 20 | Preferences apply/revert policy (host GUI) |
 | `window_attach_test` | 32 | host window-attach geometry (GH #39 contract, no VHDL oracle) |
 | `pointer_capture_test` | 62 | host mouse-capture policy (window-manager behaviour) |
-| `frame_deadline_test` | 44 | host frame-deadline scheduling (wall-clock) |
-| `frame_sequencer_test` | 112 | host frame sequencer (wall-clock run/present ordering) |
+| `frame_deadline_test` | 47 | host frame-deadline scheduling (wall-clock) |
+| `frame_sequencer_test` | 116 | host frame sequencer (wall-clock run/present ordering) |
 | `tick_stats_test` | 32 | host tick accounting for the status bar |
 | `speed_report_test` | 36 | host speed-percentage reporting |
 | `host_key_latch_test` | 128 | host key latch/debounce compensation; guest matrix is `## Input` |
@@ -144,7 +144,8 @@ These 89 suites (7294 live rows) have no VHDL-derived plan row to map, so they h
 | `app_config_test` | 121 | jnext.conf schema/precedence (host settings file) |
 | `audio_gain_config_test` | 22 | gain settings persistence (host settings file) |
 | `audio_gain_preferences_test` | 10 | gain controls in the Preferences dialog (host GUI) |
-| `present_count_test` | 17 | host present accounting (wall-clock, not core timing) |
+| `present_count_test` | 21 | host present accounting (wall-clock, not core timing) |
+| `frame_timer_test` | 6 | host GUI frame-timer contract (Qt timer, not core timing) |
 | `esp_status_test` | 15 | host status-bar ESP indicator (GUI), no core counterpart |
 | `nex_v13_dialog_test` | 4 | experimental NEX V1.3 warning dialog (GUI), no core counterpart |
 | `rzx_menu_test` | 15 | RZX File-menu error dialogs (GUI), no core counterpart |

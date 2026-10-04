@@ -55,6 +55,51 @@ public:
     /// status tick. Pinned by test/gui/present_count_test.cpp.
     uint64_t present_count() const { return present_count_; }
 
+    /// GH #155 — if a NEW frame handed over by update_frame() has not been
+    /// painted yet, paint it now, synchronously, by delivering the repaint
+    /// request update() already posted; otherwise do nothing. QtApp calls this
+    /// at the start of every frame tick, before the tick overwrites the
+    /// framebuffer that frame lives in.
+    ///
+    /// WHY IT IS NEEDED: on Windows the timer event that starts a tick can be
+    /// dispatched ahead of that repaint request (it is posted at a higher
+    /// priority — gui/frame_timer.h), and the frame is then lost. Re-arming
+    /// the timer every tick closes the common case; this closes the rest, a
+    /// GUI thread descheduled past a 1 ms interval before the repaint ran.
+    ///
+    /// WHY IT IS SAFE ON EVERY PLATFORM: it does not paint by any new route.
+    /// update() marks the widget dirty and posts an UpdateRequest to its top
+    /// level (QWidgetRepaintManager::markDirty -> sendUpdateRequest(tlw,
+    /// UpdateLater), Qt::LowEventPriority), and the event loop would deliver
+    /// that same event to QWidget::event -> syncBackingStore ->
+    /// QWidgetRepaintManager::sync(). QCoreApplication::sendPostedEvents(
+    /// window(), QEvent::UpdateRequest) delivers exactly that queued event,
+    /// earlier. So the paint, the flush and every platform rule they apply are
+    /// the ones the event loop would have run a moment later: a minimised or
+    /// unmapped window discarding the sync (shouldDiscardSyncRequest), and the
+    /// platform backing store's own flush (Wayland's safeCommit with its
+    /// buffer reuse, Cocoa's layer-contents swap inside a display cycle). It
+    /// deliberately does NOT use repaint(): that is the separate UpdateNow
+    /// path, which Qt itself downgrades for texture-backed windows because a
+    /// sync+flush per call "causes compositing and waiting for vsync each and
+    /// every time" (QWidgetRepaintManager::sendUpdateRequest). With no request
+    /// pending (already painted, or a hidden window for which Qt posted none)
+    /// it is a no-op.
+    void flush_pending_present();
+
+    /// GH #155 — what flush_pending_present() did since the last take: how
+    /// many times it was called (QtApp calls it once per frame tick) and how
+    /// many of those found a new frame still unpainted and painted it. The
+    /// `ticks:` debug line reports both (frame-loop-wiring-func pins
+    /// checked == ticks). `painted` is ~0 on Linux, where the event loop
+    /// always paints first, and is the Windows residual made visible.
+    struct FlushStats { uint64_t checked = 0; uint64_t painted = 0; };
+    FlushStats take_flush_stats() {
+        const FlushStats s = flush_stats_;
+        flush_stats_ = {};
+        return s;
+    }
+
     /// Task 63 (issue #9) — drain the accumulated NEW-FRAME paint-cost
     /// distribution (µs samples): returns the Stat and resets it, mirroring
     /// the way QtApp differences present_count() each status tick.
@@ -123,5 +168,6 @@ private:
     QPoint fs_offset_;        ///< Top-left offset for centered image in fullscreen.
     bool frame_pending_ = false;   ///< Task 63 — a new frame awaits its first paint.
     uint64_t present_count_ = 0;   ///< Task 63 — frames actually presented.
+    FlushStats flush_stats_;       ///< GH #155 — flush_pending_present() activity.
     tick_stats::Stat paint_stats_; ///< Task 63 — new-frame paintEvent cost (µs).
 };

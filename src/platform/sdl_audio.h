@@ -63,6 +63,12 @@ public:
     /// (returns zeros).
     audio_fill::StatsWindow take_fill_stats();
 
+    /// The pacing band's estimate envelope for the OPENED device (GH #155):
+    /// one device buffer, in whole ms, never below the documented default
+    /// (audio_pacing::envelope_for_device). The default when no device is
+    /// open or SDL cannot report its buffer.
+    int pacing_envelope_ms() const { return pacing_envelope_ms_; }
+
     /// Shut down SDL audio.
     void shutdown();
 
@@ -89,6 +95,7 @@ private:
     /// destroying it closes the device (SDL_audio.h).
     SDL_AudioStream* stream_ = nullptr;
     bool initialized_ = false;
+    int  pacing_envelope_ms_ = audio_pacing::ESTIMATE_ENVELOPE_MS;
 
     /// Scratch the audio callback puts into the stream from. Pre-allocated:
     /// the callback runs on SDL's high-priority audio thread, where an

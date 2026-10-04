@@ -103,6 +103,12 @@ struct FakeFrontend {
     size_t           scripted_pos = 0;
     double consume_accum_ms = 0.0;
     int    pending_frames = 0;        ///< frames synthesised but not yet pushed
+    /// GH #155 — also apply SdlAudio's push rules (sdl_audio.cpp
+    /// push_from_mixer): a push is DROPPED while the queue is above
+    /// QUEUE_MAX_MS, and a hold-armed push pads the queue up to QUEUE_FLOOR_MS.
+    /// The slow-host rows need them: on a host that cannot keep up, the pad is
+    /// what the pacer reads instead of an empty queue.
+    bool   sdl_push_rules = false;
 
     // --- recordings --------------------------------------------------------
     std::vector<bool> composites;         ///< one entry per run_frame(), its hint
@@ -189,7 +195,15 @@ struct FakeFrontend {
         ++pushes;
         push_hold.push_back(hold_on_underrun);
         if (audio_model) {
+            if (sdl_push_rules && queue_ms > audio_pacing::QUEUE_MAX_MS) {
+                pending_frames = 0;           // dropped, as SdlAudio does
+                return;
+            }
             queue_ms += pending_frames * (static_cast<double>(period) / 1000.0);
+            if (sdl_push_rules && hold_on_underrun &&
+                queue_ms < audio_pacing::QUEUE_FLOOR_MS) {
+                queue_ms = audio_pacing::QUEUE_FLOOR_MS;
+            }
         }
         pending_frames = 0;
     }
@@ -220,9 +234,9 @@ void start(frame_sequencer::Sequencer& seq, FakeFrontend& fx)
 }
 
 /// Drive `n` timer ticks: run the tick, then let the clock reach the moment
-/// the repeating timer would next fire (exactly the interval the sequencer
-/// asked for). This is the QTimer contract — setInterval() restarts the period
-/// from the moment of the call, which the sequencer makes at end of tick.
+/// the timer would next fire (exactly the interval the sequencer asked for).
+/// This is the GUI's timer contract — a single-shot timer armed from the moment
+/// of the call, which the sequencer makes at end of tick (gui/frame_timer.h).
 void run_ticks(frame_sequencer::Sequencer& seq, FakeFrontend& fx, int n)
 {
     for (int i = 0; i < n; i++) {
@@ -1439,6 +1453,74 @@ int main()
                   seq.audio_pull_ins() == 0,
               "frames=" + s_int((long long)fx.composites.size()) +
                   " skips=" + s_int((long long)seq.audio_skips()));
+    }
+
+    // =====================================================================
+    // FS-EDGE — a host at and past the edge of real time (GH #155)
+    // =====================================================================
+    // The whole loop — sequencer, audio band, deadline schedule — on a fake
+    // host whose emulated frame costs a fixed time, with a chunked audio device
+    // draining in real time and SdlAudio's push rules. The timer model is the
+    // GUI's: a single-shot timer armed from the end of each tick
+    // (gui/frame_timer.h), which is what run_ticks() does.
+    //
+    // 15.6 ms is janko-jj's NextBASIC-editor frame on real Windows in v1.0.75;
+    // 23 ms is the same screen in his v1.1.0 log, where the loop fell into a
+    // spiral of catch-up doubles, skips and idle waits: 24-34 emulated and
+    // 12-16 shown frames/s, ticks 40-80 ms apart while the handler took ~32 ms.
+    // Before GH #155 this model reproduced that spiral (29 emulated/s, 14.5
+    // doubles/s at 23 ms). Two defects made it: a stall resync that waited a
+    // whole period on a machine already behind (frame_deadline.h), and a band
+    // estimate that ran away until a 39-40 ms reading tripped a skip
+    // (audio_pacing.h, ESTIMATE_ENVELOPE_MS). Either one alone still costs
+    // >20% of the throughput below.
+    {
+        struct Run { double emu_per_s; uint64_t doubles, skips; int waits; double optimum; };
+        auto run_slow = [](int64_t cost_us) {
+            frame_sequencer::Sequencer seq;
+            FakeFrontend fx;
+            fx.period              = PERIOD_50_US;
+            fx.run_frame_cost_us   = cost_us;
+            fx.pre_frames_cost_us  = 300;
+            fx.post_frames_cost_us = 300;
+            fx.audio_model         = true;
+            fx.sdl_push_rules      = true;
+            fx.queue_ms            = 60.0;
+            start(seq, fx);
+            run_ticks(seq, fx, 300);                     // settle (~6+ s)
+            const int64_t  t0 = fx.clock_us;
+            const size_t   f0 = fx.composites.size();
+            const size_t   i0 = fx.intervals.size();
+            const uint64_t d0 = seq.audio_doubles(), s0 = seq.audio_skips();
+            run_ticks(seq, fx, 3000);
+            Run r;
+            const double secs = static_cast<double>(fx.clock_us - t0) / 1e6;
+            r.emu_per_s = static_cast<double>(fx.composites.size() - f0) / secs;
+            r.doubles   = seq.audio_doubles() - d0;
+            r.skips     = seq.audio_skips() - s0;
+            r.waits     = 0;
+            for (size_t k = i0; k < fx.intervals.size(); k++)
+                if (fx.intervals[k] > 1) ++r.waits;
+            // One frame per tick, back to back: the frame, the tick's own
+            // work and the timer's 1 ms floor, nothing else.
+            r.optimum = 1e6 / static_cast<double>(cost_us + 600 + 1000);
+            return r;
+        };
+
+        const Run ok = run_slow(15600);
+        check("FS-EDGE-01", "15.6 ms frames (headroom): real-time rate, no catch-ups, no skips",
+              ok.emu_per_s > 49.1 && ok.emu_per_s < 49.6 && ok.doubles == 0 && ok.skips == 0,
+              "emu/s=" + s_dbl(ok.emu_per_s) + " doubles=" + s_int(ok.doubles) +
+                  " skips=" + s_int(ok.skips));
+
+        const Run slow = run_slow(23000);
+        check("FS-EDGE-02", "23 ms frames (over budget): within 5% of the back-to-back optimum",
+              slow.emu_per_s >= 0.95 * slow.optimum,
+              "emu/s=" + s_dbl(slow.emu_per_s) + " optimum=" + s_dbl(slow.optimum));
+        check("FS-EDGE-03", "23 ms frames: the pacer never skips a frame on a starving queue",
+              slow.skips == 0, "skips=" + s_int(slow.skips));
+        check("FS-EDGE-04", "23 ms frames: no tick waits more than the 1 ms floor while behind",
+              slow.waits == 0, "waits=" + s_int(slow.waits));
     }
 
     std::printf("\n====================================================\n");

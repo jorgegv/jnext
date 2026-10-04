@@ -19,8 +19,10 @@
 // fractional period each tick; the returned whole-ms interval is the delay
 // from `now` to that deadline, so intervals alternate (17/18 averaging
 // 17.198) and the long-run rate is exact. Lateness beyond STALL_PERIODS
-// periods resyncs to now + period (audio pacing owns catch-up; the timer
-// must never machine-gun 1 ms callbacks); lateness within the threshold is
+// periods resyncs AT NOW — one tick as soon as possible, then the grid (audio
+// pacing owns catch-up, so the timer must never machine-gun 1 ms callbacks,
+// and a host already behind must never be made to wait a period either,
+// GH #155); lateness within the threshold is
 // walked off on the ORIGINAL grid. A period change GLIDES: the anchored
 // deadline stands and the next advance uses the new period.
 //
@@ -69,10 +71,9 @@ constexpr int64_t P50 = 20259;   // Next-50, true period from timing constants
 //   * the handler calls next_interval_ms(now) and the next fire is
 //     scheduled `interval` ms after `now` — QTimer::setInterval restarts
 //     the period from the moment of the call.
-// (The real wiring skips setInterval when the value is unchanged; Qt then
-// fires on its own grid anchored at the previous fire, a sub-ms difference
-// the next recompute-against-now absorbs. The simulation models the
-// restart-from-now case, which is the contract the class documents.)
+// (The real wiring arms a single-shot timer from now at the end of every tick,
+// whatever the value — gui/frame_timer.h, GH #155 — which is exactly this
+// restart-from-now model.)
 struct Sim {
     frame_deadline::Scheduler sched;
     int64_t now = 0;        // arrival time of the most recent tick, us
@@ -215,8 +216,12 @@ int main()
 
     // --- FD-06: stall resync ---------------------------------------------------
     // A 500 ms gap (host stall / suspend) is far beyond STALL_PERIODS (2)
-    // periods: the schedule must resync to now + period — exactly one
-    // resync, next interval ~one period, and NO burst of 1 ms intervals.
+    // periods: the schedule must resync AT NOW (GH #155) — exactly one resync,
+    // the next tick due at once (the 1 ms floor), then normal intervals on a
+    // grid anchored at the stall instant, and NO burst of 1 ms intervals.
+    // (Before GH #155 the resync went to now + period, i.e. the tick after a
+    // stall first WAITED a whole period; on a host that cannot keep up that
+    // wait recurred every other tick — see FD-13d and FD-14.)
     {
         Sim s;
         s.start(P60);
@@ -227,18 +232,23 @@ int main()
         const int64_t resync_at = s.now;
         check("FD-06b", "500ms gap causes exactly one resync",
               s.sched.resyncs() == 1);
-        check("FD-06c", "the resynced tick schedules ~one period ahead, not 1ms",
-              late_iv == 17, "iv=" + fmt(late_iv));
+        check("FD-06c", "the resynced tick asks for the next one at once (1ms), not a period later",
+              late_iv == 1, "iv=" + fmt(late_iv));
 
+        // The tick after the resync arrives 1 ms later and lands on a grid
+        // anchored at the stall, so its interval is one period minus that ms
+        // (16); every later one is the normal 17/18.
         bool all_normal = true;
+        int first_iv = 0;
         for (int k = 0; k < 100; k++) {
             const int iv = s.tick(P60);
-            if (iv != 17 && iv != 18) all_normal = false;
+            if (k == 0) first_iv = iv;
+            else if (iv != 17 && iv != 18) all_normal = false;
         }
-        const int64_t dev = s.now - (resync_at + 100 * P60);
-        check("FD-06d", "after the resync: no 1ms burst, intervals normal",
-              all_normal);
-        check("FD-06e", "after the resync: the grid is re-anchored at the stall",
+        const int64_t dev = s.now - (resync_at + 99 * P60);
+        check("FD-06d", "after the resync: exactly ONE early tick, then normal intervals (no 1ms burst)",
+              first_iv == 16 && all_normal, "first_iv=" + fmt(first_iv));
+        check("FD-06e", "after the resync: the grid is re-anchored AT the stall instant",
               dev >= -1000 && dev <= 1000, "dev=" + fmt(dev));
     }
 
@@ -288,8 +298,8 @@ int main()
 
         over.rebase(0, P60);
         const int iv_over = over.next_interval_ms(P60 + 2 * P60 + 1, P60);
-        check("FD-08b", "one us beyond 2 periods: resyncs, ~one period ahead",
-              over.resyncs() == 1 && iv_over == 17, "iv=" + fmt(iv_over));
+        check("FD-08b", "one us beyond 2 periods: resyncs at now, next tick due at once",
+              over.resyncs() == 1 && iv_over == 1, "iv=" + fmt(iv_over));
     }
 
     // --- FD-09: a period change GLIDES ----------------------------------------
@@ -431,10 +441,13 @@ int main()
 
     // A host that needs 1.67 periods per tick — ~60% of real time, the regime
     // the video preference exists for. ADVANCING the deadline on such a tick
-    // leaves it in the past and every later tick inherits the lateness, until
-    // the stall arm fires and parks the machine for a whole period. That
-    // periodic idle IS judder, which is what the preference is trying to
-    // remove, so the catch-up must re-anchor instead.
+    // leaves it in the past and every later tick inherits the lateness until
+    // the stall arm fires. Before GH #155 that arm resynced to now + period
+    // and parked the machine for a whole period every other tick (FD-13d used
+    // to assert exactly that, as the reason resync_now exists). It now
+    // resyncs at now, so neither path inserts an idle period: the stall arm
+    // still COUNTS its resyncs (the "host went away" diagnostic), resync_now
+    // still does not.
     {
         constexpr int TICKS = 60;
         const int64_t cost = P60 * 167 / 100;
@@ -460,15 +473,48 @@ int main()
         const Out advanced = simulate(false);
         const Out anchored = simulate(true);
 
-        check("FD-13d", "advancing on a 60%-speed host parks it and counts stalls",
-              advanced.idle > 0 && advanced.stalls > 0,
+        check("FD-13d", "advancing on a 60%-speed host no longer parks it, and still counts stalls",
+              advanced.idle == 0 && advanced.stalls > 0,
               "idle=" + fmt(advanced.idle) + " stalls=" + fmt((long long)advanced.stalls));
         check("FD-13e", "resync_now never parks it and never counts a stall",
               anchored.idle == 0 && anchored.stalls == 0,
               "idle=" + fmt(anchored.idle) + " stalls=" + fmt((long long)anchored.stalls));
-        check("FD-13f", "so the same frames finish sooner: no idle periods inserted",
-              anchored.wall < advanced.wall,
+        check("FD-13f", "so both paths finish the same frames at the same instant: neither idles",
+              anchored.wall == advanced.wall,
               "anchored=" + fmt(anchored.wall) + " advanced=" + fmt(advanced.wall));
+    }
+
+    // --- FD-14: a host just over budget never waits while it is behind --------
+    // GH #155. A tick that costs 1.15 periods falls 0.15 periods further behind
+    // every tick, so it keeps crossing STALL_PERIODS. The schedule must run such
+    // a host back to back (1 ms intervals) for the whole run: the old resync to
+    // now + period inserted a full idle period at every crossing — on
+    // janko-jj's real Windows host that showed as ticks 40-80 ms apart while
+    // the handler took ~32 ms.
+    {
+        constexpr int TICKS = 300;
+        const int64_t cost = P50 * 115 / 100;
+        frame_deadline::Scheduler s;
+        int64_t now = 0;
+        int64_t scheduled = now + static_cast<int64_t>(s.rebase(now, P50)) * 1000;
+        int waits = 0;
+        int64_t idle_us = 0;
+        for (int k = 0; k < TICKS; k++) {
+            now = scheduled + cost;   // fires, then costs `cost`
+            const int iv = s.next_interval_ms(now, P50);
+            if (iv > 1) { ++waits; idle_us += static_cast<int64_t>(iv) * 1000; }
+            scheduled = now + static_cast<int64_t>(iv) * 1000;
+        }
+        check("FD-14a", "a host costing 1.15 periods per tick crosses the stall threshold",
+              s.resyncs() > 0, "resyncs=" + fmt((long long)s.resyncs()));
+        check("FD-14b", "and is never made to wait more than the 1ms floor while behind",
+              waits == 0, "waits=" + fmt(waits) + " idle_us=" + fmt(idle_us));
+        // TICKS ticks of `cost` plus the 1 ms floor each, plus the first
+        // deadline: the work and the timer floor, nothing else (the old rule
+        // added a full period of idle at every stall crossing).
+        const int64_t bound = static_cast<int64_t>(TICKS) * (cost + 1000) + P50 + 1000;
+        check("FD-14c", "so the run takes the work plus the timer floor and nothing else",
+              now <= bound, "now=" + fmt(now) + " bound=" + fmt(bound));
     }
 
     std::printf("\n====================================================\n");

@@ -169,8 +169,17 @@ It acts on an EMA of the readings rather than raw ones, because the device
 consumes in roughly 23 ms chunks and that sawtooth would clip the band edges
 constantly; it feeds each intervention's effect forward so filter lag cannot
 over-correct; and it keeps two emergency guards on the raw readings, outside the
-smoothing. The header records the alternatives that were modelled and rejected,
-so read it before changing a threshold.
+smoothing. The estimate is also kept within one device chunk of each reading
+(GH #155): the feed-forward credits a catch-up with a frame of audio that a host
+too slow to keep real time never actually delivers, and unbounded the estimate
+ran away until ordinary low readings tripped the "ahead of the card" arm and
+skipped frames on an almost empty queue. The chunk is the opened device's
+buffer — `SdlAudio` reads it back with `SDL_GetAudioDeviceFormat()` and logs
+`Audio device buffer: N sample frames at F Hz -> pacing estimate envelope E ms`
+— rounded up and never below `ESTIMATE_ENVELOPE_MS` (24 ms, SDL3's default
+1024-frame buffer at 44.1 kHz).
+The header records the alternatives that were modelled and rejected, so read it
+before changing a threshold.
 
 When the host genuinely cannot keep real time, no pacing policy can conjure the
 missing samples, and two layers of last-level hold take over (GH #208). The

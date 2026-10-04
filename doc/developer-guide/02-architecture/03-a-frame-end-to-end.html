@@ -712,6 +712,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The tick">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-the-qt-frontend-paces-and-presents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the Qt frontend paces and presents
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2338,6 +2355,50 @@ speed multiplier; in <code>SdlApp</code> it comes from that frontend's own paced
 <code>HeadlessApp</code> it comes from a bare loop with no cap at all. Whichever it is,
 once the call returns the frontend reads the finished image with
 <code>get_framebuffer()</code> and presents it.</p>
+<h3 id="how-the-qt-frontend-paces-and-presents">How the Qt frontend paces and presents<a class="headerlink" href="#how-the-qt-frontend-paces-and-presents" title="Permanent link">&para;</a></h3>
+<p>The Qt tick is <code>frame_sequencer::Sequencer::tick()</code> (<code>src/platform/frame_sequencer.h</code>),
+driven by one timer and four rules that only show their worth on a host at the
+edge of real time (GH #155):</p>
+<ul>
+<li><strong>The timer is single-shot and is re-armed from now at the end of every
+  tick</strong> (<code>src/gui/frame_timer.h</code>), whatever the interval. The deadline
+  schedule (<code>src/platform/frame_deadline.h</code>) hands back "whole ms from now to
+  the next deadline", which only means that if the timer counts from now. It
+  used to be a periodic timer restarted only when the value changed; after a
+  tick that outlasted an unchanged interval it fired at once on the old phase,
+  and on Windows that timer event (posted at normal priority) was dispatched
+  ahead of the widget's repaint request (posted at <code>Qt::LowEventPriority</code>), so
+  the frame the previous tick produced was never shown. Linux hid it, because
+  glib lets posted events run before a timer fires again. When the next
+  deadline is already due (the schedule's 1 ms floor — a host that is behind,
+  or fast-forward beyond what it can keep up with) the timer is armed for
+  0 ms, which Qt fires once the window-system queue is drained, rather than
+  charging every tick a whole ms.</li>
+<li><strong>A frame not yet painted is painted at tick entry.</strong>
+  <code>EmulatorWidget::flush_pending_present()</code> delivers the repaint request
+  <code>update()</code> already posted, through the event loop's own paint path, before
+  the tick overwrites the framebuffer. It closes the residual Windows case: a
+  GUI thread descheduled past a 1 ms interval before its repaint ran.</li>
+<li><strong>A stall resync restarts the grid at now.</strong> When a tick finds itself more
+  than two periods late, the backlog is dropped and the next tick runs at once;
+  it used to wait a whole period first, which on a host that cannot keep up
+  idled the machine every other tick while it was already behind.</li>
+<li><strong>The audio band's estimate stays within one device chunk of the reading</strong>
+  (<code>BandState::envelope_ms</code> in <code>src/platform/audio_pacing.h</code>, set from the
+  opened device's buffer; see <a href="../03-subsystems/04-audio.html">Audio</a>).</li>
+</ul>
+<p>The status bar's <code>emu</code> and <code>shown</code> figures and the <code>cadence:</code> / <code>ticks:</code> lines
+of <code>--log-level platform=debug</code> are the instruments for all of this. The
+<code>ticks:</code> line ends with the wiring counters: <code>timer re-armed=</code> (must equal the
+window's tick count), <code>rescued=</code> (re-anchors of a tick that ended with the
+timer unarmed — must be 0) and <code>pending-paint checked=</code>/<code>painted=</code> (how often
+the tick-entry paint was asked, and how often it found a frame to paint — ~0
+on Linux, the Windows residual elsewhere). The <code>frame-loop-wiring-func</code>
+regression row runs the real GUI binary and pins the first three.
+<code>frame_sequencer_test</code>'s FS-EDGE rows run the whole loop on a fake host whose
+frame costs 15.6 ms and 23 ms — the two figures from a real Windows report —
+and pin real-time pacing at the first and back-to-back emulation with no skips
+and no waits at the second.</p>
 <h2 id="frame-start">Frame start<a class="headerlink" href="#frame-start" title="Permanent link">&para;</a></h2>
 <p><code>run_frame()</code> (<code>src/core/emulator.cpp:7270</code>) opens with two steps that have to
 come before anything else. <code>service_esp_frame()</code> applies the replay gate and
