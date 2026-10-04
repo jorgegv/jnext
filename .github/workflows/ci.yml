@@ -308,8 +308,8 @@ jobs:
       # the declared dependency graph, so a target that under-declares still
       # links while some other library happens to supply its dependencies in a
       # usable position. Both known instances hid behind the debugger library
-      # and appeared the moment it was switched off. Cheap here because ccache
-      # is warm from the build above.
+      # and appeared the moment it was switched off. Its own leg since GH #295;
+      # it builds nothing else, so its warmth is its own ccache entry's.
       - name: Build matrix (every ENABLE_QT_UI x ENABLE_DEBUGGER combination)
         if: matrix.leg == 'build-matrix'
         run: LANG=C make build-matrix
