@@ -21,7 +21,7 @@
 // Issue #303 adds the macOS policy (DeferredWarpPolicy), whose oracle is the
 // host hardware itself: a window-server model below moves the cursor, queues
 // events and applies warps the way each platform does, and the guest must
-// follow the hardware exactly (PCAP-11..32; Wayland selection PCAP-22).
+// follow the hardware exactly (PCAP-11..33; Wayland selection PCAP-22).
 //
 // Run: ./build/test/pointer_capture_test
 
@@ -627,6 +627,13 @@ int main()
         const auto c = r.on_motion(CX + 8, CY, CX, CY, 64);
         check("PCAP-31c", "a jump of exactly margin/2 nearer the centre counts as the landing",
               c.dx == 8 && !r.warp_pending(), fmt(c));
+        // ... and one pixel short of it does not: forwarded as motion, still
+        // pending.
+        auto t = pending_at_70();
+        for (int x = CX + 60; x >= CX + 40; x -= 10) t.on_motion(x, CY, CX, CY, 64);
+        const auto d = t.on_motion(CX + 9, CY, CX, CY, 64);
+        check("PCAP-31d", "a jump of margin/2 - 1 nearer the centre is motion, not the landing",
+              d.dx == -31 && t.warp_pending(), fmt(d));
     }
 
     // PCAP-32: documented limit 2. With a warp pending, the pointer coming back
@@ -648,6 +655,27 @@ int main()
         p.on_motion(x, CY, CX, CY, 64);
         check("PCAP-32b", "a warp unseen for kWarpGiveUpEvents events is given up on",
               still && !p.warp_pending());
+    }
+
+    // PCAP-33: begin() restarts the give-up count. A capture ends with a warp
+    // still pending after 15 unseen events; the next capture's begin() warp
+    // must get its own full kWarpGiveUpEvents, or it would be abandoned early
+    // and its landing read as a jump of about the margin.
+    {
+        auto p = settled_deferred(CX, CY);
+        p.on_motion(CX + 35, CY, CX, CY, 64);
+        p.on_motion(CX + 70, CY, CX, CY, 64);         // warp requested, never lands
+        for (int i = 1; i <= 15; ++i) p.on_motion(CX + 70 + i, CY, CX, CY, 64);
+        const bool left_pending = p.warp_pending();
+        p.begin(CX + 300, CY + 200, CX, CY, 64);       // captured again, far: warp
+        // Still beyond the margin, so giving up shows as a fresh warp request.
+        int x = CX + 300;
+        bool early = false;
+        for (int i = 0; i < pointer_capture::DeferredWarpPolicy::kWarpGiveUpEvents; ++i)
+            early = early || p.on_motion(++x, CY + 200, CX, CY, 64).recentre;
+        const auto m = p.on_motion(++x, CY + 200, CX, CY, 64);
+        check("PCAP-33", "begin() restarts the give-up count: no re-warp for N events, re-warp at N+1",
+              left_pending && !early && m.recentre, fmt(m));
     }
 
     std::printf("\n==============================================\n");
