@@ -160,7 +160,9 @@ load_summary() {
         echo -e "  ${YELLOW}${BOLD}WARNING: this run was on a loaded host${RESET}${YELLOW} (load ${LOAD_START:-?} at start, ${LOAD_END:-?} at end, ${HOST_CPUS} CPUs; ${LOADED_FAILS} FAIL(s) at or above that)."
         echo -e "  Rows that pace against real time or spawn short-lived processes can fail"
         echo -e "  spuriously under contention. Re-run each failed row SOLO, on a quieter host"
-        echo -e "  (bash test/00regression/regression.sh <row>), before treating it as a"
+        echo -e "  (make regression-rows ROWS=<row> — after a full make regression whose only"
+        echo -e "  FAILs were flagged like this, make regression-confirm does it and stamps the"
+        echo -e "  run if they pass), before treating it as a"
         echo -e "  regression — and before dismissing it: a row that also fails solo is real."
         echo -e "  The FAIL verdict above stands either way.${RESET}"
     fi
