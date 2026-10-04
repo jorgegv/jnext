@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.4</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.5</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.4</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.5</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2334,7 +2334,7 @@ that knowing the rule is usually faster than grepping.</p>
 </tr>
 <tr>
 <td><code>packaging/</code></td>
-<td>Everything that turns a build into a package: <code>rpm/</code>, <code>debian/</code>, <code>flatpak/</code>, <code>macos/</code>, <code>windows/</code>, the AppStream metadata in <code>assets/</code>, and <code>sync-version.sh</code>, the one script that knows every file hard-coding the version.</td>
+<td>Everything that turns a build into a package: <code>rpm/</code>, <code>debian/</code>, <code>flatpak/</code>, <code>macos/</code>, <code>windows/</code>, the AppStream metadata in <code>assets/</code>, <code>gen-debian-changelog.sh</code>, and <code>sync-version.sh</code>, which does the part of a version bump that must be committed.</td>
 </tr>
 <tr>
 <td><code>third_party/</code></td>

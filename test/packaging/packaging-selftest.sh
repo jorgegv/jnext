@@ -39,7 +39,7 @@ trap 'rm -rf "$T"' EXIT
 
 SANDBOX="$T/sandbox"
 
-# The seven contract sub-tests `packaging-test.sh --contracts-only` invokes, by
+# The eight contract sub-tests `packaging-test.sh --contracts-only` invokes, by
 # script name. A new contract sub-test added there without a stub here fails
 # the green-path row loudly (the sandbox lacks its script, so its row goes
 # FAIL) — update this list when the roster changes; that edit is deliberate,
@@ -53,6 +53,7 @@ SUBTESTS=(
     complete-closure-test.sh
     package-recipe-guard-test.sh
     flatpak-permissions-test.sh
+    artifact-select-test.sh
 )
 
 # reset_sandbox — fresh sandbox holding the REAL script + all-green stubs
@@ -109,19 +110,19 @@ echo "===================================="
 echo ""
 
 # ---------------------------------------------------------------- green path
-# All six contract sub-tests pass: exit 0, six PASS rows counted, a summary,
+# All eight contract sub-tests pass: exit 0, eight PASS rows counted, a summary,
 # and NO failure machinery — no FAIL row, no inline log dump.
 reset_sandbox
 out=$(run_contracts); rc=$?
-check "PS-01" "all sub-tests green: exit 0, Pass: 7, summary, no dump" 0 $rc "$out" \
-    "Pass: 7" "Fail: 0" "Skip: 0" "=== Results ===" \
+check "PS-01" "all sub-tests green: exit 0, Pass: 8, summary, no dump" 0 $rc "$out" \
+    "Pass: 8" "Fail: 0" "Skip: 0" "=== Results ===" \
     '!FAIL' '!---- end ----'
 
 # ------------------------------------------------ THE FAILING PATH (GH #80)
 # One sub-test writes a distinctive root-cause line to its log and exits 1.
 # The locked-in behaviour: the FAIL row names the row, the log content
 # surfaces INLINE in the captured output (not as a pointer to a temp dir the
-# EXIT trap deletes), the run CONTINUES past the failure (the six other
+# EXIT trap deletes), the run CONTINUES past the failure (the seven other
 # rows still pass), the summary still prints, and the exit code is nonzero.
 # The sub-test's stdout/stderr go to $LOGDIR/<row>.log, so bad()'s dump is
 # the ONLY channel through which the marker can reach this captured output.
@@ -134,7 +135,7 @@ out=$(run_contracts); rc=$?
 check "PS-02" "a failing sub-test: FAIL row + its log INLINE + run continues" 1 $rc "$out" \
     "FAIL" "sync-version" "contract test failed" \
     "$MARKER" \
-    "Pass: 6" "Fail: 1" "=== Results ==="
+    "Pass: 7" "Fail: 1" "=== Results ==="
 
 # --------------------------------- final-newline normalisation in the dump
 # bad() pipes the tail through `awk 1` so a log whose last line has NO
