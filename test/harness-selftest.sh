@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=120  # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..b (GH #295)
+EXPECTED_TOTAL=121  # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1889,6 +1889,23 @@ kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
 out="rc=$r nested=$(count_of "$o" "nested inside") waited=$(count_of "$o" "holds the host lock")"
 check "HS-74b" "a marker naming the LIVE lock holder that is not an ancestor does not bypass it either (GH #295)" 0 0 "$out" \
     "rc=2 nested=0 waited=1"
+
+# A SYMLINKED lock path: flock(1) locks the link's TARGET, so the holder check
+# must compare the resolved file — comparing the link's own inode judged a
+# genuine nested child "not held" and it waited on its ancestor (review). The
+# same confirm path as HS-73, its lock file now a symlink.
+ln -sfn "$T/confirm-real.lock" "$T/confirm-sym.lock"; : > "$T/confirm-real.lock"
+JNEXT_REGRESSION_STAMP_DIR="$T/cstamps" bash "$CR/test/regression-stamp.sh" pending "$cst" \
+    "fails=nested-func" pass=0 fail=1 skip=0 rows=1 >/dev/null 2>&1
+t0=$SECONDS
+out=$(cd "$CR" && HOME="$T/cfix" JNEXT=/bin/true JNEXT_REGRESSION_STAMP_DIR="$T/cstamps" \
+      JNEXT_REGRESSION_LOCK_FILE="$T/confirm-sym.lock" JNEXT_REGRESSION_LOCK_WAIT=6 \
+      JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-idle" JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_HEARTBEAT=0 \
+      JNEXT_REGRESSION_STAMP=confirm JNEXT_TEST_JOBS=1 \
+      timeout --kill-after=5s 120s bash "$CRT/regression.sh" nested-func 2>&1); rc=$?
+out+=$'\n'"fast=$(( SECONDS - t0 < 60 ? 1 : 0 ))"
+check "HS-74c" "with a SYMLINKED lock file a genuine nested child still recognises its ancestor's lock (GH #295)" 0 $rc "$out" \
+    "the nested harness ran: plain 1, forced 1; nested inside a run that holds)" "passed solo" "fast=1"
 
 echo ""
 echo "====================================="

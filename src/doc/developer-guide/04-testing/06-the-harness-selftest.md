@@ -92,11 +92,12 @@ run never waits for the lock its own ancestor holds. `HS-74a`/`HS-74b` prove
 the marker that says so is evidence, not a password: a hand-exported one, one
 naming a live ancestor that does not hold the lock, a stale one, and one naming
 the live holder that is not an ancestor all leave the run a normal second run
-that waits and faults at its bound.
+that waits and faults at its bound; `HS-74c` repeats HS-73 with the lock file
+behind a symlink, which flock(1) resolves and the holder check must too.
 
 ## It pins its own count
 
-`EXPECTED_TOTAL = 120` sits in the script, right next to the rows it counts, and
+`EXPECTED_TOTAL = 121` sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is

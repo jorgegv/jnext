@@ -76,14 +76,26 @@ reg_proc_field() {   # reg_proc_field <pid> <n> — field n of /proc/<pid>/stat 
     [[ -n "${f[n-1]:-}" ]] || return 1
     echo "${f[n-1]}"
 }
-reg_lock_holder_is() {   # reg_lock_holder_is <lock> <pid>... — a FLOCK on <lock>'s inode is held by one of the pids
-    local ino line pid want IFS=$' \t\n'
-    ino=$(stat -c %i "$1" 2>/dev/null) || return 1
+reg_lock_holder_is() {   # reg_lock_holder_is <lock> <pid>... — one of the pids holds a FLOCK on <lock>
+    # Two facts, each checked the way the kernel sees the file, so a symlinked
+    # lock path and a btrfs subvolume (whose stat st_dev is not the s_dev that
+    # /proc/locks prints) both come out right: /proc/locks lists a FLOCK held
+    # by that pid on the inode the path RESOLVES to (stat -L: flock(1) locks
+    # the target), and that pid has the very file open (`-ef` compares device
+    # AND inode of both resolved files, so an inode equal by chance on another
+    # filesystem does not match).
+    local ino line pid dev want fd IFS=$' \t\n'
+    ino=$(stat -L -c %i "$1" 2>/dev/null) || return 1
     while read -r line; do
         # "<n>: FLOCK ADVISORY WRITE <pid> <maj>:<min>:<inode> <start> <end>"
         read -r _ _ _ _ pid dev _ <<<"$line"
         [[ "${dev##*:}" == "$ino" ]] || continue
-        for want in "${@:2}"; do [[ -n "$want" && "$pid" == "$want" ]] && return 0; done
+        for want in "${@:2}"; do
+            [[ -n "$want" && "$pid" == "$want" ]] || continue
+            for fd in "/proc/$pid/fd/"*; do
+                [[ "$fd" -ef "$1" ]] && return 0
+            done
+        done
     done < <(grep -E '^[0-9]+: +FLOCK' /proc/locks 2>/dev/null || true)
     return 1
 }

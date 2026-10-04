@@ -100,7 +100,9 @@ for its ancestor's lock: the locked run names the lock it holds in
 `JNEXT_REGRESSION_ANCESTOR_LOCKS` as `<lock>|<pid>|<start time>`, and a nested
 run accepts an entry only if that pid is alive with that `/proc` start time, is
 its own ancestor, and is (through its `flock -o` wrapper) the holder `/proc/locks`
-names for the lock file — a hand-exported or stale marker locks normally. It keeps `JNEXT_REGRESSION_STAMP` /
+names for the file the lock path resolves to, with that very file open
+(symlinked lock paths and btrfs subvolume device numbers both come out right) —
+a hand-exported or stale marker locks normally. It keeps `JNEXT_REGRESSION_STAMP` /
 `JNEXT_REGRESSION_LOCK` out of the environment its rows inherit (an inherited
 `STAMP=confirm` once made every nested `--preflight-only` wait out its bound
 inside `make regression-confirm`).
