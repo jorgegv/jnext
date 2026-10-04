@@ -82,7 +82,7 @@ No Co-Authored-By lines (CLAUDE.md mandate).
 - `grep -rn` in `/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/` for VHDL lookups (or delegate to `vhdl-oracle` if you want a clean read-only answer).
 - `grep -rn` in `src/` for C++ sites.
 - `LANG=C make -C <worktree> unit-test` after each commit.
-- `bash test/00regression/regression.sh` periodically to catch regressions.
+- `LANG=C make -C <worktree> regression-rows ROWS="<row> ..."` for the rows your fix can touch, as you go; ONE full `LANG=C make -C <worktree> regression` on the final non-doc state (it stamps the tree — GH #295).
 
 ## What you must NOT do
 

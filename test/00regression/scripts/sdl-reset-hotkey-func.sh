@@ -87,7 +87,7 @@ if want sdl-reset-hotkey-func; then
         # 640*3 x 512*3 = 1920x1536) still fits and its geometry is readable.
         env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
         timeout --foreground --kill-after=5s 180s \
-        xvfb-run -a --server-args="-screen 0 2048x1536x24" bash -c '
+        xvfb-run -d --server-args="-screen 0 2048x1536x24" bash -c '
             set -uo pipefail
             bin="$1"; out="$2"; log="$3"; geom="$4"; shift 4
             # The capture is at emulated frame 1150 (23 s at 1x — SdlApp has no

@@ -13,8 +13,11 @@ mkdir -p "$IMG_DIR"
 echo -e "${BOLD}Running screenshot tests...${RESET}"
 echo ""
 
-# Maximum parallel jobs (default: number of CPUs). The JNEXT_TEST_JOBS=4 cap
-# used on every full run is deliberate: pacing-bounded tests lie under load.
+# Maximum parallel jobs: JNEXT_TEST_JOBS, default every CPU — the same lanes
+# the parallel functional phase gets (regression_lanes, parallel-rows.inc).
+# A screenshot row counts EMULATED frames, so load slows it without changing
+# the frame it captures; the rows that pace against real time are the
+# functional rows tagged `quiet`, which run after this, on their own.
 MAX_JOBS=${JNEXT_TEST_JOBS:-$(nproc 2>/dev/null || echo 4)}
 
 # Phase 1: Launch all emulator instances in parallel to generate screenshots

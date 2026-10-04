@@ -368,10 +368,10 @@ make regression     # screenshot comparisons + functional tests, headless
   bash test/00regression/generate-references.sh
   ```
 
-  Some regression tests are real-time-paced (audio underruns, a paused-emulator
-  screenshot with a 60 s timeout) and will report false failures if the machine
-  is loaded. Cap the suite's own concurrency with `JNEXT_TEST_JOBS=4` when
-  running it alongside anything else:
+  The suite runs its rows in parallel, on every CPU. The real-time-paced rows
+  (audio underruns, a paused-emulator screenshot with a 60 s timeout) run in a
+  quiet phase of their own, but they still report false failures if something
+  ELSE loads the machine. To leave CPUs to other work, cap the suite's lanes:
 
   ```sh
   JNEXT_TEST_JOBS=4 make regression

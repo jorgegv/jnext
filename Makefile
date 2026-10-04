@@ -177,7 +177,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build \
-       kloc-count regression fuse-pgo unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
+       kloc-count regression regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-diagrams read-devguide \
@@ -510,7 +510,44 @@ regression: lint-makefile-help regression-doc-check unit-test-build gui-release 
 	@# fuse-pgo (GH #297): gui-release is a PGO build, so the FUSE opcode suite
 	@# also runs against ITS CPU core — `make unit-test` runs it only against
 	@# build/, which is neither PGO nor Release.
-	bash test/00regression/regression.sh
+	@# JNEXT_REGRESSION_STAMP=1 (GH #295): a green run on a tree with no
+	@# uncommitted non-doc change records a stamp keyed on that content
+	@# (test/regression-stamp.sh); `make regression-stamp-check` reads it back.
+	@# Only this target stamps — a bare regression.sh run skips the
+	@# prerequisites above, so it is not the gate.
+	JNEXT_REGRESSION_STAMP=1 bash test/00regression/regression.sh
+
+# Run named regression rows (ROWS="a-func b-func") after building the binaries they run
+regression-rows: unit-test-build gui-release sdl-release
+	@# GH #295: the targeted run a reviewer, a mutation or a diagnosis uses
+	@# instead of a full one. The three prerequisites are the binaries rows
+	@# execute (build/gui-release/jnext, build/sdl-release/jnext for
+	@# sdl-keypress-func, build/test/* for rewind-func and friends) — the same
+	@# set `regression` declares, minus the gates that only a full run needs.
+	@# A targeted run never takes the host lock and never stamps.
+	@[ -n "$(ROWS)" ] || { printf "$(BADGE_FAIL) FAIL $(RESET) name the rows: make regression-rows ROWS=\"row-a row-b\"\n"; exit 2; }
+	bash test/00regression/regression.sh $(ROWS)
+
+# Re-run SOLO the rows a full run failed on a loaded host; stamp the run if all pass
+regression-confirm: unit-test-build gui-release sdl-release
+	@# GH #295, the owner's rule: a timing row that fails under load and passes
+	@# SOLO counts as a pass. A full `make regression` whose only FAILs were
+	@# functional rows failing at a 1-minute load >= nproc records them as
+	@# PENDING; this re-runs exactly those rows, one lane, under the host lock
+	@# and the quiet-host wait, on the same tree. Only if every one passes is the
+	@# full run stamped — and the stamp names them. An idle-host FAIL, a
+	@# screenshot or lint FAIL, a SKIP, or a changed tree never gets here.
+	@rows=$$(bash test/regression-stamp.sh pending-rows) || exit 1; \
+	 printf "re-running SOLO the rows the full run failed on a loaded host: %s\n" "$$rows"; \
+	 JNEXT_REGRESSION_STAMP=confirm JNEXT_TEST_JOBS=1 bash test/00regression/regression.sh $$rows
+
+# Show the green regression stamp covering this tree (docs excluded); fail if there is none
+regression-stamp-check:
+	@bash test/regression-stamp.sh check
+
+# Find a green CI run on a commit with this tree's content key (read-only gh query; release step)
+regression-ci-check:
+	@bash test/regression-stamp.sh ci
 
 # Run the FUSE Z80 opcode suite against the PGO build's CPU core (fails unless 1356/1356 pass)
 fuse-pgo: gui-release

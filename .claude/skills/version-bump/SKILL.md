@@ -18,7 +18,7 @@ Ask:
 
 Run both:
 - `LANG=C make unit-test`
-- `bash test/00regression/regression.sh`
+- the regression: `LANG=C make regression-ci-check` on `main`'s tip BEFORE the bump (a green CI run on a commit with the same non-doc content satisfies it — doc/RELEASE-PROTOCOL.md §7), else `LANG=C make regression-stamp-check` (a local green stamp), else `LANG=C make regression`
 
 Both must report PASS for every test (SKIPs acceptable, FAILs not). If anything fails, **STOP and report** — bump is not possible until tests are green.
 

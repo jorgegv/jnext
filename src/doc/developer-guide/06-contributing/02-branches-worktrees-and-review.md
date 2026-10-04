@@ -53,10 +53,12 @@ Before review, on the branch, in this order:
 $ make clean && make gui-release
 $ make unit-test
 $ ./build/test/fuse_z80_test build/test/fuse       # 1356/1356
-$ JNEXT_TEST_JOBS=4 make regression
+$ make regression
 ```
 
-No FAIL anywhere, and SKIPs only where they are already declared.
+No FAIL anywhere, and SKIPs only where they are already declared. Commit before
+`make regression`: a green run on a tree with no uncommitted non-doc change
+leaves a **stamp** (GH #295), and a dirty tree gets none.
 
 Starting with `make clean` is deliberate, not caution. The regression suite runs
 `build/gui-release/jnext`, and a stale binary produces both false FAILs — it
@@ -66,14 +68,18 @@ against this source" true by construction rather than by discipline, and ccache
 makes it cheap enough that there is no reason to skip it; see
 [5.2](../05-building/02-build-configurations.md).
 
-**`JNEXT_TEST_JOBS=4` stays on every regression run.** It is not politeness
-towards the machine. Parts of the suite are real-time-paced: an audio-underrun
-test genuinely reports underruns when the box is loaded, and a paused-emulator
-screenshot row takes about 55 s against a 60 s timeout. Raising in-suite
-concurrency therefore does not make the suite faster so much as make it
-intermittently *lie*, which was measured and rejected. If you want more
-parallelism, run several branches in several build directories at once, each one
-still capped at 4.
+**Run the full regression only when it can tell you something new.** The
+suite runs its rows in parallel and keeps its real-time-paced rows in a quiet
+phase of their own, so it needs no `JNEXT_TEST_JOBS`; but a full run still
+loads the whole machine, and only one runs per host at a time — a second one
+waits for the first. So: the author runs it once on the final non-doc state; a
+fix round that changed only documentation keeps its stamp; a clean merge of
+`main` into the branch is not re-run (CI on `main` is the full safety net); and
+mutation testing and diagnosis use targeted rows,
+`make regression-rows ROWS="<row> ..."`, which builds the binaries the rows run
+and never takes the lock. A full run whose only FAILs are timing rows that
+failed on a loaded host is not lost either: `make regression-confirm` re-runs
+just those rows solo and stamps the run if they pass.
 
 ## Independent review
 
@@ -84,6 +90,14 @@ The verdict is binary: **APPROVE or REJECT**. There is no "approve with nits",
 because a nit either matters, in which case it is a REJECT with the reason
 cited, or it does not, in which case it is not part of a verdict. On REJECT, fix
 and re-review.
+
+The reviewer does not repeat the author's full regression. In their own
+worktree of the branch they run `make regression-stamp-check`, which prints the
+author's green stamp when the tree's non-doc content is the one the author
+tested (stamps are per user, shared by every worktree), and then the
+**targeted** rows the change touches. A tree with no matching stamp has not
+cleared the gate, and that is a REJECT, not a reason to run it on the author's
+behalf.
 
 The reason this rule is absolute is empirical rather than philosophical. On this
 project a series of real defects were caught by review and *none* of them by the

@@ -55,7 +55,7 @@ JDS
         # shellcheck disable=SC2016
         env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy LANG=C \
         timeout --foreground --kill-after=5s 120s \
-        xvfb-run -a --server-args="-screen 0 1280x1024x24" bash -c '
+        xvfb-run -d --server-args="-screen 0 1280x1024x24" bash -c '
             set -uo pipefail
             bin="$1"; nexdir="$2"; dir="$3"; shift 3
             "$bin" --machine next --silent "$@" --load "$nexdir/dsl_demo.nex" \

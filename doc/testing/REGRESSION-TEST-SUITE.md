@@ -16,19 +16,125 @@ See also: [TEST-TAXONOMY.md](TEST-TAXONOMY.md) — every screenshot row belongs 
 
 Some rows can fail spuriously under CPU contention: the real-time-paced ones
 (`audio-underrun-func`, `screenshot-paused-func`) and, as GH #245 recorded,
-rows that merely spawn short-lived processes. The suite therefore reports the
+rows that merely spawn short-lived processes. The known ones are tagged `quiet`
+and run in their own phase (below), but a row can still meet a loaded host —
+another program, or a new row nobody has tagged yet. The suite therefore reports the
 host's 1-minute load average at the start and end of every run, flags each FAIL
 that happened with the load at or above `nproc`, and lists every failed row by
 name after the results. A flagged FAIL is still a FAIL — the verdict and exit
-status never change. Re-run that row solo (`bash test/00regression/regression.sh
-<row>`) before treating it as a regression, and do not dismiss it until the solo
+status never change. Re-run that row solo (`make regression-rows ROWS=<row>`)
+before treating it as a regression, and do not dismiss it until the solo
 run passes.
+
+## Parallel rows, phases and tags (GH #295)
+
+Every functional row runs in a process of its own (`row-runner.sh`, started by
+`parallel-rows.inc`), with its own `$TMP_DIR` and `$RUN_DIR` — which is also its
+`$JNEXT_CONFIG_DIR`, so GUI preferences, the warm-start cache and private card
+copies never cross between rows. The row is still *sourced*, into its runner
+shell, inside the counter guard. A run has these phases:
+
+| Phase | Rows | Lanes |
+|---|---|---|
+| lints, SD provisioning | the 7 group rows | 1 |
+| screenshots | `regression_tests.conf` | `JNEXT_TEST_JOBS`, default every CPU |
+| parallel | untagged functional rows | `JNEXT_TEST_JOBS`, default every CPU |
+| quiet | rows tagged `quiet` | `JNEXT_TEST_QUIET_JOBS`, default 1 |
+| serial tail | rows tagged `serial` | 1 |
+
+Within a phase, rows are launched in declared order, and each row's buffered
+output is printed — and its result merged — as soon as it and every row
+before it have finished; phases do not interleave.
+
+Tags, after the row's name in `functional_tests.conf` (an unknown one is a
+harness fault):
+
+- **`quiet`** — the row paces against real time and was measured to fail under
+  the parallel phase's load.
+- **`serial`** — runs alone, after everything: `sdcard-isolation-func`, whose
+  "the master was never touched" assertion must cover every other row.
+- **`private-sd`** — the row writes to the SD card (`nextsync-func` formats
+  it, `soft-reset-shadow-screen-func` stages a program onto it), so it gets a
+  copy of its own. Every other row boots the run's clone through a hard link.
+
+What the driver checks, beyond the end-of-run accounting below: a row reports
+exactly one result under its own name (twice, or none, is a harness fault); a
+harness fault inside a row process is one of the run; a row that dies without a
+result or outlives `JNEXT_REGRESSION_ROW_TIMEOUT` (600 s) is a FAIL naming it,
+and the run goes on; a row that exits with its directories still there (its
+own trap replaced the library's) is a harness fault; a row directory that
+exists before its row starts, or is left over at the end, means some row wrote
+into another's — a harness fault; and the run's SD clone is fingerprinted
+after provisioning and again at the end — a change means an untagged row wrote
+to it. Not caught: a row writing into the directory of a row that is running
+at the same moment, whose cleanup then removes the evidence.
+
+`JNEXT_REGRESSION_ROW_TIMES=<file>` appends `<row> <seconds> <exit>` per row —
+how the quiet set was measured. Every `JNEXT_REGRESSION_HEARTBEAT` seconds
+(default 60, 0 = off) a phase prints how many rows have finished and which are
+still running, so a slow or hung row is visible before its bound.
+
+Rows that need an X server use **`xvfb-run -d`**, which lets Xvfb choose the
+display (`-displayfd`). `xvfb-run -a` picks a number by scanning
+`/tmp/.X<n>-lock`, which is not atomic: under parallel rows two of them got
+`:101`, one lost its server, and `sdl-keypress-func` SKIPPED with the run still
+green. Measured: 64/64 concurrent `-d` starts clean under 16 busy loops, against
+1/64 failing with `-a`. `harness-selftest` HS-72 bans `-a`/`-n` in every tracked
+test script.
+
+Targeted runs: `make regression-rows ROWS="<row> ..."` builds the binaries rows
+execute (gui-release, sdl-release, the unit-test build) and runs the named rows;
+the bare `regression.sh <row>...` form needs them built already.
+
+## One full run at a time, and green-run stamps (GH #295)
+
+A **full** run — no arguments, the real manifests — takes a per-user host lock
+(`~/.cache/jnext/regression.lock`, held by `flock(1)` so no child inherits it)
+before it does anything else; a second one waits, printing who holds it, for at
+most `JNEXT_REGRESSION_LOCK_WAIT` (7200 s), then is a harness fault. It then
+waits, at most `JNEXT_REGRESSION_LOAD_WAIT` (300 s), while the 1-minute load is
+above the CPU count, and starts anyway with a loud note. Targeted runs (row
+names, `--update`, `--preflight-only`) never lock.
+
+`make regression` (not a bare `regression.sh`, which skips the target's
+prerequisites) writes a **stamp** when the run has **fail=0 and skip=0** (a SKIP
+is a row that was not tested) and the tree had no uncommitted change in a keyed
+path, at start or end:
+`~/.cache/jnext/regression-stamps/<key>`, holding the commit, the counts, the
+host load at start and end, the lanes and the wall time. The key is a hash of
+`git ls-tree` of the commit over every path except documentation (`doc/`,
+`src/doc/`, `*.md`, `ChangeLog`) — with the documents that something `make
+regression` runs reads as input (other than docs-check) kept in:
+`doc/formats/`, `doc/man/jnext.1.md`,
+`src/doc/user-guide/09-reference/01-command-line-options.md` (cli-check's
+CLI-DOC-06) and `doc/testing/CURRENT-REGRESSION-STATE.md`. The set was derived
+by tracing every file the non-build gates and a whole suite run open, plus a
+static grep of CMake, the Makefile and the rows; it lives in one place,
+`test/regression-stamp.sh`, and HS-71h..j pin it on the real paths. (The trace
+also showed `lint-paths` reading the rendered guides' `.js`/`.json`; those
+generated trees are now outside its scope — they re-encode prose the lint
+already exempts.)
+
+The owner's timing rule — a timing row that fails under load and passes solo
+counts as a pass — has a path to the stamp that cannot cover an unconfirmed
+FAIL: when the ONLY FAILs of a full run are functional rows that failed with
+the 1-minute load at or above the CPU count, the run records them as PENDING
+(`<key>.pending`); `make regression-confirm` re-runs exactly those rows, one at
+a time, under the lock and the quiet-host wait, on the same tree, and only if
+every one passes writes the stamp, naming them (`confirmed_solo=`). An
+idle-host FAIL, a screenshot or lint FAIL, or a SKIP is never confirmable.
+
+```bash
+make regression-stamp-check   # the stamp covering this tree, or exit 1 and why
+make regression-confirm       # re-run a full run's loaded-host FAILs solo; stamp if all pass
+make regression-ci-check      # a green push/dispatch CI run on a commit with this key
+```
 
 ## Quick Start
 
 ```bash
-# Run the full regression suite
-bash test/00regression/regression.sh
+# Run the full regression suite (the gate)
+make regression
 
 # Generate/update reference screenshots
 bash test/00regression/generate-references.sh
@@ -85,15 +191,26 @@ before committing updated references.
 ## Running Tests
 
 ```bash
-# Run all tests
-bash test/00regression/regression.sh
+# Run all tests: the gate (prerequisites, host lock, stamp)
+make regression
 
-# Run specific tests
-bash test/00regression/regression.sh boot-48k palette-demo
+# Run specific tests (builds the binaries rows need; no lock, no stamp)
+make regression-rows ROWS="boot-48k palette-demo"
+
+# Re-run SOLO the rows a full run failed on a loaded host; stamp it if they pass
+make regression-confirm
 
 # Set pixel tolerance (default: 0 = exact match)
-JNEXT_TEST_TOLERANCE=10 bash test/00regression/regression.sh
+JNEXT_TEST_TOLERANCE=10 make regression
+
+# Leave CPUs to something else: cap the parallel lanes
+JNEXT_TEST_JOBS=4 make regression
 ```
+
+`bash test/00regression/regression.sh [<row>...]` is what these targets run;
+called by hand it skips their prerequisites, so use it only when
+`build/gui-release`, `build/sdl-release` and the unit-test build are already
+current.
 
 ### Output
 
@@ -385,8 +502,9 @@ Load-bearing rationale that used to live as long comments inside
   (`sd_clone_for_run`, `test-functions.inc`) makes a run incapable of dirtying
   the master at all: it reflinks the image into `$JNEXT_CONFIG_DIR`, which
   jnext's provisioner resolves the fallback image from, and the EXIT trap
-  removes it. That is what lets regression runs execute concurrently with no
-  lock. The clone lives under `$HOME/.jnext/runs/`, deliberately NOT in
+  removes it. That is what makes concurrent runs *safe*; since GH #295 full
+  runs are still serialised per host, by a lock, because two of them at once
+  overload the machine and make each other's timing-sensitive rows lie. The clone lives under `$HOME/.jnext/runs/`, deliberately NOT in
   `$TMP_DIR`: reflink works only within one filesystem, and on a typical dev
   host `/tmp` is tmpfs — `cp --reflink=auto` across that boundary silently
   degrades to a real 1 GB copy into RAM per concurrent run.
@@ -395,8 +513,12 @@ Load-bearing rationale that used to live as long comments inside
   the master's inode/mtime moved, whether the run directory survives a kill) —
   never what the image looks like afterwards, which is identical either way.
 - **Why no row script may install a trap** (GH #153, `test/00regression/lint-traps.sh`,
-  row 2 of the suite). `regression.sh` SOURCES every row into the harness shell,
-  which already holds the one `trap regression_cleanup EXIT` above. Bash keeps a
+  row 2 of the suite). Every row is SOURCED into a shell that already holds the
+  one `trap regression_cleanup EXIT` above — the driver's until GH #295, its own
+  `row-runner.sh` shell since, where the trap removes the row's directories.
+  Since GH #295 the driver also sees the leak after the fact (a row that exits
+  with its directories still there is a harness fault), so the lint is now the
+  early half of two guards rather than the only one. Bash keeps a
   single handler per signal, so a second `trap ... EXIT` anywhere in a sourced
   row silently REPLACES it — and because INT/TERM are untouched, an interrupted
   run still cleans up while the SUCCESSFUL run leaks its whole 1-2 GB run

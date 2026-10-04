@@ -3,9 +3,11 @@
 # Runs screenshot tests + a few functional/integration tests, all of whose
 # logic lives in scripts/: one script per declared functional test, plus the
 # three group scripts (00-preflight-lint.sh, 01-sdcard-provision.sh,
-# screenshots.sh). This file only parses arguments, validates the declared-test
-# manifests, sources the test scripts in declared order, and enforces the
-# end-of-run completeness accounting.
+# screenshots.sh). This file only parses arguments, takes the host lock for a
+# full run, validates the declared-test manifests, sources the group scripts,
+# runs each functional row in a process of its own (parallel-rows.inc,
+# row-runner.sh — GH #295), and enforces the end-of-run completeness
+# accounting.
 # (FUSE Z80 + Z80N opcode coverage lives in `make unit-test`.)
 #
 # Usage: bash test/00regression/regression.sh [--update] [--preflight-only] [test_name...]
@@ -21,14 +23,101 @@
 #      JNEXT_REGRESSION_SCRIPTS_DIR is usable with --preflight-only ONLY: a
 #      full run sources the override's scripts, which resolve
 #      ../test-functions.inc relative to their own directory and die loudly.
+#      JNEXT_TEST_JOBS caps the screenshot and parallel functional lanes
+#      (default: every CPU), JNEXT_TEST_QUIET_JOBS the quiet phase (default
+#      1); JNEXT_REGRESSION_ROW_TIMEOUT bounds one row (600 s);
+#      JNEXT_REGRESSION_STAMP=1 (set by `make regression`) stamps a green run;
+#      =confirm (set by `make regression-confirm`) re-runs a full run's
+#      loaded-host FAILs solo and, if they pass, stamps it;
+#      JNEXT_REGRESSION_LOCK_FILE / _LOCK_WAIT / _LOAD_WAIT tune the host lock
+#      and the quiet-host wait; JNEXT_REGRESSION_ROW_TIMES=<file> logs each
+#      row's seconds.
 
 set -euo pipefail
+
+# --- One FULL run per host at a time (GH #295) ---
+# A full run is one with no arguments and the real manifests: that is what
+# `make regression` runs, and what loads the whole machine. Two of them at once
+# make each other's timing-sensitive rows lie, so the second one waits for the
+# first, saying who holds the lock. Targeted runs (row names, --update,
+# --preflight-only) and runs on overridden manifests (the self-test's stub
+# suites) never lock. JNEXT_REGRESSION_LOCK=force locks any run shape — the
+# self-test's hook.
+#
+# This happens BEFORE the suite library is sourced, so a waiting run holds no
+# scratch directory and no SD clone. flock -o: the lock is held by flock(1)
+# itself and never inherited by the run's children, so a leftover child can
+# never keep the host locked.
+REGRESSION_SLOT=false
+if [[ "${JNEXT_REGRESSION_LOCK:-}" == force || "${JNEXT_REGRESSION_STAMP:-}" == confirm ]] \
+   || [[ $# -eq 0 && -z "${JNEXT_REGRESSION_CONF:-}${JNEXT_REGRESSION_FUNC_CONF:-}${JNEXT_REGRESSION_SCRIPTS_DIR:-}" ]]; then
+    REGRESSION_SLOT=true
+fi
+if $REGRESSION_SLOT && [[ -z "${JNEXT_REGRESSION_LOCK_HELD:-}" ]]; then
+    reg_lock=${JNEXT_REGRESSION_LOCK_FILE:-${XDG_CACHE_HOME:-$HOME/.cache}/jnext/regression.lock}
+    reg_lock_bound=${JNEXT_REGRESSION_LOCK_WAIT:-7200}
+    mkdir -p "$(dirname "$reg_lock")"
+    reg_waited=0
+    # The run itself is flock's child, started as a background JOB (set -m:
+    # its own process group, so its INT/TERM stay trappable — a plain `&`
+    # child of a script would start with SIGINT ignored). A TERM or INT sent
+    # to THIS shell alone (`kill <pid>`, not the group) is forwarded to that
+    # group, so the run cleans up and the lock is released; without it flock
+    # and the run lived on, holding the lock to the end (GH #295 review).
+    # Its stdin is /dev/null: a background process group that read the
+    # terminal would be stopped (SIGTTIN), and nothing in the suite reads it.
+    reg_fpid=""
+    trap '[[ -n "$reg_fpid" ]] && kill -TERM -- "-$reg_fpid" 2>/dev/null' TERM
+    trap '[[ -n "$reg_fpid" ]] && kill -INT -- "-$reg_fpid" 2>/dev/null' INT
+    while :; do
+        set -m
+        JNEXT_REGRESSION_LOCK_HELD="$reg_lock" \
+            flock -o -n -E 75 "$reg_lock" bash "$0" "$@" < /dev/null &
+        reg_fpid=$!
+        set +m
+        reg_rc=0
+        wait "$reg_fpid" || reg_rc=$?
+        # A trapped signal interrupts `wait`; keep waiting for the run's own end.
+        while kill -0 "$reg_fpid" 2>/dev/null; do
+            reg_rc=0
+            wait "$reg_fpid" || reg_rc=$?
+        done
+        reg_fpid=""
+        [[ $reg_rc -eq 75 ]] || exit "$reg_rc"
+        if (( reg_waited >= reg_lock_bound )); then
+            echo ""
+            echo "=== REGRESSION HARNESS FAULT ==="
+            echo "  waited ${reg_waited} s for the full-run lock $reg_lock; still held by: $(cat "$reg_lock.holder" 2>/dev/null || echo unknown)"
+            echo ""
+            exit 2
+        fi
+        if (( reg_waited % 60 == 0 )); then
+            echo "  another FULL regression run holds the host lock ($(cat "$reg_lock.holder" 2>/dev/null || echo "holder unknown")) — waiting, at most ${reg_lock_bound} s (waited ${reg_waited} s)"
+        fi
+        sleep 5
+        reg_waited=$(( reg_waited + 5 ))
+    done
+fi
+if [[ -n "${JNEXT_REGRESSION_LOCK_HELD:-}" ]]; then
+    echo "pid $$ since $(date '+%Y-%m-%d %H:%M:%S') in $(cd "$(dirname "$0")/../.." && pwd)" \
+        > "$JNEXT_REGRESSION_LOCK_HELD.holder" 2>/dev/null || true
+    unset JNEXT_REGRESSION_LOCK_HELD
+fi
 
 # Shared helpers/constants and the one-time environment setup (locale, jnext
 # binary resolution, SD args, manifest paths, TMP_DIR + EXIT trap, counters,
 # row helpers) live in the suite library; sourcing it initializes them once.
 # shellcheck source=test/00regression/test-functions.inc
 source "$(dirname "$0")/test-functions.inc"
+# The functional-row scheduler: one process per row, several at once.
+# shellcheck source=test/00regression/parallel-rows.inc
+source "$(dirname "$0")/parallel-rows.inc"
+regression_lanes
+
+# A full run waits (bounded) for a host that is not already overloaded.
+if $REGRESSION_SLOT; then
+    wait_for_quiet_host
+fi
 
 # Test scripts: scripts/<name>.sh for every functional test declared in
 # functional_tests.conf, plus the three group scripts.
@@ -137,10 +226,28 @@ done
 # Each test script calls `begin_func <name>`, which records that the row was
 # actually reported. The completeness check at the end of the run proves that
 # every declared test reported exactly one row and no undeclared row appeared.
+# A row's line may carry TAGS after its name (GH #295), which decide where it
+# runs: `quiet` — in the quiet phase after the parallel one, a lane at a time
+# (rows that pace against real time and fail under contention); `serial` —
+# alone, after everything else; `private-sd` — on a copy of the SD card of its
+# own (rows that write to the card). Untagged rows run in the parallel phase on
+# the run's shared clone. An unknown tag is refused, not ignored.
 DECLARED_FUNC=()
-while read -r name _; do
+declare -A IS_PRIVATE_SD IS_QUIET IS_SERIAL
+while read -r name tags; do
     [[ -z "$name" || "$name" == \#* ]] && continue
     DECLARED_FUNC+=("$name")
+    for tag in $tags; do
+        case $tag in
+            quiet)      IS_QUIET["$name"]=1 ;;
+            serial)     IS_SERIAL["$name"]=1 ;;
+            private-sd) IS_PRIVATE_SD["$name"]=1 ;;
+            *) harness_fault "functional test ${BOLD}$name${RESET} carries an unknown tag ${BOLD}$tag${RESET}" \
+                             "Known tags: quiet, serial, private-sd." ;;
+        esac
+    done
+    [[ -z "${IS_QUIET[$name]:-}" || -z "${IS_SERIAL[$name]:-}" ]] \
+        || harness_fault "functional test ${BOLD}$name${RESET} is tagged both quiet and serial — pick one"
 done < "$FUNC_CONF"
 [[ ${#DECLARED_FUNC[@]} -gt 0 ]] || harness_fault "No functional tests declared in $FUNC_CONF"
 declare -A IS_DECLARED_FUNC
@@ -184,6 +291,17 @@ fi
 echo -e "${BOLD}=== JNEXT Regression Test Suite ===${RESET}"
 # Recorded, not acted on: a FAIL on a loaded host is flagged, never excused (GH #245).
 load_report start
+echo -e "  lanes: ${PAR_LANES} for screenshot and parallel functional rows, ${QUIET_LANES} for quiet rows (JNEXT_TEST_JOBS / JNEXT_TEST_QUIET_JOBS)"
+REG_T0=$(date +%s)
+# The stamp of a green full run is keyed on the tree as it was when the run
+# STARTED (test/regression-stamp.sh); `make regression` asks for it.
+# A stamp that cannot be computed is a loud note, not a fault: the run's
+# verdict is the tests', and `make regression-stamp-check` then says "no stamp".
+REG_STAMP_START=""
+if [[ "${JNEXT_REGRESSION_STAMP:-}" == 1 || "${JNEXT_REGRESSION_STAMP:-}" == confirm ]]; then
+    REG_STAMP_START=$(bash "$PROJECT_DIR/test/regression-stamp.sh" state) \
+        || { REG_STAMP_START=""; echo -e "  ${YELLOW}WARNING: cannot compute the regression stamp key; this run will not be stamped${RESET}"; }
+fi
 echo ""
 
 # Group rows: the six preflight lints and the SD-image provisioning, then the
@@ -193,29 +311,39 @@ echo ""
 source "$SCRIPTS_DIR/00-preflight-lint.sh"
 # shellcheck source=test/00regression/scripts/01-sdcard-provision.sh
 source "$SCRIPTS_DIR/01-sdcard-provision.sh"
+# The run's clone as provisioned. func_phases_end compares against it once
+# every row has run: the screenshot rows and the untagged functional rows all
+# boot this one file, so none of them may change it.
+SHARED_SD_PRINT=$(sd_fingerprint "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img")
 
 # FUSE Z80 + Z80N opcode tests run in `make unit-test` (fuse_z80_test +
 # z80n_test), not here.
 
+reg_shots_t0=$SECONDS
 # shellcheck source=test/00regression/scripts/screenshots.sh
 source "$SCRIPTS_DIR/screenshots.sh"
+echo -e "  (screenshots: $(( SECONDS - reg_shots_t0 )) s)"
 
 # --- Functional tests ---
-echo ""
-echo -e "${BOLD}Running functional tests...${RESET}"
-echo ""
-
-# One script per declared functional test, sourced in conf order. Each script
-# want-guards itself, so name filters behave exactly as before.
-# Around each one, the counter guard (row_counters_check, test-functions.inc):
-# a row that clobbers pass/fail/skip, or reports other than one result, is a
-# harness fault naming it, at once rather than as a short total at the end.
+# Every row runs in a process of its own (row-runner.sh, which still SOURCES it
+# inside the counter guard), in three phases: the untagged rows, PAR_LANES at a
+# time; then the `quiet` rows, QUIET_LANES at a time, on a host no longer
+# loaded by the first phase; then the `serial` rows, one at a time. Within a
+# phase, rows are printed and merged in declared order; a phase's output is
+# not interleaved with the next. A name filter selects rows exactly as before.
+func_phases_begin
+PAR_ROWS=(); QUIET_ROWS=(); SERIAL_ROWS=()
 for func_name in "${DECLARED_FUNC[@]}"; do
-    row_counters_snapshot "$func_name"
-    # shellcheck source=/dev/null
-    source "$SCRIPTS_DIR/$func_name.sh"
-    row_counters_check
+    want "$func_name" || continue
+    if [[ -n "${IS_SERIAL[$func_name]:-}" ]]; then SERIAL_ROWS+=("$func_name")
+    elif [[ -n "${IS_QUIET[$func_name]:-}" ]]; then QUIET_ROWS+=("$func_name")
+    else PAR_ROWS+=("$func_name")
+    fi
 done
+run_func_phase "parallel" "$PAR_LANES" "${PAR_ROWS[@]+"${PAR_ROWS[@]}"}"
+run_func_phase "quiet (timing-sensitive)" "$QUIET_LANES" "${QUIET_ROWS[@]+"${QUIET_ROWS[@]}"}"
+run_func_phase "serial tail" 1 "${SERIAL_ROWS[@]+"${SERIAL_ROWS[@]}"}"
+func_phases_end
 
 echo ""
 echo -e "${BOLD}=== Results ===${RESET}"
@@ -256,6 +384,55 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] && ! $UPDATE_MODE; then
     fi
     echo -e "  ${BOLD}$actual/$expected declared tests reported${RESET}"
 fi
+REG_WALL=$(( $(date +%s) - REG_T0 ))
+echo -e "  wall time: ${REG_WALL} s"
+
+# The stamp (GH #295). Only a full run in which every row PASSED is stamped: a
+# SKIP is a row that was not tested. A full run whose only FAILs are
+# functional rows that failed on a LOADED host — the owner's rule: a timing
+# row that fails under load and passes SOLO counts as a pass — is recorded as
+# PENDING instead, and `make regression-confirm` re-runs exactly those rows,
+# one at a time on a quiet host, on the same tree; only if every one passes is
+# the run stamped, and the stamp names them. Any other FAIL is real.
+reg_stamp() { bash "$PROJECT_DIR/test/regression-stamp.sh" "$@" \
+    || echo -e "  ${YELLOW}WARNING: the stamp record could not be written (test/regression-stamp.sh $1)${RESET}"; }
+reg_facts=("pass=$pass" "fail=$fail" "skip=$skip" "rows=$(( pass + fail + skip ))"
+           "load_start=${LOAD_START:-unknown}" "load_end=${LOAD_END:-unknown}" "cpus=$HOST_CPUS"
+           "lanes=$PAR_LANES/$QUIET_LANES" "wall_s=$REG_WALL")
+case "${JNEXT_REGRESSION_STAMP:-}" in
+    1)
+        if [[ ${#FILTER_TESTS[@]} -gt 0 ]] || $UPDATE_MODE; then
+            echo -e "  no regression stamp: only a full run is stamped"
+        elif [[ -z "$REG_STAMP_START" ]]; then
+            echo -e "  ${YELLOW}WARNING: NOT stamped: the stamp key could not be computed at the start${RESET}"
+        elif [[ $skip -gt 0 ]]; then
+            echo -e "  ${YELLOW}no regression stamp: $skip row(s) SKIPPED, i.e. not tested: ${SKIPPED_ROWS[*]}${RESET}"
+        elif [[ $fail -eq 0 ]]; then
+            reg_stamp write "$REG_STAMP_START" "${reg_facts[@]}"
+        elif reg_solo=$(solo_confirmable_fails); then
+            reg_stamp pending "$REG_STAMP_START" "fails=$reg_solo" "${reg_facts[@]}"
+        else
+            echo -e "  no regression stamp: $reg_solo"
+        fi
+        ;;
+    confirm)
+        if [[ -z "$REG_STAMP_START" ]]; then
+            echo -e "  ${YELLOW}WARNING: NOT confirmed: the stamp key could not be computed at the start${RESET}"
+        else
+            reg_missing=""
+            for reg_r in "${FILTER_TESTS[@]+"${FILTER_TESTS[@]}"}"; do
+                reg_seen=""
+                for reg_n in "${REPORTED_FUNC[@]+"${REPORTED_FUNC[@]}"}"; do [[ "$reg_n" == "$reg_r" ]] && reg_seen=1; done
+                [[ -n "$reg_seen" ]] || reg_missing+=" $reg_r"
+            done
+            if [[ -n "$reg_missing" ]]; then
+                echo -e "  no regression stamp: the solo re-run did not report:$reg_missing"
+            else
+                reg_stamp confirm "$REG_STAMP_START" "rows=${FILTER_TESTS[*]}" "${reg_facts[@]}"
+            fi
+        fi
+        ;;
+esac
 
 if [[ $fail -gt 0 ]]; then
     exit 1

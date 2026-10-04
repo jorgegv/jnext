@@ -88,7 +88,7 @@ if want qt-keypress-burst-func; then
             rm -f "$out"
             env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
             timeout --foreground --kill-after=5s 120s \
-            xvfb-run -a --server-args="-screen 0 1280x1024x24" bash -c '
+            xvfb-run -d --server-args="-screen 0 1280x1024x24" bash -c '
                 set -uo pipefail
                 bin="$1"; out="$2"; mode="$3"
                 "$bin" --machine 48k --silent \

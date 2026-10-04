@@ -7,7 +7,7 @@ project calls them the triplet, and running them takes four commands:
 $ make clean && make gui-release
 $ make unit-test
 $ ./build/test/fuse_z80_test build/test/fuse
-$ JNEXT_TEST_JOBS=4 bash test/00regression/regression.sh
+$ make regression
 ```
 
 There must be no FAIL in any layer. Skips are acceptable only where the suite
@@ -79,13 +79,13 @@ not a third independent execution.
 ## Layer 3 — the screenshot and functional regression
 
 ```console
-$ JNEXT_TEST_JOBS=4 bash test/00regression/regression.sh
+$ make regression
 ```
 
 This layer launches the real `jnext` binary headless and looks at what comes
-out of it. It reports **188 rows**, made up of 6 preflight lints, 1 SD-image
-provisioning row, 66 screenshot rows and 115 functional rows. The last two
-numbers come from the `# expect: 66` and `# expect: 115` pins in
+out of it. It reports **215 rows**, made up of 6 preflight lints, 1 SD-image
+provisioning row, 66 screenshot rows and 142 functional rows. The last two
+numbers come from the `# expect: 66` and `# expect: 142` pins in
 `regression_tests.conf` and `functional_tests.conf`, and the arithmetic that
 ties them to the total is the harness's own end-of-run accounting assertion.
 
@@ -97,17 +97,19 @@ linked library cannot show at all — recording an MP4, an RZX round trip, audio
 underruns through a real device, the CLI's exit contracts, keypress delivery in
 both frontends.
 
-`JNEXT_TEST_JOBS=4` caps the screenshot launcher's parallelism, and it is worth
-keeping. The cap is not politeness towards the machine: `audio-underrun-func`
-and `screenshot-paused-func` are bounded by real-time pacing and start failing
-under CPU contention, so raising it makes the suite intermittently lie. They
-are examples rather than the whole class — rows that merely spawn short-lived
-processes have failed under load too — which is why the suite itself flags a
-FAIL that happened on a loaded host (see
-[The regression suite](03-the-regression-suite.md)). Note
-also that the cap is a caller convention rather than a default — the launcher
-falls back to `nproc` when the variable is unset, so `make regression` on its
-own is uncapped. CI sets it explicitly.
+The rows run in parallel — every CPU for the screenshots and the untagged
+functional rows, then the rows tagged `quiet`, which are bounded by real-time
+pacing (`audio-underrun-func`, `screenshot-paused-func` and a few more), a lane
+at a time on a host the first phase no longer loads (see
+[The regression suite](03-the-regression-suite.md)). `JNEXT_TEST_JOBS` caps the
+lanes; it is no longer needed for correctness, and CI passes none. Rows that
+merely spawn short-lived processes have failed under outside load too, which is
+why the suite itself flags a FAIL that happened on a loaded host.
+
+A green `make regression` on a committed tree leaves a stamp keyed on the
+tree's non-doc content, and `make regression-stamp-check` finds it: a reviewer
+checks the author's stamp and runs targeted rows instead of a second full run,
+and a fix round that changed only documentation keeps its stamp.
 
 ## What the triplet does not prove
 

@@ -2368,9 +2368,11 @@ machine that the timing-sensitive tests are trying to run on.</p>
 <pre><code class="language-console">$ make clean &amp;&amp; make gui-release
 $ make unit-test
 $ ./build/test/fuse_z80_test build/test/fuse       # 1356/1356
-$ JNEXT_TEST_JOBS=4 make regression
+$ make regression
 </code></pre>
-<p>No FAIL anywhere, and SKIPs only where they are already declared.</p>
+<p>No FAIL anywhere, and SKIPs only where they are already declared. Commit before
+<code>make regression</code>: a green run on a tree with no uncommitted non-doc change
+leaves a <strong>stamp</strong> (GH #295), and a dirty tree gets none.</p>
 <p>Starting with <code>make clean</code> is deliberate, not caution. The regression suite runs
 <code>build/gui-release/jnext</code>, and a stale binary produces both false FAILs — it
 lacks a fix the test expects — and, much worse, false PASSes, because it also
@@ -2378,14 +2380,18 @@ lacks the bug the test would have caught. Rebuilding first makes "the tests ran
 against this source" true by construction rather than by discipline, and ccache
 makes it cheap enough that there is no reason to skip it; see
 <a href="../05-building/02-build-configurations.html">5.2</a>.</p>
-<p><strong><code>JNEXT_TEST_JOBS=4</code> stays on every regression run.</strong> It is not politeness
-towards the machine. Parts of the suite are real-time-paced: an audio-underrun
-test genuinely reports underruns when the box is loaded, and a paused-emulator
-screenshot row takes about 55 s against a 60 s timeout. Raising in-suite
-concurrency therefore does not make the suite faster so much as make it
-intermittently <em>lie</em>, which was measured and rejected. If you want more
-parallelism, run several branches in several build directories at once, each one
-still capped at 4.</p>
+<p><strong>Run the full regression only when it can tell you something new.</strong> The
+suite runs its rows in parallel and keeps its real-time-paced rows in a quiet
+phase of their own, so it needs no <code>JNEXT_TEST_JOBS</code>; but a full run still
+loads the whole machine, and only one runs per host at a time — a second one
+waits for the first. So: the author runs it once on the final non-doc state; a
+fix round that changed only documentation keeps its stamp; a clean merge of
+<code>main</code> into the branch is not re-run (CI on <code>main</code> is the full safety net); and
+mutation testing and diagnosis use targeted rows,
+<code>make regression-rows ROWS="&lt;row&gt; ..."</code>, which builds the binaries the rows run
+and never takes the lock. A full run whose only FAILs are timing rows that
+failed on a loaded host is not lost either: <code>make regression-confirm</code> re-runs
+just those rows solo and stamps the run if they pass.</p>
 <h2 id="independent-review">Independent review<a class="headerlink" href="#independent-review" title="Permanent link">&para;</a></h2>
 <p><strong>Never self-review.</strong> The review is done by an agent or a person who did not
 write the change, working in their own worktree — never the author's.</p>
@@ -2393,6 +2399,13 @@ write the change, working in their own worktree — never the author's.</p>
 because a nit either matters, in which case it is a REJECT with the reason
 cited, or it does not, in which case it is not part of a verdict. On REJECT, fix
 and re-review.</p>
+<p>The reviewer does not repeat the author's full regression. In their own
+worktree of the branch they run <code>make regression-stamp-check</code>, which prints the
+author's green stamp when the tree's non-doc content is the one the author
+tested (stamps are per user, shared by every worktree), and then the
+<strong>targeted</strong> rows the change touches. A tree with no matching stamp has not
+cleared the gate, and that is a REJECT, not a reason to run it on the author's
+behalf.</p>
 <p>The reason this rule is absolute is empirical rather than philosophical. On this
 project a series of real defects were caught by review and <em>none</em> of them by the
 green test suite that had already run over the same code. That is not a

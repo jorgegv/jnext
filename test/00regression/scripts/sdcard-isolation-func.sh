@@ -93,7 +93,8 @@ if want sdcard-isolation-func; then
     # 1 GB file. Then compare the master's inode/mtime/size against the stamp
     # taken right after the provisioning gate, so the assertion covers EVERY
     # boot this run performed (all the screenshot rows included), not just this
-    # one. This row is declared LAST in functional_tests.conf so that its own
+    # one. This row is tagged `serial` in functional_tests.conf, so it runs
+    # after every other row: the stamp check covers all of them, and its own
     # boot cannot perturb a later row.
     #
     # Content is deliberately NOT hashed: hashing 1 GB costs a second and proves

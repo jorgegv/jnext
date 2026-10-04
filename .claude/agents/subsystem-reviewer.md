@@ -67,9 +67,9 @@ Before approving, run (or confirm the author ran) on the changed branch / worktr
 
 - `LANG=C make unit-test` (ctest)
 - `./build/test/fuse_z80_test build/test/fuse`
-- `bash test/00regression/regression.sh`
+- the regression: do NOT re-run the full suite (GH #295). Run `LANG=C make regression-stamp-check` in your own worktree of the branch — it prints the author's green stamp when the tree's non-doc content is the one they tested — and run the TARGETED rows the change touches, `LANG=C make regression-rows ROWS="<row> ..."` (it builds the binaries the rows run). Mutations and diagnosis use targeted rows only. No matching stamp = the gate is not met = REJECT; it is the author's run to do, not yours.
 
-Triplet must read: ctest N/N, FUSE 1356/1356, regression 33/0/0 (or the current baseline). Any new FAIL = REJECT.
+ctest N/N, FUSE 1356/1356, and a stamp showing the current baseline (215/215, `fail=0 skip=0`, or a `confirmed_solo=` line naming loaded-host FAILs that passed solo). Any new FAIL = REJECT.
 
 ## What to escalate to the user (not approve unilaterally)
 

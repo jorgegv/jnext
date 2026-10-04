@@ -11,7 +11,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # is whether it passes.
 if want rewind-func; then
     begin_func rewind-func
-    rewind_out=$(timeout --foreground --kill-after=5s 30s "$REWIND_TEST" 2>/dev/null || true)
+    # 180 s is a hang guard, not a speed budget: rewind_test is CPU-bound, ~6 s
+    # on a quiet host, and took over 30 s (the old bound) under the parallel
+    # phase plus 12 busy loops on 12 CPUs (GH #295), which read as a FAIL.
+    rewind_out=$(timeout --foreground --kill-after=5s 180s "$REWIND_TEST" 2>/dev/null || true)
     rewind_summary=$(echo "$rewind_out" | grep -oP "Passed:\s+\d+(?=.*Failed:\s+0)" || true)
     if [[ -n "$rewind_summary" ]]; then
         rewind_passed=$(echo "$rewind_summary" | grep -oP "\d+")
