@@ -53,7 +53,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (AY+DAC+Beeper) |      160 |      160 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (NextREG)       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Audio (pacing)        |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Audio (pacing)        |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (device fill)   |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (capture)       |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (host gain)     |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -65,8 +65,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | GUI Preferences (Apply Policy) |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Attach |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Pointer Capture       |       62 |       62 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Frame-deadline scheduler |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Frame-tick sequencer (wiring) |      112 |      112 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Frame-deadline scheduler |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Frame-tick sequencer (wiring) |      116 |      116 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tick-delivery stats   |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Achieved-speed report |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Host key minimum-hold latch |      128 |      128 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -112,7 +112,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | GUI Preferences (AppConfig) |      121 |      121 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain configuration |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain Preferences |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Present count (widget) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Present count (widget) |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
+| frame_timer_test      |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "frame_timer_test" to the label map in refresh-subsystem-status.sh. |
 | ESP-01 status cell (GUI) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX V1.3 GUI warning dialog |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | RZX Menus             |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -138,6 +139,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12337**| **12337**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12358**| **12358**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
