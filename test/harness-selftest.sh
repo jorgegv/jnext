@@ -48,13 +48,44 @@ INVOKE_TIMEOUT=30
 # runs. A missing tool must be a loud refusal, never evidence: HS-70e once
 # asked `pgrep`/`ps` (procps-ng, absent from the fedora:44 CI container) for
 # the process it was about to signal, both failed silently behind `|| true`,
-# and the row reported a broken harness that was not broken (GH #295 CI).
-# Process lookups now read /proc directly (proc_* below), so procps is not on
-# this list; a new tool in an evidence path goes ON it, or reads /proc too.
+# and the row reported a broken harness that was not broken (GH #295 CI). With
+# a tool missing from an INCOMPLETE list, the shape is the same, only louder:
+# 45 rows "exit 127, wanted 0" (review of the first version of this list).
+#
+# HOW THIS LIST WAS DERIVED — and how to re-derive it after changing any code
+# a check drives (this file, run-unit-tests.sh, regression.sh and its .inc
+# files, regression-stamp.sh, the lints): trace every program the self-test
+# actually executes, with the binaries built, and take the basenames:
+#
+#   strace -f -qq -e trace=execve -e status=successful -o hs.trace \
+#       bash test/harness-selftest.sh
+#   grep -oE 'execve\("[^"]+"' hs.trace | sed 's/execve("//; s/"$//; s|.*/||' | sort -u
+#
+# then drop the stub suites the self-test writes itself (*_test). Two
+# substitutions: `cc1plus` is gcc's own (c++ stays), and `hostname` — absent
+# from fedora:44 — is only a fallback-guarded call in regression-stamp.sh,
+# whose fallback is `uname`. Process lookups read /proc (proc_* below), so
+# procps is deliberately NOT here. No row re-derives the list on every run:
+# strace is not installed in CI and roughly triples the self-test's time, and
+# a static scan for command names in the scripts both misses tools (built
+# argv, `env`/`timeout`/`xargs` wrappers) and flags prose — re-run the trace.
+#
+# A tool counts as present only if an EXECUTABLE of that name is on PATH
+# (`type -P`, so a shell builtin such as `true`/`test` does not stand in for
+# the program `flock ... true` runs) and running it does not end in 126/127,
+# the shell's "cannot execute" / "not found". That also refuses a stub or a
+# dangling wrapper that only pretends to be the tool.
+tool_runnable() {   # tool_runnable <name>
+    local p rc
+    p=$(type -P "$1") || return 1
+    "$p" --version </dev/null >/dev/null 2>&1; rc=$?
+    [[ $rc -ne 126 && $rc -ne 127 ]]
+}
 missing_tools=""
-for tool in awk bash cat chmod cp cut date dirname env find flock git grep head ls make \
-            mkdir mktemp mv rm sed seq sha256sum sleep sort timeout touch tr wc xargs; do
-    command -v "$tool" >/dev/null 2>&1 || missing_tools+=" $tool"
+for tool in awk basename bash c++ cat chmod comm cp cut date dirname env find flock git grep \
+            head ln ls make mkdir mktemp mv nproc perl rg rm rmdir sed seq sh sha256sum sleep \
+            sort stat tail test timeout touch tr true uname uniq wc xargs; do
+    tool_runnable "$tool" || missing_tools+=" $tool"
 done
 [[ -r /proc/self/stat && -r /proc/self/cmdline ]] || missing_tools+=" /proc"
 if [[ -n "$missing_tools" ]]; then
@@ -65,7 +96,7 @@ fi
 # /proc readers, so no check depends on procps-ng (ps/pgrep).
 proc_args() {   # proc_args <pid> — argv joined by single spaces; "" if gone
     local a
-    a=$(tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null) || return 0
+    a=$(tr '\0' ' ' 2>/dev/null < "/proc/$1/cmdline") || return 0
     echo "${a% }"
 }
 proc_ppid() {   # proc_ppid <pid> — the parent pid; "" if gone
