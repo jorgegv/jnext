@@ -19,8 +19,7 @@ bool SdlApp::init(int argc, char* argv[]) {
         Log::platform()->error("SDL_Init: {}", SDL_GetError());
         return false;
     }
-    if (!display_.init("JNEXT — ZX Spectrum Next Emulator",
-                       NATIVE_W, NATIVE_H, DISPLAY_H)) return false;
+    if (!display_.init(NATIVE_W, NATIVE_H, DISPLAY_H)) return false;
     // Task 47 (--silent): never open an SDL audio device. SdlAudio stays
     // un-initialized, so SdlAudio::queued_ms() returns -1 and
     // push_from_mixer() is a no-op — audio_pacing::frames_for_tick(-1)

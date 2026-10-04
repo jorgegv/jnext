@@ -1037,6 +1037,8 @@ my %NO_MATRIX_SECTION = (
     'main_window_accel_test' => 'main-window menu mnemonics (host GUI)',
     'shifted_keys_test'   => 'host shifted-scancode translation; guest matrix is `## Input`',
     'window_scale_test'   => 'main-window scale/fullscreen geometry (host GUI)',
+    'window_title_test'   => 'main-window title carries the version (host GUI)',
+    'sdl_window_title_test' => 'SDL window title carries the version (host GUI)',
 
     # ── CLI, configuration, logging, profiling ───────────────────────
     # jnext-internal contracts. `cli_options_test` is checked against the man
