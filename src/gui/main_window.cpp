@@ -19,6 +19,7 @@
 #include "peripheral/esp_host_policy.h"
 #include "input/mouse_dispatcher.h"
 #include "platform/pointer_capture.h"
+#include "gui/mac_cursor_warp.h"      // GH #303 (macOS only)
 #include "platform/speed_report.h"
 #include "qt/menu_bar_alt_nav_qt.h"   // GH #268
 #include "debug/debugger.h"            // GH #278 WP6 — the Magic Breakpoint item (CTL-14)
@@ -2648,6 +2649,16 @@ QPoint mouse_global_point(const QMouseEvent* e) {
 #endif
 }
 
+// Put the captured pointer back on the viewport centre. macOS cannot use
+// QCursor::setPos for this (issue #303 — see gui/mac_cursor_warp.h).
+void warp_pointer(const QPoint& p) {
+#ifdef Q_OS_MACOS
+    mac_cursor::warp(p.x(), p.y());
+#else
+    QCursor::setPos(p);
+#endif
+}
+
 } // anonymous namespace
 
 QPoint MainWindow::viewport_centre_global() const {
@@ -2668,7 +2679,7 @@ void MainWindow::set_mouse_captured(bool on) {
         // a motion event queued at that old position may still be delivered
         // after the warp — as one enormous delta. Drop the first one.
         capture_policy_.begin();
-        QCursor::setPos(viewport_centre_global());
+        warp_pointer(viewport_centre_global());
         // The status-bar message times out; the title carries the way out for
         // as long as the pointer is actually held.
         setWindowTitle(base_window_title_ + tr(" - Ctrl+Alt to release mouse"));
@@ -2707,10 +2718,21 @@ void MainWindow::mouseMoveEvent(QMouseEvent* event) {
 
     // Decision lives in pure code (platform/pointer_capture.h) so it is
     // reachable by tests; this handler is not.
+#ifdef Q_OS_MACOS
+    // The pointer may drift a quarter of the viewport before it is warped
+    // back: far enough that a stale pre-warp event and a post-warp one cannot
+    // be confused (pointer_capture.h), near enough to stay on the viewport.
+    const QWidget* vw = emulator_widget_ ? static_cast<const QWidget*>(emulator_widget_)
+                                         : static_cast<const QWidget*>(this);
+    const int margin = qMax(8, qMin(vw->width(), vw->height()) / 4);
+    const pointer_capture::Motion m =
+        capture_policy_.on_motion(global.x(), global.y(), centre.x(), centre.y(), margin);
+#else
     const pointer_capture::Motion m =
         capture_policy_.on_motion(global.x(), global.y(), centre.x(), centre.y());
+#endif
     if (m.forward) mouse_dispatcher_->handle_motion(m.dx, m.dy);
-    if (m.recentre) QCursor::setPos(centre);
+    if (m.recentre) warp_pointer(centre);
     event->accept();
 }
 

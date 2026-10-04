@@ -2465,7 +2465,13 @@ in the machine-side class, plus a stated policy.</p>
 <p><strong><code>pointer_capture.h</code></strong> (in <code>src/platform/</code>) decides what the Qt frontend
   does with each motion event while the pointer is captured — forward the
   delta, re-centre, or ignore the echo of its own warp. SDL does not use it,
-  because its relative mode does the equivalent natively.</p>
+  because its relative mode does the equivalent natively. macOS gets a second
+  policy, <code>DeferredWarpPolicy</code> (issue #303): there <code>QCursor::setPos</code> is a
+  synthetic event that lands late, or never without the Accessibility
+  permission, so the frontend warps with <code>CGWarpMouseCursorPosition</code>
+  (<code>src/gui/mac_cursor_warp.cpp</code>), measures each delta from the last position
+  seen rather than from the centre, and re-centres only once the pointer has
+  drifted a quarter of the viewport away.</p>
 </li>
 <li>
 <p><strong><code>host_key_latch.h</code></strong> (also <code>src/platform/</code>) holds two policies, and both

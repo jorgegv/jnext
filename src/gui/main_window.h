@@ -428,7 +428,13 @@ private:
     QAction* capture_mouse_action_ = nullptr;
     /// Motion policy for the captured pointer (warp-echo suppression and the
     /// stale first delta). Pure, and unit-tested — see pointer_capture.h.
+    /// macOS warps late or not at all through QCursor::setPos, so it gets the
+    /// policy that does not assume the warp has landed (issue #303).
+#ifdef Q_OS_MACOS
+    pointer_capture::DeferredWarpPolicy capture_policy_;
+#else
     pointer_capture::Policy capture_policy_;
+#endif
     /// Title without any capture suffix, captured at construction.
     QString  base_window_title_;
 
