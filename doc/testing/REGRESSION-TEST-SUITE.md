@@ -191,18 +191,26 @@ before committing updated references.
 ## Running Tests
 
 ```bash
-# Run all tests
-bash test/00regression/regression.sh
+# Run all tests: the gate (prerequisites, host lock, stamp)
+make regression
 
-# Run specific tests
-bash test/00regression/regression.sh boot-48k palette-demo
+# Run specific tests (builds the binaries rows need; no lock, no stamp)
+make regression-rows ROWS="boot-48k palette-demo"
+
+# Re-run SOLO the rows a full run failed on a loaded host; stamp it if they pass
+make regression-confirm
 
 # Set pixel tolerance (default: 0 = exact match)
-JNEXT_TEST_TOLERANCE=10 bash test/00regression/regression.sh
+JNEXT_TEST_TOLERANCE=10 make regression
 
 # Leave CPUs to something else: cap the parallel lanes
 JNEXT_TEST_JOBS=4 make regression
 ```
+
+`bash test/00regression/regression.sh [<row>...]` is what these targets run;
+called by hand it skips their prerequisites, so use it only when
+`build/gui-release`, `build/sdl-release` and the unit-test build are already
+current.
 
 ### Output
 
