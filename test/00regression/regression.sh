@@ -4,8 +4,10 @@
 # logic lives in scripts/: one script per declared functional test, plus the
 # three group scripts (00-preflight-lint.sh, 01-sdcard-provision.sh,
 # screenshots.sh). This file only parses arguments, validates the declared-test
-# manifests, sources the test scripts in declared order, and enforces the
-# end-of-run completeness accounting.
+# manifests, sources the group scripts,
+# runs each functional row in a process of its own (parallel-rows.inc,
+# row-runner.sh — GH #295), and enforces the end-of-run completeness
+# accounting.
 # (FUSE Z80 + Z80N opcode coverage lives in `make unit-test`.)
 #
 # Usage: bash test/00regression/regression.sh [--update] [--preflight-only] [test_name...]
@@ -21,6 +23,10 @@
 #      JNEXT_REGRESSION_SCRIPTS_DIR is usable with --preflight-only ONLY: a
 #      full run sources the override's scripts, which resolve
 #      ../test-functions.inc relative to their own directory and die loudly.
+#      JNEXT_TEST_JOBS caps the screenshot and parallel functional lanes
+#      (default: every CPU), JNEXT_TEST_QUIET_JOBS the quiet phase (default
+#      1); JNEXT_REGRESSION_ROW_TIMEOUT bounds one row (600 s);
+#      JNEXT_REGRESSION_ROW_TIMES=<file> logs each row's seconds.
 
 set -euo pipefail
 
@@ -29,6 +35,10 @@ set -euo pipefail
 # row helpers) live in the suite library; sourcing it initializes them once.
 # shellcheck source=test/00regression/test-functions.inc
 source "$(dirname "$0")/test-functions.inc"
+# The functional-row scheduler: one process per row, several at once.
+# shellcheck source=test/00regression/parallel-rows.inc
+source "$(dirname "$0")/parallel-rows.inc"
+regression_lanes
 
 # Test scripts: scripts/<name>.sh for every functional test declared in
 # functional_tests.conf, plus the three group scripts.
@@ -137,10 +147,28 @@ done
 # Each test script calls `begin_func <name>`, which records that the row was
 # actually reported. The completeness check at the end of the run proves that
 # every declared test reported exactly one row and no undeclared row appeared.
+# A row's line may carry TAGS after its name (GH #295), which decide where it
+# runs: `quiet` — in the quiet phase after the parallel one, a lane at a time
+# (rows that pace against real time and fail under contention); `serial` —
+# alone, after everything else; `private-sd` — on a copy of the SD card of its
+# own (rows that write to the card). Untagged rows run in the parallel phase on
+# the run's shared clone. An unknown tag is refused, not ignored.
 DECLARED_FUNC=()
-while read -r name _; do
+declare -A IS_PRIVATE_SD IS_QUIET IS_SERIAL
+while read -r name tags; do
     [[ -z "$name" || "$name" == \#* ]] && continue
     DECLARED_FUNC+=("$name")
+    for tag in $tags; do
+        case $tag in
+            quiet)      IS_QUIET["$name"]=1 ;;
+            serial)     IS_SERIAL["$name"]=1 ;;
+            private-sd) IS_PRIVATE_SD["$name"]=1 ;;
+            *) harness_fault "functional test ${BOLD}$name${RESET} carries an unknown tag ${BOLD}$tag${RESET}" \
+                             "Known tags: quiet, serial, private-sd." ;;
+        esac
+    done
+    [[ -z "${IS_QUIET[$name]:-}" || -z "${IS_SERIAL[$name]:-}" ]] \
+        || harness_fault "functional test ${BOLD}$name${RESET} is tagged both quiet and serial — pick one"
 done < "$FUNC_CONF"
 [[ ${#DECLARED_FUNC[@]} -gt 0 ]] || harness_fault "No functional tests declared in $FUNC_CONF"
 declare -A IS_DECLARED_FUNC
@@ -184,6 +212,8 @@ fi
 echo -e "${BOLD}=== JNEXT Regression Test Suite ===${RESET}"
 # Recorded, not acted on: a FAIL on a loaded host is flagged, never excused (GH #245).
 load_report start
+echo -e "  lanes: ${PAR_LANES} for screenshot and parallel functional rows, ${QUIET_LANES} for quiet rows (JNEXT_TEST_JOBS / JNEXT_TEST_QUIET_JOBS)"
+REG_T0=$(date +%s)
 echo ""
 
 # Group rows: the six preflight lints and the SD-image provisioning, then the
@@ -193,29 +223,39 @@ echo ""
 source "$SCRIPTS_DIR/00-preflight-lint.sh"
 # shellcheck source=test/00regression/scripts/01-sdcard-provision.sh
 source "$SCRIPTS_DIR/01-sdcard-provision.sh"
+# The run's clone as provisioned. func_phases_end compares against it once
+# every row has run: the screenshot rows and the untagged functional rows all
+# boot this one file, so none of them may change it.
+SHARED_SD_PRINT=$(sd_fingerprint "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img")
 
 # FUSE Z80 + Z80N opcode tests run in `make unit-test` (fuse_z80_test +
 # z80n_test), not here.
 
+reg_shots_t0=$SECONDS
 # shellcheck source=test/00regression/scripts/screenshots.sh
 source "$SCRIPTS_DIR/screenshots.sh"
+echo -e "  (screenshots: $(( SECONDS - reg_shots_t0 )) s)"
 
 # --- Functional tests ---
-echo ""
-echo -e "${BOLD}Running functional tests...${RESET}"
-echo ""
-
-# One script per declared functional test, sourced in conf order. Each script
-# want-guards itself, so name filters behave exactly as before.
-# Around each one, the counter guard (row_counters_check, test-functions.inc):
-# a row that clobbers pass/fail/skip, or reports other than one result, is a
-# harness fault naming it, at once rather than as a short total at the end.
+# Every row runs in a process of its own (row-runner.sh, which still SOURCES it
+# inside the counter guard), in three phases: the untagged rows, PAR_LANES at a
+# time; then the `quiet` rows, QUIET_LANES at a time, on a host no longer
+# loaded by the first phase; then the `serial` rows, one at a time. Within a
+# phase, rows are printed and merged in declared order; a phase's output is
+# not interleaved with the next. A name filter selects rows exactly as before.
+func_phases_begin
+PAR_ROWS=(); QUIET_ROWS=(); SERIAL_ROWS=()
 for func_name in "${DECLARED_FUNC[@]}"; do
-    row_counters_snapshot "$func_name"
-    # shellcheck source=/dev/null
-    source "$SCRIPTS_DIR/$func_name.sh"
-    row_counters_check
+    want "$func_name" || continue
+    if [[ -n "${IS_SERIAL[$func_name]:-}" ]]; then SERIAL_ROWS+=("$func_name")
+    elif [[ -n "${IS_QUIET[$func_name]:-}" ]]; then QUIET_ROWS+=("$func_name")
+    else PAR_ROWS+=("$func_name")
+    fi
 done
+run_func_phase "parallel" "$PAR_LANES" "${PAR_ROWS[@]+"${PAR_ROWS[@]}"}"
+run_func_phase "quiet (timing-sensitive)" "$QUIET_LANES" "${QUIET_ROWS[@]+"${QUIET_ROWS[@]}"}"
+run_func_phase "serial tail" 1 "${SERIAL_ROWS[@]+"${SERIAL_ROWS[@]}"}"
+func_phases_end
 
 echo ""
 echo -e "${BOLD}=== Results ===${RESET}"
@@ -256,6 +296,9 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] && ! $UPDATE_MODE; then
     fi
     echo -e "  ${BOLD}$actual/$expected declared tests reported${RESET}"
 fi
+REG_WALL=$(( $(date +%s) - REG_T0 ))
+echo -e "  wall time: ${REG_WALL} s"
+
 
 if [[ $fail -gt 0 ]]; then
     exit 1

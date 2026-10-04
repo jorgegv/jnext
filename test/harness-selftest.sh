@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=80   # 75 + HS-68a..e (the sourced-row counter guard)
+EXPECTED_TOTAL=91   # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..k (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1368,9 +1368,10 @@ out+=$'\n'"faults=$(count_of "$out" "HARNESS FAULT")"
 check "HS-68d" "a row a name filter leaves out reports nothing, and the guard expects nothing of it" 0 $rc "$out" \
     "after: 0/0/1" "faults=0"
 
-reg="$PROJECT_DIR/test/00regression/regression.sh"
-out="snap=$(grep -cE '^[[:space:]]*row_counters_snapshot "\$func_name"$' "$reg") check=$(grep -cE '^[[:space:]]*row_counters_check$' "$reg")"
-check "HS-68e" "the driver wraps every sourced functional row in the counter guard" 0 0 "$out" "snap=1 check=1"
+runner="$PROJECT_DIR/test/00regression/row-runner.sh"
+out="snap=$(grep -cE '^[[:space:]]*row_counters_snapshot "\$row"$' "$runner") check=$(grep -cE '^[[:space:]]*row_counters_check$' "$runner")"
+out+=" sourced=$(grep -cE '^[[:space:]]*source "\$row_script"$' "$runner")"
+check "HS-68e" "the row runner wraps every sourced functional row in the counter guard (GH #295)" 0 0 "$out" "snap=1 check=1 sourced=1"
 
 # The library is only half of it: the driver must call it, and the screenshot
 # rows must name themselves (they report through fail_row without begin_func).
@@ -1382,6 +1383,103 @@ out+=" summary=$(grep -cE '^load_summary$' "$reg")"
 out+=" shots=$(grep -cE '^[[:space:]]*CURRENT_ROW=\$test_name$' "$PROJECT_DIR/test/00regression/scripts/screenshots.sh")"
 check "HS-54" "regression.sh reports the load at start and end and prints the summary; screenshot rows name themselves (GH #245)" 0 0 \
     "$out" "start=1 end=1 summary=1 shots=1"
+
+# ---------------- parallel functional rows (GH #295) ----------------
+# Every functional row now runs in a process of its own, several at once, and
+# the driver merges the results. These rows drive the REAL scheduler
+# (parallel-rows.inc) and the REAL row runner against stub rows, through the
+# real suite library in a child shell with a fake $HOME, and inject each way a
+# row process can go wrong. Each must be a loud, NAMED outcome — a harness
+# fault where the accounting cannot be trusted, a FAIL where the row itself
+# misbehaved — never a quietly shorter or longer total.
+mkdir -p "$T/prows"
+prow() { printf '%s\n' "${@:2}" > "$T/prows/$1.sh"; }   # prow <name> <line...>
+prow ok-func     'begin_func ok-func' 'pass_row " (stub)"'
+prow ok2-func    'begin_func ok2-func' 'pass_row " (stub)"'
+prow skip-func   'begin_func skip-func' 'skip_row " (stub)"'
+prow fail-func   'begin_func fail-func' 'fail_row " (stub)"'
+prow slow1-func  'begin_func slow1-func' 'sleep 2' 'pass_row " (slow)"'
+prow slow2-func  'begin_func slow2-func' 'sleep 2' 'pass_row " (slow)"'
+prow twice-func  'begin_func twice-func' 'pass_row' 'pass_row'
+prow silent-func ':'
+prow crash-func  'begin_func crash-func' 'exit 3'
+prow hang-func   'begin_func hang-func' 'sleep 60' 'pass_row'
+prow intruder-func 'mkdir -p "$TMP_DIR/../victim-func"' 'begin_func intruder-func' 'pass_row'
+prow victim-func 'begin_func victim-func' 'pass_row'
+prow lateintruder-func 'mkdir -p "$TMP_DIR/../victim-func"; touch "$TMP_DIR/../victim-func/x"' 'begin_func lateintruder-func' 'pass_row'
+prow trapper-func 'trap ":" EXIT' 'begin_func trapper-func' 'pass_row'
+prow writer-func 'printf x >> "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"' 'begin_func writer-func' 'pass_row'
+
+par_probe() {   # par_probe <bash snippet> — the real scheduler, stub rows, fake $HOME
+    local fh="$T/parfix"
+    rm -rf "$fh"; mkdir -p "$fh"
+    printf '0.50 0.00 0.00 1/100 12345\n' > "$T/loadavg-idle"
+    HOME="$fh" JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-idle" JNEXT_REGRESSION_NPROC=12 \
+        timeout --kill-after=3s 40s bash -c \
+        "set -euo pipefail
+         source '$PROJECT_DIR/test/00regression/test-functions.inc'
+         source '$PROJECT_DIR/test/00regression/parallel-rows.inc'
+         SCRIPTS_DIR='$T/prows'; JNEXT=/bin/false; declare -A IS_PRIVATE_SD=()
+         $1" 2>&1
+}
+phase() {   # phase <lanes> <row...> — one phase, then the end-of-run checks and the tally
+    echo "t0=\$SECONDS; func_phases_begin; run_func_phase stub $1 ${*:2}; func_phases_end; echo \"after: \$pass/\$fail/\$skip [\${REPORTED_FUNC[*]}] elapsed=\$(( SECONDS - t0 ))\""
+}
+# line_of <text> <fixed> — first line number holding <fixed>, 0 if none
+line_of() { local n; n=$(grep -nF -- "$2" <<<"$1" | head -n 1 | cut -d: -f1); echo "${n:-0}"; }
+
+out=$(par_probe "$(phase 3 slow1-func slow2-func ok-func)"); rc=$?
+el=$(grep -oE 'elapsed=[0-9]+' <<<"$out" | cut -d= -f2)
+a=$(line_of "$out" "[slow1-func]"); b=$(line_of "$out" "[slow2-func]"); c=$(line_of "$out" "[ok-func]")
+out+=$'\n'"parallel=$(( ${el:-99} < 4 ? 1 : 0 )) ordered=$(( a > 0 && a < b && b < c ? 1 : 0 ))"
+check "HS-69a" "the control: rows run at once, and are printed and merged in declared order (GH #295)" 0 $rc "$out" \
+    "after: 3/0/0 [slow1-func slow2-func ok-func]" "parallel=1 ordered=1"
+
+out=$(par_probe "$(phase 2 ok-func twice-func ok2-func)"); rc=$?
+check "HS-69b" "a row that reports twice is a harness fault naming it (GH #295)" 2 $rc "$out" \
+    "HARNESS FAULT" "twice-func" "raised a harness fault in its row process" "a row reports exactly 1"
+
+out=$(par_probe "$(phase 2 ok-func silent-func)"); rc=$?
+check "HS-69c" "a row that reports nothing is a harness fault naming it (GH #295)" 2 $rc "$out" \
+    "HARNESS FAULT" "silent-func" "raised a harness fault in its row process" "a row reports exactly 1 (pass/fail/skip 0/0/0 -> 0/0/0)"
+
+out=$(par_probe "$(phase 1 crash-func ok-func)"); rc=$?
+check "HS-69d" "a row that dies before reporting is a FAIL naming it, and the run goes on (GH #295)" 0 $rc "$out" \
+    "[crash-func]" "died with exit 3 before reporting" "after: 1/1/0 [crash-func ok-func]"
+
+out=$(par_probe "ROW_BOUND=2; $(phase 2 hang-func ok-func)"); rc=$?
+el=$(grep -oE 'elapsed=[0-9]+' <<<"$out" | cut -d= -f2)
+out+=$'\n'"bounded=$(( ${el:-99} < 15 ? 1 : 0 ))"
+check "HS-69e" "a row that hangs is killed at its bound and FAILs naming it; the others still run (GH #295)" 0 $rc "$out" \
+    "outlived its 2 s bound" "after: 1/1/0 [hang-func ok-func]" "bounded=1"
+
+out=$(par_probe "$(phase 1 intruder-func victim-func)"); rc=$?
+check "HS-69f" "a row that writes into a later row's directory is refused when that row starts (GH #295)" 2 $rc "$out" \
+    "HARNESS FAULT" "victim-func" "already exists before the row started"
+
+out=$(par_probe "$(phase 1 victim-func lateintruder-func)"); rc=$?
+check "HS-69g" "a row that writes into a finished row's directory is a harness fault at the end (GH #295)" 2 $rc "$out" \
+    "HARNESS FAULT" "entries left under the per-row directories" "victim-func"
+
+out=$(par_probe "$(phase 1 trapper-func)"); rc=$?
+check "HS-69h" "a row whose own trap replaces the library's cleanup is caught by its leftovers (GH #295)" 2 $rc "$out" \
+    "HARNESS FAULT" "trapper-func" "exited but its directories are still there"
+
+# The shared clone: an untagged row WRITING to it is a fault; tagged
+# private-sd, the same row writes only its own copy. A one-line stand-in
+# image keeps it to a few bytes.
+shared='mkdir -p "$RUN_DIR/sdcard"; printf card > "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"'
+out=$(par_probe "$shared; $(phase 2 ok-func writer-func)"); rc=$?
+check "HS-69i" "an untagged row that writes to the shared SD clone is a harness fault (GH #295)" 2 $rc "$out" \
+    "HARNESS FAULT" "shared SD clone CHANGED" "private-sd"
+
+out=$(par_probe "$shared; IS_PRIVATE_SD[writer-func]=1; $(phase 2 ok-func writer-func); echo \"card=\$(cat \"\$RUN_DIR/sdcard/cspect-next-1gb-fixed.img\")\""); rc=$?
+check "HS-69j" "the control: tagged private-sd, the same row writes its own copy and the run is clean (GH #295)" 0 $rc "$out" \
+    "after: 2/0/0 [ok-func writer-func]" "card=card"
+
+out=$(par_probe "$(phase 2 fail-func skip-func ok-func); load_summary"); rc=$?
+check "HS-69k" "a row process's FAIL, its failed-row record and the tally all reach the driver (GH #295)" 0 $rc "$out" \
+    "after: 1/1/1 [fail-func skip-func ok-func]" "Failed rows:" "fail-func (1-min load 0.50)"
 
 echo ""
 echo "====================================="

@@ -164,18 +164,51 @@ load_summary() {
 
 # A harness fault is not a test failure: it means the suite cannot be trusted to
 # have run what it claims. Exit 2, loudly, and run nothing further.
+#
+# In a row process of a parallel run (GH #295) the fault is also written to
+# "<result>.fault", so the driver reports it as the harness fault it is rather
+# than mistaking the exit status for a crashed row.
 harness_fault() {
     echo ""
     echo -e "${RED}${BOLD}=== REGRESSION HARNESS FAULT ===${RESET}"
     for msg in "$@"; do echo -e "  $msg"; done
     echo ""
+    if [[ -n "${ROW_RESULT_FILE:-}" ]]; then
+        printf '%s\n' "$@" > "$ROW_RESULT_FILE.fault" 2>/dev/null || true
+    fi
     exit 2
+}
+
+# write_row_result — the last act of a row process (row-runner.sh): hand the
+# row's accounting to the driver. Written to a temp name and renamed, so the
+# driver never reads half a file. One `key value` per line; `reported` and
+# `failed` repeat.
+write_row_result() {
+    local f="$ROW_RESULT_FILE.tmp" name row
+    {
+        echo "pass $pass"
+        echo "fail $fail"
+        echo "skip $skip"
+        echo "loaded $LOADED_FAILS"
+        for name in "${REPORTED_FUNC[@]+"${REPORTED_FUNC[@]}"}"; do echo "reported $name"; done
+        for row in "${FAILED_ROWS[@]+"${FAILED_ROWS[@]}"}"; do echo "failed $row"; done
+    } > "$f"
+    mv -f "$f" "$ROW_RESULT_FILE"
 }
 
 # regression_cleanup — the one EXIT handler. Removes the scratch dir and this
 # run's private state directory (which holds the ~1 GB SD-image clone). Guarded
 # against an empty variable so it can never become `rm -rf /` or `rm -rf ""`.
+#
+# A parallel run (GH #295) first stops the row processes still running:
+# without that a Ctrl-C would delete the run's SD clone under them, and their
+# jnext children would run on until their own bounds. Each row runs under
+# `timeout`, which forwards the TERM to the row's whole process group and
+# escalates to KILL after its --kill-after, so the wait is bounded.
 regression_cleanup() {
+    local p
+    for p in ${ROW_RUNNING_PIDS:-}; do kill -TERM "$p" 2>/dev/null || true; done
+    for p in ${ROW_RUNNING_PIDS:-}; do wait "$p" 2>/dev/null || true; done
     [[ -n "${TMP_DIR:-}" ]] && rm -rf "$TMP_DIR"
     [[ -n "${RUN_DIR:-}" ]] && rm -rf "$RUN_DIR"
     # Prune the (now likely empty) runs/ parent; harmless if other runs are live.
@@ -383,7 +416,25 @@ regression_lib_init() {
     IMG_DIR="$SCRIPT_DIR/img"
     # NextZXOS welcome-screen reference, diffed against by several boot rows.
     WELCOME_REF="$IMG_DIR/boot-nextzxos-welcome-reference.png"
-    TMP_DIR=$(mktemp -d)
+
+    # ROW-PROCESS MODE (GH #295). In a parallel run each functional row runs
+    # in a process of its own (row-runner.sh), and the driver has already
+    # made that row's scratch and state directories and put its SD image in
+    # place (run_row_launch, parallel-rows.inc). The handoff is these
+    # variables, and they are UNSET as soon as they are read: a row that
+    # starts a suite shell of its own (sdcard-isolation-func does, on
+    # purpose) must get a fresh initialization, never this row's directories
+    # — its trap would delete them.
+    local row_tmp=${JNEXT_REGRESSION_ROW_TMP:-} row_run=${JNEXT_REGRESSION_ROW_RUN:-}
+    ROW_RESULT_FILE=${JNEXT_REGRESSION_ROW_RESULT:-}
+    local row_stamp=${JNEXT_REGRESSION_ROW_MASTER_STAMP:-} row_mode=${JNEXT_REGRESSION_ROW_CLONE_MODE:-}
+    unset JNEXT_REGRESSION_ROW_TMP JNEXT_REGRESSION_ROW_RUN JNEXT_REGRESSION_ROW_RESULT \
+          JNEXT_REGRESSION_ROW_MASTER_STAMP JNEXT_REGRESSION_ROW_CLONE_MODE
+    if [[ -n "$row_tmp" ]]; then
+        TMP_DIR=$row_tmp
+    else
+        TMP_DIR=$(mktemp -d)
+    fi
 
     # The MASTER SD image — machine-wide, shared, and the only copy the suite
     # ever writes. 01-sdcard-provision.sh gates it on a hash and re-derives it
@@ -420,7 +471,11 @@ regression_lib_init() {
     # one to the other fails with "Invalid cross-device link" — `--reflink=auto`
     # then silently degrades to a real 1 GB copy INTO RAM, per concurrent run.
     # Same-filesystem, the clone takes ~60 ms and costs no space until written.
-    RUN_DIR="$HOME/.jnext/runs/$$-$(date +%s)-$RANDOM"
+    if [[ -n "$row_run" ]]; then
+        RUN_DIR=$row_run
+    else
+        RUN_DIR="$HOME/.jnext/runs/$$-$(date +%s)-$RANDOM"
+    fi
     export JNEXT_CONFIG_DIR="$RUN_DIR"
     # (XDG_CONFIG_HOME is kept for any other Qt state.)
     export XDG_CONFIG_HOME="$TMP_DIR/xdg-config-home"
@@ -452,13 +507,26 @@ regression_lib_init() {
     # re-clones in the "[sdcard-provision]" row after the master's hash gate,
     # which may have re-derived it; the re-clone costs ~60 ms. A failure here is
     # not fatal on its own — the row is what reports and provisions.
-    sd_clone_for_run || true
+    # A row process boots the image the driver put in its RUN_DIR (a hard
+    # link to the run's clone, or a private copy) and inherits the clone's
+    # mode from the driver; cloning the master here would undo exactly that.
+    if [[ -n "$row_run" ]]; then
+        SD_CLONE_MODE=${row_mode:-absent}
+    else
+        sd_clone_for_run || true
+    fi
 
     # The master's identity at the start of the run. sdcard-isolation-func
     # compares against it at the END, after every screenshot row has booted
     # NextZXOS — so the assertion covers the whole suite, not one contrived
     # boot. 01-sdcard-provision.sh re-stamps if its hash gate re-derived it.
-    SD_MASTER_STAMP=$(stat -c '%i:%Y:%s' "$SD_MASTER_IMAGE" 2>/dev/null || echo "absent")
+    # A row process takes the driver's stamp, made after the provisioning
+    # gate — its own stat would start the measurement too late.
+    if [[ -n "$row_run" ]]; then
+        SD_MASTER_STAMP=${row_stamp:-absent}
+    else
+        SD_MASTER_STAMP=$(stat -c '%i:%Y:%s' "$SD_MASTER_IMAGE" 2>/dev/null || echo "absent")
+    fi
 
     # Pixel difference tolerance (0 = exact match)
     TOLERANCE=${JNEXT_TEST_TOLERANCE:-0}
