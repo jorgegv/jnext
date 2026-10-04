@@ -17,7 +17,7 @@ Where:
 
 - **unit N/N** — `LANG=C make unit-test` (or `LANG=C make -C <worktree> unit-test`). The expected per-suite counts are pinned in `test/unit-tests.conf` and the harness refuses to run if they disagree — do not restate a total here, it goes stale. Need N=N (all pass).
 - **FUSE 1356/1356** — `./build/test/fuse_z80_test build/test/fuse`. 1356 opcodes, all should pass.
-- **regression P/F/S** — `bash test/00regression/regression.sh`. Pass/Fail/Skip counts; the declared set is pinned in `regression_tests.conf` + `functional_tests.conf`.
+- **regression P/F/S** — `make regression` (prerequisites, host lock, stamp). Pass/Fail/Skip counts; the declared set is pinned in `regression_tests.conf` + `functional_tests.conf`.
 
 ## Environment requirements
 
@@ -28,8 +28,8 @@ Per feedback memory:
 - **Run regression against `build/gui-release/`** always, not conditionally (`feedback_clean_gui_release_for_regression`).
 - **Read the host load first** (`nproc; cat /proc/loadavg`) and report it with the result. Contention manufactures failures, never passes: green-under-load is stronger evidence than an idle-box run, red-under-load costs one re-run. Do not wait for a quiet machine (`feedback_measure_host_load_never_assume_quiet`).
 - **Redirect every build/test command to a log file and check its exit status — never pipe it** (`feedback_ci_runs_exact_local_commands`). `| tail` and `| tee` both give you the pipeline's status, so a failing run reads as success; a CI run once printed `62 pass, 1 fail` and went green this way. Use `cmd > /tmp/<name>-<short-sha>.log 2>&1; status=$?`, which also satisfies `feedback_regression_log_to_file`.
-- **Set `JNEXT_TEST_JOBS=4` on every regression invocation** (`feedback_jnext_test_jobs`). Never raise it for speed: `audio-underrun-func` and `screenshot-paused-func` are real-time-bounded and fail under CPU contention, so the cap protects test correctness as well as the machine.
-- **Those two are examples, not the list** (GH #245): rows that merely spawn short-lived processes (`subsystem-gain-func`) have also failed under load and passed solo. Treat any single FAIL on a loaded host as unconfirmed until that row is re-run SOLO (`bash test/00regression/regression.sh <row>`), and never dismiss it as contention until the solo run passes. Always report the row NAME. The harness prints the load at start and end, marks each FAIL that happened with load ≥ `nproc`, and lists the failed rows after the results — quote that block.
+- **`JNEXT_TEST_JOBS` is only a lane cap now** (GH #295). The suite runs its rows in parallel on every CPU and keeps the real-time-bounded ones (`audio-underrun-func`, `screenshot-paused-func`, …) in a `quiet` phase of their own, so no cap is needed for correctness; pass `JNEXT_TEST_JOBS=N` only to leave CPUs free. Before a full run, check `make -C <target> regression-stamp-check`: a green stamp for the same non-doc content already satisfies the gate. Only one full run per host at a time (the harness locks and waits); targeted rows never lock.
+- **Those two are examples, not the list** (GH #245): rows that merely spawn short-lived processes (`subsystem-gain-func`) have also failed under load and passed solo. Treat any single FAIL on a loaded host as unconfirmed until that row is re-run SOLO (`make -C <target> regression-rows ROWS=<row>`, which builds the binaries rows need; when the run was a full `make regression` whose only FAILs were flagged as loaded-host, `make -C <target> regression-confirm` re-runs them solo and stamps the run if they pass), and never dismiss it as contention until the solo run passes. Always report the row NAME. The harness prints the load at start and end, marks each FAIL that happened with load ≥ `nproc`, and lists the failed rows after the results — quote that block.
 
 ## Workflow
 

@@ -79,6 +79,17 @@ EXCEPTIONS=(
     "test/lint-hardcoded-paths.sh:its own doc example and selftest fixtures are literal instances of the pattern"
 )
 
+# The two GENERATED documentation trees: mkdocs renders of src/doc/*-guide.
+# Their .js/.json are the theme's vendored assets and the search index — the
+# search index is the guides' PROSE, re-encoded — so scanning them would scan
+# exactly the documentation this lint declares out of scope (".md design
+# notes", above), one rendering step later. A home path written in a guide
+# page is not caught here either way; one in its rendered index must not fail
+# a regression row that a docs-only change (which runs no regression, GH #295)
+# never re-runs.
+GENERATED_DOC_TREES='doc/user-guide/|doc/developer-guide/'
+is_generated_doc() { [[ "$1" =~ ^($GENERATED_DOC_TREES) ]]; }
+
 is_excepted() {
     local f="$1" e
     for e in "${EXCEPTIONS[@]}"; do
@@ -103,6 +114,7 @@ scan() {
 
     for f in "${files[@]}"; do
         is_excepted "$f" && continue
+        is_generated_doc "$f" && continue
         [ -f "$f" ] || continue
         out="$(grep -nE "$PATTERN" -- "$f" 2>/dev/null | filter_placeholders || true)"
         if [ -n "$out" ]; then
@@ -188,6 +200,24 @@ selftest() {
     x 0 'same directory, different file'       'test/lint-traps.sh'
     x 0 'same basename elsewhere in the tree'  'tools/lint-hardcoded-paths.sh'
     x 0 'an unrelated tracked file'            'src/core/emulator.cpp'
+
+    # ── The generated-documentation skip (GH #295) ────────────────────────
+    g() {   # g <want> <desc> <path>
+        local want="$1" desc="$2" path="$3" got=0
+        is_generated_doc "$path" && got=1
+        if [ "$got" = "$want" ]; then
+            pass=$((pass + 1))
+        else
+            fail=$((fail + 1))
+            printf '  FAIL (want=%s got=%s) is_generated_doc: %s\n      %s\n' \
+                "$want" "$got" "$desc" "$path"
+        fi
+    }
+    g 1 'the user guide search index'          'doc/user-guide/search/search_index.json'
+    g 1 'a vendored theme script'              'doc/developer-guide/assets/javascripts/bundle.min.js'
+    g 0 'a format schema beside the guides'    'doc/formats/jns-snapshot.schema.json'
+    g 0 'a guide SOURCE tree is not generated' 'src/doc/user-guide/x.json'
+    g 0 'a name that only starts the same'     'doc/user-guide-renderer.json'
 
     printf '\n  selftest: %d passed, %d failed\n' "$pass" "$fail"
     [ "$fail" -eq 0 ]

@@ -90,9 +90,9 @@ code comments.
 The single authoritative protocol for landing any implemented change on `main`:
 
 1. **Dedicated branch + worktree** off current `main` — never edit `main` directly. Each independent feature gets its own branch (so parallel agents don't trash each other).
-2. **Full test triplet green on the branch, plus the SDL-only unit run** before review: `make clean && make gui-release`, then `make unit-test`, **`make unit-test-sdl`**, the FUSE Z80 suite (`./build/test/fuse_z80_test build/test/fuse` → 1356/1356), and `JNEXT_TEST_JOBS=4 make regression`. `make gui-release` is the PGO build (GH #297), so `make regression` tests the shipped binary and also runs FUSE against the PGO build's CPU core (`make fuse-pgo`, a prerequisite). No FAIL anywhere (SKIPs only where already declared).
+2. **Full test triplet green on the branch, plus the SDL-only unit run** before review: `make clean && make gui-release`, then `make unit-test`, **`make unit-test-sdl`**, the FUSE Z80 suite (`./build/test/fuse_z80_test build/test/fuse` → 1356/1356), and `make regression`. `make gui-release` is the PGO build (GH #297), so `make regression` tests the shipped binary and also runs FUSE against the PGO build's CPU core (`make fuse-pgo`, a prerequisite). No FAIL anywhere (SKIPs only where already declared).
    - `make unit-test-sdl` applies to **every** branch, not only GUI-touching ones (owner decision, 2026-09-25). Its 102 suites are the core emulator plus the platform decision-logic both frontends share, minus Qt and the debugger — and they INCLUDE `host_key_latch_test`, which drives the real `SdlInput::poll()` (GH #268) precisely because an SDL-only build is the only place that coverage survives. So an SDL-frontend change needs this run just as much as a core one does; do not read “the non-Qt set” as “no frontends”. Cost on a branch that actually changed code: ~17 s with a warm ccache (a no-op re-run of just the suites is ~9 s). See the two-configuration rule under **Testing**.
-   - Use **`make regression`**, never bare `bash test/00regression/regression.sh`: the suite's `sdl-keypress-func` row needs `build/sdl-release`, which only the make target builds, so the bare script aborts as a harness fault. Two separate agents lost a run to this on 2026-09-25.
+   - Use **`make regression`**, never bare `bash test/00regression/regression.sh`: the suite's `sdl-keypress-func` row needs `build/sdl-release`, which only the make target builds, so the bare script aborts as a harness fault. Two separate agents lost a run to this on 2026-09-25. Targeted rows likewise go through **`make regression-rows ROWS="<row> ..."`**, which builds the same binaries first (the bare script with row names is fine only when they are already built).
    - **A DOCUMENTATION-ONLY change runs NO code gate** (owner rule, 2026-09-27). If the branch or
      the set of changes to merge touches only documentation, run only the gates the documentation
      itself needs — normally `make docs-check` (man page + user guide + developer guide staleness),
@@ -102,6 +102,33 @@ The single authoritative protocol for landing any implemented change on `main`:
      nothing (`CLAUDE.md`, `doc/design/**`, `ChangeLog`, `README.md`) need no gate at all; the
      generated-and-committed trees (`doc/man/`, `doc/user-guide/`, `doc/developer-guide/`) are
      exactly what `docs-check` exists for, so edit the source, re-render, commit both.
+   - **Run the full regression only when it is needed** (GH #295, owner decision 2026-10-04).
+     A green `make regression` on a tree with no uncommitted non-doc change writes a **stamp**
+     keyed on that tree's content, docs excluded (`test/regression-stamp.sh` defines the keyed
+     paths, in one place). `make regression-stamp-check` prints the stamp covering the current
+     tree or exits non-zero saying why there is none; **a matching green stamp satisfies the
+     regression gate.** Only a run with **fail=0 and skip=0** is stamped: a SKIP is a row that
+     was not tested. Hence:
+     - the author runs it once, on the final non-doc state, and commits before running (a dirty
+       tree is not stamped — the run says so);
+     - the **reviewer does not re-run it**: they run `make regression-stamp-check` in their own
+       worktree of the branch (stamps are per user, shared across worktrees) and run the
+       **targeted rows** the change touches (`make regression-rows ROWS="<row> ..."`);
+     - a fix round re-runs it **only if non-doc content changed** — otherwise the stamp still
+       matches;
+     - **no re-run after a clean merge of `main` into the branch** (the merge result is not
+       re-gated locally; CI on `main` stays a full run and is the safety net);
+     - **mutation testing and diagnosis use targeted rows only**, never full runs;
+     - only ONE full run per host at a time: `regression.sh` takes a host lock and waits
+       (saying who holds it); it also waits, bounded, while the 1-minute load is above `nproc`.
+       Targeted runs never lock;
+     - **the owner's timing-row rule has a path to the stamp**: a timing row that fails under
+       load and passes SOLO counts as a pass. A full run whose ONLY FAILs are functional rows
+       that failed with the load at or above `nproc` (the harness flags each) records them as
+       PENDING; `make regression-confirm` re-runs exactly those rows, one lane, under the lock
+       and the quiet-host wait, on the same tree, and only if every one passes is the run
+       stamped — the stamp names them (`confirmed_solo=`). An idle-host FAIL, a screenshot or
+       lint FAIL, or any SKIP has no such path: it is real until fixed.
 3. **Independent code review** by an agent/person that did NOT write the change — never self-review. The reviewer works in its own worktree, never the author's. Verdict is binary APPROVE / REJECT; on REJECT, fix and re-review.
 4. **Merge on green APPROVE**, one branch at a time. The manager (not the authoring agent) does the merge. If a merge conflicts, the agent who merged last fixes it on their own branch.
 5. **Immediately after each merge to `main`, bump the patch version: `make bump-patch`** (bumps `version.yaml`, commits, and creates the git tag). Every feature/fix that lands on `main` gets its own patch bump — per merge, not batched. This is separate from the deliberate minor/major release flow in "Version bumping" below.
@@ -150,7 +177,7 @@ The single authoritative protocol for landing any implemented change on `main`:
 
 When the user asks to bump the version, follow these steps in order:
 
-1. Run all unit tests (`make unit-test`) and regression tests (`make regression`) — none must have any FAIL (SKIPs are acceptable)
+1. Run all unit tests (`make unit-test`) and regression tests (`make regression`) — none must have any FAIL (SKIPs are acceptable). The regression is satisfied without a local run by `make regression-ci-check` (a green CI run on the same content key, checked before the bump) or `make regression-stamp-check` — see doc/RELEASE-PROTOCOL.md §7
 2. ~~Update the traceability matrix~~ — **no longer a manual step (GH #196).** It is generated and staleness-gated; `make unit-test` regenerates and fails if the committed copy differs. Commit the regenerated file if it changed.
 3. Update the unit test status report
 4. Update the DEVELOPMENT-SESSIONS document (`doc/DEVELOPMENT-SESSIONS.md`)
@@ -388,10 +415,28 @@ test reported exactly one row, no undeclared row appeared, and the total equals
 *independent* witness: every checked-in `img/<name>-reference.png` must have a conf entry, so
 truncating the conf cannot silently shrink the suite. Any mismatch is a **harness fault** (exit 2).
 
-**No row script may install a `trap`** (GH #153). `regression.sh` SOURCES every row into the
-harness shell, which already holds the one `trap regression_cleanup EXIT/INT/TERM` that deletes
-the per-run 1-2 GB SD clone; a second trap silently replaces it, and only the *successful*
-run leaks (INT/TERM survive, so an interrupted run still cleans up). `test/00regression/lint-traps.sh`
+**Functional rows run in parallel, each in a process of its own** (GH #295). The driver
+starts `test/00regression/row-runner.sh` per row, with the row's own `$TMP_DIR` and
+`$RUN_DIR` (= `$JNEXT_CONFIG_DIR`), and merges the results in declared order (per phase)
+with every check above intact; a row that dies or outlives its bound is a named FAIL, a row
+that reports twice/nothing or writes into another row's directory is a harness fault.
+Words after a row's name in `functional_tests.conf` place it: untagged = the parallel phase
+(`JNEXT_TEST_JOBS`, default every CPU); `quiet` = a low-concurrency phase after it, for rows
+**measured** to fail under parallel load (`JNEXT_TEST_QUIET_JOBS`, default 1); `serial` =
+alone, last; `private-sd` = the row writes to the SD card and gets a copy of its own.
+Untagged rows boot the run's clone through a hard link, and the clone is fingerprinted
+before and after the run — a row that writes to it without the tag is a harness fault.
+A new row that fails only in the parallel phase gets `quiet`, with the evidence recorded.
+A row that needs an X server starts it with **`xvfb-run -d`** (Xvfb picks the display
+itself): `xvfb-run -a` chooses by scanning lock files, two parallel rows got the same
+display and one silently SKIPPED; `-a`/`-n` are banned (harness-selftest HS-72).
+
+**No row script may install a `trap`** (GH #153). Every row is still SOURCED — now into its
+row-runner shell, which holds the library's one `trap regression_cleanup EXIT/INT/TERM` that
+deletes the row's directories and, in the driver, the per-run 1-2 GB SD clone; a second trap
+silently replaces it, and only the *successful* run leaks (INT/TERM survive, so an interrupted
+run still cleans up). The driver also catches the leak after the fact (a row that exits with
+its directories still there is a harness fault), but the lint stops it before it runs. `test/00regression/lint-traps.sh`
 — row 2 of the suite, inside `scripts/00-preflight-lint.sh` — bans `trap` in `scripts/*.sh` for
 every signal and at any depth, including behind `builtin`/`command`, inside `eval`, and via a
 heredoc fed to `source`/`.`/`eval` (which runs in *this* shell). Put scratch files under
@@ -453,10 +498,14 @@ Result: 1356/1356 pass (100%). That is the `build/` tree's CPU core; `make fuse-
 
 ### Full regression test suite
 
-Run the complete automated test suite (FUSE Z80 opcodes + screenshot tests):
+Run the complete automated test suite (screenshot + functional rows; FUSE is a
+prerequisite of the make target):
 
 ```bash
-bash test/00regression/regression.sh
+make regression                      # the gate: prerequisites, host lock, stamp
+make regression-stamp-check          # is this tree covered by a green run?
+make regression-rows ROWS="<row> ..."   # targeted rows: builds the binaries; no lock, no stamp
+make regression-confirm              # re-run SOLO a full run's loaded-host FAILs; stamp if all pass
 ```
 
 This runs all tests in headless mode and compares screenshots to reference images.
@@ -496,24 +545,27 @@ mutations are independent by construction (reverting a stencil gate has nothing
 to do with reverting a tab order), yet they are usually run one after another in
 a single build dir. Give each mutation its own build directory (or its own
 worktree) and run them concurrently — ccache is global, so the second and third
-builds are almost free. Keep `JNEXT_TEST_JOBS=4` on each concurrent regression
-run (see below).
+builds are almost free. Mutations are checked with **targeted rows**
+(`make regression-rows ROWS="<row> ..."`), never full runs (GH #295).
 
-**Do NOT raise `JNEXT_TEST_JOBS` to buy speed.** `JNEXT_TEST_JOBS=4` stays on
-**every** regression invocation. It is not merely a politeness cap for the
-machine — the suite contains tests that are *real-time-pacing bounded* and will
-fail under CPU contention: `audio-underrun-func` reports underruns when the box
-is loaded, and `screenshot-paused-func`'s control run takes ~55 s against a 60 s
-timeout. Raising in-suite concurrency makes the suite intermittently lie, which
-is far more expensive than the ~55 s it would save. This was measured and
-rejected in Task 39.
+**`JNEXT_TEST_JOBS` caps the suite's lanes; it is no longer a speed trade-off**
+(GH #295, replacing the Task 39 rule "`JNEXT_TEST_JOBS=4` on every run"). The
+suite's real-time-paced rows — `audio-underrun-func` reports underruns on a
+loaded box, `screenshot-paused-func`'s control run takes ~55 s against a 60 s
+timeout — are tagged `quiet` and run in their own low-concurrency phase after
+the parallel one, so the screenshot and parallel functional phases use every CPU
+by default. Pass `JNEXT_TEST_JOBS=N` only to leave CPUs to something else; do
+not raise `JNEXT_TEST_QUIET_JOBS` to buy speed — that is the trade Task 39
+measured and rejected. The suite itself now takes ~4 min on the 12-CPU dev host
+(172-175 s with nothing else running, 223-253 s with other agents active, ~410 s
+with 6 extra busy loops; it was ~13.5 min serial).
 
 **Those two rows are examples, not the list** (GH #245). Contention also fails
 rows that merely spawn short-lived processes — `subsystem-gain-func` failed
 under a three-agent load on 2026-08-09 and never reproduced solo — and a
 concurrent duplicate build once produced an `undefined reference to main`. So:
 a single regression FAIL on a loaded host is unconfirmed until that row is
-re-run SOLO (`bash test/00regression/regression.sh <row>`), and it is not
+re-run SOLO (`make regression-rows ROWS=<row>`), and it is not
 dismissed either until the solo run passes — a row that also fails solo is
 real. **Always record the row name.** The harness does the bookkeeping: it
 prints the 1-minute load at the start and the end of the run, flags each FAIL

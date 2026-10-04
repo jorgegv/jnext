@@ -34,8 +34,10 @@ saturate it and are invisible from here.
 - A **green** run under load is *stronger* evidence than one on an idle box.
 - A **red** run under load is inconclusive and costs exactly one re-run — never
   call it a "pre-existing failure".
-- **Do not serialise work waiting for a quiet machine.** (v0.99.86's regression
-  passed 116/116 at load 10.87.)
+- **Do not add waiting of your own.** A full run already waits, bounded
+  (300 s), for the 1-minute load to fall below `nproc`, and only one full run
+  per host runs at a time (GH #295) — beyond that, go ahead. (v0.99.86's
+  regression passed 116/116 at load 10.87.)
 
 `JNEXT_TEST_JOBS` bounds only the suite's own concurrency, not competing host
 processes.
@@ -56,7 +58,7 @@ test is not a result.
 ```bash
 short=$(git -C $TARGET rev-parse --short HEAD)
 log=/tmp/regression-$short.log
-JNEXT_TEST_JOBS=4 bash $TARGET/test/00regression/regression.sh > "$log" 2>&1
+LANG=C make -C $TARGET regression > "$log" 2>&1
 status=$?
 tail -30 "$log"
 ```
@@ -93,13 +95,18 @@ New failures vs baseline: <list or "none">
 - **Never update reference screenshots without explicit user authorization**
   (`feedback_regression_refs`). Regenerating a reference to make the suite green
   destroys the only check that would have caught the change.
-- `JNEXT_TEST_JOBS=4` on every invocation, never raised for speed
-  (`feedback_jnext_test_jobs`) — `audio-underrun-func` and
-  `screenshot-paused-func` are real-time-bounded.
+- `JNEXT_TEST_JOBS` is only a lane cap since GH #295: the real-time-bounded
+  rows (`audio-underrun-func`, `screenshot-paused-func`, …) run in their own
+  `quiet` phase. Check `make regression-stamp-check` first — a green stamp for
+  the same non-doc content already satisfies the gate.
+- Only a run with fail=0 AND skip=0 is stamped. If a full run's only FAILs are
+  functional rows flagged as failing on a loaded host, it says PENDING:
+  `make regression-confirm` re-runs exactly those rows solo and stamps the run
+  if they pass. Any other FAIL or a SKIP is real — report it.
 - Those two are examples, not the list (GH #245): rows that spawn short-lived
   processes have also failed under load and passed solo. A FAIL on a loaded
-  host is unconfirmed until re-run SOLO (`bash test/00regression/regression.sh
-  <row>`), and is not dismissed until that solo run passes. Always report the
+  host is unconfirmed until re-run SOLO (`make regression-rows ROWS=<row>`, which builds the binaries rows need;
+  `make regression-confirm` after a full run whose only FAILs were loaded-host ones), and is not dismissed until that solo run passes. Always report the
   row name. The harness prints the load at start and end, marks each FAIL that
   happened with load ≥ `nproc`, and lists the failed rows after the results.
 - Run in the branch worktree, not on main (`feedback_regression_in_branches`).

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.1</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.2</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.1</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.2</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2383,20 +2383,30 @@ shipped an older pandoc than the maintainer's failed <code>docs-check</code> on 
 from the day the man page landed. Matching the distribution removes the whole
 class of problem, instead of pinning tool by tool and waiting for the next one.</p>
 <h2 id="the-jobs-in-ciyml">The jobs in <code>ci.yml</code><a class="headerlink" href="#the-jobs-in-ciyml" title="Permanent link">&para;</a></h2>
-<p><strong><code>test</code></strong> is the main job. It installs the dependency set, checks out the
-repository with submodules, and then clones the ZX Next FPGA core — sparsely, at
-a pinned commit, into the runner's temp directory outside the workspace. That
-clone is needed because the traceability generator validates every VHDL citation
-against the real source tree, and produces different bytes without it. The job
-then runs, in order: <code>make clean &amp;&amp; make gui-release</code>, <code>make build-matrix</code>,
-<code>JNEXT_TEST_JOBS=4 make regression</code>, and <code>make unit-test</code>. On failure it uploads
-the screenshot diffs and the test summary.</p>
-<p>That order is not arbitrary. <code>make gui-release</code> is a PGO build
+<p><strong><code>test</code></strong> is the main job: one definition, a matrix of three legs that run in
+parallel on runners of their own (GH #295). Every leg installs the same
+dependency set and checks out the repository with submodules; then</p>
+<ul>
+<li><strong><code>build-matrix</code></strong> runs <code>make build-matrix</code>;</li>
+<li><strong><code>unit</code></strong> clones the ZX Next FPGA core — sparsely, at a pinned commit, into
+  the runner's temp directory outside the workspace, because the traceability
+  generator validates every VHDL citation against the real source tree and
+  produces different bytes without it — and runs <code>make clean &amp;&amp; make
+  gui-release</code>, <code>make unit-test</code> and <code>make unit-test-sdl</code>;</li>
+<li><strong><code>regression</code></strong> runs <code>make clean &amp;&amp; make gui-release</code> and <code>make regression</code>.</li>
+</ul>
+<p>They used to be steps of one job, so the 28-minute build matrix and the
+regression ran back to back although neither uses the other's output. Each leg
+has its own ccache key, and <code>fail-fast</code> is off so a red leg never cancels the
+others' evidence. On failure a leg uploads the screenshot diffs and the test
+summary under its own artifact name.</p>
+<p><code>make gui-release</code> comes first in both test legs for a reason. It is a PGO build
 (<a href="05-performance-and-optimisation.html#profile-guided-optimisation">5.5</a>) whose
 training needs the SD image, so the image is restored from the cache before it — and if
 the cache misses, the training downloads it through jnext's own provisioner.
 <code>make regression</code>'s provisioning row then finds it, and <code>make unit-test</code> needs
-the same image for <code>sd_rom_extractor_test</code>.</p>
+the same image for <code>sd_rom_extractor_test</code> — which is why the unit leg builds
+<code>gui-release</code> although none of its suites runs it.</p>
 <p><strong><code>qt5-guard</code></strong> runs <code>make qt5-guard-build</code>, which is the same GUI and debugger
 sources compiled against native Linux Qt5. Nothing else in CI compiles that
 combination, so a Qt6-only API creeping into the GUI would otherwise surface

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.1</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.2</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.1</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.2</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1788,10 +1788,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#concurrency" class="md-nav__link">
+  <a href="#concurrency-one-process-per-row-in-phases" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Concurrency
+        Concurrency: one process per row, in phases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#one-full-run-at-a-time-and-the-stamp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One full run at a time, and the stamp
       
     </span>
   </a>
@@ -2387,8 +2398,9 @@ committed reference images, and otherwise by exercising behaviour that only
 exists once there is a real process, such as writing a file or opening an audio
 device.</p>
 <p><code>test/00regression/regression.sh</code> is only the driver. It parses arguments,
-validates the manifests, sources the test scripts in the declared order, and
-enforces the end-of-run accounting. The test logic itself lives in
+validates the manifests, runs the test scripts — the group scripts in its own
+shell, each functional row in a process of its own (<code>row-runner.sh</code>, scheduled
+by <code>parallel-rows.inc</code>) — and enforces the end-of-run accounting. The test logic itself lives in
 <code>test/00regression/scripts/</code>, which holds one script per functional test plus
 three group scripts — <code>00-preflight-lint.sh</code>, <code>01-sdcard-provision.sh</code> and
 <code>screenshots.sh</code> — with the shared helpers in <code>test-functions.inc</code>.</p>
@@ -2408,10 +2420,10 @@ being cropped down to the overlap.</p>
 flag: <code>@private-sd</code> is stripped by the launcher, which then gives that row its
 own SD-card clone. Any row whose guest <strong>writes</strong> to the card needs it.</p>
 <p><strong>Functional rows</strong> are declared in <code>functional_tests.conf</code>, one name per line,
-in run order. Each has its logic in <code>scripts/&lt;name&gt;.sh</code> and calls
-<code>begin_func &lt;name&gt;</code> to register that its row really was reported.</p>
-<p>Both files carry a <code># expect: N</code> pin — currently 66 screenshots and 89
-functional — and the driver faults if a pin and the declared lines disagree.</p>
+optionally followed by tags (below). Each has its logic in <code>scripts/&lt;name&gt;.sh</code>
+and calls <code>begin_func &lt;name&gt;</code> to register that its row really was reported.</p>
+<p>Both files carry a <code># expect: N</code> pin and the driver faults if a pin and the
+declared lines disagree.</p>
 <h2 id="the-independent-witness">The independent witness<a class="headerlink" href="#the-independent-witness" title="Permanent link">&para;</a></h2>
 <p>The completeness check compares rows reported against rows declared, but for
 screenshots both of those sides are read from the same conf file, so on its own
@@ -2455,14 +2467,90 @@ lookup instead, and the suite provisions that image for itself in the
   because <code>cp --reflink</code> cannot cross a filesystem and <code>--reflink=auto</code> would
   quietly degrade to a real 1 GB copy into RAM.</li>
 </ul>
-<h2 id="concurrency">Concurrency<a class="headerlink" href="#concurrency" title="Permanent link">&para;</a></h2>
-<p><code>JNEXT_TEST_JOBS</code> caps the number of parallel jobs the screenshot launcher
-runs. <strong>Do not raise it to buy speed.</strong> Some rows are bounded by real-time
-pacing rather than by CPU: <code>audio-underrun-func</code> reports underruns when the box
-is loaded, and <code>screenshot-paused-func</code>'s control run takes about 55 s against
-a 60 s timeout. Higher concurrency therefore makes the suite intermittently
-lie. The variable defaults to <code>nproc</code> when unset, so pass <code>JNEXT_TEST_JOBS=4</code>
-explicitly, exactly as CI does.</p>
+<h2 id="concurrency-one-process-per-row-in-phases">Concurrency: one process per row, in phases<a class="headerlink" href="#concurrency-one-process-per-row-in-phases" title="Permanent link">&para;</a></h2>
+<p>Until GH #295 the functional rows were <em>sourced</em> into the driver one after
+another — they shared its counters, its <code>TMP_DIR</code> and its SD clone, and that
+alone made them serial. Most of them wait on real time rather than on the CPU,
+so a full run spent twelve minutes on a host that was 85% idle.</p>
+<p>Now each row runs in a process of its own. <code>row-runner.sh</code> initializes the
+suite library in <em>row-process mode</em> — with the row's own <code>TMP_DIR</code>
+(<code>$TMP_DIR/rows/&lt;row&gt;</code>) and <code>RUN_DIR</code> (<code>$RUN_DIR/rows/&lt;row&gt;</code>, which is also its
+<code>JNEXT_CONFIG_DIR</code>, so preferences and the warm-start cache are private) handed
+over by the driver — and then sources the row, inside the same counter guard
+as before. It hands its tally back in a result file; a harness fault inside it
+also leaves <code>&lt;result&gt;.fault</code>. The driver runs the rows in phases:</p>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th>Rows</th>
+<th>Lanes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>screenshots</td>
+<td><code>regression_tests.conf</code></td>
+<td><code>JNEXT_TEST_JOBS</code>, default <code>nproc</code></td>
+</tr>
+<tr>
+<td>parallel</td>
+<td>untagged functional rows</td>
+<td><code>JNEXT_TEST_JOBS</code>, default <code>nproc</code></td>
+</tr>
+<tr>
+<td>quiet</td>
+<td>rows tagged <code>quiet</code></td>
+<td><code>JNEXT_TEST_QUIET_JOBS</code>, default 1</td>
+</tr>
+<tr>
+<td>serial tail</td>
+<td>rows tagged <code>serial</code></td>
+<td>1</td>
+</tr>
+</tbody>
+</table>
+<p>and prints each row's buffered output, in declared order within its phase, as
+soon as it and every earlier row have finished.</p>
+<p>The <strong>tags</strong> carry what used to be an unwritten rule. <code>quiet</code> marks a row that
+paces against real time — <code>audio-underrun-func</code> reports underruns on a loaded
+box, <code>screenshot-paused-func</code>'s control run takes about 55 s against a 60 s
+timeout — and was <em>measured</em> to fail in the parallel phase; that is where the
+old advice "pass <code>JNEXT_TEST_JOBS=4</code>, never raise it" went. <code>serial</code> is
+<code>sdcard-isolation-func</code>, whose "the master was never touched" check must
+follow every other row. <code>private-sd</code> marks a row that writes to the SD card,
+which then boots a copy of its own; every other row boots the run's clone
+through a hard link, and the driver fingerprints that clone after provisioning
+and again at the end, so an untagged writer is a harness fault rather than a
+row that quietly changes what its neighbours boot.</p>
+<p>The driver keeps every accounting check and adds the ones a process boundary
+needs: a row process that dies without a result, or outlives its 600 s bound,
+is a FAIL naming it; a row's directory that already exists when it starts, is
+still there when it exits, or is left over at the end, is a harness fault.
+<code>JNEXT_TEST_JOBS</code> is now only a cap, for leaving CPUs to something else; do not
+raise <code>JNEXT_TEST_QUIET_JOBS</code> to buy speed. Output is printed in declared
+order, so a heartbeat line every 60 s names the rows still running.</p>
+<p>Parallel rows exposed one shared-resource race the serial suite never could:
+<code>xvfb-run -a</code> chooses an X display number by scanning lock files, so two rows
+starting together could pick the same one, and the loser SKIPPED. Every row now
+uses <code>xvfb-run -d</code>, where Xvfb picks the display itself, and harness-selftest
+HS-72 bans the racy forms.</p>
+<h2 id="one-full-run-at-a-time-and-the-stamp">One full run at a time, and the stamp<a class="headerlink" href="#one-full-run-at-a-time-and-the-stamp" title="Permanent link">&para;</a></h2>
+<p>A full run (no arguments, real manifests) takes a host lock through <code>flock -o</code>
+before it sources anything, so a second one waits, saying who holds it, and no
+child of the run can inherit the lock. It then waits, bounded, while the
+1-minute load is above <code>nproc</code>. <code>make regression</code> also asks the run for a
+<strong>stamp</strong>: on a green run of a tree with no uncommitted non-doc change,
+<code>test/regression-stamp.sh</code> records the counts, the loads and the commit under a
+key hashed from <code>git ls-tree</code> over every non-documentation path.
+<code>make regression-stamp-check</code> prints the stamp covering the current tree, which
+is how a reviewer verifies the author's run without repeating it, and
+<code>make regression-ci-check</code> finds a green CI run with the same key, which is how
+a release reuses CI. Only a run with no FAIL and no SKIP is stamped. A run whose
+only FAILs are functional rows that failed on a loaded host is recorded as
+pending, and <code>make regression-confirm</code> re-runs exactly those rows solo; if they
+all pass the run is stamped, and the stamp names them. Targeted rows run through
+<code>make regression-rows ROWS="..."</code>, which builds the binaries they need.</p>
 <h2 id="a-failure-on-a-loaded-host">A failure on a loaded host<a class="headerlink" href="#a-failure-on-a-loaded-host" title="Permanent link">&para;</a></h2>
 <p>Those two rows are examples, not the list. Rows that merely spawn short-lived
 processes have also failed under a parallel-agent load and never reproduced
@@ -2477,13 +2565,14 @@ above <code>nproc</code> on the spot, and after the results lists each failed ro
 with the load at the moment it failed, plus a warning when the run was loaded.
 None of that changes a verdict: a FAIL is still a FAIL and the exit status is
 unchanged. What it changes is the next step — re-run the row SOLO
-(<code>bash test/00regression/regression.sh &lt;row&gt;</code>) before treating it as a
+(<code>make regression-rows ROWS=&lt;row&gt;</code>) before treating it as a
 regression, and do not dismiss it until that solo run passes. The self-test
 pins the behaviour both ways (<code>HS-50..55</code>).</p>
 <h2 id="no-row-script-may-install-a-trap">No row script may install a <code>trap</code><a class="headerlink" href="#no-row-script-may-install-a-trap" title="Permanent link">&para;</a></h2>
-<p>The driver <strong>sources</strong> every row script into its own shell, and that shell
-already holds the one <code>trap regression_cleanup EXIT/INT/TERM</code> that deletes the
-1–2 GB per-run SD clone. Bash keeps a single handler per signal, so a second
+<p>Every row script is still <strong>sourced</strong> — into its <code>row-runner.sh</code> shell — and
+that shell already holds the one <code>trap regression_cleanup EXIT/INT/TERM</code> that
+deletes the row's directories (in the driver, the same trap deletes the 1–2 GB
+per-run SD clone). Bash keeps a single handler per signal, so a second
 <code>trap ... EXIT</code> in a sourced row silently replaces the harness's own. Because
 INT and TERM are left alone, it is specifically the <strong>successful</strong> run that
 then leaks its entire run directory while the counts stay green — a host

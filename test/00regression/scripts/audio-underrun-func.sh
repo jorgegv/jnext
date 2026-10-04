@@ -61,7 +61,7 @@ if want audio-underrun-func; then
         SDL_AUDIODRIVER=disk SDL_AUDIO_DISK_OUTPUT_FILE="$raw_file" \
         timeout --foreground --kill-after=5s 40s \
         env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb SDL_VIDEODRIVER=x11 \
-        xvfb-run -a "$JNEXT" \
+        xvfb-run -d "$JNEXT" \
             "${SD_CARD_ARGS[@]}" \
             --machine 48k \
             --inject "$tone_bin" --inject-org 8000 --inject-pc 8000 --inject-delay 100 \
