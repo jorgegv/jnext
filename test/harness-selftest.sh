@@ -36,13 +36,88 @@ EXPECTED_TOTAL=117  # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..o
 # invocation, a hang is one loud timeout FAIL at the affected row — check()
 # prints the rc: 124, or 137 when only the follow-up SIGKILL could end it
 # (e.g. a TERM-trapped cleanup that just hangs again) — and the run
-# continues. 30 s is ~14x the slowest legitimate
-# invocation measured on the dev box (HS-04 at ~2.1 s, floor-bound by its own
-# 2 s suite timeout; every other invocation is < 0.3 s) — wide on purpose,
-# this project has been burned by tight wall-clock budgets on loaded boxes.
+# continues. 120 s, because the slowest legitimate invocation is no longer
+# HS-04 (~2.1 s): the HS-49/56/57/67 rows run the whole six-lint preflight,
+# ~4.7 s solo, and since GH #295 this self-test runs inside the regression's
+# parallel phase — where HS-57b's preflight (a C++ preprocessing pass per
+# published header) outlived the old 30 s bound at load 13 on 12 CPUs (exit
+# 124). It is a hang bound, not a budget: wide on purpose, this project has
+# been burned by tight wall-clock budgets on loaded boxes.
 # HS-44 proves the bound fires; INVOKE_TIMEOUT_OVERRIDE is its hook (same
-# pattern as HS-04's TIMEOUT_OVERRIDE) so proving it costs ~3 s, not 30.
-INVOKE_TIMEOUT=30
+# pattern as HS-04's TIMEOUT_OVERRIDE) so proving it costs ~3 s, not 120.
+INVOKE_TIMEOUT=120
+
+# EVERY external tool a check's evidence depends on, verified before any check
+# runs. A missing tool must be a loud refusal, never evidence: HS-70e once
+# asked `pgrep`/`ps` (procps-ng, absent from the fedora:44 CI container) for
+# the process it was about to signal, both failed silently behind `|| true`,
+# and the row reported a broken harness that was not broken (GH #295 CI). With
+# a tool missing from an INCOMPLETE list, the shape is the same, only louder:
+# 45 rows "exit 127, wanted 0" (review of the first version of this list).
+#
+# HOW THIS LIST WAS DERIVED — and how to re-derive it after changing any code
+# a check drives (this file, run-unit-tests.sh, regression.sh and its .inc
+# files, regression-stamp.sh, the lints): trace every program the self-test
+# actually executes, with the binaries built, and take the basenames:
+#
+#   strace -f -qq -e trace=execve -e status=successful -o hs.trace \
+#       bash test/harness-selftest.sh
+#   grep -oE 'execve\("[^"]+"' hs.trace | sed 's/execve("//; s/"$//; s|.*/||' | sort -u
+#
+# then drop the stub suites the self-test writes itself (*_test). Two
+# substitutions: `cc1plus` is gcc's own (c++ stays), and `hostname` — absent
+# from fedora:44 — is only a fallback-guarded call in regression-stamp.sh,
+# whose fallback is `uname`. Process lookups read /proc (proc_* below), so
+# procps is deliberately NOT here. No row re-derives the list on every run:
+# strace is not installed in CI and roughly triples the self-test's time, and
+# a static scan for command names in the scripts both misses tools (built
+# argv, `env`/`timeout`/`xargs` wrappers) and flags prose — re-run the trace.
+#
+# A tool counts as present only if an EXECUTABLE of that name is on PATH
+# (`type -P`, so a shell builtin such as `true`/`test` does not stand in for
+# the program `flock ... true` runs) and running it does not end in 126/127,
+# the shell's "cannot execute" / "not found". That also refuses a stub or a
+# dangling wrapper that only pretends to be the tool.
+tool_runnable() {   # tool_runnable <name>
+    local p rc
+    p=$(type -P "$1") || return 1
+    "$p" --version </dev/null >/dev/null 2>&1; rc=$?
+    [[ $rc -ne 126 && $rc -ne 127 ]]
+}
+missing_tools=""
+for tool in awk basename bash c++ cat chmod comm cp cut date dirname env find flock git grep \
+            head ln ls make mkdir mktemp mv nproc perl rg rm rmdir sed seq sh sha256sum sleep \
+            sort stat tail test timeout touch tr true uname uniq wc xargs; do
+    tool_runnable "$tool" || missing_tools+=" $tool"
+done
+[[ -r /proc/self/stat && -r /proc/self/cmdline ]] || missing_tools+=" /proc"
+if [[ -n "$missing_tools" ]]; then
+    printf "  REFUSE harness-selftest: required tool(s) missing:%s — install them; a check cannot report evidence it has no tool to collect\n" "$missing_tools"
+    exit 2
+fi
+
+# /proc readers, so no check depends on procps-ng (ps/pgrep).
+proc_args() {   # proc_args <pid> — argv joined by single spaces; "" if gone
+    local a
+    a=$(tr '\0' ' ' 2>/dev/null < "/proc/$1/cmdline") || return 0
+    echo "${a% }"
+}
+proc_ppid() {   # proc_ppid <pid> — the parent pid; "" if gone
+    local s
+    s=$(cat "/proc/$1/stat" 2>/dev/null) || return 0
+    s=${s##*) }               # past "(comm) ": comm may itself contain spaces
+    set -- $s                 # $1 = state, $2 = ppid
+    echo "${2:-}"
+}
+proc_comm() { cat "/proc/$1/comm" 2>/dev/null || true; }   # proc_comm <pid>
+proc_with_args() {   # proc_with_args <exact argv string> — the pids running it
+    local d pid
+    for d in /proc/[0-9]*; do
+        pid=${d#/proc/}
+        [[ "$(proc_args "$pid")" == "$1" ]] && echo "$pid"
+    done
+    return 0
+}
 
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
@@ -1579,14 +1654,14 @@ slot_run JNEXT_REGRESSION_LOCK=force JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-b
 op=$!
 for _ in $(seq 1 50); do grep -q 'waiting for the host' "$T/outer.out" 2>/dev/null && break; sleep 0.2; done
 outer=""   # the regression.sh whose parent is timeout (the locked run's parent is flock)
-for p in $(pgrep -f -x "bash $REG --preflight-only" || true); do
-    [[ "$(ps -o comm= -p "$(ps -o ppid= -p "$p" | tr -d ' ')")" == timeout ]] && outer=$p
+for p in $(proc_with_args "bash $REG --preflight-only"); do
+    [[ "$(proc_comm "$(proc_ppid "$p")")" == timeout ]] && outer=$p
 done
 held=$(flock -n "$lockf" true && echo free || echo held)
 t0=$SECONDS
 kill -TERM "$outer" 2>/dev/null; wait "$op" 2>/dev/null
 sleep 1
-out="outer=${outer:+found} before=$held after=$(flock -n "$lockf" true && echo free || echo held) fast=$(( SECONDS - t0 < 10 ? 1 : 0 )) runs=$(pgrep -fc -x "bash $REG --preflight-only" || true)"
+out="outer=${outer:+found} before=$held after=$(flock -n "$lockf" true && echo free || echo held) fast=$(( SECONDS - t0 < 10 ? 1 : 0 )) runs=$(proc_with_args "bash $REG --preflight-only" | wc -l)"
 check "HS-70e" "a TERM to the outer regression.sh alone stops the locked run and frees the lock (GH #295)" 0 0 "$out" \
     "outer=found before=held after=free" "fast=1" "runs=0"
 

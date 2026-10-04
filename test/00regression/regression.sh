@@ -54,6 +54,13 @@ if [[ "${JNEXT_REGRESSION_LOCK:-}" == force || "${JNEXT_REGRESSION_STAMP:-}" == 
     REGRESSION_SLOT=true
 fi
 if $REGRESSION_SLOT && [[ -z "${JNEXT_REGRESSION_LOCK_HELD:-}" ]]; then
+    # flock(1) is util-linux-core, in every Fedora image including the bare CI
+    # container; still, a missing one is said, never an exit 127 mid-loop.
+    if ! command -v flock >/dev/null 2>&1; then
+        echo ""; echo "=== REGRESSION HARNESS FAULT ==="
+        echo "  flock(1) (util-linux) is not installed: a full run cannot take the host lock"
+        echo ""; exit 2
+    fi
     reg_lock=${JNEXT_REGRESSION_LOCK_FILE:-${XDG_CACHE_HOME:-$HOME/.cache}/jnext/regression.lock}
     reg_lock_bound=${JNEXT_REGRESSION_LOCK_WAIT:-7200}
     mkdir -p "$(dirname "$reg_lock")"
@@ -113,6 +120,31 @@ source "$(dirname "$0")/test-functions.inc"
 # shellcheck source=test/00regression/parallel-rows.inc
 source "$(dirname "$0")/parallel-rows.inc"
 regression_lanes
+
+# The tools the HARNESS itself executes — this driver, its .inc files, the
+# row runner, the stamp script, the group scripts and the six lints — checked
+# before anything runs, so a missing one is a named harness fault and never a
+# lint or a row that FAILs "exit 127" (GH #295 CI: procps was missing in CI and
+# a check read the failure as evidence). Rows check their own tools (python3,
+# ffmpeg, xvfb-run, mtools, ...) and SKIP or FAIL by name, so they are not here;
+# neither is ImageMagick, which the screenshot rows report as SKIP. DERIVED by
+# `strace -f -qq -e trace=execve -e status=successful` over a full run,
+# intersected with the program names that appear in the harness files above;
+# re-derive the same way after changing any of them. `hostname` is absent from
+# fedora:44 and only a fallback-guarded call (its fallback, uname, is listed).
+# Present = an executable on PATH (`type -P`, never a builtin) that does not
+# answer `--version` with 126/127 ("cannot execute" / "not found").
+reg_missing=""
+for reg_tool in awk basename bash cat comm cp date dirname env find flock git grep head \
+                ln ls mkdir mktemp mv nproc rg rm rmdir sed sha256sum sleep sort stat \
+                tail timeout tr uname wc "${CXX:-c++}"; do
+    reg_tool_path=$(type -P "$reg_tool") || { reg_missing+=" $reg_tool"; continue; }
+    reg_rc=0; "$reg_tool_path" --version </dev/null >/dev/null 2>&1 || reg_rc=$?
+    [[ $reg_rc -ne 126 && $reg_rc -ne 127 ]] || reg_missing+=" $reg_tool"
+done
+[[ -z "$reg_missing" ]] \
+    || harness_fault "tool(s) the regression harness runs are not installed:${BOLD}${reg_missing}${RESET}" \
+                     "Install them; a lint or a row would otherwise report their absence as a test failure."
 
 # A full run waits (bounded) for a host that is not already overloaded.
 if $REGRESSION_SLOT; then
