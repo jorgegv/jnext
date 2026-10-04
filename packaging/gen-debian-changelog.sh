@@ -15,8 +15,10 @@
 # directory copied without running this script has no changelog, so the build
 # stops instead of quietly packaging the history's last version.
 #
-# The date is SOURCE_DATE_EPOCH when set (reproducible builds), else now, in
-# the C locale: the changelog format requires English day and month names.
+# The date is SOURCE_DATE_EPOCH when set (reproducible builds), else now. The
+# changelog format requires English day and month names; `date -R` prints them
+# in every locale, and LC_ALL=C is set anyway, per the project's child-process
+# rule.
 #
 set -euo pipefail
 export LC_ALL=C

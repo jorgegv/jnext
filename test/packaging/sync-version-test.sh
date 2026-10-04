@@ -200,7 +200,7 @@ fi
 a=$(LC_ALL=es_ES.UTF-8 LANG=es_ES.UTF-8 SOURCE_DATE_EPOCH=1700000000 bash "$gen" 2>/dev/null)
 b=$(SOURCE_DATE_EPOCH=1700000000 bash "$gen" 2>/dev/null)
 if [ "$a" = "$b" ] && grep -qxF ' -- ZXjogv <zx@jogv.es>  Tue, 14 Nov 2023 22:13:20 +0000' <<<"$a"; then
-    ok "debian changelog: SOURCE_DATE_EPOCH pins the date, in the C locale"
+    ok "debian changelog: SOURCE_DATE_EPOCH pins the date, in English under a Spanish caller"
 else
     bad "debian changelog: date not reproducible or not in English"
 fi
