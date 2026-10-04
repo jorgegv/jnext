@@ -32,3 +32,9 @@ if(ENABLE_DEBUGGER)
     target_link_libraries(jnext_gui PUBLIC jnext_debugger)
     target_compile_definitions(jnext_gui PUBLIC ENABLE_DEBUGGER)
 endif()
+
+# mac_cursor_warp.cpp (issue #303): CGWarpMouseCursorPosition and
+# CGAssociateMouseAndMouseCursorPosition live in CoreGraphics.
+if(APPLE)
+    target_link_libraries(jnext_gui PUBLIC "-framework CoreGraphics")
+endif()
