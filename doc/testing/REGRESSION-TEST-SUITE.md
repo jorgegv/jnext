@@ -97,7 +97,10 @@ above the CPU count, and starts anyway with a loud note. Targeted runs (row
 names, `--update`, `--preflight-only`) never lock. A run NESTED inside a locked
 run — the self-test's children, a row that drives the harness — never waits
 for its ancestor's lock: the locked run names the lock it holds in
-`JNEXT_REGRESSION_ANCESTOR_LOCKS`, and keeps `JNEXT_REGRESSION_STAMP` /
+`JNEXT_REGRESSION_ANCESTOR_LOCKS` as `<lock>|<pid>|<start time>`, and a nested
+run accepts an entry only if that pid is alive with that `/proc` start time, is
+its own ancestor, and is (through its `flock -o` wrapper) the holder `/proc/locks`
+names for the lock file — a hand-exported or stale marker locks normally. It keeps `JNEXT_REGRESSION_STAMP` /
 `JNEXT_REGRESSION_LOCK` out of the environment its rows inherit (an inherited
 `STAMP=confirm` once made every nested `--preflight-only` wait out its bound
 inside `make regression-confirm`).

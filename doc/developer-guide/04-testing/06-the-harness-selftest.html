@@ -2404,9 +2404,13 @@ pending / solo-confirm path stamps only when every pending row passes. <code>HS-
 bans <code>xvfb-run -a</code>/<code>-n</code> from the test scripts. <code>HS-73</code> runs the real confirm
 path in a throwaway repository whose one row invokes the harness again, as
 harness-selftest-func does, and requires it to complete and stamp: a nested
-run never waits for the lock its own ancestor holds.</p>
+run never waits for the lock its own ancestor holds. <code>HS-74a</code>/<code>HS-74b</code> prove
+the marker that says so is evidence, not a password: a hand-exported one, one
+naming a live ancestor that does not hold the lock, a stale one, and one naming
+the live holder that is not an ancestor all leave the run a normal second run
+that waits and faults at its bound.</p>
 <h2 id="it-pins-its-own-count">It pins its own count<a class="headerlink" href="#it-pins-its-own-count" title="Permanent link">&para;</a></h2>
-<p><code>EXPECTED_TOTAL = 118</code> sits in the script, right next to the rows it counts, and
+<p><code>EXPECTED_TOTAL = 120</code> sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is

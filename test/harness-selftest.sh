@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=118  # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73 (GH #295)
+EXPECTED_TOTAL=120  # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1865,6 +1865,30 @@ out+=$'\n'"fast=$(( SECONDS - t0 < 60 ? 1 : 0 ))"
 check "HS-73" "a confirm run whose row runs the harness again completes and stamps — no wait on its own ancestor's lock (GH #295)" 0 $rc "$out" \
     "[nested-func]" "the nested harness ran: plain 1, forced 1; nested inside a run that holds" \
     "passed solo" "STAMP OK" "confirmed_solo=nested-func" "fast=1"
+
+# ...and the marker is EVIDENCE, never a password (review of HS-73's fix). An
+# entry counts only for a live ancestor, with its /proc start time, that holds
+# the lock right now. A hand-exported marker, an entry naming a live ancestor
+# that does NOT hold the lock, a stale entry of a run that has exited, and a
+# live holder that is NOT an ancestor must each leave this run a normal second
+# full run: it waits for the lock, bounded, and is a harness fault at the bound.
+proc_start() { local st; st=$(cat "/proc/$1/stat" 2>/dev/null) || return 0; st=${st##*) }; set -- $st; echo "${20:-}"; }
+flock "$lockf" sleep 40 & holder=$!
+sleep 1
+gone=$(bash -c 'echo $$'); gone_start=unknown   # a pid that has exited
+out=""
+for marker in "$lockf" "$lockf|$$|$(proc_start $$)" "$lockf|$gone|$gone_start"; do
+    o=$(slot_run JNEXT_REGRESSION_LOCK=force JNEXT_REGRESSION_LOCK_WAIT=5 JNEXT_REGRESSION_ANCESTOR_LOCKS="$marker"); r=$?
+    out+="rc=$r nested=$(count_of "$o" "nested inside") waited=$(count_of "$o" "holds the host lock") "
+done
+check "HS-74a" "a hand-exported, non-holding or stale ancestor-lock marker does NOT bypass the host lock (GH #295)" 0 0 "$out" \
+    "rc=2 nested=0 waited=1 rc=2 nested=0 waited=1 rc=2 nested=0 waited=1"
+o=$(slot_run JNEXT_REGRESSION_LOCK=force JNEXT_REGRESSION_LOCK_WAIT=5 \
+             JNEXT_REGRESSION_ANCESTOR_LOCKS="$lockf|$holder|$(proc_start "$holder")"); r=$?
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+out="rc=$r nested=$(count_of "$o" "nested inside") waited=$(count_of "$o" "holds the host lock")"
+check "HS-74b" "a marker naming the LIVE lock holder that is not an ancestor does not bypass it either (GH #295)" 0 0 "$out" \
+    "rc=2 nested=0 waited=1"
 
 echo ""
 echo "====================================="
