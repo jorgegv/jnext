@@ -76,8 +76,9 @@ before the bump commit**, so the released tag carries its own ChangeLog entry.
 - The new entry is **differential**: it describes only what changed **since the
   previous ChangeLog record** (the last public release), not the whole history.
 - Follow the ChangeLog rules in `CLAUDE.md` (4 sections — User Features,
-  Developer Features, Bug Fixes, Internal JNEXT Development; no trivial fixes;
-  no commit IDs; coalesce similar items).
+  Developer Features, Bug Fixes, Internal JNEXT Development — then the
+  "Contributors in this release" list; no trivial fixes; no commit IDs;
+  coalesce similar items).
 - Private patch bumps (answered `N`) do **not** require a ChangeLog entry.
 
 **Every item is ONE line. No exceptions.** One bullet, one physical line in the

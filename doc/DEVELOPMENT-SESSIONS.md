@@ -171,4 +171,23 @@
 |         |      | #154 ESP-01 class-A surface (WiFi, CIPDOMAIN, in-process ping, SNTP). v1.0.31->.38                     |
 |         |      | #272 Copper row-boundary ordering; #273 suites run in two build configurations                         |
 |         |      | v1.0.39->.41; v1.0.41 PUBLIC RELEASE                                                                   |
+| 26/9    |      | #274 SNA for every machine, RZX restricted; #282 automap ROM3 alt-ROM MUX; #275 guide shots            |
+|         |      | v1.0.42->.44; v1.0.44 PUBLIC RELEASE                                                                   |
+| 27/9    |      | Epic #276 debug subsystem: architecture design (#277), public backend headers (#285)                   |
+|         |      | v1.0.45->.46                                                                                           |
+| 28/9    |      | #276 debugger backend (#286); duplicate/non-literal row IDs refused; #289 .jns range checks            |
+|         |      | v1.0.47->.49                                                                                           |
+| 29/9    |      | DZRP server for DeZog (#12); socket transport (#287); DSL expression library (#26)                     |
+|         |      | #284 ZX81 boots from the firmware menu; #290 NR 0x64; #278 Qt debugger identity rows                   |
+|         |      | v1.0.50->.55                                                                                           |
+| 1/10    |      | GDB RSP for z88dk-gdb (#281); ZRCP for DeZog/ZEsarUX (#280); Qt debugger on the backend                |
+|         |      | #93 live SD swap; #292 directory copy; #293 Copper mode 11; #283 DMA reads in RZX                      |
+|         |      | v1.0.56->.65                                                                                           |
+| 2/10    |      | Debugger scripting language (#26, #20, #279); tape SAVE to TZX/WAV (#89); rewind refusal               |
+|         |      | #288 dev guide debug chapters; #296 doc/ reorganised; #294 clang evaluated, gcc kept                   |
+|         |      | v1.0.66->.72                                                                                           |
+| 3/10    |      | #297 PGO release builds + balanced training; #298 Windows Release + LTO + PGO                          |
+|         |      | #300 DMA follows dma.vhd; PR #302 DeZog 3.8 (vmorilla). v1.0.73->.79                                   |
+| 4/10    |      | #299 wine Qt hang: training-script env fix; #301 NXModPlayer under --esxdos-stub-root                  |
+|         |      | v1.0.80->.81; v1.1.0 PUBLIC RELEASE                                                                    |
 | TOTAL:  | 666h |                                                                                                        |

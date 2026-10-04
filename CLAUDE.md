@@ -112,11 +112,12 @@ The single authoritative protocol for landing any implemented change on `main`:
 - A ChangeLog file should exist at the root of the repository
 - It should contain entries for the different tagged versions, in reverse chronological order (most recent at the top of the file)
 - **Version headers correspond to PUBLIC RELEASE tags only** (the tags listed in `releases.yaml`), NEVER intermediate/private `make bump-patch` tags. A private patch bump does NOT get its own ChangeLog entry. Accumulate all changes since the last public release under a single top `## Unreleased (YYYY-MM-DD)` header; when a public release is actually cut, rename that `Unreleased` header to the released version + date. So most feature/fix bumps land under `Unreleased` and only coalesce into a versioned header at the next public release.
-- Each entry should consist of the version tag, and below it, an extremely terse description of the new features and fixes of that version, up to the previous version. There should be 4 sections:
+- Each entry should consist of the version tag, and below it, an extremely terse description of the new features and fixes of that version, up to the previous version. There should be these sections:
   - User Features: new features oriented to users who just run games and programs: GUI, emulation features, main menu, etc.
   - Developer Features: new features oriented to developers: in general, all debugger and instrospection features
   - Bug Fixes
   - Internal JNEXT Development: new plans, enhancements to test results, big architectural changes or enhancements, etc.
+  - Contributors in this release (owner decision 2026-10-04, from v1.1.0 on): a single `- ` bullet with a comma-separated list of the GitHub handles (`@handle`) of everyone other than the owner who opened an issue or PR since the previous public release. No per-person details.
 - Descriptions for each feature/fix should never be more than one line, and should be about 10-20 words maximum
 - Trivial fixes, syntax, reformats, documentation, project plan updates, etc. should not appear on the ChangeLog. Only significative features and fixes.
 - The file should only be updated when the user requests it

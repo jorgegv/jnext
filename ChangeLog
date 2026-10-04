@@ -1,18 +1,23 @@
 # ChangeLog
 
-## Unreleased (2026-10-02)
+## v1.1.0 (2026-10-04)
 
 ### User Features
+- Much faster on Windows: up to 55% more speed than previous versions
+- Faster on every platform: 13-31% more speed, and 12-20% less CPU when running at normal speed
 - Change the SD card while running (File > Insert/Eject SD Card), so NextZXOS's REMOUNT works
 - `--sdcard-file-add` copies whole directories too, and without `--sdcard-file-dest` puts them in the card root
 - Save to TZX or WAV (`--tape-save`, Tape > Start Saving), capturing programs' own savers too
 
 ### Developer Features
-- New remote debugging protocols, in every frontend incl. headless: DeZog (DZRP), z88dk-gdb (GDB RSP) and ZEsarUX ZRCP
+- New remote debugging protocols in every frontend, headless included: DeZog DZRP (DeZog 3.8 ready), z88dk-gdb and ZEsarUX ZRCP
 - Debugger scripting language and engine (`--script`): event rules, checks and CI verdicts; record/replay sessions with screen compares
+- User Guide: a complete debugger scripting chapter, with a demo program and nine ready-to-run example scripts
+- `--esxdos-stub-root` answers paths and listings as NextZXOS does, so programs like NXModPlayer can browse host files
 
 ### Bug Fixes
 - ZX81 boots from the firmware boot menu; REQUIRES re-downloading the SD image (`--sdcard-download-force`), which replaces anything saved on it
+- DMA follows the hardware: correct status flags, end-of-block timing, and burst sample playback rate at every CPU speed
 - Debugger panels no longer disturb the +3 floating bus; Step Back, Step Over and the Magic Breakpoint menu fixed
 - RZX recordings now capture and replay DMA port reads, so DMA-driven programs replay faithfully
 - Copper programs in restart-every-frame mode run to the end of the frame: Copper-played DAC samples no longer stall
@@ -22,7 +27,12 @@
 
 ### Internal JNEXT Development
 - Debugging subsystem fully refactored into one backend shared by the Qt debugger, remote servers and scripts
+- Windows builds are now Release + LTO + PGO, like the rest; every package is a gcc PGO build
+- PGO is trained on every build with a broad workload set, Windows under wine; FUSE gates every package; clang evaluated, gcc kept
 - Test harness hardened: per-run isolation of temp paths, config and HOME; duplicate row IDs and corrupted counters refused
+
+### Contributors in this release
+- @vmorilla, @janko-jj, @shadowphiar, @danboid
 
 ## v1.0.44 (2026-09-26)
 

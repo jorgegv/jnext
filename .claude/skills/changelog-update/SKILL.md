@@ -1,6 +1,6 @@
 ---
 name: changelog-update
-description: Coalesce commits since the last git tag into a ChangeLog entry following the project's strict rules (4 sections, terse, no commit IDs, no trivial fixes). Use when the user says "update the ChangeLog" or as a step of /version-bump.
+description: Coalesce commits since the last git tag into a ChangeLog entry following the project's strict rules (4 sections + contributors, terse, no commit IDs, no trivial fixes). Use when the user says "update the ChangeLog" or as a step of /version-bump.
 ---
 
 # ChangeLog update
@@ -49,6 +49,9 @@ Big architectural/test/process changes the user doesn't directly see but that ar
 - "Subsystem audit framework with enumeration-table mandate"
 - "Regression test suite restructured to 33 screenshot cases"
 
+### Contributors in this release
+Public releases only, from v1.1.0 on (owner decision 2026-10-04). One `- ` bullet: a comma-separated list of the GitHub handles of everyone other than the owner (jorgegv) who opened an issue or PR since the previous public release — no per-person details. Find them with `gh issue list --state all --search "created:>=<date>"` and `gh pr list --state all --search "created:>=<date>"`, where `<date>` is the tag date of the previous public release (the newest tag in `releases.yaml`); drop anything created before that tag's time.
+
 ## Style rules (strict)
 
 - **One line per entry, 10–20 words.** No exceptions.
@@ -77,6 +80,9 @@ Big architectural/test/process changes the user doesn't directly see but that ar
 ### Internal JNEXT Development
 - ...
 
+### Contributors in this release
+- @handle1, @handle2
+
 ## vP.Q.R (date)
 ...
 ```
@@ -88,7 +94,7 @@ If no commits exist for a section, omit the section (don't leave an empty header
 1. Find last tag: `git describe --tags --abbrev=0`.
 2. Get commit list: `git log --oneline <last-tag>..HEAD`.
 3. For each commit, ask: "would an end-user / developer-user / triager care about this in a changelog?" If no → drop.
-4. Classify the rest into the 4 sections.
+4. Classify the rest into the 4 sections, then build the contributors list.
 5. Coalesce similar items into single 10–20 word lines.
 6. Write the new entry at the top of `ChangeLog` (above the previous version's entry).
 7. Show the diff to the user. **Do NOT commit until they confirm** — per CLAUDE.md, ChangeLog updates are user-requested.
