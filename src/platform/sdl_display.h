@@ -7,7 +7,8 @@ public:
     SdlDisplay() = default;
     ~SdlDisplay() { shutdown(); }
 
-    /// Initialise the SDL window + renderer.
+    /// Initialise the SDL window + renderer. The window is titled
+    /// JNEXT_WINDOW_TITLE (platform/window_title.h), which carries the version.
     ///
     /// `native_w × native_h` is the IN-MEMORY framebuffer size (640×256
     /// post-G104). `display_h` is the post-vertical-2× logical viewport
@@ -15,7 +16,7 @@ public:
     /// renderer's logical size matches the window's logical viewport so
     /// the `native_w × native_h` texture gets stretched 1× horizontally
     /// and 2× vertically, producing square-pixel 4:3 output (G104 Phase 7).
-    bool init(const char* title, int native_w, int native_h, int display_h);
+    bool init(int native_w, int native_h, int display_h);
     void upload_frame(const uint32_t* pixels, int w, int h);
     void present();
     void toggle_fullscreen();

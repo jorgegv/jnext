@@ -785,6 +785,13 @@ target_include_directories(host_key_latch_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(host_key_latch_test PRIVATE ${JNEXT_SDL3_TARGET})
 add_test(NAME host_key_latch_tests COMMAND host_key_latch_test)
 
+# GH #155 — the SDL window title names the version. Drives the real
+# SdlDisplay::init() under SDL's dummy video driver: no display, ungated.
+add_executable(sdl_window_title_test platform/sdl_window_title_test.cpp)
+target_include_directories(sdl_window_title_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(sdl_window_title_test PRIVATE jnext_platform)
+add_test(NAME sdl_window_title_tests COMMAND sdl_window_title_test)
+
 # NMI source pipeline compliance test (Phase 1 scaffold + Wave A, 2026-04-24).
 # See doc/design/TASK-NMI-SOURCE-PIPELINE-PLAN.md + doc/testing/
 # NMI-PIPELINE-TEST-PLAN-DESIGN.md. Phase 1 carries RST-01; Wave A adds
@@ -1277,6 +1284,13 @@ if(ENABLE_QT_UI)
     target_link_libraries(window_scale_test PRIVATE jnext_gui)
     target_include_directories(window_scale_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME window_scale_tests COMMAND window_scale_test)
+
+    # GH #155 — the main window title (and its mouse-capture title) names the version.
+    add_executable(window_title_test gui/window_title_test.cpp)
+    set_target_properties(window_title_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(window_title_test PRIVATE jnext_gui)
+    target_include_directories(window_title_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME window_title_tests COMMAND window_title_test)
 
     # Issue #131 — File > Quit was wired straight to QApplication::quit(), so
     # MainWindow::closeEvent() never ran and its cleanup (stop an active

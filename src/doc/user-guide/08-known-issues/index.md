@@ -15,7 +15,7 @@ all. The tracker is where the current state is authoritative.
 If what you are seeing is not already there, please open an issue. What helps
 most:
 
-- the JNEXT version (`jnext --version`) and your OS;
+- the JNEXT version (`jnext --version`, or the window's title bar) and your OS;
 - the exact command line, or the steps in the GUI;
 - the program you were running, if it can be shared;
 - for a rendering problem, a screenshot — `--headless` with

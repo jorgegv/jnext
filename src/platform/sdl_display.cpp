@@ -1,7 +1,8 @@
 #include "sdl_display.h"
 #include "core/log.h"
+#include "platform/window_title.h"
 
-bool SdlDisplay::init(const char* title, int native_w, int native_h, int display_h) {
+bool SdlDisplay::init(int native_w, int native_h, int display_h) {
     native_w_ = native_w;
     native_h_ = native_h;
     display_h_ = display_h;
@@ -13,7 +14,7 @@ bool SdlDisplay::init(const char* title, int native_w, int native_h, int display
     // shown by default (SDL_WINDOW_SHOWN is gone). Centring is a separate,
     // best-effort call — a window manager may place the window itself, which
     // was equally true of SDL2's SDL_WINDOWPOS_CENTERED hint.
-    window_ = SDL_CreateWindow(title,
+    window_ = SDL_CreateWindow(JNEXT_WINDOW_TITLE,
         native_w * scale_, display_h * scale_, 0);
     if (!window_) {
         Log::platform()->error("SDL_CreateWindow: {}", SDL_GetError());
