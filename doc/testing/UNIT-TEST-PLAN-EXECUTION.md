@@ -517,12 +517,27 @@ discrepancies bullets, Summary table totals line):
   degradation policy — `plan_for()` on top of the band's answer, including
   the row that pins the band moving identically under both preferences,
   AP-18 the GH #155 estimate envelope — no runaway and no skip on a starving
-  queue, and no binding on a mean-tracking sawtooth), the **whole loop on a
+  queue, no spurious catch-up after a pinned-high queue, no binding on a
+  mean-tracking sawtooth, the envelope derived from the device buffer), the **whole loop on a
   slow fake host** (`frame_sequencer_test` FS-EDGE-01..04: real-time pacing
   at 15.6 ms frames, back-to-back emulation with no skips and no waits at
   23 ms), the GUI **frame-timer contract** (`frame_timer_test` FT-01..05, a
-  real QTimer with no display) and the **tick-entry paint**
-  (`present_count_test` PC-FP01..04),
+  real QTimer with no display, FT-06 the 0 ms arm at the floor) and the
+  **tick-entry paint** (`present_count_test` PC-FP01..04). The **QtApp
+  wiring** of the last two is pinned by the `frame-loop-wiring-func`
+  regression row, which runs the real GUI binary and reads the `ticks:`
+  line's counters (every tick re-arms the timer; no rescue; the tick-entry
+  paint is asked every tick). Deliberately NOT pinned, and stated here so it
+  is not mistaken for coverage: (a) that the tick-entry paint ever finds a
+  frame to paint — that only happens where the timer event outranks the
+  repaint, i.e. on Windows (wine-measured, GH #155); its `painted` counter is
+  ~0 on Linux; (b) the post-tick rescue re-anchor in `QtApp::on_frame_tick`,
+  which is insurance — with correct wiring it never runs, so removing it is
+  invisible (frame-loop-wiring-func asserts it stays at 0); (c) the frontends'
+  hand-over of the device envelope (`set_audio_envelope_ms`,
+  `SdlApp` `pacing_band_.envelope_ms`), which differs from the 24 ms default
+  only on a device with a bigger buffer; the value is in the `Audio device
+  buffer:` log line,
   and the **end-to-end behaviour** via the
   `audio-underrun-func` regression test, which captures jnext's real audio
   output through SDL's `disk` driver and asserts no zeros were spliced into

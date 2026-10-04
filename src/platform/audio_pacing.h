@@ -97,28 +97,49 @@ inline constexpr int INTERVENTION_MS = 21;
 /// QUEUE_FLOOR_MS; at 38 it can (AP-15f).
 inline constexpr int EMERGENCY_LOW_MS = 39;
 /// How far the smoothed estimate may sit from the reading it is smoothing
-/// (GH #155). The readings carry a sawtooth of at most one device chunk —
-/// SDL3's default for our 44.1 kHz stream is 1024 sample frames
-/// (SDL_GetDefaultSampleFramesFromFreq), 23.2 ms, and less when the device
-/// itself runs at 48 kHz (1024 frames = 21.3 ms) — so an estimate that tracks
-/// the true mean is ALWAYS within 23.2 ms of any reading, and 24 is the
-/// smallest whole ms that never binds on one. The clamp therefore leaves a
-/// healthy controller exactly as it was (every AP-13..AP-16 model row is
-/// unchanged) and binds only when the estimate disagrees with the reading by
-/// more than any sawtooth phase can explain.
+/// (GH #155): the DEFAULT, and the floor, of BandState::envelope_ms.
+///
+/// The readings carry a sawtooth of at most one device chunk: the device
+/// takes its buffer from the ring in one piece. An estimate that tracks the
+/// true mean is therefore ALWAYS within one chunk of any reading, so a clamp
+/// of one chunk (rounded up to whole ms) never binds on a healthy controller
+/// (every AP-13..AP-16 model row is unchanged) and binds only when the
+/// estimate disagrees with the reading by more than any sawtooth phase can
+/// explain. The chunk is the OPENED device's buffer, which SdlAudio reads back
+/// with SDL_GetAudioDeviceFormat() and turns into the envelope with
+/// envelope_for_device() below (logged at device open). This constant covers
+/// the case where the device cannot be asked, and is the floor: it is SDL3's
+/// default buffer for our 44.1 kHz stream, 1024 sample frames
+/// (SDL_GetDefaultSampleFramesFromFreq) = 23.2 ms, rounded up — the 48 kHz
+/// default (1024 frames = 21.3 ms) is smaller still.
 ///
 /// That disagreement has one cause, and it is the overloaded host. The
 /// feed-forward below credits each catch-up with INTERVENTION_MS on the
 /// assumption that the extra frame really raises the queue by one frame; on
 /// a host that cannot emulate in real time it does not, so with readings of
-/// 0-40 ms the estimate climbed without bound (686 ms in the AP-RUN model),
+/// 0-40 ms the estimate climbed without bound (~620 ms in AP-18's model),
 /// and every reading of 39-40 ms — not an emergency — then tripped the HIGH
 /// arm and SKIPPED a frame on an almost empty queue. That is the
 /// doubles-and-skips spiral in janko-jj's v1.1.0 log (queue max 40 ms, 5-13
 /// skips/s while 12-17 catch-ups/s ran), and the same runaway after a startup
 /// stall is what made some launches settle into a double/skip limit cycle on
-/// a healthy host (AP-RUN-*).
+/// a healthy host (AP-18a-d). The lower side matters too: a queue pinned above
+/// the ceiling feeds skips forward that the reading never confirms, and the
+/// sunken estimate then ran catch-up doubles on a mid-band queue (AP-18f).
 inline constexpr int ESTIMATE_ENVELOPE_MS = 24;
+
+/// The estimate envelope for an opened device whose buffer is `sample_frames`
+/// frames at `device_freq` Hz: one chunk, rounded up to whole ms, never below
+/// ESTIMATE_ENVELOPE_MS. Unknown values (<= 0) give the floor. The ratio is
+/// the device's own (frames at the device rate), so a device resampling our
+/// 44.1 kHz stream to 48 kHz is measured correctly.
+inline constexpr int envelope_for_device(int sample_frames, int device_freq)
+{
+    if (sample_frames <= 0 || device_freq <= 0) return ESTIMATE_ENVELOPE_MS;
+    const long long num = static_cast<long long>(sample_frames) * 1000;
+    const int chunk_ms = static_cast<int>((num + device_freq - 1) / device_freq);  // ceil
+    return chunk_ms > ESTIMATE_ENVELOPE_MS ? chunk_ms : ESTIMATE_ENVELOPE_MS;
+}
 
 /// Never let the device queue fall below this. If the host is too slow to
 /// emulate in real time, no amount of pacing can conjure the missing samples,
@@ -151,6 +172,9 @@ struct BandState {
     /// reading seeds it directly (so the very first decision, and the first
     /// after the device goes away, sees the raw depth — no cold-start lag).
     double smoothed_ms = -1.0;
+    /// How far the estimate may sit from a reading (ESTIMATE_ENVELOPE_MS).
+    /// The frontend sets it from the opened device (envelope_for_device()).
+    int envelope_ms = ESTIMATE_ENVELOPE_MS;
 };
 
 /// Emulator frames to run this tick, given the current device queue depth in
@@ -173,10 +197,10 @@ inline constexpr int frames_for_tick(BandState& st, int queued_ms)
     st.smoothed_ms += (queued_ms - st.smoothed_ms) / (1 << SMOOTH_SHIFT);
     // Bound the estimate to the sawtooth envelope of this reading, so credit
     // the device never saw cannot accumulate (ESTIMATE_ENVELOPE_MS, GH #155).
-    if (st.smoothed_ms > queued_ms + ESTIMATE_ENVELOPE_MS)
-        st.smoothed_ms = queued_ms + ESTIMATE_ENVELOPE_MS;
-    if (st.smoothed_ms < queued_ms - ESTIMATE_ENVELOPE_MS)
-        st.smoothed_ms = queued_ms - ESTIMATE_ENVELOPE_MS;
+    if (st.smoothed_ms > queued_ms + st.envelope_ms)
+        st.smoothed_ms = queued_ms + st.envelope_ms;
+    if (st.smoothed_ms < queued_ms - st.envelope_ms)
+        st.smoothed_ms = queued_ms - st.envelope_ms;
 
     // Envelope emergencies act on the RAW reading (see the WHY above).
     if (queued_ms >= QUEUE_MAX_MS - INTERVENTION_MS) {

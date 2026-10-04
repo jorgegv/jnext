@@ -66,7 +66,9 @@ void EmulatorWidget::flush_pending_present() {
     // See the header: deliver the repaint request update() posted, through the
     // same path the event loop would take. frame_pending_ is the "a new frame
     // has not been painted" flag paintEvent() clears.
+    ++flush_stats_.checked;
     if (!frame_pending_) return;
+    ++flush_stats_.painted;
     QCoreApplication::sendPostedEvents(window(), QEvent::UpdateRequest);
 }
 

@@ -118,6 +118,10 @@ public:
     }
     audio_pacing::WhenSlowPrefer when_slow_prefer() const { return prefer_; }
 
+    /// The audio band's estimate envelope for the opened device (GH #155;
+    /// SdlAudio::pacing_envelope_ms()). Set once the device is open.
+    void set_audio_envelope_ms(int ms) { band_.envelope_ms = ms; }
+
     /// (Re)anchor the frame schedule — timer start, cold boot, speed change.
     /// Returns the whole-ms interval to the first deadline.
     int rebase(int64_t now_us, int64_t period_us)

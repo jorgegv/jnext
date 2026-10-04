@@ -57,6 +57,25 @@ bool SdlAudio::init()
                            spec.freq, spec.channels,
                            static_cast<unsigned>(spec.format),
                            audio_driver ? audio_driver : "(unknown)");
+
+    // GH #155 — the pacing band's estimate envelope is one device buffer
+    // (audio_pacing.h, ESTIMATE_ENVELOPE_MS). Ask the opened device for its
+    // buffer rather than assume SDL's default, and say what was found: a
+    // reporter's log then shows the premise the pacer runs on.
+    SDL_AudioSpec dev_spec{};
+    int dev_frames = 0;
+    const SDL_AudioDeviceID dev = SDL_GetAudioStreamDevice(stream_);
+    if (dev != 0 && SDL_GetAudioDeviceFormat(dev, &dev_spec, &dev_frames)) {
+        pacing_envelope_ms_ = audio_pacing::envelope_for_device(dev_frames, dev_spec.freq);
+        Log::platform()->info(
+            "Audio device buffer: {} sample frames at {} Hz -> pacing estimate envelope {} ms",
+            dev_frames, dev_spec.freq, pacing_envelope_ms_);
+    } else {
+        pacing_envelope_ms_ = audio_pacing::ESTIMATE_ENVELOPE_MS;
+        Log::platform()->info(
+            "Audio device buffer: not reported ({}) -> pacing estimate envelope {} ms (default)",
+            SDL_GetError(), pacing_envelope_ms_);
+    }
     return true;
 }
 

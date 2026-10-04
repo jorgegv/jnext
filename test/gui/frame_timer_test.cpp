@@ -20,6 +20,8 @@
 //   FT-04  re-arming twice with the same value restarts from the second call.
 //   FT-05  every arm leaves the timer running: a tick that arms cannot stop
 //          the machine.
+//   FT-06  the deadline schedule's 1 ms floor arms a zero timer (a host that
+//          is behind pays no timer floor per tick).
 //
 // The timing rows assert LOWER bounds only (a timer never fires early), so a
 // loaded host can delay a timeout but cannot fail a correct implementation.
@@ -152,6 +154,19 @@ int main(int argc, char** argv)
             if (!t.isActive()) all_active = false;
         }
         check("FT-05", "each arm, same value or not, leaves the timer active", all_active);
+    }
+
+    // FT-06 — the schedule's 1 ms floor ("due now") arms a zero timer, which
+    // fires once the event queue is drained instead of a whole ms later.
+    {
+        QTimer t;
+        frame_timer::configure(t);
+        frame_timer::arm(t, 1);
+        const bool zero = t.isActive() && t.interval() == 0;
+        frame_timer::arm(t, 2);
+        const bool two = t.isActive() && t.interval() == 2;
+        check("FT-06", "an interval at the 1 ms floor arms a zero timer; 2 ms and up are kept",
+              zero && two, "interval=" + std::to_string(t.interval()));
     }
 
     std::printf("\n====================================================\n");

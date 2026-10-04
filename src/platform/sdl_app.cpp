@@ -29,6 +29,8 @@ bool SdlApp::init(int argc, char* argv[]) {
         if (!audio_.init()) {
             Log::platform()->warn("Audio init failed — continuing without sound");
         }
+        // GH #155 — the band's estimate envelope is the opened device's buffer.
+        pacing_band_.envelope_ms = audio_.pacing_envelope_ms();
     } else {
         Log::platform()->info("--silent: not opening an audio device");
     }

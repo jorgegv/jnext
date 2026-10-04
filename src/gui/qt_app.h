@@ -205,6 +205,12 @@ private:
     QApplication* qapp_        = nullptr;
     MainWindow*   main_window_ = nullptr;
     QTimer*       frame_timer_ = nullptr;
+    /// GH #155 — frame-timer wiring counters for the `ticks:` debug line
+    /// (drained with it): arms made at the end of a tick, and re-anchors the
+    /// post-tick check had to make because a tick ended with the timer
+    /// unarmed. frame-loop-wiring-func pins re-armed == ticks, rescued == 0.
+    uint64_t      tick_rearms_ = 0;
+    uint64_t      rescue_rearms_ = 0;
     QTimer*       status_timer_ = nullptr;
     std::unique_ptr<SdlAudio> audio_;
 

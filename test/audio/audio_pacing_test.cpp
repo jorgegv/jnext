@@ -785,6 +785,36 @@ int main()
         check("AP-18d", "after it, a mid-band 60 ms reading runs exactly one frame",
               f60 == 1, "frames=" + std::to_string(f60));
     }
+    // The LOWER side of the envelope. A queue pinned above the hard ceiling (a
+    // device that stopped draining, a debugger resume, a fastload burst) makes
+    // every tick an emergency skip, and each skip feeds -INTERVENTION_MS
+    // forward that the reading never confirms. Without the lower bound the
+    // estimate sinks while the reading stays high, and the first healthy 60 ms
+    // readings afterwards look "behind the card" and run catch-up doubles on a
+    // queue that is in the middle of the band (2 spurious doubles at worst over
+    // N = 1..60). With it, none.
+    {
+        int worst_doubles = 0, worst_n = 0;
+        double worst_gap = 0.0;
+        for (int n = 1; n <= 60; n++) {
+            audio_pacing::BandState b{};
+            for (int i = 0; i < n; i++) (void)audio_pacing::frames_for_tick(b, 135);
+            int doubles = 0;
+            for (int i = 0; i < 20; i++) {
+                if (audio_pacing::frames_for_tick(b, 60) == 2) ++doubles;
+                const double gap = 60.0 - b.smoothed_ms;
+                if (gap > worst_gap) worst_gap = gap;
+            }
+            if (doubles > worst_doubles) { worst_doubles = doubles; worst_n = n; }
+        }
+        check("AP-18f", "after a queue pinned at 135 ms, healthy 60 ms readings run no catch-up "
+                        "and the estimate stays within the envelope below the reading",
+              worst_doubles == 0 &&
+                  worst_gap <= audio_pacing::ESTIMATE_ENVELOPE_MS + audio_pacing::INTERVENTION_MS,
+              "worst_doubles=" + std::to_string(worst_doubles) + " at n=" +
+                  std::to_string(worst_n) + " " + fmt_d("worst_gap", worst_gap));
+    }
+
     // The envelope must never bind on a controller that is tracking the mean:
     // readings swinging a full 23 ms chunk either side of a mid-band mean leave
     // the estimate exactly where the plain EMA puts it.
@@ -804,6 +834,46 @@ int main()
         }
         check("AP-18e", "a +-23 ms sawtooth around a mid-band mean: the envelope never binds",
               same, fmt_d("worst", worst));
+    }
+
+    // The envelope is the OPENED device's buffer (SdlAudio reads it back with
+    // SDL_GetAudioDeviceFormat): one chunk rounded up to whole ms, never below
+    // the documented default. A device with a bigger buffer has a bigger
+    // sawtooth, and a fixed 24 ms clamp would bind on it on a healthy host.
+    {
+        using audio_pacing::envelope_for_device;
+        const int e1 = envelope_for_device(1024, 44100);   // SDL3 default: 23.2 ms
+        const int e2 = envelope_for_device(1024, 48000);   // 21.3 ms -> the floor
+        const int e3 = envelope_for_device(2048, 48000);   // 42.7 ms
+        const int e4 = envelope_for_device(4096, 44100);   // 92.9 ms
+        const int e5 = envelope_for_device(0, 0);          // not reported
+        check("AP-18g", "envelope_for_device: one buffer rounded up, floored at 24 ms, 24 when unknown",
+              e1 == 24 && e2 == 24 && e3 == 43 && e4 == 93 && e5 == 24,
+              "e=" + std::to_string(e1) + "/" + std::to_string(e2) + "/" + std::to_string(e3) +
+                  "/" + std::to_string(e4) + "/" + std::to_string(e5));
+    }
+    // ... and frames_for_tick() honours the band's own envelope: a 2048-frame
+    // device (43 ms) on a +-29 ms sawtooth around a mid-band mean never binds,
+    // where the 24 ms default would.
+    {
+        auto drive = [](int envelope) {
+            audio_pacing::BandState b{};
+            b.envelope_ms = envelope;
+            double ref = 0.0, worst = 0.0;
+            for (int i = 0; i < 400; i++) {
+                const int q = i == 0 ? 69 : (i % 2) ? 98 : 40;   // 69 +- 29, no emergencies
+                (void)audio_pacing::frames_for_tick(b, q);
+                if (i == 0) ref = q;
+                ref += (q - ref) / (1 << audio_pacing::SMOOTH_SHIFT);
+                const double d = b.smoothed_ms > ref ? b.smoothed_ms - ref : ref - b.smoothed_ms;
+                if (d > worst) worst = d;
+            }
+            return worst;
+        };
+        const double w43 = drive(audio_pacing::envelope_for_device(2048, 48000));
+        const double w24 = drive(audio_pacing::ESTIMATE_ENVELOPE_MS);
+        check("AP-18h", "the band uses its own envelope: 43 ms never binds on a +-29 ms sawtooth, 24 ms does",
+              w43 < 1e-9 && w24 > 1.0, fmt_d("worst43", w43) + " " + fmt_d("worst24", w24));
     }
 
     std::printf("\n====================================================\n");

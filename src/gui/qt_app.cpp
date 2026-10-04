@@ -88,6 +88,7 @@ void QtApp::reschedule_frame_timer(int interval)
     // unchanged value lost a frame on Windows whenever a tick outlasted its
     // interval (GH #155; frame_timer.h has the mechanism).
     frame_timer::arm(*frame_timer_, interval);
+    ++tick_rearms_;
     log_frame_pacing(effective_frame_period_us());
 }
 
@@ -249,6 +250,8 @@ bool QtApp::init(int argc, char* argv[]) {
         if (!audio_->init()) {
             Log::platform()->warn("Audio init failed - continuing without sound");
         }
+        // GH #155 — the band's estimate envelope is the opened device's buffer.
+        seq_.set_audio_envelope_ms(audio_->pacing_envelope_ms());
     } else {
         Log::platform()->info("--silent: not opening an audio device");
     }
@@ -554,7 +557,10 @@ void QtApp::on_frame_tick() {
     // this re-anchors if some path ever ends a tick without either — today
     // only an abandoned tick could (pre_frames() returning false), and the Qt
     // frontend never abandons one.
-    if (frame_timer_ && !frame_timer_->isActive()) rebase_frame_timer();
+    if (frame_timer_ && !frame_timer_->isActive()) {
+        ++rescue_rearms_;
+        rebase_frame_timer();
+    }
 }
 
 // --- TickEffects: the frontend work the sequencer drives -------------------
@@ -864,9 +870,13 @@ void QtApp::on_status_tick() {
     // same reportable gate. Drain the widget's paint samples into the window
     // first so one report carries all four mechanisms; then reset. All
     // semantics live in src/platform/tick_stats.h — this is formatting only.
+    EmulatorWidget::FlushStats flush{};
     if (main_window_->emulator_widget()) {
         seq_.stats().paint_us = main_window_->emulator_widget()->take_paint_stats();
+        flush = main_window_->emulator_widget()->take_flush_stats();
     }
+    const uint64_t rearms = tick_rearms_, rescues = rescue_rearms_;
+    tick_rearms_ = rescue_rearms_ = 0;
     const tick_stats::Report ts = tick_stats::summarize(seq_.stats());
     seq_.reset_stats();
     if (cad.reportable) {
@@ -891,10 +901,11 @@ void QtApp::on_status_tick() {
         Log::platform()->debug(
             "ticks: n={} interval avg/min/max={} late(>{:.1f}ms)={} "
             "handler avg/min/max={} emu avg/min/max={} "
-            "queue avg/min/max={} paint avg/min/max={}",
+            "queue avg/min/max={} paint avg/min/max={} | "
+            "timer re-armed={} rescued={} | pending-paint checked={} painted={}",
             ts.ticks, ms3(ts.interval_us), ts.late_threshold_us / 1000.0,
             ts.late, ms3(ts.handler_us), ms3(ts.emu_us), qms(ts.queue_ms),
-            ms3(ts.paint_us));
+            ms3(ts.paint_us), rearms, rescues, flush.checked, flush.painted);
     }
 
     // Read current CPU speed from NextREG 0x07 (bits 1:0).

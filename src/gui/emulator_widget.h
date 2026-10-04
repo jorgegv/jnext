@@ -87,6 +87,19 @@ public:
     /// it is a no-op.
     void flush_pending_present();
 
+    /// GH #155 — what flush_pending_present() did since the last take: how
+    /// many times it was called (QtApp calls it once per frame tick) and how
+    /// many of those found a new frame still unpainted and painted it. The
+    /// `ticks:` debug line reports both (frame-loop-wiring-func pins
+    /// checked == ticks). `painted` is ~0 on Linux, where the event loop
+    /// always paints first, and is the Windows residual made visible.
+    struct FlushStats { uint64_t checked = 0; uint64_t painted = 0; };
+    FlushStats take_flush_stats() {
+        const FlushStats s = flush_stats_;
+        flush_stats_ = {};
+        return s;
+    }
+
     /// Task 63 (issue #9) — drain the accumulated NEW-FRAME paint-cost
     /// distribution (µs samples): returns the Stat and resets it, mirroring
     /// the way QtApp differences present_count() each status tick.
@@ -155,5 +168,6 @@ private:
     QPoint fs_offset_;        ///< Top-left offset for centered image in fullscreen.
     bool frame_pending_ = false;   ///< Task 63 — a new frame awaits its first paint.
     uint64_t present_count_ = 0;   ///< Task 63 — frames actually presented.
+    FlushStats flush_stats_;       ///< GH #155 — flush_pending_present() activity.
     tick_stats::Stat paint_stats_; ///< Task 63 — new-frame paintEvent cost (µs).
 };

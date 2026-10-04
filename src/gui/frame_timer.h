@@ -60,9 +60,25 @@ inline void configure(QTimer& timer)
 /// Arm the timer to fire `ms` milliseconds from NOW. Unconditional by design:
 /// QTimer::start() restarts a running timer, and the same value twice in a row
 /// must still mean "from now" (see above).
+///
+/// `ms` <= 1 is the deadline schedule's floor: the next deadline is due now or
+/// within the next ms (frame_deadline.h, interval_to). That arms a ZERO
+/// timer, which Qt fires "as soon as all the events in the window system's
+/// event queue have been processed" (QTimer docs) — input and paints first,
+/// then the tick. A 1 ms timer instead charged every tick of a host that is
+/// behind (or fast-forwarding at --speed above what it can keep up with) the
+/// timer's floor plus its wake-up latency: -4.7% ticks/s at --speed 1000 in
+/// review. It cannot spin: the schedule only reports the floor when a tick
+/// has done its work and the next deadline is already due, and every tick
+/// advances the deadline by a full period. Running up to ~1 ms early when the
+/// deadline is <= 1.5 ms away cannot drift the rate either — the deadlines are
+/// absolute, so the next interval is simply that much longer. On Windows a
+/// zero timer is a posted QZeroTimerEvent at normal priority, so it too can
+/// run ahead of the widget's low-priority repaint request; that is exactly the
+/// case QtApp's tick-entry flush_pending_present() paints synchronously.
 inline void arm(QTimer& timer, int ms)
 {
-    timer.start(ms);
+    timer.start(ms <= 1 ? 0 : ms);
 }
 
 }  // namespace frame_timer

@@ -33,7 +33,11 @@ edge of real time (GH #155):
   and on Windows that timer event (posted at normal priority) was dispatched
   ahead of the widget's repaint request (posted at `Qt::LowEventPriority`), so
   the frame the previous tick produced was never shown. Linux hid it, because
-  glib lets posted events run before a timer fires again.
+  glib lets posted events run before a timer fires again. When the next
+  deadline is already due (the schedule's 1 ms floor — a host that is behind,
+  or fast-forward beyond what it can keep up with) the timer is armed for
+  0 ms, which Qt fires once the window-system queue is drained, rather than
+  charging every tick a whole ms.
 - **A frame not yet painted is painted at tick entry.**
   `EmulatorWidget::flush_pending_present()` delivers the repaint request
   `update()` already posted, through the event loop's own paint path, before
@@ -44,11 +48,17 @@ edge of real time (GH #155):
   it used to wait a whole period first, which on a host that cannot keep up
   idled the machine every other tick while it was already behind.
 - **The audio band's estimate stays within one device chunk of the reading**
-  (`ESTIMATE_ENVELOPE_MS` in `src/platform/audio_pacing.h`; see
-  [Audio](../03-subsystems/04-audio.md)).
+  (`BandState::envelope_ms` in `src/platform/audio_pacing.h`, set from the
+  opened device's buffer; see [Audio](../03-subsystems/04-audio.md)).
 
 The status bar's `emu` and `shown` figures and the `cadence:` / `ticks:` lines
-of `--log-level platform=debug` are the instruments for all of this.
+of `--log-level platform=debug` are the instruments for all of this. The
+`ticks:` line ends with the wiring counters: `timer re-armed=` (must equal the
+window's tick count), `rescued=` (re-anchors of a tick that ended with the
+timer unarmed — must be 0) and `pending-paint checked=`/`painted=` (how often
+the tick-entry paint was asked, and how often it found a frame to paint — ~0
+on Linux, the Windows residual elsewhere). The `frame-loop-wiring-func`
+regression row runs the real GUI binary and pins the first three.
 `frame_sequencer_test`'s FS-EDGE rows run the whole loop on a fake host whose
 frame costs 15.6 ms and 23 ms — the two figures from a real Windows report —
 and pin real-time pacing at the first and back-to-back emulation with no skips
