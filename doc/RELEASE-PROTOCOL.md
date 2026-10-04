@@ -382,6 +382,18 @@ Every invocation produces **two** versions of the same announcement:
 
 Same content in both; only the markup differs.
 
+**Where it is published.** The owner posts every announcement by hand, so
+nothing is posted automatically. Whenever you hand over the announcement
+texts, end with this list as a reminder of where to post them, and say which
+format goes to each venue:
+
+| Venue | Format |
+|---|---|
+| Z88DK forum ([z88dk.org](https://z88dk.org)) | phpBB BBCode |
+| SpectrumComputing forum ([spectrumcomputing.co.uk](https://spectrumcomputing.co.uk)) | phpBB BBCode |
+| JNext Telegram group | Rich text |
+| Discord, the ZXNext emulators channel | Rich text |
+
 ### 8.3 Content rules
 
 - **One line per feature. No more.** No sub-bullets, no elaboration.

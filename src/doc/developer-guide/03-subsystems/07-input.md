@@ -148,7 +148,29 @@ in the machine-side class, plus a stated policy.
 - **`pointer_capture.h`** (in `src/platform/`) decides what the Qt frontend
   does with each motion event while the pointer is captured — forward the
   delta, re-centre, or ignore the echo of its own warp. SDL does not use it,
-  because its relative mode does the equivalent natively.
+  because its relative mode does the equivalent natively. Its default policy
+  measures every delta from the centre, which needs a warp that lands at once:
+  X11 and Windows. macOS and Wayland get a second policy,
+  `DeferredWarpPolicy` (issue #303). On macOS `QCursor::setPos` is a synthetic
+  event that lands late, or never without the Accessibility permission, so the
+  frontend warps with `CGWarpMouseCursorPosition` instead
+  (`src/gui/mac_cursor_warp.cpp`). On Wayland the warp is a compositor request
+  that may land late or be refused (`wp_pointer_warp_v1`, Qt 6.10 and later),
+  or does nothing at all (Qt 6.9 and earlier); it stays `QCursor::setPos`, and
+  `deferred_warp_platform()` picks the policy at capture time from the Qt
+  platform name, so X11 (`xcb`), Windows and `offscreen` are unchanged. The
+  deferred policy measures each delta from the last position seen rather than
+  from the centre, and re-centres only once the pointer has drifted a quarter
+  of the viewport away.
+
+  Two limits are deliberate and pinned by tests. A single event moving more
+  than an eighth of the viewport straight at the centre while a warp is in
+  flight can be mistaken for the warp landing; and a warp that lands only after
+  the pointer has itself come back near the centre is forwarded as a small
+  jump. On Wayland without a working warp the motion stays exact but the
+  pointer is not confined: plain Wayland cannot hold it without the pointer
+  constraints protocol, so it can leave the window, and guest motion stops
+  until it comes back.
 
 - **`host_key_latch.h`** (also `src/platform/`) holds two policies, and both
   exist because of the frame boundary. Host key events are delivered *between*
