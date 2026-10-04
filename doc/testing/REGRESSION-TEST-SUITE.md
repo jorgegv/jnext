@@ -94,7 +94,13 @@ before it does anything else; a second one waits, printing who holds it, for at
 most `JNEXT_REGRESSION_LOCK_WAIT` (7200 s), then is a harness fault. It then
 waits, at most `JNEXT_REGRESSION_LOAD_WAIT` (300 s), while the 1-minute load is
 above the CPU count, and starts anyway with a loud note. Targeted runs (row
-names, `--update`, `--preflight-only`) never lock.
+names, `--update`, `--preflight-only`) never lock. A run NESTED inside a locked
+run — the self-test's children, a row that drives the harness — never waits
+for its ancestor's lock: the locked run names the lock it holds in
+`JNEXT_REGRESSION_ANCESTOR_LOCKS`, and keeps `JNEXT_REGRESSION_STAMP` /
+`JNEXT_REGRESSION_LOCK` out of the environment its rows inherit (an inherited
+`STAMP=confirm` once made every nested `--preflight-only` wait out its bound
+inside `make regression-confirm`).
 
 `make regression` (not a bare `regression.sh`, which skips the target's
 prerequisites) writes a **stamp** when the run has **fail=0 and skip=0** (a SKIP

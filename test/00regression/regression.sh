@@ -53,6 +53,19 @@ if [[ "${JNEXT_REGRESSION_LOCK:-}" == force || "${JNEXT_REGRESSION_STAMP:-}" == 
    || [[ $# -eq 0 && -z "${JNEXT_REGRESSION_CONF:-}${JNEXT_REGRESSION_FUNC_CONF:-}${JNEXT_REGRESSION_SCRIPTS_DIR:-}" ]]; then
     REGRESSION_SLOT=true
 fi
+reg_lock=${JNEXT_REGRESSION_LOCK_FILE:-${XDG_CACHE_HOME:-$HOME/.cache}/jnext/regression.lock}
+# A run NESTED inside a run that already holds this very lock — a self-test
+# child, a row that drives the harness — is part of that run: it must never
+# wait for the lock its own ancestor holds (it would wait out the bound: the
+# self-test's preflight children inside `make regression-confirm` did, at
+# load 0.5), nor for a quiet host its ancestor is the load of. The locked run
+# exports the lock it holds in JNEXT_REGRESSION_ANCESTOR_LOCKS (below), so the
+# test is exact: a nested run on a DIFFERENT lock file (the self-test's lock
+# rows) still locks normally.
+if $REGRESSION_SLOT && [[ ":${JNEXT_REGRESSION_ANCESTOR_LOCKS:-}:" == *":$reg_lock:"* ]]; then
+    echo "  nested inside a run that holds $reg_lock: not locking again"
+    REGRESSION_SLOT=false
+fi
 if $REGRESSION_SLOT && [[ -z "${JNEXT_REGRESSION_LOCK_HELD:-}" ]]; then
     # flock(1) is util-linux-core, in every Fedora image including the bare CI
     # container; still, a missing one is said, never an exit 127 mid-loop.
@@ -61,7 +74,6 @@ if $REGRESSION_SLOT && [[ -z "${JNEXT_REGRESSION_LOCK_HELD:-}" ]]; then
         echo "  flock(1) (util-linux) is not installed: a full run cannot take the host lock"
         echo ""; exit 2
     fi
-    reg_lock=${JNEXT_REGRESSION_LOCK_FILE:-${XDG_CACHE_HOME:-$HOME/.cache}/jnext/regression.lock}
     reg_lock_bound=${JNEXT_REGRESSION_LOCK_WAIT:-7200}
     mkdir -p "$(dirname "$reg_lock")"
     reg_waited=0
@@ -108,8 +120,16 @@ fi
 if [[ -n "${JNEXT_REGRESSION_LOCK_HELD:-}" ]]; then
     echo "pid $$ since $(date '+%Y-%m-%d %H:%M:%S') in $(cd "$(dirname "$0")/../.." && pwd)" \
         > "$JNEXT_REGRESSION_LOCK_HELD.holder" 2>/dev/null || true
+    export JNEXT_REGRESSION_ANCESTOR_LOCKS="${JNEXT_REGRESSION_ANCESTOR_LOCKS:+$JNEXT_REGRESSION_ANCESTOR_LOCKS:}$JNEXT_REGRESSION_LOCK_HELD"
     unset JNEXT_REGRESSION_LOCK_HELD
 fi
+# What THIS run was asked to do stays with this run: kept in shell variables
+# and taken out of the environment its rows (and anything they start) inherit.
+# Inherited, `JNEXT_REGRESSION_STAMP=confirm` made every nested regression.sh
+# a lock-taking, stamp-writing run of its own; `JNEXT_REGRESSION_LOCK=force`
+# would do the same.
+REG_STAMP_MODE=${JNEXT_REGRESSION_STAMP:-}
+export -n JNEXT_REGRESSION_STAMP JNEXT_REGRESSION_LOCK 2>/dev/null || true
 
 # Shared helpers/constants and the one-time environment setup (locale, jnext
 # binary resolution, SD args, manifest paths, TMP_DIR + EXIT trap, counters,
@@ -330,7 +350,7 @@ REG_T0=$(date +%s)
 # A stamp that cannot be computed is a loud note, not a fault: the run's
 # verdict is the tests', and `make regression-stamp-check` then says "no stamp".
 REG_STAMP_START=""
-if [[ "${JNEXT_REGRESSION_STAMP:-}" == 1 || "${JNEXT_REGRESSION_STAMP:-}" == confirm ]]; then
+if [[ "$REG_STAMP_MODE" == 1 || "$REG_STAMP_MODE" == confirm ]]; then
     REG_STAMP_START=$(bash "$PROJECT_DIR/test/regression-stamp.sh" state) \
         || { REG_STAMP_START=""; echo -e "  ${YELLOW}WARNING: cannot compute the regression stamp key; this run will not be stamped${RESET}"; }
 fi
@@ -431,7 +451,7 @@ reg_stamp() { bash "$PROJECT_DIR/test/regression-stamp.sh" "$@" \
 reg_facts=("pass=$pass" "fail=$fail" "skip=$skip" "rows=$(( pass + fail + skip ))"
            "load_start=${LOAD_START:-unknown}" "load_end=${LOAD_END:-unknown}" "cpus=$HOST_CPUS"
            "lanes=$PAR_LANES/$QUIET_LANES" "wall_s=$REG_WALL")
-case "${JNEXT_REGRESSION_STAMP:-}" in
+case "$REG_STAMP_MODE" in
     1)
         if [[ ${#FILTER_TESTS[@]} -gt 0 ]] || $UPDATE_MODE; then
             echo -e "  no regression stamp: only a full run is stamped"
