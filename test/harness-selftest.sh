@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=95   # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..k, HS-70a..d (GH #295)
+EXPECTED_TOTAL=102  # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..k, HS-70a..d, HS-71a..g (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1525,6 +1525,57 @@ out=$(slot_run JNEXT_REGRESSION_LOCK=force JNEXT_REGRESSION_LOADAVG_FILE="$T/loa
                JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_LOAD_WAIT=5); rc=$?
 check "HS-70d" "a full run on a loaded host waits (bounded), says why, then starts with a loud note (GH #295)" 0 $rc "$out" \
     "waiting for the host to quieten: 1-min load 50.00 > 12 CPUs" "starting anyway" "preflight OK"
+
+# ---------------- regression stamps (GH #295) ----------------
+# The REAL stamp script, run inside a throwaway git repository (it keys the
+# repository it lives in), with its own stamp directory.
+SR="$T/stamprepo"; SD="$T/stamps"
+mkdir -p "$SR/test" "$SR/src" "$SR/doc/formats" "$SR/doc/man"
+cp "$PROJECT_DIR/test/regression-stamp.sh" "$SR/test/"
+echo 'int main(){}' > "$SR/src/main.cpp"; echo '# readme' > "$SR/README.md"
+echo '{}' > "$SR/doc/formats/s.json"; echo 'notes' > "$SR/doc/notes.txt"
+sg() { git -C "$SR" -c user.name=t -c user.email=t@t "$@" >/dev/null 2>&1; }
+stamp() { JNEXT_REGRESSION_STAMP_DIR="$SD" timeout --kill-after=5s 30s bash "$SR/test/regression-stamp.sh" "$@" 2>&1; }
+sg init -q; sg add -A; sg commit -qm base
+st=$(stamp state)
+out=$(stamp write "$st" pass=3 fail=0 skip=0 rows=3); rc=$?
+out+=$'\n'"files=$(find "$SD" -type f 2>/dev/null | wc -l)"
+check "HS-71a" "a green run on a clean tree writes a stamp keyed on its content (GH #295)" 0 $rc "$out" \
+    "regression stamp written" "files=1"
+
+echo 'more' >> "$SR/README.md"; echo 'x' >> "$SR/doc/notes.txt"; sg commit -qam docs
+out=$(stamp check); rc=$?
+check "HS-71b" "a docs-only commit after the run is still covered by its stamp (GH #295)" 0 $rc "$out" \
+    "STAMP OK" "pass=3"
+
+echo 'int x;' >> "$SR/src/main.cpp"
+st=$(stamp state)
+out=$(stamp write "$st" pass=3 fail=0 skip=0 rows=3; stamp check); rc=$?
+check "HS-71c" "an uncommitted source change: no stamp is written, and the check says why (GH #295)" 1 $rc "$out" \
+    "no regression stamp: the tree had uncommitted non-doc changes" "src/main.cpp" "NO STAMP: the work tree has 1"
+
+sg commit -qam code
+out=$(stamp check); rc=$?
+check "HS-71d" "after a committed non-doc change the old stamp no longer matches (GH #295)" 1 $rc "$out" \
+    "NO STAMP for this tree"
+
+k1=$(stamp key); echo '{"a":1}' > "$SR/doc/formats/s.json"; sg commit -qam schema; k2=$(stamp key)
+out="formats-keyed=$([[ "$k1" != "$k2" ]] && echo 1 || echo 0)"
+k1=$(stamp key); echo 'y' >> "$SR/doc/notes.txt"; sg commit -qam notes; k2=$(stamp key)
+out+=" notes-keyed=$([[ "$k1" != "$k2" ]] && echo 1 || echo 0)"
+check "HS-71e" "doc/formats/ is a test input and changes the key; a plain doc does not (GH #295)" 0 0 "$out" \
+    "formats-keyed=1 notes-keyed=0"
+
+echo 'dirty doc' >> "$SR/README.md"
+st=$(stamp state)
+out=$(stamp write "$st" pass=3 fail=0 skip=0 rows=3; stamp check); rc=$?
+check "HS-71f" "an uncommitted DOC edit does not stop the stamp, nor the check (GH #295)" 0 $rc "$out" \
+    "regression stamp written" "STAMP OK"
+
+st=$(stamp state); echo 'int y;' >> "$SR/src/main.cpp"; sg commit -qam during
+out=$(stamp write "$st" pass=3 fail=0 skip=0 rows=3); rc=$?
+check "HS-71g" "a non-doc commit DURING the run: no stamp for either tree (GH #295)" 0 $rc "$out" \
+    "no regression stamp: the tree's non-doc content changed during the run"
 
 echo ""
 echo "====================================="

@@ -26,6 +26,7 @@
 #      JNEXT_TEST_JOBS caps the screenshot and parallel functional lanes
 #      (default: every CPU), JNEXT_TEST_QUIET_JOBS the quiet phase (default
 #      1); JNEXT_REGRESSION_ROW_TIMEOUT bounds one row (600 s);
+#      JNEXT_REGRESSION_STAMP=1 (set by `make regression`) stamps a green run;
 #      JNEXT_REGRESSION_LOCK_FILE / _LOCK_WAIT / _LOAD_WAIT tune the host lock
 #      and the quiet-host wait; JNEXT_REGRESSION_ROW_TIMES=<file> logs each
 #      row's seconds.
@@ -269,6 +270,15 @@ echo -e "${BOLD}=== JNEXT Regression Test Suite ===${RESET}"
 load_report start
 echo -e "  lanes: ${PAR_LANES} for screenshot and parallel functional rows, ${QUIET_LANES} for quiet rows (JNEXT_TEST_JOBS / JNEXT_TEST_QUIET_JOBS)"
 REG_T0=$(date +%s)
+# The stamp of a green full run is keyed on the tree as it was when the run
+# STARTED (test/regression-stamp.sh); `make regression` asks for it.
+# A stamp that cannot be computed is a loud note, not a fault: the run's
+# verdict is the tests', and `make regression-stamp-check` then says "no stamp".
+REG_STAMP_START=""
+if [[ "${JNEXT_REGRESSION_STAMP:-}" == 1 ]]; then
+    REG_STAMP_START=$(bash "$PROJECT_DIR/test/regression-stamp.sh" state) \
+        || { REG_STAMP_START=""; echo -e "  ${YELLOW}WARNING: cannot compute the regression stamp key; this run will not be stamped${RESET}"; }
+fi
 echo ""
 
 # Group rows: the six preflight lints and the SD-image provisioning, then the
@@ -354,6 +364,19 @@ fi
 REG_WALL=$(( $(date +%s) - REG_T0 ))
 echo -e "  wall time: ${REG_WALL} s"
 
+if [[ "${JNEXT_REGRESSION_STAMP:-}" == 1 ]]; then
+    if [[ $fail -gt 0 || ${#FILTER_TESTS[@]} -gt 0 ]] || $UPDATE_MODE; then
+        echo -e "  no regression stamp: only a green full run is stamped"
+    elif [[ -z "$REG_STAMP_START" ]]; then
+        echo -e "  ${YELLOW}WARNING: green, but NOT stamped: the stamp key could not be computed at the start${RESET}"
+    else
+        bash "$PROJECT_DIR/test/regression-stamp.sh" write "$REG_STAMP_START" \
+            "pass=$pass" "fail=$fail" "skip=$skip" "rows=$(( pass + fail + skip ))" \
+            "load_start=${LOAD_START:-unknown}" "load_end=${LOAD_END:-unknown}" "cpus=$HOST_CPUS" \
+            "lanes=$PAR_LANES/$QUIET_LANES" "wall_s=$REG_WALL" \
+            || echo -e "  ${YELLOW}WARNING: green, but the stamp could not be written (test/regression-stamp.sh write)${RESET}"
+    fi
+fi
 
 if [[ $fail -gt 0 ]]; then
     exit 1
