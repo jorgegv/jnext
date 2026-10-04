@@ -68,7 +68,21 @@ env:
   LC_ALL: C
 
 jobs:
+  # GH #295. ONE job definition, three PARALLEL legs, each its own runner:
+  # build-matrix (link rot in all four ENABLE_QT_UI x ENABLE_DEBUGGER
+  # combinations), unit (both suite-running configurations) and regression
+  # (the screenshot + functional suite). They were steps of one job, so the
+  # 28-minute build matrix and the regression ran back to back; nothing in one
+  # leg uses another's output. A matrix rather than three jobs keeps ONE copy
+  # of the container, package list, checkout and caches below; each leg's
+  # steps are still plain make targets, selected by `if: matrix.leg`.
+  # fail-fast is off so a red leg never cancels the others' evidence.
   test:
+    name: test (${{ matrix.leg }})
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [build-matrix, unit, regression]
     runs-on: ubuntu-latest
     # Same fedora:44 container release.yml builds the rpm and Windows artifacts
     # in, and the same distro the maintainer develops on. That is the point: the
@@ -227,6 +241,7 @@ jobs:
       # generator reads nothing but the `*.vhd` filenames under this one
       # directory.
       - name: Check out the ZX Next FPGA core (VHDL citation oracle)
+        if: matrix.leg == 'unit'
         run: |
           FPGA_CORE_DIR="$RUNNER_TEMP/fpga-core"
           JNEXT_FPGA_SRC="$FPGA_CORE_DIR/cores/zxnext/src"
@@ -241,15 +256,22 @@ jobs:
           # Hand it to every LATER step, so each `run:` stays a plain make target.
           echo "JNEXT_FPGA_SRC=$JNEXT_FPGA_SRC" >> "$GITHUB_ENV"
 
+      # One cache per leg: the legs build different trees, and a cache entry
+      # is saved once per key, so a shared key would keep only whichever leg
+      # finished first. A miss falls back to any leg's entry.
       - name: Cache ccache
         uses: actions/cache@v5
         with:
           path: ~/.cache/ccache
-          key: ccache-fedora44-${{ github.sha }}
+          key: ccache-fedora44-${{ matrix.leg }}-${{ github.sha }}
           restore-keys: |
+            ccache-fedora44-${{ matrix.leg }}-
             ccache-fedora44-
 
+      # The unit leg needs it for sd_rom_extractor_test, the regression leg
+      # for every row that boots NextZXOS; the build matrix runs nothing.
       - name: Cache NextZXOS SD-card image
+        if: matrix.leg != 'build-matrix'
         id: sdcache
         uses: actions/cache@v5
         with:
@@ -270,7 +292,13 @@ jobs:
       # Mirrors the merge-to-main protocol in CLAUDE.md: `make clean` then
       # `make gui-release` first, so regression.sh (which prefers
       # build/gui-release/jnext) never picks up a stale binary.
+      # Both test legs, as before the split. It is also what provisions the SD
+      # image on a cache miss: gui-release's PGO training downloads it through
+      # jnext's own --sdcard-download-confirm (tools/pgo-train.sh), and the
+      # unit leg's sd_rom_extractor_test refuses to run without it — before
+      # the split, this step and the regression ran ahead of `make unit-test`.
       - name: make clean && make gui-release
+        if: matrix.leg != 'build-matrix'
         run: |
           LANG=C make clean
           LANG=C make gui-release
@@ -283,12 +311,18 @@ jobs:
       # and appeared the moment it was switched off. Cheap here because ccache
       # is warm from the build above.
       - name: Build matrix (every ENABLE_QT_UI x ENABLE_DEBUGGER combination)
+        if: matrix.leg == 'build-matrix'
         run: LANG=C make build-matrix
 
+      # No JNEXT_TEST_JOBS: the suite's lanes default to the runner's CPUs and
+      # its timing-sensitive rows run in their own quiet phase (GH #295), so
+      # this is the command a human types.
       - name: make regression (screenshot + functional suite)
-        run: LANG=C JNEXT_TEST_JOBS=4 make regression
+        if: matrix.leg == 'regression'
+        run: LANG=C make regression
 
       - name: make unit-test (ctest — FUSE Z80 + every subsystem/integration suite)
+        if: matrix.leg == 'unit'
         run: LANG=C make unit-test
 
       # The SECOND configuration whose suites are actually run (GH #273). The
@@ -301,6 +335,7 @@ jobs:
       # never reconfigures the Qt build/ tree, and cheap here because ccache is
       # warm from the steps above.
       - name: make unit-test-sdl (the same suites in the SDL-only configuration)
+        if: matrix.leg == 'unit'
         run: LANG=C make unit-test-sdl
 
       # Golden-screenshot + functional regression, in two steps.
@@ -323,7 +358,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: jnext-ci-failure-artifacts
+          name: jnext-ci-failure-artifacts-${{ matrix.leg }}
           path: |
             test/00regression/img/*-diff.png
             build/test-summary.tsv
