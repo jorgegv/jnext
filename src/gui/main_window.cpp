@@ -2667,6 +2667,14 @@ QPoint MainWindow::viewport_centre_global() const {
     return w->mapToGlobal(QPoint(w->width() / 2, w->height() / 2));
 }
 
+int MainWindow::capture_margin() const {
+    // Far enough that a stale pre-warp event and a post-warp one cannot be
+    // confused (pointer_capture.h), near enough to stay on the viewport.
+    const QWidget* w = emulator_widget_ ? static_cast<const QWidget*>(emulator_widget_)
+                                        : static_cast<const QWidget*>(this);
+    return qMax(8, qMin(w->width(), w->height()) / 4);
+}
+
 void MainWindow::set_mouse_captured(bool on) {
     if (on == mouse_captured_) return;
     mouse_captured_ = on;
@@ -2678,8 +2686,26 @@ void MainWindow::set_mouse_captured(bool on) {
         // with the pointer anywhere (menu item, or a click near an edge), and
         // a motion event queued at that old position may still be delivered
         // after the warp — as one enormous delta. Drop the first one.
-        capture_policy_.begin();
-        warp_pointer(viewport_centre_global());
+        // macOS and Wayland cannot rely on the warp landing at once (issue
+        // #303): macOS always, Wayland by the QPA platform in use.
+#ifdef Q_OS_MACOS
+        capture_deferred_ = true;
+#else
+        capture_deferred_ = pointer_capture::deferred_warp_platform(
+            QGuiApplication::platformName().toStdString());
+#endif
+        Log::input()->debug("pointer capture: {} policy (QPA platform '{}')",
+                            capture_deferred_ ? "deferred-warp" : "centre",
+                            QGuiApplication::platformName().toStdString());
+        const QPoint centre = viewport_centre_global();
+        if (capture_deferred_) {
+            const QPoint at = QCursor::pos();
+            if (deferred_policy_.begin(at.x(), at.y(), centre.x(), centre.y(), capture_margin()))
+                warp_pointer(centre);
+        } else {
+            centre_policy_.begin();
+            warp_pointer(centre);
+        }
         // The status-bar message times out; the title carries the way out for
         // as long as the pointer is actually held.
         setWindowTitle(base_window_title_ + tr(" - Ctrl+Alt to release mouse"));
@@ -2718,19 +2744,10 @@ void MainWindow::mouseMoveEvent(QMouseEvent* event) {
 
     // Decision lives in pure code (platform/pointer_capture.h) so it is
     // reachable by tests; this handler is not.
-#ifdef Q_OS_MACOS
-    // The pointer may drift a quarter of the viewport before it is warped
-    // back: far enough that a stale pre-warp event and a post-warp one cannot
-    // be confused (pointer_capture.h), near enough to stay on the viewport.
-    const QWidget* vw = emulator_widget_ ? static_cast<const QWidget*>(emulator_widget_)
-                                         : static_cast<const QWidget*>(this);
-    const int margin = qMax(8, qMin(vw->width(), vw->height()) / 4);
-    const pointer_capture::Motion m =
-        capture_policy_.on_motion(global.x(), global.y(), centre.x(), centre.y(), margin);
-#else
-    const pointer_capture::Motion m =
-        capture_policy_.on_motion(global.x(), global.y(), centre.x(), centre.y());
-#endif
+    const pointer_capture::Motion m = capture_deferred_
+        ? deferred_policy_.on_motion(global.x(), global.y(), centre.x(), centre.y(),
+                                     capture_margin())
+        : centre_policy_.on_motion(global.x(), global.y(), centre.x(), centre.y());
     if (m.forward) mouse_dispatcher_->handle_motion(m.dx, m.dy);
     if (m.recentre) warp_pointer(centre);
     event->accept();

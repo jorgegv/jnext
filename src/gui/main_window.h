@@ -426,15 +426,15 @@ private:
     /// forwarded, so menus and window controls behave normally.
     bool     mouse_captured_ = false;
     QAction* capture_mouse_action_ = nullptr;
-    /// Motion policy for the captured pointer (warp-echo suppression and the
-    /// stale first delta). Pure, and unit-tested — see pointer_capture.h.
-    /// macOS warps late or not at all through QCursor::setPos, so it gets the
-    /// policy that does not assume the warp has landed (issue #303).
-#ifdef Q_OS_MACOS
-    pointer_capture::DeferredWarpPolicy capture_policy_;
-#else
-    pointer_capture::Policy capture_policy_;
-#endif
+    /// Motion policies for the captured pointer. Pure, and unit-tested — see
+    /// pointer_capture.h. `centre_policy_` (warp-echo suppression and the stale
+    /// first delta) needs a warp that lands at once: X11, Windows. Where the
+    /// warp may land late or not at all — macOS, and Wayland (issue #303) —
+    /// `deferred_policy_` is used instead; `capture_deferred_` records which,
+    /// chosen when the capture starts.
+    pointer_capture::Policy             centre_policy_;
+    pointer_capture::DeferredWarpPolicy deferred_policy_;
+    bool                                capture_deferred_ = false;
     /// Title without any capture suffix, captured at construction.
     QString  base_window_title_;
 
@@ -443,6 +443,9 @@ private:
     /// pointer is warped back to. Falls back to the window centre when the
     /// viewport is not realised yet.
     QPoint viewport_centre_global() const;
+    /// How far the pointer may drift from the centre before DeferredWarpPolicy
+    /// warps it back: a quarter of the smaller viewport side.
+    int capture_margin() const;
 
     bool is_fullscreen_ = false;
     int current_scale_ = 1;  ///< Default 1× scale (640×512 viewport — post-G104, was 2× / 1280×1024 pre-G104).
