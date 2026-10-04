@@ -27,8 +27,11 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 history="$root/packaging/debian/changelog.history"
 [ -f "$history" ] || { echo "gen-debian-changelog: missing $history" >&2; exit 1; }
 
-# Same field and X.Y.Z form cmake/GenerateVersion.cmake reads.
-ver=$(sed -nE 's/^version: *([0-9]+\.[0-9]+\.[0-9]+) *$/\1/p' "$root/version.yaml" 2>/dev/null | head -n1)
+# Same field and X.Y.Z form cmake/GenerateVersion.cmake reads. The file is
+# checked first: under set -e a failing read inside $(...) would end the script
+# before the check below, with no message.
+[ -r "$root/version.yaml" ] || { echo "gen-debian-changelog: cannot read $root/version.yaml" >&2; exit 1; }
+ver=$(sed -nE 's/^version: *([0-9]+\.[0-9]+\.[0-9]+) *$/\1/p' "$root/version.yaml" | head -n1)
 [ -n "$ver" ] || { echo "gen-debian-changelog: no 'version: X.Y.Z' line in $root/version.yaml" >&2; exit 1; }
 
 d=$(date -u -R -d "@${SOURCE_DATE_EPOCH:-$(date +%s)}")

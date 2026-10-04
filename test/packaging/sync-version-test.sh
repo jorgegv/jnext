@@ -28,7 +28,8 @@
 #   9. its top entry is version.yaml's version and the committed history
 #      follows verbatim (and dpkg-parsechangelog reads it, where installed)
 #  10. SOURCE_DATE_EPOCH pins the date, in English whatever the caller's locale
-#  11. a missing or malformed version.yaml fails loud with nothing on stdout
+#  11. a missing or malformed version.yaml fails with a message naming it,
+#      and nothing on stdout
 #   packaging/rpm/jnext.spec (where rpmspec is installed)
 #  12. without --define jnext_version the spec refuses to parse
 #  13. with it, Version: and the top %changelog entry are that version, under a
@@ -205,15 +206,20 @@ else
     bad "debian changelog: date not reproducible or not in English"
 fi
 
-# 11 — missing / malformed version.yaml fails loud, prints nothing to build from
+# 11 — malformed and missing version.yaml each fail with a message that names
+# the file, and print nothing to build from. Both cases are asserted on the
+# MESSAGE, not just the exit status: the missing case once died silently
+# (set -e on the failing read) with rc 2 and nothing on stderr.
 printf 'version: 9.9\n' > "$deb/version.yaml"
-out1=$(bash "$gen" 2>/dev/null); rc1=$?
+out1=$(bash "$gen" 2>"$tmp/gen-err1"); rc1=$?
 rm -f "$deb/version.yaml"
-out2=$(bash "$gen" 2>/dev/null); rc2=$?
-if [ "$rc1" -ne 0 ] && [ "$rc2" -ne 0 ] && [ -z "$out1$out2" ]; then
-    ok "debian changelog: malformed or missing version.yaml -> fail loud, empty stdout"
+out2=$(bash "$gen" 2>"$tmp/gen-err2"); rc2=$?
+if [ "$rc1" -ne 0 ] && [ "$rc2" -ne 0 ] && [ -z "$out1$out2" ] \
+   && grep -qE '^gen-debian-changelog: .*version\.yaml' "$tmp/gen-err1" \
+   && grep -qE '^gen-debian-changelog: .*version\.yaml' "$tmp/gen-err2"; then
+    ok "debian changelog: malformed or missing version.yaml -> named error, empty stdout"
 else
-    bad "debian changelog: a bad version.yaml produced output or rc 0 (rc=$rc1/$rc2)"
+    bad "debian changelog: bad version.yaml: rc=$rc1/$rc2, stderr malformed='$(cat "$tmp/gen-err1")' missing='$(cat "$tmp/gen-err2")'"
 fi
 
 # --- rpm spec ----------------------------------------------------------------
