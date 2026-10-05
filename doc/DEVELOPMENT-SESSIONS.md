@@ -190,4 +190,8 @@
 |         |      | #300 DMA follows dma.vhd; PR #302 DeZog 3.8 (vmorilla). v1.0.73->.79                                   |
 | 4/10    |      | #299 wine Qt hang: training-script env fix; #301 NXModPlayer under --esxdos-stub-root                  |
 |         |      | v1.0.80->.81; v1.1.0 PUBLIC RELEASE                                                                    |
+| 4/10    |      | #303 macOS mouse (vmorilla tested); #295 parallel regression, stamps, CI legs; version label           |
+|         |      | version single source; #155 frame-loop fixes (janko confirmed). v1.1.1->1.1.7                          |
+| 5/10    |      | #155 diagnostic builds: no per-frame regression left; #155 closed; #295 stamp XDG fix                  |
+|         |      | v1.1.8 PUBLIC RELEASE                                                                                  |
 | TOTAL:  | 666h |                                                                                                        |

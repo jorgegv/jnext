@@ -1,6 +1,6 @@
 # ChangeLog
 
-## Unreleased (2026-10-05)
+## v1.1.8 (2026-10-05)
 
 ### User Features
 - The window title shows the jnext version, in both the Qt and SDL frontends
