@@ -218,12 +218,12 @@ piece of software with AI-assisted programming.
 
 ## Funding
 
-JNext is free software (GNU GPLv3) and is provided free of charge.
+JNEXT is free software (GNU GPLv3) and is provided free of charge.
 However, Apple requires a paid developer account ($99/year, as of
 October 2026) to publish fully trusted ("notarized") macOS applications.
 
-If you use JNext on macOS and would like notarized builds, please consider
-a small donation via the "Sponsor this project" button on JNext's GitHub
+If you use JNEXT on macOS and would like notarized builds, please consider
+a small donation via the "Sponsor this project" button on JNEXT's GitHub
 page. Everything raised for this purpose is used only to pay for the Apple
 Developer account, and any surplus is carried over to the next year's renewal.
 
