@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=121  # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c (GH #295)
+EXPECTED_TOTAL=123  # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1906,6 +1906,43 @@ out=$(cd "$CR" && HOME="$T/cfix" JNEXT=/bin/true JNEXT_REGRESSION_STAMP_DIR="$T/
 out+=$'\n'"fast=$(( SECONDS - t0 < 60 ? 1 : 0 ))"
 check "HS-74c" "with a SYMLINKED lock file a genuine nested child still recognises its ancestor's lock (GH #295)" 0 $rc "$out" \
     "the nested harness ran: plain 1, forced 1; nested inside a run that holds)" "passed solo" "fast=1"
+
+# ---------------- the harness's git keeps the user's own config (GH #295) ----------------
+# The suite points XDG_CONFIG_HOME at a scratch dir for Qt, and git resolves
+# its global excludes file through it: on the main checkout a file ignored only
+# by ~/.config/git/ignore read as untracked and a 216/216 run got no stamp.
+# Here: a throwaway repo, a fake ORIGINAL XDG_CONFIG_HOME whose git/ignore
+# ignores one planted untracked file, and the stamp asked for from inside the
+# REAL suite library (which isolates XDG_CONFIG_HOME). The globally-ignored
+# file must not make the tree dirty; an untracked file nobody ignores must.
+XR="$T/xdgrepo"; XO="$T/xdg-original"; XH="$T/xdg-home"
+mkdir -p "$XR/test" "$XO/git" "$XH"
+cp "$PROJECT_DIR/test/regression-stamp.sh" "$XR/test/"
+echo 'int main(){}' > "$XR/main.cpp"
+git -C "$XR" -c user.name=t -c user.email=t@t init -q && git -C "$XR" add -A \
+    && git -C "$XR" -c user.name=t -c user.email=t@t commit -qm base
+printf 'globally-ignored.txt\n' > "$XO/git/ignore"
+echo local > "$XR/globally-ignored.txt"
+# The child is an OUTERMOST run: when this self-test itself runs inside the
+# suite (harness-selftest-func) it inherits the suite's captured original,
+# which belongs to that run, not to this fake one — so it is dropped here.
+xdg_stamp() {   # xdg_stamp — state + write, from inside the real suite library
+    env -u JNEXT_REGRESSION_GIT_XDG_CONFIG_HOME \
+    HOME="$XH" XDG_CONFIG_HOME="$XO" JNEXT_REGRESSION_STAMP_DIR="$T/xdgstamps" \
+        timeout --kill-after=3s 30s bash -c \
+        "set -euo pipefail
+         source '$PROJECT_DIR/test/00regression/test-functions.inc'
+         echo \"isolated=\$([[ \$XDG_CONFIG_HOME != '$XO' ]] && echo 1 || echo 0)\"
+         st=\$(bash '$XR/test/regression-stamp.sh' state); echo \"\$st\"
+         bash '$XR/test/regression-stamp.sh' write \"\$st\" pass=1 fail=0 skip=0" 2>&1
+}
+out=$(xdg_stamp); rc=$?
+check "HS-75a" "an untracked file ignored only by the user's GLOBAL git ignore does not stop the stamp (GH #295)" 0 $rc "$out" \
+    "isolated=1" "dirty=0" "regression stamp written"
+echo other > "$XR/not-ignored.txt"
+out=$(xdg_stamp); rc=$?
+check "HS-75b" "the control: an untracked file nobody ignores still makes the tree dirty — no stamp (GH #295)" 0 $rc "$out" \
+    "isolated=1" "dirty=1" "no regression stamp: the tree had uncommitted non-doc changes" "not-ignored.txt"
 
 echo ""
 echo "====================================="

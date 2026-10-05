@@ -487,6 +487,23 @@ regression_lib_init() {
     fi
     export JNEXT_CONFIG_DIR="$RUN_DIR"
     # (XDG_CONFIG_HOME is kept for any other Qt state.)
+    #
+    # ...but NOT for git. git resolves its global configuration and its default
+    # global excludes file through XDG_CONFIG_HOME ($XDG_CONFIG_HOME/git/config,
+    # $XDG_CONFIG_HOME/git/ignore), so under the isolation every git the
+    # harness runs lost the user's own setup: on the main checkout a file
+    # ignored only by ~/.config/git/ignore (.claude/settings.local.json) read
+    # as an untracked change, and a 216/216 run was refused its stamp as
+    # "dirty" (GH #295). The ORIGINAL value is captured once, by the outermost
+    # run (rows and nested runs inherit it; empty = unset, which is how git
+    # treats an empty one), and every `git` a harness bash runs — this shell,
+    # the lints, the rows, the stamp script — goes through the exported
+    # function below, which hands git that value. Qt still gets the scratch dir.
+    if [[ -z "${JNEXT_REGRESSION_GIT_XDG_CONFIG_HOME+x}" ]]; then
+        export JNEXT_REGRESSION_GIT_XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-}"
+    fi
+    git() { XDG_CONFIG_HOME="$JNEXT_REGRESSION_GIT_XDG_CONFIG_HOME" command git "$@"; }
+    export -f git
     export XDG_CONFIG_HOME="$TMP_DIR/xdg-config-home"
 
     # ONE trap, installed before either directory has anything in it. Cleanup

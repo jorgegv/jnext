@@ -110,7 +110,9 @@ inside `make regression-confirm`).
 `make regression` (not a bare `regression.sh`, which skips the target's
 prerequisites) writes a **stamp** when the run has **fail=0 and skip=0** (a SKIP
 is a row that was not tested) and the tree had no uncommitted change in a keyed
-path, at start or end:
+path, at start or end (untracked means what the user's own git says: the
+suite's Qt isolation of `XDG_CONFIG_HOME` is hidden from every `git` it runs,
+so a file ignored only by `~/.config/git/ignore` does not count):
 `~/.cache/jnext/regression-stamps/<key>`, holding the commit, the counts, the
 host load at start and end, the lanes and the wall time. The key is a hash of
 `git ls-tree` of the commit over every path except documentation (`doc/`,
