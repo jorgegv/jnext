@@ -4,7 +4,7 @@
 
 **Outcome:**
 - GH #294 is closed as "stay on gcc".
-- The opt-in clang build knob was evaluated on branch `gh294-clang-eval` and was **not merged**.
+- The opt-in clang build knob was evaluated on branch `gh294-clang-eval` and was **not merged**. The branch was deleted on 2026-10-05; its knob is described in full under "The evaluation branch" below.
 - The `script_record_test` fixture fix found here was merged.
 - The gcc PGO follow-up is **GH #297** (v1.1).
 
@@ -30,7 +30,7 @@
 
 ## The evaluation branch (not merged)
 
-The evaluation ran on branch `gh294-clang-eval`, cut from `eb8a0481d` (v1.0.71), with two commits.
+The evaluation ran on branch `gh294-clang-eval`, cut from `eb8a0481d` (v1.0.71), with two commits. The branch no longer exists (deleted 2026-10-05, never pushed). The fixture fix is on main; the knob commit (`21f2746a2`) is gone, and the description below is enough to recreate it.
 
 **The knob, not merged.**
 - `Makefile` + `CMakeLists.txt`, +46 lines.
