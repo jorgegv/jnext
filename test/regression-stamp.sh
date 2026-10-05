@@ -55,6 +55,8 @@
 # a KEYED path — at the start of the run AND at its end, with the key
 # unchanged. A docs-only edit in flight does not stop a stamp; a source edit
 # does, because then the tree that ran is not the commit the key names.
+# "Untracked" is git's own answer, with ALL the user's ignore rules — the
+# repository's, .git/info/exclude AND the global excludes file (see git_).
 #
 # Stamps live in ${XDG_CACHE_HOME:-~/.cache}/jnext/regression-stamps/<key>
 # (JNEXT_REGRESSION_STAMP_DIR overrides), shared by every worktree of the user;
@@ -78,7 +80,19 @@ KEY_AWK_FN='function keyed(p) {
     return 1
 }'
 
-git_() { git -C "$ROOT" -c core.quotePath=false "$@"; }
+# Run inside the regression harness, XDG_CONFIG_HOME points at a scratch dir
+# (Qt isolation); git must still see the user's own global config and global
+# excludes file, so it gets the value the harness captured before isolating
+# (test-functions.inc). Run directly (`make regression-stamp-check`), the
+# variable is unset and git sees the environment as it is. The KEY does not
+# depend on either (ls-tree of a commit); the dirty check does.
+git_() {
+    if [[ -n "${JNEXT_REGRESSION_GIT_XDG_CONFIG_HOME+x}" ]]; then
+        XDG_CONFIG_HOME="$JNEXT_REGRESSION_GIT_XDG_CONFIG_HOME" command git -C "$ROOT" -c core.quotePath=false "$@"
+    else
+        command git -C "$ROOT" -c core.quotePath=false "$@"
+    fi
+}
 
 die() { echo "regression-stamp: $*" >&2; exit 2; }
 
