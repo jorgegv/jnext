@@ -1923,7 +1923,11 @@ git -C "$XR" -c user.name=t -c user.email=t@t init -q && git -C "$XR" add -A \
     && git -C "$XR" -c user.name=t -c user.email=t@t commit -qm base
 printf 'globally-ignored.txt\n' > "$XO/git/ignore"
 echo local > "$XR/globally-ignored.txt"
+# The child is an OUTERMOST run: when this self-test itself runs inside the
+# suite (harness-selftest-func) it inherits the suite's captured original,
+# which belongs to that run, not to this fake one — so it is dropped here.
 xdg_stamp() {   # xdg_stamp — state + write, from inside the real suite library
+    env -u JNEXT_REGRESSION_GIT_XDG_CONFIG_HOME \
     HOME="$XH" XDG_CONFIG_HOME="$XO" JNEXT_REGRESSION_STAMP_DIR="$T/xdgstamps" \
         timeout --kill-after=3s 30s bash -c \
         "set -euo pipefail
