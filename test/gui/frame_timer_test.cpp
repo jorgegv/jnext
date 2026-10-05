@@ -23,8 +23,17 @@
 //   FT-06  the deadline schedule's 1 ms floor arms a zero timer (a host that
 //          is behind pays no timer floor per tick).
 //
-// The timing rows assert LOWER bounds only (a timer never fires early), so a
-// loaded host can delay a timeout but cannot fail a correct implementation.
+// The timing rows are built so that a loaded host can only make the CORRECT
+// behaviour look more correct (ft03-flaky, 2026-10-05: FT-03 once read 18.4 ms
+// against a 19 ms bound on a loaded gate run):
+//   * every "from now" instant is taken BEFORE the call it brackets, so a
+//     thread descheduled around the call lengthens the measured gap instead
+//     of shortening it;
+//   * every bound sits halfway between the two behaviours it separates (the
+//     defect fires at ~0 ms of a 20 ms interval, the fix at ~20 ms), so
+//     neither timer jitter nor scheduling delay can cross it;
+//   * every wait ends on the event it waits for (bounded at 2 s), never on a
+//     fixed spin a slow host could exhaust.
 //
 // Qt Core only: a QCoreApplication event loop, no display.
 // Run: ./build/test/frame_timer_test
@@ -74,6 +83,16 @@ void spin_ms(int ms)
     while (t.elapsed() < ms) QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
 }
 
+/// Run the event loop until `done()` holds or `bound_ms` passes.
+template <typename Pred>
+void spin_until(Pred done, int bound_ms = 2000)
+{
+    QElapsedTimer t;
+    t.start();
+    while (!done() && t.elapsed() < bound_ms)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
@@ -96,8 +115,9 @@ int main(int argc, char** argv)
         int fires = 0;
         QObject::connect(&t, &QTimer::timeout, [&]() { ++fires; });
         frame_timer::arm(t, 10);
-        spin_ms(150);
-        check("FT-02", "armed once and not re-armed: exactly one timeout in 150 ms",
+        spin_until([&] { return fires >= 1; });   // the one timeout, however late
+        spin_ms(100);                             // then 10 periods for a second one
+        check("FT-02", "armed once and not re-armed: exactly one timeout, none in the next 10 periods",
               fires == 1, "fires=" + std::to_string(fires));
     }
 
@@ -114,21 +134,22 @@ int main(int argc, char** argv)
             ++fires;
             if (fires == 1) {
                 busy_ms(2 * IVL);              // a tick twice as long as its interval
+                rearm_at = clock.nsecsElapsed();   // BEFORE the call (see header)
                 frame_timer::arm(t, IVL);      // ... re-armed with the SAME value
-                rearm_at = clock.nsecsElapsed();
             } else if (fires == 2) {
                 second_at = clock.nsecsElapsed();
             }
         });
         frame_timer::arm(t, IVL);
-        spin_ms(400);
+        spin_until([&] { return fires >= 2; });
         const double gap_ms = (second_at >= 0 && rearm_at >= 0)
                                   ? static_cast<double>(second_at - rearm_at) / 1e6
                                   : -1.0;
-        // A whole ms of slack for the clocks' granularity; the defect this
-        // catches fires at ~0 ms (the old phase was already due).
-        check("FT-03", "a long tick re-armed with the same interval: next timeout >= the interval after the re-arm",
-              fires == 2 && gap_ms >= IVL - 1,
+        // The defect fires at ~0 ms (the old phase was already due; measured
+        // 0.01 ms), the fix at >= IVL. IVL / 2 is the midpoint: 10 ms of margin
+        // on each side, where 1 ms of slack proved too little under load.
+        check("FT-03", "a long tick re-armed with the same interval: next timeout >= half the interval after the re-arm",
+              fires == 2 && gap_ms >= IVL / 2.0,
               "fires=" + std::to_string(fires) + " gap_ms=" + std::to_string(gap_ms));
     }
 
@@ -138,10 +159,17 @@ int main(int argc, char** argv)
         frame_timer::configure(t);
         frame_timer::arm(t, 60);
         busy_ms(30);
+        // Read the clock BEFORE the re-arm and add the time spent until the
+        // countdown is read back, so a deschedule in between cannot shrink it:
+        // a restarted countdown sums to ~60, an unrestarted one to ~30.
+        QElapsedTimer since;
+        since.start();
         frame_timer::arm(t, 60);
         const int remaining = t.remainingTime();
-        check("FT-04", "re-armed with the same value after 30 ms: the countdown restarts (>= 55 ms left)",
-              remaining >= 55, "remaining=" + std::to_string(remaining));
+        const int64_t restarted_ms = remaining + since.elapsed();
+        check("FT-04", "re-armed with the same value after 30 ms: the countdown restarts (> 45 ms, midway between 30 and 60)",
+              restarted_ms > 45,
+              "remaining=" + std::to_string(remaining) + " +elapsed=" + std::to_string(restarted_ms));
     }
 
     // FT-05 — every arm leaves the timer running.
