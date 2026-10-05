@@ -216,6 +216,23 @@ files and development documentation are in the repository — which makes JNEXT
 not just an emulator, but a practical case study in building a large, complex
 piece of software with AI-assisted programming.
 
+## Funding
+
+JNext is free software (GNU GPLv3) and is provided free of charge.
+However, Apple requires a paid developer account ($99/year, as of
+October 2026) to publish fully trusted ("notarized") macOS applications.
+
+If you use JNext on macOS and would like notarized builds, please consider
+a small donation via the "Sponsor this project" button on JNext's GitHub
+page. Everything raised for this purpose is used only to pay for the Apple
+Developer account, and any surplus is carried over to the next year's renewal.
+
+The macOS version will be published regardless of the amount raised. The
+difference is that the notarized version installs without having to manually
+remove the "quarantine" flag each time.
+
+**Status:** notarized builds funded until: _not yet funded_
+
 ## License
 
 Copyright (C) 2026 Jorge Gonzalez Villalonga, aka ZXjogv
