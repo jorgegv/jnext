@@ -16,7 +16,7 @@
 - version.yaml is the only file a version bump edits by hand; packaging and docs read it at build time
 
 ### Contributors in this release
-- @IndigoBeetle
+- @IndigoBeetle, @janko-jj, @vmorilla, @shadowphiar
 
 ## v1.1.0 (2026-10-04)
 

@@ -144,7 +144,7 @@ The single authoritative protocol for landing any implemented change on `main`:
   - Developer Features: new features oriented to developers: in general, all debugger and instrospection features
   - Bug Fixes
   - Internal JNEXT Development: new plans, enhancements to test results, big architectural changes or enhancements, etc.
-  - Contributors in this release (owner decision 2026-10-04, from v1.1.0 on): a single `- ` bullet with a comma-separated list of the GitHub handles (`@handle`) of everyone other than the owner who opened an issue or PR since the previous public release. No per-person details.
+  - Contributors in this release (owner decision 2026-10-04, from v1.1.0 on): a single `- ` bullet with a comma-separated list of the GitHub handles (`@handle`) of everyone other than the owner who CONTRIBUTED since the previous public release: opened an issue or PR, commented on one, reviewed a PR, or tested and reported back (owner, 2026-10-05: "they all contribute"). No per-person details.
 - Descriptions for each feature/fix should never be more than one line, and should be about 10-20 words maximum
 - Trivial fixes, syntax, reformats, documentation, project plan updates, etc. should not appear on the ChangeLog. Only significative features and fixes.
 - The file should only be updated when the user requests it
