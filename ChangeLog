@@ -1,5 +1,23 @@
 # ChangeLog
 
+## Unreleased (2026-10-05)
+
+### User Features
+- The window title shows the jnext version, in both the Qt and SDL frontends
+
+### Bug Fixes
+- macOS mouse capture follows the hand: no more erratic or runaway pointer; Wayland sessions fixed too
+- Slow hosts keep full speed: no catch-up/skip spiral or idle gaps, and every frame is shown on Windows
+- Fast-forward runs up to ~20% faster when the host cannot keep up
+
+### Internal JNEXT Development
+- Regression suite runs its functional rows in parallel, about 3x faster; CI test jobs run in parallel (~18 min)
+- Green regression runs are stamped by content, so reviews and clean merges skip re-running unchanged code
+- version.yaml is the only file a version bump edits by hand; packaging and docs read it at build time
+
+### Contributors in this release
+- @IndigoBeetle
+
 ## v1.1.0 (2026-10-04)
 
 ### User Features
