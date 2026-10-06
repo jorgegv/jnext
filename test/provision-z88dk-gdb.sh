@@ -44,6 +44,13 @@ SHA256="${JNEXT_Z88DK_GDB_SHA256:-96a57a01d44ff1d65d84e38b04aebb0a4e10eccb4845cb
 CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/jnext/tools"
 CACHED="$CACHE_ROOT/z88dk-gdb-$VERSION/z88dk-gdb"
 
+# An explicit override that is not usable is an error, never a quiet fall-through
+# to some other client: the user asked for THAT one.
+if [[ -n "${Z88DK_GDB:-}" && ! -x "$Z88DK_GDB" ]]; then
+    echo "z88dk-gdb: Z88DK_GDB='$Z88DK_GDB' is not an executable file" >&2
+    exit 2
+fi
+
 resolve() {
     local c
     if [[ -n "${Z88DK_GDB:-}" && -x "$Z88DK_GDB" ]]; then echo "$Z88DK_GDB"; return 0; fi
@@ -110,6 +117,10 @@ if ! grep -qF 'z88dk-gdb, a gdb client' <<<"$banner"; then
 fi
 
 mkdir -p "$(dirname "$CACHED")"
-cp "$built" "$CACHED.tmp"
-mv "$CACHED.tmp" "$CACHED"
+# mktemp in the target directory (never a fixed name): two first-time runs at
+# once must not trample each other's half-copied file, and mv is atomic there.
+inst=$(mktemp "$(dirname "$CACHED")/z88dk-gdb.XXXXXX")
+cp "$built" "$inst"
+chmod 755 "$inst"
+mv -f "$inst" "$CACHED"
 echo "z88dk-gdb: installed $CACHED"

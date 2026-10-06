@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=129  # 75 + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=141  # 75 + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1976,6 +1976,65 @@ check "HS-77c" "the control: the same fixture with no SKIPPED row exits 0 and st
 out=$(cd "$SR" && JNEXT=/bin/true timeout --kill-after=3s 30s bash -c \
       "set -euo pipefail; source '$SRT/test-functions.inc'; CURRENT_ROW=lone-row; skip_row ' (stub)'; standalone_summary" 2>&1); rc=$?
 check "HS-77d" "a standalone row script that SKIPS exits 1 from standalone_summary" 1 $rc "$out" "a SKIP is not a pass"
+
+# ---------------- a missing TOOL or renderer-version gap FAILS, never skips (owner, 2026-10-06) ----------------
+# Every check below runs a REAL script of the project with a tool hidden from
+# PATH (a directory of symlinks to everything on PATH except the named tools),
+# or with a fake committed-renderer fingerprint, and expects a non-zero exit.
+# Reverting any one of those branches to "SKIP, exit 0" turns exactly its row red.
+shim_without() {   # shim_without <tool...> — echo a PATH that lacks them
+    local d dir f b skip x
+    d=$(mktemp -d "$T/shim.XXXXXX")
+    local IFS=:
+    for dir in $PATH; do
+        [[ -d "$dir" ]] || continue
+        for f in "$dir"/*; do
+            [[ -x "$f" && ! -d "$f" ]] || continue
+            b=${f##*/}; skip=0
+            for x in "$@"; do [[ "$b" == "$x" ]] && skip=1; done
+            [[ $skip -eq 1 || -e "$d/$b" ]] || ln -s "$f" "$d/$b"
+        done
+    done
+    echo "$d"
+}
+mk_fake_fp() { printf 'a fingerprint no real renderer prints\n' > "$T/fakefp.txt"; echo "$T/fakefp.txt"; }
+run_in_repo() {   # run_in_repo <PATH> <cmd...>
+    local p=$1; shift
+    ( cd "$PROJECT_DIR" && PATH="$p" timeout --kill-after=5s 300s "$@" 2>&1 )
+}
+# the ffmpeg row, standalone, with a stand-in jnext that always prints the warning
+NOFF=$(shim_without ffmpeg ffprobe)
+printf '#!/bin/sh\necho "ffmpeg not found in PATH"\n' > "$T/fakejnext.sh"; chmod +x "$T/fakejnext.sh"
+out=$(cd "$PROJECT_DIR" && PATH="$NOFF" JNEXT="$T/fakejnext.sh" timeout --kill-after=5s 120s \
+      bash test/00regression/scripts/ffmpeg-missing-warn-func.sh 2>&1); rc=$?
+check "HS-78" "ffmpeg-missing-warn-func with no ffmpeg on the host SKIPS (exit 1), it does not PASS with its control half unrun" 1 $rc "$out" \
+    "SKIP" "control not run" "a SKIP is not a pass"
+# the real sync-version-test with rpmspec hidden: its rpm rows SKIP and the suite must exit non-zero
+out=$(run_in_repo "$(shim_without rpmspec)" bash test/packaging/sync-version-test.sh); rc=$?
+check "HS-79" "sync-version-test.sh with rpmspec hidden exits non-zero and says a SKIP is not a pass" 1 $rc "$out" \
+    "SKIP" "rpmspec not installed" "a SKIP is not a pass"
+out=$(run_in_repo "$(shim_without pandoc)" make docs-man-check); rc=$?
+check "HS-80a" "docs-man-check without pandoc FAILS" 2 $rc "$out" "pandoc not installed"
+out=$(run_in_repo "$PATH" make docs-man-check MAN_RENDERER="$(mk_fake_fp)"); rc=$?
+check "HS-80b" "docs-man-check with a different pandoc than the committed renders FAILS" 2 $rc "$out" "different pandoc"
+out=$(run_in_repo "$(shim_without mkdocs)" make docs-userguide-check); rc=$?
+check "HS-80c" "docs-userguide-check without mkdocs FAILS" 2 $rc "$out" "mkdocs not installed"
+out=$(run_in_repo "$PATH" make docs-userguide-check GUIDE_RENDERER="$(mk_fake_fp)"); rc=$?
+check "HS-80d" "docs-userguide-check with a different mkdocs than the committed render FAILS" 2 $rc "$out" "different mkdocs/material"
+out=$(run_in_repo "$(shim_without dot)" make docs-devguide-check); rc=$?
+check "HS-80e" "docs-devguide-check without graphviz FAILS" 2 $rc "$out" "not installed"
+out=$(run_in_repo "$PATH" make docs-devguide-check DEVGUIDE_RENDERER="$(mk_fake_fp)"); rc=$?
+check "HS-80f" "docs-devguide-check with a different renderer than the committed render FAILS" 2 $rc "$out" "different mkdocs/material/graphviz"
+out=$(run_in_repo "$(shim_without python3)" bash test/snapshot/verify-schema.sh); rc=$?
+check "HS-80g" "verify-schema.sh without python3/jsonschema FAILS" 1 $rc "$out" "FAIL" "jsonschema is not available"
+out=$(run_in_repo "$(shim_without unzip)" bash test/snapshot/verify-external-zip.sh); rc=$?
+check "HS-80h" "verify-external-zip.sh without unzip FAILS" 1 $rc "$out" "FAIL" "unzip is not installed"
+
+# A set-but-unusable Z88DK_GDB is an error, never a quiet fall-through to another client
+out=$(Z88DK_GDB="$T/no-such-client" bash "$PROJECT_DIR/test/provision-z88dk-gdb.sh" --print-path 2>&1); rc=$?
+check "HS-81a" "provision-z88dk-gdb.sh --print-path with Z88DK_GDB set to a non-executable exits 2, naming it" 2 $rc "$out" "Z88DK_GDB=" "not an executable file"
+out=$(Z88DK_GDB="$T/no-such-client" bash "$PROJECT_DIR/test/provision-z88dk-gdb.sh" 2>&1); rc=$?
+check "HS-81b" "...and so does the provisioning run itself (it does not go and build another one)" 2 $rc "$out" "not an executable file"
 
 # ---------------- the harness's git keeps the user's own config (GH #295) ----------------
 # The suite points XDG_CONFIG_HOME at a scratch dir for Qt, and git resolves

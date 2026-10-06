@@ -164,6 +164,19 @@ out=$(run_contracts); rc=$?
 check "PS-04" "a placeholder sha256 in the Flatpak manifest FAILs the flatpak-manifest row" 1 $rc "$out" \
     "FAIL" "flatpak-manifest" "placeholder sha256" "Pass: 8" "Fail: 1"
 
+# ------------------------- a sub-test that SKIPs and exits 0 is a SKIP row
+# sync-version-test.sh once printed SKIP lines and exited 0 (rpmspec absent);
+# the wrapper read only the exit status and reported PASS. A SKIP line in a
+# sub-test's log must make that contract row a SKIP, whatever its exit code,
+# and the run must fail.
+reset_sandbox
+stub verify-bundle-test.sh \
+    "printf '  \033[0;33mSKIP\033[0m a row the sub-test did not run\n'" \
+    "exit 0"
+out=$(run_contracts); rc=$?
+check "PS-05" "a sub-test that prints SKIP and exits 0: the row is a SKIP, named, and the run fails" 1 $rc "$out" \
+    "SKIP" "verify-bundle" "a row the sub-test did not run" "Pass: 8" "Skip: 1" "a SKIP is not a pass"
+
 echo ""
 echo "====================================="
 printf "Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n" "$total" "$pass" "$fail" 0

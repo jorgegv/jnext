@@ -79,6 +79,22 @@ summary() {
     [ "$skip" -eq 0 ] || printf "  ${YELLOW}%d row(s) SKIPPED, i.e. not tested — a SKIP is not a pass${RESET}\n" "$skip"
 }
 
+# contract <row> <script> <logname> <ok message> — run one contract sub-test.
+# Its exit status is not enough: a sub-test that prints SKIP lines and exits 0
+# (sync-version-test.sh once did, with rpmspec absent) would read as PASS here
+# and hide the skipped rows. A SKIP line in its log makes the ROW a SKIP.
+contract() {
+    local row=$1 script=$2 log="$LOGDIR/$3.log" okmsg=$4
+    if ! bash "$script" >"$log" 2>&1; then
+        bad "$row" "contract test failed" "$log"
+    elif sed -e 's/\x1b\[[0-9;]*m//g' "$log" | grep -qE '^[[:space:]]*SKIP'; then
+        skp "$row" "the sub-test reported a SKIP (a row it did not run); see its SKIP lines below"
+        sed -e 's/\x1b\[[0-9;]*m//g' "$log" | grep -E '^[[:space:]]*SKIP' | sed 's/^/    | /'
+    else
+        ok "$row" "$okmsg"
+    fi
+}
+
 MINGW_QT6=/usr/x86_64-w64-mingw32/sys-root/mingw/lib/cmake/Qt6/Qt6Config.cmake
 MINGW_QT5=/usr/x86_64-w64-mingw32/sys-root/mingw/lib/cmake/Qt5/Qt5Config.cmake
 MINGW32_QT5=/usr/i686-w64-mingw32/sys-root/mingw/lib/cmake/Qt5/Qt5Config.cmake
@@ -92,42 +108,22 @@ fi
 # --- sync-version.sh contract (fast; runs on a throwaway copy) ----------------
 # The version-consistency script the bump-* targets rely on. Kept first so a
 # broken sync surfaces before the slow package builds.
-if bash test/packaging/sync-version-test.sh >"$LOGDIR/syncver.log" 2>&1; then
-    ok sync-version "idempotent, consistent, fails loud (see log for detail)"
-else
-    bad sync-version "contract test failed" "$LOGDIR/syncver.log"
-fi
+contract sync-version test/packaging/sync-version-test.sh syncver "idempotent, consistent, fails loud (see log for detail)"
 
 # --- add-release.sh contract (releases.yaml allowlist helper) ----------------
-if bash test/packaging/add-release-test.sh >"$LOGDIR/addrel.log" 2>&1; then
-    ok add-release "starts/append/idempotent/fail-loud (see log for detail)"
-else
-    bad add-release "contract test failed" "$LOGDIR/addrel.log"
-fi
+contract add-release test/packaging/add-release-test.sh addrel "starts/append/idempotent/fail-loud (see log for detail)"
 
 # --- verify-bundle.sh contract (macOS self-containment gate, GH #46) ---------
 # Runs everywhere: the gate's decision logic is tested against stubbed
 # otool/file, so the Linux dev host covers it even though the .dmg itself
 # cannot be built here.
-if bash test/packaging/verify-bundle-test.sh >"$LOGDIR/verifybundle.log" 2>&1; then
-    ok verify-bundle "rejects Homebrew/absolute deps, nested files, empty bundles"
-else
-    bad verify-bundle "contract test failed" "$LOGDIR/verifybundle.log"
-fi
+contract verify-bundle test/packaging/verify-bundle-test.sh verifybundle "rejects Homebrew/absolute deps, nested files, empty bundles"
 
 # --- prune-broken-plugins.sh contract (deletes files — both directions pinned)
-if bash test/packaging/prune-plugins-test.sh >"$LOGDIR/pruneplugins.log" 2>&1; then
-    ok prune-plugins "removes unloadable plugins, keeps working ones, refuses on libqcocoa"
-else
-    bad prune-plugins "contract test failed" "$LOGDIR/pruneplugins.log"
-fi
+contract prune-plugins test/packaging/prune-plugins-test.sh pruneplugins "removes unloadable plugins, keeps working ones, refuses on libqcocoa"
 
 # --- complete-closure.sh contract (adds files to the shipped bundle) ---------
-if bash test/packaging/complete-closure-test.sh >"$LOGDIR/closure.log" 2>&1; then
-    ok complete-closure "copies missing libs transitively, no-ops when complete"
-else
-    bad complete-closure "contract test failed" "$LOGDIR/closure.log"
-fi
+contract complete-closure test/packaging/complete-closure-test.sh closure "copies missing libs transitively, no-ops when complete"
 
 
 # --- package-* recipe guard (a failing bundle step must abort, GH #148) ------
@@ -137,11 +133,7 @@ fi
 # the scripts. package-win ran bundle-dlls.sh `;`-terminated inside a one-shell
 # recipe, so a failed bundle still zipped, printed "ZIP(s) produced:" and exited
 # 0 with no executable in the artifact.
-if bash test/packaging/package-recipe-guard-test.sh >"$LOGDIR/pkgrecipe.log" 2>&1; then
-    ok package-recipe "every bundle-dlls.sh invocation aborts its recipe on failure"
-else
-    bad package-recipe "contract test failed" "$LOGDIR/pkgrecipe.log"
-fi
+contract package-recipe test/packaging/package-recipe-guard-test.sh pkgrecipe "every bundle-dlls.sh invocation aborts its recipe on failure"
 
 # --- flatpak permission gate contract (GH #271) ------------------------------
 # verify-permissions.sh is what stops the shipped Flatpak losing --share=network
@@ -151,11 +143,7 @@ fi
 # nothing was wrong. Hermetic: fabricated `metadata` files + a stubbed flatpak,
 # no build, so it belongs in this half; the REAL bundle is checked by the
 # `flatpak` CI job (and `make package-flatpak`).
-if bash test/packaging/flatpak-permissions-test.sh >"$LOGDIR/fpkperm.log" 2>&1; then
-    ok flatpak-perms "accepts shared=network, refuses the shipped 1.0.1 shape + near-misses"
-else
-    bad flatpak-perms "contract test failed" "$LOGDIR/fpkperm.log"
-fi
+contract flatpak-perms test/packaging/flatpak-permissions-test.sh fpkperm "accepts shared=network, refuses the shipped 1.0.1 shape + near-misses"
 
 # --- flatpak manifest contract (tool-free) -----------------------------------
 # The Flatpak BUILD is covered by the `flatpak` CI job and `make
@@ -173,11 +161,7 @@ fi
 # --- artifact selection contract (the package rows below) --------------------
 # The package rows pick their artifact through artifact-select.sh; this proves
 # a previous version's leftover can no longer pass for the new build.
-if bash test/packaging/artifact-select-test.sh >"$LOGDIR/artsel.log" 2>&1; then
-    ok artifact-select "current-version artifact only; stale leftovers fail loudly"
-else
-    bad artifact-select "contract test failed" "$LOGDIR/artsel.log"
-fi
+contract artifact-select test/packaging/artifact-select-test.sh artsel "current-version artifact only; stale leftovers fail loudly"
 
 # ---- end of the hermetic contract half --------------------------------------
 # Everything above needs nothing but bash; everything below builds real

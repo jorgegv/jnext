@@ -577,7 +577,7 @@ for name in "${RUNNABLE[@]}"; do
         # A SKIP is a row that was NOT tested. It keeps its own badge (it says what
         # to install or fix) but does not count as a pass and fails the run below.
         printf "  ${CYAN}%-34s${RESET} ${BADGE_SKIP} SKIP ${RESET}  %s\n" "$name" "$line"
-        grep -E '^\s*SKIP' "$TMPDIR_RUN/$name.out" 2>/dev/null | head -5 | sed -E 's/^/      /' || true
+        grep -E '^\s*\[?SKIP' "$TMPDIR_RUN/$name.out" 2>/dev/null | head -5 | sed -E 's/^/      /' || true
         printf "      full log: %s\n" "$LOG_DIR/$name.log"
         suites_skip=$((suites_skip + 1))
     else
