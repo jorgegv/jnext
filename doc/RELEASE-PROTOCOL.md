@@ -238,10 +238,12 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
   so a tag cut from a commit that never reached `main` would bypass it. If that
   ever stops being merely theoretical, either gate `bump-*` on the branch or
   add a `package-test` job to `release.yml`.
-- In CI a **missing packaging tool is a FAIL, not a SKIP**
-  (`skp_ci_fail` in `test/packaging/packaging-test.sh`), so a row that quietly
-  stopped running cannot read as a pass. Flatpak is the one deliberate SKIP
-  there: it needs a multi-GB privileged `org.kde.Sdk` install.
+- A **missing packaging tool is a SKIP, and a SKIP fails the run** — locally and
+  in CI alike (owner, 2026-10-06; the old CI-only `skp_ci_fail` is gone), so a
+  row that quietly stopped running cannot read as a pass. The Flatpak BUILD is
+  not a `package-test` row (it needs a multi-GB privileged `org.kde.Sdk`
+  install): the `flatpak` CI job builds and permission-gates the bundle on every
+  push, and `package-test` keeps only the tool-free `flatpak-manifest` contract.
 
 ---
 
@@ -339,7 +341,8 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
 ## 7. Release checklist — when the user says "release vX.Y.Z"
 
 1. **Green triplet** on `main`: `make unit-test`, FUSE suite, `make regression`
-   — no FAIL (per CLAUDE.md "Version bumping") — plus `make unit-test-sdl`, as
+   — no FAIL and no SKIP (a SKIP is a row that was not tested; every harness
+   exits non-zero on one; per CLAUDE.md "Version bumping") — plus `make unit-test-sdl`, as
    the merge protocol requires. **The regression is not re-run locally when CI
    already ran it on the same content** (GH #295): on `main`'s tip, *before*
    the bump (the bump changes `version.yaml`, so its commit has a new key),
@@ -348,7 +351,10 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
    on a commit with the same content key — docs excluded, so the release prep
    commits of step 2 keep the key. It prints the run's URL; record it. Pull
    request runs never count: they test a merge of the PR into `main`, not the
-   commit they name. If there is no match (unpushed code commits, a red or
+   commit they name. A CI run can only match if it was skip-free: the key
+   covers every non-doc tracked path, the harness scripts included, so a tree
+   with the skip-failing harness can only match a run of that same harness, and
+   that run is green only without a SKIP. If there is no match (unpushed code commits, a red or
    cancelled run), run `make regression` locally — or `make
    regression-stamp-check`, if a local green run already covers that key.
 2. Update the unit-test status report, `doc/DEVELOPMENT-SESSIONS.md`, and the

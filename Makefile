@@ -649,8 +649,8 @@ snapshot-zip-check: unit-test-build
 	@# actually lived, and it is the reason ZIP was chosen over a first-party
 	@# chunked binary. See doc/design/NEXT-SNAPSHOT-FORMAT.md §13.2(2).
 	@#
-	@# Skip/fail posture is docs-check's, verbatim: skip when the tools are absent
-	@# locally, HARD-FAIL in CI. A check that silently skips in CI reads as a pass.
+	@# Posture: a missing reader FAILS everywhere (a SKIP fails every harness);
+	@# a check that cannot run is not a pass.
 	@bash test/snapshot/verify-external-zip.sh
 
 # Regenerate the committed .jns JSON Schema from the field declarations

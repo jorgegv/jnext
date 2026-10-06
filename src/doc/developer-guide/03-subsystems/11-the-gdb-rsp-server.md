@@ -58,5 +58,6 @@ client can never leave a stopping breakpoint behind.
 - `gdb-cli-func`, `gdb-sdl-func` and `gdb-qt-func` drive the real binary over a
   socket with an independent client (`test/00regression/gdb-peer.py`).
 - `gdb-z88dk-func` is the acceptance row: the real `z88dk-gdb` debugging
-  `magic_bp_demo.nex` with its linker map. It skips when no `z88dk-gdb` is
-  found (`Z88DK_GDB`, then `PATH`, then the source-tree default).
+  `magic_bp_demo.nex` with its linker map. `make regression` provisions the client
+  first (`make z88dk-gdb`: `Z88DK_GDB`, `PATH`, the source-tree default, else z88dk
+  v2.4's built into `~/.cache/jnext/tools`), so the row never skips.

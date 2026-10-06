@@ -112,7 +112,8 @@ covers, what it does not, and why the gate was declined.
 
 `package-src`, `package-rpm`, `package-deb`, `package-flatpak`, `package-macos`
 and the five `package-win*` variants each build one distributable.
-`package-test` builds them all except macOS and then asserts their contents,
+`package-test` builds them all except macOS and Flatpak (the `flatpak` CI job builds
+that) and then asserts their contents,
 while `package-contract-test` runs only the hermetic script contract suites.
 `version` prints the current version, and `bump-patch` / `bump-minor` /
 `bump-major` bump it, commit, and tag. [5.3](03-packaging-and-release.md) covers

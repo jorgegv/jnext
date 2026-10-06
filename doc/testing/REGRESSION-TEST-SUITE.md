@@ -10,7 +10,24 @@ See also: [TEST-TAXONOMY.md](TEST-TAXONOMY.md) — every screenshot row belongs 
 - Built emulator (`cmake --build build`)
 - ImageMagick (`compare` command) for pixel-level screenshot comparison
 - z88dk toolchain (only if rebuilding demo programs)
-- `xvfb-run` + `python3` (only for `audio-underrun-func`; the test SKIPs without them)
+- `xvfb-run` + `python3` (for `audio-underrun-func`; without them the row SKIPs and the run FAILS)
+- `z88dk-gdb` (for `gdb-z88dk-func`): **provisioned, not assumed** — see below
+
+### Tools the suite needs
+
+A SKIP is a row that was not tested and **fails the run** (every mode of
+`regression.sh`, and `standalone_summary` for a row run alone; owner decision
+2026-10-06). So a tool the rows need is either on the host (the `test` job's
+dnf list in `.github/workflows/ci.yml` is the reference set) or provisioned by
+the Makefile. The one provisioned tool is the z88dk-gdb client: `make
+regression`, `regression-rows` and `regression-confirm` run `make z88dk-gdb`
+first (`test/provision-z88dk-gdb.sh`). It resolves, in order, `$Z88DK_GDB`,
+`z88dk-gdb` on `PATH`, `$HOME/src/spectrum/z88dk/bin/z88dk-gdb`, then the user
+cache; if none exists it downloads z88dk v2.4's release source tarball, checks
+its pinned sha256 **before** unpacking, builds only `z88dk-gdb` (about 4 s, `cc`
+and `make` only) and installs it into
+`~/.cache/jnext/tools/z88dk-gdb-2.4/`. A no-op once cached; needs the network
+once, exactly like the SD image. Nothing is committed or shipped.
 
 ## Failures on a loaded host
 
@@ -77,8 +94,7 @@ still running, so a slow or hung row is visible before its bound.
 Rows that need an X server use **`xvfb-run -d`**, which lets Xvfb choose the
 display (`-displayfd`). `xvfb-run -a` picks a number by scanning
 `/tmp/.X<n>-lock`, which is not atomic: under parallel rows two of them got
-`:101`, one lost its server, and `sdl-keypress-func` SKIPPED with the run still
-green. Measured: 64/64 concurrent `-d` starts clean under 16 busy loops, against
+`:101`, one lost its server, and `sdl-keypress-func` SKIPPED (which now fails the run). Measured: 64/64 concurrent `-d` starts clean under 16 busy loops, against
 1/64 failing with `-a`. `harness-selftest` HS-72 bans `-a`/`-n` in every tracked
 test script.
 
@@ -109,7 +125,7 @@ inside `make regression-confirm`).
 
 `make regression` (not a bare `regression.sh`, which skips the target's
 prerequisites) writes a **stamp** when the run has **fail=0 and skip=0** (a SKIP
-is a row that was not tested) and the tree had no uncommitted change in a keyed
+is a row that was not tested, and itself fails the run) and the tree had no uncommitted change in a keyed
 path, at start or end (untracked means what the user's own git says: the
 suite's Qt isolation of `XDG_CONFIG_HOME` is hidden from every `git` it runs,
 so a file ignored only by `~/.config/git/ignore` does not count):
@@ -243,7 +259,8 @@ Running screenshot tests...
   Pass: 13  Fail: 0  Skip: 0
 ```
 
-Exit code is 0 if all tests pass, 1 if any fail.
+Exit code is 0 only if every row passes: 1 if any FAIL **or any SKIP**
+(`REGRESSION NOT PASSED: N row(s) SKIPPED, i.e. not tested: <rows>`).
 
 Failed tests save a diff image to `test/00regression/img/<test_name>-diff.png` for debugging.
 
@@ -405,7 +422,7 @@ address policy denies loopback by default (design doc §8.2) and a test is not a
 reason to relax a security decision; RFC1918 is allowed by that same decision,
 so the row exercises the "reach a machine on the user's own LAN" configuration
 the policy exists for. No packet leaves the host. On a machine with no private
-IPv4 the row SKIPs rather than pretending. `test/00regression/esp-loopback-peer.py`
+IPv4 the row SKIPs rather than pretending — and a SKIP fails the run. `test/00regression/esp-loopback-peer.py`
 picks the address, listens, and writes the guest binary that dials it — it can
 only write the guest once it knows its own port, which is why the three jobs
 live in one file.
@@ -450,7 +467,7 @@ config into the run's private SD clone through the project's own FAT32 writer,
 
 `test/00regression/nextsync-peer.py` follows `esp-loopback-peer.py`: it discovers
 the host's RFC1918 address the same way and for the same policy reason, and SKIPs
-(exit 3) when there is none. It SKIPs too when TCP **port 2048** is busy — unlike
+(exit 3, failing the run) when there is none. It SKIPs too when TCP **port 2048** is busy — unlike
 the loopback row it cannot take an ephemeral port, because that number is
 compiled into the dot command.
 
@@ -682,6 +699,6 @@ Load-bearing rationale that used to live as long comments inside
 - **audio-underrun under Xvfb/Wayland.** The stray-desktop-window fix (unset
   `WAYLAND_DISPLAY`, force the X11 backends) was verified by strace (two
   connects to `wayland-0` pre-fix). Pointing `WAYLAND_DISPLAY` at a dead
-  socket instead makes SDL fail to open an audio backend and the row SKIPs —
+  socket instead makes SDL fail to open an audio backend and the row SKIPs (a run failure) —
   a silently-disabled test is the worse trade versus a harmless residual
   probe connect.

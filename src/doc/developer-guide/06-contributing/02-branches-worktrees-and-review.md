@@ -56,7 +56,8 @@ $ ./build/test/fuse_z80_test build/test/fuse       # 1356/1356
 $ make regression
 ```
 
-No FAIL anywhere, and SKIPs only where they are already declared. Commit before
+No FAIL and no SKIP anywhere: a SKIP is a row that was not tested, and the
+harnesses exit non-zero on one. Commit before
 `make regression`: a green run on a tree with no uncommitted non-doc change
 leaves a **stamp** (GH #295), and a dirty tree gets none.
 

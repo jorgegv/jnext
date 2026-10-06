@@ -140,7 +140,7 @@ order, so a heartbeat line every 60 s names the rows still running.
 
 Parallel rows exposed one shared-resource race the serial suite never could:
 `xvfb-run -a` chooses an X display number by scanning lock files, so two rows
-starting together could pick the same one, and the loser SKIPPED. Every row now
+starting together could pick the same one, and the loser SKIPPED (a failure now). Every row now
 uses `xvfb-run -d`, where Xvfb picks the display itself, and harness-selftest
 HS-72 bans the racy forms.
 
@@ -156,7 +156,12 @@ key hashed from `git ls-tree` over every non-documentation path.
 `make regression-stamp-check` prints the stamp covering the current tree, which
 is how a reviewer verifies the author's run without repeating it, and
 `make regression-ci-check` finds a green CI run with the same key, which is how
-a release reuses CI. Only a run with no FAIL and no SKIP is stamped. A run whose
+a release reuses CI. Only a run with no FAIL and no SKIP is stamped, and since 2026-10-06 `regression.sh`
+itself exits 1 on a SKIP in every mode (full, named rows, `confirm`, `--update`;
+a standalone row's `standalone_summary` too), naming the rows. A tool a row needs
+is provisioned rather than assumed: `make regression` first runs `make z88dk-gdb`
+(`test/provision-z88dk-gdb.sh`), which builds z88dk v2.4's client, sha256-pinned,
+into `~/.cache/jnext/tools` when none resolves. A run whose
 only FAILs are functional rows that failed on a loaded host is recorded as
 pending, and `make regression-confirm` re-runs exactly those rows solo; if they
 all pass the run is stamped, and the stamp names them. Targeted rows run through
@@ -207,7 +212,7 @@ cleanup handler — the harness trap already removes that directory.
 
 The same sourcing puts the harness's own `pass`, `fail` and `skip` in every
 row's scope. `script-replay-edge-func` once used `skip` for a reason string;
-that zeroed an earlier SKIP, so CI — where `gdb-z88dk-func` skips — reported 214
+that zeroed an earlier SKIP, so CI — where `gdb-z88dk-func` then skipped — reported 214
 of 215 rows with an empty `Skip:`, while every local run, with nothing skipped,
 stayed green. The driver now wraps each functional row in a guard
 (`row_counters_snapshot` / `row_counters_check`, `test-functions.inc`) that

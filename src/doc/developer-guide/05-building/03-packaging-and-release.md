@@ -16,7 +16,7 @@ you read it; it is not a replacement for it.
 | `make package-win-sdl` / `package-win32-sdl` | SDL-only Windows zips — repo-internal validation legs, not published |
 | `make package-flatpak` | Flatpak bundle, in `build/flatpak-release/` |
 | `make package-macos` | macOS `.dmg` — Darwin only; prints a SKIP and exits cleanly elsewhere |
-| `make package-test` | builds every package except macOS and **asserts its contents** |
+| `make package-test` | builds every package except macOS and Flatpak and **asserts its contents** (a missing tool fails) |
 | `make package-contract-test` | the packaging-script contract suites only — hermetic, about 4 s, no toolchain |
 
 The source tarball is deliberately not a `git archive`. That would produce an

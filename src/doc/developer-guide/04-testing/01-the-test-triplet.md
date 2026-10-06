@@ -10,8 +10,9 @@ $ ./build/test/fuse_z80_test build/test/fuse
 $ make regression
 ```
 
-There must be no FAIL in any layer. Skips are acceptable only where the suite
-already declares them.
+There must be no FAIL and no SKIP in any layer. A SKIP is a row that was not
+tested, so every harness exits non-zero on one, in every mode (owner decision,
+2026-10-06); the SKIP badge stays only to say what to install or fix.
 
 ## Rebuild first — always
 

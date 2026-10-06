@@ -109,7 +109,7 @@ unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S
   locale is Spanish and greps for `warning:` otherwise match nothing.
 - Clean gui-release rebuild first, always (`feedback_test_runs_always_rebuild`).
 - Redirect, never pipe; check the status (`feedback_ci_runs_exact_local_commands`).
-- Any SKIP is a gate failure (CLAUDE.md, owner 2026-10-06): report it as a SKIP, never as a pass.
+- Any SKIP is a gate failure (CLAUDE.md, owner 2026-10-06): report it as a SKIP, never as a pass. The make targets now EXIT non-zero on one, so the exit status agrees with the counts.
 - Cache reset only on a fully-green run.
 - Don't update reference screenshots without explicit user authorization.
 - Don't fix anything — this skill reports, it doesn't fix.

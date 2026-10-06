@@ -107,9 +107,11 @@ use for. Each package is a PGO build, so the job also installs wine, for the
 Windows legs' training, and restores the SD image from the same cache entry as
 the `test` job. Every release and manual-build job that builds a PGO binary
 does the same; the macOS jobs keep their own entry, since a macOS runner's home
-directory differs from a container's. One detail matters here: in CI a missing packaging tool is a
-**FAIL, not a SKIP**, so a row that has quietly stopped running cannot read as
-a pass.
+directory differs from a container's. One detail matters here: a missing packaging tool is a SKIP, and a SKIP fails the
+run (locally too — the old CI-only `$CI` split is gone), so a row that has
+quietly stopped running cannot read as a pass. The Flatpak build is not a row of
+this job; the `flatpak` job below builds it, and only the tool-free
+`flatpak-manifest` contract runs here.
 
 **`macos`** runs `make package-macos` on a real `macos-latest` runner, and
 **`flatpak`** calls `flatpak-build.yml`, which actually builds the bundle inside
@@ -130,7 +132,8 @@ gate was written for. One body, one gate, three callers.
 
 `roms/` is git-ignored, so a fresh checkout has no NextZXOS SD image, and
 jnext's harness treats a missing image as a fatal fault rather than as a silent
-skip. Either `make unit-test` or `make regression` will therefore fail outright
+skip. (The z88dk-gdb client gets the same treatment: `make regression` provisions
+it with `make z88dk-gdb`, no CI step needed.) Either `make unit-test` or `make regression` will therefore fail outright
 without one; there is no honest way to run most of the suite and still call the
 job green.
 

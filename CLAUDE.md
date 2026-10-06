@@ -226,13 +226,29 @@ nothing changed; a missing or mismatched profile is a build error.
 
 ## Testing
 
-> **Before authoring, rewriting, or un-skipping any subsystem unit test
-> plan**, read [doc/testing/UNIT-TEST-PLAN-EXECUTION.md](doc/testing/UNIT-TEST-PLAN-EXECUTION.md).
-> It documents the VHDL-as-oracle rule, the pass/fail/skip distinction,
-> the 1:1:1 emulator-fix-plus-unskip process, the independent-review
+> **Before authoring or rewriting any subsystem unit test plan, or
+> implementing one of its planned rows**, read [doc/testing/UNIT-TEST-PLAN-EXECUTION.md](doc/testing/UNIT-TEST-PLAN-EXECUTION.md).
+> It documents the VHDL-as-oracle rule, the pass/fail distinction (a SKIP is
+> a failure, below), the 1:1:1 emulator-fix-plus-row process, the independent-review
 > requirement, and why all of that exists (the coverage-theatre audit).
 > The process is mandatory for every test plan rewrite and every emulator
 > fix that touches subsystem tests.
+
+### A SKIP is a failure of the gate — HARD RULE (owner, 2026-10-06)
+
+A row that was not tested is not a pass. **Every harness exits non-zero on any
+SKIP**, in every mode: `make unit-test` / `unit-test-sdl` (`run-unit-tests.sh`,
+a suite with `Skipped > 0`), `make regression` / `regression-rows` /
+`regression-confirm` / `--update` / a standalone row (`regression.sh`,
+`standalone_summary`), `make package-test`, and every contract suite. A missing
+test tool or a docs renderer whose version differs from the committed render
+FAILS the check instead of skipping it, on every machine, `$CI` or not. A row
+whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`,
+never a `skip()` in a suite. The tools the suite needs are provisioned, not
+assumed: `make regression` runs `make z88dk-gdb` (a sha256-pinned z88dk v2.4
+client built into `~/.cache/jnext/tools`, like the SD image); the rest are the
+`test` job's dnf list in `ci.yml`. `skip()` survives only as an ENVIRONMENT
+fallback arm of a row that also has a `check()`; when it fires, the run is red.
 
 ### CI runs the EXACT same commands as a local run — HARD RULE
 
@@ -267,7 +283,8 @@ stale generated document fails the test run itself rather than waiting for CI or
 a reviewer. This is deliberate: `doc/man/jnext.1` and `USAGE.md` are GENERATED
 from `doc/man/jnext.1.md` and COMMITTED, so a stale committed output is a silent
 lie no other gate can see. Edit the source, run `make docs-man`, commit the
-regenerated outputs. On a host without pandoc the check skips; in CI it hard-fails.
+regenerated outputs. On a host without pandoc, or with a different pandoc than the
+committed outputs were made with, the check fails (it cannot verify; CI is the reference).
 
 **Know exactly what this proves and what it does not.** `docs-check` proves the
 two generated outputs match `jnext.1.md`. It does NOT prove `jnext.1.md`
@@ -333,8 +350,8 @@ The rendered user guide under `doc/user-guide` is also generated (from
 staleness-checked: `docs-userguide-check` is the second half of `docs-check`, so
 it runs on every `make unit-test` and `make regression` exactly like the man
 page. If you edit a guide source, re-render and commit it in the same change —
-otherwise the next test run fails. On a host without mkdocs the check skips; in
-CI it hard-fails.
+otherwise the next test run fails. On a host without mkdocs, or with a different
+mkdocs-material than the render was made with, the check fails; CI is the reference.
 
 **The DEVELOPER guide works the same way, with one extra generated stage**
 (GH #44). Source: `src/doc/developer-guide` + `mkdocs-devguide.yml`. Render:
