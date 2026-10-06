@@ -18,7 +18,7 @@ Argument or implicit from user message:
 
 ## Steps
 
-1. If a known subsystem name, prefer reading the corresponding `device/<name>.vhd` file in full. Otherwise grep across all `.vhd` files for the pattern.
+1. If a known subsystem name, prefer reading the subsystem's file (`device/`, `video/` or `audio/`; MMU and NextREG are in `zxnext.vhd`) in full. Otherwise grep across all `.vhd` files for the pattern.
 
 2. For grep results, read **±30 lines** around each hit to capture the full process body.
 
@@ -41,6 +41,13 @@ Per `feedback_vhdl_faithful_only`, `feedback_test_from_vhdl`, `feedback_unobserv
 - **VHDL is the single oracle.** No paraphrase from CSpect / Fuse / ZEsarUX / wiki / forum.
 - **Cite, don't summarize.** Verbatim excerpt + line range + path is mandatory.
 - **No invention.** If the VHDL doesn't say, say so.
+
+## Reading traps that have shipped defects
+
+- Before citing a line, check which `generate` block encloses it. jnext targets **Issue 2** (`g_board_issue <= 2`). A line inside e.g. `gen_fdc_5: if (g_board_issue >= 3) generate` (zxnext.vhd ~1695) is on a branch the emulated hardware does not take.
+- Before claiming a signal is NOT affected by X, read every process that assigns it: latch processes as well as the output assignments. Missing from one path is not missing from all of them.
+- **Signals update at process end.** After `s <= not s;`, a later `if s = '1'` in the same process reads the value on entry, not the toggled one.
+- **A slice literal lands on the slice's declared bits.** `o_cpu_d(7 downto 3) <= "01000"` sets bit 6. Map each character to its declared index before naming a bit.
 
 ## When to escalate to the `vhdl-oracle` subagent
 

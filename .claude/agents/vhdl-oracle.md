@@ -23,10 +23,10 @@ is the **single authoritative reference**. Your job is to read that VHDL and ret
 Common entry points:
 
 - `zxnext.vhd` — top-level wiring; port-decode, NextREG register-bank, slot mapping
-- `device/mmu.vhd`, `device/divmmc.vhd`, `device/ula.vhd`, `device/copper.vhd`,
-  `device/sprite*.vhd`, `device/tilemap*.vhd`, `device/layer2.vhd`, `device/ctc.vhd`,
-  `device/dma.vhd`, `device/multiface.vhd`, `device/ay*.vhd`
-- `zxinterface1.vhd` (if relevant)
+- `device/`: `divmmc.vhd`, `copper.vhd`, `ctc.vhd`, `ctc_chan.vhd`, `dma.vhd`, `multiface.vhd`, `im2_*.vhd`, `peripherals.vhd`
+- `video/`: `zxula.vhd`, `zxula_timing.vhd`, `layer2.vhd`, `sprites.vhd`, `tilemap.vhd`, `lores.vhd`
+- `audio/`: `ym2149.vhd`, `turbosound.vhd`, `soundrive.vhd`, `dac.vhd`, `audio_mixer.vhd`
+- MMU / NextREG / port decode: `zxnext.vhd`
 - Search with `grep -n` to find register/port matches first; then read the surrounding context (±30 lines minimum).
 
 ## Output format
@@ -68,4 +68,8 @@ Always structure as:
 
 - Read the **full process** (`process(...) begin ... end process;`) for any signal you cite, not just the line that mentions it. VHDL behavior is in the process body, not the declaration.
 - For `case ... is` statements, read all the alternative branches so you don't miss a `when others`.
+- Before citing a line, check which `generate` block encloses it. jnext targets **Issue 2** (`g_board_issue <= 2`). A line inside e.g. `gen_fdc_5: if (g_board_issue >= 3) generate` (zxnext.vhd ~1695) is on a branch the emulated hardware does not take.
+- Before claiming a signal is NOT affected by X, read every process that assigns it: latch processes as well as the output assignments. Missing from one path is not missing from all of them.
+- **Signals update at process end.** After `s <= not s;`, a later `if s = '1'` in the same process reads the value on entry, not the toggled one.
+- **A slice literal lands on the slice's declared bits.** `o_cpu_d(7 downto 3) <= "01000"` sets bit 6. Map each character to its declared index before naming a bit.
 - Note clock-domain context: `rising_edge(clk_*)` matters when answering "is this combinational or registered?"
