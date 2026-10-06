@@ -126,7 +126,7 @@ GUIDE_OUT         := doc/user-guide
 # command (so its output never reaches the file) and `2>&1 >file` sends dot's
 # stderr — which is where `dot -V` writes — to the OLD stdout, i.e. the
 # terminal. The file came out EMPTY, the committed fingerprint never matched,
-# and docs-devguide-check reported a permanent version-gap SKIP: green, and
+# and docs-devguide-check reported a permanent version-gap SKIP (now a FAIL): green, and
 # proving nothing. Exactly the failure mode CLAUDE.md warns about.
 DEVGUIDE_FINGERPRINT := { python3 -c "import importlib.metadata as m; print('mkdocs', m.version('mkdocs')); print('mkdocs-material', m.version('mkdocs-material'))"; dot -V 2>&1; }
 DEVGUIDE_RENDERER := src/doc/developer-guide-renderer.txt
@@ -831,8 +831,7 @@ lint-makefile-help:
 
 # Fail if a NEW tautological assertion appeared in test/ (baseline-relative)
 lint-assertions:
-	@# A missing ripgrep is a hard FAILURE here, not a docs-check-style SKIP. pandoc and
-	@# mkdocs are genuinely optional (a source build ships the generated docs committed);
+	@# A missing ripgrep is a hard FAILURE here, like every other missing test tool.
 	@# rg is already a hard requirement of `make regression`, whose preflight row FAILs
 	@# without it. Skipping would also defeat the point: a lint that does not run reads
 	@# as a pass, which is the whole shape of GH #129.
@@ -1134,12 +1133,8 @@ docs-man-check:
 	@# ends only THAT line, and make would carry on into the diff below and
 	@# report both outputs "stale" on a host with no pandoc.
 	@if ! command -v pandoc >/dev/null 2>&1; then \
-	   if [ -n "$$CI" ]; then \
-	     printf "$(BADGE_FAIL) FAIL $(RESET) pandoc missing in CI — this check would\n"; \
-	     printf "        otherwise skip silently and read as a pass. Install it in the\n"; \
-	     printf "        workflow, or drop this step deliberately.\n"; exit 1; \
-	   fi; \
-	   printf "$(BADGE_SKIP) SKIP $(RESET) pandoc not installed; cannot verify doc freshness\n"; exit 0; \
+	   printf "$(BADGE_FAIL) FAIL $(RESET) pandoc not installed; cannot verify doc freshness.\n"; \
+	   printf "        A check that cannot run is not a pass: install pandoc (CI does).\n"; exit 1; \
 	 fi; \
 	 tmp=$$(mktemp -d); \
 	 pandoc -s -t man $(MAN_SRC) -o $$tmp/man.1; \
@@ -1147,36 +1142,32 @@ docs-man-check:
 	     --template=doc/man/usage.template \
 	     --include-before-body=doc/man/usage-preamble.md \
 	     $(MAN_SRC) -o $$tmp/USAGE.md; \
-	 rc=0; compared=0; \
+	 rc=0; \
 	 perl $(GUIDE_CLI_GEN) $$tmp/cli-options.md \
 	   || { printf "$(BADGE_FAIL) FAIL $(RESET) $(GUIDE_CLI_GEN) refused to generate\n"; rc=1; }; \
 	 here=$$($(MAN_FINGERPRINT)); there=$$(cat $(MAN_RENDERER) 2>/dev/null); \
 	 if [ -n "$$there" ] && [ "$$here" != "$$there" ]; then \
-	   printf "$(BADGE_SKIP) SKIP $(RESET) different pandoc than generated the committed outputs,\n"; \
-	   printf "        so a byte-diff would report a version gap, not staleness.\n"; \
-	   printf "        here: $$here / committed: $$there\n"; \
+	   printf "$(BADGE_FAIL) FAIL $(RESET) different pandoc than generated the committed outputs,\n"; \
+	   printf "        so the freshness cannot be verified here (a byte-diff would report a\n"; \
+	   printf "        version gap, not staleness). Use the reference platform (fedora:44),\n"; \
+	   printf "        or rely on CI.\n"; \
+	   printf "        here: $$here / committed: $$there\n"; rc=1; \
 	 elif [ $$rc -eq 0 ]; then \
-	   compared=1; \
 	   diff -q $$tmp/man.1 $(MAN_OUT) >/dev/null 2>&1 || { printf "$(BADGE_FAIL) FAIL $(RESET) $(MAN_OUT) is stale\n"; rc=1; }; \
 	   diff -q $$tmp/USAGE.md $(USAGE_OUT) >/dev/null 2>&1 || { printf "$(BADGE_FAIL) FAIL $(RESET) $(USAGE_OUT) is stale\n"; rc=1; }; \
 	   diff -q $$tmp/cli-options.md $(GUIDE_CLI_OUT) >/dev/null 2>&1 || { printf "$(BADGE_FAIL) FAIL $(RESET) $(GUIDE_CLI_OUT) is stale\n"; rc=1; }; \
 	 fi; \
 	 rm -rf $$tmp; \
-	 if [ $$rc -ne 0 ]; then printf "        run 'make docs-man' and commit the result\n"; \
+	 if [ $$rc -ne 0 ]; then printf "        if the outputs are stale: run 'make docs-man' and commit the result\n"; \
 	   printf "        (then 'make docs-userguide' — the guide page feeds the rendered guide)\n"; \
-	 elif [ $$compared -eq 1 ]; then printf "$(BADGE_PASS) OK $(RESET) man page, USAGE.md and the guide's option page are up to date\n"; \
-	 else printf "$(BADGE_PASS) OK $(RESET) man page regenerates cleanly (staleness NOT compared)\n"; fi; \
+	 else printf "$(BADGE_PASS) OK $(RESET) man page, USAGE.md and the guide's option page are up to date\n"; fi; \
 	 exit $$rc
 
 # Fail if the committed rendered user guide is stale vs src/doc/user-guide
 docs-userguide-check:
 	@if ! command -v mkdocs >/dev/null 2>&1; then \
-	   if [ -n "$$CI" ]; then \
-	     printf "$(BADGE_FAIL) FAIL $(RESET) mkdocs missing in CI — this check would\n"; \
-	     printf "        otherwise skip silently and read as a pass. Install it in the\n"; \
-	     printf "        workflow, or drop this step deliberately.\n"; exit 1; \
-	   fi; \
-	   printf "$(BADGE_SKIP) SKIP $(RESET) mkdocs not installed; cannot verify the user guide\n"; exit 0; \
+	   printf "$(BADGE_FAIL) FAIL $(RESET) mkdocs not installed; cannot verify the user guide.\n"; \
+	   printf "        A check that cannot run is not a pass: install mkdocs-material (CI does).\n"; exit 1; \
 	 fi; \
 	 tmp=$$(mktemp -d); \
 	 rc=0; \
@@ -1184,20 +1175,19 @@ docs-userguide-check:
 	   || { printf "$(BADGE_FAIL) FAIL $(RESET) the user guide does not build\n"; rc=1; }; \
 	 here=$$($(GUIDE_FINGERPRINT)); \
 	 there=$$(cat $(GUIDE_RENDERER) 2>/dev/null); \
-	 compared=0; \
 	 if [ $$rc -eq 0 ] && [ "$$here" != "$$there" ]; then \
-	   printf "$(BADGE_SKIP) SKIP $(RESET) different mkdocs/material than rendered the committed\n"; \
-	   printf "        guide, so a byte-diff would report a version gap, not staleness.\n"; \
-	   printf "        here: $$(echo $$here | tr '\\n' ' ') / committed: $$(echo $$there | tr '\\n' ' ')\n"; \
+	   printf "$(BADGE_FAIL) FAIL $(RESET) different mkdocs/material than rendered the committed\n"; \
+	   printf "        guide, so its freshness cannot be verified here (a byte-diff would report\n"; \
+	   printf "        a version gap, not staleness). Use the reference platform (fedora:44),\n"; \
+	   printf "        or rely on CI.\n"; \
+	   printf "        here: $$(echo $$here | tr '\\n' ' ') / committed: $$(echo $$there | tr '\\n' ' ')\n"; rc=1; \
 	 elif [ $$rc -eq 0 ]; then \
-	   compared=1; \
 	   diff -r -q $$tmp/guide $(GUIDE_OUT) >/dev/null 2>&1 \
 	     || { printf "$(BADGE_FAIL) FAIL $(RESET) $(GUIDE_OUT) is stale vs $(GUIDE_SRC)\n"; rc=1; }; \
 	 fi; \
 	 rm -rf $$tmp; \
-	 if [ $$rc -ne 0 ]; then printf "        run 'make docs-userguide' and commit the result\n"; \
-	 elif [ $$compared -eq 1 ]; then printf "$(BADGE_PASS) OK $(RESET) the rendered user guide is up to date\n"; \
-	 else printf "$(BADGE_PASS) OK $(RESET) the user guide builds cleanly (staleness NOT compared)\n"; fi; \
+	 if [ $$rc -ne 0 ]; then printf "        if it is stale: run 'make docs-userguide' and commit the result\n"; \
+	 else printf "$(BADGE_PASS) OK $(RESET) the rendered user guide is up to date\n"; fi; \
 	 exit $$rc
 
 # Render the user guide from src/doc/user-guide into doc/user-guide (needs mkdocs-material)
@@ -1238,7 +1228,7 @@ docs-screenshots: unit-test-build
 	@# staleness GATE on these images, on purpose: a byte comparison would fail
 	@# on any Qt, font or freetype update, which is a version gap and not
 	@# staleness — the same reason docs-man-check and docs-userguide-check
-	@# SKIP rather than fail when the renderer differs. Here there is no
+	@# FAIL when the renderer differs. Here there is no
 	@# renderer fingerprint to compare, so the check could only cry wolf.
 	@#
 	@# COVERS every picture of a Qt widget in the guide: the 13 debugger images
@@ -1352,12 +1342,8 @@ docs-devguide-check:
 	@# only the site would let a hand-edited SVG pass, since mkdocs copies it
 	@# through unchanged.
 	@if ! command -v mkdocs >/dev/null 2>&1 || ! command -v dot >/dev/null 2>&1; then \
-	   if [ -n "$$CI" ]; then \
-	     printf "$(BADGE_FAIL) FAIL $(RESET) mkdocs or graphviz missing in CI — this check\n"; \
-	     printf "        would otherwise skip silently and read as a pass. Install them in\n"; \
-	     printf "        the workflow, or drop this step deliberately.\n"; exit 1; \
-	   fi; \
-	   printf "$(BADGE_SKIP) SKIP $(RESET) mkdocs/graphviz not installed; cannot verify the developer guide\n"; exit 0; \
+	   printf "$(BADGE_FAIL) FAIL $(RESET) mkdocs or graphviz not installed; cannot verify the developer guide.\n"; \
+	   printf "        A check that cannot run is not a pass: install them (CI does).\n"; exit 1; \
 	 fi; \
 	 tmp=$$(mktemp -d); \
 	 rc=0; \
@@ -1369,15 +1355,15 @@ docs-devguide-check:
 	 there=$$(cat $(DEVGUIDE_RENDERER) 2>/dev/null); \
 	 if [ $$rc -eq 0 ] && [ -z "$$there" ]; then \
 	   printf "$(BADGE_FAIL) FAIL $(RESET) $(DEVGUIDE_RENDERER) is missing or empty\n"; \
-	   printf "        Without it every run takes the version-gap SKIP below and this\n"; \
-	   printf "        check proves nothing while reporting green.\n"; rc=1; \
+	   printf "        Without it the fingerprint comparison below cannot hold and this\n"; \
+	   printf "        check proves nothing.\n"; rc=1; \
 	 fi; \
-	 compared=0; \
 	 if [ $$rc -eq 0 ] && [ "$$here" != "$$there" ]; then \
-	   printf "$(BADGE_SKIP) SKIP $(RESET) different mkdocs/material/graphviz than rendered the\n"; \
-	   printf "        committed developer guide, so a byte-diff would report a version\n"; \
-	   printf "        gap, not staleness.\n"; \
-	   printf "        here: $$(echo $$here | tr '\\n' ' ') / committed: $$(echo $$there | tr '\\n' ' ')\n"; \
+	   printf "$(BADGE_FAIL) FAIL $(RESET) different mkdocs/material/graphviz than rendered the\n"; \
+	   printf "        committed developer guide, so its freshness cannot be verified here\n"; \
+	   printf "        (a byte-diff would report a version gap, not staleness). Use the\n"; \
+	   printf "        reference platform (fedora:44), or rely on CI.\n"; \
+	   printf "        here: $$(echo $$here | tr '\\n' ' ') / committed: $$(echo $$there | tr '\\n' ' ')\n"; rc=1; \
 	 elif [ $$rc -eq 0 ]; then \
 	   for d in $(DEVGUIDE_DOT); do \
 	     b=$$(basename $$d .dot).svg; \
@@ -1387,15 +1373,13 @@ docs-devguide-check:
 	   $(GUIDE_BUILD_ENV) mkdocs build --strict --config-file $(DEVGUIDE_CONFIG) --site-dir $$tmp/site >/dev/null 2>&1 \
 	     || { printf "$(BADGE_FAIL) FAIL $(RESET) the developer guide does not build\n"; rc=1; }; \
 	   if [ $$rc -eq 0 ]; then \
-	     compared=1; \
 	     diff -r -q $$tmp/site $(DEVGUIDE_OUT) >/dev/null 2>&1 \
 	       || { printf "$(BADGE_FAIL) FAIL $(RESET) $(DEVGUIDE_OUT) is stale vs $(DEVGUIDE_SRC)\n"; rc=1; }; \
 	   fi; \
 	 fi; \
 	 rm -rf $$tmp; \
-	 if [ $$rc -ne 0 ]; then printf "        run 'make docs-devguide' and commit the result\n"; \
-	 elif [ $$compared -eq 1 ]; then printf "$(BADGE_PASS) OK $(RESET) the rendered developer guide is up to date\n"; \
-	 else printf "$(BADGE_PASS) OK $(RESET) the developer guide builds cleanly (staleness NOT compared)\n"; fi; \
+	 if [ $$rc -ne 0 ]; then printf "        if it is stale: run 'make docs-devguide' and commit the result\n"; \
+	 else printf "$(BADGE_PASS) OK $(RESET) the rendered developer guide is up to date\n"; fi; \
 	 exit $$rc
 
 # Serve the rendered developer guide over HTTP so it can be read in a browser

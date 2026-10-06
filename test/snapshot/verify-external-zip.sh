@@ -23,9 +23,8 @@
 #                            `infolist()` expose the framing fields so this
 #                            script can assert the compression method too
 #
-# POSTURE: skip when the tools are absent locally, HARD-FAIL in CI — exactly
-# what `docs-check` does for pandoc and mkdocs. A check that silently skips in
-# CI reads as a pass, which is the failure this project has already had.
+# POSTURE: both readers are REQUIRED, locally and in CI alike; a missing one
+# FAILS (owner, 2026-10-06). A check that cannot run is not a pass.
 
 set -euo pipefail
 
@@ -39,18 +38,14 @@ command -v unzip   >/dev/null 2>&1 && have_unzip=1
 command -v python3 >/dev/null 2>&1 && python3 -c 'import zipfile' >/dev/null 2>&1 \
     && have_python=1
 
-if [ "$have_unzip" -eq 0 ] && [ "$have_python" -eq 0 ]; then
-    if [ -n "${CI:-}" ]; then
-        echo "FAIL  neither unzip nor python3-zipfile is available in CI."
-        echo "      This check would otherwise skip silently and read as a"
-        echo "      pass. Install them in the workflow, or drop this step"
-        echo "      deliberately."
-        exit 1
-    fi
-    echo "SKIP  no independent ZIP reader installed (unzip / python3 zipfile);"
-    echo "      cannot verify the container against an implementation that is"
-    echo "      not ours"
-    exit 0
+# BOTH independent readers are required: a missing one is a reader that did not
+# check the container, and a check that cannot run is not a pass.
+if [ "$have_unzip" -eq 0 ] || [ "$have_python" -eq 0 ]; then
+    [ "$have_unzip" -eq 0 ] && echo "FAIL  unzip is not installed"
+    [ "$have_python" -eq 0 ] && echo "FAIL  python3 zipfile is not importable"
+    echo "      An independent ZIP reader did not check the container, so the"
+    echo "      result would not be evidence. Install unzip and python3."
+    exit 1
 fi
 
 if [ ! -x "$BIN" ]; then
@@ -84,6 +79,7 @@ fi
 
 rc=0
 
+# (both readers are present: checked above)
 if [ "$have_unzip" -eq 1 ]; then
     for f in "$OUT_DIR"/*.jns "$OUT_DIR"/*.zip; do
         if ! unzip -t "$f" >"$OUT_DIR/unzip.log" 2>&1; then
@@ -93,16 +89,12 @@ if [ "$have_unzip" -eq 1 ]; then
         fi
     done
     [ "$rc" -eq 0 ] && echo "  unzip -t      accepted $count archives ($snaps snapshots)"
-else
-    echo "  unzip -t      SKIP (unzip not installed)"
 fi
 
 if [ "$have_python" -eq 1 ]; then
     if ! python3 "${REPO_ROOT}/test/snapshot/verify_zipfile.py" "$OUT_DIR"; then
         rc=1
     fi
-else
-    echo "  python zipfile SKIP (python3 zipfile not importable)"
 fi
 
 if [ "$rc" -ne 0 ]; then
