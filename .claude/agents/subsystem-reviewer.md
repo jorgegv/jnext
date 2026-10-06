@@ -53,7 +53,8 @@ APPROVE | REJECT
 - <bug> — <evidence>
 
 ## Tests run
-- ctest: <result>
+- unit: <result>
+- sdl: <result>
 - FUSE: <result>
 - regression: <triplet>
 ```
@@ -69,7 +70,7 @@ APPROVE | REJECT
 
 Before approving, run (or confirm the author ran) on the changed branch / worktree:
 
-- `LANG=C make unit-test` (ctest)
+- `LANG=C make unit-test`
 - `LANG=C make unit-test-sdl`
 - `./build/test/fuse_z80_test build/test/fuse`
 - the regression: do NOT re-run the full suite (GH #295). Run `LANG=C make regression-stamp-check` in your own worktree of the branch — it prints the author's green stamp when the tree's non-doc content is the one they tested — and run the TARGETED rows the change touches, `LANG=C make regression-rows ROWS="<row> ..."` (it builds the binaries the rows run). Mutations and diagnosis use targeted rows only. No matching stamp = the gate is not met = REJECT; it is the author's run to do, not yours.

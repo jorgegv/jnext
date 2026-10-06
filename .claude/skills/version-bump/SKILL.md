@@ -65,7 +65,7 @@ This will:
 ## Version bumped: vX.Y.Z
 
 ### Steps
-- [✓] Tests passed (ctest N/N, regression P/F/S)
+- [✓] Tests passed (unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S)
 - [✓] Traceability matrix refreshed (commit <sha>)
 - [✓] Unit-test status refreshed (commit <sha>)
 - [✓] DEVELOPMENT-SESSIONS updated (commit <sha>)

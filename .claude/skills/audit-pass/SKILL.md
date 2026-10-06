@@ -89,7 +89,7 @@ The full gate must be green on each audit branch before its review (CLAUDE.md me
 - Subsystems still iterating: <list>
 
 ### Test triplet on main (post-merge)
-ctest N/N • FUSE 1356/1356 • regression P/F/S
+unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S
 
 ### Next pass
 - Subsystems to audit: <list, excluding converged>
