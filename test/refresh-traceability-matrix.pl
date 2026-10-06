@@ -1895,7 +1895,7 @@ sub row_descriptions {
     my $helper_re = join('|', map { quotemeta } sort { length($b) <=> length($a) }
                                                 keys %$pos);
     return {} unless length $helper_re;
-    my %desc;
+    my (%desc, %from_skip);
     for my $i (0 .. $#$src) {
         my $head = code_prefix($src->[$i]);
         # The helper names come from THIS file's own definitions (base five
@@ -1904,6 +1904,7 @@ sub row_descriptions {
         next unless $head =~ /\b($helper_re)\s*\(/;
         my $helper = $1;
         my $p = $pos->{$helper} or next;
+        my $is_skip = ($helper eq 'skip' || $helper eq 'stub') ? 1 : 0;
         # Same bounded span the citation scan uses, and bounded for the same
         # reason: an unbalanced paren inside a literal must not run away.
         my ($depth, $started, $text, $j) = (0, 0, '', $i);
@@ -1951,7 +1952,12 @@ sub row_descriptions {
             # quotes itself — it is written to run over raw source, and this is
             # the one caller holding an already-unquoted value.
             next unless defined $id && "\"$id\"" =~ /^$ID_LITERAL_RE$/;
-            $desc{$id} //= $ds[$k] if defined $ds[$k];
+            next unless defined $ds[$k];
+            # A skip()/stub() reason is a fallback: it describes why the row was
+            # not run, not what it asserts. A later check() of the same ID
+            # replaces it (SD-28's skip arm precedes its check()).
+            if (!exists $desc{$id})                 { $desc{$id} = $ds[$k]; $from_skip{$id} = $is_skip; }
+            elsif ($from_skip{$id} && !$is_skip)    { $desc{$id} = $ds[$k]; $from_skip{$id} = 0; }
         }
     }
     return \%desc;

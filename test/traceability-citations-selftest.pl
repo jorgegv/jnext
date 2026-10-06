@@ -3517,6 +3517,8 @@ check('SELF-195', 'a suite may be a fallback elsewhere AND own its section: it p
 # skip() call as `skip`, so the committed matrix published 12 `skip` rows that
 # pass in CI and locally, contradicting a skip-free tree.
 my $src7 = write_fixture('test/fixture/skipcheck_test.cpp', <<'CPP');
+static void check(const char* id, const char* desc, bool cond, const char* detail) { (void)id; (void)desc; (void)cond; (void)detail; }
+static void skip(const char* id, const char* reason) { (void)id; (void)reason; }
 void rows() {
     if (!env_ok) {
         skip("SKC-01", "environment cannot build the premise");
@@ -3527,10 +3529,14 @@ void rows() {
 }
 CPP
 my ($c7, $k7) = grep_source($src7);
-check('SELF-218', 'an ID with a skip() arm FIRST and a check() later is a pass row at the check() line',
+my $d7 = row_descriptions($src7);
+check('SELF-218', 'an ID with a skip() arm FIRST and a check() later is a pass row at the check() line, described by the check()',
       scalar(status_for('SKC-01', {}, $c7, $k7) eq 'pass'
-             && ($c7->{'SKC-01'} // 0) == 6 && !exists $k7->{'SKC-01'}),
-      'status=' . status_for('SKC-01', {}, $c7, $k7) . ' check line=' . ($c7->{'SKC-01'} // '(none)'));
+             && ($c7->{'SKC-01'} // 0) == 8 && !exists $k7->{'SKC-01'}
+             && ($d7->{'SKC-01'} // '') eq 'the real assertion'
+             && ($d7->{'SKO-01'} // '') eq 'feature not reachable'),
+      'status=' . status_for('SKC-01', {}, $c7, $k7) . ' check line=' . ($c7->{'SKC-01'} // '(none)')
+        . ' desc=' . ($d7->{'SKC-01'} // '(none)') . ' / skip-only desc=' . ($d7->{'SKO-01'} // '(none)'));
 check('SELF-219', 'the control: an ID with only a skip() call is still a skip row',
       scalar(status_for('SKO-01', {}, $c7, $k7) eq 'skip' && !exists $c7->{'SKO-01'}),
       'status=' . status_for('SKO-01', {}, $c7, $k7));
