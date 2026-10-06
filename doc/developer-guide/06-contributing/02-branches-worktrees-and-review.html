@@ -2370,7 +2370,8 @@ $ make unit-test
 $ ./build/test/fuse_z80_test build/test/fuse       # 1356/1356
 $ make regression
 </code></pre>
-<p>No FAIL anywhere, and SKIPs only where they are already declared. Commit before
+<p>No FAIL and no SKIP anywhere: a SKIP is a row that was not tested, and the
+harnesses exit non-zero on one. Commit before
 <code>make regression</code>: a green run on a tree with no uncommitted non-doc change
 leaves a <strong>stamp</strong> (GH #295), and a dirty tree gets none.</p>
 <p>Starting with <code>make clean</code> is deliberate, not caution. The regression suite runs

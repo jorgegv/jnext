@@ -2401,7 +2401,11 @@ none, a SKIP or FAIL is never stamped, every non-doc class of path (Makefile,
 CMake, a <code>.conf</code>, <code>tools/</code>, <code>.github/</code>, a gitlink) moves the key while
 documentation does not, the documentation a gate reads does, and the
 pending / solo-confirm path stamps only when every pending row passes. <code>HS-72</code>
-bans <code>xvfb-run -a</code>/<code>-n</code> from the test scripts. <code>HS-73</code> runs the real confirm
+bans <code>xvfb-run -a</code>/<code>-n</code> from the test scripts. <code>HS-76a</code>/<code>b</code> pin that a unit suite
+reporting a SKIP fails the run (named, with its SKIP lines, beside a failing one
+too) and <code>HS-77a</code>..<code>d</code> that the regression driver and a standalone row do the
+same in every mode, with the control that a skip-free run still exits 0 and
+stamps. <code>HS-73</code> runs the real confirm
 path in a throwaway repository whose one row invokes the harness again, as
 harness-selftest-func does, and requires it to complete and stamp: a nested
 run never waits for the lock its own ancestor holds. <code>HS-74a</code>/<code>HS-74b</code> prove
@@ -2414,7 +2418,7 @@ directory for Qt — with an untracked file ignored only by a fake <em>global</e
 ignore (it must not count as dirty) and one nobody ignores (it must); <code>HS-74c</code> repeats HS-73 with the lock file
 behind a symlink, which flock(1) resolves and the holder check must too.</p>
 <h2 id="it-pins-its-own-count">It pins its own count<a class="headerlink" href="#it-pins-its-own-count" title="Permanent link">&para;</a></h2>
-<p><code>EXPECTED_TOTAL = 123</code> sits in the script, right next to the rows it counts, and
+<p><code>EXPECTED_TOTAL = 129</code> sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is
@@ -2425,7 +2429,7 @@ deliberately.</p>
 cross-checked against CMake's <code>add_test()</code> registrations in both directions, so
 an entry with no CMake counterpart would make the unit harness refuse to run.</p>
 <h2 id="the-traceability-self-tests">The traceability self-tests<a class="headerlink" href="#the-traceability-self-tests" title="Permanent link">&para;</a></h2>
-<pre><code class="language-console">$ make traceability-selftest          # citation extractor + dup-ID gate, 217 pinned rows
+<pre><code class="language-console">$ make traceability-selftest          # citation extractor + dup-ID gate, 219 pinned rows
 $ make traceability-accounting-check  # the suite-accounting gate, ~0.01 s
 </code></pre>
 <p><code>test/traceability-citations-selftest.pl</code> pins the tool that decides which VHDL
@@ -2435,7 +2439,7 @@ sources and binaries, and then run the real refresh script against it twice, so
 that idempotence and the refusal paths are both exercised. <code>SELF-208</code>..<code>SELF-215</code>
 run <code>test/traceability-dup-ids.pl</code> and the generator's <code>--planned-ids</code> the same
 way, planting colliding IDs in <code>?</code>-prefixed suites, in one-row plan docs and in
-the baseline (GH #243). It pins <code>$EXPECTED_ROWS = 217</code> in the
+the baseline (GH #243). It pins <code>$EXPECTED_ROWS = 219</code> in the
 same shape as the harness self-test, and for the same reason it cannot live in
 the unit manifest — it is a perl script with no CMake target.</p>
 <p>Both are prerequisites of <code>make unit-test</code>, and that matters more than the

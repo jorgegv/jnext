@@ -2418,9 +2418,11 @@ use for. Each package is a PGO build, so the job also installs wine, for the
 Windows legs' training, and restores the SD image from the same cache entry as
 the <code>test</code> job. Every release and manual-build job that builds a PGO binary
 does the same; the macOS jobs keep their own entry, since a macOS runner's home
-directory differs from a container's. One detail matters here: in CI a missing packaging tool is a
-<strong>FAIL, not a SKIP</strong>, so a row that has quietly stopped running cannot read as
-a pass.</p>
+directory differs from a container's. One detail matters here: a missing packaging tool is a SKIP, and a SKIP fails the
+run (locally too — the old CI-only <code>$CI</code> split is gone), so a row that has
+quietly stopped running cannot read as a pass. The Flatpak build is not a row of
+this job; the <code>flatpak</code> job below builds it, and only the tool-free
+<code>flatpak-manifest</code> contract runs here.</p>
 <p><strong><code>macos</code></strong> runs <code>make package-macos</code> on a real <code>macos-latest</code> runner, and
 <strong><code>flatpak</code></strong> calls <code>flatpak-build.yml</code>, which actually builds the bundle inside
 the KDE runtime container and then asserts its sandbox permissions. Both exist
@@ -2437,7 +2439,8 @@ gate was written for. One body, one gate, three callers.</p>
 <h2 id="the-sd-card-image-is-provisioned-never-faked">The SD-card image is provisioned, never faked<a class="headerlink" href="#the-sd-card-image-is-provisioned-never-faked" title="Permanent link">&para;</a></h2>
 <p><code>roms/</code> is git-ignored, so a fresh checkout has no NextZXOS SD image, and
 jnext's harness treats a missing image as a fatal fault rather than as a silent
-skip. Either <code>make unit-test</code> or <code>make regression</code> will therefore fail outright
+skip. (The z88dk-gdb client gets the same treatment: <code>make regression</code> provisions
+it with <code>make z88dk-gdb</code>, no CI step needed.) Either <code>make unit-test</code> or <code>make regression</code> will therefore fail outright
 without one; there is no honest way to run most of the suite and still call the
 job green.</p>
 <p>So CI runs <strong>jnext's own provisioner</strong> — the same code path an end user reaches

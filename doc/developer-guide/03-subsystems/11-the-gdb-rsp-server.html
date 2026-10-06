@@ -2388,8 +2388,9 @@ client can never leave a stopping breakpoint behind.</p>
 <li><code>gdb-cli-func</code>, <code>gdb-sdl-func</code> and <code>gdb-qt-func</code> drive the real binary over a
   socket with an independent client (<code>test/00regression/gdb-peer.py</code>).</li>
 <li><code>gdb-z88dk-func</code> is the acceptance row: the real <code>z88dk-gdb</code> debugging
-  <code>magic_bp_demo.nex</code> with its linker map. It skips when no <code>z88dk-gdb</code> is
-  found (<code>Z88DK_GDB</code>, then <code>PATH</code>, then the source-tree default).</li>
+  <code>magic_bp_demo.nex</code> with its linker map. <code>make regression</code> provisions the client
+  first (<code>make z88dk-gdb</code>: <code>Z88DK_GDB</code>, <code>PATH</code>, the source-tree default, else z88dk
+  v2.4's built into <code>~/.cache/jnext/tools</code>), so the row never skips.</li>
 </ul>
 
 

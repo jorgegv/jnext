@@ -2332,8 +2332,9 @@ $ make unit-test
 $ ./build/test/fuse_z80_test build/test/fuse
 $ make regression
 </code></pre>
-<p>There must be no FAIL in any layer. Skips are acceptable only where the suite
-already declares them.</p>
+<p>There must be no FAIL and no SKIP in any layer. A SKIP is a row that was not
+tested, so every harness exits non-zero on one, in every mode (owner decision,
+2026-10-06); the SKIP badge stays only to say what to install or fix.</p>
 <h2 id="rebuild-first-always">Rebuild first — always<a class="headerlink" href="#rebuild-first-always" title="Permanent link">&para;</a></h2>
 <p>The build at the top is not a courtesy, and it is not left to your good habits
 either. <code>make regression</code> declares <code>unit-test-build</code>, <code>gui-release</code> and
