@@ -9,14 +9,14 @@ The `ChangeLog` file lives at repo root. Per CLAUDE.md, it has very specific rul
 
 ## Inputs
 
-- **Target version:** the version that will be bumped to (e.g. `v0.92.0`). If unknown / not bumping, use `(current date)` per CLAUDE.md fallback.
+- **Target:** `Unreleased (YYYY-MM-DD)`, or the public release version being cut.
 - **Date:** today's date in `YYYY-MM-DD` form.
 
 ## Source material
 
 ```
-git log --oneline <last-tag>..HEAD
-git log --stat <last-tag>..HEAD
+git log --oneline <last-public-tag>..HEAD
+git log --stat <last-public-tag>..HEAD
 ```
 
 Also scan handover memos since the last tag for "what this session did" sections — they're often more readable than raw commit messages.
@@ -70,6 +70,10 @@ Public releases only, from v1.1.0 on (owner decision 2026-10-04). One `- ` bulle
 ```
 # ChangeLog
 
+## Unreleased (YYYY-MM-DD)
+
+...
+
 ## vX.Y.Z (YYYY-MM-DD)
 
 ### User Features
@@ -95,12 +99,12 @@ If no commits exist for a section, omit the section (don't leave an empty header
 
 ## Workflow
 
-1. Find last tag: `git describe --tags --abbrev=0`.
-2. Get commit list: `git log --oneline <last-tag>..HEAD`.
+1. Find the last PUBLIC release: the newest tag listed in `releases.yaml` (never `git describe`, which returns private bump tags). Add to, or create, the top `## Unreleased (YYYY-MM-DD)` header. Rename it to `## vX.Y.Z (date)` only when a public release is being cut.
+2. Get commit list: `git log --oneline <last-public-tag>..HEAD`.
 3. For each commit, ask: "would an end-user / developer-user / triager care about this in a changelog?" If no → drop.
 4. Classify the rest into the 4 sections, then build the contributors list.
 5. Coalesce similar items into single 10–20 word lines.
-6. Write the new entry at the top of `ChangeLog` (above the previous version's entry).
+6. Write the new entry at the top of `ChangeLog` (above the previous version's entry). Insert above the previous version header; never overwrite it. Before showing the diff, confirm `git diff --numstat ChangeLog` deletes 0 lines (or only lines of the `Unreleased` section you are rewriting).
 7. Show the diff to the user. **Do NOT commit until they confirm** — per CLAUDE.md, ChangeLog updates are user-requested.
 
 ## Hard rules
