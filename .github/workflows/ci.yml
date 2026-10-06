@@ -469,7 +469,8 @@ jobs:
       # windows job (the MinGW cross toolchain, package names copied from that
       # proven-green job) + dpkg/dpkg-dev/file for CPack's DEB generator
       # (CPACK_DEBIAN_PACKAGE_SHLIBDEPS is ON, which shells out to
-      # dpkg-shlibdeps) + zip/unzip, which the src and win rows use.
+      # dpkg-shlibdeps) + zip/unzip, which the src and win rows use, + mkdocs-material
+      # for sync-version-test's mkdocs hook rows (a SKIP there fails the run).
       #
       # NOTE the deb built here is only checked for CONTENT (does it carry
       # bin/jnext). Do NOT "fix" this job into an Ubuntu container to make its
