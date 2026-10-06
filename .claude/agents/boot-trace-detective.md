@@ -118,6 +118,6 @@ If two or three sessions of investigation leave the root cause elusive, stop and
 ## Reference memory files
 
 - `reference_cspect_dzrp_launch.md` — how to launch CSpect with DZRP
-- `reference_cpu_inst_log_channel.md` — the log channel pattern probes use
+- `reference_cpu_inst_log_channel.md` — historical: describes a `cpu_inst` log channel that is not in src/; probes log to stderr
 - `reference_nextzxos_supervisor_wrapper.md` — supervisor bank-flip wrapper anatomy
 - `project_g46b_*` — 25+ EOD entries with concrete examples to model after

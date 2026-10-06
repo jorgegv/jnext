@@ -1,6 +1,6 @@
 ---
 name: probe-add
-description: Add an env-gated diagnostic probe at a specific code site in jnext (the JNEXT_G46B_* pattern — zero cost when env unset, logs to cpu-inst-log channel when on). Use when the user says "add a probe at X", "instrument X", "add a G46B probe", or describes wanting to log emulator state at a specific PC/port/NEXTREG/memory event.
+description: Add an env-gated diagnostic probe at a specific code site in jnext (the JNEXT_G46B_* pattern — zero cost when env unset, logs to stderr when on). Use when the user says "add a probe at X", "instrument X", "add a G46B probe", or describes wanting to log emulator state at a specific PC/port/NEXTREG/memory event.
 ---
 
 # Add a diagnostic probe
@@ -66,7 +66,9 @@ Single-bool branch + `[[unlikely]]`. No new allocations, no string formatting un
 ```bash
 LANG=C cmake --build build -j$(nproc) > /tmp/probe-build.log 2>&1; echo "status=$?"; tail -5 /tmp/probe-build.log
 
-# Clone the SD master once per investigation and never boot on the master itself (jnext and CSpect write to it): `mkdir -p ~/tmp/g46b-<name> && cp --reflink=auto ~/.jnext/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<name>/sd.img`; delete the clone when done.
+# Clone the SD master once per investigation; never boot on the master (jnext writes to it). Delete the clone when done.
+mkdir -p ~/tmp/g46b-<name> && { [ -f ~/tmp/g46b-<name>/sd.img ] || cp --reflink=auto ~/.jnext/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<name>/sd.img; }
+
 # Probe off (default):
 ./build/jnext --headless --machine next --sdcard $HOME/tmp/g46b-<name>/sd.img --delayed-automatic-exit 3
 

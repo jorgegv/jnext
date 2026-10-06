@@ -1,6 +1,6 @@
 ---
 name: changelog-update
-description: Coalesce commits since the last git tag into a ChangeLog entry following the project's strict rules (4 sections + contributors, terse, no commit IDs, no trivial fixes). Use when the user says "update the ChangeLog" or as a step of /version-bump.
+description: Coalesce commits since the last public release (newest tag in releases.yaml) into the ChangeLog `Unreleased` entry following the project's strict rules (4 sections + contributors, terse, no commit IDs, no trivial fixes). Use when the user says "update the ChangeLog" or as a step of /version-bump.
 ---
 
 # ChangeLog update
@@ -19,7 +19,7 @@ git log --oneline <last-public-tag>..HEAD
 git log --stat <last-public-tag>..HEAD
 ```
 
-Also scan handover memos since the last tag for "what this session did" sections — they're often more readable than raw commit messages.
+Also scan handover memos since the last public release for "what this session did" sections — they're often more readable than raw commit messages.
 
 ## The 4 sections (in this order)
 

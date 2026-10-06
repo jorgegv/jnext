@@ -30,7 +30,9 @@ CSpect on Linux runs under mono. Several failure modes hang the Claude session: 
 Copy verbatim into any script that needs CSpect:
 
 ```bash
-# 0. Clone the SD master once per investigation and never boot on the master itself (jnext and CSpect write to it): `mkdir -p ~/tmp/g46b-<topic> && cp --reflink=auto ~/.jnext/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<topic>/sd.img`; delete the clone when done.
+# 0. Clone the SD master once per investigation; never boot on the master (jnext and CSpect write to it). Delete the clone when done.
+mkdir -p ~/tmp/g46b-<topic> && { [ -f ~/tmp/g46b-<topic>/sd.img ] || cp --reflink=auto ~/.jnext/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<topic>/sd.img; }
+
 # 1. Defensive pkill — clears any zombie holding port 11000
 pkill -9 mono 2>/dev/null; sleep 1
 
@@ -229,8 +231,8 @@ Historical: none of these scripts is in the tree (never committed); the lineage 
 
 - `g46b_v2_bp_spray.py` (v1) — blanket coverage; drowned by RAM-clear at $012E.
 - `g46b_v2_bp_spray_v2.py` (v2) — 380 BPs with TIGHT_LOOPS; drowned by RAM-init pass.
-- `g46b_v2_bp_spray_v3.py` (v3) — canonical 2-phase, sync at $0038. Use as template for "first-INT divergence" workflows.
-- `g46b_v2_bp_spray_v4.py` (v4) — 2-phase, sync at $14C0 hit N. Use as template for "mid-stream divergence" workflows.
+- `g46b_v2_bp_spray_v3.py` (v3) — canonical 2-phase, sync at $0038. Was the template for "first-INT divergence" workflows.
+- `g46b_v2_bp_spray_v4.py` (v4) — 2-phase, sync at $14C0 hit N. Was the template for "mid-stream divergence" workflows.
 
 ---
 
