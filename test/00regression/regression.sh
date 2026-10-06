@@ -546,4 +546,10 @@ esac
 if [[ $fail -gt 0 ]]; then
     exit 1
 fi
+# A SKIP is a row that was not tested, and it fails the run exactly as a FAIL
+# does (owner, 2026-10-06) — in every mode: full, named rows, confirm, --update.
+if [[ $skip -gt 0 ]]; then
+    echo -e "  ${RED}${BOLD}REGRESSION NOT PASSED: $skip row(s) SKIPPED, i.e. not tested: ${SKIPPED_ROWS[*]} — a SKIP is not a pass${RESET}"
+    exit 1
+fi
 exit 0
