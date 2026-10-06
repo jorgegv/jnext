@@ -67,7 +67,7 @@ Per CLAUDE.md mandate, the manager (you, in this skill) merges worker branches t
 
 ```
 JNEXT_ALLOW_MAIN_WRITE=1 git -C /home/jorgegv/src/spectrum/jnext merge --no-ff audit-<subsystem>-pass<N>
-JNEXT_ALLOW_MAIN_WRITE=1 make -C /home/jorgegv/src/spectrum/jnext bump-patch PUBLIC_RELEASE=n
+JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n   # from the repo root (session cwd), so the settings.json allow rule matches
 ```
 
 The full gate must be green on each audit branch before its review (CLAUDE.md merge protocol); merge one branch at a time and bump after each merge.
