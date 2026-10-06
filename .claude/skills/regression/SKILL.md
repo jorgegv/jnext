@@ -113,6 +113,6 @@ New failures vs baseline: <list or "none">
 
 ## When to escalate to the `regression-runner` subagent
 
-If the user wants the full triplet (ctest + FUSE + regression) rather than just
+If the user wants the full triplet (unit + sdl + FUSE + regression) rather than just
 the regression layer, use the `test-triplet` skill or dispatch the
 `regression-runner` agent. This skill runs only the regression layer.
