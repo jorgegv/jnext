@@ -30,13 +30,14 @@ CSpect on Linux runs under mono. Several failure modes hang the Claude session: 
 Copy verbatim into any script that needs CSpect:
 
 ```bash
+# 0. Clone the SD master once per investigation and never boot on the master itself (jnext and CSpect write to it): `mkdir -p ~/tmp/g46b-<topic> && cp --reflink=auto ~/.jnext/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<topic>/sd.img`; delete the clone when done.
 # 1. Defensive pkill — clears any zombie holding port 11000
 pkill -9 mono 2>/dev/null; sleep 1
 
 # 2. Launch with HARD timeout — guarantees mono dies after N seconds
 #    Adjust 60 → expected script runtime + 10s margin
 (timeout --kill-after=2s 60 mono /home/jorgegv/src/spectrum/CSpect3_1_0_0/CSpect.exe \
-   -w3 -zxnext -nextrom -debug -mmc=$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img \
+   -w3 -zxnext -nextrom -debug -mmc=$HOME/tmp/g46b-<topic>/sd.img \
    >/tmp/cspect_<topic>.log 2>&1 &)
 
 # 3. Wait for DZRP listener with 20s cap
@@ -84,7 +85,7 @@ For G46(b) NextZXOS boot work:
 ```bash
 mono /home/jorgegv/src/spectrum/CSpect3_1_0_0/CSpect.exe \
    -w3 -zxnext -nextrom -debug \
-   -mmc=$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img
+   -mmc=$HOME/tmp/g46b-<topic>/sd.img   # a clone, never the master (Part 1, step 0)
 ```
 
 | Flag | Meaning |
@@ -111,7 +112,7 @@ The decisive technique when point-sampling isn't enough. Captures CSpect's full 
 
 ## Prerequisites
 
-- jnext has a PCTRACE-style probe armed at the right sync point (`JNEXT_G46B_PCTRACE` in `src/cpu/z80_cpu.cpp` is the canonical pattern).
+- jnext has a PCTRACE-style probe armed at the right sync point (`JNEXT_G46B_PCTRACE` in `src/platform/headless_app.cpp` is the canonical pattern).
 - jnext run captures PCTRACE to a log file.
 - Unique PCs extracted to `/tmp/jnext_<topic>_pcs.txt`:
   ```bash
@@ -120,11 +121,9 @@ The decisive technique when point-sampling isn't enough. Captures CSpect's full 
 
 ## Steps
 
-### 1. Pick a template — don't write from scratch
+### 1. Write the spray on the DZRP library
 
-Copy the closest existing script in `tools/cspect_dzrp/`:
-- `g46b_v2_bp_spray_v3.py` — 2-phase, sync at first $0038 INT
-- `g46b_v2_bp_spray_v4.py` — 2-phase, sync at $14C0 hit N (proven at EOD-30)
+The v1-v4 BP-spray scripts were never committed. Write the 2-phase spray on top of `tools/cspect_dzrp/cspect_dzrp.py` (Phase 1 sync BP + hit count, Phase 2 BP set minus TIGHT_LOOPS) and commit it under `tools/cspect_dzrp/`.
 
 ### 2. Configure the sync point (Phase 1)
 
@@ -226,6 +225,8 @@ The BP-spray REVEALED the divergence shape that point-sampling could not. The ha
 
 ## Script lineage in `tools/cspect_dzrp/`
 
+Historical: none of these scripts is in the tree (never committed); the lineage is kept for the lessons.
+
 - `g46b_v2_bp_spray.py` (v1) — blanket coverage; drowned by RAM-clear at $012E.
 - `g46b_v2_bp_spray_v2.py` (v2) — 380 BPs with TIGHT_LOOPS; drowned by RAM-init pass.
 - `g46b_v2_bp_spray_v3.py` (v3) — canonical 2-phase, sync at $0038. Use as template for "first-INT divergence" workflows.
@@ -237,6 +238,6 @@ The BP-spray REVEALED the divergence shape that point-sampling could not. The ha
 
 - **Always** use the hardened lifecycle pattern. Never invoke mono without `timeout` wrapper + bracketing pkill.
 - **Always** exclude tight loops from BP-spray. Even one inner-loop BP destroys throughput.
-- **Don't write from scratch** — fork an existing `g46b_v2_*` script and adapt the sync trigger.
+- **Don't write from scratch** — fork an existing `tools/cspect_dzrp/g46b_*.py` script where one fits, and adapt the sync trigger.
 - **CSpect is comparison, not oracle.** VHDL is the oracle. When CSpect ≠ VHDL, VHDL wins.
-- **No bypass.** Don't add a "skip past this divergence" hack; trace the cause (per `feedback_g46b_no_bypass_tbblue`).
+- **No bypass.** Don't add a "skip past this divergence" hack; trace the cause (native firmware-faithful boot is the only path; `feedback_vhdl_faithful_only`).

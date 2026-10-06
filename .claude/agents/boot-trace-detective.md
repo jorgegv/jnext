@@ -26,16 +26,17 @@ of this workflow.
 
 ### Step 1: Reproduce and characterise
 
-- Run jnext: `./build/jnext --headless --machine next --sdcard $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img --delayed-screenshot /tmp/jnext.png --delayed-screenshot-time N --delayed-automatic-exit M`
-- Reproduce in CSpect: `mono ../CSpect3_1_0_0/CSpect.exe -mmc $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img -debug` (see `reference_cspect_dzrp_launch.md` in memory)
+- Clone the SD master once per investigation and never boot on the master itself (jnext and CSpect write to it): `mkdir -p ~/tmp/g46b-<topic> && cp --reflink=auto ~/.jnext/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<topic>/sd.img`; delete the clone when done.
+- Run jnext: `./build/jnext --headless --machine next --sdcard $HOME/tmp/g46b-<topic>/sd.img --delayed-screenshot /tmp/jnext.png --delayed-screenshot-time N --delayed-automatic-exit M`
+- Reproduce in CSpect with the hardened lifecycle from the `cspect-debug` skill, Part 1 (`timeout --kill-after` + bracketing `pkill -9 mono`, `-mmc=$HOME/tmp/g46b-<topic>/sd.img`).
 - Capture both screenshots side-by-side and describe the divergence in one paragraph.
 
 ### Step 2: Add env-gated diagnostic probes in jnext
 
-Follow the established `JNEXT_G46B_*` env-var pattern (visible in `src/cpu/z80_cpu.cpp`, `src/memory/mmu.cpp`):
+Follow the established `JNEXT_G46B_*` env-var pattern (visible in `src/peripheral/divmmc.cpp`, `src/platform/headless_app.cpp`):
 
 - Each probe is gated by an env var (e.g. `JNEXT_G46B_NR07_TRACE`, `JNEXT_G46B_RST08_TRACE`, `JNEXT_G46B_PCMAP`).
-- Each probe logs to a channel (use the cpu-inst-log channel pattern per `reference_cpu_inst_log_channel.md`).
+- Each probe logs to stderr (`std::fprintf(stderr, "G46B <NAME> ...")`, as at `src/peripheral/divmmc.cpp:476-482`).
 - Each probe has an atexit summary if cumulative state matters.
 - Probes have **zero cost when env var unset** (single-bool short-circuit at the call site).
 - Probes are **non-mutating** — they log state, they never alter it.
@@ -94,13 +95,15 @@ If two or three sessions of investigation leave the root cause elusive, stop and
 
 ## Hard constraints
 
-- **VHDL-faithful only.** CSpect's behavior is a useful *comparison* but is NOT the oracle. The VHDL is. When CSpect and VHDL disagree (rare but does happen), VHDL wins.
+- **VHDL-faithful only.** CSpect's behavior is a useful *comparison* but is NOT the oracle. The VHDL is. When CSpect and VHDL disagree (rare but does happen), VHDL wins. CSpect (and ZEsarUX) service every `RST $08` host-side, so they are no comparison at all for esxDOS calls, DivMMC automap or NR $B8-$BB (technique_cspect_not_oracle_for_esxdos).
 - **No band-aids.** A fix that suppresses the symptom without explaining the upstream divergence will be rejected. The fix must trace to a specific VHDL line the emulator was getting wrong.
-- **No keypress / no bypass.** Per feedback memory (`feedback_g46b_no_keypress`, `feedback_g46b_no_bypass_tbblue`): do not bypass TBBlue boot via manual key injection or rom-side hacks. The boot must complete via the normal supervisor path.
-- **No file artifacts outside the repo.** Probe logs go to `/tmp/g46b-<topic>/`; DZRP scripts go to `tools/cspect_dzrp/`. Don't write to `~/` or random absolute paths.
+- **No keypress / no bypass.** Per feedback memory (`feedback_vhdl_faithful_only`; native firmware-faithful boot is the only path): do not bypass TBBlue boot via manual key injection or rom-side hacks. The boot must complete via the normal supervisor path.
+- **No file artifacts outside the repo.** Probe logs go to `/tmp/g46b-<topic>/`; DZRP scripts go to `tools/cspect_dzrp/`. Don't write to `~/` or random absolute paths, except the SD clone in `~/tmp/g46b-<topic>/`.
 - **No pushes.** Investigation is local; user authorizes any push.
 
 ## Deliverables per session
+
+(When briefed as an autonomous-run planner, `autorun-plan` replaces this section and §When to escalate: write only `<run>/gh<N>-plan.md`, no memory entry; instrumentation removed or committed as a `diag:` WIP; return PARK instead of escalating to the user.)
 
 1. A `doc/issues/g46b-<eod-tag>-<topic>.md` write-up. Must contain:
    - Symptom.
