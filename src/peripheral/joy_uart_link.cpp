@@ -47,6 +47,7 @@ JoyUartEndpoint::~JoyUartEndpoint() {
 #ifndef _WIN32
     if (tx_fd_ >= 0 && !shared_fd_) ::close(tx_fd_);
     if (rx_fd_ >= 0)                ::close(rx_fd_);
+    if (held_fd_ >= 0)              ::close(held_fd_);
 #endif
 }
 
@@ -151,24 +152,43 @@ std::unique_ptr<JoyUartEndpoint> JoyUartEndpoint::open_pty(std::string& error) {
 
     // RAW, and this is not optional. A pty's default line discipline echoes,
     // translates CR/LF and interprets ^C — every one of which corrupts a binary
-    // debug protocol. The termios is shared by both ends of the pair, so
-    // setting it on the master is what makes the slave a clean byte pipe. A
-    // client that sets its own termios later (DeZog's serial layer does) only
-    // re-confirms it.
+    // debug protocol. A client that sets its own termios later (DeZog's serial
+    // layer does) only re-confirms it.
+    //
+    // It is set on the SLAVE, and the slave is HELD OPEN for the life of the
+    // endpoint, because that is the only form that works on both families:
+    //   * macOS refuses termios calls on a pty master outright (`tcgetattr`
+    //     fails with ENOTTY), so setting raw mode through the master — what this
+    //     used to do — made `open_pty` fail there every time;
+    //   * BSD-derived kernels (macOS included) re-initialise the termios to the
+    //     cooked defaults when the slave is opened while nothing else holds it,
+    //     so raw mode set through a slave that was then closed is gone by the
+    //     time the client opens it — the client's CR arrives as LF.
+    // Holding one slave descriptor keeps the terminal open, so the raw termios
+    // is what every later client inherits. jnext never reads or writes it.
+    const int slave_fd = ::open(slave, O_RDWR | O_NOCTTY | O_NONBLOCK);
+    if (slave_fd < 0) {
+        error = std::string(slave) + ": " + std::strerror(errno);
+        ::close(master);
+        return nullptr;
+    }
     struct termios tio{};
-    if (::tcgetattr(master, &tio) != 0) {
+    if (::tcgetattr(slave_fd, &tio) != 0) {
         error = std::string("tcgetattr: ") + std::strerror(errno);
+        ::close(slave_fd);
         ::close(master);
         return nullptr;
     }
     ::cfmakeraw(&tio);
-    if (::tcsetattr(master, TCSANOW, &tio) != 0) {
+    if (::tcsetattr(slave_fd, TCSANOW, &tio) != 0) {
         error = std::string("tcsetattr: ") + std::strerror(errno);
+        ::close(slave_fd);
         ::close(master);
         return nullptr;
     }
     if (!set_nonblocking(master)) {
         error = std::string("fcntl O_NONBLOCK: ") + std::strerror(errno);
+        ::close(slave_fd);
         ::close(master);
         return nullptr;
     }
@@ -177,6 +197,7 @@ std::unique_ptr<JoyUartEndpoint> JoyUartEndpoint::open_pty(std::string& error) {
     ep->rx_fd_       = master;
     ep->tx_fd_       = master;
     ep->shared_fd_   = true;
+    ep->held_fd_     = slave_fd;
     ep->description_ = std::string("pty ") + slave;
     return ep;
 }

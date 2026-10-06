@@ -244,9 +244,10 @@ private:
 ///     jnext outright the moment a DeZog session closed.
 ///
 /// The pty form has one descriptor used both ways. It survives its peer
-/// perfectly: with no slave open, `read()` gives `EIO` on Linux (treated as
-/// "nothing right now") and `write()` simply buffers, and when a process opens
-/// the slave again the same descriptor carries the traffic.
+/// perfectly: jnext itself holds one slave descriptor (so the raw termios
+/// outlives each client — see `open_pty`), so with no client attached `read()`
+/// gives `EAGAIN` ("nothing right now") and `write()` simply buffers, and when
+/// a process opens the slave again the same descriptor carries the traffic.
 ///
 /// POSIX ONLY. Both factories fail with an explanatory message on Windows,
 /// which has neither FIFOs nor ptys in this form; the CLI refuses there rather
@@ -320,6 +321,9 @@ private:
     /// True when `tx_fd_` is the same descriptor as `rx_fd_` (pty), so the
     /// destructor closes it once and an EPIPE never discards the read side.
     bool        shared_fd_ = false;
+    /// pty only: a slave descriptor jnext holds and never touches, so the raw
+    /// termios set at open survives clients coming and going (see open_pty).
+    int         held_fd_ = -1;
     /// Non-empty only for the FIFO form; the path `open_tx_if_needed` retries.
     std::string tx_path_;
     std::string description_;
