@@ -89,7 +89,13 @@ bans `xvfb-run -a`/`-n` from the test scripts. `HS-76a`/`b` pin that a unit suit
 reporting a SKIP fails the run (named, with its SKIP lines, beside a failing one
 too) and `HS-77a`..`d` that the regression driver and a standalone row do the
 same in every mode, with the control that a skip-free run still exits 0 and
-stamps. `HS-73` runs the real confirm
+stamps. `HS-78` runs the ffmpeg row with no ffmpeg
+on the host and wants a SKIP, `HS-79` the real `sync-version-test.sh` with
+`rpmspec` hidden, `HS-80a`..`h` the tool-missing and renderer-version-gap branches
+of the docs checks and the two snapshot verifiers (a PATH of symlinks that lacks
+the tool, or a fake renderer fingerprint), and `HS-81a`/`b` that a set-but-unusable
+`Z88DK_GDB` is an error. The packaging self-test's `PS-05` pins that a contract
+sub-test printing SKIP and exiting 0 is a SKIP row. `HS-73` runs the real confirm
 path in a throwaway repository whose one row invokes the harness again, as
 harness-selftest-func does, and requires it to complete and stamp: a nested
 run never waits for the lock its own ancestor holds. `HS-74a`/`HS-74b` prove
@@ -104,7 +110,7 @@ behind a symlink, which flock(1) resolves and the holder check must too.
 
 ## It pins its own count
 
-`EXPECTED_TOTAL = 129` sits in the script, right next to the rows it counts, and
+`EXPECTED_TOTAL = 141` sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is
