@@ -14,6 +14,9 @@ Ask the user (if not specified):
 - **Agent ID** (e.g. `a562cf38`, or a short descriptive slug like `mmu-pass26`).
 - **Branch name** (e.g. `audit-mmu-pass-26`).
 - **Whether demo artifacts are needed** (NEX/BIN/TAP/TZX/WAV — needed if the agent will run demos).
+- **Base branch** (default `main`; an autonomous run passes the epic branch for epic sub-issues).
+
+Unattended runs (`autonomous-run`) do not ask: they pass these inputs, fast-forward `main` themselves with `git merge --ff-only origin/main`, and skip an issue whose branch or worktree another session holds.
 
 ## Steps
 
@@ -33,7 +36,7 @@ If `behind` > 0, ask the user whether to fast-forward main first. Do NOT auto-pu
 ### 2. Create the worktree
 
 ```bash
-git worktree add /home/jorgegv/tmp/worktrees/agent-<ID> -b <BRANCH> main
+git worktree add /home/jorgegv/tmp/worktrees/agent-<ID> -b <BRANCH> <BASE>   # <BASE> = main unless the caller names another (e.g. an epic branch)
 ```
 
 **If the branch or the worktree already exists, STOP** — an existing workspace is
@@ -58,7 +61,7 @@ make -C /home/jorgegv/tmp/worktrees/agent-<ID> worktree-bootstrap
 `roms/*` is git-ignored, so a fresh worktree gets only the tracked `nextboot.rom`.
 Without the SD image, `make unit-test` and the regression suite cannot run. They now
 say so loudly instead of quietly reporting a smaller number (Task 37) — but the
-agent still can't work, so link the fixtures up front.
+agent still can't work. The target verifies the machine-wide SD master (`~/.jnext/sdcard/`) and the git submodules (`git worktree add` leaves them empty), and says how to fix either.
 
 ### 4. Sync demo artifacts (only if needed)
 
@@ -109,8 +112,12 @@ Hard rules per CLAUDE.md:
 After the agent's branch is merged to main:
 
 ```bash
-git worktree remove /home/jorgegv/tmp/worktrees/agent-<ID>
+git -C /home/jorgegv/tmp/worktrees/agent-<ID> status --short   # must be empty
+git merge-base --is-ancestor <BRANCH> main                       # must succeed
+git worktree remove --force /home/jorgegv/tmp/worktrees/agent-<ID>   # --force: the tree has submodules
 git branch -d <BRANCH>   # only if user authorizes
 ```
 
-Per `feedback_rehome_to_owner_plan`, prefer re-homing over deleting if the original work might still be needed.
+Plain `git worktree remove` always refuses here (submodules). The auto-mode classifier allows `--force` only when the owner asked for the cleanup in that message; otherwise leave the worktree and list it in the handover.
+
+Keep the branch unless the user authorizes deleting it.

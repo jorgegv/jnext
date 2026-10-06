@@ -54,7 +54,7 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 9. Land into the target. `main`: `JNEXT_ALLOW_MAIN_WRITE=1 git merge`, then `make bump-patch PUBLIC_RELEASE=n`. Epic branch: plain merge, no bump.
 10. Push (main only): CI on main idle? (`gh run list --workflow CI --limit 1`). Busy → keep landing locally, push later in one batch. `JNEXT_ALLOW_PUSH=1 git push origin main <tags…>`, ≤3 tags per push.
 11. Close the issue (rules.md §GitHub): standalone once pushed; epic sub-issue once merged into the epic branch, noting it reaches `main` with the epic. Untestable-by-gate fix (feel, speed, host-specific) → comment, leave open for reporter confirmation.
-12. Remove both worktrees; keep the branch.
+12. Remove both worktrees (`worktree-launch` §Cleanup); keep the branch.
 
 ## Branches
 
