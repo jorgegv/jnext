@@ -68,7 +68,7 @@ Always structure as:
 
 - Read the **full process** (`process(...) begin ... end process;`) for any signal you cite, not just the line that mentions it. VHDL behavior is in the process body, not the declaration.
 - For `case ... is` statements, read all the alternative branches so you don't miss a `when others`.
-- Before citing a line, check which `generate` block encloses it. jnext targets **Issue 2** (`g_board_issue <= 2`). A line inside e.g. `gen_fdc_5: if (g_board_issue >= 3) generate` (zxnext.vhd ~1695) is on a branch the emulated hardware does not take.
+- Before citing a line, check which `generate` block encloses it. jnext targets **Issue 2** (`g_board_issue = 0`, zxnext_top_issue2.vhd:39; Issue 4 = 2, Issue 5 = 3): evaluate each `generate` condition against 0. A line inside e.g. `gen_fdc_5: if (g_board_issue >= 3) generate` (zxnext.vhd ~1695) is on a branch the emulated hardware does not take.
 - Before claiming a signal is NOT affected by X, read every process that assigns it: latch processes as well as the output assignments. Missing from one path is not missing from all of them.
 - **Signals update at process end.** After `s <= not s;`, a later `if s = '1'` in the same process reads the value on entry, not the toggled one.
 - **A slice literal lands on the slice's declared bits.** `o_cpu_d(7 downto 3) <= "01000"` sets bit 6. Map each character to its declared index before naming a bit.
