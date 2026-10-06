@@ -63,9 +63,9 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 - **Epic finished** (all sub-issues closed, epic scope done):
   1. Merge `main` into the epic branch; full gate on it.
   2. Reviewer (`autorun-reviewer`) on the whole epic diff vs `main`: cross-sub-issue interactions, the merge, acceptance criteria of the epic.
-  3. APPROVE → terse summary comment on the epic (what was done, sub-issues closed).
-  4. Merge into `main` as one merge commit, `make bump-patch PUBLIC_RELEASE=n`, push (step 10), close the epic.
-- Epic branches stay local until they merge into `main`.
+  3. APPROVE → merge into `main` as one merge commit, `make bump-patch PUBLIC_RELEASE=n`, push (step 10).
+  4. Terse summary comment on the epic (what was done, sub-issues closed, version), then close it.
+- Epic branches may be pushed any time (`JNEXT_ALLOW_PUSH=1 git push origin epic<E>-<slug>`, never force; CI does not run on them). Stopping or pausing mid-epic → push it.
 
 **Park** = WIP commit + `PAUSE-NOTES.md` on the branch, entry in `decisions.md`, slot moves to the next issue.
 
@@ -73,12 +73,12 @@ Between phases: check comments on milestone issues (and issues closed this run) 
 
 ## Authorized
 
-Merge of a green + APPROVED branch, `bump-patch` (private), push `main` + its tags, close issues (finished epics included), comment on issues, ChangeLog `Unreleased` lines, Playwright for checking web artefacts.
+Merge of a green + APPROVED branch, `bump-patch` (private), push `main` + its tags and epic branches, close issues (finished epics included), comment on issues, ChangeLog `Unreleased` lines, Playwright for checking web artefacts.
 
 ## Never (owner's alone)
 
 - Public release (`PUBLIC_RELEASE=y`, `releases.yaml`, release announcements, renaming the ChangeLog `Unreleased` header).
-- Force push, pushing any branch but `main`, PRs, touching external PRs.
+- Force push, pushing any branch other than `main` and epic branches, PRs, touching external PRs.
 - Regenerating reference screenshots (sole exception: purely geometric change with 0 pixel AE everywhere).
 - Changing a test to match the code → park.
 - Editing `EMULATOR-DESIGN-PLAN.md` / `TASK*-PLAN.md`, changing reported issue titles.
@@ -98,4 +98,4 @@ Decide; append to `<run>/decisions.md`: time, issue, decision, why, rejected alt
 - Token budget runs out.
 - A test failure cannot be explained (FAIL on a quiet host, solo, reproducible, cause unknown).
 
-On stop: finish or checkpoint agents (WIP commit + `PAUSE-NOTES.md`), kill leftover gate processes, then the `handover` skill. Handover adds: landings table, `decisions.md` summary, ChangeLog lines added, parked issues with reason.
+On stop: finish or checkpoint agents (WIP commit + `PAUSE-NOTES.md`), merge finished sub-issues into their epic branch and push it, kill leftover gate processes, then the `handover` skill. Handover adds: landings table, `decisions.md` summary, ChangeLog lines added, parked issues with reason.
