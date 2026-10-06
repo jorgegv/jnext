@@ -50,7 +50,7 @@ Role rules live in `autorun-plan`, `autorun-implement`, `autorun-review`. Every 
 
 ## Git
 
-- One branch per issue; a multi-stage issue stays on one branch and merges once, whole. Merge long-lived branches with `main` from time to time.
+- One branch per issue; a multi-stage issue stays on one branch and merges once, whole. An epic is one branch its sub-issues merge into; it reaches `main` in one merge (SKILL.md §Branches). Merge long-lived branches with `main` from time to time.
 - Instrumentation stays on an investigation branch; only fix commits reach `main`.
 - Merge fixes individually; never squash several fixes into one.
 - Never move a tag. Never `git reset --hard` on `main`.
