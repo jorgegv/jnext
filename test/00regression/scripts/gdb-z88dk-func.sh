@@ -15,10 +15,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/../gdb-functions.inc"
 # line. The rows that drive the protocol with an independent client of our own
 # are gdb-cli/sdl/qt-func; this one is the client the feature exists for.
 #
-# THE CLIENT. `$Z88DK_GDB` if set, else `z88dk-gdb` on PATH, else the
-# conventional source-tree install `$HOME/src/spectrum/z88dk/bin/z88dk-gdb`
-# (z88dk is not packaged; the design names that default). Absent everywhere —
-# CI has no z88dk — the row SKIPS, saying so; that is the only skip it has.
+# THE CLIENT. test/provision-z88dk-gdb.sh --print-path resolves it (the one
+# place the order lives: `$Z88DK_GDB`, `z88dk-gdb` on PATH, the conventional
+# source-tree install `$HOME/src/spectrum/z88dk/bin/z88dk-gdb`, then the user
+# cache). z88dk is not packaged, so `make regression` runs `make z88dk-gdb`
+# first, which builds z88dk v2.4's client into that cache when none resolves —
+# locally and in CI alike. A client still absent here means the suite was run
+# without the Makefile; the row SKIPS, saying so, and a SKIP fails the run.
 #
 # THE PROGRAM. test/00regression/nex/magic_bp_demo.nex (our own demo,
 # demo/magic_bp_demo) and magic_bp_demo.map, its z88dk linker map (`zcc … -m`),
@@ -47,15 +50,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/../gdb-functions.inc"
 #   quit, y                z0 ×2, D — the detach releases the client's pause
 if want gdb-z88dk-func; then
     begin_func gdb-z88dk-func
-    zgdb="${Z88DK_GDB:-}"
-    [[ -n "$zgdb" ]] || zgdb=$(command -v z88dk-gdb 2>/dev/null || true)
-    [[ -n "$zgdb" ]] || zgdb="$HOME/src/spectrum/z88dk/bin/z88dk-gdb"
+    zgdb=$(bash "$PROJECT_DIR/test/provision-z88dk-gdb.sh" --print-path) || zgdb=""
     nex="$PROJECT_DIR/test/00regression/nex/magic_bp_demo.nex"
     map="$PROJECT_DIR/test/00regression/nex/magic_bp_demo.map"
     log="$TMP_DIR/gdb-z88dk-func.jnext.log"
     clog="$TMP_DIR/gdb-z88dk-func.client.log"
-    if [[ ! -x "$zgdb" ]]; then
-        skip_row " (z88dk-gdb not found: set Z88DK_GDB, or put it on PATH)"
+    if [[ -z "$zgdb" || ! -x "$zgdb" ]]; then
+        skip_row " (z88dk-gdb not found: run 'make z88dk-gdb' (make regression does), or set Z88DK_GDB)"
     elif ! gdb_launch_cmd "$log" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" --gdb-port 0 \
             --load "$nex"; then
         gdb_stop

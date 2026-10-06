@@ -186,7 +186,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test packaging-selftest verify-macos-dmg verify-flatpak-permissions
+       package-contract-test packaging-selftest verify-macos-dmg verify-flatpak-permissions z88dk-gdb
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -492,8 +492,16 @@ gui-clean: gui-debug-clean gui-release-clean
 # Remove all build directories (sdl/gui + unit-test; build/ takes the rest with it)
 clean: sdl-debug-clean sdl-release-clean gui-clean unit-test-clean
 
+# Provide z88dk-gdb for gdb-z88dk-func: the one on PATH, or z88dk v2.4's built into the user cache
+z88dk-gdb:
+	@# gdb-z88dk-func drives the real z88dk-gdb client, which Fedora does not
+	@# package. A SKIP fails the run, so the suite provisions it like the SD
+	@# image: no-op when one resolves, else a sha256-pinned source download built
+	@# in seconds into ~/.cache/jnext/tools (test/provision-z88dk-gdb.sh).
+	bash test/provision-z88dk-gdb.sh
+
 # Run the full regression test suite (screenshot + functional tests)
-regression: lint-makefile-help regression-doc-check unit-test-build gui-release fuse-pgo sdl-release docs-check cli-check
+regression: lint-makefile-help regression-doc-check unit-test-build gui-release fuse-pgo sdl-release docs-check cli-check z88dk-gdb
 	@# Depends on unit-test-build: regression.sh runs build/test/rewind_test, and a
 	@# `make clean` deletes it. It used to vanish from the suite with no row printed.
 	@# gui-release is a REAL prerequisite, not a convenience: regression.sh runs
@@ -518,7 +526,7 @@ regression: lint-makefile-help regression-doc-check unit-test-build gui-release 
 	JNEXT_REGRESSION_STAMP=1 bash test/00regression/regression.sh
 
 # Run named regression rows (ROWS="a-func b-func") after building the binaries they run
-regression-rows: unit-test-build gui-release sdl-release
+regression-rows: unit-test-build gui-release sdl-release z88dk-gdb
 	@# GH #295: the targeted run a reviewer, a mutation or a diagnosis uses
 	@# instead of a full one. The three prerequisites are the binaries rows
 	@# execute (build/gui-release/jnext, build/sdl-release/jnext for
@@ -529,7 +537,7 @@ regression-rows: unit-test-build gui-release sdl-release
 	bash test/00regression/regression.sh $(ROWS)
 
 # Re-run SOLO the rows a full run failed on a loaded host; stamp the run if all pass
-regression-confirm: unit-test-build gui-release sdl-release
+regression-confirm: unit-test-build gui-release sdl-release z88dk-gdb
 	@# GH #295, the owner's rule: a timing row that fails under load and passes
 	@# SOLO counts as a pass. A full `make regression` whose only FAILs were
 	@# functional rows failing at a 1-minute load >= nproc records them as
