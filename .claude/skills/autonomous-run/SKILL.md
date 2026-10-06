@@ -31,14 +31,15 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 
 - 3 live agents max (owner cap), in **2 epic slots + 1 non-epic slot**. A queue with no workable issue lends its slots to the other; take them back when work appears there (at the next phase boundary, never mid-phase).
 - An issue runs its phases one after another in its slot; only running agents count.
-- Roles (`model:` override on every `Agent` call; `subagent_type: general-purpose` unless noted):
+- Roles: dispatch by `subagent_type`; the agent definition pins the model and loads the role skill. Never pass a `model:` override, except where noted.
 
-| role | model | skill (brief says: read `.claude/skills/<skill>/SKILL.md` first) |
-|---|---|---|
-| orchestrator | you (Opus) | this one + `agent-orchestration` |
-| planner (design, diagnosis) | `opus` | `autorun-plan`; boot-stall issues: `subagent_type: boot-trace-detective` |
-| implementer (code, tests, docs) | `sonnet` | `autorun-implement` |
-| reviewer | `opus` | `autorun-review` |
+| role | `subagent_type` | model | role skill |
+|---|---|---|---|
+| orchestrator | (you) | Opus | this one + `agent-orchestration` |
+| planner (design, diagnosis) | `autorun-planner` | opus | `autorun-plan` |
+| planner, boot-stall issues | `boot-trace-detective` + `model: opus` | opus | brief: read `autorun-plan` too |
+| implementer (code, tests, docs) | `autorun-implementer` | sonnet | `autorun-implement` |
+| reviewer | `autorun-reviewer` | opus | `autorun-review` |
 
 ## Per-issue loop
 
