@@ -8,7 +8,7 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 
 ## Reference Files
 
-- Emulator design plan: @doc/design/EMULATOR-DESIGN-PLAN.md
+- Emulator design plan: `doc/design/EMULATOR-DESIGN-PLAN.md` — SUPERSEDED (2026-10-06): historical record only, not loaded; every pending item is tracked in GitHub issues.
 - FPGA code analysis: @doc/analysis/FPGA-REPO-ANALYSIS.md
 - FPGA VHDL source (authoritative hardware spec): `/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/`
 - Design plans in directory `doc/design`
@@ -39,8 +39,9 @@ code comments.
 - When launching Agent Teams, each independent function should be worked on in a different branch, to avoid code trashing between agents. When code is ready on each branch, they should be merged to main. If merge problems occur, the agent responsible for fixing them is the one that tried to merge last, and it should try to fix them on their own branch.
 - Agents should NOT write to the main branch, ever. Only on their own branches and worktrees!
 - **Git worktrees live OUTSIDE the repository directory.** Canonical location: `/home/jorgegv/tmp/worktrees/<name>` (2026-08-03; the previous sibling `/home/jorgegv/src/spectrum/jnext-worktrees/` is retired, as is the older in-repo `.claude/worktrees/` from 2026-07-19). Never create a worktree checkout inside the repo — even gitignored: anything walking the repository file list also walks the worktrees, which is unneeded work and loads the machine. The traceability generator finds the FPGA checkout from any worktree location on its own — it resolves the worktree's main checkout from its `.git` file and walks up from there — so no `JNEXT_FPGA_SRC` export is needed in worktrees (the env var remains for machines with no sibling checkout, e.g. CI).
-- **NEVER push to origin without explicit user authorization.** This applies to the manager AND every spawned agent. Local commits, rebases, and merges on owned branches/worktrees are fine; `git push`, `git push -u`, `git push --force`, `gh pr create`, and any equivalent are all forbidden unless the user explicitly says "push" or "open a PR".
-- Update task status on the main plan whenever a task is finished
+- **NEVER push to origin without explicit user authorization.** This applies to the manager AND every spawned agent. Local commits, rebases, and merges on owned branches/worktrees are fine; `git push`, `git push -u`, `git push --force`, `gh pr create`, and any equivalent are all forbidden unless the user explicitly says "push" or "open a PR". **Standing authorization (owner, 2026-09-29 and 2026-10-06) — exactly this, nothing more:** after a green, independently APPROVED merge to `main` and its `make bump-patch`, push `main` and its new tags (explicit refspecs, ≤3 tags per push, only when no CI run on `main` is in progress); push epic branches (`epic<E>-<slug>`, never force); during an autonomous run, comment on and close issues; once an issue is closed and its branch merged into its target, remove its clean worktrees and delete its merged local branch (`worktree-launch` §Cleanup). Other branches, force pushes, PRs, unmerged or dirty work, and public releases stay per-message.
+- `doc/design/EMULATOR-DESIGN-PLAN.md` and the `doc/design/TASK*-PLAN.md` family are FROZEN historical artifacts (owner, 2026-08-12): never edit them or offer to. Task status lives in GitHub issues; a superseded plan line is recorded in the issue, or in the developer guide if it describes current behaviour.
+- **Findings an issue surfaces are fixed on that issue's branch**, with their own tests (owner, 2026-09-22, restated 2026-10-03): no follow-up issues, no TODOs, no "fix or file?". "Minimal" means the smallest change per bug, not fewer bugs fixed. File separately only work that is both large AND unrelated, with the evidence. In this repo this overrides the global "mention a secondary issue, do not touch it" rule.
 - When the user tells you to prepare for a session handvover, immediately save your memories
 - When a commit is made, check that the FEATURES.md file is updated to include the new feature if it's a significant one. Ask the user if in doubt of the relevance of the change meriting an update. Pending features and known bugs are NOT tracked in the repo — they live in GitHub issues (https://github.com/jorgegv/jnext/issues); `TODO.md` is only a pointer to that page.
 - When a new development is made that changes any interface in any subsystem, make sure there are enough test cases in that subsystem's test  plan to fully test that new code/interface. Modify the plan if needed and do an independent code review for the new code.
@@ -89,8 +90,8 @@ code comments.
 
 The single authoritative protocol for landing any implemented change on `main`:
 
-1. **Dedicated branch + worktree** off current `main` — never edit `main` directly. Each independent feature gets its own branch (so parallel agents don't trash each other).
-2. **Full test triplet green on the branch, plus the SDL-only unit run** before review: `make clean && make gui-release`, then `make unit-test`, **`make unit-test-sdl`**, the FUSE Z80 suite (`./build/test/fuse_z80_test build/test/fuse` → 1356/1356), and `make regression`. `make gui-release` is the PGO build (GH #297), so `make regression` tests the shipped binary and also runs FUSE against the PGO build's CPU core (`make fuse-pgo`, a prerequisite). No FAIL anywhere (SKIPs only where already declared).
+1. **Dedicated branch + worktree** off current `main` — never edit `main` directly. Each independent feature gets its own branch (so parallel agents don't trash each other). A standalone issue gets its own branch and merges to `main` when done. An **epic** gets an `epic<E>-<slug>` branch; its sub-issues branch off it and merge back into it, never into `main`, and the epic reaches `main` in one merge when finished (owner, 2026-10-06). A multi-stage issue lives on one branch until the whole issue is done and merges once; each stage is still reviewed on that branch (owner, 2026-09-24). Merge `main` into long-lived branches (epic, multi-stage) from time to time, so the final merge is not a cliff. A precedent set by an earlier session is not a decision.
+2. **Full test triplet green on the branch, plus the SDL-only unit run** before review: `make clean && make gui-release`, then `make unit-test`, **`make unit-test-sdl`**, the FUSE Z80 suite (`./build/test/fuse_z80_test build/test/fuse` → 1356/1356), and `make regression`. `make gui-release` is the PGO build (GH #297), so `make regression` tests the shipped binary and also runs FUSE against the PGO build's CPU core (`make fuse-pgo`, a prerequisite). No FAIL and no SKIP anywhere.
    - `make unit-test-sdl` applies to **every** branch, not only GUI-touching ones (owner decision, 2026-09-25). Its 103 suites are the core emulator plus the platform decision-logic both frontends share, minus Qt and the debugger — and they INCLUDE `host_key_latch_test`, which drives the real `SdlInput::poll()` (GH #268) precisely because an SDL-only build is the only place that coverage survives. So an SDL-frontend change needs this run just as much as a core one does; do not read “the non-Qt set” as “no frontends”. Cost on a branch that actually changed code: ~17 s with a warm ccache (a no-op re-run of just the suites is ~9 s). See the two-configuration rule under **Testing**.
    - Use **`make regression`**, never bare `bash test/00regression/regression.sh`: the suite's `sdl-keypress-func` row needs `build/sdl-release`, which only the make target builds, so the bare script aborts as a harness fault. Two separate agents lost a run to this on 2026-09-25. Targeted rows likewise go through **`make regression-rows ROWS="<row> ..."`**, which builds the same binaries first (the bare script with row names is fine only when they are already built).
    - **A DOCUMENTATION-ONLY change runs NO code gate** (owner rule, 2026-09-27). If the branch or
@@ -130,9 +131,9 @@ The single authoritative protocol for landing any implemented change on `main`:
        stamped — the stamp names them (`confirmed_solo=`). An idle-host FAIL, a screenshot or
        lint FAIL, or any SKIP has no such path: it is real until fixed.
 3. **Independent code review** by an agent/person that did NOT write the change — never self-review. The reviewer works in its own worktree, never the author's. Verdict is binary APPROVE / REJECT; on REJECT, fix and re-review.
-4. **Merge on green APPROVE**, one branch at a time. The manager (not the authoring agent) does the merge. If a merge conflicts, the agent who merged last fixes it on their own branch.
-5. **Immediately after each merge to `main`, bump the patch version: `make bump-patch`** (bumps `version.yaml`, commits, and creates the git tag). Every feature/fix that lands on `main` gets its own patch bump — per merge, not batched. This is separate from the deliberate minor/major release flow in "Version bumping" below.
-6. **Never push to origin** (see the push rule above) — local commits, merges, and the bump tag stay local until the user explicitly pushes.
+4. **Merge on green APPROVE**, one branch at a time. The manager (not the authoring agent) does the merge. If a merge conflicts, the agent who merged last fixes it on their own branch. After any merge that touched `test/unit-tests.conf`, `functional_tests.conf` or a pinned row count, recount from the file. Two branches that each bump `# expect:` from N to N+1 auto-merge to N+1 with no conflict. Resolve conflicts in those files line by line, never by taking a side (list the overlap with `comm -12` of the two branches' `git diff --name-only`); then regenerate the generated files (traceability matrix, guides) from a real run.
+5. **Immediately after each merge to `main`, bump the patch version: `JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch`** (bumps `version.yaml`, commits, and creates the git tag). Every feature/fix that lands on `main` gets its own patch bump — per merge, not batched. This is separate from the deliberate minor/major release flow in "Version bumping" below.
+6. **Push only as the push rule above allows**: under the standing authorization, `main` and its new tags after the bump (explicit refspecs, ≤3 tags, CI on `main` idle) and epic branches; anything the push rule does not cover stays local until the user says push.
 
 ## ChangeLog file
 
@@ -177,13 +178,13 @@ The single authoritative protocol for landing any implemented change on `main`:
 
 When the user asks to bump the version, follow these steps in order:
 
-1. Run all unit tests (`make unit-test`) and regression tests (`make regression`) — none must have any FAIL (SKIPs are acceptable). The regression is satisfied without a local run by `make regression-ci-check` (a green CI run on the same content key, checked before the bump) or `make regression-stamp-check` — see doc/RELEASE-PROTOCOL.md §7
+1. Run all unit tests (`make unit-test`) and regression tests (`make regression`) — none must have any FAIL or SKIP. The regression is satisfied without a local run by `make regression-ci-check` (a green CI run on the same content key, checked before the bump) or `make regression-stamp-check` — see doc/RELEASE-PROTOCOL.md §7
 2. ~~Update the traceability matrix~~ — **no longer a manual step (GH #196).** It is generated and staleness-gated; `make unit-test` regenerates and fails if the committed copy differs. Commit the regenerated file if it changed.
 3. Update the unit test status report
 4. Update the DEVELOPMENT-SESSIONS document (`doc/DEVELOPMENT-SESSIONS.md`)
 5. Update the ChangeLog using the future version that will be bumped to
 6. Commit all the above changes
-7. Bump the version by running `make bump-<bump_type>` (where bump_type is `patch`, `minor`, or `major`) — this bumps `version.yaml`, runs `packaging/sync-version.sh` (re-renders the two committed guides; for a public release also adds the AppStream `<release>` entry), stages them, commits, and creates the git tag
+7. Bump the version by running `JNEXT_ALLOW_MAIN_WRITE=1 make bump-<bump_type>` (where bump_type is `patch`, `minor`, or `major`) — this bumps `version.yaml`, runs `packaging/sync-version.sh` (re-renders the two committed guides; for a public release also adds the AppStream `<release>` entry), stages them, commits, and creates the git tag
 
 **`version.yaml` is the single source of truth for the version, and the only file a bump
 edits by hand.** Everything else READS it when it is built: CMake (`PROJECT_VERSION`, so
@@ -359,7 +360,7 @@ and mkdocs. It is installed in CI alongside them.
 describes it correctly.** That guide is a description of the current system, not
 a roadmap — a stale paragraph in it is the same class of defect as a stale man
 page, with the difference that no gate can detect it. `doc/design/EMULATOR-DESIGN-PLAN.md`
-stays the roadmap and is explicitly NOT a source for it: writing the user guide
+is a superseded historical record (GitHub issues are the roadmap) and is explicitly NOT a source for it: writing the user guide
 proved that plan wrong about the debugger in five separate ways.
 
 ### The test manifests — a missing test is a LOUD FAILURE, never a silent skip

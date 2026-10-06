@@ -11,7 +11,7 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 
 - Target milestone: as given at launch. Not given → ask once before starting; that is the last question.
 - Run dir: `~/tmp/autorun/<YYYY-MM-DD>/`: briefs, plans, reports, reviews, `decisions.md`, `agents.md` (slot, agent id, role, issue, worktree, state). Survives compaction.
-- `git fetch origin`; if local `main` is behind, `git merge --ff-only origin/main`. Never reset.
+- `git fetch origin`; if local `main` is behind, `JNEXT_ALLOW_MAIN_WRITE=1 git merge --ff-only origin/main`. Never reset.
 - Read `/proc/loadavg`, `ps` for other Claude sessions, `git worktree list`. A branch/worktree another live session holds → skip that issue, record it.
 
 ## Work source: two queues
@@ -51,10 +51,10 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 6. Reviewer in its own detached worktree (`git worktree add --detach ~/tmp/worktrees/rev-gh<N> gh<N>-<slug>`) → `<run>/gh<N>-review-<round>.md`. Read the FILE.
 7. REJECT → SendMessage findings to the same implementer; design-level finding → back to the same planner first. Re-review by the same reviewer. 10 rounds without APPROVE → park.
 8. APPROVE → implementer merges its target branch (§Branches) into the branch, recounts manifest counters by hand, keeps both lines in ChangeLog conflicts.
-9. Land into the target. `main`: `JNEXT_ALLOW_MAIN_WRITE=1 git merge`, then `make bump-patch PUBLIC_RELEASE=n`. Epic branch: plain merge, no bump.
+9. Land into the target. `main`: `JNEXT_ALLOW_MAIN_WRITE=1 git merge`, then `JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n`. Epic branch: plain merge, no bump.
 10. Push (main only): CI on main idle? (`gh run list --workflow CI --limit 1`). Busy → keep landing locally, push later in one batch. `JNEXT_ALLOW_PUSH=1 git push origin main <tags…>`, ≤3 tags per push.
 11. Close the issue (rules.md §GitHub): standalone once pushed; epic sub-issue once merged into the epic branch, noting it reaches `main` with the epic. Untestable-by-gate fix (feel, speed, host-specific) → comment, leave open for reporter confirmation.
-12. Remove both worktrees; keep the branch.
+12. Once the issue is closed: remove both worktrees and delete the merged branch (`worktree-launch` §Cleanup). Parked issues keep theirs; anything that fails the checks is listed in the handover.
 
 ## Branches
 
@@ -63,13 +63,13 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 - **Epic finished** (all sub-issues closed, epic scope done):
   1. Merge `main` into the epic branch; full gate on it.
   2. Reviewer (`autorun-reviewer`) on the whole epic diff vs `main`: cross-sub-issue interactions, the merge, acceptance criteria of the epic.
-  3. APPROVE → merge into `main` as one merge commit, `make bump-patch PUBLIC_RELEASE=n`, push (step 10).
+  3. APPROVE → merge into `main` as one merge commit, `JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n`, push (step 10).
   4. Terse summary comment on the epic (what was done, sub-issues closed, version), then close it.
 - Epic branches may be pushed any time (`JNEXT_ALLOW_PUSH=1 git push origin epic<E>-<slug>`, never force; CI does not run on them). Stopping or pausing mid-epic → push it.
 
 **Park** = WIP commit + `PAUSE-NOTES.md` on the branch, entry in `decisions.md`, slot moves to the next issue.
 
-Between phases: check comments on milestone issues (and issues closed this run) since the last check; reply in the same issue.
+Between phases: check comments on milestone issues (and issues closed this run) since the last check; reply in the same issue. Clean up any issue closed since the last check (deferred closes included: reporter-confirmed, batched pushes) per step 12.
 
 ## Authorized
 
@@ -89,7 +89,7 @@ Decide; append to `<run>/decisions.md`: time, issue, decision, why, rejected alt
 
 ## Waits
 
-- Full regression only when 1-min load < `nproc`. Otherwise wait in a background loop (`while awk -v n=$(nproc) '{exit !($1>=n)}' /proc/loadavg; do sleep 60; done`), then retry. No foreground `sleep`, no `pgrep -f` loops.
+- Full regression only when 1-min load < `nproc`. Otherwise wait in a background loop (`while awk -v n=$(nproc) '{exit !($1>=n)}' /proc/loadavg; do sleep 60; done`), then retry. No foreground `sleep`, no `pgrep -f` loops. (Owner rule, 2026-10-06, for unattended runs only; overrides the `regression` skill's no-wait default.)
 - Timing row FAIL under load → wait for low load, then `make regression-confirm` (or `make regression-rows ROWS=<row>`). Record row + load.
 
 ## Stop the run when

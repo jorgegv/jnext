@@ -20,23 +20,15 @@ Run both:
 - `LANG=C make unit-test`
 - the regression: `LANG=C make regression-ci-check` on `main`'s tip BEFORE the bump (a green CI run on a commit with the same non-doc content satisfies it — doc/RELEASE-PROTOCOL.md §7), else `LANG=C make regression-stamp-check` (a local green stamp), else `LANG=C make regression`
 
-Both must report PASS for every test (SKIPs acceptable, FAILs not). If anything fails, **STOP and report** — bump is not possible until tests are green.
+Both must report PASS for every test: no FAIL and no SKIP (CLAUDE.md, owner 2026-10-06). If anything fails, **STOP and report** — bump is not possible until tests are green.
 
 ### 2. Update the traceability matrix
 
-Run: `perl test/refresh-traceability-matrix.pl`
-
-Commit the result if it produced changes (`docs(traceability): refresh for vX.Y.Z`).
-
-**A non-zero exit here is expected and is NOT a bump blocker.** It means the
-matrix was rewritten *and* still under-records — the script lists the rows its
-mapped test sources assert that the matrix omits, plus the suites with no
-section at all (GH #117). Note whether that backlog grew since the last bump;
-it never blocks. Only step 1's test failures block a bump.
+No manual run (GH #196): `make unit-test` in step 1 regenerates `doc/testing/TRACEABILITY-MATRIX.md` and fails if the committed copy differs. If step 1 changed it, commit it (`docs(traceability): refresh for vX.Y.Z`).
 
 ### 3. Update the unit-test status report
 
-Run: `bash test/refresh-subsystem-status.sh`
+Run: `LANG=C make unit-test-dashboard` (runs `make unit-test` and rebuilds `test/SUBSYSTEM-TESTS-STATUS.md` from its summary).
 
 Commit the result if changed.
 
@@ -58,7 +50,7 @@ Should already be committed step-by-step above. Verify clean tree.
 
 ### 7. Bump
 
-Run: `make bump-<bump_type>` where bump_type ∈ {patch, minor, major}.
+Read doc/RELEASE-PROTOCOL.md first. Ask whether this is a public release, then run: `JNEXT_ALLOW_MAIN_WRITE=1 make bump-<bump_type> PUBLIC_RELEASE=y|n` where bump_type ∈ {patch, minor, major} (without `PUBLIC_RELEASE`, a non-TTY run silently makes a private tag; `y` only when the user said this is a public release).
 
 This will:
 - Bump `version.yaml`
@@ -73,7 +65,7 @@ This will:
 ## Version bumped: vX.Y.Z
 
 ### Steps
-- [✓] Tests passed (ctest N/N, regression P/F/S)
+- [✓] Tests passed (unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S)
 - [✓] Traceability matrix refreshed (commit <sha>)
 - [✓] Unit-test status refreshed (commit <sha>)
 - [✓] DEVELOPMENT-SESSIONS updated (commit <sha>)
@@ -82,7 +74,8 @@ This will:
 
 ### Next
 - NOT pushed. To push, ask the user explicitly. Then:
-    JNEXT_ALLOW_PUSH=1 git push origin main --tags
+    JNEXT_ALLOW_PUSH=1 git push origin main && JNEXT_ALLOW_PUSH=1 git push origin vX.Y.Z
+  (explicit refspecs, ≤3 tags per push, CI on main idle)
 ```
 
 ## Hard rules

@@ -1,6 +1,6 @@
 ---
 name: probe-add
-description: Add an env-gated diagnostic probe at a specific code site in jnext (the JNEXT_G46B_* pattern — zero cost when env unset, logs to cpu-inst-log channel when on). Use when the user says "add a probe at X", "instrument X", "add a G46B probe", or describes wanting to log emulator state at a specific PC/port/NEXTREG/memory event.
+description: Add an env-gated diagnostic probe at a specific code site in jnext (the JNEXT_G46B_* pattern — zero cost when env unset, logs to stderr when on). Use when the user says "add a probe at X", "instrument X", "add a G46B probe", or describes wanting to log emulator state at a specific PC/port/NEXTREG/memory event.
 ---
 
 # Add a diagnostic probe
@@ -25,7 +25,7 @@ Use grep to find the exact function. Common sites:
 - `src/memory/mmu.cpp` — bank-swap / NEXTREG / port write probes
 - `src/peripheral/sd_card.cpp` — SD protocol probes
 - `src/peripheral/divmmc.cpp` — DivMMC automap probes
-- `src/core/ports.cpp` — port-write probes
+- `src/port/port_dispatch.cpp` — port-write probes
 
 ### 2. Wrap in env-var gate
 
@@ -40,9 +40,8 @@ static const bool g46b_<NAME> = []() {
 
 // At the call site:
 if (g46b_<NAME>) [[unlikely]] {
-  // Log to cpu-inst-log channel per reference_cpu_inst_log_channel.md:
-  log_inst("g46b/<name>: pc=%04X regs=%s sp=%04X stk[0..3]=%04X,%04X,%04X,%04X",
-           pc, regs_str(), sp, mem16(sp), mem16(sp+2), mem16(sp+4), mem16(sp+6));
+  // Log to stderr, following src/peripheral/divmmc.cpp:476-482:
+  std::fprintf(stderr, "G46B <NAME> pc=%04x sp=%04x ...\n", pc, sp);
 }
 ```
 
@@ -65,13 +64,16 @@ Single-bool branch + `[[unlikely]]`. No new allocations, no string formatting un
 ### 5. Build and smoke-test
 
 ```bash
-cmake --build build -j$(nproc) 2>&1 | tail -5
+LANG=C cmake --build build -j$(nproc) > /tmp/probe-build.log 2>&1; echo "status=$?"; tail -5 /tmp/probe-build.log
+
+# Clone the SD master once per investigation; never boot on the master (jnext writes to it). Delete the clone when done.
+mkdir -p ~/tmp/g46b-<name> && { [ -f ~/tmp/g46b-<name>/sd.img ] || cp --reflink=auto ~/.jnext/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<name>/sd.img; }
 
 # Probe off (default):
-./build/jnext --headless --machine next --sdcard $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img --delayed-automatic-exit 3
+./build/jnext --headless --machine next --sdcard $HOME/tmp/g46b-<name>/sd.img --delayed-automatic-exit 3
 
 # Probe on:
-JNEXT_G46B_<NAME>=1 ./build/jnext --headless --machine next --sdcard $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img --delayed-automatic-exit 3 2>/tmp/probe-<name>.log
+JNEXT_G46B_<NAME>=1 ./build/jnext --headless --machine next --sdcard $HOME/tmp/g46b-<name>/sd.img --delayed-automatic-exit 3 2>/tmp/probe-<name>.log
 wc -l /tmp/probe-<name>.log
 head -10 /tmp/probe-<name>.log
 ```

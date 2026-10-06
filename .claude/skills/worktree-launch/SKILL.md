@@ -14,6 +14,9 @@ Ask the user (if not specified):
 - **Agent ID** (e.g. `a562cf38`, or a short descriptive slug like `mmu-pass26`).
 - **Branch name** (e.g. `audit-mmu-pass-26`).
 - **Whether demo artifacts are needed** (NEX/BIN/TAP/TZX/WAV — needed if the agent will run demos).
+- **Base branch** (default `main`; an autonomous run passes the epic branch for epic sub-issues).
+
+Unattended runs (`autonomous-run`) do not ask: they pass these inputs, fast-forward `main` themselves (`git fetch origin`, then `JNEXT_ALLOW_MAIN_WRITE=1 git merge --ff-only origin/main`), and skip an issue whose branch or worktree another session holds.
 
 ## Steps
 
@@ -33,7 +36,7 @@ If `behind` > 0, ask the user whether to fast-forward main first. Do NOT auto-pu
 ### 2. Create the worktree
 
 ```bash
-git worktree add /home/jorgegv/tmp/worktrees/agent-<ID> -b <BRANCH> main
+git worktree add /home/jorgegv/tmp/worktrees/agent-<ID> -b <BRANCH> <BASE>   # <BASE> = main unless the caller names another (e.g. an epic branch)
 ```
 
 **If the branch or the worktree already exists, STOP** — an existing workspace is
@@ -58,7 +61,7 @@ make -C /home/jorgegv/tmp/worktrees/agent-<ID> worktree-bootstrap
 `roms/*` is git-ignored, so a fresh worktree gets only the tracked `nextboot.rom`.
 Without the SD image, `make unit-test` and the regression suite cannot run. They now
 say so loudly instead of quietly reporting a smaller number (Task 37) — but the
-agent still can't work, so link the fixtures up front.
+agent still can't work. The target verifies the machine-wide SD master (`~/.jnext/sdcard/`) and the git submodules (`git worktree add` leaves them empty), and says how to fix either.
 
 ### 4. Sync demo artifacts (only if needed)
 
@@ -92,7 +95,7 @@ Hard rules per CLAUDE.md:
 - Use `git -C <worktree-path> <cmd>` for git ops (not `cd ... && git ...`).
 - When done, report:
   - List of commit SHAs on <BRANCH>
-  - Triplet status on <BRANCH> (ctest / FUSE / regression)
+  - Triplet status on <BRANCH> (unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S)
   - Anything that needs reviewer attention
 - Do NOT mark work complete without an independent reviewer agent approving.
 ```
@@ -106,11 +109,15 @@ Hard rules per CLAUDE.md:
 
 ## Cleanup
 
-After the agent's branch is merged to main:
+After the agent's branch is merged into its target (`<TARGET>` = `main`, or the epic branch for an epic sub-issue). A detached reviewer worktree has no branch: only the status check applies.
 
 ```bash
-git worktree remove /home/jorgegv/tmp/worktrees/agent-<ID>
-git branch -d <BRANCH>   # only if user authorizes
+git -C /home/jorgegv/tmp/worktrees/agent-<ID> status --short   # must be empty
+git merge-base --is-ancestor <BRANCH> <TARGET>                   # must succeed
+git worktree remove --force /home/jorgegv/tmp/worktrees/agent-<ID>   # --force: the tree has submodules
+git -C <TARGET-checkout> branch -d <BRANCH>   # -d, never -D; run where <TARGET> is checked out (the main checkout for main, the epic worktree for an epic sub-issue): -d checks "merged" against that HEAD
 ```
 
-Per `feedback_rehome_to_owner_plan`, prefer re-homing over deleting if the original work might still be needed.
+Plain `git worktree remove` always refuses here (submodules), hence `--force` — only after the two checks above pass.
+
+**When to clean up (owner standing authorization, CLAUDE.md push rule):** once the issue is CLOSED and its branch is merged into its target, remove its worktrees (author's and the reviewer's detached one) and delete its local branch. For an epic sub-issue the target is the epic branch; the epic branch itself is cleaned up the same way once the epic is closed and merged to `main`. Never clean up a parked, open or unmerged issue, a dirty worktree, or another session's worktree. If either check fails, or a guard still refuses, leave it and list it in the handover.

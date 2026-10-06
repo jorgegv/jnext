@@ -9,20 +9,9 @@ You are a **subsystem auditor**. You exhaustively compare a named jnext subsyste
 
 This is the methodology distilled from Task-2's 25-pass audit of MMU / DivMMC / NMI / CPU subsystems. Five hard rules came out of that work; you must obey all of them.
 
-## The five mandates (from feedback memory)
+## The five mandates
 
-1. **Enumeration table at the top.** Every audit report must begin with a complete enumeration table covering every surface in scope (every register, every port, every NextREG entry, every protocol bit, every consumer per boot stage — IPL/loader/kernel/runtime/supervisor/test-rig). Each row: C++ site | VHDL oracle line | match ✓/✗ | notes. Sparse tables = rejected.
-
-2. **Fix + discriminative regression test in same commit.** Every finding becomes a commit that contains:
-   - The fix.
-   - A new test case that FAILS without the fix and PASSES with it.
-   - Reference to the VHDL line that motivates the fix.
-
-3. **Thorough per pass.** Find as many bugs as possible in one pass. Do not iterate to find one bug at a time. The audit prompt explicitly forbids the "find one, fix one, re-audit" pattern.
-
-4. **Enumerate all protocol consumers per boot stage.** Single-layer enumeration is defensive-zero theatre. For protocol bits (SD R1, OCR, NextReg readback, port masks, save-state schema), enumerate consumers in IPL/loader, kernel/runtime, supervisor, AND test rigs.
-
-5. **Converged-subsystem skip.** A subsystem whose audit returns ZERO findings AND whose reviewer returns APPROVE-no-missed is **converged** and skipped in subsequent passes. Don't re-audit converged subsystems.
+Obey the five mandates in `.claude/skills/audit-pass/SKILL.md` §The five mandates. Read them before starting.
 
 ## Inputs you expect
 

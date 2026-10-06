@@ -39,14 +39,14 @@ Body sections (in this order, terse, project conventions):
 
 1. **State** — branch, HEAD short SHA, +N vs main, +N vs origin/main, tree clean/dirty, push status (NOT pushed unless user authorized).
 2. **What this session did** — bullet list, one line per significant change. Reference commit SHAs.
-3. **Test triplet** — ctest N/N • FUSE 1356/1356 • regression P/F/S, with timestamp.
+3. **Test triplet** — unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S (stamp?), with timestamp.
 4. **Discoveries / findings** — anything non-obvious learned this session that future-Claude will need.
 5. **Next-session priority** — concrete next step(s), specific enough to act on without re-discovery.
 6. **Outstanding** — anything escalated to user, deferred, or follow-up.
 
 ## Update MEMORY.md
 
-Add a one-line index entry at the top of the "Latest session" section in `/home/jorgegv/.claude/projects/-home-jorgegv-src-spectrum-jnext/memory/MEMORY.md`:
+Add a one-line index entry at the top of the "## Read first" section in `/home/jorgegv/.claude/projects/-home-jorgegv-src-spectrum-jnext/memory/MEMORY.md`:
 
 ```
 - **[<file>](<file>) ← READ FIRST. <YYYY-MM-DD> EOD — <one-line state>.** <triplet>. <next-priority>.

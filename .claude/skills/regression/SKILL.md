@@ -91,7 +91,7 @@ New failures vs baseline: <list or "none">
   (`feedback_test_runs_always_rebuild`, `feedback_clean_gui_release_for_regression`).
 - Report the host load; green-under-load is strong, red-under-load is one re-run
   (`feedback_measure_host_load_never_assume_quiet`).
-- Pre-existing skips ≠ failures.
+- Any SKIP is a gate failure (CLAUDE.md, owner 2026-10-06): report it as a SKIP, never as a pass.
 - **Never update reference screenshots without explicit user authorization**
   (`feedback_regression_refs`). Regenerating a reference to make the suite green
   destroys the only check that would have caught the change.
@@ -113,6 +113,6 @@ New failures vs baseline: <list or "none">
 
 ## When to escalate to the `regression-runner` subagent
 
-If the user wants the full triplet (ctest + FUSE + regression) rather than just
+If the user wants the full triplet (unit + sdl + FUSE + regression) rather than just
 the regression layer, use the `test-triplet` skill or dispatch the
 `regression-runner` agent. This skill runs only the regression layer.

@@ -5,7 +5,7 @@ description: Role instructions for the REVIEWER agent of a jnext autonomous run 
 
 # Autorun reviewer (Opus)
 
-You did not write this change; your value is being uninvolved. Load `verification-discipline`. Also follow `.claude/skills/autonomous-run/rules.md` §Evidence, §Gates.
+You did not write this change; your value is being uninvolved. Load `verification-discipline`. Also follow `.claude/skills/autonomous-run/rules.md` §Gates.
 
 ## Inputs (from the brief)
 
@@ -21,6 +21,8 @@ Detached review worktree, branch, plan + report paths, round number.
 - Test-row removal or re-homing: the replacement coverage exists and passes.
 - Interchange-format saver: proof from a foreign reader, not our own loader.
 - Docs, man page and ChangeLog line are accurate and needed; nothing deferred, no TODOs, no new follow-up issues.
+- Inspection is side-effect free: every debugger view or inspect verb reads through the peek path, never `Mmu::read()` or `port_.read()`, and each view has a whole-state before/after row (watchpoint latches, floating-bus latch, 0x303B flags).
+- New mutable state: derived from snapshotted state, or serialised in `save_state`/`load_state` and re-derived on rewind. A row rewinds across it and compares the replayed trajectory with the original (an instant-of-restore check misses swapped fields).
 - Severity by stakes: emulation correctness and release artifacts adversarial; prose and help text one round.
 
 ## Verdict: `<run>/gh<N>-review-<round>.md`

@@ -4,10 +4,8 @@ Distilled from ~120 feedback memos and 16 handovers (2026-07 → 2026-10). CLAUD
 
 ## Selection and scope
 
-- Filing test: would a user or a shipped artifact behave differently? If not, it is housekeeping and never gates anything.
 - Never grow the milestone you are emptying. "Same family as #N" is not importance.
-- Findings an issue surfaces are fixed on that branch, with tests. No follow-up issues, no TODOs, no "fix or file?". "Minimal" = smallest change per bug, not fewer bugs.
-- File a new issue only for work that is both large AND unrelated; state the evidence.
+- Branch model, finishing rule, recount rule: CLAUDE.md (merge protocol + Constraints).
 - Read scope literally; never widen to a superset.
 - "Blocked on #X" notes go stale: check X before scoping.
 - Before "we must build X": `git grep` X's verbs across the tree, including `third_party/`.
@@ -19,7 +17,6 @@ Distilled from ~120 feedback memos and 16 handovers (2026-07 → 2026-10). CLAUD
 - A guess-based mechanism that breeds a new bug per fix → question the mechanism, stop patching.
 - Host hotkeys use Alt+key, never Ctrl+letter.
 - Check the man page and docs before calling behaviour a bug.
-- A precedent from an earlier session is not a decision.
 
 ## Briefs and review
 
@@ -27,34 +24,22 @@ Role rules live in `autorun-plan`, `autorun-implement`, `autorun-review`. Every 
 
 ## Evidence
 
-- An agent's "fixed X" is a claim: grep the tree before relaying or merging.
-- A green suite is a hypothesis: drive the real path (binary, keypress, functional row).
-- Absence claims: grep the complete artefact and quote the count. State the search, not just the conclusion.
-- Never infer a mechanism from an outcome; "because" only after observing the cause.
-- Confirm your probe is in the built binary; compare binary mtime with `git log -1`.
-- Fixtures must straddle the condition; test sibling operations as a set.
-- Idempotent generated data is not accurate data: spot-check by hand against the oracle.
-- An unexplained difference in a verification artefact is a new bug.
-- `git add` before the gate; staging changes what index-keyed checks measure.
-- Never judge a run by a pipe's exit status; log to a file, check the status.
+Load `verification-discipline`; it is the evidence standard.
 
 ## Gates
 
-- Doc-only change → `make docs-check` only. One code, test, conf or Makefile edit brings back the full gate.
 - Full regression output → a uniquely named log; read the log, never re-run to see it.
 - Harness fault (exit 2) is not a row FAIL: re-run.
 - Load-sensitive FAIL: never call it "pre-existing" or file it without a solo re-run.
-- After any merge touching a manifest: recount from the file (`comm -12` the two diffs' file lists); resolve `unit-tests.conf` line by line; regenerate generated files.
 - Log-text change needs no regression unless a functional row greps that line.
 - New suite output: `Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d`; add its dashboard entry in the same change.
 
 ## Git
 
-- One branch per issue; a multi-stage issue stays on one branch and merges once, whole. An epic is one branch its sub-issues merge into; it reaches `main` in one merge (SKILL.md §Branches). Merge long-lived branches with `main` from time to time.
 - Instrumentation stays on an investigation branch; only fix commits reach `main`.
 - Merge fixes individually; never squash several fixes into one.
 - Never move a tag. Never `git reset --hard` on `main`.
-- Push only `main` + its tags, explicit refspecs, ≤3 tags, CI idle. After pushing, watch the LATEST CI run on `main`; red → it becomes the next issue.
+- Push only `main` + its tags (explicit refspecs, ≤3 tags, CI idle) and epic branches (never force; SKILL.md §Branches). After pushing `main`, watch the LATEST CI run on `main`; red → it becomes the next issue.
 - Inherited work from a dead agent = unreviewed third-party code: back it up, review it in full.
 
 ## Agents and tokens
@@ -63,7 +48,7 @@ Role rules live in `autorun-plan`, `autorun-implement`, `autorun-review`. Every 
 - No commit-watch Monitors, no per-event chatter; rely on completion notifications.
 - Batch requests to a resumed agent (each resume re-reads 400-800k tokens).
 - Silent >30 min: read the report file, check liveness (`ps`, load), then nudge. File mtimes are not liveness.
-- Agents stopped by a session restart are dead, not resumable.
+- After a session restart, agent names are unreachable: SendMessage by agent ID. If it answers, its background runs were killed, so restart them. If not, the agent is dead; work on disk survives, its transcript does not.
 - Pause: SendMessage → clean checkpoint, WIP commit, `PAUSE-NOTES.md`. Resume: read every PAUSE note and verdict first.
 - Drop MCP-authorization notices from agent reports.
 

@@ -17,15 +17,13 @@ Ask the user (if not specified):
 
 ## Steps
 
-1. Start CSpect in DZRP debug mode (background):
-   ```bash
-   mono ../CSpect3_1_0_0/CSpect.exe -mmc $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img -debug &
-   ```
-   Wait ~2 seconds for it to come up.
+0. Clone the SD master once per investigation and never boot on the master itself (jnext and CSpect write to it): `mkdir -p ~/tmp/g46b-<topic> && cp --reflink=auto ~/.jnext/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<topic>/sd.img`; delete the clone when done.
+
+1. Start CSpect in DZRP debug mode with the hardened lifecycle from the `cspect-debug` skill, Part 1 (bracketing `pkill -9 mono`, `timeout --kill-after=2s N mono /home/jorgegv/src/spectrum/CSpect3_1_0_0/CSpect.exe -w3 -zxnext -nextrom -debug -mmc=$HOME/tmp/g46b-<topic>/sd.img`, port-11000 listener gate with a 20 s cap).
 
 2. Run the DZRP capture script targeting the PC:
    ```bash
-   python3 tools/cspect_dzrp/dzrp_check.py --pc 0x<PC> --duration <N>
+   python3 tools/cspect_dzrp/dzrp_check.py   # liveness + regs/mem at the current PC only; for a BP at <PC>, fork the closest tools/cspect_dzrp/g46b_*.py script (it sets the breakpoint)
    ```
    Or pick a topic-specific script from `tools/cspect_dzrp/` if one exists for this PC range.
 
@@ -35,7 +33,7 @@ Ask the user (if not specified):
 4. Capture jnext for the same wall-clock window:
    ```bash
    JNEXT_G46B_<PROBE>=1 ./build/jnext --headless --machine next \
-     --sdcard $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img \
+     --sdcard $HOME/tmp/g46b-<topic>/sd.img \
      --delayed-automatic-exit <N> \
      2> /tmp/dzrp-jnext-<PC>.log
    ```
@@ -47,7 +45,7 @@ Ask the user (if not specified):
 
 6. Kill CSpect:
    ```bash
-   pkill -f CSpect.exe || true
+   pkill -9 mono; pgrep mono && echo STILL ALIVE
    ```
 
 ## Report format
@@ -67,7 +65,7 @@ Per `reference_cspect_dzrp_launch.md` and the G46(b) memory chain, the FIRST div
 
 - **CSpect is comparison, not oracle.** VHDL is the oracle. When CSpect ≠ VHDL, VHDL wins.
 - **No bypass.** Don't add a "skip past this divergence" hack; trace the cause.
-- **No band-aids.** Per `feedback_g46b_no_bypass_tbblue`.
+- **No band-aids.** Native firmware-faithful boot is the only path (`feedback_vhdl_faithful_only`).
 - **Always kill CSpect when done** (it eats CPU in the background otherwise).
 
 ## When to escalate to the `boot-trace-detective` subagent

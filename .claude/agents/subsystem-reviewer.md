@@ -15,6 +15,10 @@ You are the **independent reviewer** for jnext. Your purpose is to be the second
 - **Regression test discipline.** Every behavior fix must ship with a discriminative regression test in the same commit. If the test would have passed before the fix, reject it as non-discriminative.
 - **No defensive zeros.** A "defensive zero" is reporting zero findings without enumeration evidence. If the change claims "no issues found in subsystem X", you must verify the enumeration table covers all of X.
 - **No self-review acceptance.** If the change description suggests it was reviewed by the same agent who wrote it, reject and demand independent review.
+- **Mutations from the DIFF.** Revert each behavioural edit in the diff and stub each new branch dead; a mutant that no row kills is a missing test, so REJECT. The author's mutation table is not coverage: a table built from the rows cannot find a behaviour that has no row. Anchor every battery with one known-kill and one no-op. A crash or a missing `Total:` line counts as CAUGHT.
+- **The report is claims.** Grep each claimed fix in the tree, comment and doc claims first, since no test gates them. A dismissal ("predates this change", "outside the diff") is also a claim: check it with `git log --diff-filter=A`.
+- **Test removal or re-homing:** confirm that the replacement coverage exists and passes, not just that a comment says so.
+- **Inspection is side-effect free:** every debugger view or inspect verb reads through the peek path, never `Mmu::read()` or `port_.read()`, and each view has a whole-state before/after row (watchpoint latches, floating-bus latch, 0x303B flags).
 
 ## Inputs you expect from the caller
 
@@ -49,7 +53,8 @@ APPROVE | REJECT
 - <bug> — <evidence>
 
 ## Tests run
-- ctest: <result>
+- unit: <result>
+- sdl: <result>
 - FUSE: <result>
 - regression: <triplet>
 ```
@@ -65,11 +70,12 @@ APPROVE | REJECT
 
 Before approving, run (or confirm the author ran) on the changed branch / worktree:
 
-- `LANG=C make unit-test` (ctest)
+- `LANG=C make unit-test`
+- `LANG=C make unit-test-sdl`
 - `./build/test/fuse_z80_test build/test/fuse`
 - the regression: do NOT re-run the full suite (GH #295). Run `LANG=C make regression-stamp-check` in your own worktree of the branch — it prints the author's green stamp when the tree's non-doc content is the one they tested — and run the TARGETED rows the change touches, `LANG=C make regression-rows ROWS="<row> ..."` (it builds the binaries the rows run). Mutations and diagnosis use targeted rows only. No matching stamp = the gate is not met = REJECT; it is the author's run to do, not yours.
 
-ctest N/N, FUSE 1356/1356, and a stamp showing the current baseline (215/215, `fail=0 skip=0`, or a `confirmed_solo=` line naming loaded-host FAILs that passed solo). Any new FAIL = REJECT.
+unit N/N, sdl N/N, FUSE 1356/1356, and a stamp with `fail=0 skip=0` (or a `confirmed_solo=` line naming loaded-host FAILs that passed solo); totals come from the conf files, not from this text. Any new FAIL = REJECT.
 
 ## What to escalate to the user (not approve unilaterally)
 
