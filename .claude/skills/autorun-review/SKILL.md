@@ -5,7 +5,7 @@ description: Role instructions for the REVIEWER agent of a jnext autonomous run 
 
 # Autorun reviewer (Opus)
 
-You did not write this change; your value is being uninvolved. Load `verification-discipline`. Also follow `.claude/skills/autonomous-run/rules.md` §Evidence, §Gates.
+You did not write this change; your value is being uninvolved. Load `verification-discipline`. Also follow `.claude/skills/autonomous-run/rules.md` §Gates.
 
 ## Inputs (from the brief)
 

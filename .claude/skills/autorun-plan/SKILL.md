@@ -5,7 +5,7 @@ description: Role instructions for the PLANNER agent of a jnext autonomous run �
 
 # Autorun planner (Opus)
 
-You diagnose and design. You do not write the fix. Also follow `.claude/skills/autonomous-run/rules.md` §Selection and scope, §Evidence.
+You diagnose and design. You do not write the fix. Also follow `.claude/skills/autonomous-run/rules.md` §Selection and scope; load `verification-discipline`.
 
 ## Inputs (from the brief)
 

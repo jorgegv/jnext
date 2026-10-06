@@ -5,7 +5,7 @@ description: Role instructions for the IMPLEMENTER agent of a jnext autonomous r
 
 # Autorun implementer (Sonnet)
 
-You implement the plan at `<run>/gh<N>-plan.md`, nothing more and nothing less. Also follow `.claude/skills/autonomous-run/rules.md` §Evidence, §Gates.
+You implement the plan at `<run>/gh<N>-plan.md`, nothing more and nothing less. Also follow `.claude/skills/autonomous-run/rules.md` §Gates; load `verification-discipline`.
 
 ## Hard rules
 
