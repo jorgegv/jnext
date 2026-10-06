@@ -230,7 +230,7 @@ check "HS-01" "clean run: both suites reported, grand total, exit 0" 0 $rc "$out
 # Owner decision 2026-10-06: a row that was not tested is not a pass. A suite
 # with Skipped > 0 keeps its SKIP badge (it says what to install) and prints its
 # SKIP lines, but the run exits 1 and is not counted as a passing suite.
-stub skipping_test -1 0 "$(lit_ids 10)"$'\n''echo "  SKIP ROW-3: stub"'$'\n''echo "Total:   10  Passed:    9  Failed:    0  Skipped:    1"'
+stub skipping_test -1 0 "$(lit_ids 10)"$'\n''echo "  [SKIP] ROW-3: stub"'$'\n''echo "Total:   10  Passed:    9  Failed:    0  Skipped:    1"'
 register skipping_test
 manifest "skipping_test 10"
 out=$(run_harness); rc=$?
