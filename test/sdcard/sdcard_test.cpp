@@ -54,6 +54,7 @@
 #include <sys/stat.h> // chmod (V15-DIVMMC-01: SD-28 RO image test)
 #include <vector>
 #include "../row_id.h"
+#include "../dac_caps_dropped.h"
 
 // ─── Test infrastructure ─────────────────────────────────────────────
 namespace {
@@ -1994,27 +1995,32 @@ static void test_sd_28_cmd24_ro_image_write_error() {
     const uint32_t n_sectors = 8;
     std::string img = make_image(n_sectors);
 
-    // root ignores the permission bits this row depends on: it opens a 0444
-    // file for writing regardless, so the card mounts RW and answers 0x05.
-    // The RO premise simply cannot be constructed as root (CI runs in a
-    // container as root; a local run does not), so skip rather than report a
-    // failure that says nothing about the code under test.
-    if (geteuid() == 0) {
-        skip("SD-28", "running as root; cannot construct a read-only image");
-        std::remove(img.c_str());
-        return;
-    }
-
-    // Make the image read-only on the host filesystem.
-    if (chmod(img.c_str(), 0444) != 0) {
-        // Permission change failed — skip rather than spuriously fail.
-        skip("SD-28", "host chmod(0444) failed; cannot construct RO image");
-        std::remove(img.c_str());
-        return;
-    }
-
+    // Root reads and writes through permission bits (CI runs in a container
+    // as root; a local run does not): it would open a 0444 file for writing,
+    // mount RW and answer 0x05. As root the two DAC capabilities are dropped
+    // from the effective set around chmod + mount (the open is the only thing
+    // that consults the mode), so root honours 0444 exactly like anyone else.
+    // They are raised again right after mount; see test/dac_caps_dropped.h.
     SdCardDevice sd;
-    bool mounted = sd.mount(img);  // expected to fall through to RO mode
+    bool mounted = false;
+    {
+        DacCapsDropped caps;
+        if (geteuid() == 0 && !caps.drop()) {
+            skip("SD-28", "running as root and capset refused dropping CAP_DAC_OVERRIDE");
+            std::remove(img.c_str());
+            return;
+        }
+
+        // Make the image read-only on the host filesystem.
+        if (chmod(img.c_str(), 0444) != 0) {
+            // Permission change failed — skip rather than spuriously fail.
+            skip("SD-28", "host chmod(0444) failed; cannot construct RO image");
+            std::remove(img.c_str());
+            return;
+        }
+
+        mounted = sd.mount(img);  // expected to fall through to RO mode
+    }
     sd.reset();
     init_card(sd);
 
