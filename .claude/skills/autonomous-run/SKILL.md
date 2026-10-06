@@ -73,7 +73,7 @@ Between phases: check comments on milestone issues (and issues closed this run) 
 
 ## Authorized
 
-Merge of a green + APPROVED branch, `bump-patch` (private), push `main` + its tags and epic branches, close issues (finished epics included), comment on issues, ChangeLog `Unreleased` lines, Playwright for checking web artefacts.
+Merge of a green + APPROVED branch, `bump-patch` (private), push `main` + its tags and epic branches, close issues (finished epics included), comment on, file and edit issues, ChangeLog `Unreleased` lines, Playwright for checking web artefacts.
 
 ## Never (owner's alone)
 
