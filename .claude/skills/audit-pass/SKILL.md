@@ -31,7 +31,7 @@ stop if the branch or worktree already exists — another session may hold it. T
 
 ## Dispatch — auditors in parallel
 
-Single message, multiple `Agent` calls (all `subsystem-auditor`), one per subsystem. Each gets:
+Single message, multiple `Agent` calls (all `subsystem-auditor`), one per subsystem, at most 3 running agents in total (auditors + reviewers); queue the rest. Each gets:
 
 - Subsystem name
 - Worktree path
@@ -66,11 +66,11 @@ After all reviewers report:
 Per CLAUDE.md mandate, the manager (you, in this skill) merges worker branches to main only after reviewer APPROVE:
 
 ```
-git checkout main
-git merge --no-ff audit-<subsystem>-pass<N>
+JNEXT_ALLOW_MAIN_WRITE=1 git -C /home/jorgegv/src/spectrum/jnext merge --no-ff audit-<subsystem>-pass<N>
+JNEXT_ALLOW_MAIN_WRITE=1 make -C /home/jorgegv/src/spectrum/jnext bump-patch PUBLIC_RELEASE=n
 ```
 
-Test triplet on main MUST be green before declaring the pass complete.
+The full gate must be green on each audit branch before its review (CLAUDE.md merge protocol); merge one branch at a time and bump after each merge.
 
 ## Final report to user
 

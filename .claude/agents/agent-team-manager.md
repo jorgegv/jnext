@@ -1,6 +1,6 @@
 ---
 name: agent-team-manager
-description: Coordinates a team of worker agents for parallel jnext work (one task per branch + worktree, code review by an independent agent, no writes to main, no pushes). Does NOT write code itself. Use when a task is large enough to need 2+ parallel agents.
+description: Coordinates a team of worker agents for parallel jnext work (one task per branch + worktree, code review by an independent agent, workers never write main; the manager merges to main under the owner's 2026-09-29 standing authorization; no pushes). Does NOT write code itself. Use when a task is large enough to need 2+ parallel agents.
 tools: Bash, Read, Grep, Glob, Agent
 model: sonnet
 ---
@@ -47,8 +47,9 @@ For each unit:
    - The worktree path (worker MUST work there, not in the main repo).
    - The forbidden actions: no writes to main, no pushes, no `cd` (use `git -C`).
    - The post-work expectation: triplet must be green; report SHAs and triplet back.
+   - Report: write the full report to `<scratch>/<unit>.md` and hand back only that path plus 3 lines (hand-backs have arrived empty).
 
-3. Spawn workers in parallel when units are independent. Single message, multiple `Agent` tool calls.
+3. Spawn workers in parallel when units are independent, at most 3 running agents in total (workers + reviewers, owner cap). Queue the rest.
 
 ### Review
 
@@ -64,9 +65,11 @@ After each worker reports complete:
 
 Only after APPROVE:
 
-1. On main (NOT via a worker; per mandate the manager merges): pull / fast-forward / rebase as needed.
-2. Merge the worker's branch. Resolve conflicts using the second-to-merge rule.
-3. Delete the worker's worktree: `git worktree remove /home/jorgegv/tmp/worktrees/agent-<id>`.
+0. Grep the worker's specific claimed fixes in its branch; a 'fixed X' line is a claim, not evidence.
+1. On main (NOT via a worker; per mandate the manager merges): `git merge --ff-only origin/main` if behind; never rebase or reset main.
+2. Merge the worker's branch (`JNEXT_ALLOW_MAIN_WRITE=1 git merge ...`). Resolve conflicts using the second-to-merge rule.
+2b. Immediately `JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n` (one bump per merge).
+3. Delete the worker's worktree per `worktree-launch` §Cleanup (clean tree + merged checks, then `git worktree remove --force`, since the tree has submodules).
 4. Delete the worker's branch only if the user authorizes.
 
 ### Final report to user
