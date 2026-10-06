@@ -78,12 +78,12 @@ The root `Makefile` wraps every packaging path in a `make package-*` target
 
 `make package-test` (`test/packaging/packaging-test.sh`) runs every package
 target above except macOS and asserts each produces a correctly-named artifact
-containing the `jnext` binary. It is **tooling-guarded**: a package whose build
-tool is absent SKIPs rather than FAILs, so the same test runs meaningfully on
-any dev box. On this host src/rpm/deb/win/flatpak all PASS; the flatpak row
-SKIPs where `flatpak-builder` or `org.kde.Sdk` is absent, which includes CI —
-it deliberately does not provision them (a multi-GB privileged install), and
-the release workflow builds the bundle in its own KDE container instead. Every
+containing the `jnext` binary. A package whose build tool is absent is a SKIP,
+and **a SKIP fails the run** (owner, 2026-10-06), locally and in CI alike: install
+the tool. The Flatpak BUILD is not a row of this suite (a multi-GB privileged
+`org.kde.Sdk` install): the `flatpak` CI job builds and permission-gates the
+bundle on every push, `make package-flatpak` does it locally, and `package-test`
+keeps only the tool-free `flatpak-manifest` contract. Every
 target
 that cannot run detects the missing tooling/platform and exits with a clear
 message (what to install, or that a Mac/CI runner is required) instead of a
