@@ -8,7 +8,7 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 
 ## Reference Files
 
-- Emulator design plan: @doc/design/EMULATOR-DESIGN-PLAN.md
+- Emulator design plan: `doc/design/EMULATOR-DESIGN-PLAN.md` — SUPERSEDED (2026-10-06): historical record only, not loaded; every pending item is tracked in GitHub issues.
 - FPGA code analysis: @doc/analysis/FPGA-REPO-ANALYSIS.md
 - FPGA VHDL source (authoritative hardware spec): `/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/`
 - Design plans in directory `doc/design`
@@ -40,7 +40,7 @@ code comments.
 - Agents should NOT write to the main branch, ever. Only on their own branches and worktrees!
 - **Git worktrees live OUTSIDE the repository directory.** Canonical location: `/home/jorgegv/tmp/worktrees/<name>` (2026-08-03; the previous sibling `/home/jorgegv/src/spectrum/jnext-worktrees/` is retired, as is the older in-repo `.claude/worktrees/` from 2026-07-19). Never create a worktree checkout inside the repo — even gitignored: anything walking the repository file list also walks the worktrees, which is unneeded work and loads the machine. The traceability generator finds the FPGA checkout from any worktree location on its own — it resolves the worktree's main checkout from its `.git` file and walks up from there — so no `JNEXT_FPGA_SRC` export is needed in worktrees (the env var remains for machines with no sibling checkout, e.g. CI).
 - **NEVER push to origin without explicit user authorization.** This applies to the manager AND every spawned agent. Local commits, rebases, and merges on owned branches/worktrees are fine; `git push`, `git push -u`, `git push --force`, `gh pr create`, and any equivalent are all forbidden unless the user explicitly says "push" or "open a PR".
-- Update task status on the main plan whenever a task is finished
+- `doc/design/EMULATOR-DESIGN-PLAN.md` and the `doc/design/TASK*-PLAN.md` family are FROZEN historical artifacts (owner, 2026-08-12): never edit them or offer to. Task status lives in GitHub issues; a superseded plan line is recorded in the issue, or in the developer guide if it describes current behaviour.
 - When the user tells you to prepare for a session handvover, immediately save your memories
 - When a commit is made, check that the FEATURES.md file is updated to include the new feature if it's a significant one. Ask the user if in doubt of the relevance of the change meriting an update. Pending features and known bugs are NOT tracked in the repo — they live in GitHub issues (https://github.com/jorgegv/jnext/issues); `TODO.md` is only a pointer to that page.
 - When a new development is made that changes any interface in any subsystem, make sure there are enough test cases in that subsystem's test  plan to fully test that new code/interface. Modify the plan if needed and do an independent code review for the new code.
@@ -359,7 +359,7 @@ and mkdocs. It is installed in CI alongside them.
 describes it correctly.** That guide is a description of the current system, not
 a roadmap — a stale paragraph in it is the same class of defect as a stale man
 page, with the difference that no gate can detect it. `doc/design/EMULATOR-DESIGN-PLAN.md`
-stays the roadmap and is explicitly NOT a source for it: writing the user guide
+is a superseded historical record (GitHub issues are the roadmap) and is explicitly NOT a source for it: writing the user guide
 proved that plan wrong about the debugger in five separate ways.
 
 ### The test manifests — a missing test is a LOUD FAILURE, never a silent skip
