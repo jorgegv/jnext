@@ -6,7 +6,8 @@
 # This applies to the manager AND every spawned agent."
 #
 # Override: prefix the command with `JNEXT_ALLOW_PUSH=1` (the user types this,
-# or Claude does it after the user explicitly says "push").
+# or Claude does it after the user explicitly says "push", or for a push inside
+# the standing authorization written in CLAUDE.md's push rule).
 
 set -euo pipefail
 
@@ -29,7 +30,12 @@ merges on owned branches/worktrees are fine; git push, git push -u,
 git push --force, gh pr create, and any equivalent are all forbidden unless
 the user explicitly says 'push' or 'open a PR'."
 
-If the user just said push/PR, prefix the command with:
+Exception: the standing authorization in CLAUDE.md's push rule (after a green,
+APPROVED merge + bump: push main and its new tags, <=3 tags, CI on main idle;
+push epic branches, never force). PRs and anything else stay per-message.
+
+If the user just said push/PR, or the push is inside that standing scope,
+prefix the command with:
     JNEXT_ALLOW_PUSH=1 <your command>
 EOF
   exit 2
