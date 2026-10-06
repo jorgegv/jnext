@@ -115,9 +115,9 @@ After the agent's branch is merged into its target (`<TARGET>` = `main`, or the 
 git -C /home/jorgegv/tmp/worktrees/agent-<ID> status --short   # must be empty
 git merge-base --is-ancestor <BRANCH> <TARGET>                   # must succeed
 git worktree remove --force /home/jorgegv/tmp/worktrees/agent-<ID>   # --force: the tree has submodules
-git branch -d <BRANCH>   # only if user authorizes
+git branch -d <BRANCH>   # -d, never -D: refuses an unmerged branch
 ```
 
-Plain `git worktree remove` always refuses here (submodules). The auto-mode classifier allows `--force` only when the owner asked for the cleanup in that message; otherwise leave the worktree and list it in the handover.
+Plain `git worktree remove` always refuses here (submodules), hence `--force` — only after the two checks above pass.
 
-Keep the branch unless the user authorizes deleting it.
+**When to clean up (owner standing authorization, CLAUDE.md push rule):** once the issue is CLOSED and its branch is merged into its target, remove its worktrees (author's and the reviewer's detached one) and delete its local branch. For an epic sub-issue the target is the epic branch; the epic branch itself is cleaned up the same way once the epic is closed and merged to `main`. Never clean up a parked, open or unmerged issue, a dirty worktree, or another session's worktree. If either check fails, or a guard still refuses, leave it and list it in the handover.

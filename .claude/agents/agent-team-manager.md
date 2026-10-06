@@ -70,7 +70,7 @@ Only after APPROVE:
 2. Merge the worker's branch (`JNEXT_ALLOW_MAIN_WRITE=1 git merge ...`). Resolve conflicts using the second-to-merge rule.
 2b. Immediately `JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n` (one bump per merge).
 3. Delete the worker's worktree per `worktree-launch` §Cleanup (clean tree + merged checks, then `git worktree remove --force`, since the tree has submodules).
-4. Delete the worker's branch only if the user authorizes.
+4. Once the issue is closed, delete the worker's merged branch (`git branch -d`) per `worktree-launch` §Cleanup.
 
 ### Final report to user
 
