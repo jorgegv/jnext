@@ -39,7 +39,8 @@ trap 'rm -rf "$T"' EXIT
 
 SANDBOX="$T/sandbox"
 
-# The eight contract sub-tests `packaging-test.sh --contracts-only` invokes, by
+# The eight contract sub-tests (the ninth contract row, flatpak-manifest, is inline in
+# packaging-test.sh and reads the sandbox's copy of the real manifest) `packaging-test.sh --contracts-only` invokes, by
 # script name. A new contract sub-test added there without a stub here fails
 # the green-path row loudly (the sandbox lacks its script, so its row goes
 # FAIL) — update this list when the roster changes; that edit is deliberate,
@@ -59,8 +60,9 @@ SUBTESTS=(
 # reset_sandbox — fresh sandbox holding the REAL script + all-green stubs
 reset_sandbox() {
     rm -rf "$SANDBOX"
-    mkdir -p "$SANDBOX/test/packaging"
+    mkdir -p "$SANDBOX/test/packaging" "$SANDBOX/packaging/flatpak"
     cp "$REAL" "$SANDBOX/test/packaging/packaging-test.sh"
+    cp "$REPO"/packaging/flatpak/*.yml "$SANDBOX/packaging/flatpak/"
     local s
     for s in "${SUBTESTS[@]}"; do
         printf '#!/usr/bin/env bash\nexit 0\n' > "$SANDBOX/test/packaging/$s"
@@ -110,19 +112,19 @@ echo "===================================="
 echo ""
 
 # ---------------------------------------------------------------- green path
-# All eight contract sub-tests pass: exit 0, eight PASS rows counted, a summary,
+# All eight contract sub-tests and the flatpak-manifest row pass: exit 0, nine PASS rows counted, a summary,
 # and NO failure machinery — no FAIL row, no inline log dump.
 reset_sandbox
 out=$(run_contracts); rc=$?
-check "PS-01" "all sub-tests green: exit 0, Pass: 8, summary, no dump" 0 $rc "$out" \
-    "Pass: 8" "Fail: 0" "Skip: 0" "=== Results ===" \
+check "PS-01" "all sub-tests green: exit 0, Pass: 9, summary, no dump" 0 $rc "$out" \
+    "Pass: 9" "Fail: 0" "Skip: 0" "=== Results ===" \
     '!FAIL' '!---- end ----'
 
 # ------------------------------------------------ THE FAILING PATH (GH #80)
 # One sub-test writes a distinctive root-cause line to its log and exits 1.
 # The locked-in behaviour: the FAIL row names the row, the log content
 # surfaces INLINE in the captured output (not as a pointer to a temp dir the
-# EXIT trap deletes), the run CONTINUES past the failure (the seven other
+# EXIT trap deletes), the run CONTINUES past the failure (the eight other
 # rows still pass), the summary still prints, and the exit code is nonzero.
 # The sub-test's stdout/stderr go to $LOGDIR/<row>.log, so bad()'s dump is
 # the ONLY channel through which the marker can reach this captured output.
@@ -135,7 +137,7 @@ out=$(run_contracts); rc=$?
 check "PS-02" "a failing sub-test: FAIL row + its log INLINE + run continues" 1 $rc "$out" \
     "FAIL" "sync-version" "contract test failed" \
     "$MARKER" \
-    "Pass: 7" "Fail: 1" "=== Results ==="
+    "Pass: 8" "Fail: 1" "=== Results ==="
 
 # --------------------------------- final-newline normalisation in the dump
 # bad() pipes the tail through `awk 1` so a log whose last line has NO
@@ -151,6 +153,16 @@ out=$(run_contracts); rc=$?
 check "PS-03" "a log with NO final newline: footer stays on its own line" 1 $rc "$out" \
     "PKGSELF_NONL_MARKER" \
     "~    ---- end ----"
+
+# --------------------------- the tool-free flatpak manifest contract row
+# A placeholder sha256 in the manifest (the bug that once broke the Flatpak
+# build) must FAIL the flatpak-manifest row, naming the manifest.
+reset_sandbox
+fm=$(ls -1 "$SANDBOX"/packaging/flatpak/*.yml | head -1)
+printf '\n# sha256: REPLACE_WITH_REAL_SHA256\n' >> "$fm"
+out=$(run_contracts); rc=$?
+check "PS-04" "a placeholder sha256 in the Flatpak manifest FAILs the flatpak-manifest row" 1 $rc "$out" \
+    "FAIL" "flatpak-manifest" "placeholder sha256" "Pass: 8" "Fail: 1"
 
 echo ""
 echo "====================================="

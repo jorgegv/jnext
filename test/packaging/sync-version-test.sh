@@ -38,9 +38,11 @@
 #  14. it sets extra.doc_release to v<version.yaml>
 #  15. a missing or malformed version.yaml raises, never a default
 #
-# Rows 12-15 need a tool that not every host has (CI's unit leg has no
-# rpm-build); each prints SKIP there. CI's `package` job, which installs
-# rpm-build and dpkg-dev, runs this same suite through `make package-test`.
+# Rows 12-15 need a tool (rpm-build's rpmspec, mkdocs). A host without it prints
+# SKIP and the suite exits non-zero: a row that was not tested is not a pass
+# (owner, 2026-10-06). CI's `test` job installs rpm-build for exactly this; it
+# used to print SKIP there while the contract wrapper (packaging-test.sh) read
+# only the exit status and reported the suite as passing.
 #
 set -u
 
@@ -285,4 +287,5 @@ fi
 
 printf "\n${BOLD}=== Results ===${RESET}\n"
 printf "  ${GREEN}Pass: %d${RESET}  ${RED}Fail: %d${RESET}  ${YELLOW}Skip: %d${RESET}\n" "$pass" "$fail" "$skip"
-[ "$fail" -eq 0 ]
+[ "$skip" -eq 0 ] || printf "  ${YELLOW}%d row(s) SKIPPED, i.e. not tested — a SKIP is not a pass${RESET}\n" "$skip"
+[ "$fail" -eq 0 ] && [ "$skip" -eq 0 ]

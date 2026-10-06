@@ -1831,7 +1831,7 @@ verify-macos-dmg:
 packaging-selftest:
 	@bash test/packaging/packaging-selftest.sh
 
-# Integration-test every package target (src/rpm/deb/win/flatpak) — tooling-guarded, macOS excluded
+# Integration-test every package target (src/rpm/deb/win; Flatpak build is the flatpak CI job's) — a missing tool fails, macOS excluded
 package-test: packaging-selftest
 	bash test/packaging/packaging-test.sh
 
