@@ -115,7 +115,7 @@ After the agent's branch is merged into its target (`<TARGET>` = `main`, or the 
 git -C /home/jorgegv/tmp/worktrees/agent-<ID> status --short   # must be empty
 git merge-base --is-ancestor <BRANCH> <TARGET>                   # must succeed
 git worktree remove --force /home/jorgegv/tmp/worktrees/agent-<ID>   # --force: the tree has submodules
-git branch -d <BRANCH>   # -d, never -D: refuses an unmerged branch
+git -C <TARGET-checkout> branch -d <BRANCH>   # -d, never -D; run where <TARGET> is checked out (the main checkout for main, the epic worktree for an epic sub-issue): -d checks "merged" against that HEAD
 ```
 
 Plain `git worktree remove` always refuses here (submodules), hence `--force` — only after the two checks above pass.

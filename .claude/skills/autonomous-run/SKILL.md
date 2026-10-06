@@ -69,7 +69,7 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 
 **Park** = WIP commit + `PAUSE-NOTES.md` on the branch, entry in `decisions.md`, slot moves to the next issue.
 
-Between phases: check comments on milestone issues (and issues closed this run) since the last check; reply in the same issue.
+Between phases: check comments on milestone issues (and issues closed this run) since the last check; reply in the same issue. Clean up any issue closed since the last check (deferred closes included: reporter-confirmed, batched pushes) per step 12.
 
 ## Authorized
 

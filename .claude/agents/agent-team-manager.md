@@ -69,7 +69,7 @@ Only after APPROVE:
 1. On main (NOT via a worker; per mandate the manager merges): `git fetch origin`, then `JNEXT_ALLOW_MAIN_WRITE=1 git merge --ff-only origin/main` if behind; never rebase or reset main.
 2. Merge the worker's branch (`JNEXT_ALLOW_MAIN_WRITE=1 git merge ...`). Resolve conflicts using the second-to-merge rule.
 2b. Immediately `JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n` (one bump per merge).
-3. Delete the worker's worktree per `worktree-launch` §Cleanup (clean tree + merged checks, then `git worktree remove --force`, since the tree has submodules).
+3. Once the issue is closed, delete the worker's worktree per `worktree-launch` §Cleanup (clean tree + merged checks, then `git worktree remove --force`, since the tree has submodules).
 4. Once the issue is closed, delete the worker's merged branch (`git branch -d`) per `worktree-launch` §Cleanup.
 
 ### Final report to user
