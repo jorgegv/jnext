@@ -24,7 +24,9 @@ refreshing the matrix was a manual step of the version bump.
   description's position varies between suites, so the generator reads each
   file's own declaration of `check()` instead of assuming an argument order.
 - **Status** is `fail` if the binary printed the row in its FAIL set;
-  otherwise `skip` for a `skip()` call, `pass` for a `check()` call, and
+  otherwise `pass` for a `check()` call (an ID that has one is never `skip`,
+  even when a `skip()` environment-fallback arm sits beside it), `skip` only for
+  an ID whose every occurrence is a `skip()` call, and
   `missing` when the ID appears in no source at all. A section resolves an ID
   against its own source files first and then against the other suites of the
   same `##` subsystem, and the widening stops dead at that boundary.

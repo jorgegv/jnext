@@ -30,9 +30,10 @@ if want ffmpeg-missing-warn-func; then
     present_hit=$(echo "$ff_present" | grep -cF "$warn_line" || true)
     if ! command -v ffmpeg &>/dev/null; then
         # ffmpeg genuinely absent on this host — the control run cannot prove the
-        # negative, so only assert the masked run warns. Loud, not silent.
+        # negative: half the oracle did not run, so this is a SKIP (which fails
+        # the run), never a PASS — unless even the masked half failed.
         if [[ "$masked_hit" -ge 1 ]]; then
-            pass_row " (warns when ffmpeg absent; control skipped — no ffmpeg on host)"
+            skip_row " (control not run: no ffmpeg on host; the masked run did warn)"
         else
             fail_row " (masked run did not warn: masked_hit=$masked_hit want>=1)"
         fi

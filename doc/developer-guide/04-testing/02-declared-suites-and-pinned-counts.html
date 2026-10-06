@@ -2361,7 +2361,9 @@ it more briefly — <em>this file is a contract, not a convenience.</em></p>
   <code># gate: none | qt | dbg | qt+dbg</code> directive in force, which applies to every
   line below it until the next one, and the <code>?</code> and the gate must agree. When a
   suite's gate is not satisfied the harness prints a NOTICE naming it and counts
-  it as not-run — skipped, but never silently.</li>
+  it as not-run — never silently. (That is a gated-out suite, which is not a
+  SKIP: a suite that reports <code>Skipped &gt; 0</code> fails the run, see
+  <a href="01-the-test-triplet.html">4.1</a>.)</li>
 <li><code>&lt;expected_rows&gt;</code> is the exact <code>Total:</code> the suite must report, and it must be
   at least 1. A pin of <code>0</code> is rejected outright at parse time, because a suite
   pinned at 0 that reports 0 rows would pass, whereas the same suite printing

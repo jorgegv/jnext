@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=123  # 75 + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=141  # 75 + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -225,6 +225,24 @@ manifest "good_test 10" "other_test 5"
 out=$(run_harness); rc=$?
 check "HS-01" "clean run: both suites reported, grand total, exit 0" 0 $rc "$out" \
     "Total: 15  Passed: 15  Failed: 0  Skipped: 0" "Suites: 2 pass, 0 fail"
+
+# ---------------------------------------------------- a SKIP fails the run
+# Owner decision 2026-10-06: a row that was not tested is not a pass. A suite
+# with Skipped > 0 keeps its SKIP badge (it says what to install) and prints its
+# SKIP lines, but the run exits 1 and is not counted as a passing suite.
+stub skipping_test -1 0 "$(lit_ids 10)"$'\n''echo "  [SKIP] ROW-3: stub"'$'\n''echo "Total:   10  Passed:    9  Failed:    0  Skipped:    1"'
+register skipping_test
+manifest "skipping_test 10"
+out=$(run_harness); rc=$?
+check "HS-76a" "a suite reporting a SKIP fails the run, names the suite and the SKIP row, and is not a passing suite" 1 $rc "$out" \
+    "SKIP" "skipping_test" "ROW-3" "a SKIP is not a pass" "Suites: 0 pass, 0 fail, 1 skipped"
+
+stub failing_test -1 1 "$(lit_ids 10)"$'\n''echo "Total:   10  Passed:    9  Failed:    1  Skipped:    0"'
+register skipping_test failing_test
+manifest "skipping_test 10" "failing_test 10"
+out=$(run_harness); rc=$?
+check "HS-76b" "a SKIPping suite beside a FAILING one: both are named, both counted" 1 $rc "$out" \
+    "skipping_test" "failing_test" "ROW-3" "Suites: 0 pass, 1 fail, 1 skipped"
 
 # ------------------------------------------------- THE BUG THAT SHIPPED (a)
 # A suite that FAILS (valid summary, non-zero exit). The failing row must be
@@ -1906,6 +1924,117 @@ out=$(cd "$CR" && HOME="$T/cfix" JNEXT=/bin/true JNEXT_REGRESSION_STAMP_DIR="$T/
 out+=$'\n'"fast=$(( SECONDS - t0 < 60 ? 1 : 0 ))"
 check "HS-74c" "with a SYMLINKED lock file a genuine nested child still recognises its ancestor's lock (GH #295)" 0 $rc "$out" \
     "the nested harness ran: plain 1, forced 1; nested inside a run that holds)" "passed solo" "fast=1"
+
+# ---------------- a SKIPPED row fails the regression driver (owner, 2026-10-06) ----------------
+# A SKIP is a row that was not tested; the driver used to exit 0 on it (only the
+# STAMP refused it), so `make regression` read green while a row had not run.
+# Here: a throwaway repository holding the REAL driver, library, scheduler, row
+# runner and stamp script, two rows (one passes, one calls skip_row), run as a
+# full run (HS-77a), as a named-row run (HS-77b), the control with only the
+# passing row (HS-77c), and a standalone row script (HS-77d).
+SR="$T/skiprepo"; SRT="$SR/test/00regression"
+mkdir -p "$SRT/scripts" "$SRT/img" "$T/sfix" "$T/sstamps"
+cp "$PROJECT_DIR/test/00regression/regression.sh" "$PROJECT_DIR/test/00regression/test-functions.inc" \
+   "$PROJECT_DIR/test/00regression/parallel-rows.inc" "$PROJECT_DIR/test/00regression/row-runner.sh" "$SRT/"
+cp "$PROJECT_DIR/test/regression-stamp.sh" "$SR/test/"
+printf '# expect: 0\n' > "$SRT/regression_tests.conf"
+# the seven group rows a full run counts (6 lints + sdcard-provision), as stand-ins
+cat > "$SRT/scripts/00-preflight-lint.sh" <<'GROUP'
+for lint_n in 1 2 3 4 5 6; do CURRENT_ROW="lint-$lint_n"; pass_row; done
+GROUP
+printf 'CURRENT_ROW=sdcard-provision; pass_row\n' > "$SRT/scripts/01-sdcard-provision.sh"
+printf 'ORDERED_TESTS=()\n' > "$SRT/scripts/screenshots.sh"
+printf 'if want ok-func; then begin_func ok-func; pass_row; fi\n' > "$SRT/scripts/ok-func.sh"
+printf 'if want skip-func; then begin_func skip-func; skip_row " (stub: tool missing)"; fi\n' > "$SRT/scripts/skip-func.sh"
+mkdir -p "$SR/build/test" "$SR/build/sdl-release"
+printf '#!/bin/sh\nexit 0\n' > "$SR/build/test/rewind_test"; cp "$SR/build/test/rewind_test" "$SR/build/sdl-release/jnext"
+chmod +x "$SR/build/test/rewind_test" "$SR/build/sdl-release/jnext"
+printf 'build/\n' > "$SR/.gitignore"
+sg_sr() { git -C "$SR" -c user.name=t -c user.email=t@t "$@" >/dev/null 2>&1; }
+skip_run() {   # skip_run <functional manifest rows, space separated> <regression.sh args...>
+    local rows=$1; shift
+    { echo "# expect: $(wc -w <<<"$rows")"; tr ' ' '\n' <<<"$rows"; } > "$SRT/functional_tests.conf"
+    sg_sr init -q; sg_sr add -A; sg_sr commit -qm fixture --allow-empty
+    ( cd "$SR" && HOME="$T/sfix" JNEXT=/bin/true JNEXT_REGRESSION_STAMP_DIR="$T/sstamps" \
+      JNEXT_REGRESSION_LOCK_FILE="$T/skip.lock" JNEXT_REGRESSION_LOCK_WAIT=6 \
+      JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-idle" JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_HEARTBEAT=0 \
+      JNEXT_REGRESSION_STAMP=1 JNEXT_TEST_JOBS=1 \
+      timeout --kill-after=5s 120s bash "$SRT/regression.sh" "$@" 2>&1 )
+}
+out=$(skip_run "ok-func skip-func"); rc=$?
+out+=$'\n'"$(JNEXT_REGRESSION_STAMP_DIR="$T/sstamps" bash "$SR/test/regression-stamp.sh" check 2>&1)"
+check "HS-77a" "a full regression run with a SKIPPED row exits 1, names the row, says a SKIP is not a pass, and writes no stamp" 1 $rc "$out" \
+    "SKIPPED, i.e. not tested: skip-func" "a SKIP is not a pass" "no regression stamp" "NO STAMP"
+out=$(skip_run "ok-func skip-func" skip-func); rc=$?
+check "HS-77b" "a named-row regression run whose row SKIPS exits 1 and names it" 1 $rc "$out" \
+    "SKIPPED, i.e. not tested: skip-func" "a SKIP is not a pass"
+rm -f "$SRT/scripts/skip-func.sh"   # a declared-less script is a harness fault, not the control
+out=$(skip_run "ok-func"); rc=$?
+out+=$'\n'"$(JNEXT_REGRESSION_STAMP_DIR="$T/sstamps" bash "$SR/test/regression-stamp.sh" check 2>&1)"
+check "HS-77c" "the control: the same fixture with no SKIPPED row exits 0 and stamps" 0 $rc "$out" \
+    "regression stamp written" "STAMP OK"
+out=$(cd "$SR" && JNEXT=/bin/true timeout --kill-after=3s 30s bash -c \
+      "set -euo pipefail; source '$SRT/test-functions.inc'; CURRENT_ROW=lone-row; skip_row ' (stub)'; standalone_summary" 2>&1); rc=$?
+check "HS-77d" "a standalone row script that SKIPS exits 1 from standalone_summary" 1 $rc "$out" "a SKIP is not a pass"
+
+# ---------------- a missing TOOL or renderer-version gap FAILS, never skips (owner, 2026-10-06) ----------------
+# Every check below runs a REAL script of the project with a tool hidden from
+# PATH (a directory of symlinks to everything on PATH except the named tools),
+# or with a fake committed-renderer fingerprint, and expects a non-zero exit.
+# Reverting any one of those branches to "SKIP, exit 0" turns exactly its row red.
+shim_without() {   # shim_without <tool...> — echo a PATH that lacks them
+    local d dir f b skip x
+    d=$(mktemp -d "$T/shim.XXXXXX")
+    local IFS=:
+    for dir in $PATH; do
+        [[ -d "$dir" ]] || continue
+        for f in "$dir"/*; do
+            [[ -x "$f" && ! -d "$f" ]] || continue
+            b=${f##*/}; skip=0
+            for x in "$@"; do [[ "$b" == "$x" ]] && skip=1; done
+            [[ $skip -eq 1 || -e "$d/$b" ]] || ln -s "$f" "$d/$b"
+        done
+    done
+    echo "$d"
+}
+mk_fake_fp() { printf 'a fingerprint no real renderer prints\n' > "$T/fakefp.txt"; echo "$T/fakefp.txt"; }
+run_in_repo() {   # run_in_repo <PATH> <cmd...>
+    local p=$1; shift
+    ( cd "$PROJECT_DIR" && PATH="$p" timeout --kill-after=5s 300s "$@" 2>&1 )
+}
+# the ffmpeg row, standalone, with a stand-in jnext that always prints the warning
+NOFF=$(shim_without ffmpeg ffprobe)
+printf '#!/bin/sh\necho "ffmpeg not found in PATH"\n' > "$T/fakejnext.sh"; chmod +x "$T/fakejnext.sh"
+out=$(cd "$PROJECT_DIR" && PATH="$NOFF" JNEXT="$T/fakejnext.sh" timeout --kill-after=5s 120s \
+      bash test/00regression/scripts/ffmpeg-missing-warn-func.sh 2>&1); rc=$?
+check "HS-78" "ffmpeg-missing-warn-func with no ffmpeg on the host SKIPS (exit 1), it does not PASS with its control half unrun" 1 $rc "$out" \
+    "SKIP" "control not run" "a SKIP is not a pass"
+# the real sync-version-test with rpmspec hidden: its rpm rows SKIP and the suite must exit non-zero
+out=$(run_in_repo "$(shim_without rpmspec)" bash test/packaging/sync-version-test.sh); rc=$?
+check "HS-79" "sync-version-test.sh with rpmspec hidden exits non-zero and says a SKIP is not a pass" 1 $rc "$out" \
+    "SKIP" "rpmspec not installed" "a SKIP is not a pass"
+out=$(run_in_repo "$(shim_without pandoc)" make docs-man-check); rc=$?
+check "HS-80a" "docs-man-check without pandoc FAILS" 2 $rc "$out" "pandoc not installed"
+out=$(run_in_repo "$PATH" make docs-man-check MAN_RENDERER="$(mk_fake_fp)"); rc=$?
+check "HS-80b" "docs-man-check with a different pandoc than the committed renders FAILS" 2 $rc "$out" "different pandoc"
+out=$(run_in_repo "$(shim_without mkdocs)" make docs-userguide-check); rc=$?
+check "HS-80c" "docs-userguide-check without mkdocs FAILS" 2 $rc "$out" "mkdocs not installed"
+out=$(run_in_repo "$PATH" make docs-userguide-check GUIDE_RENDERER="$(mk_fake_fp)"); rc=$?
+check "HS-80d" "docs-userguide-check with a different mkdocs than the committed render FAILS" 2 $rc "$out" "different mkdocs/material"
+out=$(run_in_repo "$(shim_without dot)" make docs-devguide-check); rc=$?
+check "HS-80e" "docs-devguide-check without graphviz FAILS" 2 $rc "$out" "not installed"
+out=$(run_in_repo "$PATH" make docs-devguide-check DEVGUIDE_RENDERER="$(mk_fake_fp)"); rc=$?
+check "HS-80f" "docs-devguide-check with a different renderer than the committed render FAILS" 2 $rc "$out" "different mkdocs/material/graphviz"
+out=$(run_in_repo "$(shim_without python3)" bash test/snapshot/verify-schema.sh); rc=$?
+check "HS-80g" "verify-schema.sh without python3/jsonschema FAILS" 1 $rc "$out" "FAIL" "jsonschema is not available"
+out=$(run_in_repo "$(shim_without unzip)" bash test/snapshot/verify-external-zip.sh); rc=$?
+check "HS-80h" "verify-external-zip.sh without unzip FAILS" 1 $rc "$out" "FAIL" "unzip is not installed"
+
+# A set-but-unusable Z88DK_GDB is an error, never a quiet fall-through to another client
+out=$(Z88DK_GDB="$T/no-such-client" bash "$PROJECT_DIR/test/provision-z88dk-gdb.sh" --print-path 2>&1); rc=$?
+check "HS-81a" "provision-z88dk-gdb.sh --print-path with Z88DK_GDB set to a non-executable exits 2, naming it" 2 $rc "$out" "Z88DK_GDB=" "not an executable file"
+out=$(Z88DK_GDB="$T/no-such-client" bash "$PROJECT_DIR/test/provision-z88dk-gdb.sh" 2>&1); rc=$?
+check "HS-81b" "...and so does the provisioning run itself (it does not go and build another one)" 2 $rc "$out" "not an executable file"
 
 # ---------------- the harness's git keeps the user's own config (GH #295) ----------------
 # The suite points XDG_CONFIG_HOME at a scratch dir for Qt, and git resolves

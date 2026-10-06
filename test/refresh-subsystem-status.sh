@@ -292,7 +292,7 @@ END {
           fmt_notes(tot_fail, tot_skip, 0, "") "|"
 
     print ""
-    print "**SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code."
+    print "**SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP."
 }
 
 # ---- helpers ----

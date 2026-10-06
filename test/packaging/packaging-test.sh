@@ -6,25 +6,28 @@
 # Two entry points, because the suite has two very different halves (GH #61):
 #
 #   bash packaging-test.sh --contracts-only   (`make package-contract-test`)
-#       The eight packaging-layer contract suites — six on the packaging
+#       The nine packaging-layer contract suites — six on the packaging
 #       scripts, one on the package-* recipes themselves (GH #148), one on
-#       the artifact selection the package rows below use. Hermetic:
+#       the artifact selection the package rows below use, one on the Flatpak
+#       manifest. Hermetic:
 #       pure bash on throwaway fake roots, no compiler, no toolchain, ~4 s.
 #       This half holds the highest-value rows (verify-bundle is the GH #46
 #       gate; sync-version is GH #60), so it is a prerequisite of `make
 #       unit-test` and runs on every local test run, exactly like docs-check.
 #
 #   bash packaging-test.sh                    (`make package-test`)
-#       The above PLUS a real build of every package (src/rpm/deb/win/flatpak)
+#       The above PLUS a real build of every package (src/rpm/deb/win)
 #       with content assertions. ~4 minutes and toolchain-dependent, so it runs
 #       as its own parallel job in ci.yml rather than inside `make unit-test`.
 #
-# Tooling-guarded: a package whose build tool is absent SKIPs (not FAIL) on a
-# dev box — not every host has every toolchain. In CI a missing tool is a FAIL
-# instead (see skp_ci_fail below): the workflow installs it deliberately, so a
-# silent skip there would read as a pass and hide the very regression this
-# suite exists to catch. macOS (.dmg) is deliberately excluded everywhere: it
-# needs a Mac / the CI macos runner (see packaging/README.md).
+# Tooling: every row needs its build tool, and a missing one is a SKIP — which
+# FAILS the run (owner, 2026-10-06: a row that was not tested is not a pass).
+# The same on a dev box and in CI; ci.yml's `package` job installs what the rows
+# need. macOS (.dmg) is deliberately excluded everywhere: it needs a Mac / the
+# CI macos runner (see packaging/README.md). The Flatpak BUILD is not a row
+# here either: the `flatpak` CI job builds and permission-gates the bundle on
+# every push (and `make package-flatpak` does locally); only its tool-free
+# manifest contract (`flatpak-manifest`) is checked below.
 #
 # Exits non-zero if any tested package FAILs.
 #
@@ -70,25 +73,26 @@ bad() {
 }
 skp() { printf "  ${YELLOW}SKIP${RESET} %-16s %s\n" "$1" "$2"; skip=$((skip+1)); }
 
-# Missing tooling for a row CI is expected to cover: SKIP on a dev box, FAIL in
-# CI. ci.yml's `package` job installs rpmbuild / dpkg-deb / the MinGW Qt6 cross
-# toolchain on purpose; if one silently vanishes (renamed dnf package, dropped
-# install line) the row would skip and the job would still go green — a suite
-# that quietly stops testing something is worse than no suite. Same discipline
-# as docs-man-check's pandoc guard in the Makefile. Rows CI deliberately does
-# NOT provision (flatpak: needs org.kde.Sdk, a multi-GB privileged install)
-# keep using plain skp().
-skp_ci_fail() {
-    if [ -n "${CI:-}" ]; then
-        bad "$1" "$2 — MISSING IN CI. This row would otherwise skip silently and read as a pass; install the tool in the workflow, or drop the row deliberately."
-    else
-        skp "$1" "$2"
-    fi
-}
-
 summary() {
     printf "\n${BOLD}=== Results ===${RESET}\n"
     printf "  ${GREEN}Pass: %d${RESET}  ${RED}Fail: %d${RESET}  ${YELLOW}Skip: %d${RESET}\n" "$pass" "$fail" "$skip"
+    [ "$skip" -eq 0 ] || printf "  ${YELLOW}%d row(s) SKIPPED, i.e. not tested — a SKIP is not a pass${RESET}\n" "$skip"
+}
+
+# contract <row> <script> <logname> <ok message> — run one contract sub-test.
+# Its exit status is not enough: a sub-test that prints SKIP lines and exits 0
+# (sync-version-test.sh once did, with rpmspec absent) would read as PASS here
+# and hide the skipped rows. A SKIP line in its log makes the ROW a SKIP.
+contract() {
+    local row=$1 script=$2 log="$LOGDIR/$3.log" okmsg=$4
+    if ! bash "$script" >"$log" 2>&1; then
+        bad "$row" "contract test failed" "$log"
+    elif sed -e 's/\x1b\[[0-9;]*m//g' "$log" | grep -qE '^[[:space:]]*SKIP'; then
+        skp "$row" "the sub-test reported a SKIP (a row it did not run); see its SKIP lines below"
+        sed -e 's/\x1b\[[0-9;]*m//g' "$log" | grep -E '^[[:space:]]*SKIP' | sed 's/^/    | /'
+    else
+        ok "$row" "$okmsg"
+    fi
 }
 
 MINGW_QT6=/usr/x86_64-w64-mingw32/sys-root/mingw/lib/cmake/Qt6/Qt6Config.cmake
@@ -104,42 +108,22 @@ fi
 # --- sync-version.sh contract (fast; runs on a throwaway copy) ----------------
 # The version-consistency script the bump-* targets rely on. Kept first so a
 # broken sync surfaces before the slow package builds.
-if bash test/packaging/sync-version-test.sh >"$LOGDIR/syncver.log" 2>&1; then
-    ok sync-version "idempotent, consistent, fails loud (see log for detail)"
-else
-    bad sync-version "contract test failed" "$LOGDIR/syncver.log"
-fi
+contract sync-version test/packaging/sync-version-test.sh syncver "idempotent, consistent, fails loud (see log for detail)"
 
 # --- add-release.sh contract (releases.yaml allowlist helper) ----------------
-if bash test/packaging/add-release-test.sh >"$LOGDIR/addrel.log" 2>&1; then
-    ok add-release "starts/append/idempotent/fail-loud (see log for detail)"
-else
-    bad add-release "contract test failed" "$LOGDIR/addrel.log"
-fi
+contract add-release test/packaging/add-release-test.sh addrel "starts/append/idempotent/fail-loud (see log for detail)"
 
 # --- verify-bundle.sh contract (macOS self-containment gate, GH #46) ---------
 # Runs everywhere: the gate's decision logic is tested against stubbed
 # otool/file, so the Linux dev host covers it even though the .dmg itself
 # cannot be built here.
-if bash test/packaging/verify-bundle-test.sh >"$LOGDIR/verifybundle.log" 2>&1; then
-    ok verify-bundle "rejects Homebrew/absolute deps, nested files, empty bundles"
-else
-    bad verify-bundle "contract test failed" "$LOGDIR/verifybundle.log"
-fi
+contract verify-bundle test/packaging/verify-bundle-test.sh verifybundle "rejects Homebrew/absolute deps, nested files, empty bundles"
 
 # --- prune-broken-plugins.sh contract (deletes files — both directions pinned)
-if bash test/packaging/prune-plugins-test.sh >"$LOGDIR/pruneplugins.log" 2>&1; then
-    ok prune-plugins "removes unloadable plugins, keeps working ones, refuses on libqcocoa"
-else
-    bad prune-plugins "contract test failed" "$LOGDIR/pruneplugins.log"
-fi
+contract prune-plugins test/packaging/prune-plugins-test.sh pruneplugins "removes unloadable plugins, keeps working ones, refuses on libqcocoa"
 
 # --- complete-closure.sh contract (adds files to the shipped bundle) ---------
-if bash test/packaging/complete-closure-test.sh >"$LOGDIR/closure.log" 2>&1; then
-    ok complete-closure "copies missing libs transitively, no-ops when complete"
-else
-    bad complete-closure "contract test failed" "$LOGDIR/closure.log"
-fi
+contract complete-closure test/packaging/complete-closure-test.sh closure "copies missing libs transitively, no-ops when complete"
 
 
 # --- package-* recipe guard (a failing bundle step must abort, GH #148) ------
@@ -149,11 +133,7 @@ fi
 # the scripts. package-win ran bundle-dlls.sh `;`-terminated inside a one-shell
 # recipe, so a failed bundle still zipped, printed "ZIP(s) produced:" and exited
 # 0 with no executable in the artifact.
-if bash test/packaging/package-recipe-guard-test.sh >"$LOGDIR/pkgrecipe.log" 2>&1; then
-    ok package-recipe "every bundle-dlls.sh invocation aborts its recipe on failure"
-else
-    bad package-recipe "contract test failed" "$LOGDIR/pkgrecipe.log"
-fi
+contract package-recipe test/packaging/package-recipe-guard-test.sh pkgrecipe "every bundle-dlls.sh invocation aborts its recipe on failure"
 
 # --- flatpak permission gate contract (GH #271) ------------------------------
 # verify-permissions.sh is what stops the shipped Flatpak losing --share=network
@@ -162,21 +142,26 @@ fi
 # namespace, so BOTH were dead on Flatpak while a manifest grep would have said
 # nothing was wrong. Hermetic: fabricated `metadata` files + a stubbed flatpak,
 # no build, so it belongs in this half; the REAL bundle is checked by the
-# package-flatpak row below.
-if bash test/packaging/flatpak-permissions-test.sh >"$LOGDIR/fpkperm.log" 2>&1; then
-    ok flatpak-perms "accepts shared=network, refuses the shipped 1.0.1 shape + near-misses"
+# `flatpak` CI job (and `make package-flatpak`).
+contract flatpak-perms test/packaging/flatpak-permissions-test.sh fpkperm "accepts shared=network, refuses the shipped 1.0.1 shape + near-misses"
+
+# --- flatpak manifest contract (tool-free) -----------------------------------
+# The Flatpak BUILD is covered by the `flatpak` CI job and `make
+# package-flatpak`; what needs no tool is the concrete bug that once broke it:
+# a manifest shipped with a placeholder sha256 in a source entry.
+fpk_manifest=$(ls -1 packaging/flatpak/*.yml 2>/dev/null | head -1)
+if [ -z "$fpk_manifest" ]; then
+    bad flatpak-manifest "no manifest under packaging/flatpak/"
+elif grep -q "REPLACE_WITH_REAL" "$fpk_manifest"; then
+    bad flatpak-manifest "manifest still contains a placeholder sha256 ($fpk_manifest)"
 else
-    bad flatpak-perms "contract test failed" "$LOGDIR/fpkperm.log"
+    ok flatpak-manifest "$(basename "$fpk_manifest") carries no placeholder sha256"
 fi
 
 # --- artifact selection contract (the package rows below) --------------------
 # The package rows pick their artifact through artifact-select.sh; this proves
 # a previous version's leftover can no longer pass for the new build.
-if bash test/packaging/artifact-select-test.sh >"$LOGDIR/artsel.log" 2>&1; then
-    ok artifact-select "current-version artifact only; stale leftovers fail loudly"
-else
-    bad artifact-select "contract test failed" "$LOGDIR/artsel.log"
-fi
+contract artifact-select test/packaging/artifact-select-test.sh artsel "current-version artifact only; stale leftovers fail loudly"
 
 # ---- end of the hermetic contract half --------------------------------------
 # Everything above needs nothing but bash; everything below builds real
@@ -184,7 +169,7 @@ fi
 # stops here.
 if [ "$mode" = contracts ]; then
     summary
-    [ "$fail" -eq 0 ]
+    [ "$fail" -eq 0 ] && [ "$skip" -eq 0 ]
     exit
 fi
 
@@ -240,7 +225,7 @@ if command -v rpmbuild >/dev/null 2>&1; then
         bad package-rpm "make package-rpm failed" "$LOGDIR/rpm.log"
     fi
 else
-    skp_ci_fail package-rpm "rpmbuild not installed"
+    skp package-rpm "rpmbuild not installed"
 fi
 
 # --- package-deb -------------------------------------------------------------
@@ -257,7 +242,7 @@ if command -v dpkg-deb >/dev/null 2>&1; then
         bad package-deb "make package-deb failed" "$LOGDIR/deb.log"
     fi
 else
-    skp_ci_fail package-deb "dpkg-deb not installed"
+    skp package-deb "dpkg-deb not installed"
 fi
 
 # --- package-win (MinGW cross-build ZIP) -------------------------------------
@@ -305,8 +290,8 @@ if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
         bad package-win "make package-win failed" "$LOGDIR/win.log"
     fi
 else
-    if [ "$TC" = 1 ]; then skp_ci_fail package-win "$NO_WINE"
-    else skp_ci_fail package-win "MinGW Qt6 cross toolchain not installed"; fi
+    if [ "$TC" = 1 ]; then skp package-win "$NO_WINE"
+    else skp package-win "MinGW Qt6 cross toolchain not installed"; fi
 fi
 
 # --- package-win subsystem (GUI, not console) --------------------------------
@@ -326,7 +311,7 @@ if command -v x86_64-w64-mingw32-objdump >/dev/null 2>&1 && [ -f "$WIN_EXE" ]; t
         bad package-win-subsys "not GUI subsystem — got: ${subsys:-<none>}"
     fi
 else
-    skp_ci_fail package-win-subsys "objdump or jnext.exe absent (package-win not built here)"
+    skp package-win-subsys "objdump or jnext.exe absent (package-win not built here)"
 fi
 
 # --- package-win UTF-8 manifest (GH #62) -------------------------------------
@@ -346,7 +331,7 @@ if [ -f "$WIN_EXE" ]; then
         bad package-win-manifest "jnext.exe does NOT embed the activeCodePage manifest (GH #62 would regress)"
     fi
 else
-    skp_ci_fail package-win-manifest "jnext.exe absent (package-win not built here)"
+    skp package-win-manifest "jnext.exe absent (package-win not built here)"
 fi
 
 # --- package-win console output (GH #212) ------------------------------------
@@ -379,10 +364,10 @@ fi
 # confirmation of a fix in shipped form needs a real-Windows retest (the
 # "Windows Build (manual)" workflow exists for exactly that).
 #
-# Plain skp(), not skp_ci_fail(): these rows were written for the maintainer's
-# local `make package-test`, when ci.yml's fedora:44 package job had no wine.
-# Since GH #297 it installs wine (the Windows zips' PGO training runs under
-# it), so in CI they now run too whenever python3 is present.
+# These rows were written for the maintainer's local `make package-test`, when
+# ci.yml's fedora:44 package job had no wine. Since GH #297 it installs wine
+# (the Windows zips' PGO training runs under it), so in CI they run too whenever
+# python3 is present.
 #
 # Discriminative both ways: against a binary without the reopen fix the `text`
 # assertion passes and the `prompt` assertion fails; against the pre-#212
@@ -548,7 +533,7 @@ if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc
         bad package-win-sdl "make package-win-sdl failed" "$LOGDIR/win-sdl.log"
     fi
 else
-    skp_ci_fail package-win-sdl "MinGW cross toolchain not installed"
+    skp package-win-sdl "MinGW cross toolchain not installed"
 fi
 
 # --- package-win-qt5 (Qt5 full-GUI Win7/8 legacy leg, GH #108 Phase A) -------
@@ -592,8 +577,8 @@ if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
         bad package-win-qt5 "make package-win-qt5 failed" "$LOGDIR/win-qt5.log"
     fi
 else
-    if [ "$TC" = 1 ]; then skp_ci_fail package-win-qt5 "$NO_WINE"
-    else skp_ci_fail package-win-qt5 "MinGW Qt5 cross toolchain not installed"; fi
+    if [ "$TC" = 1 ]; then skp package-win-qt5 "$NO_WINE"
+    else skp package-win-qt5 "MinGW Qt5 cross toolchain not installed"; fi
 fi
 
 # --- package-win-console-qt5 (GH #212) ---------------------------------------
@@ -640,7 +625,7 @@ if command -v mingw32-cmake >/dev/null 2>&1 && command -v i686-w64-mingw32-gcc >
         bad package-win32-sdl "make package-win32-sdl failed" "$LOGDIR/win32-sdl.log"
     fi
 else
-    skp_ci_fail package-win32-sdl "MinGW i686 (mingw32) cross toolchain not installed"
+    skp package-win32-sdl "MinGW i686 (mingw32) cross toolchain not installed"
 fi
 
 # --- package-win32-qt5 (Qt5 full-GUI 32-bit i686 leg, GH #108 Phase C) -------
@@ -683,8 +668,8 @@ if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
         bad package-win32-qt5 "make package-win32-qt5 failed" "$LOGDIR/win32-qt5.log"
     fi
 else
-    if [ "$TC" = 1 ]; then skp_ci_fail package-win32-qt5 "$NO_WINE"
-    else skp_ci_fail package-win32-qt5 "MinGW i686 (mingw32) Qt5 cross toolchain not installed"; fi
+    if [ "$TC" = 1 ]; then skp package-win32-qt5 "$NO_WINE"
+    else skp package-win32-qt5 "MinGW i686 (mingw32) Qt5 cross toolchain not installed"; fi
 fi
 
 # --- package-win-lto (GH #298) -----------------------------------------------
@@ -707,51 +692,10 @@ done
 if [ -n "$win_lto_bad" ]; then
     bad package-win-lto "not a Release build linked with -flto:$win_lto_bad"
 elif [ ! -f build/win-release/jnext.exe ]; then
-    skp_ci_fail package-win-lto "jnext.exe absent (package-win not built here)"
+    skp package-win-lto "jnext.exe absent (package-win not built here)"
 else
     ok package-win-lto "Release + LTO:$win_lto_ok"
 fi
 
-# --- package-flatpak ---------------------------------------------------------
-# A full flatpak-builder run needs org.kde.Sdk installed (a large runtime) and
-# network access, so it is only attempted when the SDK is present. Always at
-# least (a) validate the manifest parses and (b) guard against the placeholder
-# sha256 the manifest once shipped with (the concrete bug that broke the build).
-if command -v flatpak-builder >/dev/null 2>&1; then
-    manifest=$(ls -1 packaging/flatpak/*.yml 2>/dev/null | head -1)
-    if [ -z "$manifest" ]; then
-        bad package-flatpak "no manifest under packaging/flatpak/"
-    elif grep -q "REPLACE_WITH_REAL" "$manifest"; then
-        bad package-flatpak "manifest still contains a placeholder sha256"
-    elif ! flatpak-builder --show-manifest "$manifest" >/dev/null 2>&1; then
-        bad package-flatpak "manifest failed to validate (flatpak-builder --show-manifest)"
-    elif flatpak list 2>/dev/null | grep -q "org.kde.Sdk"; then
-        clear_artifacts build 'jnext-*-x86_64.flatpak'
-        if make package-flatpak >"$LOGDIR/flatpak.log" 2>&1; then
-            b=$(pick_artifact build 'jnext-*-x86_64.flatpak' "jnext-$VER-x86_64.flatpak" 2>>"$LOGDIR/flatpak.log")
-            if [ -z "$b" ] || [ ! -s "$b" ]; then
-                bad package-flatpak "no current-version .flatpak bundle produced" "$LOGDIR/flatpak.log"
-            # GH #271 — the bundle must carry --share=network, asserted on the
-            # ARTIFACT: the bundle is installed into a throwaway
-            # FLATPAK_USER_DIR and its permissions read back with `flatpak
-            # info`. package-flatpak runs the same gate itself, so this row
-            # would already have failed above; asserting it separately is what
-            # makes the failure say WHICH thing is wrong instead of "make
-            # package-flatpak failed".
-            elif ! bash packaging/flatpak/verify-permissions.sh "$b" >"$LOGDIR/flatpak-perms.log" 2>&1; then
-                bad package-flatpak "bundle is missing a required sandbox permission (GH #271)" "$LOGDIR/flatpak-perms.log"
-            else
-                ok package-flatpak "$(basename "$b") ($(sed -e 's/ (from.*//' "$LOGDIR/flatpak-perms.log"))"
-            fi
-        else
-            bad package-flatpak "make package-flatpak failed" "$LOGDIR/flatpak.log"
-        fi
-    else
-        skp package-flatpak "manifest valid; org.kde.Sdk not installed — full build skipped"
-    fi
-else
-    skp package-flatpak "flatpak-builder not installed"
-fi
-
 summary
-[ "$fail" -eq 0 ]
+[ "$fail" -eq 0 ] && [ "$skip" -eq 0 ]

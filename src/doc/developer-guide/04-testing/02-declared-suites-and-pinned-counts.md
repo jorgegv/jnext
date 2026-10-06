@@ -29,7 +29,9 @@ it more briefly — *this file is a contract, not a convenience.*
   `# gate: none | qt | dbg | qt+dbg` directive in force, which applies to every
   line below it until the next one, and the `?` and the gate must agree. When a
   suite's gate is not satisfied the harness prints a NOTICE naming it and counts
-  it as not-run — skipped, but never silently.
+  it as not-run — never silently. (That is a gated-out suite, which is not a
+  SKIP: a suite that reports `Skipped > 0` fails the run, see
+  [4.1](01-the-test-triplet.md).)
 - `<expected_rows>` is the exact `Total:` the suite must report, and it must be
   at least 1. A pin of `0` is rejected outright at parse time, because a suite
   pinned at 0 that reports 0 rows would pass, whereas the same suite printing

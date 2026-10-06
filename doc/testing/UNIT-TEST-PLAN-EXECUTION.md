@@ -4,7 +4,7 @@ This document describes how the VHDL-derived unit test plans in
 `doc/testing/*-TEST-PLAN-DESIGN.md` are authored, executed, maintained, and
 evolved in lockstep with emulator fixes. Read it before touching any
 test plan, any `test/<subsystem>/<subsystem>_test.cpp`, or any emulator fix
-that flips tests from skip/fail to pass.
+that implements a planned row or flips a test from fail to pass.
 
 ## 1. What a test plan is — and what it is not
 
@@ -23,40 +23,38 @@ the VHDL citation, and the C++ implementation should a test ever be
 altered. This rule is non-negotiable — it is what prevents coverage theatre
 (see §8).
 
-## 2. Three outcome classes: pass / fail / skip
+## 2. Two outcome classes: pass / fail (a SKIP is a failure)
 
-A unit-test plan row can resolve into one of three observable states:
+A unit-test plan row that a suite asserts resolves into one of two states:
 
 - **Pass** — the C++ implementation matches the VHDL-derived expected value
   under the plan's stimulus. Counts toward the live pass rate.
 - **Fail** — the C++ implementation produces a value that disagrees with
   the VHDL citation. Counts toward the live fail count. Every fail must be
   traceable to a specific entry in the Emulator Bug backlog.
-- **Skip** — the plan row cannot be exercised against the current C++
-  surface. Does NOT count as pass or fail. Reported separately with a
-  one-line reason.
 
-The test harness provides a `skip(id, reason)` helper (canonical reference
-implementation: `test/copper/copper_test.cpp`) that prints the row at the
-end of the run without touching the pass/fail counters.
+**A SKIP is not a third outcome, it is a failure of the gate** (owner
+decision, 2026-10-06). A row that was not tested is not a pass, so every
+harness exits non-zero on any SKIP (`run-unit-tests.sh` on a suite reporting
+`Skipped > 0`, `regression.sh`, `standalone_summary`, the packaging and
+contract suites) and the regression stamp is never written for one. Nothing
+distinguishes a SKIP from a FAIL downstream; the SKIP badge survives only so
+that the developer sees what to install or fix.
 
-### When to skip vs. fail
+### Rows whose facility does not exist yet: PLANNED, not skipped
 
-Skip a row when the facility does not exist in `src/` at all:
+A plan row for a facility that is absent from `src/` (a whole subsystem, a
+register nobody declared, a signal not publicly observable, a cycle-accurate
+bus the harness cannot drive) is **PLANNED**: it lives in its
+`*-TEST-PLAN-DESIGN.md` and the traceability matrix reports it `missing`. It
+is **not** a `skip()` in a suite and it is not a placeholder
+`check(x, false, "NOT_IMPL: ...")` either (that pollutes the fail count and
+can pin wrong values once the facility lands). The suite simply does not
+contain the row until the facility can be asserted, and the row is then
+implemented per §5.
 
-- An entire subsystem is absent (example: the whole joystick pipeline in
-  `test/input/input_test.cpp`).
-- A register, port, or state-machine field is not declared anywhere in C++
-  (example: `nr_64_copper_offset` in `src/video/copper*`).
-- A signal is not publicly observable from the class under test — no
-  accessor, no handler, no side-effect visible via the public API
-  (example: `mirror_inc_i` pulse in `SpriteEngine`).
-- A cycle-accurate bus or timing surface that the harness cannot drive
-  without emulator work (example: simultaneous CPU+Copper writes on the
-  shared `nr_wr_*` bus).
-
-Fail a row (let the existing test run and fail) when the facility *exists*
-in C++ but produces the wrong value:
+Fail a row (let the test run and fail) when the facility *exists* in C++ but
+produces the wrong value:
 
 - A register has a handler, but the handler stores the wrong bits
   (example: `NextReg::reset()` zeroes NR 0x05 instead of applying the VHDL
@@ -67,23 +65,24 @@ in C++ but produces the wrong value:
 - A code path is taken but returns the wrong answer (example: blend
   modes 110/111 falling back to SLU in `renderer.cpp:259`).
 
-The distinction matters because skips are advertising "work has to be done
-here" while fails are advertising "the code is lying about behaviour." Both
-feed the Emulator Bug backlog but they point at different fix categories and
-should not be conflated.
+### The one legitimate `skip()`: an environment fallback arm
 
-### What skip is NOT
+The harness still provides a `skip(id, reason)` helper (canonical reference
+implementation: `test/copper/copper_test.cpp`), and 36 call sites use it, but
+only as the ENVIRONMENT-conditional fallback arm of a row that also has a
+`check()`: the premise cannot be built on this host (a missing `mkstemp`, an
+SDL joystick that is not there, a `capset` the sandbox refuses). Such a row is
+asserted whenever it can be, and the traceability matrix reports it `pass` or
+`fail` from its `check()`, never `skip`. When the fallback fires, the run is
+red. Prefer building the premise (SD-28 drops the DAC capabilities so that
+root honours a `0444` image, `test/dac_caps_dropped.h`) to skipping it.
+
+### What a skip must never be
 
 - **Not a workaround for a test bug.** If the assertion itself is wrong,
   fix the assertion. Do not hide a test-authoring mistake behind a skip.
-- **Not a way to inflate the pass rate.** A skip is explicit admission of
-  non-coverage. Converting a fail to a skip without a corresponding real
-  reason to un-count it is theatre.
-- **Not a `check(x, false, "NOT_IMPL: ...")` placeholder.** That pattern
-  was tried in the original Input rewrite and rejected by review: it
-  pollutes the fail count, breaks the honest pass-rate signal, and can
-  accidentally pin wrong values once the facility lands. Use `skip()`
-  instead.
+- **Not a way to inflate the pass rate** — and, since a SKIP now fails the
+  run, not a way to ship one at all.
 
 ## 3. Authoring new test code from a plan (full rewrite)
 
@@ -138,8 +137,8 @@ The reviewer's job is triage, not rewriting:
 1. **VHDL fidelity sampling.** Pick 10+ assertions at random across groups
    and verify the VHDL citation actually matches what VHDL says. Silent
    drift from the cited line is the most common author mistake.
-1a. **Stimulus-through-VHDL tracing (mandatory for fail and skip rows).**
-   For every failing or skipped row, trace the test's *stimulus* through
+1a. **Stimulus-through-VHDL tracing (mandatory for fail rows).**
+   For every failing row, trace the test's *stimulus* through
    the cited VHDL process and verify that the oracle value is *reachable*
    under that stimulus. A correct VHDL citation on the oracle is necessary
    but not sufficient — the stimulus must actually produce the expected
@@ -166,9 +165,10 @@ The reviewer's job is triage, not rewriting:
      failing, add to the Emulator Bug backlog.
    - **(D) Plan bug** — plan row itself disagrees with VHDL. Note in the
      report; do not edit the plan (that's a separate decision).
-3. **Stub honesty check.** For every `skip()`, verify the facility is
-   genuinely unreachable through the current API. Hidden work is common:
-   "I didn't feel like plumbing this through" is not a valid skip reason.
+3. **Skip honesty check.** For every `skip()`, verify it is an environment
+   fallback arm of a row that also has a `check()`. A `skip()` standing in for
+   a facility that is not implemented is a PLANNED row in the wrong place:
+   "I didn't feel like plumbing this through" is not a reason.
 4. **Coverage count.** Every plan row should map to exactly one test ID
    (or be justified as deferred to integration tier). Count the rows and
    compare against the plan total. Missing rows are the canonical theatre
@@ -178,7 +178,7 @@ The reviewer's job is triage, not rewriting:
    where x was just written by the setter under test).
 6. **Fix (A) and (B) on the spot.** The reviewer commits follow-up fixes
    on the same branch with messages like `test(<subsystem>): review fix
-   — <what>`. Rebuild and re-run to measure final pass/fail/skip numbers.
+   — <what>`. Rebuild and re-run to measure final pass/fail numbers (a SKIP is a fail).
 7. **Report.** Verdict (APPROVE / APPROVE-WITH-FIXES / REJECT), per-
    category summary, Emulator Bug backlog items found, final pass rate, commit
    SHAs of any fixes.
@@ -186,7 +186,7 @@ The reviewer's job is triage, not rewriting:
 Only APPROVE or APPROVE-WITH-FIXES (with the fixes committed and the rerun
 passing) are merge-eligible. REJECT bounces back to the author.
 
-## 5. Running emulator fixes against existing skips and fails
+## 5. Running emulator fixes against planned rows and fails
 
 This is the process that moves the honest pass rate up over time. It is a
 separate task stream from test authoring (the Emulator Bug backlog) and
@@ -199,10 +199,12 @@ Emulator Bug backlog (e.g. "implement NR 0x64 / cvc offset" or "apply `+1` bank
 transform in `compute_ram_addr`"). On that branch:
 
 1. Apply the emulator fix in `src/`.
-2. In the same branch, un-skip (or update) every test row the fix
-   unblocks. "Un-skip" means: delete the `skip(id, reason)` call, replace
-   it with real `check(...)` assertions from the plan row, cite the VHDL
-   line, and make sure it compiles.
+2. In the same branch, implement (or update) every test row the fix
+   unblocks. "Implement a planned row" means: add real `check(...)`
+   assertions from the plan row, cite the VHDL line, add the row to the
+   suite's pinned count in `test/unit-tests.conf`, and make sure it
+   compiles. (Historical suites may still carry a `skip(id, reason)` for such
+   a row: delete it in the same edit.)
 3. Run the affected subsystem test binary. Any newly-live rows either
    pass (fix is correct) or fail (fix is incomplete or has a new bug).
    Iterate on the emulator code, not the test.
@@ -216,37 +218,41 @@ transform in `compute_ram_addr`"). On that branch:
    subsystem row in `EMULATOR-DESIGN-PLAN.md` § "Fix baseline of
    subsystem tests not passing" so the published numbers stay honest.
 
-### Why un-skipping is deliberate, not automatic
+### Why implementing a planned row is deliberate, not automatic
 
-An emulator fix does not magically flip skips to passes. Someone has to
-re-read the plan row and VHDL citation at the moment the facility becomes
+An emulator fix does not magically turn planned rows into passes. Someone has
+to re-read the plan row and VHDL citation at the moment the facility becomes
 observable and write the real assertion. This is on purpose:
 
 - It forces a human (or reviewer agent) to revisit the spec at the moment
   the test first crosses the C++ boundary, catching half-working
   implementations before they get rubber-stamped.
-- It keeps the skip list an honest inventory of outstanding work; skips
-  that silently flip to passes because a setter now exists would hide
+- It keeps the PLANNED (`missing`) list an honest inventory of outstanding
+  work; rows that silently appeared because a setter now exists would hide
   which features actually got implemented correctly.
-- It gives the fix branch a natural scope: "this fix un-skips exactly
+- It gives the fix branch a natural scope: "this fix implements exactly
   these N rows" is both the acceptance criterion and the PR description.
 
-### Counter-examples (not all un-skips are 1:1 with emulator work)
+### Counter-examples (not every planned row is 1:1 with emulator work) — historical
 
-- **Observability-only skips.** Sprites `G9.RO-03/04` (delta counter) and
-  `G12.RP-03/04` (anchor-H latch) are skipped because the internal state
-  is not exposed, not because the behaviour is missing. Un-skipping them
+These examples date from when planned rows were carried as suite `skip()`s
+(before the 2026-10-06 policy; every one has since been implemented or
+re-homed). They are kept for the classification, not as a way to add skips.
+
+- **Observability-only rows.** Sprites `G9.RO-03/04` (delta counter) and
+  `G12.RP-03/04` (anchor-H latch) were skipped because the internal state
+  was not exposed, not because the behaviour was missing. Implementing them
   is an API decision — add an observer/accessor on `SpriteEngine`, or
   restructure the test to probe through side effects — not an emulator
   feature implementation.
-- **Harness-only skips.** Copper `ARB-01/02/03` need a cycle-accurate
+- **Harness-only rows.** Copper `ARB-01/02/03` need a cycle-accurate
   shared `nr_wr_*` bus in the test harness, not just in the emulator.
-  Un-skipping requires harness work even after the emulator side lands.
-- **One-fix-many-skips.** Copper `OFS-01..06` are 6 rows blocked by a
+  Implementing them requires harness work even after the emulator side lands.
+- **One-fix-many-rows.** Copper `OFS-01..06` were 6 rows blocked by a
   single missing feature (NR 0x64 / cvc offset model). One emulator fix,
-  6 un-skips in a single commit.
-- **One-subsystem-many-batches.** Input has ~68 skips in the joystick
-  family. They should be un-skipped in sub-feature batches as each piece
+  6 rows implemented in a single commit.
+- **One-subsystem-many-batches.** Input had ~68 planned rows in the joystick
+  family. They were implemented in sub-feature batches as each piece
   lands (NR 0x05 decoder → Kempston 1/2 → MD3 → MD6+NR 0xB2 → Sinclair/
   Cursor adapters → I/O mode mux), not all at once. Each batch is its own
   branch with its own review.
@@ -255,7 +261,7 @@ observable and write the real assertion. This is on purpose:
 
 Every test plan has a **Current status** block near the top of the
 document (or in §5 Notes for the older plans). The block reports live
-pass / live fail / skip numbers, the merge commit where those numbers were
+pass / live fail numbers, the merge commit where those numbers were
 measured, and a one-line pointer at what the failures are. Update it
 whenever:
 
@@ -272,9 +278,10 @@ totals, and `doc/testing/TRACEABILITY-MATRIX.md` (generated, staleness-gated by
 Current status blocks consistent with them. `doc/design/EMULATOR-DESIGN-PLAN.md`
 is a frozen historical roadmap and is not updated.
 
-**Never publish a 100% pass rate for a plan that still has skips.** 100%
-pass on a live subset is honest; 100% pass on the whole plan is only
-honest when the skip list is empty.
+**Never publish a 100% pass rate for a plan that still has PLANNED
+(`missing`) rows.** 100% pass on the asserted subset is honest; 100% pass on
+the whole plan is only honest when nothing is planned-but-unimplemented. A
+suite never carries a skip for one.
 
 ## 6a. Updating the traceability matrix after a test run
 
@@ -285,14 +292,13 @@ whenever anything below changes, so that the published numbers in the
 matrix agree with what the binaries actually report:
 
 - A subsystem test suite is re-run and at least one row flips state
-  (pass ↔ fail, pass/fail ↔ skip, or `—` → any concrete state).
+  (pass ↔ fail, or `—` → any concrete state).
 - A test rewrite or review-fix commit lands on main — the last-touch SHA
   in the per-subsystem header changes, and any new/removed test IDs
   shift the "In-test" and "Missing" counts.
 - A plan row is added, retracted, renamed, or re-cited against different
   VHDL lines.
-- A `skip()` is replaced by a real `check()` (per §5's un-skip rule) or
-  vice versa.
+- A planned row becomes a real `check()` (per §5).
 - An "Extra coverage" row gets promoted to a real plan row (or the
   reverse).
 - A subsystem gets refactored from a helper-function / data-driven
@@ -427,14 +433,16 @@ discrepancies bullets, Summary table totals line):
    `git log -1 --format='%H' -- test/<sub>/<file>.cpp` is the source of
    truth.
 4. **Update each row's Status column** for every row whose state moved.
-   Allowed values: `pass`, `fail`, `skip`, `stub`, `missing`, `—`. Use
+   Allowed values: `pass`, `fail`, `skip`, `stub`, `missing`, `—` (the generated matrix
+   reports `skip` only for an ID that has no `check()`; a tree with none is the
+   goal). Use
    `—` only when the suite genuinely cannot report per-row status (the
    older helper-function patterns); do not use `—` as a synonym for
    "haven't looked yet."
 5. **Update each row's Test file:line** if assertions were re-grouped or
    moved. Grep the test file for the test ID once; the first matching
-   `check()` or `skip()` call wins, same rule the original extractor
-   used.
+   `check()` call wins (a `skip()` call is a row's status only when the ID has no
+   `check()` at all), same rule the generator now applies.
 6. **Update the Summary table at the top** of the document — the
    Pass / Fail / Skip-Stub / Missing columns and the aggregate Totals
    line. This is the most common place to miss an update, and the
@@ -589,7 +597,7 @@ test plans reported "100% passing" while containing:
 Every one of these made the pass rate meaningless. The audit retracted
 all six "100%" claims (`Task 5 Step 5 Phase 2`), and the current plan
 rewrites are the replacement. The process in this document — the no-C++-
-as-oracle rule, the skip/fail distinction, the 1:1:1 emulator-fix rule,
+as-oracle rule, the SKIP-is-a-failure rule, the 1:1:1 emulator-fix rule,
 the required independent review, the honest-numbers-in-plan-files
 discipline — exists specifically to make theatre impossible to reintroduce
 without someone noticing.
@@ -628,9 +636,9 @@ short-cut would have let slip through in the original theatre suites.
 | A test plan row does not match VHDL | Report in the review. Do not silently edit the plan. |
 | A test fails because VHDL disagrees with C++ | File an Emulator Bug backlog item in `.prompts/YYYY-MM-DD.md`. Leave the test failing. |
 | A test fails because the author misread VHDL | Reviewer fixes the assertion on the same branch. Commit message `test(<sub>): review fix — <what>`. |
-| A plan row cannot be exercised via the current API | Replace the assertion with `skip(id, reason)`. Reason must be one line and explain *what* is unreachable, not *that* it is unreachable. |
-| An emulator fix lands and unblocks skipped rows | Same branch as the fix: delete the `skip()` calls, write the real assertions from the plan. Re-run. |
-| A test suite reports 100% pass but has skips | That's expected and honest as long as the skip list is published. Only the empty-skip-list case qualifies for a "fully green" headline. |
+| A plan row cannot be exercised via the current API | Leave it PLANNED in the plan doc (`missing` in the matrix). Do not add a `skip()` to the suite: a SKIP fails the run. |
+| An emulator fix lands and unblocks planned rows | Same branch as the fix: write the real assertions from the plan, update the suite's pin in `test/unit-tests.conf`. Re-run. |
+| A test suite reports a SKIP | The run is red. Build the premise (like SD-28) or install the missing tool; never accept it. |
 | Regression shows a spurious screenshot failure | Check if you're running in the sandbox. The sandbox has no graphics substrate. Rerun on real desktop before assuming a real regression. |
 | Two test rewrites land in parallel and conflict on `test/CMakeLists.txt` | Merge conflicts belong to the agent that tried to merge last (per CLAUDE.md). Resolve on that branch, not main. |
 

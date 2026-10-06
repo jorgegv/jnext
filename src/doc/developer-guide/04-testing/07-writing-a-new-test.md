@@ -1,9 +1,9 @@
 # 4.7 Writing a new test
 
 The authority for this is `doc/testing/UNIT-TEST-PLAN-EXECUTION.md`, and you
-should read it before authoring, rewriting or un-skipping any subsystem test
-plan. It documents the VHDL-as-oracle rule, the pass/fail/skip distinction, the
-1:1:1 emulator-fix-plus-un-skip process, the mandatory independent review, and
+should read it before authoring or rewriting any subsystem test plan, or
+implementing one of its planned rows. It documents the VHDL-as-oracle rule, the
+SKIP-is-a-failure rule, the 1:1:1 emulator-fix-plus-row process, the mandatory independent review, and
 the coverage-theatre audit that all of it exists to prevent. This page is the
 practical walkthrough alongside it, not a replacement for it.
 
@@ -55,8 +55,8 @@ is the one output format every tool in the project relies on. Both functions
 start with `report_row_id(id)` (from `test/row_id.h`), and so must any helper of
 yours that counts a row: the unit harness fails a suite whose reported IDs do
 not number exactly its `Total:`. `skip()` records
-the row and prints it in the trailing summary **without touching the pass/fail
-counters**. Every suite ends with the line the unit harness parses:
+the row and prints it in the trailing summary without touching the pass/fail
+counters — and **the unit harness fails the run on a suite that reports one**. Every suite ends with the line the unit harness parses:
 
 ```
 Total:   82  Passed:   82  Failed:    0  Skipped:    0
@@ -80,9 +80,13 @@ Four rules govern the ID:
   validated against the real FPGA tree, and a disagreement between the two is
   reported for a human to resolve.
 
-Use `skip()` when the facility does not exist in `src/` at all, or is genuinely
-not observable through the public API. It does not mean that the assertion is
-awkward to write. Writing `check(x, true, ...)` as a placeholder is banned
+A row whose facility does not exist in `src/`, or is not observable through the
+public API, is PLANNED in its `*-TEST-PLAN-DESIGN.md` (`missing` in the matrix),
+never a `skip()` in the suite: a SKIP fails the run. `skip()` is only the
+environment fallback arm of a row that also has a `check()` (a `capset` the
+sandbox refuses; SD-28 builds its premise as root by dropping the DAC
+capabilities, `test/dac_caps_dropped.h`, rather than skipping it). It never
+means that the assertion is awkward to write. Writing `check(x, true, ...)` as a placeholder is banned
 outright, because it pollutes the pass count and can end up pinning a wrong
 value once the facility does land. The assertion lint rejects it, along with
 `|| true` and `a == b || a != b`; it matches raw text, so those substrings must
@@ -145,7 +149,7 @@ not write it, working in its own worktree, and the verdict is binary: APPROVE
 or REJECT. The reviewer samples VHDL citations at random and traces the
 stimulus through the cited process, classifies every failure into one of four
 buckets (harness bug, wrong expected value, real emulator bug, plan bug),
-checks that each `skip()` is genuinely unreachable, and counts rows against the
+checks that each `skip()` is an environment fallback beside a real `check()`, and counts rows against the
 plan. Missing rows are the canonical failure mode, which is why the count is
 checked rather than assumed.
 

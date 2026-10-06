@@ -2532,7 +2532,7 @@ raise <code>JNEXT_TEST_QUIET_JOBS</code> to buy speed. Output is printed in decl
 order, so a heartbeat line every 60 s names the rows still running.</p>
 <p>Parallel rows exposed one shared-resource race the serial suite never could:
 <code>xvfb-run -a</code> chooses an X display number by scanning lock files, so two rows
-starting together could pick the same one, and the loser SKIPPED. Every row now
+starting together could pick the same one, and the loser SKIPPED (a failure now). Every row now
 uses <code>xvfb-run -d</code>, where Xvfb picks the display itself, and harness-selftest
 HS-72 bans the racy forms.</p>
 <h2 id="one-full-run-at-a-time-and-the-stamp">One full run at a time, and the stamp<a class="headerlink" href="#one-full-run-at-a-time-and-the-stamp" title="Permanent link">&para;</a></h2>
@@ -2546,7 +2546,12 @@ key hashed from <code>git ls-tree</code> over every non-documentation path.
 <code>make regression-stamp-check</code> prints the stamp covering the current tree, which
 is how a reviewer verifies the author's run without repeating it, and
 <code>make regression-ci-check</code> finds a green CI run with the same key, which is how
-a release reuses CI. Only a run with no FAIL and no SKIP is stamped. A run whose
+a release reuses CI. Only a run with no FAIL and no SKIP is stamped, and since 2026-10-06 <code>regression.sh</code>
+itself exits 1 on a SKIP in every mode (full, named rows, <code>confirm</code>, <code>--update</code>;
+a standalone row's <code>standalone_summary</code> too), naming the rows. A tool a row needs
+is provisioned rather than assumed: <code>make regression</code> first runs <code>make z88dk-gdb</code>
+(<code>test/provision-z88dk-gdb.sh</code>), which builds z88dk v2.4's client, sha256-pinned,
+into <code>~/.cache/jnext/tools</code> when none resolves. A run whose
 only FAILs are functional rows that failed on a loaded host is recorded as
 pending, and <code>make regression-confirm</code> re-runs exactly those rows solo; if they
 all pass the run is stamped, and the stamp names them. Targeted rows run through
@@ -2589,7 +2594,7 @@ cleanup handler — the harness trap already removes that directory.</p>
 <h2 id="no-row-script-may-touch-the-counters">No row script may touch the counters<a class="headerlink" href="#no-row-script-may-touch-the-counters" title="Permanent link">&para;</a></h2>
 <p>The same sourcing puts the harness's own <code>pass</code>, <code>fail</code> and <code>skip</code> in every
 row's scope. <code>script-replay-edge-func</code> once used <code>skip</code> for a reason string;
-that zeroed an earlier SKIP, so CI — where <code>gdb-z88dk-func</code> skips — reported 214
+that zeroed an earlier SKIP, so CI — where <code>gdb-z88dk-func</code> then skipped — reported 214
 of 215 rows with an empty <code>Skip:</code>, while every local run, with nothing skipped,
 stayed green. The driver now wraps each functional row in a guard
 (<code>row_counters_snapshot</code> / <code>row_counters_check</code>, <code>test-functions.inc</code>) that

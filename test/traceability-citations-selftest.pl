@@ -3509,6 +3509,38 @@ check('SELF-195', 'a suite may be a fallback elsewhere AND own its section: it p
           "exit $rc_x; output: $out_x");
 }
 
+# ── A row with a check() is not a skip (owner, 2026-10-06) ──────────
+#
+# `skip("SD-28", ...)` beside `check("SD-28", ...)` is the row's ENVIRONMENT
+# fallback arm: the row is asserted, and when the fallback fires the run is red
+# (every harness fails on a SKIP). grep_source() used to classify ANY ID with a
+# skip() call as `skip`, so the committed matrix published 12 `skip` rows that
+# pass in CI and locally, contradicting a skip-free tree.
+my $src7 = write_fixture('test/fixture/skipcheck_test.cpp', <<'CPP');
+static void check(const char* id, const char* desc, bool cond, const char* detail) { (void)id; (void)desc; (void)cond; (void)detail; }
+static void skip(const char* id, const char* reason) { (void)id; (void)reason; }
+void rows() {
+    if (!env_ok) {
+        skip("SKC-01", "environment cannot build the premise");
+        return;
+    }
+    check("SKC-01", "the real assertion", cond, detail);
+    skip("SKO-01", "feature not reachable");
+}
+CPP
+my ($c7, $k7) = grep_source($src7);
+my $d7 = row_descriptions($src7);
+check('SELF-218', 'an ID with a skip() arm FIRST and a check() later is a pass row at the check() line, described by the check()',
+      scalar(status_for('SKC-01', {}, $c7, $k7) eq 'pass'
+             && ($c7->{'SKC-01'} // 0) == 8 && !exists $k7->{'SKC-01'}
+             && ($d7->{'SKC-01'} // '') eq 'the real assertion'
+             && ($d7->{'SKO-01'} // '') eq 'feature not reachable'),
+      'status=' . status_for('SKC-01', {}, $c7, $k7) . ' check line=' . ($c7->{'SKC-01'} // '(none)')
+        . ' desc=' . ($d7->{'SKC-01'} // '(none)') . ' / skip-only desc=' . ($d7->{'SKO-01'} // '(none)'));
+check('SELF-219', 'the control: an ID with only a skip() call is still a skip row',
+      scalar(status_for('SKO-01', {}, $c7, $k7) eq 'skip' && !exists $c7->{'SKO-01'}),
+      'status=' . status_for('SKO-01', {}, $c7, $k7));
+
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
 
@@ -3531,7 +3563,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 217;
+my $EXPECTED_ROWS = 219;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"

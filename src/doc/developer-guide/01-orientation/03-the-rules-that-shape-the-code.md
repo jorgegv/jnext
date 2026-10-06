@@ -66,9 +66,11 @@ and `make regression`**, which means a stale generated document fails the test
 run itself rather than waiting to be noticed. What that asks of you is simple:
 edit the source, re-render, and commit both halves in the same change.
 
-On a machine without pandoc, mkdocs or graphviz the relevant part of the check
-skips rather than failing, so you can still work. In CI it hard-fails, because
-a check that quietly skips is indistinguishable from a check that passed.
+On a machine without pandoc, mkdocs or graphviz, or with a different version of
+them than the committed render was made with, the relevant part of the check
+fails — locally and in CI alike. A check that quietly skips is indistinguishable
+from a check that passed, and the project has a rule for that: a SKIP is a
+failure of the gate.
 
 It is worth being precise about what this gate does and does not establish.
 `docs-check` proves the outputs match `jnext.1.md`. It does **not** prove that
@@ -145,8 +147,8 @@ and an offscreen platform, which is not something an ordinary build or test run
 should do. And a byte-comparison gate would fail on every Qt, fontconfig or
 freetype update, and on an SD image or NextZXOS update, none of which is
 staleness — the same version-gap problem that makes `docs-man-check` and
-`docs-userguide-check` SKIP rather than fail when the renderer differs, except
-that here there is no single renderer to fingerprint. A gate that cries wolf on
+`docs-userguide-check` need a fingerprinted reference renderer (and fail when it
+differs), except that here there is no single renderer to fingerprint. A gate that cries wolf on
 a routine package upgrade would be turned off within a week, and then the
 images would be ungated *and* believed to be gated.
 

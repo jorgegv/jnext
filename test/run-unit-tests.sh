@@ -22,6 +22,9 @@
 #     * reported a row ID more than once, or a number of row IDs != its row
 #       count (test/row_id.h)                         -> one matrix row, N counted
 #     * exited non-zero, crashed, or hit the timeout  -> reported, never swallowed
+#     * reported Skipped > 0: a SKIP is a row that was not tested, and fails the
+#       run (owner, 2026-10-06); the suite keeps a SKIP badge and its SKIP lines
+#       are printed so the developer sees what to install
 #
 # It is itself under test: test/harness-selftest.sh injects each of those faults
 # against stub suites and asserts the refusal. Run it via `make harness-selftest`
@@ -482,7 +485,7 @@ wait
 
 # --- Aggregate ---
 printf "\n${BOLD}Subsystem unit test results:${RESET}\n\n"
-suites_pass=0; suites_fail=0
+suites_pass=0; suites_fail=0; suites_skip=0
 sum_total=0; sum_passed=0; sum_failed=0; sum_skipped=0
 
 fail_row() {   # fail_row <name> <message>
@@ -571,8 +574,12 @@ for name in "${RUNNABLE[@]}"; do
     if [[ "$rc" -ne 0 || "$t_failed" -gt 0 ]]; then
         fail_row "$name" "$line"
     elif [[ "$t_skipped" -gt 0 ]]; then
+        # A SKIP is a row that was NOT tested. It keeps its own badge (it says what
+        # to install or fix) but does not count as a pass and fails the run below.
         printf "  ${CYAN}%-34s${RESET} ${BADGE_SKIP} SKIP ${RESET}  %s\n" "$name" "$line"
-        suites_pass=$((suites_pass + 1))
+        grep -E '^\s*\[?SKIP' "$TMPDIR_RUN/$name.out" 2>/dev/null | head -5 | sed -E 's/^/      /' || true
+        printf "      full log: %s\n" "$LOG_DIR/$name.log"
+        suites_skip=$((suites_skip + 1))
     else
         printf "  ${CYAN}%-34s${RESET} ${BADGE_PASS} PASS ${RESET}  %s\n" "$name" "$line"
         suites_pass=$((suites_pass + 1))
@@ -581,8 +588,8 @@ done
 
 printf "\n${BOLD}Total: %d  Passed: %d  Failed: %d  Skipped: %d${RESET}\n" \
     "$sum_total" "$sum_passed" "$sum_failed" "$sum_skipped"
-printf "${BOLD}Suites: %d pass, %d fail  (%d run, %d declared, %d registered; manifest: %s)${RESET}\n" \
-    "$suites_pass" "$suites_fail" "${#RUNNABLE[@]}" "${#DECLARED[@]}" "${#REGISTERED[@]}" "$CONF"
+printf "${BOLD}Suites: %d pass, %d fail, %d skipped  (%d run, %d declared, %d registered; manifest: %s)${RESET}\n" \
+    "$suites_pass" "$suites_fail" "$suites_skip" "${#RUNNABLE[@]}" "${#DECLARED[@]}" "${#REGISTERED[@]}" "$CONF"
 if (( ${#GATED_OUT[@]} )); then
     printf "${BOLD}%d suite(s) gated out by %s — see NOTICE above.${RESET}\n" \
            "${#GATED_OUT[@]}" "$CONFIG_DESC"
@@ -597,9 +604,11 @@ fi
 
 # A pin violation or a failing suite must NOT leave a green-looking headline behind:
 # "Total: ... Failed: 0" is the exact line that gets copied into status reports.
-if [[ "$suites_fail" -gt 0 ]]; then
-    printf "\n${BADGE_FAIL} UNIT TESTS FAILED ${RESET} ${BOLD}%d suite(s) failed — the totals above are NOT a passing result.${RESET}\n\n" \
-        "$suites_fail"
+# A SKIP fails the run exactly as a FAIL does (owner, 2026-10-06): a row that was
+# not tested is not a pass, and nothing downstream distinguishes the two.
+if [[ "$suites_fail" -gt 0 || "$suites_skip" -gt 0 ]]; then
+    printf "\n${BADGE_FAIL} UNIT TESTS FAILED ${RESET} ${BOLD}%d suite(s) failed, %d suite(s) SKIPPED rows — a SKIP is not a pass; the totals above are NOT a passing result.${RESET}\n\n" \
+        "$suites_fail" "$suites_skip"
     exit 1
 fi
 printf "\n"

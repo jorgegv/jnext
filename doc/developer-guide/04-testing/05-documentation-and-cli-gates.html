@@ -2363,8 +2363,8 @@ remediation line:</p>
   unchanged. The fix is <code>make docs-devguide</code>, then commit both.</li>
 </ul>
 <p>On a machine that has no pandoc, mkdocs or graphviz the relevant part
-<strong>skips</strong>; in CI the same part <strong>hard-fails</strong>, keyed on <code>$CI</code>, because a check
-that skips silently reads as a pass.</p>
+<strong>fails</strong>, there and in CI alike (the old <code>$CI</code> split is gone: CI and local do
+the same thing), because a check that cannot run is not a pass.</p>
 <h2 id="the-renderer-fingerprint">The renderer fingerprint<a class="headerlink" href="#the-renderer-fingerprint" title="Permanent link">&para;</a></h2>
 <p>pandoc, mkdocs-material and graphviz all emit byte-different output across
 their own versions for identical input. A byte-diff against outputs that were
@@ -2374,9 +2374,10 @@ runner's pandoc 3.1.3 against outputs made with 3.7.0.2, with nothing in the
 failure message to hint that the version rather than an edit was the cause.</p>
 <p>So each generator writes a fingerprint file next to its output, recording the
 tool versions that produced it, and each check compares fingerprints before
-anything else. When they do not match, the check <strong>skips the byte-diff and says
-so</strong>, reporting that the guide builds cleanly but that staleness was not
-compared, rather than raising a failure that is not real. CI sidesteps the whole
+anything else. When they do not match, the check <strong>fails and says so</strong>, naming the two
+fingerprints: a freshness it cannot verify is not a pass (owner decision,
+2026-10-06; it used to skip the byte-diff). The reference platform is the Fedora
+container CI uses; on another distribution CI is the verdict. CI sidesteps the whole
 class by running in a Fedora container that matches the maintainer's own
 distribution, instead of pinning tool versions one at a time.
 <code>SOURCE_DATE_EPOCH</code> is pinned for a related reason: mkdocs stamps

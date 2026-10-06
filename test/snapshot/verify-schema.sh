@@ -17,9 +17,8 @@
 # string of the wrong length, a value outside a register's width, a `u64`
 # emitted as a number.
 #
-# POSTURE: skip when the validator is absent locally, HARD-FAIL in CI —
-# exactly what `docs-check` does for pandoc and mkdocs. A check that silently
-# skips in CI reads as a pass, which is a failure this project has already had.
+# POSTURE: a missing validator FAILS, locally and in CI alike. A check that
+# cannot run is not a pass (owner, 2026-10-06; this used to skip locally).
 
 set -euo pipefail
 
@@ -28,16 +27,10 @@ SCHEMA="${REPO_ROOT}/doc/formats/jns-snapshot.schema.json"
 
 if ! command -v python3 >/dev/null 2>&1 ||
    ! python3 -c 'import jsonschema' >/dev/null 2>&1; then
-    if [ -n "${CI:-}" ]; then
-        echo "FAIL  python3 jsonschema is not available in CI. This check"
-        echo "      would otherwise skip silently and read as a pass. Install"
-        echo "      it in the workflow, or drop this step deliberately."
-        exit 1
-    fi
-    echo "  jsonschema    SKIP (python3 jsonschema not importable); the .jns"
-    echo "                schema is not checked against an implementation that"
-    echo "                is not ours"
-    exit 0
+    echo "FAIL  python3 jsonschema is not available. This check cannot run,"
+    echo "      so the .jns schema is not verified against an implementation"
+    echo "      that is not ours; install it (python3-jsonschema)."
+    exit 1
 fi
 
 if [ ! -f "$SCHEMA" ]; then

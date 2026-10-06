@@ -71,9 +71,7 @@ extern "C" {
 #include "third_party/fatfs/ff.h"
 }
 
-#include <linux/capability.h>  // CAP_DAC_* (root-built unreadable fixtures)
 #include <sys/stat.h>   // mkfifo, chmod (GH #292 tree rows)
-#include <sys/syscall.h>
 #include <unistd.h>     // geteuid, syscall
 
 #include <algorithm>
@@ -87,6 +85,7 @@ extern "C" {
 #include <string>
 #include <vector>
 #include "../row_id.h"
+#include "../dac_caps_dropped.h"
 
 namespace fs = std::filesystem;
 using sdcard::FileAddStatus;
@@ -108,30 +107,6 @@ void check(const char* id, const char* desc, bool cond,
         std::printf("\n");
     }
 }
-
-// Root reads through permission bits by way of two capabilities. Clearing
-// them from the EFFECTIVE set makes root honour mode 0 like anyone else; they
-// stay in the permitted set, so the destructor raises them again. Raw
-// syscalls, so there is no libcap dependency.
-struct DacCapsDropped {
-    __user_cap_header_struct hdr{_LINUX_CAPABILITY_VERSION_3, 0};
-    __user_cap_data_struct   saved[2]{};
-    bool                     active = false;
-
-    bool drop() {
-        if (::syscall(SYS_capget, &hdr, saved) != 0) return false;
-        __user_cap_data_struct d[2];
-        std::memcpy(d, saved, sizeof d);
-        for (int cap : {CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH})
-            d[cap / 32].effective &= ~(1u << (cap % 32));
-        if (::syscall(SYS_capset, &hdr, d) != 0) return false;
-        active = true;
-        return true;
-    }
-    ~DacCapsDropped() {
-        if (active) ::syscall(SYS_capset, &hdr, saved);
-    }
-};
 
 void skip(const char* id, const char* desc, const std::string& why) {
     report_row_id(id);

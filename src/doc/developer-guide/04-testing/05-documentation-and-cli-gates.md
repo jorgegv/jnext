@@ -30,8 +30,8 @@ remediation line:
   unchanged. The fix is `make docs-devguide`, then commit both.
 
 On a machine that has no pandoc, mkdocs or graphviz the relevant part
-**skips**; in CI the same part **hard-fails**, keyed on `$CI`, because a check
-that skips silently reads as a pass.
+**fails**, there and in CI alike (the old `$CI` split is gone: CI and local do
+the same thing), because a check that cannot run is not a pass.
 
 ## The renderer fingerprint
 
@@ -44,9 +44,10 @@ failure message to hint that the version rather than an edit was the cause.
 
 So each generator writes a fingerprint file next to its output, recording the
 tool versions that produced it, and each check compares fingerprints before
-anything else. When they do not match, the check **skips the byte-diff and says
-so**, reporting that the guide builds cleanly but that staleness was not
-compared, rather than raising a failure that is not real. CI sidesteps the whole
+anything else. When they do not match, the check **fails and says so**, naming the two
+fingerprints: a freshness it cannot verify is not a pass (owner decision,
+2026-10-06; it used to skip the byte-diff). The reference platform is the Fedora
+container CI uses; on another distribution CI is the verdict. CI sidesteps the whole
 class by running in a Fedora container that matches the maintainer's own
 distribution, instead of pinning tool versions one at a time.
 `SOURCE_DATE_EPOCH` is pinned for a related reason: mkdocs stamps

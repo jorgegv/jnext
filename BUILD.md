@@ -37,9 +37,12 @@ Optional:
   clean rebuilds nearly free. `ccache -M 20G` once per machine is worth it: the
   5 GB default thrashes on a tree this size.
 - **ffmpeg** — needed at runtime for MP4 video recording (`--record`).
-- **z88dk** — only to rebuild the demo programs in `demo/`.
-- **pandoc** — only to regenerate the man page and `USAGE.md` (`make docs-man`).
-  See [Documentation](#documentation) below.
+- **z88dk** — to rebuild the demo programs in `demo/`. (The `z88dk-gdb` client that
+  `make regression` drives is *not* this: the suite provisions it itself, see
+  [Tests](#tests).)
+- **pandoc** — to regenerate the man page and `USAGE.md` (`make docs-man`), and
+  to verify them: `make unit-test` and `make regression` run `docs-check`, which
+  **fails** without it. See [Documentation](#documentation) below.
 - **mkdocs-material** — only to render the user and developer guides
   (`make docs-userguide`, `make docs-devguide`).
   See [Documentation](#documentation) below.
@@ -204,8 +207,9 @@ A container recipe that needs nothing on the host but Docker is described in
 
 The documentation build is **deliberately separate from the code build**: no
 make target that compiles jnext ever invokes a documentation tool, and every
-generated file is committed. A contributor who never touches the docs needs
-neither pandoc nor mkdocs.
+generated file is committed. Building and running jnext needs neither pandoc
+nor mkdocs; *testing* it does (`make unit-test` and `make regression` check the
+committed renders, and a check that cannot run fails).
 
 **The CLI reference has exactly one source: `doc/man/jnext.1.md`.** It generates
 both the man page and `USAGE.md`, so the two cannot drift apart:
@@ -245,7 +249,9 @@ Never edit `doc/man/jnext.1` or `USAGE.md` by hand — edit the source and rerun
 `make docs-man`, committing the regenerated outputs alongside it. `make docs-check`
 is the guard: it regenerates into a temporary directory and diffs, so a stale
 committed output is a hard failure rather than something a reviewer has to
-spot. It skips (rather than fails) when pandoc is absent.
+spot. It also fails when pandoc is absent, or is a different version than the
+one that produced the committed outputs: a check that cannot verify is not a
+pass (CI, on Fedora 44, is the reference).
 
 `make docs-man` needs pandoc:
 
@@ -344,7 +350,8 @@ make regression     # screenshot comparisons + functional tests, headless
 ```
 
 - **`make unit-test`** builds `build/` and runs every subsystem suite in
-  parallel, printing a per-suite PASS/FAIL/SKIP table and a total. It includes
+  parallel, printing a per-suite PASS/FAIL/SKIP table and a total. A SKIP is a row that
+  was not tested and **fails the run**, like a FAIL. It includes
   the **FUSE Z80 opcode test suite** (1356/1356, 100%) and the Z80N opcode
   suite. To run the FUSE suite alone:
 
@@ -377,13 +384,24 @@ make regression     # screenshot comparisons + functional tests, headless
   JNEXT_TEST_JOBS=4 make regression
   ```
 
+**A SKIP fails every test target** (owner decision, 2026-10-06): a missing test
+tool is an error to fix, not a row to skip. The tools the suites use are the
+`test` job's `dnf install` list in `.github/workflows/ci.yml` (the reference set:
+ImageMagick, Xvfb, xdotool, python3 with PyYAML and jsonschema, unzip, ripgrep,
+ffmpeg, mtools and dosfstools, rpm-build, libspectrum-devel, pandoc, mkdocs-material,
+graphviz, perl modules, ...). The one tool that is not a package, the `z88dk-gdb`
+client, is provisioned: `make regression` runs `make z88dk-gdb`, which builds
+z88dk v2.4's client (pinned by sha256, `cc` and `make` only, about 4 s) into
+`~/.cache/jnext/tools` unless one is already on `PATH`, in `$Z88DK_GDB`, or in
+`~/src/spectrum/z88dk/bin`. It needs the network once, like the SD image.
+
 Both suites need **ripgrep** (`rg`) installed: each runs the
 tautological-assertion lint (`test/lint-assertions.sh`), which refuses to report
 a verdict without it rather than skipping — a lint that did not run must never
 read as a pass.
 
 The live per-subsystem test dashboard — what is verified against the ZX Next
-FPGA VHDL, and what is still skipped — is
+FPGA VHDL, and what is still planned — is
 [test/SUBSYSTEM-TESTS-STATUS.md](test/SUBSYSTEM-TESTS-STATUS.md).
 
 ## Demo programs

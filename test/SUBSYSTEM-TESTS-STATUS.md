@@ -141,4 +141,4 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
 | **Total**             | **12362**| **12362**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
-**SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
+**SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

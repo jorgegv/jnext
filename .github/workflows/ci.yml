@@ -154,7 +154,7 @@ jobs:
             qt6-qtbase-devel libspectrum-devel \
             ImageMagick xorg-x11-server-Xvfb xdotool python3 python3-pyyaml python3-jsonschema unzip diffutils \
             ripgrep ffmpeg-free bc file xxd \
-            mtools dosfstools \
+            mtools dosfstools rpm-build \
             pandoc mkdocs-material graphviz liberation-sans-fonts \
             perl-interpreter perl-FindBin perl-File-Temp perl-PathTools
           # mtools + dosfstools are the FOREIGN validators the GH #269
@@ -163,6 +163,15 @@ jobs:
           # there, and a filesystem writer checked only by its own reader is
           # the .szx defect this project already shipped once. That row FAILS
           # rather than skips when they are absent, so they are declared here.
+          # rpm-build provides `rpmspec`, which test/packaging/sync-version-test.sh
+          # (a contract suite of `make unit-test`) needs for its rpm-spec rows 12-13.
+          # Without it they printed SKIP — hidden, because the contract wrapper read
+          # only the exit status. A SKIP now fails the run, and the package job
+          # installs the same package, so it is not a new tool.
+          # z88dk-gdb (gdb-z88dk-func's client) is not packaged by Fedora and is not
+          # installed here: `make regression` provisions it (`make z88dk-gdb`,
+          # test/provision-z88dk-gdb.sh) with the curl, sha256sum, tar, make and cc
+          # this image already has — the same command a developer runs locally.
           # The four perl-* entries are the traceability tooling's own
           # dependencies (test/refresh-traceability-matrix.pl,
           # test/traceability-citations-selftest.pl), declared rather than
@@ -184,14 +193,13 @@ jobs:
           # pages 0-111, its own loader accepted them, every test passed
           # byte-exact — and libspectrum rejects any page > 63, so every file
           # jnext could produce failed to load in real FUSE. Without this
-          # package the row SKIPS rather than failing, which is deliberate for
-          # a developer's machine and would be a silent loss of the best
-          # evidence in the design here.
+          # package the row SKIPS, and a SKIP fails the run: the best evidence
+          # in the design here is never silently lost.
           # python3-jsonschema is `make schema-check`'s FOREIGN validator, and is
           # declared for the same reason mtools is: the second half of that gate
           # hands doc/formats/jns-snapshot.schema.json to an implementation that
-          # is not ours, and `test/snapshot/verify-schema.sh` HARD-FAILS rather
-          # than skipping when CI is set and the module is missing. It arrives
+          # is not ours, and `test/snapshot/verify-schema.sh` FAILS (everywhere,
+          # not just in CI) when the module is missing. It arrives
           # transitively from nothing in this list (checked with `dnf5 repoquery
           # --requires` across every package above, and `--whatrequires`), so
           # `make unit-test` fails in the container without it — reproduced
@@ -411,7 +419,7 @@ jobs:
 
   # ── Packaging correctness (issue #61) ───────────────────────────────────
   #
-  # `make package-test` builds every package (src/rpm/deb/win/flatpak) and
+  # `make package-test` builds every package (src/rpm/deb/win) and
   # asserts its CONTENTS — that the rpm/deb carry bin/jnext, that the source
   # zip carries the vendored submodule a naive `git archive` drops, that the
   # Windows zip carries the Qt6/SDL3 DLLs and the qwindows plugin, and that
@@ -433,11 +441,12 @@ jobs:
   # pipe's status and reports a failing suite green — that has already happened
   # in this repo.
   #
-  # Missing tooling SKIPs on a dev box but FAILS here (packaging-test.sh's
-  # skp_ci_fail, keyed on $CI): every tool below is installed deliberately, so
-  # a row that silently stopped running would otherwise read as a pass. The ONE
-  # exception is flatpak, which needs org.kde.Sdk — a multi-GB privileged
-  # install — and stays a genuine SKIP; release.yml's flatpak job builds it.
+  # Missing tooling is a SKIP, and a SKIP fails the run everywhere (owner,
+  # 2026-10-06): every tool below is installed deliberately, so a row that
+  # silently stopped running could never read as a pass. The Flatpak BUILD is
+  # not a row of this suite (it needs org.kde.Sdk — a multi-GB privileged
+  # install); the `flatpak` job below builds and permission-gates the bundle,
+  # and only the tool-free manifest contract (`flatpak-manifest`) runs here.
   package:
     runs-on: ubuntu-latest
     # fedora:44, same as the test job and the same container release.yml builds
@@ -582,9 +591,8 @@ jobs:
   # since it now goes through the shared definition, PERMISSION-GATED on every
   # push too.
   #
-  # The `package` job above reaches package-flatpak but can only validate the
-  # manifest: test/packaging/packaging-test.sh gates the real build on
-  # `flatpak list | grep org.kde.Sdk` and skips without it. Installing
+  # The `package` job above cannot build it: `make package-test` carries only
+  # the manifest contract, since the real build needs org.kde.Sdk. Installing
   # flatpak-builder into that fedora:44 container does NOT fix it — the missing
   # piece is the org.kde.Sdk//6.10 RUNTIME, a multi-gigabyte Flathub download,
   # and flatpak-builder additionally needs a privileged container for

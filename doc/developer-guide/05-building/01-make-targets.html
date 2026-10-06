@@ -2445,7 +2445,8 @@ covers, what it does not, and why the gate was declined.</p>
 <h2 id="packaging-and-version">Packaging and version<a class="headerlink" href="#packaging-and-version" title="Permanent link">&para;</a></h2>
 <p><code>package-src</code>, <code>package-rpm</code>, <code>package-deb</code>, <code>package-flatpak</code>, <code>package-macos</code>
 and the five <code>package-win*</code> variants each build one distributable.
-<code>package-test</code> builds them all except macOS and then asserts their contents,
+<code>package-test</code> builds them all except macOS and Flatpak (the <code>flatpak</code> CI job builds
+that) and then asserts their contents,
 while <code>package-contract-test</code> runs only the hermetic script contract suites.
 <code>version</code> prints the current version, and <code>bump-patch</code> / <code>bump-minor</code> /
 <code>bump-major</code> bump it, commit, and tag. <a href="03-packaging-and-release.html">5.3</a> covers

@@ -287,12 +287,16 @@ begin_func() {
 }
 
 # standalone_summary — totals line for a directly-executed test script; exits
-# non-zero if any row failed. (The driver prints its own results block instead.)
+# non-zero if any row failed or was SKIPPED. (The driver prints its own results block instead.)
 standalone_summary() {
     echo ""
     echo -e "  ${GREEN}Pass: $pass${RESET}  ${RED}Fail: $fail${RESET}  ${YELLOW}Skip: $skip${RESET}"
     load_report end
     load_summary
+    if [[ "$skip" -gt 0 ]]; then
+        echo -e "  ${RED}${BOLD}$skip row(s) SKIPPED, i.e. not tested — a SKIP is not a pass${RESET}"
+        exit 1
+    fi
     [[ "$fail" -eq 0 ]] || exit 1
 }
 

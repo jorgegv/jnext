@@ -85,7 +85,17 @@ none, a SKIP or FAIL is never stamped, every non-doc class of path (Makefile,
 CMake, a `.conf`, `tools/`, `.github/`, a gitlink) moves the key while
 documentation does not, the documentation a gate reads does, and the
 pending / solo-confirm path stamps only when every pending row passes. `HS-72`
-bans `xvfb-run -a`/`-n` from the test scripts. `HS-73` runs the real confirm
+bans `xvfb-run -a`/`-n` from the test scripts. `HS-76a`/`b` pin that a unit suite
+reporting a SKIP fails the run (named, with its SKIP lines, beside a failing one
+too) and `HS-77a`..`d` that the regression driver and a standalone row do the
+same in every mode, with the control that a skip-free run still exits 0 and
+stamps. `HS-78` runs the ffmpeg row with no ffmpeg
+on the host and wants a SKIP, `HS-79` the real `sync-version-test.sh` with
+`rpmspec` hidden, `HS-80a`..`h` the tool-missing and renderer-version-gap branches
+of the docs checks and the two snapshot verifiers (a PATH of symlinks that lacks
+the tool, or a fake renderer fingerprint), and `HS-81a`/`b` that a set-but-unusable
+`Z88DK_GDB` is an error. The packaging self-test's `PS-05` pins that a contract
+sub-test printing SKIP and exiting 0 is a SKIP row. `HS-73` runs the real confirm
 path in a throwaway repository whose one row invokes the harness again, as
 harness-selftest-func does, and requires it to complete and stamp: a nested
 run never waits for the lock its own ancestor holds. `HS-74a`/`HS-74b` prove
@@ -100,7 +110,7 @@ behind a symlink, which flock(1) resolves and the holder check must too.
 
 ## It pins its own count
 
-`EXPECTED_TOTAL = 123` sits in the script, right next to the rows it counts, and
+`EXPECTED_TOTAL = 141` sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is
@@ -115,7 +125,7 @@ an entry with no CMake counterpart would make the unit harness refuse to run.
 ## The traceability self-tests
 
 ```console
-$ make traceability-selftest          # citation extractor + dup-ID gate, 217 pinned rows
+$ make traceability-selftest          # citation extractor + dup-ID gate, 219 pinned rows
 $ make traceability-accounting-check  # the suite-accounting gate, ~0.01 s
 ```
 
@@ -126,7 +136,7 @@ sources and binaries, and then run the real refresh script against it twice, so
 that idempotence and the refusal paths are both exercised. `SELF-208`..`SELF-215`
 run `test/traceability-dup-ids.pl` and the generator's `--planned-ids` the same
 way, planting colliding IDs in `?`-prefixed suites, in one-row plan docs and in
-the baseline (GH #243). It pins `$EXPECTED_ROWS = 217` in the
+the baseline (GH #243). It pins `$EXPECTED_ROWS = 219` in the
 same shape as the harness self-test, and for the same reason it cannot live in
 the unit manifest — it is a perl script with no CMake target.
 

@@ -99,7 +99,9 @@ pt="$repo/test/packaging/packaging-test.sh"
 picks=$(grep -cE 'pick_artifact ' "$pt")
 clears=$(grep -cE 'clear_artifacts ' "$pt")
 leftover=$(grep -nE 'ls -1 build/.*\| *head -1' "$pt")
-if [ -z "$leftover" ] && [ "$picks" -ge 10 ] && [ "$picks" -eq "$clears" ]; then
+# (the floor was 10 before the Flatpak BUILD row left package-test: the `flatpak`
+# CI job builds it, so one fewer row picks an artifact — 2026-10-06)
+if [ -z "$leftover" ] && [ "$picks" -ge 9 ] && [ "$picks" -eq "$clears" ]; then
     ok "packaging-test.sh: no ls|head artifact pick; $picks rows pick, each clears first"
 else
     bad "packaging-test.sh: picks=$picks clears=$clears; leftover ls|head: ${leftover:-none}"
