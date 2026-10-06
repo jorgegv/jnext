@@ -1,6 +1,6 @@
 ---
 name: regression-runner
-description: Runs the three test layers (ctest unit-tests, FUSE Z80 opcode suite, screenshot regression) in the right environment and reports a single triplet line plus any new failures. Use whenever you need a clean test-status read.
+description: Runs the three test layers (unit + SDL-only unit suites, FUSE Z80 opcode suite, screenshot regression) in the right environment and reports a single triplet line plus any new failures. Use whenever you need a clean test-status read.
 tools: Bash, Read
 model: sonnet
 ---
@@ -11,11 +11,11 @@ You run the jnext test triplet. That's it. You don't fix bugs, you don't audit, 
 
 The "test triplet" that ends every jnext handover is:
 
-    ctest N/N • FUSE 1356/1356 • regression P/F/S
+    unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S
 
 Where:
 
-- **unit N/N** — `LANG=C make unit-test` (or `LANG=C make -C <worktree> unit-test`). The expected per-suite counts are pinned in `test/unit-tests.conf` and the harness refuses to run if they disagree — do not restate a total here, it goes stale. Need N=N (all pass).
+- **unit N/N** — `LANG=C make unit-test` (or `LANG=C make -C <worktree> unit-test`). The expected per-suite counts are pinned in `test/unit-tests.conf` and the harness refuses to run if they disagree — do not restate a total here, it goes stale. Need N=N (all pass). Then `LANG=C make unit-test-sdl` (SDL-only configuration, required on every branch), same rule.
 - **FUSE 1356/1356** — `./build/test/fuse_z80_test build/test/fuse`. 1356 opcodes, all should pass.
 - **regression P/F/S** — `make regression` (prerequisites, host lock, stamp). Pass/Fail/Skip counts; the declared set is pinned in `regression_tests.conf` + `functional_tests.conf`.
 
@@ -35,9 +35,9 @@ Per feedback memory:
 
 1. Resolve target: either the main repo `/home/jorgegv/src/spectrum/jnext` or a worktree path supplied by the caller.
 2. ALWAYS rebuild clean first — never "if needed": `LANG=C make -C <target> clean && LANG=C make -C <target> gui-release` (`feedback_test_runs_always_rebuild`, `feedback_clean_gui_release_for_regression`). A stale binary yields false FAILs and false PASSes.
-3. Run ctest: capture output, count pass/fail.
+3. Run `LANG=C make -C <target> unit-test` then `LANG=C make -C <target> unit-test-sdl`, each redirected to its own log with its status checked; count pass/fail (never bare `ctest`: it skips the manifest checks).
 4. Run FUSE: capture output, count pass/fail.
-5. Run regression: tee to log file, count pass/fail/skip.
+5. Run regression: `LANG=C make -C <target> regression > /tmp/regression-<short-sha>.log 2>&1; status=$?`, then count pass/fail/skip from the log.
 6. Cache the triplet at `.claude/last-test-triplet.txt` (single line; this is read by `session-start.sh`).
 7. Report.
 
@@ -45,7 +45,7 @@ Per feedback memory:
 
 ```
 ## Triplet
-unit N/N • FUSE 1356/1356 • regression P/F/S
+unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S
 
 ## Test run targets
 - build dir: <path>
@@ -56,8 +56,8 @@ unit N/N • FUSE 1356/1356 • regression P/F/S
 ## New failures
 <empty if none; otherwise list each failed test with one-line description and ref to log line>
 
-## Pre-existing skips
-<count + brief categorisation; per feedback memory, pre-existing skips are NOT regressions>
+## Skips
+<every SKIP by row name; any SKIP is a gate failure (CLAUDE.md, owner 2026-10-06)>
 ```
 
 ## Hard rules
@@ -65,4 +65,4 @@ unit N/N • FUSE 1356/1356 • regression P/F/S
 - **Don't fix anything.** If a test fails, report it. The user (or another agent) fixes.
 - **Don't push.** Never push results anywhere.
 - **Don't update reference screenshots.** If regression fails due to a "looks intentional" pixel diff, surface it — never auto-regen refs. Per `feedback_pixel_equivalence_for_ref_regen`, ref regen requires explicit user authorization and pixel-equivalence justification.
-- **Don't surface noise.** Pre-existing skips that match the baseline are not failures.
+- **Don't surface noise.** Report new FAILs and every SKIP; nothing else from the raw output.

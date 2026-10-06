@@ -1,13 +1,13 @@
 ---
 name: test-triplet
-description: Run the full jnext test triplet (ctest unit-tests + FUSE Z80 opcodes + screenshot regression) and cache the result. Use when the user says "run the triplet", "full tests", "test everything", "run all tests", or asks for a comprehensive test status before committing/merging/version-bump.
+description: Run the full jnext test triplet (unit + SDL-only unit suites + FUSE Z80 opcodes + screenshot regression) and cache the result. Use when the user says "run the triplet", "full tests", "test everything", "run all tests", or asks for a comprehensive test status before committing/merging/version-bump.
 ---
 
 # Test triplet
 
 Run all three test layers and produce the canonical triplet line:
 
-    unit N/N • FUSE 1356/1356 • regression P/F/S
+    unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S
 
 This is the test posture that ends every jnext handover. Result is cached at `.claude/last-test-triplet.txt` so the SessionStart hook can display it next session.
 
@@ -52,6 +52,13 @@ LANG=C make -C $TARGET unit-test > /tmp/unit-$short.log 2>&1; echo "status=$?"
 tail -25 /tmp/unit-$short.log
 ```
 
+### 2b. SDL-only unit suites
+
+```bash
+LANG=C make -C $TARGET unit-test-sdl > /tmp/unit-sdl-$short.log 2>&1; echo "status=$?"
+tail -25 /tmp/unit-sdl-$short.log
+```
+
 ### 3. FUSE Z80 opcode suite
 
 ```bash
@@ -60,6 +67,8 @@ tail -3 /tmp/fuse-$short.log
 ```
 
 ### 4. Screenshot regression
+
+`make -C $TARGET regression-stamp-check` first; a matching green stamp satisfies the gate.
 
 ```bash
 short=$(git -C $TARGET rev-parse --short HEAD)
@@ -77,7 +86,7 @@ in bold once went green in CI for exactly this reason
 ### 5. Cache
 
 ```bash
-echo "unit N/N • FUSE 1356/1356 • regression P/F/S" > $TARGET/.claude/last-test-triplet.txt
+echo "unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S" > $TARGET/.claude/last-test-triplet.txt
 ```
 
 If any layer has new FAILs vs baseline, append `(dirty)` so future SessionStart messages don't mislead.
@@ -86,7 +95,7 @@ If any layer has new FAILs vs baseline, append `(dirty)` so future SessionStart 
 
 ```
 ## Triplet
-unit N/N • FUSE 1356/1356 • regression P/F/S
+unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S
 
 - branch: <branch> @ <short-sha>
 - host load at run: <1min>/<5min>/<15min> on <nproc> cores
@@ -100,11 +109,11 @@ unit N/N • FUSE 1356/1356 • regression P/F/S
   locale is Spanish and greps for `warning:` otherwise match nothing.
 - Clean gui-release rebuild first, always (`feedback_test_runs_always_rebuild`).
 - Redirect, never pipe; check the status (`feedback_ci_runs_exact_local_commands`).
-- Pre-existing skips ≠ regressions.
+- Any SKIP is a gate failure (CLAUDE.md, owner 2026-10-06): report it as a SKIP, never as a pass.
 - Cache reset only on a fully-green run.
 - Don't update reference screenshots without explicit user authorization.
 - Don't fix anything — this skill reports, it doesn't fix.
 
 ## When to escalate to the `regression-runner` subagent
 
-If the triplet is part of a larger flow (e.g. pre-merge check across many worktrees, or noisy environment), dispatch `regression-runner` instead — it surfaces only new failures, not pre-existing skips, and protects the main context from raw test output. This skill is for ad-hoc triplet runs.
+If the triplet is part of a larger flow (e.g. pre-merge check across many worktrees, or noisy environment), dispatch `regression-runner` instead — it surfaces new failures and every SKIP, and protects the main context from raw test output. This skill is for ad-hoc triplet runs.
