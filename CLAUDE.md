@@ -132,7 +132,7 @@ The single authoritative protocol for landing any implemented change on `main`:
        lint FAIL, or any SKIP has no such path: it is real until fixed.
 3. **Independent code review** by an agent/person that did NOT write the change — never self-review. The reviewer works in its own worktree, never the author's. Verdict is binary APPROVE / REJECT; on REJECT, fix and re-review.
 4. **Merge on green APPROVE**, one branch at a time. The manager (not the authoring agent) does the merge. If a merge conflicts, the agent who merged last fixes it on their own branch. After any merge that touched `test/unit-tests.conf`, `functional_tests.conf` or a pinned row count, recount from the file. Two branches that each bump `# expect:` from N to N+1 auto-merge to N+1 with no conflict. Resolve conflicts in those files line by line, never by taking a side.
-5. **Immediately after each merge to `main`, bump the patch version: `make bump-patch`** (bumps `version.yaml`, commits, and creates the git tag). Every feature/fix that lands on `main` gets its own patch bump — per merge, not batched. This is separate from the deliberate minor/major release flow in "Version bumping" below.
+5. **Immediately after each merge to `main`, bump the patch version: `JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch`** (bumps `version.yaml`, commits, and creates the git tag). Every feature/fix that lands on `main` gets its own patch bump — per merge, not batched. This is separate from the deliberate minor/major release flow in "Version bumping" below.
 6. **Never push to origin** (see the push rule above) — local commits, merges, and the bump tag stay local until the user explicitly pushes.
 
 ## ChangeLog file
@@ -184,7 +184,7 @@ When the user asks to bump the version, follow these steps in order:
 4. Update the DEVELOPMENT-SESSIONS document (`doc/DEVELOPMENT-SESSIONS.md`)
 5. Update the ChangeLog using the future version that will be bumped to
 6. Commit all the above changes
-7. Bump the version by running `make bump-<bump_type>` (where bump_type is `patch`, `minor`, or `major`) — this bumps `version.yaml`, runs `packaging/sync-version.sh` (re-renders the two committed guides; for a public release also adds the AppStream `<release>` entry), stages them, commits, and creates the git tag
+7. Bump the version by running `JNEXT_ALLOW_MAIN_WRITE=1 make bump-<bump_type>` (where bump_type is `patch`, `minor`, or `major`) — this bumps `version.yaml`, runs `packaging/sync-version.sh` (re-renders the two committed guides; for a public release also adds the AppStream `<release>` entry), stages them, commits, and creates the git tag
 
 **`version.yaml` is the single source of truth for the version, and the only file a bump
 edits by hand.** Everything else READS it when it is built: CMake (`PROJECT_VERSION`, so
