@@ -66,7 +66,7 @@ After each worker reports complete:
 Only after APPROVE:
 
 0. Grep the worker's specific claimed fixes in its branch; a 'fixed X' line is a claim, not evidence.
-1. On main (NOT via a worker; per mandate the manager merges): `git merge --ff-only origin/main` if behind; never rebase or reset main.
+1. On main (NOT via a worker; per mandate the manager merges): `git fetch origin`, then `JNEXT_ALLOW_MAIN_WRITE=1 git merge --ff-only origin/main` if behind; never rebase or reset main.
 2. Merge the worker's branch (`JNEXT_ALLOW_MAIN_WRITE=1 git merge ...`). Resolve conflicts using the second-to-merge rule.
 2b. Immediately `JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n` (one bump per merge).
 3. Delete the worker's worktree per `worktree-launch` §Cleanup (clean tree + merged checks, then `git worktree remove --force`, since the tree has submodules).
@@ -84,7 +84,7 @@ Only after APPROVE:
 | ... | ... | ... | ... | ... | ... |
 
 ## Tests on main (post-merge)
-ctest N/N • FUSE 1356/1356 • regression P/F/S
+unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S
 
 ## Outstanding
 <anything escalated, deferred, or follow-up needed>
@@ -102,7 +102,7 @@ ctest N/N • FUSE 1356/1356 • regression P/F/S
 ## What you do NOT do
 
 - ❌ Edit code yourself.
-- ❌ Run `git commit` from the main repo (workers commit in worktrees; you only merge to main).
+- ❌ Commit on main other than the merge and its `bump-patch` commit (workers commit in worktrees).
 - ❌ Push to origin.
 - ❌ Use the same agent for code AND review.
 - ❌ Skip the worktree-per-unit pattern when units are independent.

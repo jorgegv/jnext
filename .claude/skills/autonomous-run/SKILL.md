@@ -11,7 +11,7 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 
 - Target milestone: as given at launch. Not given → ask once before starting; that is the last question.
 - Run dir: `~/tmp/autorun/<YYYY-MM-DD>/`: briefs, plans, reports, reviews, `decisions.md`, `agents.md` (slot, agent id, role, issue, worktree, state). Survives compaction.
-- `git fetch origin`; if local `main` is behind, `git merge --ff-only origin/main`. Never reset.
+- `git fetch origin`; if local `main` is behind, `JNEXT_ALLOW_MAIN_WRITE=1 git merge --ff-only origin/main`. Never reset.
 - Read `/proc/loadavg`, `ps` for other Claude sessions, `git worktree list`. A branch/worktree another live session holds → skip that issue, record it.
 
 ## Work source: two queues
@@ -54,7 +54,7 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 9. Land into the target. `main`: `JNEXT_ALLOW_MAIN_WRITE=1 git merge`, then `JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n`. Epic branch: plain merge, no bump.
 10. Push (main only): CI on main idle? (`gh run list --workflow CI --limit 1`). Busy → keep landing locally, push later in one batch. `JNEXT_ALLOW_PUSH=1 git push origin main <tags…>`, ≤3 tags per push.
 11. Close the issue (rules.md §GitHub): standalone once pushed; epic sub-issue once merged into the epic branch, noting it reaches `main` with the epic. Untestable-by-gate fix (feel, speed, host-specific) → comment, leave open for reporter confirmation.
-12. Remove both worktrees (`worktree-launch` §Cleanup); keep the branch.
+12. Leave both worktrees and list them in the handover (unattended runs do not delete: `worktree-launch` §Cleanup needs the owner's OK in that message); keep the branch.
 
 ## Branches
 

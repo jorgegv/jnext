@@ -16,7 +16,7 @@ Ask the user (if not specified):
 - **Whether demo artifacts are needed** (NEX/BIN/TAP/TZX/WAV — needed if the agent will run demos).
 - **Base branch** (default `main`; an autonomous run passes the epic branch for epic sub-issues).
 
-Unattended runs (`autonomous-run`) do not ask: they pass these inputs, fast-forward `main` themselves with `git merge --ff-only origin/main`, and skip an issue whose branch or worktree another session holds.
+Unattended runs (`autonomous-run`) do not ask: they pass these inputs, fast-forward `main` themselves (`git fetch origin`, then `JNEXT_ALLOW_MAIN_WRITE=1 git merge --ff-only origin/main`), and skip an issue whose branch or worktree another session holds.
 
 ## Steps
 
@@ -95,7 +95,7 @@ Hard rules per CLAUDE.md:
 - Use `git -C <worktree-path> <cmd>` for git ops (not `cd ... && git ...`).
 - When done, report:
   - List of commit SHAs on <BRANCH>
-  - Triplet status on <BRANCH> (ctest / FUSE / regression)
+  - Triplet status on <BRANCH> (unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S)
   - Anything that needs reviewer attention
 - Do NOT mark work complete without an independent reviewer agent approving.
 ```
@@ -109,11 +109,11 @@ Hard rules per CLAUDE.md:
 
 ## Cleanup
 
-After the agent's branch is merged to main:
+After the agent's branch is merged into its target (`<TARGET>` = `main`, or the epic branch for an epic sub-issue). A detached reviewer worktree has no branch: only the status check applies.
 
 ```bash
 git -C /home/jorgegv/tmp/worktrees/agent-<ID> status --short   # must be empty
-git merge-base --is-ancestor <BRANCH> main                       # must succeed
+git merge-base --is-ancestor <BRANCH> <TARGET>                   # must succeed
 git worktree remove --force /home/jorgegv/tmp/worktrees/agent-<ID>   # --force: the tree has submodules
 git branch -d <BRANCH>   # only if user authorizes
 ```
