@@ -182,7 +182,7 @@ When the user asks to bump the version, follow these steps in order:
 2. ~~Update the traceability matrix~~ — **no longer a manual step (GH #196).** It is generated and staleness-gated; `make unit-test` regenerates and fails if the committed copy differs. Commit the regenerated file if it changed.
 3. Update the unit test status report
 4. Update the DEVELOPMENT-SESSIONS document (`doc/DEVELOPMENT-SESSIONS.md`)
-5. Update the ChangeLog using the future version that will be bumped to
+5. Update the ChangeLog: add to the top `## Unreleased (YYYY-MM-DD)` section; only for a public release rename it to the version being cut (`changelog-update` skill)
 6. Commit all the above changes
 7. Bump the version by running `JNEXT_ALLOW_MAIN_WRITE=1 make bump-<bump_type>` (where bump_type is `patch`, `minor`, or `major`) — this bumps `version.yaml`, runs `packaging/sync-version.sh` (re-renders the two committed guides; for a public release also adds the AppStream `<release>` entry), stages them, commits, and creates the git tag
 
