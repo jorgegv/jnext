@@ -1238,22 +1238,29 @@ sub source_lines {
 sub grep_source {
     my ($source_rel) = @_;
     my $src = source_lines("$ROOT/$source_rel");
-    my (%checks, %skips);
+    my (%checks, %skips, %skip_line);
 
     for my $lineno (1 .. scalar @$src) {
         my $line = $src->[$lineno - 1];
         while ($line =~ /$SKIP_RE/g) {
             $skips{$1} //= $lineno;
+            $skip_line{$1}{$lineno} = 1;
         }
     }
+    # An ID is a SKIP row only if EVERY occurrence of its literal is the
+    # argument of a skip()/stub() call. One that also has a check() is a CHECK
+    # row: the skip() is its environment fallback arm (the run is already red
+    # when it fires, since a SKIP fails every harness), and publishing it as
+    # `skip` printed a skip inventory that contradicts a skip-free tree.
     for my $lineno (1 .. scalar @$src) {
         my $line = $src->[$lineno - 1];
         while ($line =~ /$ID_LITERAL_RE/g) {
             my $tid = $1;
-            next if exists $skips{$tid};
+            next if $skip_line{$tid} && $skip_line{$tid}{$lineno};
             $checks{$tid} //= $lineno;
         }
     }
+    delete $skips{$_} for grep { exists $checks{$_} } keys %skips;
     return (\%checks, \%skips);
 }
 
