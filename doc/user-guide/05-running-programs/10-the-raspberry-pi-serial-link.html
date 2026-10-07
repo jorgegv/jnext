@@ -25,7 +25,7 @@
     
     
       
-        <title>5.10 The Pi Zero - JNEXT User Guide</title>
+        <title>5.10 NextPi on the Raspberry Pi - JNEXT User Guide</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#510-the-pi-zero" class="md-skip">
+        <a href="#510-nextpi-on-the-raspberry-pi" class="md-skip">
           Skip to content
         </a>
       
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              5.10 The Pi Zero
+              5.10 NextPi on the Raspberry Pi
             
           </span>
         </div>
@@ -1551,7 +1551,7 @@
   <span class="md-ellipsis">
     
   
-    5.10 The Pi Zero
+    5.10 NextPi on the Raspberry Pi
   
 
     
@@ -1569,7 +1569,7 @@
   <span class="md-ellipsis">
     
   
-    5.10 The Pi Zero
+    5.10 NextPi on the Raspberry Pi
   
 
     
@@ -1606,10 +1606,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-pi-zero-settings" class="md-nav__link">
+  <a href="#the-nextpi-settings" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The Pi Zero settings
+        The NextPi settings
       
     </span>
   </a>
@@ -3594,24 +3594,25 @@
   
 
 
-<h1 id="510-the-pi-zero">5.10 The Pi Zero<a class="headerlink" href="#510-the-pi-zero" title="Permanent link">&para;</a></h1>
-<p>A ZX Spectrum Next can carry a <strong>Raspberry Pi Zero</strong> on its GPIO header, running
-<strong>NextPi</strong>. The Next talks to it over its second UART, and NextZXOS comes with
-the tools that use it: <code>.pisend</code>, <code>.piget</code>, <code>.piput</code>, the NextPi UI, and
-programs that hand speech, music and tape streaming to the Pi.</p>
+<h1 id="510-nextpi-on-the-raspberry-pi">5.10 NextPi on the Raspberry Pi<a class="headerlink" href="#510-nextpi-on-the-raspberry-pi" title="Permanent link">&para;</a></h1>
+<p><strong>NextPi</strong> is the software that runs on the Raspberry Pi of the Spectrum Next,
+the small computer on its GPIO header. The Next talks to it over its second
+UART, and NextZXOS comes with the tools that use it: <code>.pisend</code>, <code>.piget</code>,
+<code>.piput</code>, the NextPi UI, and programs that hand speech, music and tape
+streaming to the Pi.</p>
 <p>JNEXT does not emulate the Pi. It does the next best thing: it runs a real
 NextPi under <strong>QEMU</strong> and connects it to the Next's UART, so those tools talk to
 the genuine article.</p>
 <h2 id="turning-it-on">Turning it on<a class="headerlink" href="#turning-it-on" title="Permanent link">&para;</a></h2>
 <p>You need <strong>QEMU</strong> installed — on macOS <code>brew install qemu</code>; on Fedora
 <code>sudo dnf install qemu-system-arm qemu-img</code>; on Debian or Ubuntu
-<code>sudo apt install qemu-system-arm qemu-utils</code>. Then either tick <strong>Start the Pi
-Zero</strong> under <strong>Settings ▸ Preferences ▸ Pi Zero</strong> and restart JNEXT, or start it
-for one run with:</p>
+<code>sudo apt install qemu-system-arm qemu-utils</code>. Then either tick <strong>Start
+NextPi</strong> under <strong>Settings ▸ Preferences ▸ NextPi</strong> and restart JNEXT, or start
+it for one run with:</p>
 <pre><code>jnext --nextpi
 </code></pre>
 <p>The first time, JNEXT offers to download NextPi, the way it offers to download
-the SD card image: about 6 GB, with a progress bar, into <code>~/.jnext/pizero</code>. It
+the SD card image: about 6 GB, with a progress bar, into <code>~/.jnext/nextpi</code>. It
 needs about 22 GB free while the image is unpacked, and about 15 GB afterwards.
 Every later start skips all of that.</p>
 <p>NextPi takes about a minute to boot. Then, at the NextZXOS command line:</p>
@@ -3625,7 +3626,7 @@ mixer instead.</p>
 soft or hard reset of the Next leaves the Pi running, as it would on the real
 machine. <code>--no-nextpi</code> leaves the Pi off for one run even when the preference
 is ticked.</p>
-<h2 id="the-pi-zero-settings">The Pi Zero settings<a class="headerlink" href="#the-pi-zero-settings" title="Permanent link">&para;</a></h2>
+<h2 id="the-nextpi-settings">The NextPi settings<a class="headerlink" href="#the-nextpi-settings" title="Permanent link">&para;</a></h2>
 <p>Everything except the on/off tick has a sensible default, and an empty field in
 the Preferences tab means that default:</p>
 <table>
@@ -3639,7 +3640,7 @@ the Preferences tab means that default:</p>
 <tbody>
 <tr>
 <td>NextPi directory</td>
-<td><code>~/.jnext/pizero</code></td>
+<td><code>~/.jnext/nextpi</code></td>
 <td>where the download goes and NextPi runs from</td>
 </tr>
 <tr>

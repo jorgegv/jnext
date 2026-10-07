@@ -1,4 +1,4 @@
-#include "core/pizero_provisioner.h"
+#include "core/nextpi_provisioner.h"
 
 #include "core/fat32_image.h"
 #include "core/log.h"
@@ -23,7 +23,7 @@
 
 namespace fs = std::filesystem;
 
-namespace pizero {
+namespace nextpi {
 
 const char* const kDefaultRelease = "1_93D";
 const char* const kLatest         = "latest";
@@ -35,6 +35,11 @@ constexpr const char* kImageName   = "nextpi.img";
 constexpr const char* kReleaseName = "release";
 constexpr const char* kKernel      = "kernel.img";
 constexpr const char* kDtb         = "bcm2708-rpi-zero.dtb";
+
+// Archive sanity limits: no entry larger than 1 TB (NextPi's image is 15 GB),
+// no GNU long-name / pax record larger than 1 MB.
+constexpr uint64_t kMaxEntrySize    = 1ull << 40;
+constexpr uint64_t kMaxMetadataSize = 1ull << 20;
 
 std::string read_file(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
@@ -102,7 +107,7 @@ std::string display_path(const std::string& path) {
 
 std::string mirror_of(const ProvisionOptions& opts) {
     if (!opts.mirror.empty()) return opts.mirror;
-    const char* env = std::getenv("JNEXT_PIZERO_MIRROR");   // test seam, like JNEXT_SDCARD_DISTRO_URL
+    const char* env = std::getenv("JNEXT_NEXTPI_MIRROR");   // test seam, like JNEXT_SDCARD_DISTRO_URL
     if (env && *env) return env;
     return kMirrorUrl;
 }
@@ -131,8 +136,21 @@ bool cli_busy(const std::string& phase, const std::function<bool()>& work) {
     return ok;
 }
 
+StartOutcome start_outcome(bool asked_on_cli, sdcard::ProvisionStatus provisioned, bool started) {
+    if (started) return StartOutcome::Started;
+    if (provisioned == sdcard::ProvisionStatus::Declined) return StartOutcome::Declined;
+    return asked_on_cli ? StartOutcome::Exit : StartOutcome::WarnAndContinue;
+}
+
+bool valid_release_name(const std::string& name) {
+    if (name.empty() || name.size() > 64 || name[0] == '.' || name[0] == '-') return false;
+    return std::all_of(name.begin(), name.end(), [](char c) {
+        return std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '_' || c == '-';
+    });
+}
+
 std::string default_dir() {
-    return (fs::path(sdcard::default_sdcard_dir()).parent_path() / "pizero").string();
+    return (fs::path(sdcard::default_sdcard_dir()).parent_path() / "nextpi").string();
 }
 
 std::vector<std::string> parse_release_listing(const std::string& html) {
@@ -142,7 +160,7 @@ std::vector<std::string> parse_release_listing(const std::string& html) {
     for (auto it = std::sregex_iterator(html.begin(), html.end(), link);
          it != std::sregex_iterator(); ++it) {
         const std::string name = (*it)[1];
-        if (seen.insert(name).second) out.push_back(name);
+        if (valid_release_name(name) && seen.insert(name).second) out.push_back(name);
     }
     return out;
 }
@@ -249,10 +267,26 @@ bool extract_tar_gz_entry(const std::string& archive, const std::string& suffix,
         }
         uint64_t size = tar_size(hdr + 124, 12);
         const char type = static_cast<char>(hdr[156]);
+        // A size near 2^64 would wrap the rounding below, and a huge metadata
+        // record would be allocated whole: either way a corrupt or hostile
+        // archive must be an error, never an exception that ends jnext after
+        // a 6 GB download.
+        if (size > kMaxEntrySize) {
+            err = archive + ": malformed (an entry claims " + std::to_string(size) + " bytes)";
+            gzclose(gz);
+            return false;
+        }
         const uint64_t padded = (size + 511) / 512 * 512;
 
         if (type == 'L' || type == 'x') {
             // Metadata for the NEXT entry: a GNU long name, or pax records.
+            // Real ones are a few hundred bytes.
+            if (size > kMaxMetadataSize) {
+                err = archive + ": malformed (a " + std::to_string(size) +
+                      "-byte name/metadata record)";
+                gzclose(gz);
+                return false;
+            }
             std::string data(static_cast<std::size_t>(padded), '\0');
             if (gz_read_full(gz, data.data(), data.size()) != data.size()) break;
             data.resize(static_cast<std::size_t>(size));
@@ -281,7 +315,14 @@ bool extract_tar_gz_entry(const std::string& archive, const std::string& suffix,
         }
 
         if (!long_name.empty()) name = long_name;
-        if (have_pax_size) size = pax_size;
+        if (have_pax_size) {
+            if (pax_size > kMaxEntrySize) {
+                err = archive + ": malformed (a pax size of " + std::to_string(pax_size) + " bytes)";
+                gzclose(gz);
+                return false;
+            }
+            size = pax_size;
+        }
         long_name.clear();
         have_pax_size = false;
         const uint64_t data_blocks = (size + 511) / 512 * 512;
@@ -372,7 +413,7 @@ ProvisionResult provision(const ProvisionOptions& opts) {
     ProvisionResult res;
 #ifdef _WIN32
     (void)opts;
-    res.error = "the Pi Zero (NextPi under QEMU) is not supported on Windows";
+    res.error = "NextPi under QEMU is not supported on Windows";
     return res;
 #else
     const std::string dir     = opts.dir.empty() ? default_dir() : opts.dir;
@@ -392,6 +433,14 @@ ProvisionResult provision(const ProvisionOptions& opts) {
 
     // "latest" is resolved against the mirror's listing on every start, and is
     // the only case that touches the network when a release is already there.
+    // The release name becomes part of a file name and a URL, so it is checked
+    // before either: what the mirror's own names use, and nothing else.
+    if (wanted != kLatest && !valid_release_name(wanted)) {
+        res.error = "\"" + wanted + "\" is not a NextPi release name (letters, digits, '.', '_' and "
+                    "'-' only), nor \"latest\"";
+        return res;
+    }
+
     std::string target = wanted;
     if (wanted == kLatest) {
         const std::string listing = (fs::path(dir) / ".listing.html").string();
@@ -432,22 +481,22 @@ ProvisionResult provision(const ProvisionOptions& opts) {
     // what each answer leads to said before it is asked.
     std::ostringstream msg;
     if (current.empty()) {
-        msg << "The Pi Zero runs NextPi, the Raspberry Pi software of the Next's Pi "
-               "accelerator, and it is not installed yet.\n\n"
+        msg << "NextPi is the software that runs on the Raspberry Pi of the Spectrum "
+               "Next, and it is not installed yet.\n\n"
             << "jnext can download it now (NextPi " << target << ", about 6 GB) into:\n"
             << display_path(dir) << "\n\n"
             << "This happens only once. About 22 GB of free space is needed there while "
                "it is unpacked; it uses about 15 GB afterwards.\n\n"
-            << "If you choose No, the Pi Zero is not started. To stop being asked, turn it "
-               "off in Settings > Preferences > Pi Zero.\n\n"
+            << "If you choose No, NextPi is not started. To stop being asked, turn it off "
+               "in Settings > Preferences > NextPi.\n\n"
             << "Download NextPi now?";
     } else {
-        msg << "The Pi Zero is set to use NextPi " << target << ", but NextPi " << current
+        msg << "jnext is set to use NextPi " << target << ", but NextPi " << current
             << " is installed in:\n"
             << display_path(dir) << "\n\n"
             << "jnext can download NextPi " << target << " now (about 6 GB) and replace it. "
                "Anything NextPi " << current << " saved to its own card is lost.\n\n"
-            << "If you choose No, the Pi Zero keeps using NextPi " << current << ".\n\n"
+            << "If you choose No, jnext keeps using NextPi " << current << ".\n\n"
             << "Download NextPi " << target << " now?";
     }
     if (!confirm(msg.str())) {
@@ -506,8 +555,8 @@ ProvisionResult provision(const ProvisionOptions& opts) {
         }
     }
 
-    // Unpack beside the old release and swap only once everything is there,
-    // so a failure leaves the previous NextPi (if any) usable.
+    // Unpack beside the old release, so a failure up to here leaves the
+    // previous NextPi (if any) untouched and usable.
     const fs::path image_part = fs::path(dir) / "nextpi.img.part";
     const fs::path boot_part  = fs::path(dir) / "boot.part";
     fs::remove_all(boot_part, ec);
@@ -522,15 +571,34 @@ ProvisionResult provision(const ProvisionOptions& opts) {
         return res;
     }
 
-    fs::remove(fs::path(dir) / kImageName, ec);
-    fs::remove(fs::path(dir) / "overlay.qcow2", ec);    // belonged to the old image
-    fs::remove_all(fs::path(dir) / "boot", ec);
-    fs::rename(image_part, fs::path(dir) / kImageName, ec);
-    if (!ec) fs::rename(boot_part, fs::path(dir) / "boot", ec);
-    if (ec || !write_file((fs::path(dir) / kReleaseName).string(), target + "\n")) {
-        res.error = dir + ": cannot install NextPi " + target + (ec ? ": " + ec.message() : "");
+    // THE SWAP. Not atomic as a whole — a directory of files cannot be
+    // replaced in one step — but crash-safe, because the `release` marker is
+    // what makes a directory "prepared" and it is removed FIRST and written
+    // LAST (to a temporary name, then renamed over, which is atomic). An
+    // install interrupted anywhere in between leaves no marker, so the next
+    // start re-provisions instead of booting a half-replaced NextPi.
+    const fs::path marker = fs::path(dir) / kReleaseName;
+    const fs::path boot   = fs::path(dir) / "boot";
+    const fs::path boot_old = fs::path(dir) / "boot.old";
+    auto install_failed = [&](const std::string& what) {
+        res.error = dir + ": cannot install NextPi " + target + ": " + what;
         return res;
-    }
+    };
+    fs::remove(marker, ec);
+    if (ec) return install_failed(ec.message());
+    fs::remove(fs::path(dir) / "overlay.qcow2", ec);    // belonged to the old image
+    fs::rename(image_part, fs::path(dir) / kImageName, ec);   // atomically replaces the old one
+    if (ec) return install_failed(ec.message());
+    fs::remove_all(boot_old, ec);
+    if (fs::exists(boot, ec)) fs::rename(boot, boot_old, ec);
+    if (ec) return install_failed(ec.message());
+    fs::rename(boot_part, boot, ec);
+    if (ec) return install_failed(ec.message());
+    fs::remove_all(boot_old, ec);
+    const fs::path marker_part = fs::path(dir) / "release.part";
+    if (!write_file(marker_part.string(), target + "\n")) return install_failed("cannot write the release marker");
+    fs::rename(marker_part, marker, ec);
+    if (ec) return install_failed(ec.message());
     fs::remove(archive, ec);
     fs::remove(md5_path, ec);
     Log::uart()->info("NextPi {} installed in {}", target, dir);
@@ -542,4 +610,4 @@ ProvisionResult provision(const ProvisionOptions& opts) {
 #endif
 }
 
-} // namespace pizero
+} // namespace nextpi

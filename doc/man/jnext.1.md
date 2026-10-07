@@ -269,22 +269,22 @@ debugger ones.
     only.
 
 **\--nextpi**
-:   Start the **Pi Zero**: NextPi — the Raspberry Pi Zero accelerator
-    distribution a real Next carries on its GPIO header — running under QEMU
+:   Start **NextPi** — the software that runs on the Raspberry Pi of the
+    Spectrum Next, on its GPIO header — under QEMU
     (`qemu-system-arm`, machine `raspi0`), connected to UART 1, the UART wired
     to that header. NextZXOS's own Pi tools (`.pisend`, the NextPi UI) then talk
     to a real NextPi. jnext does not emulate the Pi: QEMU must be installed, and
     jnext starts it, wires it in and stops it when it exits.
 
     The first run that needs it offers to download NextPi from its mirror
-    (<https://zx.xalior.com/NextPi2/>) into `~/.jnext/pizero` — about 6 GB,
+    (<https://zx.xalior.com/NextPi2/>) into `~/.jnext/nextpi` — about 6 GB,
     with about 22 GB free needed while it is unpacked — with a progress bar,
     exactly as the SD-card image is provisioned; later runs start at once.
     NextPi then takes about a minute to reach its Supervisor prompt (`SUP>`).
     The release, the directory, the QEMU binary and where the Pi's sound goes
-    are set under **Settings > Preferences > Pi Zero** (the `[pizero]` section
+    are set under **Settings > Preferences > NextPi** (the `[nextpi]` section
     of `~/.jnext/jnext.conf`); their
-    defaults are release `1_93D`, `~/.jnext/pizero`, `qemu-system-arm` on
+    defaults are release `1_93D`, `~/.jnext/nextpi`, `qemu-system-arm` on
     `PATH`, and the host's speakers.
 
     The guest reaches the Pi only while NR 0xA0 bits 5:4 are `11` — UART 1 on
@@ -300,7 +300,7 @@ debugger ones.
     POSIX only.
 
 **\--no-nextpi**
-:   Do not start the Pi Zero this run, overriding a saved preference that
+:   Do not start NextPi this run, overriding a saved preference that
     enables it.
 
 **\--tape-realtime**
@@ -2092,10 +2092,10 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     bar carries the ESP cell **NETWORKING** describes, so neither a config file
     nor that page can put the guest on the network without saying so.
     **\--no-esp** overrides it for one run.
-    The Pi Zero is stored under `[pizero]`, edited under **Settings >
-    Preferences > Pi Zero**: `enabled` (`true`/`false`, the persistent form of
+    NextPi is stored under `[nextpi]`, edited under **Settings >
+    Preferences > NextPi**: `enabled` (`true`/`false`, the persistent form of
     **\--nextpi**; **\--no-nextpi** overrides it for one run), `dir` (the
-    NextPi directory; empty means `~/.jnext/pizero`), `release` (a NextPi
+    NextPi directory; empty means `~/.jnext/nextpi`), `release` (a NextPi
     release name on the mirror, or `latest` for the newest one listed there;
     empty means `1_93D`), `qemu_binary` (empty means `qemu-system-arm` on
     `PATH`) and `audio` (a QEMU `-audiodev` driver such as `coreaudio`, `pa` or
@@ -2127,8 +2127,8 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 `~/.jnext/sdcard/cspect-next-1gb.img`
 :   The canonical distribution image the patched one above is produced from.
 
-`~/.jnext/pizero/`
-:   The Pi Zero's NextPi directory: `nextpi.img` (the release's SD-card image,
+`~/.jnext/nextpi/`
+:   The NextPi directory: `nextpi.img` (the release's SD-card image,
     never written), `boot/` (the kernel and device tree QEMU boots, copied out
     of the image), `release` (which release it is), `overlay.qcow2` (everything
     NextPi writes to its card — delete it to start again from a pristine image)

@@ -1094,10 +1094,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-pi-zero" class="md-nav__link">
+  <a href="#nextpi-on-the-raspberry-pi" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The Pi Zero
+        NextPi on the Raspberry Pi
       
     </span>
   </a>
@@ -2641,8 +2641,8 @@ Next→host FIFO <strong>cannot</strong> be opened until something is reading it
 (<code>O_WRONLY | O_NONBLOCK</code> gives <code>ENXIO</code>), so it is opened lazily and retried on
 every flush. <code>SIGPIPE</code> is ignored when the first endpoint is created, without
 which a debugger closing its end would kill the emulator outright.</p>
-<h2 id="the-pi-zero">The Pi Zero<a class="headerlink" href="#the-pi-zero" title="Permanent link">&para;</a></h2>
-<p><code>--nextpi</code> (or the <code>[pizero]</code> preference) runs a real NextPi under QEMU on
+<h2 id="nextpi-on-the-raspberry-pi">NextPi on the Raspberry Pi<a class="headerlink" href="#nextpi-on-the-raspberry-pi" title="Permanent link">&para;</a></h2>
+<p><code>--nextpi</code> (or the <code>[nextpi]</code> preference) runs a real NextPi under QEMU on
 UART 1, the Pi GPIO header's UART. Three pieces:</p>
 <ul>
 <li><strong><code>peripheral/pi_uart_device.{h,cpp}</code></strong> is the far end of UART 1. Unlike the
@@ -2663,7 +2663,7 @@ UART 1, the Pi GPIO header's UART. Three pieces:</p>
   FIFOs while QEMU — holding both ends read-write — keeps running, so the Pi
   neither reboots nor sees an EOF. A reaper thread logs a QEMU that exits on its
   own; the destructor stops it with SIGTERM (SIGKILL after three seconds).</li>
-<li><strong><code>core/pizero_provisioner.{h,cpp}</code></strong> makes the NextPi directory exist, on
+<li><strong><code>core/nextpi_provisioner.{h,cpp}</code></strong> makes the NextPi directory exist, on
   the SD provisioner's seams (<code>DownloadFn</code>, <code>ConfirmFn</code>, <code>ProgressFn</code>,
   <code>BusyFn</code>, so the same GUI dialogs and terminal prompts serve both): it asks,
   downloads the release and its MD5 from the mirror, streams the image out of
@@ -2678,7 +2678,7 @@ preference (GUI sessions only, as for the ESP), provisions, starts QEMU, and
 puts the FIFO paths in the <code>EmulatorConfig</code>. A Pi asked for on the command line
 that cannot start is a usage error; one enabled only in Preferences is reported
 in a dialog and the session goes on without it. Design:
-<code>doc/design/PIZERO-DESIGN.md</code>.</p>
+<code>doc/design/NEXTPI-DESIGN.md</code>.</p>
 <h2 id="the-esp-01">The ESP-01<a class="headerlink" href="#the-esp-01" title="Permanent link">&para;</a></h2>
 <p>A real ZX Spectrum Next has an ESP-01 WiFi module soldered to it, talking to the
 machine over UART 0 with the AT command set that module's firmware speaks:

@@ -43,7 +43,7 @@ public:
     // whatever `work` returns.
     bool busy(const std::string& phase, const std::function<bool()>& work);
 
-    // The same dialogs serve the Pi Zero's NextPi download, which needs its
+    // The same dialogs serve the NextPi download, which needs its
     // own wording; the defaults are the SD card's.
     void set_texts(const std::string& title, const std::string& headline,
                    const std::string& busy_title, const std::string& download_label);

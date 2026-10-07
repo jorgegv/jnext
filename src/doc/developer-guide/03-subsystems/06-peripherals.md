@@ -258,9 +258,9 @@ Next→host FIFO **cannot** be opened until something is reading it
 every flush. `SIGPIPE` is ignored when the first endpoint is created, without
 which a debugger closing its end would kill the emulator outright.
 
-## The Pi Zero
+## NextPi on the Raspberry Pi
 
-`--nextpi` (or the `[pizero]` preference) runs a real NextPi under QEMU on
+`--nextpi` (or the `[nextpi]` preference) runs a real NextPi under QEMU on
 UART 1, the Pi GPIO header's UART. Three pieces:
 
 * **`peripheral/pi_uart_device.{h,cpp}`** is the far end of UART 1. Unlike the
@@ -281,7 +281,7 @@ UART 1, the Pi GPIO header's UART. Three pieces:
   FIFOs while QEMU — holding both ends read-write — keeps running, so the Pi
   neither reboots nor sees an EOF. A reaper thread logs a QEMU that exits on its
   own; the destructor stops it with SIGTERM (SIGKILL after three seconds).
-* **`core/pizero_provisioner.{h,cpp}`** makes the NextPi directory exist, on
+* **`core/nextpi_provisioner.{h,cpp}`** makes the NextPi directory exist, on
   the SD provisioner's seams (`DownloadFn`, `ConfirmFn`, `ProgressFn`,
   `BusyFn`, so the same GUI dialogs and terminal prompts serve both): it asks,
   downloads the release and its MD5 from the mirror, streams the image out of
@@ -296,7 +296,7 @@ preference (GUI sessions only, as for the ESP), provisions, starts QEMU, and
 puts the FIFO paths in the `EmulatorConfig`. A Pi asked for on the command line
 that cannot start is a usage error; one enabled only in Preferences is reported
 in a dialog and the session goes on without it. Design:
-`doc/design/PIZERO-DESIGN.md`.
+`doc/design/NEXTPI-DESIGN.md`.
 
 ## The ESP-01
 

@@ -200,12 +200,12 @@ void AppConfig::load() {
     }
     settings_.endGroup();
 
-    settings_.beginGroup("pizero");
-    data_.pizero_enabled     = settings_.value("enabled", data_.pizero_enabled).toBool();
-    data_.pizero_dir         = settings_.value("dir", data_.pizero_dir).toString().trimmed();
-    data_.pizero_release     = settings_.value("release", data_.pizero_release).toString().trimmed();
-    data_.pizero_qemu_binary = settings_.value("qemu_binary", data_.pizero_qemu_binary).toString().trimmed();
-    data_.pizero_audio       = settings_.value("audio", data_.pizero_audio).toString().trimmed();
+    settings_.beginGroup("nextpi");
+    data_.nextpi_enabled     = settings_.value("enabled", data_.nextpi_enabled).toBool();
+    data_.nextpi_dir         = settings_.value("dir", data_.nextpi_dir).toString().trimmed();
+    data_.nextpi_release     = settings_.value("release", data_.nextpi_release).toString().trimmed();
+    data_.nextpi_qemu_binary = settings_.value("qemu_binary", data_.nextpi_qemu_binary).toString().trimmed();
+    data_.nextpi_audio       = settings_.value("audio", data_.nextpi_audio).toString().trimmed();
     settings_.endGroup();
 }
 
@@ -286,12 +286,12 @@ void AppConfig::save() const {
     }
     settings_.endGroup();
 
-    settings_.beginGroup("pizero");
-    settings_.setValue("enabled", data_.pizero_enabled);
-    settings_.setValue("dir", data_.pizero_dir);
-    settings_.setValue("release", data_.pizero_release);
-    settings_.setValue("qemu_binary", data_.pizero_qemu_binary);
-    settings_.setValue("audio", data_.pizero_audio);
+    settings_.beginGroup("nextpi");
+    settings_.setValue("enabled", data_.nextpi_enabled);
+    settings_.setValue("dir", data_.nextpi_dir);
+    settings_.setValue("release", data_.nextpi_release);
+    settings_.setValue("qemu_binary", data_.nextpi_qemu_binary);
+    settings_.setValue("audio", data_.nextpi_audio);
     settings_.endGroup();
 
     settings_.sync();

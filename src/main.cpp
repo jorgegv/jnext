@@ -12,7 +12,7 @@
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/joy_uart_source.h"   // read_joy_uart_source_file (GH #251)
 #include "core/pi_qemu.h"
-#include "core/pizero_provisioner.h"
+#include "core/nextpi_provisioner.h"
 #include "peripheral/joy_uart_link.h"     // JoyUartEndpoint (GH #252)
 // Issue #35 — audio_pacing::WhenSlowPrefer. Header-only and dependency-free;
 // included unconditionally because the parsed value is declared alongside the
@@ -294,10 +294,10 @@ int main(int argc, char* argv[]) {
     bool        joy_uart_connector_set = false;
     std::string joy_uart_fifo;
     bool        joy_uart_pty = false;
-    // The Pi Zero. `pizero_enabled_set` is what lets --no-nextpi override a
+    // NextPi. `nextpi_enabled_set` is what lets --no-nextpi override a
     // saved preference, as --no-esp does for the ESP.
-    bool        pizero_enabled = false;
-    bool        pizero_enabled_set = false;
+    bool        nextpi_enabled = false;
+    bool        nextpi_enabled_set = false;
     // NextPi under QEMU. Owned here, by the process, rather than by the
     // Emulator: a hard reset rebuilds the Emulator and must not reboot the Pi
     // (core/pi_qemu.h). Reset explicitly before spdlog shuts down.
@@ -860,12 +860,12 @@ int main(int argc, char* argv[]) {
                 joy_uart_pty = true;
                 break;
             case cli::OptId::Nextpi:
-                pizero_enabled = true;
-                pizero_enabled_set = true;
+                nextpi_enabled = true;
+                nextpi_enabled_set = true;
                 break;
             case cli::OptId::NoNextpi:
-                pizero_enabled = false;
-                pizero_enabled_set = true;
+                nextpi_enabled = false;
+                nextpi_enabled_set = true;
                 break;
             case cli::OptId::JoyUartRxDelayFrames: {
                 // Parsed here so a typo is a usage error, not a stream that
@@ -1396,10 +1396,10 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     // ---------------------------------------------------------------------
-    // The Pi Zero: NextPi under QEMU on UART 1 (core/pi_qemu.h). Wanted when
+    // NextPi under QEMU on UART 1 (core/pi_qemu.h). Wanted when
     // --nextpi says so, or — in a GUI session, with neither flag given — when
-    // the saved [pizero] preference does. Its directory is provisioned exactly
-    // as the SD image is (core/pizero_provisioner.h): on first use, after
+    // the saved [nextpi] preference does. Its directory is provisioned exactly
+    // as the SD image is (core/nextpi_provisioner.h): on first use, after
     // asking, with a progress bar. Started HERE, after every quick argument
     // check (so a typo never triggers a 6 GB download) and before the machine
     // boots (so its FIFOs exist when Emulator::init() opens them).
@@ -1408,67 +1408,73 @@ int main(int argc, char* argv[]) {
     // any other unusable option. One that is merely enabled in Preferences is
     // not allowed to stop jnext from starting: it is reported, and the session
     // goes on without it. Declining the download is neither — a choice the
-    // dialog says leads to "the Pi Zero is not started", and that is all.
+    // dialog says leads to "NextPi is not started", and that is all.
     // ---------------------------------------------------------------------
     {
-        bool want = pizero_enabled;
-        pizero::ProvisionOptions popts;
+        bool want = nextpi_enabled;
+        nextpi::ProvisionOptions popts;
         PiQemu::Spec spec;
 #ifdef ENABLE_QT_UI
         if (!headless) {
             const AppConfigData& saved = gui_app_config.data();
-            want              = merge_cli_precedence(pizero_enabled_set, pizero_enabled,
-                                                     saved.pizero_enabled);
-            popts.dir         = saved.pizero_dir.toStdString();
-            popts.release     = saved.pizero_release.toStdString();
-            spec.audio        = saved.pizero_audio.toStdString();
-            if (!saved.pizero_qemu_binary.isEmpty())
-                spec.qemu_binary = saved.pizero_qemu_binary.toStdString();
+            want              = merge_cli_precedence(nextpi_enabled_set, nextpi_enabled,
+                                                     saved.nextpi_enabled);
+            popts.dir         = saved.nextpi_dir.toStdString();
+            popts.release     = saved.nextpi_release.toStdString();
+            spec.audio        = saved.nextpi_audio.toStdString();
+            if (!saved.nextpi_qemu_binary.isEmpty())
+                spec.qemu_binary = saved.nextpi_qemu_binary.toStdString();
         }
 #endif
         if (want) {
             std::function<void(const std::string&)> report = [](const std::string& m) {
-                std::fprintf(stderr, "error: Pi Zero: %s\n", m.c_str());
+                std::fprintf(stderr, "error: NextPi: %s\n", m.c_str());
             };
             popts.download = sdcard::default_http_download;
             popts.confirm  = sdcard::cli_confirm;
-            popts.progress = pizero::cli_progress;
-            popts.busy     = pizero::cli_busy;
+            popts.progress = nextpi::cli_progress;
+            popts.busy     = nextpi::cli_busy;
 #ifdef ENABLE_QT_UI
             SdcardGuiProvisioner gui_prov;   // one temporary QApplication, gone before QtApp's
             if (!headless) {
-                gui_prov.set_texts("jnext — Pi Zero", "The Pi Zero needs NextPi",
+                gui_prov.set_texts("jnext — NextPi", "NextPi image not found",
                                    "jnext — Preparing NextPi", "Downloading NextPi…");
                 popts.confirm  = [&](const std::string& m) { return gui_prov.confirm(m); };
                 popts.progress = [&](uint64_t d, uint64_t t) { return gui_prov.progress(d, t); };
                 popts.busy     = [&](const std::string& p, const std::function<bool()>& w) {
                     return gui_prov.busy(p, w);
                 };
-                if (!pizero_enabled_set)   // from Preferences: say so, and carry on
+                if (!nextpi_enabled_set)   // from Preferences: say so, and carry on
                     report = [&](const std::string& m) {
-                        Log::uart()->error("Pi Zero: {}", m);
-                        gui_prov.warn("The Pi Zero could not be started:\n\n" + m +
+                        Log::uart()->error("NextPi: {}", m);
+                        gui_prov.warn("NextPi could not be started:\n\n" + m +
                                       "\n\njnext starts without it.");
                     };
             }
 #endif
             std::string error;
-            const pizero::ProvisionResult res = pizero::provision(popts);
+            const nextpi::ProvisionResult res = nextpi::provision(popts);
             if (res.status == sdcard::ProvisionStatus::Ok) {
-                if (!res.warning.empty()) Log::uart()->warn("Pi Zero: {}", res.warning);
+                if (!res.warning.empty()) Log::uart()->warn("NextPi: {}", res.warning);
                 spec.dir = res.dir;
                 pi_qemu  = std::make_unique<PiQemu>();
                 if (!pi_qemu->start(spec, error)) pi_qemu.reset();
-            } else if (res.status == sdcard::ProvisionStatus::Declined) {
-                // Saying no to the download is a choice, not a failure: the
-                // dialog promised "the Pi Zero is not started", nothing more.
-                Log::uart()->info("Pi Zero: NextPi download declined; starting without the Pi Zero");
             } else {
                 error = res.error;
             }
-            if (!pi_qemu && res.status != sdcard::ProvisionStatus::Declined) {
+            // The policy itself is nextpi::start_outcome, so it is testable.
+            switch (nextpi::start_outcome(nextpi_enabled_set, res.status, pi_qemu != nullptr)) {
+            case nextpi::StartOutcome::Started:
+                break;
+            case nextpi::StartOutcome::Declined:
+                Log::uart()->info("NextPi download declined; starting without NextPi");
+                break;
+            case nextpi::StartOutcome::WarnAndContinue:
                 report(error);
-                if (pizero_enabled_set) return 1;
+                break;
+            case nextpi::StartOutcome::Exit:
+                report(error);
+                return 1;
             }
         }
     }
@@ -1559,7 +1565,7 @@ int main(int argc, char* argv[]) {
         cfg.joy_uart_rx_delay_frames = static_cast<uint32_t>(joy_uart_rx_delay_frames);
         cfg.joy_uart_fifo            = joy_uart_fifo;
         cfg.joy_uart_pty             = joy_uart_pty;
-        if (pi_qemu) {                 // the Pi Zero, started before the app below
+        if (pi_qemu) {                 // NextPi, started before the app below
             cfg.pi_uart_fifo_rx      = pi_qemu->rx_path();
             cfg.pi_uart_fifo_tx      = pi_qemu->tx_path();
         }
@@ -1753,9 +1759,6 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
         }
-        // The Pi link: one wire, one endpoint — and the same refusal-before-boot
-        // as the joystick cable for an endpoint that cannot be created. The
-        // probe is closed at once; Emulator::init() opens the one the run uses.
         if (cfg.silent && !wav_record_file.empty()) {
             fprintf(stderr,
                     "--wav-record cannot be used while audio is disabled in preferences.\n");

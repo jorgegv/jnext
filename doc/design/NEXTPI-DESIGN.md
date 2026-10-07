@@ -1,4 +1,4 @@
-# The Pi Zero — NextPi on the Raspberry Pi UART — Design
+# NextPi on the Raspberry Pi UART — Design
 
 **Status:** implemented on branch `pi-uart` (PR #310).
 **Last updated:** 2026-10-07.
@@ -15,7 +15,7 @@
 
 ## 1. Use case
 
-A real ZX Spectrum Next can carry a Raspberry Pi Zero on its GPIO header, running
+A real ZX Spectrum Next can carry a Raspberry Pi on its GPIO header, running
 **NextPi** (a DietPi-based distribution). The Next talks to it over **UART 1** — a
 plain 115200-baud serial console on which NextPi's *Supervisor* answers with a
 `SUP>` prompt — and NextZXOS ships the tools that use it: `.pisend` (send a
@@ -31,8 +31,8 @@ The Pi side **can** run on a desktop: NextPi releases are SD-card images for a P
 Zero, and QEMU's `raspi0` machine boots them, with the Pi's UART (`ttyAMA0`, the
 Supervisor's console) as a QEMU chardev.
 
-This feature puts the two together. jnext does **not** emulate the Pi. With the
-Pi Zero enabled it downloads NextPi on first use, starts QEMU on it, and connects
+This feature puts the two together. jnext does **not** emulate the Pi. With
+`--nextpi` it downloads NextPi on first use, starts QEMU on it, and connects
 the Pi's console to UART 1 — the same way it uses ffmpeg when that is installed:
 an external tool jnext drives, not code it contains.
 
@@ -47,16 +47,16 @@ an external tool jnext drives, not code it contains.
 
 | Command line | Effect |
 |------|--------|
-| `--nextpi` | Start the Pi Zero for this run. |
+| `--nextpi` | Start NextPi for this run. |
 | `--no-nextpi` | Do not start it this run, whatever the saved preference says. |
 
-Everything else has a default, and lives in the `[pizero]` section of
-`~/.jnext/jnext.conf`, edited under **Settings > Preferences > Pi Zero**:
+Everything else has a default, and lives in the `[nextpi]` section of
+`~/.jnext/jnext.conf`, edited under **Settings > Preferences > NextPi**:
 
 | Key | Control | Default |
 |-----|---------|---------|
-| `enabled` | "Start the Pi Zero (NextPi under QEMU) with jnext" tick | `false` |
-| `dir` | NextPi directory | `~/.jnext/pizero` (`$JNEXT_CONFIG_DIR/pizero`) |
+| `enabled` | "Start NextPi (under QEMU) with jnext" tick | `false` |
+| `dir` | NextPi directory | `~/.jnext/nextpi` (`$JNEXT_CONFIG_DIR/nextpi`) |
 | `release` | NextPi release (editable: a release name, or `latest`) | `1_93D` |
 | `qemu_binary` | QEMU | `qemu-system-arm` on `PATH`; `qemu-img` beside it |
 | `audio` | Pi audio (editable: a QEMU `-audiodev` driver, `none`, `wav:FILE`) | `coreaudio` on macOS, `pa` elsewhere |
@@ -102,7 +102,8 @@ at once. NextPi then takes about a minute to reach `SUP>`, after which:
   Preferences is not.** The second is reported in a dialog and jnext starts
   without it, so a broken QEMU install cannot lock a user out of jnext.
   Declining the first-use download is neither: it is the user's choice, and
-  jnext starts without the Pi either way.
+  jnext starts without the Pi either way. The policy is one pure function,
+  `nextpi::start_outcome`, which `main()` applies.
 - **Not in this PR:** a live start/stop from the running GUI, a progress bar for
   the unpack (it is a busy indicator; the download has the bar), and Windows
   (FIFOs, §3.7). The earlier manual-wiring flags (`--pi-uart-fifo`,
@@ -203,23 +204,41 @@ private temporary directory and the Emulator opens as the link's far end
 - **The overlay** (`overlay.qcow2`, 16 GB copy-on-write via `qemu-img`) exists
   because QEMU's raspi SD card must be a power-of-two size and NextPi's image is
   not; it also keeps the image read-only.
-- **Stopped when jnext exits**: SIGTERM, then SIGKILL after three seconds; the
-  FIFO directory is removed. QEMU stays in jnext's process group, so a Ctrl-C at
-  the terminal ends both. A reaper thread logs a QEMU that exits on its own.
+- **Never orphaned — the watchdog.** QEMU runs under a small `/bin/sh` script
+  whose fd 3 is the read end of a pipe only jnext holds the write end of (both
+  ends close-on-exec in jnext, so no other child can keep it open). When jnext
+  goes away however it goes — SIGKILL included, when no destructor runs — the
+  kernel closes the write end, the script's `read` returns, and QEMU gets
+  SIGTERM. Without it a killed jnext left QEMU running and holding the
+  overlay's lock, so the next start failed.
+- **Stopped when jnext exits:** `stop()` closes that pipe (the same SIGTERM
+  path), waits up to three seconds, then SIGKILLs the process group QEMU and its
+  watchdog run in, and removes the FIFO directory. A reaper thread logs a QEMU
+  that exits on its own; the watchdog exits with QEMU's status, so it still sees
+  that.
+- **A failed start cleans up:** an overlay that start created is removed;
+  `qemu.log` is kept, because the error points at it.
 - **Child environment:** inherited, because QEMU's audio back-ends need the
   session's variables, with `LANG=C` and `LC_ALL=C` set in the child only, per
   the project rule. Nothing parses QEMU's output: stdout and stderr go to
   `qemu.log`, and only exit statuses are consulted.
+- **Child descriptors:** none of jnext's (the SD image, the FIFOs, sockets) —
+  only stdin, stdout, stderr and the watchdog pipe. `POSIX_SPAWN_CLOEXEC_DEFAULT`
+  on macOS, `posix_spawn_file_actions_addclosefrom_np` on glibc 2.34+, and
+  elsewhere every other descriptor is marked close-on-exec before the spawn.
 
-### 3.6 Provisioning NextPi (`core/pizero_provisioner.*`)
+### 3.6 Provisioning NextPi (`core/nextpi_provisioner.*`)
 
-`pizero::provision` mirrors `sdcard::provision_sd_card` and uses its seams
+`nextpi::provision` mirrors `sdcard::provision_sd_card` and uses its seams
 (`DownloadFn`, `ConfirmFn`, `ProgressFn`, `BusyFn`), so `main()` wires the same
 GUI dialogs (`SdcardGuiProvisioner`, now with configurable wording) or terminal
 prompts to both.
 
 - **Ready check:** the image, both boot files and a `release` marker. Matching
   the wanted release → done, no network.
+- **Release names are validated** before they reach a file name or a URL:
+  1-64 letters, digits, `.`, `_` and `-`, not starting with `.` or `-` — or
+  `latest`. Names read from the mirror's listing go through the same check.
 - **`latest`:** the mirror's index page is fetched and its `NextPi-<name>.tar.gz`
   links compared with `sort -V` ordering (`1_100` after `1_93D`).
 - **Download:** the `.md5` first (tiny, and a release name the mirror lacks fails
@@ -229,18 +248,25 @@ prompts to both.
 - **Unpack:** the image is streamed out of the `.tar.gz` (zlib) by a small tar
   reader that handles what NextPi's GNU-format archive uses: the image is
   15 082 717 184 bytes, past the octal field's 8 GB, so its size is in GNU
-  base-256 form; pax `path`/`size` records and GNU long names are handled too.
+  base-256 form; pax `path`/`size` records, GNU `L` long names and POSIX ustar
+  `prefix` fields are handled too. A corrupt or hostile archive is an error, not
+  an exception: name/pax records are capped at 1 MB and entries at 1 TB before
+  anything is allocated or rounded.
   `kernel.img` and `bcm2708-rpi-zero.dtb` are copied out of the image's first
   FAT32 partition with the lenient `fat32_read_tree` (the boot partition is
   under the FAT32 cluster minimum, which that reader tolerates). On the real
   1_93D release they come out byte-identical to `mtools`' extraction.
-- **Install:** into `*.part` names first, swapped in only when complete, so a
-  failure leaves any previous release usable. A release change discards the old
-  `overlay.qcow2`, which only makes sense over the image it was made on. The
-  archive and its `.md5` are deleted.
+- **Install:** unpacked into `*.part` names first, so a failure while
+  downloading or unpacking leaves any previous release untouched and usable.
+  The swap itself cannot be atomic (a directory of files cannot be replaced in
+  one step) but it is crash-safe: the `release` marker is removed first and
+  written last (to a temporary name, renamed over), so an interrupted install is
+  re-done at the next start rather than mistaken for a complete one. A release
+  change discards the old `overlay.qcow2`, which only makes sense over the image
+  it was made on. The archive and its `.md5` are deleted.
 - **Declining** with nothing installed → no Pi; with an older release installed
   → that one is used, with a warning.
-- **Test seam:** `$JNEXT_PIZERO_MIRROR` replaces the mirror URL (as
+- **Test seam:** `$JNEXT_NEXTPI_MIRROR` replaces the mirror URL (as
   `$JNEXT_SDCARD_DISTRO_URL` does for the SD image); `file://` URLs work, which
   is how the real release was provisioned offline during development.
 
@@ -257,7 +283,8 @@ link over real FIFOs; PI-06..09 run `PiQemu` against a shell-script stand-in for
 QEMU that answers on the pipe chardev as QEMU does; PI-10..14 run the provisioner
 offline against a fake mirror whose archive is built in the test (a GNU tar with a
 base-256 size and a pax path, holding a tiny MBR disk with a hand-made FAT32 boot
-partition), so no QEMU, network or NextPi image is needed.
+partition); PI-15..27 cover what review found untested. No QEMU, network or
+NextPi image is needed.
 
 | Row | Proves |
 |-----|--------|
@@ -275,8 +302,26 @@ partition), so no QEMU, network or NextPi image is needed.
 | PI-12 | first use: asked once, MD5 + archive fetched, image and boot files installed, archive deleted; the next run asks and fetches nothing |
 | PI-13 | declining installs nothing; an MD5 mismatch deletes the download and installs nothing |
 | PI-14 | a release change replaces the install after asking and discards the overlay; `latest` picks the newest; offline it keeps the installed one with a warning |
+| PI-15 | the replay gate: during a rewind/RZX replay nothing reaches the Pi and nothing is read from it; afterwards both flow |
+| PI-16 | the warm-start recording boot gets no NextPi FIFOs |
+| PI-17 | a QEMU ignoring SIGTERM is SIGKILLed with its watchdog after the grace period |
+| PI-18 | the child runs with `LANG=C` / `LC_ALL=C`; jnext's own locale is untouched |
+| PI-19 | the child inherits none of jnext's descriptors (one held at fd 57 is not open in it) |
+| PI-20 | SIGKILLing the process running NextPi stops QEMU (the watchdog) |
+| PI-21 | too little free space: refused with the amounts, nothing fetched |
+| PI-22 | GNU `L` long names and POSIX ustar prefixes give the entry its full name |
+| PI-23 | absurd long-name, pax and entry sizes fail as "malformed", no exception |
+| PI-24 | a failed upgrade leaves the installed release prepared and intact, no partial files |
+| PI-25 | release names with `/`, spaces, a leading dot or URL syntax are refused before anything is asked or fetched |
+| PI-26 | a failed start removes the overlay it created and keeps `qemu.log` |
+| PI-27 | the start policy table (`nextpi::start_outcome`) |
 
-Settings: `test/gui/app_config_test.cpp` AC-71..74 (`[pizero]` defaults and
+`main()` applying that policy is the functional regression row **nextpi-func**
+(`test/00regression/scripts/`): through the real binary, `--nextpi` with no QEMU
+on its `PATH` exits 1 with the install hint, a declined download starts jnext
+without NextPi (exit 0, nothing fetched), and `--no-nextpi` is accepted.
+
+Settings: `test/gui/app_config_test.cpp` AC-71..74 (`[nextpi]` defaults and
 round-trip) and `test/gui/preferences_apply_test.cpp` PA-20a..e (the tab's
 controls, their enable-follows-tick behaviour, Apply, and an untouched dialog
 handing every field back unchanged).
@@ -286,7 +331,13 @@ PI-01..05; removing the NR 0xA0 probe fails PI-02; in `PiQemu`, swapping the FIF
 ends fails PI-08/09, skipping the overlay fails PI-08, dropping the SIGTERM fails
 PI-08; in the provisioner, reading sizes as octal only fails PI-11/12/14, keeping
 the overlay on a release change fails PI-14, ignoring the MD5 fails PI-13, and
-re-downloading a ready directory fails PI-12.
+re-downloading a ready directory fails PI-12. For the review rows: no replay gate
+fails PI-15; not clearing the warm-start FIFO fails PI-16; SIGKILLing only the
+watchdog fails PI-17; no `LANG=C` fails PI-18; inherited descriptors fail PI-19;
+no watchdog fails PI-08/20/26; no space check fails PI-21; ignoring `L` records
+or the ustar prefix fails PI-22; no metadata bound makes the suite die (a 1 TB
+allocation); no name validation fails PI-25; leaving the overlay fails PI-26;
+"always exit" fails PI-27.
 
 ## 5. Not done
 

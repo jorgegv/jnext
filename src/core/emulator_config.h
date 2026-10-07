@@ -446,7 +446,7 @@ struct EmulatorConfig {
     //
     // The far end of UART 1's module pins — the Pi GPIO header — handed to a
     // real NextPi that jnext runs under QEMU (`--nextpi`, core/pi_qemu.h). See
-    // doc/design/PIZERO-DESIGN.md.
+    // doc/design/NEXTPI-DESIGN.md.
     //
     // A FIFO pair, both ends named: jnext reads `pi_uart_fifo_rx` (Pi → Next)
     // and writes `pi_uart_fifo_tx` (Next → Pi). main.cpp sets them to the two

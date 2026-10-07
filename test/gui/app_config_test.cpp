@@ -121,13 +121,13 @@ static void test_defaults_no_file(QTemporaryDir& dir) {
     check("AC-53", "esp_enabled defaults to false (the guest is not on the network)",
           d.esp_enabled == false && def.esp_enabled == false);
     check("AC-54", "esp_allowed_hosts defaults to empty", d.esp_allowed_hosts.empty());
-    // The Pi Zero downloads ~6 GB on first use, so "no config file" must mean
+    // NextPi downloads ~6 GB on first use, so "no config file" must mean
     // "off"; its other fields default to empty, i.e. the built-in defaults.
-    check("AC-71", "pizero_enabled defaults to false (no NextPi download, no QEMU)",
-          d.pizero_enabled == false && def.pizero_enabled == false);
-    check("AC-72", "the pizero dir/release/qemu_binary/audio fields default to empty (= built-in defaults)",
-          d.pizero_dir.isEmpty() && d.pizero_release.isEmpty() &&
-              d.pizero_qemu_binary.isEmpty() && d.pizero_audio.isEmpty());
+    check("AC-71", "nextpi_enabled defaults to false (no NextPi download, no QEMU)",
+          d.nextpi_enabled == false && def.nextpi_enabled == false);
+    check("AC-72", "the nextpi dir/release/qemu_binary/audio fields default to empty (= built-in defaults)",
+          d.nextpi_dir.isEmpty() && d.nextpi_release.isEmpty() &&
+              d.nextpi_qemu_binary.isEmpty() && d.nextpi_audio.isEmpty());
     check("AC-12", "loaded_from_existing_file() is false when no file existed",
           !cfg.loaded_from_existing_file());
 }
@@ -159,11 +159,11 @@ static void test_roundtrip(QTemporaryDir& dir) {
         writer.data().quick_screenshot_format = ScreenshotFormat::Scr;
         writer.data().esp_enabled            = true;
         writer.data().esp_allowed_hosts      = {"nx.nxtel.org", "sync.lan"};
-        writer.data().pizero_enabled         = true;
-        writer.data().pizero_dir             = "/home/user/pizero";
-        writer.data().pizero_release         = "latest";
-        writer.data().pizero_qemu_binary     = "/opt/qemu/bin/qemu-system-arm";
-        writer.data().pizero_audio           = "wav:/tmp/pi.wav";
+        writer.data().nextpi_enabled         = true;
+        writer.data().nextpi_dir             = "/home/user/nextpi";
+        writer.data().nextpi_release         = "latest";
+        writer.data().nextpi_qemu_binary     = "/opt/qemu/bin/qemu-system-arm";
+        writer.data().nextpi_audio           = "wav:/tmp/pi.wav";
         writer.save();
         written = writer.data();
     }
@@ -201,12 +201,12 @@ static void test_roundtrip(QTemporaryDir& dir) {
     check("AC-55", "esp_enabled round-trips", d.esp_enabled == written.esp_enabled);
     check("AC-56", "esp_allowed_hosts round-trips in order",
           d.esp_allowed_hosts == written.esp_allowed_hosts);
-    check("AC-73", "pizero_enabled round-trips", d.pizero_enabled == written.pizero_enabled);
-    check("AC-74", "pizero dir/release/qemu_binary/audio round-trip through [pizero]",
-          d.pizero_dir == written.pizero_dir && d.pizero_release == written.pizero_release &&
-              d.pizero_qemu_binary == written.pizero_qemu_binary &&
-              d.pizero_audio == written.pizero_audio &&
-              QSettings(path, QSettings::IniFormat).value("pizero/release").toString() ==
+    check("AC-73", "nextpi_enabled round-trips", d.nextpi_enabled == written.nextpi_enabled);
+    check("AC-74", "nextpi dir/release/qemu_binary/audio round-trip through [nextpi]",
+          d.nextpi_dir == written.nextpi_dir && d.nextpi_release == written.nextpi_release &&
+              d.nextpi_qemu_binary == written.nextpi_qemu_binary &&
+              d.nextpi_audio == written.nextpi_audio &&
+              QSettings(path, QSettings::IniFormat).value("nextpi/release").toString() ==
                   QStringLiteral("latest"));
 }
 

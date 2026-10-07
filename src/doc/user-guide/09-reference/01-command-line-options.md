@@ -279,24 +279,24 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 
 **--nextpi**
 
-:   Start the **Pi Zero**: NextPi — the Raspberry Pi Zero accelerator
-    distribution a real Next carries on its GPIO header — running under
-    QEMU (`qemu-system-arm`, machine `raspi0`), connected to UART 1, the
-    UART wired to that header. NextZXOS’s own Pi tools (`.pisend`, the
-    NextPi UI) then talk to a real NextPi. jnext does not emulate the
-    Pi: QEMU must be installed, and jnext starts it, wires it in and
-    stops it when it exits.
+:   Start **NextPi** — the software that runs on the Raspberry Pi of the
+    Spectrum Next, on its GPIO header — under QEMU (`qemu-system-arm`,
+    machine `raspi0`), connected to UART 1, the UART wired to that
+    header. NextZXOS’s own Pi tools (`.pisend`, the NextPi UI) then talk
+    to a real NextPi. jnext does not emulate the Pi: QEMU must be
+    installed, and jnext starts it, wires it in and stops it when it
+    exits.
 
     The first run that needs it offers to download NextPi from its
-    mirror (<https://zx.xalior.com/NextPi2/>) into `~/.jnext/pizero` —
+    mirror (<https://zx.xalior.com/NextPi2/>) into `~/.jnext/nextpi` —
     about 6 GB, with about 22 GB free needed while it is unpacked — with
     a progress bar, exactly as the SD-card image is provisioned; later
     runs start at once. NextPi then takes about a minute to reach its
     Supervisor prompt (`SUP>`). The release, the directory, the QEMU
     binary and where the Pi’s sound goes are set under **Settings \>
-    Preferences \> Pi Zero** (the `[pizero]` section of
+    Preferences \> NextPi** (the `[nextpi]` section of
     `~/.jnext/jnext.conf`); their defaults are release `1_93D`,
-    `~/.jnext/pizero`, `qemu-system-arm` on `PATH`, and the host’s
+    `~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and the host’s
     speakers.
 
     The guest reaches the Pi only while NR 0xA0 bits 5:4 are `11` — UART
@@ -312,8 +312,8 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     download is not — jnext then starts without the Pi. POSIX only.
 
 **--no-nextpi**
-:   Do not start the Pi Zero this run, overriding a saved preference
-    that enables it.
+:   Do not start NextPi this run, overriding a saved preference that
+    enables it.
 
 **--tape-realtime**
 :   Real-time tape loading, at the speed of an actual tape, instead of

@@ -9,9 +9,9 @@
 #include "peripheral/uart_device.h"
 
 /// The Raspberry Pi on the GPIO header, as a LIVE host endpoint on UART 1
-/// (the Pi Zero, `--nextpi`). Design: doc/design/PIZERO-DESIGN.md.
+/// (NextPi, `--nextpi`). Design: doc/design/NEXTPI-DESIGN.md.
 ///
-/// The Next talks to its Pi Zero accelerator (NextPi) over UART 1, whose module
+/// The Next talks to its Raspberry Pi (NextPi) over UART 1, whose module
 /// end is the Pi GPIO header (uart_device.h: UART 0 is the ESP, UART 1 the Pi).
 /// jnext does not emulate the Pi; it hands the wire to the host, where a real
 /// NextPi — on real hardware or under QEMU — or any serial program can answer.

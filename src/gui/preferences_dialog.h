@@ -59,7 +59,7 @@ private:
     QWidget* build_input_tab();
     QWidget* build_audio_tab();
     QWidget* build_network_tab();
-    QWidget* build_pizero_tab();
+    QWidget* build_nextpi_tab();
     QWidget* build_paths_tab();
 #ifdef ENABLE_DEBUGGER
     QWidget* build_debug_keys_tab(const std::vector<jnext::dbgkeys::LoadIssue>& key_issues);
@@ -95,12 +95,12 @@ private:
     QCheckBox*      esp_enabled_check_ = nullptr;   // GH #25
     QPlainTextEdit* esp_hosts_edit_    = nullptr;
 
-    // The Pi Zero tab: one control per AppConfigData::pizero_* field.
-    QCheckBox* pizero_enabled_check_  = nullptr;
-    QLineEdit* pizero_dir_edit_       = nullptr;
-    QComboBox* pizero_release_combo_  = nullptr;   // editable
-    QLineEdit* pizero_qemu_edit_      = nullptr;
-    QComboBox* pizero_audio_combo_    = nullptr;   // editable
+    // NextPi tab: one control per AppConfigData::nextpi_* field.
+    QCheckBox* nextpi_enabled_check_  = nullptr;
+    QLineEdit* nextpi_dir_edit_       = nullptr;
+    QComboBox* nextpi_release_combo_  = nullptr;   // editable
+    QLineEdit* nextpi_qemu_edit_      = nullptr;
+    QComboBox* nextpi_audio_combo_    = nullptr;   // editable
 
     QLineEdit* last_load_dir_edit_  = nullptr;
     QLineEdit* sd_card_path_edit_   = nullptr;

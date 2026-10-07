@@ -1390,7 +1390,7 @@ public:
     const JoyUartLink* joy_uart_link() const { return joy_uart_link_.get(); }
     JoyUartLink*       joy_uart_link()       { return joy_uart_link_.get(); }
 
-    /// The LIVE Raspberry Pi serial link on UART 1 — the Pi Zero (`--nextpi`) —
+    /// The LIVE Raspberry Pi serial link on UART 1 — NextPi (`--nextpi`) —
     /// or nullptr. Exposed so a bench can read back how much
     /// of each direction crossed the NR 0xA0 GPIO gate.
     const PiUartDevice* pi_uart() const { return pi_uart_.get(); }

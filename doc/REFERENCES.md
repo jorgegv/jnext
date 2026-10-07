@@ -48,6 +48,14 @@ is easy to get wrong and jnext did:
 | newt (GPLv3) — Chris Young's network tool; its `sntp` command is the UDP consumer GH #198 was built against (`net.c`, `sntp.c`, `uart.c`) | <https://github.com/chris-y/newt> |
 | Espressif ESP-AT command set — the authority for the UDP wire forms (`AT+CIPSTART` type/local port/mode, `AT+CIPSEND`, `+IPD`) | <https://docs.espressif.com/projects/esp-at/en/latest/AT_Command_Set/TCP-IP_AT_Commands.html> |
 
+## NextPi (the Next's Raspberry Pi software, `--nextpi`)
+
+| Reference                                                                    | URL                                                      |
+|------------------------------------------------------------------------------|----------------------------------------------------------|
+| NextPi wiki page — what it is, the Supervisor, `.pisend` and the other dot commands | <https://wiki.specnext.dev/Pi:NextPi>              |
+| NextPi release mirror — `NextPi-<release>.tar.gz` + `.md5`, the index `latest` reads (`nextpi::kMirrorUrl`) | <https://zx.xalior.com/NextPi2/> |
+| nextpi-sandbox — the QEMU `raspi0` set-up (kernel command line, USB audio) jnext's launcher follows | <https://github.com/vmorilla/nextpi-sandbox> |
+
 ## Emulators used as oracles / comparison
 
 | Reference                                                         | URL                                      |

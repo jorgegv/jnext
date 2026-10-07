@@ -130,11 +130,57 @@ std::vector<char*> c_strings(std::vector<std::string>& v) {
     return out;
 }
 
-/// Spawn `program` (PATH-searched) with `args`, stdin from /dev/null and
-/// stdout + stderr appended to `log_path`. Returns the pid, or -1 with `error`.
-int spawn(const std::string& program, const std::vector<std::string>& args,
-          const std::string& log_path, std::string& error) {
-    std::vector<std::string> argv_s{program};
+const std::string kInstallHint =
+    " not found — install QEMU (macOS: brew install qemu; Fedora: dnf install "
+    "qemu-system-arm qemu-img; Debian/Ubuntu: apt install qemu-system-arm qemu-utils)";
+
+/// `name` as an executable path: itself when it contains a '/', else the
+/// first match on $PATH. "" when there is none. Resolved here rather than by
+/// posix_spawnp because QEMU is started through /bin/sh (the watchdog below),
+/// where a missing program would only show as an exit status.
+std::string find_program(const std::string& name) {
+    std::error_code ec;
+    if (name.find('/') != std::string::npos)
+        return (::access(name.c_str(), X_OK) == 0 && !fs::is_directory(name, ec)) ? name : "";
+    const char* env = std::getenv("PATH");
+    const std::string path = (env && *env) ? env : "/usr/bin:/bin";
+    std::size_t start = 0;
+    for (;;) {
+        const std::size_t end = path.find(':', start);
+        std::string dir = path.substr(start, end == std::string::npos ? std::string::npos : end - start);
+        if (dir.empty()) dir = ".";
+        const std::string candidate = dir + "/" + name;
+        if (::access(candidate.c_str(), X_OK) == 0 && !fs::is_directory(candidate, ec)) return candidate;
+        if (end == std::string::npos) return "";
+        start = end + 1;
+    }
+}
+
+/// THE WATCHDOG. QEMU runs under this /bin/sh script, whose fd 3 is the read
+/// end of a pipe only jnext holds the write end of. When jnext goes away —
+/// however it goes, SIGKILL included — the kernel closes that end, `read` sees
+/// EOF, and QEMU is sent SIGTERM; without this a killed jnext would leave QEMU
+/// running and holding the overlay's lock, and the next start would fail.
+/// QEMU itself gets fd 3 closed. The script waits for QEMU and exits with its
+/// status, so the reaper still learns when QEMU dies on its own.
+constexpr const char* kWatchdog =
+    "\"$@\" 3<&- &\n"
+    "q=$!\n"
+    "( read _ <&3; kill -TERM \"$q\" 2>/dev/null ) &\n"
+    "w=$!\n"
+    "exec 3<&-\n"
+    "wait \"$q\"; s=$?\n"
+    "kill \"$w\" 2>/dev/null\n"
+    "exit \"$s\"\n";
+
+/// Spawn the executable at `path` with `args`: stdin from /dev/null, stdout +
+/// stderr appended to `log_path`, `watchdog_fd` (when >= 0) as its fd 3, and
+/// NOTHING ELSE of jnext's — not the SD image, not the FIFOs, not a socket.
+/// `own_group` puts it in a process group of its own, so a SIGKILL can reach
+/// everything it started. Returns the pid, or -1 with `error`.
+int spawn(const std::string& path, const std::vector<std::string>& args, const std::string& log_path,
+          int watchdog_fd, bool own_group, std::string& error) {
+    std::vector<std::string> argv_s{path};
     argv_s.insert(argv_s.end(), args.begin(), args.end());
     std::vector<std::string> env_s = child_environment();
     std::vector<char*> argv = c_strings(argv_s);
@@ -146,25 +192,38 @@ int spawn(const std::string& program, const std::vector<std::string>& args,
     posix_spawn_file_actions_addopen(&actions, 1, log_path.c_str(),
                                      O_WRONLY | O_CREAT | O_APPEND, 0644);
     posix_spawn_file_actions_adddup2(&actions, 1, 2);
+    if (watchdog_fd >= 0) posix_spawn_file_actions_adddup2(&actions, watchdog_fd, 3);
 
     posix_spawnattr_t attr;
     posix_spawnattr_init(&attr);
-#ifdef POSIX_SPAWN_CLOEXEC_DEFAULT
-    // macOS: hand QEMU only the three descriptors above, not the SD image or
-    // anything else jnext has open.
-    posix_spawnattr_setflags(&attr, POSIX_SPAWN_CLOEXEC_DEFAULT);
+    short flags = 0;
+    if (own_group) {
+        flags |= POSIX_SPAWN_SETPGROUP;
+        posix_spawnattr_setpgroup(&attr, 0);
+    }
+#if defined(POSIX_SPAWN_CLOEXEC_DEFAULT)
+    // macOS: only the descriptors the file actions above set up survive.
+    flags |= POSIX_SPAWN_CLOEXEC_DEFAULT;
+#elif defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 34))
+    // glibc 2.34+: close everything past the ones set up above.
+    posix_spawn_file_actions_addclosefrom_np(&actions, watchdog_fd >= 0 ? 4 : 3);
+#else
+    // Elsewhere: mark every other descriptor close-on-exec in the parent. That
+    // only affects exec, which jnext does nowhere else that needs them.
+    for (int fd = 3, max = static_cast<int>(::sysconf(_SC_OPEN_MAX)); fd < max; ++fd) {
+        if (fd == watchdog_fd) continue;
+        const int f = ::fcntl(fd, F_GETFD);
+        if (f >= 0) ::fcntl(fd, F_SETFD, f | FD_CLOEXEC);
+    }
 #endif
+    posix_spawnattr_setflags(&attr, flags);
 
     pid_t pid = -1;
-    const int rc = ::posix_spawnp(&pid, program.c_str(), &actions, &attr, argv.data(), envp.data());
+    const int rc = ::posix_spawn(&pid, path.c_str(), &actions, &attr, argv.data(), envp.data());
     posix_spawnattr_destroy(&attr);
     posix_spawn_file_actions_destroy(&actions);
     if (rc != 0) {
-        error = (rc == ENOENT)
-                    ? program + " not found — install QEMU (macOS: brew install qemu; "
-                                "Fedora: dnf install qemu-system-arm; Debian/Ubuntu: apt "
-                                "install qemu-system-arm)"
-                    : program + ": " + std::strerror(rc);
+        error = path + ": " + std::strerror(rc);
         return -1;
     }
     return pid;
@@ -186,61 +245,79 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
         return false;
     }
     if (!check_dir(spec.dir, error)) return false;
+    const std::string qemu = find_program(spec.qemu_binary);
+    if (qemu.empty()) {
+        error = spec.qemu_binary + kInstallHint;
+        return false;
+    }
+    stop_grace_ms_ = spec.stop_grace_ms;
 
     const fs::path dir(spec.dir);
     const std::string log_path = (dir / "qemu.log").string();
-    {
-        // A fresh log per run, so it describes this run only.
-        std::error_code ec;
-        fs::remove(log_path, ec);
-    }
+    std::error_code ec;
+    fs::remove(log_path, ec);   // a fresh log per run, so it describes this run only
+
+    // Anything this call creates and then fails after is undone, except the
+    // log: the error message points the user at it.
+    const fs::path overlay = dir / "overlay.qcow2";
+    bool created_overlay = false;
+    auto fail = [&](const std::string& why) {
+        error = why;
+        stopping_ = true;
+        stop();
+        if (created_overlay) fs::remove(overlay, ec);
+        return false;
+    };
 
     // The overlay: all of NextPi's writes go here, never to the release image.
     // The backing path is relative to the overlay, so the directory can move.
-    const fs::path overlay = dir / "overlay.qcow2";
-    std::error_code ec;
     if (!fs::exists(overlay, ec)) {
-        std::string qemu_img = "qemu-img";
-        if (spec.qemu_binary.find('/') != std::string::npos) {
-            const fs::path sibling = fs::path(spec.qemu_binary).parent_path() / "qemu-img";
-            if (fs::exists(sibling, ec)) qemu_img = sibling.string();
-        }
+        std::string qemu_img = (fs::path(qemu).parent_path() / "qemu-img").string();
+        if (::access(qemu_img.c_str(), X_OK) != 0) qemu_img = find_program("qemu-img");
+        if (qemu_img.empty()) return fail("qemu-img" + kInstallHint);
+        std::string spawn_error;
         const int img_pid = spawn(qemu_img,
                                   {"create", "-q", "-f", "qcow2", "-b", "nextpi.img", "-F", "raw",
                                    overlay.string(), "16G"},
-                                  log_path, error);
-        if (img_pid < 0) return false;
+                                  log_path, -1, false, spawn_error);
+        if (img_pid < 0) return fail(spawn_error);
         int status = 0;
         while (::waitpid(img_pid, &status, 0) < 0 && errno == EINTR) {}
-        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-            error = qemu_img + " could not create " + overlay.string() + " (" +
-                    describe_status(status) + "); see " + log_path;
-            return false;
-        }
+        created_overlay = fs::exists(overlay, ec);
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+            return fail(qemu_img + " could not create " + overlay.string() + " (" +
+                        describe_status(status) + "); see " + log_path);
     }
 
     // The FIFOs live in a private directory of their own: QEMU's `pipe` chardev
     // opens `<base>.in` (it reads: Next → Pi) and `<base>.out` (it writes).
     std::string tmpl = (fs::temp_directory_path() / "jnext-pi-XXXXXX").string();
-    if (::mkdtemp(tmpl.data()) == nullptr) {
-        error = std::string("mkdtemp: ") + std::strerror(errno);
-        return false;
-    }
+    if (::mkdtemp(tmpl.data()) == nullptr) return fail(std::string("mkdtemp: ") + std::strerror(errno));
     runtime_dir_ = tmpl;
     const std::string base = (fs::path(runtime_dir_) / "uart").string();
     tx_path_ = base + ".in";
     rx_path_ = base + ".out";
-    if (::mkfifo(tx_path_.c_str(), 0600) != 0 || ::mkfifo(rx_path_.c_str(), 0600) != 0) {
-        error = std::string("mkfifo: ") + std::strerror(errno);
-        stop();
-        return false;
-    }
+    if (::mkfifo(tx_path_.c_str(), 0600) != 0 || ::mkfifo(rx_path_.c_str(), 0600) != 0)
+        return fail(std::string("mkfifo: ") + std::strerror(errno));
 
-    pid_ = spawn(spec.qemu_binary, build_args(spec, base), log_path, error);
-    if (pid_ < 0) {
-        stop();
-        return false;
-    }
+    // The watchdog pipe. Both ends close-on-exec in jnext, so no other child
+    // (ffmpeg, a second QEMU) can hold the write end open and defeat it; the
+    // read end is moved above fd 3 so the dup2 onto 3 always clears that flag.
+    int fds[2];
+    if (::pipe(fds) != 0) return fail(std::string("pipe: ") + std::strerror(errno));
+    const int rd = ::fcntl(fds[0], F_DUPFD_CLOEXEC, 10);
+    ::close(fds[0]);
+    ::fcntl(fds[1], F_SETFD, FD_CLOEXEC);
+    watchdog_fd_ = fds[1];
+    if (rd < 0) return fail(std::string("fcntl: ") + std::strerror(errno));
+
+    std::vector<std::string> sh_args{"-c", kWatchdog, "jnext-nextpi", qemu};
+    const std::vector<std::string> qemu_args = build_args(spec, base);
+    sh_args.insert(sh_args.end(), qemu_args.begin(), qemu_args.end());
+    std::string spawn_error;
+    pid_ = spawn("/bin/sh", sh_args, log_path, rd, true, spawn_error);
+    ::close(rd);
+    if (pid_ < 0) return fail(spawn_error);
 
     exited_   = false;
     stopping_ = false;
@@ -260,12 +337,7 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
     // here, as a startup failure, rather than as a Pi that never answers.
     for (int i = 0; i < 6 && !exited_; ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    if (exited_) {
-        error = spec.qemu_binary + " exited at once; see " + log_path;
-        stopping_ = true;
-        stop();
-        return false;
-    }
+    if (exited_) return fail(spec.qemu_binary + " exited at once; see " + log_path);
 
     Log::uart()->info("NextPi: QEMU raspi0 started (pid {}) from {}; log {}", pid_, spec.dir,
                       log_path);
@@ -274,13 +346,18 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
 
 void PiQemu::stop() {
     stopping_ = true;
+    // Closing the watchdog pipe IS the stop request: the watchdog sends QEMU
+    // SIGTERM, exactly as when jnext dies.
+    if (watchdog_fd_ >= 0) {
+        ::close(watchdog_fd_);
+        watchdog_fd_ = -1;
+    }
     if (pid_ > 0) {
-        if (!exited_) {
-            ::kill(pid_, SIGTERM);
-            for (int i = 0; i < 60 && !exited_; ++i)
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            if (!exited_) ::kill(pid_, SIGKILL);
-        }
+        for (int waited = 0; waited < stop_grace_ms_ && !exited_; waited += 10)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        // A QEMU that ignores SIGTERM: kill its whole process group — QEMU, the
+        // watchdog shell and its subshell together.
+        if (!exited_) ::kill(-pid_, SIGKILL);
         if (reaper_.joinable()) reaper_.join();
         pid_ = -1;
     }

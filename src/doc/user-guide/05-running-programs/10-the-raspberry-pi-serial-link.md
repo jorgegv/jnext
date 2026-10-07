@@ -1,9 +1,10 @@
-# 5.10 The Pi Zero
+# 5.10 NextPi on the Raspberry Pi
 
-A ZX Spectrum Next can carry a **Raspberry Pi Zero** on its GPIO header, running
-**NextPi**. The Next talks to it over its second UART, and NextZXOS comes with
-the tools that use it: `.pisend`, `.piget`, `.piput`, the NextPi UI, and
-programs that hand speech, music and tape streaming to the Pi.
+**NextPi** is the software that runs on the Raspberry Pi of the Spectrum Next,
+the small computer on its GPIO header. The Next talks to it over its second
+UART, and NextZXOS comes with the tools that use it: `.pisend`, `.piget`,
+`.piput`, the NextPi UI, and programs that hand speech, music and tape
+streaming to the Pi.
 
 JNEXT does not emulate the Pi. It does the next best thing: it runs a real
 NextPi under **QEMU** and connects it to the Next's UART, so those tools talk to
@@ -13,16 +14,16 @@ the genuine article.
 
 You need **QEMU** installed — on macOS `brew install qemu`; on Fedora
 `sudo dnf install qemu-system-arm qemu-img`; on Debian or Ubuntu
-`sudo apt install qemu-system-arm qemu-utils`. Then either tick **Start the Pi
-Zero** under **Settings ▸ Preferences ▸ Pi Zero** and restart JNEXT, or start it
-for one run with:
+`sudo apt install qemu-system-arm qemu-utils`. Then either tick **Start
+NextPi** under **Settings ▸ Preferences ▸ NextPi** and restart JNEXT, or start
+it for one run with:
 
 ```
 jnext --nextpi
 ```
 
 The first time, JNEXT offers to download NextPi, the way it offers to download
-the SD card image: about 6 GB, with a progress bar, into `~/.jnext/pizero`. It
+the SD card image: about 6 GB, with a progress bar, into `~/.jnext/nextpi`. It
 needs about 22 GB free while the image is unpacked, and about 15 GB afterwards.
 Every later start skips all of that.
 
@@ -42,14 +43,14 @@ soft or hard reset of the Next leaves the Pi running, as it would on the real
 machine. `--no-nextpi` leaves the Pi off for one run even when the preference
 is ticked.
 
-## The Pi Zero settings
+## The NextPi settings
 
 Everything except the on/off tick has a sensible default, and an empty field in
 the Preferences tab means that default:
 
 | Setting | Default | What it is |
 |---|---|---|
-| NextPi directory | `~/.jnext/pizero` | where the download goes and NextPi runs from |
+| NextPi directory | `~/.jnext/nextpi` | where the download goes and NextPi runs from |
 | NextPi release | `1_93D` | a release name on the NextPi mirror, or `latest` for the newest one there |
 | QEMU | `qemu-system-arm` on your `PATH` | the QEMU to run; `qemu-img` is expected beside it |
 | Pi audio | your speakers | a QEMU audio driver, `none` to mute it, or `wav:FILE` to record it |

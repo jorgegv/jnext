@@ -4,7 +4,7 @@
 #include "gui/shortcut_capture_button.h"
 #endif
 
-#include "core/pizero_provisioner.h"
+#include "core/nextpi_provisioner.h"
 #include "peripheral/esp_host_policy.h"
 
 #include <QComboBox>
@@ -42,7 +42,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     tabs->addTab(build_input_tab(), tr("Input"));
     tabs->addTab(build_audio_tab(), tr("Audio"));
     tabs->addTab(build_network_tab(), tr("Network"));
-    tabs->addTab(build_pizero_tab(), tr("Pi Zero"));
+    tabs->addTab(build_nextpi_tab(), tr("NextPi"));
     tabs->addTab(build_paths_tab(), tr("Paths"));
 #ifdef ENABLE_DEBUGGER
     tabs->addTab(build_debug_keys_tab(key_issues), tr("Debugger Keys"));
@@ -83,11 +83,11 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
         esp_hosts_edit_->setPlainText(hosts.join(QLatin1Char('\n')));
     }
     esp_hosts_edit_->setEnabled(current.esp_enabled);
-    pizero_enabled_check_->setChecked(current.pizero_enabled);
-    pizero_dir_edit_->setText(current.pizero_dir);
-    pizero_release_combo_->setEditText(current.pizero_release);
-    pizero_qemu_edit_->setText(current.pizero_qemu_binary);
-    pizero_audio_combo_->setEditText(current.pizero_audio);
+    nextpi_enabled_check_->setChecked(current.nextpi_enabled);
+    nextpi_dir_edit_->setText(current.nextpi_dir);
+    nextpi_release_combo_->setEditText(current.nextpi_release);
+    nextpi_qemu_edit_->setText(current.nextpi_qemu_binary);
+    nextpi_audio_combo_->setEditText(current.nextpi_audio);
     last_load_dir_edit_->setText(current.last_load_dir);
     sd_card_path_edit_->setText(current.sd_card_path);
     screenshot_dir_edit_->setText(current.screenshot_dir);
@@ -316,20 +316,20 @@ QWidget* PreferencesDialog::build_network_tab() {
     return tab;
 }
 
-QWidget* PreferencesDialog::build_pizero_tab() {
+QWidget* PreferencesDialog::build_nextpi_tab() {
     // The persistent form of --nextpi, plus the settings that have no CLI
     // form at all (jnext gives a feature one enabler and defaults the rest).
     // An empty field means the default shown as its placeholder.
     auto* tab = new QWidget(this);
     auto* form = new QFormLayout(tab);
 
-    pizero_enabled_check_ = new QCheckBox(tr("Start the Pi Zero (NextPi under QEMU) with jnext"), tab);
-    pizero_enabled_check_->setObjectName(QStringLiteral("pizeroEnabledCheck"));
-    pizero_enabled_check_->setToolTip(
+    nextpi_enabled_check_ = new QCheckBox(tr("Start NextPi (under QEMU) with jnext"), tab);
+    nextpi_enabled_check_->setObjectName(QStringLiteral("nextpiEnabledCheck"));
+    nextpi_enabled_check_->setToolTip(
         tr("Boots NextPi under QEMU and connects it to UART 1, the Pi GPIO "
            "header's UART, so NextZXOS's Pi tools (.pisend, the NextPi UI) "
            "talk to it. Needs QEMU installed. Off by default."));
-    form->addRow(QString(), pizero_enabled_check_);
+    form->addRow(QString(), nextpi_enabled_check_);
 
     auto path_row = [&](QLineEdit*& edit, const QString& object_name, const QString& placeholder,
                         bool directory) {
@@ -356,54 +356,54 @@ QWidget* PreferencesDialog::build_pizero_tab() {
     };
 
     form->addRow(tr("NextPi directory:"),
-                 path_row(pizero_dir_edit_, QStringLiteral("pizeroDirEdit"),
-                          QString::fromStdString(pizero::default_dir()), true));
+                 path_row(nextpi_dir_edit_, QStringLiteral("nextpiDirEdit"),
+                          QString::fromStdString(nextpi::default_dir()), true));
 
-    pizero_release_combo_ = new QComboBox(tab);
-    pizero_release_combo_->setObjectName(QStringLiteral("pizeroReleaseCombo"));
-    pizero_release_combo_->setEditable(true);
-    pizero_release_combo_->addItems({QString(), QString::fromLatin1(pizero::kDefaultRelease),
-                                     QString::fromLatin1(pizero::kLatest)});
-    pizero_release_combo_->lineEdit()->setPlaceholderText(
-        tr("%1 (default)").arg(QString::fromLatin1(pizero::kDefaultRelease)));
-    pizero_release_combo_->setToolTip(
+    nextpi_release_combo_ = new QComboBox(tab);
+    nextpi_release_combo_->setObjectName(QStringLiteral("nextpiReleaseCombo"));
+    nextpi_release_combo_->setEditable(true);
+    nextpi_release_combo_->addItems({QString(), QString::fromLatin1(nextpi::kDefaultRelease),
+                                     QString::fromLatin1(nextpi::kLatest)});
+    nextpi_release_combo_->lineEdit()->setPlaceholderText(
+        tr("%1 (default)").arg(QString::fromLatin1(nextpi::kDefaultRelease)));
+    nextpi_release_combo_->setToolTip(
         tr("The NextPi release to download on first use: a release name from "
            "the mirror, or \"latest\" for the newest one listed there."));
-    form->addRow(tr("NextPi release:"), pizero_release_combo_);
+    form->addRow(tr("NextPi release:"), nextpi_release_combo_);
 
     form->addRow(tr("QEMU:"),
-                 path_row(pizero_qemu_edit_, QStringLiteral("pizeroQemuEdit"),
+                 path_row(nextpi_qemu_edit_, QStringLiteral("nextpiQemuEdit"),
                           tr("qemu-system-arm (from PATH)"), false));
 
-    pizero_audio_combo_ = new QComboBox(tab);
-    pizero_audio_combo_->setObjectName(QStringLiteral("pizeroAudioCombo"));
-    pizero_audio_combo_->setEditable(true);
-    pizero_audio_combo_->addItems({QString(), QStringLiteral("none"), QStringLiteral("coreaudio"),
+    nextpi_audio_combo_ = new QComboBox(tab);
+    nextpi_audio_combo_->setObjectName(QStringLiteral("nextpiAudioCombo"));
+    nextpi_audio_combo_->setEditable(true);
+    nextpi_audio_combo_->addItems({QString(), QStringLiteral("none"), QStringLiteral("coreaudio"),
                                    QStringLiteral("pa"), QStringLiteral("pipewire"),
                                    QStringLiteral("alsa"), QStringLiteral("sdl")});
-    pizero_audio_combo_->lineEdit()->setPlaceholderText(
+    nextpi_audio_combo_->lineEdit()->setPlaceholderText(
 #ifdef __APPLE__
         tr("coreaudio (default)"));
 #else
         tr("pa (default)"));
 #endif
-    pizero_audio_combo_->setToolTip(
+    nextpi_audio_combo_->setToolTip(
         tr("Where the Pi's sound goes: a QEMU audio driver, \"none\" to mute "
            "it, or wav:FILE to record it."));
-    form->addRow(tr("Pi audio:"), pizero_audio_combo_);
+    form->addRow(tr("Pi audio:"), nextpi_audio_combo_);
 
     // Every other control follows the enable tick, so a disabled Pi does not
     // look half-configured.
-    for (QWidget* w : {static_cast<QWidget*>(pizero_dir_edit_->parentWidget()),
-                       static_cast<QWidget*>(pizero_release_combo_),
-                       static_cast<QWidget*>(pizero_qemu_edit_->parentWidget()),
-                       static_cast<QWidget*>(pizero_audio_combo_)}) {
-        connect(pizero_enabled_check_, &QCheckBox::toggled, w, &QWidget::setEnabled);
+    for (QWidget* w : {static_cast<QWidget*>(nextpi_dir_edit_->parentWidget()),
+                       static_cast<QWidget*>(nextpi_release_combo_),
+                       static_cast<QWidget*>(nextpi_qemu_edit_->parentWidget()),
+                       static_cast<QWidget*>(nextpi_audio_combo_)}) {
+        connect(nextpi_enabled_check_, &QCheckBox::toggled, w, &QWidget::setEnabled);
         w->setEnabled(false);   // the constructor's fill toggles it on
     }
 
     auto* note = new QLabel(
-        tr("The first time the Pi Zero starts, jnext offers to download NextPi "
+        tr("The first time NextPi starts, jnext offers to download NextPi "
            "(about 6 GB; about 22 GB free needed while it is unpacked) into the "
            "directory above, as it does for the SD card image.\n\n"
            "These settings are not applied to the machine that is already "
@@ -500,11 +500,11 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.joy_source[0] = static_cast<JoySource>(joy1_source_combo_->currentData().toInt());
     cfg.joy_source[1] = static_cast<JoySource>(joy2_source_combo_->currentData().toInt());
     cfg.esp_enabled = esp_enabled_check_->isChecked();
-    cfg.pizero_enabled     = pizero_enabled_check_->isChecked();
-    cfg.pizero_dir         = pizero_dir_edit_->text().trimmed();
-    cfg.pizero_release     = pizero_release_combo_->currentText().trimmed();
-    cfg.pizero_qemu_binary = pizero_qemu_edit_->text().trimmed();
-    cfg.pizero_audio       = pizero_audio_combo_->currentText().trimmed();
+    cfg.nextpi_enabled     = nextpi_enabled_check_->isChecked();
+    cfg.nextpi_dir         = nextpi_dir_edit_->text().trimmed();
+    cfg.nextpi_release     = nextpi_release_combo_->currentText().trimmed();
+    cfg.nextpi_qemu_binary = nextpi_qemu_edit_->text().trimmed();
+    cfg.nextpi_audio       = nextpi_audio_combo_->currentText().trimmed();
     {
         // Through EspHostPolicy::add, exactly as AppConfig::load() and the CLI
         // do: blanks (every stray newline in a text box is one) dropped,

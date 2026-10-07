@@ -69,17 +69,17 @@ struct AppConfigData {
     bool        esp_enabled            = false;
     std::vector<std::string> esp_allowed_hosts;   // empty = any host
 
-    // The Pi Zero — NextPi under QEMU on UART 1 (`--nextpi`, core/pi_qemu.h).
+    // NextPi under QEMU on UART 1 (`--nextpi`, core/pi_qemu.h).
     // Off by default: enabling it downloads ~6 GB on first use. Persisted in
-    // the `[pizero]` section and edited under Settings > Preferences > Pi Zero
+    // the `[nextpi]` section and edited under Settings > Preferences > NextPi
     // (every field here needs a control there — see the ESP note above).
     // `--nextpi` / `--no-nextpi` override `enabled` for one run; the others
     // have no CLI form, and an empty string means the built-in default.
-    bool        pizero_enabled         = false;
-    QString     pizero_dir;            // "" = <config-dir>/pizero
-    QString     pizero_release;        // "" = pizero::kDefaultRelease; or "latest"
-    QString     pizero_qemu_binary;    // "" = qemu-system-arm on PATH
-    QString     pizero_audio;          // "" = platform default; a driver, "none" or "wav:FILE"
+    bool        nextpi_enabled         = false;
+    QString     nextpi_dir;            // "" = <config-dir>/nextpi
+    QString     nextpi_release;        // "" = nextpi::kDefaultRelease; or "latest"
+    QString     nextpi_qemu_binary;    // "" = qemu-system-arm on PATH
+    QString     nextpi_audio;          // "" = platform default; a driver, "none" or "wav:FILE"
 
     // --- Paths (remembered across sessions) ---
     QString last_load_dir;    // seeds "Load Program..." / "Open Tape File..."

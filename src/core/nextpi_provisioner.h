@@ -7,8 +7,8 @@
 
 #include "core/sdcard_provisioner.h"   // DownloadFn / ConfirmFn / ProgressFn / BusyFn
 
-/// The Pi Zero's NextPi directory, prepared on first use (`--nextpi`).
-/// Design: doc/design/PIZERO-DESIGN.md §3.6.
+/// The NextPi directory, prepared on first use (`--nextpi`).
+/// Design: doc/design/NEXTPI-DESIGN.md §3.6.
 ///
 /// `PiQemu` boots NextPi from a directory holding the release's SD-card image
 /// and the kernel and device tree QEMU loads directly. This module makes that
@@ -18,7 +18,7 @@
 /// and copies `kernel.img` and `bcm2708-rpi-zero.dtb` out of the image's FAT32
 /// boot partition. Every later run finds it ready and touches no network.
 ///
-/// THE DIRECTORY (default `<config-dir>/pizero`, next to `<config-dir>/sdcard`):
+/// THE DIRECTORY (default `<config-dir>/nextpi`, next to `<config-dir>/sdcard`):
 ///   nextpi.img                    the release's SD-card image, never written
 ///   boot/kernel.img               copied out of the image's boot partition
 ///   boot/bcm2708-rpi-zero.dtb     ditto
@@ -36,13 +36,18 @@
 /// used, with a warning.
 ///
 /// POSIX ONLY, like the Pi link itself (`provision` refuses on Windows).
-namespace pizero {
+namespace nextpi {
 
 extern const char* const kDefaultRelease;   // "1_93D"
 extern const char* const kLatest;           // "latest"
-extern const char* const kMirrorUrl;        // "https://zx.xalior.com/NextPi2"
+extern const char* const kMirrorUrl;        // the NextPi release mirror (doc/REFERENCES.md)
 
-/// <config-dir>/pizero — $JNEXT_CONFIG_DIR when set, else $HOME/.jnext, as for
+/// True for a name the mirror could use for a release: 1..64 of letters,
+/// digits, '.', '_' and '-', not starting with '.' or '-'. The release name
+/// goes into a file name and a URL, so nothing else is accepted. Pure.
+bool valid_release_name(const std::string& name);
+
+/// <config-dir>/nextpi — $JNEXT_CONFIG_DIR when set, else $HOME/.jnext, as for
 /// the SD image.
 std::string default_dir();
 
@@ -84,7 +89,7 @@ bool cli_busy(const std::string& phase, const std::function<bool()>& work);
 struct ProvisionOptions {
     std::string dir;                      ///< "" → default_dir()
     std::string release;                  ///< "" → kDefaultRelease; or "latest"
-    std::string mirror;                   ///< "" → $JNEXT_PIZERO_MIRROR, else kMirrorUrl
+    std::string mirror;                   ///< "" → $JNEXT_NEXTPI_MIRROR, else kMirrorUrl
     sdcard::DownloadFn download;          ///< defaults to sdcard::default_http_download
     sdcard::ConfirmFn  confirm;           ///< defaults to sdcard::cli_confirm
     sdcard::ProgressFn progress;          ///< download progress (may be empty)
@@ -101,8 +106,23 @@ struct ProvisionResult {
     std::string warning;    ///< Ok, but worth saying (e.g. "latest" unreachable)
 };
 
+/// What jnext does once it has tried to start NextPi (main.cpp):
+enum class StartOutcome {
+    Started,          ///< it is running
+    Declined,         ///< the user said no to the download: start without it, quietly
+    WarnAndContinue,  ///< it failed, but was only enabled in Preferences: say so, start without it
+    Exit,             ///< it failed, and --nextpi asked for it: an error, like any unusable option
+};
+
+/// The policy behind StartOutcome. `asked_on_cli` is "--nextpi was given";
+/// `provisioned` is the provisioner's verdict; `started` is whether QEMU runs.
+/// Declining is a choice, not a failure — the download dialog promises only
+/// that NextPi is not started — and a preference must never stop jnext from
+/// starting, so a broken QEMU cannot lock anyone out. Pure.
+StartOutcome start_outcome(bool asked_on_cli, sdcard::ProvisionStatus provisioned, bool started);
+
 /// Make `opts.dir` a ready NextPi directory for `opts.release`, downloading
 /// only when it is not ready (or holds another release) and the user agrees.
 ProvisionResult provision(const ProvisionOptions& opts);
 
-} // namespace pizero
+} // namespace nextpi
