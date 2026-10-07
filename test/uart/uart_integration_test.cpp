@@ -3091,9 +3091,22 @@ EmulatorConfig pi_qemu_config(const PiQemu& qemu) {
     return cfg;
 }
 
+/// Running, as opposed to gone. A ZOMBIE counts as gone: it has exited, and
+/// only its reaping is pending. That matters when the process's parent died
+/// with it (PI-17 SIGKILLs the stand-in together with its watchdog shell): the
+/// orphan is then reaped by PID 1, and in a CI container PID 1 is often
+/// `tail -f /dev/null`, which never reaps — so kill(pid, 0) keeps succeeding.
 bool process_alive(int pid) {
 #ifndef _WIN32
-    return pid > 0 && ::kill(pid, 0) == 0;
+    if (pid <= 0 || ::kill(pid, 0) != 0) return false;
+#ifdef __linux__
+    // /proc/<pid>/stat: "pid (comm) S ..." — the state follows the LAST ')'.
+    std::ifstream f("/proc/" + std::to_string(pid) + "/stat");
+    const std::string stat((std::istreambuf_iterator<char>(f)), {});
+    const std::size_t close = stat.rfind(')');
+    if (close != std::string::npos && close + 2 < stat.size() && stat[close + 2] == 'Z') return false;
+#endif
+    return true;
 #else
     (void)pid;
     return false;
