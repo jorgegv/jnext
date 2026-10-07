@@ -375,7 +375,8 @@ Pi cannot be heard either. Host bytes are paced at UART 1’s current
 baud; a rewind or an RZX playback holds the link inert, and nothing
 about it is saved in a snapshot. A soft or hard reset leaves the Pi
 running. A Pi asked for with this option that cannot start (no QEMU, a
-declined or failed download) is an error. POSIX only.
+failed download) is an error; declining the download is not — jnext then
+starts without the Pi. POSIX only.
 
 **--no-nextpi**  
 Do not start the Pi Zero this run, overriding a saved preference that

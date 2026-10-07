@@ -1407,7 +1407,8 @@ int main(int argc, char* argv[]) {
     // A Pi asked for on the command line that cannot start is an error, like
     // any other unusable option. One that is merely enabled in Preferences is
     // not allowed to stop jnext from starting: it is reported, and the session
-    // goes on without it.
+    // goes on without it. Declining the download is neither — a choice the
+    // dialog says leads to "the Pi Zero is not started", and that is all.
     // ---------------------------------------------------------------------
     {
         bool want = pizero_enabled;
@@ -1436,7 +1437,7 @@ int main(int argc, char* argv[]) {
 #ifdef ENABLE_QT_UI
             SdcardGuiProvisioner gui_prov;   // one temporary QApplication, gone before QtApp's
             if (!headless) {
-                gui_prov.set_texts("jnext — Pi Zero", "NextPi is not installed",
+                gui_prov.set_texts("jnext — Pi Zero", "The Pi Zero needs NextPi",
                                    "jnext — Preparing NextPi", "Downloading NextPi…");
                 popts.confirm  = [&](const std::string& m) { return gui_prov.confirm(m); };
                 popts.progress = [&](uint64_t d, uint64_t t) { return gui_prov.progress(d, t); };
@@ -1458,10 +1459,14 @@ int main(int argc, char* argv[]) {
                 spec.dir = res.dir;
                 pi_qemu  = std::make_unique<PiQemu>();
                 if (!pi_qemu->start(spec, error)) pi_qemu.reset();
+            } else if (res.status == sdcard::ProvisionStatus::Declined) {
+                // Saying no to the download is a choice, not a failure: the
+                // dialog promised "the Pi Zero is not started", nothing more.
+                Log::uart()->info("Pi Zero: NextPi download declined; starting without the Pi Zero");
             } else {
                 error = res.error;
             }
-            if (!pi_qemu) {
+            if (!pi_qemu && res.status != sdcard::ProvisionStatus::Declined) {
                 report(error);
                 if (pizero_enabled_set) return 1;
             }

@@ -101,6 +101,8 @@ at once. NextPi then takes about a minute to reach `SUP>`, after which:
 - **A Pi asked for with `--nextpi` that cannot start is an error; one enabled in
   Preferences is not.** The second is reported in a dialog and jnext starts
   without it, so a broken QEMU install cannot lock a user out of jnext.
+  Declining the first-use download is neither: it is the user's choice, and
+  jnext starts without the Pi either way.
 - **Not in this PR:** a live start/stop from the running GUI, a progress bar for
   the unpack (it is a busy indicator; the download has the bar), and Windows
   (FIFOs, §3.7). The earlier manual-wiring flags (`--pi-uart-fifo`,

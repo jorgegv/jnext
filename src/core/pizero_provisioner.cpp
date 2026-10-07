@@ -88,6 +88,18 @@ std::size_t gz_read_full(gzFile gz, void* buf, std::size_t n) {
     return got;
 }
 
+/// `path` with the home directory written as "~", for messages.
+std::string display_path(const std::string& path) {
+    const char* home = std::getenv("HOME");
+    if (home && *home) {
+        const std::string h(home);
+        if (path == h) return "~";
+        if (path.size() > h.size() && path.compare(0, h.size(), h) == 0 && path[h.size()] == '/')
+            return "~" + path.substr(h.size());
+    }
+    return path;
+}
+
 std::string mirror_of(const ProvisionOptions& opts) {
     if (!opts.mirror.empty()) return opts.mirror;
     const char* env = std::getenv("JNEXT_PIZERO_MIRROR");   // test seam, like JNEXT_SDCARD_DISTRO_URL
@@ -414,16 +426,29 @@ ProvisionResult provision(const ProvisionOptions& opts) {
     }
 
     const std::string archive_name = "NextPi-" + target + ".tar.gz";
+    // The same text is the GUI dialog's body and the terminal prompt (which
+    // appends " [y/N]"), so: the question LAST, no line breaks inside a
+    // sentence (the dialog wraps by itself), the path alone on its line, and
+    // what each answer leads to said before it is asked.
     std::ostringstream msg;
     if (current.empty()) {
-        msg << "The Pi Zero needs NextPi " << target << ", which is not installed yet.\n\n"
-            << "Download it now from " << mirror << "?\n"
-            << "It is about 6 GB, and needs about 22 GB of free space in\n" << dir
-            << " while it is unpacked (about 15 GB afterwards).";
+        msg << "The Pi Zero runs NextPi, the Raspberry Pi software of the Next's Pi "
+               "accelerator, and it is not installed yet.\n\n"
+            << "jnext can download it now (NextPi " << target << ", about 6 GB) into:\n"
+            << display_path(dir) << "\n\n"
+            << "This happens only once. About 22 GB of free space is needed there while "
+               "it is unpacked; it uses about 15 GB afterwards.\n\n"
+            << "If you choose No, the Pi Zero is not started. To stop being asked, turn it "
+               "off in Settings > Preferences > Pi Zero.\n\n"
+            << "Download NextPi now?";
     } else {
-        msg << "The Pi Zero is set to NextPi " << target << ", but " << dir << " holds "
-            << current << ".\n\nDownload NextPi " << target << " (about 6 GB) and replace it?\n"
-            << "The changes NextPi made to its card (overlay.qcow2) are discarded.";
+        msg << "The Pi Zero is set to use NextPi " << target << ", but NextPi " << current
+            << " is installed in:\n"
+            << display_path(dir) << "\n\n"
+            << "jnext can download NextPi " << target << " now (about 6 GB) and replace it. "
+               "Anything NextPi " << current << " saved to its own card is lost.\n\n"
+            << "If you choose No, the Pi Zero keeps using NextPi " << current << ".\n\n"
+            << "Download NextPi " << target << " now?";
     }
     if (!confirm(msg.str())) {
         if (!current.empty()) {
