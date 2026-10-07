@@ -21,8 +21,9 @@ requirements plus the ones for its type.
    manual approval from the JNEXT owner.
 6. **One feature or bugfix per PR.** A PR is about a single feature or a
    single bugfix. Unrelated changes go in their own PRs, one per feature or
-   bugfix, never bundled into this one. A PR with apparently unrelated
-   contents is rejected and the author is asked to split it.
+   bugfix, never bundled into this one. Related bugfixes (e.g. the same
+   defect in sibling code paths) may share one PR. A PR with apparently
+   unrelated contents is rejected and the author is asked to split it.
 
 ## Bugfix PR
 
@@ -71,7 +72,7 @@ Template (drop the flow that does not apply):
 - [ ] Fixtures license-clean (GPLv3-compatible, nothing proprietary)
 - [ ] Code quality / style consistent with the project
 - [ ] No new dependencies (or: owner-approved)
-- [ ] A single feature or bugfix; nothing unrelated in this PR
+- [ ] A single feature or bugfix (or related bugfixes); nothing unrelated in this PR
 
 **Bugfix PR**
 - [ ] Bug description complete (all bug-template fields), or a linked bug issue

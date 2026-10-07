@@ -50,7 +50,8 @@ Every pull request, whatever it does, must satisfy the common requirements:
   from the owner.
 - **One feature or bugfix per pull request.** Keep it to a single change, and
   open a separate pull request for each further feature or bugfix rather than
-  adding unrelated work to this one. A pull request whose contents look
+  adding unrelated work to this one. Bugfixes that are related to each other
+  can go together in one pull request. A pull request whose contents look
   unrelated to each other is rejected, with a request to split it.
 
 Beyond those, a pull request follows one of two flows depending on what it is.
