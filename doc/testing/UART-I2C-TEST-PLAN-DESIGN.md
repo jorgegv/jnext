@@ -487,6 +487,37 @@ byte time to the edge.
 | UART-RD-GH265-01 | byte written at edge 0 outside (ends on 2431); IN A,(C) of 0x133B starting at 2400 / 2300 | TX empty (bit 4) set / clear (pre-fix clear / clear) |
 | UART-WR-GH265-01 | OUT (C),A to 0x133B starting at 5000 (taken on 5073, byte ends 7504); status IN loading at 7470 / 7600 | bit 4 clear / set (pre-fix set at 7470) |
 
+### Group 17: the Pi Zero — NextPi on UART 1 (`--pizero`)
+
+The wire on the Pi GPIO header handed to the host as a `UartDevice` on UART 1
+(design: `doc/design/PIZERO-DESIGN.md`). The Pi's pins reach UART 1 only
+through the NR 0xA0 GPIO mux (`zxnext.vhd:2278-2281`): bits 5 and 4 together
+put UART 1 on GPIO 14/15 wired for a Pi, the value NextPi's `.pisend` writes
+(0x30). Rows live in `test/uart/uart_integration_test.cpp` (group PI).
+PI-01..05 drive the link over real FIFOs, like the JOY rows; each fails (does
+not crash) when no link is attached, so removing `setup_pi_uart()` from `init()`
+turns all five red, and removing the NR 0xA0 probe turns PI-02 red. PI-06..09
+run `PiQemu` against a shell-script stand-in for QEMU; PI-10..14 run the NextPi
+provisioner offline against a fake mirror whose archive the test builds. None
+needs QEMU, a network or a NextPi image.
+
+| ID | Test | Expected |
+|----|------|----------|
+| PI-01 | NR 0xA0 = 0x30; host sends 4 bytes, guest transmits 3 on UART 1 | guest reads the host's bytes at 0x143B on UART 1; host receives the guest's; UART 0 RX empty; nothing dropped |
+| PI-02 | NR 0xA0 = 0x00 / 0x10 / 0x20, one byte each way; then 0x30 | closed: nothing either way, 3 RX dropped + 3 TX disconnected counted; 0x30: one byte each way |
+| PI-03 | guest transmits on UART 1 with the link attached | byte reaches the host; UART 1's unattached loopback does not echo it into its own RX FIFO |
+| PI-04 | NR 0x0B = 0xB1 (joystick UART mode on UART 1), NR 0xA0 = 0x30 | Pi neither heard nor spoken to (`zxnext.vhd:3340-3341,3526-3531`); with NR 0x0B = 0 traffic flows |
+| PI-05 | soft reset, then NR 0xA0 = 0x30 | same device still attached to UART 1; NR 0xA0 read 0x00 after reset (`zxnext.vhd:5080`); traffic flows |
+| PI-06 | `PiQemu::build_args` / `audiodev_arg` for the Pi Zero | raspi0, the directory's kernel/dtb/overlay, `-chardev pipe` on `-serial`, no monitor/display; audio default per platform, `none`, `wav:FILE` (commas doubled) |
+| PI-07 | `PiQemu::start` with an unprepared directory, a missing QEMU binary, a QEMU that exits at once | each refused with its reason; nothing left running |
+| PI-08 | `PiQemu::start` with a stand-in QEMU, then an Emulator on its FIFOs, NR 0xA0 = 0x30 | overlay created; guest reads `SUP> `; stand-in receives the guest's CR; stop takes < 2 s (SIGTERM) and removes the FIFOs |
+| PI-09 | two Emulators in turn on the same running `PiQemu` (a hard reset) | the same process receives `A` then `B` |
+| PI-10 | `pizero::parse_release_listing` on an index with duplicates and `.md5` links; `compare_release` | each `NextPi-<name>.tar.gz` once; 1_100 > 1_93D > 1_93C, 1_9 < 1_10 |
+| PI-11 | `pizero::extract_tar_gz_entry` on a GNU tar.gz with a pax path and a base-256 size | the image written byte for byte; a missing suffix is an error naming it |
+| PI-12 | `pizero::provision` on an empty directory (fake mirror), then again | one confirm, `.md5` + archive fetched, image + kernel + dtb + `release` installed, archive deleted; second call: no confirm, no fetch |
+| PI-13 | `pizero::provision` declined; then with a wrong MD5 | Declined, nothing fetched or installed; Failed "MD5", archive deleted, nothing installed |
+| PI-14 | provision 1_93D, add an overlay, provision `latest` (1_93D, 1_100 listed), then `latest` offline | 1_100 installed after asking, overlay gone; offline: Ok with 1_100 and a warning, no question |
+
 ## Special Handling
 
 ### FIFO Edge-Triggered Semantics

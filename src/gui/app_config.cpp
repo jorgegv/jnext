@@ -199,6 +199,14 @@ void AppConfig::load() {
         data_.esp_allowed_hosts = policy.allowed_hosts;
     }
     settings_.endGroup();
+
+    settings_.beginGroup("pizero");
+    data_.pizero_enabled     = settings_.value("enabled", data_.pizero_enabled).toBool();
+    data_.pizero_dir         = settings_.value("dir", data_.pizero_dir).toString().trimmed();
+    data_.pizero_release     = settings_.value("release", data_.pizero_release).toString().trimmed();
+    data_.pizero_qemu_binary = settings_.value("qemu_binary", data_.pizero_qemu_binary).toString().trimmed();
+    data_.pizero_audio       = settings_.value("audio", data_.pizero_audio).toString().trimmed();
+    settings_.endGroup();
 }
 
 void AppConfig::save() const {
@@ -276,6 +284,14 @@ void AppConfig::save() const {
             hosts << QString::fromStdString(host);
         settings_.setValue("allowed_hosts", hosts);
     }
+    settings_.endGroup();
+
+    settings_.beginGroup("pizero");
+    settings_.setValue("enabled", data_.pizero_enabled);
+    settings_.setValue("dir", data_.pizero_dir);
+    settings_.setValue("release", data_.pizero_release);
+    settings_.setValue("qemu_binary", data_.pizero_qemu_binary);
+    settings_.setValue("audio", data_.pizero_audio);
     settings_.endGroup();
 
     settings_.sync();

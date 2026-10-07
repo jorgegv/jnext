@@ -11,6 +11,8 @@
 #include "esp01/esp_at.h"          // AtEngine::UNASSOCIATED_IP, for --esp-ip-address
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/joy_uart_source.h"   // read_joy_uart_source_file (GH #251)
+#include "core/pi_qemu.h"
+#include "core/pizero_provisioner.h"
 #include "peripheral/joy_uart_link.h"     // JoyUartEndpoint (GH #252)
 // Issue #35 — audio_pacing::WhenSlowPrefer. Header-only and dependency-free;
 // included unconditionally because the parsed value is declared alongside the
@@ -292,6 +294,14 @@ int main(int argc, char* argv[]) {
     bool        joy_uart_connector_set = false;
     std::string joy_uart_fifo;
     bool        joy_uart_pty = false;
+    // The Pi Zero. `pizero_enabled_set` is what lets --no-pizero override a
+    // saved preference, as --no-esp does for the ESP.
+    bool        pizero_enabled = false;
+    bool        pizero_enabled_set = false;
+    // NextPi under QEMU. Owned here, by the process, rather than by the
+    // Emulator: a hard reset rebuilds the Emulator and must not reboot the Pi
+    // (core/pi_qemu.h). Reset explicitly before spdlog shuts down.
+    std::unique_ptr<PiQemu> pi_qemu;
     bool        magic_port_enabled = false;
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
@@ -849,6 +859,14 @@ int main(int argc, char* argv[]) {
             case cli::OptId::JoyUartPty:
                 joy_uart_pty = true;
                 break;
+            case cli::OptId::Pizero:
+                pizero_enabled = true;
+                pizero_enabled_set = true;
+                break;
+            case cli::OptId::NoPizero:
+                pizero_enabled = false;
+                pizero_enabled_set = true;
+                break;
             case cli::OptId::JoyUartRxDelayFrames: {
                 // Parsed here so a typo is a usage error, not a stream that
                 // starts at frame 0 and is spent before the guest is listening
@@ -1377,6 +1395,79 @@ int main(int argc, char* argv[]) {
             "(the host cursor keys can drive only one connector).\n");
         return 1;
     }
+    // ---------------------------------------------------------------------
+    // The Pi Zero: NextPi under QEMU on UART 1 (core/pi_qemu.h). Wanted when
+    // --pizero says so, or — in a GUI session, with neither flag given — when
+    // the saved [pizero] preference does. Its directory is provisioned exactly
+    // as the SD image is (core/pizero_provisioner.h): on first use, after
+    // asking, with a progress bar. Started HERE, after every quick argument
+    // check (so a typo never triggers a 6 GB download) and before the machine
+    // boots (so its FIFOs exist when Emulator::init() opens them).
+    //
+    // A Pi asked for on the command line that cannot start is an error, like
+    // any other unusable option. One that is merely enabled in Preferences is
+    // not allowed to stop jnext from starting: it is reported, and the session
+    // goes on without it.
+    // ---------------------------------------------------------------------
+    {
+        bool want = pizero_enabled;
+        pizero::ProvisionOptions popts;
+        PiQemu::Spec spec;
+#ifdef ENABLE_QT_UI
+        if (!headless) {
+            const AppConfigData& saved = gui_app_config.data();
+            want              = merge_cli_precedence(pizero_enabled_set, pizero_enabled,
+                                                     saved.pizero_enabled);
+            popts.dir         = saved.pizero_dir.toStdString();
+            popts.release     = saved.pizero_release.toStdString();
+            spec.audio        = saved.pizero_audio.toStdString();
+            if (!saved.pizero_qemu_binary.isEmpty())
+                spec.qemu_binary = saved.pizero_qemu_binary.toStdString();
+        }
+#endif
+        if (want) {
+            std::function<void(const std::string&)> report = [](const std::string& m) {
+                std::fprintf(stderr, "error: Pi Zero: %s\n", m.c_str());
+            };
+            popts.download = sdcard::default_http_download;
+            popts.confirm  = sdcard::cli_confirm;
+            popts.progress = pizero::cli_progress;
+            popts.busy     = pizero::cli_busy;
+#ifdef ENABLE_QT_UI
+            SdcardGuiProvisioner gui_prov;   // one temporary QApplication, gone before QtApp's
+            if (!headless) {
+                gui_prov.set_texts("jnext — Pi Zero", "NextPi is not installed",
+                                   "jnext — Preparing NextPi", "Downloading NextPi…");
+                popts.confirm  = [&](const std::string& m) { return gui_prov.confirm(m); };
+                popts.progress = [&](uint64_t d, uint64_t t) { return gui_prov.progress(d, t); };
+                popts.busy     = [&](const std::string& p, const std::function<bool()>& w) {
+                    return gui_prov.busy(p, w);
+                };
+                if (!pizero_enabled_set)   // from Preferences: say so, and carry on
+                    report = [&](const std::string& m) {
+                        Log::uart()->error("Pi Zero: {}", m);
+                        gui_prov.warn("The Pi Zero could not be started:\n\n" + m +
+                                      "\n\njnext starts without it.");
+                    };
+            }
+#endif
+            std::string error;
+            const pizero::ProvisionResult res = pizero::provision(popts);
+            if (res.status == sdcard::ProvisionStatus::Ok) {
+                if (!res.warning.empty()) Log::uart()->warn("Pi Zero: {}", res.warning);
+                spec.dir = res.dir;
+                pi_qemu  = std::make_unique<PiQemu>();
+                if (!pi_qemu->start(spec, error)) pi_qemu.reset();
+            } else {
+                error = res.error;
+            }
+            if (!pi_qemu) {
+                report(error);
+                if (pizero_enabled_set) return 1;
+            }
+        }
+    }
+
     AudioRecorder audio_recorder;
     DacTraceRecorder dac_trace_recorder;
 
@@ -1463,6 +1554,10 @@ int main(int argc, char* argv[]) {
         cfg.joy_uart_rx_delay_frames = static_cast<uint32_t>(joy_uart_rx_delay_frames);
         cfg.joy_uart_fifo            = joy_uart_fifo;
         cfg.joy_uart_pty             = joy_uart_pty;
+        if (pi_qemu) {                 // the Pi Zero, started before the app below
+            cfg.pi_uart_fifo_rx      = pi_qemu->rx_path();
+            cfg.pi_uart_fifo_tx      = pi_qemu->tx_path();
+        }
 
         // Task 66 — saved GUI preferences fill in fields the CLI left at
         // their default; merge_cli_precedence() (src/gui/app_config.h) always
@@ -1653,6 +1748,9 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
         }
+        // The Pi link: one wire, one endpoint — and the same refusal-before-boot
+        // as the joystick cable for an endpoint that cannot be created. The
+        // probe is closed at once; Emulator::init() opens the one the run uses.
         if (cfg.silent && !wav_record_file.empty()) {
             fprintf(stderr,
                     "--wav-record cannot be used while audio is disabled in preferences.\n");
@@ -1964,6 +2062,7 @@ int main(int argc, char* argv[]) {
 #endif
     }
 
+    pi_qemu.reset();   // stop QEMU while logging still works
     spdlog::shutdown();
     return result;
 }

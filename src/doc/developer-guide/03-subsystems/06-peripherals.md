@@ -258,6 +258,46 @@ Next→host FIFO **cannot** be opened until something is reading it
 every flush. `SIGPIPE` is ignored when the first endpoint is created, without
 which a debugger closing its end would kill the emulator outright.
 
+## The Pi Zero
+
+`--pizero` (or the `[pizero]` preference) runs a real NextPi under QEMU on
+UART 1, the Pi GPIO header's UART. Three pieces:
+
+* **`peripheral/pi_uart_device.{h,cpp}`** is the far end of UART 1. Unlike the
+  joystick cable it **is** a `UartDevice`: the Pi has a channel of its own, so it
+  attaches to UART 1 the way the ESP attaches to UART 0 and inherits that seam
+  whole — transmit at byte boundaries, paced receive through `tick()`, no
+  loopback, and the joystick mux's isolation of the channel. The host half is a
+  `JoyUartLink` it owns, so the endpoints, queues, pacing and replay gate are
+  the cable's. One gate is its own: the Pi's pins reach UART 1 only through the
+  NR 0xA0 GPIO mux (`zxnext.vhd:2278-2281`). The device asks
+  `Emulator::pi_uart_connected()` — NR 0xA0 bits 5 and 4 both set, the value
+  NextPi's `.pisend` writes — and drops traffic in both directions while it is
+  false, counting it, and logging the first loss once.
+* **`core/pi_qemu.{h,cpp}`** spawns `qemu-system-arm -M raspi0` with the Pi's
+  console on a QEMU `pipe` chardev, whose two FIFOs the Emulator opens as the
+  link (`JoyUartEndpoint::open_fifo_paths`). `PiQemu` belongs to `main()`, not
+  to the `Emulator`: a hard reset rebuilds the Emulator, which re-opens the same
+  FIFOs while QEMU — holding both ends read-write — keeps running, so the Pi
+  neither reboots nor sees an EOF. A reaper thread logs a QEMU that exits on its
+  own; the destructor stops it with SIGTERM (SIGKILL after three seconds).
+* **`core/pizero_provisioner.{h,cpp}`** makes the NextPi directory exist, on
+  the SD provisioner's seams (`DownloadFn`, `ConfirmFn`, `ProgressFn`,
+  `BusyFn`, so the same GUI dialogs and terminal prompts serve both): it asks,
+  downloads the release and its MD5 from the mirror, streams the image out of
+  the `.tar.gz` (GNU base-256 and pax sizes — the image is past 8 GB), and
+  copies `kernel.img` and the device tree out of the image's FAT32 boot
+  partition with the lenient `fat32_read_tree`. A `release` marker records what
+  is installed, so a changed release (or `latest` moving on) re-provisions and
+  discards the overlay.
+
+`main()` wires them: it merges `--pizero`/`--no-pizero` over the saved
+preference (GUI sessions only, as for the ESP), provisions, starts QEMU, and
+puts the FIFO paths in the `EmulatorConfig`. A Pi asked for on the command line
+that cannot start is a usage error; one enabled only in Preferences is reported
+in a dialog and the session goes on without it. Design:
+`doc/design/PIZERO-DESIGN.md`.
+
 ## The ESP-01
 
 A real ZX Spectrum Next has an ESP-01 WiFi module soldered to it, talking to the

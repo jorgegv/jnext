@@ -488,6 +488,69 @@ void test_esp_preference_controls()
               std::to_string(passthrough.esp_allowed_hosts.size()));
 }
 
+/// PA-20 — the Pi Zero tab: one control per [pizero] field, starting from the
+/// saved values, the rest disabled while the enable tick is off, and — the
+/// regression row, as PA-12e is for the ESP — an untouched dialog hands every
+/// field back unchanged rather than resetting it.
+void test_pizero_preference_controls()
+{
+    AppConfigData initial;
+    initial.pizero_enabled     = true;
+    initial.pizero_dir         = QStringLiteral("/data/pizero");
+    initial.pizero_release     = QStringLiteral("latest");
+    initial.pizero_qemu_binary = QStringLiteral("/opt/qemu/bin/qemu-system-arm");
+    initial.pizero_audio       = QStringLiteral("none");
+
+    PreferencesDialog dlg(initial);
+    auto* enable  = dlg.findChild<QCheckBox*>(QStringLiteral("pizeroEnabledCheck"));
+    auto* dir     = dlg.findChild<QLineEdit*>(QStringLiteral("pizeroDirEdit"));
+    auto* release = dlg.findChild<QComboBox*>(QStringLiteral("pizeroReleaseCombo"));
+    auto* qemu    = dlg.findChild<QLineEdit*>(QStringLiteral("pizeroQemuEdit"));
+    auto* audio   = dlg.findChild<QComboBox*>(QStringLiteral("pizeroAudioCombo"));
+    check("PA-20a", "Preferences exposes a Pi Zero tab with enable, directory, release, QEMU and audio controls",
+          enable && dir && release && qemu && audio);
+    if (!enable || !dir || !release || !qemu || !audio) return;
+
+    check("PA-20b", "the Pi Zero controls start from the persisted values",
+          enable->isChecked() && dir->text() == initial.pizero_dir &&
+              release->currentText() == initial.pizero_release &&
+              qemu->text() == initial.pizero_qemu_binary && audio->currentText() == initial.pizero_audio);
+
+    enable->setChecked(false);
+    const bool off = !release->isEnabled() && !audio->isEnabled() && !dir->parentWidget()->isEnabled();
+    enable->setChecked(true);
+    const bool on = release->isEnabled() && audio->isEnabled() && dir->parentWidget()->isEnabled();
+    check("PA-20c", "the other Pi Zero controls are disabled while the tick is off, enabled when on",
+          off && on);
+
+    AppConfigData collected;
+    bool emitted = false;
+    QObject::connect(&dlg, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) { emitted = true; collected = cfg; });
+    release->setEditText(QStringLiteral(" 1_93D "));
+    qemu->setText(QString());
+    if (auto* b = dlg.findChild<QDialogButtonBox*>(); b && b->button(QDialogButtonBox::Apply))
+        b->button(QDialogButtonBox::Apply)->click();
+    check("PA-20d", "Apply returns the edited Pi Zero fields, trimmed; an emptied field means its default",
+          emitted && collected.pizero_enabled && collected.pizero_release == QStringLiteral("1_93D") &&
+              collected.pizero_qemu_binary.isEmpty() && collected.pizero_dir == initial.pizero_dir,
+          collected.pizero_release.toStdString());
+
+    PreferencesDialog untouched(initial);
+    AppConfigData passthrough;
+    bool passthrough_emitted = false;
+    QObject::connect(&untouched, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) { passthrough_emitted = true; passthrough = cfg; });
+    if (auto* b = untouched.findChild<QDialogButtonBox*>(); b && b->button(QDialogButtonBox::Apply))
+        b->button(QDialogButtonBox::Apply)->click();
+    check("PA-20e", "an untouched dialog does NOT reset the persisted Pi Zero settings",
+          passthrough_emitted && passthrough.pizero_enabled == initial.pizero_enabled &&
+              passthrough.pizero_dir == initial.pizero_dir &&
+              passthrough.pizero_release == initial.pizero_release &&
+              passthrough.pizero_qemu_binary == initial.pizero_qemu_binary &&
+              passthrough.pizero_audio == initial.pizero_audio);
+}
+
 /// PA-13 — GH #25: the ESP cannot be toggled on a running machine, so Apply
 /// must hand the new values to the frontend (which owns the EmulatorConfig
 /// every later cold boot is built from) rather than drop them on the floor.
@@ -881,6 +944,7 @@ int main(int argc, char** argv)
     test_confirm_asked_once();
     test_audio_gain_preference_control();
     test_esp_preference_controls();
+    test_pizero_preference_controls();
     test_esp_settings_reach_the_frontend();
     test_esp_forward_precedes_the_reboot();
     test_when_slow_prefer_control();

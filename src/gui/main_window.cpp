@@ -2246,6 +2246,17 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
             cfg.esp_enabled ? "enabled" : "disabled");
     }
 
+    // The Pi Zero is started (and, the first time, downloaded) by main() before
+    // this window exists, and QEMU outlives cold boots on purpose, so it has no
+    // live toggle either way: the tick takes effect at the next launch. Said
+    // here for the same reason as the ESP line above.
+    if (emulator_ && (emulator_->pi_uart() != nullptr) != cfg.pizero_enabled) {
+        Log::platform()->info(
+            "Preferences: Pi Zero {} saved but NOT applied to the running "
+            "machine; it takes effect the next time jnext starts.",
+            cfg.pizero_enabled ? "enabled" : "disabled");
+    }
+
     // GH #1 — the debugger key bindings apply LIVE, in both windows. This is
     // the ONLY place that makes them live: the forwarding in keyPressEvent()
     // and the push into the debugger window both read debug_keys_, so an

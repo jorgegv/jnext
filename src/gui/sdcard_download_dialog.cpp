@@ -37,14 +37,28 @@ bool SdcardGuiProvisioner::confirm(const std::string& message) {
     ensure_app();
 
     QMessageBox box;
-    box.setWindowTitle(QStringLiteral("jnext — SD card image"));
+    box.setWindowTitle(QString::fromStdString(title_));
     box.setIcon(QMessageBox::Question);
     // Rich-text <b> forces bold on styles that don't embolden the main text.
-    box.setText(QStringLiteral("<b>No ZX Spectrum Next SD-card image found</b>"));
+    box.setText(QStringLiteral("<b>%1</b>").arg(QString::fromStdString(headline_).toHtmlEscaped()));
     box.setInformativeText(QString::fromStdString(message));
     box.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
     box.setDefaultButton(QMessageBox::No);
     return box.exec() == QMessageBox::Yes;
+}
+
+void SdcardGuiProvisioner::set_texts(const std::string& title, const std::string& headline,
+                                     const std::string& busy_title,
+                                     const std::string& download_label) {
+    title_          = title;
+    headline_       = headline;
+    busy_title_     = busy_title;
+    download_label_ = download_label;
+}
+
+void SdcardGuiProvisioner::warn(const std::string& message) {
+    ensure_app();
+    QMessageBox::warning(nullptr, QString::fromStdString(title_), QString::fromStdString(message));
 }
 
 bool SdcardGuiProvisioner::progress(uint64_t downloaded, uint64_t total) {
@@ -58,7 +72,7 @@ bool SdcardGuiProvisioner::progress(uint64_t downloaded, uint64_t total) {
         // on the first frame — a (0,0) "busy" range paints as a FULL bar in
         // several Qt styles until the first real total arrives.
         dialog_ = std::make_unique<QProgressDialog>(
-            QStringLiteral("Downloading NextZXOS distribution image…"),
+            QString::fromStdString(download_label_),
             QStringLiteral("Cancel"), 0, 10000);
         dialog_->setWindowTitle(QStringLiteral("jnext — Downloading"));
         dialog_->setWindowModality(Qt::ApplicationModal);
@@ -99,7 +113,7 @@ bool SdcardGuiProvisioner::busy(const std::string& phase,
     dialog_.reset();
     QProgressDialog dlg(QString::fromStdString(phase) + QStringLiteral("…"),
                         QString(), 0, 0);
-    dlg.setWindowTitle(QStringLiteral("jnext — Preparing SD card image"));
+    dlg.setWindowTitle(QString::fromStdString(busy_title_));
     dlg.setWindowModality(Qt::ApplicationModal);
     dlg.setCancelButton(nullptr);
     // Also drop the window-manager close (X) so the "not cancellable" intent

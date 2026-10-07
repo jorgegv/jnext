@@ -74,6 +74,7 @@ nav:
       - 5.7 The joystick-port serial cable: 05-running-programs/07-the-joystick-port-serial-cable.md
       - 5.8 Host files for a directly loaded program: 05-running-programs/08-host-files-for-a-loaded-program.md
       - 5.9 Snapshots: 05-running-programs/09-snapshots.md
+      - 5.10 The Pi Zero: 05-running-programs/10-the-raspberry-pi-serial-link.md
   - 6. The debugger:
       - 06-debugger/index.md
       - Panels:

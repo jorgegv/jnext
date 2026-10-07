@@ -442,6 +442,18 @@ struct EmulatorConfig {
     // (zxnext.vhd:3538). `joy_uart_rx_delay_frames` is NOT shared — a live link
     // has no recording to hold back — and the CLI refuses the combination.
 
+    // ── LIVE Raspberry Pi serial link on UART 1 ─────────────────────────────
+    //
+    // The far end of UART 1's module pins — the Pi GPIO header — handed to a
+    // real NextPi that jnext runs under QEMU (`--pizero`, core/pi_qemu.h). See
+    // doc/design/PIZERO-DESIGN.md.
+    //
+    // A FIFO pair, both ends named: jnext reads `pi_uart_fifo_rx` (Pi → Next)
+    // and writes `pi_uart_fifo_tx` (Next → Pi). main.cpp sets them to the two
+    // ends of QEMU's `pipe` chardev. Both empty means no Pi.
+    std::string              pi_uart_fifo_rx;
+    std::string              pi_uart_fifo_tx;
+
     // Host capture callbacks are reattached by init() after a cold boot.
     std::function<void(const int16_t*, int)> audio_capture_callback;
     std::function<void(uint64_t, int, uint8_t)> dac_write_callback;

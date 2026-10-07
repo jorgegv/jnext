@@ -43,10 +43,23 @@ public:
     // whatever `work` returns.
     bool busy(const std::string& phase, const std::function<bool()>& work);
 
+    // The same dialogs serve the Pi Zero's NextPi download, which needs its
+    // own wording; the defaults are the SD card's.
+    void set_texts(const std::string& title, const std::string& headline,
+                   const std::string& busy_title, const std::string& download_label);
+
+    // A modal warning: something the user asked for could not be done, and
+    // the session goes on without it.
+    void warn(const std::string& message);
+
 private:
     void ensure_app();
 
     std::unique_ptr<QApplication>    temp_app_;
     std::unique_ptr<QProgressDialog> dialog_;
     bool cancelled_ = false;
+    std::string title_      = "jnext — SD card image";
+    std::string headline_   = "No ZX Spectrum Next SD-card image found";
+    std::string busy_title_ = "jnext — Preparing SD card image";
+    std::string download_label_ = "Downloading NextZXOS distribution image…";
 };

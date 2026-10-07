@@ -19,9 +19,12 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/pi_qemu.h"
+#include "core/pizero_provisioner.h"
 #include "debug/debug_state.h"
 #include "debug/rewind_buffer.h"
 #include "peripheral/joy_uart_link.h"
+#include "peripheral/pi_uart_device.h"
 #include "peripheral/joy_uart_source.h"
 #include "peripheral/uart_device.h"
 
@@ -29,14 +32,19 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <vector>
 
+#include <zlib.h>
+
 #ifndef _WIN32
+#include <csignal>
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -2709,6 +2717,878 @@ static void test_joy_uart_cable() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// The LIVE Raspberry Pi serial link on UART 1 (the Pi Zero, --pizero)
+// ══════════════════════════════════════════════════════════════════════
+//
+// The wire on the Pi GPIO header handed to the host, as a `UartDevice` on
+// UART 1. Real FIFOs, for the joystick rows' reason: the host plumbing is the
+// part that fails at `open()`, and only real descriptors can find that.
+//
+// Every row tolerates a missing link (`emu.pi_uart() == nullptr`) and FAILS on
+// it rather than crashing, so deleting the `setup_pi_uart()` call from init()
+// turns every row red — the demonstration that the rows test the feature.
+
+namespace {
+
+EmulatorConfig pi_config(const std::string& base) {
+    EmulatorConfig cfg;
+    cfg.type                 = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    cfg.pi_uart_fifo_rx      = base + ".rx";
+    cfg.pi_uart_fifo_tx      = base + ".tx";
+    return cfg;
+}
+
+// One frame with NR 0xA0 held at `nr_a0` (NR 0x0B at `nr_0b`) and UART 1
+// selected, then drain UART 1's RX FIFO through port 0x143B. NR 0xA0 is
+// re-written every frame for the reason the JOY rows re-write NR 0x0B: the
+// guest's own ROM runs inside run_frame() and owns the register too.
+std::vector<uint8_t> pi_frame(Emulator& emu, uint8_t nr_a0, uint8_t nr_0b = 0x00) {
+    emu.nextreg().write(0xA0, nr_a0);
+    emu.nextreg().write(0x0B, nr_0b);
+    emu.run_frame();
+    emu.port().out(0x153B, 0x40);
+    std::vector<uint8_t> got;
+    while (!emu.uart().channel(1).rx_empty())
+        got.push_back(emu.port().in(0x143B));
+    return got;
+}
+
+// The guest transmits `byte` on UART 1 with the registers held as above, and a
+// whole frame runs so the TX engine completes it and the link's poll() flushes.
+void pi_transmit_frame(Emulator& emu, uint8_t nr_a0, uint8_t byte, uint8_t nr_0b = 0x00) {
+    emu.nextreg().write(0xA0, nr_a0);
+    emu.nextreg().write(0x0B, nr_0b);
+    emu.port().out(0x153B, 0x40);
+    emu.port().out(0x133B, byte);
+    emu.run_frame();
+}
+
+} // namespace
+
+static void test_pi_uart_link() {
+    set_group("PI");
+
+    // ── PI-01 — THE FEATURE. With NR 0xA0 = 0x30 (UART 1 on GPIO 14/15, wired
+    // for a Pi — what `.pisend` writes) a live link carries both directions:
+    // the host's bytes are read by the guest at port 0x143B on UART 1, and the
+    // guest's UART 1 transmissions reach the host. UART 0 hears none of it.
+    {
+        TempFifoCable cable("pi-duplex");
+        Emulator emu;
+        emu.init(pi_config(cable.base()));
+        const bool attached = cable.attach();
+
+        const std::vector<uint8_t> from_host = {0x53, 0x55, 0x50, 0x3E};   // "SUP>"
+        cable.send(from_host);
+        std::vector<uint8_t> to_guest;
+        for (int f = 0; f < 3; ++f) {
+            const std::vector<uint8_t> got = pi_frame(emu, 0x30);
+            to_guest.insert(to_guest.end(), got.begin(), got.end());
+        }
+
+        const std::vector<uint8_t> from_guest = {0x0D, 0x03, 0x03};       // CR ^C ^C
+        for (uint8_t b : from_guest) pi_transmit_frame(emu, 0x30, b);
+        const std::vector<uint8_t> to_host = cable.drain();
+
+        const PiUartDevice* pi = emu.pi_uart();
+        const bool uart0_quiet = emu.uart().channel(0).rx_empty();
+
+        check("PI-01",
+              "the Raspberry Pi link carries both directions over UART 1 while NR "
+              "0xA0 = 0x30 connects it to the Pi GPIO pins (zxnext.vhd:2278-2281): "
+              "host bytes reach port 0x143B on UART 1, the guest's UART 1 bytes "
+              "reach the host, and UART 0 hears nothing",
+              pi && attached && to_guest == from_host && to_host == from_guest
+                  && uart0_quiet && pi->link().dropped() == 0
+                  && pi->tx_disconnected() == 0,
+              fmt("pi=%d attached=%d; guest got [%s] (want [53 55 50 3E]); host got "
+                  "[%s] (want [0D 03 03]); uart0_quiet=%d dropped=%zu "
+                  "tx_disconnected=%zu",
+                  pi ? 1 : 0, attached ? 1 : 0, bytes_hex(to_guest).c_str(),
+                  bytes_hex(to_host).c_str(), uart0_quiet ? 1 : 0,
+                  pi ? pi->link().dropped() : 0, pi ? pi->tx_disconnected() : 0));
+    }
+
+    // ── PI-02 — THE GPIO GATE. Bits 5 and 4 of NR 0xA0 put UART 1 on GPIO 14/15
+    // and choose which way round RX and TX are wired; only both set reaches a Pi.
+    // With either clear (0x00 = reset, 0x10, 0x20) the Pi's bytes are lost on a
+    // pin the Next is not reading and the guest's never reach the Pi — counted,
+    // not queued. Opening the gate afterwards proves the link itself was alive.
+    {
+        TempFifoCable cable("pi-gate");
+        Emulator emu;
+        emu.init(pi_config(cable.base()));
+        const bool attached = cable.attach();
+
+        bool all_closed_silent = true;
+        std::string detail;
+        int closed_tx = 0;
+        for (uint8_t a0 : {uint8_t{0x00}, uint8_t{0x10}, uint8_t{0x20}}) {
+            cable.send({0xE0});
+            std::vector<uint8_t> heard;
+            for (int f = 0; f < 2; ++f) {
+                const std::vector<uint8_t> got = pi_frame(emu, a0);
+                heard.insert(heard.end(), got.begin(), got.end());
+            }
+            pi_transmit_frame(emu, a0, 0xF0);
+            ++closed_tx;
+            const std::vector<uint8_t> host = cable.drain();
+            if (!heard.empty() || !host.empty()) all_closed_silent = false;
+            detail += fmt("a0=%02X guest[%s] host[%s]; ", a0, bytes_hex(heard).c_str(),
+                          bytes_hex(host).c_str());
+        }
+
+        const PiUartDevice* pi = emu.pi_uart();
+        const std::size_t dropped_closed = pi ? pi->link().dropped() : 0;
+        const std::size_t tx_lost_closed = pi ? pi->tx_disconnected() : 0;
+
+        cable.send({0x31});
+        std::vector<uint8_t> open_heard;
+        for (int f = 0; f < 2; ++f) {
+            const std::vector<uint8_t> got = pi_frame(emu, 0x30);
+            open_heard.insert(open_heard.end(), got.begin(), got.end());
+        }
+        pi_transmit_frame(emu, 0x30, 0x32);
+        const std::vector<uint8_t> open_host = cable.drain();
+
+        check("PI-02",
+              "NR 0xA0 bits 5:4 gate the Pi link both ways (zxnext.vhd:2278-2281): "
+              "with 0x00, 0x10 or 0x20 the Pi is not heard and does not hear, and "
+              "the loss is counted; 0x30 then carries traffic again",
+              pi && attached && all_closed_silent && dropped_closed == 3
+                  && tx_lost_closed == static_cast<std::size_t>(closed_tx)
+                  && open_heard == std::vector<uint8_t>({0x31})
+                  && open_host == std::vector<uint8_t>({0x32}),
+              fmt("pi=%d attached=%d; %sdropped=%zu (want 3) tx_disconnected=%zu "
+                  "(want 3); open: guest [%s] (want 31) host [%s] (want 32)",
+                  pi ? 1 : 0, attached ? 1 : 0, detail.c_str(), dropped_closed,
+                  tx_lost_closed, bytes_hex(open_heard).c_str(),
+                  bytes_hex(open_host).c_str()));
+    }
+
+    // ── PI-03 — NO LOOPBACK. An unattached UART 1 loops its TX back into its own
+    // RX FIFO (uart.h); with the Pi attached the byte goes to the Pi and the
+    // guest must not read its own transmission back.
+    {
+        TempFifoCable cable("pi-noloop");
+        Emulator emu;
+        emu.init(pi_config(cable.base()));
+        const bool attached = cable.attach();
+
+        pi_transmit_frame(emu, 0x30, 0x55);
+        const std::vector<uint8_t> echoed = pi_frame(emu, 0x30);
+        const std::vector<uint8_t> to_host = cable.drain();
+
+        check("PI-03",
+              "with the Pi link attached, a UART 1 transmission goes to the Pi "
+              "only — UART 1's unattached loopback is off, so the guest does not "
+              "read its own byte back",
+              emu.pi_uart() && attached && echoed.empty()
+                  && to_host == std::vector<uint8_t>({0x55}),
+              fmt("pi=%d attached=%d; guest read back [%s] (want empty); host got "
+                  "[%s] (want 55)",
+                  emu.pi_uart() ? 1 : 0, attached ? 1 : 0,
+                  bytes_hex(echoed).c_str(), bytes_hex(to_host).c_str()));
+    }
+
+    // ── PI-04 — THE JOYSTICK MUX STILL WINS. NR 0x0B = 0xB1 (UART mode, bits 7
+    // and 5, channel bit 0 = UART 1) gives UART 1's RX to the joystick
+    // connector (zxnext.vhd:3340-3341: `uart1_rx <= joy_uart_rx`, not
+    // `pi_uart_rx`) and its TX to pin 7 (:3526-3531), so the Pi is neither heard
+    // nor spoken to even with NR 0xA0 = 0x30. With NR 0x0B cleared it is again.
+    {
+        TempFifoCable cable("pi-joymux");
+        Emulator emu;
+        emu.init(pi_config(cable.base()));
+        const bool attached = cable.attach();
+
+        cable.send({0xA1});
+        std::vector<uint8_t> muxed_heard;
+        for (int f = 0; f < 2; ++f) {
+            const std::vector<uint8_t> got = pi_frame(emu, 0x30, 0xB1);
+            muxed_heard.insert(muxed_heard.end(), got.begin(), got.end());
+        }
+        pi_transmit_frame(emu, 0x30, 0xA2, 0xB1);
+        const std::vector<uint8_t> muxed_host = cable.drain();
+
+        cable.send({0xA3});
+        std::vector<uint8_t> free_heard;
+        for (int f = 0; f < 2; ++f) {
+            const std::vector<uint8_t> got = pi_frame(emu, 0x30, 0x00);
+            free_heard.insert(free_heard.end(), got.begin(), got.end());
+        }
+        pi_transmit_frame(emu, 0x30, 0xA4, 0x00);
+        const std::vector<uint8_t> free_host = cable.drain();
+
+        check("PI-04",
+              "while NR 0x0B routes UART 1 to the joystick connector "
+              "(zxnext.vhd:3340-3341, :3526-3531) the Pi link is isolated in both "
+              "directions; with the mux off it carries traffic again",
+              emu.pi_uart() && attached && muxed_heard.empty() && muxed_host.empty()
+                  && free_heard == std::vector<uint8_t>({0xA3})
+                  && free_host == std::vector<uint8_t>({0xA4}),
+              fmt("pi=%d attached=%d; muxed: guest [%s] host [%s] (want both "
+                  "empty); free: guest [%s] (want A3) host [%s] (want A4)",
+                  emu.pi_uart() ? 1 : 0, attached ? 1 : 0,
+                  bytes_hex(muxed_heard).c_str(), bytes_hex(muxed_host).c_str(),
+                  bytes_hex(free_heard).c_str(), bytes_hex(free_host).c_str()));
+    }
+
+    // ── PI-05 — A SOFT RESET DOES NOT UNPLUG THE PI. It resets the Next-side
+    // UART and NR 0xA0 (to 0x00, zxnext.vhd:5080), not the Pi on the far end:
+    // the same link object stays attached and carries traffic once the guest
+    // routes UART 1 to the Pi again.
+    {
+        TempFifoCable cable("pi-softreset");
+        Emulator emu;
+        emu.init(pi_config(cable.base()));
+        const bool attached = cable.attach();
+        const PiUartDevice* before = emu.pi_uart();
+
+        emu.soft_reset();
+        const PiUartDevice* after = emu.pi_uart();
+        const bool same_device = before && before == after
+                                 && emu.uart().device(1) == static_cast<const UartDevice*>(after);
+        const uint8_t a0_after_reset = static_cast<uint8_t>(emu.nextreg().read(0xA0));
+
+        cable.send({0x5A});
+        std::vector<uint8_t> heard;
+        for (int f = 0; f < 2; ++f) {
+            const std::vector<uint8_t> got = pi_frame(emu, 0x30);
+            heard.insert(heard.end(), got.begin(), got.end());
+        }
+        pi_transmit_frame(emu, 0x30, 0x5B);
+        const std::vector<uint8_t> to_host = cable.drain();
+
+        check("PI-05",
+              "a soft reset keeps the Pi link attached to UART 1 (the Pi does not "
+              "see a Next-side reset) while NR 0xA0 returns to 0x00 "
+              "(zxnext.vhd:5080); traffic flows again once it is set",
+              attached && same_device && a0_after_reset == 0x00
+                  && heard == std::vector<uint8_t>({0x5A})
+                  && to_host == std::vector<uint8_t>({0x5B}),
+              fmt("attached=%d same_device=%d nr_a0=%02X (want 00); guest [%s] "
+                  "(want 5A) host [%s] (want 5B)",
+                  attached ? 1 : 0, same_device ? 1 : 0, a0_after_reset,
+                  bytes_hex(heard).c_str(), bytes_hex(to_host).c_str()));
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// NextPi under QEMU, launched by jnext (--pizero)
+// ══════════════════════════════════════════════════════════════════════
+//
+// No real QEMU and no NextPi image: a shell-script stand-in takes QEMU's
+// place. It answers on the `-chardev pipe` exactly as QEMU's pipe chardev does
+// — both FIFO ends opened read-write, so neither side ever sees EOF — prints
+// "SUP> " like the NextPi Supervisor, and appends whatever the Next sends to a
+// file. What is under test is jnext's half: the directory checks, the overlay,
+// the FIFOs, the spawn, the wiring into UART 1, and the teardown.
+
+namespace {
+
+#ifndef _WIN32
+bool write_script(const std::filesystem::path& path, const std::string& body) {
+    std::ofstream f(path);
+    f << body;
+    f.close();
+    return ::chmod(path.c_str(), 0755) == 0;
+}
+#endif
+
+/// A provisioned NextPi directory's layout, with empty stand-in files, plus
+/// a stand-in `qemu-system-arm` and `qemu-img` in `bin/`.
+class FakeNextPi {
+public:
+    explicit FakeNextPi(const std::string& tag) {
+        root_ = std::filesystem::temp_directory_path() / ("jnext-fake-nextpi-" + tag + "-" + pid_tag());
+        std::error_code ec;
+        std::filesystem::remove_all(root_, ec);
+        std::filesystem::create_directories(root_ / "dist" / "boot", ec);
+        std::filesystem::create_directories(root_ / "bin", ec);
+        for (const char* f : {"dist/nextpi.img", "dist/boot/kernel.img",
+                              "dist/boot/bcm2708-rpi-zero.dtb"})
+            std::ofstream(root_ / f).put('\0');
+#ifndef _WIN32
+        ok_ = write_script(root_ / "bin" / "qemu-system-arm",
+                  "#!/bin/sh\n"
+                  "for a in \"$@\"; do case \"$a\" in pipe,*path=*) base=\"${a##*path=}\" ;; esac; done\n"
+                  "here=$(dirname \"$0\")\n"
+                  "printf '%s\\n' \"$@\" > \"$here/args\"\n"
+                  "exec 3<>\"$base.in\" 4<>\"$base.out\"\n"
+                  "printf 'SUP> ' >&4\n"
+                  "exec cat <&3 >> \"$here/received\"\n")
+           && write_script(root_ / "bin" / "qemu-img",
+                  "#!/bin/sh\n"
+                  "for a in \"$@\"; do overlay=\"$prev\"; prev=\"$a\"; done\n"
+                  ": > \"$overlay\"\n")
+           && write_script(root_ / "bin" / "qemu-fails", "#!/bin/sh\nexit 3\n");
+#endif
+    }
+    ~FakeNextPi() {
+        std::error_code ec;
+        std::filesystem::remove_all(root_, ec);
+    }
+    FakeNextPi(const FakeNextPi&)            = delete;
+    FakeNextPi& operator=(const FakeNextPi&) = delete;
+
+    bool ok() const { return ok_; }
+    std::string dir() const { return (root_ / "dist").string(); }
+    std::string bin(const char* name) const { return (root_ / "bin" / name).string(); }
+
+    /// What the stand-in has received from the Next so far.
+    std::string received() const {
+        std::ifstream f(root_ / "bin" / "received");
+        return std::string(std::istreambuf_iterator<char>(f), {});
+    }
+    /// Poll for `want` to have arrived, up to two seconds of wall clock — the
+    /// stand-in is a separate process, so its writes land when they land.
+    bool wait_received(const std::string& want) const {
+        for (int i = 0; i < 40; ++i) {
+            if (received() == want) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        return false;
+    }
+    std::string args() const {
+        std::ifstream f(root_ / "bin" / "args");
+        return std::string(std::istreambuf_iterator<char>(f), {});
+    }
+
+private:
+    std::filesystem::path root_;
+    bool                  ok_ = false;
+};
+
+EmulatorConfig pi_qemu_config(const PiQemu& qemu) {
+    EmulatorConfig cfg;
+    cfg.type                 = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    cfg.pi_uart_fifo_rx      = qemu.rx_path();
+    cfg.pi_uart_fifo_tx      = qemu.tx_path();
+    return cfg;
+}
+
+bool process_alive(int pid) {
+#ifndef _WIN32
+    return pid > 0 && ::kill(pid, 0) == 0;
+#else
+    (void)pid;
+    return false;
+#endif
+}
+
+bool contains(const std::vector<std::string>& v, const std::string& a, const std::string& b) {
+    for (std::size_t i = 0; i + 1 < v.size(); ++i)
+        if (v[i] == a && v[i + 1] == b) return true;
+    return false;
+}
+
+} // namespace
+
+static void test_pi_qemu() {
+    set_group("PI");
+
+    // ── PI-06 — the QEMU command line: a Pi Zero (raspi0) booting the
+    // directory's kernel and device tree from the overlay, with its console
+    // UART on the pipe chardev whose FIFOs jnext opens, no monitor and no
+    // display. Paths with commas are escaped the QEMU way (doubled).
+    {
+        PiQemu::Spec spec;
+        spec.dir = "/n";
+        const std::vector<std::string> a = PiQemu::build_args(spec, "/run/uart");
+        const bool shape =
+            contains(a, "-M", "raspi0")
+            && contains(a, "-kernel", "/n/boot/kernel.img")
+            && contains(a, "-dtb", "/n/boot/bcm2708-rpi-zero.dtb")
+            && contains(a, "-drive", "file=/n/overlay.qcow2,if=sd,format=qcow2")
+            && contains(a, "-chardev", "pipe,id=pi,path=/run/uart")
+            && contains(a, "-serial", "chardev:pi")
+            && contains(a, "-monitor", "none")
+            && contains(a, "-display", "none")
+            && contains(a, "-device", "usb-audio,audiodev=snd0,buffer=16384");
+        const std::string wav  = PiQemu::audiodev_arg("wav:/x,y.wav");
+        const std::string none = PiQemu::audiodev_arg("none");
+        const std::string dflt = PiQemu::audiodev_arg("");
+#ifdef __APPLE__
+        const bool dflt_ok = dflt.rfind("coreaudio,id=snd0", 0) == 0;
+#else
+        const bool dflt_ok = dflt == "pa,id=snd0";
+#endif
+        check("PI-06",
+              "the Pi Zero builds a raspi0 command line booting the NextPi "
+              "directory's kernel, device tree and overlay, with the console UART "
+              "on the pipe chardev jnext opens; -audiodev is the platform default, "
+              "a named driver, or wav:FILE",
+              shape && wav == "wav,id=snd0,path=/x,,y.wav" && none == "none,id=snd0" && dflt_ok,
+              fmt("shape=%d wav='%s' (want wav,id=snd0,path=/x,,y.wav) none='%s' "
+                  "default='%s'",
+                  shape ? 1 : 0, wav.c_str(), none.c_str(), dflt.c_str()));
+    }
+
+    // ── PI-07 — the refusals, each one a usage error before the machine boots
+    // and none leaving a process behind: an incomplete NextPi directory, a
+    // QEMU that is not installed, and a QEMU that dies at once.
+    {
+        FakeNextPi fake("refuse");
+        std::string err_dir, err_bin, err_dies;
+
+        PiQemu::Spec empty_dir;
+        empty_dir.dir = (std::filesystem::temp_directory_path() / ("jnext-no-nextpi-" + pid_tag())).string();
+        PiQemu a;
+        const bool dir_refused = !a.start(empty_dir, err_dir)
+                                 && err_dir.find("incomplete") != std::string::npos;
+
+        PiQemu::Spec no_qemu;
+        no_qemu.dir         = fake.dir();
+        no_qemu.qemu_binary = fake.bin("no-such-qemu");
+        PiQemu b;
+        const bool bin_refused = !b.start(no_qemu, err_bin)
+                                 && err_bin.find("not found") != std::string::npos && !b.running();
+
+        PiQemu::Spec dies;
+        dies.dir         = fake.dir();
+        dies.qemu_binary = fake.bin("qemu-fails");
+        PiQemu c;
+        const bool dies_refused = !c.start(dies, err_dies)
+                                  && err_dies.find("exited at once") != std::string::npos
+                                  && !c.running();
+
+        check("PI-07",
+              "the Pi Zero refuses before boot, leaving nothing running, when the "
+              "NextPi directory is incomplete, when QEMU is not installed, "
+              "and when QEMU exits at once",
+              fake.ok() && dir_refused && bin_refused && dies_refused,
+              fmt("fixture=%d dir='%s' binary='%s' dies='%s'", fake.ok() ? 1 : 0,
+                  err_dir.c_str(), err_bin.c_str(), err_dies.c_str()));
+    }
+
+    // ── PI-08 — THE FEATURE, end to end with the stand-in. jnext creates the
+    // overlay (via qemu-img) and the FIFOs, spawns "QEMU", and the Emulator
+    // built from the resulting config hears the Pi's "SUP> " on UART 1 and is
+    // heard by it, NR 0xA0 = 0x30 as `.pisend` sets it. Destroying the launcher
+    // stops the process and removes the FIFOs.
+    {
+        FakeNextPi fake("e2e");
+        PiQemu::Spec spec;
+        spec.dir         = fake.dir();
+        spec.qemu_binary = fake.bin("qemu-system-arm");
+        spec.audio       = "none";
+
+        auto qemu = std::make_unique<PiQemu>();
+        std::string error;
+        const bool started = fake.ok() && qemu->start(spec, error);
+        const bool overlay = std::filesystem::exists(std::filesystem::path(fake.dir()) / "overlay.qcow2");
+        const int  pid     = qemu->pid();
+        const std::filesystem::path fifo_dir = std::filesystem::path(qemu->rx_path()).parent_path();
+
+        std::vector<uint8_t> heard;
+        bool sent = false;
+        if (started) {
+            Emulator emu;
+            emu.init(pi_qemu_config(*qemu));
+            for (int f = 0; f < 4 && heard.size() < 5; ++f) {
+                const std::vector<uint8_t> got = pi_frame(emu, 0x30);
+                heard.insert(heard.end(), got.begin(), got.end());
+            }
+            pi_transmit_frame(emu, 0x30, 0x0D);
+            sent = fake.wait_received("\r");
+        }
+        const bool args_ok = fake.args().find("pipe,id=pi,path=") != std::string::npos;
+
+        // SIGTERM ends QEMU at once; the 3 s SIGKILL fallback is for a QEMU
+        // that ignores it, and must not be what stops a well-behaved one.
+        const auto t0 = std::chrono::steady_clock::now();
+        qemu.reset();
+        const long stop_ms = static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - t0).count());
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        const bool stopped     = !process_alive(pid) && stop_ms < 2000;
+        const bool fifos_gone  = !fifo_dir.empty() && !std::filesystem::exists(fifo_dir);
+
+        check("PI-08",
+              "the Pi Zero end to end: jnext creates the overlay and the FIFOs, "
+              "starts QEMU on its pipe chardev, the guest reads the Pi's SUP> on "
+              "UART 1 and the Pi receives the guest's byte; stopping the launcher "
+              "ends the process with SIGTERM (not the SIGKILL fallback) and removes "
+              "the FIFOs",
+              started && overlay && args_ok
+                  && heard == std::vector<uint8_t>({'S', 'U', 'P', '>', ' '}) && sent
+                  && stopped && fifos_gone,
+              fmt("started=%d (%s) overlay=%d args=%d guest heard [%s] (want 53 55 50 "
+                  "3E 20) pi received=%d stopped=%d (%ld ms, want < 2000) fifos_gone=%d",
+                  started ? 1 : 0, error.c_str(), overlay ? 1 : 0, args_ok ? 1 : 0,
+                  bytes_hex(heard).c_str(), sent ? 1 : 0, stopped ? 1 : 0, stop_ms,
+                  fifos_gone ? 1 : 0));
+    }
+
+    // ── PI-09 — A HARD RESET DOES NOT REBOOT THE PI. The launcher belongs to
+    // the process, so a second Emulator built from the same config (what a
+    // cold boot does) re-opens the same FIFOs and reaches the SAME Pi process,
+    // which never saw the first Emulator go away.
+    {
+        FakeNextPi fake("coldboot");
+        PiQemu::Spec spec;
+        spec.dir         = fake.dir();
+        spec.qemu_binary = fake.bin("qemu-system-arm");
+        spec.audio       = "none";
+        PiQemu qemu;
+        std::string error;
+        const bool started = fake.ok() && qemu.start(spec, error);
+        const int  pid     = qemu.pid();
+
+        bool first = false, second = false;
+        if (started) {
+            {
+                Emulator emu;
+                emu.init(pi_qemu_config(qemu));
+                pi_transmit_frame(emu, 0x30, 'A');
+                first = fake.wait_received("A");
+            }
+            Emulator emu;
+            emu.init(pi_qemu_config(qemu));
+            pi_transmit_frame(emu, 0x30, 'B');
+            second = fake.wait_received("AB");
+        }
+
+        check("PI-09",
+              "a rebuilt Emulator (a hard reset) reconnects to the same running Pi "
+              "through the same FIFOs; the Pi received both machines' bytes in order",
+              started && first && second && qemu.pid() == pid && process_alive(pid),
+              fmt("started=%d (%s) first=%d second=%d received='%s' (want AB) "
+                  "same_pid=%d alive=%d",
+                  started ? 1 : 0, error.c_str(), first ? 1 : 0, second ? 1 : 0,
+                  fake.received().c_str(), qemu.pid() == pid ? 1 : 0,
+                  process_alive(pid) ? 1 : 0));
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// The Pi Zero's NextPi directory, prepared on first use (pizero_provisioner)
+// ══════════════════════════════════════════════════════════════════════
+//
+// Offline: the "mirror" is a temporary directory and the download seam copies
+// from it, as sdcard_provisioner's tests do. The archive is built here — a
+// gzip-compressed tar in GNU format whose image entry is a tiny MBR disk with a
+// hand-made FAT32 boot partition holding kernel.img and a long-named
+// bcm2708-rpi-zero.dtb — so the whole real code path runs: checksum, tar
+// stream, base-256 / pax sizes and names, the FAT32 reader, the install swap.
+
+namespace {
+
+void put16(std::vector<uint8_t>& b, std::size_t at, uint16_t v) {
+    b[at] = static_cast<uint8_t>(v); b[at + 1] = static_cast<uint8_t>(v >> 8);
+}
+void put32(std::vector<uint8_t>& b, std::size_t at, uint32_t v) {
+    for (int i = 0; i < 4; ++i) b[at + i] = static_cast<uint8_t>(v >> (8 * i));
+}
+
+/// A 64-sector disk: MBR, one FAT32 (type 0x0C) partition at LBA 8 with one
+/// sector per cluster, kernel.img (8.3) and bcm2708-rpi-zero.dtb (VFAT long
+/// name) in its root directory. Small files only (one cluster each).
+std::vector<uint8_t> fake_nextpi_disk(const std::string& kernel, const std::string& dtb) {
+    std::vector<uint8_t> d(64 * 512, 0);
+    const std::size_t part = 8 * 512;
+    d[0x1BE + 4] = 0x0C;                 // FAT32 LBA
+    put32(d, 0x1BE + 8, 8);              // first sector
+    put32(d, 0x1BE + 12, 56);            // size
+    d[510] = 0x55; d[511] = 0xAA;
+    put16(d, part + 11, 512);            // bytes per sector
+    d[part + 13] = 1;                    // sectors per cluster
+    put16(d, part + 14, 1);              // reserved sectors
+    d[part + 16] = 1;                    // FATs
+    put32(d, part + 32, 56);             // total sectors
+    put32(d, part + 36, 1);              // sectors per FAT
+    put32(d, part + 44, 2);              // root cluster
+    std::memcpy(&d[part + 82], "FAT32   ", 8);
+    d[part + 510] = 0x55; d[part + 511] = 0xAA;
+    const std::size_t fat = part + 512;  // LBA 9
+    put32(d, fat + 0, 0x0FFFFFF8);
+    put32(d, fat + 4, 0x0FFFFFFF);
+    for (int cl = 2; cl <= 4; ++cl) put32(d, fat + 4 * cl, 0x0FFFFFFF);   // root, kernel, dtb
+    const auto cluster = [&](int cl) { return static_cast<std::size_t>((10 + cl - 2) * 512); };
+
+    std::size_t e = cluster(2);
+    auto sfn = [&](const char* name11, int cl, std::size_t size) {
+        std::memcpy(&d[e], name11, 11);
+        d[e + 11] = 0x20;
+        put16(d, e + 26, static_cast<uint16_t>(cl));
+        put32(d, e + 28, static_cast<uint32_t>(size));
+        e += 32;
+    };
+    sfn("KERNEL  IMG", 3, kernel.size());
+    // "bcm2708-rpi-zero.dtb" = 20 chars: two LFN slots, highest first.
+    const std::string lfn = "bcm2708-rpi-zero.dtb";
+    for (int slot = 2; slot >= 1; --slot) {
+        d[e] = static_cast<uint8_t>(slot | (slot == 2 ? 0x40 : 0));
+        d[e + 11] = 0x0F;
+        static const int offs[13] = {1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30};
+        for (int k = 0; k < 13; ++k) {
+            const std::size_t idx = static_cast<std::size_t>((slot - 1) * 13 + k);
+            const uint16_t ch = idx < lfn.size() ? static_cast<uint8_t>(lfn[idx])
+                              : idx == lfn.size() ? 0x0000 : 0xFFFF;
+            put16(d, e + offs[k], ch);
+        }
+        e += 32;
+    }
+    sfn("BCM270~1DTB", 4, dtb.size());
+    std::memcpy(&d[cluster(3)], kernel.data(), kernel.size());
+    std::memcpy(&d[cluster(4)], dtb.data(), dtb.size());
+    return d;
+}
+
+/// A tar header: name, size, type. `base256` writes the size in GNU's
+/// base-256 form (how a >8 GB image, like NextPi's, is recorded).
+std::string tar_header(const std::string& name, uint64_t size, char type, bool base256 = false) {
+    std::string h(512, '\0');
+    std::memcpy(&h[0], name.data(), std::min<std::size_t>(name.size(), 100));
+    std::snprintf(&h[100], 8, "%07o", 0644);
+    if (base256) {
+        h[124] = static_cast<char>(0x80);
+        for (int i = 0; i < 8; ++i) h[135 - i] = static_cast<char>(size >> (8 * i));
+    } else {
+        std::snprintf(&h[124], 12, "%011llo", static_cast<unsigned long long>(size));
+    }
+    h[156] = type;
+    std::memcpy(&h[257], "ustar  ", 8);                      // GNU magic, like NextPi's
+    std::memset(&h[148], ' ', 8);
+    unsigned sum = 0;
+    for (unsigned char c : h) sum += c;
+    std::snprintf(&h[148], 8, "%06o", sum);
+    return h;
+}
+std::string tar_entry(const std::string& name, const std::string& data, char type = '0',
+                      bool base256 = false) {
+    std::string out = tar_header(name, data.size(), type, base256) + data;
+    out.resize((out.size() + 511) / 512 * 512, '\0');
+    return out;
+}
+std::string pax_record(const std::string& key, const std::string& value) {
+    const std::string body = " " + key + "=" + value + "\n";
+    std::size_t len = body.size() + 1;
+    while (std::to_string(len).size() + body.size() != len) ++len;
+    return std::to_string(len) + body;
+}
+
+/// NextPi-<release>.tar.gz as the mirror serves it: a directory, an md5 file,
+/// a pax-named and base-256-sized image, written with zlib.
+bool write_fake_release(const std::string& path, const std::string& release,
+                        const std::vector<uint8_t>& disk) {
+    const std::string top = "NextPi-" + release + "/";
+    std::string tar = tar_entry(top, "", '5');
+    tar += tar_entry(top + "NextPi2-test.img.md5", "0123 x\n");
+    tar += tar_entry(top + "PaxHeaders/img", pax_record("path", top + "NextPi2-test.img"), 'x');
+    tar += tar_entry("ignored-short-name", std::string(disk.begin(), disk.end()), '0', true);
+    tar += std::string(1024, '\0');
+    gzFile gz = gzopen(path.c_str(), "wb");
+    if (!gz) return false;
+    const bool ok = gzwrite(gz, tar.data(), static_cast<unsigned>(tar.size())) == static_cast<int>(tar.size());
+    return gzclose(gz) == Z_OK && ok;
+}
+
+/// A mirror directory plus a download seam that serves from it (and the
+/// listing page for "<mirror>/"), counting what it was asked for.
+struct FakeMirror {
+    std::filesystem::path dir;
+    std::string           listing;
+    std::vector<std::string> fetched;
+    bool                  offline = false;
+
+    explicit FakeMirror(const std::string& tag) {
+        dir = std::filesystem::temp_directory_path() / ("jnext-pizero-mirror-" + tag + "-" + pid_tag());
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        std::filesystem::create_directories(dir, ec);
+    }
+    ~FakeMirror() { std::error_code ec; std::filesystem::remove_all(dir, ec); }
+
+    std::string url() const { return "https://mirror.test/NextPi2"; }
+
+    bool add_release(const std::string& release, const std::vector<uint8_t>& disk) {
+        const std::string archive = (dir / ("NextPi-" + release + ".tar.gz")).string();
+        if (!write_fake_release(archive, release, disk)) return false;
+        std::ofstream(archive + ".md5") << "MD5 (NextPi-" << release << ".tar.gz) = "
+                                        << pizero::md5_file(archive) << "\n";
+        listing += "<a href=\"NextPi-" + release + ".tar.gz\">NextPi-" + release + ".tar.gz</a>\n"
+                   "<a href=\"NextPi-" + release + ".tar.gz.md5\">md5</a>\n";
+        return true;
+    }
+
+    sdcard::DownloadFn download() {
+        return [this](const std::string& u, const std::string& dest, const sdcard::ProgressFn& progress,
+                      std::string& err) {
+            fetched.push_back(u);
+            if (offline) { err = "Could not resolve hostname"; return false; }
+            if (u == url() + "/") { std::ofstream(dest) << listing; return true; }
+            const std::string name = u.substr(u.find_last_of('/') + 1);
+            std::error_code ec;
+            std::filesystem::copy_file(dir / name, dest,
+                                       std::filesystem::copy_options::overwrite_existing, ec);
+            if (ec) { err = "HTTP status 404"; return false; }
+            if (progress) progress(1, 1);
+            return true;
+        };
+    }
+};
+
+std::string slurp(const std::filesystem::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(f), {});
+}
+
+pizero::ProvisionOptions pizero_options(FakeMirror& mirror, const std::string& dir,
+                                        const std::string& release, int& confirms, bool answer = true) {
+    pizero::ProvisionOptions o;
+    o.dir          = dir;
+    o.release      = release;
+    o.mirror       = mirror.url();
+    o.download     = mirror.download();
+    o.confirm      = [&confirms, answer](const std::string&) { ++confirms; return answer; };
+    o.space_needed = 0;
+    return o;
+}
+
+} // namespace
+
+static void test_pizero_provisioner() {
+    set_group("PI");
+    namespace fs = std::filesystem;
+    const std::vector<uint8_t> disk_a = fake_nextpi_disk("kernel image a", "device tree a");
+    const std::vector<uint8_t> disk_b = fake_nextpi_disk("kernel image b", "device tree b");
+
+    // ── PI-10 — releases: the mirror listing yields each NextPi-<name>.tar.gz
+    // once (not its .md5), and names compare as `sort -V` does, so "latest"
+    // picks 1_100 over 1_93D and 1_93D over 1_93C.
+    {
+        const std::vector<std::string> names = pizero::parse_release_listing(
+            "<a href=\"NextPi-1_93C.tar.gz\">x</a> <a href=\"NextPi-1_93C.tar.gz.md5\">m</a>"
+            "<a href=\"NextPi-1_93D.tar.gz\">NextPi-1_93D.tar.gz</a> <a href=\"NextPi-1_100.tar.gz\">");
+        const bool listing = names == std::vector<std::string>({"1_93C", "1_93D", "1_100"});
+        const bool order = pizero::compare_release("1_100", "1_93D") > 0
+                        && pizero::compare_release("1_93D", "1_93C") > 0
+                        && pizero::compare_release("1_93D", "1_93D") == 0
+                        && pizero::compare_release("1_9", "1_10") < 0;
+        std::string joined;
+        for (const std::string& n : names) joined += n + " ";
+        check("PI-10",
+              "the Pi Zero's release list is read from the mirror's NextPi-<name>.tar.gz "
+              "links, once each, and release names order numerically (1_100 after 1_93D)",
+              listing && order, fmt("listed [%s] order=%d", joined.c_str(), order ? 1 : 0));
+    }
+
+    // ── PI-11 — the tar stream: the image entry is found by suffix through a pax
+    // path record, its size read from a GNU base-256 field, and written out
+    // byte for byte; an archive without such an entry is an error.
+    {
+        FakeMirror mirror("tar");
+        const fs::path archive = mirror.dir / "a.tar.gz";
+        const fs::path out = mirror.dir / "out.img";
+        std::string err, err_missing;
+        const bool wrote = write_fake_release(archive.string(), "T", disk_a);
+        const bool ok = wrote && pizero::extract_tar_gz_entry(archive.string(), ".img", out.string(), {}, err);
+        const bool same = ok && slurp(out) == std::string(disk_a.begin(), disk_a.end());
+        const bool missing = !pizero::extract_tar_gz_entry(archive.string(), ".iso", out.string(), {}, err_missing)
+                           && err_missing.find(".iso") != std::string::npos;
+        check("PI-11",
+              "the NextPi archive reader finds the image through a pax path record, "
+              "reads its GNU base-256 size, and writes it byte for byte; a missing "
+              "entry is an error",
+              ok && same && missing,
+              fmt("ok=%d (%s) same=%d missing='%s'", ok ? 1 : 0, err.c_str(), same ? 1 : 0,
+                  err_missing.c_str()));
+    }
+
+    // ── PI-12 — FIRST USE: asked once, the checksum and archive fetched, the
+    // image and both boot files installed, the release recorded, the archive
+    // deleted. The next run finds it ready: no question, no network.
+    {
+        FakeMirror mirror("first");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "pizero";
+        int confirms = 0;
+        const pizero::ProvisionResult r1 = pizero::provision(pizero_options(mirror, dir.string(), "", confirms));
+        const bool installed = r1.status == sdcard::ProvisionStatus::Ok && r1.release == "1_93D"
+            && slurp(dir / "nextpi.img") == std::string(disk_a.begin(), disk_a.end())
+            && slurp(dir / "boot" / "kernel.img") == "kernel image a"
+            && slurp(dir / "boot" / "bcm2708-rpi-zero.dtb") == "device tree a"
+            && pizero::prepared_release(dir.string()) == "1_93D"
+            && !fs::exists(dir / "NextPi-1_93D.tar.gz");
+        const std::size_t fetched_first = mirror.fetched.size();
+        const pizero::ProvisionResult r2 = pizero::provision(pizero_options(mirror, dir.string(), "", confirms));
+        const bool second_quiet = r2.status == sdcard::ProvisionStatus::Ok && confirms == 1
+                                && mirror.fetched.size() == fetched_first;
+        check("PI-12",
+              "first use of the Pi Zero asks once, downloads the default release with "
+              "its MD5, installs the image and the two boot files from its FAT32 "
+              "partition and deletes the archive; the next run asks nothing and "
+              "fetches nothing",
+              fixture && installed && fetched_first == 2 && second_quiet,
+              fmt("fixture=%d installed=%d (%s) fetched=%zu (want 2) second_quiet=%d confirms=%d",
+                  fixture ? 1 : 0, installed ? 1 : 0, r1.error.c_str(), fetched_first,
+                  second_quiet ? 1 : 0, confirms));
+    }
+
+    // ── PI-13 — the refusals: declining downloads nothing and installs nothing;
+    // an archive whose MD5 does not match is deleted and nothing is installed.
+    {
+        FakeMirror mirror("refuse");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir_no = mirror.dir / "declined";
+        int confirms = 0;
+        const pizero::ProvisionResult declined =
+            pizero::provision(pizero_options(mirror, dir_no.string(), "", confirms, false));
+        const bool declined_ok = declined.status == sdcard::ProvisionStatus::Declined
+                               && mirror.fetched.empty() && pizero::prepared_release(dir_no.string()).empty();
+
+        std::ofstream(mirror.dir / "NextPi-1_93D.tar.gz.md5") << "00000000000000000000000000000000\n";
+        const fs::path dir_bad = mirror.dir / "corrupt";
+        const pizero::ProvisionResult corrupt =
+            pizero::provision(pizero_options(mirror, dir_bad.string(), "", confirms));
+        const bool corrupt_ok = corrupt.status == sdcard::ProvisionStatus::Failed
+                              && corrupt.error.find("MD5") != std::string::npos
+                              && !fs::exists(dir_bad / "NextPi-1_93D.tar.gz")
+                              && pizero::prepared_release(dir_bad.string()).empty();
+        check("PI-13",
+              "declining the NextPi download fetches and installs nothing; a download "
+              "whose MD5 does not match is deleted and nothing is installed",
+              fixture && declined_ok && corrupt_ok,
+              fmt("fixture=%d declined=%d corrupt=%d ('%s')", fixture ? 1 : 0,
+                  declined_ok ? 1 : 0, corrupt_ok ? 1 : 0, corrupt.error.c_str()));
+    }
+
+    // ── PI-14 — CHANGING RELEASE, and "latest". A directory holding another
+    // release is replaced after asking, and its overlay (made over the old
+    // image) discarded. "latest" picks the newest listed release; with the
+    // mirror unreachable it keeps the installed one, with a warning, asking
+    // nothing.
+    {
+        FakeMirror mirror("change");
+        const bool fixture = mirror.add_release("1_93D", disk_a) && mirror.add_release("1_100", disk_b);
+        const fs::path dir = mirror.dir / "pizero";
+        int confirms = 0;
+        const pizero::ProvisionResult r1 = pizero::provision(pizero_options(mirror, dir.string(), "1_93D", confirms));
+        std::ofstream(dir / "overlay.qcow2") << "old overlay";
+        const pizero::ProvisionResult r2 = pizero::provision(pizero_options(mirror, dir.string(), "latest", confirms));
+        const bool upgraded = r1.status == sdcard::ProvisionStatus::Ok
+            && r2.status == sdcard::ProvisionStatus::Ok && r2.release == "1_100" && confirms == 2
+            && slurp(dir / "boot" / "kernel.img") == "kernel image b" && !fs::exists(dir / "overlay.qcow2");
+        mirror.offline = true;
+        const pizero::ProvisionResult r3 = pizero::provision(pizero_options(mirror, dir.string(), "latest", confirms));
+        const bool offline_kept = r3.status == sdcard::ProvisionStatus::Ok && r3.release == "1_100"
+                                && !r3.warning.empty() && confirms == 2;
+        check("PI-14",
+              "the Pi Zero replaces a directory holding another release after asking, "
+              "discarding its overlay; \"latest\" installs the newest listed release, and "
+              "with the mirror unreachable keeps the installed one with a warning",
+              fixture && upgraded && offline_kept,
+              fmt("fixture=%d upgraded=%d (%s / %s, confirms=%d) offline_kept=%d ('%s')",
+                  fixture ? 1 : 0, upgraded ? 1 : 0, r1.error.c_str(), r2.release.c_str(),
+                  confirms, offline_kept ? 1 : 0, r3.warning.c_str()));
+    }
+}
+
 static void test_nr_a0_pi_uart_routing(Emulator& emu) {
     set_group("NR_A0-INT");
     // VHDL zxnext.vhd:1241, 2278-2281, 5080, 5560-5561, 6188-6189.
@@ -2920,6 +3800,11 @@ int main() {
 
     test_joy_uart_cable();
     std::printf("  Group: JOY — done\n");
+
+    test_pi_uart_link();
+    test_pi_qemu();
+    test_pizero_provisioner();
+    std::printf("  Group: PI — done\n");
 
     test_nr_a0_pi_uart_routing(emu);
     std::printf("  Group: NR_A0-INT — done\n");

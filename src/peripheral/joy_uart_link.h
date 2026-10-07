@@ -161,6 +161,11 @@ public:
     std::size_t sent()      const { return sent_; }        ///< written to the host
     std::size_t unsent()    const { return unsent_; }      ///< dropped, peer gone or full
 
+    /// True while host bytes are queued for pacing, i.e. while `tick()` has
+    /// work. A `UartDevice` built on this link (the Pi, `PiUartDevice`) mirrors
+    /// it into its per-instruction tick gate.
+    bool rx_pending() const { return !rx_queue_.empty(); }
+
     /// Unexpected `errno`s seen on the descriptors, and the last one's text.
     /// A peer coming and going is NOT a fault (that is the normal life of this
     /// cable and is handled silently); anything else is, and the owner turns a
@@ -269,6 +274,15 @@ public:
     /// looks alive and talks to nobody.
     static std::unique_ptr<JoyUartEndpoint> open_fifo(const std::string& base,
                                                       std::string& error);
+
+    /// The same FIFO pair with both paths given explicitly: jnext reads
+    /// `rx_path` (host → Next) and writes `tx_path` (Next → host). `open_fifo`
+    /// is this with jnext's `<base>.rx` / `<base>.tx` naming; the NextPi QEMU
+    /// launcher (`PiQemu`) uses it for QEMU's `pipe` chardev, whose ends are
+    /// named `<path>.out` (QEMU writes) and `<path>.in` (QEMU reads).
+    static std::unique_ptr<JoyUartEndpoint> open_fifo_paths(const std::string& rx_path,
+                                                            const std::string& tx_path,
+                                                            std::string& error);
 
     /// A PSEUDO-TERMINAL. jnext holds the master; the slave device path is what
     /// a serial client (DeZog's `serial` remote, `picocom`, ...) opens, and it

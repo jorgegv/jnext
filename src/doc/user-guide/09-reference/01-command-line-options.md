@@ -277,6 +277,44 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     pair of pipes — and it is put in raw mode so a binary protocol
     passes through untranslated. POSIX only.
 
+**--pizero**
+
+:   Start the **Pi Zero**: NextPi — the Raspberry Pi Zero accelerator
+    distribution a real Next carries on its GPIO header — running under
+    QEMU (`qemu-system-arm`, machine `raspi0`), connected to UART 1, the
+    UART wired to that header. NextZXOS’s own Pi tools (`.pisend`, the
+    NextPi UI) then talk to a real NextPi. jnext does not emulate the
+    Pi: QEMU must be installed, and jnext starts it, wires it in and
+    stops it when it exits.
+
+    The first run that needs it offers to download NextPi from its
+    mirror (<https://zx.xalior.com/NextPi2/>) into `~/.jnext/pizero` —
+    about 6 GB, with about 22 GB free needed while it is unpacked — with
+    a progress bar, exactly as the SD-card image is provisioned; later
+    runs start at once. NextPi then takes about a minute to reach its
+    Supervisor prompt (`SUP>`). The release, the directory, the QEMU
+    binary and where the Pi’s sound goes are set under **Settings \>
+    Preferences \> Pi Zero** (the `[pizero]` section of
+    `~/.jnext/jnext.conf`); their defaults are release `1_93D`,
+    `~/.jnext/pizero`, `qemu-system-arm` on `PATH`, and the host’s
+    speakers.
+
+    The guest reaches the Pi only while NR 0xA0 bits 5:4 are `11` — UART
+    1 on GPIO 14/15, wired for a Pi — which NextPi’s tools set before
+    they talk to it. Until then the Pi’s bytes are lost on the wire and
+    the guest’s never reach it, as on the real machine; the first such
+    loss is logged once. While NR 0x0B gives UART 1 to the joystick
+    connector, the Pi cannot be heard either. Host bytes are paced at
+    UART 1’s current baud; a rewind or an RZX playback holds the link
+    inert, and nothing about it is saved in a snapshot. A soft or hard
+    reset leaves the Pi running. A Pi asked for with this option that
+    cannot start (no QEMU, a declined or failed download) is an error.
+    POSIX only.
+
+**--no-pizero**
+:   Do not start the Pi Zero this run, overriding a saved preference
+    that enables it.
+
 **--tape-realtime**
 :   Real-time tape loading, at the speed of an actual tape, instead of
     fast load.

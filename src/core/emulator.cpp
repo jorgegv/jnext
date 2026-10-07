@@ -18,6 +18,7 @@
 #include "peripheral/esp_uart_adapter.h"
 #include "peripheral/joy_uart_source.h"
 #include "peripheral/joy_uart_link.h"
+#include "peripheral/pi_uart_device.h"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -6744,6 +6745,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // GH #252 — the LIVE bidirectional cable, if the user attached one.
     setup_joy_uart_link();
 
+    // The Raspberry Pi on UART 1, if the user handed its wire to the host.
+    setup_pi_uart();
+
     // Pass-8 verify-audit (2026-05-09): seed the VHDL zxnext.vhd:3319
     // composite Flash-CS gate from the post-power-on / post-init state.
     // Power-on defaults: nr_03_config_mode='1' (zxnext.vhd:1102) AND
@@ -9405,6 +9409,69 @@ void Emulator::service_joy_uart_link_frame()
     }
 }
 
+void Emulator::setup_pi_uart()
+{
+    if (config_.pi_uart_fifo_rx.empty()) return;  // no Pi
+    // A SOFT reset must not unplug it: the Pi on the far end never sees a
+    // Next-side reset, and re-opening the endpoint would drop what it holds.
+    if (pi_uart_) return;
+
+    std::string error;
+    std::unique_ptr<JoyUartEndpoint> endpoint =
+        JoyUartEndpoint::open_fifo_paths(config_.pi_uart_fifo_rx, config_.pi_uart_fifo_tx, error);
+    if (!endpoint) {
+        // Unreachable from main.cpp, which creates both FIFOs before the machine
+        // boots; a hand-built EmulatorConfig gets NO link rather than a
+        // silently dead one, and UART 1 keeps its unattached loopback.
+        Log::uart()->error("Raspberry Pi serial link: {} — not attached", error);
+        return;
+    }
+
+    pi_uart_ = std::make_unique<PiUartDevice>(std::move(endpoint));
+    pi_uart_->set_connected_probe([this] { return pi_uart_connected(); });
+    uart_.attach_device(1, pi_uart_.get());   // UART 1 is the Pi header (uart_device.h)
+
+    // ONE posture line, naming the FIFOs and the gate a silent Pi is behind.
+    Log::uart()->info(
+        "Raspberry Pi serial link attached to UART 1 — {}; the guest reaches it only "
+        "while NR 0xA0 bits 5:4 = 11 (UART 1 on GPIO 14/15, wired for a Pi), which "
+        "NextPi's tools set themselves",
+        pi_uart_->describe());
+}
+
+void Emulator::service_pi_uart_frame()
+{
+    // THE REPLAY GATE — see service_joy_uart_link_frame(), whose argument this
+    // is verbatim: re-sent bytes would reach the Pi twice and re-read ones would
+    // be stolen from the resumed timeline. Raised here, enforced in the link.
+    pi_uart_->set_inert(replay_mode_ || rzx_player_.is_playing());
+
+    pi_uart_->poll();
+
+    const JoyUartLink& link = pi_uart_->link();
+    if (!pi_uart_fault_reported_ && link.faults() > 0) {
+        pi_uart_fault_reported_ = true;
+        Log::uart()->error(
+            "Raspberry Pi serial link ({}) reported an I/O error: {}. The link has "
+            "stopped carrying traffic in at least one direction; the emulator keeps "
+            "running",
+            pi_uart_->describe(), link.last_error());
+    }
+
+    // Traffic lost to a closed GPIO gate is CORRECT behaviour — a Pi that is
+    // already talking while the guest has not yet routed UART 1 to it (its boot
+    // log, typically) is a wire nobody is listening to. Said once, so a user
+    // whose program never sets NR 0xA0 learns why it hears nothing.
+    if (!pi_uart_gate_reported_
+            && (link.dropped() > 0 || pi_uart_->tx_disconnected() > 0)) {
+        pi_uart_gate_reported_ = true;
+        Log::uart()->info(
+            "Raspberry Pi serial link: traffic dropped while NR 0xA0 = {:#04x} does not "
+            "connect UART 1 to the Pi (bits 5:4 must be 11, e.g. NEXTREG 0xA0,0x30)",
+            nr_a0_pi_peripheral_en_);
+    }
+}
+
 bool Emulator::esp_associated() const
 {
     return esp_device_ && esp_device_->associated();
@@ -9577,6 +9644,10 @@ void Emulator::run_frame()
     // the same reason and in the same place: its replay gate has to be applied
     // before any instruction of a replayed frame runs.
     if (joy_uart_link_) service_joy_uart_link_frame();
+
+    // The live Pi link's once-per-frame half, here for the same reason: its
+    // replay gate must be up before any instruction of a replayed frame runs.
+    if (pi_uart_) service_pi_uart_frame();
 
     // Handle rewind step modes set by the GUI or scripting layer.
     // These are processed before the normal snapshot so we don't take a
@@ -14001,5 +14072,7 @@ EmulatorConfig Emulator::warm_start_boot_config(const EmulatorConfig& live)
     boot_cfg.joy_uart_rx_file.clear();
     boot_cfg.joy_uart_fifo.clear();
     boot_cfg.joy_uart_pty         = false;
+    boot_cfg.pi_uart_fifo_rx.clear();
+    boot_cfg.pi_uart_fifo_tx.clear();
     return boot_cfg;
 }
