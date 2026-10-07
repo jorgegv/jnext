@@ -260,7 +260,7 @@ which a debugger closing its end would kill the emulator outright.
 
 ## The Pi Zero
 
-`--pizero` (or the `[pizero]` preference) runs a real NextPi under QEMU on
+`--nextpi` (or the `[pizero]` preference) runs a real NextPi under QEMU on
 UART 1, the Pi GPIO header's UART. Three pieces:
 
 * **`peripheral/pi_uart_device.{h,cpp}`** is the far end of UART 1. Unlike the
@@ -291,7 +291,7 @@ UART 1, the Pi GPIO header's UART. Three pieces:
   is installed, so a changed release (or `latest` moving on) re-provisions and
   discards the overlay.
 
-`main()` wires them: it merges `--pizero`/`--no-pizero` over the saved
+`main()` wires them: it merges `--nextpi`/`--no-nextpi` over the saved
 preference (GUI sessions only, as for the ESP), provisions, starts QEMU, and
 puts the FIFO paths in the `EmulatorConfig`. A Pi asked for on the command line
 that cannot start is a usage error; one enabled only in Preferences is reported

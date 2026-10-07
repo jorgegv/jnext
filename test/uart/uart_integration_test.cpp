@@ -2718,7 +2718,7 @@ static void test_joy_uart_cable() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// The LIVE Raspberry Pi serial link on UART 1 (the Pi Zero, --pizero)
+// The LIVE Raspberry Pi serial link on UART 1 (the Pi Zero, --nextpi)
 // ══════════════════════════════════════════════════════════════════════
 //
 // The wire on the Pi GPIO header handed to the host, as a `UartDevice` on
@@ -2977,7 +2977,7 @@ static void test_pi_uart_link() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// NextPi under QEMU, launched by jnext (--pizero)
+// NextPi under QEMU, launched by jnext (--nextpi)
 // ══════════════════════════════════════════════════════════════════════
 //
 // No real QEMU and no NextPi image: a shell-script stand-in takes QEMU's

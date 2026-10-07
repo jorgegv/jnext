@@ -9,7 +9,7 @@
 #include "peripheral/uart_device.h"
 
 /// The Raspberry Pi on the GPIO header, as a LIVE host endpoint on UART 1
-/// (the Pi Zero, `--pizero`). Design: doc/design/PIZERO-DESIGN.md.
+/// (the Pi Zero, `--nextpi`). Design: doc/design/PIZERO-DESIGN.md.
 ///
 /// The Next talks to its Pi Zero accelerator (NextPi) over UART 1, whose module
 /// end is the Pi GPIO header (uart_device.h: UART 0 is the ESP, UART 1 the Pi).

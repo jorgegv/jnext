@@ -18,7 +18,7 @@ Zero** under **Settings ▸ Preferences ▸ Pi Zero** and restart JNEXT, or star
 for one run with:
 
 ```
-jnext --pizero
+jnext --nextpi
 ```
 
 The first time, JNEXT offers to download NextPi, the way it offers to download
@@ -39,7 +39,7 @@ mixer instead.
 
 QEMU runs in the background for as long as JNEXT does, and stops with it. A
 soft or hard reset of the Next leaves the Pi running, as it would on the real
-machine. `--no-pizero` leaves the Pi off for one run even when the preference
+machine. `--no-nextpi` leaves the Pi off for one run even when the preference
 is ticked.
 
 ## The Pi Zero settings

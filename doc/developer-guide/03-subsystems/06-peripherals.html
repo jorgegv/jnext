@@ -2642,7 +2642,7 @@ Next→host FIFO <strong>cannot</strong> be opened until something is reading it
 every flush. <code>SIGPIPE</code> is ignored when the first endpoint is created, without
 which a debugger closing its end would kill the emulator outright.</p>
 <h2 id="the-pi-zero">The Pi Zero<a class="headerlink" href="#the-pi-zero" title="Permanent link">&para;</a></h2>
-<p><code>--pizero</code> (or the <code>[pizero]</code> preference) runs a real NextPi under QEMU on
+<p><code>--nextpi</code> (or the <code>[pizero]</code> preference) runs a real NextPi under QEMU on
 UART 1, the Pi GPIO header's UART. Three pieces:</p>
 <ul>
 <li><strong><code>peripheral/pi_uart_device.{h,cpp}</code></strong> is the far end of UART 1. Unlike the
@@ -2673,7 +2673,7 @@ UART 1, the Pi GPIO header's UART. Three pieces:</p>
   is installed, so a changed release (or <code>latest</code> moving on) re-provisions and
   discards the overlay.</li>
 </ul>
-<p><code>main()</code> wires them: it merges <code>--pizero</code>/<code>--no-pizero</code> over the saved
+<p><code>main()</code> wires them: it merges <code>--nextpi</code>/<code>--no-nextpi</code> over the saved
 preference (GUI sessions only, as for the ESP), provisions, starts QEMU, and
 puts the FIFO paths in the <code>EmulatorConfig</code>. A Pi asked for on the command line
 that cannot start is a usage error; one enabled only in Preferences is reported

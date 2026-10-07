@@ -347,7 +347,7 @@ the slave device path at startup. This is the form a serial client opens
 and it is put in raw mode so a binary protocol passes through
 untranslated. POSIX only.
 
-**--pizero**  
+**--nextpi**  
 Start the **Pi Zero**: NextPi — the Raspberry Pi Zero accelerator
 distribution a real Next carries on its GPIO header — running under QEMU
 (`qemu-system-arm`, machine `raspi0`), connected to UART 1, the UART
@@ -377,7 +377,7 @@ about it is saved in a snapshot. A soft or hard reset leaves the Pi
 running. A Pi asked for with this option that cannot start (no QEMU, a
 declined or failed download) is an error. POSIX only.
 
-**--no-pizero**  
+**--no-nextpi**  
 Do not start the Pi Zero this run, overriding a saved preference that
 enables it.
 
@@ -2241,7 +2241,7 @@ Network**. Whenever `enabled` is set the status bar carries the ESP cell
 the guest on the network without saying so. **--no-esp** overrides it
 for one run. The Pi Zero is stored under `[pizero]`, edited under
 **Settings \> Preferences \> Pi Zero**: `enabled` (`true`/`false`, the
-persistent form of **--pizero**; **--no-pizero** overrides it for one
+persistent form of **--nextpi**; **--no-nextpi** overrides it for one
 run), `dir` (the NextPi directory; empty means `~/.jnext/pizero`),
 `release` (a NextPi release name on the mirror, or `latest` for the
 newest one listed there; empty means `1_93D`), `qemu_binary` (empty

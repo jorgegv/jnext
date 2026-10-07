@@ -7,7 +7,7 @@
 
 #include "core/sdcard_provisioner.h"   // DownloadFn / ConfirmFn / ProgressFn / BusyFn
 
-/// The Pi Zero's NextPi directory, prepared on first use (`--pizero`).
+/// The Pi Zero's NextPi directory, prepared on first use (`--nextpi`).
 /// Design: doc/design/PIZERO-DESIGN.md §3.6.
 ///
 /// `PiQemu` boots NextPi from a directory holding the release's SD-card image

@@ -268,7 +268,7 @@ debugger ones.
     is put in raw mode so a binary protocol passes through untranslated. POSIX
     only.
 
-**\--pizero**
+**\--nextpi**
 :   Start the **Pi Zero**: NextPi — the Raspberry Pi Zero accelerator
     distribution a real Next carries on its GPIO header — running under QEMU
     (`qemu-system-arm`, machine `raspi0`), connected to UART 1, the UART wired
@@ -298,7 +298,7 @@ debugger ones.
     that cannot start (no QEMU, a declined or failed download) is an error.
     POSIX only.
 
-**\--no-pizero**
+**\--no-nextpi**
 :   Do not start the Pi Zero this run, overriding a saved preference that
     enables it.
 
@@ -2093,7 +2093,7 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     **\--no-esp** overrides it for one run.
     The Pi Zero is stored under `[pizero]`, edited under **Settings >
     Preferences > Pi Zero**: `enabled` (`true`/`false`, the persistent form of
-    **\--pizero**; **\--no-pizero** overrides it for one run), `dir` (the
+    **\--nextpi**; **\--no-nextpi** overrides it for one run), `dir` (the
     NextPi directory; empty means `~/.jnext/pizero`), `release` (a NextPi
     release name on the mirror, or `latest` for the newest one listed there;
     empty means `1_93D`), `qemu_binary` (empty means `qemu-system-arm` on

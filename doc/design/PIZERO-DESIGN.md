@@ -47,8 +47,8 @@ an external tool jnext drives, not code it contains.
 
 | Command line | Effect |
 |------|--------|
-| `--pizero` | Start the Pi Zero for this run. |
-| `--no-pizero` | Do not start it this run, whatever the saved preference says. |
+| `--nextpi` | Start the Pi Zero for this run. |
+| `--no-nextpi` | Do not start it this run, whatever the saved preference says. |
 
 Everything else has a default, and lives in the `[pizero]` section of
 `~/.jnext/jnext.conf`, edited under **Settings > Preferences > Pi Zero**:
@@ -62,7 +62,7 @@ Everything else has a default, and lives in the `[pizero]` section of
 | `audio` | Pi audio (editable: a QEMU `-audiodev` driver, `none`, `wav:FILE`) | `coreaudio` on macOS, `pa` elsewhere |
 
 An empty value means the default, so a config file never pins a home directory.
-`--pizero`/`--no-pizero` override `enabled` the way `--esp`/`--no-esp` override
+`--nextpi`/`--no-nextpi` override `enabled` the way `--esp`/`--no-esp` override
 `[esp] enabled`, and as for the ESP the saved preference is read only by a GUI
 session. Changes made in Preferences take effect at the next launch: QEMU and the
 download happen before the main window exists, and the Pi deliberately outlives
@@ -98,7 +98,7 @@ at once. NextPi then takes about a minute to reach `SUP>`, after which:
   all already linked), so the only external requirement is QEMU itself.
 - **The archive is deleted once unpacked** (6 GB saved); the image is kept (15 GB)
   because QEMU boots from it, through a copy-on-write overlay.
-- **A Pi asked for with `--pizero` that cannot start is an error; one enabled in
+- **A Pi asked for with `--nextpi` that cannot start is an error; one enabled in
   Preferences is not.** The second is reported in a dialog and jnext starts
   without it, so a broken QEMU install cannot lock a user out of jnext.
 - **Not in this PR:** a live start/stop from the running GUI, a progress bar for
@@ -244,7 +244,7 @@ prompts to both.
 
 ### 3.7 Platforms
 
-POSIX only: the link is a FIFO pair. On Windows `--pizero` is refused and the
+POSIX only: the link is a FIFO pair. On Windows `--nextpi` is refused and the
 provisioner returns "not supported on Windows"; the code compiles there.
 
 ## 4. Testing

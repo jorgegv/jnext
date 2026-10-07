@@ -317,7 +317,7 @@ QWidget* PreferencesDialog::build_network_tab() {
 }
 
 QWidget* PreferencesDialog::build_pizero_tab() {
-    // The persistent form of --pizero, plus the settings that have no CLI
+    // The persistent form of --nextpi, plus the settings that have no CLI
     // form at all (jnext gives a feature one enabler and defaults the rest).
     // An empty field means the default shown as its placeholder.
     auto* tab = new QWidget(this);
@@ -407,8 +407,8 @@ QWidget* PreferencesDialog::build_pizero_tab() {
            "(about 6 GB; about 22 GB free needed while it is unpacked) into the "
            "directory above, as it does for the SD card image.\n\n"
            "These settings are not applied to the machine that is already "
-           "running: they take effect the next time jnext starts. --pizero and "
-           "--no-pizero override the tick for a single run."), tab);
+           "running: they take effect the next time jnext starts. --nextpi and "
+           "--no-nextpi override the tick for a single run."), tab);
     note->setWordWrap(true);
     form->addRow(QString(), note);
 

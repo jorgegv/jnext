@@ -294,7 +294,7 @@ int main(int argc, char* argv[]) {
     bool        joy_uart_connector_set = false;
     std::string joy_uart_fifo;
     bool        joy_uart_pty = false;
-    // The Pi Zero. `pizero_enabled_set` is what lets --no-pizero override a
+    // The Pi Zero. `pizero_enabled_set` is what lets --no-nextpi override a
     // saved preference, as --no-esp does for the ESP.
     bool        pizero_enabled = false;
     bool        pizero_enabled_set = false;
@@ -859,11 +859,11 @@ int main(int argc, char* argv[]) {
             case cli::OptId::JoyUartPty:
                 joy_uart_pty = true;
                 break;
-            case cli::OptId::Pizero:
+            case cli::OptId::Nextpi:
                 pizero_enabled = true;
                 pizero_enabled_set = true;
                 break;
-            case cli::OptId::NoPizero:
+            case cli::OptId::NoNextpi:
                 pizero_enabled = false;
                 pizero_enabled_set = true;
                 break;
@@ -1397,7 +1397,7 @@ int main(int argc, char* argv[]) {
     }
     // ---------------------------------------------------------------------
     // The Pi Zero: NextPi under QEMU on UART 1 (core/pi_qemu.h). Wanted when
-    // --pizero says so, or — in a GUI session, with neither flag given — when
+    // --nextpi says so, or — in a GUI session, with neither flag given — when
     // the saved [pizero] preference does. Its directory is provisioned exactly
     // as the SD image is (core/pizero_provisioner.h): on first use, after
     // asking, with a progress bar. Started HERE, after every quick argument

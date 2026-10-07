@@ -445,7 +445,7 @@ struct EmulatorConfig {
     // ── LIVE Raspberry Pi serial link on UART 1 ─────────────────────────────
     //
     // The far end of UART 1's module pins — the Pi GPIO header — handed to a
-    // real NextPi that jnext runs under QEMU (`--pizero`, core/pi_qemu.h). See
+    // real NextPi that jnext runs under QEMU (`--nextpi`, core/pi_qemu.h). See
     // doc/design/PIZERO-DESIGN.md.
     //
     // A FIFO pair, both ends named: jnext reads `pi_uart_fifo_rx` (Pi → Next)

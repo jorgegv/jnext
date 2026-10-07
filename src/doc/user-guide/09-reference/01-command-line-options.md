@@ -277,7 +277,7 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     pair of pipes — and it is put in raw mode so a binary protocol
     passes through untranslated. POSIX only.
 
-**--pizero**
+**--nextpi**
 
 :   Start the **Pi Zero**: NextPi — the Raspberry Pi Zero accelerator
     distribution a real Next carries on its GPIO header — running under
@@ -311,7 +311,7 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     cannot start (no QEMU, a declined or failed download) is an error.
     POSIX only.
 
-**--no-pizero**
+**--no-nextpi**
 :   Do not start the Pi Zero this run, overriding a saved preference
     that enables it.
 

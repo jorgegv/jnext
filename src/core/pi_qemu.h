@@ -4,7 +4,7 @@
 #include <thread>
 #include <vector>
 
-/// NextPi under QEMU, launched and owned by jnext — the Pi Zero (`--pizero`).
+/// NextPi under QEMU, launched and owned by jnext — the Pi Zero (`--nextpi`).
 /// Design: doc/design/PIZERO-DESIGN.md §3.5.
 ///
 /// The Pi Zero on a real Next's GPIO header runs NextPi; QEMU's `raspi0`

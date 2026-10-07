@@ -69,11 +69,11 @@ struct AppConfigData {
     bool        esp_enabled            = false;
     std::vector<std::string> esp_allowed_hosts;   // empty = any host
 
-    // The Pi Zero — NextPi under QEMU on UART 1 (`--pizero`, core/pi_qemu.h).
+    // The Pi Zero — NextPi under QEMU on UART 1 (`--nextpi`, core/pi_qemu.h).
     // Off by default: enabling it downloads ~6 GB on first use. Persisted in
     // the `[pizero]` section and edited under Settings > Preferences > Pi Zero
     // (every field here needs a control there — see the ESP note above).
-    // `--pizero` / `--no-pizero` override `enabled` for one run; the others
+    // `--nextpi` / `--no-nextpi` override `enabled` for one run; the others
     // have no CLI form, and an empty string means the built-in default.
     bool        pizero_enabled         = false;
     QString     pizero_dir;            // "" = <config-dir>/pizero

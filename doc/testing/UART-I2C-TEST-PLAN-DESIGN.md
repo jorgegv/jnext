@@ -487,7 +487,7 @@ byte time to the edge.
 | UART-RD-GH265-01 | byte written at edge 0 outside (ends on 2431); IN A,(C) of 0x133B starting at 2400 / 2300 | TX empty (bit 4) set / clear (pre-fix clear / clear) |
 | UART-WR-GH265-01 | OUT (C),A to 0x133B starting at 5000 (taken on 5073, byte ends 7504); status IN loading at 7470 / 7600 | bit 4 clear / set (pre-fix set at 7470) |
 
-### Group 17: the Pi Zero — NextPi on UART 1 (`--pizero`)
+### Group 17: the Pi Zero — NextPi on UART 1 (`--nextpi`)
 
 The wire on the Pi GPIO header handed to the host as a `UartDevice` on UART 1
 (design: `doc/design/PIZERO-DESIGN.md`). The Pi's pins reach UART 1 only
