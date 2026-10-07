@@ -50,10 +50,11 @@ Big architectural/test/process changes the user doesn't directly see but that ar
 - "Regression test suite restructured to 33 screenshot cases"
 
 ### Contributors in this release
-Public releases only, from v1.1.0 on (owner decision 2026-10-04). One `- ` bullet: a comma-separated list of the GitHub handles of everyone other than the owner (jorgegv) who contributed since the previous public release — opened an issue or PR, commented on one, reviewed a PR, or tested and reported back (owner, 2026-10-05: testers and commenters count). No per-person details. `<date>` = the tag time of the previous public release (the newest tag in `releases.yaml`). Find them:
+Public releases only, from v1.1.0 on (owner decision 2026-10-04). One `- ` bullet: a comma-separated list of the handles of everyone other than the owner (jorgegv) who contributed since the previous public release — opened an issue or PR, commented on one, reviewed a PR, or tested and reported back (owner, 2026-10-05: testers and commenters count). Every handle is `@handle` whatever its origin — GitHub, a forum, elsewhere — with no note of where it comes from (owner, 2026-10-07: `@vmorilla, @MickeyG`). No per-person details. `<date>` = the tag time of the previous public release (the newest tag in `releases.yaml`). Find them:
   - openers: `gh issue list --state all --search "created:>=<date>"` and `gh pr list --state all --search "updated:>=<date>"`;
   - commenters and testers: for EVERY issue/PR updated since `<date>`, `gh api --paginate repos/jorgegv/jnext/issues/<n>/comments` and keep comments with `created_at >= <tag time>`. Do NOT rely on the repo-wide `issues/comments?since=` endpoint: it filters by update time and returned an incomplete set when this rule was introduced (it missed a tester);
-  - PR reviewers: `gh api repos/jorgegv/jnext/pulls/<n>/reviews` and `pulls/<n>/comments`.
+  - PR reviewers: `gh api repos/jorgegv/jnext/pulls/<n>/reviews` and `pulls/<n>/comments`;
+  - non-GitHub contributors (forum requesters, testers): `gh` cannot list them — they are named in the issue bodies and comments ("Requested by MickeyG (Spectrum Computing forums)"), so read each issue's body as well as its comments.
   Drop bots and the owner.
 
 ## Style rules (strict)
