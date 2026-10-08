@@ -542,6 +542,10 @@ network or a NextPi image.
 | PI-36 | RZX playback (50 empty frames) on: host sends E1, guest transmits D2; playback stopped: three frames, transmit D3 | during: nothing to the host, `received()` 0; after: E1 read by the guest, D3 reaches the host |
 | PI-37 | pipe ends at fds 57 and 58 without CLOEXEC; `mark_close_on_exec_except(58)` | 57 FD_CLOEXEC, 58 not |
 | PI-38 | `nextpi::start_request` for GUI/headless × --nextpi/--no-nextpi/none × preference on/off | CLI wins; GUI without CLI follows the preference; headless without CLI starts nothing; asked_on_cli only for --nextpi |
+| PI-39 | after a valid `comment` record: `99 path=EVIL.img`; `18446744073709551615 path=EVIL.img`; `30 path=EVIL.img` with a `\n` placed in the header's padding at the 30th byte | each Failed "pax record overruns", no exception |
+| PI-40 | after a valid record: `19 path=NextPi.imgX` (right length, no final `\n`) | Failed "pax record overruns" |
+| PI-41 | after a valid record: `3\n\n`, then a valid `path` record (the first space is the next record's) | Failed "pax record overruns" |
+| PI-42 | after a valid record: `4ab\n` (no space) | Failed "pax record overruns" |
 
 ## Special Handling
 

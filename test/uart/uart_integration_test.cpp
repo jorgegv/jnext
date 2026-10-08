@@ -4180,6 +4180,72 @@ static void test_nextpi_review2_rows() {
               refused, fmt("error='%s'", why.c_str()));
     }
 
+    // ── PI-39..42 — EACH WELL-FORMEDNESS CHECK OF THE PAX PARSER (R3-2). A pax
+    // record is "<len> <key>=<value>\n", <len> counting the whole record. Each
+    // archive below breaks exactly one rule, after a valid first record, and
+    // must be refused as malformed; with that one check gone it would be read.
+    {
+        FakeMirror mirror("paxshape");
+        const fs::path out = mirror.dir / "out";
+        // `pad_newline_at` puts a '\n' at that offset of the header's data
+        // block, in the zero padding past its end.
+        auto refused = [&](const char* name, const std::string& records, std::string& why,
+                           std::size_t pad_newline_at = 0) {
+            const fs::path a = mirror.dir / name;
+            std::string x = tar_entry("PaxHeaders/x", records, 'x');
+            if (pad_newline_at) x[512 + pad_newline_at] = '\n';
+            const std::string body = x + tar_entry("data.bin", "payload");
+            try {
+                return write_tar_gz(a.string(), body) &&
+                       !nextpi::extract_tar_gz_entry(a.string(), ".img", out.string(), {}, why) &&
+                       why.find("pax record overruns") != std::string::npos;
+            } catch (const std::exception& ex) {
+                why = std::string("threw ") + ex.what();
+                return false;
+            }
+        };
+        const std::string valid = pax_record("comment", "ok");
+
+        // PI-39 — a record claiming more than what is left of the header: 99
+        // bytes, and 2^64-1 (which wrapped `pos + len` in the original code).
+        // The wrapped case is also refused by the space rule: a wrapped end
+        // lies before `pos`, and so before the record's own space. And one
+        // claiming 30 whose 30th byte, in the padding past the header, is a
+        // '\n': only the length check stands between it and being read.
+        std::string w1, w2, w6;
+        const bool short_ok = refused("long.tar.gz", valid + "99 path=EVIL.img\n", w1);
+        const bool wrap_ok  = refused("wrap.tar.gz", valid + "18446744073709551615 path=EVIL.img\n", w2);
+        const bool pad_ok   = refused("pad.tar.gz", valid + "30 path=EVIL.img\n", w6, valid.size() + 29);
+        check("PI-39",
+              "a pax record after a valid one that claims more than is left of the header (99, "
+              "2^64-1, or 30 with a '\\n' in the padding where it would end) makes the archive "
+              "malformed",
+              short_ok && wrap_ok && pad_ok,
+              fmt("99: %d (%s) 2^64-1: %d (%s) padded: %d (%s)", short_ok ? 1 : 0, w1.c_str(),
+                  wrap_ok ? 1 : 0, w2.c_str(), pad_ok ? 1 : 0, w6.c_str()));
+
+        // PI-40 — the right length, but the record does not end on '\n'.
+        std::string w3;
+        const bool nl_ok = refused("nl.tar.gz", valid + "19 path=NextPi.imgX", w3);
+        check("PI-40", "a pax record that does not end on '\\n' makes the archive malformed", nl_ok,
+              fmt("error='%s'", w3.c_str()));
+
+        // PI-41 — the length ends before the record's first space: "3\n\n" is
+        // three bytes ending on '\n', and the space found is the next record's.
+        std::string w4;
+        const bool sp_ok = refused("space.tar.gz", valid + "3\n\n" + pax_record("path", "x.img"), w4);
+        check("PI-41",
+              "a pax record whose length ends before its first space (the space found belongs to the "
+              "next record) makes the archive malformed",
+              sp_ok, fmt("error='%s'", w4.c_str()));
+
+        // PI-42 — no space at all in what is left.
+        std::string w5;
+        const bool nosp_ok = refused("nospace.tar.gz", valid + "4ab\n", w5);
+        check("PI-42", "a pax record with no space after its length makes the archive malformed", nosp_ok,
+              fmt("error='%s'", w5.c_str()));
+    }
+
     // ── PI-32 — A FAILED START KEEPS THE USER'S OVERLAY (R2-9). Only an overlay
     // the failing start created is removed: one that was there before holds
     // everything NextPi saved, and must survive.

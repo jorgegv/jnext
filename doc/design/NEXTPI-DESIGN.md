@@ -334,6 +334,10 @@ NextPi image is needed.
 | PI-36 | the replay gate during an RZX playback |
 | PI-37 | the close-on-exec fallback marks open descriptors and spares the one kept |
 | PI-38 | whether NextPi starts (`nextpi::start_request`): CLI over Preferences, headless ignores them |
+| PI-39 | a pax record after a valid one claiming more than is left (99, 2^64-1, 30 with a `\n` in the padding) is "malformed" |
+| PI-40 | a pax record not ending on `\n` is "malformed" |
+| PI-41 | a pax record whose length ends before its first space is "malformed" |
+| PI-42 | a pax record with no space after its length is "malformed" |
 
 `main()` applying that policy is the functional regression row **nextpi-func**
 (`test/00regression/scripts/`): through the real binary, `--nextpi` with no QEMU
