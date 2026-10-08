@@ -3016,13 +3016,17 @@ public:
 #ifndef _WIN32
         // What the stand-in records — its pid, environment, open descriptors
         // and arguments — is what the rows check about the child jnext made.
+        // The pid goes LAST: `child_pid()` returning is the rows' signal that
+        // the other records are complete. Written first, a row could read
+        // `env`, `fds` or `args` after the redirection had created the file
+        // and before the command had filled it.
         const std::string body =
                   "here=$(dirname \"$0\")\n"
-                  "echo $$ > \"$here/pid\"\n"
                   "env > \"$here/env\"\n"
                   "ls /dev/fd > \"$here/fds\" 2>/dev/null\n"
                   "for a in \"$@\"; do case \"$a\" in pipe,*path=*) base=\"${a##*path=}\" ;; esac; done\n"
                   "printf '%s\\n' \"$@\" > \"$here/args\"\n"
+                  "echo $$ > \"$here/pid\"\n"
                   "exec 3<>\"$base.in\" 4<>\"$base.out\"\n"
                   "printf 'SUP> ' >&4\n"
                   "exec cat <&3 >> \"$here/received\"\n";
@@ -3093,7 +3097,28 @@ EmulatorConfig pi_qemu_config(const PiQemu& qemu) {
 
 bool process_alive(int pid) {
 #ifndef _WIN32
-    return pid > 0 && ::kill(pid, 0) == 0;
+    if (pid <= 0 || ::kill(pid, 0) != 0) return false;
+#ifdef __linux__
+    // A zombie is not running, but kill(pid, 0) still succeeds on it. The
+    // stand-in becomes one when stop() SIGKILLs it together with its watchdog
+    // parent: it is re-parented to PID 1, and a container's PID 1 (CI's
+    // fedora:44 job) need not reap it. Field 3 of /proc/<pid>/stat is the
+    // state; the name before it is parenthesised and may contain spaces.
+    // Read with read(2), not a stream: the process may be reaped between the
+    // open and the read, which then fails with ESRCH, and libstdc++'s filebuf
+    // turns that failure into an exception that escapes istreambuf_iterator.
+    std::string stat;
+    const int fd = ::open(("/proc/" + std::to_string(pid) + "/stat").c_str(), O_RDONLY);
+    if (fd >= 0) {
+        char buf[512];
+        const ssize_t n = ::read(fd, buf, sizeof buf);
+        ::close(fd);
+        if (n > 0) stat.assign(buf, static_cast<std::size_t>(n));
+    }
+    const std::size_t rp = stat.rfind(')');
+    if (rp != std::string::npos && rp + 2 < stat.size() && stat[rp + 2] == 'Z') return false;
+#endif
+    return true;
 #else
     (void)pid;
     return false;
@@ -3748,10 +3773,17 @@ static void test_nextpi_review_rows() {
         if (old_lc) ::setenv("LC_ALL", saved_lc.c_str(), 1); else ::unsetenv("LC_ALL");
         if (leak_ok) ::close(57);
 
+        // Exactly LANG and LC_ALL are the promise, each present once and C.
+        // Other variables may legitimately carry jnext's locale (a GNOME
+        // session exports GDM_LANG=es_ES.UTF-8), so they are not searched.
         const std::string env = "\n" + fake.file("env");
-        const bool env_c = env.find("\nLANG=C\n") != std::string::npos &&
-                           env.find("\nLC_ALL=C\n") != std::string::npos &&
-                           env.find("es_ES") == std::string::npos;
+        auto count = [&env](const char* line) {
+            std::size_t n = 0;
+            for (std::size_t at = env.find(line); at != std::string::npos; at = env.find(line, at + 1)) ++n;
+            return n;
+        };
+        const bool env_c = count("\nLANG=") == 1 && count("\nLANG=C\n") == 1 &&
+                           count("\nLC_ALL=") == 1 && count("\nLC_ALL=C\n") == 1;
         check("PI-18",
               "QEMU runs with LANG=C and LC_ALL=C set in its own environment, whatever jnext's "
               "locale is, and jnext's own environment is left alone",
