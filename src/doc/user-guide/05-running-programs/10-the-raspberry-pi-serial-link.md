@@ -25,7 +25,8 @@ jnext --nextpi
 The first time, JNEXT offers to download NextPi, the way it offers to download
 the SD card image: about 6 GB, with a progress bar, into `~/.jnext/nextpi`. It
 needs about 22 GB free while the image is unpacked, and about 15 GB afterwards.
-Every later start skips all of that.
+Every later start skips all of that. If you say No, JNEXT starts without NextPi,
+even with `--nextpi`, and asks again next time.
 
 NextPi takes about a minute to boot. Then, at the NextZXOS command line:
 

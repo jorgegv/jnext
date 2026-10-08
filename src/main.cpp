@@ -1411,14 +1411,14 @@ int main(int argc, char* argv[]) {
     // dialog says leads to "NextPi is not started", and that is all.
     // ---------------------------------------------------------------------
     {
-        bool want = nextpi_enabled;
+        bool gui = false, saved_enabled = false;
         nextpi::ProvisionOptions popts;
         PiQemu::Spec spec;
 #ifdef ENABLE_QT_UI
         if (!headless) {
             const AppConfigData& saved = gui_app_config.data();
-            want              = merge_cli_precedence(nextpi_enabled_set, nextpi_enabled,
-                                                     saved.nextpi_enabled);
+            gui               = true;
+            saved_enabled     = saved.nextpi_enabled;
             popts.dir         = saved.nextpi_dir.toStdString();
             popts.release     = saved.nextpi_release.toStdString();
             spec.audio        = saved.nextpi_audio.toStdString();
@@ -1426,7 +1426,12 @@ int main(int argc, char* argv[]) {
                 spec.qemu_binary = saved.nextpi_qemu_binary.toStdString();
         }
 #endif
-        if (want) {
+        // The decision (nextpi::start_request) and what follows a failed start
+        // (nextpi::start_outcome) are pure functions, so both are tested; the
+        // one `asked_on_cli` drives the report, the policy and the exit.
+        const nextpi::StartRequest req =
+            nextpi::start_request(gui, nextpi_enabled_set, nextpi_enabled, saved_enabled);
+        if (req.wanted) {
             std::function<void(const std::string&)> report = [](const std::string& m) {
                 std::fprintf(stderr, "error: NextPi: %s\n", m.c_str());
             };
@@ -1444,7 +1449,7 @@ int main(int argc, char* argv[]) {
                 popts.busy     = [&](const std::string& p, const std::function<bool()>& w) {
                     return gui_prov.busy(p, w);
                 };
-                if (!nextpi_enabled_set)   // from Preferences: say so, and carry on
+                if (!req.asked_on_cli)   // from Preferences: say so, and carry on
                     report = [&](const std::string& m) {
                         Log::uart()->error("NextPi: {}", m);
                         gui_prov.warn("NextPi could not be started:\n\n" + m +
@@ -1462,8 +1467,7 @@ int main(int argc, char* argv[]) {
             } else {
                 error = res.error;
             }
-            // The policy itself is nextpi::start_outcome, so it is testable.
-            switch (nextpi::start_outcome(nextpi_enabled_set, res.status, pi_qemu != nullptr)) {
+            switch (nextpi::start_outcome(req.asked_on_cli, res.status, pi_qemu != nullptr)) {
             case nextpi::StartOutcome::Started:
                 break;
             case nextpi::StartOutcome::Declined:

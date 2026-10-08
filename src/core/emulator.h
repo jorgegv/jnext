@@ -1549,7 +1549,7 @@ private:
     /// One-shot latch for the endpoint-fault warning; see JoyUartLink::faults.
     bool joy_uart_link_fault_reported_ = false;
 
-    // The LIVE Raspberry Pi serial link on UART 1 (`--pi-uart-*`). Owned here
+    // The LIVE Raspberry Pi serial link on UART 1 (NextPi, `--nextpi`). Owned here
     // for the joystick cable's reasons — host descriptors, and a cold boot
     // placement-news a new Emulator at the same address, so rebuilding it is
     // what re-binds its sink — and declared after `uart_`, so it dies first and

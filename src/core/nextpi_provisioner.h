@@ -106,6 +106,19 @@ struct ProvisionResult {
     std::string warning;    ///< Ok, but worth saying (e.g. "latest" unreachable)
 };
 
+/// Whether to start NextPi, and whether the command line asked for it.
+struct StartRequest {
+    bool wanted       = false;   ///< try to start it
+    bool asked_on_cli = false;   ///< --nextpi was given (a failure is then an error)
+};
+
+/// main.cpp's decision. `gui` is a GUI session — the only kind that reads
+/// Preferences; `cli_set` is "--nextpi or --no-nextpi was given" and
+/// `cli_value` which one; `saved_enabled` is the [nextpi] `enabled`
+/// preference. The command line wins either way; without it, a GUI session
+/// follows the preference and a headless one starts nothing. Pure.
+StartRequest start_request(bool gui, bool cli_set, bool cli_value, bool saved_enabled);
+
 /// What jnext does once it has tried to start NextPi (main.cpp):
 enum class StartOutcome {
     Started,          ///< it is running

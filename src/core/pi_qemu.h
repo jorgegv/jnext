@@ -42,7 +42,8 @@
 /// QEMU's output: its stdout and stderr go to `DIR/qemu.log`, and only the exit
 /// status is consulted. No other descriptor of jnext's reaches QEMU (the SD
 /// image, the FIFOs, sockets): `POSIX_SPAWN_CLOEXEC_DEFAULT` on macOS,
-/// `posix_spawn_file_actions_addclosefrom_np` on glibc 2.34+.
+/// `posix_spawn_file_actions_addclosefrom_np` on glibc 2.34+, and elsewhere
+/// `mark_close_on_exec_except` over the descriptors actually open.
 ///
 /// POSIX ONLY, like the FIFO endpoint it feeds. `start()` refuses on Windows.
 class PiQemu {
@@ -76,6 +77,10 @@ public:
     bool running() const { return pid_ > 0; }
     int  pid() const { return pid_; }
 
+    /// The wait status the watchdog exited with — which is QEMU's own exit
+    /// status, passed on — or -1 while it runs (and before any start).
+    int exit_status() const { return exit_status_; }
+
     /// The FIFO jnext READS (QEMU's `<pipe>.out`: Pi → Next) and the one it
     /// WRITES (QEMU's `<pipe>.in`: Next → Pi).
     const std::string& rx_path() const { return rx_path_; }
@@ -92,6 +97,18 @@ public:
     /// `error` naming the first one missing and how to make it.
     static bool check_dir(const std::string& dir, std::string& error);
 
+    /// The environment a child gets: `env` (a null-terminated `environ`-style
+    /// array) without any LANG or LC_ALL entry, then LANG=C and LC_ALL=C — so
+    /// each appears exactly once, set in the child only. Pure.
+    static std::vector<std::string> child_environment(const char* const* env);
+
+    /// Mark every open descriptor from 3 up close-on-exec, except `keep`. The
+    /// fallback where posix_spawn cannot close them itself: it walks the
+    /// descriptors that are open (/proc/self/fd, else /dev/fd) rather than
+    /// every number up to the descriptor limit, which with a large `ulimit -n`
+    /// is ~10^9 calls. POSIX only; exposed for tests.
+    static void mark_close_on_exec_except(int keep);
+
 private:
     void stop();
 
@@ -102,6 +119,7 @@ private:
     std::thread       reaper_;
     std::atomic<bool> exited_{false};
     std::atomic<bool> stopping_{false};
+    std::atomic<int>  exit_status_{-1};
     int               watchdog_fd_ = -1;   ///< write end of the watchdog pipe
     int               stop_grace_ms_ = 3000;
 };

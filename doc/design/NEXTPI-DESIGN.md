@@ -206,7 +206,8 @@ private temporary directory and the Emulator opens as the link's far end
   not; it also keeps the image read-only.
 - **Never orphaned — the watchdog.** QEMU runs under a small `/bin/sh` script
   whose fd 3 is the read end of a pipe only jnext holds the write end of (both
-  ends close-on-exec in jnext, so no other child can keep it open). When jnext
+  ends close-on-exec in jnext, so no other child can keep it open — set
+  atomically by `pipe2(O_CLOEXEC)` where it exists, Linux and FreeBSD). When jnext
   goes away however it goes — SIGKILL included, when no destructor runs — the
   kernel closes the write end, the script's `read` returns, and QEMU gets
   SIGTERM. Without it a killed jnext left QEMU running and holding the
@@ -216,16 +217,22 @@ private temporary directory and the Emulator opens as the link's far end
   watchdog run in, and removes the FIFO directory. A reaper thread logs a QEMU
   that exits on its own; the watchdog exits with QEMU's status, so it still sees
   that.
-- **A failed start cleans up:** an overlay that start created is removed;
-  `qemu.log` is kept, because the error points at it.
+- **A failed start cleans up:** an overlay that start created is removed (one
+  that was already there holds NextPi's saved state and is kept); `qemu.log`
+  is kept, because the error points at it. No usable temporary directory for
+  the FIFOs (`$TMPDIR` naming none) is such a failure, with an error that says
+  so.
 - **Child environment:** inherited, because QEMU's audio back-ends need the
   session's variables, with `LANG=C` and `LC_ALL=C` set in the child only, per
-  the project rule. Nothing parses QEMU's output: stdout and stderr go to
+  the project rule: any `LANG` or `LC_ALL` jnext has is dropped first, so each
+  appears exactly once (`PiQemu::child_environment`). Nothing parses QEMU's output: stdout and stderr go to
   `qemu.log`, and only exit statuses are consulted.
 - **Child descriptors:** none of jnext's (the SD image, the FIFOs, sockets) —
   only stdin, stdout, stderr and the watchdog pipe. `POSIX_SPAWN_CLOEXEC_DEFAULT`
   on macOS, `posix_spawn_file_actions_addclosefrom_np` on glibc 2.34+, and
-  elsewhere every other descriptor is marked close-on-exec before the spawn.
+  elsewhere every other OPEN descriptor — listed from `/proc/self/fd` or
+  `/dev/fd`, not every number up to a possibly huge `ulimit -n` — is marked
+  close-on-exec before the spawn (`PiQemu::mark_close_on_exec_except`).
 
 ### 3.6 Provisioning NextPi (`core/nextpi_provisioner.*`)
 
@@ -251,7 +258,8 @@ prompts to both.
   base-256 form; pax `path`/`size` records, GNU `L` long names and POSIX ustar
   `prefix` fields are handled too. A corrupt or hostile archive is an error, not
   an exception: name/pax records are capped at 1 MB and entries at 1 TB before
-  anything is allocated or rounded.
+  anything is allocated or rounded, and a pax record's length is checked against
+  what is left of its header (so `2^64-1` cannot wrap and reach the next one).
   `kernel.img` and `bcm2708-rpi-zero.dtb` are copied out of the image's first
   FAT32 partition with the lenient `fat32_read_tree` (the boot partition is
   under the FAT32 cluster minimum, which that reader tolerates). On the real
@@ -305,21 +313,37 @@ NextPi image is needed.
 | PI-15 | the replay gate: during a rewind/RZX replay nothing reaches the Pi and nothing is read from it; afterwards both flow |
 | PI-16 | the warm-start recording boot gets no NextPi FIFOs |
 | PI-17 | a QEMU ignoring SIGTERM is SIGKILLed with its watchdog after the grace period |
-| PI-18 | the child runs with `LANG=C` / `LC_ALL=C`; jnext's own locale is untouched |
+| PI-18 | the child runs with `LANG=C` / `LC_ALL=C` (each once); jnext's own locale is untouched |
 | PI-19 | the child inherits none of jnext's descriptors (one held at fd 57 is not open in it) |
 | PI-20 | SIGKILLing the process running NextPi stops QEMU (the watchdog) |
 | PI-21 | too little free space: refused with the amounts, nothing fetched |
 | PI-22 | GNU `L` long names and POSIX ustar prefixes give the entry its full name |
-| PI-23 | absurd long-name, pax and entry sizes fail as "malformed", no exception |
+| PI-23 | absurd long-name, pax header, entry and pax `size=` sizes each fail with their own "malformed" message, no exception |
 | PI-24 | a failed upgrade leaves the installed release prepared and intact, no partial files |
 | PI-25 | release names with `/`, spaces, a leading dot or URL syntax are refused before anything is asked or fetched |
 | PI-26 | a failed start removes the overlay it created and keeps `qemu.log` |
 | PI-27 | the start policy table (`nextpi::start_outcome`) |
+| PI-28 | an install failing part-way (image or marker step) leaves no `release` marker |
+| PI-29 | names in the mirror's listing are validated; `latest` never fetches an invalid one |
+| PI-30 | `$TMPDIR` naming no directory: start fails with an error, no exception |
+| PI-31 | a pax record whose length runs past its header is "malformed", not wrapped |
+| PI-32 | a failed start keeps an overlay that was already there |
+| PI-33 | `PiQemu::child_environment`: LANG / LC_ALL dropped, then each set to C once |
+| PI-34 | QEMU's own exit status reaches jnext through the watchdog |
+| PI-35 | every descriptor a start leaves open in jnext is close-on-exec |
+| PI-36 | the replay gate during an RZX playback |
+| PI-37 | the close-on-exec fallback marks open descriptors and spares the one kept |
+| PI-38 | whether NextPi starts (`nextpi::start_request`): CLI over Preferences, headless ignores them |
 
 `main()` applying that policy is the functional regression row **nextpi-func**
 (`test/00regression/scripts/`): through the real binary, `--nextpi` with no QEMU
-on its `PATH` exits 1 with the install hint, a declined download starts jnext
-without NextPi (exit 0, nothing fetched), and `--no-nextpi` is accepted.
+on its `PATH` exits 1 with the install hint, and a declined download starts jnext
+without NextPi (exit 0, nothing fetched). In a GUI session (Qt's offscreen
+platform) whose preference enables NextPi, still with no QEMU, `--no-nextpi`
+keeps it from even being tried, and without the flag the failure is logged and
+jnext runs to its automatic exit (0) — the Preferences-only path. On the
+offscreen platform the warning dialog is not shown, since nobody could dismiss
+it; the log line before it carries the message.
 
 Settings: `test/gui/app_config_test.cpp` AC-71..74 (`[nextpi]` defaults and
 round-trip) and `test/gui/preferences_apply_test.cpp` PA-20a..e (the tab's
@@ -337,7 +361,16 @@ watchdog fails PI-17; no `LANG=C` fails PI-18; inherited descriptors fail PI-19;
 no watchdog fails PI-08/20/26; no space check fails PI-21; ignoring `L` records
 or the ustar prefix fails PI-22; no metadata bound makes the suite die (a 1 TB
 allocation); no name validation fails PI-25; leaving the overlay fails PI-26;
-"always exit" fails PI-27.
+"always exit" fails PI-27. Round 2, each failing exactly its row: dropping the
+entry or the pax `size=` bound fails PI-23; not removing the marker first, or
+writing it in place, fails PI-28; an unchecked listing fails PI-29; the throwing
+`temp_directory_path` fails PI-30; the old pax length check fails PI-31;
+removing an overlay the start did not create fails PI-32; not filtering
+LANG/LC_ALL fails PI-33; the watchdog exiting 0 fails PI-34; an inheritable
+write end fails PI-35; no RZX half in the gate fails PI-36; a fallback that
+marks nothing fails PI-37; `asked_on_cli` true for `--no-nextpi` fails PI-38.
+In **nextpi-func**, `start_outcome(true, …)` in `main()` fails fact 4 (exit 1)
+and ignoring `--no-nextpi` fails fact 3.
 
 ## 5. Not done
 

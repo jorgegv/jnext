@@ -136,6 +136,13 @@ bool cli_busy(const std::string& phase, const std::function<bool()>& work) {
     return ok;
 }
 
+StartRequest start_request(bool gui, bool cli_set, bool cli_value, bool saved_enabled) {
+    StartRequest r;
+    r.wanted       = cli_set ? cli_value : (gui && saved_enabled);
+    r.asked_on_cli = cli_set && cli_value;
+    return r;
+}
+
 StartOutcome start_outcome(bool asked_on_cli, sdcard::ProvisionStatus provisioned, bool started) {
     if (started) return StartOutcome::Started;
     if (provisioned == sdcard::ProvisionStatus::Declined) return StartOutcome::Declined;
@@ -293,12 +300,21 @@ bool extract_tar_gz_entry(const std::string& archive, const std::string& suffix,
             if (type == 'L') {
                 long_name = data.c_str();
             } else {
+                // Each record is "<len> <key>=<value>\n", <len> counting the
+                // whole record. The length is checked against what is LEFT
+                // (pos + len could wrap, and a wrapped record would reach
+                // back over the ones before it), and must cover its own
+                // "<len> " and end on the '\n'.
                 std::size_t pos = 0;
                 while (pos < data.size()) {
                     const std::size_t sp = data.find(' ', pos);
-                    if (sp == std::string::npos) break;
                     const std::size_t len = std::strtoull(data.c_str() + pos, nullptr, 10);
-                    if (len == 0 || pos + len > data.size()) break;
+                    if (sp == std::string::npos || len == 0 || len > data.size() - pos ||
+                        sp + 1 >= pos + len || data[pos + len - 1] != '\n') {
+                        err = archive + ": malformed (a pax record overruns its header)";
+                        gzclose(gz);
+                        return false;
+                    }
                     const std::string rec = data.substr(sp + 1, pos + len - sp - 2);   // drop '\n'
                     const std::size_t eq = rec.find('=');
                     if (eq != std::string::npos) {

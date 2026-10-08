@@ -58,6 +58,10 @@ void SdcardGuiProvisioner::set_texts(const std::string& title, const std::string
 
 void SdcardGuiProvisioner::warn(const std::string& message) {
     ensure_app();
+    // On the offscreen platform nobody can see a dialog, let alone dismiss
+    // one, and a modal warning would hold startup forever. The callers log
+    // the same message before warning, so it is not lost.
+    if (QGuiApplication::platformName() == QLatin1String("offscreen")) return;
     QMessageBox::warning(nullptr, QString::fromStdString(title_), QString::fromStdString(message));
 }
 

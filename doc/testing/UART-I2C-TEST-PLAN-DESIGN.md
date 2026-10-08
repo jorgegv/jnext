@@ -521,16 +521,27 @@ network or a NextPi image.
 | PI-15 | replay mode on: guest transmits, host sends; replay off: three frames, transmit | during: nothing to the host, `received()` 0; after: E1 E2 read by the guest, D3 reaches the host |
 | PI-16 | `Emulator::warm_start_boot_config` of a config with both NextPi FIFO paths | both cleared; the SD image kept |
 | PI-17 | `PiQemu::stop` on a stand-in that ignores SIGTERM, grace 300 ms | stop takes 300 ms..3 s; the stand-in is gone |
-| PI-18 | start with LANG / LC_ALL = es_ES.UTF-8 in jnext | child has LANG=C and LC_ALL=C, no es_ES; jnext's LANG unchanged |
+| PI-18 | start with LANG / LC_ALL = es_ES.UTF-8 in jnext | child has exactly one LANG and one LC_ALL, both C (other variables may carry the locale, e.g. GNOME's GDM_LANG); jnext's LANG unchanged |
 | PI-19 | start with a file open at fd 57 without CLOEXEC | 57 not among the child's /dev/fd |
 | PI-20 | fork a holder that starts a PiQemu, SIGKILL it | the stand-in QEMU is gone within 3 s |
 | PI-21 | provision with `space_needed` = max | Failed, "free" in the error, nothing fetched |
 | PI-22 | extract "deep/name.img" via a GNU `L` record; "dir/x.img" via a ustar prefix | both found, bytes equal |
-| PI-23 | `L` size ~2^64, pax size 2^40, entry size 2^40+1 | each Failed "malformed", no exception |
+| PI-23 | `L` size ~2^64; `x` header of 2^40; entry of 2^40+1; pax `size=1099511627777` record | each Failed with its own bound's message ("an entry claims", "name/metadata record", "a pax size of"), no exception; the fixture tag contains none of those words |
 | PI-24 | install 1_93D, then "latest" = 1_100 whose (MD5-valid) archive has no image | upgrade Failed; 1_93D still prepared, files intact, no `.part` |
 | PI-25 | provision release "../escape", "a/b", "a b", ".hidden", "x?y=1" | each Failed "release name", no confirm, nothing fetched |
 | PI-26 | start with a QEMU that exits at once (overlay created by qemu-img) | refused; overlay removed; qemu.log kept and named |
 | PI-27 | `nextpi::start_outcome` for every (cli, provisioned, started) case | Started / Declined / Exit (cli) / WarnAndContinue (preference) |
+| PI-28 | provision where (a) a directory holds `nextpi.img`'s name (stale marker 1_92), (b) a directory holds `release.part` | both Failed; (a) the old marker is gone; (b) the image is installed but no marker, not prepared |
+| PI-29 | `parse_release_listing` with `.hidden`, `-rf`, a 65-digit name and 1_93D; provision `latest` with the 65-digit name listed | only 1_93D listed; 1_93D installed; the 65-digit name never fetched |
+| PI-30 | `PiQemu::start` with TMPDIR=/nonexistent-jnext-tmpdir | false, "temporary directory" in the error, no exception, no overlay left |
+| PI-31 | extract from a tar.gz whose `x` header holds `18446744073709551615 path=EVIL.img` | Failed "pax record overruns", no exception |
+| PI-32 | start with a QEMU that exits at once, an overlay already present | refused; the overlay kept, contents unchanged |
+| PI-33 | `PiQemu::child_environment` of PATH, LANG, LC_ALL, LANGUAGE, LC_ALL | PATH, LANGUAGE, LANG=C, LC_ALL=C — in that order, each once |
+| PI-34 | start a stand-in that sleeps 1 s and exits 7 | `exit_status()` becomes a wait status with exit code 7 |
+| PI-35 | descriptors open before and after a start | at least one new (the watchdog write end); every new one FD_CLOEXEC |
+| PI-36 | RZX playback (50 empty frames) on: host sends E1, guest transmits D2; playback stopped: three frames, transmit D3 | during: nothing to the host, `received()` 0; after: E1 read by the guest, D3 reaches the host |
+| PI-37 | pipe ends at fds 57 and 58 without CLOEXEC; `mark_close_on_exec_except(58)` | 57 FD_CLOEXEC, 58 not |
+| PI-38 | `nextpi::start_request` for GUI/headless × --nextpi/--no-nextpi/none × preference on/off | CLI wins; GUI without CLI follows the preference; headless without CLI starts nothing; asked_on_cli only for --nextpi |
 
 ## Special Handling
 

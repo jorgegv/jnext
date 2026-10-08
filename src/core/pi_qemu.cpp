@@ -7,10 +7,12 @@
 #include <system_error>
 
 #ifndef _WIN32
+#include <algorithm>
 #include <cerrno>
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
+#include <dirent.h>
 #include <fcntl.h>
 #include <spawn.h>
 #include <sys/stat.h>
@@ -94,9 +96,23 @@ bool PiQemu::check_dir(const std::string& dir, std::string& error) {
     return true;
 }
 
+std::vector<std::string> PiQemu::child_environment(const char* const* env) {
+    std::vector<std::string> out;
+    for (const char* const* e = env; e && *e; ++e) {
+        const std::string var(*e);
+        if (var.rfind("LANG=", 0) == 0 || var.rfind("LC_ALL=", 0) == 0) continue;
+        out.push_back(var);
+    }
+    out.push_back("LANG=C");
+    out.push_back("LC_ALL=C");
+    return out;
+}
+
 #ifdef _WIN32
 
 PiQemu::~PiQemu() = default;
+
+void PiQemu::mark_close_on_exec_except(int) {}
 
 bool PiQemu::start(const Spec&, std::string& error) {
     error = "launching NextPi under QEMU is not supported on Windows";
@@ -108,20 +124,6 @@ void PiQemu::stop() {}
 #else   // POSIX
 
 namespace {
-
-/// The parent's environment with LANG and LC_ALL forced to C — set in the
-/// child's copy only, never in jnext's own.
-std::vector<std::string> child_environment() {
-    std::vector<std::string> env;
-    for (char** e = environ; e && *e; ++e) {
-        const std::string var(*e);
-        if (var.rfind("LANG=", 0) == 0 || var.rfind("LC_ALL=", 0) == 0) continue;
-        env.push_back(var);
-    }
-    env.push_back("LANG=C");
-    env.push_back("LC_ALL=C");
-    return env;
-}
 
 std::vector<char*> c_strings(std::vector<std::string>& v) {
     std::vector<char*> out;
@@ -182,7 +184,7 @@ int spawn(const std::string& path, const std::vector<std::string>& args, const s
           int watchdog_fd, bool own_group, std::string& error) {
     std::vector<std::string> argv_s{path};
     argv_s.insert(argv_s.end(), args.begin(), args.end());
-    std::vector<std::string> env_s = child_environment();
+    std::vector<std::string> env_s = PiQemu::child_environment(environ);
     std::vector<char*> argv = c_strings(argv_s);
     std::vector<char*> envp = c_strings(env_s);
 
@@ -210,11 +212,7 @@ int spawn(const std::string& path, const std::vector<std::string>& args, const s
 #else
     // Elsewhere: mark every other descriptor close-on-exec in the parent. That
     // only affects exec, which jnext does nowhere else that needs them.
-    for (int fd = 3, max = static_cast<int>(::sysconf(_SC_OPEN_MAX)); fd < max; ++fd) {
-        if (fd == watchdog_fd) continue;
-        const int f = ::fcntl(fd, F_GETFD);
-        if (f >= 0) ::fcntl(fd, F_SETFD, f | FD_CLOEXEC);
-    }
+    PiQemu::mark_close_on_exec_except(watchdog_fd);
 #endif
     posix_spawnattr_setflags(&attr, flags);
 
@@ -236,6 +234,34 @@ std::string describe_status(int status) {
 }
 
 } // namespace
+
+void PiQemu::mark_close_on_exec_except(int keep) {
+    auto mark = [keep](int fd) {
+        if (fd < 3 || fd == keep) return;
+        const int f = ::fcntl(fd, F_GETFD);
+        if (f >= 0) ::fcntl(fd, F_SETFD, f | FD_CLOEXEC);
+    };
+    // The descriptors that are open, from the kernel's own list. The list is
+    // read whole before marking, so the directory's own descriptor (which is
+    // in it) is marked too, harmlessly, and closed right after.
+    for (const char* list : {"/proc/self/fd", "/dev/fd"}) {
+        DIR* d = ::opendir(list);
+        if (!d) continue;
+        std::vector<int> fds;
+        while (const dirent* e = ::readdir(d)) {
+            char* end = nullptr;
+            const long fd = std::strtol(e->d_name, &end, 10);
+            if (end != e->d_name && *end == '\0') fds.push_back(static_cast<int>(fd));
+        }
+        ::closedir(d);
+        for (int fd : fds) mark(fd);
+        return;
+    }
+    // Neither list exists: walk the numbers, but never past a bound a large
+    // `ulimit -n` cannot turn into a billion system calls.
+    const long limit = std::min<long>(::sysconf(_SC_OPEN_MAX), 65536);
+    for (int fd = 3; fd < limit; ++fd) mark(fd);
+}
 
 PiQemu::~PiQemu() { stop(); }
 
@@ -291,7 +317,12 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
 
     // The FIFOs live in a private directory of their own: QEMU's `pipe` chardev
     // opens `<base>.in` (it reads: Next → Pi) and `<base>.out` (it writes).
-    std::string tmpl = (fs::temp_directory_path() / "jnext-pi-XXXXXX").string();
+    // The error_code overload: with $TMPDIR naming no directory the other
+    // one throws, and nothing above main() would catch it.
+    const fs::path tmp = fs::temp_directory_path(ec);
+    if (ec) return fail("no temporary directory for the NextPi FIFOs: " + ec.message() +
+                        " (check $TMPDIR)");
+    std::string tmpl = (tmp / "jnext-pi-XXXXXX").string();
     if (::mkdtemp(tmpl.data()) == nullptr) return fail(std::string("mkdtemp: ") + std::strerror(errno));
     runtime_dir_ = tmpl;
     const std::string base = (fs::path(runtime_dir_) / "uart").string();
@@ -303,11 +334,18 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
     // The watchdog pipe. Both ends close-on-exec in jnext, so no other child
     // (ffmpeg, a second QEMU) can hold the write end open and defeat it; the
     // read end is moved above fd 3 so the dup2 onto 3 always clears that flag.
+    // pipe2 sets the flag atomically, so a child spawned by another thread in
+    // between cannot inherit an end; macOS has no pipe2, and the window that
+    // leaves is the two fcntl calls below.
     int fds[2];
+#if defined(__linux__) || defined(__FreeBSD__)
+    if (::pipe2(fds, O_CLOEXEC) != 0) return fail(std::string("pipe2: ") + std::strerror(errno));
+#else
     if (::pipe(fds) != 0) return fail(std::string("pipe: ") + std::strerror(errno));
+    ::fcntl(fds[1], F_SETFD, FD_CLOEXEC);
+#endif
     const int rd = ::fcntl(fds[0], F_DUPFD_CLOEXEC, 10);
     ::close(fds[0]);
-    ::fcntl(fds[1], F_SETFD, FD_CLOEXEC);
     watchdog_fd_ = fds[1];
     if (rd < 0) return fail(std::string("fcntl: ") + std::strerror(errno));
 
@@ -319,11 +357,13 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
     ::close(rd);
     if (pid_ < 0) return fail(spawn_error);
 
-    exited_   = false;
-    stopping_ = false;
+    exited_      = false;
+    stopping_    = false;
+    exit_status_ = -1;
     reaper_ = std::thread([this, pid = pid_, log_path] {
         int status = 0;
         while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+        exit_status_ = status;
         exited_ = true;
         if (!stopping_) {
             Log::uart()->error(
