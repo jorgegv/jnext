@@ -4417,32 +4417,62 @@ static void test_nextpi_review2_rows() {
                   bytes_hex(after).c_str()));
     }
 
-    // ── PI-37 — THE CLOSE-ON-EXEC FALLBACK (R2-12), for systems where
-    // posix_spawn cannot close descriptors itself: it marks the descriptors
-    // that ARE open (from /proc/self/fd or /dev/fd), not every number up to
-    // the limit, and spares the one it is told to keep.
+    // ── PI-37 / PI-45 — THE CLOSE-ON-EXEC FALLBACK (R2-12, R3-6), for systems
+    // where posix_spawn cannot close descriptors itself. It marks every open
+    // descriptor from 3 up (fd 57) except the one to keep (fd 58), and leaves
+    // stdin, stdout and stderr alone. PI-37 runs it as used, from the list of
+    // open descriptors; PI-45 runs its last resort, the number walk, and
+    // checks how far that walk goes for the limits sysconf can report.
     {
-        bool fixture = false, marked = false, kept = false;
 #ifndef _WIN32
-        int p[2];
-        if (::pipe(p) == 0) {
-            fixture = ::dup2(p[0], 57) == 57 && ::dup2(p[1], 58) == 58;
+        auto run = [](bool from_list, std::string& detail) {
+            int p[2];
+            if (::pipe(p) != 0) { detail = "pipe failed"; return false; }
+            const bool fixture = ::dup2(p[0], 57) == 57 && ::dup2(p[1], 58) == 58;
             ::close(p[0]);
             ::close(p[1]);
+            int std_flags[3];
+            for (int fd = 0; fd < 3; ++fd) {
+                std_flags[fd] = ::fcntl(fd, F_GETFD);
+                if (std_flags[fd] >= 0) ::fcntl(fd, F_SETFD, std_flags[fd] & ~FD_CLOEXEC);
+            }
+            bool marked = false, kept = false, std_alone = true;
             if (fixture) {
-                PiQemu::mark_close_on_exec_except(58);
+                PiQemu::mark_close_on_exec_except(58, from_list);
                 marked = (::fcntl(57, F_GETFD) & FD_CLOEXEC) != 0;
                 kept   = (::fcntl(58, F_GETFD) & FD_CLOEXEC) == 0;
+                for (int fd = 0; fd < 3; ++fd)
+                    if (std_flags[fd] >= 0 && (::fcntl(fd, F_GETFD) & FD_CLOEXEC) != 0) std_alone = false;
             }
+            for (int fd = 0; fd < 3; ++fd)
+                if (std_flags[fd] >= 0) ::fcntl(fd, F_SETFD, std_flags[fd]);
             ::close(57);
             ::close(58);
-        }
+            detail = fmt("fixture=%d 57 marked=%d 58 kept=%d 0-2 untouched=%d", fixture ? 1 : 0,
+                         marked ? 1 : 0, kept ? 1 : 0, std_alone ? 1 : 0);
+            return fixture && marked && kept && std_alone;
+        };
+        std::string listed_detail, walked_detail;
+        const bool listed = run(true, listed_detail);
+        const bool walked = run(false, walked_detail);
+#else
+        const bool listed = false, walked = false;
+        const std::string listed_detail, walked_detail;
 #endif
         check("PI-37",
               "the close-on-exec fallback marks every open descriptor from 3 up (fd 57) except the "
-              "one to keep (fd 58)",
-              fixture && marked && kept,
-              fmt("fixture=%d 57 marked=%d 58 kept=%d", fixture ? 1 : 0, marked ? 1 : 0, kept ? 1 : 0));
+              "one to keep (fd 58), and leaves stdin, stdout and stderr alone",
+              listed, listed_detail);
+        const bool limits = PiQemu::fd_walk_limit(-1) == 65536 && PiQemu::fd_walk_limit(1024) == 1024 &&
+                            PiQemu::fd_walk_limit(65536) == 65536 &&
+                            PiQemu::fd_walk_limit(1000000000L) == 65536;
+        check("PI-45",
+              "the fallback's last resort, the number walk, marks the same descriptors; it goes up "
+              "to sysconf's limit capped at 65536, and to 65536 when the limit is indeterminate (-1)",
+              walked && limits, walked_detail + fmt(" limits=%d (-1 -> %ld, 1024 -> %ld, 10^9 -> %ld)",
+                                                    limits ? 1 : 0, PiQemu::fd_walk_limit(-1),
+                                                    PiQemu::fd_walk_limit(1024),
+                                                    PiQemu::fd_walk_limit(1000000000L)));
     }
 
     // ── PI-38 — WHETHER TO START NEXTPI (R2-5), main.cpp's decision through

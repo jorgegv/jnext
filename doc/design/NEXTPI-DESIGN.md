@@ -232,7 +232,9 @@ private temporary directory and the Emulator opens as the link's far end
   on macOS, `posix_spawn_file_actions_addclosefrom_np` on glibc 2.34+, and
   elsewhere every other OPEN descriptor — listed from `/proc/self/fd` or
   `/dev/fd`, not every number up to a possibly huge `ulimit -n` — is marked
-  close-on-exec before the spawn (`PiQemu::mark_close_on_exec_except`).
+  close-on-exec before the spawn (`PiQemu::mark_close_on_exec_except`). Only
+  if neither list can be read does it walk the numbers, up to the descriptor
+  limit capped at 65536 (and to 65536 when `sysconf` reports no limit, -1).
 
 ### 3.6 Provisioning NextPi (`core/nextpi_provisioner.*`)
 
@@ -332,7 +334,7 @@ NextPi image is needed.
 | PI-34 | QEMU's own exit status reaches jnext through the watchdog |
 | PI-35 | every descriptor a start leaves open in jnext is close-on-exec |
 | PI-36 | the replay gate during an RZX playback |
-| PI-37 | the close-on-exec fallback marks open descriptors and spares the one kept |
+| PI-37 | the close-on-exec fallback marks open descriptors, spares the one kept and leaves 0-2 alone |
 | PI-38 | whether NextPi starts (`nextpi::start_request`): CLI over Preferences, headless ignores them |
 | PI-39 | a pax record after a valid one claiming more than is left (99, 2^64-1, 30 with a `\n` in the padding) is "malformed" |
 | PI-40 | a pax record not ending on `\n` is "malformed" |
@@ -340,6 +342,7 @@ NextPi image is needed.
 | PI-42 | a pax record with no space after its length is "malformed" |
 | PI-43 | a `release` marker that cannot be removed stops the install before the image is put in place |
 | PI-44 | the release-name length limit: 64 characters valid, 65 not |
+| PI-45 | the fallback's number walk does the same; its limit is `sysconf`'s capped at 65536, and 65536 for -1 |
 
 `main()` applying that policy is the functional regression row **nextpi-func**
 (`test/00regression/scripts/`): through the real binary, `--nextpi` with no QEMU

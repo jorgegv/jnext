@@ -540,7 +540,7 @@ network or a NextPi image.
 | PI-34 | start a stand-in that sleeps 1 s and exits 7 | `exit_status()` becomes a wait status with exit code 7 |
 | PI-35 | descriptors open before and after a start | at least one new (the watchdog write end); every new one FD_CLOEXEC |
 | PI-36 | RZX playback (50 empty frames) on: host sends E1, guest transmits D2; playback stopped: three frames, transmit D3 | during: nothing to the host, `received()` 0; after: E1 read by the guest, D3 reaches the host |
-| PI-37 | pipe ends at fds 57 and 58 without CLOEXEC; `mark_close_on_exec_except(58)` | 57 FD_CLOEXEC, 58 not |
+| PI-37 | pipe ends at fds 57 and 58 without CLOEXEC, fds 0-2 without it; `mark_close_on_exec_except(58)` | 57 FD_CLOEXEC; 58 and 0-2 not |
 | PI-38 | `nextpi::start_request` for GUI/headless × --nextpi/--no-nextpi/none × preference on/off | CLI wins; GUI without CLI follows the preference; headless without CLI starts nothing; asked_on_cli only for --nextpi |
 | PI-39 | after a valid `comment` record: `99 path=EVIL.img`; `18446744073709551615 path=EVIL.img`; `30 path=EVIL.img` with a `\n` placed in the header's padding at the 30th byte | each Failed "pax record overruns", no exception |
 | PI-40 | after a valid record: `19 path=NextPi.imgX` (right length, no final `\n`) | Failed "pax record overruns" |
@@ -548,6 +548,7 @@ network or a NextPi image.
 | PI-42 | after a valid record: `4ab\n` (no space) | Failed "pax record overruns" |
 | PI-43 | provision into a directory where a non-empty directory holds the name `release` | Failed "cannot install"; no `nextpi.img` installed |
 | PI-44 | `valid_release_name` of 64 and of 65 `a`s | true, false |
+| PI-45 | the same with `mark_close_on_exec_except(58, false)` (the number walk); `fd_walk_limit` of -1, 1024, 65536, 10^9 | 57 marked; 58 and 0-2 not; 65536, 1024, 65536, 65536 |
 
 ## Special Handling
 

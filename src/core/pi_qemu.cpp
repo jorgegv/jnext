@@ -7,7 +7,6 @@
 #include <system_error>
 
 #ifndef _WIN32
-#include <algorithm>
 #include <cerrno>
 #include <csignal>
 #include <cstdlib>
@@ -108,11 +107,16 @@ std::vector<std::string> PiQemu::child_environment(const char* const* env) {
     return out;
 }
 
+long PiQemu::fd_walk_limit(long open_max) {
+    constexpr long kCap = 65536;
+    return (open_max <= 0 || open_max > kCap) ? kCap : open_max;
+}
+
 #ifdef _WIN32
 
 PiQemu::~PiQemu() = default;
 
-void PiQemu::mark_close_on_exec_except(int) {}
+void PiQemu::mark_close_on_exec_except(int, bool) {}
 
 bool PiQemu::start(const Spec&, std::string& error) {
     error = "launching NextPi under QEMU is not supported on Windows";
@@ -235,7 +239,7 @@ std::string describe_status(int status) {
 
 } // namespace
 
-void PiQemu::mark_close_on_exec_except(int keep) {
+void PiQemu::mark_close_on_exec_except(int keep, bool from_list) {
     auto mark = [keep](int fd) {
         if (fd < 3 || fd == keep) return;
         const int f = ::fcntl(fd, F_GETFD);
@@ -245,7 +249,7 @@ void PiQemu::mark_close_on_exec_except(int keep) {
     // read whole before marking, so the directory's own descriptor (which is
     // in it) is marked too, harmlessly, and closed right after.
     for (const char* list : {"/proc/self/fd", "/dev/fd"}) {
-        DIR* d = ::opendir(list);
+        DIR* d = from_list ? ::opendir(list) : nullptr;
         if (!d) continue;
         std::vector<int> fds;
         while (const dirent* e = ::readdir(d)) {
@@ -259,7 +263,7 @@ void PiQemu::mark_close_on_exec_except(int keep) {
     }
     // Neither list exists: walk the numbers, but never past a bound a large
     // `ulimit -n` cannot turn into a billion system calls.
-    const long limit = std::min<long>(::sysconf(_SC_OPEN_MAX), 65536);
+    const long limit = fd_walk_limit(::sysconf(_SC_OPEN_MAX));
     for (int fd = 3; fd < limit; ++fd) mark(fd);
 }
 
