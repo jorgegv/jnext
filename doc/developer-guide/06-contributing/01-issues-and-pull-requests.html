@@ -2348,6 +2348,10 @@ protocol document is what a reviewer actually works from.</p>
   adding unrelated work to this one. Bugfixes that are related to each other
   can go together in one pull request. A pull request whose contents look
   unrelated to each other is rejected, with a request to split it.</li>
+<li><strong>Small, reviewable commits.</strong> Make each commit one small, self-contained
+  step (a slice of the feature, or one fix, with its tests) that can be
+  reviewed on its own. Deliver a large feature as a series of such commits,
+  not as one huge commit, which you will be asked to split.</li>
 </ul>
 <p>Beyond those, a pull request follows one of two flows depending on what it is.</p>
 <p>A <strong>bugfix</strong> needs a bug description covering every field of the bug template,
