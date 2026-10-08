@@ -346,7 +346,7 @@ NextPi image is needed.
 | PI-44 | the release-name length limit: 64 characters valid, 65 not |
 | PI-45 | the fallback's number walk does the same; its limit is `sysconf`'s capped at 65536, and 65536 for -1 or 0 |
 | PI-46 | the fallback reads `/proc/self/fd` where it exists, else `/dev/fd`, and walks the numbers only with no list |
-| PI-47 | the open-descriptor list names open descriptors but not the directory's own |
+| PI-47 | the open-descriptor list names open descriptors but not the directory's own, and leaves no descriptor open (reading it, or marking from it) |
 
 `main()` applying that policy is the functional regression row **nextpi-func**
 (`test/00regression/scripts/`): through the real binary, `--nextpi` with no QEMU

@@ -550,7 +550,7 @@ network or a NextPi image.
 | PI-44 | `valid_release_name` of 64 and of 65 `a`s | true, false |
 | PI-45 | the same with no lists (the number walk); `fd_walk_limit` of -1, 0, 1024, 65536, 10^9 | 3, 57 and the last number marked; 58 and 0-2 not; 65536, 65536, 1024, 65536, 65536 |
 | PI-46 | fd 57 open; `mark_close_on_exec_except(-1)`, then with lists {missing, `/dev/fd`}, then with none | returns `/proc/self/fd` (Linux) or `/dev/fd` (no /proc), then `/dev/fd`, then "" (the number walk); 57 marked each time |
-| PI-47 | a pipe end at fd 57; the lowest free number learned; `open_descriptors` of /dev/fd and (where it exists) /proc/self/fd | each read; 57 listed; the lowest free number (the directory's own descriptor) not listed |
+| PI-47 | a pipe end at fd 57; the lowest free number learned; `open_descriptors` of /dev/fd and (where it exists) /proc/self/fd | each read; 57 listed; the lowest free number (the directory's own descriptor) not listed; the lowest free number unchanged after the read and after `mark_close_on_exec_except(-1, {list})` |
 
 ## Special Handling
 

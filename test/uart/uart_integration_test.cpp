@@ -4564,6 +4564,10 @@ static void test_nextpi_review2_rows() {
     // closed before anyone acts on the list, and its number may be reused by
     // then, so it must not be in the list. The directory gets the lowest free
     // number, which the row learns first; fd 57 is open and must be listed.
+    // And the directory is CLOSED again (R5-1): the lowest free number is the
+    // same after each read, and after each list-reading marking walk. A
+    // directory left open would be a descriptor per start that, being left
+    // off the list, nothing marks close-on-exec — so it would reach QEMU.
     {
         std::string detail;
         bool ok = false;
@@ -4572,17 +4576,27 @@ static void test_nextpi_review2_rows() {
         if (::pipe(p) == 0 && ::dup2(p[0], 57) == 57) {
             ::close(p[0]);
             ok = true;
+            auto lowest_free = [] {
+                const int fd = ::open("/dev/null", O_RDONLY);
+                ::close(fd);
+                return fd;
+            };
             for (const char* list : {"/dev/fd", "/proc/self/fd"}) {
-                const int probe = ::open("/dev/null", O_RDONLY);   // the lowest free number
-                ::close(probe);
+                const int probe = lowest_free();   // the number the directory will get
                 std::vector<int> fds;
                 const bool read = PiQemu::open_descriptors(list, fds);
                 if (!read && std::string(list) == "/proc/self/fd") continue;   // no /proc (macOS)
+                const int after_read = lowest_free();
+                PiQemu::mark_close_on_exec_except(-1, {list});
+                const int after_mark = lowest_free();
+                ::fcntl(57, F_SETFD, 0);
                 const bool own_left_out = std::find(fds.begin(), fds.end(), probe) == fds.end();
                 const bool has_57 = std::find(fds.begin(), fds.end(), 57) != fds.end();
-                ok = ok && read && own_left_out && has_57;
-                detail += fmt("%s: read=%d own fd %d left out=%d 57 listed=%d; ", list, read ? 1 : 0, probe,
-                              own_left_out ? 1 : 0, has_57 ? 1 : 0);
+                const bool closed = after_read == probe && after_mark == probe;
+                ok = ok && read && own_left_out && has_57 && closed;
+                detail += fmt("%s: read=%d own fd %d left out=%d 57 listed=%d lowest free before/after "
+                              "read/after mark %d/%d/%d; ", list, read ? 1 : 0, probe, own_left_out ? 1 : 0,
+                              has_57 ? 1 : 0, probe, after_read, after_mark);
             }
             ::close(57);
             ::close(p[1]);
@@ -4590,8 +4604,8 @@ static void test_nextpi_review2_rows() {
 #endif
         check("PI-47",
               "the open-descriptor list read from /dev/fd (and /proc/self/fd where it exists) names "
-              "the open descriptors (fd 57) but not the directory's own, which is closed by the time "
-              "the list is used",
+              "the open descriptors (fd 57) but not the directory's own, which is closed again: no "
+              "descriptor is left open by reading the list or by the walk that marks from it",
               ok, detail);
     }
 
