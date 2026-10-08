@@ -54,6 +54,10 @@ public:
         /// other client's range, NextREG, frame... watch.
         int      type    = -1;
         uint16_t addr    = 0;   ///< the address, the port, or a range's low end
+        /// An Execute row's physical 8K page qualifier (CAP-SRC: a breakpoint
+        /// set on a source line of banked code), or `PAGE_ANY` for a logical
+        /// breakpoint that matches whatever page is mapped.
+        uint16_t page    = jnext::dbg::PAGE_ANY;
         bool     enabled = true;
         bool     live    = true;
         /// This GUI's own row: editable. Another client's is read-only.
@@ -73,18 +77,27 @@ public:
     /// Create a breakpoint, ENABLED. Idempotent: one that already exists keeps
     /// its own enabled flag (GH #225 — a second gutter click must not re-arm a
     /// breakpoint the user disabled).
-    void add(int type, uint16_t addr);
-    void remove(int type, uint16_t addr);
+    ///
+    /// `page` qualifies an Execute breakpoint with a physical 8K page
+    /// (CAP-SRC); every other type, and the default, is unqualified. A
+    /// qualified and an unqualified breakpoint at one address are two rows.
+    void add(int type, uint16_t addr, uint16_t page = jnext::dbg::PAGE_ANY);
+    void remove(int type, uint16_t addr, uint16_t page = jnext::dbg::PAGE_ANY);
     /// No-op if there is no such breakpoint or the flag already has that value.
-    void set_enabled(int type, uint16_t addr, bool enabled);
+    void set_enabled(int type, uint16_t addr, bool enabled,
+                     uint16_t page = jnext::dbg::PAGE_ANY);
     /// Remove every breakpoint THIS GUI owns. Other clients' are not the GUI's
     /// to delete.
     void clear_all();
 
-    bool exists(int type, uint16_t addr) const;
+    bool exists(int type, uint16_t addr, uint16_t page = jnext::dbg::PAGE_ANY) const;
     /// This GUI's Execute breakpoint at `addr`: is there one, and can it fire.
     bool pc_exists(uint16_t addr) const;
     bool pc_live(uint16_t addr) const;
+    /// What the gutter draws at `addr` while physical `page` is mapped there:
+    /// the logical breakpoint, or one qualified with that page (CAP-SRC).
+    bool pc_marked(uint16_t addr, uint16_t page) const;
+    bool pc_marked_live(uint16_t addr, uint16_t page) const;
 
     /// GH #225's master switch — the backend's, one for every client.
     bool master_enabled() const;
@@ -106,7 +119,8 @@ private:
     /// Re-read the backend's listing, rebuild rows_, and emit changed() with
     /// the kinds that differ from the last published state.
     void publish_();
-    const Row* find_own_(int type, uint16_t addr) const;
+    const Row* find_own_(int type, uint16_t addr,
+                         uint16_t page = jnext::dbg::PAGE_ANY) const;
 
     // jnext::dbg::Listener — only the subscription push is used; the pause
     // state is PULLED by DebuggerManager (§4.1), so the rest are deliberately

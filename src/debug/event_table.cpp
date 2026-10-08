@@ -346,6 +346,8 @@ bool EventTable::filter_matches(const Entry& e, const Event& ev) const {
             if (ev.pc < e.filter.lo || ev.pc > e.filter.hi) return false;
             if (e.filter.page != PAGE_ANY && e.filter.page != ev.phys_page)
                 return false;
+            if (e.filter.page != PAGE_ANY && e.filter.page_ram_only && ev.fetch_not_ram)
+                return false;
             return true;
 
         case EventKind::Mem:

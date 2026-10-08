@@ -18,3 +18,7 @@ Call Stack names call targets, the Breakpoints panel gains a Symbol column, and
 the disassembly right-click menu offers to watch the symbol by name.
 
 Where two symbols share an address, the first one in the file wins.
+
+NextBuild / Boriel ZX Basic programs come with a `Memory.txt` instead, which
+JNEXT loads by itself when the program is loaded: see
+[Source-level debugging](14-source-level-debugging.md).

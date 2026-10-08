@@ -108,6 +108,14 @@ public:
     ///     pc=0x3Dxx) fire only at candidate addresses.
     /// When any FF is non-zero, the promotion/clear logic can act at
     /// ANY pc (e.g. held→active promotion), so those always pass.
+    /// What `is_active()` would be for the opcode fetch of an M1 at `pc`
+    /// if `check_automap(pc, true, ...)` ran with these gates — instant-on
+    /// entry points and a hold from the previous M1 (an unmap at
+    /// 0x1FF8-0x1FFF included) — WITHOUT changing any state. A debugger asks
+    /// this before the instruction runs to know what will supply it.
+    bool active_on_m1(uint16_t pc, bool sram_pre_override_2, bool sram_pre_override_0,
+                      bool sram_altrom_en_read, bool sram_alt_128_n) const;
+
     bool automap_m1_may_react(uint16_t pc) const {
         return automap_hold_ || automap_held_ || automap_active_ ||
                button_nmi_ || automap_pc_candidate(pc);
@@ -411,6 +419,10 @@ public:
     void describe_state(jnext::save::StateDesc& d);
 
 private:
+    void decode_m1_(uint16_t pc, bool sram_pre_override_2, bool sram_pre_override_0,
+                    bool sram_altrom_en_read, bool sram_alt_128_n, bool button_nmi,
+                    bool& instant_match, bool& delayed_match, bool& off_match) const;
+
     // NA-03: the effective enable is (port_io_enable_ AND nr_0a_4_enable_).
     // set_enabled() writes both for back-compat; the split setters write
     // only one flag each.  apply_enabled_transition_() recomputes enabled_

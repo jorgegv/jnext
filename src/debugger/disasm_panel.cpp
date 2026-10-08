@@ -213,8 +213,11 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
         // GH #225 — two questions, not one: does a breakpoint EXIST here,
         // and can it fire? paintEvent draws a filled dot for the second and a
         // hollow ring for a breakpoint that is only the first.
-        entry.has_breakpoint  = bps && bps->pc_exists(cur);
-        entry.breakpoint_live = bps && bps->pc_live(cur);
+        // CAP-SRC — a breakpoint set on a source line of banked code is
+        // qualified with its page: drawn only while that page is mapped here.
+        const uint16_t page   = dbg_ ? dbg_->source_page(cur) : jnext::dbg::PAGE_ANY;
+        entry.has_breakpoint  = bps && bps->pc_marked(cur, page);
+        entry.breakpoint_live = bps && bps->pc_marked_live(cur, page);
         entries_.push_back(entry);
 
         cur = static_cast<uint16_t>(cur + entry.line.byte_count);

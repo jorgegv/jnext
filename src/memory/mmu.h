@@ -77,6 +77,33 @@ public:
     }
     bool is_slot_rom(int slot) const { return read_only_[slot]; }
 
+    /// Does a CPU read at `addr` — an opcode fetch included — come from
+    /// something OTHER than the RAM page the MMU maps there? True for every
+    /// overlay `read()` serves first (the boot ROM, the Multiface, DivMMC,
+    /// the Layer 2 read mapping, the alternate ROM, config-mode routing) and
+    /// for a ROM-mapped slot. False means the byte is RAM page
+    /// `get_effective_page(addr >> 13)`. A debugger that labels code by its
+    /// RAM page uses this to refuse a page number that does not name what
+    /// actually supplied the instruction (ROM page numbers and RAM page
+    /// numbers overlap). Pure: reads the same state `read()` decides on.
+    bool read_not_mmu_ram(uint16_t addr) const {
+        return read_not_mmu_ram(addr, divmmc_ && divmmc_is_active_(),
+                                multiface_ && mf_overlay_active_());
+    }
+    /// The same question with the two overlays an M1 itself can switch —
+    /// DivMMC's automap and the Multiface's 0x0066 fetch — given as they
+    /// will be for that fetch (Emulator::fetch_not_mmu_ram() predicts them).
+    bool read_not_mmu_ram(uint16_t addr, bool divmmc_active, bool mf_active) const {
+        const int slot = addr >> 13;
+        if (addr < 0x4000) {
+            if (boot_rom_en_ && boot_rom_) return true;
+            if (mf_active) return true;
+            if (divmmc_active) return true;
+        }
+        if (l2_read_enable_ && l2_overlay_active_for(addr)) return true;
+        return read_only_[slot];   // ROM, alt-ROM, config-mode routing
+    }
+
     // ── G46(b) — VHDL `sram_pre_override` priority arbiter ─────────────
     //
     // Models the per-MREQ priority arbiter at zxnext.vhd:3029-3066. The
@@ -1978,6 +2005,7 @@ private:
     // multiface.h does not need to be pulled into mmu.h's transitive
     // include set (the hot-path read/write inlines stay branch-light).
     bool    mf_overlay_active_() const;
+    bool    divmmc_is_active_() const;   // out of line: DivMmc is incomplete here
     uint8_t mf_rom_byte_(uint16_t addr) const;
     uint8_t mf_ram_byte_(uint16_t addr) const;
     void    mf_ram_write_(uint16_t addr, uint8_t val);

@@ -1,9 +1,10 @@
 #include "debug/call_stack.h"
 
-void CallStack::push_frame(uint16_t caller, uint16_t target, uint16_t sp, CallType type) {
+void CallStack::push_frame(uint16_t caller, uint16_t target, uint16_t sp, CallType type,
+                           uint8_t caller_page, uint8_t target_page) {
     if (frames_.size() >= MAX_DEPTH)
         frames_.erase(frames_.begin());  // drop oldest if too deep
-    frames_.push_back({caller, target, sp, type});
+    frames_.push_back({caller, target, sp, type, caller_page, target_page});
 }
 
 void CallStack::pop_frames_to_sp(uint16_t sp) {
@@ -19,9 +20,11 @@ void CallStack::pop_frames_to_sp(uint16_t sp) {
     }
 }
 
-void CallStack::on_instruction_pre(uint16_t pc, uint16_t sp, uint8_t opcode, uint8_t op2, uint8_t op3) {
+void CallStack::on_instruction_pre(uint16_t pc, uint16_t sp, uint8_t opcode, uint8_t op2, uint8_t op3,
+                                   uint8_t page) {
     if (!enabled_) return;
     pre_pc_ = pc;
+    pre_page_ = page;
     pre_sp_ = sp;
     pre_opcode_ = opcode;
     pre_op2_ = op2;
@@ -29,7 +32,7 @@ void CallStack::on_instruction_pre(uint16_t pc, uint16_t sp, uint8_t opcode, uin
     have_pre_ = true;
 }
 
-void CallStack::on_instruction_post(uint16_t new_sp, uint16_t new_pc) {
+void CallStack::on_instruction_post(uint16_t new_sp, uint16_t new_pc, uint8_t new_page) {
     if (!enabled_ || !have_pre_) return;
     have_pre_ = false;
 
@@ -41,20 +44,20 @@ void CallStack::on_instruction_post(uint16_t new_sp, uint16_t new_pc) {
         if (op == 0xCD || op == 0xC4 || op == 0xCC || op == 0xD4 || op == 0xDC ||
             op == 0xE4 || op == 0xEC || op == 0xF4 || op == 0xFC) {
             uint16_t target = pre_op2_ | (pre_op3_ << 8);
-            push_frame(pre_pc_, target, new_sp, CallType::CALL);
+            push_frame(pre_pc_, target, new_sp, CallType::CALL, pre_page_, new_page);
             return;
         }
 
         // RST instructions
         switch (op) {
-            case 0xC7: push_frame(pre_pc_, 0x00, new_sp, CallType::RST); return;
-            case 0xCF: push_frame(pre_pc_, 0x08, new_sp, CallType::RST); return;
-            case 0xD7: push_frame(pre_pc_, 0x10, new_sp, CallType::RST); return;
-            case 0xDF: push_frame(pre_pc_, 0x18, new_sp, CallType::RST); return;
-            case 0xE7: push_frame(pre_pc_, 0x20, new_sp, CallType::RST); return;
-            case 0xEF: push_frame(pre_pc_, 0x28, new_sp, CallType::RST); return;
-            case 0xF7: push_frame(pre_pc_, 0x30, new_sp, CallType::RST); return;
-            case 0xFF: push_frame(pre_pc_, 0x38, new_sp, CallType::RST); return;
+            case 0xC7: push_frame(pre_pc_, 0x00, new_sp, CallType::RST, pre_page_, new_page); return;
+            case 0xCF: push_frame(pre_pc_, 0x08, new_sp, CallType::RST, pre_page_, new_page); return;
+            case 0xD7: push_frame(pre_pc_, 0x10, new_sp, CallType::RST, pre_page_, new_page); return;
+            case 0xDF: push_frame(pre_pc_, 0x18, new_sp, CallType::RST, pre_page_, new_page); return;
+            case 0xE7: push_frame(pre_pc_, 0x20, new_sp, CallType::RST, pre_page_, new_page); return;
+            case 0xEF: push_frame(pre_pc_, 0x28, new_sp, CallType::RST, pre_page_, new_page); return;
+            case 0xF7: push_frame(pre_pc_, 0x30, new_sp, CallType::RST, pre_page_, new_page); return;
+            case 0xFF: push_frame(pre_pc_, 0x38, new_sp, CallType::RST, pre_page_, new_page); return;
             default: break;
         }
     }
@@ -79,8 +82,11 @@ void CallStack::on_instruction_post(uint16_t new_sp, uint16_t new_pc) {
 }
 
 void CallStack::on_interrupt(uint16_t caller_pc, uint16_t target_pc, uint16_t new_sp,
-                             CallType type) {
+                             CallType type, uint8_t target_page) {
     if (!enabled_) return;
+    // The pre-slot capture was taken at the interrupted PC, so its page is
+    // the caller's even though the opcode it read did not run.
+    const uint8_t caller_page = have_pre_ ? pre_page_ : 0;
     have_pre_ = false;   // the captured opcode did not run in this slot
-    push_frame(caller_pc, target_pc, new_sp, type);
+    push_frame(caller_pc, target_pc, new_sp, type, caller_page, target_page);
 }

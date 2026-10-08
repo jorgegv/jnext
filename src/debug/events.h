@@ -303,6 +303,12 @@ struct Event {
     uint16_t addr = 0;
     /// `Mem`: the physical 8 K page behind `addr` at the moment of the access.
     uint16_t phys_page = 0;
+    /// `Execute`: the opcode at `pc` comes from an overlay (boot ROM,
+    /// Multiface, DivMMC, Layer 2 read mapping) or a ROM-mapped slot, not
+    /// from the RAM page `phys_page` names (`Emulator::fetch_not_mmu_ram()`,
+    /// predicted for this M1, DivMMC's instant entry points included). ROM
+    /// and RAM page numbers overlap, so a page alone cannot say which.
+    bool fetch_not_ram = false;
     /// `Port`: the full 16-bit port. Masking is the filter's job, not the
     /// payload's — the payload always carries what the guest actually put on
     /// the bus.
@@ -421,6 +427,13 @@ struct EventFilter {
     /// has matched (`Execute`: the effective page at slot(PC); `Mem`: the page
     /// behind the address — DZRP's `bank+1` watchpoints). `PAGE_ANY` = none.
     uint16_t page = PAGE_ANY;
+
+    /// `Execute` with a `page`: match only an opcode fetched from that RAM
+    /// page — never one an overlay or a ROM slot supplied under the same
+    /// page number (`Event::fetch_not_ram`). A source-line breakpoint is
+    /// this: its page names RAM. Off, the qualifier compares page numbers
+    /// alone, as DZRP's banked breakpoints and the DSL's `page` do.
+    bool page_ram_only = false;
 
     /// `Mem`: match on the physical page INSTEAD of a logical range, for any
     /// page in this set. Empty = use the range above. A `Mem` filter is one or

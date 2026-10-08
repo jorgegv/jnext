@@ -15,6 +15,7 @@
 #include "debugger/mmu_panel.h"
 #include "debugger/stack_panel.h"
 #include "debugger/callstack_panel.h"
+#include "debugger/source_panel.h"
 
 #include "debugger/debugger_manager.h"
 #include "debug/debugger.h"
@@ -199,6 +200,22 @@ void DebuggerWindow::closeEvent(QCloseEvent* event) {
 void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     debugger_mgr_ = mgr;
     if (script_panel_ && mgr) script_panel_->set_host(mgr->script_host());   // GH #26 WP5
+    if (source_panel_ && mgr) {
+        connect(source_panel_, &SourcePanel::step_into_requested,
+                mgr, &DebuggerManager::on_source_step_into);
+        connect(source_panel_, &SourcePanel::step_over_requested,
+                mgr, &DebuggerManager::on_source_step_over);
+        connect(source_panel_, &SourcePanel::step_out_requested,
+                mgr, &DebuggerManager::on_source_step_out);
+        connect(source_panel_, &SourcePanel::step_back_requested,
+                mgr, &DebuggerManager::on_source_step_back);
+        connect(source_panel_, &SourcePanel::reverse_continue_requested,
+                mgr, &DebuggerManager::on_source_reverse_continue);
+        connect(source_panel_, &SourcePanel::load_sld_requested,
+                mgr, &DebuggerManager::on_load_sld);
+        connect(source_panel_, &SourcePanel::load_symbols_requested,
+                mgr, &DebuggerManager::on_load_nextbuild_memory);
+    }
 
     // Create the menu bar with debug actions.
     create_menus();
@@ -739,6 +756,7 @@ void DebuggerWindow::update_actions(bool is_paused) {
     const bool can_step_back = can_rewind && dbg->trace_enabled();
     if (step_back_action_) step_back_action_->setEnabled(can_step_back);
     if (rewind_jump_btn_)  rewind_jump_btn_->setEnabled(can_rewind);
+    if (source_panel_)     source_panel_->refresh();   // its step buttons
 }
 
 void DebuggerWindow::save_position() {
@@ -1163,6 +1181,10 @@ void DebuggerWindow::create_panels() {
     // manager's, handed over in set_debugger_manager().
     script_panel_ = new ScriptPanel();
     tab_widget_->addTab(script_panel_, tr("Script"));
+    // CAP-SRC — the source view and its steps (the manager wires the buttons
+    // in set_debugger_manager()).
+    source_panel_ = new SourcePanel(&dbg_);
+    tab_widget_->addTab(source_panel_, tr("Source"));
 
     tab_widget_->setMinimumWidth(380);
 
@@ -1267,8 +1289,8 @@ bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr) {
 
     auto* form = new QFormLayout(&dlg);
     auto* addr_edit = new QLineEdit(&dlg);
-    addr_edit->setPlaceholderText("e.g. 4000 or $4000");
-    form->addRow(tr("Address (hex):"), addr_edit);
+    addr_edit->setPlaceholderText("e.g. 4000, $4000 or a symbol");
+    form->addRow(tr("Address or symbol:"), addr_edit);
 
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
@@ -1278,13 +1300,11 @@ bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr) {
 
     if (dlg.exec() != QDialog::Accepted) return false;
 
-    QString addr_text = addr_edit->text().trimmed();
-    if (addr_text.startsWith('$')) addr_text = addr_text.mid(1);
-    if (addr_text.startsWith("0x", Qt::CaseInsensitive)) addr_text = addr_text.mid(2);
-
-    bool ok = false;
-    addr = static_cast<uint16_t>(addr_text.toUInt(&ok, 16));
-    return ok;
+    // CAP-SYM — a loaded symbol name, else hex ($ / 0x prefixes optional).
+    const auto resolved = dbg_.symbols().resolve(addr_edit->text().toStdString());
+    if (!resolved) return false;
+    addr = *resolved;
+    return true;
 }
 
 void DebuggerWindow::show_add_data_bp_dialog(int type) {
@@ -1330,5 +1350,6 @@ void DebuggerWindow::refresh_panels() {
     if (callstack_panel_) callstack_panel_->refresh();
     if (breakpoint_panel_) breakpoint_panel_->refresh();
     if (script_panel_) script_panel_->refresh();
+    if (source_panel_) source_panel_->refresh();
     update_rewind_ui();
 }

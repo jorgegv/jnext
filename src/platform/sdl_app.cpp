@@ -347,6 +347,9 @@ void SdlApp::run() {
             if (!emulator_apply_load(emulator_, load_file_, tape_realtime_)) {
                 Log::platform()->error("load: failed to load '{}'", load_file_);
                 exit_code_ = 1;   // a failed load exits non-zero (as headless)
+            } else {
+                // CAP-SRC — the program's own symbols and source map, if any.
+                debugger_->load_program_sidecars(load_file_);
             }
             load_countdown_ = -1;  // done
         } else if (load_countdown_ > 0) {

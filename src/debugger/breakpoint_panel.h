@@ -10,6 +10,7 @@
 
 class QCheckBox;
 class SymbolTable;
+namespace jnext { namespace dbg { class Debugger; } }
 
 /// Panel showing all active breakpoints (execute + data) with add/edit/remove.
 ///
@@ -45,19 +46,27 @@ public:
     /// Set symbol table for address-to-name resolution.
     void set_symbol_table(const SymbolTable* st) { symbol_table_ = st; }
 
+    /// CAP-SRC — the backend, for the source map: the Symbol / Source column,
+    /// and `file:line` in the dialog's address field. Null = neither.
+    void set_backend(const jnext::dbg::Debugger* dbg) { dbg_ = dbg; }
+
 public slots:
     void on_add();
     void on_edit();
     void on_remove();
 
 private:
-    bool show_bp_dialog(const QString& title, uint16_t& addr, int& type_index);
+    /// `page` is in and out: an Execute breakpoint set on a source line whose
+    /// record names a physical page comes back qualified with it.
+    bool show_bp_dialog(const QString& title, uint16_t& addr, uint16_t& page,
+                        int& type_index);
 
     /// GH #225 — apply the check state of the Enabled cell `row` to the model.
     void apply_enabled_cell(int row, bool enabled);
 
     QPointer<BreakpointModel> model_;
     const SymbolTable* symbol_table_ = nullptr;
+    const jnext::dbg::Debugger* dbg_ = nullptr;
     QTableWidget* table_ = nullptr;
     QCheckBox* master_check_ = nullptr;
 

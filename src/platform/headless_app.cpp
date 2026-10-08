@@ -624,6 +624,9 @@ void HeadlessApp::run() {
                 // on it for a corrupt .szx reload).
                 Log::platform()->error("--load: failed to load '{}'", load_file_);
                 exit_code_ = 1;
+            } else {
+                // CAP-SRC — the program's own symbols and source map, if any.
+                debugger_->load_program_sidecars(load_file_);
             }
             load_countdown_ = -1;
         } else if (load_countdown_ > 0) {

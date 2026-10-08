@@ -1279,6 +1279,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#source-maps-cap-src" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Source maps — CAP-SRC
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#coverage-and-the-trace" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2839,7 +2850,56 @@ reads a z88dk map (<code>MapFormat::Z88dk</code>) or a plain <code>SYMBOL = $ADD
 <code>monitor sym</code> and <code>--map</code> all read this table, so a symbol loaded by one client
 shows in every other. A z88dk map's <code>; const</code> lines go into a separate
 name-only table: <code>lookup_name()</code> resolves them, and <code>lookup(addr)</code> never names an
-address after a constant.</p>
+address after a constant. <code>MapFormat::NextBuild</code> reads a NextBuild / Boriel ZX
+Basic <code>Memory.txt</code> (<code>8000: ._Main</code>): the shown name drops the <code>.</code> and the
+compiler's <code>_</code>, and the raw label resolves by name too. <code>SymbolTable::resolve()</code>
+turns an address field's text into an address: a symbol first, else hex.</p>
+<h3 id="source-maps-cap-src">Source maps — CAP-SRC<a class="headerlink" href="#source-maps-cap-src" title="Permanent link">&para;</a></h3>
+<p>The backend also owns one <code>SourceMap</code> (<code>src/debug/source_map.*</code>): records of
+(RAM page, logical address) → file, line, column, filled by a format adapter —
+<code>load_sld()</code> in <code>src/debug/sld_loader.*</code> reads sjasmplus SLD v1 — and replaced
+only by a complete, successful load. Matching uses one identity everywhere:
+<code>source_page(addr)</code> is the MMU's page when RAM supplies the opcode fetch at
+<code>addr</code>, else <code>NOT_RAM_PAGE</code> (<code>debug/ram_page.h</code>), decided by
+<code>Emulator::fetch_not_mmu_ram()</code>: a side-effect-free prediction of that M1,
+including what the M1 itself switches (DivMMC's instant entry points and the
+hold from the previous M1 via <code>DivMmc::active_on_m1()</code>, the Multiface at
+0x0066), then <code>Mmu::read_not_mmu_ram(addr, divmmc, multiface)</code> for the rest
+(ROM slot, boot ROM, Layer 2 read mapping, alt-ROM, config mode). <code>SourceMap::lookup(NOT_RAM_PAGE, addr)</code> matches
+only an unqualified record. The trace records the same flag beside each entry
+(<code>TraceLog::fetch_not_mmu_ram()</code>; <code>TraceEntry</code> itself stays 56 bytes), call
+frames record each side's identity, and an <code>Execute</code> filter with
+<code>page_ram_only</code> matches only a fetch from that RAM page (<code>Event::fetch_not_ram</code>);
+without it the page qualifier compares numbers alone, as DZRP and the DSL use it.
+An SLD may carry a SHA-256 of the program's bytes (<code>||program.*</code> comment
+records); <code>load_source_map(path, accept_mismatch)</code> checks it against memory and
+stores the path absolute.</p>
+<p><code>load_program_sidecars(path)</code> attaches <code>&lt;stem&gt;.Memory.txt</code> (or <code>Memory.txt</code>,
+beside a <code>.nex</code>) and <code>&lt;stem&gt;.sld</code> / <code>&lt;stem&gt;.sld.txt</code>, searching with the
+non-throwing filesystem calls; any non-directory entry counts, so an unreadable
+one is reported. Every frontend calls it after a successful <code>--load</code> or File ▸
+Open, and <code>load()</code> calls it for a remote client; a tape program gets no
+automatic map. Ownership is explicit (<code>Impl::StoreOwner</code>: None, Sidecar, User)
+and changes only on a successful load: a sidecar never touches the user's
+store, and a previous program's sidecar data is replaced or cleared — also when
+the new sidecar cannot be read. The attach records the clock
+(<code>Impl::sidecar_attach_cycle</code>); the machine-replaced hook raises
+<code>sidecar_recheck</code>, and <code>recheck_sidecars()</code> — run by <code>pump()</code> and by every
+reader of the stores — drops sidecar-owned stores when the clock is now before
+the attach point.</p>
+<p><code>source_step(by, kind)</code> steps by statement. <code>Into</code>, <code>Over</code> and <code>Out</code> run
+<code>Emulator::debugger_step()</code> in a loop, as many Steps, until the mapped position
+changes (and, for Over / Out, the call-stack depth allows). <code>debugger_step()</code>
+delivers no <code>Execute</code> event, so between instructions the loop gives each next PC
+<code>run_frame()</code>'s delivery itself — <code>DebugState::should_break()</code>, then
+<code>run_execute_gate()</code> under a <code>GuestExecutionScope</code> — so handlers run and a
+<code>Stop</code> records its hit and <code>once</code>; a handler that moves the PC makes the loop
+re-evaluate the boundary at the new PC without a second delivery. It also stops on any latched event stop, at a
+HALT with IFF1 clear, after <code>SOURCE_STEP_LIMIT</code> instructions or after
+<code>SOURCE_STEP_FRAME_LIMIT</code> frames. <code>Back</code> and <code>ReverseContinue</code> search the trace
+for entries before the current cycle (a Frame Back leaves newer ones), derive
+each entry's identity from <code>mmu[]</code>, <code>rom_slots</code> and the overlay flag, and hand
+the count to <code>step_back()</code>, so they inherit its refusals.</p>
 <h3 id="coverage-and-the-trace">Coverage and the trace<a class="headerlink" href="#coverage-and-the-trace" title="Permanent link">&para;</a></h3>
 <p>INS-20 coverage is recorded in <code>step_one_instruction()</code>, the one body that
 <code>run_frame()</code>, the debugger's Step and <code>execute_single_instruction()</code> share,
@@ -2900,6 +2960,10 @@ internals directly, through the pointers the constructor publishes into
 <tr>
 <td><code>debugger_capture.cpp</code></td>
 <td>screenshots, bookmarks, <code>save_snapshot</code></td>
+</tr>
+<tr>
+<td><code>debugger_source.cpp</code></td>
+<td>CAP-SRC: the source map, program sidecars, <code>source_step()</code></td>
 </tr>
 <tr>
 <td><code>debugger_render.cpp</code></td>

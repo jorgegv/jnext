@@ -18,6 +18,10 @@ struct CallFrame {
     uint16_t target_pc;    // Target address jumped to
     uint16_t sp_at_call;   // SP value after push (return address on stack)
     CallType type;
+    // The RAM page each address was fetched from, or NOT_RAM_PAGE
+    // (debug/ram_page.h) when a ROM slot or an overlay supplied it.
+    uint8_t  caller_page = 0;
+    uint8_t  target_page = 0;
 };
 
 /// Tracks CALL/RST/INT/RET to maintain a virtual call stack.
@@ -27,18 +31,21 @@ struct CallFrame {
 class CallStack {
 public:
     /// Call before instruction execution to capture opcode and pre-SP.
-    void on_instruction_pre(uint16_t pc, uint16_t sp, uint8_t opcode, uint8_t op2, uint8_t op3);
+    /// `page` is the physical 8K page behind PC's slot, recorded in a frame
+    /// this instruction opens so a banked caller can be told apart.
+    void on_instruction_pre(uint16_t pc, uint16_t sp, uint8_t opcode, uint8_t op2, uint8_t op3,
+                            uint8_t page = 0);
 
     /// Call after instruction execution with the new SP.
     /// Compares with pre-SP to determine if a CALL/RET was actually taken.
-    void on_instruction_post(uint16_t new_sp, uint16_t new_pc);
+    void on_instruction_post(uint16_t new_sp, uint16_t new_pc, uint8_t new_page = 0);
 
     /// Notify of an interrupt being taken (hardware push of PC), IN PLACE of
     /// on_instruction_post() for that slot: an accepted INT or NMI fetches no
     /// opcode, so the pre-slot capture describes an instruction that did not
     /// run and is discarded. `type` is CallType::INT or CallType::NMI.
     void on_interrupt(uint16_t caller_pc, uint16_t target_pc, uint16_t new_sp,
-                      CallType type = CallType::INT);
+                      CallType type = CallType::INT, uint8_t target_page = 0);
 
     /// Get the current call stack (most recent first).
     const std::vector<CallFrame>& frames() const { return frames_; }
@@ -59,7 +66,8 @@ public:
     static constexpr size_t MAX_DEPTH = 256;
 
 private:
-    void push_frame(uint16_t caller, uint16_t target, uint16_t sp, CallType type);
+    void push_frame(uint16_t caller, uint16_t target, uint16_t sp, CallType type,
+                    uint8_t caller_page, uint8_t target_page);
     void pop_frames_to_sp(uint16_t sp);
 
     std::vector<CallFrame> frames_;
@@ -67,6 +75,7 @@ private:
 
     // Pre-execution state captured by on_instruction_pre()
     uint16_t pre_pc_ = 0;
+    uint8_t pre_page_ = 0;
     uint16_t pre_sp_ = 0;
     uint8_t pre_opcode_ = 0;
     uint8_t pre_op2_ = 0;

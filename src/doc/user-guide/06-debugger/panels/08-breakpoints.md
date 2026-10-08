@@ -3,7 +3,10 @@
 ![Breakpoints panel](../../img/debugger-breakpoints.png)
 
 Every breakpoint in one list, sorted by address: an **On** checkbox, the type,
-the address and — with a MAP file loaded — the symbol at that address.
+the address and — with a MAP file loaded — the symbol at that address, or with
+a source map the source line. The Add dialog takes a symbol or, for an Execute
+breakpoint, a source line (`main.bas:120`); see
+[Source-level debugging](../functions/14-source-level-debugging.md).
 **Add**, **Edit** and **Remove** manage them; double-clicking a row edits it.
 The list and the disassembly gutter stay in sync in both directions.
 
