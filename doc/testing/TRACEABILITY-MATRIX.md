@@ -5990,20 +5990,20 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PI-29 | release names from the mirror's listing are checked like typed ones: a leading dot or dash or a 65-character name is not listed, and "latest" never fetches one | — | pass | test/uart/uart_integration_test.cpp:4127 |
 | PI-30 | with $TMPDIR naming no directory, starting NextPi fails with an error naming the temporary directory instead of throwing, and nothing is left running | — | pass | test/uart/uart_integration_test.cpp:4160 |
 | PI-31 | a pax record whose length runs past its header (18446744073709551615) makes the archive malformed instead of wrapping and renaming the next entry | — | pass | test/uart/uart_integration_test.cpp:4185 |
-| PI-32 | a NextPi start that fails keeps an overlay that was already there (the user's saved NextPi state): only one the failing start created is removed | — | pass | test/uart/uart_integration_test.cpp:4300 |
-| PI-33 | a spawned NextPi child's environment is the parent's without any LANG or LC_ALL entry, then LANG=C and LC_ALL=C, each exactly once (LANGUAGE is not LANG) | — | pass | test/uart/uart_integration_test.cpp:4318 |
-| PI-34 | when QEMU exits on its own, the status jnext reaps is QEMU's (7), passed on by the watchdog shell | — | pass | test/uart/uart_integration_test.cpp:4344 |
-| PI-35 | every descriptor a NextPi start leaves open in jnext (the watchdog pipe's write end) is close-on-exec, so no other child can inherit it | — | pass | test/uart/uart_integration_test.cpp:4376 |
-| PI-36 | during an RZX playback the NextPi link is inert: the guest's byte does not reach the Pi and the Pi's bytes are not consumed; after it they arrive and the guest is heard | — | pass | test/uart/uart_integration_test.cpp:4410 |
-| PI-37 | the close-on-exec fallback marks every open descriptor from 3 up (fd 57) except the one to keep (fd 58), and leaves stdin, stdout and stderr alone | — | pass | test/uart/uart_integration_test.cpp:4462 |
-| PI-38 | whether NextPi starts: --nextpi and --no-nextpi win, otherwise a GUI session follows the [nextpi] preference and a headless one starts nothing; only --nextpi makes a failure an error | — | pass | test/uart/uart_integration_test.cpp:4495 |
 | PI-39 | a pax record after a valid one that claims more than is left of the header (99, 2^64-1, or 30 with a '\ ' in the padding where it would end) makes the archive malformed | — | pass | test/uart/uart_integration_test.cpp:4227 |
 | PI-40 | a pax record that does not end on '\ ' makes the archive malformed | — | pass | test/uart/uart_integration_test.cpp:4238 |
 | PI-41 | a pax record whose length ends before its first space (the space found belongs to the next record) makes the archive malformed | — | pass | test/uart/uart_integration_test.cpp:4245 |
 | PI-42 | a pax record with no space after its length makes the archive malformed | — | pass | test/uart/uart_integration_test.cpp:4253 |
 | PI-43 | a NextPi install whose release marker cannot be removed fails at once, before the image is put in place | — | pass | test/uart/uart_integration_test.cpp:4268 |
 | PI-44 | a NextPi release name of 64 characters is valid and one of 65 is not | — | pass | test/uart/uart_integration_test.cpp:4282 |
+| PI-32 | a NextPi start that fails keeps an overlay that was already there (the user's saved NextPi state): only one the failing start created is removed | — | pass | test/uart/uart_integration_test.cpp:4300 |
+| PI-33 | a spawned NextPi child's environment is the parent's without any LANG or LC_ALL entry, then LANG=C and LC_ALL=C, each exactly once (LANGUAGE is not LANG) | — | pass | test/uart/uart_integration_test.cpp:4318 |
+| PI-34 | when QEMU exits on its own, the status jnext reaps is QEMU's (7), passed on by the watchdog shell | — | pass | test/uart/uart_integration_test.cpp:4344 |
+| PI-35 | every descriptor a NextPi start leaves open in jnext (the watchdog pipe's write end) is close-on-exec, so no other child can inherit it | — | pass | test/uart/uart_integration_test.cpp:4376 |
+| PI-36 | during an RZX playback the NextPi link is inert: the guest's byte does not reach the Pi and the Pi's bytes are not consumed; after it they arrive and the guest is heard | — | pass | test/uart/uart_integration_test.cpp:4410 |
+| PI-37 | the close-on-exec fallback marks every open descriptor from 3 up (fd 57) except the one to keep (fd 58), and leaves stdin, stdout and stderr alone | — | pass | test/uart/uart_integration_test.cpp:4462 |
 | PI-45 | the fallback's last resort, the number walk, marks the same descriptors; it goes up to sysconf's limit capped at 65536, and to 65536 when the limit is indeterminate (-1) | — | pass | test/uart/uart_integration_test.cpp:4469 |
+| PI-38 | whether NextPi starts: --nextpi and --no-nextpi win, otherwise a GUI session follows the [nextpi] preference and a headless one starts nothing; only --nextpi makes a failure an error | — | pass | test/uart/uart_integration_test.cpp:4495 |
 | NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:5080,6188-6189 | pass | test/uart/uart_integration_test.cpp:4529 |
 | NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:4558 |
 | NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2280,2317-2318 | pass | test/uart/uart_integration_test.cpp:4589 |
