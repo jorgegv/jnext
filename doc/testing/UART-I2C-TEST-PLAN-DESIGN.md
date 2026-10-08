@@ -546,6 +546,7 @@ network or a NextPi image.
 | PI-40 | after a valid record: `19 path=NextPi.imgX` (right length, no final `\n`) | Failed "pax record overruns" |
 | PI-41 | after a valid record: `3\n\n`, then a valid `path` record (the first space is the next record's) | Failed "pax record overruns" |
 | PI-42 | after a valid record: `4ab\n` (no space) | Failed "pax record overruns" |
+| PI-43 | provision into a directory where a non-empty directory holds the name `release` | Failed "cannot install"; no `nextpi.img` installed |
 
 ## Special Handling
 

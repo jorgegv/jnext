@@ -4254,6 +4254,26 @@ static void test_nextpi_review2_rows() {
               fmt("error='%s'", w5.c_str()));
     }
 
+    // ── PI-43 — THE MARKER CANNOT BE REMOVED (R3-4). Removing `release` is the
+    // install's first step; when it fails (here a non-empty directory holds
+    // the name) the install stops there, before the image is put in place.
+    {
+        FakeMirror mirror("marker");
+        const bool fixture = mirror.add_release("1_93D", fake_nextpi_disk("k", "d"));
+        const fs::path dir = mirror.dir / "np";
+        std::error_code ec;
+        fs::create_directories(dir / "release" / "in-the-way", ec);
+        int confirms = 0;
+        const nextpi::ProvisionResult r = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
+        check("PI-43",
+              "a NextPi install whose release marker cannot be removed fails at once, before the "
+              "image is put in place",
+              fixture && r.status == sdcard::ProvisionStatus::Failed &&
+                  r.error.find("cannot install") != std::string::npos && !fs::exists(dir / "nextpi.img"),
+              fmt("status=%d error='%s' image %s", static_cast<int>(r.status), r.error.c_str(),
+                  fs::exists(dir / "nextpi.img") ? "installed" : "absent"));
+    }
+
     // ── PI-32 — A FAILED START KEEPS THE USER'S OVERLAY (R2-9). Only an overlay
     // the failing start created is removed: one that was there before holds
     // everything NextPi saved, and must survive.
