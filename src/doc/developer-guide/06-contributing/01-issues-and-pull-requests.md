@@ -54,7 +54,7 @@ Every pull request, whatever it does, must satisfy the common requirements:
   can go together in one pull request. A pull request whose contents look
   unrelated to each other is rejected, with a request to split it.
 - **Small, reviewable commits.** Make each commit one small, self-contained
-  step, a slice of the feature or one fix with its tests, that can be
+  step (a slice of the feature, or one fix, with its tests) that can be
   reviewed on its own. Deliver a large feature as a series of such commits,
   not as one huge commit, which you will be asked to split.
 
