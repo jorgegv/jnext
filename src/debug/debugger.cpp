@@ -51,7 +51,10 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
     // makes part of the `Paused` contract. A verb that IS a stop re-arms after
     // the restore, so its own reason still wins.
     impl_->ds().set_machine_replaced_hook(
-        [this]() { impl_->arm(PauseReason::Kind::None, CLIENT_NONE); });
+        [this]() {
+            impl_->arm(PauseReason::Kind::None, CLIENT_NONE);
+            impl_->sidecar_recheck = true;   // CAP-SRC: see recheck_sidecars()
+        });
 
     // §6.1 — SEED THE EIGHT LIVE PAGES. `DebugState::on_slot_remapped()`
     // early-returns while the table is null, so every `rebuild_ptr()` during
@@ -235,8 +238,16 @@ Result Debugger::set_stop_policy(StopPolicy policy) {
 // ---------------------------------------------------------------------------
 
 Expected<int> Debugger::load_map(const std::string& path, MapFormat format) {
-    const int n = (format == MapFormat::Z88dk) ? impl_->symbols.load_z88dk_map(path)
-                                               : impl_->symbols.load_simple_map(path);
+    int n = -1;
+    switch (format) {
+        case MapFormat::Z88dk:     n = impl_->symbols.load_z88dk_map(path); break;
+        case MapFormat::Simple:    n = impl_->symbols.load_simple_map(path); break;
+        case MapFormat::NextBuild: n = impl_->symbols.load_nextbuild_memory(path); break;
+    }
+    // A MAP the user chose replaces whatever a program's sidecar brought —
+    // once it HAS: a file that cannot be read leaves the table, and so its
+    // owner, as they were.
+    if (n >= 0) impl_->symbols_owner = Impl::StoreOwner::User;
     // Both loaders return -1 on a file that cannot be read or parsed. That is
     // not a refusal of the verb by the machine's state, and it is not "there is
     // no such thing" either — the caller asked for a file that is not there.
@@ -246,18 +257,24 @@ Expected<int> Debugger::load_map(const std::string& path, MapFormat format) {
 
 Result Debugger::clear_symbols() {
     impl_->symbols.clear();
+    impl_->symbols_owner = Impl::StoreOwner::None;
     return Result::Ok;
 }
 
 std::optional<std::string> Debugger::lookup(uint16_t addr) const {
+    impl_->recheck_sidecars();   // CAP-SRC: a reader never sees a stale sidecar
     return impl_->symbols.lookup(addr);
 }
 
 std::optional<uint16_t> Debugger::lookup_name(const std::string& name) const {
+    impl_->recheck_sidecars();
     return impl_->symbols.lookup_name(name);
 }
 
-const SymbolTable& Debugger::symbols() const { return impl_->symbols; }
+const SymbolTable& Debugger::symbols() const {
+    impl_->recheck_sidecars();
+    return impl_->symbols;
+}
 
 // ---------------------------------------------------------------------------
 // CTL-13 — `state()`

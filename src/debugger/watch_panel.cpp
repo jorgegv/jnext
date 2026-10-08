@@ -128,9 +128,9 @@ bool WatchPanel::show_watch_dialog(const QString& title, uint16_t& addr,
     auto* form = new QFormLayout(&dlg);
 
     auto* addr_edit = new QLineEdit(&dlg);
-    addr_edit->setPlaceholderText("e.g. 4000 or $4000");
+    addr_edit->setPlaceholderText("e.g. 4000, $4000 or a symbol");
     addr_edit->setText(QString::asprintf("%04X", addr));
-    form->addRow(tr("Address (hex):"), addr_edit);
+    form->addRow(tr("Address or symbol:"), addr_edit);
 
     auto* label_edit = new QLineEdit(&dlg);
     label_edit->setPlaceholderText("(optional)");
@@ -151,15 +151,16 @@ bool WatchPanel::show_watch_dialog(const QString& title, uint16_t& addr,
 
     if (dlg.exec() != QDialog::Accepted) return false;
 
-    QString addr_text = addr_edit->text().trimmed();
-    if (addr_text.startsWith('$')) addr_text = addr_text.mid(1);
-    if (addr_text.startsWith("0x", Qt::CaseInsensitive)) addr_text = addr_text.mid(2);
-
-    bool ok = false;
-    addr = static_cast<uint16_t>(addr_text.toUInt(&ok, 16));
-    if (!ok) return false;
+    // CAP-SYM — a loaded symbol name, else hex ($ / 0x prefixes optional).
+    // A watch named by symbol is labelled with it unless a label was given.
+    const std::string entered = addr_edit->text().trimmed().toStdString();
+    const auto resolved = dbg_ ? dbg_->symbols().resolve(entered) : SymbolTable().resolve(entered);
+    if (!resolved) return false;
+    addr = *resolved;
 
     label = label_edit->text().trimmed().toStdString();
+    if (label.empty() && dbg_ && dbg_->lookup_name(entered))
+        label = entered;
     type = type_combo->currentIndex();
     return true;
 }

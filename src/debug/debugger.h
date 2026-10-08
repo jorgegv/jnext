@@ -65,6 +65,7 @@
 #include "debug/events.h"
 #include "debug/inspect.h"
 #include "debug/result.h"
+#include "debug/source_map.h"
 #include "debug/symbol_table.h"
 
 class Emulator;
@@ -905,6 +906,116 @@ public:
     /// CAP-SYM — the table itself, for `disasm_text::apply_symbols()` and for a
     /// frontend that lists symbols.
     const SymbolTable& symbols() const;
+
+    // =======================================================================
+    // CAP-SRC — source-level debugging (doc/design/SOURCE-LEVEL-DEBUGGING.md)
+    //
+    // A compiler-neutral `SourceMap` of (physical 8K page, logical address) ->
+    // file:line:column, filled by format adapters (sjasmplus SLD today), and
+    // the verbs that step by source statement over it. Like the symbol table,
+    // it is ONE store that every client reads.
+    // =======================================================================
+
+    /// CAP-SRC — the outcome of loading a source map.
+    struct SourceMapLoad {
+        /// Source records loaded; -1 when the file was refused.
+        int count = -1;
+        /// Why it was refused (parse error, identity mismatch). Empty on success.
+        std::string error;
+        /// The map's binary identity checked against memory: nullopt when the
+        /// map carries none, else whether it matched.
+        std::optional<bool> identity;
+    };
+
+    /// CAP-SRC — load an sjasmplus SLD file, replacing the current map only on
+    /// success. A map that carries a binary identity which no longer matches
+    /// memory is refused unless `accept_identity_mismatch` (a program may have
+    /// legitimately changed variables inside its own image since it loaded).
+    SourceMapLoad load_source_map(const std::string& path, bool accept_identity_mismatch);
+
+    /// CAP-SRC — forget the source map.
+    Result clear_source_map();
+
+    /// CAP-SRC — the store itself.
+    const SourceMap& source_map() const;
+
+    /// CAP-SRC — the source position of `addr` as it is mapped NOW (the
+    /// physical page behind its slot), or of the current PC.
+    std::optional<SourceLocation> source_location(uint16_t addr) const;
+    std::optional<SourceLocation> source_location() const;
+
+    /// CAP-SRC — the physical 8K page the MMU maps behind logical `addr` now.
+    uint8_t effective_page(uint16_t addr) const;
+
+    /// CAP-SRC — the RAM page an instruction at `addr` would be fetched from
+    /// now, or NOT_RAM_PAGE (debug/ram_page.h) when a ROM slot or an overlay
+    /// (boot ROM, Multiface, DivMMC, Layer 2 read mapping) supplies it. This,
+    /// not `effective_page()`, is what source records are matched against:
+    /// ROM and RAM page numbers overlap.
+    uint8_t source_page(uint16_t addr) const;
+
+    /// CAP-SRC — attach the debug sidecars of a program that was just loaded:
+    /// `<stem>.Memory.txt` (or `Memory.txt`) beside a `.nex` for symbols, and
+    /// `<stem>.sld` / `<stem>.sld.txt` for the source map — except beside a
+    /// tape program (`.tap`, `.tzx`, `.wav`), which is not in memory when
+    /// its load call returns: its map must be loaded by hand once it has
+    /// loaded. The sidecars belong to that load: rewinding, or restoring or
+    /// resetting the machine, to a point before it drops them. A sidecar fills a
+    /// store that is empty or was filled by a previous program's sidecar; a
+    /// store the user filled (a MAP or SLD loaded by hand, `--map`) is kept.
+    /// A previous program's sidecar data is cleared when the new program has
+    /// none, so a stale map never describes the wrong binary. An SLD whose
+    /// binary identity does not match the loaded program is refused.
+    /// Each outcome is logged. Every frontend calls this after a successful
+    /// program load.
+    struct SidecarLoad {
+        int symbols = -1;   ///< labels loaded, -1 when none was found
+        int sources = -1;   ///< source records loaded, -1 when none was attached
+        /// A Memory.txt was found and could not be read (the previous
+        /// program's sidecar symbols are cleared all the same).
+        bool symbols_unreadable = false;
+    };
+    SidecarLoad load_program_sidecars(const std::string& program_path);
+
+    /// CAP-SRC — which source step.
+    enum class SourceStep : uint8_t {
+        /// Run until the mapped source position changes.
+        Into = 0,
+        /// As `Into`, but not inside a deeper call.
+        Over,
+        /// Until a mapped position is reached in a shallower call.
+        Out,
+        /// Rewind to the previous mapped source position in the retained
+        /// trace (needs trace and rewind).
+        Back,
+        /// Rewind to the newest retained instruction that is a mapped source
+        /// position with an Execute breakpoint (needs trace and rewind).
+        ReverseContinue,
+    };
+
+    /// CAP-SRC — step by source statement. Forward steps run synchronously,
+    /// one instruction at a time through the same step the debugger's Step
+    /// uses, skipping unmapped instructions. Between instructions each next
+    /// PC gets the `Execute` delivery a run would give it — handlers run, a
+    /// `Stop` stops with its hit recorded — and a watchpoint, the magic
+    /// breakpoint or any other stop ends the step too. A step also ends, and
+    /// says so in the log, at a HALT with interrupts disabled (nothing but an
+    /// NMI or a reset ends it), after `SOURCE_STEP_LIMIT` instructions, or
+    /// after `SOURCE_STEP_FRAME_LIMIT` frames of machine time. Over and Out
+    /// measure call depth with the call-stack tracker, so they need it on
+    /// (`set_call_stack_enabled`); with no tracked frame, Out is one
+    /// instruction. Back / ReverseContinue search only the retained trace
+    /// BEFORE the machine's current cycle (a Frame Back leaves newer entries
+    /// in it). `RefusedUnavailable` with no source map, and for Back /
+    /// ReverseContinue with no earlier position to go to; the rewind refusals
+    /// of `step_back()` otherwise.
+    Result source_step(ClientId by, SourceStep kind);
+
+    static constexpr int SOURCE_STEP_LIMIT = 1000000;
+    /// The machine time a forward source step may run, in frames, whatever
+    /// the instruction count: a statement that waits (a HALT, a long loop)
+    /// returns control instead of holding the frontend.
+    static constexpr int SOURCE_STEP_FRAME_LIMIT = 100;
 
     // =======================================================================
     // §4.8 — CAP-SES, session

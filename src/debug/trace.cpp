@@ -182,7 +182,7 @@ int z80_instruction_length(uint16_t addr,
 // ---------------------------------------------------------------------------
 
 TraceLog::TraceLog(size_t capacity)
-    : buffer_(capacity), capacity_(capacity)
+    : buffer_(capacity), not_ram_(capacity, 0), capacity_(capacity)
 {
 }
 
@@ -196,11 +196,12 @@ bool TraceLog::enabled() const
     return enabled_;
 }
 
-void TraceLog::record(const TraceEntry& entry)
+void TraceLog::record(const TraceEntry& entry, bool fetch_not_mmu_ram)
 {
     if (no_wrap_ && count_ >= capacity_)
         return;  // freeze when full — preserves earliest entries
     buffer_[head_] = entry;
+    not_ram_[head_] = fetch_not_mmu_ram ? 1 : 0;
     head_ = (head_ + 1) % capacity_;
     if (count_ < capacity_)
         ++count_;
@@ -215,6 +216,7 @@ void TraceLog::clear()
 void TraceLog::resize(size_t new_capacity)
 {
     buffer_.assign(new_capacity, TraceEntry{});
+    not_ram_.assign(new_capacity, 0);
     capacity_ = new_capacity;
     head_ = 0;
     count_ = 0;
@@ -237,6 +239,12 @@ const TraceEntry& TraceLog::at(size_t index) const
         physical = (head_ + index) % capacity_;
     }
     return buffer_[physical];
+}
+
+bool TraceLog::fetch_not_mmu_ram(size_t index) const
+{
+    const size_t physical = count_ < capacity_ ? index : (head_ + index) % capacity_;
+    return not_ram_[physical] != 0;
 }
 
 bool TraceLog::export_to_file(const std::string& path) const
