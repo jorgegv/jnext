@@ -49,6 +49,7 @@
 
 #ifndef _WIN32
 #include <csignal>
+#include <sys/resource.h>
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -4432,26 +4433,65 @@ static void test_nextpi_review2_rows() {
             const bool fixture = ::dup2(p[0], 57) == 57 && ::dup2(p[1], 58) == 58;
             ::close(p[0]);
             ::close(p[1]);
+            // fd 3, the walk's lower bound (R4-1), and the last number the
+            // number walk reaches (R4-2), each holding a pipe end without
+            // close-on-exec. Whatever this process had at fd 3 is set aside
+            // and put back.
+            const int saved3 = ::fcntl(3, F_DUPFD_CLOEXEC, 100);
+            const int flags3 = ::fcntl(3, F_GETFD);
+            // The walk's last number is usable only below RLIMIT_NOFILE: raise
+            // the soft limit to it where the hard limit allows (on Linux
+            // sysconf reports that limit itself, so `top` is exactly the last
+            // number walked; macOS reports a larger one and caps the raise).
+            const long walk = PiQemu::fd_walk_limit(::sysconf(_SC_OPEN_MAX));
+            rlimit saved_nofile{};
+            ::getrlimit(RLIMIT_NOFILE, &saved_nofile);
+            rlimit raised = saved_nofile;
+            if (raised.rlim_cur < static_cast<rlim_t>(walk)) {
+                raised.rlim_cur = std::min<rlim_t>(static_cast<rlim_t>(walk), raised.rlim_max);
+                if (::setrlimit(RLIMIT_NOFILE, &raised) != 0) ::getrlimit(RLIMIT_NOFILE, &raised);
+            }
+            // macOS also caps descriptors at kern.maxfilesperproc whatever
+            // the rlimit says, so step down to the highest number that works.
+            int top = static_cast<int>(std::min<rlim_t>(static_cast<rlim_t>(walk), raised.rlim_cur)) - 1;
+            while (top > 1024 && ::dup2(58, top) != top) --top;
+            const bool edges = ::dup2(58, 3) == 3 && ::dup2(58, top) == top;
+            if (edges) {
+                ::fcntl(3, F_SETFD, 0);
+                ::fcntl(top, F_SETFD, 0);
+            }
             int std_flags[3];
             for (int fd = 0; fd < 3; ++fd) {
                 std_flags[fd] = ::fcntl(fd, F_GETFD);
                 if (std_flags[fd] >= 0) ::fcntl(fd, F_SETFD, std_flags[fd] & ~FD_CLOEXEC);
             }
-            bool marked = false, kept = false, std_alone = true;
-            if (fixture) {
+            bool marked = false, kept = false, std_alone = true, fd3 = false, at_top = false;
+            if (fixture && edges) {
                 PiQemu::mark_close_on_exec_except(58, lists);
                 marked = (::fcntl(57, F_GETFD) & FD_CLOEXEC) != 0;
                 kept   = (::fcntl(58, F_GETFD) & FD_CLOEXEC) == 0;
+                fd3    = (::fcntl(3, F_GETFD) & FD_CLOEXEC) != 0;
+                at_top = (::fcntl(top, F_GETFD) & FD_CLOEXEC) != 0;
                 for (int fd = 0; fd < 3; ++fd)
                     if (std_flags[fd] >= 0 && (::fcntl(fd, F_GETFD) & FD_CLOEXEC) != 0) std_alone = false;
             }
             for (int fd = 0; fd < 3; ++fd)
                 if (std_flags[fd] >= 0) ::fcntl(fd, F_SETFD, std_flags[fd]);
+            ::close(top);
+            ::setrlimit(RLIMIT_NOFILE, &saved_nofile);
+            if (saved3 >= 0) {
+                ::dup2(saved3, 3);
+                ::fcntl(3, F_SETFD, flags3);   // dup2 cleared close-on-exec; restore what fd 3 had
+                ::close(saved3);
+            } else {
+                ::close(3);
+            }
             ::close(57);
             ::close(58);
-            detail = fmt("fixture=%d 57 marked=%d 58 kept=%d 0-2 untouched=%d", fixture ? 1 : 0,
-                         marked ? 1 : 0, kept ? 1 : 0, std_alone ? 1 : 0);
-            return fixture && marked && kept && std_alone;
+            detail = fmt("fixture=%d edges=%d 57 marked=%d 58 kept=%d fd 3 marked=%d fd %d (top) marked=%d "
+                         "0-2 untouched=%d", fixture ? 1 : 0, edges ? 1 : 0, marked ? 1 : 0, kept ? 1 : 0,
+                         fd3 ? 1 : 0, top, at_top ? 1 : 0, std_alone ? 1 : 0);
+            return fixture && edges && marked && kept && fd3 && at_top && std_alone;
         };
         std::string listed_detail, walked_detail;
         const bool listed = run({"/proc/self/fd", "/dev/fd"}, listed_detail);
@@ -4461,15 +4501,18 @@ static void test_nextpi_review2_rows() {
         const std::string listed_detail, walked_detail;
 #endif
         check("PI-37",
-              "the close-on-exec fallback marks every open descriptor from 3 up (fd 57) except the "
-              "one to keep (fd 58), and leaves stdin, stdout and stderr alone",
+              "the close-on-exec fallback marks every open descriptor from 3 up (fd 3 itself, fd 57 "
+              "and the walk's last number) except the one to keep (fd 58), and leaves stdin, stdout "
+              "and stderr alone",
               listed, listed_detail);
-        const bool limits = PiQemu::fd_walk_limit(-1) == 65536 && PiQemu::fd_walk_limit(1024) == 1024 &&
+        const bool limits = PiQemu::fd_walk_limit(-1) == 65536 && PiQemu::fd_walk_limit(0) == 65536 &&
+                            PiQemu::fd_walk_limit(1024) == 1024 &&
                             PiQemu::fd_walk_limit(65536) == 65536 &&
                             PiQemu::fd_walk_limit(1000000000L) == 65536;
         check("PI-45",
-              "the fallback's last resort, the number walk, marks the same descriptors; it goes up "
-              "to sysconf's limit capped at 65536, and to 65536 when the limit is indeterminate (-1)",
+              "the fallback's last resort, the number walk, marks the same descriptors, fd 3 and its "
+              "last number included; it goes up to sysconf's limit capped at 65536, and to 65536 when "
+              "the limit is indeterminate (-1) or 0",
               walked && limits, walked_detail + fmt(" limits=%d (-1 -> %ld, 1024 -> %ld, 10^9 -> %ld)",
                                                     limits ? 1 : 0, PiQemu::fd_walk_limit(-1),
                                                     PiQemu::fd_walk_limit(1024),

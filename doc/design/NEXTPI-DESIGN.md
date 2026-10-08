@@ -336,7 +336,7 @@ NextPi image is needed.
 | PI-34 | QEMU's own exit status reaches jnext through the watchdog |
 | PI-35 | every descriptor a start leaves open in jnext is close-on-exec |
 | PI-36 | the replay gate during an RZX playback |
-| PI-37 | the close-on-exec fallback marks open descriptors, spares the one kept and leaves 0-2 alone |
+| PI-37 | the close-on-exec fallback marks open descriptors (fd 3 and the walk's last number included), spares the one kept and leaves 0-2 alone |
 | PI-38 | whether NextPi starts (`nextpi::start_request`): CLI over Preferences, headless ignores them |
 | PI-39 | a pax record after a valid one claiming more than is left (99, 2^64-1, 30 with a `\n` in the padding) is "malformed" |
 | PI-40 | a pax record not ending on `\n` is "malformed" |
@@ -344,7 +344,7 @@ NextPi image is needed.
 | PI-42 | a pax record with no space after its length is "malformed" |
 | PI-43 | a `release` marker that cannot be removed stops the install before the image is put in place |
 | PI-44 | the release-name length limit: 64 characters valid, 65 not |
-| PI-45 | the fallback's number walk does the same; its limit is `sysconf`'s capped at 65536, and 65536 for -1 |
+| PI-45 | the fallback's number walk does the same; its limit is `sysconf`'s capped at 65536, and 65536 for -1 or 0 |
 | PI-46 | the fallback reads `/proc/self/fd` where it exists, else `/dev/fd`, and walks the numbers only with no list |
 | PI-47 | the open-descriptor list names open descriptors but not the directory's own |
 
