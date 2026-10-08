@@ -199,6 +199,14 @@ void AppConfig::load() {
         data_.esp_allowed_hosts = policy.allowed_hosts;
     }
     settings_.endGroup();
+
+    settings_.beginGroup("nextpi");
+    data_.nextpi_enabled     = settings_.value("enabled", data_.nextpi_enabled).toBool();
+    data_.nextpi_dir         = settings_.value("dir", data_.nextpi_dir).toString().trimmed();
+    data_.nextpi_release     = settings_.value("release", data_.nextpi_release).toString().trimmed();
+    data_.nextpi_qemu_binary = settings_.value("qemu_binary", data_.nextpi_qemu_binary).toString().trimmed();
+    data_.nextpi_audio       = settings_.value("audio", data_.nextpi_audio).toString().trimmed();
+    settings_.endGroup();
 }
 
 void AppConfig::save() const {
@@ -276,6 +284,14 @@ void AppConfig::save() const {
             hosts << QString::fromStdString(host);
         settings_.setValue("allowed_hosts", hosts);
     }
+    settings_.endGroup();
+
+    settings_.beginGroup("nextpi");
+    settings_.setValue("enabled", data_.nextpi_enabled);
+    settings_.setValue("dir", data_.nextpi_dir);
+    settings_.setValue("release", data_.nextpi_release);
+    settings_.setValue("qemu_binary", data_.nextpi_qemu_binary);
+    settings_.setValue("audio", data_.nextpi_audio);
     settings_.endGroup();
 
     settings_.sync();

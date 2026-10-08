@@ -268,6 +268,41 @@ debugger ones.
     is put in raw mode so a binary protocol passes through untranslated. POSIX
     only.
 
+**\--nextpi**
+:   Start **NextPi** — the software that runs on the Raspberry Pi of the
+    Spectrum Next, on its GPIO header — under QEMU
+    (`qemu-system-arm`, machine `raspi0`), connected to UART 1, the UART wired
+    to that header. NextZXOS's own Pi tools (`.pisend`, the NextPi UI) then talk
+    to a real NextPi. jnext does not emulate the Pi: QEMU must be installed, and
+    jnext starts it, wires it in and stops it when it exits.
+
+    The first run that needs it offers to download NextPi from its mirror
+    (<https://zx.xalior.com/NextPi2/>) into `~/.jnext/nextpi` — about 6 GB,
+    with about 22 GB free needed while it is unpacked — with a progress bar,
+    exactly as the SD-card image is provisioned; later runs start at once.
+    NextPi then takes about a minute to reach its Supervisor prompt (`SUP>`).
+    The release, the directory, the QEMU binary and where the Pi's sound goes
+    are set under **Settings > Preferences > NextPi** (the `[nextpi]` section
+    of `~/.jnext/jnext.conf`); their
+    defaults are release `1_93D`, `~/.jnext/nextpi`, `qemu-system-arm` on
+    `PATH`, and the host's speakers.
+
+    The guest reaches the Pi only while NR 0xA0 bits 5:4 are `11` — UART 1 on
+    GPIO 14/15, wired for a Pi — which NextPi's tools set before they talk to
+    it. Until then the Pi's bytes are lost on the wire and the guest's never
+    reach it, as on the real machine; the first such loss is logged once. While
+    NR 0x0B gives UART 1 to the joystick connector, the Pi cannot be heard
+    either. Host bytes are paced at UART 1's current baud; a rewind or an RZX
+    playback holds the link inert, and nothing about it is saved in a snapshot.
+    A soft or hard reset leaves the Pi running. A Pi asked for with this option
+    that cannot start (no QEMU, a failed download) is an error; declining the
+    download is not — jnext then starts without the Pi.
+    POSIX only.
+
+**\--no-nextpi**
+:   Do not start NextPi this run, overriding a saved preference that
+    enables it.
+
 **\--tape-realtime**
 :   Real-time tape loading, at the speed of an actual tape, instead of fast
     load.
@@ -2057,6 +2092,16 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     bar carries the ESP cell **NETWORKING** describes, so neither a config file
     nor that page can put the guest on the network without saying so.
     **\--no-esp** overrides it for one run.
+    NextPi is stored under `[nextpi]`, edited under **Settings >
+    Preferences > NextPi**: `enabled` (`true`/`false`, the persistent form of
+    **\--nextpi**; **\--no-nextpi** overrides it for one run), `dir` (the
+    NextPi directory; empty means `~/.jnext/nextpi`), `release` (a NextPi
+    release name on the mirror, or `latest` for the newest one listed there;
+    empty means `1_93D`), `qemu_binary` (empty means `qemu-system-arm` on
+    `PATH`) and `audio` (a QEMU `-audiodev` driver such as `coreaudio`, `pa` or
+    `none`, or `wav:`*FILE*; empty means `coreaudio` on macOS and `pa`
+    elsewhere). Changing the release makes the next start offer to download it,
+    replacing the installed one.
     The quick screenshot is stored under `[screenshot]` as `quick_dir` (empty
     means `~/.jnext/screenshots`) and `quick_format` (`png` or `scr`), edited
     under **Settings > Preferences > Paths**; an unrecognised format keeps the
@@ -2081,6 +2126,13 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 
 `~/.jnext/sdcard/cspect-next-1gb.img`
 :   The canonical distribution image the patched one above is produced from.
+
+`~/.jnext/nextpi/`
+:   The NextPi directory: `nextpi.img` (the release's SD-card image,
+    never written), `boot/` (the kernel and device tree QEMU boots, copied out
+    of the image), `release` (which release it is), `overlay.qcow2` (everything
+    NextPi writes to its card — delete it to start again from a pristine image)
+    and `qemu.log` (QEMU's own messages). About 15 GB.
 
 # EXIT STATUS
 

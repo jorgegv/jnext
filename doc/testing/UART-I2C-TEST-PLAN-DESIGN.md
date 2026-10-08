@@ -487,6 +487,71 @@ byte time to the edge.
 | UART-RD-GH265-01 | byte written at edge 0 outside (ends on 2431); IN A,(C) of 0x133B starting at 2400 / 2300 | TX empty (bit 4) set / clear (pre-fix clear / clear) |
 | UART-WR-GH265-01 | OUT (C),A to 0x133B starting at 5000 (taken on 5073, byte ends 7504); status IN loading at 7470 / 7600 | bit 4 clear / set (pre-fix set at 7470) |
 
+### Group 17: NextPi on UART 1 (`--nextpi`)
+
+The wire on the Pi GPIO header handed to the host as a `UartDevice` on UART 1
+(design: `doc/design/NEXTPI-DESIGN.md`). The Pi's pins reach UART 1 only
+through the NR 0xA0 GPIO mux (`zxnext.vhd:2278-2281`): bits 5 and 4 together
+put UART 1 on GPIO 14/15 wired for a Pi, the value NextPi's `.pisend` writes
+(0x30). Rows live in `test/uart/uart_integration_test.cpp` (group PI).
+PI-01..05 drive the link over real FIFOs, like the JOY rows; each fails (does
+not crash) when no link is attached, so removing `setup_pi_uart()` from `init()`
+turns all five red, and removing the NR 0xA0 probe turns PI-02 red. PI-06..09
+run `PiQemu` against a shell-script stand-in for QEMU; PI-10..14 run the NextPi
+provisioner offline against a fake mirror whose archive the test builds; PI-15..27
+cover the behaviours the PR #310 review found untested. None needs QEMU, a
+network or a NextPi image.
+
+| ID | Test | Expected |
+|----|------|----------|
+| PI-01 | NR 0xA0 = 0x30; host sends 4 bytes, guest transmits 3 on UART 1 | guest reads the host's bytes at 0x143B on UART 1; host receives the guest's; UART 0 RX empty; nothing dropped |
+| PI-02 | NR 0xA0 = 0x00 / 0x10 / 0x20, one byte each way; then 0x30 | closed: nothing either way, 3 RX dropped + 3 TX disconnected counted; 0x30: one byte each way |
+| PI-03 | guest transmits on UART 1 with the link attached | byte reaches the host; UART 1's unattached loopback does not echo it into its own RX FIFO |
+| PI-04 | NR 0x0B = 0xB1 (joystick UART mode on UART 1), NR 0xA0 = 0x30 | Pi neither heard nor spoken to (`zxnext.vhd:3340-3341,3526-3531`); with NR 0x0B = 0 traffic flows |
+| PI-05 | soft reset, then NR 0xA0 = 0x30 | same device still attached to UART 1; NR 0xA0 read 0x00 after reset (`zxnext.vhd:5080`); traffic flows |
+| PI-06 | `PiQemu::build_args` / `audiodev_arg` for NextPi | raspi0, the directory's kernel/dtb/overlay, `-chardev pipe` on `-serial`, no monitor/display; audio default per platform, `none`, `wav:FILE` (commas doubled) |
+| PI-07 | `PiQemu::start` with an unprepared directory, a missing QEMU binary, a QEMU that exits at once | each refused with its reason; nothing left running |
+| PI-08 | `PiQemu::start` with a stand-in QEMU, then an Emulator on its FIFOs, NR 0xA0 = 0x30 | overlay created; guest reads `SUP> `; stand-in receives the guest's CR; stop takes < 2 s (SIGTERM) and removes the FIFOs |
+| PI-09 | two Emulators in turn on the same running `PiQemu` (a hard reset) | the same process receives `A` then `B` |
+| PI-10 | `nextpi::parse_release_listing` on an index with duplicates and `.md5` links; `compare_release` | each `NextPi-<name>.tar.gz` once; 1_100 > 1_93D > 1_93C, 1_9 < 1_10 |
+| PI-11 | `nextpi::extract_tar_gz_entry` on a GNU tar.gz with a pax path and a base-256 size | the image written byte for byte; a missing suffix is an error naming it |
+| PI-12 | `nextpi::provision` on an empty directory (fake mirror), then again | one confirm, `.md5` + archive fetched, image + kernel + dtb + `release` installed, archive deleted; second call: no confirm, no fetch |
+| PI-13 | `nextpi::provision` declined; then with a wrong MD5 | Declined, nothing fetched or installed; Failed "MD5", archive deleted, nothing installed |
+| PI-14 | provision 1_93D, add an overlay, provision `latest` (1_93D, 1_100 listed), then `latest` offline | 1_100 installed after asking, overlay gone; offline: Ok with 1_100 and a warning, no question |
+| PI-15 | replay mode on: guest transmits, host sends; replay off: three frames, transmit | during: nothing to the host, `received()` 0; after: E1 E2 read by the guest, D3 reaches the host |
+| PI-16 | `Emulator::warm_start_boot_config` of a config with both NextPi FIFO paths | both cleared; the SD image kept |
+| PI-17 | `PiQemu::stop` on a stand-in that ignores SIGTERM, grace 300 ms | stop takes 300 ms..3 s; the stand-in is gone |
+| PI-18 | start with LANG / LC_ALL = es_ES.UTF-8 in jnext | child has exactly one LANG and one LC_ALL, both C (other variables may carry the locale, e.g. GNOME's GDM_LANG); jnext's LANG unchanged |
+| PI-19 | start with a file open at fd 57 without CLOEXEC | 57 not among the child's /dev/fd; fd 3 (the watchdog's pipe) closed in the child, probed with the shell's own `<&3` (`ls /dev/fd` would list its own directory descriptor as 3) |
+| PI-20 | fork a holder that starts a PiQemu, SIGKILL it | the stand-in QEMU is gone within 3 s |
+| PI-21 | provision with `space_needed` = max | Failed, "free" in the error, nothing fetched |
+| PI-22 | extract "deep/name.img" via a GNU `L` record; "dir/x.img" via a ustar prefix | both found, bytes equal |
+| PI-23 | `L` size ~2^64; `x` header of 2^40; entry of 2^40+1; pax `size=1099511627777` record | each Failed with its own bound's message ("an entry claims", "name/metadata record", "a pax size of"), no exception; the fixture tag contains none of those words |
+| PI-24 | install 1_93D, then "latest" = 1_100 whose (MD5-valid) archive has no image | upgrade Failed; 1_93D still prepared, files intact, no `.part` |
+| PI-25 | provision release "../escape", "a/b", "a b", ".hidden", "x?y=1" | each Failed "release name", no confirm, nothing fetched |
+| PI-26 | start with a QEMU that exits at once (overlay created by qemu-img) | refused; overlay removed; qemu.log kept and named |
+| PI-27 | `nextpi::start_outcome` for every (cli, provisioned, started) case | Started / Declined / Exit (cli) / WarnAndContinue (preference) |
+| PI-28 | provision where (a) a directory holds `nextpi.img`'s name (stale marker 1_92), (b) a directory holds `release.part` | both Failed; (a) the old marker is gone; (b) the image is installed but no marker, not prepared |
+| PI-29 | `parse_release_listing` with `.hidden`, `-rf`, a 65-digit name and 1_93D; provision `latest` with the 65-digit name listed | only 1_93D listed; 1_93D installed; the 65-digit name never fetched |
+| PI-30 | `PiQemu::start` with TMPDIR=/nonexistent-jnext-tmpdir | false, "temporary directory" in the error, no exception, no overlay left |
+| PI-31 | extract from a tar.gz whose `x` header holds `18446744073709551615 path=EVIL.img` | Failed "pax record overruns", no exception |
+| PI-32 | start with a QEMU that exits at once, an overlay already present | refused; the overlay kept, contents unchanged |
+| PI-33 | `PiQemu::child_environment` of PATH, LANG, LC_ALL, LANGUAGE, LC_ALL | PATH, LANGUAGE, LANG=C, LC_ALL=C — in that order, each once |
+| PI-34 | start a stand-in that sleeps 1 s and exits 7 | `exit_status()` becomes a wait status with exit code 7 |
+| PI-35 | descriptors open before and after a start | at least one new (the watchdog write end); every new one FD_CLOEXEC |
+| PI-36 | RZX playback (50 empty frames) on: host sends E1, guest transmits D2; playback stopped: three frames, transmit D3 | during: nothing to the host, `received()` 0; after: E1 read by the guest, D3 reaches the host |
+| PI-37 | pipe ends at fds 3, 57, 58 and the walk's last number (`fd_walk_limit(sysconf) - 1`; on macOS the highest usable below it, since `kern.maxfilesperproc` caps descriptors), all without CLOEXEC, and fds 0-2 without it; `mark_close_on_exec_except(58)`; the suite's own fd 3 and RLIMIT_NOFILE set aside and restored | 3, 57 and the last number FD_CLOEXEC; 58 and 0-2 not |
+| PI-38 | `nextpi::start_request` for GUI/headless × --nextpi/--no-nextpi/none × preference on/off | CLI wins; GUI without CLI follows the preference; headless without CLI starts nothing; asked_on_cli only for --nextpi |
+| PI-39 | after a valid `comment` record: `99 path=EVIL.img`; `18446744073709551615 path=EVIL.img`; `30 path=EVIL.img` with a `\n` placed in the header's padding at the 30th byte | each Failed "pax record overruns", no exception |
+| PI-40 | after a valid record: `19 path=NextPi.imgX` (right length, no final `\n`) | Failed "pax record overruns" |
+| PI-41 | after a valid record: `3\n\n`, then a valid `path` record (the first space is the next record's) | Failed "pax record overruns" |
+| PI-42 | after a valid record: `4ab\n` (no space) | Failed "pax record overruns" |
+| PI-43 | provision into a directory where a non-empty directory holds the name `release` | Failed "cannot install"; no `nextpi.img` installed |
+| PI-44 | `valid_release_name` of 64 and of 65 `a`s | true, false |
+| PI-45 | the same with no lists (the number walk); `fd_walk_limit` of -1, 0, 1024, 65536, 10^9 | 3, 57 and the last number marked; 58 and 0-2 not; 65536, 65536, 1024, 65536, 65536 |
+| PI-46 | fd 57 open; `mark_close_on_exec_except(-1)`, then with lists {missing, `/dev/fd`}, then with none | returns `/proc/self/fd` (Linux) or `/dev/fd` (no /proc), then `/dev/fd`, then "" (the number walk); 57 marked each time |
+| PI-47 | a pipe end at fd 57; the lowest free number learned; `open_descriptors` of /dev/fd and (where it exists) /proc/self/fd | each read; 57 listed; the lowest free number (the directory's own descriptor) not listed; the lowest free number unchanged after the read and after `mark_close_on_exec_except(-1, {list})` |
+
 ## Special Handling
 
 ### FIFO Edge-Triggered Semantics

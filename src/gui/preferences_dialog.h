@@ -59,6 +59,7 @@ private:
     QWidget* build_input_tab();
     QWidget* build_audio_tab();
     QWidget* build_network_tab();
+    QWidget* build_nextpi_tab();
     QWidget* build_paths_tab();
 #ifdef ENABLE_DEBUGGER
     QWidget* build_debug_keys_tab(const std::vector<jnext::dbgkeys::LoadIssue>& key_issues);
@@ -93,6 +94,13 @@ private:
 
     QCheckBox*      esp_enabled_check_ = nullptr;   // GH #25
     QPlainTextEdit* esp_hosts_edit_    = nullptr;
+
+    // NextPi tab: one control per AppConfigData::nextpi_* field.
+    QCheckBox* nextpi_enabled_check_  = nullptr;
+    QLineEdit* nextpi_dir_edit_       = nullptr;
+    QComboBox* nextpi_release_combo_  = nullptr;   // editable
+    QLineEdit* nextpi_qemu_edit_      = nullptr;
+    QComboBox* nextpi_audio_combo_    = nullptr;   // editable
 
     QLineEdit* last_load_dir_edit_  = nullptr;
     QLineEdit* sd_card_path_edit_   = nullptr;

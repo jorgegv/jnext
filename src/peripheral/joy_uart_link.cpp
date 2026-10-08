@@ -60,6 +60,15 @@ std::unique_ptr<JoyUartEndpoint> JoyUartEndpoint::open_fifo(const std::string& b
     return nullptr;
 }
 
+std::unique_ptr<JoyUartEndpoint> JoyUartEndpoint::open_fifo_paths(const std::string& rx_path,
+                                                                  const std::string& tx_path,
+                                                                  std::string& error) {
+    (void)rx_path;
+    (void)tx_path;
+    error = "named-pipe serial cables are not supported on Windows";
+    return nullptr;
+}
+
 std::unique_ptr<JoyUartEndpoint> JoyUartEndpoint::open_pty(std::string& error) {
     error = "pseudo-terminal serial cables are not supported on Windows";
     return nullptr;
@@ -106,10 +115,14 @@ bool ensure_fifo(const std::string& path, std::string& error) {
 
 std::unique_ptr<JoyUartEndpoint> JoyUartEndpoint::open_fifo(const std::string& base,
                                                             std::string& error) {
+    return open_fifo_paths(base + ".rx", base + ".tx", error);
+}
+
+std::unique_ptr<JoyUartEndpoint> JoyUartEndpoint::open_fifo_paths(const std::string& rx_path,
+                                                                  const std::string& tx_path,
+                                                                  std::string& error) {
     ignore_sigpipe_once();
 
-    const std::string rx_path = base + ".rx";
-    const std::string tx_path = base + ".tx";
     if (!ensure_fifo(rx_path, error)) return nullptr;
     if (!ensure_fifo(tx_path, error)) return nullptr;
 

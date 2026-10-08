@@ -11,6 +11,8 @@
 #include "esp01/esp_at.h"          // AtEngine::UNASSOCIATED_IP, for --esp-ip-address
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/joy_uart_source.h"   // read_joy_uart_source_file (GH #251)
+#include "core/pi_qemu.h"
+#include "core/nextpi_provisioner.h"
 #include "peripheral/joy_uart_link.h"     // JoyUartEndpoint (GH #252)
 // Issue #35 — audio_pacing::WhenSlowPrefer. Header-only and dependency-free;
 // included unconditionally because the parsed value is declared alongside the
@@ -292,6 +294,14 @@ int main(int argc, char* argv[]) {
     bool        joy_uart_connector_set = false;
     std::string joy_uart_fifo;
     bool        joy_uart_pty = false;
+    // NextPi. `nextpi_enabled_set` is what lets --no-nextpi override a
+    // saved preference, as --no-esp does for the ESP.
+    bool        nextpi_enabled = false;
+    bool        nextpi_enabled_set = false;
+    // NextPi under QEMU. Owned here, by the process, rather than by the
+    // Emulator: a hard reset rebuilds the Emulator and must not reboot the Pi
+    // (core/pi_qemu.h). Reset explicitly before spdlog shuts down.
+    std::unique_ptr<PiQemu> pi_qemu;
     bool        magic_port_enabled = false;
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
@@ -849,6 +859,14 @@ int main(int argc, char* argv[]) {
             case cli::OptId::JoyUartPty:
                 joy_uart_pty = true;
                 break;
+            case cli::OptId::Nextpi:
+                nextpi_enabled = true;
+                nextpi_enabled_set = true;
+                break;
+            case cli::OptId::NoNextpi:
+                nextpi_enabled = false;
+                nextpi_enabled_set = true;
+                break;
             case cli::OptId::JoyUartRxDelayFrames: {
                 // Parsed here so a typo is a usage error, not a stream that
                 // starts at frame 0 and is spent before the guest is listening
@@ -1377,6 +1395,94 @@ int main(int argc, char* argv[]) {
             "(the host cursor keys can drive only one connector).\n");
         return 1;
     }
+    // ---------------------------------------------------------------------
+    // NextPi under QEMU on UART 1 (core/pi_qemu.h). Wanted when
+    // --nextpi says so, or — in a GUI session, with neither flag given — when
+    // the saved [nextpi] preference does. Its directory is provisioned exactly
+    // as the SD image is (core/nextpi_provisioner.h): on first use, after
+    // asking, with a progress bar. Started HERE, after every quick argument
+    // check (so a typo never triggers a 6 GB download) and before the machine
+    // boots (so its FIFOs exist when Emulator::init() opens them).
+    //
+    // A Pi asked for on the command line that cannot start is an error, like
+    // any other unusable option. One that is merely enabled in Preferences is
+    // not allowed to stop jnext from starting: it is reported, and the session
+    // goes on without it. Declining the download is neither — a choice the
+    // dialog says leads to "NextPi is not started", and that is all.
+    // ---------------------------------------------------------------------
+    {
+        bool gui = false, saved_enabled = false;
+        nextpi::ProvisionOptions popts;
+        PiQemu::Spec spec;
+#ifdef ENABLE_QT_UI
+        if (!headless) {
+            const AppConfigData& saved = gui_app_config.data();
+            gui               = true;
+            saved_enabled     = saved.nextpi_enabled;
+            popts.dir         = saved.nextpi_dir.toStdString();
+            popts.release     = saved.nextpi_release.toStdString();
+            spec.audio        = saved.nextpi_audio.toStdString();
+            if (!saved.nextpi_qemu_binary.isEmpty())
+                spec.qemu_binary = saved.nextpi_qemu_binary.toStdString();
+        }
+#endif
+        // The decision (nextpi::start_request) and what follows a failed start
+        // (nextpi::start_outcome) are pure functions, so both are tested; the
+        // one `asked_on_cli` drives the report, the policy and the exit.
+        const nextpi::StartRequest req =
+            nextpi::start_request(gui, nextpi_enabled_set, nextpi_enabled, saved_enabled);
+        if (req.wanted) {
+            std::function<void(const std::string&)> report = [](const std::string& m) {
+                std::fprintf(stderr, "error: NextPi: %s\n", m.c_str());
+            };
+            popts.download = sdcard::default_http_download;
+            popts.confirm  = sdcard::cli_confirm;
+            popts.progress = nextpi::cli_progress;
+            popts.busy     = nextpi::cli_busy;
+#ifdef ENABLE_QT_UI
+            SdcardGuiProvisioner gui_prov;   // one temporary QApplication, gone before QtApp's
+            if (!headless) {
+                gui_prov.set_texts("jnext — NextPi", "NextPi image not found",
+                                   "jnext — Preparing NextPi", "Downloading NextPi…");
+                popts.confirm  = [&](const std::string& m) { return gui_prov.confirm(m); };
+                popts.progress = [&](uint64_t d, uint64_t t) { return gui_prov.progress(d, t); };
+                popts.busy     = [&](const std::string& p, const std::function<bool()>& w) {
+                    return gui_prov.busy(p, w);
+                };
+                if (!req.asked_on_cli)   // from Preferences: say so, and carry on
+                    report = [&](const std::string& m) {
+                        Log::uart()->error("NextPi: {}", m);
+                        gui_prov.warn("NextPi could not be started:\n\n" + m +
+                                      "\n\njnext starts without it.");
+                    };
+            }
+#endif
+            std::string error;
+            const nextpi::ProvisionResult res = nextpi::provision(popts);
+            if (res.status == sdcard::ProvisionStatus::Ok) {
+                if (!res.warning.empty()) Log::uart()->warn("NextPi: {}", res.warning);
+                spec.dir = res.dir;
+                pi_qemu  = std::make_unique<PiQemu>();
+                if (!pi_qemu->start(spec, error)) pi_qemu.reset();
+            } else {
+                error = res.error;
+            }
+            switch (nextpi::start_outcome(req.asked_on_cli, res.status, pi_qemu != nullptr)) {
+            case nextpi::StartOutcome::Started:
+                break;
+            case nextpi::StartOutcome::Declined:
+                Log::uart()->info("NextPi download declined; starting without NextPi");
+                break;
+            case nextpi::StartOutcome::WarnAndContinue:
+                report(error);
+                break;
+            case nextpi::StartOutcome::Exit:
+                report(error);
+                return 1;
+            }
+        }
+    }
+
     AudioRecorder audio_recorder;
     DacTraceRecorder dac_trace_recorder;
 
@@ -1463,6 +1569,10 @@ int main(int argc, char* argv[]) {
         cfg.joy_uart_rx_delay_frames = static_cast<uint32_t>(joy_uart_rx_delay_frames);
         cfg.joy_uart_fifo            = joy_uart_fifo;
         cfg.joy_uart_pty             = joy_uart_pty;
+        if (pi_qemu) {                 // NextPi, started before the app below
+            cfg.pi_uart_fifo_rx      = pi_qemu->rx_path();
+            cfg.pi_uart_fifo_tx      = pi_qemu->tx_path();
+        }
 
         // Task 66 — saved GUI preferences fill in fields the CLI left at
         // their default; merge_cli_precedence() (src/gui/app_config.h) always
@@ -1964,6 +2074,7 @@ int main(int argc, char* argv[]) {
 #endif
     }
 
+    pi_qemu.reset();   // stop QEMU while logging still works
     spdlog::shutdown();
     return result;
 }

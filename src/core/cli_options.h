@@ -115,6 +115,8 @@ enum class OptId {
     JoyUartConnector,
     JoyUartFifo,
     JoyUartPty,
+    Nextpi,
+    NoNextpi,
     DelayedKeypress,
     DelayedKeypressFrames,
     DelayedNmi,
@@ -338,6 +340,20 @@ inline constexpr Option OPTIONS[] = {
       "the slave device path. This is the form a serial client such\n"
       "as DeZog opens, since it wants one serial device rather than\n"
       "a pair of pipes. Both are POSIX-only" },
+    // NextPi on UART 1: one enabler, defaults for the rest (directory,
+    // release, QEMU, audio), which live in the [nextpi] config section and the
+    // Preferences > NextPi tab. jnext does not emulate the Pi; it runs NextPi
+    // under QEMU, downloading it on first use like the SD card image.
+    { "--nextpi", 0, Doc::Documented, OptId::Nextpi,
+      "",
+      "Start NextPi under QEMU (qemu-system-arm,\n"
+      "raspi0), connected to UART 1, the Pi GPIO header's UART.\n"
+      "The first run offers to download NextPi (about 6 GB) into\n"
+      "~/.jnext/nextpi. Needs QEMU installed. POSIX-only" },
+    { "--no-nextpi", 0, Doc::Documented, OptId::NoNextpi,
+      "",
+      "Do not start NextPi this run, overriding a saved\n"
+      "GUI preference that enables it" },
     { "--tape-realtime", 0, Doc::Documented, OptId::TapeRealtime,
       "",
       "Use real-time tape loading (simulates actual loading speed)" },

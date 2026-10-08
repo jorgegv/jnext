@@ -90,6 +90,7 @@ class EspUartAdapter;
 class EspConnectionLog;
 class JoyUartSource;   // GH #251 — peripheral/joy_uart_source.h
 class JoyUartLink;     // GH #252 — peripheral/joy_uart_link.h
+class PiUartDevice;    // peripheral/pi_uart_device.h
 
 /// Top-level machine class.
 ///
@@ -1389,6 +1390,16 @@ public:
     const JoyUartLink* joy_uart_link() const { return joy_uart_link_.get(); }
     JoyUartLink*       joy_uart_link()       { return joy_uart_link_.get(); }
 
+    /// The LIVE Raspberry Pi serial link on UART 1 — NextPi (`--nextpi`) —
+    /// or nullptr. Exposed so a bench can read back how much
+    /// of each direction crossed the NR 0xA0 GPIO gate.
+    const PiUartDevice* pi_uart() const { return pi_uart_.get(); }
+
+    /// True while NR 0xA0 connects UART 1 to the Pi: bit 4 and bit 5 both set,
+    /// i.e. UART 1 on GPIO 14/15 with RX and TX crossed for a Pi rather than a
+    /// HAT (NR 0xA0 fan-out, zxnext.vhd:2278-2281). The value NextPi's tools write is 0x30.
+    bool pi_uart_connected() const { return (nr_a0_pi_peripheral_en_ & 0x30) == 0x30; }
+
 private:
     // Task 79 — recompute the Keyboard cursor-key target from joy_source_:
     // the connector (0/1) whose source is CursorKeys, or -1 for none.
@@ -1537,6 +1548,16 @@ private:
     std::unique_ptr<JoyUartLink> joy_uart_link_;
     /// One-shot latch for the endpoint-fault warning; see JoyUartLink::faults.
     bool joy_uart_link_fault_reported_ = false;
+
+    // The LIVE Raspberry Pi serial link on UART 1 (NextPi, `--nextpi`). Owned here
+    // for the joystick cable's reasons — host descriptors, and a cold boot
+    // placement-news a new Emulator at the same address, so rebuilding it is
+    // what re-binds its sink — and declared after `uart_`, so it dies first and
+    // the sink capturing `&uart_` can never outlive the UART.
+    std::unique_ptr<PiUartDevice> pi_uart_;
+    /// One-shot latches: endpoint fault, and traffic lost to a closed NR 0xA0.
+    bool pi_uart_fault_reported_ = false;
+    bool pi_uart_gate_reported_  = false;
 
     DivMmc          divmmc_;
     Multiface       multiface_;   // Wave 1 B1 (TASK-8-MULTIFACE-PLAN.md).
@@ -1778,6 +1799,17 @@ private:
     /// service for the reason `UartDevice::poll`'s header gives — a read()/write()
     /// per Z80 instruction would be a syscall per instruction.
     void service_joy_uart_link_frame();
+
+    /// Build the live Pi link from `EmulatorConfig::pi_uart_*` and attach it to
+    /// UART 1. Called from init(), so a cold boot re-opens the endpoint; a no-op
+    /// on a soft reset that finds one already built — the Pi does not see a
+    /// Next-side reset.
+    void setup_pi_uart();
+
+    /// Once per frame: the replay gate, the descriptor I/O, and the one-shot
+    /// reports. The per-instruction half is `UartDevice::tick`, which the UART
+    /// already drives.
+    void service_pi_uart_frame();
 
     /// GH #25 — once-per-`run_frame()` ESP service, and the ONLY place jnext
     /// drives the device outside the per-instruction `tick()`.

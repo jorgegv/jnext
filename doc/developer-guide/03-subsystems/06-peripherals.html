@@ -1094,6 +1094,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#nextpi-on-the-raspberry-pi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NextPi on the Raspberry Pi
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-esp-01" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2630,6 +2641,44 @@ Next→host FIFO <strong>cannot</strong> be opened until something is reading it
 (<code>O_WRONLY | O_NONBLOCK</code> gives <code>ENXIO</code>), so it is opened lazily and retried on
 every flush. <code>SIGPIPE</code> is ignored when the first endpoint is created, without
 which a debugger closing its end would kill the emulator outright.</p>
+<h2 id="nextpi-on-the-raspberry-pi">NextPi on the Raspberry Pi<a class="headerlink" href="#nextpi-on-the-raspberry-pi" title="Permanent link">&para;</a></h2>
+<p><code>--nextpi</code> (or the <code>[nextpi]</code> preference) runs a real NextPi under QEMU on
+UART 1, the Pi GPIO header's UART. Three pieces:</p>
+<ul>
+<li><strong><code>peripheral/pi_uart_device.{h,cpp}</code></strong> is the far end of UART 1. Unlike the
+  joystick cable it <strong>is</strong> a <code>UartDevice</code>: the Pi has a channel of its own, so it
+  attaches to UART 1 the way the ESP attaches to UART 0 and inherits that seam
+  whole — transmit at byte boundaries, paced receive through <code>tick()</code>, no
+  loopback, and the joystick mux's isolation of the channel. The host half is a
+  <code>JoyUartLink</code> it owns, so the endpoints, queues, pacing and replay gate are
+  the cable's. One gate is its own: the Pi's pins reach UART 1 only through the
+  NR 0xA0 GPIO mux (<code>zxnext.vhd:2278-2281</code>). The device asks
+  <code>Emulator::pi_uart_connected()</code> — NR 0xA0 bits 5 and 4 both set, the value
+  NextPi's <code>.pisend</code> writes — and drops traffic in both directions while it is
+  false, counting it, and logging the first loss once.</li>
+<li><strong><code>core/pi_qemu.{h,cpp}</code></strong> spawns <code>qemu-system-arm -M raspi0</code> with the Pi's
+  console on a QEMU <code>pipe</code> chardev, whose two FIFOs the Emulator opens as the
+  link (<code>JoyUartEndpoint::open_fifo_paths</code>). <code>PiQemu</code> belongs to <code>main()</code>, not
+  to the <code>Emulator</code>: a hard reset rebuilds the Emulator, which re-opens the same
+  FIFOs while QEMU — holding both ends read-write — keeps running, so the Pi
+  neither reboots nor sees an EOF. A reaper thread logs a QEMU that exits on its
+  own; the destructor stops it with SIGTERM (SIGKILL after three seconds).</li>
+<li><strong><code>core/nextpi_provisioner.{h,cpp}</code></strong> makes the NextPi directory exist, on
+  the SD provisioner's seams (<code>DownloadFn</code>, <code>ConfirmFn</code>, <code>ProgressFn</code>,
+  <code>BusyFn</code>, so the same GUI dialogs and terminal prompts serve both): it asks,
+  downloads the release and its MD5 from the mirror, streams the image out of
+  the <code>.tar.gz</code> (GNU base-256 and pax sizes — the image is past 8 GB), and
+  copies <code>kernel.img</code> and the device tree out of the image's FAT32 boot
+  partition with the lenient <code>fat32_read_tree</code>. A <code>release</code> marker records what
+  is installed, so a changed release (or <code>latest</code> moving on) re-provisions and
+  discards the overlay.</li>
+</ul>
+<p><code>main()</code> wires them: it merges <code>--nextpi</code>/<code>--no-nextpi</code> over the saved
+preference (GUI sessions only, as for the ESP), provisions, starts QEMU, and
+puts the FIFO paths in the <code>EmulatorConfig</code>. A Pi asked for on the command line
+that cannot start is a usage error; one enabled only in Preferences is reported
+in a dialog and the session goes on without it. Design:
+<code>doc/design/NEXTPI-DESIGN.md</code>.</p>
 <h2 id="the-esp-01">The ESP-01<a class="headerlink" href="#the-esp-01" title="Permanent link">&para;</a></h2>
 <p>A real ZX Spectrum Next has an ESP-01 WiFi module soldered to it, talking to the
 machine over UART 0 with the AT command set that module's firmware speaks:
