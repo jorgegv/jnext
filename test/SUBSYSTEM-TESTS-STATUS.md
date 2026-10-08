@@ -25,7 +25,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | CTC (integration)     |       88 |       88 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Layer 2               |      153 |      153 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART + I2C/RTC        |      103 |      103 |      0 |       0 |    100% | 🟢 All tests pass. |
-| UART (integration)    |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
+| UART (integration)    |       97 |       97 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket transport |      238 |      238 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 AT command engine |      489 |      489 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -109,7 +109,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger DSL engine (GH #26) |      118 |      118 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger session recorder (GH #20) |       35 |       35 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ZRCP remote debugger adapter (GH #280) |      213 |      213 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI Preferences (AppConfig) |      121 |      121 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI Preferences (AppConfig) |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain configuration |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain Preferences |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Present count (widget) |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -125,7 +125,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Window scale + fullscreen geometry |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Main-window title (version) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quit runs closeEvent cleanup |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI Preferences (Apply) |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI Preferences (Apply) |       61 |       61 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |      116 |      116 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -139,6 +139,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12362**| **12362**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12418**| **12418**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
