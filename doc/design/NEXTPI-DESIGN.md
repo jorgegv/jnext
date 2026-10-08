@@ -314,7 +314,7 @@ NextPi image is needed.
 | PI-16 | the warm-start recording boot gets no NextPi FIFOs |
 | PI-17 | a QEMU ignoring SIGTERM is SIGKILLed with its watchdog after the grace period |
 | PI-18 | the child runs with `LANG=C` / `LC_ALL=C` (each once); jnext's own locale is untouched |
-| PI-19 | the child inherits none of jnext's descriptors (one held at fd 57 is not open in it) |
+| PI-19 | the child inherits none of jnext's descriptors (one held at fd 57 is not open in it, nor the watchdog's pipe at fd 3) |
 | PI-20 | SIGKILLing the process running NextPi stops QEMU (the watchdog) |
 | PI-21 | too little free space: refused with the amounts, nothing fetched |
 | PI-22 | GNU `L` long names and POSIX ustar prefixes give the entry its full name |

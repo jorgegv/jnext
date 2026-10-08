@@ -3026,6 +3026,10 @@ public:
                   "here=$(dirname \"$0\")\n"
                   "env > \"$here/env\"\n"
                   "ls /dev/fd > \"$here/fds\" 2>/dev/null\n"
+                  // fd 3 cannot be read off that listing: `ls` opens the
+                  // directory itself, as fd 3 when 3 is free. The shell's own
+                  // redirection opens nothing.
+                  "if ( : <&3 ) 2>/dev/null; then echo open; else echo closed; fi > \"$here/fd3\"\n"
                   "for a in \"$@\"; do case \"$a\" in pipe,*path=*) base=\"${a##*path=}\" ;; esac; done\n"
                   "printf '%s\\n' \"$@\" > \"$here/args\"\n"
                   "echo $$ > \"$here/pid\"\n"
@@ -3795,14 +3799,18 @@ static void test_nextpi_review_rows() {
               fmt("started=%d (%s) env_c=%d jnext_kept=%d", started ? 1 : 0, error.c_str(),
                   env_c ? 1 : 0, jnext_locale_kept ? 1 : 0));
 
+        // fd 3 is the watchdog's end of its pipe, which the watchdog closes
+        // for QEMU (`3<&-`): QEMU gets none of jnext's descriptors, that pipe
+        // included (R3-3).
         const std::string fds = "\n" + fake.file("fds");
         const bool listed = !fake.file("fds").empty();
+        const std::string fd3 = fake.file("fd3");
         check("PI-19",
               "QEMU inherits none of jnext's descriptors: a file jnext holds at fd 57 without "
-              "close-on-exec is not open in the child",
-              started && leak_ok && listed && fds.find("\n57\n") == std::string::npos,
-              fmt("started=%d leak_ok=%d listed=%d child fds:%s", started ? 1 : 0, leak_ok ? 1 : 0,
-                  listed ? 1 : 0, fake.file("fds").c_str()));
+              "close-on-exec is not open in the child, nor is the watchdog's pipe at fd 3",
+              started && leak_ok && listed && fds.find("\n57\n") == std::string::npos && fd3 == "closed\n",
+              fmt("started=%d leak_ok=%d listed=%d fd 3 %s child fds:%s", started ? 1 : 0, leak_ok ? 1 : 0,
+                  listed ? 1 : 0, fd3.c_str(), fake.file("fds").c_str()));
     }
 
     // ── PI-20 — A KILLED jnext DOES NOT ORPHAN QEMU. A process holding a

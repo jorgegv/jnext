@@ -522,7 +522,7 @@ network or a NextPi image.
 | PI-16 | `Emulator::warm_start_boot_config` of a config with both NextPi FIFO paths | both cleared; the SD image kept |
 | PI-17 | `PiQemu::stop` on a stand-in that ignores SIGTERM, grace 300 ms | stop takes 300 ms..3 s; the stand-in is gone |
 | PI-18 | start with LANG / LC_ALL = es_ES.UTF-8 in jnext | child has exactly one LANG and one LC_ALL, both C (other variables may carry the locale, e.g. GNOME's GDM_LANG); jnext's LANG unchanged |
-| PI-19 | start with a file open at fd 57 without CLOEXEC | 57 not among the child's /dev/fd |
+| PI-19 | start with a file open at fd 57 without CLOEXEC | 57 not among the child's /dev/fd; fd 3 (the watchdog's pipe) closed in the child, probed with the shell's own `<&3` (`ls /dev/fd` would list its own directory descriptor as 3) |
 | PI-20 | fork a holder that starts a PiQemu, SIGKILL it | the stand-in QEMU is gone within 3 s |
 | PI-21 | provision with `space_needed` = max | Failed, "free" in the error, nothing fetched |
 | PI-22 | extract "deep/name.img" via a GNU `L` record; "dir/x.img" via a ustar prefix | both found, bytes equal |
