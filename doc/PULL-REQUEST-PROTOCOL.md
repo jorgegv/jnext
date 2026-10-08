@@ -24,6 +24,11 @@ requirements plus the ones for its type.
    bugfix, never bundled into this one. Related bugfixes (e.g. the same
    defect in sibling code paths) may share one PR. A PR with apparently
    unrelated contents is rejected and the author is asked to split it.
+7. **Small, reviewable commits.** Each commit is one small, self-contained
+   step (a slice of the feature, or one fix, with its tests) that can be
+   reviewed on its own. A large feature arrives as a series of such commits,
+   never as one huge commit. A PR whose work is in one huge commit is asked
+   to split it before review continues.
 
 ## Bugfix PR
 
@@ -73,6 +78,7 @@ Template (drop the flow that does not apply):
 - [ ] Code quality / style consistent with the project
 - [ ] No new dependencies (or: owner-approved)
 - [ ] A single feature or bugfix (or related bugfixes); nothing unrelated in this PR
+- [ ] Small, self-contained commits, each reviewable on its own
 
 **Bugfix PR**
 - [ ] Bug description complete (all bug-template fields), or a linked bug issue
