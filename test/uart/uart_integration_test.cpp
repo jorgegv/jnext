@@ -4274,6 +4274,15 @@ static void test_nextpi_review2_rows() {
                   fs::exists(dir / "nextpi.img") ? "installed" : "absent"));
     }
 
+    // ── PI-44 — THE NAME LENGTH LIMIT, AT ITS BOUNDARY (R3-5): a release name
+    // of 64 characters is accepted, one of 65 refused.
+    {
+        const bool at_64 = nextpi::valid_release_name(std::string(64, 'a'));
+        const bool at_65 = nextpi::valid_release_name(std::string(65, 'a'));
+        check("PI-44", "a NextPi release name of 64 characters is valid and one of 65 is not",
+              at_64 && !at_65, fmt("64: %d 65: %d", at_64 ? 1 : 0, at_65 ? 1 : 0));
+    }
+
     // ── PI-32 — A FAILED START KEEPS THE USER'S OVERLAY (R2-9). Only an overlay
     // the failing start created is removed: one that was there before holds
     // everything NextPi saved, and must survive.

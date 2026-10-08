@@ -547,6 +547,7 @@ network or a NextPi image.
 | PI-41 | after a valid record: `3\n\n`, then a valid `path` record (the first space is the next record's) | Failed "pax record overruns" |
 | PI-42 | after a valid record: `4ab\n` (no space) | Failed "pax record overruns" |
 | PI-43 | provision into a directory where a non-empty directory holds the name `release` | Failed "cannot install"; no `nextpi.img` installed |
+| PI-44 | `valid_release_name` of 64 and of 65 `a`s | true, false |
 
 ## Special Handling
 

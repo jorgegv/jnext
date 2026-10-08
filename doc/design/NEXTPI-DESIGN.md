@@ -339,6 +339,7 @@ NextPi image is needed.
 | PI-41 | a pax record whose length ends before its first space is "malformed" |
 | PI-42 | a pax record with no space after its length is "malformed" |
 | PI-43 | a `release` marker that cannot be removed stops the install before the image is put in place |
+| PI-44 | the release-name length limit: 64 characters valid, 65 not |
 
 `main()` applying that policy is the functional regression row **nextpi-func**
 (`test/00regression/scripts/`): through the real binary, `--nextpi` with no QEMU
