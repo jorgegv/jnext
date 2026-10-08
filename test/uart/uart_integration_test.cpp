@@ -4426,7 +4426,7 @@ static void test_nextpi_review2_rows() {
     // checks how far that walk goes for the limits sysconf can report.
     {
 #ifndef _WIN32
-        auto run = [](bool from_list, std::string& detail) {
+        auto run = [](const std::vector<std::string>& lists, std::string& detail) {
             int p[2];
             if (::pipe(p) != 0) { detail = "pipe failed"; return false; }
             const bool fixture = ::dup2(p[0], 57) == 57 && ::dup2(p[1], 58) == 58;
@@ -4439,7 +4439,7 @@ static void test_nextpi_review2_rows() {
             }
             bool marked = false, kept = false, std_alone = true;
             if (fixture) {
-                PiQemu::mark_close_on_exec_except(58, from_list);
+                PiQemu::mark_close_on_exec_except(58, lists);
                 marked = (::fcntl(57, F_GETFD) & FD_CLOEXEC) != 0;
                 kept   = (::fcntl(58, F_GETFD) & FD_CLOEXEC) == 0;
                 for (int fd = 0; fd < 3; ++fd)
@@ -4454,8 +4454,8 @@ static void test_nextpi_review2_rows() {
             return fixture && marked && kept && std_alone;
         };
         std::string listed_detail, walked_detail;
-        const bool listed = run(true, listed_detail);
-        const bool walked = run(false, walked_detail);
+        const bool listed = run({"/proc/self/fd", "/dev/fd"}, listed_detail);
+        const bool walked = run({}, walked_detail);
 #else
         const bool listed = false, walked = false;
         const std::string listed_detail, walked_detail;
@@ -4474,6 +4474,46 @@ static void test_nextpi_review2_rows() {
                                                     limits ? 1 : 0, PiQemu::fd_walk_limit(-1),
                                                     PiQemu::fd_walk_limit(1024),
                                                     PiQemu::fd_walk_limit(1000000000L)));
+    }
+
+    // ── PI-46 — THE LIST IS WHAT IS USED (R4-3). Below 65536 the number walk
+    // would mark the same descriptors, so the marks alone cannot tell that
+    // the list was read: the walk reports which source it used. By default
+    // /proc/self/fd where it exists (Linux), else /dev/fd (macOS); /dev/fd
+    // when the first list cannot be read; the number walk ("") with none.
+    {
+        std::string detail;
+        bool ok = false;
+#ifndef _WIN32
+        int p[2];
+        if (::pipe(p) == 0 && ::dup2(p[0], 57) == 57) {
+            ::close(p[0]);
+            auto marked57 = [] { return (::fcntl(57, F_GETFD) & FD_CLOEXEC) != 0; };
+            auto unmark57 = [] { ::fcntl(57, F_SETFD, ::fcntl(57, F_GETFD) & ~FD_CLOEXEC); };
+            std::error_code ec;
+            const std::string want_default =
+                std::filesystem::is_directory("/proc/self/fd", ec) ? "/proc/self/fd" : "/dev/fd";
+            const std::string by_default = PiQemu::mark_close_on_exec_except(-1);
+            const bool m1 = marked57();
+            unmark57();
+            const std::string second = PiQemu::mark_close_on_exec_except(-1, {"/nonexistent-jnext-fd-list", "/dev/fd"});
+            const bool m2 = marked57();
+            unmark57();
+            const std::string none = PiQemu::mark_close_on_exec_except(-1, {});
+            const bool m3 = marked57();
+            ok = by_default == want_default && m1 && second == "/dev/fd" && m2 && none.empty() && m3;
+            detail = fmt("default='%s' (want '%s') marked=%d; second='%s' marked=%d; none='%s' marked=%d",
+                         by_default.c_str(), want_default.c_str(), m1 ? 1 : 0, second.c_str(), m2 ? 1 : 0,
+                         none.c_str(), m3 ? 1 : 0);
+            ::close(57);
+            ::close(p[1]);
+        }
+#endif
+        check("PI-46",
+              "the close-on-exec fallback reads /proc/self/fd where it exists, else /dev/fd, falls "
+              "back to /dev/fd when the first list cannot be read, and walks the numbers only with "
+              "no list; each marks fd 57",
+              ok, detail);
     }
 
     // ── PI-47 — THE LIST LEAVES OUT ITS OWN DIRECTORY (R4-5). Reading /dev/fd

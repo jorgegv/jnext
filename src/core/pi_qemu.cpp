@@ -116,7 +116,7 @@ long PiQemu::fd_walk_limit(long open_max) {
 
 PiQemu::~PiQemu() = default;
 
-void PiQemu::mark_close_on_exec_except(int, bool) {}
+std::string PiQemu::mark_close_on_exec_except(int, const std::vector<std::string>&) { return {}; }
 
 bool PiQemu::open_descriptors(const std::string&, std::vector<int>&) { return false; }
 
@@ -241,23 +241,24 @@ std::string describe_status(int status) {
 
 } // namespace
 
-void PiQemu::mark_close_on_exec_except(int keep, bool from_list) {
+std::string PiQemu::mark_close_on_exec_except(int keep, const std::vector<std::string>& lists) {
     auto mark = [keep](int fd) {
         if (fd < 3 || fd == keep) return;
         const int f = ::fcntl(fd, F_GETFD);
         if (f >= 0) ::fcntl(fd, F_SETFD, f | FD_CLOEXEC);
     };
     // The descriptors that are open, from the kernel's own list.
-    for (const char* list : {"/proc/self/fd", "/dev/fd"}) {
+    for (const std::string& list : lists) {
         std::vector<int> fds;
-        if (!from_list || !open_descriptors(list, fds)) continue;
+        if (!open_descriptors(list, fds)) continue;
         for (int fd : fds) mark(fd);
-        return;
+        return list;
     }
     // Neither list exists: walk the numbers, but never past a bound a large
     // `ulimit -n` cannot turn into a billion system calls.
     const long limit = fd_walk_limit(::sysconf(_SC_OPEN_MAX));
     for (int fd = 3; fd < limit; ++fd) mark(fd);
+    return {};
 }
 
 bool PiQemu::open_descriptors(const std::string& list, std::vector<int>& fds) {

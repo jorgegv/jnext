@@ -106,10 +106,12 @@ public:
     /// fallback where posix_spawn cannot close them itself: it walks the
     /// descriptors that are open (/proc/self/fd, else /dev/fd) rather than
     /// every number up to the descriptor limit, which with a large `ulimit -n`
-    /// is ~10^9 calls. Only when neither list can be read (or `from_list` is
-    /// false, for tests) does it walk the numbers, up to `fd_walk_limit`.
-    /// POSIX only; exposed for tests.
-    static void mark_close_on_exec_except(int keep, bool from_list = true);
+    /// is ~10^9 calls. `lists` are tried in order; only when none can be read
+    /// does it walk the numbers, up to `fd_walk_limit`. Returns the list it
+    /// read, or "" when it walked the numbers. POSIX only; `lists` is a test
+    /// seam (an empty one forces the walk), production uses the default.
+    static std::string mark_close_on_exec_except(
+        int keep, const std::vector<std::string>& lists = {"/proc/self/fd", "/dev/fd"});
 
     /// The descriptors the directory `list` names (/proc/self/fd or /dev/fd),
     /// read while it is open and WITHOUT the directory's own descriptor —

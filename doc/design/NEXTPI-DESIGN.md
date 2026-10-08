@@ -345,6 +345,7 @@ NextPi image is needed.
 | PI-43 | a `release` marker that cannot be removed stops the install before the image is put in place |
 | PI-44 | the release-name length limit: 64 characters valid, 65 not |
 | PI-45 | the fallback's number walk does the same; its limit is `sysconf`'s capped at 65536, and 65536 for -1 |
+| PI-46 | the fallback reads `/proc/self/fd` where it exists, else `/dev/fd`, and walks the numbers only with no list |
 | PI-47 | the open-descriptor list names open descriptors but not the directory's own |
 
 `main()` applying that policy is the functional regression row **nextpi-func**
