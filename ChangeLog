@@ -3,7 +3,7 @@
 ## Unreleased (2026-10-08)
 
 ### User Features
-- NextPi under QEMU (`--nextpi`, downloaded on first use): NextZXOS's Pi tools (`.pisend`, speech, MIDI, SID players) work unmodified
+- NextPi under QEMU (`--nextpi`, downloaded on first use): NextZXOS's Pi tools (`.pisend`, speech, music, tape streaming) work unmodified
 
 ### Bug Fixes
 - The joystick-port serial cable's pseudo-terminal (`--joy-uart-pty`) now works on macOS, where it refused to start
@@ -13,7 +13,7 @@
 - Pull-request protocol: one feature or bugfix per PR, delivered in small, separately reviewable commits
 
 ### Contributors in this release
-- @vmorilla, @janko-jj, @jattree
+- @vmorilla, @janko-jj, @jattree, @MickeyG, @Tofro
 
 ## v1.1.8 (2026-10-05)
 
