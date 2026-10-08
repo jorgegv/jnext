@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "debug/call_stack.h"
+
 class Emulator;
 class StateWriter;
 class StateReader;
@@ -166,6 +168,13 @@ private:
         uint8_t* data        = nullptr;  ///< Points into block_ (mmap region)
         uint64_t clock       = 0;           ///< the master clock the slot restores (>= frame_cycle)
         uint64_t mutated_at  = UINT64_MAX;  ///< earliest marked change; see mark_mutated()
+        /// The debug call-stack tracker's frames at the snapshot. The tracker
+        /// is not emulated state, so it is not in the serialised stream, but a
+        /// rewind must still put it back: otherwise it keeps the frames of the
+        /// history being left, and the Call Stack panel, Step Over/Out by
+        /// depth and every reader of `call_stack()` see calls that, after the
+        /// rewind, have not happened yet.
+        std::vector<CallFrame> call_frames;
     };
 
     std::vector<Slot> slots_;

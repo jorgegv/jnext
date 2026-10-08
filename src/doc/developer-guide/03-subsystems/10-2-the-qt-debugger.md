@@ -55,7 +55,7 @@ work. A breakpoint change another client made arrives as
 
 ## Panels
 
-`DebuggerWindow::create_panels()` creates fourteen:
+`DebuggerWindow::create_panels()` creates fifteen:
 
 | Panel | Reads | Writes |
 |---|---|---|
@@ -73,6 +73,7 @@ work. A breakpoint change another client made arrives as
 | NextREG | `nextreg_peek()` for the whole register file | `nextreg_write()` |
 | Audio | `ay_registers()`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()` | `set_audio_mute_mask()` |
 | Script | the `ScriptHost`'s loaded scripts, their rules and hits, the verdict line and the script log | load, reload, unload, record |
+| Source | `source_location()` for the PC, and the source file it names | the source steps and loads, through `DebuggerManager` |
 
 Four panels (CPU, Disassembly, Stack, Call Stack) update only while paused:
 reading the register file every frame while the machine runs produces a blur,
@@ -181,7 +182,21 @@ The Map menu loads into the backend's one table with `load_map()`, and the
 Disassembly, Call Stack and Breakpoints panels read `symbols()`. A breakpoint set
 on a symbol keeps its name in the list, and a symbol any other client loads
 shows in the panels too. `src/debug/symbol_table.*` reads z88dk maps
-(`load_z88dk_map()`) and plain `SYMBOL = $ADDR` lists (`load_simple_map()`).
+(`load_z88dk_map()`), plain `SYMBOL = $ADDR` lists (`load_simple_map()`) and
+NextBuild `Memory.txt` files (`load_nextbuild_memory()`); the address fields of
+the breakpoint and watch dialogs go through `SymbolTable::resolve()`.
+
+## Source
+
+The Source tab (`source_panel.*`) shows the PC's line from the backend's source
+map and carries the source-step buttons; it holds no state of its own beyond
+the loaded file and its modification time. Its buttons are not menu items and
+have no key binding: the menu tree and the bindings are pinned by
+`debugger_accel_test` and `debugger_keymap_test`. `BreakpointModel` lists an
+Execute subscription with a page qualifier as the GUI's own row (`Row::page`);
+the Breakpoints panel creates one from a `file:line`, and the gutter draws it
+only while its page is mapped (`pc_marked()`). The Call Stack's last column
+looks up each frame's caller on its recorded page.
 
 ## Copying out of a custom-painted panel
 

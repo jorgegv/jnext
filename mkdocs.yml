@@ -92,6 +92,7 @@ nav:
           - NextREG: 06-debugger/panels/12-nextreg.md
           - Audio: 06-debugger/panels/13-audio.md
           - Script: 06-debugger/panels/14-script.md
+          - Source: 06-debugger/panels/15-source.md
       - Functions:
           - 06-debugger/functions/index.md
           - Run, pause, and the step family: 06-debugger/functions/01-run-pause-and-the-step-family.md
@@ -107,6 +108,7 @@ nav:
           - Debugging with z88dk-gdb: 06-debugger/functions/11-debugging-with-z88dk-gdb.md
           - Remote debugging over ZRCP: 06-debugger/functions/12-remote-debugging-over-zrcp.md
           - Debugger scripts: 06-debugger/functions/13-debugger-scripts.md
+          - Source-level debugging: 06-debugger/functions/14-source-level-debugging.md
       - Scripting:
           - 06-debugger/scripting/index.md
           - Your first script: 06-debugger/scripting/01-your-first-script.md

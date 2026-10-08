@@ -3,6 +3,8 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <cctype>
+#include <charconv>
 
 int SymbolTable::load_z88dk_map(const std::string& path)
 {
@@ -174,6 +176,88 @@ int SymbolTable::load_simple_map(const std::string& path)
 
     loaded_file_ = path;
     return count;
+}
+
+namespace {
+
+std::string_view trim_view(std::string_view text)
+{
+    const auto first = text.find_first_not_of(" \t\r\n");
+    if (first == std::string_view::npos) return {};
+    const auto last = text.find_last_not_of(" \t\r\n");
+    return text.substr(first, last - first + 1);
+}
+
+// A whole field of hex digits, at most 16 bits.
+std::optional<uint16_t> parse_hex16(std::string_view text)
+{
+    if (text.empty() || !std::all_of(text.begin(), text.end(), [](unsigned char c) {
+            return std::isxdigit(c) != 0;
+        }))
+        return std::nullopt;
+    unsigned int value = 0;
+    const auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), value, 16);
+    if (ec != std::errc{} || end != text.data() + text.size() || value > 0xFFFF)
+        return std::nullopt;
+    return static_cast<uint16_t>(value);
+}
+
+}  // namespace
+
+int SymbolTable::load_nextbuild_memory(const std::string& path)
+{
+    std::ifstream file(path);
+    if (!file.is_open())
+        return -1;
+
+    clear();
+
+    int count = 0;
+    std::string line;
+    while (std::getline(file, line)) {
+        const auto colon = line.find(':');
+        if (colon == std::string::npos)
+            continue;
+        const auto addr = parse_hex16(trim_view(std::string_view(line).substr(0, colon)));
+        const std::string raw(trim_view(std::string_view(line).substr(colon + 1)));
+        if (!addr || raw.empty())
+            continue;
+
+        // `._Main` -> `Main`: the label without its `.`, and a Boriel user
+        // name without the one `_` the compiler prefixes. `.core.__LABEL` and
+        // other double-underscore runtime names keep their underscores.
+        std::string display = raw;
+        if (display.front() == '.') display.erase(display.begin());
+        if (display.size() > 1 && display[0] == '_' && display[1] != '_')
+            display.erase(display.begin());
+        if (display.empty())
+            continue;
+
+        // First occurrence wins, as in the MAP loaders.
+        if (addr_to_name_.find(*addr) == addr_to_name_.end())
+            addr_to_name_[*addr] = display;
+        for (const std::string& name :
+             {display, raw, raw.front() == '.' ? raw.substr(1) : raw})
+            name_to_addr_.emplace(name, *addr);
+        ++count;
+    }
+
+    loaded_file_ = path;
+    return count;
+}
+
+std::optional<uint16_t> SymbolTable::resolve(std::string_view text) const
+{
+    text = trim_view(text);
+    if (text.empty())
+        return std::nullopt;
+    if (text.front() == '$')
+        return parse_hex16(text.substr(1));
+    if (text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X'))
+        return parse_hex16(text.substr(2));
+    if (const auto named = lookup_name(std::string(text)))
+        return named;
+    return parse_hex16(text);
 }
 
 std::optional<std::string> SymbolTable::lookup(uint16_t addr) const

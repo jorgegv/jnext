@@ -20,9 +20,11 @@ void CallStackPanel::create_ui() {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
 
-    table_ = new QTableWidget(0, 4, this);
+    table_ = new QTableWidget(0, 5, this);
     table_->setFont(mono);
-    table_->setHorizontalHeaderLabels({"#", "Type", "Caller", "Target"});
+    // CAP-SRC — "Called from": the caller's source line, looked up on the page
+    // the caller ran from, when a source map is loaded.
+    table_->setHorizontalHeaderLabels({"#", "Type", "Caller", "Target", "Called from"});
     table_->verticalHeader()->setVisible(false);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -85,6 +87,11 @@ void CallStackPanel::refresh() {
                 target_text = QString::fromStdString(*sym);
         }
         set_cell(3, target_text);
+
+        QString source_text;
+        if (const auto src = dbg_->source_map().lookup(f.caller_page, f.caller_pc))
+            source_text = QString::fromStdString(src->file) + ":" + QString::number(src->line);
+        set_cell(4, source_text);
 
         table_->setRowHeight(i, 20);
     }

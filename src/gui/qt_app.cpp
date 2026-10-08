@@ -603,6 +603,9 @@ bool QtApp::TickEffects::pre_frames() {
         if (!loaded) {
             Log::platform()->error("load: failed to load '{}'", a.load_file_);
             a.exit_code_ = 1;   // a failed load exits non-zero (as headless)
+        } else {
+            // CAP-SRC — the program's own symbols and source map, if it has them.
+            a.debugger_->load_program_sidecars(a.load_file_);
         }
         // A File > Open load that failed gets its dialog (deferred to the
         // event loop by the window; this is inside the frame tick).

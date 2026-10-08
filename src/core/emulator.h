@@ -796,6 +796,17 @@ public:
 
     TraceLog&     trace_log() { return trace_log_; }
     CallStack&    call_stack(){ return call_stack_; }
+    const CallStack& call_stack() const { return call_stack_; }
+
+    /// Will the opcode fetch at `pc` — the next M1 there — come from an
+    /// overlay or a ROM slot rather than the MMU's RAM page? Predicted
+    /// without side effects, INCLUDING what the M1 itself switches: DivMMC's
+    /// instant-on entry points and the hold carried from the previous M1 (so
+    /// the fetch after a 0x1FF8-0x1FFF unmap is RAM again), and the
+    /// Multiface's 0x0066 fetch. The trace, the call-stack tracker and the
+    /// debugger's source lookups and breakpoints all ask this, so they name
+    /// what actually supplies the instruction.
+    bool fetch_not_mmu_ram(uint16_t pc) const;
     Renderer&     renderer()  { return renderer_; }
     Profiler&     profiler()  { return profiler_; }
     const Profiler& profiler() const { return profiler_; }

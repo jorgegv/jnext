@@ -5,6 +5,7 @@
 #include <string>
 #include <map>
 #include <optional>
+#include <string_view>
 
 /// Symbol table loaded from a MAP file (e.g. Z88DK linker output).
 /// Pure C++ — no GUI dependency.
@@ -23,6 +24,20 @@ public:
     /// Lines starting with ';' are comments. No metadata filtering.
     /// Returns number of symbols loaded, or -1 on error.
     int load_simple_map(const std::string& path);
+
+    /// Load symbols from a NextBuild / Boriel ZX Basic `Memory.txt` (lines of
+    /// the form `8000: ._Main`, hexadecimal address then label). The label is
+    /// shown without its leading `.` and, for a Boriel user name, without the
+    /// single `_` the compiler adds (`._Main` names `Main`); the raw label and
+    /// the label without its `.` resolve by name as well. Returns the number
+    /// of labels loaded, or -1 if the file cannot be read.
+    int load_nextbuild_memory(const std::string& path);
+
+    /// Resolve the text of an address field: a loaded symbol name first, else
+    /// a hexadecimal address (`4000`, `$4000`, `0x4000`). An explicit `$` or
+    /// `0x` always means a number, so a symbol spelled like hex (`BEEF`) is
+    /// still reachable as a number.
+    std::optional<uint16_t> resolve(std::string_view text) const;
 
     /// Look up a symbol name by its address. Returns nullopt if not found.
     std::optional<std::string> lookup(uint16_t addr) const;

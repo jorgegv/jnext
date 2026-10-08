@@ -80,6 +80,7 @@ void RewindBuffer::take_snapshot(const Emulator& emu, uint64_t frame_cycle, uint
     s.frame_num   = frame_num;
     s.clock       = emu.clock().get();
     s.mutated_at  = UINT64_MAX;   // a fresh snapshot carries every change made so far
+    s.call_frames = emu.call_stack().frames();
     if (full) {
         head_ = (head_ + 1) % slots_.size();
     } else {
@@ -152,6 +153,10 @@ uint64_t RewindBuffer::restore_nearest(uint64_t target_cycle, Emulator& emu) con
             "machine state is not trustworthy", s.frame_cycle);
         return UINT64_MAX;
     }
+    // Side state, restored with the snapshot it was taken with. The replay
+    // that follows a restore re-runs the tracker's hooks, so the frames end
+    // exactly where the target instruction left them.
+    emu.call_stack().restore_frames(s.call_frames);
     return s.frame_cycle;
 }
 

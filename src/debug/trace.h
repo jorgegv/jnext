@@ -50,8 +50,12 @@ public:
     void set_enabled(bool e);
     bool enabled() const;
 
-    /// Record one instruction execution.
-    void record(const TraceEntry& entry);
+    /// Record one instruction execution. `fetch_not_mmu_ram`: the opcode came
+    /// from an overlay or a ROM-mapped slot rather than the RAM page in
+    /// `entry.mmu[pc >> 13]` (`Emulator::fetch_not_mmu_ram()`, predicted
+    /// for this instruction's M1 just before it runs). Kept beside the
+    /// entry, not in it: `TraceEntry`'s layout is published (56 bytes).
+    void record(const TraceEntry& entry, bool fetch_not_mmu_ram = false);
 
     /// Clear all recorded entries.
     void clear();
@@ -70,6 +74,9 @@ public:
     /// Access entry by index (0 = oldest, size()-1 = newest).
     const TraceEntry& at(size_t index) const;
 
+    /// The `fetch_not_mmu_ram` flag recorded with entry `index`.
+    bool fetch_not_mmu_ram(size_t index) const;
+
     /// Export all entries to a text file, one line per instruction:
     /// CYCLE  $PC  AF= BC= DE= HL=  AF'= BC'= DE'= HL'=  IX= IY= SP=
     /// (SP)= I= R= IMn IFF1= IFF2=  MMU=p0 .. p7 ROM=mask  [FLAGS]  BYTES
@@ -77,6 +84,7 @@ public:
 
 private:
     std::vector<TraceEntry> buffer_;
+    std::vector<uint8_t>    not_ram_;   // parallel to buffer_
     size_t capacity_;
     size_t head_ = 0;   // next write position
     size_t count_ = 0;  // entries stored

@@ -302,6 +302,7 @@ void DebuggerManager::ensure_window() {
     // #278 WP4c).
     if (auto* bp = debugger_window_->breakpoint_panel()) {
         bp->set_symbol_table(&dbg_.symbols());
+        bp->set_backend(&dbg_);   // CAP-SRC: the source column and file:line
         bp->set_model(bp_model_);
     }
     if (auto* dp = debugger_window_->disasm_panel())
@@ -598,6 +599,103 @@ void DebuggerManager::on_load_map_simple() {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
             QObject::tr("Could not load MAP file:\n%1").arg(path));
     }
+}
+
+void DebuggerManager::on_load_nextbuild_memory() {
+    QString path = QFileDialog::getOpenFileName(
+        main_window_, QObject::tr("Load NextBuild Symbols"), QString(),
+        QObject::tr("NextBuild Memory File (Memory.txt *.Memory.txt);;Text Files (*.txt);;All Files (*)"));
+    if (path.isEmpty())
+        return;
+
+    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::NextBuild)) {
+        QMessageBox::information(main_window_, QObject::tr("Symbols Loaded"),
+            QObject::tr("Loaded %1 symbols from:\n%2")
+                .arg(dbg_.symbols().size())
+                .arg(path));
+        refresh_panels();
+    } else {
+        QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
+            QObject::tr("Could not load NextBuild symbols from:\n%1").arg(path));
+    }
+}
+
+void DebuggerManager::on_load_sld() {
+    QString path = QFileDialog::getOpenFileName(
+        main_window_, QObject::tr("Load Source Map"), QString(),
+        QObject::tr("SLD Source Map (*.sld *.sld.txt);;All Files (*)"));
+    if (path.isEmpty())
+        return;
+
+    // CAP-SRC — a map whose binary identity no longer matches memory is
+    // refused first, then offered: a running Boriel program legitimately
+    // changes variables inside its own image, so a mismatch is not proof the
+    // map belongs to another build.
+    auto r = dbg_.load_source_map(path.toStdString(), /*accept_identity_mismatch=*/false);
+    if (r.count < 0 && r.identity && !*r.identity) {
+        const auto answer = QMessageBox::warning(
+            main_window_, QObject::tr("Source Map Identity Mismatch"),
+            QObject::tr("The program in memory no longer matches this source map. "
+                        "This can happen when the program stores variables in its "
+                        "binary address range, but it can also mean the SLD belongs "
+                        "to another build.\n\nLoad it anyway?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes) return;
+        r = dbg_.load_source_map(path.toStdString(), /*accept_identity_mismatch=*/true);
+    }
+    if (r.count >= 0) {
+        QMessageBox::information(main_window_, QObject::tr("Source Map Loaded"),
+            QObject::tr("Loaded %1 source traces from:\n%2").arg(r.count).arg(path));
+        refresh_panels();
+        update_actions();
+    } else {
+        QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
+            QObject::tr("Could not load SLD source map:\n%1\n\n%2")
+                .arg(path, QString::fromStdString(r.error)));
+    }
+}
+
+void DebuggerManager::run_source_step(jnext::dbg::Debugger::SourceStep kind,
+                                      const QString& name) {
+    using SourceStep = jnext::dbg::Debugger::SourceStep;
+    if (!enabled_) return;
+    const bool backwards = kind == SourceStep::Back || kind == SourceStep::ReverseContinue;
+    // Task 60e — the forward steps execute real instructions.
+    if (!backwards && !confirm_resume_if_corrupt()) return;
+
+    rewind_refusal_.clear();
+    if (debugger_window_) debugger_window_->clear_rewind_refusal();
+    const jnext::dbg::Result r = dbg_.source_step(client_, kind);
+    if (r == jnext::dbg::Result::RefusedCorrupt) {
+        warn_state_corrupt(name);
+        return;
+    }
+    if (r != jnext::dbg::Result::Ok) {
+        if (backwards) show_rewind_refusal();
+        return;
+    }
+    apply_pause_state(true);
+}
+
+void DebuggerManager::on_source_step_into() {
+    run_source_step(jnext::dbg::Debugger::SourceStep::Into, QObject::tr("Source Step Into"));
+}
+
+void DebuggerManager::on_source_step_over() {
+    run_source_step(jnext::dbg::Debugger::SourceStep::Over, QObject::tr("Source Step Over"));
+}
+
+void DebuggerManager::on_source_step_out() {
+    run_source_step(jnext::dbg::Debugger::SourceStep::Out, QObject::tr("Source Step Out"));
+}
+
+void DebuggerManager::on_source_step_back() {
+    run_source_step(jnext::dbg::Debugger::SourceStep::Back, QObject::tr("Source Step Back"));
+}
+
+void DebuggerManager::on_source_reverse_continue() {
+    run_source_step(jnext::dbg::Debugger::SourceStep::ReverseContinue,
+                    QObject::tr("Reverse Continue"));
 }
 
 // ---------------------------------------------------------------------------

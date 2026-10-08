@@ -121,6 +121,17 @@ public slots:
     void on_rewind_to_frame(uint32_t frame_num);
     void on_load_map_z88dk();
     void on_load_map_simple();
+    /// CAP-SRC — Map > Load Symbols > Boriel/NextBuild Memory.txt, and
+    /// Map > Load SLD Source Map.
+    void on_load_nextbuild_memory();
+    void on_load_sld();
+    /// CAP-SRC — Debug > Source Step: step by source statement over the
+    /// loaded source map (doc/design/SOURCE-LEVEL-DEBUGGING.md).
+    void on_source_step_into();
+    void on_source_step_over();
+    void on_source_step_out();
+    void on_source_step_back();
+    void on_source_reverse_continue();
 
     /// Issue #39: re-snap the debugger window to the emulator window's edge.
     /// Called on every main-window Move/Resize, and by the debugger's own
@@ -138,6 +149,10 @@ protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:
+    /// The five source steps share one body: the corruption gate, the verb,
+    /// and the refusal / pause bookkeeping `on_step_back()` does.
+    void run_source_step(jnext::dbg::Debugger::SourceStep kind, const QString& name);
+
     void create_debug_toolbar();
     void ensure_window();
     void update_actions();

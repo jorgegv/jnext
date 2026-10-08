@@ -1,4 +1,5 @@
 #include "core/emulator.h"
+#include "debug/ram_page.h"
 #include "debug/event_table.h"
 #include "save/state_desc.h"
 #include "save/state_desc_bin.h"
@@ -10348,7 +10349,7 @@ uint64_t Emulator::step_one_instruction()
                     return static_cast<Mmu*>(ctx)->read(a);
                 },
                 &mmu_);
-            trace_log_.record(te);
+            trace_log_.record(te, fetch_not_mmu_ram(regs.PC));
         }
         // P0 boot probe trap detector: when the CPU enters the
         // post-soft-reset $0000/$0001 spin, dump the trace ring while
@@ -10385,7 +10386,10 @@ uint64_t Emulator::step_one_instruction()
             uint8_t op0 = mmu_.read(regs2.PC);
             uint8_t op1 = mmu_.read(regs2.PC + 1);
             uint8_t op2 = mmu_.read(regs2.PC + 2);
-            call_stack_.on_instruction_pre(regs2.PC, regs2.SP, op0, op1, op2);
+            call_stack_.on_instruction_pre(regs2.PC, regs2.SP, op0, op1, op2,
+                                           fetch_not_mmu_ram(regs2.PC)
+                                               ? NOT_RAM_PAGE
+                                               : mmu_.get_effective_page(regs2.PC >> 13));
         }
 
         // GH #203 — Step Out. Nothing is READ here, deliberately: only SP is
@@ -10540,15 +10544,20 @@ uint64_t Emulator::step_one_instruction()
         // waiting at PC would otherwise be recorded as taken.
         if (call_stack_.enabled()) {
             const Z80Registers& post = cpu_.registers();
+            const uint8_t post_page = fetch_not_mmu_ram(post.PC)
+                                          ? NOT_RAM_PAGE
+                                          : mmu_.get_effective_page(post.PC >> 13);
             switch (cpu_.last_slot_kind()) {
                 case Z80Cpu::SlotKind::Int:
-                    call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::INT);
+                    call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::INT,
+                                             post_page);
                     break;
                 case Z80Cpu::SlotKind::Nmi:
-                    call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::NMI);
+                    call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::NMI,
+                                             post_page);
                     break;
                 default:
-                    call_stack_.on_instruction_post(post.SP, post.PC);
+                    call_stack_.on_instruction_post(post.SP, post.PC, post_page);
                     break;
             }
         }
@@ -13830,6 +13839,28 @@ void Emulator::debug_latch_reset(bool hard)
     debug_state_.latch_event(e);
 }
 
+bool Emulator::fetch_not_mmu_ram(uint16_t pc) const
+{
+    // Mirrors the on_m1_prefetch lambda in init(): the same gate, the same
+    // arbiter inputs, the DivMMC decision before the Multiface's — asked of
+    // const predictors instead of the state machines themselves.
+    bool divmmc_active = divmmc_.is_active();
+    bool mf_active     = multiface_.is_mem_active();
+    if (divmmc_.automap_m1_may_react(pc)) {
+        const bool config_mode = nextreg_.nr_03_config_mode();
+        divmmc_active = divmmc_.active_on_m1(
+            pc, mmu_.sram_pre_override_divmmc_eligible(pc, mf_active),
+            mmu_.sram_pre_override_romcs_priority(pc, mf_active, config_mode),
+            mmu_.sram_altrom_en_on_read(), mmu_.sram_alt_128_n());
+    }
+    if (pc == 0x0066) {
+        Multiface m1 = multiface_;   // the 0x0066 M1 may latch mf_enable
+        m1.on_m1(pc, /*mreq_low=*/true);
+        mf_active = m1.is_mem_active();
+    }
+    return mmu_.read_not_mmu_ram(pc, divmmc_active, mf_active);
+}
+
 void Emulator::debug_after_machine_transition_(bool discard_ring)
 {
     // The stop evidence and the pending Stop go regardless of whether a table is
@@ -13844,6 +13875,13 @@ void Emulator::debug_after_machine_transition_(bool discard_ring)
     // `Impl::arm()` and `state()` reported a `Watch` on a write the restored
     // machine had not made.
     debug_state_.notify_machine_replaced();
+    // The call-stack tracker describes the machine that was just replaced: a
+    // state loaded from outside the rewind ring (a bookmark, a DZRP or ZRCP
+    // restore, a snapshot file) or a reset carries no call history, so the
+    // tracker starts empty rather than listing calls the new machine never
+    // made. A ring restore puts its own recorded frames back after this
+    // (RewindBuffer::restore_nearest()).
+    call_stack_.clear();
 
     jnext::dbg::EventTable* t = debug_state_.event_table();
     if (!t) return;

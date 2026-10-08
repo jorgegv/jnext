@@ -219,12 +219,14 @@ std::vector<EventId> Debugger::probe_execute(uint16_t pc) const {
     ev.frame     = frame_tag(impl_->emu);
     ev.pc        = pc;
     ev.phys_page = impl_->emu.mmu().get_effective_page(pc >> 13);
+    ev.fetch_not_ram = impl_->emu.fetch_not_mmu_ram(pc);
 
     DebugState::InspectionScope scope(impl_->ds());
     for (const auto& e : impl_->events.entries()) {
         if (!e.live || e.once_fired || e.kind != EventKind::Execute) continue;
         if (pc < e.filter.lo || pc > e.filter.hi) continue;
         if (e.filter.page != PAGE_ANY && e.filter.page != ev.phys_page) continue;
+        if (e.filter.page != PAGE_ANY && e.filter.page_ram_only && ev.fetch_not_ram) continue;
         if (e.condition) {
             Event mine = ev;
             mine.id    = e.id;
@@ -611,6 +613,7 @@ bool Debugger::Impl::execute_gate(uint16_t pc) {
     ev.frame     = frame_tag(emu);
     ev.pc        = pc;
     ev.phys_page = emu.mmu().get_effective_page(pc >> 13);
+    ev.fetch_not_ram = emu.fetch_not_mmu_ram(pc);
 
     events.clear_hits();
     bool stop = false;
