@@ -1082,6 +1082,7 @@ my %NO_MATRIX_SECTION = (
     # the hardware again.
     'debugger_backend_test'     => 'debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger',
     'step_out_test'             => 'debugger Step Out execution control (jnext-internal); the T80N core has no debugger',
+    'rewind_call_stack_test'    => 'debugger call-stack tracker restored by rewind, emptied by a state load or reset (jnext-internal); the T80N core has no debugger',
     'persistent_bp_test'        => 'debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger',
     'io_watchpoint_test'        => 'debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger',
     'bp_enable_test'            => 'debugger breakpoint enable/disable policy (GH #225, jnext-internal); the T80N core has no debugger',

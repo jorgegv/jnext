@@ -43,7 +43,15 @@ public:
     /// Get the current call stack (most recent first).
     const std::vector<CallFrame>& frames() const { return frames_; }
 
-    void clear() { frames_.clear(); }
+    void clear() { frames_.clear(); have_pre_ = false; }
+
+    /// Replace the frames with ones recorded earlier — a rewind restoring the
+    /// tracker to the moment its snapshot was taken. Any half-observed
+    /// instruction is dropped: it belongs to the history being left.
+    void restore_frames(const std::vector<CallFrame>& frames) {
+        frames_ = frames;
+        have_pre_ = false;
+    }
 
     bool enabled() const { return enabled_; }
     void set_enabled(bool e) { enabled_ = e; }

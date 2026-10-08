@@ -13844,6 +13844,13 @@ void Emulator::debug_after_machine_transition_(bool discard_ring)
     // `Impl::arm()` and `state()` reported a `Watch` on a write the restored
     // machine had not made.
     debug_state_.notify_machine_replaced();
+    // The call-stack tracker describes the machine that was just replaced: a
+    // state loaded from outside the rewind ring (a bookmark, a DZRP or ZRCP
+    // restore, a snapshot file) or a reset carries no call history, so the
+    // tracker starts empty rather than listing calls the new machine never
+    // made. A ring restore puts its own recorded frames back after this
+    // (RewindBuffer::restore_nearest()).
+    call_stack_.clear();
 
     jnext::dbg::EventTable* t = debug_state_.event_table();
     if (!t) return;

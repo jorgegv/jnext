@@ -159,6 +159,13 @@ region of `max_frames × snapshot_bytes` up front, so pages fault in lazily, and
 a point inside a frame restores that frame's snapshot and replays forward to the
 target instruction. That is why turning rewind on also turns on the trace log:
 `step_back()` needs it to know which cycle the target instruction started at.
+Each slot also keeps the call-stack tracker's frames, which are debugger side
+state and not in the serialised stream; a restore puts them back, and the replay
+re-runs the tracker's hooks up to the target. Any other replacement of the
+machine — a state loaded from outside the ring (a bookmark, a DZRP or ZRCP
+restore, a snapshot) or a reset — empties the tracker
+(`Emulator::debug_after_machine_transition_()`): that state carries no call
+history.
 The replay runs with audio and video suppressed, under
 `DebugState::ReplayArmScope`, and delivers no events.
 

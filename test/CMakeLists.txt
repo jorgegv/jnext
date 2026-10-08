@@ -58,6 +58,16 @@ target_link_libraries(rewind_test PRIVATE
 target_include_directories(rewind_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME rewind_tests COMMAND rewind_test)
 
+# The rewind ring restores the debug call-stack tracker with each snapshot
+# (side state, not in the serialised stream). Links like rewind_test.
+add_executable(rewind_call_stack_test rewind/rewind_call_stack_test.cpp)
+target_link_libraries(rewind_call_stack_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(rewind_call_stack_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME rewind_call_stack_tests COMMAND rewind_call_stack_test)
+
 # Z80N extended opcode test runner
 add_executable(z80n_test z80n/z80n_test.cpp)
 target_link_libraries(z80n_test PRIVATE jnext_cpu)
