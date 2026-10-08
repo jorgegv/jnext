@@ -549,6 +549,7 @@ network or a NextPi image.
 | PI-43 | provision into a directory where a non-empty directory holds the name `release` | Failed "cannot install"; no `nextpi.img` installed |
 | PI-44 | `valid_release_name` of 64 and of 65 `a`s | true, false |
 | PI-45 | the same with `mark_close_on_exec_except(58, false)` (the number walk); `fd_walk_limit` of -1, 1024, 65536, 10^9 | 57 marked; 58 and 0-2 not; 65536, 1024, 65536, 65536 |
+| PI-47 | a pipe end at fd 57; the lowest free number learned; `open_descriptors` of /dev/fd and (where it exists) /proc/self/fd | each read; 57 listed; the lowest free number (the directory's own descriptor) not listed |
 
 ## Special Handling
 

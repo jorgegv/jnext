@@ -111,6 +111,13 @@ public:
     /// POSIX only; exposed for tests.
     static void mark_close_on_exec_except(int keep, bool from_list = true);
 
+    /// The descriptors the directory `list` names (/proc/self/fd or /dev/fd),
+    /// read while it is open and WITHOUT the directory's own descriptor —
+    /// which is closed by the time anyone acts on the list, and whose number
+    /// may by then belong to something else. False when it cannot be read.
+    /// POSIX only; exposed for tests.
+    static bool open_descriptors(const std::string& list, std::vector<int>& fds);
+
     /// How far that number walk goes for a `sysconf(_SC_OPEN_MAX)` of
     /// `open_max`: the limit itself, capped at 65536 — and 65536 when the
     /// limit is indeterminate (-1), since walking to it would mark nothing.

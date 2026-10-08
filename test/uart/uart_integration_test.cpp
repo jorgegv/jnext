@@ -29,6 +29,7 @@
 #include "peripheral/joy_uart_source.h"
 #include "peripheral/uart_device.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
@@ -4473,6 +4474,42 @@ static void test_nextpi_review2_rows() {
                                                     limits ? 1 : 0, PiQemu::fd_walk_limit(-1),
                                                     PiQemu::fd_walk_limit(1024),
                                                     PiQemu::fd_walk_limit(1000000000L)));
+    }
+
+    // ── PI-47 — THE LIST LEAVES OUT ITS OWN DIRECTORY (R4-5). Reading /dev/fd
+    // (or /proc/self/fd) opens a descriptor that the listing then names; it is
+    // closed before anyone acts on the list, and its number may be reused by
+    // then, so it must not be in the list. The directory gets the lowest free
+    // number, which the row learns first; fd 57 is open and must be listed.
+    {
+        std::string detail;
+        bool ok = false;
+#ifndef _WIN32
+        int p[2];
+        if (::pipe(p) == 0 && ::dup2(p[0], 57) == 57) {
+            ::close(p[0]);
+            ok = true;
+            for (const char* list : {"/dev/fd", "/proc/self/fd"}) {
+                const int probe = ::open("/dev/null", O_RDONLY);   // the lowest free number
+                ::close(probe);
+                std::vector<int> fds;
+                const bool read = PiQemu::open_descriptors(list, fds);
+                if (!read && std::string(list) == "/proc/self/fd") continue;   // no /proc (macOS)
+                const bool own_left_out = std::find(fds.begin(), fds.end(), probe) == fds.end();
+                const bool has_57 = std::find(fds.begin(), fds.end(), 57) != fds.end();
+                ok = ok && read && own_left_out && has_57;
+                detail += fmt("%s: read=%d own fd %d left out=%d 57 listed=%d; ", list, read ? 1 : 0, probe,
+                              own_left_out ? 1 : 0, has_57 ? 1 : 0);
+            }
+            ::close(57);
+            ::close(p[1]);
+        }
+#endif
+        check("PI-47",
+              "the open-descriptor list read from /dev/fd (and /proc/self/fd where it exists) names "
+              "the open descriptors (fd 57) but not the directory's own, which is closed by the time "
+              "the list is used",
+              ok, detail);
     }
 
     // ── PI-38 — WHETHER TO START NEXTPI (R2-5), main.cpp's decision through

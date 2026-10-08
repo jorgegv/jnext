@@ -118,6 +118,8 @@ PiQemu::~PiQemu() = default;
 
 void PiQemu::mark_close_on_exec_except(int, bool) {}
 
+bool PiQemu::open_descriptors(const std::string&, std::vector<int>&) { return false; }
+
 bool PiQemu::start(const Spec&, std::string& error) {
     error = "launching NextPi under QEMU is not supported on Windows";
     return false;
@@ -245,19 +247,10 @@ void PiQemu::mark_close_on_exec_except(int keep, bool from_list) {
         const int f = ::fcntl(fd, F_GETFD);
         if (f >= 0) ::fcntl(fd, F_SETFD, f | FD_CLOEXEC);
     };
-    // The descriptors that are open, from the kernel's own list. The list is
-    // read whole before marking, so the directory's own descriptor (which is
-    // in it) is marked too, harmlessly, and closed right after.
+    // The descriptors that are open, from the kernel's own list.
     for (const char* list : {"/proc/self/fd", "/dev/fd"}) {
-        DIR* d = from_list ? ::opendir(list) : nullptr;
-        if (!d) continue;
         std::vector<int> fds;
-        while (const dirent* e = ::readdir(d)) {
-            char* end = nullptr;
-            const long fd = std::strtol(e->d_name, &end, 10);
-            if (end != e->d_name && *end == '\0') fds.push_back(static_cast<int>(fd));
-        }
-        ::closedir(d);
+        if (!from_list || !open_descriptors(list, fds)) continue;
         for (int fd : fds) mark(fd);
         return;
     }
@@ -265,6 +258,22 @@ void PiQemu::mark_close_on_exec_except(int keep, bool from_list) {
     // `ulimit -n` cannot turn into a billion system calls.
     const long limit = fd_walk_limit(::sysconf(_SC_OPEN_MAX));
     for (int fd = 3; fd < limit; ++fd) mark(fd);
+}
+
+bool PiQemu::open_descriptors(const std::string& list, std::vector<int>& fds) {
+    fds.clear();
+    DIR* d = ::opendir(list.c_str());
+    if (!d) return false;
+    // The listing includes the directory's own descriptor, open only while it
+    // is being read: it is left out here, not acted on after closedir().
+    const int own = ::dirfd(d);
+    while (const dirent* e = ::readdir(d)) {
+        char* end = nullptr;
+        const long fd = std::strtol(e->d_name, &end, 10);
+        if (end != e->d_name && *end == '\0' && fd != own) fds.push_back(static_cast<int>(fd));
+    }
+    ::closedir(d);
+    return true;
 }
 
 PiQemu::~PiQemu() { stop(); }

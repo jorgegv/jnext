@@ -232,7 +232,9 @@ private temporary directory and the Emulator opens as the link's far end
   on macOS, `posix_spawn_file_actions_addclosefrom_np` on glibc 2.34+, and
   elsewhere every other OPEN descriptor — listed from `/proc/self/fd` or
   `/dev/fd`, not every number up to a possibly huge `ulimit -n` — is marked
-  close-on-exec before the spawn (`PiQemu::mark_close_on_exec_except`). Only
+  close-on-exec before the spawn (`PiQemu::mark_close_on_exec_except`). The
+  list leaves out the directory's own descriptor, closed by the time the list
+  is acted on (`PiQemu::open_descriptors`). Only
   if neither list can be read does it walk the numbers, up to the descriptor
   limit capped at 65536 (and to 65536 when `sysconf` reports no limit, -1).
 
@@ -343,6 +345,7 @@ NextPi image is needed.
 | PI-43 | a `release` marker that cannot be removed stops the install before the image is put in place |
 | PI-44 | the release-name length limit: 64 characters valid, 65 not |
 | PI-45 | the fallback's number walk does the same; its limit is `sysconf`'s capped at 65536, and 65536 for -1 |
+| PI-47 | the open-descriptor list names open descriptors but not the directory's own |
 
 `main()` applying that policy is the functional regression row **nextpi-func**
 (`test/00regression/scripts/`): through the real binary, `--nextpi` with no QEMU
