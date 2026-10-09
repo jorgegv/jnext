@@ -1954,6 +1954,52 @@ static void test_srst_integration(Emulator& emu) {
 
 // ── Main ──────────────────────────────────────────────────────────────
 
+// ══════════════════════════════════════════════════════════════════════
+// Group TRB-INT — NR 0x14 transparent colour end to end (GH #304)
+// VHDL: zxnext.vhd:7100 (ULA), :7109 (text-mode tilemap), :7121 (Layer 2):
+//       each compares rgb(8 downto 1) of the 9-bit palette colour.
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_trb_integration(Emulator& emu) {
+    set_group("TRB-INT");
+
+    // TRB-01 — the PLOTIT-lite state. NR 0x14 = 0x02, NR 0x15 = 0x10 (mode
+    // 100), NR 0x6B = 0x88 (tilemap on, text mode). The ULA paper and the
+    // text-mode tile are both the palette colour 0x02 (9-bit 0x005, blue
+    // 101, which no 2-bit-blue expansion reproduces), so both are
+    // transparent and Layer 2 (white) shows. The fallback is a third colour.
+    {
+        ula_fixture(emu, 0x38);               // paper 7 = ULA palette 0x17
+        uint8_t* bank5 = emu.mmu().bank5_vram();
+        for (int e = 0; e < 40 * 32; ++e) {
+            bank5[0x2000 + e * 2]     = 0;    // character 0
+            bank5[0x2000 + e * 2 + 1] = 0x0A; // palette offset 5 -> colour 10
+        }
+        for (int i = 0; i < 8; ++i) bank5[0x3000 + i] = 0;   // clear glyph
+        pal8(emu, 0x00, 0x17, 0x02);          // ULA paper
+        pal8(emu, 0x30, 0x0A, 0x02);          // tilemap colour of the glyph
+        pal8(emu, 0x10, 0x05, 0xFF);          // Layer 2 index 5 = white
+        nr_write_port(emu, 0x43, 0x00);
+        for (uint32_t a = 0; a < 3u * 16384u; ++a)
+            emu.ram().write(24u * 16384u + a, 0x05);   // NR 0x12 bank 8
+        nr_write_port(emu, 0x6E, 0x20);
+        nr_write_port(emu, 0x6F, 0x30);
+        nr_write_port(emu, 0x69, 0x80);       // Layer 2 on
+        nr_write_port(emu, 0x14, 0x02);
+        nr_write_port(emu, 0x4A, 0x1C);
+        nr_write_port(emu, 0x15, 0x10);
+        nr_write_port(emu, 0x6B, 0x88);
+        emu.run_frame();
+        const uint32_t got = fb_pixel(emu, Renderer::DISP_Y + 20,
+                                      Renderer::DISP_X + 20);
+        check("TRB-01",
+              "NR 0x14=0x02 with ULA paper and text-mode tile both palette "
+              "colour 0x02 (9-bit 0x005): both transparent, Layer 2 white "
+              "shows (zxnext.vhd:7100,7109,7121)",
+              got == 0xFFFFFFFFu, fmt("got 0x%08X want 0xFFFFFFFF", got));
+    }
+}
+
 int main() {
     std::printf("Compositor Subsystem Integration Tests\n");
     std::printf("=======================================\n\n");
@@ -1979,6 +2025,9 @@ int main() {
 
     test_srst_integration(emu);
     std::printf("  Group: SRST-INT — done\n");
+
+    test_trb_integration(emu);
+    std::printf("  Group: TRB-INT — done\n");
 
     std::printf("\n=======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

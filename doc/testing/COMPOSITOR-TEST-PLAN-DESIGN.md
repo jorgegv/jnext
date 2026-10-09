@@ -484,6 +484,11 @@ derivation is non-obvious, the arithmetic is shown inline.
 | TR-21 | Tilemap non-text (attribute) ignores RGB compare | NR 0x14=0xE3, tm_pixel_en=1, tm_textmode=0 (set explicitly since GH #201) | TM palette entry RGB[8:1]=0xE3 | tm_transparent=0 (opaque). TR-20's negative twin — same TM pixel, textmode flag clear — and only meaningful opposite a working TR-20. | 7109 (middle clause gated on textmode) |
 | TR-22 | Tilemap `pixel_en=0` transparent regardless of mode | — | tm_pixel_en=0, textmode=0, RGB=0x10 | tm_transparent=1 | 7109 |
 | TR-23 | `tm_en_2=0` forces TM transparent | — | Disable TM (NR 0x6B bit 7=0) | tm_transparent=1 | 7109 |
+| TR-18 | PLOTIT colour: ULA colour 9-bit 0x005 is transparent for NR 0x14 = 0x02 | mode 000, L2/S/TM transparent, NR 0x4A distinct | ULA palette-producible colour `"00000010" & "1"` (blue 101) | ULA transparent; fallback wins | 7100, 7214 |
+| TR-19 | NR 0x14 compares only colour bits 8:1 (ULA), exhaustive | mode 000, others transparent | all 256 NR 0x14 values v x 9th bit b: colour (v<<1)\|b, and ((v^1)<<1)\|b | 512 matching colours transparent (fallback); 512 with bit 1 flipped opaque (the ULA colour) | 7100 |
+| TR-26 | Text-mode TM colour 9-bit 0x005 is transparent for NR 0x14 = 0x02 | opaque ULA, tm_below=0, text mode | TM colour `"00000010" & "1"` | tm_transparent=1; the ULA shows | 7109, 7116 |
+| TR-27 | NR 0x14 compares only colour bits 8:1 (text-mode TM), exhaustive | opaque ULA differing from NR 0x14 in the top bit, tm_below=0 | TR-19 sweep on the TM colour | 512 matching transparent (ULA shows); 512 flipped opaque (TM shows) | 7109 |
+| TRB-01 | PLOTIT-lite state end to end: ULA paper and text-mode tile both colour 0x02 under NR 0x14 = 0x02 | NR 0x15=0x10, NR 0x6B=0x88, NR 0x4A distinct, Layer 2 white, via NR/port writes and a real frame | run one frame | display pixel = Layer 2 white | 7100, 7109, 7121 |
 | TR-30 | Layer 2 RGB compare | NR 0x14=0xE3, l2_pixel_en=1 | L2 palette entry RGB[8:1]=0xE3 | layer2_transparent=1 | 7121 |
 | TR-31 | Layer 2 `pixel_en=0` transparent | — | l2_pixel_en=0 | layer2_transparent=1 | 7121 |
 | TR-32 | Layer 2 opaque pixel with non-zero `layer2_priority_2` propagates | l2 not transparent | palette bit 15 set | `layer2_priority=1` | 7123 |
