@@ -132,6 +132,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         clock_.reset();
     }
     clock_.set_cpu_speed(cfg.cpu_speed);
+    // GH #305 — the CPU write tag's unit follows the clock at once (the
+    // publisher is process-global; rebase_fuse_tstates_() keeps it current).
+    z80_set_tstate_divisor(clock_.cpu_divisor());
 
     // Allocate the framebuffer and fill with black (ARGB: 0xFF000000) — but
     // not on a soft reset, which does not interrupt the video output: the
@@ -8184,6 +8187,9 @@ void Emulator::rebase_fuse_tstates_()
     const uint32_t old = live;
     const uint32_t want = static_cast<uint32_t>(
         (clock_.get() - frame_cycle_) / static_cast<uint64_t>(clock_.cpu_divisor()));
+    // GH #305 — this defines the counter's unit (master cycles per count), so
+    // it is where the CPU write tag learns it (derive_hc_vc()).
+    z80_set_tstate_divisor(clock_.cpu_divisor());
     tstates_frame_base_ += live;
     tstates_frame_base_ -= want;
     live = want;
