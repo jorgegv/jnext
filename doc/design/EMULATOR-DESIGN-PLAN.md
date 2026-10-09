@@ -195,7 +195,7 @@ historical peripherals the project has decided not to model.
 | `input/membrane/emu_fnkeys.vhd`                 | partial | via `src/input/*` NR 0x06             | Host-F-key→hotkey; HW debounce out of scope            |
 | `rom/bootrom*.vhd`                              | data    | ROM files on disk                     | Blobs loaded from `nextboot.rom` / `enNxtmmc.rom`      |
 | `ram/dpram*.vhd`, `sdpram.vhd`, `tdpram.vhd`    | no      | `std::vector<uint8_t>`                | FPGA block-RAM primitives                              |
-| `audio/i2s*.vhd`                                | partial | `audio/i2s.*`, `audio/pi_audio.*`     | The I2S wire is not clocked; NextPi's sound (QEMU) feeds the 10-bit input at the mixer rate |
+| `audio/i2s*.vhd`                                | no      | —                                     | I2S; SDL audio queue used instead                      |
 | `input/keyboard/ps2_*.vhd`                      | no      | SDL key events                        | PS/2 protocol bypassed                                 |
 | `video/hdmi/*`, `vga/scan_convert.vhd`, `pll/*` | no      | SDL/Qt framebuffer                    | HDMI/VGA/PLL — SDL_Renderer/Qt                         |
 | `misc/{debounce,relaxation,synchronize,*}.vhd`  | no      | —                                     | HW debounce / metastability                            |
