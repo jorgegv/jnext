@@ -389,14 +389,19 @@ NextPi image is needed.
 | PI-45 | the fallback's number walk does the same; its limit is `sysconf`'s capped at 65536, and 65536 for -1 or 0 |
 | PI-46 | the fallback reads `/proc/self/fd` where it exists, else `/dev/fd`, and walks the numbers only with no list |
 | PI-47 | the open-descriptor list names open descriptors but not the directory's own, and leaves no descriptor open (reading it, or marking from it) |
-| PI-48 | the Pi's sound reaches the mixer through QEMU's wav FIFO and `PiAudio`; NR 0xA2 = 0x00 silent, 0xC0 the stand-in's square wave at about ±1024 per channel |
-| PI-49 | neither a rewind replay nor an RZX playback consumes the stream, both stay silent (no boot click); live again it is drawn |
+| PI-48 | the Pi's sound reaches the mixer through QEMU's wav FIFO and `PiAudio`; NR 0xA2 = 0x00 silent, 0xC0 the stand-in's square wave, each channel on its own side (left 2048, right 1024 peak to peak) |
+| PI-49 | neither a rewind replay nor an RZX playback consumes the stream; a replay produces no audio at all, an RZX playback outputs exactly 0 in both channels (no boot click); live again it is drawn |
 | PI-50 | the warm-start recording boot gets no audio reader |
+| PI-51 | when the audio FIFO cannot be created, `start()` fails with that error and starts no QEMU |
 
-`test/audio/audio_test.cpp` revives **MX-30** and adds MX-31/32 for `PiAudio`
+`test/audio/audio_test.cpp` revives **MX-30** and adds MX-31..36 for `PiAudio`
 against a real FIFO: the stream frame for frame (header and frames split across
-writes), the 10-bit mapping and a frame's level in the mix; prebuffer and
-underrun; and the latency trim.
+writes), the 10-bit mapping, a frame's level in the mix and the received count;
+prebuffer and underrun (2205 frames, 50 ms); the latency trim (to 4410 frames,
+100 ms) and its edge (13230 frames, 300 ms, kept; 13231 trimmed); the ring full;
+a writer reconnecting with a fresh header; and the open errors and the FIFO's
+0600 mode. The latency rows assert the literal numbers, so changing a constant
+fails them.
 
 `main()` applying that policy is the functional regression row **nextpi-func**
 (`test/00regression/scripts/`): through the real binary, `--nextpi` with no QEMU
@@ -435,8 +440,17 @@ marks nothing fails PI-37; `asked_on_cli` true for `--no-nextpi` fails PI-38.
 In **nextpi-func**, `start_outcome(true, …)` in `main()` fails fact 4 (exit 1)
 and ignoring `--no-nextpi` fails fact 3. For the sound: not latching the Pi's
 frames fails PI-48/49; consuming during RZX playback fails PI-49, and so does the
-boot click; keeping the reader in the warm-start config fails PI-50; not skipping
-the WAV header fails MX-30..32; no prebuffer fails MX-31; no trim fails MX-32.
+boot click; swapping the channels, or feeding one from the other, fails PI-48; a
+wrong rest value in either channel fails PI-49; keeping the reader in the
+warm-start config fails PI-50; ignoring the audio FIFO's open error fails PI-51.
+In `PiAudio`: not skipping the WAV header fails MX-30..34, MX-36 and PI-49, and
+skipping one byte too few fails MX-30/32/34/36 and PI-48 (MX-31 never looks at
+sample values); prebuffering at `<=` fails MX-31; no trim fails MX-32; changing
+the prebuffer, the target or the maximum latency by one frame fails MX-31,
+MX-32/36 and MX-36, and trimming at `>=` fails MX-36; an off-by-one in the
+ring-full check, or not counting its drops, fails MX-33; not resetting the
+header skip or the half-frame carry when the writer goes fails MX-34; a FIFO
+made 0666, or a regular file accepted, fails MX-35.
 
 ## 5. Not done
 
