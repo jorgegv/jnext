@@ -7,6 +7,7 @@
 #include "platform/rzx_startup.h"
 #include "platform/frame_sequencer.h"   // RENDER_INTERVAL_MS, shared with QtApp
 #include "platform/render_policy.h"
+#include "platform/pointer_capture.h"   // GH #307 release_chord
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include <cmath>
@@ -658,6 +659,8 @@ void SdlApp::set_mouse_captured(bool on)
         // have its release delivered.
         mouse_dispatcher_->reset();
     }
+    // SDL's KMOD_CTRL is the physical Control key on every platform (GH #307).
     Log::platform()->info("Mouse {} ({})", on ? "captured" : "released",
-                          on ? "Ctrl+Alt to release" : "click the window to capture");
+                          on ? std::string(pointer_capture::release_chord(false)) + " to release"
+                             : std::string("click the window to capture"));
 }

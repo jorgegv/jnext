@@ -59,6 +59,19 @@
 
 namespace {
 
+// Qt on macOS maps the Command key to Qt::Key_Control / ControlModifier (and
+// Control to Meta) unless AA_MacDontSwapCtrlAndMeta is set; jnext does not set
+// it. So the Ctrl+Alt chord matched in keyPressEvent is Alt+Command there.
+#ifdef Q_OS_MACOS
+constexpr bool kQtCtrlIsCommand = true;   // GH #307
+#else
+constexpr bool kQtCtrlIsCommand = false;
+#endif
+
+QString release_chord_text() {
+    return QString::fromLatin1(pointer_capture::release_chord(kQtCtrlIsCommand));
+}
+
 SDL_Scancode qt_key_to_sdl(int key) {
     switch (key) {
         // Letters
@@ -925,10 +938,11 @@ void MainWindow::create_menus() {
     // sequence — Ctrl maps to Symbol Shift (issue #115), so Ctrl+M IS SS+M —
     // and a host shortcut would swallow it before the guest ever saw it.
     // Capture is by clicking the viewport (or this menu item); Ctrl+Alt
-    // releases.
+    // releases (Alt+Cmd on macOS, where Qt reads Command as Ctrl).
     capture_mouse_action_->setStatusTip(
         tr("Confine the host pointer so the Kempston mouse can move freely "
-           "(click the screen to capture, Ctrl+Alt to release)"));
+           "(click the screen to capture, %1 to release)")
+            .arg(release_chord_text()));
     connect(capture_mouse_action_, &QAction::triggered, this,
             [this](bool on) { set_mouse_captured(on); });
 
@@ -2303,7 +2317,8 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         int key = event->key();
         Qt::KeyboardModifiers modifiers = event->modifiers();
 
-        // Ctrl+Alt releases the pointer — the convention users already know
+        // Ctrl+Alt (on macOS Qt's swap makes this Alt+Command) releases the
+        // pointer — the convention users already know
         // from VirtualBox / VMware / QEMU. Checked before anything else so it
         // works even if the guest is busy. Either order of the two keys
         // arrives here as "this one down, the other already held".
@@ -2720,8 +2735,8 @@ void MainWindow::set_mouse_captured(bool on) {
         }
         // The status-bar message times out; the title carries the way out for
         // as long as the pointer is actually held.
-        setWindowTitle(base_window_title_ + tr(" - Ctrl+Alt to release mouse"));
-        statusBar()->showMessage(tr("Mouse captured — Ctrl+Alt to release"), 4000);
+        setWindowTitle(base_window_title_ + tr(" - %1 to release mouse").arg(release_chord_text()));
+        statusBar()->showMessage(tr("Mouse captured — %1 to release").arg(release_chord_text()), 4000);
     } else {
         releaseMouse();
         // Drop any latched button/wheel state. Buttons are only forwarded
