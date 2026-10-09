@@ -6196,6 +6196,94 @@ static void test_LORES()
     }
 }
 
+// ── FB9 — the NR $4A fallback is a 9-bit colour (GH #304 Part B) ─────────
+//
+// zxnext.vhd:7214  rgb_out_2 <= fallback_rgb_2 & (fallback_rgb_2(1) or
+//                                                 fallback_rgb_2(0));
+// zxnext.vhd:6990  ula_rgb_1 <= fallback_rgb_1 & (fallback_rgb_1(1) or
+//                                                 fallback_rgb_1(0));
+// i.e. RRRGGGBB gains blue LSB = B1 or B0, so blue 01 -> 011 and 10 -> 101
+// (8-bit 0x6D / 0xB6), not the 2-bit replication 0x55 / 0xAA. Driven through
+// the real render_row path (composite_scanline gets the fallback from it).
+// Expected words are built here from the VHDL formula, bit by bit.
+static uint32_t fb9_expect(uint8_t nr4a) {
+    const unsigned lsb  = ((nr4a >> 1) & 1) | (nr4a & 1);
+    const unsigned r3   = (nr4a >> 5) & 7;
+    const unsigned g3   = (nr4a >> 2) & 7;
+    const unsigned b3   = ((nr4a & 3) << 1) | lsb;
+    auto x8 = [](unsigned c) { return (c << 5) | (c << 2) | (c >> 1); };
+    return 0xFF000000u | (x8(r3) << 16) | (x8(g3) << 8) | x8(b3);
+}
+
+static void test_FB9()
+{
+    using namespace lores_c;
+    set_group("FB9");
+
+    // ── FB9-01 — every NR $4A value, ULA off: the fallback reaches the
+    // display area AND the border at its 9-bit colour.
+    {
+        Fix f;
+        f.r.ula().set_ula_enabled(false);        // NR 0x68 b7: ULA slot transparent
+        const int ROW = Renderer::DISP_Y + 100;
+        std::vector<uint32_t> g(Renderer::FB_WIDTH);
+        int bad = 0, first_bad = -1;
+        uint32_t got_bad = 0;
+        for (int v = 0; v < 256; ++v) {
+            f.r.set_fallback_colour(static_cast<uint8_t>(v));
+            f.refresh_snapshots();
+            f.render(g.data(), ROW);
+            const uint32_t exp = fb9_expect(static_cast<uint8_t>(v));
+            if (g[Renderer::DISP_X] != exp || g[0] != exp) {
+                if (!bad++) { first_bad = v; got_bad = g[Renderer::DISP_X]; }
+            }
+        }
+        check("FB9-01",
+              "NR $4A fallback is 9-bit: blue LSB = B1|B0 on all 256 values, "
+              "display and border (zxnext.vhd:7214)",
+              bad == 0,
+              DETAIL("%d of 256 wrong; first v=0x%02X got=0x%08X exp=0x%08X",
+                     bad, first_bad, got_bad,
+                     fb9_expect(static_cast<uint8_t>(first_bad < 0 ? 0 : first_bad))));
+    }
+
+    // ── FB9-02 — the ULAnext select_bgnd substitution (:6990) takes the same
+    // 9-bit expansion. Stimulus as LR-140 (format 0x00 paper asserts
+    // ula_select_bgnd, zxula.vhd:525), all 256 NR $4A values.
+    {
+        Fix f;
+        const unsigned vc = 100;
+        const int ROW = Renderer::DISP_Y + static_cast<int>(vc);
+        f.r.ula().set_ulanext_en(true);
+        f.r.ula().set_ulanext_format(0x00);
+        const uint16_t ula_off = static_cast<uint16_t>(
+            ((vc & 0xC0) << 5) | ((vc & 0x07) << 8) | ((vc & 0x38) << 2));
+        f.ram.write(10u * 8192u + ula_off, 0x00);   // screen col 0 all paper
+        std::vector<uint32_t> g(Renderer::FB_WIDTH);
+        int bad = 0, first_bad = -1;
+        uint32_t got_bad = 0;
+        for (int v = 0; v < 256; ++v) {
+            // 0x3F is the fixture's NR $14 key: keep the fallback off it so
+            // the substituted pixel is not made transparent (which would
+            // route through :7214 instead of :6990).
+            if (v == 0x3F) continue;
+            f.r.set_fallback_colour(static_cast<uint8_t>(v));
+            f.refresh_snapshots();
+            f.render(g.data(), ROW);
+            if (g[Renderer::DISP_X] != fb9_expect(static_cast<uint8_t>(v))) {
+                if (!bad++) { first_bad = v; got_bad = g[Renderer::DISP_X]; }
+            }
+        }
+        check("FB9-02",
+              "ULAnext select_bgnd takes the 9-bit NR $4A colour (blue LSB = "
+              "B1|B0) on 255 values (zxnext.vhd:6990)",
+              bad == 0,
+              DETAIL("%d wrong; first v=0x%02X got=0x%08X exp=0x%08X",
+                     bad, first_bad, got_bad,
+                     fb9_expect(static_cast<uint8_t>(first_bad < 0 ? 0 : first_bad))));
+    }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────
 
 int main() {
@@ -6223,6 +6311,7 @@ int main() {
     test_UCLIP();      printf("  Group: UCLIP — done\n");
     test_LMASK();      printf("  Group: LMASK — done\n");
     test_LORES();      printf("  Group: LR — done\n");
+    test_FB9();        printf("  Group: FB9 — done\n");
 
     printf("\n=====================================\n");
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

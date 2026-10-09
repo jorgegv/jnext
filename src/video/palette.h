@@ -491,6 +491,11 @@ public:
     /// stream and a `.jns` cannot disagree about which fields exist.
     void describe_state(jnext::save::StateDesc& d);
 
+    /// Convert 8-bit RRRGGGBB to 9-bit RGB333.
+    /// Blue LSB is derived as (B1 | B0) per hardware spec.
+    /// Public: the renderer expands NR 0x4A the same way (zxnext.vhd:7214).
+    static uint16_t rrrgggbb_to_rgb333(uint8_t val);
+
 private:
     // Internal RGB333 storage (uint16_t, bits 8:0 = RRRGGGBBB).
     // [0] = first palette, [1] = second palette.
@@ -557,10 +562,6 @@ private:
     // Helpers
     void write_entry(uint16_t rgb333, uint8_t priority = 0);
     void advance_index();
-
-    /// Convert 8-bit RRRGGGBB to 9-bit RGB333.
-    /// Blue LSB is derived as (B1 | B0) per hardware spec.
-    static uint16_t rrrgggbb_to_rgb333(uint8_t val);
 
     // ── Per-scanline change log (TASK-PER-SCANLINE-PALETTE-PLAN.md) ──
     //
