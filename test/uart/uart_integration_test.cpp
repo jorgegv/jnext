@@ -4645,18 +4645,19 @@ static void test_nextpi_review2_rows() {
 namespace {
 
 /// A WAV file as QEMU's wav back-end writes it (44-byte header, s16 stereo,
-/// 44.1 kHz) holding `frames` frames of a square wave: left +amp/-amp and right
-/// -amp/+amp, flipping every `half` frames.
-void write_tone(const std::string& path, int frames, int16_t amp, int half) {
+/// 44.1 kHz) holding `frames` frames of a square wave flipping every `half`
+/// frames: left +amp/-amp and right -r_amp/+r_amp. A right amplitude different
+/// from the left one lets a row tell the two channels apart.
+void write_tone(const std::string& path, int frames, int16_t amp, int half, int16_t r_amp) {
     std::ofstream f(path, std::ios::binary);
     auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) f.put(static_cast<char>(v >> (8 * i))); };
     auto u16 = [&](uint16_t v) { f.put(static_cast<char>(v)); f.put(static_cast<char>(v >> 8)); };
     f.write("RIFF", 4); u32(0); f.write("WAVEfmt ", 8); u32(16); u16(1); u16(2);
     u32(44100); u32(44100 * 4); u16(4); u16(16); f.write("data", 4); u32(0);
     for (int i = 0; i < frames; ++i) {
-        const int16_t v = ((i / half) % 2) ? static_cast<int16_t>(-amp) : amp;
-        u16(static_cast<uint16_t>(v));
-        u16(static_cast<uint16_t>(static_cast<int16_t>(-v)));
+        const bool low = (i / half) % 2;
+        u16(static_cast<uint16_t>(low ? static_cast<int16_t>(-amp) : amp));
+        u16(static_cast<uint16_t>(low ? r_amp : static_cast<int16_t>(-r_amp)));
     }
 }
 
@@ -4689,11 +4690,13 @@ static void test_nextpi_audio() {
     // (44.1 kHz s16 stereo) and reads it; the emulator latches it into I2s,
     // where NR 0xA2 gates it exactly as on the board (zxnext.vhd:2358-2359):
     // with 0x00 the output is silent, with 0xC0 (both channels enabled — what
-    // .pisend sets, plus its other bits) the Pi's square wave is in the mix,
-    // ±256 in 10 bits = ±1024 at the output (MX-06/07's x4).
+    // .pisend sets, plus its other bits) the Pi's square wave is in the mix.
+    // The channels carry different amplitudes so a swap shows: left ±16384 is
+    // ±256 in 10 bits = 2048 peak to peak at the output (MX-06/07's x4), right
+    // ±8192 is half that, 1024.
     {
         FakeNextPi fake("audio");
-        write_tone(fake.bin("tone.wav"), 11025, 16384, 50);   // 250 ms
+        write_tone(fake.bin("tone.wav"), 11025, 16384, 50, 8192);   // 250 ms
         PiQemu::Spec spec;
         spec.dir         = fake.dir();
         spec.qemu_binary = fake.bin("qemu-system-arm");
@@ -4719,11 +4722,13 @@ static void test_nextpi_audio() {
         check("PI-48",
               "NextPi's sound reaches the Next's mixer over I2S: QEMU writes it to a FIFO "
               "PiQemu reads, the emulator latches it per sample, and NR 0xA2 gates it "
-              "(0x00 silent, 0xC0 the Pi's square wave at about +-1024 in each channel)",
+              "(0x00 silent, 0xC0 the Pi's square wave, each channel on its own side: left "
+              "2048 and right 1024 peak to peak) (zxnext.vhd:2358-2359)",
               started && args_ok && closed.first <= 16 && closed.second <= 16 &&
-                  open.first >= 1900 && open.second >= 1900,
+                  open.first >= 1900 && open.first <= 2200 && open.second >= 900 &&
+                  open.second <= 1150,
               fmt("started=%d (%s) args=%d swing closed L=%d R=%d (want <=16) open L=%d R=%d "
-                  "(want >=1900)", started ? 1 : 0, error.c_str(), args_ok ? 1 : 0,
+                  "(want L 1900..2200, R 900..1150)", started ? 1 : 0, error.c_str(), args_ok ? 1 : 0,
                   closed.first, closed.second, open.first, open.second));
     }
 
@@ -4734,7 +4739,7 @@ static void test_nextpi_audio() {
     // few empty frames keeps is_playing() true without overriding any input.
     {
         FakeNextPi fake("audio-replay");
-        write_tone(fake.bin("tone.wav"), 8000, 16384, 50);
+        write_tone(fake.bin("tone.wav"), 8000, 16384, 50, 16384);
         PiQemu::Spec spec;
         spec.dir         = fake.dir();
         spec.qemu_binary = fake.bin("qemu-system-arm");
