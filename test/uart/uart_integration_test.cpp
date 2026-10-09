@@ -4662,23 +4662,37 @@ void write_tone(const std::string& path, int frames, int16_t amp, int half, int1
     }
 }
 
-/// Run `frames` frames with NR 0xA2 held at `a2` and return the left and right
-/// peak-to-peak of the mixer's output over them.
-std::pair<int, int> mixer_swing(Emulator& emu, uint8_t a2, int frames) {
+/// The mixer's output over some frames: how many samples, and each channel's
+/// lowest and highest value.
+struct MixerLevels {
+    int n = 0;
     int lo_l = 32767, hi_l = -32768, lo_r = 32767, hi_r = -32768;
+};
+
+/// Run `frames` frames with NR 0xA2 held at `a2` and return the levels of the
+/// mixer's output over them.
+MixerLevels mixer_levels(Emulator& emu, uint8_t a2, int frames) {
+    MixerLevels m;
     std::vector<int16_t> buf(2 * 4096);
     for (int f = 0; f < frames; ++f) {
         emu.nextreg().write(0xA2, a2);
         emu.run_frame();
         int n;
         while ((n = emu.mixer().read_samples(buf.data(), 4096)) > 0) {
+            m.n += n;
             for (int i = 0; i < n; ++i) {
-                lo_l = std::min<int>(lo_l, buf[2 * i]);     hi_l = std::max<int>(hi_l, buf[2 * i]);
-                lo_r = std::min<int>(lo_r, buf[2 * i + 1]); hi_r = std::max<int>(hi_r, buf[2 * i + 1]);
+                m.lo_l = std::min<int>(m.lo_l, buf[2 * i]);     m.hi_l = std::max<int>(m.hi_l, buf[2 * i]);
+                m.lo_r = std::min<int>(m.lo_r, buf[2 * i + 1]); m.hi_r = std::max<int>(m.hi_r, buf[2 * i + 1]);
             }
         }
     }
-    return {hi_l - lo_l, hi_r - lo_r};
+    return m;
+}
+
+/// The left and right peak-to-peak of the mixer's output (see mixer_levels).
+std::pair<int, int> mixer_swing(Emulator& emu, uint8_t a2, int frames) {
+    const MixerLevels m = mixer_levels(emu, a2, frames);
+    return {m.hi_l - m.lo_l, m.hi_r - m.lo_r};
 }
 
 } // namespace
@@ -4735,7 +4749,11 @@ static void test_nextpi_audio() {
 
     // ── PI-49 — neither a rewind replay nor an RZX playback consumes the Pi's
     // stream (it belongs to the live session), and both leave the I2S input
-    // silent; live again, the emulator draws from it. RZX playback is driven
+    // silent; live again, the emulator draws from it. Silent means the I2S rest
+    // value 0x200 in BOTH channels (i2s.vhd:179), which the mixer centres on to
+    // output exactly 0 (Mixer::MIX_REST_LEVEL): during RZX playback every
+    // sample of each channel must be 0, which a swing alone could not show (a
+    // channel stuck at another value is flat too). RZX playback is driven
     // through the player's own API, as esp_wiring_test does: a recording of a
     // few empty frames keeps is_playing() true without overriding any input.
     {
@@ -4750,7 +4768,8 @@ static void test_nextpi_audio() {
         for (int i = 0; i < 100 && started && qemu.audio()->available() < 8000; ++i)
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         uint32_t before = 0, after_replay = 0, after_rzx = 0, after_live = 0;
-        std::pair<int, int> replay_swing{-1, -1}, rzx_swing{-1, -1};
+        std::pair<int, int> replay_swing{-1, -1};
+        MixerLevels rzx;
         if (started) {
             EmulatorConfig cfg = pi_qemu_config(qemu);
             cfg.pi_audio = qemu.audio();
@@ -4764,20 +4783,24 @@ static void test_nextpi_audio() {
             RzxRecording rec;
             rec.frames.resize(4);
             emu.rzx_player().start(std::move(rec));
-            rzx_swing = mixer_swing(emu, 0xC0, 2);
+            rzx = mixer_levels(emu, 0xC0, 2);
             after_rzx = qemu.audio()->available();
             emu.rzx_player().stop();
             mixer_swing(emu, 0xC0, 1);
             after_live = qemu.audio()->available();
         }
+        const bool rzx_silent = rzx.n > 0 && rzx.lo_l == 0 && rzx.hi_l == 0 && rzx.lo_r == 0 &&
+                                rzx.hi_r == 0;
         check("PI-49",
               "neither a rewind replay nor an RZX playback consumes the Pi's sound, and both "
-              "leave the I2S input silent; live again, the emulator draws from it",
+              "leave the I2S input silent (0x200 in both channels, so every output sample is 0); "
+              "live again, the emulator draws from it (i2s.vhd:179)",
               started && before == 8000 && after_replay == before && after_rzx == before &&
-                  replay_swing.first <= 16 && rzx_swing.first <= 16 && after_live < before,
+                  replay_swing.first <= 16 && rzx_silent && after_live < before,
               fmt("started=%d (%s) available before=%u after replay=%u after rzx=%u after live=%u "
-                  "swing replay=%d rzx=%d", started ? 1 : 0, error.c_str(), before, after_replay,
-                  after_rzx, after_live, replay_swing.first, rzx_swing.first));
+                  "swing replay=%d; rzx n=%d L %d..%d R %d..%d (want n>0, all 0)",
+                  started ? 1 : 0, error.c_str(), before, after_replay, after_rzx, after_live,
+                  replay_swing.first, rzx.n, rzx.lo_l, rzx.hi_l, rzx.lo_r, rzx.hi_r));
     }
 
     // ── PI-50 — the warm-start recording machine does not get the Pi's sound:
