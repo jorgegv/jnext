@@ -1148,7 +1148,26 @@ landed with the 2026-07-09 NextZXOS boot fix; the BANK5 rows are Task 25
 | BANK5-03 | Standalone machines keep bank 5 flat                    | rom_in_sram=false; write 0x4000/0x6000                         | Bytes land in `ram_` pages 0x0A/0x0B, not the VRAM                                      |
 | BANK5-04 | CPU L2 window bank 5 targets SRAM 0x2A (no bypass)      | Next mode; port $123B write-over, bank 5; write 0x0000         | Byte lands in `ram_` page 0x2A (unconditional `layer2_A21_A13`), not 0x0A, not the VRAM |
 
-**Total: ~168 test cases across 28 categories.**
+### Category 29: CPU attribute-write tag at every CPU speed (GH #305)
+
+The ULA beam counters run on `i_CLK_7` whatever `cpu_speed` is
+(`zxula_timing.vhd:318-341`), and bank 5 is a dual-port BRAM whose ULA port
+reads independently of the CPU's (`zxnext.vhd:6562-6578`), so a CPU write is
+seen from the first ULA fetch after its master-clock instant. The row's
+expected value is `(landing cycle - frame start) / master_cycles_per_line -
+vblank_top`, computed from the clock. Scene as G12-TAG-04/05: `LD (attr),A`
+at raw line `vblank_top + 150`.
+
+| ID          | Test                                             | Setup                                                         | Expected                                              |
+|-------------|--------------------------------------------------|---------------------------------------------------------------|-------------------------------------------------------|
+| G12-TAG-06  | 7 MHz write straddling a line start              | NR 0x07 = 1; write lands 0..13 T after line 150 starts        | First row 150                                         |
+| G12-TAG-07  | 14 MHz, same                                     | NR 0x07 = 2                                                   | 150                                                   |
+| G12-TAG-08  | 28 MHz, same                                     | NR 0x07 = 3                                                   | 150                                                   |
+| G12-TAG-09  | 28 MHz write late in line 150                    | After column 0's fetch                                        | 151 (TAG-05 analogue)                                 |
+| G12-TAG-10  | 3.5 -> 28 MHz switched mid-frame                 | NR 0x07 = 3 around line 100; write at line 150                | 150                                                   |
+| G12-TAG-11  | State saved at 28 MHz, loaded into a fresh machine | Write at line 150 after the load                            | 150                                                   |
+
+**Total: ~174 test cases across 29 categories.**
 
 ## Test Approach
 

@@ -22,7 +22,7 @@ mentions them, so a test can no longer be absent from this document.
 <!-- BEGIN GENERATED SUMMARY — written by test/refresh-traceability-matrix.pl; do not edit by hand -->
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
-| Memory/MMU                                 |   279 |  279 |    0 |    0 |       0 |          0 |
+| Memory/MMU                                 |   285 |  285 |    0 |    0 |       0 |          0 |
 | ULA Video                                  |   139 |  139 |    0 |    0 |       0 |          0 |
 | Layer2                                     |   220 |  220 |    0 |    0 |       0 |          0 |
 | Sprites                                    |   217 |  217 |    0 |    0 |       0 |          0 |
@@ -51,7 +51,7 @@ mentions them, so a test can no longer be absent from this document.
 | ESP-01 socket transport                    |   240 |  240 |    0 |    0 |       0 |          0 |
 | ESP-01 AT engine                           |   489 |  489 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
-| Companion: mmu_integration_test            |    94 |   94 |    0 |    0 |       0 |          0 |
+| Companion: mmu_integration_test            |   100 |  100 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: compositor_integration_test     |    50 |   50 |    0 |    0 |       0 |          0 |
 | Companion: copper_integration_test         |    30 |   30 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   30 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    97 |   97 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5545 | 5545 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5557 | 5557 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5545**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5174**. Rows the 133 suites declared in `test/unit-tests.conf` run live: **12418**.
+Rows the sections above carry: **5557**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5180**. Rows the 133 suites declared in `test/unit-tests.conf` run live: **12424**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -384,6 +384,12 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | BANK5-02 | config-mode NR $04=$05 window writes SRAM page 0x0A without touching the bank-5 VRAM (the NextZXOS mid-boot-garbage killer) — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6411 |
 | BANK5-03 | standalone-machine (rom_in_sram=false) bank-5 writes land in flat RAM pages 0x0A/0x0B, NOT the Next-only VRAM buffer | — | pass | test/mmu/mmu_test.cpp:6431 |
 | BANK5-04 | CPU L2 window with bank 5 writes SRAM page 0x2A (unconditional layer2_A21_A13 formula), not page 0x0A and not the VRAM — VHDL zxnext.vhd:2966-2971 + 3100-3107 | zxnext.vhd:2966-2971 | pass | test/mmu/mmu_test.cpp:6456 |
+| G12-TAG-06 | a CPU attribute write at 7 MHz straddling a line start is tagged with the master-clock line it landed on (the 3.5 MHz formula puts it elsewhere) | — | pass | test/mmu/mmu_integration_test.cpp:2703 |
+| G12-TAG-07 | a CPU attribute write at 14 MHz straddling a line start is tagged with the master-clock line it landed on | — | pass | test/mmu/mmu_integration_test.cpp:2719 |
+| G12-TAG-08 | a CPU attribute write at 28 MHz straddling a line start is tagged with the master-clock line it landed on | — | pass | test/mmu/mmu_integration_test.cpp:2735 |
+| G12-TAG-09 | a CPU attribute write late in a line at 28 MHz keeps its own column: column 0, already fetched on that line, shows it from the next line | — | pass | test/mmu/mmu_integration_test.cpp:2755 |
+| G12-TAG-10 | after a 3.5 -> 28 MHz switch mid-frame the CPU attribute write tag follows the new unit at once | — | pass | test/mmu/mmu_integration_test.cpp:2783 |
+| G12-TAG-11 | after a state load at 28 MHz the CPU attribute write tag follows the restored CPU speed | — | pass | test/mmu/mmu_integration_test.cpp:2819 |
 | N8E-05a | NR 0x8E read-back {dffd(0),7FFD(2:0),1,1FFD(0),1FFD(2),bit0} — VHDL zxnext.vhd:6158-6159 | zxnext.vhd:6158-6159 | pass | test/mmu/mmu_test.cpp:1261 |
 | N8E-05b | NR 0x8E read-back bit 0 flips with 1FFD(0) selector — VHDL zxnext.vhd:6159 | zxnext.vhd:6159 | pass | test/mmu/mmu_test.cpp:1278 |
 | EFP-01 | port 7FFD/1FFD select this machine's legacy ROM pages in slots 0/1 (VHDL zxnext.vhd:2981-3008) | zxnext.vhd:2981-3008 | pass | test/mmu/mmu_test.cpp:1865 |
@@ -5240,11 +5246,17 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | MMU-G33-TRAP-01 | handle_sa_bytes_trap: A/IX/DE -> hand-computed TAP block on file; exit state PC=popped ret, SP+=2, IX+=DE, DE=0, carry set (mirrors the LD-BYTES trap return mechanics) | — | pass | test/mmu/mmu_integration_test.cpp:2308 |
 | MMU-G33-TRAP-02 | run_frame gate positive: SA-BYTES signature in slot-0 ROM + PC=0x04C2 + armed saver -> trap fires once, block on file, CPU parked at popped return address | — | pass | test/mmu/mmu_integration_test.cpp:2343 |
 | MMU-G33-TRAP-03 | run_frame gate negative: non-48K ROM bytes at 0x04C2 with the saver armed and PC=0x04C2 -> trap does NOT fire (zero blocks, empty file, CPU executes the real ROM code) — the ungated trap corrupted a plain NextZXOS boot (Task 57 review) | — | pass | test/mmu/mmu_integration_test.cpp:2374 |
-| G12-TAG-01 | a DMA write to an attribute, after a CPU write elsewhere in the frame, is tagged with the DMA's own line (visible from row 150, not 21) | — | pass | test/mmu/mmu_integration_test.cpp:2489 |
-| G12-TAG-02 | the debugger's poke(Cpu) to an attribute is tagged with the current line | — | pass | test/mmu/mmu_integration_test.cpp:2505 |
-| G12-TAG-03 | a tape loader's LD-BYTES trap writing an attribute is tagged with the current line | — | pass | test/mmu/mmu_integration_test.cpp:2538 |
-| G12-TAG-04 | a CPU attribute write that straddles a line start is tagged with the line it LANDED on, not the line its instruction began in | — | pass | test/mmu/mmu_integration_test.cpp:2581 |
-| G12-TAG-05 | a CPU attribute write late in a line keeps its own column: column 0, already fetched on that line, shows it from the next line | — | pass | test/mmu/mmu_integration_test.cpp:2624 |
+| G12-TAG-01 | a DMA write to an attribute, after a CPU write elsewhere in the frame, is tagged with the DMA's own line (visible from row 150, not 21) | — | pass | test/mmu/mmu_integration_test.cpp:2549 |
+| G12-TAG-02 | the debugger's poke(Cpu) to an attribute is tagged with the current line | — | pass | test/mmu/mmu_integration_test.cpp:2565 |
+| G12-TAG-03 | a tape loader's LD-BYTES trap writing an attribute is tagged with the current line | — | pass | test/mmu/mmu_integration_test.cpp:2598 |
+| G12-TAG-04 | a CPU attribute write that straddles a line start is tagged with the line it LANDED on, not the line its instruction began in | — | pass | test/mmu/mmu_integration_test.cpp:2641 |
+| G12-TAG-05 | a CPU attribute write late in a line keeps its own column: column 0, already fetched on that line, shows it from the next line | — | pass | test/mmu/mmu_integration_test.cpp:2684 |
+| G12-TAG-06 | a CPU attribute write at 7 MHz straddling a line start is tagged with the master-clock line it landed on (the 3.5 MHz formula puts it elsewhere) | — | pass | test/mmu/mmu_integration_test.cpp:2703 |
+| G12-TAG-07 | a CPU attribute write at 14 MHz straddling a line start is tagged with the master-clock line it landed on | — | pass | test/mmu/mmu_integration_test.cpp:2719 |
+| G12-TAG-08 | a CPU attribute write at 28 MHz straddling a line start is tagged with the master-clock line it landed on | — | pass | test/mmu/mmu_integration_test.cpp:2735 |
+| G12-TAG-09 | a CPU attribute write late in a line at 28 MHz keeps its own column: column 0, already fetched on that line, shows it from the next line | — | pass | test/mmu/mmu_integration_test.cpp:2755 |
+| G12-TAG-10 | after a 3.5 -> 28 MHz switch mid-frame the CPU attribute write tag follows the new unit at once | — | pass | test/mmu/mmu_integration_test.cpp:2783 |
+| G12-TAG-11 | after a state load at 28 MHz the CPU attribute write tag follows the restored CPU speed | — | pass | test/mmu/mmu_integration_test.cpp:2819 |
 
 ### Companion integration suite — `test/ula/ula_integration_test.cpp`
 
