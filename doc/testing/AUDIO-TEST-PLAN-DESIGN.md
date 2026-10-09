@@ -461,11 +461,12 @@ VHDL ref: `audio_mixer.vhd` lines 63-90
 | MX-06  | I2S input: zero-extended 10-bit to 13-bit         | `i2s_L = "000" & pi_i2s_L_i` (range 0-1023)               |
 | MX-07  | I2S input is OFFSET BINARY: silence = 0x200, 0 = full-negative | `i2s.vhd:179` `o_audio_pi_L <= (not audio_pi_L(12)) & audio_pi_L(11 downto 3)` inverts the sign bit; `zxnext.vhd:2358-2359` substitutes the same 0x200 when disabled/muted/EAR |
 | MX-30  | Pi I2S source delivers a continuous 10-bit stream | **Revived** with NextPi (`--nextpi`): `PiAudio` reads QEMU's WAV stream from a FIFO frame for frame (header and frames split across writes are reassembled); `PiAudio::to_i2s` maps -32768/0/32767 to 0/0x200/1023 (`i2s.vhd:179`); with NR 0xA2 = 0xC0 a frame of +16384/-16384 mixes to +1024/-1024. All 3000 frames are counted received (`frames_received()`), none dropped. Was retired 2026-09-24 (GH #201) because no Pi existed to produce samples. |
-| MX-31  | Pi I2S source: prebuffer and underrun | Nothing plays until `kPrebuffer` (2205) frames are in; running dry returns silence, counts one underrun, and prebuffers again |
-| MX-32  | Pi I2S source: latency trim | A backlog of 20000 frames is cut to `kTarget` (4410) by dropping the OLDEST; the next frame is number 20000-4410 |
+| MX-31  | Pi I2S source: prebuffer and underrun | Nothing plays with 2204 frames in, and 2205 (50 ms) all play; running dry returns silence, counts one underrun, and prebuffers again. Literal numbers, so a changed `kPrebuffer` fails. jnext-only, no VHDL counterpart |
+| MX-32  | Pi I2S source: latency trim | A backlog of 20000 frames is cut to 4410 (100 ms) by dropping the OLDEST; the next frame is number 20000-4410. Literal numbers, so a changed `kTarget` fails. jnext-only, no VHDL counterpart |
 | MX-33  | Pi I2S source: ring full | With nothing popping, `kCapacity` + 1000 frames written: exactly `kCapacity` (131072) kept and received, 1000 dropped and counted. jnext-only buffering, no VHDL counterpart |
 | MX-34  | Pi I2S source: reconnect | Writer A: header, one frame and half of another, then closes; writer B: a fresh header and `kPrebuffer` frames. B's header is skipped and A's half frame discarded: A's frame, then all of B's, arrive exact. jnext-only, no VHDL counterpart |
 | MX-35  | Pi I2S source: open errors and permissions | `open` of a regular file fails with "exists and is not a FIFO"; of a path in a missing directory, with mkfifo's error; a new FIFO is created 0600 (under umask 022). jnext-only, no VHDL counterpart |
+| MX-36  | Pi I2S source: trim boundary | A backlog of exactly 13230 frames (300 ms) is not trimmed (first frame 0, 13229 left, none dropped); 13231 is trimmed to 4410 (first frame 8821). jnext-only, no VHDL counterpart |
 
 ### 5.2 Final Mix
 

@@ -3148,22 +3148,24 @@ static void g_mixer() {
                       static_cast<unsigned long long>(a.frames_dropped())));
         }
 
-        // MX-31 — PREBUFFER and UNDERRUN: nothing plays until kPrebuffer frames
-        // are in; running dry is silence (false), counted, and refills again.
+        // MX-31 — PREBUFFER and UNDERRUN: nothing plays until 2205 frames (50 ms,
+        // the documented prebuffer) are in; running dry is silence (false),
+        // counted, and refills again. Literal numbers, not the constant: the
+        // row pins the latency the docs promise, so changing it fails here.
         {
             const std::string fifo = (dir / "mx31.fifo").string();
             PiAudio a;
             std::string err;
             const bool opened = a.open(fifo, err);
             const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
-            const std::string first = header() + frames_bytes(PiAudio::kPrebuffer - 1, 0);
+            const std::string first = header() + frames_bytes(2204, 0);
             const bool w1 = w >= 0 && ::write(w, first.data(), first.size()) == static_cast<ssize_t>(first.size());
-            wait_available(a, PiAudio::kPrebuffer - 1);
+            wait_available(a, 2204);
             int16_t l, r;
             const bool waits = !a.pop(l, r);                                  // one short of the prebuffer
             const std::string one = frames_bytes(1, 0);
             const bool w2 = w >= 0 && ::write(w, one.data(), one.size()) == 4;
-            wait_available(a, PiAudio::kPrebuffer);
+            wait_available(a, 2205);
             int played = 0;
             while (a.pop(l, r)) ++played;                                      // plays all, then runs dry
             const bool dry = a.underruns() == 1;
@@ -3172,17 +3174,18 @@ static void g_mixer() {
             wait_available(a, 10);
             const bool refills = !a.pop(l, r);                                 // prebuffering again
             if (w >= 0) ::close(w);
-            check("MX-31", "the Pi I2S source prebuffers before playing, reports an underrun as "
-                  "silence when it runs dry, and prebuffers again before resuming",
-                  opened && w1 && w2 && w3 && waits && played == static_cast<int>(PiAudio::kPrebuffer) &&
-                      dry && refills,
-                  fmt("waits=%d played=%d (want %u) underruns=%llu refills=%d", waits ? 1 : 0, played,
-                      PiAudio::kPrebuffer, static_cast<unsigned long long>(a.underruns()),
+            check("MX-31", "the Pi I2S source prebuffers 2205 frames (50 ms) before playing, reports "
+                  "an underrun as silence when it runs dry, and prebuffers again before resuming "
+                  "(jnext-only buffering, no VHDL counterpart)",
+                  opened && w1 && w2 && w3 && waits && played == 2205 && dry && refills,
+                  fmt("waits=%d played=%d (want 2205) underruns=%llu refills=%d", waits ? 1 : 0, played,
+                      static_cast<unsigned long long>(a.underruns()),
                       refills ? 1 : 0));
         }
 
-        // MX-32 — LATENCY TRIM: a backlog past kMaxLatency is cut to kTarget by
-        // dropping the OLDEST frames, so the Pi's sound never lags far behind.
+        // MX-32 — LATENCY TRIM: a backlog past the maximum latency is cut to 4410
+        // frames (100 ms, the documented target) by dropping the OLDEST, so the
+        // Pi's sound never lags far behind. Literal, like MX-31.
         {
             const std::string fifo = (dir / "mx32.fifo").string();
             PiAudio a;
@@ -3202,12 +3205,12 @@ static void g_mixer() {
             const bool popped = a.pop(l, r);
             const uint32_t left = a.available();
             if (w >= 0) ::close(w);
-            check("MX-32", "a Pi I2S backlog beyond the maximum latency is trimmed to the target by "
-                  "dropping the oldest frames",
-                  opened && popped && l == total - static_cast<int>(PiAudio::kTarget) &&
-                      left == PiAudio::kTarget - 1 && a.frames_dropped() == total - PiAudio::kTarget,
+            check("MX-32", "a Pi I2S backlog beyond the maximum latency is trimmed to 4410 frames "
+                  "(100 ms) by dropping the oldest frames (jnext-only buffering, no VHDL counterpart)",
+                  opened && popped && l == 20000 - 4410 && left == 4410 - 1 &&
+                      a.frames_dropped() == 20000 - 4410,
                   fmt("popped=%d first=%d (want %d) left=%u dropped=%llu", popped ? 1 : 0, l,
-                      total - static_cast<int>(PiAudio::kTarget), left,
+                      20000 - 4410, left,
                       static_cast<unsigned long long>(a.frames_dropped())));
         }
 
@@ -3314,6 +3317,46 @@ static void g_mixer() {
                   fmt("regular='%s' missing='%s' opened=%d (%s) fifo=%d mode=%03o (want 600)",
                       err_regular.c_str(), err_missing.c_str(), opened ? 1 : 0, err_new.c_str(),
                       is_fifo ? 1 : 0, mode));
+        }
+
+        // MX-36 — THE TRIM BOUNDARY: a backlog of exactly 13230 frames (300 ms,
+        // the documented maximum) is kept whole; one more frame and it is cut
+        // to 4410. Literal numbers, like MX-31/32. jnext-only, no VHDL
+        // counterpart.
+        {
+            struct After { bool ok; int16_t first; uint32_t left; uint64_t dropped; };
+            auto backlog = [&](const char* name, int total) {
+                const std::string fifo = (dir / name).string();
+                PiAudio a;
+                std::string err;
+                After r{a.open(fifo, err), 0, 0, 0};
+                const int w = r.ok ? ::open(fifo.c_str(), O_WRONLY) : -1;
+                const std::string stream = header() + frames_bytes(total, 0);
+                std::size_t off = 0;
+                while (w >= 0 && off < stream.size()) {
+                    const ssize_t n = ::write(w, stream.data() + off, stream.size() - off);
+                    if (n <= 0) break;
+                    off += static_cast<std::size_t>(n);
+                }
+                int16_t rr = 0;
+                r.ok = r.ok && wait_available(a, static_cast<uint32_t>(total)) ==
+                                   static_cast<uint32_t>(total) && a.pop(r.first, rr);
+                r.left = a.available();
+                r.dropped = a.frames_dropped();
+                if (w >= 0) ::close(w);
+                return r;
+            };
+            const After at   = backlog("mx36a.fifo", 13230);
+            const After past = backlog("mx36b.fifo", 13231);
+            check("MX-36", "a Pi I2S backlog of exactly 13230 frames (300 ms) is not trimmed; "
+                  "13231 frames are trimmed to 4410 (jnext-only buffering, no VHDL counterpart)",
+                  at.ok && at.first == 0 && at.left == 13229 && at.dropped == 0 && past.ok &&
+                      past.first == 13231 - 4410 && past.left == 4409 && past.dropped == 13231 - 4410,
+                  fmt("13230: ok=%d first=%d left=%u dropped=%llu (want 0/13229/0); 13231: ok=%d "
+                      "first=%d left=%u dropped=%llu (want 8821/4409/8821)",
+                      at.ok ? 1 : 0, at.first, at.left, static_cast<unsigned long long>(at.dropped),
+                      past.ok ? 1 : 0, past.first, past.left,
+                      static_cast<unsigned long long>(past.dropped)));
         }
         fs::remove_all(dir, ec);
     }
