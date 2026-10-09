@@ -4700,10 +4700,13 @@ static void test_nextpi_audio() {
         PiQemu qemu;
         std::string error;
         const bool started = fake.ok() && qemu.start(spec, error) && qemu.audio() != nullptr;
-        const bool args_ok = fake.args().find("wav,id=snd0,path=") != std::string::npos &&
-                             fake.args().find(",out.frequency=44100,out.channels=2,out.format=s16") != std::string::npos;
         for (int i = 0; i < 100 && started && qemu.audio()->available() < 11025; ++i)
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        // Read the args only now: the stand-in writes them asynchronously, and
+        // before it plays the tone, so audio having arrived means they are in.
+        const std::string args = fake.args();
+        const bool args_ok = args.find("wav,id=snd0,path=") != std::string::npos &&
+                             args.find(",out.frequency=44100,out.channels=2,out.format=s16") != std::string::npos;
         std::pair<int, int> closed{-1, -1}, open{-1, -1};
         if (started) {
             EmulatorConfig cfg = pi_qemu_config(qemu);
