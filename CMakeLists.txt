@@ -360,7 +360,7 @@ add_executable(jnext src/main.cpp)
 
 # GH #308 -- stack-frame gate. No production function may need a frame over
 # 256 KiB. jnext relies on MinGW's default 2 MB main-thread reserve on Windows
-# (no --stack override); the frame of main() once outgrew it, and the size
+# (no linker stack override); the frame of main() once outgrew it, and the size
 # depended on GCC's stack-slot sharing: the same July source gave a 2.36 MB
 # frame on mingw and 1.18 MB on Linux, so only a check on the cross build sees
 # that class. Spelling differs: GCC has -Werror=frame-larger-than=N, Clang
