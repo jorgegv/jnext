@@ -121,8 +121,11 @@ namespace {
 /// frame-relative tstates counter.
 ///
 /// VHDL `i_hc` / `i_vc` are 9-bit counters in the 7 MHz pixel-tick
-/// domain (each T-state = 2 pixel ticks). Frame is reset to 0 at
-/// frame start in Emulator::run_frame().
+/// domain. The counter counts CPU T-states at the current speed, so it is
+/// first scaled to 28 MHz master cycles (`s_tstate_divisor` each); one pixel
+/// tick is 4 master cycles (2 per T-state only at 3.5 MHz, the one speed
+/// the contention path runs at). Frame is reset to 0 at frame start in
+/// Emulator::run_frame().
 struct HcVc { uint16_t hc; uint16_t vc; };
 
 /// Rebase a raw frame-relative (hc, vc) onto the ULA's own display-relative
@@ -147,7 +150,7 @@ struct HcVc { uint16_t hc; uint16_t vc; };
 ///
 /// None of that is observable on this path, and it is not luck: jnext
 /// samples the raster exactly once per T-state (`derive_hc_vc()` emits
-/// `hc = ts_in_line * 2`), and every contention consumer of `i_hc` is
+/// `hc = ts_in_line * 2` at divisor 8, where contention runs), and every contention consumer of `i_hc` is
 /// aligned to the T-state's pixel-tick PAIR {odd p, even p+1} — `wait_s`
 /// keys on `hc_adj = i_hc(3:0) + 1` (zxula.vhd:582-583) and the stretch
 /// tables hold one value per pair, {3,4}→6, {5,6}→5, … (Task 54,
@@ -175,7 +178,7 @@ struct HcVc { uint16_t hc; uint16_t vc; };
 inline HcVc to_ula_counters(HcVc p) {
     // C-DIV: the two `%` reductions here were divisions by runtime
     // variables on every bus cycle. Both operands are strictly bounded —
-    // p.hc ∈ [0, s_line_ticks) (derive_hc_vc emits ts_in_line*2) and
+    // p.hc ∈ [0, s_line_ticks) (derive_hc_vc emits ts_in_line*2 at divisor 8, the only speed contention runs at) and
     // s_ula_hc_origin ∈ [0, s_line_ticks) (VideoTiming's
     // ula_prefetch_origin_hc, a physical raster position); likewise
     // p.vc / s_ula_vc_origin against s_frame_lines — so the difference
