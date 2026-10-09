@@ -6288,6 +6288,94 @@ static void test_FB9()
     }
 }
 
+// ── BLC — blend modes and stencil work on 3 blue bits (GH #304 Part C) ───
+//
+// zxnext.vhd:7201-7203  mixer_b_t := ('0' & layer2_rgb(2 downto 0)) +
+//                                    ('0' & mix_rgb(2 downto 0));   (4-bit sum)
+// zxnext.vhd:7286-7298  mode 110: sum > 7 clamps to 7
+// zxnext.vhd:7312-7352  mode 111: <=4 -> 0, >=12 -> 7, else sum-5
+// zxnext.vhd:7113       stencil_rgb <= ula_rgb and tm_rgb;       (9-bit AND)
+// Stimuli are palette-producible words (rgb333_to_argb8888); expected words are
+// built from the VHDL arithmetic (bl_add/bl_sub above), blue only: R and G are 0.
+static void test_BLC()
+{
+    set_group("BLC");
+    Renderer r;
+    r.reset();
+
+    // BLC-01: every blue pair, mode 110. Sums 8..14 clamp to 7; with the old
+    // 2-bit clamp (3) or 2-bit extraction every pair above 3 differs.
+    {
+        int bad = 0, fx = -1, fy = -1; uint32_t gotb = 0, expb = 0;
+        for (int x = 0; x < 8; ++x) for (int y = 0; y < 8; ++y) {
+            clear_layers(r);
+            r.set_layer_priority(6);
+            r.layer2_line_[0] = rgb333_to_argb8888(0, 0, x);
+            r.ula_line_[0]    = rgb333_to_argb8888(0, 0, y);
+            const uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+            const uint32_t exp = rgb333_to_argb8888(0, 0, bl_add(x, y));
+            if (got != exp) {
+                if (!bad) { fx = x; fy = y; gotb = got; expb = exp; }
+                ++bad;
+            }
+        }
+        check("BLC-01",
+              "mode 110: blue is a 3-bit channel, L2+mix summed and clamped at 7 for all 64 pairs (zxnext.vhd:7203,7286-7298)",
+              bad == 0,
+              DETAIL("%d of 64 wrong; first (%d,%d) got=0x%08X exp=0x%08X",
+                     bad, fx, fy, gotb, expb));
+    }
+
+    // BLC-02: every blue pair, mode 111 (sum<=4 -> 0, >=12 -> 7, else -5).
+    {
+        int bad = 0, fx = -1, fy = -1; uint32_t gotb = 0, expb = 0;
+        for (int x = 0; x < 8; ++x) for (int y = 0; y < 8; ++y) {
+            clear_layers(r);
+            r.set_layer_priority(7);
+            r.layer2_line_[0] = rgb333_to_argb8888(0, 0, x);
+            r.ula_line_[0]    = rgb333_to_argb8888(0, 0, y);
+            const uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+            const uint32_t exp = rgb333_to_argb8888(0, 0, bl_sub(x, y));
+            if (got != exp) {
+                if (!bad) { fx = x; fy = y; gotb = got; expb = exp; }
+                ++bad;
+            }
+        }
+        check("BLC-02",
+              "mode 111: blue is a 3-bit channel, subtractive rule for all 64 pairs (zxnext.vhd:7203,7312-7352)",
+              bad == 0,
+              DETAIL("%d of 64 wrong; first (%d,%d) got=0x%08X exp=0x%08X",
+                     bad, fx, fy, gotb, expb));
+    }
+
+    // BLC-03: stencil AND over all blue pairs, plus R and G carried through
+    // (R,G chosen so the AND of the two sources is distinct per channel).
+    {
+        int bad = 0, fx = -1, fy = -1; uint32_t gotb = 0, expb = 0;
+        for (int x = 0; x < 8; ++x) for (int y = 0; y < 8; ++y) {
+            clear_layers(r);
+            r.stencil_mode_ = true;
+            r.tm_enabled_   = true;
+            r.set_layer_priority(0);
+            r.ula_line_[0]     = rgb333_to_argb8888(7, 5, x);
+            r.tilemap_line_[0] = rgb333_to_argb8888(3, 6, y);
+            const uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+            const uint32_t exp = rgb333_to_argb8888(7 & 3, 5 & 6, x & y);
+            if (got != exp) {
+                if (!bad) { fx = x; fy = y; gotb = got; expb = exp; }
+                ++bad;
+            }
+        }
+        r.stencil_mode_ = false;
+        r.tm_enabled_   = false;
+        check("BLC-03",
+              "stencil: ula_rgb AND tm_rgb over all 9 bits, blue is 3 bits, for all 64 blue pairs (zxnext.vhd:7113)",
+              bad == 0,
+              DETAIL("%d of 64 wrong; first (%d,%d) got=0x%08X exp=0x%08X",
+                     bad, fx, fy, gotb, expb));
+    }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────
 
 int main() {
@@ -6316,6 +6404,7 @@ int main() {
     test_LMASK();      printf("  Group: LMASK — done\n");
     test_LORES();      printf("  Group: LR — done\n");
     test_FB9();        printf("  Group: FB9 — done\n");
+    test_BLC();        printf("  Group: BLC — done\n");
 
     printf("\n=====================================\n");
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

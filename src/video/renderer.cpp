@@ -701,7 +701,10 @@ void Renderer::apply_ula_clip(uint32_t* line, int row) const
 // Channel extraction from ARGB (reverses rrrgggbb_to_argb).
 static uint8_t argb_r3(uint32_t argb) { return (argb >> 21) & 7; }
 static uint8_t argb_g3(uint32_t argb) { return (argb >> 13) & 7; }
-static uint8_t argb_b2(uint32_t argb) { return (argb >>  6) & 3; }
+// Blue is 3 bits: VHDL mixes and ANDs the full 9-bit colour (zxnext.vhd:7113,
+// 7201-7203). Every palette-sourced word (rgb333_to_argb8888) carries B[2:0] in
+// bits 7:5.
+static uint8_t argb_b3(uint32_t argb) { return (argb >>  5) & 7; }
 
 // ARGB bits holding R[2:0], G[2:0], B[2:1]: VHDL `rgb(8 downto 1)`, the 8 bits
 // compared with NR 0x14 (zxnext.vhd:7100/7109/7121). Both expansions that feed
@@ -710,10 +713,9 @@ static uint8_t argb_b2(uint32_t argb) { return (argb >>  6) & 3; }
 // outside the mask, so a compare on masked words equals the VHDL compare.
 static constexpr uint32_t kArgbRgb8Mask = 0x00E0E0C0u;
 
-// Reconstruct ARGB from 3/3/2 channel values.
-static uint32_t channels_to_argb(uint8_t r3, uint8_t g3, uint8_t b2) {
-    uint8_t rgb8 = static_cast<uint8_t>((r3 << 5) | (g3 << 2) | b2);
-    return Renderer::rrrgggbb_to_argb(rgb8);
+// Reconstruct ARGB from 3/3/3 channel values.
+static uint32_t channels_to_argb(uint8_t r3, uint8_t g3, uint8_t b3) {
+    return rgb333_to_argb8888(r3, g3, b3);
 }
 
 // composite_scanline — dispatch once per scanline on the (per-line constant)
@@ -834,10 +836,10 @@ void Renderer::composite_scanline_mode(uint32_t* dst, uint32_t fallback_argb, in
                 u_px = TRANSPARENT;
             } else {
                 ulatm_transp = false;
-                // Per-channel AND in 3/3/2 bit space
+                // Per-channel AND in 3/3/3 bit space (9-bit AND, :7113)
                 uint8_t r = argb_r3(ula_px) & argb_r3(tm_px);
                 uint8_t g = argb_g3(ula_px) & argb_g3(tm_px);
-                uint8_t b = argb_b2(ula_px) & argb_b2(tm_px);
+                uint8_t b = argb_b3(ula_px) & argb_b3(tm_px);
                 u_px = channels_to_argb(r, g, b);
             }
         } else {
@@ -964,13 +966,13 @@ void Renderer::composite_scanline_mode(uint32_t* dst, uint32_t fallback_argb, in
                         break;
                 }
 
-                // Extract 3/3/2 channels (zeroed when transparent per VHDL 7101/7122).
+                // Extract 3/3/3 channels (zeroed when transparent per VHDL 7101/7122).
                 const uint8_t l2_r = l2_transp ? 0 : argb_r3(l2_px);
                 const uint8_t l2_g = l2_transp ? 0 : argb_g3(l2_px);
-                const uint8_t l2_b = l2_transp ? 0 : argb_b2(l2_px);
+                const uint8_t l2_b = l2_transp ? 0 : argb_b3(l2_px);
                 const uint8_t mx_r = mix_rgb_transp ? 0 : argb_r3(mix_rgb_px);
                 const uint8_t mx_g = mix_rgb_transp ? 0 : argb_g3(mix_rgb_px);
-                const uint8_t mx_b = mix_rgb_transp ? 0 : argb_b2(mix_rgb_px);
+                const uint8_t mx_b = mix_rgb_transp ? 0 : argb_b3(mix_rgb_px);
 
                 // Raw per-channel 4-bit sums (VHDL 7201-7203).
                 uint8_t r_sum = l2_r + mx_r;
@@ -982,7 +984,7 @@ void Renderer::composite_scanline_mode(uint32_t* dst, uint32_t fallback_argb, in
                     // Additive with clamp (VHDL 7288-7298).
                     const uint8_t r_out = std::min<uint8_t>(r_sum, 7);
                     const uint8_t g_out = std::min<uint8_t>(g_sum, 7);
-                    const uint8_t b_out = std::min<uint8_t>(b_sum, 3);
+                    const uint8_t b_out = std::min<uint8_t>(b_sum, 7);
                     mixer_argb = channels_to_argb(r_out, g_out, b_out);
                 } else {
                     // Subtractive gated on mix_rgb not transparent (VHDL 7314).
@@ -996,7 +998,7 @@ void Renderer::composite_scanline_mode(uint32_t* dst, uint32_t fallback_argb, in
                         g_sum = sub(g_sum);
                         b_sum = sub(b_sum);
                     }
-                    mixer_argb = channels_to_argb(r_sum & 7, g_sum & 7, b_sum & 3);
+                    mixer_argb = channels_to_argb(r_sum & 7, g_sum & 7, b_sum & 7);
                 }
 
                 // Output cascade (VHDL 7300-7310 add, 7342-7352 sub).
