@@ -4748,12 +4748,15 @@ static void test_nextpi_audio() {
     }
 
     // ── PI-49 — neither a rewind replay nor an RZX playback consumes the Pi's
-    // stream (it belongs to the live session), and both leave the I2S input
-    // silent; live again, the emulator draws from it. Silent means the I2S rest
-    // value 0x200 in BOTH channels (i2s.vhd:179), which the mixer centres on to
-    // output exactly 0 (Mixer::MIX_REST_LEVEL): during RZX playback every
-    // sample of each channel must be 0, which a swing alone could not show (a
-    // channel stuck at another value is flat too). RZX playback is driven
+    // stream (it belongs to the live session); live again, the emulator draws
+    // from it. A replay runs no audio path at all (run_frame does not advance
+    // audio while replay_mode_ holds), so there is no output to inspect: the
+    // row asserts exactly that, zero samples. An RZX playback does produce
+    // output, and it must be silent: the I2S rest value 0x200 in BOTH channels
+    // (i2s.vhd:179), which the mixer centres on to output exactly 0
+    // (Mixer::MIX_REST_LEVEL), so every sample of each channel must be 0 — a
+    // swing alone could not show it (a channel stuck at another value is flat
+    // too). RZX playback is driven
     // through the player's own API, as esp_wiring_test does: a recording of a
     // few empty frames keeps is_playing() true without overriding any input.
     {
@@ -4768,8 +4771,7 @@ static void test_nextpi_audio() {
         for (int i = 0; i < 100 && started && qemu.audio()->available() < 8000; ++i)
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         uint32_t before = 0, after_replay = 0, after_rzx = 0, after_live = 0;
-        std::pair<int, int> replay_swing{-1, -1};
-        MixerLevels rzx;
+        MixerLevels replay, rzx;
         if (started) {
             EmulatorConfig cfg = pi_qemu_config(qemu);
             cfg.pi_audio = qemu.audio();
@@ -4777,7 +4779,7 @@ static void test_nextpi_audio() {
             emu.init(cfg);
             before = qemu.audio()->available();
             emu.set_replay_mode(true);
-            replay_swing = mixer_swing(emu, 0xC0, 2);
+            replay = mixer_levels(emu, 0xC0, 2);
             after_replay = qemu.audio()->available();
             emu.set_replay_mode(false);
             RzxRecording rec;
@@ -4792,15 +4794,16 @@ static void test_nextpi_audio() {
         const bool rzx_silent = rzx.n > 0 && rzx.lo_l == 0 && rzx.hi_l == 0 && rzx.lo_r == 0 &&
                                 rzx.hi_r == 0;
         check("PI-49",
-              "neither a rewind replay nor an RZX playback consumes the Pi's sound, and both "
-              "leave the I2S input silent (0x200 in both channels, so every output sample is 0); "
-              "live again, the emulator draws from it (i2s.vhd:179)",
+              "neither a rewind replay nor an RZX playback consumes the Pi's sound; a replay "
+              "produces no audio at all, and an RZX playback leaves the I2S input silent (0x200 "
+              "in both channels, so every output sample is 0); live again, the emulator draws "
+              "from it (i2s.vhd:179)",
               started && before == 8000 && after_replay == before && after_rzx == before &&
-                  replay_swing.first <= 16 && rzx_silent && after_live < before,
+                  replay.n == 0 && rzx_silent && after_live < before,
               fmt("started=%d (%s) available before=%u after replay=%u after rzx=%u after live=%u "
-                  "swing replay=%d; rzx n=%d L %d..%d R %d..%d (want n>0, all 0)",
+                  "replay samples=%d (want 0); rzx n=%d L %d..%d R %d..%d (want n>0, all 0)",
                   started ? 1 : 0, error.c_str(), before, after_replay, after_rzx, after_live,
-                  replay_swing.first, rzx.n, rzx.lo_l, rzx.hi_l, rzx.lo_r, rzx.hi_r));
+                  replay.n, rzx.n, rzx.lo_l, rzx.hi_l, rzx.lo_r, rzx.hi_r));
     }
 
     // ── PI-50 — the warm-start recording machine does not get the Pi's sound:
