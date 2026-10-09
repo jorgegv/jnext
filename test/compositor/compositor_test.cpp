@@ -1583,10 +1583,12 @@ static void test_BL() {
     {
         clear_layers(r);
         r.set_layer_priority(6);                // 110
-        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(rgb8(3,2,1));
-        r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(rgb8(3,2,1));
+        // 9-bit palette words (R,G,B3) = (3,2,1); the mixer adds all three
+        // 3-bit channels (zxnext.vhd:7201-7203).
+        r.layer2_line_[0] = rgb333_to_argb8888(3,2,1);
+        r.ula_line_[0]    = rgb333_to_argb8888(3,2,1);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(bl_add(3,3), bl_add(2,2), bl_add(1,1)));
+        uint32_t expected = rgb333_to_argb8888(bl_add(3,3), bl_add(2,2), bl_add(1,1));
         check("BL-10", "mode 110 add no clamp: (3,2,1)+(3,2,1)=(6,4,2) (VHDL zxnext.vhd:7201-7203,7286)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
@@ -1669,10 +1671,9 @@ static void test_BL() {
     {
         clear_layers(r);
         r.set_layer_priority(6);
-        uint8_t c = rgb8(3, 3, 2);
-        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(c);
+        r.layer2_line_[0] = rgb333_to_argb8888(3, 3, 2);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(bl_add(3,0), bl_add(3,0), bl_add(2,0)));
+        uint32_t expected = rgb333_to_argb8888(bl_add(3,0), bl_add(3,0), bl_add(2,0));
         check("BL-16", "mode 110: only L2 opaque => blend(L2+0)=L2 (VHDL zxnext.vhd:7308)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
@@ -1682,25 +1683,24 @@ static void test_BL() {
     {
         clear_layers(r);
         r.set_layer_priority(7);
-        uint8_t c = rgb8(2,2,2);
-        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(c);
-        r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(c);
+        r.layer2_line_[0] = rgb333_to_argb8888(2,2,2);
+        r.ula_line_[0]    = rgb333_to_argb8888(2,2,2);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(bl_sub(2,2), bl_sub(2,2), bl_sub(2,2)));
+        uint32_t expected = rgb333_to_argb8888(bl_sub(2,2), bl_sub(2,2), bl_sub(2,2));
         check("BL-20", "mode 111 sub: sum<=4 -> 0 (VHDL zxnext.vhd:7316-7317)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
     }
 
-    // BL-21: sum>=12 -> 7. (7,7,3)+(7,7,3) (B is 2-bit so max 3)
+    // BL-21: sum>=12 -> 7. (7,7,7)+(7,7,7): blue is 3 bits like R and G
+    // (zxnext.vhd:7203), so all three channels reach the >=12 arm.
     {
         clear_layers(r);
         r.set_layer_priority(7);
-        uint8_t c = rgb8(7,7,3);
-        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(c);
-        r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(c);
+        r.layer2_line_[0] = rgb333_to_argb8888(7,7,7);
+        r.ula_line_[0]    = rgb333_to_argb8888(7,7,7);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(bl_sub(7,7), bl_sub(7,7), bl_sub(3,3)));
+        uint32_t expected = rgb333_to_argb8888(bl_sub(7,7), bl_sub(7,7), bl_sub(7,7));
         check("BL-21", "mode 111 sub: sum>=12 -> 7 (VHDL zxnext.vhd:7318-7319)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
@@ -1710,11 +1710,11 @@ static void test_BL() {
     {
         clear_layers(r);
         r.set_layer_priority(7);
-        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(rgb8(3,4,2));
-        r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(rgb8(3,4,2));
+        r.layer2_line_[0] = rgb333_to_argb8888(3,4,2);
+        r.ula_line_[0]    = rgb333_to_argb8888(3,4,2);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         // R: 3+3=6 -> sum-5=1 ; G: 4+4=8 -> 3 ; B: 2+2=4 -> 0 (<=4)
-        uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(bl_sub(3,3), bl_sub(4,4), bl_sub(2,2)));
+        uint32_t expected = rgb333_to_argb8888(bl_sub(3,3), bl_sub(4,4), bl_sub(2,2));
         check("BL-22", "mode 111 sub middle: (3,4,2) -> (1,3,0) (VHDL zxnext.vhd:7321)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X R=%u G=%u B=%u",
@@ -1899,13 +1899,10 @@ static void test_BL() {
         clear_layers(r);
         r.set_layer_priority(6);
         r.set_blend_mode(2);                                // "10"
-        uint8_t l2c  = rgb8(3,2,1);
-        uint8_t ulac = rgb8(3,2,1);
-        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(l2c);
-        r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(ulac);
+        r.layer2_line_[0] = rgb333_to_argb8888(3,2,1);
+        r.ula_line_[0]    = rgb333_to_argb8888(3,2,1);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(
-            rgb8(bl_add(3,3), bl_add(2,2), bl_add(1,1)));
+        uint32_t expected = rgb333_to_argb8888(bl_add(3,3), bl_add(2,2), bl_add(1,1));
         check("BL-40",
               "mode \"10\" prio6: mix_rgb=ula_final, add(L2,ULA) (zxnext.vhd:7149-7155,7286-7298)",
               got == expected,
@@ -1945,14 +1942,13 @@ static void test_BL() {
         r.set_blend_mode(2);                                // "10"
         r.stencil_mode_ = true;
         r.tm_enabled_   = true;
-        uint8_t pc = rgb8(3,2,1);
-        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(rgb8(0,0,0));
-        r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(pc);
-        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(pc);
+        const uint32_t pc = rgb333_to_argb8888(3,2,1);
+        r.layer2_line_[0]  = rgb333_to_argb8888(0,0,0);
+        r.ula_line_[0]     = pc;
+        r.tilemap_line_[0] = pc;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         // Stencil AND of identical pixels = pc; add(L2=0, stencil=pc) = pc.
-        uint32_t expected = Renderer::rrrgggbb_to_argb(
-            rgb8(bl_add(0,3), bl_add(0,2), bl_add(0,1)));
+        uint32_t expected = rgb333_to_argb8888(bl_add(0,3), bl_add(0,2), bl_add(0,1));
         check("BL-42",
               "mode \"10\" prio6: stencil ULA&TM routes via ula_final_rgb (zxnext.vhd:7130-7132,7149-7155)",
               got == expected,
@@ -2018,14 +2014,11 @@ static void test_BL() {
         clear_layers(r);
         r.set_layer_priority(6);
         r.set_blend_mode(3);                                // "11"
-        uint8_t l2c = rgb8(0,0,0);
-        uint8_t tmc = rgb8(4,2,1);
-        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
-        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
+        r.layer2_line_[0]  = rgb333_to_argb8888(0,0,0);
+        r.tilemap_line_[0] = rgb333_to_argb8888(4,2,1);
         r.tm_pixel_below_[0] = false;                       // tm_below=0
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(
-            rgb8(bl_add(0,4), bl_add(0,2), bl_add(0,1)));
+        uint32_t expected = rgb333_to_argb8888(bl_add(0,4), bl_add(0,2), bl_add(0,1));
         check("BL-52",
               "mode \"11\" prio6: TM as mix_rgb, ULA overlays transp (zxnext.vhd:7156-7162)",
               got == expected,
@@ -2041,14 +2034,11 @@ static void test_BL() {
         clear_layers(r);
         r.set_layer_priority(7);
         r.set_blend_mode(3);                                // "11"
-        uint8_t l2c = rgb8(5,5,3);
-        uint8_t tmc = rgb8(4,2,1);
-        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
-        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
+        r.layer2_line_[0]  = rgb333_to_argb8888(5,5,3);
+        r.tilemap_line_[0] = rgb333_to_argb8888(4,2,1);
         r.tm_pixel_below_[0] = false;                       // tm_below=0
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(
-            rgb8(bl_sub(5,4), bl_sub(5,2), bl_sub(3,1)));
+        uint32_t expected = rgb333_to_argb8888(bl_sub(5,4), bl_sub(5,2), bl_sub(3,1));
         check("BL-60",
               "mode \"11\" prio7: sub(L2,TM)=(4,2,0) (zxnext.vhd:7156-7162,7312-7352)",
               got == expected,
@@ -5070,11 +5060,10 @@ static void test_LMASK() {
     // mix_rgb transparent, i.e. its channels contribute 0 to the sum (VHDL
     // 7101/7122 + 7288-7298), so the mixer emits Layer 2 unchanged.
     {
-        const uint8_t  L2_RGB   = 0x24;                       // r=1 g=1 b=0
-        const uint8_t  ULA_RGB  = 0x49;                       // r=2 g=2 b=1
-        const uint32_t L2_ARGB  = Renderer::rrrgggbb_to_argb(L2_RGB);
-        const uint32_t ULA_ARGB = Renderer::rrrgggbb_to_argb(ULA_RGB);
-        const uint32_t SUM_ARGB = Renderer::rrrgggbb_to_argb(0x6D);  // r=3 g=3 b=1
+        // 9-bit palette words, 3-bit blue (zxnext.vhd:7203).
+        const uint32_t L2_ARGB  = rgb333_to_argb8888(1, 1, 0);
+        const uint32_t ULA_ARGB = rgb333_to_argb8888(2, 2, 1);
+        const uint32_t SUM_ARGB = rgb333_to_argb8888(3, 3, 1);
 
         clear_layers(r);
         r.set_layer_priority(6);           // additive blend
