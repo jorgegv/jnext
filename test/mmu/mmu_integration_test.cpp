@@ -2824,6 +2824,44 @@ static void test_g12_attribute_write_tags() {
               fmt("divisor=%d start=%lld end=%lld first row=%d (want %d)", d,
                   static_cast<long long>(at), static_cast<long long>(end), row, G12TAG_ROW));
     }
+
+    // G12-TAG-12 — a SOFT reset at 28 MHz mid-frame (NR 0x02 bit 0): cpu_speed
+    // goes back to 3.5 MHz (zxnext.vhd:5800) while the clock, the frame start
+    // and the FUSE counter all keep running (zxula_timing.vhd has no reset), so
+    // the counter's unit changes and must be re-derived. Without that the tag
+    // uses counter*8 on a counter still in 28 MHz units (row 141 here).
+    {
+        Emulator emu;
+        g12tag_prepare(emu);
+        nr_write(emu, 0x07, 0x03);
+        emu.run_frame();
+        const uint64_t fs  = emu.current_frame_cycle();
+        const uint64_t mcl = emu.timing().master_cycles_per_line;
+        const int      vbt = emu.video_timing().vblank_top();
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
+        emu.debug_state().run_to_cycle(fs + static_cast<uint64_t>(vbt + 100) * mcl);
+        emu.run_frame();
+        nr_write(emu, 0x02, 0x01);                          // soft reset
+        auto regs = emu.cpu().get_registers();
+        regs.PC = 0x8000; regs.SP = 0xFF00; regs.IFF1 = 0; regs.IFF2 = 0;
+        regs.AF = static_cast<uint16_t>(G12TAG_NEW << 8);
+        emu.cpu().set_registers(regs);
+        const int d = emu.clock().cpu_divisor();
+        const uint64_t inv_ts  = static_cast<uint64_t>(*fuse_z80_tstates_ptr()) * d;
+        const uint64_t inv_clk = emu.clock().get() - emu.current_frame_cycle();
+        int64_t at = 0, end = 0;
+        const int row = g12tag_run_at(emu, 0, at, end);
+        check("G12-TAG-12",
+              "after a soft reset at 28 MHz mid-frame the FUSE counter is re-derived for 3.5 MHz "
+              "(counter x divisor = clock - frame start, to a whole T-state) and the write tag follows",
+              d == 8 && inv_clk >= inv_ts && inv_clk - inv_ts < static_cast<uint64_t>(d) && at < 0 && end > 0 &&
+                  emu.mmu().read(0x5800 + G12TAG_OFF) == G12TAG_NEW && row == G12TAG_ROW,
+              fmt("divisor=%d counter*div=%llu clock-fs=%llu start=%lld end=%lld first row=%d (want %d)",
+                  d, static_cast<unsigned long long>(inv_ts),
+                  static_cast<unsigned long long>(inv_clk), static_cast<long long>(at),
+                  static_cast<long long>(end), row, G12TAG_ROW));
+    }
 }
 
 int main() {

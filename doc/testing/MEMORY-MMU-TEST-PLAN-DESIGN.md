@@ -1166,8 +1166,9 @@ at raw line `vblank_top + 150`.
 | G12-TAG-09  | 28 MHz write late in line 150                    | After column 0's fetch                                        | 151 (TAG-05 analogue)                                 |
 | G12-TAG-10  | 3.5 -> 28 MHz switched mid-frame                 | NR 0x07 = 3 around line 100; write at line 150                | 150                                                   |
 | G12-TAG-11  | State saved at 28 MHz, loaded into a fresh machine | Write at line 150 after the load                            | 150                                                   |
+| G12-TAG-12  | Soft reset (NR 0x02) at 28 MHz mid-frame         | Reset around line 100; write at line 150                      | 150; counter x divisor = clock - frame start          |
 
-**Total: ~174 test cases across 29 categories.**
+**Total: ~175 test cases across 29 categories.**
 
 ## Test Approach
 
