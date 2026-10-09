@@ -4816,7 +4816,7 @@ static void test_nextpi_audio() {
         const EmulatorConfig b = Emulator::warm_start_boot_config(live);
         check("PI-50",
               "the warm-start recording boot gets no NextPi audio reader (one consumer of the "
-              "Pi's sound)",
+              "Pi's sound; jnext-only, no VHDL counterpart)",
               b.pi_audio == nullptr && b.sd_card_image == "card.img", "");
     }
 
@@ -4862,7 +4862,7 @@ static void test_nextpi_audio() {
         fs::remove_all(deep_root, ec);
         check("PI-51",
               "when the Pi's audio FIFO cannot be created, starting NextPi fails with that error "
-              "and starts no QEMU",
+              "and starts no QEMU (jnext-only, no VHDL counterpart)",
               fake.ok() && deep_ok && refused && !spawned &&
                   error.find("uart.audio") != std::string::npos,
               fmt("deep=%d (%zu/%zu) refused=%d spawned=%d error='%s'", deep_ok ? 1 : 0, deep.size(),

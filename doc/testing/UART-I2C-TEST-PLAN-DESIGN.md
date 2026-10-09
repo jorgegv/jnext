@@ -553,8 +553,8 @@ network or a NextPi image.
 | PI-47 | a pipe end at fd 57; the lowest free number learned; `open_descriptors` of /dev/fd and (where it exists) /proc/self/fd | each read; 57 listed; the lowest free number (the directory's own descriptor) not listed; the lowest free number unchanged after the read and after `mark_close_on_exec_except(-1, {list})` |
 | PI-48 | `PiQemu` (default audio) with a stand-in that plays a 250 ms square wave into the wav FIFO, left ±16384 and right ±8192; Emulator with `pi_audio`; 3 frames at NR 0xA2 = 0x00, 5 at 0xC0 | args carry `wav,...,out.frequency=44100,out.channels=2,out.format=s16`; mixer swing <= 16 while closed; while open, left 1900..2200 and right 900..1150, so a channel swap fails (`zxnext.vhd:2358-2359`) |
 | PI-49 | same, 8000 frames buffered: 2 frames replay mode, 2 frames RZX playback, 1 frame live | `available()` unchanged through replay and RZX; the replay produces no mixer samples at all (its audio path does not run); during RZX every sample of both channels is 0 (the I2S input at its rest value 0x200, `i2s.vhd:179`); drops once live |
-| PI-50 | `Emulator::warm_start_boot_config` of a config with `pi_audio` set | `pi_audio` cleared |
-| PI-51 | `PiQemu` (default audio) with `$TMPDIR` nested so deep that `uart.out` fits in `PATH_MAX` but `uart.audio` does not | `start()` fails with an error naming `uart.audio`; no `audio()`, nothing running, the stand-in never spawned |
+| PI-50 | `Emulator::warm_start_boot_config` of a config with `pi_audio` set | `pi_audio` cleared. jnext-only, no VHDL counterpart |
+| PI-51 | `PiQemu` (default audio) with `$TMPDIR` nested so deep that `uart.out` fits in `PATH_MAX` but `uart.audio` does not | `start()` fails with an error naming `uart.audio`; no `audio()`, nothing running, the stand-in never spawned. jnext-only, no VHDL counterpart |
 
 ## Special Handling
 

@@ -3138,7 +3138,7 @@ static void g_mixer() {
             check("MX-30", "the Pi I2S source delivers a continuous stream: PiAudio reads QEMU's WAV "
                   "stream from a FIFO frame for frame (header and frames split across writes), "
                   "to_i2s maps it to 10-bit offset binary, and a Pi frame reaches the mix; "
-                  "all 3000 frames are counted received and none dropped",
+                  "all 3000 frames are counted received and none dropped (i2s.vhd:177-180)",
                   opened && in_order && mapping && s[0] == 1024 && s[1] == -1024 &&
                       a.frames_received() == 3000 && a.frames_dropped() == 0,
                   fmt("opened=%d (%s) got=%u in_order=%d mapping=%d mix L=%d R=%d (want 1024/-1024) "
