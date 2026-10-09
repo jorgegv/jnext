@@ -35,9 +35,12 @@ NextPi takes about a minute to boot. Then, at the NextZXOS command line:
 .pisend -c nextpi-play_speech "Hello from the Spectrum Next"
 ```
 
-The first finds the Pi; the second asks it to speak. The Pi's sound comes out of
-your computer's speakers — on a real Next it would go through the Next's own
-mixer instead.
+The first finds the Pi; the second asks it to speak. The Pi's sound goes through
+the Next's own mixer, as on the real machine: it plays with the rest of the
+Next's sound, a video or WAV recording of the session includes it, and NextREG
+`0xA2` turns it on and off (NextPi's tools turn it on themselves). It arrives a
+little late — about a tenth of a second — and at the 10-bit quality of the
+Next's input.
 
 QEMU runs in the background for as long as JNEXT does, and stops with it. A
 soft or hard reset of the Next leaves the Pi running, as it would on the real
@@ -54,7 +57,7 @@ the Preferences tab means that default:
 | NextPi directory | `~/.jnext/nextpi` | where the download goes and NextPi runs from |
 | NextPi release | `1_93D` | a release name on the NextPi mirror, or `latest` for the newest one there |
 | QEMU | `qemu-system-arm` on your `PATH` | the QEMU to run; `qemu-img` is expected beside it |
-| Pi audio | your speakers | a QEMU audio driver, `none` to mute it, or `wav:FILE` to record it |
+| Pi audio | the Next's mixer | or a QEMU audio driver to play it straight to your computer, `none` to mute it, or `wav:FILE` to record it on its own |
 
 Changes take effect the next time JNEXT starts. Changing the release makes the
 next start offer to download that one in place of the installed one. With
@@ -82,6 +85,5 @@ joystick port ([5.7](07-the-joystick-port-serial-cable.md)).
 
 - It is not saved in snapshots. Rewinding and RZX playback do not resend
   anything to the Pi, and the Pi is not rewound either.
-- Only the serial link crosses over: not the Pi's sound into the Next's mixer,
-  and not its other GPIO pins.
+- Only the serial link and the sound cross over, not the Pi's other GPIO pins.
 - It works on Linux and macOS only.

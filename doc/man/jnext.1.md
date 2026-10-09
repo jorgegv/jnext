@@ -285,7 +285,13 @@ debugger ones.
     are set under **Settings > Preferences > NextPi** (the `[nextpi]` section
     of `~/.jnext/jnext.conf`); their
     defaults are release `1_93D`, `~/.jnext/nextpi`, `qemu-system-arm` on
-    `PATH`, and the host's speakers.
+    `PATH`, and the Next's mixer.
+
+    The Pi's sound reaches the Next's mixer over I2S, as on the real machine:
+    it is mixed with the beeper, the AY chips and the DAC, so **\--record** and
+    **\--wav-record** include it, and NR 0xA2 enables and mutes it (NextPi's
+    tools enable it themselves). It is 10-bit, as the hardware's input is, and
+    arrives about 100 ms late. Rewinds and RZX playback hold it silent.
 
     The guest reaches the Pi only while NR 0xA0 bits 5:4 are `11` — UART 1 on
     GPIO 14/15, wired for a Pi — which NextPi's tools set before they talk to
@@ -2098,9 +2104,9 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     NextPi directory; empty means `~/.jnext/nextpi`), `release` (a NextPi
     release name on the mirror, or `latest` for the newest one listed there;
     empty means `1_93D`), `qemu_binary` (empty means `qemu-system-arm` on
-    `PATH`) and `audio` (a QEMU `-audiodev` driver such as `coreaudio`, `pa` or
-    `none`, or `wav:`*FILE*; empty means `coreaudio` on macOS and `pa`
-    elsewhere). Changing the release makes the next start offer to download it,
+    `PATH`) and `audio` (empty means the Next's mixer; otherwise a QEMU
+    `-audiodev` driver such as `coreaudio`, `pa` or `none` to play it straight
+    to the host instead, or `wav:`*FILE* to record it on its own). Changing the release makes the next start offer to download it,
     replacing the installed one.
     The quick screenshot is stored under `[screenshot]` as `quick_dir` (empty
     means `~/.jnext/screenshots`) and `quick_format` (`png` or `scr`), edited

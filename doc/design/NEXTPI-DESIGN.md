@@ -59,7 +59,7 @@ Everything else has a default, and lives in the `[nextpi]` section of
 | `dir` | NextPi directory | `~/.jnext/nextpi` (`$JNEXT_CONFIG_DIR/nextpi`) |
 | `release` | NextPi release (editable: a release name, or `latest`) | `1_93D` |
 | `qemu_binary` | QEMU | `qemu-system-arm` on `PATH`; `qemu-img` beside it |
-| `audio` | Pi audio (editable: a QEMU `-audiodev` driver, `none`, `wav:FILE`) | `coreaudio` on macOS, `pa` elsewhere |
+| `audio` | Pi audio (editable: empty, a QEMU `-audiodev` driver, `none`, `wav:FILE`) | the Next's mixer (§3.7); a driver plays it straight to the host |
 
 An empty value means the default, so a config file never pins a home directory.
 `--nextpi`/`--no-nextpi` override `enabled` the way `--esp`/`--no-esp` override
@@ -106,7 +106,7 @@ at once. NextPi then takes about a minute to reach `SUP>`, after which:
   `nextpi::start_outcome`, which `main()` applies.
 - **Not in this PR:** a live start/stop from the running GUI, a progress bar for
   the unpack (it is a busy indicator; the download has the bar), and Windows
-  (FIFOs, §3.7). The earlier manual-wiring flags (`--pi-uart-fifo`,
+  (FIFOs, §3.8). The earlier manual-wiring flags (`--pi-uart-fifo`,
   `--pi-uart-pty`) were dropped in review.
 
 ## 3. Design
@@ -282,7 +282,49 @@ prompts to both.
   `$JNEXT_SDCARD_DISTRO_URL` does for the SD image); `file://` URLs work, which
   is how the real release was provisioned offline during development.
 
-### 3.7 Platforms
+### 3.7 The Pi's sound into the Next's mixer (`audio/pi_audio.*`)
+
+Added after #310, by agreement with the owner, in its own PR. On a real Next the
+Pi's audio enters the FPGA over I2S and is summed into the mixer, gated by NR
+0xA2 (`zxnext.vhd:2283-2290`, `:2358-2359`). jnext already modelled that side —
+`I2s` and the mixer's 10-bit term (MX-06/07) — with nothing feeding it, which
+is why MX-30 had been retired ("no Raspberry Pi to be the producer"). NextPi
+under QEMU is one, so:
+
+- **QEMU writes the Pi's sound to a FIFO.** With the default audio setting,
+  `PiQemu` passes `-audiodev wav,...,path=<base>.audio,out.frequency=44100,
+  out.channels=2,out.format=s16`: a 44-byte WAV header, then 16-bit stereo PCM
+  at the mixer's own rate. Measured against real NextPi 1_93D: nothing is
+  written while the Pi is silent, and while it plays the stream arrives in
+  bursts averaging 44 100 frames/s.
+- **`PiAudio` reads it** on a thread of its own into a lock-free single-producer
+  single-consumer ring, so QEMU never blocks on a full pipe — not even while
+  jnext is paused. The reader is opened before QEMU starts, because QEMU's open
+  of its end blocks until a reader exists. It skips the header and reassembles
+  frames split across reads.
+- **The emulator latches one frame per mixer output sample**
+  (`Emulator::feed_pi_audio`, from `advance_audio` at each sample boundary),
+  converted to the hardware's 10-bit offset binary (`PiAudio::to_i2s`, 0 → 0x200
+  per `i2s.vhd:179`). From there the existing model applies unchanged: NR 0xA2
+  enables, mutes and routes it, it is summed with the beeper, AY and DAC, and
+  `--record` / `--wav-record` capture it.
+- **Clock drift.** QEMU runs on the host's clock, the mixer on the emulated
+  one. The consumer prebuffers 50 ms before playing, plays silence (0x200) on an
+  underrun and prebuffers again, and trims a backlog beyond 300 ms back to
+  100 ms by dropping the oldest frames, so latency stays near 100 ms.
+- **Replay.** RZX playback does not consume the stream (the Pi's output belongs
+  to the live session) and holds the input silent; a rewind's replay never
+  advances audio at all.
+- **No boot click.** `I2s` resets to sample 0, a full-negative excursion; with a
+  Pi attached the input starts at 0x200 instead.
+- The other settings (`coreaudio`, `pa`, ..., `none`, `wav:FILE`) keep sending
+  the Pi's sound to the host or a file directly, bypassing the mixer.
+
+End to end with real QEMU, a headless run typed `nextpi-play_speech` into the
+UART with NR 0xA0 = 0x30 and NR 0xA2 = 0xC0: the `--wav-record` file is silent
+until the command and carries the speech after it.
+
+### 3.8 Platforms
 
 POSIX only: the link is a FIFO pair. On Windows `--nextpi` is refused and the
 provisioner returns "not supported on Windows"; the code compiles there.
@@ -347,6 +389,14 @@ NextPi image is needed.
 | PI-45 | the fallback's number walk does the same; its limit is `sysconf`'s capped at 65536, and 65536 for -1 or 0 |
 | PI-46 | the fallback reads `/proc/self/fd` where it exists, else `/dev/fd`, and walks the numbers only with no list |
 | PI-47 | the open-descriptor list names open descriptors but not the directory's own, and leaves no descriptor open (reading it, or marking from it) |
+| PI-48 | the Pi's sound reaches the mixer through QEMU's wav FIFO and `PiAudio`; NR 0xA2 = 0x00 silent, 0xC0 the stand-in's square wave at about ±1024 per channel |
+| PI-49 | neither a rewind replay nor an RZX playback consumes the stream, both stay silent (no boot click); live again it is drawn |
+| PI-50 | the warm-start recording boot gets no audio reader |
+
+`test/audio/audio_test.cpp` revives **MX-30** and adds MX-31/32 for `PiAudio`
+against a real FIFO: the stream frame for frame (header and frames split across
+writes), the 10-bit mapping and a frame's level in the mix; prebuffer and
+underrun; and the latency trim.
 
 `main()` applying that policy is the functional regression row **nextpi-func**
 (`test/00regression/scripts/`): through the real binary, `--nextpi` with no QEMU
@@ -383,13 +433,16 @@ LANG/LC_ALL fails PI-33; the watchdog exiting 0 fails PI-34; an inheritable
 write end fails PI-35; no RZX half in the gate fails PI-36; a fallback that
 marks nothing fails PI-37; `asked_on_cli` true for `--no-nextpi` fails PI-38.
 In **nextpi-func**, `start_outcome(true, …)` in `main()` fails fact 4 (exit 1)
-and ignoring `--no-nextpi` fails fact 3.
+and ignoring `--no-nextpi` fails fact 3. For the sound: not latching the Pi's
+frames fails PI-48/49; consuming during RZX playback fails PI-49, and so does the
+boot click; keeping the reader in the warm-start config fails PI-50; not skipping
+the WAV header fails MX-30..32; no prebuffer fails MX-31; no trim fails MX-32.
 
 ## 5. Not done
 
 - **No Pi emulation.** The Pi is real NextPi software under QEMU.
-- **No I2S audio.** NextPi's audio reaches the Next's mixer over I2S (NR 0xA2) on
-  real hardware; under QEMU it plays on the host instead.
+- **No separate gain for the Pi.** Its level is the hardware's share of the mix
+  (a 10-bit input among the 13-bit sum); the master gain raises it with the rest.
 - **No GPIO, I2C1 or SPI0 to the Pi.** Only the UART crosses the wire.
 - **No live start/stop** from the running GUI; Preferences changes apply at the
   next launch.
