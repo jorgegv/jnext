@@ -661,6 +661,43 @@ static void test_TR() {
               DETAIL("got=0x%08X fb=0x%08X", got, fb));
     }
 
+    // TR-34 (GH #304): TR-19's sweep for Layer 2, `layer2_rgb_2(8 downto 1) =
+    //        transparent_rgb_2` (VHDL zxnext.vhd:7121), on palette-producible
+    //        colours with a fallback no palette can produce. TR-30 uses one
+    //        word for both stimulus and fallback, so it cannot tell the two
+    //        outcomes apart; this row can.
+    {
+        const uint32_t fb = 0xFF010203u;
+        int bad = 0, first_v = -1, cases = 0;
+        for (int v = 0; v < 256; ++v) {
+            for (int b = 0; b < 2; ++b) {
+                for (int flip = 0; flip < 9; ++flip) {   // 0 = match; k+1 = flip bit k
+                    const int c9 = (((v ^ (flip ? 1 << (flip - 1) : 0)) << 1) | b);
+                    clear_layers(r);
+                    r.set_layer_priority(0);
+                    r.set_transparent_rgb(static_cast<uint8_t>(v));
+                    const uint32_t px = rgb333_to_argb8888(
+                        (c9 >> 6) & 7, (c9 >> 3) & 7, c9 & 7);
+                    r.layer2_line_[0] = px;
+                    const uint32_t got = composite_one(r, fb);
+                    ++cases;
+                    if (got != (flip ? px : fb)) {
+                        if (!bad) first_v = v;
+                        ++bad;
+                    }
+                }
+            }
+        }
+        check("TR-34",
+              "Layer 2 compares exactly colour bits 8:1: 512 matching colours "
+              "transparent, 4096 with one compared bit flipped opaque "
+              "(VHDL zxnext.vhd:7121)",
+              bad == 0,
+              DETAIL("%d of %d cases wrong, first at NR0x14=0x%02X",
+                     bad, cases, first_v));
+        r.set_transparent_rgb(0xE3);
+    }
+
     // TR-31: Layer 2 pixel_en=0 => transparent. VHDL 7121.
     {
         clear_layers(r);
