@@ -1546,7 +1546,7 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
 **Input**
 :   Joy 1 Source (port 0x1F) and Joy 2 Source (port 0x37), each selecting what
     drives that connector; Capture Mouse, which confines the host pointer so
-    the Kempston mouse can move freely (Ctrl+Alt releases it).
+    the Kempston mouse can move freely (Ctrl+Alt releases it; Alt+Cmd on macOS).
 
 **Tape**
 :   Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle); Start Saving...,
@@ -1608,7 +1608,8 @@ fast the emulator runs relative to real time.
 | `=`                   | `=` (Symbol Shift + L)             |
 
 Shift is Caps Shift and Ctrl is Symbol Shift, matching a real Spectrum Next
-with a PC keyboard attached. Earlier releases had the two swapped.
+with a PC keyboard attached. Earlier releases had the two swapped. In the Qt
+GUI on a Mac, Cmd does what this section says of Ctrl.
 
 Holding Shift while pressing a digit or one of the symbol keys above reaches
 the guest as Caps Shift plus that key: Shift+1 is Edit, Shift+0 is Delete,

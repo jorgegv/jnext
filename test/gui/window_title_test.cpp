@@ -24,6 +24,7 @@
 //   capture title built from a fresh literal, not the base -> WTQ-03 fails
 //   release restores a fresh literal, not the base         -> WTQ-04 fails
 //   JNEXT_WINDOW_TITLE cut to "JNEXT <version>"            -> WTQ-02 fails
+//   status-bar message / status tip lose .arg() or name Alt+Cmd -> WTQ-05, WTQ-06 fail (GH #307)
 // ===========================================================================
 
 #include "gui/main_window.h"
@@ -31,6 +32,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QStatusBar>
 #include <QTemporaryDir>
 
 #include <cstdio>
@@ -104,11 +106,12 @@ int main(int argc, char** argv)
 
     // ── WTQ-03 — the mouse-capture title keeps the version ──────────
     QAction* capture = find_action(w, QStringLiteral("Capture &Mouse"));
-    QString captured_title, released_title;
+    QString captured_title, released_title, captured_message;
     if (capture) {
         capture->trigger();                 // checked -> set_mouse_captured(true)
         QApplication::processEvents();
         captured_title = w.windowTitle();
+        captured_message = w.statusBar()->currentMessage();
         capture->trigger();                 // unchecked -> set_mouse_captured(false)
         QApplication::processEvents();
         released_title = w.windowTitle();
@@ -124,6 +127,18 @@ int main(int argc, char** argv)
           capture && released_title == base && released_title.startsWith(version_tag),
           capture ? "title='" + released_title.toStdString() + "'"
                   : std::string("no \"Capture &Mouse\" action"));
+
+    // ── WTQ-05 — the capture status-bar message names the chord ─────
+    check("WTQ-05", "the status bar says \"Mouse captured — Ctrl+Alt to release\" (no unexpanded %1)",
+          capture && captured_message == QStringLiteral("Mouse captured — Ctrl+Alt to release"),
+          "message='" + captured_message.toStdString() + "'");
+
+    // ── WTQ-06 — the Capture Mouse status tip names the chord ───────
+    const QString tip = capture ? capture->statusTip() : QString();
+    check("WTQ-06", "the Capture Mouse status tip says \"Ctrl+Alt to release\" and has no unexpanded %1",
+          capture && tip.contains(QStringLiteral("Ctrl+Alt to release")) &&
+              !tip.contains(QStringLiteral("%1")),
+          "tip='" + tip.toStdString() + "'");
 
     std::printf("\n=========================================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

@@ -1,6 +1,6 @@
 # ChangeLog
 
-## Unreleased (2026-10-08)
+## Unreleased (2026-10-10)
 
 ### User Features
 - NextPi under QEMU (`--nextpi`, downloaded on first use): NextZXOS's Pi tools (`.pisend`, speech, music, tape streaming) work unmodified
@@ -8,6 +8,7 @@
 ### Bug Fixes
 - ULA, LoRes and text-mode tilemap pixels now honour the NR 0x14 transparent colour for every blue shade (PLOTIT-lite drew all blue)
 - The joystick-port serial cable's pseudo-terminal (`--joy-uart-pty`) now works on macOS, where it refused to start
+- On macOS the pointer-release hint now names Alt+Cmd, the chord that actually releases the mouse
 
 ### Internal JNEXT Development
 - Test harnesses fail on any SKIP; CI provisions z88dk-gdb and runs every test row
