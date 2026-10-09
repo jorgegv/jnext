@@ -31,8 +31,10 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #ifndef _WIN32
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 #include <cstdarg>
@@ -3281,6 +3283,37 @@ static void g_mixer() {
                   fmt("opened=%d a=%d b=%d available=%u (want %u) exact=%d last L=%d R=%d",
                       opened ? 1 : 0, a_ok ? 1 : 0, b_ok ? 1 : 0, got, 1 + PiAudio::kPrebuffer,
                       exact ? 1 : 0, l, r));
+        }
+
+        // MX-35 — OPEN ERRORS AND PERMISSIONS: a path that exists and is not a
+        // FIFO is refused, a FIFO that cannot be made reports mkfifo's error,
+        // and the FIFO is made private (0600: only jnext's user may feed its
+        // mixer). jnext-only, no VHDL counterpart.
+        {
+            const std::string regular = (dir / "mx35.file").string();
+            { std::ofstream(regular) << "x"; }
+            PiAudio a;
+            std::string err_regular, err_missing, err_new;
+            const bool refuses_file = !a.open(regular, err_regular) &&
+                                      err_regular.find("exists and is not a FIFO") != std::string::npos;
+            const std::string missing = (dir / "no-such-dir" / "mx35.fifo").string();
+            const bool reports_mkfifo = !a.open(missing, err_missing) &&
+                                        err_missing.find("mkfifo") != std::string::npos;
+            const std::string fresh = (dir / "mx35.fifo").string();
+            const mode_t old_mask = ::umask(022);
+            const bool opened = a.open(fresh, err_new);
+            ::umask(old_mask);
+            struct stat st{};
+            const bool is_fifo = ::stat(fresh.c_str(), &st) == 0 && S_ISFIFO(st.st_mode);
+            const unsigned mode = static_cast<unsigned>(st.st_mode & 0777);
+            a.close();
+            check("MX-35", "the Pi's audio FIFO: a path that exists and is not a FIFO is refused, a "
+                  "FIFO that cannot be made reports mkfifo's error, and a new one is created 0600 "
+                  "(jnext-only, no VHDL counterpart)",
+                  refuses_file && reports_mkfifo && opened && is_fifo && mode == 0600,
+                  fmt("regular='%s' missing='%s' opened=%d (%s) fifo=%d mode=%03o (want 600)",
+                      err_regular.c_str(), err_missing.c_str(), opened ? 1 : 0, err_new.c_str(),
+                      is_fifo ? 1 : 0, mode));
         }
         fs::remove_all(dir, ec);
     }

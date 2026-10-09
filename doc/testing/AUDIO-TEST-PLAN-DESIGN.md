@@ -465,6 +465,7 @@ VHDL ref: `audio_mixer.vhd` lines 63-90
 | MX-32  | Pi I2S source: latency trim | A backlog of 20000 frames is cut to `kTarget` (4410) by dropping the OLDEST; the next frame is number 20000-4410 |
 | MX-33  | Pi I2S source: ring full | With nothing popping, `kCapacity` + 1000 frames written: exactly `kCapacity` (131072) kept and received, 1000 dropped and counted. jnext-only buffering, no VHDL counterpart |
 | MX-34  | Pi I2S source: reconnect | Writer A: header, one frame and half of another, then closes; writer B: a fresh header and `kPrebuffer` frames. B's header is skipped and A's half frame discarded: A's frame, then all of B's, arrive exact. jnext-only, no VHDL counterpart |
+| MX-35  | Pi I2S source: open errors and permissions | `open` of a regular file fails with "exists and is not a FIFO"; of a path in a missing directory, with mkfifo's error; a new FIFO is created 0600 (under umask 022). jnext-only, no VHDL counterpart |
 
 ### 5.2 Final Mix
 

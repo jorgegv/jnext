@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <climits>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdint>
@@ -4791,6 +4792,55 @@ static void test_nextpi_audio() {
               "the warm-start recording boot gets no NextPi audio reader (one consumer of the "
               "Pi's sound)",
               b.pi_audio == nullptr && b.sd_card_image == "card.img", "");
+    }
+
+    // ── PI-51 — the audio FIFO cannot be made: start() fails with PiAudio's
+    // error rather than starting a QEMU whose sound goes nowhere. $TMPDIR is
+    // nested so deep that the UART FIFO `uart.out` still fits in PATH_MAX but
+    // `uart.audio`, two characters longer, does not (ENAMETOOLONG).
+    {
+        namespace fs = std::filesystem;
+        FakeNextPi fake("audio-fifo");
+        // Canonical: the kernel's limit applies after symlinks resolve, and
+        // macOS's temporary directory sits behind one (/var -> /private/var).
+        std::error_code ec;
+        const fs::path deep_root = fs::canonical(fs::temp_directory_path(), ec) /
+                                   ("jnext-pi51-" + std::to_string(::getpid()));
+        // strlen(<tmp>/jnext-pi-XXXXXX/uart.out) == PATH_MAX - 1, the longest
+        // path the kernel takes; ".audio" makes it PATH_MAX + 1.
+        const std::size_t want = static_cast<std::size_t>(PATH_MAX) - 1 -
+                                 std::strlen("/jnext-pi-XXXXXX/uart.out");
+        std::string deep = deep_root.string();
+        while (deep.size() + 1 < want) {               // each step adds "/" + a name
+            const std::size_t rest = want - deep.size() - 1;
+            // Names of at most 200 chars; never leave exactly 1 char to fill.
+            const std::size_t take = rest <= 200 ? rest : (rest == 201 ? 199 : 200);
+            deep += "/" + std::string(take, 'd');
+        }
+        fs::create_directories(deep, ec);
+        const bool deep_ok = !ec && deep.size() == want;
+        const char* old = std::getenv("TMPDIR");
+        const std::string saved = old ? old : "";
+        ::setenv("TMPDIR", deep.c_str(), 1);
+        PiQemu::Spec spec;
+        spec.dir         = fake.dir();
+        spec.qemu_binary = fake.bin("qemu-system-arm");
+        bool refused = false;
+        std::string error;
+        {
+            PiQemu q;
+            refused = !q.start(spec, error) && !q.running() && q.audio() == nullptr;
+        }
+        if (old) ::setenv("TMPDIR", saved.c_str(), 1); else ::unsetenv("TMPDIR");
+        const bool spawned = fs::exists(fs::path(fake.dir()) / "bin" / "pid");
+        fs::remove_all(deep_root, ec);
+        check("PI-51",
+              "when the Pi's audio FIFO cannot be created, starting NextPi fails with that error "
+              "and starts no QEMU",
+              fake.ok() && deep_ok && refused && !spawned &&
+                  error.find("uart.audio") != std::string::npos,
+              fmt("deep=%d (%zu/%zu) refused=%d spawned=%d error='%s'", deep_ok ? 1 : 0, deep.size(),
+                  want, refused ? 1 : 0, spawned ? 1 : 0, error.c_str()));
     }
 }
 

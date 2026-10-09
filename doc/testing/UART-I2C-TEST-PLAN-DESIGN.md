@@ -554,6 +554,7 @@ network or a NextPi image.
 | PI-48 | `PiQemu` (default audio) with a stand-in that plays a 250 ms square wave into the wav FIFO, left ±16384 and right ±8192; Emulator with `pi_audio`; 3 frames at NR 0xA2 = 0x00, 5 at 0xC0 | args carry `wav,...,out.frequency=44100,out.channels=2,out.format=s16`; mixer swing <= 16 while closed; while open, left 1900..2200 and right 900..1150, so a channel swap fails (`zxnext.vhd:2358-2359`) |
 | PI-49 | same, 8000 frames buffered: 2 frames replay mode, 2 frames RZX playback, 1 frame live | `available()` unchanged through replay and RZX, swing <= 16 in both; drops once live |
 | PI-50 | `Emulator::warm_start_boot_config` of a config with `pi_audio` set | `pi_audio` cleared |
+| PI-51 | `PiQemu` (default audio) with `$TMPDIR` nested so deep that `uart.out` fits in `PATH_MAX` but `uart.audio` does not | `start()` fails with an error naming `uart.audio`; no `audio()`, nothing running, the stand-in never spawned |
 
 ## Special Handling
 
