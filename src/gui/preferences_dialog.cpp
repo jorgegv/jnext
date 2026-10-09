@@ -381,15 +381,12 @@ QWidget* PreferencesDialog::build_nextpi_tab() {
     nextpi_audio_combo_->addItems({QString(), QStringLiteral("none"), QStringLiteral("coreaudio"),
                                    QStringLiteral("pa"), QStringLiteral("pipewire"),
                                    QStringLiteral("alsa"), QStringLiteral("sdl")});
-    nextpi_audio_combo_->lineEdit()->setPlaceholderText(
-#ifdef __APPLE__
-        tr("coreaudio (default)"));
-#else
-        tr("pa (default)"));
-#endif
+    nextpi_audio_combo_->lineEdit()->setPlaceholderText(tr("the Next's mixer (default)"));
     nextpi_audio_combo_->setToolTip(
-        tr("Where the Pi's sound goes: a QEMU audio driver, \"none\" to mute "
-           "it, or wav:FILE to record it."));
+        tr("Where the Pi's sound goes. Empty: into the Next's mixer, as on the "
+           "real machine — NextREG 0xA2 controls it, and recordings include it. "
+           "Or a QEMU audio driver to play it straight to this computer, "
+           "\"none\" to mute it, or wav:FILE to record it on its own."));
     form->addRow(tr("Pi audio:"), nextpi_audio_combo_);
 
     // Every other control follows the enable tick, so a disabled Pi does not

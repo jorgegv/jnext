@@ -1,5 +1,8 @@
 #pragma once
+
+#include "audio/pi_audio.h"
 #include <atomic>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -51,9 +54,10 @@ public:
     struct Spec {
         std::string dir;                              ///< NextPi directory (layout above)
         std::string qemu_binary = "qemu-system-arm";  ///< PATH-searched unless it has a '/'
-        /// Pi audio: "" for the platform default (coreaudio on macOS, pa
-        /// elsewhere), a QEMU -audiodev driver name ("none" mutes), or
-        /// "wav:FILE" to record it.
+        /// Pi audio: "" for the Next's mixer (the default — QEMU writes it to a
+        /// FIFO that `audio()` reads, and the emulator mixes it over I2S), a
+        /// QEMU -audiodev driver name to play it straight to the host ("none"
+        /// mutes it), or "wav:FILE" to record it.
         std::string audio;
         /// How long `stop()` waits after asking QEMU to stop before it
         /// SIGKILLs it. A test seam; production uses the default.
@@ -86,12 +90,22 @@ public:
     const std::string& rx_path() const { return rx_path_; }
     const std::string& tx_path() const { return tx_path_; }
 
+    /// The reader of the Pi's audio when it goes to the Next's mixer (`audio`
+    /// empty), else nullptr. Lives as long as this object.
+    PiAudio* audio() const { return audio_.get(); }
+
     /// The QEMU argument vector, argv[0] excluded. Pure; exposed for tests.
     /// `pipe_base` is the chardev path whose `.in` / `.out` are the FIFOs.
     static std::vector<std::string> build_args(const Spec& spec, const std::string& pipe_base);
 
-    /// The `-audiodev` value for `audio` as `Spec::audio` describes it.
+    /// The `-audiodev` value for a driver name or "wav:FILE"; "" is the
+    /// platform default driver (coreaudio on macOS, pa elsewhere).
     static std::string audiodev_arg(const std::string& audio);
+
+    /// The `-audiodev` value that sends the Pi's sound to the Next's mixer:
+    /// QEMU's `wav` back-end into the FIFO `<pipe_base>.audio`, 44.1 kHz s16
+    /// stereo (PiAudio's format).
+    static std::string mixer_audiodev_arg(const std::string& pipe_base);
 
     /// True when `dir` has the files QEMU boots from; otherwise false with
     /// `error` naming the first one missing and how to make it.
@@ -138,5 +152,6 @@ private:
     std::atomic<bool> stopping_{false};
     std::atomic<int>  exit_status_{-1};
     int               watchdog_fd_ = -1;   ///< write end of the watchdog pipe
+    std::unique_ptr<PiAudio> audio_;       ///< the Pi's audio, when it goes to the mixer
     int               stop_grace_ms_ = 3000;
 };

@@ -19,6 +19,7 @@
 #include "peripheral/joy_uart_source.h"
 #include "peripheral/joy_uart_link.h"
 #include "peripheral/pi_uart_device.h"
+#include "audio/pi_audio.h"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -269,6 +270,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         dac_.set_write_callback({});
     }
     i2s_.reset();
+    // With NextPi's sound attached, the I2S input starts at SILENCE (the
+    // offset-binary midpoint, i2s.vhd:179), not at the register's reset value
+    // 0 — which is a full-negative excursion, and would click at every boot
+    // until the first Pi frame is latched (feed_pi_audio, one sample later).
+    if (cfg.pi_audio) i2s_.set_sample(0x200, 0x200);
     mixer_.reset();
     mixer_.set_output_gain_db(cfg.audio_gain_db);
     mixer_.set_beeper_gain_db(cfg.audio_gain_beeper_db);
@@ -9439,6 +9445,25 @@ void Emulator::setup_pi_uart()
         pi_uart_->describe());
 }
 
+void Emulator::feed_pi_audio()
+{
+    // Silence (the offset-binary midpoint, i2s.vhd:179) unless a frame is
+    // ready. During RZX playback the stream is NOT consumed: like the UART
+    // link, the Pi's output belongs to the live session, not to a recording.
+    // (A rewind's replay never gets here: run_frame does not advance audio
+    // while replay_mode_ holds.)
+    uint16_t left  = 0x200;
+    uint16_t right = 0x200;
+    if (!rzx_player_.is_playing()) {
+        int16_t l = 0, r = 0;
+        if (config_.pi_audio->pop(l, r)) {
+            left  = PiAudio::to_i2s(l);
+            right = PiAudio::to_i2s(r);
+        }
+    }
+    i2s_.set_sample(left, right);
+}
+
 void Emulator::service_pi_uart_frame()
 {
     // THE REPLAY GATE — see service_joy_uart_link_frame(), whose argument this
@@ -11270,6 +11295,10 @@ void Emulator::advance_audio(uint64_t master_cycles)
         if (sample_accum_ >= SAMPLE_THRESHOLD) {
             sample_accum_ -= SAMPLE_THRESHOLD;
             mixer_.emit_sample();
+            // The Pi's next sample is latched at the same boundary, so each
+            // one holds for exactly one output sample: QEMU is asked for the
+            // mixer's own 44.1 kHz.
+            if (config_.pi_audio) feed_pi_audio();
         }
     }
 }
@@ -14074,5 +14103,6 @@ EmulatorConfig Emulator::warm_start_boot_config(const EmulatorConfig& live)
     boot_cfg.joy_uart_pty         = false;
     boot_cfg.pi_uart_fifo_rx.clear();
     boot_cfg.pi_uart_fifo_tx.clear();
+    boot_cfg.pi_audio = nullptr;   // one consumer of the Pi's sound
     return boot_cfg;
 }

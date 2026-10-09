@@ -1811,6 +1811,10 @@ private:
     /// already drives.
     void service_pi_uart_frame();
 
+    /// Latch the Pi's next audio frame (config_.pi_audio) into I2s; called at
+    /// each mixer output-sample boundary while a PiAudio is attached.
+    void feed_pi_audio();
+
     /// GH #25 — once-per-`run_frame()` ESP service, and the ONLY place jnext
     /// drives the device outside the per-instruction `tick()`.
     ///
