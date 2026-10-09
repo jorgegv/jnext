@@ -27,8 +27,14 @@
 #include "audio/beeper.h"
 #include "audio/mixer.h"
 #include "audio/i2s.h"
+#include "audio/pi_audio.h"
 
 #include <algorithm>
+#include <filesystem>
+#ifndef _WIN32
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -3064,25 +3070,142 @@ static void g_mixer() {
                   "audio_mixer.vhd:89-90", s[0], s[1]));
     }
 
-    // MX-30 — RETIRED 2026-09-24 (GH #201), was the G29 WONT.
-    //
-    // The row asks for a Pi I2S SOURCE delivering a continuous 10-bit
-    // stream. jnext models no such source and, by project scope decision,
-    // never will:
-    //   * doc/design/EMULATOR-DESIGN-PLAN.md §3.1 lists `audio/i2s*.vhd`
-    //     with scope "no" — "I2S; SDL audio queue used instead".
-    //   * the same plan's Phase 5 records Pi GPIO (NR 0x90-0xA9) as
-    //     "intentionally stubbed (cached only); no emulation effect".
-    //   * src/audio/i2s.h:10-13 states the class is "a pure latched
-    //     sample-pair register — no real I2S wire / clocking / protocol
-    //     emulation", and nothing in src/ ever calls I2s::set_sample().
-    // There is no Raspberry Pi in the emulated machine to be the producer,
-    // so this is an absent SUBSYSTEM, not an untested behaviour.
-    //
-    // What jnext does model — the mixer's consumption of the 10-bit input
-    // and its NR 0xA2 gating — stays covered by MX-06 (zero-extension into
-    // the 13-bit sum) and MX-07 (the offset-binary midpoint, GH #116).
-    // Struck in AUDIO-TEST-PLAN-DESIGN.md §5.1; no check() row exists.
+    // MX-30..32 — THE PI I2S SOURCE (revived; was retired as G29 / GH #201
+    // because jnext had no Raspberry Pi to produce samples). NextPi under QEMU
+    // is one now: its sound arrives as a WAV stream on a FIFO, PiAudio reads it,
+    // and the emulator latches one frame per mixer sample into I2s
+    // (uart_integration_test PI-28/29 cover that path end to end). These rows
+    // pin PiAudio itself against a real FIFO.
+#ifndef _WIN32
+    {
+        namespace fs = std::filesystem;
+        const fs::path dir = fs::temp_directory_path() / ("jnext-piaudio-" + std::to_string(::getpid()));
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        fs::create_directories(dir, ec);
+        auto header = [] {
+            std::string h("RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0\x02\0\x44\xac\0\0\x10\xb1\x02\0\x04\0\x10\0data\0\0\0\0", 44);
+            return h;
+        };
+        auto frames_bytes = [](int count, int start) {
+            std::string b;
+            for (int i = 0; i < count; ++i) {
+                const int16_t l = static_cast<int16_t>(start + i), r = static_cast<int16_t>(-(start + i));
+                b.push_back(static_cast<char>(l)); b.push_back(static_cast<char>(l >> 8));
+                b.push_back(static_cast<char>(r)); b.push_back(static_cast<char>(r >> 8));
+            }
+            return b;
+        };
+        auto wait_available = [](PiAudio& a, uint32_t n) {
+            for (int i = 0; i < 300 && a.available() < n; ++i) ::usleep(10000);
+            return a.available();
+        };
+
+        // MX-30 — a continuous stream, header and frames split across writes,
+        // arrives frame for frame; to_i2s maps signed 16-bit to the 10-bit
+        // offset binary of i2s.vhd:179; a Pi frame in I2s reaches the mix.
+        {
+            const std::string fifo = (dir / "mx30.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const std::string stream = header() + frames_bytes(3000, 100);
+            for (std::size_t off = 0; w >= 0 && off < stream.size();) {
+                const std::size_t chunk = off < 120 ? 7 : 4096;           // split header and frames
+                const ssize_t n = ::write(w, stream.data() + off, std::min(chunk, stream.size() - off));
+                if (n <= 0) break;
+                off += static_cast<std::size_t>(n);
+            }
+            const uint32_t got = wait_available(a, 3000);
+            bool in_order = got == 3000;
+            for (int i = 0; in_order && i < 3000; ++i) {
+                int16_t l = 0, r = 0;
+                in_order = a.pop(l, r) && l == 100 + i && r == -(100 + i);
+            }
+            if (w >= 0) ::close(w);
+            const bool mapping = PiAudio::to_i2s(-32768) == 0 && PiAudio::to_i2s(0) == 0x200 &&
+                                 PiAudio::to_i2s(32767) == 1023;
+            Beeper bp; TurboSound ts; Dac dac; Mixer mx; I2s i2s;
+            i2s.set_nr_a2_ctl(0xC0);
+            i2s.set_sample(PiAudio::to_i2s(16384), PiAudio::to_i2s(-16384));
+            mx.set_i2s_source(&i2s);
+            mx.generate_sample(bp, ts, dac);
+            int16_t s[2];
+            mx.read_samples(s, 1);
+            check("MX-30", "the Pi I2S source delivers a continuous stream: PiAudio reads QEMU's WAV "
+                  "stream from a FIFO frame for frame (header and frames split across writes), "
+                  "to_i2s maps it to 10-bit offset binary, and a Pi frame reaches the mix",
+                  opened && in_order && mapping && s[0] == 1024 && s[1] == -1024,
+                  fmt("opened=%d (%s) got=%u in_order=%d mapping=%d mix L=%d R=%d (want 1024/-1024)",
+                      opened ? 1 : 0, err.c_str(), got, in_order ? 1 : 0, mapping ? 1 : 0, s[0], s[1]));
+        }
+
+        // MX-31 — PREBUFFER and UNDERRUN: nothing plays until kPrebuffer frames
+        // are in; running dry is silence (false), counted, and refills again.
+        {
+            const std::string fifo = (dir / "mx31.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const std::string first = header() + frames_bytes(PiAudio::kPrebuffer - 1, 0);
+            const bool w1 = w >= 0 && ::write(w, first.data(), first.size()) == static_cast<ssize_t>(first.size());
+            wait_available(a, PiAudio::kPrebuffer - 1);
+            int16_t l, r;
+            const bool waits = !a.pop(l, r);                                  // one short of the prebuffer
+            const std::string one = frames_bytes(1, 0);
+            const bool w2 = w >= 0 && ::write(w, one.data(), one.size()) == 4;
+            wait_available(a, PiAudio::kPrebuffer);
+            int played = 0;
+            while (a.pop(l, r)) ++played;                                      // plays all, then runs dry
+            const bool dry = a.underruns() == 1;
+            const std::string again = frames_bytes(10, 0);
+            const bool w3 = w >= 0 && ::write(w, again.data(), again.size()) == 40;
+            wait_available(a, 10);
+            const bool refills = !a.pop(l, r);                                 // prebuffering again
+            if (w >= 0) ::close(w);
+            check("MX-31", "the Pi I2S source prebuffers before playing, reports an underrun as "
+                  "silence when it runs dry, and prebuffers again before resuming",
+                  opened && w1 && w2 && w3 && waits && played == static_cast<int>(PiAudio::kPrebuffer) &&
+                      dry && refills,
+                  fmt("waits=%d played=%d (want %u) underruns=%llu refills=%d", waits ? 1 : 0, played,
+                      PiAudio::kPrebuffer, static_cast<unsigned long long>(a.underruns()),
+                      refills ? 1 : 0));
+        }
+
+        // MX-32 — LATENCY TRIM: a backlog past kMaxLatency is cut to kTarget by
+        // dropping the OLDEST frames, so the Pi's sound never lags far behind.
+        {
+            const std::string fifo = (dir / "mx32.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const int total = 20000;
+            const std::string stream = header() + frames_bytes(total, 0);
+            std::size_t off = 0;
+            while (w >= 0 && off < stream.size()) {
+                const ssize_t n = ::write(w, stream.data() + off, stream.size() - off);
+                if (n <= 0) break;
+                off += static_cast<std::size_t>(n);
+            }
+            wait_available(a, total);
+            int16_t l = 0, r = 0;
+            const bool popped = a.pop(l, r);
+            const uint32_t left = a.available();
+            if (w >= 0) ::close(w);
+            check("MX-32", "a Pi I2S backlog beyond the maximum latency is trimmed to the target by "
+                  "dropping the oldest frames",
+                  opened && popped && l == total - static_cast<int>(PiAudio::kTarget) &&
+                      left == PiAudio::kTarget - 1 && a.frames_dropped() == total - PiAudio::kTarget,
+                  fmt("popped=%d first=%d (want %d) left=%u dropped=%llu", popped ? 1 : 0, l,
+                      total - static_cast<int>(PiAudio::kTarget), left,
+                      static_cast<unsigned long long>(a.frames_dropped())));
+        }
+        fs::remove_all(dir, ec);
+    }
+#endif
 
     // MX-10 - silence: pcm_L = 0.
     {
