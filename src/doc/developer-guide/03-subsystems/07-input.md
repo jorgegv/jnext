@@ -148,7 +148,9 @@ in the machine-side class, plus a stated policy.
 - **`pointer_capture.h`** (in `src/platform/`) decides what the Qt frontend
   does with each motion event while the pointer is captured — forward the
   delta, re-centre, or ignore the echo of its own warp. SDL does not use it,
-  because its relative mode does the equivalent natively. Its default policy
+  because its relative mode does the equivalent natively. Both frontends do
+  use its `release_chord()` for the release hint: Qt on macOS reads Command as
+  Ctrl, so the chord there is Alt+Cmd (issue #307). Its default policy
   measures every delta from the centre, which needs a warp that lands at once:
   X11 and Windows. macOS and Wayland get a second policy,
   `DeferredWarpPolicy` (issue #303). On macOS `QCursor::setPos` is a synthetic
