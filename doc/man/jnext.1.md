@@ -1608,8 +1608,8 @@ fast the emulator runs relative to real time.
 | `=`                   | `=` (Symbol Shift + L)             |
 
 Shift is Caps Shift and Ctrl is Symbol Shift, matching a real Spectrum Next
-with a PC keyboard attached. Earlier releases had the two swapped. On a Mac,
-Cmd does what this page says of Ctrl.
+with a PC keyboard attached. Earlier releases had the two swapped. In the Qt
+GUI on a Mac, Cmd does what this section says of Ctrl.
 
 Holding Shift while pressing a digit or one of the symbol keys above reaches
 the guest as Caps Shift plus that key: Shift+1 is Edit, Shift+0 is Delete,
