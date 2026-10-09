@@ -673,7 +673,7 @@ void Renderer::apply_ula_clip(uint32_t* line, int row) const
 //     ULA:    palette RGB[8:1] == NR 0x14 OR ula_clipped OR ula_en=0
 //     Layer2: palette RGB[8:1] == NR 0x14 OR pixel_en=0
 //     Sprite: pixel_en=0 only (no RGB compare)
-//     TM:     pixel_en=0 OR (text_mode AND palette RGB==NR 0x14) OR tm_en=0
+//     TM:     pixel_en=0 OR (text_mode AND palette RGB[8:1]==NR 0x14) OR tm_en=0
 //
 //   ULA/TM merge (VHDL 7115-7116):
 //     ulatm_transparent = ula_transparent AND tm_transparent
@@ -737,7 +737,8 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int row
 template<int PRIO>
 void Renderer::composite_scanline_mode(uint32_t* dst, uint32_t fallback_argb, int row)
 {
-    // Pre-compute NR 0x14 transparency reference (RGB portion only).
+    // Pre-compute NR 0x14 transparency reference: the RRRGGGBB bits only
+    // (kArgbRgb8Mask), as every compared layer word is masked the same way.
     // VHDL 7100: ula_rgb_2(8 downto 1) = transparent_rgb_2
     //
     // Read via transparent_rgb_for_line(row), not the live transparent_rgb_
