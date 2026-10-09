@@ -22,8 +22,9 @@
 //
 // The decision is kept here, free of Qt and SDL, because the frontends'
 // event handlers are reachable by no test (the same constraint that keeps
-// render_policy.h / frame_deadline.h pure). SDL does not use this: its
-// relative mode implements the equivalent natively.
+// render_policy.h / frame_deadline.h pure). SDL does not use the motion policy:
+// its relative mode implements the equivalent natively. Both frontends do use
+// release_chord() below for the release hint.
 // ---------------------------------------------------------------------------
 
 #include <string_view>
@@ -218,6 +219,14 @@ private:
 /// API anyway. X11 ("xcb"), Windows and "offscreen" keep Policy.
 inline bool deferred_warp_platform(std::string_view qpa_platform) {
     return qpa_platform.substr(0, 7) == "wayland";
+}
+
+/// The pointer-release chord as the user's keyboard names it (issue #307).
+/// Both frontends release on their toolkit's Ctrl + Alt. Qt on macOS reads the
+/// Command key as Ctrl (Qt::Key_Control / ControlModifier), so there the keys
+/// pressed are Alt (Option) + Cmd. SDL never swaps (Command is its GUI key).
+inline const char* release_chord(bool ctrl_is_command) {
+    return ctrl_is_command ? "Alt+Cmd" : "Ctrl+Alt";
 }
 
 }  // namespace pointer_capture

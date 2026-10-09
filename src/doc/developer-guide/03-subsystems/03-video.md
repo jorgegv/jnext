@@ -214,7 +214,7 @@ the NR 0x15 priority into a `composite_scanline_mode<PRIO>` specialisation, so
 the per-pixel loop that follows carries no branch on the mode at all.
 
 The per-pixel logic follows the VHDL compositor point for point: per-layer
-transparency (an NR 0x14 RGB compare, the layer's own enable, the clip result),
+transparency (an NR 0x14 compare on the colour's top 8 bits (RRRGGGBB, VHDL `rgb(8 downto 1)`), the layer's own enable, the clip result),
 the ULA/tilemap merge with its `tm_pixel_below` and stencil (NR 0x68 b0)
 variants, Layer 2 priority promotion, blend modes 6 and 7 with their NR 0x68
 b6:5 source selection, the border exception, and the NR 0x4A fallback colour

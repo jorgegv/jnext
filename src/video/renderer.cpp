@@ -673,7 +673,7 @@ void Renderer::apply_ula_clip(uint32_t* line, int row) const
 //     ULA:    palette RGB[8:1] == NR 0x14 OR ula_clipped OR ula_en=0
 //     Layer2: palette RGB[8:1] == NR 0x14 OR pixel_en=0
 //     Sprite: pixel_en=0 only (no RGB compare)
-//     TM:     pixel_en=0 OR (text_mode AND palette RGB==NR 0x14) OR tm_en=0
+//     TM:     pixel_en=0 OR (text_mode AND palette RGB[8:1]==NR 0x14) OR tm_en=0
 //
 //   ULA/TM merge (VHDL 7115-7116):
 //     ulatm_transparent = ula_transparent AND tm_transparent
@@ -696,6 +696,13 @@ void Renderer::apply_ula_clip(uint32_t* line, int row) const
 static uint8_t argb_r3(uint32_t argb) { return (argb >> 21) & 7; }
 static uint8_t argb_g3(uint32_t argb) { return (argb >> 13) & 7; }
 static uint8_t argb_b2(uint32_t argb) { return (argb >>  6) & 3; }
+
+// ARGB bits holding R[2:0], G[2:0], B[2:1]: VHDL `rgb(8 downto 1)`, the 8 bits
+// compared with NR 0x14 (zxnext.vhd:7100/7109/7121). Both expansions that feed
+// the line buffers (rgb333_to_argb8888, rrrgggbb_to_argb) keep these bits
+// intact; the 9th palette bit (blue LSB) and the replicated low bits are
+// outside the mask, so a compare on masked words equals the VHDL compare.
+static constexpr uint32_t kArgbRgb8Mask = 0x00E0E0C0u;
 
 // Reconstruct ARGB from 3/3/2 channel values.
 static uint32_t channels_to_argb(uint8_t r3, uint8_t g3, uint8_t b2) {
@@ -730,7 +737,8 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int row
 template<int PRIO>
 void Renderer::composite_scanline_mode(uint32_t* dst, uint32_t fallback_argb, int row)
 {
-    // Pre-compute NR 0x14 transparency reference (RGB portion only).
+    // Pre-compute NR 0x14 transparency reference: the RRRGGGBB bits only
+    // (kArgbRgb8Mask), as every compared layer word is masked the same way.
     // VHDL 7100: ula_rgb_2(8 downto 1) = transparent_rgb_2
     //
     // Read via transparent_rgb_for_line(row), not the live transparent_rgb_
@@ -739,7 +747,7 @@ void Renderer::composite_scanline_mode(uint32_t* dst, uint32_t fallback_argb, in
     // -> transparent_rgb_1 -> transparent_rgb_2) through the exact same
     // stage0/1a/1/2 register chain as ula_en, so a Copper MOVE that changes
     // NR 0x14 mid-frame must not affect the row it lands on (Task 45).
-    const uint32_t nr14_rgb = rrrgggbb_to_argb(transparent_rgb_for_line(row)) & 0x00FFFFFF;
+    const uint32_t nr14_rgb = rrrgggbb_to_argb(transparent_rgb_for_line(row)) & kArgbRgb8Mask;
 
     // Host-side layer mask (--delayed-screenshot-layers). A masked-out
     // layer is forced transparent at the compositor input, i.e. treated
@@ -783,37 +791,14 @@ void Renderer::composite_scanline_mode(uint32_t* dst, uint32_t fallback_argb, in
         // alongside the hardware enable bits because that is precisely
         // what they emulate (a masked layer == a disabled layer).
         const bool ula_transp = mask_ula || is_transparent(ula_px) ||
-                                ((ula_px & 0x00FFFFFF) == nr14_rgb);
-        // Task 46: `(l2_px & 0x00FFFFFF) == nr14_rgb` is now PROVABLY
-        // UNREACHABLE whenever `is_transparent(l2_px)` is false. Unlike
-        // the ULA (which never evaluates NR 0x14 itself — VHDL 7100 does
-        // it once, here, at the compositor), Layer2::render_scanline
-        // already skip-writes any pixel whose palette RRRGGGBB equals
-        // `transparent_rgb_for_line(row)` (VHDL zxnext.vhd:7121), using
-        // the IDENTICAL snapshot `nr14_rgb` is built from two lines above.
-        // rrrgggbb_to_argb()'s R/G expansion is the same injective 3-bit
-        // function `layer2_colour()`'s full-precision RGB333->ARGB uses
-        // for R/G, so an R/G mismatch in one representation is an R/G
-        // mismatch in the other. For B, rrrgggbb_to_argb() only carries 2
-        // bits (register format) while layer2_colour() carries the full 3
-        // (palette format); the 8-bit values each side's expansion can
-        // produce (`{0,36,73,109,146,182,219,255}` for 3-bit vs.
-        // `{0,85,170,255}` for 2-bit-then-doubled) intersect ONLY at the
-        // endpoints 0 and 255 — precisely the b3 values whose top 2 bits
-        // (`b3>>1`) already equal the compared 2-bit value, i.e. exactly
-        // the cases `layer2_rgb8() == transparent_rgb` already covers.
-        // So a WRITTEN Layer 2 pixel (opaque per Layer2's own gate against
-        // this SAME snapshot) can never coincide with `nr14_rgb` here.
-        // Before Task 46, Layer2 read a DIFFERENT (live) value than this
-        // `nr14_rgb`, so the two gates could legitimately disagree — this
-        // clause was the (broken) recovery path for the "wrongly opaque"
-        // direction, but could never recover the "wrongly transparent /
-        // skip-written" direction (the pixel was already destroyed). Kept
-        // rather than deleted: it is harmless, documents the equivalence,
-        // and a future change to either expansion function would silently
-        // resurrect a real bug if this clause were gone.
+                                ((ula_px & kArgbRgb8Mask) == nr14_rgb);
+        // VHDL 7121: layer2_rgb_2(8 downto 1) = transparent_rgb_2. Layer2::
+        // render_scanline already skip-writes pixels whose layer2_rgb8()
+        // equals the same per-line NR 0x14 snapshot (Task 46), so this clause
+        // is redundant to that gate; it is kept so the compositor itself
+        // matches 7121 whatever the line buffer holds.
         const bool l2_transp  = mask_l2 || is_transparent(l2_px) ||
-                                ((l2_px & 0x00FFFFFF) == nr14_rgb);
+                                ((l2_px & kArgbRgb8Mask) == nr14_rgb);
         // VHDL 6934/7118: sprite_en=0 forces all sprites transparent.
         const bool spr_transp = mask_sprites || is_transparent(spr_px) || !sprite_en_;
         // VHDL zxnext.vhd:7109 — `tm_transparent <= '1' when (tm_pixel_en_2 = '0')
@@ -825,7 +810,7 @@ void Renderer::composite_scanline_mode(uint32_t* dst, uint32_t fallback_argb, in
         // flag gates the RGB match clause (G98 + G101).
         const bool tm_transp  = mask_tiles || is_transparent(tm_px) ||
                                 (tm_pixel_textmode_[x] &&
-                                 (tm_px & 0x00FFFFFF) == nr14_rgb);
+                                 (tm_px & kArgbRgb8Mask) == nr14_rgb);
 
         // L2 priority promotion flag (VHDL 7220 etc.: palette bit 15).
         const bool l2_prio = !l2_transp && layer2_priority_[x];

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.14</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.14</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2579,7 +2579,7 @@ clip, then call <code>composite_scanline</code>. That last step dispatches once 
 the NR 0x15 priority into a <code>composite_scanline_mode&lt;PRIO&gt;</code> specialisation, so
 the per-pixel loop that follows carries no branch on the mode at all.</p>
 <p>The per-pixel logic follows the VHDL compositor point for point: per-layer
-transparency (an NR 0x14 RGB compare, the layer's own enable, the clip result),
+transparency (an NR 0x14 compare on the colour's top 8 bits (RRRGGGBB, VHDL <code>rgb(8 downto 1)</code>), the layer's own enable, the clip result),
 the ULA/tilemap merge with its <code>tm_pixel_below</code> and stencil (NR 0x68 b0)
 variants, Layer 2 priority promotion, blend modes 6 and 7 with their NR 0x68
 b6:5 source selection, the border exception, and the NR 0x4A fallback colour
