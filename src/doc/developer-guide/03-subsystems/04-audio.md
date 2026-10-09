@@ -88,10 +88,16 @@ and no filtering here, because that is the mixer's job.
 
 **Pi I2S** — `src/audio/i2s.*`. A Next can take digital audio in from a
 Raspberry Pi attached to its interface, and mix it with everything else. jnext
-models the destination but not the journey: a latched 10-bit sample pair plus the
-NR 0xA2 control byte, with no protocol emulation. The module exists because the
-mixer sum includes it, and its *idle* value (0x200, offset binary) is
-load-bearing.
+models the destination, not the wire: a latched 10-bit sample pair plus the
+NR 0xA2 control byte, with no I2S protocol emulation. Its *idle* value (0x200,
+offset binary) is load-bearing. The samples come from **NextPi**: QEMU's `wav`
+audio back-end writes the emulated Pi's sound into a FIFO, `src/audio/pi_audio.*`
+reads it on a thread into a ring, and the emulator latches one frame per mixer
+output sample into `I2s` (`Emulator::feed_pi_audio`), or 0x200 when none is
+ready. `PiAudio` absorbs the drift between QEMU's host clock and the emulated
+one: it prebuffers 50 ms, plays silence on an underrun and prebuffers again, and
+trims a backlog past 300 ms back to 100 ms. The chapter on peripherals describes
+how NextPi itself runs.
 
 ## The mixer
 

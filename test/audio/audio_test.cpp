@@ -3076,7 +3076,7 @@ static void g_mixer() {
     // because jnext had no Raspberry Pi to produce samples). NextPi under QEMU
     // is one now: its sound arrives as a WAV stream on a FIFO, PiAudio reads it,
     // and the emulator latches one frame per mixer sample into I2s
-    // (uart_integration_test PI-28/29 cover that path end to end). These rows
+    // (uart_integration_test PI-48/49 cover that path end to end). These rows
     // pin PiAudio itself against a real FIFO.
 #ifndef _WIN32
     {

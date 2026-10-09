@@ -9445,6 +9445,11 @@ void Emulator::setup_pi_uart()
         pi_uart_->describe());
 }
 
+// One Pi frame per mixer output sample only holds if QEMU is asked for the
+// mixer's own rate (PiQemu::mixer_audiodev_arg uses PiAudio::kRate).
+static_assert(PiAudio::kRate == Mixer::SAMPLE_RATE,
+              "the Pi's audio must arrive at the mixer's sample rate");
+
 void Emulator::feed_pi_audio()
 {
     // Silence (the offset-binary midpoint, i2s.vhd:179) unless a frame is

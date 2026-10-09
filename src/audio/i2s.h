@@ -4,16 +4,15 @@
 
 namespace jnext { namespace save { class StateDesc; } }
 
-/// Pi I2S audio stub.
+/// The Pi's I2S audio input.
 ///
 /// Mirrors `audio_mixer.vhd:89-90,99-100` where the `pi_i2s_L_i` /
 /// `pi_i2s_R_i` 10-bit inputs are zero-extended to 13 bits and added
 /// into the mixer sum.
 ///
-/// This is a pure latched sample-pair register — no real I2S wire /
-/// clocking / protocol emulation. The stub lets the Mixer path and
-/// test harness exercise the final 13-bit sum term. Setters clamp to
-/// 10 bits (matching the VHDL signal width).
+/// This is a latched sample-pair register — no I2S wire / clocking /
+/// protocol emulation. Setters clamp to 10 bits (matching the VHDL
+/// signal width).
 ///
 /// G113 / G73: NR 0xA2 control byte (`nr_a2_pi_i2s_ctl` per
 /// `zxnext.vhd:5564`) is stored here; the gated 10-bit `pi_audio_L/R`
@@ -21,9 +20,11 @@ namespace jnext { namespace save { class StateDesc; } }
 /// and `pi_audio_R()` so the Mixer and the NR 0x2C/0x2E read handlers
 /// consume the same VHDL-correct gated value.
 ///
-/// No port or NextREG wiring exposed here; samples are injected
-/// programmatically via `Emulator::i2s()` and the NR 0xA2 byte is
-/// poked via `set_nr_a2_ctl()` from the NextREG write handler.
+/// The samples come from NextPi: with its sound going to the mixer,
+/// `Emulator::feed_pi_audio()` latches one frame of `PiAudio` (QEMU's
+/// audio stream) per mixer output sample, and 0x200 — silence — when
+/// none is ready. The NR 0xA2 byte is poked via `set_nr_a2_ctl()` from
+/// the NextREG write handler.
 class I2s {
 public:
     I2s();

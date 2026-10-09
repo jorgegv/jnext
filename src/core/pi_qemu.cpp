@@ -71,7 +71,7 @@ std::string PiQemu::mixer_audiodev_arg(const std::string& pipe_base) {
     // The Pi's sound into jnext's mixer: QEMU's `wav` back-end writing a WAV
     // stream into the FIFO PiAudio reads, at the mixer's own rate and format.
     return "wav,id=snd0,path=" + qemu_escape(pipe_base + ".audio") +
-           ",out.frequency=44100,out.channels=2,out.format=s16";
+           ",out.frequency=" + std::to_string(PiAudio::kRate) + ",out.channels=2,out.format=s16";
 }
 
 std::vector<std::string> PiQemu::build_args(const Spec& spec, const std::string& pipe_base) {
