@@ -5746,7 +5746,9 @@ static void test_LORES()
         f.ram.write(10u * 8192u + ula_off, 0x00);
         f.r.set_fallback_colour(0x21);        // outside both colour halves
         f.refresh_snapshots();
-        const uint32_t FB = Renderer::rrrgggbb_to_argb(0x21);
+        // NR $4A = 0x21 -> 9-bit 001 000 011 (zxnext.vhd:7214/6990: blue LSB =
+        // B1 or B0 = 1): R=1 -> 0x24, G=0, B=3 -> 0x6D. Literal, not a helper.
+        const uint32_t FB = 0xFF24006Du;
 
         std::vector<uint32_t> g(Renderer::FB_WIDTH);
         f.enable_lores(true);
@@ -6028,7 +6030,9 @@ static void test_LORES()
         f.r.ula().set_clip_y1(32);
         f.r.ula().set_clip_y2(159);
         f.refresh_snapshots();
-        const uint32_t FB = Renderer::rrrgggbb_to_argb(0x21);
+        // NR $4A = 0x21 -> 9-bit 001 000 011 (zxnext.vhd:7214/6990: blue LSB =
+        // B1 or B0 = 1): R=1 -> 0x24, G=0, B=3 -> 0x6D. Literal, not a helper.
+        const uint32_t FB = 0xFF24006Du;
 
         std::vector<uint32_t> inside_row(Renderer::FB_WIDTH);
         std::vector<uint32_t> outside_row(Renderer::FB_WIDTH);
