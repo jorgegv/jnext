@@ -3203,6 +3203,40 @@ static void g_mixer() {
                       total - static_cast<int>(PiAudio::kTarget), left,
                       static_cast<unsigned long long>(a.frames_dropped())));
         }
+
+        // MX-33 — RING FULL: with nothing popping, the reader keeps exactly
+        // kCapacity frames and drops (and counts) every one past that, so a
+        // paused emulator never blocks QEMU. jnext-only buffering: no VHDL
+        // counterpart.
+        {
+            const std::string fifo = (dir / "mx33.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const uint32_t extra = 1000;
+            const uint32_t total = PiAudio::kCapacity + extra;
+            const std::string stream = header() + frames_bytes(static_cast<int>(total), 0);
+            std::size_t off = 0;
+            while (w >= 0 && off < stream.size()) {
+                const ssize_t n = ::write(w, stream.data() + off, stream.size() - off);
+                if (n <= 0) break;
+                off += static_cast<std::size_t>(n);
+            }
+            for (int i = 0; i < 500 && a.frames_received() + a.frames_dropped() < total; ++i)
+                ::usleep(10000);
+            if (w >= 0) ::close(w);
+            check("MX-33", "with nothing consuming, the Pi I2S ring keeps exactly its capacity "
+                  "(131072 frames) and drops, counting them, the frames past it (jnext-only "
+                  "buffering, no VHDL counterpart)",
+                  opened && off == stream.size() && a.available() == PiAudio::kCapacity &&
+                      a.frames_received() == PiAudio::kCapacity && a.frames_dropped() == extra,
+                  fmt("opened=%d wrote=%zu/%zu available=%u received=%llu dropped=%llu (want %u/%u/%u)",
+                      opened ? 1 : 0, off, stream.size(), a.available(),
+                      static_cast<unsigned long long>(a.frames_received()),
+                      static_cast<unsigned long long>(a.frames_dropped()), PiAudio::kCapacity,
+                      PiAudio::kCapacity, extra));
+        }
         fs::remove_all(dir, ec);
     }
 #endif
