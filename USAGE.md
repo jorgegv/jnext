@@ -1678,7 +1678,8 @@ host-side throttle).
 **Input**  
 Joy 1 Source (port 0x1F) and Joy 2 Source (port 0x37), each selecting
 what drives that connector; Capture Mouse, which confines the host
-pointer so the Kempston mouse can move freely (Ctrl+Alt releases it).
+pointer so the Kempston mouse can move freely (Ctrl+Alt releases it;
+Alt+Cmd on macOS).
 
 **Tape**  
 Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle); Start
@@ -1741,6 +1742,7 @@ changes how fast the emulator runs relative to real time.
 
 Shift is Caps Shift and Ctrl is Symbol Shift, matching a real Spectrum
 Next with a PC keyboard attached. Earlier releases had the two swapped.
+On a Mac, Cmd does what this page says of Ctrl.
 
 Holding Shift while pressing a digit or one of the symbol keys above
 reaches the guest as Caps Shift plus that key: Shift+1 is Edit, Shift+0

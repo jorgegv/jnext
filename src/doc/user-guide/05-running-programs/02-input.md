@@ -39,7 +39,8 @@ Three things catch people out:
 
 - **Shift is Caps Shift and Ctrl is Symbol Shift** — the same way round as a
   real Spectrum Next with a PC keyboard plugged into it. Earlier versions had
-  these two swapped.
+  these two swapped. On a Mac, **Cmd** is the key that does what this page
+  says of Ctrl.
 - **Esc is Break**, not "get me out of fullscreen". Fullscreen is F11 and only
   F11.
 - **Alt is a host modifier, never a Spectrum key.** Only the four Alt
@@ -108,7 +109,7 @@ For software that uses a Kempston mouse, JNEXT has to confine your pointer —
 otherwise it hits the edge of your screen and the emulated pointer stops.
 
 - **Capture:** click the emulator screen, or use **Input > Capture Mouse**.
-- **Release:** **Ctrl+Alt**, the same combination VirtualBox and QEMU use.
+- **Release:** **Ctrl+Alt** (**Alt+Cmd** on a Mac), the same combination VirtualBox and QEMU use.
 
 Capture is off until you ask for it, so the pointer stays yours and you can
 always reach the menus. While captured, the status bar reminds you how to get
