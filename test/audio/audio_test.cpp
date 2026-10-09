@@ -3237,6 +3237,46 @@ static void g_mixer() {
                       static_cast<unsigned long long>(a.frames_dropped()), PiAudio::kCapacity,
                       PiAudio::kCapacity, extra));
         }
+
+        // MX-34 — RECONNECT: QEMU reopens the FIFO (a restart), and each writer
+        // starts with its own WAV header. Writer A leaves half a frame behind
+        // when it closes; writer B's header must be skipped and that half frame
+        // discarded, so B's frames arrive exact. jnext-only, no VHDL counterpart.
+        {
+            const std::string fifo = (dir / "mx34.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            auto write_all = [](int fd, const std::string& b) {
+                std::size_t off = 0;
+                while (fd >= 0 && off < b.size()) {
+                    const ssize_t n = ::write(fd, b.data() + off, b.size() - off);
+                    if (n <= 0) return false;
+                    off += static_cast<std::size_t>(n);
+                }
+                return fd >= 0;
+            };
+            const int wa = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const bool a_ok = write_all(wa, header() + frames_bytes(1, 500) + std::string("\x11\x22", 2));
+            wait_available(a, 1);
+            if (wa >= 0) ::close(wa);
+            ::usleep(300000);                         // the reader sees writer A go
+            const int wb = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const bool b_ok = write_all(wb, header() + frames_bytes(PiAudio::kPrebuffer, 1000));
+            const uint32_t got = wait_available(a, 1 + PiAudio::kPrebuffer);
+            int16_t l = 0, r = 0;
+            bool exact = got == 1 + PiAudio::kPrebuffer && a.pop(l, r) && l == 500 && r == -500;
+            for (int i = 0; exact && i < static_cast<int>(PiAudio::kPrebuffer); ++i)
+                exact = a.pop(l, r) && l == 1000 + i && r == -(1000 + i);
+            if (wb >= 0) ::close(wb);
+            check("MX-34", "when QEMU reopens the Pi's audio FIFO, the new stream's WAV header is "
+                  "skipped and a half frame left by the old writer is discarded, so every frame "
+                  "arrives exact (jnext-only buffering, no VHDL counterpart)",
+                  opened && a_ok && b_ok && exact,
+                  fmt("opened=%d a=%d b=%d available=%u (want %u) exact=%d last L=%d R=%d",
+                      opened ? 1 : 0, a_ok ? 1 : 0, b_ok ? 1 : 0, got, 1 + PiAudio::kPrebuffer,
+                      exact ? 1 : 0, l, r));
+        }
         fs::remove_all(dir, ec);
     }
 #endif

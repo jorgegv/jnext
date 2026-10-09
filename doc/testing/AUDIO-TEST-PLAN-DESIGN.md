@@ -464,6 +464,7 @@ VHDL ref: `audio_mixer.vhd` lines 63-90
 | MX-31  | Pi I2S source: prebuffer and underrun | Nothing plays until `kPrebuffer` (2205) frames are in; running dry returns silence, counts one underrun, and prebuffers again |
 | MX-32  | Pi I2S source: latency trim | A backlog of 20000 frames is cut to `kTarget` (4410) by dropping the OLDEST; the next frame is number 20000-4410 |
 | MX-33  | Pi I2S source: ring full | With nothing popping, `kCapacity` + 1000 frames written: exactly `kCapacity` (131072) kept and received, 1000 dropped and counted. jnext-only buffering, no VHDL counterpart |
+| MX-34  | Pi I2S source: reconnect | Writer A: header, one frame and half of another, then closes; writer B: a fresh header and `kPrebuffer` frames. B's header is skipped and A's half frame discarded: A's frame, then all of B's, arrive exact. jnext-only, no VHDL counterpart |
 
 ### 5.2 Final Mix
 

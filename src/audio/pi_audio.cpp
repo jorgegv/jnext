@@ -115,8 +115,12 @@ void PiAudio::run() {
     std::vector<uint8_t> carry;
     while (!stop_) {
         pollfd p{fd_, POLLIN, 0};
-        const int ready = ::poll(&p, 1, 100);   // wake up for stop_ at least every 100 ms
-        if (ready <= 0) continue;
+        // Wake up for stop_ at least every 100 ms. On a timeout read anyway:
+        // macOS's poll() does not report a FIFO whose writer has gone, and
+        // only the non-blocking read's EOF (0, versus EAGAIN while a writer is
+        // still there) tells the stream ended, so the next one's header is
+        // skipped and a half frame of the old one is not glued to it.
+        if (::poll(&p, 1, 100) < 0) continue;
         const ssize_t n = ::read(fd_, buf.data(), buf.size());
         if (n == 0 || (n < 0 && errno != EAGAIN && errno != EINTR)) {
             // No writer: QEMU has not opened its end yet, or closed it. The
