@@ -299,15 +299,17 @@ static void test_TR() {
     }
 
     // TR-19: exhaustive. For every NR 0x14 value v and 9th bit b: the ULA
-    //        colour (v<<1)|b is transparent (fallback), the colour
-    //        ((v^1)<<1)|b — lowest compared bit flipped — is opaque (itself).
+    //        colour (v<<1)|b is transparent (fallback); each of the 8
+    //        colours with ONE compared bit k flipped, ((v^(1<<k))<<1)|b, is
+    //        opaque (itself). Flipping every bit, not just one, is what shows
+    //        that all of colour bits 8:1 take part in the compare.
     {
         const uint32_t fb = 0xFF010203u;
         int bad = 0, first_v = -1, cases = 0;
         for (int v = 0; v < 256; ++v) {
             for (int b = 0; b < 2; ++b) {
-                for (int flip = 0; flip < 2; ++flip) {
-                    const int c9 = (((v ^ flip) << 1) | b);
+                for (int flip = 0; flip < 9; ++flip) {   // 0 = match; k+1 = flip bit k
+                    const int c9 = (((v ^ (flip ? 1 << (flip - 1) : 0)) << 1) | b);
                     clear_layers(r);
                     r.set_layer_priority(0);
                     r.set_transparent_rgb(static_cast<uint8_t>(v));
@@ -324,8 +326,9 @@ static void test_TR() {
             }
         }
         check("TR-19",
-              "NR0x14 compares only colour bits 8:1: 512 matching colours "
-              "transparent, 512 with bit 1 flipped opaque (VHDL zxnext.vhd:7100)",
+              "NR0x14 compares exactly colour bits 8:1 (ULA): 512 matching "
+              "colours transparent, 4096 with one compared bit flipped opaque "
+              "(VHDL zxnext.vhd:7100)",
               bad == 0,
               DETAIL("%d of %d cases wrong, first at NR0x14=0x%02X",
                      bad, cases, first_v));
@@ -604,18 +607,19 @@ static void test_TR() {
         r.set_transparent_rgb(0xE3);
     }
 
-    // TR-27: TR-19's sweep for the text-mode tilemap over an opaque ULA whose
-    //        top bit differs from NR 0x14, so it never matches itself: tile
-    //        colour (v<<1)|b => ULA shows; ((v^1)<<1)|b => the tile shows.
+    // TR-27: TR-19's sweep for the text-mode tilemap over an opaque ULA
+    //        colour v^0x81, which differs from v and from every single-bit
+    //        flip of v, so it is never transparent and never equals the tile:
+    //        tile colour (v<<1)|b => ULA shows; one bit k flipped => the tile.
     {
         int bad = 0, first_v = -1, cases = 0;
         for (int v = 0; v < 256; ++v) {
             const uint32_t ula = rgb333_to_argb8888(
-                ((v ^ 0x80) >> 5) & 7, ((v ^ 0x80) >> 2) & 7,
-                ((v ^ 0x80) & 3) << 1);
+                ((v ^ 0x81) >> 5) & 7, ((v ^ 0x81) >> 2) & 7,
+                ((v ^ 0x81) & 3) << 1);
             for (int b = 0; b < 2; ++b) {
-                for (int flip = 0; flip < 2; ++flip) {
-                    const int c9 = (((v ^ flip) << 1) | b);
+                for (int flip = 0; flip < 9; ++flip) {   // 0 = match; k+1 = flip bit k
+                    const int c9 = (((v ^ (flip ? 1 << (flip - 1) : 0)) << 1) | b);
                     clear_layers(r);
                     r.set_layer_priority(0);
                     r.set_transparent_rgb(static_cast<uint8_t>(v));
@@ -635,8 +639,8 @@ static void test_TR() {
             }
         }
         check("TR-27",
-              "text-mode TM compares only colour bits 8:1: 512 matching "
-              "colours transparent, 512 with bit 1 flipped opaque "
+              "text-mode TM compares exactly colour bits 8:1: 512 matching "
+              "colours transparent, 4096 with one compared bit flipped opaque "
               "(VHDL zxnext.vhd:7109)",
               bad == 0,
               DETAIL("%d of %d cases wrong, first at NR0x14=0x%02X",
