@@ -712,6 +712,15 @@ static uint32_t channels_to_argb(uint8_t r3, uint8_t g3, uint8_t b3) {
     return rgb333_to_argb8888(r3, g3, b3);
 }
 
+// NR $4A is a 9-bit colour: RRRGGGBB plus blue LSB = B1 or B0 (zxnext.vhd:7214
+// rgb_out_2 and :6990 ula_rgb_1), the same expansion as NR 0x41, so fallback
+// blue 01/10 is 0x6D/0xB6, not rrrgggbb_to_argb's 0x55/0xAA.
+uint32_t Renderer::fallback_to_argb(uint8_t nr4a)
+{
+    const uint16_t c = PaletteManager::rrrgggbb_to_rgb333(nr4a);
+    return rgb333_to_argb8888((c >> 6) & 7, (c >> 3) & 7, c & 7);
+}
+
 // composite_scanline — dispatch once per scanline on the (per-line constant)
 // NR 0x15 layer_priority_. Task 27 C8: the priority mode cannot change within a
 // scanline — nothing in composite_scanline_mode's inner loop mutates
@@ -722,15 +731,6 @@ static uint32_t channels_to_argb(uint8_t r3, uint8_t g3, uint8_t b3) {
 // the inner loop: PRIO is a compile-time constant inside the specialisation, so
 // the switch folds to the single taken arm with no per-pixel branch. Output is
 // byte-identical to the pre-hoist single-loop form.
-// NR $4A is a 9-bit colour: RRRGGGBB plus blue LSB = B1 or B0 (zxnext.vhd:7214
-// rgb_out_2 and :6990 ula_rgb_1), the same expansion as NR 0x41, so fallback
-// blue 01/10 is 0x6D/0xB6, not rrrgggbb_to_argb's 0x55/0xAA.
-uint32_t Renderer::fallback_to_argb(uint8_t nr4a)
-{
-    const uint16_t c = PaletteManager::rrrgggbb_to_rgb333(nr4a);
-    return rgb333_to_argb8888((c >> 6) & 7, (c >> 3) & 7, c & 7);
-}
-
 void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int row)
 {
     switch (layer_priority_) {
