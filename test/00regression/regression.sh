@@ -550,6 +550,12 @@ if $PLATFORM_MODE; then
         done
         JNEXT="$TMP_DIR/platform/jnext"
         JNEXT_SDL="$TMP_DIR/platform/jnext-sdl"
+        # The host's own jnext, for the one job that must not go through wine:
+        # deriving the SD master (scripts/01-sdcard-provision.sh).
+        JNEXT_NATIVE="$(cd "$TEST_BIN_DIR/.." && pwd)/jnext"
+        [[ -x "$JNEXT_NATIVE" ]] || harness_fault "the host's jnext is not built: ${BOLD}$JNEXT_NATIVE${RESET}" \
+                                                  "The SDL unit-test tree provides it (make unit-test-sdl-build)."
+        export JNEXT_NATIVE
     else
         JNEXT=$(cd "$JNEXT_TARGET_BUILD" && pwd)/jnext
         JNEXT_SDL=$(cd "$JNEXT_TARGET_SDL_BUILD" && pwd)/jnext
