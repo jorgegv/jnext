@@ -2535,6 +2535,14 @@ order, so a heartbeat line every 60 s names the rows still running.</p>
 starting together could pick the same one, and the loser SKIPPED (a failure now). Every row now
 uses <code>xvfb-run -d</code>, where Xvfb picks the display itself, and harness-selftest
 HS-72 bans the racy forms.</p>
+<p>A second Xvfb race hit the rows that poll with <code>xdotool</code>: without <code>-noreset</code> the
+X server regenerates whenever its last client disconnects, and the row's own
+<code>xdotool search</code> poll is such a client while the app starts, so an app
+connecting mid-regeneration is dropped (<code>SDL_Init: x11 not available</code>, no
+screenshot; GH #318; 18/1000 connections failed under load, 0/1000 with
+<code>-noreset</code>). Those rows start Xvfb with <code>-noreset</code>, HS-89 enforces it, and a
+missing screenshot or non-zero app exit is a FAIL naming the run and cause (the
+solo-confirm path), never a SKIP.</p>
 <h2 id="one-full-run-at-a-time-and-the-stamp">One full run at a time, and the stamp<a class="headerlink" href="#one-full-run-at-a-time-and-the-stamp" title="Permanent link">&para;</a></h2>
 <p>A full run (no arguments, real manifests) takes a host lock through <code>flock -o</code>
 before it sources anything, so a second one waits, saying who holds it, and no
