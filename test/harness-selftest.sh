@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=158  # 75 + HS-82..88d (17 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=160  # 75 + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -2123,6 +2123,16 @@ out=$(run_harness); rc=$?
 check "HS-85b" "a build tree naming an unknown target OS is a refusal, not a guess" 2 $rc "$out" \
     "REFUSES TO RUN" "Unknown target OS"
 
+# ...and a cache that does not say WHICH OS is a refusal too, not a default of linux
+# (the harness cannot know what the suites owe it from a guess).
+register good_test
+cache ON ON linux
+sed -i '/^JNEXT_TARGET_OS/d' "$T/build/CMakeCache.txt"
+manifest "good_test 10"
+out=$(run_harness); rc=$?
+check "HS-85c" "a CMakeCache without JNEXT_TARGET_OS is a refusal naming it, not an assumed linux" 2 $rc "$out" \
+    "REFUSES TO RUN" "JNEXT_TARGET_OS"
+
 # A Windows build registers NAME.exe and runs under a runner (wine). The manifest names
 # the suite; the harness maps the .exe, checks the .exe is built, and prefixes the runner.
 stub good_test 10 0
@@ -2160,6 +2170,16 @@ out=$(JNEXT_UNIT_TEST_CONF="$T/manifest.conf" JNEXT_UNIT_TEST_SOURCES="$T/source
       "$(type -P timeout)" --kill-after=5s 120s env PATH="$NOTIMEOUT" bash "$HARNESS" "$T/build" 2>&1); rc=$?
 check "HS-87b" "a host without GNU timeout is a refusal, not a run that cannot bound its suites" 2 $rc "$out" \
     "REFUSES TO RUN" "GNU timeout"
+# A grep that cannot do -P (BSD/macOS grep): a shim directory whose grep refuses the
+# flag and defers to the real one otherwise, so only the preflight's own probe sees it.
+NOGREPP=$(shim_without grep)
+real_grep=$(type -P grep)
+printf '#!/usr/bin/env bash\nfor a in "$@"; do case "$a" in -*P*) echo "grep: invalid option -- P" >&2; exit 2 ;; esac; done\nexec "%s" "$@"\n' "$real_grep" > "$NOGREPP/grep"
+chmod +x "$NOGREPP/grep"
+out=$(JNEXT_UNIT_TEST_CONF="$T/manifest.conf" JNEXT_UNIT_TEST_SOURCES="$T/sources.tsv" \
+      "$(type -P timeout)" --kill-after=5s 120s env PATH="$NOGREPP" bash "$HARNESS" "$T/build" 2>&1); rc=$?
+check "HS-87d" "a host whose grep cannot do -P is a refusal naming GNU grep" 2 $rc "$out" \
+    "REFUSES TO RUN" "GNU grep"
 NOPERL=$(shim_without perl)
 out=$(PATH="$NOPERL" run_harness); rc=$?
 check "HS-87c" "a host without perl is a refusal (the row-ID literal check needs it)" 2 $rc "$out" \
