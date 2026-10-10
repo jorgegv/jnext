@@ -11,6 +11,7 @@
 #include <SDL3/SDL.h>
 #include "core/emulator_config.h"
 #include "gui/app_config.h"
+#include "input/joy_assign.h"
 #include "platform/pointer_capture.h"
 #include "debug/events.h"        // ClientId — GH #306 pause client
 
@@ -74,10 +75,19 @@ public:
     /// Invoked from QtApp's combined on_input_state_restored fan-out.
     void resync_input_dispatchers();
 
-    /// Task 79 — refresh the Input-menu checkmarks from the emulator's
-    /// effective per-connector sources. Called by QtApp after it has wired the
-    /// sources (startup + cold boot) so the menu reflects the live state.
+    /// Task 79 / GH #311 — rebuild the two Joy Source submenus from the
+    /// emulator's effective per-connector source and controller assignment and
+    /// the controllers currently present (joy_device_provider). Called by QtApp
+    /// after it has wired the sources (startup + cold boot) and from the host's
+    /// on_devices_changed (hot-plug), so the menu reflects the live state.
     void sync_joy_source_menu();
+
+    /// GH #311 — where the Input menu and Preferences get the list of present
+    /// controllers (GamepadHost::devices() in the Qt frontend). Without one
+    /// the lists simply show no controllers.
+    void set_joy_device_provider(std::function<std::vector<JoyDeviceInfo>()> p) {
+        joy_device_provider_ = std::move(p);
+    }
 
 #ifdef ENABLE_DEBUGGER
     DebuggerManager* debugger_manager() { return debugger_mgr_; }
@@ -529,11 +539,16 @@ private:
     QActionGroup* emu_speed_group_ = nullptr;
     QLabel* emu_speed_label_ = nullptr;
 
-    // Task 79 — Input menu: per-connector source radio actions.
-    // joy_source_action_[conn][0] = SDL gamepad, [conn][1] = cursor keys.
-    QAction* joy_source_action_[2][2] = { { nullptr, nullptr }, { nullptr, nullptr } };
-    // Live-apply + persist a per-connector source change from the Input menu.
-    void on_joy_source_selected(int connector, JoySource src);
+    // Task 79 / GH #311 — Input menu: one submenu per connector, rebuilt by
+    // sync_joy_source_menu() from joy_choices() (Automatic, each present
+    // controller, Cursor Keys + Space, None).
+    QMenu*        joy_menu_[2]  = { nullptr, nullptr };
+    QActionGroup* joy_group_[2] = { nullptr, nullptr };
+    std::function<std::vector<JoyDeviceInfo>()> joy_device_provider_;
+    // Live-apply + persist a pick from a connector's submenu.
+    void on_joy_choice_selected(int connector, const JoyChoice& choice);
+    // Copy the emulator's effective sources and assignments into the config and save.
+    void persist_joy_config();
 
     // Screenshot actions
     QAction* screenshot_action_ = nullptr;

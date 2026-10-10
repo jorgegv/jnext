@@ -29,9 +29,16 @@
 
 PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* parent,
                                      const std::vector<jnext::dbgkeys::LoadIssue>& key_issues,
-                                     const std::vector<HostChord>& host_chords)
-    : QDialog(parent), debug_keys_(current.debug_keys), host_chords_(host_chords)
+                                     const std::vector<HostChord>& host_chords,
+                                     const std::vector<JoyDeviceInfo>& joy_devices)
+    : QDialog(parent), joy_devices_(joy_devices), debug_keys_(current.debug_keys),
+      host_chords_(host_chords)
 {
+    for (int i = 0; i < 2; ++i) {
+        initial_joy_source_[i] = current.joy_source[i];
+        initial_joy_device_[i] = JoyDeviceRef{ current.joy_device[i].toStdString(),
+                                               current.joy_device_name[i].toStdString() };
+    }
     setWindowTitle(tr("Preferences"));
 
     // Populated by build_startup_tab()/build_paths_tab() below, then filled
@@ -71,10 +78,6 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
             static_cast<int>(std::lround(current.audio_gain_ay_db[chip])));
     audio_dac_gain_slider_->setValue(
         static_cast<int>(std::lround(current.audio_gain_dac_db)));
-    joy1_source_combo_->setCurrentIndex(
-        joy1_source_combo_->findData(static_cast<int>(current.joy_source[0])));
-    joy2_source_combo_->setCurrentIndex(
-        joy2_source_combo_->findData(static_cast<int>(current.joy_source[1])));
     esp_enabled_check_->setChecked(current.esp_enabled);
     {
         QStringList hosts;
@@ -176,29 +179,59 @@ QWidget* PreferencesDialog::build_input_tab() {
     auto* tab = new QWidget(this);
     auto* form = new QFormLayout(tab);
 
-    auto make_source_combo = [&]() {
+    // One combo per connector, filled from joy_choices(): Automatic, each
+    // present controller, a "(not connected)" entry for an assigned controller
+    // that is absent, Cursor Keys + Space, None. Item data is a key string
+    // ("auto" | "keys" | "none" | "dev:<id>"), the name rides in UserRole + 1.
+    auto make_source_combo = [&](int conn) {
         auto* c = new QComboBox(tab);
-        c->addItem(tr("SDL Gamepad"),        static_cast<int>(JoySource::Sdl));
-        c->addItem(tr("Cursor Keys + Space"), static_cast<int>(JoySource::CursorKeys));
+        const auto choices = joy_choices(conn, joy_devices_, initial_joy_source_[conn],
+                                         initial_joy_device_[conn]);
+        for (const JoyChoice& ch : choices) {
+            QString key;
+            QString name;
+            switch (ch.kind) {
+            case JoyChoice::Kind::Auto: key = "auto"; break;
+            case JoyChoice::Kind::Keys: key = "keys"; break;
+            case JoyChoice::Kind::None: key = "none"; break;
+            case JoyChoice::Kind::Device:
+                key = "dev:" + QString::fromStdString(ch.id);
+                for (const auto& d : joy_devices_)
+                    if (d.id == ch.id) name = QString::fromStdString(d.name);
+                break;
+            case JoyChoice::Kind::Missing:
+                key = "dev:" + QString::fromStdString(ch.id);
+                name = QString::fromStdString(initial_joy_device_[conn].name);
+                break;
+            }
+            // Device names are the controller's own text, never translated.
+            const bool fixed = ch.kind != JoyChoice::Kind::Device &&
+                               ch.kind != JoyChoice::Kind::Missing;
+            c->addItem(fixed ? tr(ch.label.c_str()) : QString::fromStdString(ch.label), key);
+            c->setItemData(c->count() - 1, name, Qt::UserRole + 1);
+            if (ch.checked) c->setCurrentIndex(c->count() - 1);
+        }
         return c;
     };
-    joy1_source_combo_ = make_source_combo();
-    joy2_source_combo_ = make_source_combo();
+    joy1_source_combo_ = make_source_combo(0);
+    joy2_source_combo_ = make_source_combo(1);
     form->addRow(tr("Joy 1 source (port 0x1F):"), joy1_source_combo_);
     form->addRow(tr("Joy 2 source (port 0x37):"), joy2_source_combo_);
 
-    // The host cursor keys can drive only one connector. When one combo is set
-    // to cursor keys, force the other back to SDL so the pair stays valid.
-    auto enforce_one_cursor = [this](QComboBox* changed, QComboBox* other) {
-        if (static_cast<JoySource>(changed->currentData().toInt()) == JoySource::CursorKeys &&
-            static_cast<JoySource>(other->currentData().toInt()) == JoySource::CursorKeys) {
-            other->setCurrentIndex(other->findData(static_cast<int>(JoySource::Sdl)));
+    // The host cursor keys can drive only one connector, and one controller
+    // only one connector. Picking either on one side resets the other side to
+    // Automatic so the pair stays valid (the Emulator enforces the same rules).
+    auto enforce_exclusive = [](QComboBox* changed, QComboBox* other) {
+        const QString key = changed->currentData().toString();
+        if ((key == QLatin1String("keys") || key.startsWith(QLatin1String("dev:"))) &&
+            other->currentData().toString() == key) {
+            other->setCurrentIndex(other->findData(QStringLiteral("auto")));
         }
     };
     connect(joy1_source_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [=]() { enforce_one_cursor(joy1_source_combo_, joy2_source_combo_); });
+            this, [=]() { enforce_exclusive(joy1_source_combo_, joy2_source_combo_); });
     connect(joy2_source_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [=]() { enforce_one_cursor(joy2_source_combo_, joy1_source_combo_); });
+            this, [=]() { enforce_exclusive(joy2_source_combo_, joy1_source_combo_); });
 
     auto* note = new QLabel(
         tr("Cursor keys drive one connector's directions with Space as fire;\n"
@@ -497,8 +530,17 @@ AppConfigData PreferencesDialog::collect() const {
         cfg.audio_gain_ay_db[chip] =
             static_cast<float>(audio_ay_gain_slider_[chip]->value());
     cfg.audio_gain_dac_db = static_cast<float>(audio_dac_gain_slider_->value());
-    cfg.joy_source[0] = static_cast<JoySource>(joy1_source_combo_->currentData().toInt());
-    cfg.joy_source[1] = static_cast<JoySource>(joy2_source_combo_->currentData().toInt());
+    QComboBox* const joy_combo[2] = { joy1_source_combo_, joy2_source_combo_ };
+    for (int i = 0; i < 2; ++i) {
+        const QString key = joy_combo[i]->currentData().toString();
+        cfg.joy_source[i] = key == QLatin1String("keys") ? JoySource::CursorKeys
+                          : key == QLatin1String("none") ? JoySource::None
+                                                         : JoySource::Sdl;
+        if (key.startsWith(QLatin1String("dev:"))) {
+            cfg.joy_device[i]      = key.mid(4);
+            cfg.joy_device_name[i] = joy_combo[i]->currentData(Qt::UserRole + 1).toString();
+        }
+    }
     cfg.esp_enabled = esp_enabled_check_->isChecked();
     cfg.nextpi_enabled     = nextpi_enabled_check_->isChecked();
     cfg.nextpi_dir         = nextpi_dir_edit_->text().trimmed();

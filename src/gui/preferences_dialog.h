@@ -6,6 +6,7 @@
 
 #include "gui/app_config.h"
 #include "gui/host_chords.h"
+#include "input/joy_assign.h"
 
 class QComboBox;
 class QSpinBox;
@@ -48,7 +49,8 @@ class PreferencesDialog : public QDialog {
 public:
     explicit PreferencesDialog(const AppConfigData& current, QWidget* parent = nullptr,
                                const std::vector<jnext::dbgkeys::LoadIssue>& key_issues = {},
-                               const std::vector<HostChord>& host_chords = {});
+                               const std::vector<HostChord>& host_chords = {},
+                               const std::vector<JoyDeviceInfo>& joy_devices = {});
 
 signals:
     /// Emitted on OK (then the dialog closes) and on Apply (dialog stays open).
@@ -86,6 +88,12 @@ private:
 
     QComboBox* joy1_source_combo_ = nullptr;   // Task 79
     QComboBox* joy2_source_combo_ = nullptr;
+    // GH #311 — the choices come from joy_choices(), the same builder the Input
+    // menu uses. The dialog edits copies of these, so a controller that is not
+    // plugged in right now keeps its (id, name) through OK.
+    std::vector<JoyDeviceInfo> joy_devices_;
+    JoySource                  initial_joy_source_[2] = { JoySource::Sdl, JoySource::Sdl };
+    JoyDeviceRef               initial_joy_device_[2];
 
     QSlider* audio_gain_slider_ = nullptr;
     QSlider* audio_beeper_gain_slider_ = nullptr;
