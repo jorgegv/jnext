@@ -69,8 +69,37 @@ AppConfig::AppConfig(const QString& ini_path)
 {
 }
 
+// GH #312 — older files carry constructs QSettings writes in a form the owner
+// does not want: root keys (filed under "[General]") and an empty host list
+// ("@Invalid()"). Rewrite ONLY those, once; every other value is untouched
+// (a hand-edited value load() rejects must survive), and an already-new file
+// is not rewritten at all.
+void AppConfig::normalise_legacy_layout() const {
+    bool changed = false;
+    const QStringList root_keys = settings_.childKeys();
+    for (const QString& k : root_keys) {
+        const QVariant v = settings_.value(k);
+        settings_.remove(k);
+        // config_version -> [config] version; any other root key keeps its name.
+        settings_.setValue(QStringLiteral("config/")
+                           + (k == QLatin1String("config_version")
+                                  ? QStringLiteral("version") : k), v);
+        changed = true;
+    }
+    const QString hosts_key = QStringLiteral("esp/allowed_hosts");
+    if (settings_.contains(hosts_key)) {
+        const QVariant v = settings_.value(hosts_key);
+        if (!v.isValid() || (v.userType() == QMetaType::QStringList && v.toStringList().isEmpty())) {
+            settings_.setValue(hosts_key, QString());
+            changed = true;
+        }
+    }
+    if (changed) settings_.sync();
+}
+
 void AppConfig::load() {
     loaded_from_existing_file_ = QFileInfo::exists(settings_.fileName());
+    normalise_legacy_layout();
 
     // Reset to defaults first: a partially-corrupt or truncated file must
     // not leave stale values in fields it didn't touch.
@@ -214,7 +243,8 @@ void AppConfig::save() const {
     // may not yet, and QSettings will not persist to a missing directory.
     QDir().mkpath(QFileInfo(settings_.fileName()).absolutePath());
 
-    settings_.setValue("config_version", AppConfigData::CONFIG_VERSION);
+    normalise_legacy_layout();
+    settings_.setValue("config/version", AppConfigData::CONFIG_VERSION);
 
     settings_.beginGroup("startup");
     settings_.setValue("machine_type", machine_type_to_key(data_.machine_type));
@@ -282,7 +312,10 @@ void AppConfig::save() const {
         QStringList hosts;
         for (const std::string& host : data_.esp_allowed_hosts)
             hosts << QString::fromStdString(host);
-        settings_.setValue("allowed_hosts", hosts);
+        // Empty -> a plain empty string: QSettings writes an empty
+        // QStringList as "@Invalid()" (GH #312).
+        if (hosts.isEmpty()) settings_.setValue("allowed_hosts", QString());
+        else                 settings_.setValue("allowed_hosts", hosts);
     }
     settings_.endGroup();
 

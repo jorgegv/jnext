@@ -250,6 +250,11 @@ MainWindow::MainWindow(QWidget* parent)
     // of non-headless invocations stay deterministic (test/00regression/
     // regression.sh).
     app_config_.load();
+#ifdef ENABLE_DEBUGGER
+    // GH #312 \u2014 fold an older Debugger.conf into jnext.conf once, even if
+    // the debugger is never opened this run.
+    DebuggerWindow::migrate_legacy_config();
+#endif
 
     // GH #1 \u2014 every [debugger_keys] entry the config layer refused, said out
     // loud. A bad binding must never look like an accepted one: the action

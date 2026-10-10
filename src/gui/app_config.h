@@ -132,9 +132,11 @@ inline T merge_cli_precedence(bool cli_provided, const T& cli_value, const T& sa
 ///
 /// The production constructor stores an INI file at ~/.jnext/jnext.conf —
 /// the same ~/.jnext home directory jnext already uses for the SD-card image
-/// (~/.jnext/sdcard/...). The debugger window's geometry lives alongside it
-/// at ~/.jnext/Debugger.conf (src/debugger/debugger_window.cpp), a separate
-/// file so the two stay independent.
+/// (~/.jnext/sdcard/...). The debugger window's geometry lives in the same
+/// file, in its own [debugger] section (src/debugger/debugger_window.cpp); an
+/// older separate ~/.jnext/Debugger.conf is merged in once and removed.
+/// Every section name is lowercase and no value is a QSettings "@..." blob
+/// (GH #312); load() rewrites older constructs of that kind once.
 ///
 /// A second constructor points at an explicit INI file so unit tests never
 /// touch the real user config.
@@ -175,6 +177,8 @@ public:
     }
 
 private:
+    void normalise_legacy_layout() const;
+
     // mutable: QSettings::setValue()/sync() are non-const, but writing the
     // backing store is not part of AppConfig's logical (AppConfigData) state,
     // so save() stays const like the rest of this read-mostly value type.
