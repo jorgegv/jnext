@@ -38,9 +38,22 @@ Breakpoints menu all edit this one model. The panel lists every client's
 subscriptions; another client's are read-only and named by client id. The
 master switch is the backend's (`set_master_enabled()`).
 
+**The emulator window's Pause client** is a third Qt client, owned by
+`MainWindow` rather than the adapter, so it exists in a Qt build with no
+debugger too. It is a non-arming observer, attached lazily on the first press of
+Machine > Pause (Alt+U) and detached with the window. With the debugger window
+shut, the action pauses and resumes through this client; with it open, the action
+calls the adapter's `on_pause()` / `on_run()`, the same verbs as the forwarded F9
+and F5 keys. In a build with no debugger it is also the only way, from the GUI, to resume a
+pause made by a magic breakpoint or a script.
+
 ## The pause state is pulled
 
-A pause the window did not cause still opens it. `check_breakpoint_hit()` reads
+A pause the window did not cause still opens it, with one exception: a pause
+whose `by` is the emulator window's Pause client
+(`set_emulator_window_pause_client()`; matched on the client id, so another
+Gui or observer client still opens it) is exactly what that control exists to
+make without the window. `check_breakpoint_hit()` reads
 `state()` once per tick, after the pump, and brings the window to it in both
 directions. A pause it has not shown gets the pause-edge sequence, opening the
 window first if it is closed: a breakpoint, a magic breakpoint, a persistent
@@ -48,6 +61,9 @@ breakpoint, another client's pause. A resume it did not cause gets the running
 sequence. What the window last showed is the one piece of state the adapter
 keeps for this, and it is presentation state, not a copy of the machine's.
 `apply_pause_state(bool)` is the one place both sequences live.
+`MainWindow::sync_pause_state()` pulls the same `state()` once per tick, from
+`QtApp::TickEffects::post_frames()`, for the Pause checkmark and the status
+bar's Paused cell, with or without the debugger built in.
 
 The listener records and returns: a listener runs inside `pump()` and does no UI
 work. A breakpoint change another client made arrives as

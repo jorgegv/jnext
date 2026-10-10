@@ -100,6 +100,7 @@
 - Emulator speed control (0.5×/1×/2×/4×/custom %, or `--speed`)
 - Selectable degradation policy for a host that cannot emulate in real time (`--when-slow-prefer audio|video`, or Preferences → Startup, applied live): keep the sound smooth and drop video frames, or show every frame and let the machine run slower than real time with the sound stuttering
 - Screenshots in PNG or `.SCR` (Alt+S, toolbar, `--delayed-screenshot`): the filename's extension picks the format. `.SCR` is the raw ULA screen memory of the displayed bank — 6912 bytes, or 12288 in a Timex hi-colour/hi-res mode — and records only the classic ULA layer
+- Pause / resume from the emulator window (toolbar button, Machine > Pause, Alt+U; works in fullscreen) without opening the debugger; a Paused cell in the status bar
 - Quick Screenshot (Alt+K): no dialog, timestamped collision-free name, into a configurable directory (default `~/.jnext/screenshots`), in the configured default format; the status bar names the file written
 - Video recording to MP4 via FFmpeg pipe (`--record`)
 - Direct audio recording to WAV (`--wav-record`, no FFmpeg required)

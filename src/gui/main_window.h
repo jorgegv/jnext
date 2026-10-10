@@ -12,6 +12,7 @@
 #include "core/emulator_config.h"
 #include "gui/app_config.h"
 #include "platform/pointer_capture.h"
+#include "debug/events.h"        // ClientId — GH #306 pause client
 
 class Emulator;
 class EmulatorWidget;
@@ -81,6 +82,13 @@ public:
 #ifdef ENABLE_DEBUGGER
     DebuggerManager* debugger_manager() { return debugger_mgr_; }
 #endif
+
+    /// GH #306 — bring the Machine > Pause checkmark and the status bar's
+    /// "Paused" cell to the BACKEND'S pause state (`state().paused`), whoever
+    /// caused it. Pulled: QtApp calls it once per tick (post_frames()), and
+    /// toggle_pause() calls it after its own verb. The backend stays the only
+    /// place that records whether the machine is paused.
+    void sync_pause_state();
 
     /// Set the callback for key events.
     /// Signature: (SDL_Scancode scancode, bool pressed).
@@ -474,6 +482,16 @@ private:
     DebuggerManager* debugger_mgr_ = nullptr;
 #endif
     jnext::dbg::Debugger* debugger_ = nullptr;   // set_debugger()
+
+    // GH #306 — Machine > Pause. One QAction, placed in the Machine menu, on
+    // the Main toolbar (the same object, so one checkmark) and on the window.
+    // pause_client_ is an OBSERVER client attached lazily on the first press;
+    // see toggle_pause() / ensure_pause_client().
+    QAction*                pause_action_ = nullptr;
+    QLabel*                 paused_label_ = nullptr;
+    jnext::dbg::ClientId    pause_client_ = jnext::dbg::CLIENT_NONE;
+    void toggle_pause();
+    void ensure_pause_client();
     jnext::script::ScriptHost* script_host_ = nullptr;   // set_script_host(), GH #26 WP5
 
     // Debugger toggle action (in View menu)

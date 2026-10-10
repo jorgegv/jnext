@@ -125,7 +125,7 @@ int main(int argc, char** argv) {
     // display: force the offscreen QPA platform.
     qputenv("QT_QPA_PLATFORM", "offscreen");
 
-    // Isolate the config file: the debugger window saves Debugger.conf, and the
+    // Isolate the config file: the debugger window saves into jnext.conf, and the
     // real ~/.jnext belongs to the user (and is shared by concurrent runs).
     QTemporaryDir cfg;
     if (!cfg.isValid()) {

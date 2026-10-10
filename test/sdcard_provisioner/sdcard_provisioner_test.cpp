@@ -312,9 +312,9 @@ int main() {
     }
 
     // -- PROV-PATH-02: $JNEXT_CONFIG_DIR overrides the state directory --
-    // The SD image lives in the same per-user directory as jnext.conf and
-    // Debugger.conf, and those two already honour $JNEXT_CONFIG_DIR
-    // (src/gui/app_config.cpp, src/debugger/debugger_window.cpp). The
+    // The SD image lives in the same per-user directory as jnext.conf, which
+    // already honours $JNEXT_CONFIG_DIR (src/gui/app_config.cpp,
+    // src/debugger/debugger_window.cpp). The
     // regression suite relies on this to hand every run a PRIVATE clone of the
     // image (GH #65) instead of sharing one mutable machine-wide file.
     {

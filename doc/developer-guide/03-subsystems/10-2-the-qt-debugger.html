@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.16</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.18</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.16</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.18</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2381,15 +2381,30 @@ nothing.</p>
 Breakpoints menu all edit this one model. The panel lists every client's
 subscriptions; another client's are read-only and named by client id. The
 master switch is the backend's (<code>set_master_enabled()</code>).</p>
+<p><strong>The emulator window's Pause client</strong> is a third Qt client, owned by
+<code>MainWindow</code> rather than the adapter, so it exists in a Qt build with no
+debugger too. It is a non-arming observer, attached lazily on the first press of
+Machine &gt; Pause (Alt+U) and detached with the window. With the debugger window
+shut, the action pauses and resumes through this client; with it open, the action
+calls the adapter's <code>on_pause()</code> / <code>on_run()</code>, the same verbs as the forwarded F9
+and F5 keys. In a build with no debugger it is also the only way, from the GUI, to resume a
+pause made by a magic breakpoint or a script.</p>
 <h2 id="the-pause-state-is-pulled">The pause state is pulled<a class="headerlink" href="#the-pause-state-is-pulled" title="Permanent link">&para;</a></h2>
-<p>A pause the window did not cause still opens it. <code>check_breakpoint_hit()</code> reads
+<p>A pause the window did not cause still opens it, with one exception: a pause
+whose <code>by</code> is the emulator window's Pause client
+(<code>set_emulator_window_pause_client()</code>; matched on the client id, so another
+Gui or observer client still opens it) is exactly what that control exists to
+make without the window. <code>check_breakpoint_hit()</code> reads
 <code>state()</code> once per tick, after the pump, and brings the window to it in both
 directions. A pause it has not shown gets the pause-edge sequence, opening the
 window first if it is closed: a breakpoint, a magic breakpoint, a persistent
 breakpoint, another client's pause. A resume it did not cause gets the running
 sequence. What the window last showed is the one piece of state the adapter
 keeps for this, and it is presentation state, not a copy of the machine's.
-<code>apply_pause_state(bool)</code> is the one place both sequences live.</p>
+<code>apply_pause_state(bool)</code> is the one place both sequences live.
+<code>MainWindow::sync_pause_state()</code> pulls the same <code>state()</code> once per tick, from
+<code>QtApp::TickEffects::post_frames()</code>, for the Pause checkmark and the status
+bar's Paused cell, with or without the debugger built in.</p>
 <p>The listener records and returns: a listener runs inside <code>pump()</code> and does no UI
 work. A breakpoint change another client made arrives as
 <code>SubscriptionsChanged</code>; the model records it and the tick publishes it.</p>

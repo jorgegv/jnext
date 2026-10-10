@@ -46,6 +46,15 @@ void load_gain(QSettings& settings, const char* key, float& target)
         target = static_cast<float>(db);
 }
 
+// GH #312 — gains are written as TEXT. QSettings' IniFormat has no plain-text
+// form for a float QVariant in Qt 5.15 (it writes "@Variant(...)" there; Qt 6
+// writes text), so passing the float straight through would put a binary blob
+// in the file on the Qt5 builds. Six significant digits are far finer than the
+// +-24 dB range needs, and load_gain() reads either form back.
+QString gain_text(float db) {
+    return QString::number(static_cast<double>(db), 'g', 6);
+}
+
 } // namespace
 
 QString AppConfig::default_config_path() {
@@ -69,8 +78,49 @@ AppConfig::AppConfig(const QString& ini_path)
 {
 }
 
+// GH #312 — older files carry constructs QSettings writes in a form the owner
+// does not want: root keys (filed under "[General]") and an empty host list
+// ("@Invalid()"). Rewrite ONLY those, once; every other value is untouched
+// (a hand-edited value load() rejects must survive), and an already-new file
+// is not rewritten at all.
+void AppConfig::normalise_legacy_layout() const {
+    bool changed = false;
+    const QStringList root_keys = settings_.childKeys();
+    for (const QString& k : root_keys) {
+        const QVariant v = settings_.value(k);
+        settings_.remove(k);
+        // config_version -> [config] version; any other root key keeps its name.
+        settings_.setValue(QStringLiteral("config/")
+                           + (k == QLatin1String("config_version")
+                                  ? QStringLiteral("version") : k), v);
+        changed = true;
+    }
+    // A gain written as a float QVariant by a Qt5 build is "@Variant(...)":
+    // rewrite it as text.
+    static const char* const gain_keys[] = {
+        "audio/gain_db", "audio/gain_beeper_db", "audio/gain_ay0_db",
+        "audio/gain_ay1_db", "audio/gain_ay2_db", "audio/gain_dac_db"};
+    for (const char* k : gain_keys) {
+        const QVariant v = settings_.value(QLatin1String(k));
+        if (v.userType() == QMetaType::Float || v.userType() == QMetaType::Double) {
+            settings_.setValue(QLatin1String(k), gain_text(v.toFloat()));
+            changed = true;
+        }
+    }
+    const QString hosts_key = QStringLiteral("esp/allowed_hosts");
+    if (settings_.contains(hosts_key)) {
+        const QVariant v = settings_.value(hosts_key);
+        if (!v.isValid() || (v.userType() == QMetaType::QStringList && v.toStringList().isEmpty())) {
+            settings_.setValue(hosts_key, QString());
+            changed = true;
+        }
+    }
+    if (changed) settings_.sync();
+}
+
 void AppConfig::load() {
     loaded_from_existing_file_ = QFileInfo::exists(settings_.fileName());
+    normalise_legacy_layout();
 
     // Reset to defaults first: a partially-corrupt or truncated file must
     // not leave stale values in fields it didn't touch.
@@ -214,7 +264,8 @@ void AppConfig::save() const {
     // may not yet, and QSettings will not persist to a missing directory.
     QDir().mkpath(QFileInfo(settings_.fileName()).absolutePath());
 
-    settings_.setValue("config_version", AppConfigData::CONFIG_VERSION);
+    normalise_legacy_layout();
+    settings_.setValue("config/version", AppConfigData::CONFIG_VERSION);
 
     settings_.beginGroup("startup");
     settings_.setValue("machine_type", machine_type_to_key(data_.machine_type));
@@ -229,12 +280,12 @@ void AppConfig::save() const {
     settings_.endGroup();
 
     settings_.beginGroup("audio");
-    settings_.setValue("gain_db", data_.audio_gain_db);
-    settings_.setValue("gain_beeper_db", data_.audio_gain_beeper_db);
-    settings_.setValue("gain_ay0_db", data_.audio_gain_ay_db[0]);
-    settings_.setValue("gain_ay1_db", data_.audio_gain_ay_db[1]);
-    settings_.setValue("gain_ay2_db", data_.audio_gain_ay_db[2]);
-    settings_.setValue("gain_dac_db", data_.audio_gain_dac_db);
+    settings_.setValue("gain_db", gain_text(data_.audio_gain_db));
+    settings_.setValue("gain_beeper_db", gain_text(data_.audio_gain_beeper_db));
+    settings_.setValue("gain_ay0_db", gain_text(data_.audio_gain_ay_db[0]));
+    settings_.setValue("gain_ay1_db", gain_text(data_.audio_gain_ay_db[1]));
+    settings_.setValue("gain_ay2_db", gain_text(data_.audio_gain_ay_db[2]));
+    settings_.setValue("gain_dac_db", gain_text(data_.audio_gain_dac_db));
     settings_.endGroup();
 
     settings_.beginGroup("paths");
@@ -282,7 +333,10 @@ void AppConfig::save() const {
         QStringList hosts;
         for (const std::string& host : data_.esp_allowed_hosts)
             hosts << QString::fromStdString(host);
-        settings_.setValue("allowed_hosts", hosts);
+        // Empty -> a plain empty string: QSettings writes an empty
+        // QStringList as "@Invalid()" (GH #312).
+        if (hosts.isEmpty()) settings_.setValue("allowed_hosts", QString());
+        else                 settings_.setValue("allowed_hosts", hosts);
     }
     settings_.endGroup();
 
