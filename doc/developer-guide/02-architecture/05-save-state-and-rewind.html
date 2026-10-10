@@ -2578,11 +2578,15 @@ four live in the emulator rather than in the test harness — a harness cannot
 make a non-deterministic emulator reproducible.</p>
 <p><strong>Count frames, not seconds.</strong> <code>--delayed-screenshot-frames</code>,
 <code>--delayed-automatic-exit-frames</code>, <code>--delayed-keypress-frames</code> and
-<code>--delayed-snapshot-frames</code> are all counted in <em>emulated</em> frames, and they
-override their wall-clock counterparts when both are given. <code>HeadlessApp::run()</code>
-goes one step further and converts a seconds-form keypress using the machine's
-actual refresh rate, <code>video_timing().refresh_60hz() ? 60 : 50</code>, rather than
-assuming 50 Hz.</p>
+<code>--delayed-snapshot-frames</code> are all counted in <em>emulated</em> frames;
+<code>--delayed-screenshot-frames</code> and <code>--delayed-automatic-exit-frames</code> override
+their seconds counterparts when both are given, and the keypress and NMI forms
+queue instead. The seconds forms are not wall-clock either: they are
+<code>cli::Delay</code> (<code>src/platform/cli_delay.h</code>), which counts in 1/300 s units and
+is charged once per frame at the refresh rate that frame ran at (1/50 s or
+1/60 s), so a guest that switches to 60 Hz is timed in its own seconds. The rate
+is always 50 Hz at startup, which is why the conversion cannot be done once
+when the option is read.</p>
 <p><strong>Pin the clock.</strong> <code>--rtc</code> sets <code>EmulatorConfig::rtc_fixed_tm</code>, which reaches
 <code>I2cRtc::set_fixed_time()</code>. The emulated DS1307 then answers from a frozen time
 instead of the host clock, so anything that draws a date — the NextZXOS menu

@@ -644,7 +644,8 @@ with status 1.
     **--delayed-automatic-exit**).
 
 **--delayed-screenshot-time** *N*
-:   Delay in seconds (default 10). Requires **--delayed-screenshot**.
+:   Delay in emulated seconds (default 10; see *Emulated seconds* under
+    HEADLESS MODE). Requires **--delayed-screenshot**.
 
 **--delayed-screenshot-frames** *N*
 :   Delay in frames. Overrides **--delayed-screenshot-time**. Requires
@@ -657,11 +658,12 @@ with status 1.
     `.scr`, which has no layers to choose from.
 
 **--delayed-automatic-exit** *N*
-:   Exit the emulator after *N* seconds. The exit always fires, but work
-    the command line deferred to a later frame and that has not happened
-    by then is an error, and **jnext** exits non-zero: a **--load**
-    still waiting out its boot delay (100 frames for `.tzx` and `.wav`),
-    an **--inject** with **--inject-delay**, an **--rzx-record** waiting
+:   Exit the emulator after *N* emulated seconds (see *Emulated seconds*
+    under HEADLESS MODE). The exit always fires, but work the command
+    line deferred to a later frame and that has not happened by then is
+    an error, and **jnext** exits non-zero: a **--load** still waiting
+    out its boot delay (100 frames for `.tzx` and `.wav`), an
+    **--inject** with **--inject-delay**, an **--rzx-record** waiting
     for that load, a **--delayed-keypress**, **--delayed-nmi** or
     **--delayed-screenshot** still to come, a **--joy-uart-rx** stream
     still held by **--joy-uart-rx-delay-frames**, and an edge of the
@@ -723,8 +725,9 @@ with status 1.
     Any other *MODE* is an error.
 
 **--delayed-keypress** *SECS* *KEY*
-:   Press *KEY* after *SECS* seconds. Headless only (requires
-    **--headless**), repeatable.
+:   Press *KEY* after *SECS* emulated seconds (see *Emulated seconds*
+    under HEADLESS MODE). Headless only (requires **--headless**),
+    repeatable.
 
 **--delayed-keypress-frames** *N* *KEY*
 :   Press *KEY* after *N* emulated frames. This is the frames-unit
@@ -733,7 +736,8 @@ with status 1.
     keypresses. Requires **--headless**.
 
 **--delayed-nmi** *SECS* *BUTTON*
-:   Press an NMI *BUTTON* after *SECS* seconds. Headless only (requires
+:   Press an NMI *BUTTON* after *SECS* emulated seconds (see *Emulated
+    seconds* under HEADLESS MODE). Headless only (requires
     **--headless**), repeatable. *BUTTON* is case-insensitive and names
     which button to press, spelled as the label on a real Next’s case.
     Of its three buttons, two raise an NMI: `nmi` (aliases `mf`, `m1`)

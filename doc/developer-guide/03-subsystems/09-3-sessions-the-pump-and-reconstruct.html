@@ -2660,7 +2660,9 @@ hard bound; a frame tag does neither. Only the actions go through the backend:
 <code>press_key</code>, <code>press_nmi</code> (which calls the F9/F10 hotkey functions, gates
 included), <code>save_snapshot</code>, and <code>screenshot()</code> through
 <code>src/platform/cli_capture.h</code>, whose outcome the loop owner reads back with
-<code>flush_captures(CLIENT_NONE)</code>.</p>
+<code>flush_captures(CLIENT_NONE)</code>. The seconds-form countdowns are <code>cli::Delay</code>
+(<code>src/platform/cli_delay.h</code>): each tick is charged at the refresh of the frame
+just run (<code>video_timing().refresh_60hz()</code>).</p>
 <h2 id="the-reconstruct-contract">The reconstruct contract<a class="headerlink" href="#the-reconstruct-contract" title="Permanent link">&para;</a></h2>
 <p>A hard reset is a power-on cold boot the frontend performs.
 <code>emulator_frontend_cold_boot()</code> destroys the <code>Emulator</code>, placement-news a new

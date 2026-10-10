@@ -3516,12 +3516,14 @@
 <h1 id="72-determinism">7.2 Determinism<a class="headerlink" href="#72-determinism" title="Permanent link">&para;</a></h1>
 <p>A screenshot is only useful as a test if the same input always produces the
 same image. Three things make that true.</p>
-<p><strong>Count frames, not seconds.</strong> <code>--delayed-screenshot-time</code> is wall-clock and
-therefore depends on how fast the host is. <code>--delayed-screenshot-frames</code>
-counts <em>emulated</em> frames, so a slow CI runner and a fast desktop capture the
-identical machine state. The same applies to the exit bound:
-<code>--delayed-automatic-exit-frames</code> overrides <code>--delayed-automatic-exit</code> when
-both are given. <strong>Use the frame forms for anything you intend to compare.</strong></p>
+<p><strong>Count frames, not seconds.</strong> <code>--delayed-screenshot-time</code> counts <em>emulated</em>
+seconds, not the host's, so a slow CI runner and a fast desktop agree on it.
+What it depends on is the refresh rate the program selects: a frame at 50 Hz
+counts 1/50 s and one at 60 Hz counts 1/60 s, so the frame it lands on moves
+if the program switches. <code>--delayed-screenshot-frames</code> names one exact frame.
+The same applies to the exit bound: <code>--delayed-automatic-exit-frames</code>
+overrides <code>--delayed-automatic-exit</code> when both are given. <strong>Use the frame forms
+for anything you intend to compare.</strong></p>
 <p><strong>Pin the clock.</strong> Anything that draws the date or time — the NextZXOS menu,
 most obviously — changes between runs. <code>--rtc</code> freezes it:</p>
 <pre><code class="language-console">$ jnext --headless --rtc &quot;2026-01-01 00:00:00&quot; ...
