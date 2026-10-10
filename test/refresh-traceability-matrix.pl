@@ -2243,7 +2243,7 @@ sub grep_citations {
         refuse("$source_rel:" . ($i + 1) . ": [no-vhdl] marker beside a "
              . "filename-less VHDL line reference in the same call")
             if defined $tb && $text =~ /$VHDL_NOFILE_RE/;
-        push @calls, { s => $i, e => $j, cite => $vc // $tb,
+        push @calls, { s => $i, e => $j, cite => $vc // $tb, vc => $vc, tb => $tb,
                        owns_row => (first_arg($text) =~ /$ID_LITERAL_RE/ ? 1 : 0),
                        nofile => ($text =~ /$VHDL_NOFILE_RE/ ? 1 : 0) };
     }
@@ -2439,6 +2439,27 @@ sub grep_citations {
         # down. Filled ONLY for a cited-call win, never for the `named`,
         # `next` or `plan` tiers: those have no line in this file to point at,
         # and inventing one is how a column starts lying. (GH #144)
+        # GH #309: a `[no-vhdl]` marker says the row has NOTHING to cite, so it
+        # may not coexist with a citation anywhere the generator can see for
+        # this row: another call of its own (the marked call would otherwise win
+        # as "the first cited call"), a heading comment block, or (below) the
+        # plan doc. Checked over EVERY owning call, not just the winner.
+        {
+            my ($own_tb, $own_vc);
+            for my $occ (@{ $id_line{$tid} }) {
+                for my $c (@calls) {
+                    next unless $c->{s} <= $occ && $occ <= $c->{e};
+                    $own_tb //= $c->{s} + 1 if defined $c->{tb};
+                    $own_vc //= $c->{s} + 1 if defined $c->{vc};
+                }
+            }
+            refuse("$source_rel:$own_tb: row $tid carries a [no-vhdl] marker but "
+                 . "another call of the row cites VHDL (line $own_vc)")
+                if defined $own_tb && defined $own_vc;
+            refuse("$source_rel:$own_tb: row $tid carries a [no-vhdl] marker but "
+                 . "a comment block heading it cites VHDL ($named{$tid})")
+                if defined $own_tb && defined $named{$tid};
+        }
         my $cite_at;
         OCC: for my $occ (@{ $id_line{$tid} }) {
             for my $c (@calls) {
@@ -4282,8 +4303,9 @@ sub emit_cite_explainer {
 '',
 'A `(...)` cell is a declared tombstone: "there is nothing to cite", either for',
 'a whole suite or, per row, via `[no-vhdl: <reason>]` in the row\'s own call. The',
-'generator refuses a marker beside a VHDL citation or on a row the plan doc',
-'cites. It cannot judge whether a row SHOULD have VHDL; that is the author\'s',
+'generator refuses a marker beside a VHDL citation in the same call, in another',
+'call of the same row, in a comment block heading the row, or in the row\'s',
+'plan-doc entry. It cannot judge whether a row SHOULD have VHDL; that is the author\'s',
 'and the reviewer\'s call.',
 '',
     );
