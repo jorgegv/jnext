@@ -1,312 +1,215 @@
 #pragma once
-#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <vector>
 
-// G12 — Nirvana-class mid-scanline attribute multiplex.
+// Beam-time replay of every byte the ULA fetches from VRAM (GH #305, builds
+// on G12 Nirvana-class attribute multiplex).
 //
 // VHDL authority: cores/zxnext/src/video/zxula.vhd.
-//   * zxula.vhd:223-224 — `addr_a_spc_12_5 <= "110" & py(7 downto 3);` The
-//     attribute-byte VRAM address depends ONLY on `py(7:3)` — the
-//     CHARACTER row — not on `py(2:0)`, the pixel row within the 8-line
-//     cell.
-//   * zxula.vhd:192 — `py_s <= i_vc + scroll_y`, and `py` is re-latched
-//     from `py_s` every scanline (zxula.vhd:194-214, falling edge of
-//     `i_CLK_7`, gated on `i_hc(3:0) = 0x3 | 0xB` — i.e. twice per
-//     scanline, once per pixel-fetch half).
-//   * zxula.vhd:226-263 — the VRAM read cycles (`vram_a`/`vram_rd`) that
-//     use `addr_a_spc_12_5` fire on cycles `hc(3:0) = 0xA/0xB/0xE/0xF`,
-//     which recur every scanline (`i_hc` wraps every line).
 //
-// Net effect: because `i_vc` (and therefore `py`) increments every
-// scanline, the ULA re-issues a FRESH read of the SAME attribute-byte
-// address on EACH of the 8 scanlines making up one character cell. This
-// is the hardware mechanism Nirvana-class demos exploit — rewrite the
-// attribute byte between each scanline's fetch so every scanline in a
-// cell shows a different colour ("multicolour").
+// The ULA does not read the screen once per frame. On EVERY scanline it
+// fetches, for every one of the 32 columns, a pixel byte and an attribute
+// byte (or, in the Timex hi-colour / hi-res modes, a second pixel-format
+// byte) at a fixed horizontal instant (zxula.vhd:226-303). A CPU write is
+// therefore seen by the first fetch that follows it in real time, whichever
+// plane it hit. This class keeps, for the ULA-fetched bytes of bank 5 and
+// bank 7, a per-frame log of the writes so the renderer can answer "what did
+// the ULA read from offset X on scanline L at beam position H".
 //
-// Per-column granularity: `addr_a_spc_12_5` is combined with the pixel
-// column (`px_1(7:3)` / `px(7:3)`, zxula.vhd:235-252), so strictly each
-// of the 32 columns in a row gets its own fetch, spread across the
-// scanline's horizontal period. True Nirvana demos always write the
-// FULL 32-byte row during the horizontal border/blanking period before
-// that row's first fetch (there is no time to win a race against 32
-// separate column fetches within one active scanline at 3.5-28 MHz CPU
-// speeds), so per-SCANLINE replay granularity reproduces the visible
-// effect faithfully. Sub-scanline (mid-row column split) racing is a
-// separate, much rarer effect and is explicitly out of scope — see
-// doc/analysis/PER-SCANLINE-DISPLAY-STATE-AUDIT.md "Out of scope for this
-// audit".
+// Which bytes the ULA can fetch (zxula.vhd:191, 223-224, 233-252):
+//   * vram_a = screen_mode(0) & addr_p(12:0)       -- pixel slot
+//     vram_a = screen_mode(0) & "110" & py(7:3) & col -- attribute slot
+//       or, when screen_mode(1) (hi-colour, hi-res),
+//     vram_a = '1' & addr_p(12:0)                   -- second-plane slot
+//   with addr_p < 0x1800. So bank 5 offsets 0x0000-0x1AFF (page 0x0A) and
+//   0x2000-0x3AFF (page 0x0B), and, with the shadow screen, bank 7 offsets
+//   0x0000-0x1AFF (page 0x0E; Timex modes are forced to "000" when shadow
+//   is on, zxula.vhd:191, because bank 7 is an 8K BRAM). Those are the
+//   ranges Mmu::write() records.
 //
-// AttributeMux therefore replays, for a target scanline, the most
-// recent write to each attribute byte at or before that scanline's tag
-// — NOT simply "whatever RAM holds at frame end" (today's behaviour,
-// which collapses every cell to its LAST write of the frame).
+// Fetch instants, re-derived from zxula.vhd. Let hc be i_hc (hc_ula) and j
+// the DISPLAY slot (hc(7:3) at the start of its block). The "record bytes
+// read" process (:270-303) latches, on the falling edge of i_CLK_7 with
+// hc(3:0) = X, one byte into a register named for the column parity:
 //
-// Shape mirrors the established per-scanline change-log pattern
-// (PaletteManager, Layer2, Sprites, Ula scroll/palsel — all in
-// src/video/) so a maintainer who already knows one of those reads this
-// immediately: start_frame() snapshots a baseline, per-write record()
-// appends to a capped log tagged with the current scanline,
-// rewind_to_baseline()+apply_changes_for_line() reconstruct "value as
-// of scanline N" for the render pass, flush_remaining_changes() drains
-// any tail that landed past the visible area.
+//   hc(3:0)  1       3       5       7       9       B       D       F
+//   register pbyte11 abyte11 pbyte01 abyte01 pbyte00 abyte00 pbyte10 abyte10
 //
-// ---------------------------------------------------------------------
-// Column-accurate resolution (Task 8 Nirvana round 4, 2026-07-13)
-// ---------------------------------------------------------------------
+// Registers *00 / *10 hold the PRIMARY column of an even / odd slot (the
+// address uses `px`, latched at hc(3:0)=3 / B, :262-267 and :198-200, so
+// column = (j + scroll_x(7:3)) mod 32); registers *01 / *11 hold the
+// SECONDARY column (`px_1` = px + 1, :216, :245-248), used only for the bits
+// that fine X scroll shifts in from the next byte (shift_pbyte =
+// pbyte00 & pbyte01 or pbyte10 & pbyte11, :383-384; shift_abyte likewise).
+// The shift register loads at sload_0 (hc(3:0)=C) and sload_1 (hc(3:0)=4),
+// :360-382. Written as hc_ula for slot j (even j: block start 8j; odd j: the
+// odd half of the block that starts at 8(j-1)):
 //
-// Round 3 resolved writes at SCANLINE granularity only: whichever value
-// was current for an offset as of the scanline tag won, for ALL 32
-// columns of that scanline. That is wrong — the paragraph above already
-// says the ULA fetches the SAME attribute address again "on EACH of the
-// 8 scanlines", but within one scanline it fetches each of the 32
-// columns' bytes at a DIFFERENT, strictly increasing horizontal
-// position, not once for the whole line (zxula.vhd:226-263 — the
-// attribute-address SET cycles alternate with pixel-address SET cycles
-// every 4 ticks, `hc(3:0) = 0x1/0x5/0x9/0xD`, and the fetched byte for
-// column C becomes visible 2 ticks later per the "record bytes read"
-// process at :270-303, `hc(3:0) = 0x3/0x7/0xB/0xF`). A write that lands
-// AFTER column C's own fetch instant this scanline cannot retroactively
-// recolour column C — it only takes effect from the cell's NEXT fetch
-// (the following scanline of the same 8-line cell, or next frame if
-// this was the cell's last scanline). Per-scanline granularity applied
-// such a write one scanline too early, which is invisible for
-// nirvana.tap (writes well ahead of the beam) but corrupts bifrost.tap
-// (the whole point of that technique is per-column colour).
+//   primary attribute  A(j) = 8j + 11 (j even, abyte00 @B)
+//                           = 8j +  7 (j odd,  abyte10 @F)
+//   primary pixel      P(j) = A(j) - 2        (pbyte00 @9 / pbyte10 @D)
+//   secondary pixel         = 8j + 5 (j even, pbyte01 @5)
+//                           = 8j + 9 (j odd,  pbyte11 @1 of the next block)
+//   secondary attribute     = 8j + 7 (j even, abyte01 @7)
+//                           = 8j +11 (j odd,  abyte11 @3 of the next block)
 //
-// Exact fetch instant used here (Task 54 — parity-aware; supersedes
-// round 4's uniform `hc_origin + col*8`, which was 8-12 ticks EARLY):
-//   `hc_fetch(col) = hc_origin + col*8 + (col odd ? 8 : 12)`
-//   * `hc_origin` = `VideoTiming::ula_prefetch_origin_hc()` (timing.h),
-//     itself VHDL zxula_timing.vhd:423 (`c_min_hactive - 12`).
-//   * The +12/+8 parity terms come from the two-column double-buffered
-//     fetch pipeline (zxula.vhd:271-306, 368-455): the abyte* registers
-//     latch VRAM data at hc(3:0)=3/7/B/F, and the byte that actually
-//     governs on-screen column C (zero scroll) is consumed by sload_0
-//     (hc(3:0)=C, abyte00, latched 1 tick earlier) for even C, or
-//     sload_1 (hc(3:0)=4, abyte10, latched 5 ticks earlier in the
-//     previous block) for odd C. With hc_ula=0 at raw hc =
-//     c_min_hactive-11 (registered reset, zxula_timing.vhd:423-436)
-//     the latch lands at raw hc = c_min_hactive + 8C (even C) /
-//     c_min_hactive - 4 + 8C (odd C). Round 4's block comment claimed
-//     the sload stagger "has no CPU-write-race observable" — WRONG:
-//     BIFROST writes race exactly this boundary, and the uniform
-//     formula displaced it by 8-12 ticks (verified against real FUSE,
-//     Task 54: with this boundary + the Task 54 contention-magnitude
-//     fix, bifrost.tap renders pixel-identical to FUSE).
+// hc_ula = 0 at raw hc = c_min_hactive - 11 (registered reset,
+// zxula_timing.vhd:423-436), so raw = hc_ula + hc_origin + 1 with
+// hc_origin = VideoTiming::ula_prefetch_origin_hc() = c_min_hactive - 12.
+// That reproduces the pre-GH#305 attribute instant exactly
+// (origin + 8j + 12 even / + 8 odd, verified against FUSE on bifrost.tap,
+// Task 54) and extends it to the other three kinds of fetch (fetch_hc()).
+// A write is visible to a fetch when its (line, hc) tag is at or before the
+// fetch instant, the same convention the attribute plane always used.
 //
-// Because offset -> column is a fixed, 1:1 mapping (`col = offset %
-// 32`), and because entries for a single offset are appended in strict
-// chronological (line, hc) order, resolving a given offset only needs
-// to walk its OWN entries in order — no cross-offset interleaving
-// matters. `per_offset_log_[offset]` (indices into the flat `log_`) +
-// `per_offset_cursor_[offset]` implement exactly that: a per-offset
-// monotonic cursor, advanced lazily by `current(offset)` the first time
-// each scanline needs it, consuming every entry that is either from a
-// strictly earlier scanline (settled) or from the target scanline at or
-// before that offset's own column fetch instant. A later, same-line
-// entry that arrives too late for THIS scanline is left unconsumed —
-// the very next call (next scanline of the cell, where "strictly
-// earlier" now applies unconditionally) picks it up, which is exactly
-// the VHDL-faithful "carries forward to the next fetch" behaviour.
+// Because the instant is by DISPLAY slot, a coarse X scroll moves WHICH byte
+// is read at an instant, not the instant itself, and the fine-scroll bits
+// come from the secondary fetch (VMUX-09, VMUX-10).
+//
+// The log is growable: nothing can be dropped. A CPU write needs at least 3
+// CPU clocks and a DMA transfer 2, so one frame (70908 T-states = 567264
+// 28 MHz clocks at the longest machine timing) holds well under 300 000
+// writes, about 3.6 MB of 12-byte entries; typical frames hold a few
+// hundred. Per-frame work is proportional to the number of writes: only the
+// offsets a write touched are reset (touched_), and the baseline is one
+// memcpy of the bank.
+//
+// Replay: per offset the entries form a chain in append (= chronological)
+// order. `read()` advances a per-offset cursor lazily and monotonically; a
+// query earlier than the previous one for that offset restarts from the
+// baseline, so the instants of different fetch kinds may interleave freely.
+// A write is clamped to be no earlier than the previous write to its offset:
+// program order is the order that matters, and a coarse-tagged writer (DMA,
+// loader) must not sort before a CPU write that already happened.
 class AttributeMux {
 public:
-    // 32 columns x 24 character rows = one full attribute plane
-    // (0x5800-0x5AFF or 0x7800-0x7AFF).
-    static constexpr int kNumBytes = 768;
+    // 32 columns x 24 character rows = one full standard attribute plane
+    // (offsets 0x1800-0x1AFF of a bank).
+    static constexpr int      kNumBytes  = 768;
+    static constexpr uint32_t kAttrBase  = 0x1800;
+    // Bank sizes (bank 5: pages 0x0A+0x0B; bank 7: page 0x0E only).
+    static constexpr uint32_t kBank5Bytes = 0x4000;
+    static constexpr uint32_t kBank7Bytes = 0x2000;
 
-    // Worst case per G12 gap analysis (doc/issues/KNOWN-FUNCTIONALITY-
-    // GAPS-AND-PLAN.md "G12"): every one of the 768 bytes rewritten once
-    // per scanline of its own 8-line cell = 768 * 8 = 6144. Round up
-    // with headroom for a second full 768-byte re-write inside overflow
-    // margin.
-    static constexpr size_t kMaxLogEntries = 8192;
+    /// The four kinds of fetch a display slot makes (see the table above).
+    enum class Fetch {
+        Pixel,      ///< primary pixel (or hi-res screen-0) byte
+        Attr,       ///< primary attribute (or hi-colour colour / hi-res screen-1) byte
+        PixelNext,  ///< secondary pixel byte, the next column's, shifted in by fine scroll
+        AttrNext,   ///< secondary attribute byte
+    };
 
-    /// Snapshot `baseline[0..kNumBytes)` as this frame's starting state
-    /// and reset the per-frame log. `baseline` may be null (e.g. Mmu not
-    /// yet wired to a physical buffer) — treated as all-zero.
-    ///
-    /// `hc_origin` is `VideoTiming::ula_prefetch_origin_hc()` for the
-    /// active machine — the 7 MHz-domain tick at which column 0's
-    /// attribute fetch completes; `hc_fetch(col) = hc_origin + col*8`
-    /// (see the column-accurate-resolution block comment above the
-    /// class). Defaults to 0 so bare-Mmu unit-test fixtures that never
-    /// call `attr_mux_set_current_hc()` (and therefore always record
-    /// hc=0) keep resolving on LINE alone — hc=0 trivially satisfies
-    /// `hc <= hc_fetch(col)` for every non-negative origin/column, which
-    /// is exactly the pre-round-4 scanline-only behaviour.
-    void start_frame(const uint8_t* baseline, int hc_origin = 0);
+    /// Snapshot `baseline[0..plane_bytes)` as this frame's starting state and
+    /// reset the per-frame log. `baseline` may be null (treated as zero).
+    /// `hc_origin` is VideoTiming::ula_prefetch_origin_hc(); the default 0
+    /// lets bare-Mmu fixtures that never tag an hc resolve on line alone.
+    void start_frame(const uint8_t* baseline, int hc_origin = 0,
+                     uint32_t plane_bytes = kBank5Bytes);
 
-    /// True once start_frame() has been called at least once. NOT a
-    /// racing/arm heuristic — a plain lifecycle invariant: `current()`
-    /// only reflects real content once a baseline has actually been
-    /// snapshotted. Real production rendering always calls
-    /// Mmu::attr_mux_start_frame() once per frame before any CPU
-    /// execution (see mmu.h), so this is true for the entire life of a
-    /// running emulator. It exists so callers that construct a bare
-    /// Ula+Mmu fixture and render directly (most subsystem unit/
-    /// integration tests, which write attribute bytes straight into Ram
-    /// and never touch the per-frame mux lifecycle at all) fall through
-    /// to the plain vram_read() path instead of reading an all-zero
-    /// `current_` — exactly the pre-G12 behaviour for any caller that
-    /// never opts into the per-frame lifecycle, regardless of whether
-    /// any write happened to race.
+    /// True once start_frame() has been called. A plain lifecycle invariant:
+    /// reads only mean something once a baseline exists, so callers that
+    /// render a bare Ula+Mmu without the per-frame lifecycle fall through to
+    /// the live-memory read.
     bool started() const { return started_; }
 
-    /// Record that attribute-plane offset `offset` (0..767) was written
-    /// `value` while scanline `line` was the current beam position (per
-    /// Mmu::attr_mux_set_current_line, itself mirroring
-    /// Emulator::on_scanline) and `hc` was the current horizontal
-    /// pixel-tick position within that scanline. A CPU write passes its
-    /// own (line, hc) from the true per-write T-state (Mmu::
-    /// attr_mux_set_write_pos, from src/cpu/z80_cpu.cpp's
-    /// fuse_z80_writebyte()); every other writer passes the coarse line
-    /// and hc 0 (Mmu::attr_mux_set_current_hc, fixtures only). Returns false and drops the write (once-
-    /// per-frame warn via caller) if the log is already full — a
-    /// conservative fallback that degrades to a stale (but never wrong-
-    /// address) value for the overflow tail.
-    bool record_write(uint16_t line, uint16_t hc, uint16_t offset, uint8_t value);
+    /// Record that bank offset `offset` was written `value` while scanline
+    /// `line` (framebuffer-row space) was the beam position and `hc` the
+    /// horizontal position within it. Never drops a write; returns false
+    /// only for an offset outside the bank.
+    bool record_write(uint16_t line, uint16_t hc, uint32_t offset, uint8_t value);
 
-    /// Reset the render-time `current` plane to the frame baseline and
-    /// rewind every per-offset replay cursor. Call once per frame (or
-    /// once per independent replay pass — see src/debugger/video_panel.cpp,
-    /// which re-walks the same already-recorded log a second time for its
-    /// own rendering) before the first apply_changes_for_line().
+    /// Reset every replay cursor to the frame baseline (call before the
+    /// first apply_changes_for_line of a render pass; the debugger's second
+    /// pass re-walks the same log).
     void rewind_to_baseline();
 
-    /// Set the scanline that subsequent current(offset) calls should
-    /// resolve against. O(1) — the actual per-offset resolution work is
-    /// deferred to current() itself (lazy, only for offsets the render
-    /// pass actually reads this scanline).
+    /// Set the scanline subsequent reads resolve against. O(1).
     void apply_changes_for_line(int line) { target_line_ = static_cast<uint16_t>(line); }
 
-    /// Unconditionally drain every offset's remaining log entries
-    /// (ignoring the line/hc gate) — call once after the per-line render
-    /// loop so writes tagged at an off-screen line (e.g. vblank, or past
-    /// FB_HEIGHT — see Emulator::on_scanline's post-display comment)
-    /// still land in `current` before the next start_frame() re-snapshots
-    /// it as next frame's baseline.
+    /// Consume every remaining entry (ignoring the line/hc gate), so writes
+    /// tagged past the visible area still land before the next frame.
     void flush_remaining_changes();
 
-    /// Render-time read: the effective attribute byte for plane offset
-    /// `offset`, resolved for the scanline set by the most recent
-    /// apply_changes_for_line() call, at COLUMN GRANULARITY: the value
-    /// is the last write to this offset that happened either on a
-    /// strictly earlier scanline, or on the target scanline at or before
-    /// `col`'s own attribute-fetch instant (`hc_fetch(col)`, see the
-    /// column-accurate-resolution block comment above the class) — NOT
-    /// simply the last write of the scanline regardless of column.
-    /// `col = offset % 32` is derived internally (offset->column is a
-    /// fixed 1:1 mapping), so callers pass the same `offset` they always
-    /// have; no signature change was needed at any call site.
-    /// Logically const (each offset's own resolution is idempotent and
-    /// monotonic — repeat calls with the same target line are cheap
-    /// no-ops); the lazy per-offset cursor advance is implemented via
-    /// `mutable` members.
-    uint8_t current(int offset) const {
-        if (offset < 0 || offset >= kNumBytes) return 0xFF;
-        resolve(static_cast<size_t>(offset));
-        return current_[static_cast<size_t>(offset)];
+    /// Horizontal instant (raw hc) at which display slot `slot` (0..31)
+    /// makes a fetch of kind `f`. See the table above.
+    uint16_t fetch_hc(int slot, Fetch f) const {
+        const int origin = (hc_origin_ < 0) ? 0 : hc_origin_;
+        const bool odd = (slot & 1) != 0;
+        int d = 0;
+        switch (f) {
+            case Fetch::Attr:      d = odd ? 8  : 12; break;
+            case Fetch::Pixel:     d = odd ? 6  : 10; break;
+            case Fetch::PixelNext: d = odd ? 10 : 6;  break;
+            case Fetch::AttrNext:  d = odd ? 12 : 8;  break;
+        }
+        return static_cast<uint16_t>(origin + slot * 8 + d);
     }
 
-    size_t log_size() const { return log_size_; }
+    /// Value of bank offset `offset` as the ULA fetch at horizontal instant
+    /// `hc` of the scanline set by apply_changes_for_line() reads it: the
+    /// last write at or before (line, hc), else the frame baseline.
+    uint8_t read(uint32_t offset, uint16_t hc) const {
+        if (offset >= nbytes_) return 0;
+        OffState& s = st_[offset];
+        if (s.first == kNone) return base_[offset];
+        const uint32_t key = (static_cast<uint32_t>(target_line_) << 16) | hc;
+        if (key < s.lastkey) {           // out-of-order query: replay from the start
+            s.cursor = s.first;
+            s.curval = base_[offset];
+        }
+        s.lastkey = key;
+        while (s.cursor != kNone) {
+            const Entry& e = log_[s.cursor];
+            if (e.key > key) break;
+            s.curval = e.value;
+            s.cursor = e.next;
+        }
+        return s.curval;
+    }
+
+    /// Standard attribute plane read (offset 0..767 of 0x1800-0x1AFF) at the
+    /// primary attribute instant of its column.
+    uint8_t current(int offset) const {
+        if (offset < 0 || offset >= kNumBytes) return 0xFF;
+        return read(kAttrBase + static_cast<uint32_t>(offset),
+                    fetch_hc(offset % 32, Fetch::Attr));
+    }
+
+    size_t log_size() const { return log_.size(); }
     void clear();
 
-    // No save_state/load_state: nothing here needs to survive a rewind
-    // snapshot. `log_`/`baseline_`/`current_` are all rebuilt fresh
-    // every frame from live RAM by start_frame() (called at the top of
-    // every Emulator::run_frame, BEFORE any CPU execution) — a rewind
-    // restores RAM content, and the very next start_frame() re-derives
-    // everything from that restored content. Serialising `log_` was
-    // tried first and was the actual bug behind a "free(): invalid
-    // size" heap-corruption crash: RewindBuffer slots are fixed-size,
-    // but log_size_ (and therefore the serialised byte count) varies
-    // frame to frame — see Mmu::save_state, which persists only the
-    // scanline-tag cursor (`attr_mux_current_line_`) that genuinely
-    // needs to survive a rewind. (The mux itself is always-on — no
-    // "armed" state exists to persist as of Task 8 Nirvana round 3.)
-    // The hc tags (round 4) do NOT need persisting either. A CPU write's
-    // (line, hc) is set immediately before that one write and ended right
-    // after it (z80_cpu.cpp, attr_mux_end_write), so it is never stale at
-    // the point it matters; `attr_mux_current_hc_`, the coarse hc of
-    // every other writer, is 0 in production.
+    // No save_state/load_state: every structure here is rebuilt each frame
+    // from live RAM by start_frame() (Emulator::begin_new_frame), so a
+    // rewind restores RAM and the next start_frame() re-derives the rest.
+    // Mmu::save_state persists only the coarse scanline tag.
 
 private:
+    static constexpr uint32_t kNone = 0xFFFFFFFFu;
+
     struct Entry {
-        uint16_t line;
-        uint16_t hc;
+        uint32_t key;      // (line << 16) | hc
+        uint32_t next;     // next entry for the same offset, or kNone
         uint16_t offset;
         uint8_t  value;
     };
 
-    /// Column-accurate resolution helper: advance the per-offset cursor
-    /// for `offset`, consuming every not-yet-applied entry that is
-    /// either from a strictly earlier scanline than `target_line_`
-    /// (settled — the render pass has moved past it) or from
-    /// `target_line_` itself at or before this offset's own column
-    /// fetch instant. Entries within one offset's own list are appended
-    /// in strict chronological (line, hc) order, so "stop at the first
-    /// entry that doesn't yet qualify" is correct: no later entry for
-    /// THIS offset can have an earlier hc. A held-back entry is left in
-    /// place for a future call (this offset's next scanline, where
-    /// "strictly earlier" makes it unconditional).
-    void resolve(size_t offset) const {
-        const auto& idx = per_offset_log_[offset];
-        size_t& cur = per_offset_cursor_[offset];
-        const uint16_t target_hc = hc_fetch(static_cast<int>(offset % 32));
-        while (cur < idx.size()) {
-            const Entry& e = log_[idx[cur]];
-            if (e.line < target_line_
-                || (e.line == target_line_ && e.hc <= target_hc)) {
-                current_[offset] = e.value;
-                ++cur;
-            } else {
-                break;
-            }
-        }
-    }
+    struct OffState {
+        uint32_t first   = kNone;   // chain head (kNone = offset never written)
+        uint32_t last    = kNone;   // chain tail
+        uint32_t cursor  = kNone;   // next unconsumed entry
+        uint32_t lastkey = 0;       // key of the previous read
+        uint8_t  curval  = 0;       // value after the consumed entries
+    };
 
-    /// The last raw-hc instant at which a CPU write still affects column
-    /// `col` on the current scanline. Task 54 correction (was
-    /// `origin + col*8`, i.e. 8-12 ticks too early, no parity):
-    ///
-    /// Per zxula.vhd:271-306 the abyte* registers latch VRAM data at
-    /// hc(3:0)=3/7/B/F, and per :368-455 the byte that actually governs
-    /// on-screen column C (zero scroll) is the one consumed by sload_0
-    /// (hc(3:0)=C, abyte00, latched 1 tick earlier at B) for even C, or
-    /// sload_1 (hc(3:0)=4, abyte10, latched 5 ticks earlier at F of the
-    /// previous block) for odd C. With hc_ula=0 at raw hc = min_hactive-11
-    /// (registered reset, zxula_timing.vhd:423-436) that works out to
-    ///   latch(C) = min_hactive + 8C       (C even)
-    ///            = min_hactive - 4 + 8C   (C odd)
-    /// and with hc_origin_ = min_hactive - 12 (ula_prefetch_origin_hc):
-    ///   fetch(C) = origin + 12 + 8C  (even) / origin + 8 + 8C  (odd).
-    ///
-    /// Verified empirically against real FUSE on bifrost.tap (Task 54):
-    /// with this boundary + the Task 54 contention-magnitude fix, the
-    /// rendered frame is pixel-identical to FUSE modulo FLASH phase.
-    uint16_t hc_fetch(int col) const {
-        const int origin = (hc_origin_ < 0) ? 0 : hc_origin_;
-        return static_cast<uint16_t>(origin + col * 8 + ((col & 1) ? 8 : 12));
-    }
+    void reset_touched_();
 
-    std::array<uint8_t, kNumBytes> baseline_{};
-    mutable std::array<uint8_t, kNumBytes> current_{};
-    std::array<Entry, kMaxLogEntries> log_{};
-    size_t   log_size_        = 0;
-    bool     overflow_warned_ = false;
-    bool     started_         = false;
-    int      hc_origin_       = 0;
-    uint16_t target_line_     = 0;
-
-    // Per-offset index into `log_`, in append (= chronological) order.
-    // Cleared (not deallocated -- keeps capacity warm across frames) by
-    // both start_frame() and rewind_to_baseline(), since the latter is
-    // also used to re-walk an already-recorded log a second time (the
-    // debugger's independent replay pass).
-    mutable std::array<std::vector<uint16_t>, kNumBytes> per_offset_log_{};
-    mutable std::array<size_t, kNumBytes> per_offset_cursor_{};
+    uint32_t              nbytes_    = 0;
+    std::vector<uint8_t>  base_;
+    mutable std::vector<OffState> st_;
+    std::vector<Entry>    log_;
+    std::vector<uint32_t> touched_;
+    bool                  started_   = false;
+    int                   hc_origin_ = 0;
+    uint16_t              target_line_ = 0;
 };

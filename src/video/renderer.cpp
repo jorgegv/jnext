@@ -202,7 +202,7 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
     }
     // G12 — Nirvana-class attribute-mux (Category B, per-scanline
     // replay of mid-frame attribute writes). Always-on — see
-    // Mmu::attr_mux_start_frame() / Ula::attr_vram_read().
+    // Mmu::attr_mux_start_frame() / Ula::beam_vram_read().
     mmu.attr_mux_rewind_to_baseline();
     // Per-scanline NR 0x15 layer-priority + sprite-enable (G02, GH #73).
     rewind_to_baseline_nr15();

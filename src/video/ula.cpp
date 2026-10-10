@@ -130,64 +130,36 @@ uint8_t Ula::fetch_vram_bank(uint16_t vram_a, bool bank7) const
 }
 
 // ---------------------------------------------------------------------------
-// attr_vram_read — G12 Nirvana-class attribute replay consumer
+// beam_vram_read — ULA display fetch at its beam-time instant (GH #305)
 // ---------------------------------------------------------------------------
 //
-// Bank-selection bug fix (Task 8 Nirvana round 3, 2026-07-13): the
-// PHYSICAL bank (5 vs 7) the mux must be read from is `vram_use_bank7_`
-// — the exact same signal vram_read() uses for pixel fetches — NOT
-// `alt`. VHDL zxula.vhd:191 (`screen_mode_s <= i_port_ff_reg(2 downto 0)
-// when i_ula_shadow_en = '0' else "000"`) and zxnext.vhd:6649-6656
-// (`ula_bank_do <= vram_bank5_do1 when ula_vram_shadow = '0' else
-// vram_bank7_do`) both establish that bank choice is driven PURELY by
-// the 7FFD shadow-screen bit, independent of Timex screen mode — Timex
-// mode only ever picks the ADDRESS OFFSET within whichever bank shadow
-// has already selected, and is forced to STANDARD (clearing the
-// alt-file bit) whenever shadow is asserted (see
-// set_shadow_screen_en()). A previous version derived the bank choice
-// from `alt` (attr_row_base >= 0x7800, i.e. Timex STANDARD_1 mode) —
-// but STANDARD_1 can never be active while shadow is on (shadow forces
-// STANDARD), so that derivation could NEVER select bank 7 while shadow
-// was enabled — reading bank 5's (functionally unrelated) attribute
-// content instead of bank 7's, for any program that enables shadow-
-// screen without ever touching Timex mode (e.g. beast.nex). Confirmed
-// via a scratch diagnostic (temporarily compared armed vs. direct read
-// on every call) and by tracing Mmu::write()'s detector, which already
-// keys the write side purely on physical page (0x0A/0x0E) — the write
-// side was never the bug; only this read-side bank derivation was.
+// The ULA fetches every byte it displays, pixel and attribute alike, on every
+// scanline at a fixed horizontal instant (zxula.vhd:226-303; the per-slot
+// instants are tabulated in attribute_mux.h). A CPU write that lands after
+// that instant is seen by the next scanline's fetch, not this one. Reading
+// the live RAM at render time instead (the end of the frame) shows the LAST
+// write of the frame, which is neither what the hardware displayed nor, for
+// pixels, coherent with the attribute plane that was always replayed.
 //
-// `alt` still matters for a SEPARATE axis: it selects which 768-byte
-// sub-window of the bank AttributeMux tracks. AttributeMux only ever
-// observes writes to physical-page offset 0x1800-0x1AFF (kAttrMuxOffLo
-// in mmu.h) — the "primary" attribute sub-region, which is what CPU
-// address 0x5800-based (`alt`=false) addressing maps to, for EITHER
-// bank. Genuine Timex STANDARD_1 addressing (`alt`=true, CPU
-// 0x7800-based) lands in bank 5's UPPER 8K page (0x0B) — a page
-// Mmu::write()'s detector does not watch at all (STANDARD_1 cannot
-// coexist with shadow, so it is never the beast.nex/nirvana scenario) —
-// so the mux must never be consulted for that range; fall through to
-// the direct read exactly as pre-G12, matching what the (never-armed,
-// for this address range) mux would have produced anyway.
-uint8_t Ula::attr_vram_read(uint16_t addr, bool alt, Mmu& mmu) const
+// The PHYSICAL bank (5 vs 7) is `vram_use_bank7_`, the same signal
+// fetch_vram() uses: bank choice is driven purely by the 7FFD shadow-screen
+// bit (zxula.vhd:191, zxnext.vhd:6649-6656), independent of Timex mode, which
+// is forced to "000" whenever shadow is on (set_shadow_screen_en()).
+//
+// `slot` is the DISPLAY slot (column) and `kind` which of its four fetches
+// this is; `addr` is the CPU-space address the caller computed for the byte
+// (0x4000-based, as for vram_read()), of which only the 14-bit bank offset
+// matters. `mux.started()` is a plain lifecycle guard: Mmu::attr_mux_start_
+// frame() runs once per frame before any CPU execution, so it is true for a
+// running emulator; a bare Ula+Mmu fixture that renders without the per-frame
+// lifecycle falls through to the live read.
+uint8_t Ula::beam_vram_read(uint16_t addr, int slot, AttributeMux::Fetch kind,
+                            Mmu& mmu) const
 {
-    if (!alt) {
-        const uint16_t off = static_cast<uint16_t>(addr - 0x5800u);
-        if (off < AttributeMux::kNumBytes) {
-            const AttributeMux& mux = vram_use_bank7_ ? mmu.attr_mux7() : mmu.attr_mux5();
-            // mux.started() — NOT a racing/arm heuristic (that mechanism
-            // is gone; see mmu.h). A plain lifecycle guard: `current()`
-            // only reflects real content once Mmu::attr_mux_start_frame()
-            // has actually snapshotted a baseline. Production rendering
-            // always calls it once per frame before any CPU execution,
-            // so this is unconditionally true for a running emulator;
-            // it only matters for callers (most subsystem unit/
-            // integration tests) that construct a bare Ula+Mmu and
-            // render directly without the per-frame lifecycle, and must
-            // fall through to the plain read exactly as pre-G12.
-            if (mux.started()) {
-                return mux.current(off);
-            }
-        }
+    const AttributeMux& mux = vram_use_bank7_ ? mmu.attr_mux7() : mmu.attr_mux5();
+    if (mux.started()) {
+        const uint32_t off = vram_use_bank7_ ? (addr & 0x1FFFu) : (addr & 0x3FFFu);
+        return mux.read(off, mux.fetch_hc(slot, kind));
     }
     return vram_read(addr, mmu);
 }
@@ -399,7 +371,7 @@ void Ula::apply_changes_for_line(int line)
 // last replayed value. That was never true, and a comment asserting a
 // dependency that does not exist is how the next person introduces one.
 //
-// Deliberately NOT routed through attr_vram_read(): AttributeMux reconstructs,
+// Deliberately NOT routed through beam_vram_read(): AttributeMux reconstructs,
 // for one render row, what an attribute byte held EARLIER in the frame
 // (attribute_mux.h). A `.SCR` is a dump of memory as it stands, and there is
 // no single row for it to be reconstructed at.
@@ -409,7 +381,7 @@ void Ula::apply_changes_for_line(int line)
 std::vector<uint8_t> Ula::screen_dump() const
 {
     // Bank: the 7FFD shadow bit alone (zxnext.vhd:6649-6656), exactly as
-    // render_scanline_in_bank / attr_vram_read derive it.
+    // render_scanline_in_bank / beam_vram_read derive it.
     const bool bank7 = shadow_screen_en_;
 
     // Mode: port 0xFF bits 2:0, masked to "000" while shadow is on
@@ -920,8 +892,10 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
     if (scroll_x == 0 && !fine) {
         // Fast path (unchanged semantics under default NR 0x26/NR 0x68 bit 2).
         for (int col = 0; col < 32; ++col) {
-            const uint8_t pixels = vram_read(static_cast<uint16_t>(pixel_base + col), mmu);
-            const uint8_t attr_raw = attr_vram_read(static_cast<uint16_t>(eff_attr_base + col), alt, mmu);
+            const uint8_t pixels = beam_vram_read(
+                static_cast<uint16_t>(pixel_base + col), col, AttributeMux::Fetch::Pixel, mmu);
+            const uint8_t attr_raw = beam_vram_read(
+                static_cast<uint16_t>(eff_attr_base + col), col, AttributeMux::Fetch::Attr, mmu);
 
             // zxula.vhd:470 — `attr_active(7) and flash_cnt(4) and
             // (not i_ulanext_en) and not i_ulap_en`: BOTH ULAnext (Wave B)
@@ -1010,10 +984,19 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
             const int src_x  = fold_ula_x(disp_x / 2, scroll_x, fine);
             const int src_col = src_x >> 3;          // byte column 0..31
             const int src_bit = 7 - (src_x & 0x7);   // MSB-first within byte
-            const uint8_t pixels = vram_read(
-                static_cast<uint16_t>(pixel_base + src_col), mmu);
-            const uint8_t attr_raw = attr_vram_read(
-                static_cast<uint16_t>(eff_attr_base + src_col), alt, mmu);
+            // The fetch instant belongs to the DISPLAY slot (16 cells of
+            // disp_x), not to the source column (zxula.vhd:199, 376-382): the
+            // slot's primary byte is column (slot + scroll_x(7:3)) mod 32, and
+            // a pixel taken from any other column came from its secondary
+            // (px_1) fetch.
+            const int slot    = disp_x >> 4;
+            const bool next   = src_col != ((slot + (scroll_x >> 3)) & 31);
+            const uint8_t pixels = beam_vram_read(
+                static_cast<uint16_t>(pixel_base + src_col), slot,
+                next ? AttributeMux::Fetch::PixelNext : AttributeMux::Fetch::Pixel, mmu);
+            const uint8_t attr_raw = beam_vram_read(
+                static_cast<uint16_t>(eff_attr_base + src_col), slot,
+                next ? AttributeMux::Fetch::AttrNext : AttributeMux::Fetch::Attr, mmu);
 
             // zxula.vhd:470 — both ULAnext (Wave B) and ULA+ (Wave C)
             // suppress the flash XOR; mirrors the fast-path gate above.
@@ -1146,8 +1129,10 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu,
     // the screen_mode(2) bit is zero (only HI_RES sets it).
     const bool sm2 = false;
     for (int col = 0; col < 32; ++col) {
-        const uint8_t pixels = vram_read(static_cast<uint16_t>(pixel_base + col), mmu);
-        const uint8_t attr_raw = vram_read(static_cast<uint16_t>(attr_base  + col), mmu);
+        const uint8_t pixels = beam_vram_read(
+            static_cast<uint16_t>(pixel_base + col), col, AttributeMux::Fetch::Pixel, mmu);
+        const uint8_t attr_raw = beam_vram_read(
+            static_cast<uint16_t>(attr_base  + col), col, AttributeMux::Fetch::Attr, mmu);
 
         // zxula.vhd:470 — flash XOR gated off when i_ulanext_en='1' or
         // i_ulap_en='1' (Waves B + C combined).
@@ -1348,8 +1333,10 @@ void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu,
     // 16 framebuffer cells at base DISP_X + col * 16; total 512 cells across
     // 32 columns fills the entire display width.
     for (int col = 0; col < 32; ++col) {
-        const uint8_t b0 = vram_read(static_cast<uint16_t>(screen0_base + col), mmu);
-        const uint8_t b1 = vram_read(static_cast<uint16_t>(screen1_base + col), mmu);
+        const uint8_t b0 = beam_vram_read(
+            static_cast<uint16_t>(screen0_base + col), col, AttributeMux::Fetch::Pixel, mmu);
+        const uint8_t b1 = beam_vram_read(
+            static_cast<uint16_t>(screen1_base + col), col, AttributeMux::Fetch::Attr, mmu);
 
         uint32_t* dst = row + DISP_X + col * 16;
         // Screen-0 byte first (VHDL shift_pbyte(15:8) lands at shift_reg_32(31:24)).
