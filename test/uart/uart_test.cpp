@@ -2322,6 +2322,26 @@ static void test_group10_rtc() {
                   rej_nonleap ? 1 : 0, rej_garbage ? 1 : 0, rej_trailing ? 1 : 0,
                   rej_range ? 1 : 0, rej_rollover ? 1 : 0));
     }
+
+    // RTC-23 — GH #317: every field of a --rtc datetime is plain ASCII digits
+    // that fit an int. sscanf("%d") wrapped 2^32+4 to 4 and accepted a sign.
+    // Oracle: the man page ("a numeric value is taken whole") and C integer
+    // semantics; no VHDL counterpart (host CLI).
+    {
+        std::tm dummy{}, ok{};
+        const bool rej_sec   = !parse_rtc_datetime("2026-01-01T00:00:4294967300", dummy);
+        const bool rej_year  = !parse_rtc_datetime("4294969322-01-01T00:00:00", dummy);
+        const bool rej_sign  = !parse_rtc_datetime("2026-+1-01T00:00:00", dummy);
+        const bool rej_space = !parse_rtc_datetime("2026-01-01T 0:00:00", dummy);
+        const bool keep_ok   = parse_rtc_datetime("2026-1-1 0:0:0", ok) && ok.tm_mon == 0 &&
+                               ok.tm_mday == 1;
+        check("RTC-23",
+              "GH #317 parse_rtc_datetime — an overflowing, signed or space-padded field is "
+              "rejected; unpadded digit fields still parse",
+              rej_sec && rej_year && rej_sign && rej_space && keep_ok,
+              fmt("sec=%d year=%d sign=%d space=%d keep=%d", rej_sec ? 1 : 0, rej_year ? 1 : 0,
+                  rej_sign ? 1 : 0, rej_space ? 1 : 0, keep_ok ? 1 : 0));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════

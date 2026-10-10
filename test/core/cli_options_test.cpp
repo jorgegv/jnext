@@ -1180,6 +1180,19 @@ int main() {
                         num.push_back("no quoted value: " + args);
                 }
             }
+            // The message names the metavar FROM THE TABLE ROW, so it cannot drift
+            // from --help: one arity-2 int option, one int option, one hex option.
+            for (const char* nm : { "--delayed-keypress", "--benchmark", "--inject-org" }) {
+                for (const cli::Option& o : cli::OPTIONS) {
+                    if (std::strcmp(o.name, nm) != 0) continue;
+                    const std::string a = o.args;
+                    const std::string want = std::string(nm) + ": " + a.substr(0, a.find(' ')) +
+                                             " must be";
+                    run_split(std::string(nm) + " x" + (o.arity == 2 ? " a" : "") + " --version");
+                    if (slurp(err_path).find(want) == std::string::npos)
+                        num.push_back("message lacks `" + want + "`");
+                }
+            }
             // Bounds: one batched invocation per bound; on failure name the culprit.
             for (int pass = 0; pass < 2; ++pass) {
                 std::string batch;
