@@ -2826,10 +2826,12 @@ run), \f[CR]dir\f[R] (the NextPi directory; empty means
 name on the mirror, or \f[CR]latest\f[R] for the newest one listed
 there; empty means \f[CR]1_93D\f[R]), \f[CR]qemu_binary\f[R] (empty
 means \f[CR]qemu\-system\-arm\f[R] on \f[CR]PATH\f[R]) and
-\f[CR]audio\f[R] (empty means the Next\(cqs mixer; otherwise a QEMU
-\f[CR]\-audiodev\f[R] driver such as \f[CR]coreaudio\f[R], \f[CR]pa\f[R]
-or \f[CR]none\f[R] to play it straight to the host instead, or
-\f[CR]wav:\f[R]\f[I]FILE\f[R] to record it on its own).
+\f[CR]audio\f[R] (empty means the Next\(cqs mixer; \f[CR]host\f[R] plays
+it on this computer\(cqs default output, \f[CR]pa\f[R] on Linux and
+\f[CR]coreaudio\f[R] on macOS; otherwise a QEMU \f[CR]\-audiodev\f[R]
+driver such as \f[CR]coreaudio\f[R], \f[CR]pa\f[R] or \f[CR]none\f[R] to
+play it straight to the host instead, or \f[CR]wav:\f[R]\f[I]FILE\f[R]
+to record it on its own).
 Changing the release makes the next start offer to download it,
 replacing the installed one.
 The joystick ports are stored under \f[CR][input]\f[R]:

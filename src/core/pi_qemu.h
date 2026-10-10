@@ -55,9 +55,10 @@ public:
         std::string dir;                              ///< NextPi directory (layout above)
         std::string qemu_binary = "qemu-system-arm";  ///< PATH-searched unless it has a '/'
         /// Pi audio: "" for the Next's mixer (the default — QEMU writes it to a
-        /// FIFO that `audio()` reads, and the emulator mixes it over I2S), a
-        /// QEMU -audiodev driver name to play it straight to the host ("none"
-        /// mutes it), or "wav:FILE" to record it.
+        /// FIFO that `audio()` reads, and the emulator mixes it over I2S),
+        /// "host" for this platform's default host output (pa; coreaudio on
+        /// macOS), a QEMU -audiodev driver name to play it straight to the host
+        /// ("none" mutes it), or "wav:FILE" to record it.
         std::string audio;
         /// How long `stop()` waits after asking QEMU to stop before it
         /// SIGKILLs it. A test seam; production uses the default.
@@ -98,7 +99,7 @@ public:
     /// `pipe_base` is the chardev path whose `.in` / `.out` are the FIFOs.
     static std::vector<std::string> build_args(const Spec& spec, const std::string& pipe_base);
 
-    /// The `-audiodev` value for a driver name or "wav:FILE"; "" is the
+    /// The `-audiodev` value for a driver name or "wav:FILE"; "host" is the
     /// platform default driver (coreaudio on macOS, pa elsewhere).
     static std::string audiodev_arg(const std::string& audio);
 

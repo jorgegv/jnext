@@ -509,7 +509,7 @@ network or a NextPi image.
 | PI-03 | guest transmits on UART 1 with the link attached | byte reaches the host; UART 1's unattached loopback does not echo it into its own RX FIFO |
 | PI-04 | NR 0x0B = 0xB1 (joystick UART mode on UART 1), NR 0xA0 = 0x30 | Pi neither heard nor spoken to (`zxnext.vhd:3340-3341,3526-3531`); with NR 0x0B = 0 traffic flows |
 | PI-05 | soft reset, then NR 0xA0 = 0x30 | same device still attached to UART 1; NR 0xA0 read 0x00 after reset (`zxnext.vhd:5080`); traffic flows |
-| PI-06 | `PiQemu::build_args` / `audiodev_arg` for NextPi | raspi0, the directory's kernel/dtb/overlay, `-chardev pipe` on `-serial`, no monitor/display; audio default per platform, `none`, `wav:FILE` (commas doubled) |
+| PI-06 | `PiQemu::build_args` / `audiodev_arg` for NextPi | raspi0, the directory's kernel/dtb/overlay, `-chardev pipe` on `-serial`, no monitor/display; audio `host` (the platform's default output), `none`, `wav:FILE` (commas doubled) |
 | PI-07 | `PiQemu::start` with an unprepared directory, a missing QEMU binary, a QEMU that exits at once | each refused with its reason; nothing left running |
 | PI-08 | `PiQemu::start` with a stand-in QEMU, then an Emulator on its FIFOs, NR 0xA0 = 0x30 | overlay created; guest reads `SUP> `; stand-in receives the guest's CR; stop takes < 2 s (SIGTERM) and removes the FIFOs |
 | PI-09 | two Emulators in turn on the same running `PiQemu` (a hard reset) | the same process receives `A` then `B` |
@@ -556,6 +556,7 @@ network or a NextPi image.
 | PI-50 | `Emulator::warm_start_boot_config` of a config with `pi_audio` set | `pi_audio` cleared. jnext-only, no VHDL counterpart |
 | PI-51 | `PiQemu` (default audio) with `$TMPDIR` nested so deep that `uart.out` fits in `PATH_MAX` but `uart.audio` does not | `start()` fails with an error naming `uart.audio`; no `audio()`, nothing running, the stand-in never spawned. jnext-only, no VHDL counterpart |
 | PI-52 | `PiQemu::mixer_audiodev_arg("/t,mp/uart")` | exactly `wav,id=snd0,path=/t,,mp/uart.audio,out.frequency=44100,out.channels=2,out.format=s16`: the comma escaped for QEMU's option syntax. jnext-only, no VHDL counterpart |
+| PI-54 | `PiQemu::build_args` with `Spec::audio = "host"`, and with it empty | `host`: `-audiodev` is the platform's default output (`pa,id=snd0`; on macOS `coreaudio,id=snd0,...`); empty: the mixer's wav FIFO. jnext-only, no VHDL counterpart |
 | PI-53 | `PiQemu` with `Spec::audio = "none"` | the stand-in's args carry `none,id=snd0` and no `wav,id=snd0,path=`; `audio()` is null; no `uart.audio` FIFO in the runtime directory. jnext-only, no VHDL counterpart |
 
 ## Special Handling

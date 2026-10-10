@@ -2134,9 +2134,11 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     NextPi directory; empty means `~/.jnext/nextpi`), `release` (a NextPi
     release name on the mirror, or `latest` for the newest one listed there;
     empty means `1_93D`), `qemu_binary` (empty means `qemu-system-arm` on
-    `PATH`) and `audio` (empty means the Next's mixer; otherwise a QEMU
-    `-audiodev` driver such as `coreaudio`, `pa` or `none` to play it straight
-    to the host instead, or `wav:`*FILE* to record it on its own). Changing
+    `PATH`) and `audio` (empty means the Next's mixer; `host` plays it on
+    this computer's default output, `pa` on Linux and `coreaudio` on macOS;
+    otherwise a QEMU `-audiodev` driver such as `coreaudio`, `pa` or `none` to
+    play it straight to the host instead, or `wav:`*FILE* to record it on its
+    own). Changing
     the release makes the next start offer to download it, replacing the
     installed one.
     The joystick ports are stored under `[input]`: `joy1_source` and

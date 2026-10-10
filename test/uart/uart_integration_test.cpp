@@ -3171,7 +3171,7 @@ static void test_pi_qemu() {
             && contains(a, "-device", "usb-audio,audiodev=snd0,buffer=16384");
         const std::string wav  = PiQemu::audiodev_arg("wav:/x,y.wav");
         const std::string none = PiQemu::audiodev_arg("none");
-        const std::string dflt = PiQemu::audiodev_arg("");
+        const std::string dflt = PiQemu::audiodev_arg("host");
 #ifdef __APPLE__
         const bool dflt_ok = dflt.rfind("coreaudio,id=snd0", 0) == 0;
 #else
@@ -3180,8 +3180,8 @@ static void test_pi_qemu() {
         check("PI-06",
               "jnext builds a raspi0 command line booting the NextPi "
               "directory's kernel, device tree and overlay, with the console UART "
-              "on the pipe chardev jnext opens; -audiodev is the platform default, "
-              "a named driver, or wav:FILE",
+              "on the pipe chardev jnext opens; -audiodev is `host`: the platform's "
+              "default output, a named driver, or wav:FILE",
               shape && wav == "wav,id=snd0,path=/x,,y.wav" && none == "none,id=snd0" && dflt_ok,
               fmt("shape=%d wav='%s' (want wav,id=snd0,path=/x,,y.wav) none='%s' "
                   "default='%s'",
@@ -4902,6 +4902,33 @@ static void test_nextpi_audio() {
               "the -audiodev value that sends the Pi's sound to the mixer escapes a comma in the "
               "FIFO path, and asks for 44.1 kHz s16 stereo (jnext-only, no VHDL counterpart)",
               arg == want, fmt("got '%s' want '%s'", arg.c_str(), want.c_str()));
+    }
+
+    // ── PI-54 — `host` reaches QEMU as the platform's default output, and the
+    // empty setting still means the mixer. Pure: build_args only.
+    {
+        auto audiodev = [](const std::vector<std::string>& a) {
+            for (std::size_t i = 0; i + 1 < a.size(); ++i)
+                if (a[i] == "-audiodev") return a[i + 1];
+            return std::string();
+        };
+        PiQemu::Spec spec;
+        spec.dir   = "/n";
+        spec.audio = "host";
+        const std::string host = audiodev(PiQemu::build_args(spec, "/run/uart"));
+        spec.audio.clear();
+        const std::string mixer = audiodev(PiQemu::build_args(spec, "/run/uart"));
+#ifdef __APPLE__
+        const bool host_ok = host.rfind("coreaudio,id=snd0,", 0) == 0;
+#else
+        const bool host_ok = host == "pa,id=snd0";
+#endif
+        check("PI-54",
+              "the Pi audio setting `host` gives QEMU the platform's default output (pa; "
+              "coreaudio on macOS), and the empty setting the mixer's wav FIFO (jnext-only, no "
+              "VHDL counterpart)",
+              host_ok && mixer == PiQemu::mixer_audiodev_arg("/run/uart"),
+              fmt("host='%s' empty='%s'", host.c_str(), mixer.c_str()));
     }
 
     // ── PI-53 — a non-default audio setting keeps the Pi's sound away from the

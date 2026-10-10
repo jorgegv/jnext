@@ -57,7 +57,7 @@ the Preferences tab means that default:
 | NextPi directory | `~/.jnext/nextpi` | where the download goes and NextPi runs from |
 | NextPi release | `1_93D` | a release name on the NextPi mirror, or `latest` for the newest one there |
 | QEMU | `qemu-system-arm` on your `PATH` | the QEMU to run; `qemu-img` is expected beside it |
-| Pi audio | the Next's mixer | or a QEMU audio driver to play it straight to your computer, `none` to mute it, or `wav:FILE` to record it on its own |
+| Pi audio | the Next's mixer | or `host` to play it on your computer's default output (`pa` on Linux, `coreaudio` on macOS), a QEMU audio driver to play it straight to your computer, `none` to mute it, or `wav:FILE` to record it on its own |
 
 Changes take effect the next time JNEXT starts. Changing the release makes the
 next start offer to download that one in place of the installed one. With

@@ -52,8 +52,10 @@ std::string qemu_escape(const std::string& s) {
 std::string PiQemu::audiodev_arg(const std::string& audio) {
     if (audio.rfind("wav:", 0) == 0)
         return "wav,id=snd0,path=" + qemu_escape(audio.substr(4));
+    // "host" is not a QEMU driver name; it stands for this platform's default
+    // host output, so it is safe to reserve.
     std::string driver = audio;
-    if (driver.empty()) {
+    if (driver == "host") {
 #ifdef __APPLE__
         driver = "coreaudio";
 #else

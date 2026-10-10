@@ -318,8 +318,10 @@ under QEMU is one, so:
 - **The rest value.** `I2s` resets to 0x200, offset-binary silence, on every
   machine with or without a Pi: the receiver resets its words to 0
   (`i2s_receive.vhd:129-130`) and `i2s.vhd:177-180` inverts the sign bit.
-- The other settings (`coreaudio`, `pa`, ..., `none`, `wav:FILE`) keep sending
-  the Pi's sound to the host or a file directly, bypassing the mixer.
+- The other settings keep sending the Pi's sound to the host or a file
+  directly, bypassing the mixer: `host` (the platform's default output, `pa`
+  on Linux and `coreaudio` with its buffer tuning on macOS), a QEMU driver
+  name (`coreaudio`, `pa`, ..., `none`) or `wav:FILE`.
 
 End to end with real QEMU, a headless run typed `nextpi-play_speech` into the
 UART with NR 0xA0 = 0x30 and NR 0xA2 = 0xC0: the `--wav-record` file is silent
@@ -396,6 +398,7 @@ NextPi image is needed.
 | PI-51 | when the audio FIFO cannot be created, `start()` fails with that error and starts no QEMU |
 | PI-52 | the mixer's `-audiodev` value escapes a comma in the FIFO path |
 | PI-53 | a QEMU driver setting (`none`) is passed to QEMU, and jnext makes no audio reader or FIFO |
+| PI-54 | `host` gives QEMU the platform's default output; empty still means the mixer |
 
 `test/audio/audio_test.cpp` adds **MX-41** (the stream retired MX-30 asked for; MX-30 itself stays retired, its ID not reused) and MX-31..40 for `PiAudio`
 against a real FIFO: the stream frame for frame (header and frames split across
@@ -474,7 +477,7 @@ EAGAIN as the writer's end fails MX-38; no close-on-exec, a leaked descriptor
 on re-open or close, or a stale one after `close()`, fails MX-39; giving up on a
 `poll()` error (a signal's EINTR) fails MX-40; not escaping the FIFO path for
 QEMU fails PI-52; ignoring a driver setting, or making the reader for one, fails
-PI-53.
+PI-53; not mapping `host` to the platform default fails PI-06 and PI-54.
 
 ## 5. Not done
 

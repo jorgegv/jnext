@@ -2288,25 +2288,27 @@ form of **--nextpi**; **--no-nextpi** overrides it for one run), `dir`
 NextPi release name on the mirror, or `latest` for the newest one listed
 there; empty means `1_93D`), `qemu_binary` (empty means
 `qemu-system-arm` on `PATH`) and `audio` (empty means the Next’s mixer;
-otherwise a QEMU `-audiodev` driver such as `coreaudio`, `pa` or `none`
-to play it straight to the host instead, or `wav:`*FILE* to record it on
-its own). Changing the release makes the next start offer to download
-it, replacing the installed one. The joystick ports are stored under
-`[input]`: `joy1_source` and `joy2_source` (`sdl`, `keys` or `none`),
-`joy1_device` and `joy2_device` (the controller’s id: 32 hex digits,
-optionally `#N`; empty means Automatic) and `joy1_device_name` and
-`joy2_device_name` (the name shown while that controller is not
-connected). **--joy1-device** and **--joy2-device** override the ids for
-one run. An id that is not valid is ignored, with its name. The quick
-screenshot is stored under `[screenshot]` as `quick_dir` (empty means
-`~/.jnext/screenshots`) and `quick_format` (`png` or `scr`), edited
-under **Settings \> Preferences \> Paths**; an unrecognised format keeps
-the default. The debugger window’s layout is stored under `[debugger]`:
-`size` (`W, H`), `position` (`X, Y`, written only while the window is
-detached) and `attached` (`true`/`false`). An older
-`~/.jnext/Debugger.conf` is merged into this section once and removed.
-All section names are lowercase. CLI options always take precedence over
-saved values, and headless runs never read it.
+`host` plays it on this computer’s default output, `pa` on Linux and
+`coreaudio` on macOS; otherwise a QEMU `-audiodev` driver such as
+`coreaudio`, `pa` or `none` to play it straight to the host instead, or
+`wav:`*FILE* to record it on its own). Changing the release makes the
+next start offer to download it, replacing the installed one. The
+joystick ports are stored under `[input]`: `joy1_source` and
+`joy2_source` (`sdl`, `keys` or `none`), `joy1_device` and `joy2_device`
+(the controller’s id: 32 hex digits, optionally `#N`; empty means
+Automatic) and `joy1_device_name` and `joy2_device_name` (the name shown
+while that controller is not connected). **--joy1-device** and
+**--joy2-device** override the ids for one run. An id that is not valid
+is ignored, with its name. The quick screenshot is stored under
+`[screenshot]` as `quick_dir` (empty means `~/.jnext/screenshots`) and
+`quick_format` (`png` or `scr`), edited under **Settings \> Preferences
+\> Paths**; an unrecognised format keeps the default. The debugger
+window’s layout is stored under `[debugger]`: `size` (`W, H`),
+`position` (`X, Y`, written only while the window is detached) and
+`attached` (`true`/`false`). An older `~/.jnext/Debugger.conf` is merged
+into this section once and removed. All section names are lowercase. CLI
+options always take precedence over saved values, and headless runs
+never read it.
 
 `~/.jnext/screenshots/`  
 Where **File \> Quick Screenshot** writes, unless
