@@ -27,17 +27,34 @@ fi
 
 SYSROOT=${MINGW_SYSROOT:-/usr/x86_64-w64-mingw32/sys-root/mingw}
 export WINEPREFIX="${WINEPREFIX:-$BUILD/wine-prefix}"
-export WINEDLLOVERRIDES="mscoree,mshtml=" WINEDEBUG=-all LC_ALL=C LANG=C
+export WINEDLLOVERRIDES="mscoree,mshtml=" WINEDEBUG=-all LC_ALL=C.UTF-8 LANG=C.UTF-8
 export WINEPATH="$SYSROOT/bin;$BUILD/third_party/spdlog"
 unset DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR
 
+# As root (the CI container) wine would write through a read-only file: wine
+# emulates the Windows read-only attribute with a permission bit, and root's
+# CAP_DAC_OVERRIDE / CAP_DAC_READ_SEARCH ignore permission bits -- where real
+# Windows refuses even an administrator. So root drops those two capabilities
+# from the bounding set for everything wine starts -- wineserver included, which
+# is the process that opens the files -- the same thing the Linux suites do
+# around SD-28 (test/dac_caps_dropped.h). Without setpriv the run cannot be
+# faithful, so it refuses rather than pass or fail by accident.
+PRIV=()
+if [[ "$(id -u)" == 0 ]]; then
+    command -v setpriv >/dev/null 2>&1 \
+        || { echo "wine-run: running as root needs setpriv (util-linux) to drop CAP_DAC_OVERRIDE" >&2; exit 2; }
+    PRIV=(setpriv --bounding-set=-dac_override,-dac_read_search)
+fi
+
 if [[ "${1:-}" == --init ]]; then
     command -v wine >/dev/null 2>&1 || { echo "wine-run: wine is not installed (dnf install wine-core wine-common)" >&2; exit 2; }
+    # A wineserver left over from a run that kept the capabilities would serve us.
+    [[ ${#PRIV[@]} -eq 0 ]] || wineserver -k >/dev/null 2>&1 || true
     # Refreshed every time (wineboot -u) once it exists, as pgo-build.sh does.
     if [[ -f "$WINEPREFIX/system.reg" ]]; then flag=-u; else flag=-i; fi
-    timeout --kill-after=5s 600s wineboot "$flag" >/dev/null 2>&1 \
+    timeout --kill-after=5s 600s ${PRIV[@]+"${PRIV[@]}"} wineboot "$flag" >/dev/null 2>&1 \
         || { echo "wine-run: cannot initialise the wine prefix $WINEPREFIX" >&2; exit 2; }
     exit 0
 fi
 
-exec wine "$@"
+exec ${PRIV[@]+"${PRIV[@]}"} wine "$@"
