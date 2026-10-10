@@ -47,7 +47,7 @@ consumes its vectors.
 | `device/im2_control.vhd`, `im2_device.vhd`, `im2_peripheral.vhd`, `peripherals.vhd` | `src/cpu` — `Im2Controller`, `Im2Client` | 14-slot IM2 daisy chain, pulse-mode /INT, RETI/RETN decode |
 | `zxnext.vhd` (SRAM arbiter, MMU, paging ports) | `src/memory` — `Mmu` | 8×8 KB slot map, every memory overlay, ROM serving |
 | `zxnext.vhd` + `video/zxula.vhd` (contention gate) | `src/memory` — `ContentionModel` | Per-bus-cycle CPU stretch/WAIT decision |
-| `video/zxula.vhd`, `zxula_timing.vhd` | `src/memory` — `AttributeMux` | Mid-line attribute-write replay (Nirvana-class effects) |
+| `video/zxula.vhd`, `zxula_timing.vhd` | `src/memory` — `AttributeMux` | Beam-time replay of every ULA-fetched VRAM byte, pixels and attributes (Nirvana-class effects) |
 | (backing stores) | `src/memory` — `Ram`, `Rom` | Flat 2 MB SRAM image; 4×16 KB ROM banks + NR 0x8C config |
 | `video/zxula_timing.vhd` | `src/video` — `VideoTiming` | hc/vc raster counters, display window, per-machine geometry |
 | `video/zxula.vhd` | `src/video` — `Ula` | ULA pixel/attribute fetch, Timex modes, border, floating bus |

@@ -200,8 +200,8 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
     if (tilemap) {
         tilemap->rewind_nr6b_to_baseline();
     }
-    // G12 — Nirvana-class attribute-mux (Category B, per-scanline
-    // replay of mid-frame attribute writes). Always-on — see
+    // G12 / GH #305 — VRAM beam replay (Category B: mid-frame writes to
+    // every byte the ULA fetches, replayed at its fetch instant). Always-on — see
     // Mmu::attr_mux_start_frame() / Ula::beam_vram_read().
     mmu.attr_mux_rewind_to_baseline();
     // Per-scanline NR 0x15 layer-priority + sprite-enable (G02, GH #73).

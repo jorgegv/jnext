@@ -647,13 +647,13 @@ public:
 
     /// End the position attr_mux_set_write_pos() gave: the write it described
     /// has happened. Without this a CPU write to any address other than the
-    /// attribute plane left its position standing, and the next DMA, loader or
-    /// debugger write to an attribute was tagged with it — a transfer at line
+    /// screen left its position standing, and the next DMA, loader or
+    /// debugger write to the screen was tagged with it — a transfer at line
     /// 150 recoloured the cell from the line of a CALL's push at line 20
     /// (mmu_integration_test G12-TAG-01..03).
     void attr_mux_end_write() { attr_mux_write_pos_valid_ = false; }
 
-    /// Update the scanline tag attached to subsequent attribute writes.
+    /// Update the scanline tag attached to subsequent screen (VRAM) writes.
     /// `line` is framebuffer-row space (0..FB_HEIGHT-1), matching the
     /// tag Emulator::on_scanline already computes for every sibling
     /// per-scanline log (palette_, layer2_, sprites_, ula scroll/palsel).
@@ -662,7 +662,7 @@ public:
     }
 
     /// Update the horizontal (7 MHz pixel-tick) position tag attached to
-    /// subsequent NON-CPU attribute writes (round 4, column-accurate
+    /// subsequent NON-CPU screen writes (round 4, column-accurate
     /// resolution). Production never sets it, so those writes resolve on
     /// the line alone (hc 0); a CPU write carries its own hc through
     /// attr_mux_set_write_pos(). Bare-Mmu test fixtures call this directly
@@ -671,14 +671,14 @@ public:
         attr_mux_current_hc_ = (hc < 0) ? 0 : static_cast<uint16_t>(hc);
     }
 
-    /// Rewind both attribute planes to this frame's baseline. Call once
+    /// Rewind both VRAM banks' replay to this frame's baseline. Call once
     /// before the per-row render loop.
     void attr_mux_rewind_to_baseline() {
         attr_mux5_.rewind_to_baseline();
         attr_mux7_.rewind_to_baseline();
     }
 
-    /// Apply logged writes tagged with `line` to both attribute planes.
+    /// Set the scanline the VRAM replay of both banks resolves against.
     /// Call once per rendered row, before that row is rendered.
     void attr_mux_apply_line(int line) {
         attr_mux5_.apply_changes_for_line(line);
