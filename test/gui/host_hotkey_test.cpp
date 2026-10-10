@@ -1259,10 +1259,12 @@ int main(int argc, char** argv) {
         const QColor body = img.pixelColor(4, 4);      // chip, upper left
         const QColor ring = img.pixelColor(19, 15);    // magnifier rim
         const QColor lens = img.pixelColor(17, 13);    // lens interior, off the chip and the handle
+        // premultiplied-alpha rounding moves a translucent pixel's channels by a few counts
+        auto near = [](int a, int b) { return std::abs(a - b) <= 4; };
         const QColor c0 = img.pixelColor(23, 0), c1 = img.pixelColor(0, 23);
         const bool ok = body.rgb() == qRgb(0x3a, 0x3f, 0x4a) && body.alpha() == 255 &&
                         ring.rgb() == qRgb(0xe0, 0x8a, 0x1e) && ring.alpha() == 255 &&
-                        lens.rgb() == qRgb(0xff, 0xf5, 0xe0) && lens.alpha() > 200 && lens.alpha() < 230 &&
+                        near(lens.red(), 0xff) && near(lens.green(), 0xf5) && near(lens.blue(), 0xe0) && lens.alpha() > 200 && lens.alpha() < 230 &&
                         c0.alpha() == 0 && c1.alpha() == 0;
         check("DBGICON-01", "the Debug toolbar icon is a magnifier over a chip: chip body, orange rim, "
                             "translucent lens, transparent corners",
