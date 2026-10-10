@@ -25,7 +25,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | CTC + Interrupts      |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC (integration)     |       88 |       88 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Layer 2               |      153 |      153 |      0 |       0 |    100% | 🟢 All tests pass. |
-| UART + I2C/RTC        |      103 |      103 |      0 |       0 |    100% | 🟢 All tests pass. |
+| UART + I2C/RTC        |      104 |      104 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (POSIX-only rows) |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket transport |      236 |      236 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -78,7 +78,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SDL window title (version) |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CLI options / docs    |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CLI options / docs    |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg cmd) |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (screen ingest) |      147 |      147 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (V1.3)     |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -146,6 +146,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12567**| **12567**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12575**| **12575**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
