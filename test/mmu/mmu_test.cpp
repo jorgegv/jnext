@@ -2441,6 +2441,42 @@ void test_cat21_nirvana_multiplex() {
                   "@(39,end)=0x%02X (expected 11) late write=0x%02X (expected 44)",
                   again, prev_line, after_write));
     }
+
+    // G12-MUX-14 — a second pass over the same instant after more writes. A
+    // first pass can exhaust an offset's cursor (a paused debugger panel
+    // renders the frame so far); the CPU then writes the byte again and the
+    // end-of-frame render reads it at the SAME (line, hc). Two mechanisms
+    // cover it and neither is redundant: the cursor is re-armed when the entry
+    // is linked (a read with no rewind sees the new write), and rewind puts the
+    // cursor back at the chain head (a rewound pass sees it too).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_page(2, 0x0A);
+        const uint16_t pix = 0x4000 + 0x0200;
+        f.mmu.write(pix, 0x11);
+        f.mmu.attr_mux_start_frame(0);
+        f.mmu.attr_mux_set_current_line(40);
+        f.mmu.attr_mux_set_current_hc(100);
+        f.mmu.write(pix, 0x22);
+        f.mmu.attr_mux_rewind_to_baseline();
+        f.mmu.attr_mux_apply_line(40);
+        const AttributeMux& m = f.mmu.attr_mux5();
+        const uint8_t pass1 = m.read(0x0200, 150);      // exhausts the cursor
+        f.mmu.attr_mux_set_current_hc(130);
+        f.mmu.write(pix, 0x55);
+        const uint8_t no_rewind = m.read(0x0200, 150);  // same instant, no rewind
+        f.mmu.attr_mux_rewind_to_baseline();
+        f.mmu.attr_mux_apply_line(40);
+        const uint8_t rewound = m.read(0x0200, 150);
+        check("G12-MUX-14",
+              "a pass that exhausted an offset's cursor, then a further write "
+              "before the same instant: the next read at that instant sees it, "
+              "with and without a rewind",
+              pass1 == 0x22 && no_rewind == 0x55 && rewound == 0x55,
+              fmt("pass1=0x%02X (22) no-rewind=0x%02X (55) rewound=0x%02X (55)",
+                  pass1, no_rewind, rewound));
+    }
 }
 
 void test_cat3bis_shadow_screen() {

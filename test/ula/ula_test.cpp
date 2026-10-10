@@ -4148,6 +4148,36 @@ static void test_section19_beam_replay() {
                   "(expected FF/FF/00)", got[0], got[1], got[2]));
     }
 
+    // VMUX-13 — Timex hi-colour (port FF = 2), the PIXEL byte (bank offset
+    // 0x0000+, `screen_mode(0) & addr_p`) is fetched in the pixel slot, two
+    // ticks before the colour byte (pbyte00 @9 / pbyte10 @D vs abyte @B / @F,
+    // zxula.vhd:229-241,276-286). VMUX-06 pins the colour byte; this pins the
+    // sibling fetch: written at the pixel instant it is seen, one tick later
+    // it is not, and at the colour instant it is not (a pixel fetched at the
+    // colour instant would see it).
+    {
+        uint8_t got[4];
+        const int cols[2] = {4, 5};
+        for (int k = 0; k < 2; ++k) {
+            const int p = raw_hc(vh_pbyte_primary(cols[k]));
+            for (int d = 0; d < 2; ++d) {
+                BeamBed bed;
+                bed.ula.set_screen_mode(0x02);
+                bed.ram.write(11u * 8192u + emu_pixel_addr_offset(kRowY, cols[k]), 0x07);
+                bed.begin();
+                bed.wr(pix_addr(cols[k]), 0xFF, kFbRow, p + d);
+                got[k * 2 + d] = BeamBed::cell(bed.row(kFbRow), cols[k], white);
+            }
+        }
+        check("VMUX-13",
+              "zxula.vhd:229-232,276-286 — hi-colour pixel byte is fetched in "
+              "the pixel slot (pbyte00 @9 / pbyte10 @D): seen at the instant, "
+              "not one tick later, for both parities",
+              got[0] == 0xFF && got[1] == 0x00 && got[2] == 0xFF && got[3] == 0x00,
+              fmt("col4 @P/@P+1=0x%02X/0x%02X col5 @P/@P+1=0x%02X/0x%02X "
+                  "(expected FF/00/FF/00)", got[0], got[1], got[2], got[3]));
+    }
+
     // VMUX-07 — Timex hi-res (port FF = 6): screen 0 (0x4000) is the pixel
     // slot, screen 1 (0x6000, '1' & addr_p) the attribute slot.
     {
@@ -4280,6 +4310,57 @@ static void test_section19_beam_replay() {
               fmt("pixel slot2 %02X/%02X slot3 %02X/%02X attr slot2 %02X/%02X "
                   "slot3 %02X/%02X (expected 0F/00 each)",
                   s2p[0], s2p[1], s3p[0], s3p[1], s2a[0], s2a[1], s3a[0], s3a[1]));
+    }
+
+    // VMUX-14 — the scrolled path's PRIMARY fetches. With a fine scroll of 4
+    // the first four pixels of slot s come from the slot's own column
+    // (primary fetches, zxula.vhd:199, 234-252): pixel at P(s), attribute 2
+    // ticks later at A(s). VMUX-10 pins the secondary fetches; here, for an
+    // even and an odd slot: the pixel byte seen at P and not at P+1; the
+    // attribute seen at A and not at A+1 (live RAM would show it, and so would
+    // a read at the wrong instant); both written at P+1 give the old pixel in
+    // the new attribute.
+    {
+        auto first4 = [&](int slot, int what, int delta) -> uint8_t {
+            BeamBed bed;
+            bed.ula.set_ula_scroll_x_coarse(4);
+            const int p = raw_hc(vh_pbyte_primary(slot));
+            const int a = raw_hc(vh_abyte_primary(slot));
+            if (what == 0) {                       // pixel byte at P / P+1
+                bed.begin();
+                bed.wr(pix_addr(slot), 0xFF, kFbRow, p + delta);
+                return BeamBed::cell(bed.row(kFbRow), slot, white);
+            }
+            bed.ram.write(10u * 8192u + emu_pixel_addr_offset(kRowY, slot), 0xFF);
+            bed.begin();
+            if (what == 1) {                       // attribute at A / A+1
+                bed.wr(attr_addr(slot), 0x04, kFbRow, a + delta);
+            } else {                               // pixel 0 and attribute green, both at P+1
+                bed.wr(pix_addr(slot), 0x00, kFbRow, p + 1);
+                bed.wr(attr_addr(slot), 0x04, kFbRow, p + 1);
+            }
+            return BeamBed::cell(bed.row(kFbRow), slot, green);
+        };
+        uint8_t r[2][7];
+        for (int k = 0; k < 2; ++k) {
+            const int slot = 2 + k;
+            r[k][0] = first4(slot, 0, 0); r[k][1] = first4(slot, 0, 1);
+            r[k][2] = first4(slot, 1, 0); r[k][3] = first4(slot, 1, 1);
+            r[k][4] = first4(slot, 2, 0);
+        }
+        bool ok = true;
+        for (int k = 0; k < 2; ++k)
+            ok = ok && r[k][0] == 0xF0 && r[k][1] == 0x00 && r[k][2] == 0xF0
+                    && r[k][3] == 0x00 && r[k][4] == 0xF0;
+        check("VMUX-14",
+              "zxula.vhd:199,234-252,276-286 — scrolled path, primary fetches: "
+              "pixel seen at P not P+1, attribute seen at A not A+1, both at "
+              "P+1 give old pixel + new attribute (slots 2 and 3)",
+              ok,
+              fmt("slot2 pix %02X/%02X attr %02X/%02X both %02X; slot3 pix %02X/%02X "
+                  "attr %02X/%02X both %02X (expected F0/00 F0/00 F0)",
+                  r[0][0], r[0][1], r[0][2], r[0][3], r[0][4],
+                  r[1][0], r[1][1], r[1][2], r[1][3], r[1][4]));
     }
 
     // VMUX-11 — no write is dropped: 20000 screen writes in one frame (the
