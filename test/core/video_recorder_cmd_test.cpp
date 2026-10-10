@@ -40,11 +40,8 @@
 #include <fstream>
 #include <string>
 
-#ifndef _WIN32
-#include <sys/stat.h>
-#include <unistd.h>
-#endif
 #include "../row_id.h"
+#include "../test_portable.h"
 
 namespace {
 
@@ -95,17 +92,16 @@ VideoRecorder::EncodeSpec spec_with_audio(const std::string& dir, char sep)
 }
 
 // ---------------------------------------------------------------
-// GH #86 — stop-failure latch harness (POSIX-executed).
+// GH #86 — stop-failure latch harness.
 //
 // stop_failed() is the seam that carries a discarded stop_recording()
 // result (MainWindow::closeEvent()) into main.cpp's exit status. These
 // helpers drive real start()/capture_frame()/stop() cycles against a stub
 // `ffmpeg` placed FIRST on PATH, whose behaviour is selected with the
 // JNEXT_TEST_FFMPEG_MODE environment variable (same convention as
-// test/00regression/scripts/video-record-status-func.sh). Like the
-// encode-command rows' redirections, actually EXECUTING the stub is
-// POSIX-only; the Windows build never compiles this suite
-// (make package-win configures -DENABLE_TESTS=OFF).
+// test/00regression/scripts/video-record-status-func.sh). The stub is a
+// program built by CMake (core/ffmpeg_stub.cpp) so it runs on Windows too
+// (GH #214), where the recorder starts ffmpeg through win_process.h.
 // ---------------------------------------------------------------
 namespace fs = std::filesystem;
 
@@ -113,46 +109,37 @@ fs::path g_sf_dir;  // scratch dir for the SF rows
 
 bool sf_setup()
 {
-#ifdef _WIN32
-    return false;  // never built; see header comment
-#else
     g_sf_dir = fs::temp_directory_path() /
-               ("jnext_vr_stopfail_" + std::to_string(::getpid()));
+               ("jnext_vr_stopfail_" + jtp::process_id_string());
     std::error_code ec;
     fs::create_directories(g_sf_dir, ec);
     if (ec) return false;
 
+    // The stand-in is a real program (core/ffmpeg_stub.cpp), copied under the
+    // name the recorder runs: `ffmpeg` on POSIX, `ffmpeg.exe` on Windows (where
+    // CreateProcess searches PATH for the name plus ".exe").
+#ifdef _WIN32
+    const fs::path stub = g_sf_dir / "ffmpeg.exe";
+#else
     const fs::path stub = g_sf_dir / "ffmpeg";
-    {
-        std::ofstream f(stub);
-        f << "#!/bin/sh\n"
-             "[ \"$1\" = \"-version\" ] && exit 0\n"
-             "for out do :; done\n"
-             "case \"$JNEXT_TEST_FFMPEG_MODE\" in\n"
-             "  encode-fail)   : > \"$out\"; exit 42 ;;\n"    // 0-byte artifact, then fail
-             "  partial-fail)  printf partialdata > \"$out\"; exit 42 ;;\n"
-             "  empty-success) : > \"$out\"; exit 0 ;;\n"     // 0-byte artifact, "success"
-             "  success)       printf x > \"$out\"; exit 0 ;;\n"
-             "esac\n"
-             "exit 99\n";
-        if (!f) return false;
-    }
-    if (::chmod(stub.c_str(), 0755) != 0) return false;
+#endif
+    fs::copy_file(JNEXT_FFMPEG_STUB, stub, fs::copy_options::overwrite_existing, ec);
+    if (ec) return false;
 
+#ifdef _WIN32
+    const char path_sep = ';';
+#else
+    const char path_sep = ':';
+#endif
     const char* old_path = std::getenv("PATH");
     const std::string new_path =
-        g_sf_dir.string() + ":" + (old_path ? old_path : "/usr/bin:/bin");
-    return ::setenv("PATH", new_path.c_str(), 1) == 0;
-#endif
+        g_sf_dir.string() + path_sep + (old_path ? old_path : "/usr/bin:/bin");
+    return jtp::set_env("PATH", new_path.c_str()) == 0;
 }
 
 void sf_mode(const char* mode)
 {
-#ifndef _WIN32
-    ::setenv("JNEXT_TEST_FFMPEG_MODE", mode, 1);
-#else
-    (void)mode;
-#endif
+    jtp::set_env("JNEXT_TEST_FFMPEG_MODE", mode);
 }
 
 /// start() + one captured frame, so stop() reaches the encode step.

@@ -63,6 +63,7 @@
 #include <unistd.h>
 #endif
 #include "../row_id.h"
+#include "../test_portable.h"
 
 namespace {
 
@@ -875,7 +876,6 @@ int main()
             (tmp / ("jnext-eb-nodir-" + stamp) / "sub" / "out.rzx").string();
         const std::string ok_path = (tmp / ("jnext-eb-ok-" + stamp + ".rzx")).string();
         const std::string ok2_path = (tmp / ("jnext-eb-ok2-" + stamp + ".rzx")).string();
-        const std::string full = "/dev/full";   // opens; every flush fails ENOSPC
 
         // EB-28: an unwritable path is refused up front.
         {
@@ -901,15 +901,22 @@ int main()
         // EB-30: a write that fails when the file is saved (a full disk) is
         // reported by stop, latched for that path, and makes the exit-time
         // helper fail — also when the stop happened earlier (the GUI's Stop).
+        // The failing target is /dev/full where it exists, else a file whose
+        // writes the process limit denies (jtp::FullDisk, GH #214).
         {
             Emulator emu;
             emu.init(base_config());
-            const bool started = emu.start_rzx_recording(full);
-            emu.run_frame();
-            const bool stopped = emu.stop_rzx_recording();
-            const bool finish = emulator_finish_rzx(emu, full);
+            bool started = false, stopped = true, failed = false, finish = true;
+            {
+                jtp::FullDisk disk;
+                started = emu.start_rzx_recording(disk.path());
+                emu.run_frame();
+                stopped = emu.stop_rzx_recording();
+                finish = emulator_finish_rzx(emu, disk.path());
+                failed = emu.rzx_output_failed(disk.path());
+            }
             check("EB-30", "a failed write: stop false, latched, emulator_finish_rzx false",
-                  started && !stopped && emu.rzx_output_failed(full) && !finish,
+                  started && !stopped && failed && !finish,
                   "started=" + std::to_string(started) + " stopped=" +
                       std::to_string(stopped) + " finish=" + std::to_string(finish));
         }
@@ -1009,12 +1016,17 @@ int main()
         {
             Emulator emu;
             emu.init(base_config());
-            const bool started = emu.start_rzx_recording("/dev/full");
-            emu.run_frame();
-            emulator_cold_boot(emu, base_config());
+            bool started = false, failed = false, finish = true;
+            {
+                jtp::FullDisk disk;
+                started = emu.start_rzx_recording(disk.path());
+                emu.run_frame();
+                emulator_cold_boot(emu, base_config());
+                failed = emu.rzx_output_failed(disk.path());
+                finish = emulator_finish_rzx(emu, disk.path());
+            }
             check("EB-35", "a write failed at the cold boot is still latched after it",
-                  started && emu.rzx_output_failed("/dev/full") &&
-                      !emulator_finish_rzx(emu, "/dev/full"));
+                  started && failed && !finish);
         }
 
         // EB-36: the host's F4 soft reset writes and ends the recording too.

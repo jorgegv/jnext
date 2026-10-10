@@ -323,6 +323,10 @@ my @SUBSYS = (
     # sections keep each scope honest.
     ['## ESP-01 socket transport — `src/esp01/test/esp_socket_test.cpp`',
      'esp_socket_test'],
+    # The two SIG rows, moved out of esp_socket_test into a POSIX-only suite
+    # (fork + SIGPIPE; GH #214). Filed under their parent's scope.
+    ['### Companion POSIX-only suite — `src/esp01/test/esp_sigpipe_test.cpp`',
+     'esp_sigpipe_test'],
     ['## ESP-01 AT engine — `src/esp01/test/esp_at_test.cpp`', 'esp_at_test'],
     ['## ESP-01 jnext UART adapter — `test/esp/esp_uart_adapter_test.cpp`',
      'esp_uart_adapter_test'],
@@ -352,6 +356,10 @@ my @SUBSYS = (
      'input_integration_test'],
     ['### Companion integration suite — `test/uart/uart_integration_test.cpp`',
      'uart_integration_test'],
+    # JOY-15..22 and PI-*, moved out of uart_integration_test into a POSIX-only
+    # suite (FIFO/pty cables, the NextPi link, QEMU; GH #214).
+    ['### Companion POSIX-only suite — `test/uart/uart_posix_test.cpp`',
+     'uart_posix_test'],
 );
 
 # Per-suite plan doc, consulted as the last citation source when the test
@@ -376,6 +384,7 @@ my %PLAN_DOC = (
     'ctc_interrupts_test'         => 'CTC-INTERRUPTS',
     'uart_test'                   => 'UART-I2C',
     'uart_integration_test'       => 'UART-I2C',
+    'uart_posix_test'             => 'UART-I2C',
     'nextreg_test'                => 'NEXTREG',
     'nextreg_integration_test'    => 'NEXTREG',
     'port_test'                   => 'IO-PORT-DISPATCH',
@@ -421,6 +430,7 @@ my %TOMBSTONE = (
     # GH #25) and the host OS socket API plus the RFC address ranges the
     # security policy encodes.
     'esp_socket_test' => '(host sockets)',
+    'esp_sigpipe_test' => '(host sockets)',
     'esp_at_test'     => '(ESP-AT firmware)',
     # DELIBERATELY ABSENT: esp_uart_adapter_test. It is the one
     # ESP suite that is a MIXTURE — HOOK-03/03b/03c drive `Uart::tick`'s device
@@ -951,6 +961,8 @@ my %NO_MATRIX_SECTION = (
     'snapshot_im_test'        => 'snapshot loaders seeding the NR 0xC0 IM latch (host loaders; nextreg.txt NR 0xC0)',
     'sd_rom_extractor_test'   => 'FAT32 + TBBlue SD path layout (host ROM extraction)',
     'sdcard_file_add_test'    => 'FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces',
+    'sdcard_file_add_posix_test' => 'rows moved out of sdcard_file_add_test (symlink, FIFO, device, chmod-0 fixtures; POSIX-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces',
+    'sdcard_file_add_linux_test' => 'SDFA-T26 moved out of sdcard_file_add_test (needs a case-sensitive host filesystem; Linux-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces',
     'fat32_image_test'        => 'FAT32 on-disk format (host image reader)',
     'sdcard_provisioner_test' => 'jnext SD-image download/patch policy (host side)',
     'snapshot_test'           => 'the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file',
@@ -961,6 +973,7 @@ my %NO_MATRIX_SECTION = (
     # The oracle is the NextZXOS/esxDOS API contract and jnext's own trap
     # policy, not the FPGA core: the core has no esxDOS in it.
     'esxdos_stub_test'    => 'esxDOS API surface + jnext trap policy, not core logic',
+    'esxdos_symlink_test' => 'esxDOS host-FS symlink-refusal rows moved out of esxdos_stub_test (POSIX-only, GH #214); same oracle, not core logic',
     'phantom_typist_test' => 'jnext auto-typing state machine (host keystroke injection)',
 
     # ── Host audio pipeline, downstream of the modelled mixer ────────

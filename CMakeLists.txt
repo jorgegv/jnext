@@ -123,6 +123,21 @@ option(ENABLE_QT_UI    "Build Qt6 native UI"    OFF)
 # the legacy-Windows (Win7/8) legs only; Qt6 remains the default everywhere.
 option(JNEXT_FORCE_QT5 "Force the GUI/debugger onto Qt5 (legacy Windows legs)" OFF)
 option(CYCLE_ACCURATE  "28 MHz cycle-accurate"  OFF)
+
+# GH #214: the OS the build targets, recorded in the cache for
+# test/run-unit-tests.sh (which reads it, like the two options above, out of
+# CMakeCache.txt rather than being told). It follows CMAKE_SYSTEM_NAME, so a
+# MinGW cross build on Linux says windows. INTERNAL: a user cannot override it.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(_jnext_target_os linux)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(_jnext_target_os macos)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(_jnext_target_os windows)
+else()
+    string(TOLOWER "${CMAKE_SYSTEM_NAME}" _jnext_target_os)
+endif()
+set(JNEXT_TARGET_OS "${_jnext_target_os}" CACHE INTERNAL "Target OS (linux|macos|windows) for the unit-test harness")
 option(STATIC_BUILD    "Link statically (requires static SDL3/Qt6 builds)" OFF)
 # macOS packaging only (`make package-macos`); see the APPLE block further down.
 option(MACOS_APP_BUNDLE "Build a relocatable jnext.app bundle (macOS packaging)" OFF)
@@ -369,7 +384,8 @@ add_executable(jnext src/main.cpp)
 # (derived, not listed), and the same flag on jnext's LINK line -- under LTO
 # (-fno-fat-lto-objects) the compile-time check is blind and only the link
 # sees the real frames. Test executables are excluded on purpose (fixtures
-# hold Emulators on the stack and are never built for Windows). Under Clang
+# hold Emulators on the stack, so on Windows they link with an 8 MB stack
+# reserve instead -- see test/CMakeLists.txt; jnext itself keeps the default). Under Clang
 # LTO (ThinLTO) BOTH halves are blind: a 300 KB frame compiled -flto links
 # clean with the flag on the link line (measured with clang 22 on Linux; ld64
 # untested). Only the GCC LTO link enforces.

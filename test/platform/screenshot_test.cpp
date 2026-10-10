@@ -41,6 +41,7 @@
 #include <string>
 #include <vector>
 #include "../row_id.h"
+#include "../test_portable.h"
 
 namespace {
 
@@ -67,9 +68,7 @@ void check(const char* id, const char* desc, bool cond, const std::string& detai
 std::string g_tmp;
 
 std::string make_tmp_dir() {
-    char tmpl[] = "/tmp/jnext-shot-test-XXXXXX";
-    const char* d = mkdtemp(tmpl);
-    return d ? std::string(d) : std::string();
+    return jtp::make_temp_dir("jnext-shot-test-");
 }
 
 void rm_rf(const std::string& dir) {
@@ -197,7 +196,7 @@ void test_auto_naming() {
     // is local time and the suite must not depend on the host's zone.
     const std::time_t when = 1750000000;  // 2025-06-15 in UTC
     std::tm tm{};
-    localtime_r(&when, &tm);
+    jtp::local_time(when, tm);
     char stamp[32];
     std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &tm);
 
@@ -395,7 +394,7 @@ int main() {
     }
     // Redirect the default quick-screenshot directory away from the real
     // ~/.jnext for the whole run (SH-18 asserts the redirection itself).
-    setenv("JNEXT_CONFIG_DIR", (g_tmp + "/cfg").c_str(), 1);
+    jtp::set_env("JNEXT_CONFIG_DIR", (g_tmp + "/cfg").c_str());
 
     test_format_from_extension();
     test_auto_naming();

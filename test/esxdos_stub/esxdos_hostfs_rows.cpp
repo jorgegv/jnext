@@ -202,7 +202,14 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
     {
         const auto now_ft = fs::file_time_type::clock::now();
         const auto now_sys = std::chrono::system_clock::now();
-        const auto target = std::chrono::system_clock::from_time_t(fixed_epoch);
+        // 250 ms past the whole second, not on it: dos_timestamp() rounds to the
+        // nearest second, and a filesystem that stores whole seconds (wine's
+        // Windows layer does: set 04.000 - 1 us and 03.000 comes back, in about
+        // a third of runs) would otherwise land one FAT slot early. At .250
+        // every mtime granularity - exact, truncated to the second, rounded -
+        // packs to the same second (GH #214).
+        const auto target = std::chrono::system_clock::from_time_t(fixed_epoch) +
+                            std::chrono::milliseconds(250);
         const auto ft = std::chrono::time_point_cast<fs::file_time_type::duration>(
             target - now_sys + now_ft);
         std::error_code t_ec;
@@ -260,70 +267,10 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
                "a drive qualifier does not smuggle a '..' past the check",
                hfs.stat("c:/../outside/secret.txt", st) == EsxdosHostFs::kEpath);
 
-        if (have_symlinks) {
-            hcheck("HFS-10",
-                   "a symlink pointing OUT of the root is refused (esx_eacces), "
-                   "not followed",
-                   hfs.stat("link-out", st) == EsxdosHostFs::kEacces,
-                   "got " + hex2(hfs.stat("link-out", st)));
-            hcheck("HFS-11",
-                   "a symlinked DIRECTORY component is refused, so a link "
-                   "cannot be used as a bridge to a path outside",
-                   hfs.stat("link-dir/secret.txt", st) == EsxdosHostFs::kEacces);
-            hcheck("HFS-12",
-                   "a symlink pointing INSIDE the root is refused too: the "
-                   "policy is no traversal at all, not 'only escaping links'",
-                   hfs.stat("link-in", st) == EsxdosHostFs::kEacces);
-
-            // HFS-90..92 — the same policy input, once per REMAINING call
-            // surface. An inside-pointing link is the only case containment
-            // cannot catch, so these are what go red if open(), opendir() or
-            // chdir() stops refusing links at all. See the layering note in
-            // esxdos_hostfs.cpp for why no row can isolate a SINGLE check.
-            // Each pairs the refusal with a control proving the TARGET is
-            // reachable by its real name, so the row cannot pass merely
-            // because something is broken.
-            uint8_t link_h = 0;
-            const uint8_t open_link = hfs.open("link-in",
-                                               EsxdosHostFs::kModeRead, link_h);
-            uint8_t real_h = 0;
-            const uint8_t open_real = hfs.open("hello.txt",
-                                               EsxdosHostFs::kModeRead, real_h);
-            hfs.close(real_h);
-            hcheck("HFS-90",
-                   "F_OPEN refuses an inside-pointing symlink (esx_eacces) "
-                   "while opening its target by the real name succeeds",
-                   open_link == EsxdosHostFs::kEacces &&
-                       open_real == EsxdosHostFs::kOk,
-                   "link=" + hex2(open_link) + " real=" + hex2(open_real));
-
-            uint8_t dir_link_h = 0;
-            const uint8_t od_link = hfs.opendir("link-sub",
-                                                EsxdosHostFs::kDirLfnOnly,
-                                                dir_link_h);
-            uint8_t dir_real_h = 0;
-            const uint8_t od_real = hfs.opendir("sub", EsxdosHostFs::kDirLfnOnly,
-                                                dir_real_h);
-            hfs.close(dir_real_h);
-            hcheck("HFS-91",
-                   "F_OPENDIR refuses a symlinked directory inside the root "
-                   "while the real directory opens",
-                   od_link == EsxdosHostFs::kEacces && od_real == EsxdosHostFs::kOk,
-                   "link=" + hex2(od_link) + " real=" + hex2(od_real));
-
-            const uint8_t cd_link = hfs.chdir("link-sub");
-            const uint8_t cd_real = hfs.chdir("sub");
-            hfs.chdir("/");
-            hcheck("HFS-92",
-                   "F_CHDIR refuses it too, and the real directory still works",
-                   cd_link == EsxdosHostFs::kEacces && cd_real == EsxdosHostFs::kOk,
-                   "link=" + hex2(cd_link) + " real=" + hex2(cd_real));
-        } else {
-            hcheck("HFS-10", "symlink fixtures unavailable on this host", false,
-                   "create_symlink failed");
-            hcheck("HFS-11", "symlink fixtures unavailable on this host", false, "");
-            hcheck("HFS-12", "symlink fixtures unavailable on this host", false, "");
-        }
+        // HFS-10..12 and HFS-90..92 -- the symlink-refusal rows -- live in
+        // esxdos_symlink_test (POSIX-only: Windows, and wine, cannot create
+        // the link fixtures). The links above stay: the listing row below
+        // asserts they are not LISTED.
 
         hcheck("HFS-13", "an embedded NUL is refused",
                hfs.stat(std::string("hello.txt\0/../../etc", 19), st) ==
@@ -336,6 +283,42 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
                hfs.stat("CON", st) == EsxdosHostFs::kEacces);
         hcheck("HFS-16", "'COM1.TXT' is reserved too — the stem is what counts",
                hfs.stat("COM1.TXT", st) == EsxdosHostFs::kEacces);
+
+        // HFS-123..127 -- a ':' inside a path component is esx_einval ($07) from
+        // every call that takes a path. ORACLE: MEASURED under the real NextZXOS
+        // (distro 24.11 SD image, a probe .nex run through `.nexload`; GH #214):
+        // 'dot/a:x' -> A=$07 with carry set from F_STAT, F_OPENDIR, F_CHDIR,
+        // F_OPEN read and F_OPEN create, while 'dot/nosuch' -> $05. Before the
+        // measured answer the host answered $05 here ('/sub/a:x' simply did not
+        // exist) and, on Windows, $08; the missing-entry answer is the control.
+        {
+            uint8_t h = 0;
+            hcheck("HFS-123", "F_STAT of 'sub/a:x' is esx_einval, not the missing-file answer",
+                   hfs.stat("sub/a:x", st) == EsxdosHostFs::kEinval &&
+                       hfs.stat("sub/nosuch", st) == EsxdosHostFs::kEnoent,
+                   "colon=" + hex2(hfs.stat("sub/a:x", st)));
+            hcheck("HFS-124", "F_OPENDIR of 'sub/a:x' is esx_einval",
+                   hfs.opendir("sub/a:x", EsxdosHostFs::kDirLfnOnly, h) == EsxdosHostFs::kEinval);
+            hcheck("HFS-125", "F_CHDIR to 'sub/a:x' is esx_einval",
+                   hfs.chdir("sub/a:x") == EsxdosHostFs::kEinval);
+            hcheck("HFS-126", "F_OPEN (read) of 'sub/a:x' is esx_einval",
+                   hfs.open("sub/a:x", EsxdosHostFs::kModeRead, h) == EsxdosHostFs::kEinval);
+            EsxdosHostFs rw;
+            std::string rw_why;
+            const bool rw_ok = rw.configure(root.string(), true, rw_why);
+            hcheck("HFS-127", "F_OPEN (create) of 'sub/a:x' on a writable root is esx_einval, and creates nothing",
+                   rw_ok &&
+                       rw.open("sub/a:x", EsxdosHostFs::kModeWrite | EsxdosHostFs::kModeCreatNoExist, h) ==
+                           EsxdosHostFs::kEinval &&
+                       [&] {
+                           std::error_code lec;
+                           for (const auto& e : fs::directory_iterator(root / "sub", lec))
+                               if (e.path().filename().string().find(':') != std::string::npos)
+                                   return false;
+                           return true;
+                       }(),
+                   rw_why);
+        }
 
         hcheck("HFS-93",
                "'\\\\' separates components as well as '/', because the guest "

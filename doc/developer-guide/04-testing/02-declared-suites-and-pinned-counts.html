@@ -2364,6 +2364,21 @@ it more briefly — <em>this file is a contract, not a convenience.</em></p>
   it as not-run — never silently. (That is a gated-out suite, which is not a
   SKIP: a suite that reports <code>Skipped &gt; 0</code> fails the run, see
   <a href="01-the-test-triplet.html">4.1</a>.)</li>
+<li>A second, orthogonal directive, <code># os: all | posix | linux</code> (GH #214), says
+  which <strong>target operating systems</strong> own the suites below it, until the next
+  <code># os:</code>; <code>all</code> is in force at the top. <code>posix</code> is Linux and macOS, <code>linux</code> is
+  Linux alone, and Linux satisfies every value, so Linux still runs every suite.
+  A suite is owed by a build only where both its gate and its <code># os:</code> say so, a
+  suite under a non-<code>all</code> os must carry the <code>?</code> marker, and an unknown value is a
+  refusal. The OS is read from the build tree's own <code>CMakeCache.txt</code>
+  (<code>JNEXT_TARGET_OS</code>, which the top <code>CMakeLists.txt</code> sets from
+  <code>CMAKE_SYSTEM_NAME</code>), so a MinGW cross build on Linux says <code>windows</code>. A row
+  that cannot exist on a platform is never compiled out or skipped: it moves,
+  ID and assertion unchanged, into a sibling suite whose <code># os:</code> excludes that
+  platform. <code>uart_posix_test</code>, <code>esxdos_symlink_test</code>, <code>esp_sigpipe_test</code> and
+  <code>sdcard_file_add_posix_test</code> are exactly that (<code>posix</code>), and
+  <code>sdcard_file_add_linux_test</code>, one row that needs a case-sensitive host
+  filesystem, is <code>linux</code>; the rest of each feature runs everywhere.</li>
 <li><code>&lt;expected_rows&gt;</code> is the exact <code>Total:</code> the suite must report, and it must be
   at least 1. A pin of <code>0</code> is rejected outright at parse time, because a suite
   pinned at 0 that reports 0 rows would pass, whereas the same suite printing
@@ -2402,9 +2417,19 @@ everything look as though it were registered twice. It refuses when:</p>
   same manifest is exact in every configuration instead of merely permissive in
   all of them. Before this (GH #273) the <code>?</code> alone meant "skip it quietly if
   CMake did not register it", so a suite that stopped being registered in the
-  configuration that owns it printed a NOTICE and the run stayed green.</li>
+  configuration that owns it printed a NOTICE and the run stayed green. The
+  <code># os:</code> directive is checked the same way, both directions, against
+  <code>JNEXT_TARGET_OS</code>;</li>
+<li>the host lacks what the script itself needs: <strong>bash 4 or newer, GNU <code>timeout</code>
+  with <code>--kill-after</code>, GNU <code>grep -P</code>, perl</strong>. macOS ships bash 3.2 and BSD tools,
+  so there the answer is a refusal naming the install line (<code>brew install bash
+  coreutils grep</code>), not a quiet degradation in the middle of a run. A Windows
+  build registers <code>NAME.exe</code>: the harness strips the suffix to match the
+  manifest, checks for the <code>.exe</code>, and prefixes every suite with
+  <code>JNEXT_TEST_RUNNER</code> (wine, see <a href="../05-building/01-make-targets.html#test">5.1</a>),
+  and <code>JNEXT_UNIT_TEST_JOBS</code> caps how many run at once (unset: all of them).</li>
 </ul>
-<p>That last condition is the subtle one, and it is what makes the whole check
+<p>The first of those conditions is the subtle one, and it is what makes the whole check
 more than bookkeeping. Without it, "N declared equals N registered" is a
 tautology against exactly the edit that matters most: delete a suite's
 <code>add_test()</code> <strong>and</strong> its manifest row, and both sides shrink together, every

@@ -25,6 +25,20 @@ BUILD_DIR_FPK_RELEASE := build/flatpak-release
 # actually run. Separate from build/, which must stay the Qt tree unit-test-build
 # guards, and from build/sdl-release, which is a product build with no test targets.
 BUILD_DIR_SDL_UNIT_TEST := build/sdl-unit-test
+# The Windows (MinGW cross, SDL-only) TEST tree (GH #214), run under wine.
+BUILD_DIR_WIN_UNIT_TEST := build/win-sdl-unit-test
+# GH #214: `make unit-test-sdl` also runs on macOS, whose bash (3.2) and BSD
+# grep/cp/timeout cannot run test/run-unit-tests.sh. Homebrew's bash, coreutils
+# (timeout, cp --reflink) and grep (-P) are put first on PATH for that recipe
+# ONLY -- the rest of the Makefile (package-macos above all) keeps the system
+# tools. Empty on Linux: the recipe then sees PATH unchanged.
+UNIT_TEST_PATH := $(PATH)
+ifeq ($(shell uname -s),Darwin)
+BREW_PREFIX := $(shell brew --prefix 2>/dev/null)
+ifneq ($(BREW_PREFIX),)
+UNIT_TEST_PATH := $(BREW_PREFIX)/bin:$(BREW_PREFIX)/opt/coreutils/libexec/gnubin:$(BREW_PREFIX)/opt/grep/libexec/gnubin:$(PATH)
+endif
+endif
 CMAKE             := cmake
 JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
 CC                := /usr/bin/gcc
@@ -176,7 +190,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
-       unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build \
+       unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
        kloc-count regression regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
@@ -771,7 +785,7 @@ unit-test: lint-assertions lint-makefile-help traceability-accounting-check trac
 	fi
 
 # Run the unit suites in the SDL-only configuration (no Qt, no debugger)
-unit-test-sdl: unit-test-sdl-build
+unit-test-sdl: unit-test-sdl-build sdcard-image
 	@# GH #273. The four-combination matrix proves every configuration LINKS; it
 	@# never ran a suite in any of them, so `make unit-test` and CI only ever
 	@# exercised the default one and a suite could stay red in a supported
@@ -791,7 +805,29 @@ unit-test-sdl: unit-test-sdl-build
 	@# This is NOT folded into `make unit-test`: the everyday inner loop would
 	@# then pay for a second full build and a second suite run. CI calls both
 	@# targets, which is the same pair of commands a human types here.
-	@bash test/run-unit-tests.sh $(BUILD_DIR_SDL_UNIT_TEST)
+	@PATH="$(UNIT_TEST_PATH)" bash test/run-unit-tests.sh $(BUILD_DIR_SDL_UNIT_TEST)
+
+# Provision the NextZXOS SD image the unit suites read, with jnext's own download, if it is missing
+sdcard-image:
+	@# GH #214. sd_rom_extractor_test reads the real image and the harness does not
+	@# provision it (a missing image is a loud failure, never a smaller suite). On
+	@# Linux the PGO build (`make gui-release`) fetches it as a side effect; a macOS
+	@# runner or the Windows leg builds no PGO binary, so this does the same thing
+	@# the PGO training does -- jnext's own --sdcard-download-confirm, the code path
+	@# an end user hits -- with the SDL test tree's native jnext. A no-op when the
+	@# image is there, which is every developer machine after the first run.
+	@sd="$$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"; \
+	if [ -f "$$sd" ]; then exit 0; fi; \
+	printf "sdcard-image: no SD image at %s -- provisioning it (jnext's own download)\n" "$$sd"; \
+	$(MAKE) --no-print-directory unit-test-sdl-build || exit 1; \
+	mkdir -p "$$HOME/.jnext/sdcard"; \
+	PATH="$(UNIT_TEST_PATH)" JNEXT_CONFIG_DIR="$$HOME/.jnext" timeout --kill-after=5s 1200s \
+		$(BUILD_DIR_SDL_UNIT_TEST)/jnext --headless --sdcard-download-confirm \
+		--delayed-automatic-exit 2 >/dev/null 2>&1 || true; \
+	if [ ! -f "$$sd" ]; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) the SD image could not be provisioned at %s (network?).\n" "$$sd"; \
+		exit 1; \
+	fi
 
 # Configure + build the SDL-only test tree (prerequisite for unit-test-sdl)
 unit-test-sdl-build:
@@ -816,6 +852,59 @@ unit-test-sdl-build:
 		done; \
 	fi
 	@$(CMAKE) --build $(BUILD_DIR_SDL_UNIT_TEST) -j$(JOBS)
+
+# Run the SDL-only unit suites as Windows executables (MinGW cross build) under wine
+unit-test-win: unit-test-win-build unit-test-win-run
+	@# GH #214. The same suite set `unit-test-sdl` runs, built for Windows with the
+	@# Fedora MinGW toolchain and run under wine, in two steps: -build cross-builds
+	@# the tree, -run executes it. This target is just both. What wine cannot stand
+	@# in for stays untested: symlink creation, a real console attach for a
+	@# GUI-subsystem exe, NTFS short names and streams. Suites the platform cannot
+	@# have are declared absent with `# os:` in test/unit-tests.conf, never skipped.
+	@true
+
+# Run the already-built Windows unit-test tree (build/win-sdl-unit-test) under wine
+unit-test-win-run: sdcard-image
+	@# Needs only the tree and wine, no compiler: the run step a real Windows host
+	@# could later take over (the tree is not yet a relocatable directory -- the
+	@# suites still read the source tree and the SD image by absolute path).
+	@bash test/wine-run.sh --init $(BUILD_DIR_WIN_UNIT_TEST)
+	@# JNEXT_UNIT_TEST_JOBS: one wine process per CPU, not a burst of a hundred.
+	@JNEXT_TEST_RUNNER="bash $(CURDIR)/test/wine-run.sh" JNEXT_UNIT_TEST_JOBS=$(JOBS) \
+		bash test/run-unit-tests.sh $(BUILD_DIR_WIN_UNIT_TEST)
+
+# Configure + build the Windows SDL-only test tree (prerequisite for unit-test-win)
+unit-test-win-build:
+	@# Same toolchain guard as win-sdl-release. ENABLE_DEBUGGER=OFF is load-bearing
+	@# for the same reason (src/debugger needs Qt6 at configure time). Test
+	@# executables link with an 8 MB stack (test/CMakeLists.txt); jnext.exe is not
+	@# built with it. The build tree is refused if it was configured with Qt.
+	@# JNEXT_ENABLE_LTO=OFF: under the MinGW GCC's LTO the std::regex in
+	@# snapshot_test dies at construction ("Invalid range"), while the same code is
+	@# fine without LTO; the unit suites need no cross-TU inlining.
+	@if ! command -v mingw64-cmake >/dev/null 2>&1 \
+	   || ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 \
+	   || ! command -v wine >/dev/null 2>&1; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) Fedora MinGW cross toolchain or wine incomplete.\n"; \
+		printf "  Install it:\n"; \
+		printf "  $(BOLD)sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-SDL3 mingw64-zlib \\\\\n"; \
+		printf "    mingw64-libpng mingw64-winpthreads wine-core wine-common$(RESET)\n"; \
+		printf "  (mingw64-filesystem supplies mingw64-cmake.)\n"; \
+		exit 1; \
+	fi
+	@if [ ! -f $(BUILD_DIR_WIN_UNIT_TEST)/CMakeCache.txt ]; then \
+		mingw64-cmake -S . -B $(BUILD_DIR_WIN_UNIT_TEST) $(MINGW64_RC) $(WIN_BUILD_TYPE) \
+			-DENABLE_QT_UI=OFF -DENABLE_DEBUGGER=OFF -DENABLE_TESTS=ON -DJNEXT_ENABLE_LTO=OFF; \
+	else \
+		for flag in ENABLE_QT_UI ENABLE_DEBUGGER; do \
+			if $(call CMAKE_CACHE_HAS,$(BUILD_DIR_WIN_UNIT_TEST),$$flag,ON); then \
+				printf "$(BADGE_FAIL) ERROR $(RESET) $(BUILD_DIR_WIN_UNIT_TEST)/ is configured with $(BOLD)$$flag=ON$(RESET).\n"; \
+				printf "  Run '$(BOLD)rm -rf $(BUILD_DIR_WIN_UNIT_TEST)$(RESET)' first, then retry.\n"; \
+				exit 1; \
+			fi; \
+		done; \
+	fi
+	@$(CMAKE) --build $(BUILD_DIR_WIN_UNIT_TEST) -j$(JOBS)
 
 # Build every ENABLE_QT_UI x ENABLE_DEBUGGER combination; fails if any breaks
 build-matrix:

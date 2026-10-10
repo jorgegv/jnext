@@ -25,15 +25,12 @@
 // identical and the published line is the one a reader wants. Do not invert
 // these back for style.
 //
-// PORTABILITY OF THE SUITE ITSELF, stated rather than glossed over. The policy
-// half is pure C++17 and runs anywhere the module builds. The transport half's
-// SCAFFOLDING — the in-process `Listener` below — is POSIX-only: it uses
-// <arpa/inet.h>, <netinet/in.h>, <poll.h>, <sys/socket.h> and <unistd.h>
-// directly, because a hermetic transport test needs a peer and the module
-// deliberately does not ship one. A consumer on Windows must supply Winsock
-// equivalents for `Listener` alone; nothing in the module under test needs
-// porting, only the test's peer. (jnext itself never hits this: every Windows
-// target builds with -DENABLE_TESTS=OFF.)
+// PORTABILITY OF THE SUITE ITSELF (GH #214). The policy half is pure C++17. The
+// transport half's scaffolding -- the in-process `Listener` and the `net_*`
+// shims in esp_test_net.h -- has a POSIX and a Winsock spelling, so the suite
+// builds and runs on Linux, macOS and Windows (MinGW, under wine in CI). That
+// is what exercises esp_socket_win.cpp, the shipped Windows backend. The two
+// SIG rows, which need fork() and SIGPIPE, live in esp_sigpipe_test.
 //
 //   3. ASYNCHRONOUS NAME RESOLUTION, against an INJECTED resolver. A name
 //      lookup runs on its own thread now, so the properties worth proving are
@@ -49,11 +46,9 @@
 //     uses `localhost` (answered from /etc/hosts), so no row contacts a name
 //     server; what the platform's `getaddrinfo` does with a genuine WAN name is
 //     out of scope for a hermetic suite.
-//   * The Winsock twin (esp_socket_win.cpp). It cannot be built or run on the
-//     Linux dev host, and every Windows target sets -DENABLE_TESTS=OFF, so this
-//     suite never compiles there. The twin is kept to syscall shims for exactly
-//     that reason — and the async resolver added none of its own code to it,
-//     because the resolver thread is portable `std::thread` in the shared file.
+//   * A native Windows host. The Winsock twin (esp_socket_win.cpp) is exercised
+//     here through MinGW under wine, which implements Winsock itself; what a
+//     real Windows network stack does differently is not covered.
 //
 // Run: ./build/test/esp_socket_test
 
@@ -63,12 +58,7 @@
 #include "esp01/esp_sntp.h"
 #include "esp01/esp_socket.h"
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <sys/wait.h>
-#include <unistd.h>
+#include "esp_test_net.h"
 
 #include <atomic>
 #include <chrono>
@@ -101,21 +91,24 @@ static int g_skip  = 0;
 static void report_row_id(const char* id) {
     static std::FILE* const out = [] {
         const char* path = std::getenv("JNEXT_TEST_ROW_IDS");
-        return (path && *path) ? std::fopen(path, "a") : nullptr;   // never truncate
+        return (path && *path) ? std::fopen(path, "ab") : nullptr;   // never truncate; binary: no CRLF on Windows
     }();
     if (!out) return;
     std::fprintf(out, "%s\n", id);
     std::fflush(out);   // nothing buffered across the SIG rows' fork()
 }
 
-static void check(const char* id, const std::string& desc, bool cond) {
+static void check(const char* id, const std::string& desc, bool cond,
+                  const std::string& detail = {}) {
     report_row_id(id);
     ++g_total;
     if (cond) {
         ++g_pass;
     } else {
         ++g_fail;
-        std::printf("  FAIL %s: %s\n", id, desc.c_str());
+        std::printf("  FAIL %s: %s", id, desc.c_str());
+        if (!detail.empty()) std::printf(" [%s]", detail.c_str());
+        std::printf("\n");
     }
 }
 
@@ -203,57 +196,6 @@ static IpAddress v4mapped(std::uint8_t a, std::uint8_t b, std::uint8_t c, std::u
 
 namespace {
 
-void sleep_ms(int ms) {
-    timespec ts{};
-    ts.tv_sec  = ms / 1000;
-    ts.tv_nsec = (ms % 1000) * 1000000L;
-    ::nanosleep(&ts, nullptr);
-}
-
-class Listener {
-public:
-    bool start() {
-        fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
-        if (fd_ < 0) return false;
-        int on = 1;
-        ::setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
-
-        sockaddr_in sa{};
-        sa.sin_family      = AF_INET;
-        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        sa.sin_port        = 0;  // kernel picks a free port — no fixed port, ever
-        if (::bind(fd_, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) != 0) return false;
-        if (::listen(fd_, 4) != 0) return false;
-
-        sockaddr_in bound{};
-        socklen_t   len = sizeof(bound);
-        if (::getsockname(fd_, reinterpret_cast<sockaddr*>(&bound), &len) != 0) return false;
-        port_ = ntohs(bound.sin_port);
-        return port_ != 0;
-    }
-
-    /// Accept one pending connection, waiting up to `timeout_ms`.
-    int accept_one(int timeout_ms) {
-        pollfd p{};
-        p.fd     = fd_;
-        p.events = POLLIN;
-        if (::poll(&p, 1, timeout_ms) <= 0) return -1;
-        return ::accept(fd_, nullptr, nullptr);
-    }
-
-    std::uint16_t port() const { return port_; }
-
-    void stop() {
-        if (fd_ >= 0) ::close(fd_);
-        fd_ = -1;
-    }
-    ~Listener() { stop(); }
-
-private:
-    int           fd_   = -1;
-    std::uint16_t port_ = 0;
-};
-
 /// An in-process UDP peer on 127.0.0.1, the datagram twin of `Listener`
 /// (GH #198). It is a peer rather than a listener because UDP has nothing to
 /// accept: it binds, and whatever arrives carries its own return address.
@@ -265,7 +207,7 @@ private:
 class UdpPeer {
 public:
     bool start() {
-        fd_ = ::socket(AF_INET, SOCK_DGRAM, 0);
+        fd_ = net_socket(AF_INET, SOCK_DGRAM, 0);
         if (fd_ < 0) return false;
         sockaddr_in sa{};
         sa.sin_family      = AF_INET;
@@ -285,7 +227,7 @@ public:
         pollfd p{};
         p.fd     = fd_;
         p.events = POLLIN;
-        if (::poll(&p, 1, timeout_ms) <= 0) return {};
+        if (net_poll(&p, 1, timeout_ms) <= 0) return {};
         char      buf[4096];
         socklen_t len = sizeof(from_);
         const ssize_t n =
@@ -309,7 +251,7 @@ public:
     std::uint16_t port() const { return port_; }
 
     void stop() {
-        if (fd_ >= 0) ::close(fd_);
+        if (fd_ >= 0) net_close(fd_);
         fd_ = -1;
     }
     ~UdpPeer() { stop(); }
@@ -325,17 +267,17 @@ private:
 /// ever aimed at this host, where a connect either completes or is refused
 /// immediately — this is the test's peer, not the code under test.
 int dial(const std::string& ip, std::uint16_t port) {
-    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    const int fd = net_socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return -1;
     sockaddr_in sa{};
     sa.sin_family = AF_INET;
     sa.sin_port   = htons(port);
     if (::inet_pton(AF_INET, ip.c_str(), &sa.sin_addr) != 1) {
-        ::close(fd);
+        net_close(fd);
         return -1;
     }
     if (::connect(fd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) != 0) {
-        ::close(fd);
+        net_close(fd);
         return -1;
     }
     return fd;
@@ -349,7 +291,7 @@ int dial(const std::string& ip, std::uint16_t port) {
 /// `test/00regression/esp-loopback-peer.py`, and used here for the opposite
 /// purpose: to prove that a LOOPBACK-bound listener is NOT reachable through it.
 std::string local_rfc1918() {
-    const int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+    const int fd = net_socket(AF_INET, SOCK_DGRAM, 0);
     if (fd < 0) return {};
     sockaddr_in probe{};
     probe.sin_family = AF_INET;
@@ -370,7 +312,7 @@ std::string local_rfc1918() {
             }
         }
     }
-    ::close(fd);
+    net_close(fd);
     return out;
 }
 
@@ -396,8 +338,8 @@ void close_with_reset(int fd) {
     linger lg{};
     lg.l_onoff  = 1;
     lg.l_linger = 0;
-    ::setsockopt(fd, SOL_SOCKET, SO_LINGER, &lg, sizeof(lg));
-    ::close(fd);
+    net_setsockopt(fd, SOL_SOCKET, SO_LINGER, &lg, sizeof(lg));
+    net_close(fd);
 }
 
 /// Read up to `want` bytes from `fd`, waiting up to `timeout_ms` in total.
@@ -408,27 +350,13 @@ std::string read_some(int fd, std::size_t want, int timeout_ms) {
         pollfd  p{};
         p.fd     = fd;
         p.events = POLLIN;
-        if (::poll(&p, 1, 5) > 0) {
+        if (net_poll(&p, 1, 5) > 0) {
             const ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
             if (n <= 0) break;
             out.append(buf, static_cast<std::size_t>(n));
         }
     }
     return out;
-}
-
-/// Drive poll() until the transport reaches `want` or settles in a terminal
-/// state. Bounded: loopback resolves this in microseconds, so a timeout here
-/// is a real failure, not a slow machine.
-bool pump_until(EspTransport& t, TransportState want, int timeout_ms = 2000) {
-    for (int waited = 0; waited <= timeout_ms; waited += 2) {
-        t.poll();
-        if (t.state() == want) return true;
-        if (t.state() == TransportState::Failed || t.state() == TransportState::Closed)
-            return false;  // settled somewhere else
-        sleep_ms(2);
-    }
-    return false;
 }
 
 /// Poll recv() until the state changes away from Connected, or time runs out.
@@ -440,14 +368,6 @@ bool pump_recv_until_not_connected(EspTransport& t, int timeout_ms = 2000) {
         sleep_ms(2);
     }
     return false;
-}
-
-/// The policy the socket rows run under: identical to production except that
-/// loopback is reachable, because the listener lives on 127.0.0.1.
-AddressPolicy loopback_ok() {
-    AddressPolicy p;
-    p.deny_loopback = false;
-    return p;
 }
 
 /// Milliseconds since `t0`.
@@ -543,6 +463,7 @@ bool throws_after_appending(const std::string&, std::vector<IpAddress>& out,
 // ── Tests ─────────────────────────────────────────────────────────────────
 
 int main() {
+    net_init();
     std::printf("\n======================================================\n");
     std::printf("ESP-01 socket transport unit tests (GH #25 branch 2)\n");
     std::printf("======================================================\n\n");
@@ -955,7 +876,7 @@ int main() {
                 t->begin_connect("127.0.0.1", l.port());
                 pump_until(*t, TransportState::Connected);
                 const int srv = l.accept_one(500);
-                if (srv >= 0) ::close(srv);
+                if (srv >= 0) net_close(srv);
             });
             check("SOCK-TRACE-01", "an IP literal is resolved without a DNS lookup",
                   joined(dbg).find("numeric address") != std::string::npos &&
@@ -973,7 +894,7 @@ int main() {
                 std::uint8_t rx[16];
                 t->recv(rx, sizeof(rx));
                 t->close();
-                if (srv >= 0) ::close(srv);
+                if (srv >= 0) net_close(srv);
             });
             check("SOCK-TRACE-02",
                   "at the default level a full session logs open + close and nothing "
@@ -1005,7 +926,7 @@ int main() {
                 t->begin_connect("localhost", l.port());
                 pump_until(*t, TransportState::Connected);
                 const int srv = l.accept_one(500);
-                if (srv >= 0) ::close(srv);
+                if (srv >= 0) net_close(srv);
             });
             if (joined(named).find("cannot resolve") != std::string::npos) {
                 report_row_id("SOCK-TRACE-04");
@@ -1175,7 +1096,7 @@ int main() {
             check("NET-08", "recv() returns exactly what the server sent",
                   got == std::string(reply));
 
-            if (server >= 0) ::close(server);
+            if (server >= 0) net_close(server);
             check("NET-09", "a peer close moves the transport to Closed",
                   pump_recv_until_not_connected(*t) &&
                       t->state() == TransportState::Closed);
@@ -1192,7 +1113,7 @@ int main() {
                             "server sees EOF",
                   t->state() == TransportState::Closed && server2 >= 0 &&
                       read_some(server2, 1, 500).empty());
-            if (server2 >= 0) ::close(server2);
+            if (server2 >= 0) net_close(server2);
         } else {
             for (const char* id : {"NET-01", "NET-02", "NET-03", "NET-04", "NET-05",
                                    "NET-06", "NET-07", "NET-08", "NET-09", "NET-10",
@@ -1328,7 +1249,7 @@ int main() {
             // binds, `want` stays 0 and the row FAILS.
             std::uint16_t want = 0;
             std::unique_ptr<EspTransport> t;
-            const unsigned first = static_cast<unsigned>(::getpid()) % 10000u;
+            const unsigned first = static_cast<unsigned>(net_getpid()) % 10000u;
             for (unsigned i = 0; i < 10000u && want == 0; ++i) {
                 const auto port = static_cast<std::uint16_t>(20000u + (first + i) % 10000u);
                 auto c = make_socket_transport(loopback_ok());
@@ -1471,7 +1392,18 @@ int main() {
                   "the run carries no error line at all",
                   drained && ended &&
                       level_of(served, "RESET by the peer") == LogLevel::Warn &&
-                      !has_level(served, LogLevel::Error));
+                      !has_level(served, LogLevel::Error),
+                  // Sub-conditions, so a failure under load says WHICH one (GH #214:
+                  // it failed once under wine with no detail to read).
+                  "drained=" + std::to_string(drained) + " ended=" + std::to_string(ended) +
+                      " reset_level=" + std::to_string(static_cast<int>(level_of(served, "RESET by the peer"))) +
+                      " error_logged=" + std::to_string(has_level(served, LogLevel::Error)) +
+                      " log=" + [&] {
+                          std::string all;
+                          for (const auto& e : served)
+                              all += "{" + std::to_string(static_cast<int>(e.first)) + ":" + e.second + "}";
+                          return all;
+                      }());
 
             // (b) THE GUARD. A peer that resets having served NOTHING is a
             //     failed exchange on any reading — a rejecting server, a crash
@@ -1500,73 +1432,10 @@ int main() {
         }
     }
 
-    // ═══ SIG — a dead peer must not take the emulator down with it ═════════
-    // esp_socket_posix.cpp sets MSG_NOSIGNAL (Linux) / SO_NOSIGPIPE (BSD)
-    // because without one of them a write to a closed peer raises SIGPIPE and
-    // the DEFAULT disposition terminates the process. Every other row here
-    // sends only while the connection is provably open, or after the transport
-    // has already self-transitioned — where send() short-circuits before the
-    // OS call and the flag is moot. So none of them can see the protection
-    // disappear.
-    //
-    // The reachable path is a caller that WRITES without reading: send() never
-    // detects EOF (only recv() does), so a blind write after an orderly peer
-    // close goes out once, draws a RST, and the next one hits EPIPE. Unguarded
-    // that is a signal, not an errno.
-    //
-    // It has to run in a forked child because the failure mode is the death of
-    // the process running the assertions.
-    {
-        const pid_t pid = ::fork();
-        if (pid < 0) {
-            skip("SIG-01", "fork() unavailable on this host");
-            skip("SIG-02", "fork() unavailable on this host");
-        } else if (pid == 0) {
-            // CHILD. Deliberately no printf: stdout is buffered and inherited,
-            // so anything written here would be duplicated by the parent. The
-            // exit code carries the verdict, and _exit() skips the shared
-            // stdio flush for the same reason.
-            Listener l;
-            if (!l.start()) ::_exit(5);
-            auto t = make_socket_transport(loopback_ok());
-            if (!t->begin_connect("127.0.0.1", l.port())) ::_exit(5);
-            if (!pump_until(*t, TransportState::Connected)) ::_exit(5);
-            const int srv = l.accept_one(1000);
-            if (srv < 0) ::_exit(5);
-            ::close(srv);  // orderly close by the peer — and we never recv()
-
-            const std::uint8_t buf[4] = {'A', 'T', '\r', '\n'};
-            for (int i = 0; i < 200 && t->state() == TransportState::Connected; ++i) {
-                t->send(buf, sizeof(buf));  // blind write into a dead peer
-                sleep_ms(2);
-            }
-            if (t->state() != TransportState::Failed) ::_exit(3);
-            if (t->last_error().empty()) ::_exit(4);
-            ::_exit(0);
-        } else {
-            int status = 0;
-            ::waitpid(pid, &status, 0);
-            const bool setup_failed = WIFEXITED(status) && WEXITSTATUS(status) == 5;
-            if (setup_failed) {
-                skip("SIG-01", "the child could not set up a loopback connection");
-                skip("SIG-02", "the child could not set up a loopback connection");
-            } else {
-                check("SIG-01",
-                      "a blind send to a closed peer does not signal-kill the process",
-                      !WIFSIGNALED(status));
-                check("SIG-02",
-                      "...and surfaces as Failed with an error string instead",
-                      WIFEXITED(status) && WEXITSTATUS(status) == 0);
-            }
-        }
-    }
-
     // ═══ ASYNC — name resolution runs OFF the calling thread ═══════════════
     //
-    // These rows run LAST, after SIG's fork(). A forked child inherits only the
-    // forking thread, so forking while a resolver thread holds an allocator
-    // lock is a classic child-side deadlock; ordering them after SIG means no
-    // resolver thread has ever existed when fork() is called.
+    // The SIG rows, which fork(), live in esp_sigpipe_test (a POSIX-only suite),
+    // so no process that runs these resolver threads ever forks.
     //
     // What is being proved is the thing the synchronous version got wrong: a
     // lookup no longer blocks whoever calls poll(), so a Reset, a quit or a
@@ -1592,7 +1461,7 @@ int main() {
                           after_one_poll != TransportState::Resolving);
                 t->close();
                 const int srv = l.accept_one(200);
-                if (srv >= 0) ::close(srv);
+                if (srv >= 0) net_close(srv);
             }
 
             // (11) THE poll() THAT STARTS THE LOOKUP IS ITSELF BOUNDED. Every
@@ -1662,7 +1531,7 @@ int main() {
                       "opening the gate completes the connect through the async path, "
                       "to the address the resolver returned",
                       connected && srv >= 0 && t->peer_address() == ipv4(127, 0, 0, 1));
-                if (srv >= 0) ::close(srv);
+                if (srv >= 0) net_close(srv);
             }
 
             // (05) THE SECURITY GATE STILL BITES, and it bites the RESOLVED
@@ -1790,7 +1659,7 @@ int main() {
 
             // (09) THE AT+CIPSTART DEADLINE NOW BOUNDS NAME RESOLUTION. Design
             //      simplification 6(a) recorded the opposite — the deadline is
-            //      checked in AtEngine::poll(), which a synchronous getaddrinfo
+            //      checked in AtEnginenet_poll(), which a synchronous getaddrinfo
             //      never returned from in time to be checked. With the lookup on
             //      its own thread the check runs, so a resolver that never
             //      answers is answered ERROR on OUR schedule.
@@ -1964,7 +1833,7 @@ int main() {
                 check("LSN-09", "...and recv() on the accepted transport yields them",
                       got == 4 && std::string(reinterpret_cast<char*>(buf), got) == "DZRP");
 
-                ::close(client);
+                net_close(client);
                 check("LSN-10", "a client close moves the accepted transport to Closed",
                       pump_recv_until_not_connected(*accepted) &&
                           accepted->state() == TransportState::Closed);
@@ -1972,7 +1841,7 @@ int main() {
                 for (const char* id : {"LSN-21", "LSN-06", "LSN-07", "LSN-08", "LSN-09",
                                        "LSN-10"})
                     skip(id, "no accepted connection to drive");
-                if (client >= 0) ::close(client);
+                if (client >= 0) net_close(client);
             }
 
             // ONE AT A TIME. The second connection stays in the kernel's listen
@@ -1987,8 +1856,8 @@ int main() {
                   first != nullptr && l->accept() == nullptr);
             check("LSN-12", "...and the second is taken by the NEXT poll",
                   pump_accept(*l) != nullptr);
-            if (a >= 0) ::close(a);
-            if (b >= 0) ::close(b);
+            if (a >= 0) net_close(a);
+            if (b >= 0) net_close(b);
 
             const std::uint16_t was = l->port();
             l->close();
@@ -2052,7 +1921,7 @@ int main() {
                       "a listener bound to 127.0.0.1 is NOT reachable through this "
                       "host's LAN address — the default really confines it",
                       through_lan < 0);
-                if (through_lan >= 0) ::close(through_lan);
+                if (through_lan >= 0) net_close(through_lan);
             } else {
                 skip("LSN-19", "could not bind a loopback listener");
             }
@@ -2064,7 +1933,7 @@ int main() {
                       "...and --esp-listen-address 0.0.0.0 IS, so widening is a real "
                       "act and not a no-op",
                       through_lan >= 0 && pump_accept(*wide) != nullptr);
-                if (through_lan >= 0) ::close(through_lan);
+                if (through_lan >= 0) net_close(through_lan);
             } else {
                 skip("LSN-20", "could not bind the wildcard address");
             }

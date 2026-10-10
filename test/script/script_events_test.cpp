@@ -43,6 +43,21 @@
 #include <vector>
 
 #include "../row_id.h"
+#include "../test_portable.h"
+
+// Scratch files live in a directory of this process's own (GH #214). They used
+// to be fixed names in /tmp, so two runs of the suite at once -- a second
+// worktree's gate, a third platform's run on the same host -- overwrote each
+// other's scripts between write and load. Forward slashes, because the paths are
+// also spliced into .jds script text.
+static std::string sev_tmp(const std::string& leaf) {
+    struct Dir {
+        std::string path = jtp::make_temp_dir("jnext_sev_");
+        ~Dir() { std::error_code ec; std::filesystem::remove_all(path, ec); }
+    };
+    static Dir dir;
+    return (std::filesystem::path(dir.path) / leaf).generic_string();
+}
 
 using namespace jnext::script;
 using jnext::dbg::Access;
@@ -482,7 +497,7 @@ static void reg_rows() {
     {
         // Bounds are evaluated with the script's own variables and symbols.
         Rig g(kPark);
-        const std::string map = "/tmp/jnext_sev_bounds.map";
+        const std::string map = sev_tmp("bounds.map");
         write_file(map, "BUF = $9100 ; const\n");
         g.dbg->load_map(map, jnext::dbg::MapFormat::Simple);
         const bool ok = g.load("var base = 0x9000\non write base..base + 3 do log \"x\" end\n"
@@ -774,12 +789,12 @@ static void stop_rows() {
     }
     {
         Rig g(kWriter);
-        const std::string path = "/tmp/jnext_sev_exit.png";
+        const std::string path = sev_tmp("exit.png");
         std::remove(path.c_str());
         const bool ok = g.load("on frame 0 do screenshot \"" + path + "\" exit 0 end\n", "a.jds");
         g.frames(2);
         Rig h(kWriter);
-        const bool ok2 = h.load("on frame 0 do save_snapshot \"/tmp/jnext_sev_never.sna\" exit 0 end\n", "b.jds");
+        const bool ok2 = h.load("on frame 0 do save_snapshot \"" + sev_tmp("never.sna") + "\" exit 0 end\n", "b.jds");
         h.frames(2);
         Rig k(kWriter);
         const bool ok3 = k.load("on frame 0 do exit 0 end\n", "c.jds");
@@ -1138,17 +1153,17 @@ static void input_rows() {
     }
     {
         Rig g(kPark);
-        const std::string same = "/tmp/jnext_sev_same.scr", diff = "/tmp/jnext_sev_diff.scr";
+        const std::string same = sev_tmp("same.scr"), diff = sev_tmp("diff.scr");
         g.frames(1);
         std::vector<uint8_t> scr = g.dbg->ula_screen_dump();
         write_file(same, std::string(scr.begin(), scr.end()));
         scr[100] ^= 0xFF;
         write_file(diff, std::string(scr.begin(), scr.end()));
-        const std::string shrt = "/tmp/jnext_sev_short.scr";
+        const std::string shrt = sev_tmp("short.scr");
         write_file(shrt, std::string(scr.begin(), scr.begin() + 100));
         scr[100] ^= 0xFF;
         scr[0] ^= 0xFF;
-        const std::string zero = "/tmp/jnext_sev_zero.scr";
+        const std::string zero = sev_tmp("zero.scr");
         write_file(zero, std::string(scr.begin(), scr.end()));
         size_t fails_mid = 99;
         Subscription s;
@@ -1179,7 +1194,7 @@ static void input_rows() {
     }
     {
         Rig g(kPark);
-        const std::string scr = "/tmp/jnext_sev_shot.scr", sna = "/tmp/jnext_sev_snap.sna";
+        const std::string scr = sev_tmp("shot.scr"), sna = sev_tmp("snap.sna");
         std::remove(scr.c_str());
         std::remove(sna.c_str());
         const bool ok = g.load("on frame 0 do screenshot \"" + scr + "\" save_snapshot \"" + sna + "\" end\n"
@@ -1251,7 +1266,7 @@ static void boundary_rows() {
         // the frame out would move the user's machine — and the save happens
         // at the next frame boundary after the resume.
         Rig g(kLoop);
-        const std::string sna = "/tmp/jnext_sev_mid.sna";
+        const std::string sna = sev_tmp("mid.sna");
         std::remove(sna.c_str());
         const bool ok = g.load("on write 0x9000 once when FRAME == 1 do save_snapshot \"" + sna + "\" stop end\n");
         // Two frames in ONE tick, as a fast-forwarding loop owner runs them:
@@ -1591,7 +1606,7 @@ static std::string line_jds(const std::string& png) {
            "end\n";
 }
 
-static const std::string kWorkMap = "/tmp/jnext_sev_work.map";
+static const std::string kWorkMap = sev_tmp("work.map");
 
 static void load_work_map(Rig& g) {
     write_file(kWorkMap, "__data_crt_head = $8200 ; const\n"
@@ -1611,7 +1626,7 @@ static void work_rows() {
             {"3a+3b+3d+3e", std::string(kGuard) + kMmu + kMempoint + kHostkeys},
             {"3c", kIsr}, {"palette_init", kPaletteInit}, {"sprite_y", kSpriteY},
             {"latency", kLatency}, {"copper", kCopper}, {"dma", kDma},
-            {"line", line_jds("/tmp/jnext_sev_at1M.png")}};
+            {"line", line_jds(sev_tmp("at1M.png"))}};
         for (const auto& s : scripts) {
             if (g.load(s.second, s.first)) ++n;
             else bad += std::string(s.first) + ": " + dstr(g.last.errors);
@@ -1784,11 +1799,11 @@ static void work_rows() {
     }
     {
         // 3(f) line: NR 0x43 select bits right at line 95; a capture at cycle 1M.
-        const std::string png = "/tmp/jnext_sev_at1M.png";
+        const std::string png = sev_tmp("at1M.png");
         std::remove(png.c_str());
         Rig good(kPark), bad(kPark);
         good.emu.nextreg().write(0x43, 0x10);
-        const bool ok = good.load(line_jds(png), "line.jds") && bad.load(line_jds("/tmp/jnext_sev_unused.png"), "line.jds");
+        const bool ok = good.load(line_jds(png), "line.jds") && bad.load(line_jds(sev_tmp("unused.png")), "line.jds");
         good.frames(3);
         bad.frames(3);
         check("SCRIPT-EV-WORK-LINE", "3(f) line: with NR 0x43 = 0x10 the scanline-95 assert holds and the "
@@ -1988,7 +2003,7 @@ struct HostRig {
 };
 
 static std::string tmp_file(const std::string& name, const std::string& text) {
-    const std::string path = "/tmp/jnext_sev_host_" + name;
+    const std::string path = sev_tmp("host_") + name;
     write_file(path, text);
     return path;
 }

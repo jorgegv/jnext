@@ -80,6 +80,40 @@ the SDL-only configuration (its own `build/sdl-unit-test` tree, so `build/` stay
 the Qt one), and `make unit-test-dashboard` runs the unit tests and refreshes the
 committed per-subsystem status table.
 
+Two more targets run the SDL-only suites on other operating systems (GH #214).
+`make unit-test-sdl` also works on macOS, where the test harness needs Homebrew's
+`bash`, `coreutils` and `grep` (`brew install bash coreutils grep`; the target
+puts them first on `PATH` for its own recipe only, and the harness refuses with
+that install line when they are missing). `make unit-test-win` cross-builds the
+same suites for Windows with the Fedora MinGW toolchain into
+`build/win-sdl-unit-test` (`dnf install mingw64-gcc mingw64-gcc-c++
+mingw64-SDL3 mingw64-zlib mingw64-libpng mingw64-winpthreads wine-core
+wine-common`) and runs them under wine through `test/wine-run.sh`, with no
+display variable set so no window can open on your desktop, under a UTF-8
+locale (a non-ASCII file name cannot exist under `LC_ALL=C`), and, when run as
+root (the CI container), with CAP_DAC_OVERRIDE and CAP_DAC_READ_SEARCH dropped for
+wine and wineserver: wine emulates the Windows read-only attribute with a
+permission bit that root ignores, where real Windows refuses even an
+administrator. The test executables
+link with an 8 MB stack (their fixtures hold emulators on the stack; Linux gives
+a main thread 8 MB, MinGW 2 MB), while `jnext.exe` keeps the default and its
+frame gate. Both need the SD image, which `make sdcard-image` provisions through
+jnext's own download if it is missing. `make unit-test-win` is two steps,
+`unit-test-win-build` (cross-build the tree) and `unit-test-win-run` (run it under
+wine, no compiler needed), so the run step could later be taken over by a real
+Windows host; it is part of the merge gate for every code change.
+
+The built tree is **not yet a relocatable directory**, so there is no recipe for
+running it by hand on a real Windows machine, and none has been tried. What
+stands in the way, in order of effort: `JNEXT_BINARY` (the CLI suite) and the
+ffmpeg stub's path are compiled in as absolute paths; the suites run with the
+source checkout as their working directory and read fixtures from it; the unit
+harness itself needs bash 4, GNU `timeout`/`grep -P` and perl, and checks every
+reported row ID against the suite's *source files*; the SD image is reached by
+absolute path through `JNEXT_TEST_SD_IMAGE`. A bundle (executables, the MinGW
+DLLs `packaging/windows/bundle-dlls.sh` copies, the manifest, the harness and
+the sources it reads) is feasible, but it is its own piece of work.
+
 Chapter [4. Testing](../04-testing/index.md) covers what each of these actually
 proves.
 

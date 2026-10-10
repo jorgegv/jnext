@@ -91,8 +91,9 @@ code comments.
 The single authoritative protocol for landing any implemented change on `main`:
 
 1. **Dedicated branch + worktree** off current `main` — never edit `main` directly. Each independent feature gets its own branch (so parallel agents don't trash each other). A standalone issue gets its own branch and merges to `main` when done. An **epic** gets an `epic<E>-<slug>` branch; its sub-issues branch off it and merge back into it, never into `main`, and the epic reaches `main` in one merge when finished (owner, 2026-10-06). A multi-stage issue lives on one branch until the whole issue is done and merges once; each stage is still reviewed on that branch (owner, 2026-09-24). Merge `main` into long-lived branches (epic, multi-stage) from time to time, so the final merge is not a cliff. A precedent set by an earlier session is not a decision.
-2. **Full test triplet green on the branch, plus the SDL-only unit run** before review: `make clean && make gui-release`, then `make unit-test`, **`make unit-test-sdl`**, the FUSE Z80 suite (`./build/test/fuse_z80_test build/test/fuse` → 1356/1356), and `make regression`. `make gui-release` is the PGO build (GH #297), so `make regression` tests the shipped binary and also runs FUSE against the PGO build's CPU core (`make fuse-pgo`, a prerequisite). No FAIL and no SKIP anywhere.
-   - `make unit-test-sdl` applies to **every** branch, not only GUI-touching ones (owner decision, 2026-09-25). Its 103 suites are the core emulator plus the platform decision-logic both frontends share, minus Qt and the debugger — and they INCLUDE `host_key_latch_test`, which drives the real `SdlInput::poll()` (GH #268) precisely because an SDL-only build is the only place that coverage survives. So an SDL-frontend change needs this run just as much as a core one does; do not read “the non-Qt set” as “no frontends”. Cost on a branch that actually changed code: ~17 s with a warm ccache (a no-op re-run of just the suites is ~9 s). See the two-configuration rule under **Testing**.
+2. **Full test triplet green on the branch, plus the SDL-only unit run and its Windows twin** before review: `make clean && make gui-release`, then `make unit-test`, **`make unit-test-sdl`**, **`make unit-test-win`**, the FUSE Z80 suite (`./build/test/fuse_z80_test build/test/fuse` → 1356/1356), and `make regression`. `make gui-release` is the PGO build (GH #297), so `make regression` tests the shipped binary and also runs FUSE against the PGO build's CPU core (`make fuse-pgo`, a prerequisite). No FAIL and no SKIP anywhere.
+   - `make unit-test-sdl` applies to **every** branch, not only GUI-touching ones (owner decision, 2026-09-25). Its 108 suites are the core emulator plus the platform decision-logic both frontends share, minus Qt and the debugger — and they INCLUDE `host_key_latch_test`, which drives the real `SdlInput::poll()` (GH #268) precisely because an SDL-only build is the only place that coverage survives. So an SDL-frontend change needs this run just as much as a core one does; do not read “the non-Qt set” as “no frontends”. Cost on a branch that actually changed code: ~17 s with a warm ccache (a no-op re-run of just the suites is ~9 s). See the two-configuration rule under **Testing**.
+   - `make unit-test-win` applies to **every** code branch too (owner, 2026-10-10, GH #214): the same SDL-only suites cross-built for Windows with the Fedora MinGW toolchain and run under wine (`dnf install mingw64-gcc mingw64-gcc-c++ mingw64-SDL3 mingw64-zlib mingw64-libpng mingw64-winpthreads wine-core wine-common`). It is the only way a branch sees a Windows compile break, a Win32 code path or a path-separator bug before review, and it runs on the development host (~30 s warm, ~3 min with a cold ccache). What wine cannot stand in for (symlink creation, a real console attach, NTFS short names and streams) stays untested; the suites that need it are `# os: posix`.
    - Use **`make regression`**, never bare `bash test/00regression/regression.sh`: the suite's `sdl-keypress-func` row needs `build/sdl-release`, which only the make target builds, so the bare script aborts as a harness fault. Two separate agents lost a run to this on 2026-09-25. Targeted rows likewise go through **`make regression-rows ROWS="<row> ..."`**, which builds the same binaries first (the bare script with row names is fine only when they are already built).
    - **A DOCUMENTATION-ONLY change runs NO code gate** (owner rule, 2026-09-27). If the branch or
      the set of changes to merge touches only documentation, run only the gates the documentation
@@ -411,11 +412,29 @@ in `ENABLE_QT_UI=ON / ENABLE_DEBUGGER=OFF` and nothing noticed.
 
 | target | configuration | build dir | suites |
 |--------|---------------|-----------|--------|
-| `make unit-test`     | Qt + debugger (the shipped one) | `build/`              | 135 |
-| `make unit-test-sdl` | SDL-only, no Qt, no debugger    | `build/sdl-unit-test` | 103 |
+| `make unit-test`     | Qt + debugger (the shipped one) | `build/`              | 140 |
+| `make unit-test-sdl` | SDL-only, no Qt, no debugger    | `build/sdl-unit-test` | 108 |
+
+**The SDL-only set also runs on other operating systems** (GH #214, owner decisions
+2026-10-10), and the table's rows are per platform:
+
+| target | platform | build dir | suites | where |
+|--------|----------|-----------|--------|-------|
+| `make unit-test-sdl` | Linux (native)                  | `build/sdl-unit-test`     | 108 | local gate, CI `test (unit)` |
+| `make unit-test-sdl` | macOS (native)                  | `build/sdl-unit-test`     | 107 | CI `macos-unit` (Homebrew `bash coreutils grep` required); one fewer than Linux because `sdcard_file_add_linux_test` is `# os: linux` (SDFA-T26 needs a case-sensitive filesystem; APFS is not) |
+| `make unit-test-win` | Windows, MinGW cross under wine | `build/win-sdl-unit-test` | 103 | local gate, CI `test (unit-win)` |
+
+Both new CI jobs are BLOCKING. The `# os: all | posix | linux` directive in
+`test/unit-tests.conf` declares which target OSes own a suite — read from the build
+tree's own `CMakeCache.txt` (`JNEXT_TARGET_OS`) and cross-checked both ways exactly
+like `# gate:`; a row that cannot exist on a platform moves, ID and assertion
+unchanged, into an os-gated sibling suite, never into a SKIP. The Qt, debugger,
+regression, docs and traceability gates stay Linux-only. On macOS the harness needs
+Homebrew's `bash`, `coreutils` and `grep` (`make unit-test-sdl` puts them first on
+`PATH` for its own recipe) and refuses with the install line when they are missing.
 
 The other two (Qt without the debugger; SDL with it) are not used in practice and
-stay **build-only**. CI runs both targets — the same two commands a human types —
+stay **build-only**. CI runs both targets (and `make unit-test-win` and macOS's `unit-test-sdl`, see below) — the same commands a human types —
 and `make unit-test` deliberately does **not** pull the second one in, so the
 everyday inner loop does not pay for a second build and suite run. The SDL tree
 gets its own build directory: `build/` must stay the Qt tree that `unit-test-build`

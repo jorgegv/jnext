@@ -1,5 +1,17 @@
 # ChangeLog
 
+## Unreleased (2026-10-10)
+
+### Bug Fixes
+- Windows: the status bar shows a loaded tape's file name instead of its full path
+- esxDOS host folder: a name containing ':' gets the same answer on every OS
+
+### Internal JNEXT Development
+- Unit test suites now also run on macOS and on Windows (under wine) in CI, blocking
+
+### Contributors in this release
+- @janko-jj, @vmorilla
+
 ## v1.1.23 (2026-10-10)
 
 ### User Features

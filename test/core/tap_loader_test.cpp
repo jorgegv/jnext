@@ -292,6 +292,22 @@ int main() {
               wav_ok && tap_ok && !emu->wav_tape().is_loaded() && emu->tape().is_loaded(), buf);
     }
 
+    // TAPC-12 — the display name is the bare file name whatever separator the
+    // host's own path syntax uses. g_root / name is built by std::filesystem, so
+    // on Windows it holds backslashes (the form --load C:\... and a native file
+    // dialog hand over); a name taken with rfind('/') came back as the whole
+    // path. Oracle: the contract in tap_loader.h ("the tape filename (for UI
+    // display)"), as std::filesystem::path::filename() defines it per host.
+    {
+        TapLoader t;
+        const std::string full = write_file("native-separators.tap",
+                                            concat({header_block(), data_block()}));
+        const bool ok = t.load(full);
+        check("TAPC-12", "a TAP loaded through a native-separator path reports its bare file name",
+              ok && t.filename() == "native-separators.tap",
+              "path=" + full + " filename=" + t.filename());
+    }
+
     Log::emulator()->sinks().pop_back();
     std::filesystem::remove_all(g_root, ec);
 

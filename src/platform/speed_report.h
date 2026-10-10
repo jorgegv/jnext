@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstdint>
 
 /// Achieved-vs-requested emulation speed (GitHub issue #120).
 ///

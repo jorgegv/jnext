@@ -83,6 +83,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include "../row_id.h"
+#include "../test_portable.h"
 
 namespace {
 
@@ -292,11 +293,9 @@ std::string slurp_text(const std::string& path) {
 
 int main() {
     // Isolated HOME so path/default-location tests are hermetic.
-    char tmpl[] = "/tmp/jnext_prov_XXXXXX";
-    char* d = mkdtemp(tmpl);
-    if (!d) { std::printf("cannot mkdtemp\n"); return 1; }
-    g_tmpdir = d;
-    setenv("HOME", g_tmpdir.c_str(), 1);
+    g_tmpdir = jtp::make_temp_dir("jnext_prov_");
+    if (g_tmpdir.empty()) { std::printf("cannot mkdtemp\n"); return 1; }
+    jtp::set_env("HOME", g_tmpdir.c_str());
 
     // -- PROV-PATH-01 --
     {
@@ -319,7 +318,7 @@ int main() {
     // image (GH #65) instead of sharing one mutable machine-wide file.
     {
         const std::string over = g_tmpdir + "/cfgover";
-        setenv("JNEXT_CONFIG_DIR", over.c_str(), 1);
+        jtp::set_env("JNEXT_CONFIG_DIR", over.c_str());
         const std::string dir   = sdcard::default_sdcard_dir();
         const std::string fixed = sdcard::default_sdcard_image_path();
         const std::string raw   = sdcard::default_sdcard_raw_image_path();
@@ -335,12 +334,12 @@ int main() {
         // An EMPTY value means "not set" — same rule as AppConfig's
         // QString::isEmpty() test, so an exported-but-blank variable can never
         // redirect the image into "/sdcard".
-        setenv("JNEXT_CONFIG_DIR", "", 1);
+        jtp::set_env("JNEXT_CONFIG_DIR", "");
         check("PROV-PATH-02e", "empty $JNEXT_CONFIG_DIR falls back to $HOME/.jnext",
               sdcard::default_sdcard_dir() == g_tmpdir + "/.jnext/sdcard",
               sdcard::default_sdcard_dir());
 
-        unsetenv("JNEXT_CONFIG_DIR");
+        jtp::unset_env("JNEXT_CONFIG_DIR");
         check("PROV-PATH-02f", "unset $JNEXT_CONFIG_DIR falls back to $HOME/.jnext",
               sdcard::default_sdcard_dir() == g_tmpdir + "/.jnext/sdcard",
               sdcard::default_sdcard_dir());
@@ -354,12 +353,12 @@ int main() {
     // back to the shared master image.
     {
         const std::string over = g_tmpdir + "/cfgpick";
-        ::mkdir((g_tmpdir + "/.jnext").c_str(), 0755);
-        ::mkdir((g_tmpdir + "/.jnext/sdcard").c_str(), 0755);
+        jtp::make_dir((g_tmpdir + "/.jnext").c_str());
+        jtp::make_dir((g_tmpdir + "/.jnext/sdcard").c_str());
         write_file(sdcard::default_sdcard_image_path(), {'H','O','M','E'});
-        setenv("JNEXT_CONFIG_DIR", over.c_str(), 1);
-        ::mkdir(over.c_str(), 0755);
-        ::mkdir((over + "/sdcard").c_str(), 0755);
+        jtp::set_env("JNEXT_CONFIG_DIR", over.c_str());
+        jtp::make_dir(over.c_str());
+        jtp::make_dir((over + "/sdcard").c_str());
         write_file(sdcard::default_sdcard_image_path(), {'O','V','E','R'});
         sdcard::ProvisionOptions o;
         o.download = [](const std::string&, const std::string&,
@@ -372,7 +371,7 @@ int main() {
               r.path == over + "/sdcard/cspect-next-1gb-fixed.img", r.path);
         check("PROV-PATH-03b", "provision does NOT fall back to the $HOME image",
               r.path.find(g_tmpdir + "/.jnext/sdcard") == std::string::npos, r.path);
-        unsetenv("JNEXT_CONFIG_DIR");
+        jtp::unset_env("JNEXT_CONFIG_DIR");
         std::remove((g_tmpdir + "/.jnext/sdcard/cspect-next-1gb-fixed.img").c_str());
     }
 
@@ -418,8 +417,8 @@ int main() {
     // -- PROV-PREC-02: default-location file present --
     {
         download_called = false;
-        ::mkdir((g_tmpdir + "/.jnext").c_str(), 0755);
-        ::mkdir((g_tmpdir + "/.jnext/sdcard").c_str(), 0755);
+        jtp::make_dir((g_tmpdir + "/.jnext").c_str());
+        jtp::make_dir((g_tmpdir + "/.jnext/sdcard").c_str());
         write_file(sdcard::default_sdcard_image_path(), {'i','m','g'});
         sdcard::ProvisionOptions o;
         o.download = recording_dl;
@@ -538,27 +537,27 @@ int main() {
         };
 
         seen_url.clear();
-        setenv("JNEXT_SDCARD_DISTRO_URL", "http://127.0.0.1:1/fixture.zip", 1);
+        jtp::set_env("JNEXT_SDCARD_DISTRO_URL", "http://127.0.0.1:1/fixture.zip");
         (void)sdcard::provision_sd_card(o);
         check("PROV-URL-01", "$JNEXT_SDCARD_DISTRO_URL overrides kDistroUrl",
               seen_url == "http://127.0.0.1:1/fixture.zip", seen_url);
 
         seen_url.clear();
-        unsetenv("JNEXT_SDCARD_DISTRO_URL");
+        jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
         (void)sdcard::provision_sd_card(o);
         check("PROV-URL-02", "unset env => canonical kDistroUrl",
               seen_url == sdcard::kDistroUrl, seen_url);
 
         seen_url.clear();
-        setenv("JNEXT_SDCARD_DISTRO_URL", "", 1);
+        jtp::set_env("JNEXT_SDCARD_DISTRO_URL", "");
         (void)sdcard::provision_sd_card(o);
         check("PROV-URL-03", "empty env => canonical kDistroUrl",
               seen_url == sdcard::kDistroUrl, seen_url);
-        unsetenv("JNEXT_SDCARD_DISTRO_URL");
+        jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
     }
 
-    ::mkdir((g_tmpdir + "/.jnext").c_str(), 0755);
-    ::mkdir((g_tmpdir + "/.jnext/sdcard").c_str(), 0755);
+    jtp::make_dir((g_tmpdir + "/.jnext").c_str());
+    jtp::make_dir((g_tmpdir + "/.jnext/sdcard").c_str());
     const std::string raw       = sdcard::default_sdcard_raw_image_path();
     const std::string fixed     = sdcard::default_sdcard_image_path();
     const std::string raw_sha   = raw + ".sha256";
@@ -952,12 +951,12 @@ int main() {
         std::remove(fixed.c_str());
         std::remove(raw.c_str());
         std::remove(raw_sha.c_str());
-        setenv("JNEXT_SDCARD_DISTRO_URL", kOfflineFailUrl, 1);
+        jtp::set_env("JNEXT_SDCARD_DISTRO_URL", kOfflineFailUrl);
         sdcard::ProvisionOptions o4;
         o4.auto_confirm   = true;   // no download override: the REAL backend
         o4.sandbox_marker = tp("no-such-flatpak-info");
         auto r4 = sdcard::provision_sd_card(o4);
-        unsetenv("JNEXT_SDCARD_DISTRO_URL");
+        jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
         size_t n_prefix = 0;
         for (size_t at = r4.error.find("download failed");
              at != std::string::npos;

@@ -54,6 +54,7 @@
 #include <sys/stat.h> // chmod (V15-DIVMMC-01: SD-28 RO image test)
 #include <vector>
 #include "../row_id.h"
+#include "../test_portable.h"
 #include "../dac_caps_dropped.h"
 
 // ─── Test infrastructure ─────────────────────────────────────────────
@@ -2005,7 +2006,7 @@ static void test_sd_28_cmd24_ro_image_write_error() {
     bool mounted = false;
     {
         DacCapsDropped caps;
-        if (geteuid() == 0 && !caps.drop()) {
+        if (jtp::running_as_root() && !caps.drop()) {
             skip("SD-28", "running as root and capset refused dropping CAP_DAC_OVERRIDE");
             std::remove(img.c_str());
             return;

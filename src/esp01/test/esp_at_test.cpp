@@ -78,7 +78,7 @@ static int g_skip  = 0;
 static void report_row_id(const char* id) {
     static std::FILE* const out = [] {
         const char* path = std::getenv("JNEXT_TEST_ROW_IDS");
-        return (path && *path) ? std::fopen(path, "a") : nullptr;   // never truncate
+        return (path && *path) ? std::fopen(path, "ab") : nullptr;   // never truncate; binary: no CRLF on Windows
     }();
     if (!out) return;
     std::fprintf(out, "%s\n", id);

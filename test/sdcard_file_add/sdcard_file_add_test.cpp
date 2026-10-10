@@ -61,34 +61,7 @@
 // Output follows the project-wide line:
 //   Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d
 
-#include "core/sdcard_file_add.h"
-
-#include "core/fat32_image.h"
-#include "core/fatfs_diskio.h"
-#include "core/sd_rom_extractor.h"
-
-extern "C" {
-#include "third_party/fatfs/ff.h"
-}
-
-#include <sys/stat.h>   // mkfifo, chmod (GH #292 tree rows)
-#include <unistd.h>     // geteuid, syscall
-
-#include <algorithm>
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <chrono>
-#include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <string>
-#include <vector>
-#include "../row_id.h"
-#include "../dac_caps_dropped.h"
-
-namespace fs = std::filesystem;
-using sdcard::FileAddStatus;
+#include "sdcard_file_add_includes.h"
 
 namespace {
 
@@ -115,364 +88,11 @@ void skip(const char* id, const char* desc, const std::string& why) {
     std::printf("  SKIP %s: %s [%s]\n", id, desc, why.c_str());
 }
 
-// ---------------------------------------------------------------------------
-// Fixture plumbing
-// ---------------------------------------------------------------------------
+}  // namespace
 
-// Partition layout of every fixture image. 68000 sectors at 1 sector/cluster
-// leaves ~66900 clusters, just over the 65525 FAT32 minimum FatFs enforces,
-// for a 34.8 MB file that is entirely sparse until written.
-constexpr uint32_t kPartLba      = 2048;
-constexpr uint32_t kPartSectors  = 68000;
-constexpr uint32_t kSectorSize   = 512;
-constexpr uint32_t kClusterBytes = 512;   // au_size passed to f_mkfs
+#include "sdcard_file_add_helpers.h"
 
-fs::path g_scratch;
-
-void wr_u32(uint8_t* p, uint32_t v) {
-    p[0] = static_cast<uint8_t>(v);
-    p[1] = static_cast<uint8_t>(v >> 8);
-    p[2] = static_cast<uint8_t>(v >> 16);
-    p[3] = static_cast<uint8_t>(v >> 24);
-}
-
-bool write_host_file(const fs::path& p, const std::vector<uint8_t>& data) {
-    std::ofstream f(p, std::ios::binary | std::ios::trunc);
-    if (!f) return false;
-    if (!data.empty())
-        f.write(reinterpret_cast<const char*>(data.data()),
-                static_cast<std::streamsize>(data.size()));
-    return f.good();
-}
-
-bool read_host_file(const fs::path& p, std::vector<uint8_t>& out) {
-    std::ifstream f(p, std::ios::binary);
-    if (!f) return false;
-    out.assign(std::istreambuf_iterator<char>(f),
-               std::istreambuf_iterator<char>());
-    return true;
-}
-
-// Deterministic pseudo-random payload, so a byte-comparison failure is a real
-// difference and not two runs of zeros agreeing by accident.
-std::vector<uint8_t> payload(std::size_t n, uint32_t seed) {
-    std::vector<uint8_t> v(n);
-    uint32_t s = seed * 2654435761u + 1u;
-    for (std::size_t i = 0; i < n; ++i) {
-        s = s * 1103515245u + 12345u;
-        v[i] = static_cast<uint8_t>(s >> 16);
-    }
-    return v;
-}
-
-// 64-bit FNV-1a over a whole file; used to assert an image was NOT modified.
-uint64_t file_digest(const fs::path& p) {
-    std::ifstream f(p, std::ios::binary);
-    if (!f) return 0;
-    uint64_t h = 1469598103934665603ull;
-    std::vector<char> buf(1 << 20);
-    while (f) {
-        f.read(buf.data(), static_cast<std::streamsize>(buf.size()));
-        const std::streamsize n = f.gcount();
-        for (std::streamsize i = 0; i < n; ++i) {
-            h ^= static_cast<uint8_t>(buf[i]);
-            h *= 1099511628211ull;
-        }
-    }
-    return h;
-}
-
-// Write an MBR whose single entry is a type-0x0C FAT32-LBA partition.
-bool write_mbr(const fs::path& image) {
-    std::fstream f(image, std::ios::in | std::ios::out | std::ios::binary);
-    if (!f) return false;
-    uint8_t mbr[kSectorSize] = {};
-    uint8_t* pe = mbr + 0x1BE;
-    pe[0] = 0x00;                  // not bootable
-    pe[1] = pe[2] = pe[3] = 0xFE;  // CHS start (ignored for LBA)
-    pe[4] = 0x0C;                  // FAT32 LBA
-    pe[5] = pe[6] = pe[7] = 0xFE;  // CHS end
-    wr_u32(pe + 8,  kPartLba);
-    wr_u32(pe + 12, kPartSectors);
-    mbr[510] = 0x55;
-    mbr[511] = 0xAA;
-    f.seekp(0, std::ios::beg);
-    f.write(reinterpret_cast<const char*>(mbr), kSectorSize);
-    return f.good();
-}
-
-// Create a fresh fixture image: MBR + a FAT32 volume holding
-//   /README.TXT          (48 bytes)
-//   /NEXTZXOS/KEEPME.BIN (3000 bytes, spans several 512-byte clusters)
-// Both are read back after every write test, so a writer that corrupts the
-// existing tree is caught rather than merely "not proven safe".
-//
-// f_mkfs is called here rather than through fat32_format_and_populate()
-// because that helper pins 8 KB clusters, which would need a 537 MB fixture.
-bool make_fixture(const fs::path& image, std::string& why) {
-    std::error_code ec;
-    fs::remove(image, ec);
-    { std::ofstream create(image, std::ios::binary); if (!create) { why = "create"; return false; } }
-    fs::resize_file(image,
-                    static_cast<std::uintmax_t>(kPartLba + kPartSectors) * kSectorSize, ec);
-    if (ec) { why = "resize: " + ec.message(); return false; }
-    if (!write_mbr(image)) { why = "mbr"; return false; }
-
-    std::string err;
-    if (!fatfs_glue::attach(0, image.string(), kPartLba, kPartSectors, err)) {
-        why = "attach: " + err;
-        return false;
-    }
-    struct Detacher { ~Detacher() { fatfs_glue::detach(0); } } detacher;
-
-    MKFS_PARM parm{};
-    parm.fmt     = FM_FAT32 | FM_SFD;
-    parm.n_fat   = 2;
-    parm.align   = 0;
-    parm.n_root  = 0;
-    parm.au_size = kClusterBytes;
-    std::vector<uint8_t> work(64 * 1024);
-    if (f_mkfs("0:", &parm, work.data(), static_cast<UINT>(work.size())) != FR_OK) {
-        why = "f_mkfs";
-        return false;
-    }
-    FATFS fsobj{};
-    if (f_mount(&fsobj, "0:", 1) != FR_OK) { why = "f_mount"; return false; }
-
-    auto emit = [](const char* path, const std::vector<uint8_t>& data) -> bool {
-        FIL fp{};
-        if (f_open(&fp, path, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK) return false;
-        UINT bw = 0;
-        const bool ok = data.empty() ||
-            (f_write(&fp, data.data(), static_cast<UINT>(data.size()), &bw) == FR_OK &&
-             bw == data.size());
-        return f_close(&fp) == FR_OK && ok;
-    };
-    bool ok = emit("0:/README.TXT", payload(48, 7));
-    ok = ok && f_mkdir("0:/NEXTZXOS") == FR_OK;
-    ok = ok && emit("0:/NEXTZXOS/KEEPME.BIN", payload(3000, 11));
-    f_mount(nullptr, "0:", 0);
-    if (!ok) { why = "populate"; return false; }
-    return true;
-}
-
-// The two fixture files, re-read through the independent short-name reader
-// after every mutation. `extract_sd_rom` is a different code path from the
-// writer (its own MBR/BPB/FAT walk), so this is a real check that the write
-// left the rest of the volume alone.
-bool fixture_tree_intact(const fs::path& image) {
-    std::vector<uint8_t> got;
-    if (!extract_sd_rom(image.string(), "/README.TXT", got)) return false;
-    if (got != payload(48, 7)) return false;
-    if (!extract_sd_rom(image.string(), "/NEXTZXOS/KEEPME.BIN", got)) return false;
-    return got == payload(3000, 11);
-}
-
-// Read the two FAT copies of a fixture image and report whether they agree.
-// A writer that updates only FAT #1 passes every read-back test jnext can run
-// (its readers all use FAT #1) and produces a card that fsck and any driver
-// using the mirror will disagree with.
-bool fats_agree(const fs::path& image, std::string& detail) {
-    std::ifstream f(image, std::ios::binary);
-    if (!f) { detail = "open"; return false; }
-    uint8_t bpb[kSectorSize];
-    f.seekg(static_cast<std::streamoff>(static_cast<uint64_t>(kPartLba) * kSectorSize));
-    f.read(reinterpret_cast<char*>(bpb), kSectorSize);
-    if (!f.good()) { detail = "bpb"; return false; }
-    const uint16_t reserved = static_cast<uint16_t>(bpb[14] | (bpb[15] << 8));
-    const uint8_t  n_fats   = bpb[16];
-    const uint32_t fat_sz   = static_cast<uint32_t>(bpb[36]) |
-                              (static_cast<uint32_t>(bpb[37]) << 8) |
-                              (static_cast<uint32_t>(bpb[38]) << 16) |
-                              (static_cast<uint32_t>(bpb[39]) << 24);
-    if (n_fats != 2 || fat_sz == 0) { detail = "geometry"; return false; }
-    const uint64_t fat0 =
-        (static_cast<uint64_t>(kPartLba) + reserved) * kSectorSize;
-    const uint64_t fat1 = fat0 + static_cast<uint64_t>(fat_sz) * kSectorSize;
-    const std::size_t len = static_cast<std::size_t>(fat_sz) * kSectorSize;
-    std::vector<uint8_t> a(len), b(len);
-    f.seekg(static_cast<std::streamoff>(fat0));
-    f.read(reinterpret_cast<char*>(a.data()), static_cast<std::streamsize>(len));
-    f.seekg(static_cast<std::streamoff>(fat1));
-    f.read(reinterpret_cast<char*>(b.data()), static_cast<std::streamsize>(len));
-    if (!f.good()) { detail = "read"; return false; }
-    for (std::size_t i = 0; i < len; ++i) {
-        if (a[i] != b[i]) {
-            detail = "first difference at FAT byte " + std::to_string(i);
-            return false;
-        }
-    }
-    return true;
-}
-
-// FSInfo free-cluster count (offset 488 of the FSInfo sector, whose number the
-// BPB gives at offset 48). 0xFFFFFFFF means "unknown".
-uint32_t fsinfo_free_count(const fs::path& image) {
-    std::ifstream f(image, std::ios::binary);
-    if (!f) return 0xFFFFFFFFu;
-    uint8_t bpb[kSectorSize];
-    f.seekg(static_cast<std::streamoff>(static_cast<uint64_t>(kPartLba) * kSectorSize));
-    f.read(reinterpret_cast<char*>(bpb), kSectorSize);
-    if (!f.good()) return 0xFFFFFFFFu;
-    const uint16_t fsinfo_sec = static_cast<uint16_t>(bpb[48] | (bpb[49] << 8));
-    uint8_t sec[kSectorSize];
-    f.seekg(static_cast<std::streamoff>(
-        (static_cast<uint64_t>(kPartLba) + fsinfo_sec) * kSectorSize));
-    f.read(reinterpret_cast<char*>(sec), kSectorSize);
-    if (!f.good()) return 0xFFFFFFFFu;
-    // Signatures 0x41615252 / 0x61417272 / 0xAA550000.
-    if (sec[0] != 0x52 || sec[1] != 0x52 || sec[2] != 0x61 || sec[3] != 0x41)
-        return 0xFFFFFFFFu;
-    return static_cast<uint32_t>(sec[488]) |
-           (static_cast<uint32_t>(sec[489]) << 8) |
-           (static_cast<uint32_t>(sec[490]) << 16) |
-           (static_cast<uint32_t>(sec[491]) << 24);
-}
-
-// Free clusters counted in FAT #1 itself, not taken from FSInfo. FSInfo is a
-// HINT FatFs keeps; a cluster allocated and never freed again (a leak) would
-// show as a FAT entry still in use, whatever the hint says.
-uint32_t fat_scan_free(const fs::path& image) {
-    std::ifstream f(image, std::ios::binary);
-    if (!f) return 0xFFFFFFFFu;
-    uint8_t bpb[kSectorSize];
-    f.seekg(static_cast<std::streamoff>(static_cast<uint64_t>(kPartLba) * kSectorSize));
-    f.read(reinterpret_cast<char*>(bpb), kSectorSize);
-    if (!f.good()) return 0xFFFFFFFFu;
-    auto u32 = [&](int o) {
-        return static_cast<uint32_t>(bpb[o]) | (static_cast<uint32_t>(bpb[o + 1]) << 8) |
-               (static_cast<uint32_t>(bpb[o + 2]) << 16) |
-               (static_cast<uint32_t>(bpb[o + 3]) << 24);
-    };
-    const uint32_t spc      = bpb[13];
-    const uint32_t reserved = static_cast<uint32_t>(bpb[14] | (bpb[15] << 8));
-    const uint32_t n_fats   = bpb[16];
-    const uint32_t total    = u32(32);
-    const uint32_t fat_sz   = u32(36);
-    if (spc == 0) return 0xFFFFFFFFu;
-    const uint32_t clusters = (total - reserved - n_fats * fat_sz) / spc;
-    std::vector<uint8_t> fat(static_cast<std::size_t>(clusters + 2) * 4);
-    f.seekg(static_cast<std::streamoff>(
-        (static_cast<uint64_t>(kPartLba) + reserved) * kSectorSize));
-    f.read(reinterpret_cast<char*>(fat.data()), static_cast<std::streamsize>(fat.size()));
-    if (!f.good()) return 0xFFFFFFFFu;
-    uint32_t n = 0;
-    for (uint32_t c = 2; c < clusters + 2; ++c) {
-        const uint8_t* e = fat.data() + c * 4;
-        const uint32_t v = (static_cast<uint32_t>(e[0]) | (static_cast<uint32_t>(e[1]) << 8) |
-                            (static_cast<uint32_t>(e[2]) << 16) |
-                            (static_cast<uint32_t>(e[3]) << 24)) & 0x0FFFFFFFu;
-        if (v == 0) ++n;
-    }
-    return n;
-}
-
-// The two free-cluster accounts agree: FSInfo (what FatFs last WROTE) and a
-// scan of FAT #1 (what is really allocated). A cluster freed only in FatFs's
-// memory and never flushed shows up as exactly this disagreement — the lost
-// cluster fsck.vfat reclaims (GH #292 review round 3).
-bool free_counts_agree(const fs::path& image) {
-    const uint32_t a = fsinfo_free_count(image);
-    return a != 0xFFFFFFFFu && a == fat_scan_free(image);
-}
-
-// Does `long_name` appear in the directory `dir` of the image, with `size`
-// bytes? Uses fat32_read_tree, which reconstructs VFAT long names — the short
-// name reader (extract_sd_rom) cannot see them at all.
-bool tree_has(const fs::path& image, const std::string& dir,
-              const std::string& long_name, std::size_t size) {
-    uint32_t part = 0;
-    if (!fat32_find_partition(image.string(), part)) return false;
-    Fat32Tree tree;
-    if (!fat32_read_tree(image.string(), part, tree)) return false;
-    const std::vector<Fat32Node>* level = &tree.root;
-    if (!dir.empty()) {
-        const Fat32Node* found = nullptr;
-        for (const auto& n : *level)
-            if (n.is_dir && n.name == dir) { found = &n; break; }
-        if (!found) return false;
-        level = &found->children;
-    }
-    for (const auto& n : *level)
-        if (!n.is_dir && n.name == long_name && n.data.size() == size) return true;
-    return false;
-}
-
-// The node at `path` ("/A/B/c.txt", long names, exact case) in a tree read by
-// fat32_read_tree, or nullptr. That reader is jnext's lenient hand-rolled one,
-// NOT FatFs — so a tree written through FatFs is read back by a different
-// implementation.
-const Fat32Node* find_node(const Fat32Tree& tree, const std::string& path) {
-    const std::vector<Fat32Node>* level = &tree.root;
-    const Fat32Node* found = nullptr;
-    std::string comp;
-    std::vector<std::string> parts;
-    for (char c : path) {
-        if (c == '/') { if (!comp.empty()) parts.push_back(comp); comp.clear(); }
-        else comp.push_back(c);
-    }
-    if (!comp.empty()) parts.push_back(comp);
-    for (const std::string& want : parts) {
-        found = nullptr;
-        for (const auto& n : *level)
-            if (n.name == want) { found = &n; break; }
-        if (!found) return nullptr;
-        level = &found->children;
-    }
-    return found;
-}
-
-bool read_tree(const fs::path& image, Fat32Tree& tree) {
-    uint32_t part = 0;
-    if (!fat32_find_partition(image.string(), part)) return false;
-    tree = Fat32Tree{};
-    return fat32_read_tree(image.string(), part, tree);
-}
-
-// Does the card hold `data` at `path`?
-bool card_file_is(const fs::path& image, const std::string& path,
-                  const std::vector<uint8_t>& data) {
-    Fat32Tree tree;
-    if (!read_tree(image, tree)) return false;
-    const Fat32Node* n = find_node(tree, path);
-    return n && !n->is_dir && n->data == data;
-}
-
-bool card_has(const fs::path& image, const std::string& path) {
-    Fat32Tree tree;
-    if (!read_tree(image, tree)) return false;
-    return find_node(tree, path) != nullptr;
-}
-
-// The LOGICAL content of the whole card — every name, its kind and its bytes,
-// in directory order — read by the independent fat32 reader. A copy that fails
-// part-way cannot leave the card BYTE-identical (FAT marks a deleted entry
-// 0xE5 and never shrinks a directory that grew), but it must leave this
-// identical: nothing it made may remain.
-void digest_nodes(const std::vector<Fat32Node>& nodes, uint64_t& h) {
-    auto mix = [&h](const void* p, std::size_t n) {
-        const uint8_t* b = static_cast<const uint8_t*>(p);
-        for (std::size_t i = 0; i < n; ++i) { h ^= b[i]; h *= 1099511628211ull; }
-    };
-    for (const Fat32Node& n : nodes) {
-        mix(n.is_dir ? "D" : "F", 1);
-        mix(n.name.data(), n.name.size());
-        const uint64_t sz = n.data.size();
-        mix(&sz, sizeof sz);
-        if (!n.data.empty()) mix(n.data.data(), n.data.size());
-        mix("{", 1);
-        digest_nodes(n.children, h);
-        mix("}", 1);
-    }
-}
-
-uint64_t tree_digest(const fs::path& image) {
-    Fat32Tree tree;
-    if (!read_tree(image, tree)) return 0;
-    uint64_t h = 1469598103934665603ull;
-    digest_nodes(tree.root, h);
-    return h;
-}
+namespace {
 
 // ---------------------------------------------------------------------------
 // Destination-path validation (SDFA-P??)
@@ -894,14 +514,6 @@ void test_writes() {
         check("SDFA-W49", "a relative path from the image's own directory names it",
               rel_ok);
 
-        const fs::path link = g_scratch / "card-link.img";
-        fs::remove(link, ec);
-        std::error_code link_ec;
-        fs::create_symlink(img, link, link_ec);
-        check("SDFA-W50", "a symlink to the image names the same image",
-              !link_ec && sdcard::same_image_file(img.string(), link.string()),
-              link_ec ? "cannot create a symlink here: " + link_ec.message() : "");
-        fs::remove(link, ec);
 
         // A HARD link is the case that needs filesystem identity rather than
         // path normalisation: there is no symlink to follow and no '.' to
@@ -1036,18 +648,6 @@ void test_defaults() {
     check("SDFA-D05", "a host name FAT cannot hold is refused, not renamed",
           !sdcard::default_dest_path("dir/caf\xC3\xA9.nex", dest, err) &&
           err.find("--sdcard-file-dest") != std::string::npos, err);
-    // Lexical: the name TYPED, not the link's target.
-    {
-        const fs::path target = g_scratch / "v3.nex";
-        const fs::path link   = g_scratch / "latest.nex";
-        write_host_file(target, payload(10, 1));
-        std::error_code ec;
-        fs::remove(link, ec);
-        fs::create_symlink(target, link, ec);
-        check("SDFA-D06", "a symlink lands under the link's name, not its target's",
-              !ec && sdcard::default_dest_path(link.string(), dest, err) &&
-              dest == "/latest.nex", ec ? ec.message() : dest + err);
-    }
 
     // ...and add_to_image() really uses it.
     const fs::path img = g_scratch / "defaults.img";
@@ -1090,25 +690,6 @@ void test_defaults() {
     st = sdcard::add_to_image(img.string(), file.string(), "/", false, err);
     check("SDFA-D11", "a file with dest '/' is refused, card untouched",
           st == FileAddStatus::DestInvalid && file_digest(img) == before, err);
-    // A FIFO given directly is refused before it is opened: opening one for
-    // reading blocks until a writer appears, which in a script is forever.
-    const fs::path fifo = g_scratch / "top.fifo";
-    std::error_code ec;
-    fs::remove(fifo, ec);
-    const bool made = ::mkfifo(fifo.c_str(), 0600) == 0;
-    st = made ? sdcard::add_to_image(img.string(), fifo.string(), "/F.BIN", false, err)
-              : FileAddStatus::Ok;
-    check("SDFA-D12", "a FIFO given as the source is refused without opening it",
-          made && st == FileAddStatus::SourceUnreadable &&
-          err.find("FIFO") != std::string::npos && file_digest(img) == before,
-          made ? err : "mkfifo failed");
-    fs::remove(fifo, ec);
-    // A device is refused the same way: /dev/null would otherwise be read as
-    // an empty file.
-    st = sdcard::add_to_image(img.string(), "/dev/null", "/NULL.BIN", false, err);
-    check("SDFA-D15", "a device given as the source is refused, card untouched",
-          st == FileAddStatus::SourceUnreadable &&
-          err.find("device") != std::string::npos && file_digest(img) == before, err);
     check("SDFA-D13", "the fixture tree and both FATs survived the default-dest copies",
           fixture_tree_intact(img) && fats_agree(img, why) && free_counts_agree(img), why);
 }
@@ -1309,65 +890,26 @@ void test_tree_refusals() {
         return d;
     };
 
-    // Symlinks are FOLLOWED: to a file, to a directory outside the tree.
+    // The link rows that used to copy into the card here live in
+    // sdcard_file_add_posix_test (GH #214); SDFA-T31 below still asserts that
+    // the card differs from `pristine`, so a plain successful copy comes first.
     {
-        const fs::path d = fresh("links");
-        const fs::path outside = g_scratch / "outside";
-        fs::create_directories(outside, ec);
-        write_host_file(outside / "far.bin", payload(77, 111));
-        write_host_file(g_scratch / "target.bin", payload(88, 112));
-        std::error_code e1, e2;
-        fs::create_symlink(g_scratch / "target.bin", d / "filelink.bin", e1);
-        fs::create_directory_symlink(outside, d / "dirlink", e2);
-        const FileAddStatus st =
-            sdcard::add_to_image(img.string(), d.string(), "/LINKS", false, err);
-        check("SDFA-T20", "a symlink to a file is followed: the card gets the bytes",
-              !e1 && st == FileAddStatus::Ok &&
-              card_file_is(img, "/LINKS/filelink.bin", payload(88, 112)), err);
-        check("SDFA-T21", "a symlink to a directory is followed: the card gets its tree",
-              !e2 && card_file_is(img, "/LINKS/dirlink/far.bin", payload(77, 111)), err);
-    }
-    // A link to a directory ALREADY copied — a sibling, not an ancestor — is
-    // not a loop: `cp -rL` copies it twice, and so does this. The loop check
-    // must forget a directory once its scan is finished.
-    {
-        const fs::path d = g_scratch / "dag";
+        const fs::path d = g_scratch / "plain";
         fs::remove_all(d, ec);
-        fs::create_directories(d / "a-shared", ec);
-        fs::create_directories(d / "b", ec);
-        write_host_file(d / "a-shared" / "s.bin", payload(44, 117));
-        std::error_code e1;
-        fs::create_directory_symlink(d / "a-shared", d / "b" / "again", e1);
-        const FileAddStatus st =
-            sdcard::add_to_image(img.string(), d.string(), "/DAG", false, err);
-        check("SDFA-T41", "a link to an already-copied sibling directory is copied, not refused",
-              !e1 && st == FileAddStatus::Ok &&
-              card_file_is(img, "/DAG/a-shared/s.bin", payload(44, 117)) &&
-              card_file_is(img, "/DAG/b/again/s.bin", payload(44, 117)), err);
-    }
-    // The SOURCE itself a link to a directory: copied as that directory's
-    // tree, under the LINK's name.
-    {
-        const fs::path real = g_scratch / "realdir";
-        const fs::path link = g_scratch / "linkdir";
-        fs::remove_all(real, ec);
-        fs::create_directories(real, ec);
-        write_host_file(real / "f.bin", payload(55, 118));
-        fs::remove(link, ec);
-        std::error_code e1;
-        fs::create_directory_symlink(real, link, e1);
-        sdcard::AddSummary sum;
-        const FileAddStatus st =
-            sdcard::add_to_image(img.string(), link.string(), "", false, err, &sum);
-        check("SDFA-T42", "a source that is a link to a directory is copied as a tree, by the link's name",
-              !e1 && st == FileAddStatus::Ok && sum.is_dir &&
-              card_file_is(img, "/linkdir/f.bin", payload(55, 118)) &&
-              !card_has(img, "/realdir"), err);
+        fs::create_directories(d / "sub", ec);
+        write_host_file(d / "sub" / "p.bin", payload(66, 119));
+        sdcard::add_to_image(img.string(), d.string(), "/PLAIN", false, err);
     }
     const uint64_t base = file_digest(img);
+    // Every refusal starts from this card, not from whatever the previous row
+    // left: one row that fails by WRITING must not fail every row after it.
+    const fs::path base_img = g_scratch / "refuse-base.img";
+    fs::copy_file(img, base_img, fs::copy_options::overwrite_existing, ec);
 
     auto refused = [&](const char* id, const char* desc, FileAddStatus want,
                        const fs::path& d, const char* must_say) {
+        std::error_code restore_ec;
+        fs::copy_file(base_img, img, fs::copy_options::overwrite_existing, restore_ec);
         const FileAddStatus st =
             sdcard::add_to_image(img.string(), d.string(), "/BAD", false, err);
         check(id, desc,
@@ -1375,39 +917,10 @@ void test_tree_refusals() {
               file_digest(img) == base && !card_has(img, "/BAD"), err);
     };
     {
-        const fs::path d = fresh("loop");
-        fs::create_directory_symlink(d, d / "sub" / "loop", ec);
-        refused("SDFA-T22", "a symlink back into its own ancestry is refused, card untouched",
-                FileAddStatus::SourceUnreadable, d, "never end");
-    }
-    {
-        const fs::path d = fresh("dangle");
-        fs::create_symlink(g_scratch / "no-such-target", d / "sub" / "gone.bin", ec);
-        refused("SDFA-T23", "a dangling symlink is refused, card untouched",
-                FileAddStatus::SourceUnreadable, d, "symbolic link to nothing");
-    }
-    {
-        const fs::path d = fresh("fifo");
-        const bool made = ::mkfifo((d / "sub" / "pipe").c_str(), 0600) == 0;
-        if (made)
-            refused("SDFA-T24", "a FIFO inside the tree is refused, card untouched",
-                    FileAddStatus::SourceUnreadable, d, "FIFO");
-        else
-            check("SDFA-T24", "a FIFO inside the tree is refused, card untouched",
-                  false, "mkfifo failed");
-    }
-    {
         const fs::path d = fresh("names");
-        write_host_file(d / "sub" / "caf\xC3\xA9.txt", payload(3, 113));
+        write_host_file(d / "sub" / fs::u8path("caf\xC3\xA9.txt"), payload(3, 113));
         refused("SDFA-T25", "a host name FAT cannot hold is refused, card untouched",
                 FileAddStatus::DestInvalid, d, "not printable ASCII");
-    }
-    {
-        const fs::path d = fresh("cases");
-        write_host_file(d / "sub" / "Game.nex", payload(3, 114));
-        write_host_file(d / "sub" / "GAME.NEX", payload(3, 115));
-        refused("SDFA-T26", "two names differing only in case are refused, card untouched",
-                FileAddStatus::DestInvalid, d, "would be the same name on the card");
     }
     {
         const fs::path d = fresh("huge");
@@ -1429,29 +942,6 @@ void test_tree_refusals() {
         fs::resize_file(d / "sub" / "big.bin", 64ull * 1024 * 1024, ec);
         refused("SDFA-T28", "a tree larger than the free space is refused, card untouched",
                 FileAddStatus::ImageFull, d, "KB free");
-    }
-    // Unreadable. Root reads through permission bits (CI runs in a container
-    // as root), so as root the two DAC capabilities are dropped from the
-    // effective set for these rows; see DacCapsDropped.
-    DacCapsDropped caps;
-    if (::geteuid() == 0 && !caps.drop()) {
-        skip("SDFA-T29", "an unreadable file in the tree is refused, card untouched",
-             "running as root and capset refused dropping CAP_DAC_OVERRIDE");
-        skip("SDFA-T30", "an unreadable directory in the tree is refused, card untouched",
-             "running as root and capset refused dropping CAP_DAC_OVERRIDE");
-    } else {
-        const fs::path d = fresh("unread");
-        write_host_file(d / "sub" / "secret.bin", payload(3, 116));
-        ::chmod((d / "sub" / "secret.bin").c_str(), 0);
-        refused("SDFA-T29", "an unreadable file in the tree is refused, card untouched",
-                FileAddStatus::SourceUnreadable, d, "cannot open source file");
-        ::chmod((d / "sub" / "secret.bin").c_str(), 0600);
-
-        const fs::path d2 = fresh("unlist");
-        ::chmod((d2 / "sub").c_str(), 0);
-        refused("SDFA-T30", "an unreadable directory in the tree is refused, card untouched",
-                FileAddStatus::SourceUnreadable, d2, "cannot list directory");
-        ::chmod((d2 / "sub").c_str(), 0700);
     }
     check("SDFA-T31", "no refusal touched the card: it is the image the links left",
           file_digest(img) != pristine && fixture_tree_intact(img) &&

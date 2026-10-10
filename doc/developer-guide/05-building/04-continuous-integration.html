@@ -2383,7 +2383,7 @@ shipped an older pandoc than the maintainer's failed <code>docs-check</code> on 
 from the day the man page landed. Matching the distribution removes the whole
 class of problem, instead of pinning tool by tool and waiting for the next one.</p>
 <h2 id="the-jobs-in-ciyml">The jobs in <code>ci.yml</code><a class="headerlink" href="#the-jobs-in-ciyml" title="Permanent link">&para;</a></h2>
-<p><strong><code>test</code></strong> is the main job: one definition, a matrix of three legs that run in
+<p><strong><code>test</code></strong> is the main job: one definition, a matrix of four legs that run in
 parallel on runners of their own (GH #295). Every leg installs the same
 dependency set and checks out the repository with submodules; then</p>
 <ul>
@@ -2393,6 +2393,10 @@ dependency set and checks out the repository with submodules; then</p>
   generator validates every VHDL citation against the real source tree and
   produces different bytes without it — and runs <code>make clean &amp;&amp; make
   gui-release</code>, <code>make unit-test</code> and <code>make unit-test-sdl</code>;</li>
+<li><strong><code>unit-win</code></strong> (GH #214) installs the MinGW cross toolchain and wine and runs
+  <code>make unit-test-win</code>: the SDL-only suites as Windows executables under wine. It
+  builds no PGO binary, so on an SD-image cache miss <code>make unit-test-win</code>
+  provisions the image itself (<code>make sdcard-image</code>);</li>
 <li><strong><code>regression</code></strong> runs <code>make clean &amp;&amp; make gui-release</code> and <code>make regression</code>.</li>
 </ul>
 <p>They used to be steps of one job, so the 28-minute build matrix and the
@@ -2423,7 +2427,11 @@ run (locally too — the old CI-only <code>$CI</code> split is gone), so a row t
 quietly stopped running cannot read as a pass. The Flatpak build is not a row of
 this job; the <code>flatpak</code> job below builds it, and only the tool-free
 <code>flatpak-manifest</code> contract runs here.</p>
-<p><strong><code>macos</code></strong> runs <code>make package-macos</code> on a real <code>macos-latest</code> runner, and
+<p><strong><code>macos</code></strong> runs <code>make package-macos</code> on a real <code>macos-latest</code> runner,
+<strong><code>macos-unit</code></strong> (GH #214) runs <code>make unit-test-sdl</code> on one, with Homebrew's
+<code>bash</code>, <code>coreutils</code> and <code>grep</code> installed because the unit harness needs them
+(macOS ships bash 3.2 and BSD tools), and uploads the suites' logs on failure,
+and
 <strong><code>flatpak</code></strong> calls <code>flatpak-build.yml</code>, which actually builds the bundle inside
 the KDE runtime container and then asserts its sandbox permissions. Both exist
 because a platform whose failures are invisible until release time fails too
