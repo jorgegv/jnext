@@ -558,6 +558,7 @@ network or a NextPi image.
 | PI-52 | `PiQemu::mixer_audiodev_arg("/t,mp/uart")` | exactly `wav,id=snd0,path=/t,,mp/uart.audio,out.frequency=44100,out.channels=2,out.format=s16`: the comma escaped for QEMU's option syntax. jnext-only, no VHDL counterpart |
 | PI-54 | `PiQemu::build_args` with `Spec::audio = "host"`, and with it empty | `host`: `-audiodev` is the platform's default output (`pa,id=snd0`; on macOS `coreaudio,id=snd0,...`); empty: the mixer's wav FIFO. jnext-only, no VHDL counterpart |
 | PI-53 | `PiQemu` with `Spec::audio = "none"` | the stand-in's args carry `none,id=snd0` and no `wav,id=snd0,path=`; `audio()` is null; no `uart.audio` FIFO in the runtime directory. jnext-only, no VHDL counterpart |
+| PI-55 | `PiQemu` (default audio), a tone left ±16384 / right ±8192; Emulator with `pi_audio`, one live frame at NR 0xA2 = 0xC0; then reads in replay mode, during RZX playback and during RZX recording; then a snapshot save and load | live: NR 0x2C ∈ {0xC0, 0x40}, NR 0x2E ∈ {0xA0, 0x60}; replay / RZX playback / RZX recording: 0x2C = 0x80, 0x2D = 0x00, 0x2E = 0x80 (the rest value 0x200); after the load the latch is 0x200 in both channels (`zxnext.vhd:6006-6015`) |
 
 ## Special Handling
 

@@ -320,7 +320,14 @@ under QEMU is one, so:
   prebuffers fresh audio, rather than replaying a moment from inside the pause.
 - **Replay.** RZX playback does not consume the stream (the Pi's output belongs
   to the live session) and holds the input silent; a rewind's replay never
-  advances audio at all.
+  advances audio at all. What the GUEST can read of the sample, NR 0x2C/0x2E
+  (`zxnext.vhd:6006-6015`), is gated the same way: during a rewind replay, an
+  RZX playback or an RZX recording it reads the rest value 0x200, because none
+  of them can reproduce a host-timed sample (`Emulator::guest_pi_audio`). A
+  restored snapshot puts the latch back at 0x200 when a Pi is attached. A live
+  run still reads the live sample, so a guest that polls it diverges from its
+  own rewind: the same limit the UART link has, and unavoidable for input from
+  outside the machine.
 - **The rest value.** `I2s` resets to 0x200, offset-binary silence, on every
   machine with or without a Pi: the receiver resets its words to 0
   (`i2s_receive.vhd:129-130`) and `i2s.vhd:177-180` inverts the sign bit.
@@ -405,6 +412,7 @@ NextPi image is needed.
 | PI-52 | the mixer's `-audiodev` value escapes a comma in the FIFO path |
 | PI-53 | a QEMU driver setting (`none`) is passed to QEMU, and jnext makes no audio reader or FIFO |
 | PI-54 | `host` gives QEMU the platform's default output; empty still means the mixer |
+| PI-55 | NR 0x2C/0x2E read the live sample in a live run, and 0x200 in a rewind replay, an RZX playback and an RZX recording; a restored snapshot puts the latch at rest |
 
 `test/audio/audio_test.cpp` adds **MX-41** (the stream retired MX-30 asked for; MX-30 itself stays retired, its ID not reused) and MX-31..40 for `PiAudio`
 against a real FIFO: the stream frame for frame (header and frames split across
@@ -490,7 +498,9 @@ EAGAIN as the writer's end fails MX-38; no close-on-exec, a leaked descriptor
 on re-open or close, or a stale one after `close()`, fails MX-39; giving up on a
 `poll()` error (a signal's EINTR) fails MX-40; not escaping the FIFO path for
 QEMU fails PI-52; ignoring a driver setting, or making the reader for one, fails
-PI-53; not mapping `host` to the platform default fails PI-06 and PI-54.
+PI-53; not mapping `host` to the platform default fails PI-06 and PI-54; reading the
+live sample during a replay, an RZX playback or an RZX recording, or keeping a
+restored latch, fails PI-55.
 
 ## 5. Not done
 

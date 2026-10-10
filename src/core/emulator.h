@@ -1833,6 +1833,14 @@ private:
     /// each mixer output-sample boundary while a PiAudio is attached.
     void feed_pi_audio();
 
+    /// The Pi's gated 10-bit sample as the GUEST reads it (NR 0x2C/0x2E):
+    /// `I2s::pi_audio_L/R`, except while a run must be reproducible — a rewind
+    /// replay, or an RZX playback or recording — when it is the rest value
+    /// 0x200. The live sample is host-timed (it follows QEMU's clock), so
+    /// letting a replay or a recording see it would make the run diverge from
+    /// the one it reproduces; the same gate as the UART link's.
+    uint16_t guest_pi_audio(bool left) const;
+
     /// GH #25 — once-per-`run_frame()` ESP service, and the ONLY place jnext
     /// drives the device outside the per-instruction `tick()`.
     ///

@@ -22,6 +22,7 @@
 #include "core/pi_qemu.h"
 #include "core/nextpi_provisioner.h"
 #include "core/rzx.h"
+#include "core/saveable.h"
 #include "debug/debug_state.h"
 #include "debug/rewind_buffer.h"
 #include "peripheral/joy_uart_link.h"
@@ -4960,6 +4961,84 @@ static void test_nextpi_audio() {
               fmt("started=%d (%s) reader=%s args recorded=%d driver=%d fifo=%s",
                   started ? 1 : 0, error.c_str(), no_reader ? "none" : "MADE", recorded ? 1 : 0,
                   driver ? 1 : 0, no_fifo ? "none" : "MADE"));
+    }
+
+    // ── PI-55 — the guest's view of the Pi's sample (NR 0x2C/0x2D/0x2E,
+    // zxnext.vhd:6006-6015) is live in a live run and the rest value 0x200
+    // whenever the run must be reproducible: a rewind replay, an RZX playback
+    // or an RZX recording, none of which can reproduce a host-timed sample. A
+    // restored snapshot also puts the latch back at rest. The tone is left
+    // ±16384 (10-bit 768/256, NR byte 0xC0/0x40) and right ±8192 (640/384,
+    // 0xA0/0x60); the rest value reads 0x80, and NR 0x2D's low bits 0.
+    {
+        namespace fs = std::filesystem;
+        FakeNextPi fake("audio-nr2c");
+        write_tone(fake.bin("tone.wav"), 8000, 16384, 50, 8192);
+        PiQemu::Spec spec;
+        spec.dir         = fake.dir();
+        spec.qemu_binary = fake.bin("qemu-system-arm");
+        PiQemu qemu;
+        std::string error;
+        const bool started = fake.ok() && qemu.start(spec, error) && qemu.audio() != nullptr;
+        for (int i = 0; i < 500 && started && qemu.audio()->available() < 8000; ++i)   // as PI-48
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        struct Read { uint8_t l = 0, d = 0xFF, r = 0; };
+        Read live, replay, rzx_play, rzx_rec;
+        bool rest_after_load = false;
+        const std::string rzx_path =
+            (fs::temp_directory_path() / ("jnext-pi55-" + std::to_string(::getpid()) + ".rzx")).string();
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            Emulator emu;
+            emu.init(cfg);
+            auto read = [&] {
+                Read v;
+                v.l = emu.nextreg().read(0x2C);
+                v.d = emu.nextreg().read(0x2D);
+                v.r = emu.nextreg().read(0x2E);
+                return v;
+            };
+            mixer_swing(emu, 0xC0, 1);          // live: a Pi frame is latched
+            live = read();
+            emu.set_replay_mode(true);
+            replay = read();
+            emu.set_replay_mode(false);
+            RzxRecording rec;
+            rec.frames.resize(4);
+            emu.rzx_player().start(std::move(rec));
+            rzx_play = read();
+            emu.rzx_player().stop();
+            // The recorder itself: Emulator::start_rzx_recording() refuses on
+            // a Next (GH #274), and the gate reads only is_recording().
+            if (emu.rzx_recorder().start(rzx_path)) {
+                rzx_rec = read();
+                emu.rzx_recorder().stop();
+            }
+            StateWriter measure;
+            emu.save_state(measure);
+            std::vector<uint8_t> snap(measure.position());
+            StateWriter w(snap.data(), snap.size());
+            emu.save_state(w);
+            StateReader r(snap.data(), snap.size());
+            emu.load_state(r);
+            rest_after_load = emu.i2s().left() == 0x200 && emu.i2s().right() == 0x200;
+        }
+        std::error_code ec;
+        fs::remove(rzx_path, ec);
+        auto is_rest = [](const Read& v) { return v.l == 0x80 && v.d == 0x00 && v.r == 0x80; };
+        const bool live_ok = (live.l == 0xC0 || live.l == 0x40) && (live.r == 0xA0 || live.r == 0x60);
+        check("PI-55",
+              "the guest reads the Pi's live sample on NR 0x2C/0x2E in a live run, and the rest "
+              "value 0x200 (0x80, NR 0x2D 0) in a rewind replay, an RZX playback and an RZX "
+              "recording; a restored snapshot puts the latch at rest (zxnext.vhd:6006-6015)",
+              started && live_ok && is_rest(replay) && is_rest(rzx_play) && is_rest(rzx_rec) &&
+                  rest_after_load,
+              fmt("started=%d (%s) live 2C=%02X 2E=%02X; replay %02X/%02X/%02X; rzx play "
+                  "%02X/%02X/%02X; rzx rec %02X/%02X/%02X (want 80/00/80); rest after load=%d",
+                  started ? 1 : 0, error.c_str(), live.l, live.r, replay.l, replay.d, replay.r,
+                  rzx_play.l, rzx_play.d, rzx_play.r, rzx_rec.l, rzx_rec.d, rzx_rec.r,
+                  rest_after_load ? 1 : 0));
     }
 }
 

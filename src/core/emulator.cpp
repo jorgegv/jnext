@@ -5932,22 +5932,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // zxnext.vhd:2358. When NR 0xA2 disables I2S, pi_audio_L = 0x200
             // (silence midpoint), so the high-8 bits = 0x80 and the latched
             // low-2 bits = 0b00.
-            const uint16_t L = i2s_.pi_audio_L() & 0x3FF;
+            const uint16_t L = guest_pi_audio(true) & 0x3FF;
             nr_2d_i2s_sample_ = static_cast<uint8_t>((L & 0x03) << 6);  // bits [1:0] → byte [7:6]
             return static_cast<uint8_t>((L >> 2) & 0xFF);               // bits [9:2] → byte [7:0]
         },
         [this]() -> uint8_t {   // peek: same byte, no latch
-            return static_cast<uint8_t>(((i2s_.pi_audio_L() & 0x3FF) >> 2) & 0xFF);
+            return static_cast<uint8_t>(((guest_pi_audio(true) & 0x3FF) >> 2) & 0xFF);
         });
     nextreg_.set_destructive_read_handler(0x2E,
         [this]() -> uint8_t {
             // G113: read the GATED pi_audio_R per VHDL zxnext.vhd:6014.
-            const uint16_t R = i2s_.pi_audio_R() & 0x3FF;
+            const uint16_t R = guest_pi_audio(false) & 0x3FF;
             nr_2d_i2s_sample_ = static_cast<uint8_t>((R & 0x03) << 6);
             return static_cast<uint8_t>((R >> 2) & 0xFF);
         },
         [this]() -> uint8_t {   // peek: same byte, no latch
-            return static_cast<uint8_t>(((i2s_.pi_audio_R() & 0x3FF) >> 2) & 0xFF);
+            return static_cast<uint8_t>(((guest_pi_audio(false) & 0x3FF) >> 2) & 0xFF);
         });
     nextreg_.set_read_handler(0x2D, [this]() -> uint8_t {
         return nr_2d_i2s_sample_;  // already in [7:6] form, low 6 bits = 0
@@ -9459,13 +9459,21 @@ void Emulator::setup_pi_uart()
 static_assert(PiAudio::kRate == Mixer::SAMPLE_RATE,
               "the Pi's audio must arrive at the mixer's sample rate");
 
+uint16_t Emulator::guest_pi_audio(bool left) const
+{
+    if (replay_mode_ || rzx_player_.is_playing() || rzx_recorder_.is_recording())
+        return 0x200;
+    return left ? i2s_.pi_audio_L() : i2s_.pi_audio_R();
+}
+
 void Emulator::feed_pi_audio()
 {
     // Silence (the offset-binary midpoint, i2s.vhd:177-180) unless a frame is
     // ready. During RZX playback the stream is NOT consumed: like the UART
     // link, the Pi's output belongs to the live session, not to a recording.
-    // (A rewind's replay never gets here: run_frame does not advance audio
-    // while replay_mode_ holds.)
+    // A rewind's replay does not get here (run_frame does not advance audio
+    // while replay_mode_ holds); what the guest can READ of the sample is
+    // gated separately, in guest_pi_audio().
     uint16_t left  = 0x200;
     uint16_t right = 0x200;
     if (!rzx_player_.is_playing()) {
@@ -13377,6 +13385,10 @@ bool Emulator::load_state(StateReader& r)
     // END matching save_state().
     i2s_.load_state(r);
     if (!check_sentinel("i2s")) return false;
+    // With a Pi attached the saved latch is a host-timed sample, so a restore
+    // puts the input back at rest (0x200) rather than replaying that moment;
+    // the next live sample replaces it (guest_pi_audio() gates the reads).
+    if (config_.pi_audio) i2s_.set_sample(0x200, 0x200);
 
     // NMI pipeline Phase 1 scaffold — matches the append order in
     // save_state().
