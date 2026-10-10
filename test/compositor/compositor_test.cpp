@@ -1598,10 +1598,10 @@ static void test_BL() {
     {
         clear_layers(r);
         r.set_layer_priority(6);
-        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(rgb8(5,6,3));  // B only 2 bits
+        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(rgb8(5,6,3));  // blue 0xFF = 7: endpoint, same in 2 and 3 bits
         r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(rgb8(5,6,3));
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(7,7,3));  // B clamp at 3 (2-bit)
+        uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(7,7,3));  // B: 7+7 clamps to 7 (0xFF)
         check("BL-11", "mode 110 add clamp to 7 (VHDL zxnext.vhd:7288-7298)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
