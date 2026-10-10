@@ -71,7 +71,6 @@
 #include <QToolBar>
 
 #include <algorithm>
-#include <unistd.h>
 #include <cstdarg>
 #include <cstdio>
 #include <string>
@@ -566,19 +565,18 @@ static void test_one_file(const QString& dir)
               get(conf).toStdString());
     }
 
-    // DCF-07 — jnext.conf cannot be written: Debugger.conf must survive.
+    // DCF-07 — jnext.conf cannot be written (a directory sits where the file
+    // should be, which fails for root too): Debugger.conf must survive. The
+    // directory itself stays writable, so the removal of Debugger.conf WOULD
+    // succeed if migrate_legacy_config() wrongly went ahead.
     {
         wipe_dir(dir);
+        QDir().mkpath(conf);
         put(legacy, QByteArray(kLegacyHead) + kLegacySize);
-        if (geteuid() == 0) {
-            check("DCF-07", "unwritable config dir keeps Debugger.conf (FIXTURE: running as root, cannot make a dir unwritable)", false);
-        } else {
-            QFile::setPermissions(dir, QFileDevice::ReadOwner | QFileDevice::ExeOwner);
-            const bool r = DebuggerWindow::migrate_legacy_config();
-            QFile::setPermissions(dir, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
-            check("DCF-07", "when jnext.conf cannot be written, Debugger.conf is kept",
-                  !r && QFileInfo::exists(legacy) && !QFileInfo::exists(conf));
-        }
+        const bool r = DebuggerWindow::migrate_legacy_config();
+        check("DCF-07", "when jnext.conf cannot be written, Debugger.conf is kept",
+              !r && QFileInfo::exists(legacy));
+        QDir().rmdir(conf);
         wipe_dir(dir);
     }
 }
