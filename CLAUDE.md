@@ -421,7 +421,7 @@ in `ENABLE_QT_UI=ON / ENABLE_DEBUGGER=OFF` and nothing noticed.
 | target | platform | build dir | suites | where |
 |--------|----------|-----------|--------|-------|
 | `make unit-test-sdl` | Linux (native)                  | `build/sdl-unit-test`     | 108 | local gate, CI `test (unit)` |
-| `make unit-test-sdl` | macOS (native)                  | `build/sdl-unit-test`     | 108 | CI `macos-unit` (Homebrew `bash coreutils grep` required) |
+| `make unit-test-sdl` | macOS (native)                  | `build/sdl-unit-test`     | 107 | CI `macos-unit` (Homebrew `bash coreutils grep` required); one fewer than Linux because `sdcard_file_add_linux_test` is `# os: linux` (SDFA-T26 needs a case-sensitive filesystem; APFS is not) |
 | `make unit-test-win` | Windows, MinGW cross under wine | `build/win-sdl-unit-test` | 103 | local gate, CI `test (unit-win)` |
 
 Both new CI jobs are BLOCKING. The `# os: all | posix | linux` directive in
