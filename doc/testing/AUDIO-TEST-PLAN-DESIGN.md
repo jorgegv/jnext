@@ -48,9 +48,10 @@ closed end-to-end (Phases 0→4) on 2026-04-24. Summary:
   `// G:` / `WONT` comments and were publishing as `missing` in the
   traceability matrix, and retired four that cannot honestly become a
   `check()` (AY-41, SD-09, MX-30, IO-04 — each struck in place with its
-  rationale). MX-30 has since been revived, with MX-31..40, by the NextPi
-  sound path (`audio/pi_audio.*`): NextPi under QEMU is the producer it
-  lacked. Writing AY-43 found and fixed a real emulator defect: the
+  rationale). The producer MX-30 lacked now exists — NextPi under QEMU,
+  through `audio/pi_audio.*` — and its stream is MX-41, with MX-31..40;
+  MX-30 stays retired and its ID is not reused (owner, PR #315).
+  Writing AY-43 found and fixed a real emulator defect: the
   `ena_div_noise` phase in `src/audio/ay_chip.cpp` read the TOGGLED
   `noise_div` where `ym2149.vhd:270-272` reads the value held on entry
   to the process, so the noise clock ran on the 1st, 3rd, 5th `ena_div`
@@ -461,7 +462,7 @@ VHDL ref: `audio_mixer.vhd` lines 63-90
 | MX-05  | DAC input: 9-bit left-shifted by 2 + zero-padded  | `dac_L = "00" & dac_L_i & "00"` (range 0-2040)            |
 | MX-06  | I2S input: zero-extended 10-bit to 13-bit         | `i2s_L = "000" & pi_i2s_L_i` (range 0-1023)               |
 | MX-07  | I2S input is OFFSET BINARY: silence = 0x200, 0 = full-negative | `i2s.vhd:179` `o_audio_pi_L <= (not audio_pi_L(12)) & audio_pi_L(11 downto 3)` inverts the sign bit; `zxnext.vhd:2358-2359` substitutes the same 0x200 when disabled/muted/EAR |
-| MX-30  | Pi I2S source delivers a continuous 10-bit stream | **Revived** with NextPi (`--nextpi`): `PiAudio` reads QEMU's WAV stream from a FIFO frame for frame (header and frames split across writes are reassembled); `PiAudio::to_i2s` maps -32768/0/32767 to 0/0x200/1023 (`i2s.vhd:177-180`: the 13-bit sample's sign bit inverted, its top 10 bits kept); with NR 0xA2 = 0xC0 a frame of +16384/-16384 mixes to +1024/-1024. All 3000 frames are counted received (`frames_received()`), none dropped. Was retired 2026-09-24 (GH #201) because no Pi existed to produce samples. |
+| ~~MX-30~~ | ~~Pi I2S source delivers a continuous 10-bit sample stream~~ | **RETIRED 2026-09-24 (GH #201)**, was the G29 WONT. The row asks for a Pi I2S SOURCE. jnext models no such source and by scope decision never will: [EMULATOR-DESIGN-PLAN.md](../design/EMULATOR-DESIGN-PLAN.md) §3.1 lists `audio/i2s*.vhd` with scope **no** ("I2S; SDL audio queue used instead") and its Phase 5 records Pi GPIO NR 0x90-0xA9 as "intentionally stubbed"; `src/audio/i2s.h:10-13` states the class is "a pure latched sample-pair register — no real I2S wire / clocking / protocol emulation"; and nothing in `src/` ever calls `I2s::set_sample()`. There is no emulated Raspberry Pi to be the producer — an absent SUBSYSTEM, not an untested behaviour. What jnext does model stays covered by MX-06 (zero-extension into the 13-bit sum) and MX-07 (offset-binary midpoint, GH #116). No `check()` row exists. |
 | MX-31  | Pi I2S source: prebuffer and underrun | Nothing plays with 2204 frames in, and 2205 (50 ms) all play; running dry returns silence, counts one underrun, and prebuffers again. Literal numbers, so a changed `kPrebuffer` fails. jnext-only, no VHDL counterpart |
 | MX-32  | Pi I2S source: latency trim | A backlog of 20000 frames is cut to 4410 (100 ms) by dropping the OLDEST; the next frame is number 20000-4410. Literal numbers, so a changed `kTarget` fails. jnext-only, no VHDL counterpart |
 | MX-33  | Pi I2S source: ring full | With nothing popping, 131072 + 1000 frames written: exactly 131072 kept and received, 1000 dropped and counted. Literal numbers, so a changed `kCapacity` fails. jnext-only buffering, no VHDL counterpart |
@@ -472,6 +473,7 @@ VHDL ref: `audio_mixer.vhd` lines 63-90
 | MX-38  | Pi I2S source: a live writer's pause | A writer sends a header and one frame and a half, pauses 250 ms (the reader polls out and reads EAGAIN), then the rest: all `kPrebuffer` + 1 frames arrive exact. Treating EAGAIN as the writer's end would take 44 bytes after the pause for a header. (EINTR from the non-blocking FIFO `read()` cannot be provoked; the `poll()` EINTR is MX-40.) jnext-only, no VHDL counterpart |
 | MX-39  | Pi I2S source: descriptor hygiene | Found by inode: one descriptor on the FIFO after `open`, with `FD_CLOEXEC`; still one after a second `open`; none after `close()`; a second `close()` leaves a descriptor that reused the number open. jnext-only, no VHDL counterpart |
 | MX-40  | Pi I2S source: a signal during poll | A SIGUSR1 handler without SA_RESTART, the signal blocked in the test thread, five `kill()`s land on the reader's `poll()` (EINTR); a stream written afterwards still arrives (10 frames). jnext-only, no VHDL counterpart |
+| MX-41  | Pi I2S source delivers a continuous 10-bit stream | What MX-30 asked for, now that NextPi (`--nextpi`) is a producer; MX-30 itself stays retired and its ID is not reused (owner, PR #315): `PiAudio` reads QEMU's WAV stream from a FIFO frame for frame (header and frames split across writes are reassembled); `PiAudio::to_i2s` maps -32768/0/32767 to 0/0x200/1023 (`i2s.vhd:177-180`: the 13-bit sample's sign bit inverted, its top 10 bits kept); with NR 0xA2 = 0xC0 a frame of +16384/-16384 mixes to +1024/-1024. All 3000 frames are counted received (`frames_received()`), none dropped. |
 
 ### 5.2 Final Mix
 

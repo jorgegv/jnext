@@ -396,7 +396,7 @@ NextPi image is needed.
 | PI-52 | the mixer's `-audiodev` value escapes a comma in the FIFO path |
 | PI-53 | a QEMU driver setting (`none`) is passed to QEMU, and jnext makes no audio reader or FIFO |
 
-`test/audio/audio_test.cpp` revives **MX-30** and adds MX-31..40 for `PiAudio`
+`test/audio/audio_test.cpp` adds **MX-41** (the stream retired MX-30 asked for; MX-30 itself stays retired, its ID not reused) and MX-31..40 for `PiAudio`
 against a real FIFO: the stream frame for frame (header and frames split across
 writes), the 10-bit mapping, a frame's level in the mix and the received count;
 prebuffer and underrun (2205 frames, 50 ms); the latency trim (to 4410 frames,
@@ -456,8 +456,8 @@ boot click; swapping the channels, feeding one from the other, or a one-step err
 either channel's 10-bit value fails PI-48; a
 wrong rest value in either channel fails PI-49; keeping the reader in the
 warm-start config fails PI-50; ignoring the audio FIFO's open error fails PI-51.
-In `PiAudio`: not skipping the WAV header fails MX-30..34, MX-36 and PI-49, and
-skipping one byte too few fails MX-30/32/34/36 and PI-48 (MX-31 never looks at
+In `PiAudio`: not skipping the WAV header fails MX-31..34, MX-36, MX-41 and PI-49,
+and skipping one byte too few fails MX-32/34/36/41 and PI-48 (MX-31 never looks at
 sample values); prebuffering at `<=` fails MX-31; no trim fails MX-32; changing
 the prebuffer by one frame fails MX-31, the target MX-32/36, and the maximum
 latency MX-36, and trimming at `>=` fails MX-36; an off-by-one in the ring-full

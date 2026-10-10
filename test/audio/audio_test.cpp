@@ -3074,9 +3074,11 @@ static void g_mixer() {
                   "audio_mixer.vhd:89-90", s[0], s[1]));
     }
 
-    // MX-30..32 — THE PI I2S SOURCE (revived; was retired as G29 / GH #201
-    // because jnext had no Raspberry Pi to produce samples). NextPi under QEMU
-    // is one now: its sound arrives as a WAV stream on a FIFO, PiAudio reads it,
+    // MX-41 and MX-31..40 — THE PI I2S SOURCE. MX-30 (retired below, as G29 /
+    // GH #201, because jnext had no Raspberry Pi to produce samples) keeps its
+    // retirement: its ID is not reused (owner, PR #315). NextPi under QEMU is
+    // that producer now, and MX-41 is the stream MX-30 asked for: its sound
+    // arrives as a WAV stream on a FIFO, PiAudio reads it,
     // and the emulator latches one frame per mixer sample into I2s
     // (uart_integration_test PI-48/49 cover that path end to end). These rows
     // pin PiAudio itself against a real FIFO.
@@ -3105,7 +3107,7 @@ static void g_mixer() {
             return a.available();
         };
 
-        // MX-30 — a continuous stream, header and frames split across writes,
+        // MX-41 — a continuous stream, header and frames split across writes,
         // arrives frame for frame; to_i2s maps signed 16-bit to the 10-bit
         // offset binary of i2s.vhd:177-180; a Pi frame in I2s reaches the mix.
         {
@@ -3137,7 +3139,7 @@ static void g_mixer() {
             mx.generate_sample(bp, ts, dac);
             int16_t s[2];
             mx.read_samples(s, 1);
-            check("MX-30", "the Pi I2S source delivers a continuous stream: PiAudio reads QEMU's WAV "
+            check("MX-41", "the Pi I2S source delivers a continuous stream: PiAudio reads QEMU's WAV "
                   "stream from a FIFO frame for frame (header and frames split across writes), "
                   "to_i2s maps it to 10-bit offset binary, and a Pi frame reaches the mix; "
                   "all 3000 frames are counted received and none dropped (i2s.vhd:177-180)",
@@ -3526,6 +3528,26 @@ static void g_mixer() {
         fs::remove_all(dir, ec);
     }
 #endif
+
+    // MX-30 — RETIRED 2026-09-24 (GH #201), was the G29 WONT.
+    //
+    // The row asks for a Pi I2S SOURCE delivering a continuous 10-bit
+    // stream. jnext models no such source and, by project scope decision,
+    // never will:
+    //   * doc/design/EMULATOR-DESIGN-PLAN.md §3.1 lists `audio/i2s*.vhd`
+    //     with scope "no" — "I2S; SDL audio queue used instead".
+    //   * the same plan's Phase 5 records Pi GPIO (NR 0x90-0xA9) as
+    //     "intentionally stubbed (cached only); no emulation effect".
+    //   * src/audio/i2s.h:10-13 states the class is "a pure latched
+    //     sample-pair register — no real I2S wire / clocking / protocol
+    //     emulation", and nothing in src/ ever calls I2s::set_sample().
+    // There is no Raspberry Pi in the emulated machine to be the producer,
+    // so this is an absent SUBSYSTEM, not an untested behaviour.
+    //
+    // What jnext does model — the mixer's consumption of the 10-bit input
+    // and its NR 0xA2 gating — stays covered by MX-06 (zero-extension into
+    // the 13-bit sum) and MX-07 (the offset-binary midpoint, GH #116).
+    // Struck in AUDIO-TEST-PLAN-DESIGN.md §5.1; no check() row exists.
 
     // MX-10 - silence: pcm_L = 0.
     {
