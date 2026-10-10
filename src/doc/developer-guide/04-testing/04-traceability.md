@@ -33,7 +33,11 @@ refreshing the matrix was a manual step of the version bump.
 - **VHDL file:line** is recovered from **row-local** evidence, tried in tiers:
   the row's own call, then a comment block naming the ID, then the first call
   after a table-driven ID literal, then the plan doc's row. Every citation that
-  results is validated against the real FPGA source tree.
+  results is validated against the real FPGA source tree. A cell in
+  parentheses, such as `(jnext-internal)`, is a declared tombstone: there is no
+  VHDL to cite. A whole suite gets one from `%TOMBSTONE` in the generator; a
+  single row gets one by carrying `[no-vhdl: <reason>]` in its own
+  `check()`/`skip()` call, conventionally in the description string.
 - **`missing` rows** are planned-but-unimplemented rows, read from the
   subsystem's `*-TEST-PLAN-DESIGN.md`. They are an honest backlog, and the only
   remaining hand-made claim in the document.
@@ -119,6 +123,14 @@ rewritten but still under-recording, `2` is a refusal with nothing written, and
   each new suite arrived as one more name on a warning line that already listed
   fifty. `make traceability-accounting-check` runs just this half, in about
   0.01 s.
+- **It refuses a contradictory or malformed `[no-vhdl]` marker** (exit `2`): one
+  beside a `.vhd` citation or a filename-less `VHDL 1611` reference in the same
+  call, on a row whose plan doc cites VHDL, with an empty or missing reason, with
+  a reason that names a `.vhd`, or twice in one call. The message names
+  `file:line`. A marker is read from the row's own call (or a shared loop call
+  for table rows), never from a comment block, and a neighbour's uncited call
+  does not inherit it. The generator cannot judge whether a row *should* have
+  VHDL; that call belongs to the author and the reviewer.
 - **It refuses to invent a row.** A row that the tests assert but the matrix
   does not record is *reported*, never auto-added. The payload of a matrix row
   is its human-readable description, and the script has no honest source for

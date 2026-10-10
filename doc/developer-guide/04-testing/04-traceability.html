@@ -2367,7 +2367,11 @@ refreshing the matrix was a manual step of the version bump.</p>
 <li><strong>VHDL file:line</strong> is recovered from <strong>row-local</strong> evidence, tried in tiers:
   the row's own call, then a comment block naming the ID, then the first call
   after a table-driven ID literal, then the plan doc's row. Every citation that
-  results is validated against the real FPGA source tree.</li>
+  results is validated against the real FPGA source tree. A cell in
+  parentheses, such as <code>(jnext-internal)</code>, is a declared tombstone: there is no
+  VHDL to cite. A whole suite gets one from <code>%TOMBSTONE</code> in the generator; a
+  single row gets one by carrying <code>[no-vhdl: &lt;reason&gt;]</code> in its own
+  <code>check()</code>/<code>skip()</code> call, conventionally in the description string.</li>
 <li><strong><code>missing</code> rows</strong> are planned-but-unimplemented rows, read from the
   subsystem's <code>*-TEST-PLAN-DESIGN.md</code>. They are an honest backlog, and the only
   remaining hand-made claim in the document.</li>
@@ -2441,6 +2445,14 @@ rewritten but still under-recording, <code>2</code> is a refusal with nothing wr
   each new suite arrived as one more name on a warning line that already listed
   fifty. <code>make traceability-accounting-check</code> runs just this half, in about
   0.01 s.</li>
+<li><strong>It refuses a contradictory or malformed <code>[no-vhdl]</code> marker</strong> (exit <code>2</code>): one
+  beside a <code>.vhd</code> citation or a filename-less <code>VHDL 1611</code> reference in the same
+  call, on a row whose plan doc cites VHDL, with an empty or missing reason, with
+  a reason that names a <code>.vhd</code>, or twice in one call. The message names
+  <code>file:line</code>. A marker is read from the row's own call (or a shared loop call
+  for table rows), never from a comment block, and a neighbour's uncited call
+  does not inherit it. The generator cannot judge whether a row <em>should</em> have
+  VHDL; that call belongs to the author and the reviewer.</li>
 <li><strong>It refuses to invent a row.</strong> A row that the tests assert but the matrix
   does not record is <em>reported</em>, never auto-added. The payload of a matrix row
   is its human-readable description, and the script has no honest source for
