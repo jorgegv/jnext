@@ -1,16 +1,25 @@
 # ChangeLog
 
-## Unreleased (2026-10-08)
+## v1.1.23 (2026-10-10)
 
 ### User Features
-- NextPi under QEMU (`--nextpi`, downloaded on first use): NextZXOS's Pi tools (`.pisend`, speech, music, tape streaming) work unmodified
+- Pause/resume button in the emulator window (toolbar, Machine menu, Alt+U) with a Paused status indicator
+- Input menu and Preferences pick which controller drives each joystick port, remembered per device across replug and restart
+- NextPi under QEMU (`--nextpi`, Linux/macOS, downloaded on first use): NextZXOS's Pi tools (`.pisend`, speech, music, tape streaming) work unmodified
 
 ### Bug Fixes
+- NextZXOS menus no longer look striped or half-drawn: ULA screen writes land on the correct scanline at any speed
+- ULA, LoRes and text-mode tilemap pixels honour the NR 0x14 transparent colour for every blue shade (PLOTIT-lite drew all blue)
+- The NR 0x4A fallback colour and the blend/stencil blue channel now use the hardware's 9-bit colour width
 - The joystick-port serial cable's pseudo-terminal (`--joy-uart-pty`) now works on macOS, where it refused to start
+- On macOS the pointer-release hint now names Alt+Cmd, the chord that actually releases the mouse
+- Unplugging a joystick while holding a button no longer leaves that button held
+- One configuration file: debugger layout moves into jnext.conf; lowercase sections, readable values; old files migrated automatically
 
 ### Internal JNEXT Development
 - Test harnesses fail on any SKIP; CI provisions z88dk-gdb and runs every test row
 - Pull-request protocol: one feature or bugfix per PR, delivered in small, separately reviewable commits
+- Startup no longer keeps the 1.1 MB emulator on the stack; Windows drops its 16 MB stack reserve
 
 ### Contributors in this release
 - @vmorilla, @janko-jj, @jattree, @MickeyG, @Tofro

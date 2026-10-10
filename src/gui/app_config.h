@@ -46,6 +46,14 @@ struct AppConfigData {
     // "sdl"/"keys" strings via joy_source_str()/parse_joy_source().
     JoySource   joy_source[2]          = { JoySource::Sdl, JoySource::Sdl };
 
+    // GH #311 — the physical controller assigned to each connector, by stable
+    // id ("<sdl guid>" or "<sdl guid>#N", see input/joy_source.h). Empty =
+    // Automatic (first free controller). The name is only what the menu shows
+    // for a controller that is not plugged in; it is never used for matching.
+    // Edited from the Input menu and Preferences > Input.
+    QString     joy_device[2];
+    QString     joy_device_name[2];
+
     // GH #25 — the emulated ESP-01 WiFi module. Defaults match the CLI's
     // (off, no host restriction), so a machine with no config file is not on
     // the network. A user who runs NXtel every day should not have to type
@@ -132,9 +140,11 @@ inline T merge_cli_precedence(bool cli_provided, const T& cli_value, const T& sa
 ///
 /// The production constructor stores an INI file at ~/.jnext/jnext.conf —
 /// the same ~/.jnext home directory jnext already uses for the SD-card image
-/// (~/.jnext/sdcard/...). The debugger window's geometry lives alongside it
-/// at ~/.jnext/Debugger.conf (src/debugger/debugger_window.cpp), a separate
-/// file so the two stay independent.
+/// (~/.jnext/sdcard/...). The debugger window's geometry lives in the same
+/// file, in its own [debugger] section (src/debugger/debugger_window.cpp); an
+/// older separate ~/.jnext/Debugger.conf is merged in once and removed.
+/// Every section name is lowercase and no value is a QSettings "@..." blob
+/// (GH #312); load() rewrites older constructs of that kind once.
 ///
 /// A second constructor points at an explicit INI file so unit tests never
 /// touch the real user config.
@@ -175,6 +185,8 @@ public:
     }
 
 private:
+    void normalise_legacy_layout() const;
+
     // mutable: QSettings::setValue()/sync() are non-const, but writing the
     // backing store is not part of AppConfig's logical (AppConfigData) state,
     // so save() stays const like the rest of this read-mostly value type.

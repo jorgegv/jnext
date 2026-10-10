@@ -2382,6 +2382,101 @@ void test_cat21_nirvana_multiplex() {
                   "(expected 0x40/0x51/0x41/0x52)",
                   c4_this, c5_this, c4_next, c5_next));
     }
+
+    // G12-MUX-12 / -13 — GH #305: a pixel-plane byte is now replayed through
+    // the same log (zxula.vhd:276-286, every fetched byte is fetched at beam
+    // time; attribute_mux.h). The log is read through one per-offset cursor
+    // that only moves forward, so two properties are pinned directly:
+    //   -12: a read EARLIER than the previous read of the same offset (the
+    //        instants of different fetch kinds interleave, and a debugger
+    //        pass may revisit a row) still returns the value as of that
+    //        earlier instant, not the later one the cursor already passed.
+    //   -13: rewind_to_baseline() puts every cursor back, so a second pass
+    //        over the same recorded log sees the frame from its start.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_page(2, 0x0A);
+        const uint16_t pix = 0x4000 + 0x0123;   // a pixel-plane byte, bank offset 0x0123
+        f.mmu.write(pix, 0x11);                 // baseline
+        f.mmu.attr_mux_start_frame(0);
+        f.mmu.attr_mux_set_current_line(40);
+        f.mmu.attr_mux_set_current_hc(100);
+        f.mmu.write(pix, 0x22);
+        f.mmu.attr_mux_set_current_hc(200);
+        f.mmu.write(pix, 0x33);
+        f.mmu.attr_mux_rewind_to_baseline();
+        f.mmu.attr_mux_apply_line(40);
+        const AttributeMux& m = f.mmu.attr_mux5();
+        const uint8_t late  = m.read(0x0123, 300);
+        const uint8_t mid   = m.read(0x0123, 150);   // earlier than the read above
+        const uint8_t early = m.read(0x0123, 50);
+        check("G12-MUX-12",
+              "a pixel-plane byte read at an instant earlier than the previous "
+              "read of it returns the value as of that earlier instant "
+              "(baseline 0x11, 0x22 @100, 0x33 @200 on line 40)",
+              late == 0x33 && mid == 0x22 && early == 0x11,
+              fmt("@300=0x%02X @150=0x%02X @50=0x%02X (expected 33/22/11)",
+                  late, mid, early));
+
+        f.mmu.attr_mux_rewind_to_baseline();
+        f.mmu.attr_mux_apply_line(40);
+        const uint8_t again = m.read(0x0123, 150);
+        f.mmu.attr_mux_rewind_to_baseline();
+        f.mmu.attr_mux_apply_line(39);
+        const uint8_t prev_line = m.read(0x0123, 0xFFFF);
+        // A write recorded AFTER the rewind is part of the log the next read
+        // sees, with no second rewind (the write path only appends).
+        f.mmu.attr_mux_apply_line(40);
+        f.mmu.attr_mux_set_current_hc(250);
+        f.mmu.write(pix, 0x44);
+        const uint8_t after_write = m.read(0x0123, 300);
+        check("G12-MUX-13",
+              "rewind_to_baseline() restarts every cursor: a second pass over "
+              "the recorded log sees 0x22 at (40,150) again and the baseline "
+              "0x11 on the previous line; a write made after the rewind is "
+              "seen by the next read (0x44 @250 on line 40)",
+              again == 0x22 && prev_line == 0x11 && after_write == 0x44,
+              fmt("second pass @(40,150)=0x%02X (expected 22) "
+                  "@(39,end)=0x%02X (expected 11) late write=0x%02X (expected 44)",
+                  again, prev_line, after_write));
+    }
+
+    // G12-MUX-14 — a second pass over the same instant after more writes. A
+    // first pass can exhaust an offset's cursor (a paused debugger panel
+    // renders the frame so far); the CPU then writes the byte again and the
+    // end-of-frame render reads it at the SAME (line, hc). Two mechanisms
+    // cover it and neither is redundant: the cursor is re-armed when the entry
+    // is linked (a read with no rewind sees the new write), and rewind puts the
+    // cursor back at the chain head (a rewound pass sees it too).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_page(2, 0x0A);
+        const uint16_t pix = 0x4000 + 0x0200;
+        f.mmu.write(pix, 0x11);
+        f.mmu.attr_mux_start_frame(0);
+        f.mmu.attr_mux_set_current_line(40);
+        f.mmu.attr_mux_set_current_hc(100);
+        f.mmu.write(pix, 0x22);
+        f.mmu.attr_mux_rewind_to_baseline();
+        f.mmu.attr_mux_apply_line(40);
+        const AttributeMux& m = f.mmu.attr_mux5();
+        const uint8_t pass1 = m.read(0x0200, 150);      // exhausts the cursor
+        f.mmu.attr_mux_set_current_hc(130);
+        f.mmu.write(pix, 0x55);
+        const uint8_t no_rewind = m.read(0x0200, 150);  // same instant, no rewind
+        f.mmu.attr_mux_rewind_to_baseline();
+        f.mmu.attr_mux_apply_line(40);
+        const uint8_t rewound = m.read(0x0200, 150);
+        check("G12-MUX-14",
+              "a pass that exhausted an offset's cursor, then a further write "
+              "before the same instant: the next read at that instant sees it, "
+              "with and without a rewind",
+              pass1 == 0x22 && no_rewind == 0x55 && rewound == 0x55,
+              fmt("pass1=0x%02X (22) no-rewind=0x%02X (55) rewound=0x%02X (55)",
+                  pass1, no_rewind, rewound));
+    }
 }
 
 void test_cat3bis_shadow_screen() {

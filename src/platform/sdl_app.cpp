@@ -7,6 +7,7 @@
 #include "platform/rzx_startup.h"
 #include "platform/frame_sequencer.h"   // RENDER_INTERVAL_MS, shared with QtApp
 #include "platform/render_policy.h"
+#include "platform/pointer_capture.h"   // GH #307 release_chord
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include <cmath>
@@ -19,6 +20,10 @@ bool SdlApp::init(int argc, char* argv[]) {
         Log::platform()->error("SDL_Init: {}", SDL_GetError());
         return false;
     }
+    // GH #311 test hook: JNEXT_TEST_VIRTUAL_JOYSTICKS attaches SDL virtual
+    // joysticks (and hides physical ones) so the regression suite can drive
+    // the real binary without hardware. Inert when the variable is unset.
+    GamepadHost::attach_test_devices_from_env();
     if (!display_.init(NATIVE_W, NATIVE_H, DISPLAY_H)) return false;
     // Task 47 (--silent): never open an SDL audio device. SdlAudio stays
     // un-initialized, so SdlAudio::queued_ms() returns -1 and
@@ -79,8 +84,15 @@ bool SdlApp::init(int argc, char* argv[]) {
     emulator_.on_joystick_source_changed = [this](int slot, JoySource src) {
         if (gamepad_host_) gamepad_host_->set_source(slot, src);
     };
+    // GH #311 — the assigned controllers follow the sources (SDL-only: set by
+    // --joy1-device / --joy2-device; there is no config file here).
+    emulator_.on_joystick_device_changed = [this](int slot, const JoyDeviceRef& ref) {
+        if (gamepad_host_) gamepad_host_->set_device(slot, ref);
+    };
     emulator_.set_joystick_source(0, config_.joy_source[0]);
     emulator_.set_joystick_source(1, config_.joy_source[1]);
+    emulator_.set_joystick_device(0, config_.joy_device[0]);
+    emulator_.set_joystick_device(1, config_.joy_device[1]);
     emulator_.refresh_joystick_sources();
 
     // Task 83 — adopt pads already plugged in (SDL only emits DEVICEADDED for
@@ -270,8 +282,13 @@ void SdlApp::boot_machine(const std::string& load_file) {
         emulator_.on_joystick_source_changed = [this](int slot, JoySource src) {
             if (gamepad_host_) gamepad_host_->set_source(slot, src);
         };
+        emulator_.on_joystick_device_changed = [this](int slot, const JoyDeviceRef& ref) {
+            if (gamepad_host_) gamepad_host_->set_device(slot, ref);
+        };
         emulator_.set_joystick_source(0, cfg.joy_source[0]);
         emulator_.set_joystick_source(1, cfg.joy_source[1]);
+        emulator_.set_joystick_device(0, cfg.joy_device[0]);
+        emulator_.set_joystick_device(1, cfg.joy_device[1]);
         emulator_.refresh_joystick_sources();
 
         // Task 83 — adopt pads already plugged in (SDL only emits DEVICEADDED
@@ -658,6 +675,8 @@ void SdlApp::set_mouse_captured(bool on)
         // have its release delivered.
         mouse_dispatcher_->reset();
     }
+    // SDL's KMOD_CTRL is the physical Control key on every platform (GH #307).
     Log::platform()->info("Mouse {} ({})", on ? "captured" : "released",
-                          on ? "Ctrl+Alt to release" : "click the window to capture");
+                          on ? std::string(pointer_capture::release_chord(false)) + " to release"
+                             : std::string("click the window to capture"));
 }

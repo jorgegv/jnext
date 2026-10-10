@@ -7575,6 +7575,82 @@ int main() {
                   " not opaque, split=" + std::to_string(split));
     }
     {
+        // GH #304 Part B — the fallback colour is one 9-bit colour everywhere.
+        // zxnext.vhd:7214 and :6990: `fallback & (fallback(1) or fallback(0))`,
+        // so blue 01 -> 011 (0x6D) and 10 -> 101 (0xB6). The Background view and
+        // the ULA views draw it through the debugger, and must agree with the
+        // composite, which `render_row` builds. Expected words are written from
+        // the VHDL formula here, not taken from any renderer helper.
+        using jnext::dbg::Layer;
+        using jnext::dbg::RENDER_WIDTH;
+        auto vhdl_nr4a = [](unsigned v) -> uint32_t {
+            const unsigned lsb = ((v >> 1) & 1) | (v & 1);
+            const unsigned r3 = (v >> 5) & 7, g3 = (v >> 2) & 7, b3 = ((v & 3) << 1) | lsb;
+            auto x8 = [](unsigned c) { return (c << 5) | (c << 2) | (c >> 1); };
+            return 0xFF000000u | (x8(r3) << 16) | (x8(g3) << 8) | x8(b3);
+        };
+
+        // INS-14-22: Background == Composite == the VHDL word, every NR 0x4A value.
+        {
+            Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+            Debugger dbg(emu);
+            auto nr = [&emu](uint8_t reg, uint8_t val) {
+                emu.port().out(0x243B, reg);
+                emu.port().out(0x253B, val);
+            };
+            nr(0x68, 0x80);                       // ULA off: the fallback is the picture
+            std::vector<uint32_t> bg(RENDER_WIDTH * 256), comp(RENDER_WIDTH * 256);
+            int bad = 0, first_bad = -1; uint32_t gb = 0, gc = 0;
+            for (unsigned v = 0; v < 256; ++v) {
+                nr(0x4A, static_cast<uint8_t>(v));
+                emu.run_frame();
+                const bool ok =
+                    dbg.render_layer(Layer::Background, 255, bg.data(), RENDER_WIDTH) == Result::Ok &&
+                    dbg.render_layer(Layer::Composite, 255, comp.data(), RENDER_WIDTH) == Result::Ok;
+                const size_t i = static_cast<size_t>(100) * RENDER_WIDTH + 200;
+                if (!ok || bg[i] != comp[i] || comp[i] != vhdl_nr4a(v)) {
+                    if (!bad) { first_bad = static_cast<int>(v); gb = bg[i]; gc = comp[i]; }
+                    ++bad;
+                }
+            }
+            check("INS-14-22", "Background view equals the Composite and the 9-bit VHDL colour "
+                               "(blue LSB = B1|B0, zxnext.vhd:7214) for all 256 NR 0x4A values",
+                  bad == 0,
+                  std::to_string(bad) + " of 256 wrong; first v=" + std::to_string(first_bad) +
+                      " background=" + hex(gb) + " composite=" + hex(gc) + " want=" +
+                      hex(vhdl_nr4a(static_cast<unsigned>(first_bad < 0 ? 0 : first_bad))));
+        }
+
+        // INS-14-23: the ULA Primary view's ULAnext select_bgnd pixel (:6990) is the
+        // same 9-bit colour. Format 0x00 paper asserts ula_select_bgnd (zxula.vhd:525).
+        {
+            Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+            Debugger dbg(emu);
+            uint8_t* b5 = emu.mmu().bank5_vram();
+            std::fill(b5, b5 + 0x1B00, 0x00);
+            emu.ula().set_ulanext_en(true);
+            emu.ula().set_ulanext_format(0x00);
+            std::vector<uint32_t> view(RENDER_WIDTH * 256);
+            int bad = 0, first_bad = -1; uint32_t got = 0;
+            for (unsigned v = 0; v < 256; ++v) {
+                emu.renderer().set_fallback_colour(static_cast<uint8_t>(v));
+                emu.renderer().init_fallback_per_line();
+                const bool ok = dbg.render_layer(Layer::UlaPrimary, 255, view.data(), RENDER_WIDTH) == Result::Ok;
+                const uint32_t g = view[static_cast<size_t>(128) * RENDER_WIDTH + 64 + 20];
+                if (!ok || g != vhdl_nr4a(v)) {
+                    if (!bad) { first_bad = static_cast<int>(v); got = g; }
+                    ++bad;
+                }
+            }
+            check("INS-14-23", "ULA Primary view: a ULAnext select_bgnd paper pixel shows the 9-bit "
+                               "NR 0x4A colour for all 256 values (zxnext.vhd:6990)",
+                  bad == 0,
+                  std::to_string(bad) + " of 256 wrong; first v=" + std::to_string(first_bad) +
+                      " got=" + hex(got) + " want=" +
+                      hex(vhdl_nr4a(static_cast<unsigned>(first_bad < 0 ? 0 : first_bad))));
+        }
+    }
+    {
         // STATE PRESERVATION — the verb's own guarantee (design-qt §3.7, §4),
         // measured the robust way: the machine's whole serialised state before
         // and after rendering each of the eight views is byte-identical.
@@ -7821,6 +7897,77 @@ int main() {
                   "row" + std::to_string(S - 1) + "=" + hex(px(b, x, S - 1)) + " row" +
                       std::to_string(S) + "=" + hex(px(b, x, S)) + " want " + hex(pa) +
                       "/" + hex(pb) + " mux=" + hex(emu.mmu().attr_mux5().current(OFF)));
+        }
+
+        // ── INS-14-24 / INS-14-25: the mux's rewind in BOTH render passes ──
+        //
+        // GH #305. A pixel byte the CPU writes AFTER the ULA fetched it must
+        // show its OLD value in every picture of that frame: the main render
+        // (Renderer::render_frame) and the debugger's panel render
+        // (Debugger::render_layer -> replay_*). Both end with the mux's flush,
+        // which leaves each byte's cursor at the end of its chain; a pixel
+        // byte is read once per frame, at one instant, so the NEXT pass reads
+        // it at the very same instant and only its own rewind_to_baseline()
+        // puts the cursor back. (An attribute byte is read on eight rows, so
+        // the restart masks a missing rewind there: INS-14-13 cannot see it.)
+        //   INS-14-24  main render, then the panel   -> the panel's rewind
+        //   INS-14-25  panel (paused mid-frame), then the frame-end main render
+        //              -> the renderer's rewind
+        // Cell column 10 of screen row 68 (framebuffer row S) is written after
+        // its fetch; column 20 is never written (paper); column 30 is a lit
+        // baseline byte (ink), so "paper" and "ink" are both on the same row.
+        {
+            const int y = S - 32;                          // screen row 68
+            const uint16_t poff = static_cast<uint16_t>(
+                ((y & 0xC0) << 5) | ((y & 0x07) << 8) | ((y & 0x38) << 2));
+            auto scenario = [&](bool panel_first, std::string& detail) {
+                Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+                Debugger dbg(emu);
+                uint8_t* b5 = emu.mmu().bank5_vram();
+                std::fill(b5, b5 + 0x1800, 0x00);
+                std::fill(b5 + 0x1800, b5 + 0x1B00, 0x07);   // white ink, black paper
+                b5[poff + 30] = 0xFF;                        // baseline ink cell
+                wp4d_pause_in_vblank(emu);
+                const int vbt = emu.video_timing().vblank_top();
+                // pbyte00 of an even column latches at hc_ula 8c+9 (zxula.vhd:
+                // 276-286); +1 is one tick after its fetch.
+                const int hc = emu.video_timing().ula_prefetch_origin_hc() + 8 * 10 + 10 + 1;
+                emu.mmu().attr_mux_set_write_pos(vbt + S, hc);
+                emu.mmu().write(static_cast<uint16_t>(0x4000 + poff + 10), 0xFF);
+                auto main_render = [&]() {
+                    emu.renderer().render_frame(emu.get_framebuffer(), emu.mmu(), emu.ram(),
+                                                emu.palette(), emu.layer2(),
+                                                &emu.sprites(), &emu.tilemap());
+                };
+                auto fbpx = [&](const uint32_t* b, int w, int col) {
+                    return b[static_cast<size_t>(S) * w + 64 + 2 * (8 * col) + 4];
+                };
+                std::vector<uint32_t> pb;
+                if (panel_first) { pb = render(dbg, Layer::UlaPrimary); main_render(); }
+                else             { main_render(); pb = render(dbg, Layer::UlaPrimary); }
+                const uint32_t* fb = emu.get_framebuffer();
+                const int fw = Renderer::FB_WIDTH;
+                const bool fb_ok = fbpx(fb, fw, 10) == fbpx(fb, fw, 20) &&
+                                   fbpx(fb, fw, 30) != fbpx(fb, fw, 20);
+                const bool pn_ok = fbpx(pb.data(), RENDER_WIDTH, 10) == fbpx(pb.data(), RENDER_WIDTH, 20) &&
+                                   fbpx(pb.data(), RENDER_WIDTH, 30) != fbpx(pb.data(), RENDER_WIDTH, 20);
+                detail = std::string("framebuffer col10=") + hex(fbpx(fb, fw, 10)) + " paper=" +
+                         hex(fbpx(fb, fw, 20)) + " ink=" + hex(fbpx(fb, fw, 30)) +
+                         "; panel col10=" + hex(fbpx(pb.data(), RENDER_WIDTH, 10)) + " paper=" +
+                         hex(fbpx(pb.data(), RENDER_WIDTH, 20));
+                return fb_ok && pn_ok;
+            };
+            std::string d22, d23;
+            const bool ok22 = scenario(false, d22);
+            const bool ok23 = scenario(true, d23);
+            check("INS-14-24", "pixel mux, main render then the panel: a pixel byte written "
+                               "after its fetch shows the old byte in both pictures "
+                               "(the panel's own mux rewind)",
+                  ok22, d22);
+            check("INS-14-25", "pixel mux, panel render then the frame-end main render: a "
+                               "pixel byte written after its fetch shows the old byte in "
+                               "both pictures (the renderer's own mux rewind)",
+                  ok23, d23);
         }
 
         // ── INS-14-14: ULA scroll (NR 0x26) ────────────────────────────────

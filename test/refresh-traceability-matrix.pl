@@ -132,7 +132,8 @@
 # Exit status:
 #     0  clean
 #     1  the matrix was rewritten and under-records rows (the GH #117 backlog)
-#     2  REFUSAL: the suite list is not accounted for; nothing was written
+#     2  REFUSAL: the suite list is not accounted for, or a `[no-vhdl]` marker
+#        is malformed or contradicts a citation; nothing was written
 #     3  internal error (unreadable file, un-runnable binary, missing marker)
 #
 # On 1 the matrix IS rewritten: it means "refreshed AND under-recording, here
@@ -159,7 +160,8 @@ use SuiteSources qw(cmake_suite_sources);
 #
 #   0  clean
 #   1  the matrix was rewritten and under-records rows (the GH #117 backlog)
-#   2  REFUSAL: the suite list is not accounted for; nothing was written
+#   2  REFUSAL: the suite list is not accounted for, or a `[no-vhdl]` marker
+#      is malformed or contradicts a citation; nothing was written
 #   3  internal error (unreadable file, un-runnable binary, missing marker)
 #
 # 3 exists because `die` derives its status from errno, so "binary not found"
@@ -427,8 +429,10 @@ my %TOMBSTONE = (
     # ADP and LOG rows are jnext-internal seam contracts. A tombstone is
     # applied to every uncited row of its suite, so putting one here would
     # stamp "there is nothing to cite" onto rows that have something to cite.
-    # Those rows read `—` instead: honest, and recoverable by citing the VHDL
+    # Uncited rows read `—` instead: honest, and recoverable by citing the VHDL
     # in the test source, which is an edit for the branch that owns that file.
+    # (GH #309: the ADP and ALOG rows now carry per-row `[no-vhdl: ...]`
+    # markers in their own calls; the HOOK rows still read `—`.)
 );
 
 # ── Suite -> source path, read from CMake ─────────────────────────────
@@ -1036,6 +1040,8 @@ my %NO_MATRIX_SECTION = (
     'esc_break_test'      => 'host ESC->BREAK binding; guest matrix is `## Input`',
     'host_hotkey_test'    => 'host hotkey bindings (Alt vs the guest Symbol Shift)',
     'main_window_accel_test' => 'main-window menu mnemonics (host GUI)',
+    'main_window_pause_test' => 'main-window Pause: Machine > Pause, Alt+U (host GUI)',
+    'joystick_menu_test' => 'joystick controller picker: Input menu, Preferences (host GUI)',
     'shifted_keys_test'   => 'host shifted-scancode translation; guest matrix is `## Input`',
     'window_scale_test'   => 'main-window scale/fullscreen geometry (host GUI)',
     'window_title_test'   => 'main-window title carries the version (host GUI)',
@@ -1383,6 +1389,34 @@ sub vhd_basename_unique {
 # there is then no row-local basis for saying which belongs to which (GH #147).
 # cite_in() is the joined form every existing caller wants.
 my %REHOMED_WARNED;
+
+# A REFUSAL (exit 2): the input contradicts itself or is malformed, and nothing
+# is written. fatal() is the other kind (exit 3, internal error).
+sub refuse {
+    die "refresh-traceability-matrix: REFUSING — $_[0]\n";
+}
+
+# Per-row tombstone (GH #309): `[no-vhdl: <reason>]` in a row's own call says
+# "this row has no VHDL to cite", and renders as `(<reason>)`, the same shape
+# as the per-suite %TOMBSTONE cells. Returns that string, or undef when the
+# text carries no marker. Refuses a marker that does not parse, has an empty
+# reason or a reason naming a `.vhd`, or occurs more than once.
+sub tomb_in {
+    my ($text, $where) = @_;
+    my $n = () = $text =~ /\[no-vhdl\b/g;
+    return undef unless $n;
+    refuse("$where: more than one [no-vhdl: ...] marker in one call") if $n > 1;
+    $text =~ /\[no-vhdl:([^\[\]|"\n]*)\]/
+        or refuse("$where: malformed [no-vhdl: <reason>] marker");
+    my $reason = $1;
+    $reason =~ s/^\s+|\s+$//g;
+    refuse("$where: [no-vhdl: ...] marker has an empty reason")
+        if $reason eq '';
+    refuse("$where: [no-vhdl: $reason] names a .vhd; a reason is not a citation")
+        if $reason =~ /\.vhd/;
+    return "($reason)";
+}
+
 sub cite_in {
     my $l = cite_list(@_);
     return @$l ? join(', ', @$l) : undef;
@@ -2202,7 +2236,15 @@ sub grep_citations {
         # assertion whose DESCRIPTION happens to quote an ID-shaped token —
         # a machine name like "ZXN-ISSUE2", a mode string — which is the
         # over-refusal SELF-157 exists to catch.
-        push @calls, { s => $i, e => $j, cite => cite_in($text),
+        my $vc = cite_in($text);
+        my $tb = tomb_in($text, "$source_rel:" . ($i + 1));
+        refuse("$source_rel:" . ($i + 1) . ": [no-vhdl] marker beside a VHDL "
+             . "citation in the same call")
+            if defined $tb && defined $vc;
+        refuse("$source_rel:" . ($i + 1) . ": [no-vhdl] marker beside a "
+             . "filename-less VHDL line reference in the same call")
+            if defined $tb && $text =~ /$VHDL_NOFILE_RE/;
+        push @calls, { s => $i, e => $j, cite => $vc // $tb, vc => $vc, tb => $tb,
                        owns_row => (first_arg($text) =~ /$ID_LITERAL_RE/ ? 1 : 0),
                        nofile => ($text =~ /$VHDL_NOFILE_RE/ ? 1 : 0) };
     }
@@ -2398,6 +2440,28 @@ sub grep_citations {
         # down. Filled ONLY for a cited-call win, never for the `named`,
         # `next` or `plan` tiers: those have no line in this file to point at,
         # and inventing one is how a column starts lying. (GH #144)
+        # GH #309: a `[no-vhdl]` marker says the row has NOTHING to cite, so it
+        # may not coexist with a citation anywhere the generator can see for
+        # this row: another call of its own (the marked call would otherwise win
+        # as "the first cited call"), a heading comment block, or (below) the
+        # plan doc. Checked over EVERY owning call, not just the winner.
+        {
+            my ($own_tb, $own_vc);
+            for my $occ (@{ $id_line{$tid} }) {
+                for my $c (@calls) {
+                    next unless $c->{s} <= $occ && $occ <= $c->{e};
+                    $own_tb //= $c->{s} + 1 if defined $c->{tb};
+                    $own_vc //= $c->{s} + 1 if defined $c->{vc} || $c->{nofile};
+                }
+            }
+            refuse("$source_rel:$own_tb: row $tid carries a [no-vhdl] marker but "
+                 . "another call of the row cites VHDL or a filename-less VHDL "
+                 . "line reference (line $own_vc)")
+                if defined $own_tb && defined $own_vc;
+            refuse("$source_rel:$own_tb: row $tid carries a [no-vhdl] marker but "
+                 . "a comment block heading it cites VHDL ($named{$tid})")
+                if defined $own_tb && defined $named{$tid};
+        }
         my $cite_at;
         OCC: for my $occ (@{ $id_line{$tid} }) {
             for my $c (@calls) {
@@ -2549,6 +2613,9 @@ sub grep_citations {
                 last;
             }
         }
+        refuse("$source_rel: row $tid carries a [no-vhdl] marker but its plan "
+             . "doc cites VHDL ($plan->{$tid})")
+            if defined $cite && $cite =~ /^\(/ && defined $plan->{$tid};
         # Everything above is row-local evidence read out of this file; only
         # the plan tier comes from somewhere else, and only it is charged
         # elsewhere.
@@ -4236,6 +4303,13 @@ sub emit_cite_explainer {
 'visible gap; the fix is to cite the VHDL in the row\'s own assertion, which also',
 'makes the cell drift-checked from then on.',
 '',
+'A `(...)` cell is a declared tombstone: "there is nothing to cite", either for',
+'a whole suite or, per row, via `[no-vhdl: <reason>]` in the row\'s own call. The',
+'generator refuses a marker beside a VHDL citation in the same call, in another',
+'call of the same row, in a comment block heading the row, or in the row\'s',
+'plan-doc entry. It cannot judge whether a row SHOULD have VHDL; that is the author\'s',
+'and the reviewer\'s call.',
+'',
     );
 }
 
@@ -4561,7 +4635,10 @@ sub main_body {
 
 sub main {
     my $rc = eval { parse_args(@ARGV); main_body() };
-    if ($@) { print STDERR $@; return 3; }
+    if ($@) {
+        print STDERR $@;
+        return $@ =~ /^refresh-traceability-matrix: REFUSING/ ? 2 : 3;
+    }
     return $rc;
 }
 

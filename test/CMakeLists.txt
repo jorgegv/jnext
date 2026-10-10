@@ -1280,6 +1280,31 @@ if(ENABLE_QT_UI)
         ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
     add_test(NAME main_window_accel_tests COMMAND main_window_accel_test)
 
+    # GH #306 — Machine > Pause (Alt+U): one QAction on the menu, the Main
+    # toolbar and the window; a pause by MainWindow's own observer client does
+    # not open the debugger window, every other pause still does; the checkmark
+    # and the Paused cell are pulled from the backend. Real MainWindow, real
+    # Emulator and backend; needs Qt but no display (offscreen QPA forced in main()).
+    add_executable(main_window_pause_test gui/main_window_pause_test.cpp)
+    set_target_properties(main_window_pause_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(main_window_pause_test PRIVATE jnext_gui Qt${JNEXT_QT_MAJOR}::Test)
+    target_include_directories(main_window_pause_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # MWP-12 reads QtApp::post_frames() from the source tree.
+    target_compile_definitions(main_window_pause_test PRIVATE
+        JNEXT_QT_APP_CPP="${CMAKE_SOURCE_DIR}/src/gui/qt_app.cpp")
+    add_test(NAME main_window_pause_tests COMMAND main_window_pause_test)
+
+    # GH #311 — the Input menu / Preferences controller picker, wired to a real
+    # GamepadHost over SDL virtual joysticks. JMN-12 reads the frontends' sources.
+    add_executable(joystick_menu_test gui/joystick_menu_test.cpp)
+    set_target_properties(joystick_menu_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(joystick_menu_test PRIVATE jnext_gui Qt${JNEXT_QT_MAJOR}::Test)
+    target_include_directories(joystick_menu_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_definitions(joystick_menu_test PRIVATE
+        JNEXT_QT_APP_CPP="${CMAKE_SOURCE_DIR}/src/gui/qt_app.cpp"
+        JNEXT_SDL_APP_CPP="${CMAKE_SOURCE_DIR}/src/platform/sdl_app.cpp")
+    add_test(NAME joystick_menu_tests COMMAND joystick_menu_test)
+
     add_executable(shifted_keys_test gui/shifted_keys_test.cpp)
     set_target_properties(shifted_keys_test PROPERTIES AUTOMOC ON)
     target_link_libraries(shifted_keys_test PRIVATE jnext_gui)

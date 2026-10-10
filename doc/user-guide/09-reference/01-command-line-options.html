@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3771,11 +3771,24 @@ which applies live.</p>
 </dd>
 <dt><strong>--joy1-source</strong> <em>SRC</em></dt>
 <dd>Host source for Joy 1 (port 0x1F): <code>sdl</code> (autodetected gamepad,
-default) or <code>keys</code> (host arrow keys, Space = fire).</dd>
+default), <code>keys</code> (host arrow keys, Space = fire) or <code>none</code> (nothing
+drives it).</dd>
 <dt><strong>--joy2-source</strong> <em>SRC</em></dt>
-<dd>Host source for Joy 2 (port 0x37): <code>sdl</code> (default) or <code>keys</code>. Only
-one connector may use <code>keys</code>. Interactive (SDL/Qt) frontends only;
-inert under <strong>--headless</strong>.</dd>
+<dd>Host source for Joy 2 (port 0x37): <code>sdl</code> (default), <code>keys</code> or
+<code>none</code>. Only one connector may use <code>keys</code>. Interactive (SDL/Qt)
+frontends only; inert under <strong>--headless</strong>.</dd>
+<dt><strong>--joy1-device</strong> <em>ID</em></dt>
+<dd>Physical controller for Joy 1 (port 0x1F), by the id jnext logs when
+it connects it (<code>Joystick 1 connected: 'name' [id]</code>): 32 hex digits,
+optionally followed by <code>#N</code> to tell identical pads apart. Used while
+the connector’s source is <code>sdl</code>; if that controller is not
+connected, jnext logs it and uses the first free one. Wins over the
+saved choice for this run.</dd>
+<dt><strong>--joy2-device</strong> <em>ID</em></dt>
+<dd>Physical controller for Joy 2 (port 0x37); same form as
+<strong>--joy1-device</strong>. The two connectors cannot name the same
+controller. Interactive (SDL/Qt) frontends only; inert under
+<strong>--headless</strong>.</dd>
 <dt><strong>--joy-uart-rx</strong> <em>FILE</em></dt>
 <dd>
 <p>Attach <em>FILE</em> as a serial byte source on the joystick-port UART RX

@@ -17,9 +17,10 @@
 | Start muted | on / off | Takes effect on next launch only |
 | Tape fast-load by default | on / off | See [5.5](../05-running-programs/05-recording-and-playback.md) |
 
-**Input** picks what drives each of the Next's two joystick connectors — an
-autodetected USB gamepad, or the host cursor keys with Space as fire. Only one
-connector can use the cursor keys at a time, and the dialog enforces that for
+**Input** picks what drives each of the Next's two joystick connectors — the
+first free USB gamepad, a particular connected gamepad by name, the host cursor
+keys with Space as fire, or nothing. Only one connector can use the cursor keys
+and one gamepad can drive only one connector; the dialog enforces both for
 you. Details in [5.2](../05-running-programs/02-input.md).
 
 **Audio** has -24 dB to +24 dB sliders for the final master output and for the

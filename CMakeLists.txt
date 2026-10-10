@@ -358,6 +358,57 @@ endif()
 
 add_executable(jnext src/main.cpp)
 
+# GH #308 -- stack-frame gate. No production function may need a frame over
+# 256 KiB. jnext relies on MinGW's default 2 MB main-thread reserve on Windows
+# (no linker stack override); the frame of main() once outgrew it, and the size
+# depended on GCC's stack-slot sharing: the same July source gave a 2.36 MB
+# frame on mingw and 1.18 MB on Linux, so only a check on the cross build sees
+# that class. Spelling differs: GCC has -Werror=frame-larger-than=N, Clang
+# rejects it and wants -Wframe-larger-than=N plus -Werror=frame-larger-than.
+# Two halves: the compile options on jnext and every STATIC_LIBRARY under src/
+# (derived, not listed), and the same flag on jnext's LINK line -- under LTO
+# (-fno-fat-lto-objects) the compile-time check is blind and only the link
+# sees the real frames. Test executables are excluded on purpose (fixtures
+# hold Emulators on the stack and are never built for Windows). Under Clang
+# LTO (ThinLTO) BOTH halves are blind: a 300 KB frame compiled -flto links
+# clean with the flag on the link line (measured with clang 22 on Linux; ld64
+# untested). Only the GCC LTO link enforces.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set(JNEXT_FRAME_GATE -Werror=frame-larger-than=262144)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set(JNEXT_FRAME_GATE -Wframe-larger-than=262144 -Werror=frame-larger-than)
+endif()
+if(JNEXT_FRAME_GATE)
+    function(jnext_collect_src_libs dir out)
+        set(libs)
+        get_property(subdirs DIRECTORY ${dir} PROPERTY SUBDIRECTORIES)
+        foreach(sub IN LISTS subdirs)
+            # Literal prefix test: a regex built from the checkout path breaks
+            # on + ( [ etc. and would silently drop every library.
+            string(FIND "${sub}/" "${CMAKE_SOURCE_DIR}/src/" _p)
+            if(_p EQUAL 0)
+                get_property(tgts DIRECTORY ${sub} PROPERTY BUILDSYSTEM_TARGETS)
+                foreach(t IN LISTS tgts)
+                    get_target_property(ty ${t} TYPE)
+                    if(ty STREQUAL "STATIC_LIBRARY")
+                        list(APPEND libs ${t})
+                    endif()
+                endforeach()
+            endif()
+        endforeach()
+        set(${out} ${libs} PARENT_SCOPE)
+    endfunction()
+    jnext_collect_src_libs(${CMAKE_SOURCE_DIR} JNEXT_SRC_LIBS)
+    if(NOT "jnext_core" IN_LIST JNEXT_SRC_LIBS)
+        message(FATAL_ERROR "frame gate: src/ library list not derived")
+    endif()
+    foreach(t IN LISTS JNEXT_SRC_LIBS)
+        target_compile_options(${t} PRIVATE ${JNEXT_FRAME_GATE})
+    endforeach()
+    target_compile_options(jnext PRIVATE ${JNEXT_FRAME_GATE})
+    target_link_options(jnext PRIVATE ${JNEXT_FRAME_GATE})
+endif()
+
 # Issue #43 — the CLI parse loop switches over cli::OptId with no `default:`
 # arm, so an option added to cli::OPTIONS but never given a parser arm is a
 # COMPILE ERROR here rather than a flag that silently parses to nothing. This
@@ -440,14 +491,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_options(jnext PRIVATE -Wl,-z,noexecstack)
 endif()
 
-# Windows main-thread stack reserve. MinGW defaults to 2 MB; jnext is built
-# assuming the generous stack Linux gives by default (8 MB), and an early
-# large-frame code path overflows the 2 MB reserve on startup (observed as an
-# immediate stack-overflow under wine/Windows, in __chkstk before main runs).
-# Reserve 16 MB to match Linux's headroom. Harmless on real Windows — the
-# reserve is address space only; pages commit lazily.
+# Windows main-thread stack reserve: MinGW's default 2 MB, on purpose (GH #308).
+# The frame gate above keeps it sufficient.
 if(WIN32)
-    target_link_options(jnext PRIVATE -Wl,--stack,16777216)
     # Link as a GUI-subsystem binary so a double-click launch from Explorer
     # opens no console window. CLI/headless stdout/stderr still work when the
     # exe is run from an existing console: main() calls

@@ -182,8 +182,19 @@ void QtApp::wire_gamepad_and_sources(const EmulatorConfig& cfg) {
         if (gamepad_host_) gamepad_host_->resync();
         if (main_window_)  main_window_->resync_input_dispatchers();
     };
+    // GH #311 — the assigned controllers follow the sources: the Emulator
+    // pushes them to the host (re-resolving the bindings live), the host
+    // reports hot-plug back so the Input menu lists what is present.
+    emulator_.on_joystick_device_changed = [this](int slot, const JoyDeviceRef& ref) {
+        if (gamepad_host_) gamepad_host_->set_device(slot, ref);
+    };
+    gamepad_host_->on_devices_changed = [this]() {
+        if (main_window_) main_window_->sync_joy_source_menu();
+    };
     emulator_.set_joystick_source(0, cfg.joy_source[0]);
     emulator_.set_joystick_source(1, cfg.joy_source[1]);
+    emulator_.set_joystick_device(0, cfg.joy_device[0]);
+    emulator_.set_joystick_device(1, cfg.joy_device[1]);
     emulator_.refresh_joystick_sources();
     if (main_window_) main_window_->sync_joy_source_menu();
 
@@ -208,6 +219,10 @@ bool QtApp::init(int argc, char* argv[]) {
         Log::platform()->error("SDL_Init(AUDIO|GAMEPAD): {}", SDL_GetError());
         return false;
     }
+    // GH #311 test hook: JNEXT_TEST_VIRTUAL_JOYSTICKS attaches SDL virtual
+    // joysticks (and hides physical ones) so the regression suite can drive
+    // the real binary without hardware. Inert when the variable is unset.
+    GamepadHost::attach_test_devices_from_env();
 
     // Create QApplication (must exist before any QWidget).
     // Note: Hi-DPI scaling is left enabled (Qt6 default on Wayland).
@@ -312,6 +327,9 @@ bool QtApp::init(int argc, char* argv[]) {
     main_window_->set_script_host(&script_host_);   // GH #26 WP5 — the Script tab
     main_window_->set_emulator(&emulator_);
     main_window_->set_unattended(exit_countdown_ >= 0);   // see set_delayed_exit()
+    main_window_->set_joy_device_provider([this]() {      // GH #311
+        return gamepad_host_ ? gamepad_host_->devices() : std::vector<JoyDeviceInfo>{};
+    });
 
     // Route keyboard events from the Qt window to the emulator keyboard matrix,
     // through the issue-#120 minimum-hold latch: a press is applied at once,
@@ -802,6 +820,10 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
         mgr->refresh_panels();
     }
 #endif
+    // GH #306 — the Machine > Pause checkmark and the "Paused" cell follow the
+    // backend's pause state, whoever caused it. After the block above, and
+    // outside it, so the Qt-without-debugger build gets it too.
+    a.main_window_->sync_pause_state();
 }
 
 void QtApp::TickEffects::set_timer_interval(int ms) {

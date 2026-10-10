@@ -65,15 +65,19 @@ compile-time arm:
 
 ```cpp
 if (headless) {
-    HeadlessApp app;  result = configure_and_run(app);
+    auto app_ptr = std::make_unique<HeadlessApp>();  // ... set-up on *app_ptr
+    result = configure_and_run(*app_ptr);
 } else {
 #ifdef ENABLE_QT_UI
-    QtApp app;        result = configure_and_run(app);
+    auto app = std::make_unique<QtApp>();  result = configure_and_run(*app);
 #else
-    SdlApp app;       result = configure_and_run(app);
+    auto app = std::make_unique<SdlApp>(); result = configure_and_run(*app);
 #endif
 }
 ```
+
+The frontends are heap-allocated on purpose: each holds the 1.17 MB `Emulator`
+by value, so as automatic variables they were `main()`'s stack frame (GH #308).
 
 `configure_and_run` is a generic lambda, and that is what lets a single body
 drive three classes that share no base class. They implement the same informal

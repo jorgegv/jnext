@@ -23,6 +23,11 @@
 // events and applies warps the way each platform does, and the guest must
 // follow the hardware exactly (PCAP-11..33; Wayland selection PCAP-22).
 //
+// Issue #307 adds release_chord(): the hint text for the release chord. Oracle:
+// Qt documents Key_Control as the Command key on macOS (so the chord pressed
+// there is Alt+Cmd), the reporter confirms it, and the documented chord
+// elsewhere is Ctrl+Alt (man page Input menu; SDL's Command is the GUI key).
+//
 // Run: ./build/test/pointer_capture_test
 
 #include "platform/pointer_capture.h"
@@ -677,6 +682,12 @@ int main()
         check("PCAP-33", "begin() restarts the give-up count: no re-warp for N events, re-warp at N+1",
               left_pending && !early && m.recentre, fmt(m));
     }
+
+    // PCAP-34/35: release_chord() (issue #307).
+    check("PCAP-34", "Qt on macOS (Ctrl read as Command) names the release chord Alt+Cmd",
+          std::string(pointer_capture::release_chord(true)) == "Alt+Cmd");
+    check("PCAP-35", "every other frontend/platform names the release chord Ctrl+Alt",
+          std::string(pointer_capture::release_chord(false)) == "Ctrl+Alt");
 
     std::printf("\n==============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

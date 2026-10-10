@@ -101,8 +101,12 @@ static int      s_frame_lines  = 312;       // vc_max + 1 (= per_frame / per_lin
 // path falls back to the exact division, so a stale memo can only cost
 // time, never change a result (rewind/replay/geometry-switch safe; the
 // geometry setters reset it anyway).
-static uint32_t s_line_base_ts = 0;
+static uint32_t s_line_base_ts = 0;      // master cycles (GH #305)
 static uint32_t s_line_index   = 0;
+// Master cycles per unit of the FUSE tstates counter (8 at 3.5 MHz ... 1 at
+// 28 MHz). Published by Emulator::rebase_fuse_tstates_(), which defines the
+// counter's unit; the FUSE opcode harness keeps the default.
+static int      s_tstate_divisor = 8;
 
 static void update_frame_geometry_derived() {
     s_line_ticks   = s_tstates_per_line * 2;
@@ -117,8 +121,11 @@ namespace {
 /// frame-relative tstates counter.
 ///
 /// VHDL `i_hc` / `i_vc` are 9-bit counters in the 7 MHz pixel-tick
-/// domain (each T-state = 2 pixel ticks). Frame is reset to 0 at
-/// frame start in Emulator::run_frame().
+/// domain. The counter counts CPU T-states at the current speed, so it is
+/// first scaled to 28 MHz master cycles (`s_tstate_divisor` each); one pixel
+/// tick is 4 master cycles (2 per T-state only at 3.5 MHz, the one speed
+/// the contention path runs at). Frame is reset to 0 at frame start in
+/// Emulator::run_frame().
 struct HcVc { uint16_t hc; uint16_t vc; };
 
 /// Rebase a raw frame-relative (hc, vc) onto the ULA's own display-relative
@@ -143,7 +150,7 @@ struct HcVc { uint16_t hc; uint16_t vc; };
 ///
 /// None of that is observable on this path, and it is not luck: jnext
 /// samples the raster exactly once per T-state (`derive_hc_vc()` emits
-/// `hc = ts_in_line * 2`), and every contention consumer of `i_hc` is
+/// `hc = ts_in_line * 2` at divisor 8, where contention runs), and every contention consumer of `i_hc` is
 /// aligned to the T-state's pixel-tick PAIR {odd p, even p+1} — `wait_s`
 /// keys on `hc_adj = i_hc(3:0) + 1` (zxula.vhd:582-583) and the stretch
 /// tables hold one value per pair, {3,4}→6, {5,6}→5, … (Task 54,
@@ -171,7 +178,7 @@ struct HcVc { uint16_t hc; uint16_t vc; };
 inline HcVc to_ula_counters(HcVc p) {
     // C-DIV: the two `%` reductions here were divisions by runtime
     // variables on every bus cycle. Both operands are strictly bounded —
-    // p.hc ∈ [0, s_line_ticks) (derive_hc_vc emits ts_in_line*2) and
+    // p.hc ∈ [0, s_line_ticks) (derive_hc_vc emits ts_in_line*2 at divisor 8, the only speed contention runs at) and
     // s_ula_hc_origin ∈ [0, s_line_ticks) (VideoTiming's
     // ula_prefetch_origin_hc, a physical raster position); likewise
     // p.vc / s_ula_vc_origin against s_frame_lines — so the difference
@@ -185,19 +192,23 @@ inline HcVc to_ula_counters(HcVc p) {
 }
 
 inline HcVc derive_hc_vc(uint32_t tstates) {
-    // C-DIV: was `tstates % frame` + `frame_ts / line` — two divisions by
-    // runtime variables per bus cycle. The frame reduction is a
-    // conditional subtract (Emulator::run_frame() rebases tstates every
-    // frame, so at most one iteration outside the FUSE standalone
-    // harness); the line division is memoised — consecutive bus cycles
-    // land on the same or the next scanline, so the common path is one
-    // compare (same line) or one add (next line). Any other delta —
-    // frame wrap, rewind replay, geometry change — falls back to the
-    // exact division, so the memo can never alter a result.
-    uint32_t ft = tstates;
-    const uint32_t frame = static_cast<uint32_t>(s_tstates_per_frame);
+    // GH #305 — the beam runs on the 28 MHz master clock whatever the CPU
+    // speed (zxula_timing.vhd:318-341, i_CLK_7), but `tstates` counts CPU
+    // T-states at the CURRENT speed (Emulator::rebase_fuse_tstates_()).
+    // Scale it back to master cycles (8 per T-state at 3.5 MHz, 1 at 28 MHz)
+    // and do all geometry in that unit; at divisor 8 the result is identical
+    // to the old T-state arithmetic (hc = 2 * ts_in_line, vc = ts / line).
+    //
+    // C-DIV: the frame reduction is a conditional subtract
+    // (Emulator::run_frame() rebases tstates every frame) and the line
+    // division is memoised — consecutive bus cycles land on the same or the
+    // next scanline. Any other delta (frame wrap, rewind replay, geometry
+    // change) falls back to the exact division, so the memo can never alter
+    // a result. The memo is in master cycles, so a speed change keeps it valid.
+    uint32_t ft = tstates * static_cast<uint32_t>(s_tstate_divisor);
+    const uint32_t frame = static_cast<uint32_t>(s_tstates_per_frame) * 8u;
     while (ft >= frame) ft -= frame;
-    const uint32_t line_len = static_cast<uint32_t>(s_tstates_per_line);
+    const uint32_t line_len = static_cast<uint32_t>(s_tstates_per_line) * 8u;
     uint32_t in_line = ft - s_line_base_ts;   // unsigned: ft < base wraps huge
     if (in_line >= line_len) {
         if (in_line < 2 * line_len) {         // next line (common case)
@@ -209,8 +220,8 @@ inline HcVc derive_hc_vc(uint32_t tstates) {
         }
         in_line = ft - s_line_base_ts;
     }
-    // 1 T-state = 2 pixel ticks
-    return {static_cast<uint16_t>(in_line * 2),
+    // 1 pixel tick (7 MHz) = 4 master cycles
+    return {static_cast<uint16_t>(in_line >> 2),
             static_cast<uint16_t>(s_line_index)};
 }
 
@@ -327,7 +338,8 @@ void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
     // elapse first. Re-derive from the now-final `tstates` rather than reusing
     // `pos` above.
     //
-    // NOTE: this deliberately uses the RAW frame (hc, vc) from derive_hc_vc(),
+    // NOTE: this deliberately uses the RAW frame (hc, vc) from derive_hc_vc()
+    // (a master-clock position, independent of the CPU speed — GH #305),
     // NOT the ULA display-relative counters the contention gate takes. The two
     // consumers want different coordinate systems: the contention gate is a
     // transcription of VHDL logic written against i_hc/i_vc (Task 50), while
@@ -1494,6 +1506,11 @@ void z80_set_frame_geometry(int tstates_per_line, int tstates_per_frame)
     s_tstates_per_line  = tstates_per_line;
     s_tstates_per_frame = tstates_per_frame;
     update_frame_geometry_derived();
+}
+
+void z80_set_tstate_divisor(int divisor)
+{
+    s_tstate_divisor = divisor;
 }
 
 int z80_get_tstates_per_line()

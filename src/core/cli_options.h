@@ -110,6 +110,8 @@ enum class OptId {
     WhenSlowPrefer,
     Joy1Source,
     Joy2Source,
+    Joy1Device,
+    Joy2Device,
     JoyUartRx,
     JoyUartRxDelayFrames,
     JoyUartConnector,
@@ -289,11 +291,21 @@ inline constexpr Option OPTIONS[] = {
     { "--joy1-source", 1, Doc::Documented, OptId::Joy1Source,
       "SRC",
       "Host source for Joy 1 (port 0x1F): 'sdl' (autodetected\n"
-      "gamepad, default) or 'keys' (host arrow keys + Space=fire)" },
+      "gamepad, default), 'keys' (host arrow keys + Space=fire)\n"
+      "or 'none'" },
     { "--joy2-source", 1, Doc::Documented, OptId::Joy2Source,
       "SRC",
-      "Host source for Joy 2 (port 0x37): 'sdl' (default) or 'keys'\n"
-      "(only one connector may use 'keys')" },
+      "Host source for Joy 2 (port 0x37): 'sdl' (default), 'keys'\n"
+      "(only one connector may use 'keys') or 'none'" },
+    { "--joy1-device", 1, Doc::Documented, OptId::Joy1Device,
+      "ID",
+      "Physical controller for Joy 1 (port 0x1F), by the id\n"
+      "jnext logs when it connects (32 hex digits, optionally\n"
+      "#N); used while the connector's source is 'sdl'" },
+    { "--joy2-device", 1, Doc::Documented, OptId::Joy2Device,
+      "ID",
+      "Physical controller for Joy 2 (port 0x37); same form\n"
+      "as --joy1-device" },
     // GH #251 — a serial cable in a joystick socket, whose bytes reach the guest
     // through the NR 0x0B I/O-mode mux rather than either UART header. It exists
     // because nothing on the command line could put a byte on that pin, so a

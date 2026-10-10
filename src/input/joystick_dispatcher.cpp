@@ -160,8 +160,13 @@ void JoystickDispatcher::set_source(int slot, JoySource src)
     auto& cur = source_[static_cast<size_t>(slot)];
     if (cur == src) return;
     cur = src;
-    // Releasing the connector: a direction/fire held under the old source
-    // must not linger. Clear every contribution and push the zero.
+    // A direction/fire held under the old source must not linger.
+    release_connector(slot);
+}
+
+void JoystickDispatcher::release_connector(int slot)
+{
+    if (slot < 0 || slot >= NUM_CONNECTORS) return;
     const size_t s = static_cast<size_t>(slot);
     bits_[s]         = 0;
     held_[s]         = 0;

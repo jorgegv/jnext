@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3519,13 +3519,17 @@
 </code></pre>
 <p>It is an INI file, so you can read and edit it with any text editor while
 JNEXT is closed. It lives next to the other things JNEXT keeps per-user, such
-as the downloaded SD-card image in <code>~/.jnext/sdcard/</code>. The debugger window
-keeps its own layout separately in <code>~/.jnext/Debugger.conf</code>.</p>
+as the downloaded SD-card image in <code>~/.jnext/sdcard/</code>. It is the only settings
+file: the debugger window's layout is stored in its <code>[debugger]</code> section (<code>size</code>
+as <code>W, H</code>, <code>position</code> as <code>X, Y</code> while the window is detached, and <code>attached</code>).
+A <code>~/.jnext/Debugger.conf</code> left by an older version is merged into that section
+the first time the new version starts, and removed. Section names are
+lowercase, and a value is plain text: no <code>@Invalid()</code> or <code>@ByteArray(...)</code>.</p>
 <p>Deleting the file resets everything to defaults — that is the supported way to
 start over. A missing or corrupt entry falls back to its default rather than
 stopping JNEXT from starting.</p>
 <p>The emulated ESP-01 is stored in the <code>[esp]</code> section: <code>enabled</code> (<code>true</code>/<code>false</code>)
-and <code>allowed_hosts</code> (a comma-separated list). They are the same two settings as
+and <code>allowed_hosts</code> (a comma-separated list, empty when no host is allowed). They are the same two settings as
 the Preferences <strong>Network</strong> tab, and the persistent form of <code>--esp</code> and
 <code>--esp-allow</code>. Whenever <code>enabled</code> is true the status bar carries an ESP cell, so
 editing this file cannot put a program on the network without saying so, and
@@ -3551,6 +3555,14 @@ understand is reported on the console at startup and listed at the top of the
 Preferences <strong>Debugger Keys</strong> tab; the action keeps its default. The spelling
 of the action names and of the key combinations is in
 <a href="../06-debugger/functions/09-changing-the-keys.html">6.3.9</a>.</p>
+<p>The joystick connectors are stored in the <code>[input]</code> section: <code>joy1_source</code> and
+<code>joy2_source</code> (<code>sdl</code>, <code>keys</code> or <code>none</code>), <code>joy1_device</code> and <code>joy2_device</code> (the
+chosen controller's id, 32 hex digits optionally followed by <code>#N</code>; empty means
+Automatic) and <code>joy1_device_name</code> and <code>joy2_device_name</code> (the name the menu
+shows while that controller is not connected). They are the same settings as the
+<strong>Input</strong> menu and the Preferences <strong>Input</strong> tab, and <code>--joy1-device</code> /
+<code>--joy2-device</code> override the ids for one run. An id that is not valid is ignored
+together with its name, and the connector falls back to Automatic.</p>
 <p>The quick screenshot is stored in the <code>[screenshot]</code> section: <code>quick_dir</code> (an
 empty value means <code>~/.jnext/screenshots</code>) and <code>quick_format</code>, either <code>png</code> or
 <code>scr</code>. They are the same two settings as the Preferences <strong>Paths</strong> tab;

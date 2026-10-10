@@ -59,6 +59,19 @@
 
 namespace {
 
+// Qt on macOS maps the Command key to Qt::Key_Control / ControlModifier (and
+// Control to Meta) unless AA_MacDontSwapCtrlAndMeta is set; jnext does not set
+// it. So the Ctrl+Alt chord matched in keyPressEvent is Alt+Command there.
+#ifdef Q_OS_MACOS
+constexpr bool kQtCtrlIsCommand = true;   // GH #307
+#else
+constexpr bool kQtCtrlIsCommand = false;
+#endif
+
+QString release_chord_text() {
+    return QString::fromLatin1(pointer_capture::release_chord(kQtCtrlIsCommand));
+}
+
 SDL_Scancode qt_key_to_sdl(int key) {
     switch (key) {
         // Letters
@@ -237,6 +250,11 @@ MainWindow::MainWindow(QWidget* parent)
     // of non-headless invocations stay deterministic (test/00regression/
     // regression.sh).
     app_config_.load();
+#ifdef ENABLE_DEBUGGER
+    // GH #312 \u2014 fold an older Debugger.conf into jnext.conf once, even if
+    // the debugger is never opened this run.
+    DebuggerWindow::migrate_legacy_config();
+#endif
 
     // GH #1 \u2014 every [debugger_keys] entry the config layer refused, said out
     // loud. A bad binding must never look like an accepted one: the action
@@ -317,7 +335,12 @@ MainWindow::MainWindow(QWidget* parent)
 // only a forward declaration in main_window.h. The header for
 // MouseDispatcher is included at the top of this translation unit, so
 // the compiler has the full type here.
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+    // GH #306 — the pause client must not outlive this window on a backend
+    // that does, the same contract as the DebuggerManager destructor.
+    if (debugger_ && pause_client_ != jnext::dbg::CLIENT_NONE)
+        debugger_->detach(pause_client_);
+}
 
 void MainWindow::set_emulator(Emulator* emu) {
 #ifdef ENABLE_DEBUGGER
@@ -373,6 +396,55 @@ void MainWindow::set_emulator(Emulator* emu) {
 #endif
 }
 
+// ---------------------------------------------------------------------------
+// GH #306 — Pause from the emulator window
+// ---------------------------------------------------------------------------
+
+void MainWindow::ensure_pause_client() {
+    if (pause_client_ != jnext::dbg::CLIENT_NONE || !debugger_) return;
+    // An OBSERVER: it arms nothing, so pausing from this window costs no
+    // per-instruction tracking and leaves --persistent-breakpoints' default
+    // (PBPUI-03) alone. Attached on the first press, not at startup, so a
+    // session that never pauses has no extra client.
+    const auto r = debugger_->attach(jnext::dbg::ClientInfo{
+        "Qt emulator window", jnext::dbg::ClientKind::Gui, /*observer=*/true});
+    if (!r) return;
+    pause_client_ = r.value;
+#ifdef ENABLE_DEBUGGER
+    if (debugger_mgr_) debugger_mgr_->set_emulator_window_pause_client(pause_client_);
+#endif
+}
+
+void MainWindow::toggle_pause() {
+    if (debugger_) {
+        const bool paused = debugger_->state().paused;
+#ifdef ENABLE_DEBUGGER
+        if (debugger_mgr_ && debugger_mgr_->is_enabled()) {
+            // The window is open: the same verbs as its F5 / F9 keys, so the
+            // corruption modal, the step-off and the pause-edge presentation
+            // all apply.
+            if (paused) debugger_mgr_->on_run(); else debugger_mgr_->on_pause();
+        } else
+#endif
+        {
+            ensure_pause_client();
+            if (pause_client_ != jnext::dbg::CLIENT_NONE) {
+                // The Result is not acted on: sync_pause_state() below shows
+                // the truth whatever the backend answered.
+                if (paused) debugger_->run(pause_client_);
+                else        debugger_->pause(pause_client_);
+            }
+        }
+    }
+    sync_pause_state();
+}
+
+void MainWindow::sync_pause_state() {
+    const bool p = debugger_ && debugger_->state().paused;
+    if (pause_action_) pause_action_->setChecked(p);
+    if (paused_label_) paused_label_->setVisible(p);
+}
+
 void MainWindow::set_script_host(jnext::script::ScriptHost* host) {
     script_host_ = host;
 #ifdef ENABLE_DEBUGGER
@@ -398,25 +470,97 @@ void MainWindow::resync_input_dispatchers() {
     if (mouse_dispatcher_) mouse_dispatcher_->resync();
 }
 
-void MainWindow::on_joy_source_selected(int connector, JoySource src) {
-    if (!emulator_) return;
-    // set_joystick_source enforces the one-cursor-connector rule (it may flip
-    // the other connector back to SDL), so read the effective state back for
-    // both the menu checkmarks and the persisted config.
-    emulator_->set_joystick_source(connector, src);
-    sync_joy_source_menu();
-    app_config_.data().joy_source[0] = emulator_->joystick_source(0);
-    app_config_.data().joy_source[1] = emulator_->joystick_source(1);
+void MainWindow::persist_joy_config() {
+    for (int i = 0; i < 2; ++i) {
+        app_config_.data().joy_source[i] = emulator_->joystick_source(i);
+        app_config_.data().joy_device[i] =
+            QString::fromStdString(emulator_->joystick_device(i).id);
+        app_config_.data().joy_device_name[i] =
+            QString::fromStdString(emulator_->joystick_device(i).name);
+    }
     app_config_.save();
 }
 
-void MainWindow::sync_joy_source_menu() {
+void MainWindow::on_joy_choice_selected(int connector, const JoyChoice& choice) {
     if (!emulator_) return;
+    // The emulator enforces the one-cursor-connector and one-controller-per-
+    // connector rules (it may reset the other connector), so read the
+    // effective state back for both the menu and the persisted config.
+    switch (choice.kind) {
+    case JoyChoice::Kind::Auto:
+        emulator_->set_joystick_source(connector, JoySource::Sdl);
+        emulator_->set_joystick_device(connector, JoyDeviceRef{});
+        break;
+    case JoyChoice::Kind::Device: {
+        std::string name = choice.label;
+        if (joy_device_provider_) {
+            for (const auto& d : joy_device_provider_())
+                if (d.id == choice.id) name = d.name;
+        }
+        emulator_->set_joystick_source(connector, JoySource::Sdl);
+        emulator_->set_joystick_device(connector, JoyDeviceRef{ choice.id, name });
+        break;
+    }
+    case JoyChoice::Kind::Missing:
+        break;   // already the assignment; the entry only displays it
+    case JoyChoice::Kind::Keys:
+        emulator_->set_joystick_source(connector, JoySource::CursorKeys);
+        emulator_->set_joystick_device(connector, JoyDeviceRef{});
+        break;
+    case JoyChoice::Kind::None:
+        emulator_->set_joystick_source(connector, JoySource::None);
+        emulator_->set_joystick_device(connector, JoyDeviceRef{});
+        break;
+    }
+    sync_joy_source_menu();
+    persist_joy_config();
+}
+
+void MainWindow::sync_joy_source_menu() {
+    // Without an emulator (the window before set_emulator()) the menu shows the
+    // defaults: Automatic on both connectors.
+    const std::vector<JoyDeviceInfo> devices =
+        joy_device_provider_ ? joy_device_provider_() : std::vector<JoyDeviceInfo>{};
     for (int conn = 0; conn < 2; ++conn) {
-        const JoySource s = emulator_->joystick_source(conn);
-        const int idx = (s == JoySource::CursorKeys) ? 1 : 0;
-        if (joy_source_action_[conn][idx])
-            joy_source_action_[conn][idx]->setChecked(true);
+        QMenu* sub = joy_menu_[conn];
+        if (!sub) continue;
+        // This runs from inside a triggered action's slot, so the old actions
+        // are retired with deleteLater() rather than deleted under the signal.
+        for (QAction* old : sub->actions()) {
+            sub->removeAction(old);
+            old->deleteLater();
+        }
+        if (joy_group_[conn]) joy_group_[conn]->deleteLater();
+        joy_group_[conn] = new QActionGroup(sub);
+        joy_group_[conn]->setExclusive(true);
+
+        const auto choices = joy_choices(
+            conn, devices, emulator_ ? emulator_->joystick_source(conn) : JoySource::Sdl,
+            emulator_ ? emulator_->joystick_device(conn) : JoyDeviceRef{});
+        for (const JoyChoice& ch : choices) {
+            if (ch.kind == JoyChoice::Kind::Keys) sub->addSeparator();
+            QString text;
+            switch (ch.kind) {
+            case JoyChoice::Kind::Auto: text = tr("&Automatic (first free controller)"); break;
+            case JoyChoice::Kind::Keys: text = tr("Cursor &Keys + Space"); break;
+            // No mnemonic on None: the pinned menu shape (main_window_accel_test
+            // MA-05) counts two per connector submenu, as before this menu listed
+            // controllers; a mnemonic here would change that count.
+            case JoyChoice::Kind::None: text = tr("None"); break;
+            default:
+                // A controller's own name: escape '&' so it is not read as a mnemonic.
+                text = QString::fromStdString(ch.label).replace("&", "&&");
+                break;
+            }
+            QAction* a = sub->addAction(text);
+            a->setCheckable(true);
+            joy_group_[conn]->addAction(a);
+            if (!ch.id.empty()) a->setStatusTip(QString::fromStdString(ch.id));
+            a->setChecked(ch.checked);
+            connect(a, &QAction::triggered, this, [this, conn, ch](bool) {
+                on_joy_choice_selected(conn, ch);
+            });
+        }
     }
 }
 
@@ -575,7 +719,7 @@ void MainWindow::create_menus() {
     // menubar mnemonics ('&' in addMenu). A letter used twice is an AMBIGUOUS
     // Qt shortcut — QAction::event() only prints a warning and does nothing, so
     // BOTH bindings break. host_hotkey_test pins the two sets disjoint.
-    // Reserved today: Alt+Q/O/S/R/T/D/P (shortcuts) and Alt+F/M/I/A/B/V/N/H
+    // Reserved today: Alt+Q/O/S/K/R/T/D/P/U (shortcuts) and Alt+F/M/I/A/B/V/N/H
     // (mnemonics). Alt+E/G/C/` stay free because the GUEST uses them
     // (keyboard.cpp:163,172-174).
     //
@@ -789,6 +933,20 @@ void MainWindow::create_menus() {
     soft_reset->setShortcut(QKeySequence(Qt::Key_F4));
     connect(soft_reset, &QAction::triggered, this, &MainWindow::on_soft_reset);
 
+    // GH #306 — freeze/resume the machine from the emulator window, without
+    // opening the debugger. P is Preferences (Alt+P, #259), so the shortcut is
+    // Alt+U (free in every Alt namespace) and the popup mnemonic is A (the
+    // popup's P/S/T/U/E are taken). The SAME QAction goes on the Main toolbar
+    // (one checkmark) and on the window, so the shortcut also works with the
+    // menu bar hidden in fullscreen.
+    pause_action_ = machine_menu->addAction(tr("P&ause"));
+    pause_action_->setCheckable(true);
+    pause_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_U));
+    pause_action_->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
+    pause_action_->setToolTip(tr("Pause / resume emulation (Alt+U)"));
+    connect(pause_action_, &QAction::triggered, this, [this]() { toggle_pause(); });
+    addAction(pause_action_);
+
     machine_menu->addSeparator();
 
     // Machine type submenu
@@ -886,34 +1044,17 @@ void MainWindow::create_menus() {
 
     // --- Input menu (Task 79) ---
     // Per-connector host input source. Each Next joystick connector can be
-    // driven by an autodetected SDL gamepad or by the host cursor keys + Space
-    // (only one connector may use the cursor keys at a time). Changes apply
+    // driven by a chosen (or the first free) controller, by the host cursor keys + Space,
+    // or by nothing (only one connector may use the cursor keys at a time). Changes apply
     // live and persist to ~/.jnext/jnext.conf.
     QMenu* input_menu = menuBar()->addMenu(tr("&Input"));
-    struct JoyEntry { const char* label; JoySource src; };
-    const JoyEntry joy_entries[2] = {
-        { "&SDL Gamepad",        JoySource::Sdl },
-        { "Cursor &Keys + Space", JoySource::CursorKeys },
-    };
     for (int conn = 0; conn < 2; ++conn) {
-        QMenu* sub = input_menu->addMenu(conn == 0 ? tr("Joy &1 Source (port 0x1F)")
-                                                   : tr("Joy &2 Source (port 0x37)"));
-        auto* group = new QActionGroup(this);
-        group->setExclusive(true);
-        for (int e = 0; e < 2; ++e) {
-            QAction* a = sub->addAction(tr(joy_entries[e].label));
-            a->setCheckable(true);
-            group->addAction(a);
-            joy_source_action_[conn][e] = a;
-            const JoySource src = joy_entries[e].src;
-            connect(a, &QAction::triggered, this, [this, conn, src](bool checked) {
-                if (checked) on_joy_source_selected(conn, src);
-            });
-        }
+        joy_menu_[conn] = input_menu->addMenu(conn == 0 ? tr("Joy &1 Source (port 0x1F)")
+                                                        : tr("Joy &2 Source (port 0x37)"));
     }
-    // Default state before set_emulator() syncs from the effective sources.
-    joy_source_action_[0][0]->setChecked(true);
-    joy_source_action_[1][0]->setChecked(true);
+    // Filled with the defaults now; sync_joy_source_menu() refills them from the
+    // emulator and the host's device list once those exist.
+    sync_joy_source_menu();
 
     // Kempston mouse pointer capture (issue #37). Off by default: capturing
     // uninvited would take the pointer away from a user who only wanted to
@@ -925,10 +1066,11 @@ void MainWindow::create_menus() {
     // sequence — Ctrl maps to Symbol Shift (issue #115), so Ctrl+M IS SS+M —
     // and a host shortcut would swallow it before the guest ever saw it.
     // Capture is by clicking the viewport (or this menu item); Ctrl+Alt
-    // releases.
+    // releases (Alt+Cmd on macOS, where Qt reads Command as Ctrl).
     capture_mouse_action_->setStatusTip(
         tr("Confine the host pointer so the Kempston mouse can move freely "
-           "(click the screen to capture, Ctrl+Alt to release)"));
+           "(click the screen to capture, %1 to release)")
+            .arg(release_chord_text()));
     connect(capture_mouse_action_, &QAction::triggered, this,
             [this](bool on) { set_mouse_captured(on); });
 
@@ -1084,6 +1226,8 @@ void MainWindow::create_toolbar() {
         style()->standardIcon(QStyle::SP_DialogResetButton), tr("Soft Reset"));
     connect(soft_reset_btn, &QAction::triggered, this, &MainWindow::on_soft_reset);
 
+    if (pause_action_) toolbar->addAction(pause_action_);   // GH #306 — the same action
+
     QAction* load_btn = toolbar->addAction(
         style()->standardIcon(QStyle::SP_DialogOpenButton), tr("Load"));
     connect(load_btn, &QAction::triggered, this, &MainWindow::on_load_nex);
@@ -1148,11 +1292,19 @@ void MainWindow::create_statusbar() {
     esp_label_->setAlignment(Qt::AlignCenter);
     esp_label_->setVisible(false);
 
+    // GH #306 — hidden until the backend reports a pause (sync_pause_state()),
+    // so a session that never pauses has the same status bar as before.
+    paused_label_ = new QLabel(tr("Paused"));
+    paused_label_->setMinimumWidth(60);
+    paused_label_->setAlignment(Qt::AlignCenter);
+    paused_label_->setVisible(false);
+
     statusBar()->addWidget(fps_label_, 1);
     statusBar()->addWidget(speed_label_, 1);
     statusBar()->addWidget(emu_speed_label_, 1);
     statusBar()->addWidget(tape_label_, 1);
     statusBar()->addWidget(esp_label_, 1);
+    statusBar()->addWidget(paused_label_, 1);
     statusBar()->addPermanentWidget(machine_label_);
 }
 
@@ -2223,12 +2375,17 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
     // user actually came here to make.
     apply_startup_config(cfg);
 
-    // Task 79 — live-apply the per-connector input sources. The dialog already
-    // enforces the one-cursor rule, so these two calls never conflict; sync the
+    // Task 79 / GH #311 — live-apply the per-connector input sources and the
+    // assigned controllers. The dialog already enforces the one-cursor and
+    // one-controller rules, so these calls never conflict; sync the
     // Input-menu checkmarks to the (now effective) state.
     if (emulator_) {
         emulator_->set_joystick_source(0, cfg.joy_source[0]);
         emulator_->set_joystick_source(1, cfg.joy_source[1]);
+        for (int i = 0; i < 2; ++i) {
+            emulator_->set_joystick_device(i, JoyDeviceRef{ cfg.joy_device[i].toStdString(),
+                                                            cfg.joy_device_name[i].toStdString() });
+        }
         sync_joy_source_menu();
     }
 
@@ -2285,7 +2442,9 @@ void MainWindow::on_open_preferences() {
     // already answers to, harvested from the real QActions rather than
     // hand-listed, so a menu item added later is picked up with no edit here.
     PreferencesDialog dlg(app_config_.data(), this, app_config_.debug_key_issues(),
-                          harvest_host_chords(this));
+                          harvest_host_chords(this),
+                          joy_device_provider_ ? joy_device_provider_()
+                                               : std::vector<JoyDeviceInfo>{});
     connect(&dlg, &PreferencesDialog::apply_requested, this, [this](const AppConfigData& cfg) {
         app_config_.data() = cfg;
         app_config_.save();
@@ -2303,7 +2462,8 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         int key = event->key();
         Qt::KeyboardModifiers modifiers = event->modifiers();
 
-        // Ctrl+Alt releases the pointer — the convention users already know
+        // Ctrl+Alt (on macOS Qt's swap makes this Alt+Command) releases the
+        // pointer — the convention users already know
         // from VirtualBox / VMware / QEMU. Checked before anything else so it
         // works even if the guest is busy. Either order of the two keys
         // arrives here as "this one down, the other already held".
@@ -2720,8 +2880,8 @@ void MainWindow::set_mouse_captured(bool on) {
         }
         // The status-bar message times out; the title carries the way out for
         // as long as the pointer is actually held.
-        setWindowTitle(base_window_title_ + tr(" - Ctrl+Alt to release mouse"));
-        statusBar()->showMessage(tr("Mouse captured — Ctrl+Alt to release"), 4000);
+        setWindowTitle(base_window_title_ + tr(" - %1 to release mouse").arg(release_chord_text()));
+        statusBar()->showMessage(tr("Mouse captured — %1 to release").arg(release_chord_text()), 4000);
     } else {
         releaseMouse();
         // Drop any latched button/wheel state. Buttons are only forwarded

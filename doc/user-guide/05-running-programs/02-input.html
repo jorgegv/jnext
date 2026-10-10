@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.23</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1389,6 +1389,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Joysticks and gamepads">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#choosing-the-controller-for-each-connector" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choosing the controller for each connector
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -3678,7 +3695,8 @@ symbols were thrown away before the Spectrum saw them.</p>
 <ul>
 <li><strong>Shift is Caps Shift and Ctrl is Symbol Shift</strong> — the same way round as a
   real Spectrum Next with a PC keyboard plugged into it. Earlier versions had
-  these two swapped.</li>
+  these two swapped. On a Mac, <strong>Cmd</strong> is the key that does what this page
+  says of Ctrl.</li>
 <li><strong>Esc is Break</strong>, not "get me out of fullscreen". Fullscreen is F11 and only
   F11.</li>
 <li><strong>Alt is a host modifier, never a Spectrum key.</strong> Only the four Alt
@@ -3722,11 +3740,35 @@ still booting. After a direct <code>--load</code> it resets into 48K BASIC and d
 the program you loaded: that boot never ran the firmware, so there is no
 NextZXOS to come back to — use Power Reset there.</p>
 <h2 id="joysticks-and-gamepads">Joysticks and gamepads<a class="headerlink" href="#joysticks-and-gamepads" title="Permanent link">&para;</a></h2>
-<p>Up to two USB gamepads are picked up automatically, hot-plug included, and
-wired to the Next's two joystick connectors. The joystick <em>protocol</em> —
+<p>USB gamepads are picked up automatically, hot-plug included, and wired to the
+Next's two joystick connectors: the first two to connect become Joy 1 and
+Joy 2. The joystick <em>protocol</em> —
 Kempston, Sinclair, Cursor or MD — is chosen by the software you are running,
 just as on real hardware, so a game that expects Kempston gets Kempston
 without you configuring anything.</p>
+<h3 id="choosing-the-controller-for-each-connector">Choosing the controller for each connector<a class="headerlink" href="#choosing-the-controller-for-each-connector" title="Permanent link">&para;</a></h3>
+<p><strong>Input &gt; Joy 1 Source</strong> and <strong>Joy 2 Source</strong> (and <strong>Settings &gt; Preferences &gt;
+Input</strong>) list, for each connector:</p>
+<ul>
+<li><strong>Automatic (first free controller)</strong> — the default: the behaviour above;</li>
+<li>every controller currently connected, by name (two identical pads show as
+  <code>name</code> and <code>name #2</code>);</li>
+<li><strong>Cursor Keys + Space</strong>, below;</li>
+<li><strong>None</strong> — nothing drives the connector.</li>
+</ul>
+<p>A pick applies at once, without a restart, and is remembered by the
+controller's identity rather than its position, so it survives unplugging,
+plugging back in and restarting. If a remembered controller is not connected,
+the menu shows it as <code>name (not connected)</code>, the connector uses the first free
+controller in the meantime (jnext logs that) and takes the remembered one back
+as soon as it appears. One controller cannot drive both connectors: picking it
+for one takes it from the other, which goes back to Automatic. With two
+identical pads the <code>#2</code> numbering holds only while they are connected in the
+same order. Unplugging a controller lets go of any button it was holding.</p>
+<p>From the command line, <code>--joy1-device ID</code> / <code>--joy2-device ID</code> choose a
+controller for one run; the id is the one in the log line <code>Joystick 1
+connected: 'name' [id]</code>, and <code>--joy1-source none</code> / <code>--joy2-source none</code> leave
+a connector unused.</p>
 <p>With no gamepad, point a connector at the host cursor keys instead: arrows to
 move, Space to fire. Choose it in the <strong>Input</strong> menu, in <strong>Settings &gt;
 Preferences &gt; Input</strong>, or with <code>--joy1-source keys</code> / <code>--joy2-source keys</code>;
@@ -3738,7 +3780,7 @@ arrows and Space stop working as ZX keys.</p>
 otherwise it hits the edge of your screen and the emulated pointer stops.</p>
 <ul>
 <li><strong>Capture:</strong> click the emulator screen, or use <strong>Input &gt; Capture Mouse</strong>.</li>
-<li><strong>Release:</strong> <strong>Ctrl+Alt</strong>, the same combination VirtualBox and QEMU use.</li>
+<li><strong>Release:</strong> <strong>Ctrl+Alt</strong> (<strong>Alt+Cmd</strong> on a Mac), the same combination VirtualBox and QEMU use.</li>
 </ul>
 <p>Capture is off until you ask for it, so the pointer stays yours and you can
 always reach the menus. While captured, the status bar reminds you how to get

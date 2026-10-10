@@ -133,6 +133,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         clock_.reset();
     }
     clock_.set_cpu_speed(cfg.cpu_speed);
+    // GH #305 — publish the counter's unit for a HARD reset, where the
+    // counter is zeroed with the clock (the publisher is process-global, so a
+    // new machine must not inherit another's). A SOFT reset keeps the counter
+    // but may change the divisor (NR 0x07 back to 3.5 MHz, zxnext.vhd:5800):
+    // it is rebased below, after cpu_.reset().
+    z80_set_tstate_divisor(clock_.cpu_divisor());
 
     // Allocate the framebuffer and fill with black (ARGB: 0xFF000000) — but
     // not on a soft reset, which does not interrupt the video output: the
@@ -230,6 +236,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     }
     cpu_.reset(/*hard=*/!preserve_memory);
     im2_.reset();
+    // GH #305 — a soft reset keeps the clock, frame_cycle_ and the FUSE
+    // counter but resets cpu_speed, so the counter's unit may have changed:
+    // re-derive it (this also publishes the divisor). The IM2 pulse timing
+    // needs no re-placement: im2_.reset() just cleared it (reset_timing()).
+    if (preserve_memory) rebase_fuse_tstates_();
     // V20-IM2-01 — reset pulse-mode edge-detect shadow (init path).
     prev_pulse_int_n_ = true;
     keyboard_.reset();
@@ -8190,6 +8201,9 @@ void Emulator::rebase_fuse_tstates_()
     const uint32_t old = live;
     const uint32_t want = static_cast<uint32_t>(
         (clock_.get() - frame_cycle_) / static_cast<uint64_t>(clock_.cpu_divisor()));
+    // GH #305 — this defines the counter's unit (master cycles per count), so
+    // it is where the CPU write tag learns it (derive_hc_vc()).
+    z80_set_tstate_divisor(clock_.cpu_divisor());
     tstates_frame_base_ += live;
     tstates_frame_base_ -= want;
     live = want;
@@ -11358,6 +11372,34 @@ void Emulator::refresh_joystick_sources()
             on_joystick_source_changed(s, joy_source_[s]);
         }
     }
+    if (on_joystick_device_changed) {
+        for (int s = 0; s < 2; ++s) {
+            on_joystick_device_changed(s, joy_device_[s]);
+        }
+    }
+}
+
+void Emulator::set_joystick_device(int connector, const JoyDeviceRef& ref)
+{
+    if (connector < 0 || connector > 1) return;
+    const int other = connector ^ 1;
+    bool changed[2] = { false, false };
+
+    if (joy_device_[connector] != ref) {
+        joy_device_[connector] = ref;
+        changed[connector] = true;
+    }
+    // One controller drives at most one connector: the last pick wins.
+    if (!ref.id.empty() && joy_device_[other].id == ref.id) {
+        joy_device_[other] = JoyDeviceRef{};
+        changed[other] = true;
+    }
+
+    if (on_joystick_device_changed) {
+        for (int s = 0; s < 2; ++s) {
+            if (changed[s]) on_joystick_device_changed(s, joy_device_[s]);
+        }
+    }
 }
 
 void Emulator::soft_reset()
@@ -12524,7 +12566,7 @@ void Emulator::on_scanline(int line)
     renderer_.ula().set_current_scroll_line(tag);
     renderer_.ula().set_palsel_current_line(tag);
     tilemap_.set_current_nr6b_line(tag);
-    // G12 — tag subsequent attribute-plane writes with this scanline
+    // G12 — tag subsequent ULA-VRAM (pixel and attribute) writes with this scanline
     // (framebuffer-row space, matching every sibling log above).
     mmu_.attr_mux_set_current_line(tag);
     // G02 — tag subsequent NR 0x15 writes (layer priority / sprite enable).

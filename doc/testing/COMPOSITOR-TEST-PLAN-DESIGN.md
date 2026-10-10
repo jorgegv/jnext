@@ -484,10 +484,15 @@ derivation is non-obvious, the arithmetic is shown inline.
 | TR-21 | Tilemap non-text (attribute) ignores RGB compare | NR 0x14=0xE3, tm_pixel_en=1, tm_textmode=0 (set explicitly since GH #201) | TM palette entry RGB[8:1]=0xE3 | tm_transparent=0 (opaque). TR-20's negative twin — same TM pixel, textmode flag clear — and only meaningful opposite a working TR-20. | 7109 (middle clause gated on textmode) |
 | TR-22 | Tilemap `pixel_en=0` transparent regardless of mode | — | tm_pixel_en=0, textmode=0, RGB=0x10 | tm_transparent=1 | 7109 |
 | TR-23 | `tm_en_2=0` forces TM transparent | — | Disable TM (NR 0x6B bit 7=0) | tm_transparent=1 | 7109 |
-| TR-30 | Layer 2 RGB compare | NR 0x14=0xE3, l2_pixel_en=1 | L2 palette entry RGB[8:1]=0xE3 | layer2_transparent=1 | 7121 |
+| TR-18 | PLOTIT colour: ULA colour 9-bit 0x005 is transparent for NR 0x14 = 0x02 | mode 000, L2/S/TM transparent, NR 0x4A distinct | ULA palette-producible colour `"00000010" & "1"` (blue 101) | ULA transparent; fallback wins | 7100, 7214 |
+| TR-19 | NR 0x14 compares only colour bits 8:1 (ULA), exhaustive | mode 000, others transparent | all 256 NR 0x14 values v x 9th bit b: colour (v<<1)\|b, and ((v^(1<<k))<<1)\|b for each k=0..7 | 512 matching colours transparent (fallback); the 4096 with one compared bit k=0..7 flipped opaque (the ULA colour) | 7100 |
+| TR-26 | Text-mode TM colour 9-bit 0x005 is transparent for NR 0x14 = 0x02 | opaque ULA, tm_below=0, text mode | TM colour `"00000010" & "1"` | tm_transparent=1; the ULA shows | 7109, 7116 |
+| TR-27 | NR 0x14 compares only colour bits 8:1 (text-mode TM), exhaustive | opaque ULA colour v^0x81 (never transparent, never equal to the tile), tm_below=0 | TR-19 sweep on the TM colour | 512 matching transparent (ULA shows); 4096 with one bit flipped opaque (TM shows) | 7109 |
+| TRB-01 | PLOTIT-lite state end to end: ULA paper and text-mode tile both colour 0x02 under NR 0x14 = 0x02 | NR 0x15=0x10, NR 0x6B=0x88, NR 0x4A distinct, Layer 2 white, via NR/port writes and a real frame | run one frame | display pixel = Layer 2 white | 7100, 7109, 7121 |
 | TR-31 | Layer 2 `pixel_en=0` transparent | — | l2_pixel_en=0 | layer2_transparent=1 | 7121 |
 | TR-32 | Layer 2 opaque pixel with non-zero `layer2_priority_2` propagates | l2 not transparent | palette bit 15 set | `layer2_priority=1` | 7123 |
 | TR-33 | Layer 2 priority forced to 0 when layer is transparent | palette bit 15 set, l2_pixel_en=0 | — | `layer2_priority=0` (even though bit 15=1) | 7123 |
+| TR-34 | NR 0x14 compares exactly colour bits 8:1 (Layer 2), exhaustive | mode 000, others transparent, NR 0x4A / fallback a word no palette produces | TR-19 sweep on the Layer 2 colour | 512 matching colours transparent (fallback); 4096 with one bit flipped opaque (the L2 colour) | 7121 |
 | TR-40 | Sprite `pixel_en=0` transparent | — | sprite_pixel_en_2=0 | sprite_transparent=1 | 7118 |
 | TR-41 | Sprite `pixel_en=1` opaque regardless of NR 0x14 | NR 0x14=any | sprite_pixel_en_2=1, sprite_rgb_2=0x1C6 | sprite_transparent=0 | 7118 (no RGB compare) |
 | TR-50 | **Deferral** (Task 45): a mid-frame NR 0x14 write does not retroactively affect a row whose per-line snapshot already ran | Row 13's `transparent_rgb_per_line_` snapshot captured with NR 0x14=0xE3 (reset default); mode 000, opaque ULA pixel RGB=0xAA, all other layers transparent | Write NR 0x14 ← 0xAA (now matches the ULA pixel's RGB) but do **not** re-snapshot row 13; composite row 13 directly via `composite_scanline` (bypasses `composite_one()`'s auto-sync — see the deferral-methodology note in Group PSCAN) | Row still shows the OLD snapshot (0xE3 ≠ 0xAA) — ULA pixel stays opaque and wins | 1137, 5226, 6822, 6912–6913, 7078, 7100 |
@@ -539,6 +544,8 @@ themselves (those live in the Sprites / Tilemap / Layer 2 plans).
 | FB-15 | Fallback not used when any layer opaque | S opaque, L/U transparent, mode 000 | NR 0x4A=0xE3 | `rgb_out_2 = sprite_rgb` not fallback | 7222 |
 | FB-16 | Reset default is 0xE3 | power-on | read NR 0x4A | `0xE3` | `nr_4a_fallback_rgb` reset clause |
 | FB-17 | All 8 priority modes converge on fallback when every layer transparent | for each of 000..111 | NR 0x4A=0x42 = `0100_0010` | `rgb_out_2 = 0x084 \| 1 = 0x085` for every mode | 7214 (default assignment before case) |
+| FB9-01 | NR 0x4A is a 9-bit colour end to end: blue LSB = B1 or B0, display and border | ULA off (NR 0x68 b7), `render_row` | every NR 0x4A value 0..255 | fallback word = `{R3,G3,B3}` with `B3 = B1 B0 (B1\|B0)` expanded `x<<5\|x<<2\|x>>1` (blue 01 -> 0x6D, 10 -> 0xB6) | 7214 |
+| FB9-02 | The ULAnext `select_bgnd` substitution takes the same 9-bit colour | ULAnext on, format 0x00, paper pixel | every NR 0x4A value but the NR 0x14 key | same word as FB9-01 | 6990 |
 
 ### Group PRI — Layer priority modes 000..101
 
@@ -642,6 +649,9 @@ The subtraction branch is only entered if `mix_rgb_transparent = '0'`
 | BL-27 | Sub, final L2-only fallback shows blended L2 | 111 | L=✓, all others transp | blend branch | subtracted RGB of `L2+0`, i.e. each channel=`L2-5` clamped | 7350 |
 | BL-28 | L2 priority bit overrides blend (mode 110) | 110 | `layer2_priority=1` | | additive RGB always wins even with opaque mix_top | 7300 |
 | BL-29 | L2 priority bit overrides blend (mode 111) | 111 | `layer2_priority=1` | | subtracted RGB always wins | 7342 |
+| BLC-01 | Mode 110 blue is 3 bits: sum clamps at 7 | 110 | L2 blue x, ULA blue y, x,y in 0..7; R=G=0 | blue = `min(x+y, 7)` | 7203, 7286-7298 |
+| BLC-02 | Mode 111 blue is 3 bits: subtractive rule | 111 | same 64 pairs | blue = `<=4 -> 0, >=12 -> 7, else sum-5` | 7203, 7312-7352 |
+| BLC-03 | Stencil AND is over all 9 bits | stencil on, tm_en | ULA (7,5,x), TM (3,6,y), x,y in 0..7 | `(7&3, 5&6, x&y)` | 7113 |
 
 ### Group UTB — ULA/Tilemap blend mode (NR 0x68 bits 6:5)
 

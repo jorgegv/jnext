@@ -38,7 +38,9 @@ class DebuggerWindow;
 ///     held by the BreakpointModel for the manager's lifetime (GH #278 WP4c),
 ///     so the user's breakpoints outlive the window without arming anything.
 /// A pause the window did not cause still opens it: the pause state is PULLED
-/// from the backend on every tick, whoever is attached.
+/// from the backend on every tick, whoever is attached. The one exception
+/// (GH #306): a pause made by the emulator window's own Pause control, a third
+/// Qt client owned by MainWindow, whose id is set_emulator_window_pause_client().
 ///
 /// The window hands the backend to its panels; since WP4a-d eleven of the 13
 /// read through it (the Breakpoints panel through the manager's
@@ -108,6 +110,12 @@ public:
     /// `--script` loads into), for the Script tab. Null = no scripting.
     void set_script_host(jnext::script::ScriptHost* host);
     jnext::script::ScriptHost* script_host() const { return script_host_; }
+
+    /// GH #306 — the id of MainWindow's Pause client. A pause whose `by` is
+    /// this client does not open a closed debugger window. CLIENT_NONE = none.
+    void set_emulator_window_pause_client(jnext::dbg::ClientId id) {
+        emulator_window_pause_client_ = id;
+    }
 
 public slots:
     void on_run();
@@ -234,5 +242,6 @@ private:
     /// so a pause found already in force when the window opens still gets the
     /// full pause-edge sequence on the next tick, as it always has.
     bool shown_paused_ = false;
+    jnext::dbg::ClientId emulator_window_pause_client_ = jnext::dbg::CLIENT_NONE;   // GH #306
     jnext::script::ScriptHost* script_host_ = nullptr;   // GH #26 WP5
 };

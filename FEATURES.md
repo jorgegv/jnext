@@ -8,7 +8,7 @@
 - Accurate memory contention for 48K, 128K, and +3 timing models
 - IM1/IM2 interrupt controller with all 14 Next interrupt levels
 - Z80 CTC, UART, DMA, SPI, I2C/RTC peripherals (VHDL-verified)
-- Host USB gamepads (up to 2, hot-plug) mapped to the Next's two joystick connectors; mode via NR 0x05 (Kempston/Sinclair/Cursor/MD). Either connector can instead be driven by the host cursor keys + Space (fire), selectable per connector (`--joy1-source`/`--joy2-source`, Input menu, Preferences; persisted)
+- Host USB gamepads (hot-plug) mapped to the Next's two joystick connectors; mode via NR 0x05 (Kempston/Sinclair/Cursor/MD). Per connector you pick which connected controller drives it (identical pads told apart, remembered by identity, fallback with a log line when it is absent), the host cursor keys + Space (fire), or None (`--joy1-source`/`--joy2-source`/`--joy1-device`/`--joy2-device`, Input menu, Preferences; persisted)
 - DivMMC with 8KB SRAM, automap, and SD card image mounting
 - Live SD-card change (GH #93): **File > Insert SD Card Image / Eject SD Card**, and `--delayed-sdcard-insert-frames N FILE` headless, swap the card in the running machine without a reset, so NextZXOS's REMOUNT ("Remove/insert SD and press Y") works as on hardware — and a RAMdisk survives a card-to-card copy. Hardware has no card-detect line, so nothing is signalled to the guest. The ROMs are not re-read (a later hard reset or program load reads them from the new card), `--sdcard-readonly` carries over, an inserted card does not become the saved default (Preferences owns that), and the change is refused while an RZX records or plays, while a directly loaded NEX holds its file open, or while another change is pending; it drops the warm-start recording and the rewind history
 - Floating bus emulation (48K/128K modes)
@@ -100,6 +100,7 @@
 - Emulator speed control (0.5×/1×/2×/4×/custom %, or `--speed`)
 - Selectable degradation policy for a host that cannot emulate in real time (`--when-slow-prefer audio|video`, or Preferences → Startup, applied live): keep the sound smooth and drop video frames, or show every frame and let the machine run slower than real time with the sound stuttering
 - Screenshots in PNG or `.SCR` (Alt+S, toolbar, `--delayed-screenshot`): the filename's extension picks the format. `.SCR` is the raw ULA screen memory of the displayed bank — 6912 bytes, or 12288 in a Timex hi-colour/hi-res mode — and records only the classic ULA layer
+- Pause / resume from the emulator window (toolbar button, Machine > Pause, Alt+U; works in fullscreen) without opening the debugger; a Paused cell in the status bar
 - Quick Screenshot (Alt+K): no dialog, timestamped collision-free name, into a configurable directory (default `~/.jnext/screenshots`), in the configured default format; the status bar names the file written
 - Video recording to MP4 via FFmpeg pipe (`--record`)
 - Direct audio recording to WAV (`--wav-record`, no FFmpeg required)

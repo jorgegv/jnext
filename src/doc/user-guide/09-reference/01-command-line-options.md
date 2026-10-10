@@ -179,12 +179,27 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 
 **--joy1-source** *SRC*
 :   Host source for Joy 1 (port 0x1F): `sdl` (autodetected gamepad,
-    default) or `keys` (host arrow keys, Space = fire).
+    default), `keys` (host arrow keys, Space = fire) or `none` (nothing
+    drives it).
 
 **--joy2-source** *SRC*
-:   Host source for Joy 2 (port 0x37): `sdl` (default) or `keys`. Only
-    one connector may use `keys`. Interactive (SDL/Qt) frontends only;
-    inert under **--headless**.
+:   Host source for Joy 2 (port 0x37): `sdl` (default), `keys` or
+    `none`. Only one connector may use `keys`. Interactive (SDL/Qt)
+    frontends only; inert under **--headless**.
+
+**--joy1-device** *ID*
+:   Physical controller for Joy 1 (port 0x1F), by the id jnext logs when
+    it connects it (`Joystick 1 connected: 'name' [id]`): 32 hex digits,
+    optionally followed by `#N` to tell identical pads apart. Used while
+    the connector’s source is `sdl`; if that controller is not
+    connected, jnext logs it and uses the first free one. Wins over the
+    saved choice for this run.
+
+**--joy2-device** *ID*
+:   Physical controller for Joy 2 (port 0x37); same form as
+    **--joy1-device**. The two connectors cannot name the same
+    controller. Interactive (SDL/Qt) frontends only; inert under
+    **--headless**.
 
 **--joy-uart-rx** *FILE*
 

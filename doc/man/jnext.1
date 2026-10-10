@@ -204,12 +204,28 @@ The GUI equivalent is \f[I]When the host is too slow\f[R] under
 .TP
 \f[B]\-\-joy1\-source\f[R] \f[I]SRC\f[R]
 Host source for Joy 1 (port 0x1F): \f[CR]sdl\f[R] (autodetected gamepad,
-default) or \f[CR]keys\f[R] (host arrow keys, Space = fire).
+default), \f[CR]keys\f[R] (host arrow keys, Space = fire) or
+\f[CR]none\f[R] (nothing drives it).
 .TP
 \f[B]\-\-joy2\-source\f[R] \f[I]SRC\f[R]
-Host source for Joy 2 (port 0x37): \f[CR]sdl\f[R] (default) or
-\f[CR]keys\f[R].
+Host source for Joy 2 (port 0x37): \f[CR]sdl\f[R] (default),
+\f[CR]keys\f[R] or \f[CR]none\f[R].
 Only one connector may use \f[CR]keys\f[R].
+Interactive (SDL/Qt) frontends only; inert under \f[B]\-\-headless\f[R].
+.TP
+\f[B]\-\-joy1\-device\f[R] \f[I]ID\f[R]
+Physical controller for Joy 1 (port 0x1F), by the id jnext logs when it
+connects it (\f[CR]Joystick 1 connected: \(aqname\(aq [id]\f[R]): 32 hex
+digits, optionally followed by \f[CR]#N\f[R] to tell identical pads
+apart.
+Used while the connector\(cqs source is \f[CR]sdl\f[R]; if that
+controller is not connected, jnext logs it and uses the first free one.
+Wins over the saved choice for this run.
+.TP
+\f[B]\-\-joy2\-device\f[R] \f[I]ID\f[R]
+Physical controller for Joy 2 (port 0x37); same form as
+\f[B]\-\-joy1\-device\f[R].
+The two connectors cannot name the same controller.
 Interactive (SDL/Qt) frontends only; inert under \f[B]\-\-headless\f[R].
 .TP
 \f[B]\-\-joy\-uart\-rx\f[R] \f[I]FILE\f[R]
@@ -1891,8 +1907,9 @@ tools/get\-function\-heatmap.pl \-m game.map game.dat
 .EE
 .SH THE GUI
 The Qt6 build gives a native window with menus, a toolbar and a status
-bar (FPS, CPU speed, emulator speed, tape status, machine type), Hi\-DPI
-pixel\-perfect rendering at integer scale, and a CRT scanline filter.
+bar (FPS, CPU speed, emulator speed, tape status, machine type, and a
+Paused indicator while the machine is paused), Hi\-DPI pixel\-perfect
+rendering at integer scale, and a CRT scanline filter.
 .PP
 Menu shortcuts use \f[B]Alt\f[R], never plain \f[B]Ctrl\f[R]: Ctrl is
 the Spectrum\(cqs Symbol Shift, so a Ctrl shortcut would eat a key the
@@ -1926,15 +1943,20 @@ re\-running the boot chain; does nothing while the firmware still holds
 config mode.
 After a direct \f[B]\-\-load\f[R] it resets into 48K BASIC and discards
 the loaded program, because that boot never ran the firmware and so has
-no NextZXOS to return to \- use Power Reset there), Machine Type (48K /
-128K / +3 / Next), CPU Speed (3.5 / 7 / 14 / 28 MHz \- the Next\(cqs own
-clock), Emulator Speed (0.5x / 1x / 2x / 4x / custom % \- the host\-side
-throttle).
+no NextZXOS to return to \- use Power Reset there), Pause (Alt+U \-
+freeze or resume the machine where it is, without opening the debugger;
+the sound goes quiet, a \f[B]Paused\f[R] cell appears in the status bar,
+and a Power Reset or a load made while paused stays paused), Machine
+Type (48K / 128K / +3 / Next), CPU Speed (3.5 / 7 / 14 / 28 MHz \- the
+Next\(cqs own clock), Emulator Speed (0.5x / 1x / 2x / 4x / custom % \-
+the host\-side throttle).
 .TP
 \f[B]Input\f[R]
 Joy 1 Source (port 0x1F) and Joy 2 Source (port 0x37), each selecting
-what drives that connector; Capture Mouse, which confines the host
-pointer so the Kempston mouse can move freely (Ctrl+Alt releases it).
+what drives that connector: Automatic (the first free controller), any
+connected controller by name, Cursor Keys + Space, or None; Capture
+Mouse, which confines the host pointer so the Kempston mouse can move
+freely (Ctrl+Alt releases it; Alt+Cmd on macOS).
 .TP
 \f[B]Tape\f[R]
 Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle); Start
@@ -1960,9 +1982,9 @@ always take precedence over them.
 \f[B]Help\f[R]
 About.
 .PP
-The toolbar has Power Reset, Soft Reset, Load, Screenshot, an NMI button
-(Multiface NMI) and, in a debugger\-enabled build, a bug button that
-opens the debugger.
+The toolbar has Power Reset, Soft Reset, Pause, Load, Screenshot, an NMI
+button (Multiface NMI) and, in a debugger\-enabled build, a bug button
+that opens the debugger.
 .PP
 CPU Speed and Emulator Speed are different things: the first changes the
 clock the emulated Z80 runs at, which is a real Next feature; the second
@@ -2104,6 +2126,7 @@ T}
 Shift is Caps Shift and Ctrl is Symbol Shift, matching a real Spectrum
 Next with a PC keyboard attached.
 Earlier releases had the two swapped.
+In the Qt GUI on a Mac, Cmd does what this section says of Ctrl.
 .PP
 Holding Shift while pressing a digit or one of the symbol keys above
 reaches the guest as Caps Shift plus that key: Shift+1 is Edit, Shift+0
@@ -2140,8 +2163,8 @@ and stop video recording), and function keys have no Spectrum meaning to
 lose.
 .PP
 Alt is the opposite: it is a host modifier, never a Spectrum key.
-jnext claims Alt + Q/O/S/K/R/T/D/P and Alt+Shift+S (menu shortcuts), Alt
-+ F/M/I/A/B/V/N/H (menu bar) and Alt + 1 to Alt + 8 (the script host
+jnext claims Alt + Q/O/S/K/R/T/D/P/U and Alt+Shift+S (menu shortcuts),
+Alt + F/M/I/A/B/V/N/H (menu bar) and Alt + 1 to Alt + 8 (the script host
 keys), which leaves the guest only Alt + E/G/C (EDIT, GRAPH, CAPS LOCK)
 and Alt + the key left of \f[CR]1\f[R] (INV VIDEO).
 Alt + 1 to Alt + 8 no longer type their digit into the program (earlier
@@ -2150,9 +2173,24 @@ Real Next hardware instead maps Left Alt to EXTEND MODE and Right Alt to
 GRAPH; jnext deliberately does not, following the FUSE/ZEsarUX
 convention that puts EXTEND MODE on Tab.
 .PP
-Up to two USB gamepads are picked up automatically (hot\-plug) and
-mapped to the Next\(cqs two joystick ports; the joystick mode (Kempston
-/ Sinclair / Cursor / MD) follows NextREG 0x05, as on real hardware.
+USB gamepads are picked up automatically (hot\-plug) and mapped to the
+Next\(cqs two joystick ports, the first two controllers to Joy 1 and Joy
+2 in the order they connect; the joystick mode (Kempston / Sinclair /
+Cursor / MD) follows NextREG 0x05, as on real hardware.
+.PP
+To choose which controller drives which port, use \f[B]Input > Joy 1
+Source\f[R] and \f[B]Joy 2 Source\f[R] (or \f[B]Settings > Preferences >
+Input\f[R]): each lists Automatic, every connected controller by name
+(identical models appear as \f[CR]name\f[R] and \f[CR]name #2\f[R]),
+Cursor Keys + Space and None.
+The choice applies at once and is remembered by the controller\(cqs
+identity, so it survives unplugging and restarting; a controller that is
+not connected is shown as \f[CR]name (not connected)\f[R] and the port
+uses the first free controller meanwhile, which jnext logs.
+The same controller cannot drive both ports.
+With two identical pads the numbering holds only while they are
+connected in the same order.
+Unplugging a controller releases any button it held.
 .PP
 Either joystick port can instead be driven by the host cursor keys
 (arrows for direction, Space for fire), which is useful for the many
@@ -2794,11 +2832,28 @@ or \f[CR]none\f[R] to play it straight to the host instead, or
 \f[CR]wav:\f[R]\f[I]FILE\f[R] to record it on its own).
 Changing the release makes the next start offer to download it,
 replacing the installed one.
+The joystick ports are stored under \f[CR][input]\f[R]:
+\f[CR]joy1_source\f[R] and \f[CR]joy2_source\f[R] (\f[CR]sdl\f[R],
+\f[CR]keys\f[R] or \f[CR]none\f[R]), \f[CR]joy1_device\f[R] and
+\f[CR]joy2_device\f[R] (the controller\(cqs id: 32 hex digits,
+optionally \f[CR]#N\f[R]; empty means Automatic) and
+\f[CR]joy1_device_name\f[R] and \f[CR]joy2_device_name\f[R] (the name
+shown while that controller is not connected).
+\f[B]\-\-joy1\-device\f[R] and \f[B]\-\-joy2\-device\f[R] override the
+ids for one run.
+An id that is not valid is ignored, with its name.
 The quick screenshot is stored under \f[CR][screenshot]\f[R] as
 \f[CR]quick_dir\f[R] (empty means \f[CR]\(ti/.jnext/screenshots\f[R])
 and \f[CR]quick_format\f[R] (\f[CR]png\f[R] or \f[CR]scr\f[R]), edited
 under \f[B]Settings > Preferences > Paths\f[R]; an unrecognised format
 keeps the default.
+The debugger window\(cqs layout is stored under \f[CR][debugger]\f[R]:
+\f[CR]size\f[R] (\f[CR]W, H\f[R]), \f[CR]position\f[R] (\f[CR]X, Y\f[R],
+written only while the window is detached) and \f[CR]attached\f[R]
+(\f[CR]true\f[R]/\f[CR]false\f[R]).
+An older \f[CR]\(ti/.jnext/Debugger.conf\f[R] is merged into this
+section once and removed.
+All section names are lowercase.
 CLI options always take precedence over saved values, and headless runs
 never read it.
 .TP

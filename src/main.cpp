@@ -30,6 +30,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -332,6 +333,8 @@ int main(int argc, char* argv[]) {
     // *_set tracks whether the CLI gave a value (for CLI-wins config merge).
     JoySource   joy_source[2]   = { JoySource::Sdl, JoySource::Sdl };
     bool        joy_source_set[2] = { false, false };
+    // GH #311 — --joyN-device: the canonical controller id, empty = not given.
+    std::string joy_device_id[2];
     struct DelayedKeyArg { int delay; std::string key; bool in_frames; };
     std::vector<DelayedKeyArg> delayed_keys;
     struct DelayedNmiArg { int delay; std::string button; bool in_frames; };
@@ -842,12 +845,23 @@ int main(int argc, char* argv[]) {
                 const int idx = (opt->id == cli::OptId::Joy1Source) ? 0 : 1;
                 JoySource src;
                 if (!parse_joy_source(v[0], src)) {
-                    std::fprintf(stderr, "Invalid %s value '%s' (expected 'sdl' or 'keys')\n",
+                    std::fprintf(stderr, "Invalid %s value '%s' (expected 'sdl', 'keys' or 'none')\n",
                                  arg.c_str(), v[0]);
                     return 1;
                 }
                 joy_source[idx]     = src;
                 joy_source_set[idx] = true;
+                break;
+            }
+            case cli::OptId::Joy1Device:
+            case cli::OptId::Joy2Device: {
+                const int idx = (opt->id == cli::OptId::Joy1Device) ? 0 : 1;
+                if (!normalize_joy_device_id(v[0], joy_device_id[idx])) {
+                    std::fprintf(stderr,
+                        "Invalid %s value '%s' (expected the 32-hex-digit controller id "
+                        "jnext logs, optionally followed by #N)\n", arg.c_str(), v[0]);
+                    return 1;
+                }
                 break;
             }
             case cli::OptId::JoyUartRx:
@@ -1366,9 +1380,10 @@ int main(int argc, char* argv[]) {
     // Task 79 — --joyN-source only has an effect in the interactive frontends
     // (SDL / Qt); headless has no host input dispatcher, so warn loudly rather
     // than silently accepting an inert flag.
-    if (headless && (joy_source_set[0] || joy_source_set[1])) {
+    if (headless && (joy_source_set[0] || joy_source_set[1] ||
+                     !joy_device_id[0].empty() || !joy_device_id[1].empty())) {
         std::fprintf(stderr,
-            "warning: --joy1-source/--joy2-source have no effect with --headless "
+            "warning: --joy1-source/--joy2-source/--joy1-device/--joy2-device have no effect with --headless "
             "(no host joystick input in headless mode); ignoring.\n");
     }
 
@@ -1393,6 +1408,12 @@ int main(int argc, char* argv[]) {
         std::fprintf(stderr,
             "error: --joy1-source and --joy2-source cannot both be 'keys' "
             "(the host cursor keys can drive only one connector).\n");
+        return 1;
+    }
+    // GH #311 — one controller drives at most one connector.
+    if (!joy_device_id[0].empty() && joy_device_id[0] == joy_device_id[1]) {
+        std::fprintf(stderr,
+            "error: --joy1-device and --joy2-device cannot name the same controller.\n");
         return 1;
     }
     // ---------------------------------------------------------------------
@@ -1549,6 +1570,8 @@ int main(int argc, char* argv[]) {
         cfg.audio_gain_dac_db      = audio_gain.dac;
         cfg.joy_source[0]          = joy_source[0];   // Task 79 (CLI value)
         cfg.joy_source[1]          = joy_source[1];
+        cfg.joy_device[0].id       = joy_device_id[0];   // GH #311 (CLI value; SDL-only has no config)
+        cfg.joy_device[1].id       = joy_device_id[1];
         cfg.esp_enabled            = esp_enabled;     // GH #25 (CLI value)
         cfg.esp_allowed_hosts      = esp_allow.allowed_hosts;
         // GH #210. No merge and no saved form: an unset flag leaves the
@@ -1604,6 +1627,22 @@ int main(int argc, char* argv[]) {
                                                      gui_app_config.data().joy_source[0]);
             cfg.joy_source[1] = merge_cli_precedence(joy_source_set[1], joy_source[1],
                                                      gui_app_config.data().joy_source[1]);
+            // GH #311 — controller assignment: the CLI wins per connector. The
+            // saved name goes with the id only when the id is the saved one.
+            for (int i = 0; i < 2; ++i) {
+                const std::string saved = gui_app_config.data().joy_device[i].toStdString();
+                if (!joy_device_id[i].empty()) {
+                    cfg.joy_device[i].id   = joy_device_id[i];
+                    cfg.joy_device[i].name = (joy_device_id[i] == saved)
+                        ? gui_app_config.data().joy_device_name[i].toStdString() : std::string();
+                } else {
+                    cfg.joy_device[i].id   = saved;
+                    cfg.joy_device[i].name = gui_app_config.data().joy_device_name[i].toStdString();
+                }
+            }
+            // The CLI id may equal the OTHER connector's saved one: the CLI wins.
+            if (!cfg.joy_device[0].id.empty() && cfg.joy_device[0].id == cfg.joy_device[1].id)
+                cfg.joy_device[joy_device_id[0].empty() ? 0 : 1] = JoyDeviceRef{};
             // The merged pair could disagree with the one-cursor rule (e.g.
             // saved keys on Joy 2 + CLI keys on Joy 1); resolve to CLI intent
             // by keeping the CLI-provided connector and reverting the other.
@@ -2019,8 +2058,12 @@ int main(int argc, char* argv[]) {
     };
 
     int result;
+    // The frontends hold the 1.17 MB Emulator by value; as automatic variables
+    // they were main()'s stack frame, which needed a 16 MB Windows reserve
+    // (GH #308). Heap-allocate them.
     if (headless) {
-        HeadlessApp app;
+        auto app_ptr = std::make_unique<HeadlessApp>();
+        HeadlessApp& app = *app_ptr;
         if (benchmark_frames > 0) {
             // Workload label for the BENCH line: --benchmark-label verbatim
             // when given (bench.sh passes its canonical workload names, so
@@ -2067,11 +2110,11 @@ int main(int argc, char* argv[]) {
         result = configure_and_run(app);
     } else {
 #ifdef ENABLE_QT_UI
-        QtApp app;
-        result = configure_and_run(app);
+        auto app = std::make_unique<QtApp>();
+        result = configure_and_run(*app);
 #else
-        SdlApp app;
-        result = configure_and_run(app);
+        auto app = std::make_unique<SdlApp>();
+        result = configure_and_run(*app);
 #endif
     }
 

@@ -8,15 +8,19 @@ Preferences are stored as plain text in:
 
 It is an INI file, so you can read and edit it with any text editor while
 JNEXT is closed. It lives next to the other things JNEXT keeps per-user, such
-as the downloaded SD-card image in `~/.jnext/sdcard/`. The debugger window
-keeps its own layout separately in `~/.jnext/Debugger.conf`.
+as the downloaded SD-card image in `~/.jnext/sdcard/`. It is the only settings
+file: the debugger window's layout is stored in its `[debugger]` section (`size`
+as `W, H`, `position` as `X, Y` while the window is detached, and `attached`).
+A `~/.jnext/Debugger.conf` left by an older version is merged into that section
+the first time the new version starts, and removed. Section names are
+lowercase, and a value is plain text: no `@Invalid()` or `@ByteArray(...)`.
 
 Deleting the file resets everything to defaults — that is the supported way to
 start over. A missing or corrupt entry falls back to its default rather than
 stopping JNEXT from starting.
 
 The emulated ESP-01 is stored in the `[esp]` section: `enabled` (`true`/`false`)
-and `allowed_hosts` (a comma-separated list). They are the same two settings as
+and `allowed_hosts` (a comma-separated list, empty when no host is allowed). They are the same two settings as
 the Preferences **Network** tab, and the persistent form of `--esp` and
 `--esp-allow`. Whenever `enabled` is true the status bar carries an ESP cell, so
 editing this file cannot put a program on the network without saying so, and
@@ -45,6 +49,15 @@ understand is reported on the console at startup and listed at the top of the
 Preferences **Debugger Keys** tab; the action keeps its default. The spelling
 of the action names and of the key combinations is in
 [6.3.9](../06-debugger/functions/09-changing-the-keys.md).
+
+The joystick connectors are stored in the `[input]` section: `joy1_source` and
+`joy2_source` (`sdl`, `keys` or `none`), `joy1_device` and `joy2_device` (the
+chosen controller's id, 32 hex digits optionally followed by `#N`; empty means
+Automatic) and `joy1_device_name` and `joy2_device_name` (the name the menu
+shows while that controller is not connected). They are the same settings as the
+**Input** menu and the Preferences **Input** tab, and `--joy1-device` /
+`--joy2-device` override the ids for one run. An id that is not valid is ignored
+together with its name, and the connector falls back to Automatic.
 
 The quick screenshot is stored in the `[screenshot]` section: `quick_dir` (an
 empty value means `~/.jnext/screenshots`) and `quick_format`, either `png` or

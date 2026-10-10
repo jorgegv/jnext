@@ -60,6 +60,10 @@
 #include <unistd.h>
 
 #include <SDL3/SDL.h>
+#include <spdlog/sinks/ostream_sink.h>
+#include <memory>
+#include <sstream>
+#include "core/log.h"
 #include "../row_id.h"
 
 // ── Test infrastructure ───────────────────────────────────────────────
@@ -1398,6 +1402,340 @@ static void test_gamepad_host_real_device() {
     SDL_Quit();
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// GH #311 — GamepadHost binds controllers to connectors by policy (GPA-*)
+//
+// No VHDL oracle (host-side input; the FPGA only sees i_JOY_LEFT/RIGHT,
+// zxnext.vhd:3441-3442). Oracles: the issue's acceptance text, the GH #311
+// assignment policy (input/joy_assign.h) and SDL 3.4.16's own answers for
+// GUIDs and instance ids (read back from SDL, not from GamepadHost).
+//
+// Hermetic: GamepadHost::set_virtual_only(true) hides physical controllers
+// (SDL3 has no hint that disables its Linux backends), so a pad plugged into
+// the machine running the suite cannot change what a row sees.
+//
+// Fixture: A1 and A2 are identical gamepad-shaped virtual pads (same GUID),
+// C is a raw (unmapped) stick with another vendor/product. Rows run in
+// sequence on one host; each states the state it starts from.
+// ══════════════════════════════════════════════════════════════════════════
+
+static SDL_JoystickID gpa_attach(const char* name, Uint16 vendor, Uint16 product, bool raw) {
+    SDL_VirtualJoystickDesc desc;
+    SDL_INIT_INTERFACE(&desc);
+    desc.vendor_id  = vendor;
+    desc.product_id = product;
+    desc.name       = name;
+    if (raw) {
+        desc.type     = SDL_JOYSTICK_TYPE_UNKNOWN;
+        desc.naxes    = 2;
+        desc.nbuttons = 2;
+    } else {
+        desc.type     = SDL_JOYSTICK_TYPE_GAMEPAD;
+        desc.naxes    = 6;
+        desc.nbuttons = 11;
+        desc.nhats    = 1;
+        desc.button_mask = (1u << SDL_GAMEPAD_BUTTON_SOUTH) | (1u << SDL_GAMEPAD_BUTTON_EAST) |
+                           (1u << SDL_GAMEPAD_BUTTON_WEST)  | (1u << SDL_GAMEPAD_BUTTON_NORTH) |
+                           (1u << SDL_GAMEPAD_BUTTON_DPAD_UP)   | (1u << SDL_GAMEPAD_BUTTON_DPAD_DOWN) |
+                           (1u << SDL_GAMEPAD_BUTTON_DPAD_LEFT) | (1u << SDL_GAMEPAD_BUTTON_DPAD_RIGHT);
+        desc.axis_mask = (1u << SDL_GAMEPAD_AXIS_LEFTX) | (1u << SDL_GAMEPAD_AXIS_LEFTY);
+    }
+    return SDL_AttachVirtualJoystick(&desc);
+}
+
+static std::string gpa_guid(SDL_JoystickID iid) {
+    char buf[33] = {};
+    SDL_GUIDToString(SDL_GetJoystickGUIDForID(iid), buf, sizeof(buf));
+    return buf;
+}
+
+static void gpa_feed(GamepadHost& host, SDL_EventType t, SDL_JoystickID iid) {
+    SDL_Event e{};
+    e.type = t;
+    e.jdevice.which = iid;
+    host.handle_event(e);
+}
+
+static void test_gh311_gamepad_host() {
+    set_group("GPA");
+    static const char* const ids[] = { "GPA-01", "GPA-02", "GPA-03", "GPA-04", "GPA-05",
+                                       "GPA-06", "GPA-07", "GPA-08", "GPA-09", "GPA-10",
+                                       "GPA-11", "GPA-12", "GPA-13" };
+    if (!SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD)) {
+        for (const char* id : ids) skip(id, "SDL joystick subsystem unavailable on this host");
+        return;
+    }
+    const SDL_JoystickID a1 = gpa_attach("jnext pad A", 0x1234, 0x0001, false);
+    const SDL_JoystickID a2 = gpa_attach("jnext pad A", 0x1234, 0x0001, false);
+    const SDL_JoystickID c  = gpa_attach("jnext stick C", 0x5678, 0x0002, true);
+    if (!a1 || !a2 || !c) {
+        for (const char* id : ids) skip(id, "SDL_AttachVirtualJoystick unavailable");
+        SDL_Quit();
+        return;
+    }
+    GamepadHost::set_virtual_only(true);
+
+    const std::string G  = gpa_guid(a1);
+    const std::string G2 = G + "#2";
+    const std::string H  = gpa_guid(c);
+
+    Joystick joy; joy.reset();
+    GamepadHost host(joy);
+    host.enumerate_existing_devices();
+    auto slot = [&](SDL_JoystickID i) { return host.dispatcher().slot_for_instance(i); };
+
+    {
+        const auto d = host.devices();
+        check("GPA-01", "identical pads share a GUID: ids <guid> and <guid>#2; another model differs",
+              d.size() == 3 && d[0].id == G && d[1].id == G2 && d[2].id == H && H != G &&
+              H.find('#') == std::string::npos && d[0].name == "jnext pad A" &&
+              d[2].name == "jnext stick C",
+              detail("devices=%d", (int)d.size()));
+    }
+    check("GPA-02", "enumerate with nothing assigned: first two on Joy 1/2, the third unbound",
+          slot(a1) == 0 && slot(a2) == 1 && slot(c) == -1 &&
+          host.devices()[2].connector == -1,
+          detail("a1/a2/c=%d", slot(a1) * 100 + slot(a2) * 10 + slot(c)));
+
+    host.set_device(0, JoyDeviceRef{ H, "jnext stick C" });
+    {
+        SDL_Event b{};
+        b.type = SDL_EVENT_JOYSTICK_BUTTON_DOWN;
+        b.jbutton.which = c; b.jbutton.button = 0; b.jbutton.down = true;
+        host.handle_event(b);
+        check("GPA-03", "assigning C to Joy 1 binds it live; A2 keeps Joy 2 (sticky); C's button reaches Joy 1",
+              slot(c) == 0 && slot(a2) == 1 && slot(a1) == -1 &&
+              (host.dispatcher().bits12(0) & 0x010) != 0,
+              detail("c/a2/a1=%d", slot(c) * 100 + slot(a2) * 10 + slot(a1)));
+        b.type = SDL_EVENT_JOYSTICK_BUTTON_UP; b.jbutton.down = false;
+        host.handle_event(b);
+    }
+
+    host.set_device(1, JoyDeviceRef{ G, "jnext pad A" });
+    check("GPA-04", "assigning A1's id to Joy 2 pre-empts A2, which was holding Joy 2",
+          slot(a1) == 1 && slot(a2) == -1 && slot(c) == 0,
+          detail("a1/a2/c=%d", slot(a1) * 100 + slot(a2) * 10 + slot(c)));
+
+    {
+        // Unplug A1 (on Joy 2): Joy 2 is vacated, adopts idle A2. Replug an identical
+        // pad: it gets id <guid> back (smallest free ordinal) and, being what Joy 2
+        // is assigned to, pre-empts A2 again.
+        SDL_DetachVirtualJoystick(a1);
+        gpa_feed(host, SDL_EVENT_JOYSTICK_REMOVED, a1);
+        const bool adopted = slot(a2) == 1;
+        const SDL_JoystickID a3 = gpa_attach("jnext pad A", 0x1234, 0x0001, false);
+        gpa_feed(host, SDL_EVENT_JOYSTICK_ADDED, a3);
+        const auto d = host.devices();
+        bool id_ok = false;
+        for (const auto& x : d) if (x.name == "jnext pad A" && x.id == G && x.connector == 1) id_ok = true;
+        check("GPA-05", "unplug+replug: the vacated connector adopts the idle pad, then the replugged pad (same id) takes it back",
+              adopted && id_ok && slot(a3) == 1 && slot(a2) == -1,
+              detail("a2/a3=%d", slot(a2) * 10 + slot(a3)));
+        SDL_DetachVirtualJoystick(a3);
+        gpa_feed(host, SDL_EVENT_JOYSTICK_REMOVED, a3);
+    }
+    SDL_DetachVirtualJoystick(a2);
+    gpa_feed(host, SDL_EVENT_JOYSTICK_REMOVED, a2);
+    SDL_DetachVirtualJoystick(c);
+    gpa_feed(host, SDL_EVENT_JOYSTICK_REMOVED, c);
+
+    // Fresh fixture for the remaining rows.
+    const SDL_JoystickID p1 = gpa_attach("jnext pad A", 0x1234, 0x0001, false);
+    const SDL_JoystickID p2 = gpa_attach("jnext pad A", 0x1234, 0x0001, false);
+    {
+        Joystick j2; j2.reset();
+        GamepadHost h2(j2);
+        h2.set_device(0, JoyDeviceRef{ "ffffffffffffffffffffffffffffffff", "Gone" });
+        h2.enumerate_existing_devices();
+        check("GPA-06", "an assigned id that is not present falls back to the first free controller",
+              h2.dispatcher().slot_for_instance(p1) == 0 && h2.dispatcher().slot_for_instance(p2) == 1,
+              detail("p1=%d", h2.dispatcher().slot_for_instance(p1)));
+    }
+    {
+        // Defect 1: unplugging a pad while a button is held left the button held.
+        Joystick j3; j3.reset();
+        GamepadHost h3(j3);
+        h3.enumerate_existing_devices();
+        SDL_Event b{};
+        b.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+        b.gbutton.which = p1; b.gbutton.button = SDL_GAMEPAD_BUTTON_SOUTH; b.gbutton.down = true;
+        h3.handle_event(b);
+        const bool held = (j3.joy_left_bits() & 0x010) != 0;
+        SDL_DetachVirtualJoystick(p1);
+        gpa_feed(h3, SDL_EVENT_JOYSTICK_REMOVED, p1);
+        check("GPA-07", "unplugging a pad with a button held releases the connector",
+              held && h3.dispatcher().bits12(0) == 0 && j3.joy_left_bits() == 0,
+              detail("bits=%d", j3.joy_left_bits()));
+    }
+    {
+        // Defect 2: a live source switch back to Sdl did not adopt a waiting pad.
+        Joystick j4; j4.reset();
+        GamepadHost h4(j4);
+        h4.set_source(0, JoySource::None);
+        h4.set_source(1, JoySource::None);
+        h4.enumerate_existing_devices();
+        const bool none_bound = h4.dispatcher().slot_for_instance(p2) == -1;
+        h4.set_source(1, JoySource::Sdl);
+        check("GPA-08", "switching a connector back to Sdl adopts a pad that is already plugged in",
+              none_bound && h4.dispatcher().slot_for_instance(p2) == 1,
+              detail("slot=%d", h4.dispatcher().slot_for_instance(p2)));
+    }
+    {
+        // GPA-09 (rest): the device-list callback fires on arrival and removal, not on input.
+        Joystick j5; j5.reset();
+        GamepadHost h5(j5);
+        int n = 0;
+        h5.on_devices_changed = [&] { ++n; };
+        h5.enumerate_existing_devices();
+        const int after_enum = n;
+        SDL_Event b{};
+        b.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+        b.gbutton.which = p2; b.gbutton.button = SDL_GAMEPAD_BUTTON_SOUTH; b.gbutton.down = true;
+        h5.handle_event(b);
+        const int after_btn = n;
+        const SDL_JoystickID p3 = gpa_attach("jnext stick C", 0x5678, 0x0002, true);
+        gpa_feed(h5, SDL_EVENT_JOYSTICK_ADDED, p3);
+        const int after_add = n;
+        SDL_DetachVirtualJoystick(p3);
+        gpa_feed(h5, SDL_EVENT_JOYSTICK_REMOVED, p3);
+        check("GPA-09", "on_devices_changed fires once per enumerate/arrival/removal and not on a button",
+              after_enum == 1 && after_btn == 1 && after_add == 2 && n == 3,
+              detail("counts=%d", n));
+    }
+    {
+        // Leaving Sdl lets go of the pad; the other connector keeps its own (sticky).
+        const SDL_JoystickID p4 = gpa_attach("jnext pad A", 0x1234, 0x0001, false);
+        Joystick j6; j6.reset();
+        GamepadHost h6(j6);
+        h6.enumerate_existing_devices();
+        const bool before = h6.dispatcher().slot_for_instance(p2) == 0 &&
+                            h6.dispatcher().slot_for_instance(p4) == 1;
+        h6.set_source(0, JoySource::None);
+        check("GPA-10", "switching a connector to None unbinds its pad and leaves the other connector alone",
+              before && h6.dispatcher().instance_for_slot(0) == 0 &&
+              h6.dispatcher().slot_for_instance(p2) == -1 &&
+              h6.dispatcher().slot_for_instance(p4) == 1,
+              detail("p2=%d", h6.dispatcher().slot_for_instance(p2)));
+        SDL_DetachVirtualJoystick(p4);
+    }
+    SDL_DetachVirtualJoystick(p2);
+    {
+        // A cold boot rebuilds the host while SDL and its pads carry on. Two
+        // identical pads, Joy 1 assigned to the second ("#2"); the first is
+        // replugged (it gets "<guid>" back), then the host is rebuilt: the
+        // assignment must stay on the SAME physical pad, i.e. the ids must not
+        // be renumbered in arrival order.
+        const SDL_JoystickID qa = gpa_attach("jnext pad A", 0x1234, 0x0001, false);
+        const SDL_JoystickID qb = gpa_attach("jnext pad A", 0x1234, 0x0001, false);
+        const std::string Q = gpa_guid(qa);
+        SDL_JoystickID qa2 = 0;
+        bool before = false, after = false, ids_ok = false;
+        {
+            Joystick jq; jq.reset();
+            GamepadHost h(jq);
+            h.set_device(0, JoyDeviceRef{ Q + "#2", "jnext pad A" });
+            h.enumerate_existing_devices();
+            before = h.dispatcher().slot_for_instance(qb) == 0;
+            SDL_DetachVirtualJoystick(qa);
+            gpa_feed(h, SDL_EVENT_JOYSTICK_REMOVED, qa);
+            qa2 = gpa_attach("jnext pad A", 0x1234, 0x0001, false);
+            gpa_feed(h, SDL_EVENT_JOYSTICK_ADDED, qa2);
+        }
+        {
+            Joystick jq; jq.reset();
+            GamepadHost h(jq);   // the rebuilt host
+            h.set_device(0, JoyDeviceRef{ Q + "#2", "jnext pad A" });
+            h.enumerate_existing_devices();
+            after = h.dispatcher().slot_for_instance(qb) == 0;
+            const auto d = h.devices();
+            ids_ok = d.size() == 2 && d[0].id == Q + "#2" && d[1].id == Q;   // qb, qa2 in iid order
+        }
+        check("GPA-11", "after a replug and a host rebuild (cold boot) the assignment stays on the same physical pad, ids unchanged",
+              before && after && ids_ok, detail("after=%d", after));
+        SDL_DetachVirtualJoystick(qb);
+        SDL_DetachVirtualJoystick(qa2);
+    }
+    {
+        // Two identical pads, Joy 2 assigned the second ("#2"). The first is
+        // unplugged and NOT replugged; a cold boot rebuilds the host. The
+        // remaining pad must keep "#2" and its connector, not become "<guid>"
+        // and slide to Joy 1 (which would drop Joy 2 into fallback).
+        const SDL_JoystickID ra = gpa_attach("jnext pad A", 0x1234, 0x0001, false);
+        const SDL_JoystickID rb = gpa_attach("jnext pad A", 0x1234, 0x0001, false);
+        const std::string R = gpa_guid(ra);
+        {
+            Joystick jr; jr.reset();
+            GamepadHost h(jr);
+            h.set_device(1, JoyDeviceRef{ R + "#2", "jnext pad A" });
+            h.enumerate_existing_devices();
+            SDL_DetachVirtualJoystick(ra);
+            gpa_feed(h, SDL_EVENT_JOYSTICK_REMOVED, ra);
+        }
+        Joystick jr2; jr2.reset();
+        GamepadHost h2(jr2);   // the rebuilt host
+        h2.set_device(1, JoyDeviceRef{ R + "#2", "jnext pad A" });
+        h2.enumerate_existing_devices();
+        const auto d = h2.devices();
+        check("GPA-13", "a lone remaining pad keeps its '#2' id and Joy 2 across a host rebuild",
+              d.size() == 1 && d[0].id == R + "#2" && d[0].connector == 1 &&
+              h2.dispatcher().slot_for_instance(rb) == 1,
+              detail("slot=%d", h2.dispatcher().slot_for_instance(rb)));
+        SDL_DetachVirtualJoystick(rb);
+    }
+    {
+        // The fallback line is logged when a connector ENTERS fallback, and
+        // re-armed by a match or a new assignment; a re-resolve that changes
+        // nothing is silent.
+        const SDL_JoystickID fa = gpa_attach("jnext pad A", 0x1234, 0x0001, false);
+        const std::string F = gpa_guid(fa);
+        std::ostringstream cap;
+        auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(cap);
+        sink->set_pattern("%v");
+        Log::input()->sinks().push_back(sink);
+        auto lines = [&] {
+            size_t n = 0;
+            const std::string t = cap.str();
+            for (size_t p = t.find("is not connected; using the first free controller"); p != std::string::npos;
+                 p = t.find("is not connected; using the first free controller", p + 1)) ++n;
+            return n;
+        };
+        Joystick jf; jf.reset();
+        GamepadHost h(jf);
+        const std::string gone1(32, 'e'), gone2(32, 'd');
+        h.set_device(0, JoyDeviceRef{ gone1, "Gone" });
+        h.enumerate_existing_devices();
+        const size_t first = lines();
+        SDL_Event b{};
+        b.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+        b.gbutton.which = fa; b.gbutton.button = SDL_GAMEPAD_BUTTON_SOUTH; b.gbutton.down = true;
+        h.handle_event(b);
+        h.set_source(0, JoySource::Sdl);          // unchanged source: re-resolve, no new entry
+        const size_t quiet = lines();
+        h.set_device(0, JoyDeviceRef{ gone2, "Gone 2" });   // a new absent assignment
+        const size_t after_new = lines();
+        // Assign the id a second identical pad WILL get, so it is absent now (logs),
+        // matches when the pad arrives (silent), and re-enters fallback when it leaves.
+        h.set_device(0, JoyDeviceRef{ F + "#2", "jnext pad A" });
+        const size_t absent_again = lines();
+        const SDL_JoystickID fb = gpa_attach("jnext pad A", 0x1234, 0x0001, false);
+        gpa_feed(h, SDL_EVENT_JOYSTICK_ADDED, fb);
+        const size_t on_match = lines();
+        SDL_DetachVirtualJoystick(fb);
+        gpa_feed(h, SDL_EVENT_JOYSTICK_REMOVED, fb);
+        const size_t after_match = lines();
+        Log::input()->sinks().pop_back();
+        check("GPA-12", "fallback line: once on entry, silent on a no-change re-resolve, again after a new assignment and after a match",
+              first == 1 && quiet == 1 && after_new == 2 && absent_again == 3 &&
+              on_match == 3 && after_match == 4,
+              detail("first=%d", (int)first) + detail(" quiet=%d", (int)quiet) +
+              detail(" new=%d", (int)after_new) + detail(" abs=%d", (int)absent_again) +
+              detail(" onmatch=%d", (int)on_match) + detail(" match=%d", (int)after_match));
+        SDL_DetachVirtualJoystick(fa);
+    }
+    GamepadHost::set_virtual_only(false);
+    SDL_Quit();
+}
+
 int main() {
     std::printf("Input Subsystem Integration Tests (port 0xFE assembly)\n");
     std::printf("======================================================\n\n");
@@ -1432,6 +1770,9 @@ int main() {
 
     test_gamepad_host_real_device();
     std::printf("  Group: GPH     — done\n");
+
+    test_gh311_gamepad_host();
+    std::printf("  Group: GPA     — done\n");
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

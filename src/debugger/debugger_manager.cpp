@@ -639,7 +639,8 @@ void DebuggerManager::check_breakpoint_hit() {
     // GH #278 WP2 — the pause state is the BACKEND'S (CTL-13 `state()`), pulled
     // here once per tick, after the loop owner's pump (qt-frontend.md §4 as
     // built: no pause epoch exists, and a pull needs none — see there).
-    const bool paused = dbg_.state().paused;
+    const jnext::dbg::RunState st = dbg_.state();
+    const bool paused = st.paused;
 
     // Auto-enable debugger when a magic breakpoint (or other external trigger)
     // pauses the emulator while the debugger window is not yet open.
@@ -649,9 +650,15 @@ void DebuggerManager::check_breakpoint_hit() {
     // forces it open on the hit. set_enabled(true) show()s, raise()s and
     // activateWindow()s, so no GUI call is needed anywhere in the core.
     // Pinned by debugger_persistent_bp_test PBPUI-02. Owner Q5: another
-    // client's pause opens it too (PBPUI-08) — the window never asks whose
-    // pause it is.
-    if (!enabled_ && paused) {
+    // client's pause opens it too (PBPUI-08). The ONE exception is GH #306: a
+    // pause made by the emulator window's own Pause control (matched by client
+    // id, so another Gui/observer client still opens it) is exactly what that
+    // control exists to do WITHOUT the debugger window.
+    const bool own_pause =
+        st.pause_reason.kind == jnext::dbg::PauseReason::Kind::User &&
+        emulator_window_pause_client_ != jnext::dbg::CLIENT_NONE &&
+        st.pause_reason.by == emulator_window_pause_client_;
+    if (!enabled_ && paused && !own_pause) {
         set_enabled(true);
     }
 

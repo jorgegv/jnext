@@ -164,15 +164,27 @@ from `--machine`. `MachineTimingMode` (`Timing48`, `Timing128`, `TimingPlus3`,
 **Pentagon is a timing mode only** — there is no Pentagon `MachineType` and no
 `--machine pentagon`; guest software reaches it by writing NR 0x03.
 
-`AttributeMux` models the mid-line attribute-write multiplexing that
-Nirvana-class multicolour routines depend on, tagged with the raw frame
-`(hc, vc)` at the instant the byte lands on the bus. A CPU write states that
-position for its one write: `fuse_z80_writebyte` calls
-`Mmu::attr_mux_set_write_pos()` before the write and `attr_mux_end_write()`
-after it. Every other writer — the DMA, the tape traps, the debugger's `poke` —
-is tagged with the line `Emulator::on_scanline()` last set, at column 0. Until
-GH #278 the CPU's position outlived its write, and the next non-CPU attribute
-write took it over (`mmu_integration_test` G12-TAG). `Mmu` separately keeps the
+`AttributeMux` replays, at beam time, every byte the ULA fetches from VRAM: the
+pixel planes and the attribute plane of bank 5 (pages 0x0A and 0x0B, the second
+holding the Timex alt screen and second plane) and of the bank-7 shadow screen
+(page 0x0E), offsets 0x0000-0x1AFF of each. The ULA fetches a pixel byte and an
+attribute byte per column on every scanline (`zxula.vhd:270-303`), so a write
+is seen by the first fetch after it, whichever plane it hit. Each write is
+tagged with the raw frame `(hc, vc)` at the instant the byte lands on the bus —
+a position on the master clock, so it is the same at 3.5, 7, 14 and 28 MHz
+(`derive_hc_vc` scales the CPU T-state counter by the divisor
+`rebase_fuse_tstates_()` publishes). A CPU write states that position for its
+one write: `fuse_z80_writebyte` calls `Mmu::attr_mux_set_write_pos()` before the
+write and `attr_mux_end_write()` after it. Every other writer — the DMA, the
+tape traps, the debugger's `poke` — is tagged with the line
+`Emulator::on_scanline()` last set, at column 0. The log is growable (no write is
+dropped) and per-frame work is proportional to the number of writes. The fetch
+instants are tabulated in `attribute_mux.h`: pixel and attribute of a display
+slot differ by two ticks, the slot's parity moves both, and the bytes a fine
+X scroll shifts in come from a separate, later "secondary" fetch. Until GH #278
+the CPU's position outlived its write, and the next non-CPU attribute write
+took it over (`mmu_integration_test` G12-TAG).
+`Mmu` separately keeps the
 +3 floating-bus latch `p3_floating_bus_dat_`, updated on every read that
 `mem_contend_for_(addr)` says is contended — a per-page decode, not the older
 per-16 KB mirror.
