@@ -284,6 +284,42 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
         hcheck("HFS-16", "'COM1.TXT' is reserved too — the stem is what counts",
                hfs.stat("COM1.TXT", st) == EsxdosHostFs::kEacces);
 
+        // HFS-123..127 -- a ':' inside a path component is esx_einval ($07) from
+        // every call that takes a path. ORACLE: MEASURED under the real NextZXOS
+        // (distro 24.11 SD image, a probe .nex run through `.nexload`; GH #214):
+        // 'dot/a:x' -> A=$07 with carry set from F_STAT, F_OPENDIR, F_CHDIR,
+        // F_OPEN read and F_OPEN create, while 'dot/nosuch' -> $05. Before the
+        // measured answer the host answered $05 here ('/sub/a:x' simply did not
+        // exist) and, on Windows, $08; the missing-entry answer is the control.
+        {
+            uint8_t h = 0;
+            hcheck("HFS-123", "F_STAT of 'sub/a:x' is esx_einval, not the missing-file answer",
+                   hfs.stat("sub/a:x", st) == EsxdosHostFs::kEinval &&
+                       hfs.stat("sub/nosuch", st) == EsxdosHostFs::kEnoent,
+                   "colon=" + hex2(hfs.stat("sub/a:x", st)));
+            hcheck("HFS-124", "F_OPENDIR of 'sub/a:x' is esx_einval",
+                   hfs.opendir("sub/a:x", EsxdosHostFs::kDirLfnOnly, h) == EsxdosHostFs::kEinval);
+            hcheck("HFS-125", "F_CHDIR to 'sub/a:x' is esx_einval",
+                   hfs.chdir("sub/a:x") == EsxdosHostFs::kEinval);
+            hcheck("HFS-126", "F_OPEN (read) of 'sub/a:x' is esx_einval",
+                   hfs.open("sub/a:x", EsxdosHostFs::kModeRead, h) == EsxdosHostFs::kEinval);
+            EsxdosHostFs rw;
+            std::string rw_why;
+            const bool rw_ok = rw.configure(root.string(), true, rw_why);
+            hcheck("HFS-127", "F_OPEN (create) of 'sub/a:x' on a writable root is esx_einval, and creates nothing",
+                   rw_ok &&
+                       rw.open("sub/a:x", EsxdosHostFs::kModeWrite | EsxdosHostFs::kModeCreatNoExist, h) ==
+                           EsxdosHostFs::kEinval &&
+                       [&] {
+                           std::error_code lec;
+                           for (const auto& e : fs::directory_iterator(root / "sub", lec))
+                               if (e.path().filename().string().find(':') != std::string::npos)
+                                   return false;
+                           return true;
+                       }(),
+                   rw_why);
+        }
+
         hcheck("HFS-93",
                "'\\\\' separates components as well as '/', because the guest "
                "writes FAT paths where a backslash cannot be part of a name",

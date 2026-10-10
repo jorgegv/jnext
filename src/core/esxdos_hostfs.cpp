@@ -297,13 +297,16 @@ uint8_t EsxdosHostFs::resolve(const std::string& guest_path, fs::path& out,
         if (part.size() > 255) return kEinval;
         if (reserved_device_name(part)) return kEacces;
         // A ':' inside a component (the drive qualifier was stripped above)
-        // cannot be part of a FAT name: it ends the directory part, so what
-        // precedes it names a directory that is not there (NextZXOS, measured
-        // with 'T/a:x' -- test HFS-122). Answered here, the same on every host:
-        // left to the host walk, Windows reads "a:x" as a drive-relative path,
-        // `root / "a:x"` REPLACES the root, and contained() then refused it
-        // with esx_eacces instead of the missing-directory answer.
-        if (part.find(':') != std::string::npos) return kEnotdir;
+        // cannot be part of a FAT name, and NextZXOS refuses it with esx_einval
+        // ($07): MEASURED (GH #214) by running a probe .nex under the real
+        // NextZXOS booted from the distro 24.11 SD image, `dot/a:x` -> A=$07 with
+        // carry set from F_STAT, F_OPENDIR, F_CHDIR, F_OPEN (read) and F_OPEN
+        // (create), against $05 for the missing `dot/nosuch`. Answered here, the
+        // same on every host: left to the host walk a Linux directory simply
+        // lacks the entry ($05 for a last component, $11 for one before it), and
+        // Windows reads "a:x" as a drive-relative path, `root / "a:x"` REPLACES
+        // the root, and contained() then refused it with esx_eacces.
+        if (part.find(':') != std::string::npos) return kEinval;
         comps.push_back(part);
     }
 
@@ -925,6 +928,13 @@ uint8_t EsxdosHostFs::getcwd_of(const std::string& filespec,
     const std::size_t cut = filespec.find_last_of("/\\:");
     std::string dir = cut == std::string::npos ? std::string()
                                                : filespec.substr(0, cut + 1);
+    // A ':' that ends the directory part is the separator, not a character of the
+    // name before it: 'T/a:x' asks for the directory 'T/a'. (A bare drive
+    // qualifier, "C:", is two characters and is left to resolve().) resolve()
+    // refuses a ':' inside a component with esx_einval, which is the answer for
+    // the calls NextZXOS was measured on; F_GETCWD A=$FF answered 'T/a:x' like a
+    // missing directory (HFS-122), so it must not reach that rule.
+    if (dir.size() > 2 && dir.back() == ':') dir.pop_back();
     if (dir.empty()) dir = ".";
     fs::path host;
     std::vector<std::string> comps;
