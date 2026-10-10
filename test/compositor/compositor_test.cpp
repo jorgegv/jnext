@@ -650,9 +650,9 @@ static void test_TR() {
 
     // TR-34 (GH #304): TR-19's sweep for Layer 2, `layer2_rgb_2(8 downto 1) =
     //        transparent_rgb_2` (VHDL zxnext.vhd:7121), on palette-producible
-    //        colours with a fallback no palette can produce. TR-30 uses one
-    //        word for both stimulus and fallback, so it cannot tell the two
-    //        outcomes apart; this row can.
+    //        colours with a fallback no palette can produce, so a transparent
+    //        Layer 2 pixel (fallback) and an opaque one (the colour itself)
+    //        are told apart.
     {
         const uint32_t fb = 0xFF010203u;
         int bad = 0, first_v = -1, cases = 0;
