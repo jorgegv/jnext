@@ -855,8 +855,8 @@ private:
     bool    ula_fine_scroll_x_   = false; ///< NR 0x68 bit 2 (zxula.vhd:199)
     uint8_t ulanext_format_      = 0x07;  ///< NR 0x42, VHDL reset X"07" (zxnext.vhd:5002)
     bool    ulanext_en_          = false; ///< NR 0x43 bit 0 (zxnext.vhd:5394)
-    /// NR $4A fallback expanded RRRGGGBB→ARGB (Renderer::rrrgggbb_to_argb
-    /// convention), consumed when `ula_select_bgnd` is asserted
+    /// NR $4A fallback expanded to its 9-bit colour (Renderer::fallback_to_argb),
+    /// consumed when `ula_select_bgnd` is asserted
     /// (zxnext.vhd:6986-6991). Default = expansion of the NR $4A reset
     /// value X"E3" (zxnext.vhd:5014); refreshed per row by render_row.
     uint32_t select_bgnd_argb_   = 0xFFFF00FFu;
