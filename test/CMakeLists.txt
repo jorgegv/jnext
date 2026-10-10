@@ -353,14 +353,26 @@ add_test(NAME sd_rom_extractor_tests
 # (extract_sd_rom), the long-name reader (fat32_read_tree) and FatFs itself,
 # which the test drives directly to build its own small fixture images.
 #
-# POSIX-only (GH #214; `# os: posix` in unit-tests.conf): its tree rows build
-# symlink, FIFO, /dev/null and chmod-0 fixtures woven through the suite's shared
-# scratch tree, none of which Windows -- or wine -- provides.
+# GH #214: the rows whose fixtures need POSIX (symlinks, FIFOs, /dev/null, chmod 0)
+# live in sdcard_file_add_posix_test (`# os: posix`), and the one row that needs a
+# case-sensitive host filesystem in sdcard_file_add_linux_test (`# os: linux`);
+# everything else runs on every OS here. The fixture helpers are shared through
+# sdcard_file_add/sdcard_file_add_helpers.h.
+add_executable(sdcard_file_add_test sdcard_file_add/sdcard_file_add_test.cpp)
+target_link_libraries(sdcard_file_add_test PRIVATE jnext_core)
+target_include_directories(sdcard_file_add_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME sdcard_file_add_tests COMMAND sdcard_file_add_test)
 if(NOT WIN32)
-    add_executable(sdcard_file_add_test sdcard_file_add/sdcard_file_add_test.cpp)
-    target_link_libraries(sdcard_file_add_test PRIVATE jnext_core)
-    target_include_directories(sdcard_file_add_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-    add_test(NAME sdcard_file_add_tests COMMAND sdcard_file_add_test)
+    add_executable(sdcard_file_add_posix_test sdcard_file_add/sdcard_file_add_posix_test.cpp)
+    target_link_libraries(sdcard_file_add_posix_test PRIVATE jnext_core)
+    target_include_directories(sdcard_file_add_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_file_add_posix_tests COMMAND sdcard_file_add_posix_test)
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(sdcard_file_add_linux_test sdcard_file_add/sdcard_file_add_linux_test.cpp)
+    target_link_libraries(sdcard_file_add_linux_test PRIVATE jnext_core)
+    target_include_directories(sdcard_file_add_linux_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_file_add_linux_tests COMMAND sdcard_file_add_linux_test)
 endif()
 
 # FAT32 image read/write + geometry test (Task 27)

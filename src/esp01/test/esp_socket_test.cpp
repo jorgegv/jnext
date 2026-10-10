@@ -98,14 +98,17 @@ static void report_row_id(const char* id) {
     std::fflush(out);   // nothing buffered across the SIG rows' fork()
 }
 
-static void check(const char* id, const std::string& desc, bool cond) {
+static void check(const char* id, const std::string& desc, bool cond,
+                  const std::string& detail = {}) {
     report_row_id(id);
     ++g_total;
     if (cond) {
         ++g_pass;
     } else {
         ++g_fail;
-        std::printf("  FAIL %s: %s\n", id, desc.c_str());
+        std::printf("  FAIL %s: %s", id, desc.c_str());
+        if (!detail.empty()) std::printf(" [%s]", detail.c_str());
+        std::printf("\n");
     }
 }
 
@@ -1389,7 +1392,18 @@ int main() {
                   "the run carries no error line at all",
                   drained && ended &&
                       level_of(served, "RESET by the peer") == LogLevel::Warn &&
-                      !has_level(served, LogLevel::Error));
+                      !has_level(served, LogLevel::Error),
+                  // Sub-conditions, so a failure under load says WHICH one (GH #214:
+                  // it failed once under wine with no detail to read).
+                  "drained=" + std::to_string(drained) + " ended=" + std::to_string(ended) +
+                      " reset_level=" + std::to_string(static_cast<int>(level_of(served, "RESET by the peer"))) +
+                      " error_logged=" + std::to_string(has_level(served, LogLevel::Error)) +
+                      " log=" + [&] {
+                          std::string all;
+                          for (const auto& e : served)
+                              all += "{" + std::to_string(static_cast<int>(e.first)) + ":" + e.second + "}";
+                          return all;
+                      }());
 
             // (b) THE GUARD. A peer that resets having served NOTHING is a
             //     failed exchange on any reading — a rejecting server, a crash
