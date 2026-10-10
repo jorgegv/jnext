@@ -584,7 +584,11 @@ def cpu_seconds(pid):
         t = subprocess.run(["ps", "-o", "time=", "-p", str(pid)], capture_output=True, text=True,
                            env={"LANG": "C", "PATH": os.environ.get("PATH", "")}).stdout.strip()
         if not t:
-            raise   # the process is gone (Linux: /proc entry vanished)
+            # The process is gone (Linux: /proc entry vanished) or ps cannot tell.
+            seen = subprocess.run(["ps", "-A", "-o", "pid,ppid,stat,time,comm"], capture_output=True,
+                                  text=True, env={"LANG": "C", "PATH": os.environ.get("PATH", "")}).stdout
+            mine = [l.strip() for l in seen.splitlines() if "jnext" in l or "timeout" in l or str(pid) in l]
+            raise RuntimeError("no CPU time for pid %d; ps sees: %s" % (pid, " | ".join(mine)))
         days = 0
         if "-" in t:
             d, t = t.split("-", 1)

@@ -631,6 +631,10 @@ for func_name in "${RUN_FUNC[@]}"; do
     fi
 done
 run_func_phase "parallel" "$PAR_LANES" "${PAR_ROWS[@]+"${PAR_ROWS[@]}"}"
+# A platform run's host may be small (the macOS runner has 3 CPUs): the quiet
+# rows pace against real time, so they start once the parallel phase's load has
+# died down (bounded; the Linux run keeps its behaviour).
+if $PLATFORM_MODE && [[ ${#QUIET_ROWS[@]} -gt 0 ]]; then wait_for_quiet_host; fi
 run_func_phase "quiet (timing-sensitive)" "$QUIET_LANES" "${QUIET_ROWS[@]+"${QUIET_ROWS[@]}"}"
 run_func_phase "serial tail" 1 "${SERIAL_ROWS[@]+"${SERIAL_ROWS[@]}"}"
 func_phases_end

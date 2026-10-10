@@ -741,6 +741,13 @@ jobs:
       - name: make regression-macos (the regression suite on macOS)
         run: CMAKE_PREFIX_PATH="$(brew --prefix):$(brew --prefix qt@6)" LANG=C make regression-macos
 
+      # The GH #245 rule, as evidence: a timing row that failed under the parallel
+      # phase's load is re-run SOLO on the now idle runner. A pass here says the
+      # failure was load; a fail says it is the platform. Runs only on a red run.
+      - name: Re-run the real-time rows solo (evidence for a red run)
+        if: failure()
+        run: CMAKE_PREFIX_PATH="$(brew --prefix):$(brew --prefix qt@6)" LANG=C make regression-macos ROWS="audio-underrun-func sdl-options-func dzrp-paused-headless-func"
+
       - name: Upload the failing rows' artifacts
         if: failure()
         uses: actions/upload-artifact@v6

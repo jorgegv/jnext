@@ -196,6 +196,17 @@ if want sdcard-file-add-func; then
     rm -rf "$W/back-tree"
     mcopy -s -n -i "$CARD@@$OFF" ::/JNEXTGH292 "$W/back-tree" 2>/dev/null \
         || faults+=("mcopy -s could not read the copied tree back")
+    # GH #319: Homebrew's mtools names a leading-dot file ".dotfile_" when it
+    # extracts to the host (Fedora's keeps ".dotfile"). That is the extractor's
+    # local naming, not what is on the card, so where it happens the card's own
+    # name is asserted from the directory listing (mdir prints on-card names as
+    # stored) and the extracted copy is renamed back for the content diff.
+    if [[ -e "$W/back-tree/.dotfile_" && ! -e "$W/back-tree/.dotfile" ]]; then
+        dot_listing=$(mdir -b -i "$CARD@@$OFF" ::/JNEXTGH292 2>/dev/null || true)
+        grep -qxF "::/JNEXTGH292/.dotfile" <<< "$dot_listing" \
+            || faults+=("the card does not list /JNEXTGH292/.dotfile (mdir -b): ${dot_listing//$'\n'/;}")
+        mv "$W/back-tree/.dotfile_" "$W/back-tree/.dotfile"
+    fi
     diff -r "$T" "$W/back-tree" > "$W/tree-diff.txt" 2>&1 \
         || faults+=("mtools reads back a DIFFERENT tree: $(head -4 "$W/tree-diff.txt" | tr '\n' ';')")
     # A refusal inside a tree leaves nothing behind: the FIFO is found before
