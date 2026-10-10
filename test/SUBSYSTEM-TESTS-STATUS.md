@@ -17,7 +17,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Memory/MMU (int)      |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      349 |      349 |      0 |       0 |    100% | 🟢 All tests pass. |
-| esxDOS stub           |      180 |      180 |      0 |       0 |    100% | 🟢 All tests pass. |
+| esxDOS stub           |      185 |      185 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub (symlinks, POSIX) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input                 |      391 |      391 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input (integration)   |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -38,7 +38,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Multiface (core)      |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card               |       87 |       87 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD File Add (GH #269) |      164 |      164 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD File Add (GH #269) |      150 |      150 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD File Add (POSIX-only rows) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD File Add (case-sensitive host) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |       82 |       82 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Warm start (GH #234)  |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -144,6 +146,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12561**| **12561**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12566**| **12566**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
