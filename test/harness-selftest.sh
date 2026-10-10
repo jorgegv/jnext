@@ -1860,15 +1860,33 @@ done
 # EXPECTED_TOTAL: adding an xdotool-driven xvfb-run script updates it deliberately.
 noreset_files=$(cd "$PROJECT_DIR" && git ls-files 'test/*.sh' 'test/*.inc' 'tools/*.sh' | grep -vx 'test/harness-selftest.sh' \
                 | xargs grep -l xdotool 2>/dev/null || true)
-scanned=0; noreset_off=""
-while read -r f; do
-    [[ -n "$f" ]] || continue
-    [[ -n "$(xvfb_lines <"$PROJECT_DIR/$f")" ]] || continue
-    scanned=$((scanned + 1))
-    noreset_off+=$(xvfb_noreset_offender <"$PROJECT_DIR/$f" | sed "s|^|$f: |")
-done <<<"$noreset_files"
-check "HS-89" "every xvfb-run in an xdotool-driving test script passes -noreset; the matcher's controls and the scanned-file count (GH #318)" 0 0 \
-    "control=$ctl scanned=$scanned offenders=[${noreset_off}]" "control=10000 scanned=6 offenders=[]"
+# noreset_scan <root> <newline-separated files relative to root>
+# sets scan_n (files holding a live xvfb-run line) and scan_off (one offender
+# per line, "file: line"). A function so the same code runs on the tree AND on
+# a fixture: on the tree every file is compliant, so only the fixture proves an
+# offender found in a real file reaches the output.
+noreset_scan() {
+    local root=$1 files=$2 f line
+    scan_n=0; scan_off=""
+    while read -r f; do
+        [[ -n "$f" ]] || continue
+        [[ -n "$(xvfb_lines <"$root/$f")" ]] || continue
+        scan_n=$((scan_n + 1))
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && scan_off+="${scan_off:+$'\n'}$f: $line"
+        done < <(xvfb_noreset_offender <"$root/$f")
+    done <<<"$files"
+}
+noreset_scan "$PROJECT_DIR" "$noreset_files"
+scanned=$scan_n; noreset_off=$scan_off
+# The same scan on a two-file fixture: one compliant file, one offender.
+NR_FIX="$T/noreset-fixture"; mkdir -p "$NR_FIX"
+printf 'xdotool key a\nxvfb-run -d --server-args="-screen 0 1x1x24 -noreset" bash -c x\n' >"$NR_FIX/good.sh"
+printf 'xdotool key a\nxvfb-run -d --server-args="-screen 0 1x1x24" bash -c y\n' >"$NR_FIX/bad.sh"
+noreset_scan "$NR_FIX" $'good.sh\nbad.sh'
+check "HS-89" "every xvfb-run in an xdotool-driving test script passes -noreset; the matcher's controls, the scanned-file count and a fixture offender (GH #318)" 0 0 \
+    "control=$ctl scanned=$scanned offenders=[${noreset_off}] fixture scanned=$scan_n offenders=[${scan_off}]" \
+    "control=10000 scanned=6 offenders=[] fixture scanned=2 offenders=[bad.sh: xvfb-run -d --server-args=\"-screen 0 1x1x24\" bash -c y]"
 
 # ---------------- a nested harness never waits on its ancestor's lock (GH #295) ----------------
 # `make regression-confirm` could not pass harness-selftest-func: the confirm
