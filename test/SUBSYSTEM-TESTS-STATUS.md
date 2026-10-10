@@ -60,7 +60,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (pacing)        |       58 |       58 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (device fill)   |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Audio (capture)       |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Audio (capture)       |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (host gain)     |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (subsystem gains) |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Present cadence       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -146,6 +146,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12575**| **12575**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12578**| **12578**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
