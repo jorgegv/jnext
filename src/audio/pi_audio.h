@@ -27,7 +27,9 @@
 /// Pi is silent). The consumer side absorbs that: it PREBUFFERS `kPrebuffer`
 /// frames before playing, reports an underrun (silence) when the ring runs dry
 /// and prebuffers again, and TRIMS the ring back to `kTarget` frames when it
-/// has built up past `kMaxLatency`, so latency stays bounded.
+/// has built up past `kMaxLatency`, so latency stays bounded. If the ring
+/// overflowed while nothing consumed (a pause longer than the ring), the next
+/// pop flushes it and playback restarts on fresh audio.
 ///
 /// Single producer (the thread), single consumer (the emulator thread).
 /// POSIX only, like the rest of NextPi.
@@ -86,4 +88,5 @@ private:
     std::atomic<uint64_t>   dropped_{0};
     std::atomic<uint64_t>   underruns_{0};
     std::atomic<uint64_t>   eof_reads_{0};
+    std::atomic<bool>       overflowed_{false};   ///< producer dropped a frame: flush on next pop
 };

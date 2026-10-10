@@ -49,7 +49,7 @@ closed end-to-end (Phases 0→4) on 2026-04-24. Summary:
   traceability matrix, and retired four that cannot honestly become a
   `check()` (AY-41, SD-09, MX-30, IO-04 — each struck in place with its
   rationale). The producer MX-30 lacked now exists — NextPi under QEMU,
-  through `audio/pi_audio.*` — and its stream is MX-41, with MX-31..40;
+  through `audio/pi_audio.*` — and its stream is MX-41, with MX-31..40 and MX-42;
   MX-30 stays retired and its ID is not reused (owner, PR #315).
   Writing AY-43 found and fixed a real emulator defect: the
   `ena_div_noise` phase in `src/audio/ay_chip.cpp` read the TOGGLED
@@ -466,6 +466,7 @@ VHDL ref: `audio_mixer.vhd` lines 63-90
 | MX-31  | Pi I2S source: prebuffer and underrun | Nothing plays with 2204 frames in, and 2205 (50 ms) all play; running dry returns silence, counts one underrun, and prebuffers again. Literal numbers, so a changed `kPrebuffer` fails. jnext-only, no VHDL counterpart |
 | MX-32  | Pi I2S source: latency trim | A backlog of 20000 frames is cut to 4410 (100 ms) by dropping the OLDEST; the next frame is number 20000-4410. Literal numbers, so a changed `kTarget` fails. jnext-only, no VHDL counterpart |
 | MX-33  | Pi I2S source: ring full | With nothing popping, 131072 + 1000 frames written: exactly 131072 kept and received, 1000 dropped and counted. Literal numbers, so a changed `kCapacity` fails. jnext-only buffering, no VHDL counterpart |
+| MX-42  | Pi I2S source: a pause longer than the ring | 140000 frames written with nothing popping: the next pop returns silence with `available()` 0 and all 140000 counted dropped (the stale ring flushed); a fresh stream then plays from its own first frame after the prebuffer. jnext-only, no VHDL counterpart |
 | MX-34  | Pi I2S source: reconnect | Writer A: header, one frame and half of another, then closes; writer B: a fresh header and `kPrebuffer` frames. B's header is skipped and A's half frame discarded: A's frame, then all of B's, arrive exact. jnext-only, no VHDL counterpart |
 | MX-35  | Pi I2S source: open errors and permissions | `open` of a regular file fails with "exists and is not a FIFO"; of a path in a missing directory, with mkfifo's error; a new FIFO is created 0600 (under umask 022). jnext-only, no VHDL counterpart |
 | MX-36  | Pi I2S source: trim boundary | A backlog of exactly 13230 frames (300 ms) is not trimmed (first frame 0, 13229 left, none dropped); 13231 is trimmed to 4410 (first frame 8821). jnext-only, no VHDL counterpart |

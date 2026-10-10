@@ -25,6 +25,9 @@ void PiAudio::push(int16_t left, int16_t right) {
     const uint32_t tail = tail_.load(std::memory_order_acquire);
     if (head - tail >= kCapacity) {          // full: the emulator is not consuming
         dropped_.fetch_add(1, std::memory_order_relaxed);
+        // What is in the ring is now older than the frame just lost; the
+        // consumer flushes it when it next pops (see pop()).
+        overflowed_.store(true, std::memory_order_release);
         return;
     }
     const uint32_t i = head % kCapacity;
@@ -38,6 +41,19 @@ bool PiAudio::pop(int16_t& left, int16_t& right) {
     const uint32_t head = head_.load(std::memory_order_acquire);
     uint32_t tail = tail_.load(std::memory_order_relaxed);
     uint32_t available = head - tail;
+
+    // The ring overflowed while nothing consumed (a pause longer than the
+    // ring): everything in it predates the frames that were dropped, so it is
+    // flushed, and playback resumes on fresh audio after the prebuffer.
+    // Trimming it instead would play a stale moment from deep in the pause.
+    if (overflowed_.exchange(false, std::memory_order_acq_rel)) {
+        dropped_.fetch_add(available, std::memory_order_relaxed);
+        tail += available;
+        tail_.store(tail, std::memory_order_release);
+        available = 0;
+        playing_ = false;
+        return false;
+    }
 
     if (!playing_) {
         if (available < kPrebuffer) return false;      // still filling

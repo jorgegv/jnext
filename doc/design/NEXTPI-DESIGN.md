@@ -311,7 +311,10 @@ under QEMU is one, so:
 - **Clock drift.** QEMU runs on the host's clock, the mixer on the emulated
   one. The consumer prebuffers 50 ms before playing, plays silence (0x200) on an
   underrun and prebuffers again, and trims a backlog beyond 300 ms back to
-  100 ms by dropping the oldest frames, so latency stays near 100 ms.
+  100 ms by dropping the oldest frames, so latency stays near 100 ms. A pause
+  longer than the ring (about 3 s) overflows it; the producer then drops new
+  frames and flags it, and the consumer's next pop flushes the stale ring and
+  prebuffers fresh audio, rather than replaying a moment from inside the pause.
 - **Replay.** RZX playback does not consume the stream (the Pi's output belongs
   to the live session) and holds the input silent; a rewind's replay never
   advances audio at all.
@@ -405,7 +408,8 @@ against a real FIFO: the stream frame for frame (header and frames split across
 writes), the 10-bit mapping, a frame's level in the mix and the received count;
 prebuffer and underrun (2205 frames, 50 ms); the latency trim (to 4410 frames,
 100 ms) and its edge (13230 frames, 300 ms, kept; 13231 trimmed); the ring full
-(131072 frames); a writer reconnecting with a fresh header; the open errors and
+(131072 frames); a pause longer than the ring, flushed on resume; a writer reconnecting with a
+fresh header; the open errors and
 the FIFO's 0600 mode; the reader pausing, not spinning, while there is no
 writer; a live writer's pause (EAGAIN) not ending the stream; one descriptor
 on the FIFO, close-on-exec, released by `close()`; and a signal interrupting the
@@ -469,7 +473,8 @@ and skipping one byte too few fails MX-32/34/36/41 and PI-48 (MX-31 never looks 
 sample values); prebuffering at `<=` fails MX-31; no trim fails MX-32; changing
 the prebuffer by one frame fails MX-31, the target MX-32/36, and the maximum
 latency MX-36, and trimming at `>=` fails MX-36; an off-by-one in the ring-full
-check, not counting its drops, or a different capacity fails MX-33; not resetting the
+check, not counting its drops, or a different capacity fails MX-33; not
+flushing the ring after it overflowed fails MX-42; not resetting the
 header skip or the half-frame carry when the writer goes fails MX-34; a FIFO
 made 0666, or a regular file accepted, fails MX-35; no pause after a read that
 finds no writer fails MX-37 on Linux (macOS's `poll()` waits anyway); treating

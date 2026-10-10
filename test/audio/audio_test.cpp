@@ -3253,6 +3253,46 @@ static void g_mixer() {
                       static_cast<unsigned long long>(a.frames_dropped()), capacity, capacity, extra));
         }
 
+        // MX-42 — A PAUSE LONGER THAN THE RING: 140000 frames arrive while
+        // nothing pops, so the ring fills and frames are lost. On resume the
+        // stale contents are flushed (all 140000 counted as dropped) and
+        // playback restarts on fresh audio after the prebuffer, instead of
+        // trimming to a moment from deep inside the pause. jnext-only, no VHDL
+        // counterpart.
+        {
+            const std::string fifo = (dir / "mx42.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            auto write_all = [&](const std::string& b) {
+                std::size_t off = 0;
+                while (w >= 0 && off < b.size()) {
+                    const ssize_t n = ::write(w, b.data() + off, b.size() - off);
+                    if (n <= 0) return false;
+                    off += static_cast<std::size_t>(n);
+                }
+                return w >= 0;
+            };
+            const bool w1 = write_all(header() + frames_bytes(140000, 0));
+            for (int i = 0; i < 500 && a.frames_received() + a.frames_dropped() < 140000; ++i)
+                ::usleep(10000);
+            int16_t l = 0, r = 0;
+            const bool flushed = !a.pop(l, r) && a.available() == 0 && a.frames_dropped() == 140000;
+            const bool w2 = write_all(frames_bytes(2205, 20000));
+            wait_available(a, 2205);
+            const bool fresh = a.pop(l, r) && l == 20000 && r == -20000;
+            if (w >= 0) ::close(w);
+            check("MX-42", "after a pause longer than the Pi I2S ring, the stale frames are flushed "
+                  "and playback resumes on fresh audio after the prebuffer (jnext-only, no VHDL "
+                  "counterpart)",
+                  opened && w1 && w2 && flushed && fresh,
+                  fmt("opened=%d writes=%d/%d flushed=%d (available=%u dropped=%llu, want 0/140000) "
+                      "fresh=%d first L=%d (want 20000)", opened ? 1 : 0, w1 ? 1 : 0, w2 ? 1 : 0,
+                      flushed ? 1 : 0, a.available(),
+                      static_cast<unsigned long long>(a.frames_dropped()), fresh ? 1 : 0, l));
+        }
+
         // MX-34 — RECONNECT: QEMU reopens the FIFO (a restart), and each writer
         // starts with its own WAV header. Writer A leaves half a frame behind
         // when it closes; writer B's header must be skipped and that half frame
