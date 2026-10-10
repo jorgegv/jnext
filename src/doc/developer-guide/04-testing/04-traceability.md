@@ -126,10 +126,14 @@ rewritten but still under-recording, `2` is a refusal with nothing written, and
 - **It refuses a contradictory or malformed `[no-vhdl]` marker** (exit `2`): one
   beside a `.vhd` citation or a filename-less `VHDL 1611` reference in the same
   call, on a row whose plan doc cites VHDL, with an empty or missing reason, with
-  a reason that names a `.vhd`, or twice in one call. The message names
+  a reason that names a `.vhd`, containing `|` or `"`, or twice in one call. It
+  also refuses a marked row that cites VHDL anywhere else it can see: another
+  call of the same row, a comment block heading the row, or its plan-doc entry. The message names
   `file:line`. A marker is read from the row's own call (or a shared loop call
   for table rows), never from a comment block, and a neighbour's uncited call
-  does not inherit it. The generator cannot judge whether a row *should* have
+  does not inherit it. For a table row whose heading block cites VHDL while the
+  shared loop call is marked, the heading's citation wins for that row and the
+  other rows of the table read the tombstone: accepted, not refused. The generator cannot judge whether a row *should* have
   VHDL; that call belongs to the author and the reviewer.
 - **It refuses to invent a row.** A row that the tests assert but the matrix
   does not record is *reported*, never auto-added. The payload of a matrix row
