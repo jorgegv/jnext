@@ -20,6 +20,7 @@
 #include <openssl/evp.h>
 
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -147,6 +148,13 @@ std::string sha256_hex(const std::vector<uint8_t>& bytes) {
 }
 
 std::string sha256_file(const std::string& path) {
+    // A directory opens as an ifstream on macOS (libc++) and reads as an empty
+    // file instead of failing, which digested to the SHA-256 of nothing; Linux
+    // fails the read. Refuse it everywhere (GH #214, JNSI-P26b).
+    {
+        std::error_code dir_ec;
+        if (std::filesystem::is_directory(path, dir_ec)) return {};
+    }
     std::ifstream f(path, std::ios::binary);
     if (!f) return {};
     EVP_MD_CTX* ctx = EVP_MD_CTX_new();
