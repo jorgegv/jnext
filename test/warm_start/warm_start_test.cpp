@@ -292,12 +292,17 @@ void poke_u64(const std::string& p, size_t off, uint64_t v) {
 }  // namespace
 
 // The product joins path components with std::filesystem, i.e. with the host's
-// own separator; the expectation is spelled with '/'. They name the same
-// directory, which is what the rows assert (GH #214: on Windows the two spell
-// it differently).
+// own separator; the expectation is spelled with '/'. On POSIX they are the same
+// string and the rows compare it exactly. On Windows they name the same
+// directory but spell it differently, so there -- and only there -- the rows
+// compare as paths (GH #214).
 bool same_path(const std::string& a, const std::string& b)
 {
+#ifdef _WIN32
     return std::filesystem::path(a) == std::filesystem::path(b);
+#else
+    return a == b;
+#endif
 }
 
 int main()
