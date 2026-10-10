@@ -394,6 +394,7 @@ NextPi image is needed.
 | PI-50 | the warm-start recording boot gets no audio reader |
 | PI-51 | when the audio FIFO cannot be created, `start()` fails with that error and starts no QEMU |
 | PI-52 | the mixer's `-audiodev` value escapes a comma in the FIFO path |
+| PI-53 | a QEMU driver setting (`none`) is passed to QEMU, and jnext makes no audio reader or FIFO |
 
 `test/audio/audio_test.cpp` revives **MX-30** and adds MX-31..40 for `PiAudio`
 against a real FIFO: the stream frame for frame (header and frames split across
@@ -466,7 +467,8 @@ finds no writer fails MX-37 on Linux (macOS's `poll()` waits anyway); treating
 EAGAIN as the writer's end fails MX-38; no close-on-exec, a leaked descriptor
 on re-open or close, or a stale one after `close()`, fails MX-39; giving up on a
 `poll()` error (a signal's EINTR) fails MX-40; not escaping the FIFO path for
-QEMU fails PI-52.
+QEMU fails PI-52; ignoring a driver setting, or making the reader for one, fails
+PI-53.
 
 ## 5. Not done
 

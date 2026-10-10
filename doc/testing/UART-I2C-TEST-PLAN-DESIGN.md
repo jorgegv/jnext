@@ -556,6 +556,7 @@ network or a NextPi image.
 | PI-50 | `Emulator::warm_start_boot_config` of a config with `pi_audio` set | `pi_audio` cleared. jnext-only, no VHDL counterpart |
 | PI-51 | `PiQemu` (default audio) with `$TMPDIR` nested so deep that `uart.out` fits in `PATH_MAX` but `uart.audio` does not | `start()` fails with an error naming `uart.audio`; no `audio()`, nothing running, the stand-in never spawned. jnext-only, no VHDL counterpart |
 | PI-52 | `PiQemu::mixer_audiodev_arg("/t,mp/uart")` | exactly `wav,id=snd0,path=/t,,mp/uart.audio,out.frequency=44100,out.channels=2,out.format=s16`: the comma escaped for QEMU's option syntax. jnext-only, no VHDL counterpart |
+| PI-53 | `PiQemu` with `Spec::audio = "none"` | the stand-in's args carry `none,id=snd0` and no `wav,id=snd0,path=`; `audio()` is null; no `uart.audio` FIFO in the runtime directory. jnext-only, no VHDL counterpart |
 
 ## Special Handling
 

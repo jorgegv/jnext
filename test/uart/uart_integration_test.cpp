@@ -4885,6 +4885,37 @@ static void test_nextpi_audio() {
               "FIFO path, and asks for 44.1 kHz s16 stereo (jnext-only, no VHDL counterpart)",
               arg == want, fmt("got '%s' want '%s'", arg.c_str(), want.c_str()));
     }
+
+    // ── PI-53 — a non-default audio setting keeps the Pi's sound away from the
+    // mixer: with Spec::audio = "none" QEMU gets that driver (not the wav
+    // FIFO), PiQemu makes no PiAudio and creates no audio FIFO.
+    {
+        namespace fs = std::filesystem;
+        FakeNextPi fake("audio-none");
+        PiQemu::Spec spec;
+        spec.dir         = fake.dir();
+        spec.qemu_binary = fake.bin("qemu-system-arm");
+        spec.audio       = "none";
+        PiQemu qemu;
+        std::string error;
+        const bool started = fake.ok() && qemu.start(spec, error);
+        const bool no_reader = qemu.audio() == nullptr;
+        const bool recorded = started && fake.child_pid() > 0;   // args written before the pid
+        const std::string args = fake.args();
+        const bool driver = args.find("none,id=snd0") != std::string::npos &&
+                            args.find("wav,id=snd0,path=") == std::string::npos;
+        std::error_code ec;
+        const bool no_fifo = started &&
+            !fs::exists(fs::path(qemu.rx_path()).parent_path() / "uart.audio", ec);
+        check("PI-53",
+              "with the Pi's audio set to a QEMU driver (\"none\"), QEMU is given that driver, "
+              "not the mixer's wav FIFO, and jnext makes no audio reader or FIFO (jnext-only, no "
+              "VHDL counterpart)",
+              started && no_reader && recorded && driver && no_fifo,
+              fmt("started=%d (%s) reader=%s args recorded=%d driver=%d fifo=%s",
+                  started ? 1 : 0, error.c_str(), no_reader ? "none" : "MADE", recorded ? 1 : 0,
+                  driver ? 1 : 0, no_fifo ? "none" : "MADE"));
+    }
 }
 
 static void test_nr_a0_pi_uart_routing(Emulator& emu) {
