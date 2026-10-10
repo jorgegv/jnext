@@ -104,6 +104,7 @@
 
 #include <unistd.h>   // getpid()
 #include "../row_id.h"
+#include "../test_portable.h"
 
 namespace {
 
@@ -209,7 +210,7 @@ std::string g_dir;
 std::vector<std::string> g_refusals;
 
 void set_config_dir(const std::string& d) {
-    ::setenv("JNEXT_CONFIG_DIR", d.c_str(), 1);
+    jtp::set_env("JNEXT_CONFIG_DIR", d.c_str());
 }
 
 // A digest-shaped string: 64 lower-case hex characters, as sha256_file
@@ -290,6 +291,15 @@ void poke_u64(const std::string& p, size_t off, uint64_t v) {
 
 }  // namespace
 
+// The product joins path components with std::filesystem, i.e. with the host's
+// own separator; the expectation is spelled with '/'. They name the same
+// directory, which is what the rows assert (GH #214: on Windows the two spell
+// it differently).
+bool same_path(const std::string& a, const std::string& b)
+{
+    return std::filesystem::path(a) == std::filesystem::path(b);
+}
+
 int main()
 {
     g_dir = (std::filesystem::temp_directory_path() /
@@ -303,11 +313,11 @@ int main()
     // ── Paths ────────────────────────────────────────────────────────
     {
         check("WSC-PATH-01", "cache_dir() is <config-dir>/warm-start",
-              warm_start::cache_dir() == g_dir + "/warm-start",
+              same_path(warm_start::cache_dir(), g_dir + "/warm-start"),
               warm_start::cache_dir());
 
         const char* home = std::getenv("HOME");
-        ::unsetenv("JNEXT_CONFIG_DIR");
+        jtp::unset_env("JNEXT_CONFIG_DIR");
         const std::string unset_dir = warm_start::cache_dir();
         set_config_dir("");
         const std::string empty_dir = warm_start::cache_dir();
@@ -316,7 +326,7 @@ int main()
             std::string(home && *home ? home : ".") + "/.jnext/warm-start";
         check("WSC-PATH-02",
               "unset or empty $JNEXT_CONFIG_DIR falls back to $HOME/.jnext",
-              unset_dir == want_home && empty_dir == want_home,
+              same_path(unset_dir, want_home) && same_path(empty_dir, want_home),
               unset_dir + " / " + empty_dir);
 
         check("WSC-PATH-03", "cache_path() differs per machine type",

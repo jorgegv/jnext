@@ -1,3 +1,12 @@
+# GH #214: the suites' fixtures hold Emulator objects on the stack. Linux gives
+# a main thread 8 MB; MinGW's default reserve is 2 MB, under which eleven suites
+# die with a stack overflow. Test executables only: add_link_options here is
+# scoped to this directory, so jnext.exe keeps the default reserve (and the
+# GH #308 frame gate that depends on it).
+if(WIN32)
+    add_link_options(-Wl,--stack,8388608)
+endif()
+
 # FUSE Z80 opcode test runner (standalone, no GoogleTest required)
 add_executable(fuse_z80_test fuse/fuse_z80_test.cpp)
 target_link_libraries(fuse_z80_test PRIVATE jnext_cpu)
@@ -138,6 +147,16 @@ target_link_libraries(esxdos_stub_test PRIVATE
 target_include_directories(esxdos_stub_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME esxdos_stub_tests COMMAND esxdos_stub_test)
 
+# The symlink-refusal rows of the host-FS sandbox (HFS-10..12, HFS-90..92).
+# POSIX-only (GH #214; `# os: posix` in unit-tests.conf): Windows -- and wine --
+# cannot create the symbolic-link fixtures they read.
+if(NOT WIN32)
+    add_executable(esxdos_symlink_test esxdos_stub/esxdos_symlink_test.cpp)
+    target_link_libraries(esxdos_symlink_test PRIVATE jnext_core spdlog::spdlog)
+    target_include_directories(esxdos_symlink_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME esxdos_symlink_tests COMMAND esxdos_symlink_test)
+endif()
+
 # Input subsystem compliance test
 # 2026-04-21 (Phase 2 Agent I): NMI-01..07 use a full headless Emulator
 # to write NR 0x06 bits 3/4 through the real port path and read back the
@@ -224,6 +243,21 @@ target_link_libraries(uart_integration_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(uart_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME uart_integration_tests COMMAND uart_integration_test)
+
+# The rows of the integration suite that need POSIX (GH #214; `# os: posix` in
+# unit-tests.conf): the joystick-port cable over FIFOs and a pty (JOY-15..22)
+# and the NextPi link / QEMU launcher (PI-*), none of which Windows has. They
+# moved out of uart_integration_test unchanged; the scaffolding is shared
+# through uart/uart_integration_common.h.
+if(NOT WIN32)
+    add_executable(uart_posix_test uart/uart_posix_test.cpp)
+    target_link_libraries(uart_posix_test PRIVATE
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(uart_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME uart_posix_tests COMMAND uart_posix_test)
+endif()
 
 # The emulated ESP-01's own suites (esp_at_test, esp_socket_test) are NOT
 # declared here. They ship WITH the module and are registered from
@@ -318,10 +352,16 @@ add_test(NAME sd_rom_extractor_tests
 # Pure host code; links jnext_core for the writer, the short-name reader
 # (extract_sd_rom), the long-name reader (fat32_read_tree) and FatFs itself,
 # which the test drives directly to build its own small fixture images.
-add_executable(sdcard_file_add_test sdcard_file_add/sdcard_file_add_test.cpp)
-target_link_libraries(sdcard_file_add_test PRIVATE jnext_core)
-target_include_directories(sdcard_file_add_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-add_test(NAME sdcard_file_add_tests COMMAND sdcard_file_add_test)
+#
+# POSIX-only (GH #214; `# os: posix` in unit-tests.conf): its tree rows build
+# symlink, FIFO, /dev/null and chmod-0 fixtures woven through the suite's shared
+# scratch tree, none of which Windows -- or wine -- provides.
+if(NOT WIN32)
+    add_executable(sdcard_file_add_test sdcard_file_add/sdcard_file_add_test.cpp)
+    target_link_libraries(sdcard_file_add_test PRIVATE jnext_core)
+    target_include_directories(sdcard_file_add_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_file_add_tests COMMAND sdcard_file_add_test)
+endif()
 
 # FAT32 image read/write + geometry test (Task 27)
 # Native reimplementation of the mtools-based SD-image FAT32 cluster fix.
@@ -555,6 +595,14 @@ target_link_libraries(video_recorder_cmd_test PRIVATE
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(video_recorder_cmd_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# The SF rows run the real recorder against a stand-in ffmpeg. It is a program
+# (core/ffmpeg_stub.cpp), not a shell script, so the same stub exists on every
+# OS (GH #214): the Windows recorder starts ffmpeg with CreateProcess. Not an
+# add_test() -- a test-support binary, like row_id_fork_probe.
+add_executable(ffmpeg_stub core/ffmpeg_stub.cpp)
+add_dependencies(video_recorder_cmd_test ffmpeg_stub)
+target_compile_definitions(video_recorder_cmd_test PRIVATE
+    JNEXT_FFMPEG_STUB="$<TARGET_FILE:ffmpeg_stub>")
 add_test(NAME video_recorder_cmd_tests COMMAND video_recorder_cmd_test)
 
 # NEX loader screen-ingest test (issue #68). Drives the real
@@ -688,8 +736,13 @@ add_test(NAME present_cadence_tests COMMAND present_cadence_test)
 # GH #276 B4, reached through jnext_platform) and jnext_video (a real Ula for
 # the .SCR dispatch row); no Qt, no SDL frontend.
 add_executable(screenshot_test platform/screenshot_test.cpp)
+# GH #214: the screenshot code lives in jnext_core, which this suite reaches
+# only through jnext_platform and which is what references Ula. On the MinGW
+# link (GNU ld scans archives once, in order) core therefore came AFTER video
+# and memory, so ula.cpp.obj was extracted too late for its Mmu symbols to
+# resolve. Naming core before them puts video and memory behind it.
 target_link_libraries(screenshot_test PRIVATE
-    jnext_platform jnext_video jnext_memory)
+    jnext_platform jnext_core jnext_video jnext_memory)
 target_include_directories(screenshot_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME screenshot_tests COMMAND screenshot_test)
 
@@ -1624,7 +1677,11 @@ target_include_directories(sdfile_tool PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # row_id_fork_probe — test-support BINARY, deliberately NOT an add_test(): a
 # stand-in suite the harness self-test (HS-62) runs through the unit harness to
 # prove test/row_id.h keeps every row a fork()ing suite reports.
-add_executable(row_id_fork_probe row_id_fork_probe.cpp)
+# It needs fork(), which Windows has no counterpart for, and nothing off Linux
+# drives it (harness-selftest.sh is a Linux script).
+if(NOT WIN32)
+    add_executable(row_id_fork_probe row_id_fork_probe.cpp)
+endif()
 
 # Pin the C locale for every registered test, so `ctest` matches what
 # test/run-unit-tests.sh and regression.sh do. A test's verdict must depend on the

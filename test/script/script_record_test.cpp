@@ -48,6 +48,7 @@
 #include <vector>
 
 #include "../row_id.h"
+#include "../test_portable.h"
 
 using namespace jnext::script;
 using jnext::dbg::ClientId;
@@ -1042,12 +1043,12 @@ static void key_rows() {
 
 int main() {
     std::printf("script_record_test — the recorder, and the round trip it makes (GH #26 WP6 / #20)\n");
-    char tmpl[] = "/tmp/jnext_srec_XXXXXX";
-    if (!mkdtemp(tmpl)) {
+    const std::string tmpl = jtp::make_temp_dir("jnext_srec_");
+    if (tmpl.empty()) {
         std::printf("cannot make a temp directory\n");
         return 1;
     }
-    g_dir = std::string(tmpl) + "/";
+    g_dir = tmpl + "/";
 
     auto run_group = [](const char* name, void (*fn)()) {
         try {

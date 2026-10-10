@@ -261,7 +261,11 @@ int main() {
     regs = {};
     regs.IX = name_addr;
     const bool run_ok = call(emu, 0x8F, regs) && !carry(regs);
-    const auto expected = std::filesystem::path("/tmp/jnext-esxdos/game.nex");
+    // The request is the sibling's ABSOLUTE path (Emulator::resolve_sibling), so
+    // the expectation is the same absolute() of the same literal: "/tmp/..."
+    // on POSIX, and with the drive's root name on Windows (GH #214).
+    const auto expected = std::filesystem::absolute(
+        std::filesystem::path("/tmp/jnext-esxdos/game.nex"));
     check("ESX-05-run-sibling",
           run_ok && std::filesystem::path(emu.take_nex_load_request()) == expected);
     check("ESX-06-request-consumed", emu.take_nex_load_request().empty());
@@ -269,7 +273,8 @@ int main() {
     write_string(emu, name_addr, "RUN \"Game Two.NEX\"");
     regs = {};
     regs.IX = name_addr;
-    const auto quoted = std::filesystem::path("/tmp/jnext-esxdos/Game Two.NEX");
+    const auto quoted = std::filesystem::absolute(
+        std::filesystem::path("/tmp/jnext-esxdos/Game Two.NEX"));
     check("ESX-07-quoted-name",
           call(emu, 0x8F, regs) && !carry(regs) &&
           std::filesystem::path(emu.take_nex_load_request()) == quoted);
