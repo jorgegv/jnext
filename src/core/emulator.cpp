@@ -271,7 +271,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     }
     i2s_.reset();
     // With NextPi's sound attached, the I2S input starts at SILENCE (the
-    // offset-binary midpoint, i2s.vhd:179), not at the register's reset value
+    // offset-binary midpoint, i2s.vhd:177-180), not at the register's reset value
     // 0 — which is a full-negative excursion, and would click at every boot
     // until the first Pi frame is latched (feed_pi_audio, one sample later).
     if (cfg.pi_audio) i2s_.set_sample(0x200, 0x200);
@@ -9452,7 +9452,7 @@ static_assert(PiAudio::kRate == Mixer::SAMPLE_RATE,
 
 void Emulator::feed_pi_audio()
 {
-    // Silence (the offset-binary midpoint, i2s.vhd:179) unless a frame is
+    // Silence (the offset-binary midpoint, i2s.vhd:177-180) unless a frame is
     // ready. During RZX playback the stream is NOT consumed: like the UART
     // link, the Pi's output belongs to the live session, not to a recording.
     // (A rewind's replay never gets here: run_frame does not advance audio

@@ -3107,7 +3107,7 @@ static void g_mixer() {
 
         // MX-30 — a continuous stream, header and frames split across writes,
         // arrives frame for frame; to_i2s maps signed 16-bit to the 10-bit
-        // offset binary of i2s.vhd:179; a Pi frame in I2s reaches the mix.
+        // offset binary of i2s.vhd:177-180; a Pi frame in I2s reaches the mix.
         {
             const std::string fifo = (dir / "mx30.fifo").string();
             PiAudio a;

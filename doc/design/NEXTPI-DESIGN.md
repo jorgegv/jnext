@@ -305,7 +305,7 @@ under QEMU is one, so:
 - **The emulator latches one frame per mixer output sample**
   (`Emulator::feed_pi_audio`, from `advance_audio` at each sample boundary),
   converted to the hardware's 10-bit offset binary (`PiAudio::to_i2s`, 0 → 0x200
-  per `i2s.vhd:179`). From there the existing model applies unchanged: NR 0xA2
+  per `i2s.vhd:177-180`). From there the existing model applies unchanged: NR 0xA2
   enables, mutes and routes it, it is summed with the beeper, AY and DAC, and
   `--record` / `--wav-record` capture it.
 - **Clock drift.** QEMU runs on the host's clock, the mixer on the emulated

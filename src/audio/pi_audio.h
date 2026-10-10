@@ -57,7 +57,7 @@ public:
     bool pop(int16_t& left, int16_t& right);
 
     /// A signed 16-bit PCM sample as the Pi's 10-bit I2S input: offset binary,
-    /// 0x200 = silence (i2s.vhd:179 inverts the sign bit). Pure.
+    /// 0x200 = silence (i2s.vhd:177-180 inverts the sign bit). Pure.
     static uint16_t to_i2s(int16_t sample);
 
     uint64_t frames_received() const { return received_.load(); }  ///< read from QEMU

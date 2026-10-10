@@ -4754,7 +4754,7 @@ static void test_nextpi_audio() {
     // audio while replay_mode_ holds), so there is no output to inspect: the
     // row asserts exactly that, zero samples. An RZX playback does produce
     // output, and it must be silent: the I2S rest value 0x200 in BOTH channels
-    // (i2s.vhd:179), which the mixer centres on to output exactly 0
+    // (i2s.vhd:177-180), which the mixer centres on to output exactly 0
     // (Mixer::MIX_REST_LEVEL), so every sample of each channel must be 0 — a
     // swing alone could not show it (a channel stuck at another value is flat
     // too). RZX playback is driven
