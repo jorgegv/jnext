@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=141  # 75 + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=158  # 75 + HS-82..88d (17 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -129,10 +129,12 @@ trap 'rm -rf "$T"' EXIT
 ensure_cache() {
     [[ -f "$T/build/CMakeCache.txt" ]] || cache ON ON
 }
-# cache <qt> <dbg> — (re)write the fake build tree's configuration
+# cache <qt> <dbg> [os] — (re)write the fake build tree's configuration. The
+# target OS defaults to linux, under which every `# os:` is satisfied (GH #214).
 cache() {
     mkdir -p "$T/build"
-    { echo "ENABLE_QT_UI:BOOL=$1"; echo "ENABLE_DEBUGGER:BOOL=$2"; } > "$T/build/CMakeCache.txt"
+    { echo "ENABLE_QT_UI:BOOL=$1"; echo "ENABLE_DEBUGGER:BOOL=$2"
+      echo "JNEXT_TARGET_OS:INTERNAL=${3:-linux}"; } > "$T/build/CMakeCache.txt"
 }
 
 # lit_ids <n> — n `report "ROW-i"` lines, each ID spelled out as a literal in the
@@ -2072,6 +2074,116 @@ echo other > "$XR/not-ignored.txt"
 out=$(xdg_stamp); rc=$?
 check "HS-75b" "the control: an untracked file nobody ignores still makes the tree dirty — no stamp (GH #295)" 0 $rc "$out" \
     "isolated=1" "dirty=1" "no regression stamp: the tree had uncommitted non-doc changes" "not-ignored.txt"
+
+
+# ---------------- the target OS and `# os:` (GH #214) ----------------
+# '# os: all|posix|linux' says which TARGET OSes own a suite, and the harness reads
+# the OS from the build tree's own CMakeCache.txt (JNEXT_TARGET_OS), exactly as it
+# reads the gates. Absence is CHECKED both ways, like the gates: HS-82/83.
+stub good_test 10 0; stub posix_only_test 7 0
+register good_test posix_only_test        # posix_only_test registered...
+cache ON ON windows                       # ...on an OS its `# os: posix` excludes
+manifest "good_test 10" "# os: posix" "?posix_only_test 7"
+out=$(run_harness); rc=$?
+check "HS-82" "a suite registered on an OS its '# os:' excludes is a refusal" 2 $rc "$out" \
+    "REFUSES TO RUN" "posix_only_test" "gates it to"
+
+register good_test                        # posix_only_test GONE from CMake...
+cache ON ON macos                         # ...on an OS that owns it (posix = linux + macos)
+manifest "good_test 10" "# os: posix" "?posix_only_test 7"
+out=$(run_harness); rc=$?
+check "HS-83" "a suite MISSING from an OS that owns it is a refusal" 2 $rc "$out" \
+    "REFUSES TO RUN" "posix_only_test" "NOT registered by CMake"
+
+register good_test                        # absent, and excluded: expected, NOTICE
+cache ON ON macos                         # (`# os: linux` does not include macOS)
+manifest "good_test 10" "# os: linux" "?posix_only_test 7"
+out=$(run_harness); rc=$?
+check "HS-83a" "a suite os-gated out by this target: NOTICE naming it and the OS, not silence" 0 $rc "$out" \
+    "NOTICE" "gated out" "posix_only_test" "os=macos" "Suites: 1 pass, 0 fail"
+
+register good_test
+cache ON ON linux
+manifest "good_test 10" "# os: bsd" "?posix_only_test 7"
+out=$(run_harness); rc=$?
+check "HS-84" "an unknown '# os:' value is a refusal, not an os that never applies" 2 $rc "$out" \
+    "REFUSES TO RUN" "Unknown os"
+
+register good_test
+cache ON ON linux
+manifest "good_test 10" "# os: posix" "posix_only_test 7"   # os-restricted, but no '?'
+out=$(run_harness); rc=$?
+check "HS-85a" "an os-restricted suite without the '?' marker is a refusal (the two must agree)" 2 $rc "$out" \
+    "REFUSES TO RUN" "not marked"
+
+register good_test
+cache ON ON plan9
+manifest "good_test 10"
+out=$(run_harness); rc=$?
+check "HS-85b" "a build tree naming an unknown target OS is a refusal, not a guess" 2 $rc "$out" \
+    "REFUSES TO RUN" "Unknown target OS"
+
+# A Windows build registers NAME.exe and runs under a runner (wine). The manifest names
+# the suite; the harness maps the .exe, checks the .exe is built, and prefixes the runner.
+stub good_test 10 0
+mv "$T/build/test/good_test" "$T/build/test/good_test.exe"
+: > "$T/build/test/CTestTestfile.cmake"
+echo "add_test(good_tests \"$T/build/test/good_test.exe\")" >> "$T/build/test/CTestTestfile.cmake"
+printf 'good_test\t%s\n' "$T/build/test/good_test.exe" > "$T/sources.tsv"
+cache ON ON windows
+manifest "good_test 10"
+out=$(run_harness); rc=$?
+check "HS-86a" "a Windows build's NAME.exe registration matches the manifest and the suite runs" 0 $rc "$out" \
+    "good_test" "Total: 10" "os=windows"
+printf '#!/usr/bin/env bash\necho "runner ran $*" >"%s/runner.log"\nexec "$@"\n' "$T" > "$T/runner.sh"
+chmod +x "$T/runner.sh"
+out=$(JNEXT_TEST_RUNNER="$T/runner.sh" run_harness); rc=$?
+runner_log=$(cat "$T/runner.log" 2>/dev/null || true)
+check "HS-86b" "JNEXT_TEST_RUNNER prefixes every suite (the .exe is what it is handed)" 0 $rc "$out" "Total: 10"
+check "HS-86c" "...and the runner really received the suite's .exe path" 0 $([[ "$runner_log" == "runner ran $T/build/test/good_test.exe" ]] && echo 0 || echo 1) "$runner_log" "runner ran"
+rm -f "$T/build/test/good_test.exe"
+out=$(run_harness); rc=$?
+check "HS-86d" "a Windows build whose NAME.exe is not built is a refusal naming the .exe" 2 $rc "$out" \
+    "REFUSES TO RUN" "NOT built" "good_test.exe"
+
+# The userland preflight: bash >= 4, GNU timeout/grep -P, perl. A refusal naming what
+# to install, never a quiet degradation (macOS ships bash 3.2 and BSD tools).
+stub good_test 10 0
+register good_test
+cache ON ON linux
+manifest "good_test 10"
+out=$(JNEXT_PREFLIGHT_BASH_MAJOR=3 run_harness); rc=$?
+check "HS-87a" "a bash older than 4 is a refusal that names the install line" 2 $rc "$out" \
+    "REFUSES TO RUN" "bash >= 4" "brew install bash coreutils grep"
+NOTIMEOUT=$(shim_without timeout)
+out=$(JNEXT_UNIT_TEST_CONF="$T/manifest.conf" JNEXT_UNIT_TEST_SOURCES="$T/sources.tsv" \
+      "$(type -P timeout)" --kill-after=5s 120s env PATH="$NOTIMEOUT" bash "$HARNESS" "$T/build" 2>&1); rc=$?
+check "HS-87b" "a host without GNU timeout is a refusal, not a run that cannot bound its suites" 2 $rc "$out" \
+    "REFUSES TO RUN" "GNU timeout"
+NOPERL=$(shim_without perl)
+out=$(PATH="$NOPERL" run_harness); rc=$?
+check "HS-87c" "a host without perl is a refusal (the row-ID literal check needs it)" 2 $rc "$out" \
+    "REFUSES TO RUN" "perl"
+
+# JNEXT_UNIT_TEST_JOBS caps the suites running at once: with 1, two suites that each
+# hold a lock for 0.3 s never overlap; with no cap they do (the control, so the row
+# cannot pass because the stubs are too quick to collide).
+overlap_body='if ! mkdir "'"$T"'/lock" 2>/dev/null; then echo overlap >>"'"$T"'/overlap"; else sleep 0.3; rmdir "'"$T"'/lock"; fi'
+stub job_a_test 3 0 "$overlap_body"; stub job_b_test 4 0 "$overlap_body"
+register job_a_test job_b_test
+cache ON ON linux
+manifest "job_a_test 3" "job_b_test 4"
+rm -f "$T/overlap"; rmdir "$T/lock" 2>/dev/null || true
+out=$(run_harness); rc=$?
+uncapped_overlap=$([[ -f "$T/overlap" ]] && echo 1 || echo 0)
+rm -f "$T/overlap"; rmdir "$T/lock" 2>/dev/null || true
+out2=$(JNEXT_UNIT_TEST_JOBS=1 run_harness); rc2=$?
+capped_overlap=$([[ -f "$T/overlap" ]] && echo 1 || echo 0)
+check "HS-88a" "the control: with no cap the two lock-holding suites DO overlap" 0 $((uncapped_overlap == 1 ? 0 : 1)) "overlap=$uncapped_overlap" "overlap=1"
+check "HS-88b" "JNEXT_UNIT_TEST_JOBS=1 runs them one at a time (no overlap) and both still count" 0 $rc2 "$out2" "Total: 7"
+check "HS-88c" "...and the overlap flag stays unset under the cap" 0 $((capped_overlap == 0 ? 0 : 1)) "overlap=$capped_overlap" "overlap=0"
+out=$(JNEXT_UNIT_TEST_JOBS=lots run_harness); rc=$?
+check "HS-88d" "a non-numeric JNEXT_UNIT_TEST_JOBS is a refusal" 2 $rc "$out" "REFUSES TO RUN" "JNEXT_UNIT_TEST_JOBS"
 
 echo ""
 echo "====================================="

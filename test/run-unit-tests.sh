@@ -577,7 +577,18 @@ sum_total=0; sum_passed=0; sum_failed=0; sum_skipped=0
 
 fail_row() {   # fail_row <name> <message>
     printf "  ${CYAN}%-34s${RESET} ${BADGE_FAIL} FAIL ${RESET}  %b\n" "$1" "$2"
-    grep -E '^\s*(FAIL|FATAL|ERROR)' "$TMPDIR_RUN/$1.out" 2>/dev/null | head -5 | sed -E 's/^/      /' || true
+    # The suite's own FAIL lines (up to 20). When it has none -- it crashed, hung or
+    # exited before saying anything -- the last lines of its output are the only
+    # evidence there is, so they are printed too: a CI log (macOS, Windows under
+    # wine) must name the failure without a second download (GH #214).
+    local fl
+    fl=$(grep -E '^\s*(FAIL|FATAL|ERROR)' "$TMPDIR_RUN/$1.out" 2>/dev/null | head -20 || true)
+    if [[ -n "$fl" ]]; then
+        sed -E 's/^/      /' <<<"$fl"
+    else
+        printf "      (no FAIL line; last output of the suite:)\n"
+        tail -n 25 "$TMPDIR_RUN/$1.out" 2>/dev/null | sed -E 's/^/      | /' || true
+    fi
     printf "      full log: %s\n" "$LOG_DIR/$1.log"
     suites_fail=$((suites_fail + 1))
 }

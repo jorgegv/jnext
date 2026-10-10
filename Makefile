@@ -190,7 +190,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
-       unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build \
+       unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build sdcard-image \
        kloc-count regression regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
@@ -785,7 +785,7 @@ unit-test: lint-assertions lint-makefile-help traceability-accounting-check trac
 	fi
 
 # Run the unit suites in the SDL-only configuration (no Qt, no debugger)
-unit-test-sdl: unit-test-sdl-build
+unit-test-sdl: unit-test-sdl-build sdcard-image
 	@# GH #273. The four-combination matrix proves every configuration LINKS; it
 	@# never ran a suite in any of them, so `make unit-test` and CI only ever
 	@# exercised the default one and a suite could stay red in a supported
@@ -806,6 +806,28 @@ unit-test-sdl: unit-test-sdl-build
 	@# then pay for a second full build and a second suite run. CI calls both
 	@# targets, which is the same pair of commands a human types here.
 	@PATH="$(UNIT_TEST_PATH)" bash test/run-unit-tests.sh $(BUILD_DIR_SDL_UNIT_TEST)
+
+# Provision the NextZXOS SD image the unit suites read, with jnext's own download, if it is missing
+sdcard-image:
+	@# GH #214. sd_rom_extractor_test reads the real image and the harness does not
+	@# provision it (a missing image is a loud failure, never a smaller suite). On
+	@# Linux the PGO build (`make gui-release`) fetches it as a side effect; a macOS
+	@# runner or the Windows leg builds no PGO binary, so this does the same thing
+	@# the PGO training does -- jnext's own --sdcard-download-confirm, the code path
+	@# an end user hits -- with the SDL test tree's native jnext. A no-op when the
+	@# image is there, which is every developer machine after the first run.
+	@sd="$$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"; \
+	if [ -f "$$sd" ]; then exit 0; fi; \
+	printf "sdcard-image: no SD image at %s -- provisioning it (jnext's own download)\n" "$$sd"; \
+	$(MAKE) --no-print-directory unit-test-sdl-build || exit 1; \
+	mkdir -p "$$HOME/.jnext/sdcard"; \
+	PATH="$(UNIT_TEST_PATH)" JNEXT_CONFIG_DIR="$$HOME/.jnext" timeout --kill-after=5s 1200s \
+		$(BUILD_DIR_SDL_UNIT_TEST)/jnext --headless --sdcard-download-confirm \
+		--delayed-automatic-exit 2 >/dev/null 2>&1 || true; \
+	if [ ! -f "$$sd" ]; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) the SD image could not be provisioned at %s (network?).\n" "$$sd"; \
+		exit 1; \
+	fi
 
 # Configure + build the SDL-only test tree (prerequisite for unit-test-sdl)
 unit-test-sdl-build:
@@ -832,7 +854,7 @@ unit-test-sdl-build:
 	@$(CMAKE) --build $(BUILD_DIR_SDL_UNIT_TEST) -j$(JOBS)
 
 # Run the SDL-only unit suites as Windows executables (MinGW cross build) under wine
-unit-test-win: unit-test-win-build
+unit-test-win: unit-test-win-build sdcard-image
 	@# GH #214. The same suite set `unit-test-sdl` runs, built for Windows with the
 	@# Fedora MinGW toolchain and run under wine (test/wine-run.sh), so a Windows
 	@# compile break, a Win32 code path (esp_socket_win.cpp, win_process.h, the
