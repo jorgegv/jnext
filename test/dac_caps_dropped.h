@@ -2,11 +2,15 @@
 // object. Shared by sdcard_file_add_test and sdcard_test (single source).
 #pragma once
 
+#include <cstring>
+
+// Linux-only mechanism: capabilities do not exist on macOS or Windows. There
+// drop() reports false and the one caller that consults it does so only under
+// geteuid() == 0, which no CI runner there is.
+#ifdef __linux__
 #include <linux/capability.h>  // CAP_DAC_*
 #include <sys/syscall.h>
 #include <unistd.h>            // syscall
-
-#include <cstring>
 
 // Root reads through permission bits by way of two capabilities. Clearing
 // them from the EFFECTIVE set makes root honour mode 0 like anyone else; they
@@ -31,3 +35,8 @@ struct DacCapsDropped {
         if (active) ::syscall(SYS_capset, &hdr, saved);
     }
 };
+#else
+struct DacCapsDropped {
+    bool drop() { return false; }
+};
+#endif
