@@ -296,6 +296,14 @@ uint8_t EsxdosHostFs::resolve(const std::string& guest_path, fs::path& out,
         }
         if (part.size() > 255) return kEinval;
         if (reserved_device_name(part)) return kEacces;
+        // A ':' inside a component (the drive qualifier was stripped above)
+        // cannot be part of a FAT name: it ends the directory part, so what
+        // precedes it names a directory that is not there (NextZXOS, measured
+        // with 'T/a:x' -- test HFS-122). Answered here, the same on every host:
+        // left to the host walk, Windows reads "a:x" as a drive-relative path,
+        // `root / "a:x"` REPLACES the root, and contained() then refused it
+        // with esx_eacces instead of the missing-directory answer.
+        if (part.find(':') != std::string::npos) return kEnotdir;
         comps.push_back(part);
     }
 
