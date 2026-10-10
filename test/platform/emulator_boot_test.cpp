@@ -437,6 +437,39 @@ int main()
                   " 1=" + std::to_string(static_cast<int>(fe.rewire_cfg.joy_source[1])));
     }
 
+    // --- EBJ-01/02 (GH #311): the LIVE controller assignment is carried -----
+    // Same contract as EB-10..12 (emulator_boot.h item 2): a controller picked
+    // from the Input menu is a host-side setting, so carrying the startup
+    // config's value would revert it on every boot under a menu that still
+    // shows the pick. Distinct ids on the two connectors catch a transposition.
+    {
+        Emulator emu;
+        emu.init(base_config());
+        emu.set_joystick_device(0, JoyDeviceRef{ "ff0047df341200000100000000007601", "Pad A" });
+        EmulatorConfig startup = base_config();   // stale startup value: Automatic
+        FakeFrontend fe;
+        emulator_frontend_cold_boot(emu, startup, "", fe.hooks());
+        check("EBJ-01", "connector 0's live controller assignment is carried, not the startup one",
+              fe.rewire_seen &&
+                  fe.rewire_cfg.joy_device[0].id == "ff0047df341200000100000000007601" &&
+                  fe.rewire_cfg.joy_device[0].name == "Pad A",
+              fe.rewire_cfg.joy_device[0].id);
+    }
+    {
+        Emulator emu;
+        emu.init(base_config());
+        emu.set_joystick_device(0, JoyDeviceRef{ "ff0047df341200000100000000007601", "Pad A" });
+        emu.set_joystick_device(1, JoyDeviceRef{ "ff000211785600000200000000007600", "Stick C" });
+        FakeFrontend fe;
+        emulator_frontend_cold_boot(emu, base_config(), "", fe.hooks());
+        check("EBJ-02", "per-connector controller assignments are carried without transposition",
+              fe.rewire_seen &&
+                  fe.rewire_cfg.joy_device[0].id == "ff0047df341200000100000000007601" &&
+                  fe.rewire_cfg.joy_device[1].id == "ff000211785600000200000000007600" &&
+                  fe.rewire_cfg.joy_device[1].name == "Stick C",
+              fe.rewire_cfg.joy_device[0].id + " / " + fe.rewire_cfg.joy_device[1].id);
+    }
+
     // --- EB-13: the rest of the base config survives the boot ---------------
     // Only load_file, joy_source and audio_gain_db are overwritten; the
     // frontend's startup config is otherwise the config the machine is
