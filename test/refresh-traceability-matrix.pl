@@ -1036,6 +1036,7 @@ my %NO_MATRIX_SECTION = (
     'esc_break_test'      => 'host ESC->BREAK binding; guest matrix is `## Input`',
     'host_hotkey_test'    => 'host hotkey bindings (Alt vs the guest Symbol Shift)',
     'main_window_accel_test' => 'main-window menu mnemonics (host GUI)',
+    'main_window_pause_test' => 'main-window Pause: Machine > Pause, Alt+U (host GUI)',
     'shifted_keys_test'   => 'host shifted-scancode translation; guest matrix is `## Input`',
     'window_scale_test'   => 'main-window scale/fullscreen geometry (host GUI)',
     'window_title_test'   => 'main-window title carries the version (host GUI)',
