@@ -1082,6 +1082,9 @@ are re-derived in the test from the register table above, not from
 | VMUX-10 | Fine scroll 4, writes at / one tick after the secondary fetch, slots 2 and 3, pixel and attribute | Shifted-in pixels follow the secondary instant            | pass |
 | VMUX-11 | 20000 writes in one frame, the last late                                              | Log holds all 20001, last one resolved                             | pass |
 | VMUX-12 | Per-row bank: row A bank 5, row B bank 7, late and in-time bank-7 writes              | Each row replays its own bank                                      | pass |
+| VMUX-13 | Hi-colour pixel byte written at the pixel instant / one tick later, even and odd slot | Seen / not seen (the sibling of VMUX-06's colour byte)             | pass |
+| VMUX-14 | Scrolled path (fine scroll 4), primary fetches, slots 2 and 3: pixel at P/P+1, attribute at A/A+1, both at P+1 | Seen / not seen; old pixel in the new attribute | pass |
+| VMUX-15 | Render, flush, rewind, render again at the same instant (the debugger panel's second walk) | A pixel written after its fetch shows the old byte on both passes | pass |
 
 The end-to-end check is the functional row `editmenu-beam-func`: NextZXOS's EDIT
 menu frames, rebuilt from the debugger's own write log with this fetch rule.
@@ -1107,7 +1110,7 @@ menu frames, rebuilt from the debugger's own write log with this fetch rule.
 | 15 | Shadow screen | 4 |
 | 16 | NR 0xFF palette side-channel | 1 (G150) |
 | 17 | Per-scanline active-palette select | 4 (G10) |
-| 19 | ULA VRAM beam replay | 12 (GH #305) |
+| 19 | ULA VRAM beam replay | 15 (GH #305) |
 | | **Total** | **~138** |
 
 ## Implementation Notes

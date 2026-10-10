@@ -4363,6 +4363,30 @@ static void test_section19_beam_replay() {
                   r[1][0], r[1][1], r[1][2], r[1][3], r[1][4]));
     }
 
+    // VMUX-15 — the debugger video panel walks the frame a second time AFTER
+    // the main render has flushed the log (Renderer::render_frame ends with
+    // flush_remaining_changes()). Each pixel byte is fetched once per frame, at
+    // one instant, so the second walk reads it at exactly the instant the first
+    // did, and only rewind_to_baseline() puts its cursor back: a byte written
+    // after its fetch must still show the OLD value on the second walk, not the
+    // end-of-frame one.
+    {
+        BeamBed bed;
+        bed.begin();
+        const int p = raw_hc(vh_pbyte_primary(5));
+        bed.wr(pix_addr(5), 0xFF, kFbRow, p + 1);
+        const uint8_t pass1 = BeamBed::cell(bed.row(kFbRow), 5, white);
+        bed.mmu.attr_mux_flush_remaining();
+        const uint8_t pass2 = BeamBed::cell(bed.row(kFbRow), 5, white);
+        check("VMUX-15",
+              "zxula.vhd:270-303 — render, flush, rewind, render again at the "
+              "same instant: a pixel written after its fetch shows the old "
+              "byte on both passes",
+              pass1 == 0x00 && pass2 == 0x00,
+              fmt("pass1=0x%02X pass2=0x%02X (expected 0x00 both; a cursor not "
+                  "rewound gives 0xFF on the second)", pass1, pass2));
+    }
+
     // VMUX-11 — no write is dropped: 20000 screen writes in one frame (the
     // old log capped at 8192 and silently dropped the tail) and the last one,
     // late in the frame, is still resolved.
