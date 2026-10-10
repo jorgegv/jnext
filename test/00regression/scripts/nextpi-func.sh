@@ -81,6 +81,13 @@ if want nextpi-func; then
     # closes it (cat then fails on the broken pipe, ending the loop); its UART
     # FIFOs are held open as the real one's are. The machine is a 48K, so
     # nothing has to boot, and the injected program is NEXTREG $A2,$C0 / JR $.
+    # 1500 frames, not fewer: the tone has to be in the ring (2205 frames of
+    # prebuffer) before the headless run ends, and the stand-in starts as a
+    # chain of processes. Measured: at 150 frames the fact failed 14 of 24
+    # copies run 8 at once on a macOS host; on Linux (fedora:44, 8 CPUs) it
+    # failed 0 of 180 across 8 and 12 concurrent copies at 150 and 1500 frames,
+    # 24 of them beside 8 busy loops. 1500 frames is the margin, and the row
+    # stays in the parallel phase.
     rm -rf "$np"
     mkdir -p "$np/boot"
     : >"$np/nextpi.img"
@@ -116,7 +123,7 @@ STANDIN
     out=$(timeout --foreground --kill-after=5s 60s \
         env PATH="$stand_in:$PATH" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" --machine 48k \
         --nextpi --inject "$TMP_DIR/nextpi-a2.bin" --wav-record "$wav" \
-        --delayed-automatic-exit-frames 150 </dev/null 2>&1) || rc=$?
+        --delayed-automatic-exit-frames 1500 </dev/null 2>&1) || rc=$?
     [[ $rc -eq 0 ]] || fails+=("--nextpi with a stand-in QEMU and --wav-record exited $rc, want 0")
     swing=$(python3 - "$wav" <<'PY' 2>&1 || true
 import struct, sys
