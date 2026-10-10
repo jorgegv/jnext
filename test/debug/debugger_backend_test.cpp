@@ -7823,7 +7823,7 @@ int main() {
                       "/" + hex(pb) + " mux=" + hex(emu.mmu().attr_mux5().current(OFF)));
         }
 
-        // ── INS-14-22 / INS-14-23: the mux's rewind in BOTH render passes ──
+        // ── INS-14-24 / INS-14-25: the mux's rewind in BOTH render passes ──
         //
         // GH #305. A pixel byte the CPU writes AFTER the ULA fetched it must
         // show its OLD value in every picture of that frame: the main render
@@ -7834,8 +7834,8 @@ int main() {
         // it at the very same instant and only its own rewind_to_baseline()
         // puts the cursor back. (An attribute byte is read on eight rows, so
         // the restart masks a missing rewind there: INS-14-13 cannot see it.)
-        //   INS-14-22  main render, then the panel   -> the panel's rewind
-        //   INS-14-23  panel (paused mid-frame), then the frame-end main render
+        //   INS-14-24  main render, then the panel   -> the panel's rewind
+        //   INS-14-25  panel (paused mid-frame), then the frame-end main render
         //              -> the renderer's rewind
         // Cell column 10 of screen row 68 (framebuffer row S) is written after
         // its fetch; column 20 is never written (paper); column 30 is a lit
@@ -7884,11 +7884,11 @@ int main() {
             std::string d22, d23;
             const bool ok22 = scenario(false, d22);
             const bool ok23 = scenario(true, d23);
-            check("INS-14-22", "pixel mux, main render then the panel: a pixel byte written "
+            check("INS-14-24", "pixel mux, main render then the panel: a pixel byte written "
                                "after its fetch shows the old byte in both pictures "
                                "(the panel's own mux rewind)",
                   ok22, d22);
-            check("INS-14-23", "pixel mux, panel render then the frame-end main render: a "
+            check("INS-14-25", "pixel mux, panel render then the frame-end main render: a "
                                "pixel byte written after its fetch shows the old byte in "
                                "both pictures (the renderer's own mux rewind)",
                   ok23, d23);

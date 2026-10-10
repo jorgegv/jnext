@@ -13,7 +13,7 @@ Rounds 2-4 (review F1-F5, R2-1, R2-2, R3-1, R3-2) done; main v1.1.18 merged (fun
   emulated px) and `nirvana-plus3` (540 px = 135 emulated px). No other row fails, including
   `boot-nextzxos-cpm` (the page-0x0B write the plan flagged is harmless). No stamp is written while
   those two fail.
-- New rows: `ula_test` VMUX-01..15 (151), `mmu_test` G12-MUX-12..14 (262), `debugger_backend_test` INS-14-22/23 (1446), functional
+- New rows: `ula_test` VMUX-01..15 (151), `mmu_test` G12-MUX-12..14 (262), `debugger_backend_test` INS-14-24/23 (1446), functional
   `editmenu-beam-func` (it fails on main's binary with exactly the 624/254 px frames of stage A).
 
 ## What the owner must decide

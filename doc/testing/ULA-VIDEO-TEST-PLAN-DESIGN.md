@@ -1086,7 +1086,7 @@ are re-derived in the test from the register table above, not from
 | VMUX-14 | Scrolled path (fine scroll 4), primary fetches, slots 2 and 3: pixel at P/P+1, attribute at A/A+1, both at P+1 | Seen / not seen; old pixel in the new attribute | pass |
 | VMUX-15 | Render, flush, rewind, render again at the same instant (the debugger panel's second walk) | A pixel written after its fetch shows the old byte on both passes | pass |
 
-The production render orders (main render then the debugger panel; panel then the frame-end render) are pinned by `debugger_backend_test` INS-14-22 / INS-14-23. The end-to-end check is the functional row `editmenu-beam-func`: NextZXOS's EDIT
+The production render orders (main render then the debugger panel; panel then the frame-end render) are pinned by `debugger_backend_test` INS-14-24 / INS-14-25. The end-to-end check is the functional row `editmenu-beam-func`: NextZXOS's EDIT
 menu frames, rebuilt from the debugger's own write log with this fetch rule.
 
 ## Total Test Count
