@@ -249,7 +249,8 @@ static void test_TR() {
     //        against NR 0x14 — both palette LSBs (0 and 1) must be
     //        transparent when upper 8 == NR 0x14. VHDL zxnext.vhd:7100.
     //        The C++ renderer does not model the 9-bit palette, so the
-    //        two LSB cases collapse to the same ARGB input. We still
+    //        two LSB cases collapse to the same ARGB input (the sweep over
+    //        both LSBs on palette-producible words is TR-19). We still
     //        assert the VHDL-correct oracle (both produce fallback) using
     //        a DISTINCT fallback colour so the check is non-tautological.
     //        Expected to fail on same root cause as TR-11.
@@ -269,6 +270,69 @@ static void test_TR() {
               "(VHDL zxnext.vhd:7100)",
               ok,
               DETAIL("a=0x%08X b=0x%08X fb=0x%08X", got_a, got_b, fb));
+    }
+
+    // TR-18 / TR-19 (GH #304): the NR 0x14 compare is on the top 8 bits of
+    //        the layer's 9-bit palette colour, `ula_rgb_2(8 downto 1) =
+    //        transparent_rgb_2` (VHDL zxnext.vhd:7100). Every stimulus below
+    //        is a word a palette can produce (rgb333_to_argb8888, 3-bit
+    //        blue), never rrrgggbb_to_argb (2-bit blue), which is the
+    //        expansion the pre-fix compare was built on and which hides the
+    //        bug: the two agree only for blue 000/111. The fallback is a raw
+    //        word no palette or NR 0x4A expansion can produce, so a
+    //        transparent pixel cannot be mistaken for an opaque one.
+    // TR-18: PLOTIT's colour. NR 0x14 = 0x02, ULA colour 9-bit 0x005
+    //        (RGB[8:1] = 0x02, blue 101) => transparent => fallback wins.
+    {
+        clear_layers(r);
+        r.set_layer_priority(0);
+        r.set_transparent_rgb(0x02);
+        r.ula_line_[0] = rgb333_to_argb8888(0, 0, 5);   // 9-bit 0x005
+        const uint32_t fb = 0xFF010203u;
+        uint32_t got = composite_one(r, fb);
+        check("TR-18",
+              "NR0x14=0x02, ULA colour 9-bit 0x005 (blue 101) is transparent; "
+              "fallback wins (VHDL zxnext.vhd:7100, 7214)",
+              got == fb,
+              DETAIL("got=0x%08X expected_fallback=0x%08X", got, fb));
+        r.set_transparent_rgb(0xE3);
+    }
+
+    // TR-19: exhaustive. For every NR 0x14 value v and 9th bit b: the ULA
+    //        colour (v<<1)|b is transparent (fallback); each of the 8
+    //        colours with ONE compared bit k flipped, ((v^(1<<k))<<1)|b, is
+    //        opaque (itself). Flipping every bit, not just one, is what shows
+    //        that all of colour bits 8:1 take part in the compare.
+    {
+        const uint32_t fb = 0xFF010203u;
+        int bad = 0, first_v = -1, cases = 0;
+        for (int v = 0; v < 256; ++v) {
+            for (int b = 0; b < 2; ++b) {
+                for (int flip = 0; flip < 9; ++flip) {   // 0 = match; k+1 = flip bit k
+                    const int c9 = (((v ^ (flip ? 1 << (flip - 1) : 0)) << 1) | b);
+                    clear_layers(r);
+                    r.set_layer_priority(0);
+                    r.set_transparent_rgb(static_cast<uint8_t>(v));
+                    const uint32_t px = rgb333_to_argb8888(
+                        (c9 >> 6) & 7, (c9 >> 3) & 7, c9 & 7);
+                    r.ula_line_[0] = px;
+                    const uint32_t got = composite_one(r, fb);
+                    ++cases;
+                    if (got != (flip ? px : fb)) {
+                        if (!bad) first_v = v;
+                        ++bad;
+                    }
+                }
+            }
+        }
+        check("TR-19",
+              "NR0x14 compares exactly colour bits 8:1 (ULA): 512 matching "
+              "colours transparent, 4096 with one compared bit flipped opaque "
+              "(VHDL zxnext.vhd:7100)",
+              bad == 0,
+              DETAIL("%d of %d cases wrong, first at NR0x14=0x%02X",
+                     bad, cases, first_v));
+        r.set_transparent_rgb(0xE3);
     }
 
     // TR-13: ula_clipped_2=1 forces ULA transparent regardless of RGB.
@@ -520,6 +584,70 @@ static void test_TR() {
                      got, PIX_ULA, PIX_TM));
     }
 
+    // TR-26 / TR-27 (GH #304): the text-mode tilemap clause of VHDL 7109,
+    //        `tm_rgb_2(8 downto 1) = transparent_rgb_2`, on palette-producible
+    //        colours (see TR-18). Opaque ULA underneath, tm_below=0, so a
+    //        wrongly opaque tile would cover it (7116).
+    // TR-26: NR 0x14 = 0x02, tile colour 9-bit 0x005 => TM transparent, ULA shows.
+    {
+        clear_layers(r);
+        r.set_layer_priority(0);
+        r.set_transparent_rgb(0x02);
+        r.tm_enabled_           = true;
+        r.ula_line_[0]          = PIX_ULA;
+        r.tilemap_line_[0]      = rgb333_to_argb8888(0, 0, 5);   // 9-bit 0x005
+        r.tm_pixel_textmode_[0] = true;
+        r.tm_pixel_below_[0]    = false;
+        uint32_t got = composite_one(r, 0xFF010203u);
+        check("TR-26",
+              "NR0x14=0x02, text-mode TM colour 9-bit 0x005 (blue 101) is "
+              "transparent; the ULA shows (VHDL zxnext.vhd:7109, 7116)",
+              got == PIX_ULA,
+              DETAIL("got=0x%08X expected ULA=0x%08X", got, PIX_ULA));
+        r.set_transparent_rgb(0xE3);
+    }
+
+    // TR-27: TR-19's sweep for the text-mode tilemap over an opaque ULA
+    //        colour v^0x81, which differs from v and from every single-bit
+    //        flip of v, so it is never transparent and never equals the tile:
+    //        tile colour (v<<1)|b => ULA shows; one bit k flipped => the tile.
+    {
+        int bad = 0, first_v = -1, cases = 0;
+        for (int v = 0; v < 256; ++v) {
+            const uint32_t ula = rgb333_to_argb8888(
+                ((v ^ 0x81) >> 5) & 7, ((v ^ 0x81) >> 2) & 7,
+                ((v ^ 0x81) & 3) << 1);
+            for (int b = 0; b < 2; ++b) {
+                for (int flip = 0; flip < 9; ++flip) {   // 0 = match; k+1 = flip bit k
+                    const int c9 = (((v ^ (flip ? 1 << (flip - 1) : 0)) << 1) | b);
+                    clear_layers(r);
+                    r.set_layer_priority(0);
+                    r.set_transparent_rgb(static_cast<uint8_t>(v));
+                    r.tm_enabled_           = true;
+                    r.ula_line_[0]          = ula;
+                    const uint32_t tm = rgb333_to_argb8888(
+                        (c9 >> 6) & 7, (c9 >> 3) & 7, c9 & 7);
+                    r.tilemap_line_[0]      = tm;
+                    r.tm_pixel_textmode_[0] = true;
+                    const uint32_t got = composite_one(r, 0xFF010203u);
+                    ++cases;
+                    if (got != (flip ? tm : ula)) {
+                        if (!bad) first_v = v;
+                        ++bad;
+                    }
+                }
+            }
+        }
+        check("TR-27",
+              "text-mode TM compares exactly colour bits 8:1: 512 matching "
+              "colours transparent, 4096 with one compared bit flipped opaque "
+              "(VHDL zxnext.vhd:7109)",
+              bad == 0,
+              DETAIL("%d of %d cases wrong, first at NR0x14=0x%02X",
+                     bad, cases, first_v));
+        r.set_transparent_rgb(0xE3);
+    }
+
     // TR-30: Layer 2 RGB compare vs NR 0x14. VHDL zxnext.vhd:7121.
     //        Emulator lacks palette-compare path; test pins the VHDL oracle.
     {
@@ -531,6 +659,43 @@ static void test_TR() {
         check("TR-30", "L2 RGB[8:1]==NR0x14 => layer2_transparent (VHDL 7121)",
               got == fb,
               DETAIL("got=0x%08X fb=0x%08X", got, fb));
+    }
+
+    // TR-34 (GH #304): TR-19's sweep for Layer 2, `layer2_rgb_2(8 downto 1) =
+    //        transparent_rgb_2` (VHDL zxnext.vhd:7121), on palette-producible
+    //        colours with a fallback no palette can produce. TR-30 uses one
+    //        word for both stimulus and fallback, so it cannot tell the two
+    //        outcomes apart; this row can.
+    {
+        const uint32_t fb = 0xFF010203u;
+        int bad = 0, first_v = -1, cases = 0;
+        for (int v = 0; v < 256; ++v) {
+            for (int b = 0; b < 2; ++b) {
+                for (int flip = 0; flip < 9; ++flip) {   // 0 = match; k+1 = flip bit k
+                    const int c9 = (((v ^ (flip ? 1 << (flip - 1) : 0)) << 1) | b);
+                    clear_layers(r);
+                    r.set_layer_priority(0);
+                    r.set_transparent_rgb(static_cast<uint8_t>(v));
+                    const uint32_t px = rgb333_to_argb8888(
+                        (c9 >> 6) & 7, (c9 >> 3) & 7, c9 & 7);
+                    r.layer2_line_[0] = px;
+                    const uint32_t got = composite_one(r, fb);
+                    ++cases;
+                    if (got != (flip ? px : fb)) {
+                        if (!bad) first_v = v;
+                        ++bad;
+                    }
+                }
+            }
+        }
+        check("TR-34",
+              "Layer 2 compares exactly colour bits 8:1: 512 matching colours "
+              "transparent, 4096 with one compared bit flipped opaque "
+              "(VHDL zxnext.vhd:7121)",
+              bad == 0,
+              DETAIL("%d of %d cases wrong, first at NR0x14=0x%02X",
+                     bad, cases, first_v));
+        r.set_transparent_rgb(0xE3);
     }
 
     // TR-31: Layer 2 pixel_en=0 => transparent. VHDL 7121.

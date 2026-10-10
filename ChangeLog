@@ -6,6 +6,8 @@
 - NextPi under QEMU (`--nextpi`, downloaded on first use): NextZXOS's Pi tools (`.pisend`, speech, music, tape streaming) work unmodified
 
 ### Bug Fixes
+- NextZXOS screen writes at 28 MHz no longer land on the wrong scanline, which made its menus appear striped while drawing
+- ULA, LoRes and text-mode tilemap pixels now honour the NR 0x14 transparent colour for every blue shade (PLOTIT-lite drew all blue)
 - The joystick-port serial cable's pseudo-terminal (`--joy-uart-pty`) now works on macOS, where it refused to start
 - On macOS the pointer-release hint now names Alt+Cmd, the chord that actually releases the mouse
 

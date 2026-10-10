@@ -2466,6 +2466,66 @@ int g12tag_first_row(Emulator& emu, uint8_t value) {
     return found;
 }
 
+
+// GH #305 — the CPU write tag at every CPU speed. The beam runs on the master
+// clock whatever NR 0x07 says (zxula_timing.vhd:318-341, i_CLK_7), and bank 5
+// is a dual-port BRAM the ULA reads on its own port (zxnext.vhd:6562-6578), so
+// the expected row is the master-clock one: (landing cycle - frame start) /
+// master_cycles_per_line - vblank_top. It is derived from the clock, never
+// from derive_hc_vc(). The pre-fix tag divided the CPU T-state counter by the
+// 3.5 MHz line length, so at divisor d it put a write at line ~ d * (true
+// line), modulo the frame: each stimulus line is one where that is a
+// DIFFERENT on-screen row (the failure message prints the row it gave).
+//
+// Prepares an emulator parked at 0x8000 with `LD (attr),A ; JR $` at 0x8200.
+void g12tag_prepare(Emulator& emu) {
+    build_next_emulator(emu);
+    const uint8_t park[] = {0x18, 0xFE};
+    const uint16_t dst = 0x5800 + G12TAG_OFF;
+    const uint8_t ld[] = {0x32, static_cast<uint8_t>(dst & 0xFF),
+                          static_cast<uint8_t>(dst >> 8), 0x18, 0xFE};  // LD (dst),A
+    for (size_t i = 0; i < sizeof(park); ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), park[i]);
+    for (size_t i = 0; i < sizeof(ld); ++i) emu.mmu().write(static_cast<uint16_t>(0x8200 + i), ld[i]);
+    emu.mmu().write(dst, G12TAG_BASE);
+    auto regs = emu.cpu().get_registers();
+    regs.PC = 0x8000; regs.SP = 0xFF00; regs.IFF1 = 0; regs.IFF2 = 0;
+    regs.AF = static_cast<uint16_t>(G12TAG_NEW << 8);
+    emu.cpu().set_registers(regs);
+}
+
+// Single-steps the parked JR $ to the last boundary before `offset` master
+// cycles from the start of raw line vbt+ROW, then runs LD (attr),A there. The
+// instruction starts less than one loop pass before `offset` and (the rows
+// assert it) ends after it. Returns the
+// first row that sees NEW; `at_rel` / `end_rel` are the cycles it began and
+// ended on, relative to the line start.
+int g12tag_run_at(Emulator& emu, int64_t offset, int64_t& at_rel, int64_t& end_rel) {
+    const uint64_t fs  = emu.current_frame_cycle();
+    const uint64_t mcl = emu.timing().master_cycles_per_line;
+    const int      vbt = emu.video_timing().vblank_top();
+    const uint64_t line_start = fs + static_cast<uint64_t>(vbt + G12TAG_ROW) * mcl;
+    emu.debug_state().set_clients_attached(true);
+    emu.debug_state().set_live_raster(true);
+    const int64_t d    = emu.clock().cpu_divisor();
+    const int64_t goal = static_cast<int64_t>(line_start) + offset;
+    emu.debug_state().run_to_cycle(static_cast<uint64_t>(goal - 40 * d));
+    emu.run_frame();
+    // One JR $ step measures the loop's length L (28 MHz adds wait states).
+    const int64_t t0 = static_cast<int64_t>(emu.clock().get());
+    emu.execute_single_instruction();
+    const int64_t L = static_cast<int64_t>(emu.clock().get()) - t0;
+    while (static_cast<int64_t>(emu.clock().get()) + L < goal)
+        emu.execute_single_instruction();
+    const uint64_t at = emu.clock().get();
+    auto regs = emu.cpu().get_registers();
+    regs.PC = 0x8200;
+    emu.cpu().set_registers(regs);
+    emu.execute_single_instruction();
+    at_rel  = static_cast<int64_t>(at) - static_cast<int64_t>(line_start);
+    end_rel = static_cast<int64_t>(emu.clock().get()) - static_cast<int64_t>(line_start);
+    return g12tag_first_row(emu, G12TAG_NEW);
+}
+
 }  // namespace
 
 static void test_g12_attribute_write_tags() {
@@ -2627,6 +2687,180 @@ static void test_g12_attribute_write_tags() {
               at + 104 < line_start + mcl && emu.mmu().read(dst) == G12TAG_NEW &&
                   row == G12TAG_ROW + 1,
               fmt("first row=%d (want %d)", row, G12TAG_ROW + 1));
+    }
+
+    // G12-TAG-06..08 (GH #305) — the same straddle as TAG-04 at 7, 14 and 28 MHz.
+    // The instruction (13 CPU T-states) starts just before raw line vbt+150 and
+    // lands 4 master cycles into it, so NEW is visible from row 150.
+    {
+        Emulator emu;
+        g12tag_prepare(emu);
+        nr_write(emu, 0x07, 0x01);                          // 7 MHz
+        emu.run_frame();
+        int64_t at = 0, end = 0;
+        const int d = emu.clock().cpu_divisor();
+        const int row = g12tag_run_at(emu, 0, at, end);
+        check("G12-TAG-06",
+              "a CPU attribute write at 7 MHz straddling a line start is tagged with the "
+              "master-clock line it landed on (the 3.5 MHz formula puts it elsewhere)",
+              d == 4 && at < 0 && end > 0 && emu.mmu().read(0x5800 + G12TAG_OFF) == G12TAG_NEW &&
+                  row == G12TAG_ROW,
+              fmt("divisor=%d start=%lld end=%lld first row=%d (want %d)", d,
+                  static_cast<long long>(at), static_cast<long long>(end), row, G12TAG_ROW));
+    }
+    {
+        Emulator emu;
+        g12tag_prepare(emu);
+        nr_write(emu, 0x07, 0x02);                          // 14 MHz
+        emu.run_frame();
+        int64_t at = 0, end = 0;
+        const int d = emu.clock().cpu_divisor();
+        const int row = g12tag_run_at(emu, 0, at, end);
+        check("G12-TAG-07",
+              "a CPU attribute write at 14 MHz straddling a line start is tagged with the "
+              "master-clock line it landed on",
+              d == 2 && at < 0 && end > 0 && emu.mmu().read(0x5800 + G12TAG_OFF) == G12TAG_NEW &&
+                  row == G12TAG_ROW,
+              fmt("divisor=%d start=%lld end=%lld first row=%d (want %d)", d,
+                  static_cast<long long>(at), static_cast<long long>(end), row, G12TAG_ROW));
+    }
+    {
+        Emulator emu;
+        g12tag_prepare(emu);
+        nr_write(emu, 0x07, 0x03);                          // 28 MHz
+        emu.run_frame();
+        int64_t at = 0, end = 0;
+        const int d = emu.clock().cpu_divisor();
+        const int row = g12tag_run_at(emu, 0, at, end);
+        check("G12-TAG-08",
+              "a CPU attribute write at 28 MHz straddling a line start is tagged with the "
+              "master-clock line it landed on",
+              d == 1 && at < 0 && end > 0 && emu.mmu().read(0x5800 + G12TAG_OFF) == G12TAG_NEW &&
+                  row == G12TAG_ROW,
+              fmt("divisor=%d start=%lld end=%lld first row=%d (want %d)", d,
+                  static_cast<long long>(at), static_cast<long long>(end), row, G12TAG_ROW));
+    }
+
+    // G12-TAG-09 — the column half at 28 MHz: a write late in line 150 keeps
+    // its own column, so column 0 (fetched earlier in that line) shows it from
+    // row 151 (TAG-05's analogue).
+    {
+        Emulator emu;
+        g12tag_prepare(emu);
+        nr_write(emu, 0x07, 0x03);
+        emu.run_frame();
+        int64_t at = 0, end = 0;
+        const int64_t mcl = static_cast<int64_t>(emu.timing().master_cycles_per_line);
+        const int row = g12tag_run_at(emu, mcl * 3 / 4, at, end);
+        check("G12-TAG-09",
+              "a CPU attribute write late in a line at 28 MHz keeps its own column: "
+              "column 0, already fetched on that line, shows it from the next line",
+              emu.clock().cpu_divisor() == 1 && at > 0 && end < mcl &&
+                  emu.mmu().read(0x5800 + G12TAG_OFF) == G12TAG_NEW && row == G12TAG_ROW + 1,
+              fmt("start=%lld end=%lld first row=%d (want %d)", static_cast<long long>(at),
+                  static_cast<long long>(end), row, G12TAG_ROW + 1));
+    }
+
+    // G12-TAG-10 — 3.5 MHz switched to 28 MHz mid-frame (around line 100); the
+    // counter's unit changes there (rebase_fuse_tstates_), and a write at line
+    // 150 of the same frame must still be placed on the master clock.
+    {
+        Emulator emu;
+        g12tag_prepare(emu);
+        emu.run_frame();                                    // settle at 3.5 MHz
+        const uint64_t fs  = emu.current_frame_cycle();
+        const uint64_t mcl = emu.timing().master_cycles_per_line;
+        const int      vbt = emu.video_timing().vblank_top();
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
+        emu.debug_state().run_to_cycle(fs + static_cast<uint64_t>(vbt + 100) * mcl);
+        emu.run_frame();
+        nr_write(emu, 0x07, 0x03);
+        emu.execute_single_instruction();                   // commits at the bus-idle edge
+        int64_t at = 0, end = 0;
+        const int d = emu.clock().cpu_divisor();
+        const int row = g12tag_run_at(emu, 0, at, end);
+        check("G12-TAG-10",
+              "after a 3.5 -> 28 MHz switch mid-frame the CPU attribute write tag follows the "
+              "new unit at once",
+              d == 1 && at < 0 && end > 0 && emu.mmu().read(0x5800 + G12TAG_OFF) == G12TAG_NEW &&
+                  row == G12TAG_ROW,
+              fmt("divisor=%d start=%lld end=%lld first row=%d (want %d)", d,
+                  static_cast<long long>(at), static_cast<long long>(end), row, G12TAG_ROW));
+    }
+
+    // G12-TAG-11 — state saved at 28 MHz and loaded into a fresh machine (which
+    // starts at 3.5 MHz): the tag must follow the restored clock.
+    {
+        Emulator src;
+        g12tag_prepare(src);
+        nr_write(src, 0x07, 0x03);
+        src.run_frame();
+        size_t need = 0;
+        {
+            StateWriter measure(nullptr, 0);
+            src.save_state(measure);
+            need = measure.position();
+        }
+        std::vector<uint8_t> blob(need, 0);
+        {
+            StateWriter w(blob.data(), blob.size());
+            src.save_state(w);
+        }
+        Emulator emu;
+        build_next_emulator(emu);
+        {
+            StateReader r(blob.data(), blob.size());
+            emu.load_state(r);
+        }
+        int64_t at = 0, end = 0;
+        const int d = emu.clock().cpu_divisor();
+        const int row = g12tag_run_at(emu, 0, at, end);
+        check("G12-TAG-11",
+              "after a state load at 28 MHz the CPU attribute write tag follows the restored "
+              "CPU speed",
+              d == 1 && at < 0 && end > 0 && emu.mmu().read(0x5800 + G12TAG_OFF) == G12TAG_NEW &&
+                  row == G12TAG_ROW,
+              fmt("divisor=%d start=%lld end=%lld first row=%d (want %d)", d,
+                  static_cast<long long>(at), static_cast<long long>(end), row, G12TAG_ROW));
+    }
+
+    // G12-TAG-12 — a SOFT reset at 28 MHz mid-frame (NR 0x02 bit 0): cpu_speed
+    // goes back to 3.5 MHz (zxnext.vhd:5800) while the clock, the frame start
+    // and the FUSE counter all keep running (zxula_timing.vhd has no reset), so
+    // the counter's unit changes and must be re-derived. Without that the tag
+    // uses counter*8 on a counter still in 28 MHz units (row 141 here).
+    {
+        Emulator emu;
+        g12tag_prepare(emu);
+        nr_write(emu, 0x07, 0x03);
+        emu.run_frame();
+        const uint64_t fs  = emu.current_frame_cycle();
+        const uint64_t mcl = emu.timing().master_cycles_per_line;
+        const int      vbt = emu.video_timing().vblank_top();
+        emu.debug_state().set_clients_attached(true);
+        emu.debug_state().set_live_raster(true);
+        emu.debug_state().run_to_cycle(fs + static_cast<uint64_t>(vbt + 100) * mcl);
+        emu.run_frame();
+        nr_write(emu, 0x02, 0x01);                          // soft reset
+        auto regs = emu.cpu().get_registers();
+        regs.PC = 0x8000; regs.SP = 0xFF00; regs.IFF1 = 0; regs.IFF2 = 0;
+        regs.AF = static_cast<uint16_t>(G12TAG_NEW << 8);
+        emu.cpu().set_registers(regs);
+        const int d = emu.clock().cpu_divisor();
+        const uint64_t inv_ts  = static_cast<uint64_t>(*fuse_z80_tstates_ptr()) * d;
+        const uint64_t inv_clk = emu.clock().get() - emu.current_frame_cycle();
+        int64_t at = 0, end = 0;
+        const int row = g12tag_run_at(emu, 0, at, end);
+        check("G12-TAG-12",
+              "after a soft reset at 28 MHz mid-frame the FUSE counter is re-derived for 3.5 MHz "
+              "(counter x divisor = clock - frame start, to a whole T-state) and the write tag follows",
+              d == 8 && inv_clk >= inv_ts && inv_clk - inv_ts < static_cast<uint64_t>(d) && at < 0 && end > 0 &&
+                  emu.mmu().read(0x5800 + G12TAG_OFF) == G12TAG_NEW && row == G12TAG_ROW,
+              fmt("divisor=%d counter*div=%llu clock-fs=%llu start=%lld end=%lld first row=%d (want %d)",
+                  d, static_cast<unsigned long long>(inv_ts),
+                  static_cast<unsigned long long>(inv_clk), static_cast<long long>(at),
+                  static_cast<long long>(end), row, G12TAG_ROW));
     }
 }
 

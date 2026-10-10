@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.13</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.15</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.13</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.15</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2498,8 +2498,8 @@ flag to <code>jnext</code> and to every <code>STATIC_LIBRARY</code> target under
 the directory tree, not listed), at <strong>both</strong> compile and link: under LTO the
 compile-time check is blind and only the link sees real frames. Test
 executables are excluded on purpose: their fixtures hold <code>Emulator</code>s on the
-stack and are never built for Windows. Clang+LTO link-time enforcement is
-unverified. The runtime witness is <code>startup-stack-func</code>, which boots all three
+stack and are never built for Windows. Under Clang LTO both halves are blind
+(measured with clang 22 on Linux; ld64 untested), so only GCC enforces there. The runtime witness is <code>startup-stack-func</code>, which boots all three
 frontends on a 1 MiB stack.</p>
 <h2 id="ccache">ccache<a class="headerlink" href="#ccache" title="Permanent link">&para;</a></h2>
 <p><code>CMakeLists.txt</code> finds ccache and uses it as <code>CMAKE_{C,CXX}_COMPILER_LAUNCHER</code>.
