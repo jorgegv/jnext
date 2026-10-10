@@ -46,6 +46,14 @@ struct AppConfigData {
     // "sdl"/"keys" strings via joy_source_str()/parse_joy_source().
     JoySource   joy_source[2]          = { JoySource::Sdl, JoySource::Sdl };
 
+    // GH #311 — the physical controller assigned to each connector, by stable
+    // id ("<sdl guid>" or "<sdl guid>#N", see input/joy_source.h). Empty =
+    // Automatic (first free controller). The name is only what the menu shows
+    // for a controller that is not plugged in; it is never used for matching.
+    // Edited from the Input menu and Preferences > Input.
+    QString     joy_device[2];
+    QString     joy_device_name[2];
+
     // GH #25 — the emulated ESP-01 WiFi module. Defaults match the CLI's
     // (off, no host restriction), so a machine with no config file is not on
     // the network. A user who runs NXtel every day should not have to type

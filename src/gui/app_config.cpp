@@ -168,6 +168,21 @@ void AppConfig::load() {
         if (parse_joy_source(v.toStdString().c_str(), parsed))
             data_.joy_source[i] = parsed;
     }
+    // GH #311 — assigned controller. An id that does not parse is dropped
+    // together with its name, so a hand-edit cannot leave a name with no id.
+    const char* dev_keys[2]  = { "joy1_device", "joy2_device" };
+    const char* name_keys[2] = { "joy1_device_name", "joy2_device_name" };
+    for (int i = 0; i < 2; ++i) {
+        std::string canon;
+        const QString raw = settings_.value(dev_keys[i], data_.joy_device[i]).toString().trimmed();
+        if (!raw.isEmpty() && normalize_joy_device_id(raw.toStdString(), canon)) {
+            data_.joy_device[i]      = QString::fromStdString(canon);
+            data_.joy_device_name[i] = settings_.value(name_keys[i], data_.joy_device_name[i]).toString();
+        } else {
+            data_.joy_device[i].clear();
+            data_.joy_device_name[i].clear();
+        }
+    }
     settings_.endGroup();
 
     // GH #25 — the emulated ESP-01. Read through EspHostPolicy::add so a
@@ -252,6 +267,10 @@ void AppConfig::save() const {
     settings_.beginGroup("input");   // Task 79
     settings_.setValue("joy1_source", QString::fromLatin1(joy_source_str(data_.joy_source[0])));
     settings_.setValue("joy2_source", QString::fromLatin1(joy_source_str(data_.joy_source[1])));
+    settings_.setValue("joy1_device", data_.joy_device[0]);        // GH #311
+    settings_.setValue("joy1_device_name", data_.joy_device_name[0]);
+    settings_.setValue("joy2_device", data_.joy_device[1]);
+    settings_.setValue("joy2_device_name", data_.joy_device_name[1]);
     settings_.endGroup();
 
     // GH #1 — ONLY redefinitions are written. The group is removed first so
