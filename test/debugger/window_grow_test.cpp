@@ -202,7 +202,7 @@ int main(int argc, char** argv)
     qputenv("QT_QPA_PLATFORM",
             QStringLiteral("offscreen:configfile=%1").arg(qpa_config).toUtf8());
     // Isolate the config file: this suite writes saved geometries, and the real
-    // ~/.jnext/Debugger.conf belongs to the user.
+    // ~/.jnext/jnext.conf belongs to the user.
     qputenv("JNEXT_CONFIG_DIR", dir.path().toUtf8());
 
     QApplication app(argc, argv);

@@ -8,15 +8,19 @@ Preferences are stored as plain text in:
 
 It is an INI file, so you can read and edit it with any text editor while
 JNEXT is closed. It lives next to the other things JNEXT keeps per-user, such
-as the downloaded SD-card image in `~/.jnext/sdcard/`. The debugger window
-keeps its own layout separately in `~/.jnext/Debugger.conf`.
+as the downloaded SD-card image in `~/.jnext/sdcard/`. It is the only settings
+file: the debugger window's layout is stored in its `[debugger]` section (`size`
+as `W, H`, `position` as `X, Y` while the window is detached, and `attached`).
+A `~/.jnext/Debugger.conf` left by an older version is merged into that section
+the first time the new version starts, and removed. Section names are
+lowercase, and a value is plain text: no `@Invalid()` or `@ByteArray(...)`.
 
 Deleting the file resets everything to defaults — that is the supported way to
 start over. A missing or corrupt entry falls back to its default rather than
 stopping JNEXT from starting.
 
 The emulated ESP-01 is stored in the `[esp]` section: `enabled` (`true`/`false`)
-and `allowed_hosts` (a comma-separated list). They are the same two settings as
+and `allowed_hosts` (a comma-separated list, empty when no host is allowed). They are the same two settings as
 the Preferences **Network** tab, and the persistent form of `--esp` and
 `--esp-allow`. Whenever `enabled` is true the status bar carries an ESP cell, so
 editing this file cannot put a program on the network without saying so, and

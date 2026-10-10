@@ -39,6 +39,10 @@ public:
     /// WP5: every panel).
     explicit DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent = nullptr);
 
+    /// GH #312: merge a legacy <config-dir>/Debugger.conf into jnext.conf
+    /// [debugger] and remove it. Idempotent; true only if it migrated.
+    static bool migrate_legacy_config();
+
     void refresh_panels();
 
     /// Show why a rewind (Step Back, Frame Back, the slider) was refused, in

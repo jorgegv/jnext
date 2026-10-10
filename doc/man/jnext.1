@@ -2797,6 +2797,13 @@ The quick screenshot is stored under \f[CR][screenshot]\f[R] as
 and \f[CR]quick_format\f[R] (\f[CR]png\f[R] or \f[CR]scr\f[R]), edited
 under \f[B]Settings > Preferences > Paths\f[R]; an unrecognised format
 keeps the default.
+The debugger window\(cqs layout is stored under \f[CR][debugger]\f[R]:
+\f[CR]size\f[R] (\f[CR]W, H\f[R]), \f[CR]position\f[R] (\f[CR]X, Y\f[R],
+written only while the window is detached) and \f[CR]attached\f[R]
+(\f[CR]true\f[R]/\f[CR]false\f[R]).
+An older \f[CR]\(ti/.jnext/Debugger.conf\f[R] is merged into this
+section once and removed.
+All section names are lowercase.
 CLI options always take precedence over saved values, and headless runs
 never read it.
 .TP
