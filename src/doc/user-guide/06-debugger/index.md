@@ -15,7 +15,7 @@ that returns with a clobbered register — in the GUI while you play, and
 headless as tests in your build. It is the most powerful tool JNEXT gives you.
 
 Open the debugger with **Alt+D**, with **Debug ▸ Debugger** or **View ▸
-Debugger** (the same entry, in both menus), or with the bug button on the
+Debugger** (the same entry, in both menus), or with the Debug button (a magnifier over a chip) on the
 emulator toolbar. The same actions close it. While it is closed
 the debugger costs nothing — no breakpoint checking, no call-stack tracking, no
 panel refreshes. Closing it also resumes the machine if it was paused.

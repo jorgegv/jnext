@@ -11,6 +11,7 @@
 class BreakpointModel;
 namespace jnext { namespace script { class ScriptHost; } }
 class QMainWindow;
+class QPixmap;
 class DebuggerWindow;
 
 /// Manages the debugger enable/disable state, debug menu actions, toolbar,
@@ -245,3 +246,6 @@ private:
     jnext::dbg::ClientId emulator_window_pause_client_ = jnext::dbg::CLIENT_NONE;   // GH #306
     jnext::script::ScriptHost* script_host_ = nullptr;   // GH #26 WP5
 };
+
+/// The Debug toolbar button's icon (magnifier over a chip) rendered at px x px.
+QPixmap make_debug_toolbar_icon(int px);
