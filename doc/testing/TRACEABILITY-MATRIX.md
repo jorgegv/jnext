@@ -2620,8 +2620,8 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:1241 | pass | test/uart/uart_integration_test.cpp:1678 |
 | NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1707 |
 | NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1738 |
-| TX-C1-ACC-01 | single tick span across a byte boundary: bytes exactly prescaler*frame_bits=2430 cycles apart [uart.vhd:297-299,318-320]; boundaries exact to one cycle; tx_empty at end | uart.vhd:297-299 | pass | test/uart/uart_test.cpp:2519 |
-| TX-C1-ACC-02 | one tick(4*2430) span drains 4 FIFO bytes back-to-back (starts at 0/T/2T/3T); last completion exactly at 4T [uart.vhd:297-299,318-320] | uart.vhd:297-299,318-320 | pass | test/uart/uart_test.cpp:2547 |
+| TX-C1-ACC-01 | single tick span across a byte boundary: bytes exactly prescaler*frame_bits=2430 cycles apart [uart.vhd:297-299,318-320]; boundaries exact to one cycle; tx_empty at end | uart.vhd:297-299 | pass | test/uart/uart_test.cpp:2522 |
+| TX-C1-ACC-02 | one tick(4*2430) span drains 4 FIFO bytes back-to-back (starts at 0/T/2T/3T); last completion exactly at 4T [uart.vhd:297-299,318-320] | uart.vhd:297-299,318-320 | pass | test/uart/uart_test.cpp:2550 |
 | UART-RD-GH265-01 | UART status IN latches the transmitter as of the port_uart_dat reload 83 cycles in, not the instruction start (zxnext.vhd:3418-3423; t80na.vhd:214-222) | zxnext.vhd:3418-3423, t80na.vhd:214-222 | pass | test/uart/uart_integration_test.cpp:1784 |
 | UART-WR-GH265-01 | UART TX write taken on the edge after IORQ+WR, 73 cycles into OUT (C),A (t80na.vhd:148-150; zxnext.vhd:3418-3423) | t80na.vhd:148-150, zxnext.vhd:3418-3423 | pass | test/uart/uart_integration_test.cpp:1823 |
 | PI-01 | the Raspberry Pi link carries both directions over UART 1 while NR 0xA0 = 0x30 connects it to the Pi GPIO pins (zxnext.vhd:2278-2281): host bytes reach port 0x143B on UART 1, the guest's UART 1 bytes reach the host, and UART 0 hears nothing | zxnext.vhd:2278-2281 | pass | test/uart/uart_posix_test.cpp:602 |
@@ -2673,7 +2673,7 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PI-47 | the open-descriptor list read from /dev/fd (and /proc/self/fd where it exists) names the open descriptors (fd 57) but not the directory's own, which is closed again: no descriptor is left open by reading the list or by the walk that marks from it | — | pass | test/uart/uart_posix_test.cpp:2011 |
 | I2C-P05a | DS1307 - restart + read address 0xD1 returns ACK=0 | — | pass | test/uart/uart_test.cpp:1776 |
 | I2C-P05b | DS1307 - seconds register is valid BCD (upper<=5, lower<=9) | — | pass | test/uart/uart_test.cpp:1780 |
-| RTC-23 | GH #317 parse_rtc_datetime — an overflowing, signed or space-padded field is rejected; unpadded digit fields still parse | — | pass | test/uart/uart_test.cpp:2338 |
+| RTC-23 | GH #317 parse_rtc_datetime — an overflowing, signed or space-padded field and a wrong separator are rejected; unpadded digit fields still parse | — | pass | test/uart/uart_test.cpp:2341 |
 
 ## NextREG — `test/nextreg/nextreg_test.cpp`
 
