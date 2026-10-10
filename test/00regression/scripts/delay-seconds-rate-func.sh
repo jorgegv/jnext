@@ -29,6 +29,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # The pre-fix behaviour is 100 in every leg. The 48K control never leaves 50 Hz
 # and must stay at 100: a 50 Hz run is frame-for-frame what it always was.
 #
+# Q2/S2 pin --delayed-screenshot-time (a tick site of its own) and Q3 the
+# unattended run of a seconds-form exit on Qt (GH #320 review round 1).
 # Qt and SDL: the same frame 120, measured on both (5 repeats each, the host
 # loaded: load average 11-12 on 12 CPUs); both count per tick, so a catch-up
 # frame cannot shift the boundary.
@@ -145,6 +147,38 @@ if want delay-seconds-rate-func; then
         ds_expect_taken s1-120 "S1 capture at frame 120"
         ds_shot sdl s1-121 next 2 121 --load "$ds_beast"
         ds_expect_missed s1-121 "S1 capture at frame 121"
+
+        # Q2, S2: --delayed-screenshot-time (the seconds-form SCREENSHOT countdown,
+        # a tick site of its own in each GUI frontend) is due at frame 120 too:
+        # an exit at frame 119 beats it, one at 120 does not.
+        for fe in qt sdl; do
+            rm -f "$ds_dir/$fe-st-119.png" "$ds_dir/$fe-st-120.png"
+            rc=$(ds_run "$fe" "$fe-st-119" --machine next --load "$ds_beast" \
+                    --delayed-screenshot-time 2 --delayed-screenshot "$ds_dir/$fe-st-119.png" \
+                    --delayed-automatic-exit-frames 119)
+            if [[ "$rc" == 0 || -e "$ds_dir/$fe-st-119.png" ]] \
+               || ! grep -qF "NO screenshot was written" "$ds_dir/$fe-st-119.log"; then
+                ds_faults+=("$fe-st-119: --delayed-screenshot-time 2 was due before frame 120 (rc=$rc)")
+            fi
+            rc=$(ds_run "$fe" "$fe-st-120" --machine next --load "$ds_beast" \
+                    --delayed-screenshot-time 2 --delayed-screenshot "$ds_dir/$fe-st-120.png" \
+                    --delayed-automatic-exit-frames 120)
+            [[ "$rc" == 0 && -s "$ds_dir/$fe-st-120.png" ]] \
+                || ds_faults+=("$fe-st-120: --delayed-screenshot-time 2 not taken by frame 120 (rc=$rc)")
+        done
+
+        # Q3: a Qt run ended by the seconds-form exit is UNATTENDED, as the
+        # frames form is (rzx-reset-func): a lost RZX write is logged, not put
+        # in a dialog nobody answers. main() calls the setter after init(), so
+        # QtApp::set_delayed_exit_seconds() is the only thing that sets it.
+        printf '\xfb\x06\x32\x76\x10\xfd\x01\x3b\x24\x3e\x02\xed\x79\x04\xed\x79\x18\xfe' \
+            > "$ds_dir/hardreset.bin"
+        rc=$(ds_run qt q3 --machine 48k --inject "$ds_dir/hardreset.bin" --inject-delay 100 \
+                --rzx-record /dev/full --delayed-automatic-exit 6)
+        if [[ "$rc" != 1 ]] || ! grep -qF "unattended run, so no dialog" "$ds_dir/q3.log" \
+           || grep -qF "reporting it in a dialog" "$ds_dir/q3.log"; then
+            ds_faults+=("q3: a seconds-form exit did not make the Qt run unattended (rc=$rc)")
+        fi
 
         if [[ ${#ds_faults[@]} -gt 0 ]]; then
             fail_row " ($(IFS=';'; echo "${ds_faults[*]}"))"
