@@ -2953,6 +2953,32 @@ check('SELF-161', 'the control: that later shared assertion still answers for it
           $before_b ne $after_b,
           $before_b ne $after_b ? "rewritten" : "NOT rewritten ($before_b)");
 
+    # (b2) GH #309 — a malformed per-row marker is a REFUSAL like (a): exit 2,
+    # nothing written. The stub source stands in for the real ESP adapter
+    # suite's. Then the discriminator: the SAME stub with a well-formed marker
+    # does not refuse, and the marker reaches the written document.
+    my $nv_src = "$E2E/test/esp/esp_uart_adapter_test.cpp";
+    my $nv_mat = $build_e2e->(undef);
+    open(my $nvh, '>', $nv_src) or die "e2e: write $nv_src: $!";
+    print $nvh qq{void r() {\n    check("ADP-01", "x [no-vhdl: ]", c, d);\n}\n};
+    close $nvh;
+    my $nv_before = $digest->($nv_mat);
+    my $nv_rc_bad = $run->();
+    my $nv_after  = $digest->($nv_mat);
+    check('SELF-231', 'END TO END: a malformed [no-vhdl: ] marker makes the real process exit 2',
+          $nv_rc_bad == 2, "got exit $nv_rc_bad");
+    check('SELF-232', 'END TO END: and that refusal leaves the document byte-identical',
+          $nv_before eq $nv_after,
+          $nv_before eq $nv_after ? "unchanged" : "REWRITTEN ($nv_before -> $nv_after)");
+    open($nvh, '>', $nv_src) or die "e2e: write $nv_src: $!";
+    print $nvh qq{void r() {\n    check("ADP-01", "x [no-vhdl: jnext-internal]", c, d);\n}\n};
+    close $nvh;
+    my $nv_rc_ok = $run->();
+    my $nv_body  = do { open(my $h, '<', $nv_mat) or die "e2e: read matrix: $!"; local $/; <$h> };
+    check('SELF-233', 'END TO END: the discriminator — the same stub with a well-formed marker does not refuse, and the cell is written',
+          scalar($nv_rc_ok != 2 && $nv_body =~ /^\| ADP-01 \|[^\n]*\(jnext-internal\)/m),
+          "exit $nv_rc_ok");
+
     # (c) GH #202 — `--emit-to` must write the SAME document the in-place run
     # writes.
     #
@@ -3541,6 +3567,148 @@ check('SELF-219', 'the control: an ID with only a skip() call is still a skip ro
       scalar(status_for('SKO-01', {}, $c7, $k7) eq 'skip' && !exists $c7->{'SKO-01'}),
       'status=' . status_for('SKO-01', {}, $c7, $k7));
 
+# ── Per-row tombstones: `[no-vhdl: <reason>]` (GH #309) ───────────────
+#
+# A marker in a row's own call says "no VHDL to cite" and renders `(reason)`.
+# Oracle: the marker spec in the GH #309 plan, not the extractor. Every
+# contradiction REFUSES (exit 2); none is a warning.
+my $nv_refusal = sub {
+    my ($rel) = @_;
+    local $SIG{__WARN__} = sub { };
+    my $r = eval { grep_citations($rel); 1 };
+    return $r ? '' : ($@ // '');
+};
+
+write_fixture('test/nv/ok_test.cpp', <<'CPP');
+void rows() {
+    check("NV-01", "marked row [no-vhdl: jnext-internal]", cond, detail);
+    check("NV-02", "next row, own call, no marker", cond, detail);
+}
+CPP
+my $nv_ok = grep_citations('test/nv/ok_test.cpp');
+check('SELF-220', 'a call carrying [no-vhdl: jnext-internal] publishes exactly (jnext-internal)',
+      scalar(($nv_ok->{'NV-01'} // '') eq '(jnext-internal)'),
+      'got ' . ($nv_ok->{'NV-01'} // '(none)'));
+check('SELF-221', "the next row's OWN uncited call does not inherit the marker",
+      scalar(!defined $nv_ok->{'NV-02'}),
+      'got ' . ($nv_ok->{'NV-02'} // '(none)'));
+
+write_fixture('test/nv/tab_test.cpp', <<'CPP');
+void rows() {
+    const Row rows[] = { {"NV-TAB-01"}, {"NV-TAB-02"} };
+    for (const Row& r : rows) {
+        check(r.id, "shared assertion [no-vhdl: host sockets]", cond, detail);
+    }
+}
+CPP
+my $nv_tab = grep_citations('test/nv/tab_test.cpp');
+check('SELF-222', 'a shared loop call carrying the marker gives every table row (host sockets)',
+      scalar(($nv_tab->{'NV-TAB-01'} // '') eq '(host sockets)'
+             && ($nv_tab->{'NV-TAB-02'} // '') eq '(host sockets)'),
+      'got ' . ($nv_tab->{'NV-TAB-01'} // '(none)') . ' / ' . ($nv_tab->{'NV-TAB-02'} // '(none)'));
+
+write_fixture('test/nv/beside_cite_test.cpp', <<'CPP');
+void rows() {
+    check("NV-BC-01", "marker beside a citation [no-vhdl: x] fixture_a.vhd:10", cond, detail);
+}
+CPP
+my $nv_e = $nv_refusal->('test/nv/beside_cite_test.cpp');
+check('SELF-223', 'a marker beside a .vhd citation in one call is REFUSED, naming file:line',
+      scalar($nv_e =~ /REFUSING/ && $nv_e =~ m{test/nv/beside_cite_test\.cpp:2}),
+      "got [$nv_e]");
+
+write_fixture('test/nv/beside_nofile_test.cpp', <<'CPP');
+void rows() {
+    check("NV-BN-01", "marker beside a bare line ref [no-vhdl: x] VHDL 1611", cond, detail);
+}
+CPP
+$nv_e = $nv_refusal->('test/nv/beside_nofile_test.cpp');
+check('SELF-224', 'a marker beside a filename-less VHDL line reference is REFUSED, naming file:line',
+      scalar($nv_e =~ /REFUSING/ && $nv_e =~ m{test/nv/beside_nofile_test\.cpp:2}),
+      "got [$nv_e]");
+
+write_fixture('test/nv/bare_test.cpp', <<'CPP');
+void rows() {
+    check("NV-BR-01", "no colon [no-vhdl]", cond, detail);
+}
+CPP
+write_fixture('test/nv/empty_test.cpp', <<'CPP');
+void rows() {
+    check("NV-ER-01", "blank reason [no-vhdl:  ]", cond, detail);
+}
+CPP
+my $nv_e1 = $nv_refusal->('test/nv/bare_test.cpp');
+my $nv_e2 = $nv_refusal->('test/nv/empty_test.cpp');
+check('SELF-225', 'a bare [no-vhdl] and a blank-reason [no-vhdl:  ] are each REFUSED, naming file:line',
+      scalar($nv_e1 =~ /REFUSING/ && $nv_e1 =~ m{test/nv/bare_test\.cpp:2}
+             && $nv_e2 =~ /REFUSING/ && $nv_e2 =~ m{test/nv/empty_test\.cpp:2}),
+      "bare=[$nv_e1] empty=[$nv_e2]");
+
+write_fixture('test/nv/reason_vhd_test.cpp', <<'CPP');
+void rows() {
+    check("NV-RV-01", "reason names a file [no-vhdl: see fixture_b.vhd]", cond, detail);
+}
+CPP
+$nv_e = $nv_refusal->('test/nv/reason_vhd_test.cpp');
+check('SELF-226', 'a reason that names a .vhd is REFUSED, naming file:line',
+      scalar($nv_e =~ /REFUSING/ && $nv_e =~ m{test/nv/reason_vhd_test\.cpp:2}),
+      "got [$nv_e]");
+
+write_fixture('test/nv/two_test.cpp', <<'CPP');
+void rows() {
+    check("NV-TW-01", "two markers [no-vhdl: a] and [no-vhdl: b]", cond, detail);
+}
+CPP
+$nv_e = $nv_refusal->('test/nv/two_test.cpp');
+check('SELF-227', 'two markers in one call are REFUSED, naming file:line',
+      scalar($nv_e =~ /REFUSING/ && $nv_e =~ m{test/nv/two_test\.cpp:2}),
+      "got [$nv_e]");
+
+# The plan tier: %PLAN_DOC maps `copper_test` to COPPER, so the production
+# mapping is exercised (this stem is read by no other row).
+write_fixture('doc/testing/COPPER-TEST-PLAN-DESIGN.md', <<'MD');
+| Test ID | Scenario | Expected |
+|---------|----------|----------|
+| NV-PL-01 | plan cites VHDL | see fixture_a.vhd:5 for the rule |
+MD
+write_fixture('test/copper/copper_test.cpp', <<'CPP');
+void rows() {
+    check("NV-PL-01", "marked, but the plan doc cites [no-vhdl: wrong]", cond, detail);
+}
+CPP
+$nv_e = $nv_refusal->('test/copper/copper_test.cpp');
+check('SELF-228', 'a marked row whose plan-doc entry cites VHDL is REFUSED, naming the file and the row',
+      scalar($nv_e =~ /REFUSING/ && $nv_e =~ m{test/copper/copper_test\.cpp} && $nv_e =~ /NV-PL-01/),
+      "got [$nv_e]");
+
+write_fixture('test/nv/named_test.cpp', <<'CPP');
+// NAMED-NV-01: a heading comment block [no-vhdl: x]
+void rows() {
+    check("NAMED-NV-01", "own call, uncited", cond, detail);
+}
+CPP
+my $nv_nm = grep_citations('test/nv/named_test.cpp');
+check('SELF-229', 'a comment block heading the row confers no marker: the row stays uncited',
+      scalar(!defined $nv_nm->{'NAMED-NV-01'}),
+      'got ' . ($nv_nm->{'NAMED-NV-01'} // '(none)'));
+
+write_fixture('test/nv/emit_test.cpp', <<'CPP');
+void rows() {
+    check("NV-EM-01", "emitted marked row [no-vhdl: jnext-internal]", cond, detail);
+}
+CPP
+write_fixture('build/test/nv_emit_stub', "#!/bin/sh\nexit 0\n");
+chmod 0755, "$FIXTURE_ROOT/build/test/nv_emit_stub" or die "chmod nv_emit_stub: $!";
+{
+    my %r = map { $_->[0] => $_ }
+            @{ emit_section_rows('build/test/nv_emit_stub',
+                                 ['test/nv/emit_test.cpp'], { plan => 0 }) };
+    check('SELF-230', 'the emitted matrix row shows (jnext-internal) in its VHDL cell and status pass',
+          scalar(($r{'NV-EM-01'}[2] // '') eq '(jnext-internal)'
+                 && ($r{'NV-EM-01'}[3] // '') eq 'pass'),
+          'row=' . join('|', @{ $r{'NV-EM-01'} // ['(absent)'] }));
+}
+
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
 
@@ -3563,7 +3731,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 219;
+my $EXPECTED_ROWS = 233;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"
