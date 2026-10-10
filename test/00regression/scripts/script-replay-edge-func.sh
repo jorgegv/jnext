@@ -54,8 +54,8 @@ JDS
     else
         # shellcheck disable=SC2016
         env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy LANG=C \
-        timeout --foreground --kill-after=5s 120s \
-        xvfb-run -d --server-args="-screen 0 1280x1024x24" bash -c '
+        timeout --kill-after=5s 120s \
+        xvfb-run -d --server-args="-screen 0 1280x1024x24 -noreset" bash -c '
             set -uo pipefail
             bin="$1"; nexdir="$2"; dir="$3"; shift 3
             "$bin" --machine next --silent "$@" --load "$nexdir/dsl_demo.nex" \
@@ -79,10 +79,15 @@ JDS
                 xdotool keyup q 2>/dev/null || true
             fi
             wait $pid
-        ' _ "$sdl_bin" "$nexdir" "$dir" "${SD_CARD_ARGS[@]}" >/dev/null 2>&1 || true
+        ' _ "$sdl_bin" "$nexdir" "$dir" "${SD_CARD_ARGS[@]}" >/dev/null 2>&1 && rec_rc=0 || rec_rc=$?
         rec_latch=$(grep -oE 'LATCH [0-9]+ at FRAME [0-9]+' "$dir/record.log" 2>/dev/null | head -n 1) || rec_latch=""
         press=$(grep -oE '^on frame [0-9]+ do press "q" end' "$dir/rec.jds" 2>/dev/null | head -n 1) || press=""
-        if [[ -z "$press" ]]; then
+        rec_err=$(grep -m1 -E '\[(error|critical)\]' "$dir/record.log" 2>/dev/null) || rec_err=""
+        if [[ $rec_rc -ne 0 || -n "$rec_err" ]]; then
+            # The recording jnext died or logged an error: not "no Q arrived",
+            # and never a SKIP (GH #318).
+            fails+=("recording run: exit $rec_rc, ${rec_err:-no error logged}")
+        elif [[ -z "$press" ]]; then
             edge_skip_reason="the X server delivered no Q to the window"
         elif [[ -z "$rec_latch" ]]; then
             fails+=("recording: Q pressed but the program latched nothing")

@@ -45,6 +45,23 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # proved the keys DO get through and `fast` still changed nothing is a FAIL, and
 # that is exactly issue #122.
 #
+# THE XVFB IS STARTED WITH -noreset (GH #318). Without it the X server RESETS
+# whenever its last client disconnects, and this body's own `xdotool search`
+# poll is such a client while jnext is still starting: a poll that finds
+# nothing closes the only connection, the server regenerates (it re-runs
+# xkbcomp), and a jnext XOpenDisplay landing in that window fails with
+# `SDL_Init: x11 not available` and exit 1. Measured on a loaded host: 18 of
+# 1000 fresh connections failed on a default server, 0 of 1000 with -noreset.
+# HS-89 (harness-selftest.sh) enforces the flag on every xdotool-driven row.
+# A run that leaves no screenshot, or whose jnext exits non-zero, is therefore
+# a FAIL naming the run, the exit status and the first `[error]` line - it gets
+# the solo-confirm path of `make regression-confirm`, which a SKIP never has.
+# Only the "X server delivered no keys at all" case below stays a SKIP.
+#
+# The `timeout` in front of xvfb-run has no --foreground on purpose: with it,
+# a timeout kills xvfb-run but orphans the Xvfb and the app (measured); without
+# it the KILL reaches the whole process group.
+#
 # DIGITS, NOT LETTERS. At the 48K `K` cursor a digit types itself, while a
 # letter is a BASIC keyword — and letter keysyms proved unreliable under a
 # loaded Xvfb during review (xkb "Multiple symbols" warnings, keys not
@@ -57,7 +74,9 @@ if want sdl-keypress-func; then
     # Typed at the K cursor; any one of them landing is decisive.
     sdl_keys=(1 2 3 4)
 
-    # One run. $1 = output PNG, $2 = none|slow|fast.
+    # One run. $1 = output PNG, $2 = none|slow|fast. jnext's stdout+stderr go to
+    # $TMP_DIR/sdl_keypress_<mode>.log and its exit status to sdl_rc[<mode>], so a
+    # run that died is reported as what it was (see the verdict below).
     #
     # xvfb-run only sets DISPLAY, and on a Wayland session SDL prefers the
     # Wayland backend and never opens a window on the Xvfb display at all
@@ -69,15 +88,16 @@ if want sdl-keypress-func; then
     # shellcheck disable=SC2016
     sdl_keypress_run() {
         local out="$1" mode="$2"
-        rm -f "$out"
+        local log="$TMP_DIR/sdl_keypress_$mode.log"
+        rm -f "$out" "$log"
         env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
-        timeout --foreground --kill-after=5s 120s \
-        xvfb-run -d --server-args="-screen 0 1280x1024x24" bash -c '
+        timeout --kill-after=5s 120s \
+        xvfb-run -d --server-args="-screen 0 1280x1024x24 -noreset" bash -c '
             set -uo pipefail
-            bin="$1"; out="$2"; mode="$3"; shift 3
+            bin="$1"; out="$2"; mode="$3"; log="$4"; shift 4
             "$bin" --machine 48k --silent \
                 --delayed-screenshot "$out" --delayed-screenshot-frames 500 \
-                --delayed-automatic-exit-frames 560 >/dev/null 2>&1 &
+                --delayed-automatic-exit-frames 560 >"$log" 2>&1 &
             pid=$!
 
             wid=""
@@ -109,8 +129,10 @@ if want sdl-keypress-func; then
                 done
             fi
             wait $pid
-        ' _ "$sdl_bin" "$out" "$mode" "${sdl_keys[@]}" >/dev/null 2>&1 || true
+        ' _ "$sdl_bin" "$out" "$mode" "$log" "${sdl_keys[@]}" >/dev/null 2>&1 \
+            && sdl_rc[$mode]=0 || sdl_rc[$mode]=$?
     }
+    declare -A sdl_rc=()
 
     shot_control="$TMP_DIR/sdl_keypress_control.png"
     shot_slow="$TMP_DIR/sdl_keypress_slow.png"
@@ -129,8 +151,19 @@ if want sdl-keypress-func; then
         sdl_keypress_run "$shot_slow"    slow
         sdl_keypress_run "$shot_fast"    fast
 
-        if [[ ! -s "$shot_control" || ! -s "$shot_slow" || ! -s "$shot_fast" ]]; then
-            skip_row " (no screenshot captured; SDL could not open a window?)"
+        # A run that left no screenshot, or whose jnext exited non-zero, is a
+        # FAIL naming the run and the cause - never a SKIP (GH #318).
+        bad_runs=()
+        for m in none slow fast; do
+            case "$m" in none) shot="$shot_control"; label=control ;; slow) shot="$shot_slow"; label=slow ;; *) shot="$shot_fast"; label=fast ;; esac
+            if [[ -s "$shot" ]]; then png_state="PNG written"; else png_state="PNG missing"; fi
+            if [[ ! -s "$shot" || "${sdl_rc[$m]}" -ne 0 ]]; then
+                err_line=$(grep -m1 -E '\[(error|critical)\]' "$TMP_DIR/sdl_keypress_$m.log" 2>/dev/null) || err_line="no error logged"
+                bad_runs+=("$label run: jnext exit ${sdl_rc[$m]}, $png_state; $err_line")
+            fi
+        done
+        if [[ ${#bad_runs[@]} -gt 0 ]]; then
+            fail_row " ($(IFS='|'; echo "${bad_runs[*]}"))"
         else
             slow_diff=$(png_diff "$shot_control" "$shot_slow")
             fast_diff=$(png_diff "$shot_control" "$shot_fast")

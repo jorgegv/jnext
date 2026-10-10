@@ -85,15 +85,16 @@ if want qt-keypress-burst-func; then
         # shellcheck disable=SC2016
         qt_burst_run() {
             local out="$1" mode="$2"
-            rm -f "$out"
+            local log="$TMP_DIR/qt_burst_$mode.log"
+            rm -f "$out" "$log"
             env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
-            timeout --foreground --kill-after=5s 120s \
-            xvfb-run -d --server-args="-screen 0 1280x1024x24" bash -c '
+            timeout --kill-after=5s 120s \
+            xvfb-run -d --server-args="-screen 0 1280x1024x24 -noreset" bash -c '
                 set -uo pipefail
-                bin="$1"; out="$2"; mode="$3"
+                bin="$1"; out="$2"; mode="$3"; log="$4"
                 "$bin" --machine 48k --silent \
                     --delayed-screenshot "$out" --delayed-screenshot-frames 700 \
-                    --delayed-automatic-exit-frames 760 >/dev/null 2>&1 &
+                    --delayed-automatic-exit-frames 760 >"$log" 2>&1 &
                 pid=$!
 
                 wid=""
@@ -132,8 +133,10 @@ if want qt-keypress-burst-func; then
                     fi
                 fi
                 wait $pid
-            ' _ "$JNEXT" "$out" "$mode" >/dev/null 2>&1 || true
+            ' _ "$JNEXT" "$out" "$mode" "$log" >/dev/null 2>&1 \
+                && burst_rc[$mode]=0 || burst_rc[$mode]=$?
         }
+        declare -A burst_rc=()
 
         shot_control="$TMP_DIR/qt_burst_control.png"
         shot_slow="$TMP_DIR/qt_burst_slow.png"
@@ -143,8 +146,20 @@ if want qt-keypress-burst-func; then
         qt_burst_run "$shot_slow"    slow
         qt_burst_run "$shot_burst"   burst
 
-        if [[ ! -s "$shot_control" || ! -s "$shot_slow" || ! -s "$shot_burst" ]]; then
-            skip_row " (no screenshot captured; Qt could not open a window?)"
+        # A run that left no screenshot, or whose jnext exited non-zero, is a
+        # FAIL naming the run and the cause, never a SKIP (GH #318; the Xvfb is
+        # started with -noreset, see sdl-keypress-func.sh for why).
+        bad_runs=()
+        for m in none slow burst; do
+            case "$m" in none) shot="$shot_control"; label=control ;; slow) shot="$shot_slow"; label=slow ;; *) shot="$shot_burst"; label=burst ;; esac
+            if [[ -s "$shot" ]]; then png_state="PNG written"; else png_state="PNG missing"; fi
+            if [[ ! -s "$shot" || "${burst_rc[$m]}" -ne 0 ]]; then
+                err_line=$(grep -m1 -E '\[(error|critical)\]' "$TMP_DIR/qt_burst_$m.log" 2>/dev/null) || err_line="no error logged"
+                bad_runs+=("$label run: jnext exit ${burst_rc[$m]}, $png_state; $err_line")
+            fi
+        done
+        if [[ ${#bad_runs[@]} -gt 0 ]]; then
+            fail_row " ($(IFS='|'; echo "${bad_runs[*]}"))"
         else
             slow_diff=$(png_diff "$shot_control" "$shot_slow")
             burst_vs_slow=$(png_diff "$shot_slow" "$shot_burst")

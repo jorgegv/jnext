@@ -86,8 +86,8 @@ if want sdl-reset-hotkey-func; then
         # The Xvfb screen is 2048x1536 so the post-F2 window (scale 3 =
         # 640*3 x 512*3 = 1920x1536) still fits and its geometry is readable.
         env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
-        timeout --foreground --kill-after=5s 180s \
-        xvfb-run -d --server-args="-screen 0 2048x1536x24" bash -c '
+        timeout --kill-after=5s 180s \
+        xvfb-run -d --server-args="-screen 0 2048x1536x24 -noreset" bash -c '
             set -uo pipefail
             bin="$1"; out="$2"; log="$3"; geom="$4"; shift 4
             # The capture is at emulated frame 1150 (23 s at 1x — SdlApp has no
@@ -142,8 +142,10 @@ if want sdl-reset-hotkey-func; then
                 done
             fi
             wait $pid
-        ' _ "$sdl_bin" "$shot" "$log" "$geom" "${reset_keys[@]}" >/dev/null 2>&1 || true
+        ' _ "$sdl_bin" "$shot" "$log" "$geom" "${reset_keys[@]}" >/dev/null 2>&1 \
+            && reset_rc=0 || reset_rc=$?
     }
+    reset_rc=0
 
     if [[ ! -x "$sdl_bin" ]]; then
         # A build artifact the Makefile can guarantee, so this is loud (the
@@ -173,8 +175,13 @@ if want sdl-reset-hotkey-func; then
             [[ -n "$after_wh" && "$before_wh" != "$after_wh" ]] && f2_resized=yes
         fi
 
-        if [[ ! -s "$shot" ]]; then
-            skip_row " (no screenshot captured; SDL could not open a window?)"
+        # A missing screenshot or a non-zero jnext exit is a FAIL naming the
+        # cause, never a SKIP (GH #318; the Xvfb is started with -noreset, see
+        # sdl-keypress-func.sh for why).
+        if [[ ! -s "$shot" || "$reset_rc" -ne 0 ]]; then
+            if [[ -s "$shot" ]]; then png_state="PNG written"; else png_state="PNG missing"; fi
+            err_line=$(grep -m1 -E '\[(error|critical)\]' "$log" 2>/dev/null) || err_line="no error logged"
+            fail_row " (jnext exit ${reset_rc}, ${png_state}; ${err_line})"
         elif [[ "$f2_resized" != yes ]] && [[ "$cold_boots" -eq 0 ]]; then
             # Neither hotkey had any effect, so no key reached SdlApp at all and
             # the run cannot tell that from a broken handler. Never a FAIL.
