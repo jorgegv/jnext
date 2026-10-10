@@ -217,3 +217,28 @@ private:
     int                   hc_origin_ = 0;
     uint16_t              target_line_ = 0;
 };
+
+// Defined here, not in the .cpp: read() is called from the ULA render path, and
+// a target that links the video library without the memory one (screenshot_test)
+// must still resolve it.
+inline void AttributeMux::link_pending_() const
+{
+    for (; linked_ < log_.size(); ++linked_) {
+        const uint32_t n = static_cast<uint32_t>(linked_);
+        const uint32_t offset = log_[n].offset;
+        OffState& s = st_[offset];
+        if (!hot_[offset]) {
+            s.first   = n;
+            s.last    = n;
+            s.cursor  = n;
+            s.lastkey = 0;
+            s.curval  = base_[offset];
+            hot_[offset] = 1;
+            touched_.push_back(offset);
+        } else {
+            log_[s.last].next = n;
+            s.last = n;
+            if (s.cursor == kNone) s.cursor = n;
+        }
+    }
+}

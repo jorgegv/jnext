@@ -42,28 +42,6 @@ bool AttributeMux::record_write(uint16_t line, uint16_t hc, uint32_t offset, uin
     return true;
 }
 
-void AttributeMux::link_pending_() const
-{
-    for (; linked_ < log_.size(); ++linked_) {
-        const uint32_t n = static_cast<uint32_t>(linked_);
-        const uint32_t offset = log_[n].offset;
-        OffState& s = st_[offset];
-        if (!hot_[offset]) {
-            s.first   = n;
-            s.last    = n;
-            s.cursor  = n;
-            s.lastkey = 0;
-            s.curval  = base_[offset];
-            hot_[offset] = 1;
-            touched_.push_back(offset);
-        } else {
-            log_[s.last].next = n;
-            s.last = n;
-            if (s.cursor == kNone) s.cursor = n;
-        }
-    }
-}
-
 void AttributeMux::rewind_to_baseline()
 {
     target_line_ = 0;
