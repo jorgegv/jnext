@@ -46,6 +46,15 @@ void load_gain(QSettings& settings, const char* key, float& target)
         target = static_cast<float>(db);
 }
 
+// GH #312 — gains are written as TEXT. QSettings' IniFormat has no plain-text
+// form for a float QVariant in Qt 5.15 (it writes "@Variant(...)" there; Qt 6
+// writes text), so passing the float straight through would put a binary blob
+// in the file on the Qt5 builds. Six significant digits are far finer than the
+// +-24 dB range needs, and load_gain() reads either form back.
+QString gain_text(float db) {
+    return QString::number(static_cast<double>(db), 'g', 6);
+}
+
 } // namespace
 
 QString AppConfig::default_config_path() {
@@ -85,6 +94,18 @@ void AppConfig::normalise_legacy_layout() const {
                            + (k == QLatin1String("config_version")
                                   ? QStringLiteral("version") : k), v);
         changed = true;
+    }
+    // A gain written as a float QVariant by a Qt5 build is "@Variant(...)":
+    // rewrite it as text.
+    static const char* const gain_keys[] = {
+        "audio/gain_db", "audio/gain_beeper_db", "audio/gain_ay0_db",
+        "audio/gain_ay1_db", "audio/gain_ay2_db", "audio/gain_dac_db"};
+    for (const char* k : gain_keys) {
+        const QVariant v = settings_.value(QLatin1String(k));
+        if (v.userType() == QMetaType::Float || v.userType() == QMetaType::Double) {
+            settings_.setValue(QLatin1String(k), gain_text(v.toFloat()));
+            changed = true;
+        }
     }
     const QString hosts_key = QStringLiteral("esp/allowed_hosts");
     if (settings_.contains(hosts_key)) {
@@ -259,12 +280,12 @@ void AppConfig::save() const {
     settings_.endGroup();
 
     settings_.beginGroup("audio");
-    settings_.setValue("gain_db", data_.audio_gain_db);
-    settings_.setValue("gain_beeper_db", data_.audio_gain_beeper_db);
-    settings_.setValue("gain_ay0_db", data_.audio_gain_ay_db[0]);
-    settings_.setValue("gain_ay1_db", data_.audio_gain_ay_db[1]);
-    settings_.setValue("gain_ay2_db", data_.audio_gain_ay_db[2]);
-    settings_.setValue("gain_dac_db", data_.audio_gain_dac_db);
+    settings_.setValue("gain_db", gain_text(data_.audio_gain_db));
+    settings_.setValue("gain_beeper_db", gain_text(data_.audio_gain_beeper_db));
+    settings_.setValue("gain_ay0_db", gain_text(data_.audio_gain_ay_db[0]));
+    settings_.setValue("gain_ay1_db", gain_text(data_.audio_gain_ay_db[1]));
+    settings_.setValue("gain_ay2_db", gain_text(data_.audio_gain_ay_db[2]));
+    settings_.setValue("gain_dac_db", gain_text(data_.audio_gain_dac_db));
     settings_.endGroup();
 
     settings_.beginGroup("paths");

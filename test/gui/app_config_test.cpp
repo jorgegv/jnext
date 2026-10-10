@@ -943,6 +943,45 @@ static void test_file_layout(QTemporaryDir& dir) {
     const QByteArray f10 = slurp(p10);
     check("CF-10", "save() after a debugger write keeps [debugger] size=640, 456",
           has_line(f10, "[debugger]") && has_line(f10, "size=640, 456"));
+
+    // Gains must be written as TEXT on every Qt: Qt 5.15 turns a float
+    // QVariant into "@Variant(...)". 1.2345679f is written by Qt 6 as the
+    // shortest round-trip "1.2345679" if a float QVariant reaches QSettings,
+    // and as "1.23457" through gain_text(), so this row also fails on Qt 6.
+    const QString p11 = fresh_ini_path(dir, "layout_gain");
+    { AppConfig c(p11); c.data().audio_gain_db = 1.2345679f; c.data().audio_gain_dac_db = -3.5f; c.save(); }
+    const QByteArray f11 = slurp(p11);
+    check("CF-11", "gains are written as plain text (gain_db=1.23457, gain_dac_db=-3.5), never a float QVariant",
+          has_line(f11, "gain_db=1.23457") && has_line(f11, "gain_dac_db=-3.5") && !f11.contains("@"),
+          f11.toStdString());
+
+    // A Qt5-written gain ("@Variant(float 1.5)") is read and rewritten as text.
+    const QString p12 = fresh_ini_path(dir, "layout_gain_legacy");
+    plant(p12, "[audio]\ngain_db=@Variant(\\0\\0\\0\\x87?\\xc0\\0\\0)\n");
+    AppConfig c12(p12);
+    c12.load();
+    check("CF-12", "a legacy @Variant float gain loads as 1.5 and is rewritten as \"gain_db=1.5\"",
+          c12.data().audio_gain_db == 1.5f && has_line(slurp(p12), "gain_db=1.5")
+              && !slurp(p12).contains("@"),
+          slurp(p12).toStdString());
+
+    // save() on a legacy file with NO prior load() must not leave [General].
+    const QString p13 = fresh_ini_path(dir, "layout_save_only");
+    plant(p13, "[General]\nconfig_version=1\nstray=x\n");
+    { AppConfig c(p13); c.save(); }
+    const QByteArray f13 = slurp(p13);
+    check("CF-13", "save() of a legacy file without load() leaves no [General] / config_version",
+          !f13.contains("[General]") && !f13.contains("config_version")
+              && has_line(f13, "stray=x") && has_line(f13, "version=1"),
+          f13.toStdString());
+
+    // The @Invalid() rewrite on its own: no root key to piggy-back on.
+    const QString p14 = fresh_ini_path(dir, "layout_invalid_only");
+    plant(p14, "[esp]\nallowed_hosts=@Invalid()\n");
+    { AppConfig c(p14); c.load(); }
+    check("CF-14", "a lone allowed_hosts=@Invalid() is rewritten as \"allowed_hosts=\" by load()",
+          has_line(slurp(p14), "allowed_hosts=") && !slurp(p14).contains("@"),
+          slurp(p14).toStdString());
 }
 
 int main() {
