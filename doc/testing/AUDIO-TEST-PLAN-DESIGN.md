@@ -48,8 +48,9 @@ closed end-to-end (Phases 0→4) on 2026-04-24. Summary:
   `// G:` / `WONT` comments and were publishing as `missing` in the
   traceability matrix, and retired four that cannot honestly become a
   `check()` (AY-41, SD-09, MX-30, IO-04 — each struck in place with its
-  rationale). MX-30 has since been revived, with MX-31/32, by the NextPi
-  sound path (`audio/pi_audio.*`): NextPi under QEMU is the producer it lacked. Writing AY-43 found and fixed a real emulator defect: the
+  rationale). MX-30 has since been revived, with MX-31..38, by the NextPi
+  sound path (`audio/pi_audio.*`): NextPi under QEMU is the producer it
+  lacked. Writing AY-43 found and fixed a real emulator defect: the
   `ena_div_noise` phase in `src/audio/ay_chip.cpp` read the TOGGLED
   `noise_div` where `ym2149.vhd:270-272` reads the value held on entry
   to the process, so the noise clock ran on the 1st, 3rd, 5th `ena_div`
