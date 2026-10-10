@@ -2418,6 +2418,14 @@ practice means a handful of rules:</p>
   belongs in a suite the manifest declares <code># os: posix</code>, with the rows moved
   there unchanged; see <a href="02-declared-suites-and-pinned-counts.html">4.2</a>.</li>
 </ul>
+<p>A row that needs a write to FAIL (a full disk) uses <code>jtp::FullDisk</code>: <code>/dev/full</code>
+where it exists, else, on macOS, a file whose writes a zero file-size limit denies
+for the object's lifetime -- so let it die before the row reports. A fixture that
+must not depend on the host's case sensitivity cannot assume it: two names that
+differ only in case cannot coexist on APFS or NTFS, which is why such a row is
+<code># os: linux</code>. Scratch files belong in a directory of the process's own, never at
+a fixed name: the unit harness runs every suite at once, and a second worktree's
+gate may run the same suite on the same host.</p>
 <p>What wine cannot stand in for stays untested until a native Windows leg exists:
 symlink creation (so the symlink-refusal rows are <code>posix</code>), a real console attach
 for a GUI-subsystem executable, NTFS short names and streams, and the timestamp

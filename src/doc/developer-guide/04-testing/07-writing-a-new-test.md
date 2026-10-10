@@ -68,6 +68,15 @@ practice means a handful of rules:
   belongs in a suite the manifest declares `# os: posix`, with the rows moved
   there unchanged; see [4.2](02-declared-suites-and-pinned-counts.md).
 
+A row that needs a write to FAIL (a full disk) uses `jtp::FullDisk`: `/dev/full`
+where it exists, else, on macOS, a file whose writes a zero file-size limit denies
+for the object's lifetime -- so let it die before the row reports. A fixture that
+must not depend on the host's case sensitivity cannot assume it: two names that
+differ only in case cannot coexist on APFS or NTFS, which is why such a row is
+`# os: linux`. Scratch files belong in a directory of the process's own, never at
+a fixed name: the unit harness runs every suite at once, and a second worktree's
+gate may run the same suite on the same host.
+
 What wine cannot stand in for stays untested until a native Windows leg exists:
 symlink creation (so the symlink-refusal rows are `posix`), a real console attach
 for a GUI-subsystem executable, NTFS short names and streams, and the timestamp

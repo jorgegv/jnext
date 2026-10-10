@@ -89,7 +89,12 @@ same suites for Windows with the Fedora MinGW toolchain into
 `build/win-sdl-unit-test` (`dnf install mingw64-gcc mingw64-gcc-c++
 mingw64-SDL3 mingw64-zlib mingw64-libpng mingw64-winpthreads wine-core
 wine-common`) and runs them under wine through `test/wine-run.sh`, with no
-display variable set so no window can open on your desktop. The test executables
+display variable set so no window can open on your desktop, under a UTF-8
+locale (a non-ASCII file name cannot exist under `LC_ALL=C`), and, when run as
+root (the CI container), with CAP_DAC_OVERRIDE and CAP_DAC_READ_SEARCH dropped for
+wine and wineserver: wine emulates the Windows read-only attribute with a
+permission bit that root ignores, where real Windows refuses even an
+administrator. The test executables
 link with an 8 MB stack (their fixtures hold emulators on the stack; Linux gives
 a main thread 8 MB, MinGW 2 MB), while `jnext.exe` keeps the default and its
 frame gate. Both need the SD image, which `make sdcard-image` provisions through

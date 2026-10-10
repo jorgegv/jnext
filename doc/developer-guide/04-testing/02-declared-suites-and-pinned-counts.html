@@ -2375,9 +2375,10 @@ it more briefly — <em>this file is a contract, not a convenience.</em></p>
   <code>CMAKE_SYSTEM_NAME</code>), so a MinGW cross build on Linux says <code>windows</code>. A row
   that cannot exist on a platform is never compiled out or skipped: it moves,
   ID and assertion unchanged, into a sibling suite whose <code># os:</code> excludes that
-  platform. <code>uart_posix_test</code>, <code>esxdos_symlink_test</code> and <code>esp_sigpipe_test</code> are
-  exactly that, and <code>sdcard_file_add_test</code> is <code>posix</code> as a whole (its tree rows
-  build symlinks, FIFOs and <code>chmod 0</code> fixtures through the entire suite).</li>
+  platform. <code>uart_posix_test</code>, <code>esxdos_symlink_test</code>, <code>esp_sigpipe_test</code> and
+  <code>sdcard_file_add_posix_test</code> are exactly that (<code>posix</code>), and
+  <code>sdcard_file_add_linux_test</code>, one row that needs a case-sensitive host
+  filesystem, is <code>linux</code>; the rest of each feature runs everywhere.</li>
 <li><code>&lt;expected_rows&gt;</code> is the exact <code>Total:</code> the suite must report, and it must be
   at least 1. A pin of <code>0</code> is rejected outright at parse time, because a suite
   pinned at 0 that reports 0 rows would pass, whereas the same suite printing

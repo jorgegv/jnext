@@ -103,6 +103,8 @@ BEGIN {
     M["sdcard_test"]                   = "SD Card"
     M["sd_rom_extractor_test"]         = "SD ROM Extractor"
     M["sdcard_file_add_test"]          = "SD File Add (GH #269)"
+    M["sdcard_file_add_posix_test"]    = "SD File Add (POSIX-only rows)"
+    M["sdcard_file_add_linux_test"]    = "SD File Add (case-sensitive host)"
     M["fat32_image_test"]              = "FAT32 Image"
     M["sdcard_provisioner_test"]       = "SD Card Provisioner"
     M["warm_start_test"]               = "Warm start (GH #234)"
