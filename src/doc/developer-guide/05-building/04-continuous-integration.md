@@ -188,6 +188,5 @@ same plain make targets a developer types. The **`regression-win`** leg of the
 and wine and runs `make regression-win`: the screenshots and the functional rows
 Windows can run, against the Release + LTO Qt exe and the SDL-only exe under
 wine. **`macos-regression`** runs `make regression-macos` on `macos-latest` with
-Homebrew's `qt@6`, `ffmpeg`, `imagemagick`, `mtools`, `dosfstools` and
-`libspectrum` added to the unit job's list. Rows an OS cannot run are declared
+Homebrew's `qt@6`, `ffmpeg`, `imagemagick`, `mtools`, `dosfstools` added to the unit job's list. Rows an OS cannot run are declared
 by `os=` tags and printed as absent, never skipped.
