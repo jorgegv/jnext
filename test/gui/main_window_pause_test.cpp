@@ -139,9 +139,9 @@ struct Fixture {
         // manager (the app exits with it); a later fixture's processEvents()
         // would deliver its pending resize to panels reading the freed backend.
         DebuggerWindow* dw = nullptr;
-        if (auto* mgr = w->debugger_manager()) dw = mgr->debugger_window_ptr();
+        if (w) if (auto* mgr = w->debugger_manager()) dw = mgr->debugger_window_ptr();
 #endif
-        w.reset();        // detaches its pause client from the backend first
+        w.reset();        // detaches its pause client from the backend first (may be null already)
 #ifdef ENABLE_DEBUGGER
         delete dw;
 #endif
@@ -195,6 +195,7 @@ void test_pause() {
         check("MWP-01", "Machine > P&ause is checkable, Alt+U, and the Main toolbar holds the same action",
               in_menu && in_menu->isCheckable() &&
               in_menu->shortcut() == QKeySequence(Qt::ALT | Qt::Key_U) &&
+              in_menu->toolTip().contains(QStringLiteral("Alt+U")) &&
               on_toolbar == in_menu,
               std::string("menu=") + (in_menu ? "1" : "0") + " toolbar=" +
               (on_toolbar ? (on_toolbar == in_menu ? "same" : "other") : "0"));
@@ -362,6 +363,18 @@ void test_pause() {
         QLabel* l = find_paused_label(bare);
         check("MWP-10", "with no debugger bound, triggering Pause is a no-op: unchecked, label hidden",
               a && !a->isChecked() && l && !l->isVisibleTo(&bare));
+    }
+
+    // MWP-11 — the window's pause client goes with the window: destroying it
+    // while it holds the pause leaves the machine running, not stuck paused on
+    // a backend that outlives it.
+    {
+        Fixture fx;
+        alt_u(*fx.w);
+        const bool was = fx.paused();
+        fx.w.reset();
+        check("MWP-11", "destroying the window while paused releases its pause",
+              was && !fx.paused());
     }
 }
 

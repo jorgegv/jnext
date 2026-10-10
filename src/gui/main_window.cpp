@@ -382,7 +382,6 @@ void MainWindow::set_emulator(Emulator* emu) {
     if (!debugger_mgr_ && emu) {
         debugger_mgr_ = new DebuggerManager(this, *debugger_, this);
         debugger_mgr_->set_script_host(script_host_);   // GH #26 WP5
-        debugger_mgr_->set_emulator_window_pause_client(pause_client_);   // GH #306
         // Debugger starts disabled — main window stays fixed-size.
         // GH #1 — hand it the user's key bindings straight away: the window is
         // built now, and a keymap pushed only when it is first SHOWN would
@@ -390,7 +389,6 @@ void MainWindow::set_emulator(Emulator* emu) {
         push_debug_keymap();
     }
 #endif
-    sync_pause_state();
 }
 
 // ---------------------------------------------------------------------------
