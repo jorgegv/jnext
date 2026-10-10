@@ -69,7 +69,7 @@ class of problem, instead of pinning tool by tool and waiting for the next one.
 
 ## The jobs in `ci.yml`
 
-**`test`** is the main job: one definition, a matrix of three legs that run in
+**`test`** is the main job: one definition, a matrix of four legs that run in
 parallel on runners of their own (GH #295). Every leg installs the same
 dependency set and checks out the repository with submodules; then
 
@@ -79,6 +79,10 @@ dependency set and checks out the repository with submodules; then
   generator validates every VHDL citation against the real source tree and
   produces different bytes without it — and runs `make clean && make
   gui-release`, `make unit-test` and `make unit-test-sdl`;
+- **`unit-win`** (GH #214) installs the MinGW cross toolchain and wine and runs
+  `make unit-test-win`: the SDL-only suites as Windows executables under wine. It
+  builds no PGO binary, so on an SD-image cache miss `make unit-test-win`
+  provisions the image itself (`make sdcard-image`);
 - **`regression`** runs `make clean && make gui-release` and `make regression`.
 
 They used to be steps of one job, so the 28-minute build matrix and the
@@ -113,7 +117,11 @@ quietly stopped running cannot read as a pass. The Flatpak build is not a row of
 this job; the `flatpak` job below builds it, and only the tool-free
 `flatpak-manifest` contract runs here.
 
-**`macos`** runs `make package-macos` on a real `macos-latest` runner, and
+**`macos`** runs `make package-macos` on a real `macos-latest` runner,
+**`macos-unit`** (GH #214) runs `make unit-test-sdl` on one, with Homebrew's
+`bash`, `coreutils` and `grep` installed because the unit harness needs them
+(macOS ships bash 3.2 and BSD tools), and uploads the suites' logs on failure,
+and
 **`flatpak`** calls `flatpak-build.yml`, which actually builds the bundle inside
 the KDE runtime container and then asserts its sandbox permissions. Both exist
 because a platform whose failures are invisible until release time fails too

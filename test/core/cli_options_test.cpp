@@ -100,8 +100,9 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <unistd.h>
 #include "../row_id.h"
+#include "../test_portable.h"
+#include "../test_spawn.h"
 
 namespace {
 
@@ -702,8 +703,13 @@ int main() {
         // hit exactly that: with find() reduced to prefix matching, `--help`
         // parsed as `--headless` and this row span forever instead of failing.
         // A test that hangs is worse than one that fails.
+#ifdef _WIN32
+        // jtp::run_bounded() bounds the child itself (CreateProcess + a 20 s wait).
+        const bool have_timeout = true;
+#else
         const bool have_timeout =
             std::system("command -v timeout >/dev/null 2>&1") == 0;
+#endif
         if (!probe) {
             skip("CLI-BIN-01", "real binary honours the table",
                  "jnext binary not built at " + bin);
@@ -732,7 +738,6 @@ int main() {
                  "no timeout(1) on this host; refusing to run unbounded");
         } else {
             probe.close();
-            const std::string quoted = "'" + bin + "'";
             // `--kill-after` is NOT optional, and the comment above is the
             // reason: a bare `timeout 20` sends only SIGTERM, which a Qt
             // jnext that has reached its event loop does not die on. The
@@ -743,9 +748,7 @@ int main() {
             // twelve minutes later. Same rule as test/lint-timeouts.sh
             // enforces for shell rows; nothing lints C++.
             auto run = [&](const std::string& args) {
-                return std::system(("timeout --kill-after=5s 20s " + quoted +
-                                    " " + args +
-                                    " >/dev/null 2>&1 </dev/null").c_str());
+                return jtp::run_bounded(bin, args);
             };
             // These four spellings are read straight out of the table, so the
             // row fails if the table names something the binary does not accept.
@@ -772,16 +775,13 @@ int main() {
             // worktrees on one host cannot collide, and `make clean` takes them.
             // PID-qualified too: `make cli-check` and `make unit-test` both run
             // this suite against the same build tree.
-            const std::string tag = ".gh216." + std::to_string(::getpid());
+            const std::string tag = ".gh216." + jtp::process_id_string();
             const std::string out_path = bin + tag + ".out";
             const std::string err_path = bin + tag + ".err";
             auto run_split = [&](const std::string& args) {
                 std::remove(out_path.c_str());
                 std::remove(err_path.c_str());
-                std::system(("timeout --kill-after=5s 20s " + quoted + " " +
-                             args +
-                             " >'" + out_path + "' 2>'" + err_path +
-                             "' </dev/null").c_str());
+                jtp::run_bounded(bin, args, out_path, err_path);
             };
             auto slurp = [](const std::string& path) {
                 std::ifstream in(path, std::ios::binary);

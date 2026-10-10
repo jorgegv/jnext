@@ -13,9 +13,15 @@
 #     * a suite MISSING from the configuration its `# gate:` says owns it, or
 #       PRESENT in one that gate excludes                -> GH #273
 #
+#     * the same, for the TARGET OS and the `# os:` directive (GH #214): the OS
+#       the suites were built for is read from the build tree's own CMakeCache.txt
+#       (JNEXT_TARGET_OS), like the gates
+#     * a userland this script cannot run on (bash < 4, no GNU timeout / grep -P /
+#       perl): a refusal naming what to install, never a quiet degradation
+#
 # The configuration is read from the build tree's own CMakeCache.txt, so the
 # same manifest is exact for every configuration instead of merely permissive
-# in all of them. See the `# gate:` section of test/unit-tests.conf.
+# in all of them. See the `# gate:` and `# os:` sections of test/unit-tests.conf.
 #   FAIL (exit 1):
 #     * ran, but printed no parseable summary line    -> used to score PASS with 0 rows
 #     * ran, but reported a row count != the declared one -> Task 37's shape
@@ -32,6 +38,9 @@
 #
 # Usage: bash test/run-unit-tests.sh [build_dir]      (default: build)
 # Env:   JNEXT_UNIT_TEST_CONF   override the manifest path (the self-test uses this)
+#        JNEXT_TEST_RUNNER      a program prefixed to every suite (the Windows
+#                               suites run under wine: test/wine-run.sh)
+#        JNEXT_UNIT_TEST_JOBS   cap on suites running at once (default: no cap)
 
 set -euo pipefail
 
@@ -160,6 +169,29 @@ die() {
     exit 2
 }
 
+# --- The userland this script needs (GH #214) ---
+#
+# bash >= 4 (associative arrays, mapfile, ${v^^}), GNU `timeout --kill-after`,
+# GNU `grep -P`, perl. Linux has all of them; macOS ships bash 3.2 and BSD
+# tools, where the missing piece used to surface as a "bad substitution" or a
+# SKIP deep in a run. Refusing HERE, naming the install line, is the only
+# honest answer: the harness cannot vouch for a run it cannot perform.
+# JNEXT_PREFLIGHT_BASH_MAJOR is the self-test's hook for a bash-3 host.
+missing_userland=()
+bash_major="${JNEXT_PREFLIGHT_BASH_MAJOR:-${BASH_VERSINFO[0]}}"
+(( bash_major >= 4 )) || missing_userland+=("bash >= 4 (this is bash $bash_major)")
+if ! timeout --kill-after=1s 5s true >/dev/null 2>&1; then
+    missing_userland+=("GNU timeout (needs --kill-after)")
+fi
+if [[ "$(grep -oP 'a\Kb' <<<ab 2>/dev/null || true)" != b ]]; then
+    missing_userland+=("GNU grep (needs -P)")
+fi
+command -v perl >/dev/null 2>&1 || missing_userland+=("perl")
+if (( ${#missing_userland[@]} )); then
+    die "The host lacks what this script needs: ${BOLD}${missing_userland[*]}${RESET}" \
+        "On macOS: brew install bash coreutils grep   (make unit-test-sdl then puts them first on PATH)"
+fi
+
 [[ -f "$CONF" ]]       || die "Missing test manifest: $CONF"
 [[ -f "$CTEST_FILE" ]] || die "Build directory '$BUILD' is not configured." \
                               "Run: make unit-test-build"
@@ -184,6 +216,31 @@ cache_bool() {
     [[ "${v^^}" == ON || "${v^^}" == 1 || "${v^^}" == TRUE || "${v^^}" == YES ]] && return 0
     return 1
 }
+cache_str() {
+    local v
+    v=$(grep -m1 -oP "^$1:[A-Z]+=\K.*" "$CACHE_FILE" || true)
+    [[ -n "$v" ]] || die "$CACHE_FILE does not define ${BOLD}$1${RESET}." \
+                         "Every build of this project sets it; the harness will not guess."
+    printf '%s' "$v"
+}
+# The OS the suites were built FOR (GH #214): CMakeLists.txt records it from
+# CMAKE_SYSTEM_NAME, so a MinGW cross build says windows on a Linux host.
+TARGET_OS=$(cache_str JNEXT_TARGET_OS)
+# The closed set of `# os:` names. linux satisfies every one of them; macOS
+# satisfies all and posix; windows satisfies all only.
+os_known() { case "$1" in all|posix|linux) return 0 ;; *) return 1 ;; esac; }
+target_os_known() { case "$1" in linux|macos|windows) return 0 ;; *) return 1 ;; esac; }
+target_os_known "$TARGET_OS" || die "Unknown target OS '${BOLD}$TARGET_OS${RESET}' (JNEXT_TARGET_OS in $CACHE_FILE)." \
+                                    "Known: linux, macos, windows."
+# os_active <spec> — does the target OS own a suite under this `# os:`? Use in an `if`.
+os_active() {
+    case "$1" in
+        all)   return 0 ;;
+        posix) [[ "$TARGET_OS" == linux || "$TARGET_OS" == macos ]] && return 0; return 1 ;;
+        linux) [[ "$TARGET_OS" == linux ]] && return 0; return 1 ;;
+    esac
+    return 1
+}
 # `if`, not `&&`: under `set -e` a top-level `cmd && var=1` whose cmd fails takes
 # the whole list's non-zero status and kills the script. An OFF option is a normal
 # answer here, not a fault.
@@ -192,7 +249,7 @@ if cache_bool ENABLE_QT_UI;    then HAS_QT=1;  fi
 if cache_bool ENABLE_DEBUGGER; then HAS_DBG=1; fi
 qt_txt=OFF;  if (( HAS_QT ));  then qt_txt=ON;  fi
 dbg_txt=OFF; if (( HAS_DBG )); then dbg_txt=ON; fi
-CONFIG_DESC="ENABLE_QT_UI=$qt_txt ENABLE_DEBUGGER=$dbg_txt"
+CONFIG_DESC="ENABLE_QT_UI=$qt_txt ENABLE_DEBUGGER=$dbg_txt os=$TARGET_OS"
 
 # The closed set of gate names. Spelled out here so an unknown one is a refusal
 # rather than a gate that silently never applies.
@@ -214,8 +271,9 @@ gate_active() {
 # suite, and the `# gate:` directive in force says WHICH configurations own it.
 # The two must agree, so neither can drift away from the other unnoticed.
 DECLARED=()
-declare -A EXPECTED ARGS GATE
+declare -A EXPECTED ARGS GATE OSREQ
 gate=none
+osreq=all
 while read -r name rows rest; do
     # `# gate:` is a DIRECTIVE, not a comment — read before comments are dropped.
     if [[ "$name" == \#* ]]; then
@@ -224,6 +282,12 @@ while read -r name rows rest; do
             gate_known "$gate" || die "Unknown gate '${BOLD}$gate${RESET}' in $CONF." \
                                       "Valid gates: none, qt, dbg, qt+dbg."
         fi
+        # `# os:` likewise (GH #214): orthogonal to the gate, `all` in force at the top.
+        if [[ "$name $rows $rest" =~ ^\#[[:space:]]*os:[[:space:]]*([a-z]+) ]]; then
+            osreq="${BASH_REMATCH[1]}"
+            os_known "$osreq" || die "Unknown os '${BOLD}$osreq${RESET}' in $CONF." \
+                                     "Valid values: all, posix, linux."
+        fi
         continue
     fi
     [[ -z "$name" ]] && continue
@@ -231,13 +295,17 @@ while read -r name rows rest; do
     if [[ "$name" == \?* ]]; then opt=1; name="${name#\?}"; fi
     # The `?` and the gate are two statements of one fact, cross-checked so that
     # editing either alone is a refusal instead of a silent disagreement.
-    if [[ "$gate" == none && "$opt" == 1 ]]; then
-        die "'${BOLD}?$name${RESET}' is marked build-gated but sits under '${BOLD}# gate: none${RESET}' in $CONF." \
-            "Either drop the '?' or put the suite under the gate that owns it."
+    if [[ "$gate" == none && "$osreq" == all && "$opt" == 1 ]]; then
+        die "'${BOLD}?$name${RESET}' is marked build-gated but sits under '${BOLD}# gate: none${RESET}' and '${BOLD}# os: all${RESET}' in $CONF." \
+            "Either drop the '?' or put the suite under the gate / os that owns it."
     fi
     if [[ "$gate" != none && "$opt" == 0 ]]; then
         die "'${BOLD}$name${RESET}' sits under '${BOLD}# gate: $gate${RESET}' in $CONF but is not marked '?'." \
             "A gated suite must carry the '?' marker."
+    fi
+    if [[ "$osreq" != all && "$opt" == 0 ]]; then
+        die "'${BOLD}$name${RESET}' sits under '${BOLD}# os: $osreq${RESET}' in $CONF but is not marked '?'." \
+            "An os-restricted suite must carry the '?' marker."
     fi
     # A pin of 0 must not be expressible: a suite pinned at 0 that reports 0 rows would
     # PASS, while the same suite reporting no summary at all is a hard FAIL. Zeroing a
@@ -252,6 +320,7 @@ while read -r name rows rest; do
     DECLARED+=("$name")
     EXPECTED["$name"]="$rows"
     GATE["$name"]="$gate"
+    OSREQ["$name"]="$osreq"
     ARGS["$name"]="${rest//@BUILD@/$BUILD}"
     # Inline comments are stripped from SUITE lines only. A whole-line comment is
     # handed through intact, because `# gate:` is read out of it above.
@@ -277,7 +346,8 @@ mapfile -t CTEST_FILES < <(
 )
 REGISTERED=()
 while read -r bin; do
-    [[ -n "$bin" ]] && REGISTERED+=("$(basename "$bin")")
+    # A Windows build registers NAME.exe; the manifest names the suite.
+    [[ -n "$bin" ]] && REGISTERED+=("$(basename "$bin" .exe)")
 done < <(grep -hoP '^add_test\([^ ]+ "\K[^"]+' "${CTEST_FILES[@]}" 2>/dev/null || true)
 
 # Assert we parsed every add_test line: a silent parse miss would be the very blindness
@@ -333,20 +403,27 @@ for name in "${REGISTERED[@]}"; do IS_REGISTERED["$name"]=1; done
 # never an excuse on its own — it is expected only where the manifest said so.
 errors=(); GATED_OUT=(); RUNNABLE=()
 for name in "${DECLARED[@]}"; do
-    if ! gate_active "${GATE[$name]}"; then
+    # A suite is owed here only where BOTH its gate (configuration) and its
+    # `# os:` (target OS) say so.
+    owed_gate=1; owed_os=1
+    if ! gate_active "${GATE[$name]}"; then owed_gate=0; fi
+    if ! os_active "${OSREQ[$name]}";   then owed_os=0; fi
+    if (( ! owed_gate || ! owed_os )); then
         if [[ -n "${IS_REGISTERED[$name]:-}" ]]; then
-            errors+=("registered by CMake although $CONF gates it to '${BOLD}${GATE[$name]}${RESET}', which this build is not ($CONFIG_DESC): ${BOLD}$name${RESET}")
+            errors+=("registered by CMake although $CONF gates it to '${BOLD}# gate: ${GATE[$name]}  # os: ${OSREQ[$name]}${RESET}', which this build is not ($CONFIG_DESC): ${BOLD}$name${RESET}")
         else
             GATED_OUT+=("$name")
         fi
         continue
     fi
     if [[ -z "${IS_REGISTERED[$name]:-}" ]]; then
-        errors+=("declared in $CONF under '${BOLD}# gate: ${GATE[$name]}${RESET}', which this build satisfies ($CONFIG_DESC), but NOT registered by CMake: ${BOLD}$name${RESET}")
+        errors+=("declared in $CONF under '${BOLD}# gate: ${GATE[$name]}  # os: ${OSREQ[$name]}${RESET}', which this build satisfies ($CONFIG_DESC), but NOT registered by CMake: ${BOLD}$name${RESET}")
         continue
     fi
-    if [[ ! -x "$BUILD/test/$name" ]]; then
-        errors+=("declared in $CONF but NOT built: ${BOLD}$name${RESET} (no $BUILD/test/$name)")
+    suite_exe="$BUILD/test/$name"
+    [[ "$TARGET_OS" != windows ]] || suite_exe="$suite_exe.exe"
+    if [[ ! -x "$suite_exe" ]]; then
+        errors+=("declared in $CONF but NOT built: ${BOLD}$name${RESET} (no $suite_exe)")
         continue
     fi
     RUNNABLE+=("$name")
@@ -365,7 +442,7 @@ if (( ${#GATED_OUT[@]} )); then
     # Named, not just counted: the point of the gate is that the reader can see
     # exactly which suites this configuration is not answerable for.
     printf "${BADGE_SKIP} NOTICE ${RESET} %b\n" \
-           "${BOLD}${#GATED_OUT[@]}${RESET} suite(s) gated out by this configuration, NOT RUN:"
+           "${BOLD}${#GATED_OUT[@]}${RESET} suite(s) gated out by this configuration / target OS, NOT RUN:"
     printf "           %s\n" "${GATED_OUT[*]}"
 fi
 
@@ -417,6 +494,7 @@ if (( ${#EXEMPT_RUN[@]} )); then
 fi
 
 # --- Run every runnable suite in parallel ---
+EXE_SUFFIX=""; [[ "$TARGET_OS" != windows ]] || EXE_SUFFIX=".exe"
 TMPDIR_RUN=$(mktemp -d)
 # ONE trap for the whole script. `trap ... EXIT` REPLACES any previous EXIT
 # handler, so this must clean up the SD clone too — installing a second trap
@@ -459,7 +537,16 @@ esac
 rm -f "$SUMMARY"
 rm -rf "$LOG_DIR"; mkdir -p "$LOG_DIR"
 
+# JNEXT_UNIT_TEST_JOBS caps how many suites run at once (default: all of them).
+# `make unit-test-win` sets it to the CPU count: ~100 wine processes started in
+# one burst made a timing row (XPT-NET-05, 100 ms bound) measure the host, not
+# the code. Unset on Linux and macOS, where the burst has always been fine.
+MAX_JOBS="${JNEXT_UNIT_TEST_JOBS:-0}"
+[[ "$MAX_JOBS" =~ ^[0-9]+$ ]] || die "JNEXT_UNIT_TEST_JOBS must be a number, not '${BOLD}$MAX_JOBS${RESET}'."
 for name in "${RUNNABLE[@]}"; do
+    if (( MAX_JOBS > 0 )); then
+        while (( $(jobs -rp | wc -l) >= MAX_JOBS )); do sleep 0.05; done
+    fi
     (
         # `|| rc=$?` is load-bearing: this subshell inherits `set -e`, so without it
         # a suite exiting non-zero (i.e. ANY failing test — the normal failure path)
@@ -477,7 +564,7 @@ for name in "${RUNNABLE[@]}"; do
                XDG_DATA_HOME="$TEST_HOME/.local/share" XDG_CACHE_HOME="$TEST_HOME/.cache" \
                XDG_STATE_HOME="$TEST_HOME/.local/state"
         JNEXT_TEST_ROW_IDS="$TMPDIR_RUN/$name.ids" timeout --kill-after=5s "${SUITE_TIMEOUT}s" \
-            "$BUILD/test/$name" ${ARGS["$name"]} >"$TMPDIR_RUN/$name.out" 2>&1 || rc=$?
+            ${JNEXT_TEST_RUNNER:-} "$BUILD/test/$name$EXE_SUFFIX" ${ARGS["$name"]} >"$TMPDIR_RUN/$name.out" 2>&1 || rc=$?
         echo "$rc" >"$TMPDIR_RUN/$name.rc"
     ) &
 done
@@ -490,7 +577,18 @@ sum_total=0; sum_passed=0; sum_failed=0; sum_skipped=0
 
 fail_row() {   # fail_row <name> <message>
     printf "  ${CYAN}%-34s${RESET} ${BADGE_FAIL} FAIL ${RESET}  %b\n" "$1" "$2"
-    grep -E '^\s*(FAIL|FATAL|ERROR)' "$TMPDIR_RUN/$1.out" 2>/dev/null | head -5 | sed -E 's/^/      /' || true
+    # The suite's own FAIL lines (up to 20). When it has none -- it crashed, hung or
+    # exited before saying anything -- the last lines of its output are the only
+    # evidence there is, so they are printed too: a CI log (macOS, Windows under
+    # wine) must name the failure without a second download (GH #214).
+    local fl
+    fl=$(grep -E '^\s*(FAIL|FATAL|ERROR)' "$TMPDIR_RUN/$1.out" 2>/dev/null | head -20 || true)
+    if [[ -n "$fl" ]]; then
+        sed -E 's/^/      /' <<<"$fl"
+    else
+        printf "      (no FAIL line; last output of the suite:)\n"
+        tail -n 25 "$TMPDIR_RUN/$1.out" 2>/dev/null | sed -E 's/^/      | /' || true
+    fi
     printf "      full log: %s\n" "$LOG_DIR/$1.log"
     suites_fail=$((suites_fail + 1))
 }

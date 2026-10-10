@@ -99,6 +99,7 @@
 #include <vector>
 #include <unistd.h>
 #include "../row_id.h"
+#include "../test_portable.h"
 
 using jnext::dbg::Debugger;
 using jnext::dbg::MemSpace;
@@ -4202,19 +4203,19 @@ static void b5_detach_rows() {
 static void b5_host_probe_rows() {
     auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(512);
     Log::platform()->sinks().push_back(ring);
-    ::setenv("JNEXT_HOST_PROBE", "1", 1);
+    jtp::set_env("JNEXT_HOST_PROBE", "1");
     bool ok = false, armed_off = true;
     {
         {
             // Unset: nothing is attached — the probe is zero-cost off.
-            ::unsetenv("JNEXT_HOST_PROBE");
+            jtp::unset_env("JNEXT_HOST_PROBE");
             HeadlessApp off;
             EmulatorConfig cfg; cfg.type = MachineType::ZX48K;
             off.set_config(cfg);
             off.init(0, nullptr);
             armed_off = off.debugger().attached();
             off.shutdown();
-            ::setenv("JNEXT_HOST_PROBE", "1", 1);
+            jtp::set_env("JNEXT_HOST_PROBE", "1");
         }
         EmulatorConfig cfg; cfg.type = MachineType::ZX48K;
         HeadlessApp app;
@@ -4224,7 +4225,7 @@ static void b5_host_probe_rows() {
         app.run();
         app.shutdown();
     }                                                   // ~HeadlessApp: the end line
-    ::unsetenv("JNEXT_HOST_PROBE");
+    jtp::unset_env("JNEXT_HOST_PROBE");
     bool guest = false, reset_ok = false, end_two = false;
     std::string seen;
     for (const auto& l : ring->last_formatted()) {
@@ -4255,7 +4256,7 @@ static void b5_host_probe_rows() {
 static void q_wp2_host_order_rows() {
     auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(512);
     Log::platform()->sinks().push_back(ring);
-    ::setenv("JNEXT_HOST_PROBE", "order", 1);
+    jtp::set_env("JNEXT_HOST_PROBE", "order");
     bool ok = false;
     {
         EmulatorConfig cfg; cfg.type = MachineType::ZX48K;
@@ -4266,7 +4267,7 @@ static void q_wp2_host_order_rows() {
         app.run();
         app.shutdown();
     }
-    ::unsetenv("JNEXT_HOST_PROBE");
+    jtp::unset_env("JNEXT_HOST_PROBE");
     bool armed = false, first = false, total = false;
     std::string seen;
     for (const auto& l : ring->last_formatted()) {

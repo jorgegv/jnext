@@ -32,6 +32,21 @@ it more briefly — *this file is a contract, not a convenience.*
   it as not-run — never silently. (That is a gated-out suite, which is not a
   SKIP: a suite that reports `Skipped > 0` fails the run, see
   [4.1](01-the-test-triplet.md).)
+- A second, orthogonal directive, `# os: all | posix | linux` (GH #214), says
+  which **target operating systems** own the suites below it, until the next
+  `# os:`; `all` is in force at the top. `posix` is Linux and macOS, `linux` is
+  Linux alone, and Linux satisfies every value, so Linux still runs every suite.
+  A suite is owed by a build only where both its gate and its `# os:` say so, a
+  suite under a non-`all` os must carry the `?` marker, and an unknown value is a
+  refusal. The OS is read from the build tree's own `CMakeCache.txt`
+  (`JNEXT_TARGET_OS`, which the top `CMakeLists.txt` sets from
+  `CMAKE_SYSTEM_NAME`), so a MinGW cross build on Linux says `windows`. A row
+  that cannot exist on a platform is never compiled out or skipped: it moves,
+  ID and assertion unchanged, into a sibling suite whose `# os:` excludes that
+  platform. `uart_posix_test`, `esxdos_symlink_test`, `esp_sigpipe_test` and
+  `sdcard_file_add_posix_test` are exactly that (`posix`), and
+  `sdcard_file_add_linux_test`, one row that needs a case-sensitive host
+  filesystem, is `linux`; the rest of each feature runs everywhere.
 - `<expected_rows>` is the exact `Total:` the suite must report, and it must be
   at least 1. A pin of `0` is rejected outright at parse time, because a suite
   pinned at 0 that reports 0 rows would pass, whereas the same suite printing
@@ -72,9 +87,19 @@ everything look as though it were registered twice. It refuses when:
   same manifest is exact in every configuration instead of merely permissive in
   all of them. Before this (GH #273) the `?` alone meant "skip it quietly if
   CMake did not register it", so a suite that stopped being registered in the
-  configuration that owns it printed a NOTICE and the run stayed green.
+  configuration that owns it printed a NOTICE and the run stayed green. The
+  `# os:` directive is checked the same way, both directions, against
+  `JNEXT_TARGET_OS`;
+- the host lacks what the script itself needs: **bash 4 or newer, GNU `timeout`
+  with `--kill-after`, GNU `grep -P`, perl**. macOS ships bash 3.2 and BSD tools,
+  so there the answer is a refusal naming the install line (`brew install bash
+  coreutils grep`), not a quiet degradation in the middle of a run. A Windows
+  build registers `NAME.exe`: the harness strips the suffix to match the
+  manifest, checks for the `.exe`, and prefixes every suite with
+  `JNEXT_TEST_RUNNER` (wine, see [5.1](../05-building/01-make-targets.md#test)),
+  and `JNEXT_UNIT_TEST_JOBS` caps how many run at once (unset: all of them).
 
-That last condition is the subtle one, and it is what makes the whole check
+The first of those conditions is the subtle one, and it is what makes the whole check
 more than bookkeeping. Without it, "N declared equals N registered" is a
 tautology against exactly the edit that matters most: delete a suite's
 `add_test()` **and** its manifest row, and both sides shrink together, every

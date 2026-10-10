@@ -25,6 +25,8 @@
 #include <cstdlib>
 
 inline void report_row_id(const char* id) {
+    // Binary ("ab"): text mode writes CRLF on Windows and every ID would then
+    // differ from its source literal.
     // APPEND, never "w": the harness creates the file empty before the suite
     // starts, and a process that opens it must not truncate it. A suite that
     // fork()s before its first report opens it twice — once per process —
@@ -32,7 +34,7 @@ inline void report_row_id(const char* id) {
     // (test/row_id_fork_probe.cpp, harness self-test HS-62).
     static std::FILE* const out = [] {
         const char* path = std::getenv("JNEXT_TEST_ROW_IDS");
-        return (path && *path) ? std::fopen(path, "a") : nullptr;
+        return (path && *path) ? std::fopen(path, "ab") : nullptr;
     }();
     if (!out) return;
     std::fprintf(out, "%s\n", id ? id : "(null)");

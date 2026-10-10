@@ -3,6 +3,7 @@
 #include "core/log.h"
 
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 
 bool TapLoader::load(const std::string& path) {
@@ -59,9 +60,10 @@ bool TapLoader::load(const std::string& path) {
     loaded_ = true;
     current_block_ = 0;
 
-    // Extract just the filename for UI display
-    auto slash = path.rfind('/');
-    filename_ = (slash != std::string::npos) ? path.substr(slash + 1) : path;
+    // Extract just the filename for UI display (std::filesystem splits on the host's own
+    // separators: a Windows path from `--load C:\...` or a native dialog has
+    // backslashes, which rfind('/') never saw).
+    filename_ = std::filesystem::path(path).filename().string();
 
     return true;
 }

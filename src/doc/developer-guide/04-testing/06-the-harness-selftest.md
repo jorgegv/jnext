@@ -94,7 +94,14 @@ on the host and wants a SKIP, `HS-79` the real `sync-version-test.sh` with
 `rpmspec` hidden, `HS-80a`..`h` the tool-missing and renderer-version-gap branches
 of the docs checks and the two snapshot verifiers (a PATH of symlinks that lacks
 the tool, or a fake renderer fingerprint), and `HS-81a`/`b` that a set-but-unusable
-`Z88DK_GDB` is an error. The packaging self-test's `PS-05` pins that a contract
+`Z88DK_GDB` is an error. `HS-82`..`HS-88d` (GH #214) pin the target OS: an
+os-restricted suite registered on an OS that excludes it, or missing from one
+that owns it, is a refusal; an unknown `# os:` value or target OS, or an
+os-restricted suite without the `?`, likewise; a gated-out suite is a NOTICE
+naming the OS; a Windows build's `NAME.exe` registration matches the manifest and
+the runner prefix reaches the `.exe`; a bash older than 4, a host without GNU
+`timeout` or without perl is a refusal; and `JNEXT_UNIT_TEST_JOBS` serialises
+two lock-holding suites (with the uncapped control that they do overlap). The packaging self-test's `PS-05` pins that a contract
 sub-test printing SKIP and exiting 0 is a SKIP row. `HS-73` runs the real confirm
 path in a throwaway repository whose one row invokes the harness again, as
 harness-selftest-func does, and requires it to complete and stamp: a nested

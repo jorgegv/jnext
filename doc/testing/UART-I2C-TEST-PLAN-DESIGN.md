@@ -493,7 +493,8 @@ The wire on the Pi GPIO header handed to the host as a `UartDevice` on UART 1
 (design: `doc/design/NEXTPI-DESIGN.md`). The Pi's pins reach UART 1 only
 through the NR 0xA0 GPIO mux (`zxnext.vhd:2278-2281`): bits 5 and 4 together
 put UART 1 on GPIO 14/15 wired for a Pi, the value NextPi's `.pisend` writes
-(0x30). Rows live in `test/uart/uart_integration_test.cpp` (group PI).
+(0x30). Rows live in `test/uart/uart_posix_test.cpp` (group PI), POSIX-only
+since GH #214.
 PI-01..05 drive the link over real FIFOs, like the JOY rows; each fails (does
 not crash) when no link is attached, so removing `setup_pi_uart()` from `init()`
 turns all five red, and removing the NR 0xA0 probe turns PI-02 red. PI-06..09

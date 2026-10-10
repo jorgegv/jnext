@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.24</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.25</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.24</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.25</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2391,6 +2391,38 @@ frontend options, <code>make unit-test-sdl</code> runs the declared suites a sec
 the SDL-only configuration (its own <code>build/sdl-unit-test</code> tree, so <code>build/</code> stays
 the Qt one), and <code>make unit-test-dashboard</code> runs the unit tests and refreshes the
 committed per-subsystem status table.</p>
+<p>Two more targets run the SDL-only suites on other operating systems (GH #214).
+<code>make unit-test-sdl</code> also works on macOS, where the test harness needs Homebrew's
+<code>bash</code>, <code>coreutils</code> and <code>grep</code> (<code>brew install bash coreutils grep</code>; the target
+puts them first on <code>PATH</code> for its own recipe only, and the harness refuses with
+that install line when they are missing). <code>make unit-test-win</code> cross-builds the
+same suites for Windows with the Fedora MinGW toolchain into
+<code>build/win-sdl-unit-test</code> (<code>dnf install mingw64-gcc mingw64-gcc-c++
+mingw64-SDL3 mingw64-zlib mingw64-libpng mingw64-winpthreads wine-core
+wine-common</code>) and runs them under wine through <code>test/wine-run.sh</code>, with no
+display variable set so no window can open on your desktop, under a UTF-8
+locale (a non-ASCII file name cannot exist under <code>LC_ALL=C</code>), and, when run as
+root (the CI container), with CAP_DAC_OVERRIDE and CAP_DAC_READ_SEARCH dropped for
+wine and wineserver: wine emulates the Windows read-only attribute with a
+permission bit that root ignores, where real Windows refuses even an
+administrator. The test executables
+link with an 8 MB stack (their fixtures hold emulators on the stack; Linux gives
+a main thread 8 MB, MinGW 2 MB), while <code>jnext.exe</code> keeps the default and its
+frame gate. Both need the SD image, which <code>make sdcard-image</code> provisions through
+jnext's own download if it is missing. <code>make unit-test-win</code> is two steps,
+<code>unit-test-win-build</code> (cross-build the tree) and <code>unit-test-win-run</code> (run it under
+wine, no compiler needed), so the run step could later be taken over by a real
+Windows host; it is part of the merge gate for every code change.</p>
+<p>The built tree is <strong>not yet a relocatable directory</strong>, so there is no recipe for
+running it by hand on a real Windows machine, and none has been tried. What
+stands in the way, in order of effort: <code>JNEXT_BINARY</code> (the CLI suite) and the
+ffmpeg stub's path are compiled in as absolute paths; the suites run with the
+source checkout as their working directory and read fixtures from it; the unit
+harness itself needs bash 4, GNU <code>timeout</code>/<code>grep -P</code> and perl, and checks every
+reported row ID against the suite's <em>source files</em>; the SD image is reached by
+absolute path through <code>JNEXT_TEST_SD_IMAGE</code>. A bundle (executables, the MinGW
+DLLs <code>packaging/windows/bundle-dlls.sh</code> copies, the manifest, the harness and
+the sources it reads) is feasible, but it is its own piece of work.</p>
 <p>Chapter <a href="../04-testing/index.html">4. Testing</a> covers what each of these actually
 proves.</p>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>

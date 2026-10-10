@@ -365,7 +365,7 @@ provisioner returns "not supported on Windows"; the code compiles there.
 
 ## 4. Testing
 
-`test/uart/uart_integration_test.cpp`, group **PI** (plan:
+`test/uart/uart_posix_test.cpp` (POSIX-only, GH #214), group **PI** (plan:
 `doc/testing/UART-I2C-TEST-PLAN-DESIGN.md`, Group 17). PI-01..05 drive the UART
 link over real FIFOs; PI-06..09 run `PiQemu` against a shell-script stand-in for
 QEMU that answers on the pipe chardev as QEMU does; PI-10..14 run the provisioner
@@ -436,7 +436,7 @@ NextPi image is needed.
 | PI-58 | a steady Pi EAR level relaxes to the issue-2 level 64 x 512 master cycles after its edge |
 | PI-59 | under `--silent` the Pi's samples are still latched and the EAR path works |
 
-`test/audio/audio_test.cpp` adds **MX-41** (the stream retired MX-30 asked for; MX-30 itself stays retired, its ID not reused) and MX-31..40 for `PiAudio`
+`test/audio/audio_posix_test.cpp` (POSIX-only: the rows use a real FIFO) adds **MX-41** (the stream retired MX-30 asked for; MX-30 itself stays retired, its ID not reused) and MX-31..40 for `PiAudio`
 against a real FIFO: the stream frame for frame (header and frames split across
 writes), the 10-bit mapping, a frame's level in the mix and the received count;
 prebuffer and underrun (2205 frames, 50 ms); the latency trim (to 4410 frames,

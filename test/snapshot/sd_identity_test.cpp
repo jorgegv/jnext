@@ -820,8 +820,14 @@ int main(int argc, char** argv) {
             // this is the documented offset idiom — the exact reverse of the
             // one `iso8601_utc` uses to read the value back.
             namespace fs = std::filesystem;
+            // 250 ms past the second, not on it: the two clock reads below are
+            // microseconds apart, so an mtime set "on" the second can land a
+            // hair before it, and a filesystem that keeps whole seconds (wine's
+            // Windows layer) then returns the second BEFORE. At .250 every
+            // granularity renders the same second (GH #214).
             const auto sys_tp = std::chrono::system_clock::from_time_t(
-                static_cast<std::time_t>(1700000000));
+                static_cast<std::time_t>(1700000000)) +
+                std::chrono::milliseconds(250);
             const auto file_tp =
                 std::chrono::time_point_cast<fs::file_time_type::duration>(
                     sys_tp - std::chrono::system_clock::now() +

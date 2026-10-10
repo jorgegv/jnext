@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.24</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.25</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.24</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.25</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2424,6 +2424,16 @@ suites: the default Qt+debugger build through <code>make unit-test</code>, and t
 build through <code>make unit-test-sdl</code>. The other two, Qt without the debugger and
 SDL with it, are not used in practice and remain build-only. CI runs both
 targets.</p>
+<p>The configurations are about <em>what</em> is built; the suites also run on three
+operating systems (GH #214). The SDL-only set runs natively on Linux
+(<code>make unit-test-sdl</code>), natively on macOS (the same target, with Homebrew's GNU
+tools first on <code>PATH</code>), and as MinGW-built Windows executables under wine
+(<code>make unit-test-win</code>). Which suites each OS owes is declared by <code># os:</code> in
+<code>test/unit-tests.conf</code> (<a href="../04-testing/02-declared-suites-and-pinned-counts.html">4.2</a>).
+The Qt and debugger suites run on Linux only, and the regression suite, the
+documentation gates and the traceability matrix are Linux-only by design: they
+gate committed artifacts that are byte-checked against the <code>fedora:44</code>
+toolchain.</p>
 <h2 id="where-each-target-builds">Where each target builds<a class="headerlink" href="#where-each-target-builds" title="Permanent link">&para;</a></h2>
 <p>There is one scheme, <code>build/&lt;variant&gt;-&lt;config&gt;</code>, and everything lives under
 <code>build/</code>: <code>build/sdl-release</code>, <code>build/gui-release</code>, <code>build/win-release</code>,

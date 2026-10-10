@@ -49,7 +49,8 @@ closed end-to-end (Phases 0→4) on 2026-04-24. Summary:
   traceability matrix, and retired four that cannot honestly become a
   `check()` (AY-41, SD-09, MX-30, IO-04 — each struck in place with its
   rationale). The producer MX-30 lacked now exists — NextPi under QEMU,
-  through `audio/pi_audio.*` — and its stream is MX-41, with MX-31..40 and MX-42..47;
+  through `audio/pi_audio.*` — and its stream is MX-41, with MX-31..40 and MX-42..47,
+  all in `audio_posix_test` (they need a real FIFO; `# os: posix`, GH #214);
   MX-30 stays retired and its ID is not reused (owner, PR #315).
   Writing AY-43 found and fixed a real emulator defect: the
   `ena_div_noise` phase in `src/audio/ay_chip.cpp` read the TOGGLED
