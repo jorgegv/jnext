@@ -3358,6 +3358,38 @@ static void g_mixer() {
                       past.ok ? 1 : 0, past.first, past.left,
                       static_cast<unsigned long long>(past.dropped)));
         }
+
+        // MX-37 — NO SPIN WITHOUT A WRITER: once QEMU's end is closed, the
+        // reader wakes at most ~50 times a second (a 20 ms pause after each
+        // read that finds no writer). Linux's poll() reports a gone writer at
+        // once, so without the pause the thread would spin a core after every
+        // QEMU exit; the bound is 60 wakeups in 600 ms. (macOS's poll() waits
+        // its 100 ms instead, so there the row holds with or without the
+        // pause; CI's Linux run is the one that discriminates.) jnext-only, no
+        // VHDL counterpart.
+        {
+            const std::string fifo = (dir / "mx37.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const std::string stream = header() + frames_bytes(10, 0);
+            const bool wrote = w >= 0 && ::write(w, stream.data(), stream.size()) ==
+                                             static_cast<ssize_t>(stream.size());
+            wait_available(a, 10);
+            if (w >= 0) ::close(w);
+            ::usleep(100000);                         // the reader sees the writer go
+            const uint64_t from = a.eof_reads();
+            ::usleep(600000);
+            const uint64_t wakeups = a.eof_reads() - from;
+            check("MX-37", "with no writer on the Pi's audio FIFO, the reader pauses after each "
+                  "read that finds none: at most 60 wakeups in 600 ms, so it never spins "
+                  "(jnext-only, no VHDL counterpart)",
+                  opened && wrote && a.available() == 10 && wakeups >= 1 && wakeups <= 60,
+                  fmt("opened=%d wrote=%d available=%u wakeups in 600 ms=%llu (want 1..60)",
+                      opened ? 1 : 0, wrote ? 1 : 0, a.available(),
+                      static_cast<unsigned long long>(wakeups)));
+        }
         fs::remove_all(dir, ec);
     }
 #endif

@@ -127,6 +127,7 @@ void PiAudio::run() {
             // next writer starts a fresh stream, header included.
             header_left = kHeader;
             carry.clear();
+            eof_reads_.fetch_add(1, std::memory_order_relaxed);
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
             continue;
         }

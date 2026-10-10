@@ -63,6 +63,11 @@ public:
     uint64_t frames_received() const { return received_.load(); }  ///< read from QEMU
     uint64_t frames_dropped()  const { return dropped_.load(); }    ///< ring full, or trimmed
     uint64_t underruns()       const { return underruns_.load(); }  ///< ran dry while playing
+    /// Reads that found no writer (QEMU not started yet, or gone). Each is
+    /// followed by a 20 ms pause, so this grows by at most ~50 a second — on
+    /// Linux poll() reports a gone writer at once, and without the pause the
+    /// reader would spin a core. Exposed so a row can pin that.
+    uint64_t eof_reads()       const { return eof_reads_.load(); }
     /// Frames buffered and not yet popped.
     uint32_t available() const { return head_.load() - tail_.load(); }
 
@@ -80,4 +85,5 @@ private:
     std::atomic<uint64_t>   received_{0};
     std::atomic<uint64_t>   dropped_{0};
     std::atomic<uint64_t>   underruns_{0};
+    std::atomic<uint64_t>   eof_reads_{0};
 };
