@@ -197,7 +197,7 @@ if want sdcard-file-add-func; then
     mcopy -s -n -i "$CARD@@$OFF" ::/JNEXTGH292 "$W/back-tree" 2>/dev/null \
         || faults+=("mcopy -s could not read the copied tree back")
     diff -r "$T" "$W/back-tree" > "$W/tree-diff.txt" 2>&1 \
-        || faults+=("mtools reads back a DIFFERENT tree: $(head -1 "$W/tree-diff.txt")")
+        || faults+=("mtools reads back a DIFFERENT tree: $(head -4 "$W/tree-diff.txt" | tr '\n' ';')")
     # A refusal inside a tree leaves nothing behind: the FIFO is found before
     # anything is written, so the good file sorted ahead of it is not on the
     # card either.

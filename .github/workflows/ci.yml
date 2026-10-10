@@ -718,6 +718,10 @@ jobs:
       # validators), libspectrum (the foreign snapshot reader) and python3.
       - name: Install dependencies (Homebrew)
         run: brew install cmake sdl3 qt@6 curl openssl libpng bash coreutils grep ccache imagemagick mtools dosfstools ffmpeg
+      # snapshot-schema-func's FOREIGN validator is python's jsonschema (a SKIP
+      # fails the run, so it is declared, like the dnf list of the Linux legs).
+      - name: Install python jsonschema
+        run: python3 -m pip install --break-system-packages jsonschema pyyaml
       - name: Cache NextZXOS SD-card image
         uses: actions/cache@v5
         with:

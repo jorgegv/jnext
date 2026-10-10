@@ -521,29 +521,46 @@ def sc_gui_drain(port):
 # ---------------------------------------------------------------------------
 
 
+def process_table():
+    """{pid: (ppid, name)} of every process. /proc where there is one (a bare
+    CI container has no `ps`), else `ps` (macOS)."""
+    table = {}
+    if os.path.isdir("/proc/self"):
+        for d in os.listdir("/proc"):
+            if not d.isdigit():
+                continue
+            try:
+                with open("/proc/%s/stat" % d) as f:
+                    st = f.read()
+            except OSError:
+                continue
+            fields = st[st.rindex(")") + 2:].split()
+            table[int(d)] = (int(fields[1]), st[st.index("(") + 1:st.rindex(")")])
+        return table
+    out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,comm="], capture_output=True,
+                         text=True, env={"LANG": "C", "PATH": os.environ.get("PATH", "")}).stdout
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
+            table[int(parts[0])] = (int(parts[1]), os.path.basename(parts[2].strip()))
+    return table
+
+
 def jnext_process_under(root):
     """The jnext process started (directly or through wrappers) by <root>.
 
     Not "the first child": a wrapper (the wine runner of `make regression-win`
     is two shells deep, and a shim script's comm is its own name) puts other
     processes between. The candidates are the descendants named jnext or
-    jnext.exe; the DEEPEST one is the real process (a shim is its ancestor).
-    `ps` rather than /proc, so macOS answers too; on Linux it finds the same
-    pid the first child was.
+    jnext.exe; the DEEPEST one is the real process (a shim is its ancestor). On
+    Linux without a wrapper it finds the same pid the first child was.
     """
-    out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,comm="], capture_output=True,
-                         text=True, env={"LANG": "C", "PATH": os.environ.get("PATH", "")}).stdout
-    kids, comm = {}, {}
-    for line in out.splitlines():
-        parts = line.split(None, 2)
-        if len(parts) < 3 or not (parts[0].isdigit() and parts[1].isdigit()):
-            continue
-        kids.setdefault(int(parts[1]), []).append(int(parts[0]))
-        comm[int(parts[0])] = os.path.basename(parts[2].strip())
-    best, frontier, depth = None, [root], 0
-    seen = {root}
+    table = process_table()
+    kids = {}
+    for pid, (ppid, _) in table.items():
+        kids.setdefault(ppid, []).append(pid)
+    best, frontier, seen = None, [root], {root}
     while frontier:
-        depth += 1
         nxt = []
         for p in frontier:
             for k in kids.get(p, []):
@@ -551,7 +568,7 @@ def jnext_process_under(root):
                     continue
                 seen.add(k)
                 nxt.append(k)
-                if comm.get(k) in ("jnext", "jnext.exe"):
+                if table[k][1] in ("jnext", "jnext.exe"):
                     best = k
         frontier = nxt
     return best
