@@ -60,6 +60,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QImage>
+#include <QToolBar>
 #include <QFile>
 #include <QKeyEvent>
 #include <QKeySequence>
@@ -1195,7 +1196,7 @@ int main(int argc, char** argv) {
     test_stranded_alt();
     test_script_keys(w);
 
-    // Group 5 needs a SECOND window, with an emulator attached: the bug-button
+    // Group 5 needs a SECOND window, with an emulator attached: the Debug button
     // whose tooltip regressed lives on the debug toolbar, and MainWindow only
     // builds that (via DebuggerManager) once it has an emulator. Kept separate
     // from `w` so groups 1-4 keep running against the bare window they were
@@ -1244,45 +1245,90 @@ int main(int argc, char** argv) {
 #endif
         live.removeDuplicates();
 
+        // DBGICON-01 — the Debug toolbar button is the magnifier over a chip (no
+        // VHDL oracle: host UI; oracle is the owner-approved 24-unit design:
+        // chip rect 3,3 13x13 #3a3f4a; pins #9aa3b2 w1.2; lens c=15,15 r=5 fill
+        // #fff5e0 at 85%, rim #e08a1e w2; handle 18.6..22.2 w2.8 on top). It
+        // reads the toolbar action's own QIcon, at every size it carries.
+#ifdef ENABLE_DEBUGGER
+        {
+            QAction* dbg_act = nullptr;
+            for (QToolBar* tb : w2.findChildren<QToolBar*>())
+                for (QAction* a : tb->actions())
+                    if (a->isCheckable() && a->text() == "Debug") dbg_act = a;
+            bool ok = dbg_act != nullptr;
+            std::string detail = ok ? "" : "no checkable Debug toolbar action";
+            if (ok) {
+                QList<int> sizes;
+                for (const QSize& sz : dbg_act->icon().availableSizes()) sizes << sz.width();
+                std::sort(sizes.begin(), sizes.end());
+                if (sizes != QList<int>{16, 24, 32, 48}) {
+                    ok = false;
+                    detail = "sizes wrong";
+                }
+            }
+            auto near = [](int a, int b) { return std::abs(a - b) <= 4; };
+            // Thin strokes are anti-aliased at 16 px (a 2-unit rim is 1.3 px): allow a wider band there.
+            for (int px : {16, 24, 32, 48}) {
+                if (!ok) break;
+                auto like = [&](const QColor& c, int r, int g, int b) {
+                    const int tol = px < 24 ? 30 : 4;
+                    return std::abs(c.red() - r) <= tol && std::abs(c.green() - g) <= tol &&
+                           std::abs(c.blue() - b) <= tol && c.alpha() >= (px < 24 ? 200 : 250);
+                };
+                const QImage img = dbg_act->icon().pixmap(px, px).toImage()
+                                       .convertToFormat(QImage::Format_ARGB32);
+                if (img.width() != px) { ok = false; detail = "pixmap size"; break; }
+                auto at = [&](double ux, double uy) {   // design units -> pixel
+                    return img.pixelColor(int(ux * px / 24.0), int(uy * px / 24.0));
+                };
+                const QColor body = at(4.5, 4.5), pin = at(9.5, 2.0), ring = at(19.5, 15.5);
+                const QColor lens = at(17.5, 13.5), hnd = at(20.4, 20.4);
+                const QColor c0 = at(23.5, 0.5), c1 = at(0.5, 23.5);
+                const bool one = body.rgb() == qRgb(0x3a, 0x3f, 0x4a) && body.alpha() == 255 &&
+                                 (px < 24 /* 0.8 px wide: never fully covered */ ||
+                                  like(pin, 0x9a, 0xa3, 0xb2)) &&
+                                 like(ring, 0xe0, 0x8a, 0x1e) &&
+                                 near(lens.red(), 0xff) && near(lens.green(), 0xf5) &&
+                                 near(lens.blue(), 0xe0) && lens.alpha() > 200 && lens.alpha() < 230 &&
+                                 like(hnd, 0xe0, 0x8a, 0x1e) &&
+                                 c0.alpha() == 0 && c1.alpha() == 0;
+                // At 48 px only: anti-aliasing leaves a partial pixel on the chip's rounded
+                // corner, and the handle's cap (drawn LAST, as in the SVG) is solid orange
+                // inside the lens rim.
+                const QColor corner = img.pixelColor(6 * px / 48, 6 * px / 48);
+                const QColor cap = at(17.72, 17.72);
+                const bool one48 = px != 48 || (corner.alpha() > 0 && corner.alpha() < 255 &&
+                                                (cap.blue() < 0x60 && cap.alpha() >= 200));
+                if (!one || !one48) {
+                    ok = false;
+                    detail = std::to_string(px) + "px body=" + body.name().toStdString() +
+                             " pin=" + pin.name().toStdString() + " ring=" + ring.name().toStdString() +
+                             " lens=" + lens.name(QColor::HexArgb).toStdString() +
+                             " handle=" + hnd.name().toStdString() +
+                             " corner_a=" + std::to_string(px == 48 ? corner.alpha() : -1) +
+                             " cap=" + cap.name().toStdString();
+                }
+            }
+            check("DBGICON-01", "the Debug toolbar button's QIcon carries 16/24/32/48 px pixmaps, each a "
+                                "magnifier over a chip (chip, pin, rim, lens, handle, transparent corners)",
+                  ok, detail);
+        }
+#else
+        {
+            bool found = false;
+            for (QToolBar* tb : w2.findChildren<QToolBar*>())
+                for (QAction* a : tb->actions())
+                    found |= a->text() == "Debug";
+            check("DBGICON-01", "with the debugger compiled out, the emulator window has no Debug "
+                                "toolbar button", !found, "");
+        }
+#endif
+
         test_ui_strings(w2, live);
         test_features_md(live);
     }
     std::printf("  Group: H115           - done\n");
-
-    // DBGICON-01 — the Debug toolbar button is the magnifier over a chip (no
-    // VHDL oracle: host UI; oracle is the owner-approved 24-unit design: chip
-    // rect 3,3 13x13 #3a3f4a, magnifier circle c=15,15 r=5 stroke #e08a1e w2,
-    // fill #fff5e0 at 85%). Sampled at
-    // 24 px, where one unit is one pixel.
-#ifdef ENABLE_DEBUGGER
-    {
-        const QImage img = make_debug_toolbar_icon(24).toImage().convertToFormat(QImage::Format_ARGB32);
-        const QColor body = img.pixelColor(4, 4);      // chip, upper left
-        const QColor ring = img.pixelColor(19, 15);    // magnifier rim
-        const QColor lens = img.pixelColor(17, 13);    // lens interior, off the chip and the handle
-        // premultiplied-alpha rounding moves a translucent pixel's channels by a few counts
-        auto near = [](int a, int b) { return std::abs(a - b) <= 4; };
-        const QColor c0 = img.pixelColor(23, 0), c1 = img.pixelColor(0, 23);
-        const bool ok = body.rgb() == qRgb(0x3a, 0x3f, 0x4a) && body.alpha() == 255 &&
-                        ring.rgb() == qRgb(0xe0, 0x8a, 0x1e) && ring.alpha() == 255 &&
-                        near(lens.red(), 0xff) && near(lens.green(), 0xf5) && near(lens.blue(), 0xe0) && lens.alpha() > 200 && lens.alpha() < 230 &&
-                        c0.alpha() == 0 && c1.alpha() == 0;
-        check("DBGICON-01", "the Debug toolbar icon is a magnifier over a chip: chip body, orange rim, "
-                            "translucent lens, transparent corners",
-              ok, "body=" + body.name().toStdString() + " ring=" + ring.name().toStdString() +
-                  " lens=" + lens.name(QColor::HexArgb).toStdString() +
-                  " a0=" + std::to_string(c0.alpha()) + " a1=" + std::to_string(c1.alpha()));
-    }
-#else
-    {
-        int debug_toolbars = 0;
-        for (QWidget* w : QApplication::allWidgets())
-            if (auto* tb = qobject_cast<QToolBar*>(w))
-                debug_toolbars += tb->windowTitle() == "Debug";
-        check("DBGICON-01", "with the debugger compiled out there is no Debug toolbar",
-              debug_toolbars == 0, std::to_string(debug_toolbars));
-    }
-#endif
 
     std::printf("\n==============================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
