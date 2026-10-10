@@ -1294,6 +1294,17 @@ if(ENABLE_QT_UI)
         JNEXT_QT_APP_CPP="${CMAKE_SOURCE_DIR}/src/gui/qt_app.cpp")
     add_test(NAME main_window_pause_tests COMMAND main_window_pause_test)
 
+    # GH #311 — the Input menu / Preferences controller picker, wired to a real
+    # GamepadHost over SDL virtual joysticks. JMN-12 reads the frontends' sources.
+    add_executable(joystick_menu_test gui/joystick_menu_test.cpp)
+    set_target_properties(joystick_menu_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(joystick_menu_test PRIVATE jnext_gui Qt${JNEXT_QT_MAJOR}::Test)
+    target_include_directories(joystick_menu_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_definitions(joystick_menu_test PRIVATE
+        JNEXT_QT_APP_CPP="${CMAKE_SOURCE_DIR}/src/gui/qt_app.cpp"
+        JNEXT_SDL_APP_CPP="${CMAKE_SOURCE_DIR}/src/platform/sdl_app.cpp")
+    add_test(NAME joystick_menu_tests COMMAND joystick_menu_test)
+
     add_executable(shifted_keys_test gui/shifted_keys_test.cpp)
     set_target_properties(shifted_keys_test PROPERTIES AUTOMOC ON)
     target_link_libraries(shifted_keys_test PRIVATE jnext_gui)

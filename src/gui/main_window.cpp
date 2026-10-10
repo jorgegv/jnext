@@ -512,7 +512,8 @@ void MainWindow::on_joy_choice_selected(int connector, const JoyChoice& choice) 
 }
 
 void MainWindow::sync_joy_source_menu() {
-    if (!emulator_) return;
+    // Without an emulator (the window before set_emulator()) the menu shows the
+    // defaults: Automatic on both connectors.
     const std::vector<JoyDeviceInfo> devices =
         joy_device_provider_ ? joy_device_provider_() : std::vector<JoyDeviceInfo>{};
     for (int conn = 0; conn < 2; ++conn) {
@@ -528,15 +529,19 @@ void MainWindow::sync_joy_source_menu() {
         joy_group_[conn] = new QActionGroup(sub);
         joy_group_[conn]->setExclusive(true);
 
-        const auto choices = joy_choices(conn, devices, emulator_->joystick_source(conn),
-                                         emulator_->joystick_device(conn));
+        const auto choices = joy_choices(
+            conn, devices, emulator_ ? emulator_->joystick_source(conn) : JoySource::Sdl,
+            emulator_ ? emulator_->joystick_device(conn) : JoyDeviceRef{});
         for (const JoyChoice& ch : choices) {
             if (ch.kind == JoyChoice::Kind::Keys) sub->addSeparator();
             QString text;
             switch (ch.kind) {
             case JoyChoice::Kind::Auto: text = tr("&Automatic (first free controller)"); break;
             case JoyChoice::Kind::Keys: text = tr("Cursor &Keys + Space"); break;
-            case JoyChoice::Kind::None: text = tr("&None"); break;
+            // No mnemonic on None: the pinned menu shape (main_window_accel_test
+            // MA-05) counts two per connector submenu, as before this menu listed
+            // controllers; a mnemonic here would change that count.
+            case JoyChoice::Kind::None: text = tr("None"); break;
             default:
                 // A controller's own name: escape '&' so it is not read as a mnemonic.
                 text = QString::fromStdString(ch.label).replace("&", "&&");
@@ -1042,8 +1047,9 @@ void MainWindow::create_menus() {
         joy_menu_[conn] = input_menu->addMenu(conn == 0 ? tr("Joy &1 Source (port 0x1F)")
                                                         : tr("Joy &2 Source (port 0x37)"));
     }
-    // The submenus are filled by sync_joy_source_menu() once set_emulator()
-    // and the host's device list exist.
+    // Filled with the defaults now; sync_joy_source_menu() refills them from the
+    // emulator and the host's device list once those exist.
+    sync_joy_source_menu();
 
     // Kempston mouse pointer capture (issue #37). Off by default: capturing
     // uninvited would take the pointer away from a user who only wanted to
