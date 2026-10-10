@@ -98,6 +98,17 @@ jnext's own download if it is missing. `make unit-test-win` is two steps,
 wine, no compiler needed), so the run step could later be taken over by a real
 Windows host; it is part of the merge gate for every code change.
 
+The built tree is **not yet a relocatable directory**, so there is no recipe for
+running it by hand on a real Windows machine, and none has been tried. What
+stands in the way, in order of effort: `JNEXT_BINARY` (the CLI suite) and the
+ffmpeg stub's path are compiled in as absolute paths; the suites run with the
+source checkout as their working directory and read fixtures from it; the unit
+harness itself needs bash 4, GNU `timeout`/`grep -P` and perl, and checks every
+reported row ID against the suite's *source files*; the SD image is reached by
+absolute path through `JNEXT_TEST_SD_IMAGE`. A bundle (executables, the MinGW
+DLLs `packaging/windows/bundle-dlls.sh` copies, the manifest, the harness and
+the sources it reads) is feasible, but it is its own piece of work.
+
 Chapter [4. Testing](../04-testing/index.md) covers what each of these actually
 proves.
 

@@ -17,7 +17,89 @@
 //
 // Run: ./build/test/uart_integration_test
 
-#include "uart_integration_common.h"
+#include "uart_integration_includes.h"
+
+// ── Test infrastructure ───────────────────────────────────────────────
+
+namespace {
+
+int g_pass  = 0;
+int g_fail  = 0;
+int g_total = 0;
+
+struct Result {
+    std::string group;
+    std::string id;
+    std::string desc;
+    bool        passed;
+    std::string detail;
+};
+
+std::vector<Result> g_results;
+std::string         g_group;
+
+struct SkipNote {
+    const char* id;
+    const char* reason;
+};
+std::vector<SkipNote> g_skipped;
+
+void set_group(const char* name) { g_group = name; }
+
+void check(const char* id, const char* desc, bool cond,
+           const std::string& detail = {}) {
+    report_row_id(id);
+    ++g_total;
+    Result r{g_group, id, desc, cond, detail};
+    g_results.push_back(r);
+    if (cond) {
+        ++g_pass;
+    } else {
+        ++g_fail;
+        std::printf("  FAIL %s: %s", id, desc);
+        if (!detail.empty()) std::printf(" [%s]", detail.c_str());
+        std::printf("\n");
+    }
+}
+
+void skip(const char* id, const char* reason) {
+    report_row_id(id);
+    g_skipped.push_back({id, reason});
+}
+
+// printf-style detail formatter for check() callers that need runtime values.
+static std::string fmt(const char* f, ...) {
+    char buf[512];
+    va_list ap;
+    va_start(ap, f);
+    std::vsnprintf(buf, sizeof(buf), f, ap);
+    va_end(ap);
+    return std::string(buf);
+}
+
+std::string hex2(uint8_t v) {
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "0x%02x", v);
+    return buf;
+}
+
+std::string detail_eq(uint8_t got, uint8_t expected) {
+    return "got=" + hex2(got) + " expected=" + hex2(expected);
+}
+
+// Space-separated hex render of a byte stream, for JOY-* failure details.
+std::string bytes_hex(const std::vector<uint8_t>& bytes) {
+    std::string out;
+    for (uint8_t b : bytes) {
+        if (!out.empty()) out += ' ';
+        out += hex2(b);
+    }
+    return out;
+}
+
+} // namespace
+
+#include "uart_integration_helpers.h"
 
 static void test_uart_im2_interrupts(Emulator& emu) {
     set_group("UART-INT");

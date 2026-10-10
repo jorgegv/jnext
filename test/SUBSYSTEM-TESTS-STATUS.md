@@ -17,7 +17,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Memory/MMU (int)      |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      349 |      349 |      0 |       0 |    100% | 🟢 All tests pass. |
-| esxDOS stub           |      186 |      186 |      0 |       0 |    100% | 🟢 All tests pass. |
+| esxDOS stub           |      180 |      180 |      0 |       0 |    100% | 🟢 All tests pass. |
+| esxDOS stub (symlinks, POSIX) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input                 |      391 |      391 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input (integration)   |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Phantom Typist        |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -25,8 +26,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | CTC (integration)     |       88 |       88 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Layer 2               |      153 |      153 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART + I2C/RTC        |      103 |      103 |      0 |       0 |    100% | 🟢 All tests pass. |
-| UART (integration)    |       97 |       97 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 socket transport |      238 |      238 |      0 |       0 |    100% | 🟢 All tests pass. |
+| UART (integration)    |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
+| UART (POSIX-only rows) |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 socket transport |      236 |      236 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 socket SIGPIPE (POSIX) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 AT command engine |      489 |      489 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext policy + wiring |      127 |      127 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -78,7 +81,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NEX loader (screen ingest) |      147 |      147 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (V1.3)     |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Extended NEX streaming |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
-| TAP loader (container) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
+| TAP loader (container) |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
 | TZX loader (container) |       91 |       91 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tape SAVE TZX/WAV (GH #89) |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot IM latch (NR 0xC0) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -141,6 +144,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12560**| **12560**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12561**| **12561**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

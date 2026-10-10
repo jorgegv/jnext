@@ -59,7 +59,7 @@ void put_file(const fs::path& p, const std::string& body) {
 int main() {
     std::printf("esxdos host FS: symlink refusal (GH #31)\n");
 
-    //   <root>/hello.txt            "HELLO-HOSTFS"
+    //   <root>/hello.txt            "hello"
     //   <root>/sub/inner.bin        "INNER"
     //   <root>/link-out             symlink -> <outside>/secret.txt
     //   <root>/link-dir             symlink -> <outside>
@@ -72,7 +72,7 @@ int main() {
     std::error_code rm_ec;
     fs::remove_all(base, rm_ec);
 
-    put_file(root / "hello.txt", "HELLO-HOSTFS");
+    put_file(root / "hello.txt", "hello");
     put_file(root / "sub" / "inner.bin", "INNER");
     put_file(outside / "secret.txt", "SECRET");
     std::error_code ln_ec;

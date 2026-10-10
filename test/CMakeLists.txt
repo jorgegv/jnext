@@ -248,7 +248,7 @@ add_test(NAME uart_integration_tests COMMAND uart_integration_test)
 # unit-tests.conf): the joystick-port cable over FIFOs and a pty (JOY-15..22)
 # and the NextPi link / QEMU launcher (PI-*), none of which Windows has. They
 # moved out of uart_integration_test unchanged; the scaffolding is shared
-# through uart/uart_integration_common.h.
+# through uart/uart_integration_includes.h + uart_integration_helpers.h.
 if(NOT WIN32)
     add_executable(uart_posix_test uart/uart_posix_test.cpp)
     target_link_libraries(uart_posix_test PRIVATE
