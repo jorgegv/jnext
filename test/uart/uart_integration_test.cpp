@@ -4868,6 +4868,19 @@ static void test_nextpi_audio() {
               fmt("deep=%d (%zu/%zu) refused=%d spawned=%d error='%s'", deep_ok ? 1 : 0, deep.size(),
                   want, refused ? 1 : 0, spawned ? 1 : 0, error.c_str()));
     }
+
+    // ── PI-52 — the mixer's -audiodev value escapes the FIFO path: QEMU's
+    // option syntax splits on ',' (a literal comma is written ',,'), and the
+    // path comes from $TMPDIR, which may hold one. Pure.
+    {
+        const std::string arg = PiQemu::mixer_audiodev_arg("/t,mp/uart");
+        const std::string want =
+            "wav,id=snd0,path=/t,,mp/uart.audio,out.frequency=44100,out.channels=2,out.format=s16";
+        check("PI-52",
+              "the -audiodev value that sends the Pi's sound to the mixer escapes a comma in the "
+              "FIFO path, and asks for 44.1 kHz s16 stereo (jnext-only, no VHDL counterpart)",
+              arg == want, fmt("got '%s' want '%s'", arg.c_str(), want.c_str()));
+    }
 }
 
 static void test_nr_a0_pi_uart_routing(Emulator& emu) {

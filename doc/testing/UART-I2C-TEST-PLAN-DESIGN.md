@@ -555,6 +555,7 @@ network or a NextPi image.
 | PI-49 | same, 8000 frames buffered: 2 frames replay mode, 2 frames RZX playback, 1 frame live | `available()` unchanged through replay and RZX; the replay produces no mixer samples at all (its audio path does not run); during RZX every sample of both channels is 0 (the I2S input at its rest value 0x200, `i2s.vhd:179`); drops once live |
 | PI-50 | `Emulator::warm_start_boot_config` of a config with `pi_audio` set | `pi_audio` cleared. jnext-only, no VHDL counterpart |
 | PI-51 | `PiQemu` (default audio) with `$TMPDIR` nested so deep that `uart.out` fits in `PATH_MAX` but `uart.audio` does not | `start()` fails with an error naming `uart.audio`; no `audio()`, nothing running, the stand-in never spawned. jnext-only, no VHDL counterpart |
+| PI-52 | `PiQemu::mixer_audiodev_arg("/t,mp/uart")` | exactly `wav,id=snd0,path=/t,,mp/uart.audio,out.frequency=44100,out.channels=2,out.format=s16`: the comma escaped for QEMU's option syntax. jnext-only, no VHDL counterpart |
 
 ## Special Handling
 
