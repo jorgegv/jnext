@@ -330,7 +330,12 @@ MainWindow::MainWindow(QWidget* parent)
 // only a forward declaration in main_window.h. The header for
 // MouseDispatcher is included at the top of this translation unit, so
 // the compiler has the full type here.
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+    // GH #306 — the pause client must not outlive this window on a backend
+    // that does, the same contract as the DebuggerManager destructor.
+    if (debugger_ && pause_client_ != jnext::dbg::CLIENT_NONE)
+        debugger_->detach(pause_client_);
+}
 
 void MainWindow::set_emulator(Emulator* emu) {
 #ifdef ENABLE_DEBUGGER
@@ -384,6 +389,55 @@ void MainWindow::set_emulator(Emulator* emu) {
         push_debug_keymap();
     }
 #endif
+}
+
+// ---------------------------------------------------------------------------
+// GH #306 — Pause from the emulator window
+// ---------------------------------------------------------------------------
+
+void MainWindow::ensure_pause_client() {
+    if (pause_client_ != jnext::dbg::CLIENT_NONE || !debugger_) return;
+    // An OBSERVER: it arms nothing, so pausing from this window costs no
+    // per-instruction tracking and leaves --persistent-breakpoints' default
+    // (PBPUI-03) alone. Attached on the first press, not at startup, so a
+    // session that never pauses has no extra client.
+    const auto r = debugger_->attach(jnext::dbg::ClientInfo{
+        "Qt emulator window", jnext::dbg::ClientKind::Gui, /*observer=*/true});
+    if (!r) return;
+    pause_client_ = r.value;
+#ifdef ENABLE_DEBUGGER
+    if (debugger_mgr_) debugger_mgr_->set_emulator_window_pause_client(pause_client_);
+#endif
+}
+
+void MainWindow::toggle_pause() {
+    if (debugger_) {
+        const bool paused = debugger_->state().paused;
+#ifdef ENABLE_DEBUGGER
+        if (debugger_mgr_ && debugger_mgr_->is_enabled()) {
+            // The window is open: the same verbs as its F5 / F9 keys, so the
+            // corruption modal, the step-off and the pause-edge presentation
+            // all apply.
+            if (paused) debugger_mgr_->on_run(); else debugger_mgr_->on_pause();
+        } else
+#endif
+        {
+            ensure_pause_client();
+            if (pause_client_ != jnext::dbg::CLIENT_NONE) {
+                // The Result is not acted on: sync_pause_state() below shows
+                // the truth whatever the backend answered.
+                if (paused) debugger_->run(pause_client_);
+                else        debugger_->pause(pause_client_);
+            }
+        }
+    }
+    sync_pause_state();
+}
+
+void MainWindow::sync_pause_state() {
+    const bool p = debugger_ && debugger_->state().paused;
+    if (pause_action_) pause_action_->setChecked(p);
+    if (paused_label_) paused_label_->setVisible(p);
 }
 
 void MainWindow::set_script_host(jnext::script::ScriptHost* host) {
@@ -588,7 +642,7 @@ void MainWindow::create_menus() {
     // menubar mnemonics ('&' in addMenu). A letter used twice is an AMBIGUOUS
     // Qt shortcut — QAction::event() only prints a warning and does nothing, so
     // BOTH bindings break. host_hotkey_test pins the two sets disjoint.
-    // Reserved today: Alt+Q/O/S/R/T/D/P (shortcuts) and Alt+F/M/I/A/B/V/N/H
+    // Reserved today: Alt+Q/O/S/K/R/T/D/P/U (shortcuts) and Alt+F/M/I/A/B/V/N/H
     // (mnemonics). Alt+E/G/C/` stay free because the GUEST uses them
     // (keyboard.cpp:163,172-174).
     //
@@ -801,6 +855,20 @@ void MainWindow::create_menus() {
     QAction* soft_reset = machine_menu->addAction(tr("&Soft Reset"));
     soft_reset->setShortcut(QKeySequence(Qt::Key_F4));
     connect(soft_reset, &QAction::triggered, this, &MainWindow::on_soft_reset);
+
+    // GH #306 — freeze/resume the machine from the emulator window, without
+    // opening the debugger. P is Preferences (Alt+P, #259), so the shortcut is
+    // Alt+U (free in every Alt namespace) and the popup mnemonic is A (the
+    // popup's P/S/T/U/E are taken). The SAME QAction goes on the Main toolbar
+    // (one checkmark) and on the window, so the shortcut also works with the
+    // menu bar hidden in fullscreen.
+    pause_action_ = machine_menu->addAction(tr("P&ause"));
+    pause_action_->setCheckable(true);
+    pause_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_U));
+    pause_action_->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
+    pause_action_->setToolTip(tr("Pause / resume emulation (Alt+U)"));
+    connect(pause_action_, &QAction::triggered, this, [this]() { toggle_pause(); });
+    addAction(pause_action_);
 
     machine_menu->addSeparator();
 
@@ -1098,6 +1166,8 @@ void MainWindow::create_toolbar() {
         style()->standardIcon(QStyle::SP_DialogResetButton), tr("Soft Reset"));
     connect(soft_reset_btn, &QAction::triggered, this, &MainWindow::on_soft_reset);
 
+    if (pause_action_) toolbar->addAction(pause_action_);   // GH #306 — the same action
+
     QAction* load_btn = toolbar->addAction(
         style()->standardIcon(QStyle::SP_DialogOpenButton), tr("Load"));
     connect(load_btn, &QAction::triggered, this, &MainWindow::on_load_nex);
@@ -1162,11 +1232,19 @@ void MainWindow::create_statusbar() {
     esp_label_->setAlignment(Qt::AlignCenter);
     esp_label_->setVisible(false);
 
+    // GH #306 — hidden until the backend reports a pause (sync_pause_state()),
+    // so a session that never pauses has the same status bar as before.
+    paused_label_ = new QLabel(tr("Paused"));
+    paused_label_->setMinimumWidth(60);
+    paused_label_->setAlignment(Qt::AlignCenter);
+    paused_label_->setVisible(false);
+
     statusBar()->addWidget(fps_label_, 1);
     statusBar()->addWidget(speed_label_, 1);
     statusBar()->addWidget(emu_speed_label_, 1);
     statusBar()->addWidget(tape_label_, 1);
     statusBar()->addWidget(esp_label_, 1);
+    statusBar()->addWidget(paused_label_, 1);
     statusBar()->addPermanentWidget(machine_label_);
 }
 
