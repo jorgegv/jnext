@@ -1250,8 +1250,9 @@ int main(int argc, char** argv) {
     std::printf("  Group: H115           - done\n");
 
     // DBGICON-01 — the Debug toolbar button is the magnifier over a chip (no
-    // VHDL oracle: host UI; oracle is the owner-approved design, 24-unit SVG
-    // /home/jorgegv/tmp/autorun/2026-10-09/debug-icon-option3.svg). Sampled at
+    // VHDL oracle: host UI; oracle is the owner-approved 24-unit design: chip
+    // rect 3,3 13x13 #3a3f4a, magnifier circle c=15,15 r=5 stroke #e08a1e w2,
+    // fill #fff5e0 at 85%). Sampled at
     // 24 px, where one unit is one pixel.
 #ifdef ENABLE_DEBUGGER
     {
