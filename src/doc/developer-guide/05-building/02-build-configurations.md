@@ -118,6 +118,22 @@ mismatched profile fails the build.
 [5.5 Performance and optimisation](05-performance-and-optimisation.md#profile-guided-optimisation)
 describes the pipeline, the training set, the gates and the measured gains.
 
+## The stack-frame gate
+
+No production function may need a stack frame over 256 KiB (GH #308):
+`-Werror=frame-larger-than=262144` on GCC, `-Wframe-larger-than=262144
+-Werror=frame-larger-than` on Clang. It exists because Windows runs on
+MinGW's default 2 MB main-thread reserve (jnext sets no `--stack`), and
+`main()`'s frame once outgrew it, by a margin that depended on GCC's
+stack-slot sharing: only the cross build saw it. `CMakeLists.txt` applies the
+flag to `jnext` and to every `STATIC_LIBRARY` target under `src/` (derived from
+the directory tree, not listed), at **both** compile and link: under LTO the
+compile-time check is blind and only the link sees real frames. Test
+executables are excluded on purpose: their fixtures hold `Emulator`s on the
+stack and are never built for Windows. Under Clang LTO both halves are blind
+(measured with clang 22 on Linux; ld64 untested), so only GCC enforces there. The runtime witness is `startup-stack-func`, which boots all three
+frontends on a 1 MiB stack.
+
 ## ccache
 
 `CMakeLists.txt` finds ccache and uses it as `CMAKE_{C,CXX}_COMPILER_LAUNCHER`.

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.15</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.16</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.15</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.16</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2035,6 +2035,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-stack-frame-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The stack-frame gate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#ccache" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2476,6 +2487,20 @@ skipped when nothing that decides the profile changed, and a missing or
 mismatched profile fails the build.
 <a href="05-performance-and-optimisation.html#profile-guided-optimisation">5.5 Performance and optimisation</a>
 describes the pipeline, the training set, the gates and the measured gains.</p>
+<h2 id="the-stack-frame-gate">The stack-frame gate<a class="headerlink" href="#the-stack-frame-gate" title="Permanent link">&para;</a></h2>
+<p>No production function may need a stack frame over 256 KiB (GH #308):
+<code>-Werror=frame-larger-than=262144</code> on GCC, <code>-Wframe-larger-than=262144
+-Werror=frame-larger-than</code> on Clang. It exists because Windows runs on
+MinGW's default 2 MB main-thread reserve (jnext sets no <code>--stack</code>), and
+<code>main()</code>'s frame once outgrew it, by a margin that depended on GCC's
+stack-slot sharing: only the cross build saw it. <code>CMakeLists.txt</code> applies the
+flag to <code>jnext</code> and to every <code>STATIC_LIBRARY</code> target under <code>src/</code> (derived from
+the directory tree, not listed), at <strong>both</strong> compile and link: under LTO the
+compile-time check is blind and only the link sees real frames. Test
+executables are excluded on purpose: their fixtures hold <code>Emulator</code>s on the
+stack and are never built for Windows. Under Clang LTO both halves are blind
+(measured with clang 22 on Linux; ld64 untested), so only GCC enforces there. The runtime witness is <code>startup-stack-func</code>, which boots all three
+frontends on a 1 MiB stack.</p>
 <h2 id="ccache">ccache<a class="headerlink" href="#ccache" title="Permanent link">&para;</a></h2>
 <p><code>CMakeLists.txt</code> finds ccache and uses it as <code>CMAKE_{C,CXX}_COMPILER_LAUNCHER</code>.
 This is what makes the project's mandatory clean-rebuild discipline affordable:
