@@ -58,6 +58,7 @@
 #include <QApplication>
 #include <QDataStream>
 #include <QDir>
+#include <QFileInfo>
 #include <QFile>
 #include <QEventLoop>
 #include <QMainWindow>
@@ -70,6 +71,7 @@
 #include <QToolBar>
 
 #include <algorithm>
+#include <unistd.h>
 #include <cstdarg>
 #include <cstdio>
 #include <string>
@@ -452,6 +454,135 @@ static void test_window(const QString& cfg_dir)
     }
 }
 
+// ── DCF: GH #312 — one config file ────────────────────────────────────
+// Oracle: the issue text (the debugger layout lives in jnext.conf, lowercase
+// sections, no "@" values, an older Debugger.conf is read and migrated once)
+// and the bytes the real v1.1.15 binary wrote for a 640x456 window (below).
+// Legacy fixtures are LITERAL text, not produced by the code under test.
+
+namespace {
+const char kLegacyHead[] = "[debugger]\nattached=true\n";
+const char kLegacySize[] = R"(size=@ByteArray(\0\0\x2\x80\0\0\x1\xc8))" "\n";   // 640x456
+const char kLegacyPos[]  = R"(position=@ByteArray(\0\0\0\x64\0\0\0x))" "\n";    // 100,120
+
+void wipe_dir(const QString& dir) {
+    QDir d(dir);
+    for (const QString& f : d.entryList(QDir::Files | QDir::Hidden)) d.remove(f);
+}
+void put(const QString& path, const QByteArray& text) {
+    QFile f(path);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) f.write(text);
+}
+QByteArray get(const QString& path) {
+    QFile f(path);
+    return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+}
+bool line_in(const QByteArray& file, const char* line) {
+    return file.split('\n').contains(QByteArray(line));
+}
+} // namespace
+
+static void test_one_file(const QString& dir)
+{
+    set_group("DCF");
+    const QString legacy = dir + "/Debugger.conf";
+    const QString conf   = dir + "/jnext.conf";
+    const QRect avail = work_area();
+
+    // DCF-01 — the window path, with no direct migration call: a v1.1.15
+    // Debugger.conf is honoured when the debugger opens.
+    {
+        wipe_dir(dir);
+        put(legacy, QByteArray(kLegacyHead) + kLegacySize);
+        Fixture fx;
+        const int ew = std::min(640, avail.width()), eh = std::min(456, avail.height());
+        check("DCF-01", "a v1.1.15 Debugger.conf (@ByteArray 640x456) is read by the window",
+              fx.ok && fx.dbg->width() == ew && fx.dbg->height() == eh,
+              fx.ok ? fmt("%dx%d", fx.dbg->width(), fx.dbg->height()) : std::string("fixture failed"));
+    }
+
+    // DCF-02 — direct migration of all three keys.
+    {
+        wipe_dir(dir);
+        put(legacy, QByteArray("[debugger]\nattached=false\n") + kLegacySize + kLegacyPos);
+        const bool r = DebuggerWindow::migrate_legacy_config();
+        const QByteArray c = get(conf);
+        check("DCF-02", "migration: attached, size \"640, 456\", position \"100, 120\"; Debugger.conf gone; no =@",
+              r && !QFileInfo::exists(legacy) && line_in(c, "[debugger]")
+                  && line_in(c, "attached=false") && line_in(c, "size=640, 456")
+                  && line_in(c, "position=100, 120") && !c.contains("=@"),
+              c.toStdString());
+    }
+
+    // DCF-03 — nothing else in jnext.conf is lost; Debugger.conf wins.
+    {
+        wipe_dir(dir);
+        put(conf, "[debugger]\nsize=800, 600\n\n[debugger_keys]\nstep_over=F10\n\n[startup]\ncpu_speed=2\n");
+        put(legacy, QByteArray(kLegacyHead) + kLegacySize);
+        DebuggerWindow::migrate_legacy_config();
+        const QByteArray c = get(conf);
+        check("DCF-03", "migration keeps [startup] and [debugger_keys]; Debugger.conf's size wins",
+              line_in(c, "cpu_speed=2") && line_in(c, "step_over=F10")
+                  && line_in(c, "size=640, 456") && !line_in(c, "size=800, 600"),
+              c.toStdString());
+    }
+
+    // DCF-04 — idempotent: nothing to migrate leaves jnext.conf untouched.
+    {
+        const QByteArray before = get(conf);
+        const bool r = DebuggerWindow::migrate_legacy_config();
+        check("DCF-04", "a second migration (no Debugger.conf) returns false and changes nothing",
+              !r && get(conf) == before && !before.isEmpty());
+    }
+
+    // DCF-05 — a fresh run leaves exactly one file, readable.
+    {
+        wipe_dir(dir);
+        {
+            Fixture fx;
+            if (fx.ok) { fx.dbg->resize(std::min(700, avail.width() - 40),
+                                        std::min(520, avail.height() - 40)); settle(); }
+        }
+        const QStringList files = QDir(dir).entryList(QDir::Files | QDir::Hidden);
+        const QByteArray c = get(conf);
+        const int ew = std::min(700, avail.width() - 40), eh = std::min(520, avail.height() - 40);
+        check("DCF-05", "a fresh debugger run writes only jnext.conf: lowercase [debugger], \"W, H\", no =@",
+              files == QStringList{"jnext.conf"} && line_in(c, "[debugger]")
+                  && line_in(c, QByteArray("size=" + QByteArray::number(ew) + ", " + QByteArray::number(eh)).constData())
+                  && !c.contains("=@"),
+              files.join(",").toStdString() + " / " + c.toStdString());
+    }
+
+    // DCF-06 — a corrupt (2-byte) legacy blob is dropped, the default size is used.
+    {
+        wipe_dir(dir);
+        put(legacy, QByteArray(kLegacyHead) + R"(size=@ByteArray(\x1\x2))" + "\n");
+        Fixture fx;
+        // Read before the window's own teardown save adds a size.
+        QSettings st(conf, QSettings::IniFormat);
+        check("DCF-06", "a corrupt legacy size blob is not migrated; the window opens at a real size",
+              fx.ok && !st.contains("debugger/size") && !QFileInfo::exists(legacy)
+                  && fx.dbg->width() > 0 && fx.dbg->height() > 0,
+              get(conf).toStdString());
+    }
+
+    // DCF-07 — jnext.conf cannot be written: Debugger.conf must survive.
+    {
+        wipe_dir(dir);
+        put(legacy, QByteArray(kLegacyHead) + kLegacySize);
+        if (geteuid() == 0) {
+            check("DCF-07", "unwritable config dir keeps Debugger.conf (FIXTURE: running as root, cannot make a dir unwritable)", false);
+        } else {
+            QFile::setPermissions(dir, QFileDevice::ReadOwner | QFileDevice::ExeOwner);
+            const bool r = DebuggerWindow::migrate_legacy_config();
+            QFile::setPermissions(dir, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+            check("DCF-07", "when jnext.conf cannot be written, Debugger.conf is kept",
+                  !r && QFileInfo::exists(legacy) && !QFileInfo::exists(conf));
+        }
+        wipe_dir(dir);
+    }
+}
+
 int main(int argc, char** argv)
 {
     // The debugger window owns QWidgets, so a QApplication is required — but
@@ -474,6 +605,8 @@ int main(int argc, char** argv)
     std::printf("  Group: WF             — done\n");
     test_window(cfg.path());
     std::printf("  Group: DW             — done\n");
+    test_one_file(cfg.path());
+    std::printf("  Group: DCF            — done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
