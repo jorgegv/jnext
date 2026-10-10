@@ -403,6 +403,20 @@ jobs:
             build/test-summary.tsv
           if-no-files-found: ignore
 
+      # GH #214. The built Windows test tree (executables and the suites' logs)
+      # is kept for a week, so a run can be reproduced or inspected later
+      # without rebuilding it. Not a gate: nothing depends on anyone using it.
+      - name: Upload the Windows test tree
+        if: always() && matrix.leg == 'unit-win'
+        uses: actions/upload-artifact@v6
+        with:
+          name: jnext-unit-win-tree
+          path: |
+            build/win-sdl-unit-test/test/*.exe
+            build/win-sdl-unit-test/test-logs
+          retention-days: 7
+          if-no-files-found: ignore
+
   # ── Qt5 compile guard (GH #108 Phase A) ─────────────────────────────────
   #
   # The Win7/8 legacy Windows packages build the SAME src/gui + src/debugger
