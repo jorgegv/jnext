@@ -104,12 +104,36 @@ if want joystick-picker-func; then
 
             # F6 — a malformed id is refused; headless says the flag is inert.
             rc=0
-            "$JNEXT" --joy1-device zz >"$TMP_DIR/jp_f6a.log" 2>&1 || rc=$?
+            timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --joy1-device zz \
+                >"$TMP_DIR/jp_f6a.log" 2>&1 || rc=$?
             [[ "$rc" -eq 1 ]] || note "F6: --joy1-device zz exited $rc, not 1"
             grep -qF "Invalid --joy1-device value 'zz'" "$TMP_DIR/jp_f6a.log" || note "F6: no 'Invalid --joy1-device' message"
             timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --machine 48k --joy1-device "$h" \
                 --delayed-automatic-exit-frames 5 >"$TMP_DIR/jp_f6b.log" 2>&1 || true
             grep -qF "have no effect with --headless" "$TMP_DIR/jp_f6b.log" || note "F6: no headless warning for --joy1-device"
+
+            # F6c — the same id on both flags is refused (exit 1, with its message).
+            rc=0
+            timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --joy1-device "$h" --joy2-device "$h" \
+                >"$TMP_DIR/jp_f6c.log" 2>&1 || rc=$?
+            [[ "$rc" -eq 1 ]] || note "F6c: the same id on both flags exited $rc, not 1"
+            grep -qF "cannot name the same controller" "$TMP_DIR/jp_f6c.log" || note "F6c: no 'same controller' message"
+
+            # F7 — the command line beats a saved choice of the OTHER connector: the
+            # stick is saved on Joy 2, --joy1-device asks for it on Joy 1.
+            log7="$TMP_DIR/jp_f7.log"
+            jp_conf "joy2_device=$h"
+            jp_run "$JNEXT" "$log7" --joy1-device "$h"
+            grep -qF "Joystick 1 connected: 'jnext stick C' [$h]" "$log7" || note "F7: --joy1-device lost to the other connector's saved choice"
+
+            # F8 — a CLI id does not borrow another controller's saved name: the
+            # saved name belongs to $h, the CLI asks for an absent id.
+            log8="$TMP_DIR/jp_f8.log"
+            jp_conf "joy1_device=$h" "joy1_device_name=Saved Name"
+            jp_run "$JNEXT" "$log8" --joy1-device "$jp_g_none"
+            grep -qF "assigned controller '(unknown name)' [$jp_g_none] is not connected" "$log8" \
+                || note "F8: fallback line does not say (unknown name)"
+            if grep -qF "Saved Name" "$log8"; then note "F8: a CLI id took another controller's saved name"; fi
         fi
 
         if [[ -z "$failures" ]]; then
