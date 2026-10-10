@@ -193,8 +193,9 @@ makes the cell drift-checked from then on.
 
 A `(...)` cell is a declared tombstone: "there is nothing to cite", either for
 a whole suite or, per row, via `[no-vhdl: <reason>]` in the row's own call. The
-generator refuses a marker beside a VHDL citation or on a row the plan doc
-cites. It cannot judge whether a row SHOULD have VHDL; that is the author's
+generator refuses a marker beside a VHDL citation in the same call, in another
+call of the same row, in a comment block heading the row, or in the row's
+plan-doc entry. It cannot judge whether a row SHOULD have VHDL; that is the author's
 and the reviewer's call.
 
 ## Memory/MMU — `test/mmu/mmu_test.cpp`
