@@ -446,13 +446,7 @@ void Renderer::render_row(uint32_t* out, int row, Mmu& mmu, Ram& ram,
     // above leaves display-area cells at false, so the ULA only needs
     // to write the border strips (left/right per display row + entire
     // top/bottom border rows).
-    // NR $4A is a 9-bit colour: RRRGGGBB plus blue LSB = B1 or B0
-    // (zxnext.vhd:7214 rgb_out_2 and :6990 ula_rgb_1), the same expansion as
-    // NR 0x41, so fallback blue 01/10 is 0x6D/0xB6, not rrrgggbb_to_argb's 0x55/0xAA.
-    const uint16_t fb_rgb333 = PaletteManager::rrrgggbb_to_rgb333(fallback_per_line_[row]);
-    const uint32_t fb_argb = rgb333_to_argb8888((fb_rgb333 >> 6) & 7,
-                                                (fb_rgb333 >> 3) & 7,
-                                                fb_rgb333 & 7);
+    const uint32_t fb_argb = fallback_to_argb(fallback_per_line_[row]);
     // LR-140 — hand the ULA the row's NR $4A fallback so a ULAnext
     // `ula_select_bgnd` pixel substitutes THIS row's replayed value
     // (zxnext.vhd:6986-6991; fallback_rgb_1 is the same per-pixel-latched
@@ -698,7 +692,7 @@ void Renderer::apply_ula_clip(uint32_t* line, int row) const
 //       Mode 111: subtractive (gated on mix_rgb not transparent)
 //     Output chain: L2_priority → mixer, mix_top, sprite, mix_bot, L2 → mixer
 
-// Channel extraction from ARGB (reverses rrrgggbb_to_argb).
+// Channel extraction from ARGB (reverses rgb333_to_argb8888).
 static uint8_t argb_r3(uint32_t argb) { return (argb >> 21) & 7; }
 static uint8_t argb_g3(uint32_t argb) { return (argb >> 13) & 7; }
 // Blue is 3 bits: VHDL mixes and ANDs the full 9-bit colour (zxnext.vhd:7113,
@@ -728,6 +722,15 @@ static uint32_t channels_to_argb(uint8_t r3, uint8_t g3, uint8_t b3) {
 // the inner loop: PRIO is a compile-time constant inside the specialisation, so
 // the switch folds to the single taken arm with no per-pixel branch. Output is
 // byte-identical to the pre-hoist single-loop form.
+// NR $4A is a 9-bit colour: RRRGGGBB plus blue LSB = B1 or B0 (zxnext.vhd:7214
+// rgb_out_2 and :6990 ula_rgb_1), the same expansion as NR 0x41, so fallback
+// blue 01/10 is 0x6D/0xB6, not rrrgggbb_to_argb's 0x55/0xAA.
+uint32_t Renderer::fallback_to_argb(uint8_t nr4a)
+{
+    const uint16_t c = PaletteManager::rrrgggbb_to_rgb333(nr4a);
+    return rgb333_to_argb8888((c >> 6) & 7, (c >> 3) & 7, c & 7);
+}
+
 void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int row)
 {
     switch (layer_priority_) {
