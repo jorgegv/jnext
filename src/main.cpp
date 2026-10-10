@@ -30,6 +30,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -2018,8 +2019,12 @@ int main(int argc, char* argv[]) {
     };
 
     int result;
+    // The frontends hold the 1.17 MB Emulator by value; as automatic variables
+    // they were main()'s stack frame, which needed a 16 MB Windows reserve
+    // (GH #308). Heap-allocate them.
     if (headless) {
-        HeadlessApp app;
+        auto app_ptr = std::make_unique<HeadlessApp>();
+        HeadlessApp& app = *app_ptr;
         if (benchmark_frames > 0) {
             // Workload label for the BENCH line: --benchmark-label verbatim
             // when given (bench.sh passes its canonical workload names, so
@@ -2066,11 +2071,11 @@ int main(int argc, char* argv[]) {
         result = configure_and_run(app);
     } else {
 #ifdef ENABLE_QT_UI
-        QtApp app;
-        result = configure_and_run(app);
+        auto app = std::make_unique<QtApp>();
+        result = configure_and_run(*app);
 #else
-        SdlApp app;
-        result = configure_and_run(app);
+        auto app = std::make_unique<SdlApp>();
+        result = configure_and_run(*app);
 #endif
     }
 
