@@ -66,7 +66,6 @@ void AttributeMux::link_pending_() const
 
 void AttributeMux::rewind_to_baseline()
 {
-    link_pending_();
     target_line_ = 0;
     for (const uint32_t o : touched_) {
         OffState& s = st_[o];
