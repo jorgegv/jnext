@@ -42,7 +42,7 @@ if want rzx-machine-func; then
 
     rm_dir="$TMP_DIR/rzx-machine"
     rm -rf "$rm_dir"; mkdir -p "$rm_dir"
-    rm_sdl="$PROJECT_DIR/build/sdl-release/jnext"
+    rm_sdl="$JNEXT_SDL"
     rm_faults=()
 
     # rm_run <frontend> <tag> <frames> <jnext args...>: a run that screenshots

@@ -47,7 +47,7 @@ if want nextsync-func; then
 
     peer_py="$SCRIPT_DIR/nextsync-peer.py"
     dot_src="$SCRIPT_DIR/nextsync/dot/sync"
-    sdfile="$PROJECT_DIR/build/test/sdfile_tool"
+    sdfile="$TEST_BIN_DIR/sdfile_tool"
     sd_image="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
 
     syncroot="$TMP_DIR/nextsync-root"
@@ -75,7 +75,7 @@ if want nextsync-func; then
         skip_row " (no SD-card image clone for this run)"
         verdict=settled
     elif [[ ! -x "$sdfile" ]]; then
-        fail_row " (build/test/sdfile_tool missing — run 'make unit-test-build')"
+        fail_row " ($TEST_BIN_DIR/sdfile_tool missing — run 'make unit-test-build')"
         verdict=settled
     fi
 

@@ -39,7 +39,12 @@ if want audio-underrun-func; then
     tone_bin="$SCRIPT_DIR/bin/beeper_tone.bin"
     checker="$SCRIPT_DIR/check-audio-underruns.py"
     raw_file="$TMP_DIR/audio_underrun.raw"
-    if ! command -v xvfb-run &>/dev/null; then
+    # GH #319: macOS has no Xvfb and a wine Windows exe cannot use one. Off Linux
+    # the same run uses Qt's offscreen platform and SDL's dummy video driver (the
+    # audio path under test is SDL_AUDIODRIVER=disk either way); Linux keeps xvfb.
+    au_xvfb=(xvfb-run -d); au_qpa=xcb; au_vid=x11
+    if [[ "${JNEXT_TARGET_OS:-linux}" != linux ]]; then au_xvfb=(); au_qpa=offscreen; au_vid=dummy; fi
+    if [[ ${#au_xvfb[@]} -gt 0 ]] && ! command -v xvfb-run &>/dev/null; then
         skip_row " (xvfb-run not available; audio needs a display)"
     elif ! command -v python3 &>/dev/null; then
         skip_row " (python3 not available for capture analysis)"
@@ -60,8 +65,8 @@ if want audio-underrun-func; then
         # missing anyway is now a FAIL — see the header.)
         SDL_AUDIODRIVER=disk SDL_AUDIO_DISK_OUTPUT_FILE="$raw_file" \
         timeout --foreground --kill-after=5s 40s \
-        env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb SDL_VIDEODRIVER=x11 \
-        xvfb-run -d "$JNEXT" \
+        env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=$au_qpa SDL_VIDEODRIVER=$au_vid \
+        ${au_xvfb[@]+"${au_xvfb[@]}"} "$JNEXT" \
             "${SD_CARD_ARGS[@]}" \
             --machine 48k \
             --inject "$tone_bin" --inject-org 8000 --inject-pc 8000 --inject-delay 100 \

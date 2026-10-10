@@ -15,7 +15,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../gdb-functions.inc"
 # sequence: qSupported, target.xml, ?, g, m, s, monitor mmu, D.
 if want gdb-sdl-func; then
     begin_func gdb-sdl-func
-    sdl_bin="$PROJECT_DIR/build/sdl-release/jnext"
+    sdl_bin="$JNEXT_SDL"
     log="$TMP_DIR/gdb-sdl-func.log"
     if [[ ! -x "$sdl_bin" ]]; then
         fail_row " (SDL-only binary not built: $sdl_bin; run 'make sdl-release')"

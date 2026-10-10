@@ -28,7 +28,7 @@ if want auto-exit-deferred-func; then
 
     ad_dir="$TMP_DIR/auto-exit-deferred"
     rm -rf "$ad_dir"; mkdir -p "$ad_dir"
-    ad_sdl="$PROJECT_DIR/build/sdl-release/jnext"
+    ad_sdl="$JNEXT_SDL"
     ad_tzx="$PROJECT_DIR/test/tzx/GhostlyGrange.tzx"
     ad_faults=()
     printf '\xf3\x76' > "$ad_dir/prog.bin"          # DI; HALT

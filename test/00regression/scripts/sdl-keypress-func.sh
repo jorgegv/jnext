@@ -53,7 +53,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 if want sdl-keypress-func; then
     begin_func sdl-keypress-func
 
-    sdl_bin="$PROJECT_DIR/build/sdl-release/jnext"
+    sdl_bin="$JNEXT_SDL"
     # Typed at the K cursor; any one of them landing is decisive.
     sdl_keys=(1 2 3 4)
 

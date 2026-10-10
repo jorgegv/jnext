@@ -66,7 +66,7 @@ if want rzx-play-route-func; then
 
     pr_dir="$TMP_DIR/rzx-play-route"
     rm -rf "$pr_dir"; mkdir -p "$pr_dir"
-    pr_sdl="$PROJECT_DIR/build/sdl-release/jnext"
+    pr_sdl="$JNEXT_SDL"
     # The loaded program is a 128K .szx of a running session, built below: the
     # row needs a picture that is NOT a bare boot, and a NEX cannot load on the
     # 128K this row moved to.

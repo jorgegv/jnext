@@ -2,8 +2,10 @@
 #include "audio/dac_trace_recorder.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "debug/trace.h"
 #include "platform/emulator_boot.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -204,6 +206,40 @@ void dac_trace_format_test()
           "0,101,3,200\n"
           "1,5,1,7\n");
     std::filesystem::remove(path);
+
+    // GH #319: the file is written in binary mode, so a Windows host gets "\n"
+    // line ends like every other host. read_text above is a TEXT-mode read,
+    // which folds CRLF to LF on Windows and so cannot see the difference.
+    // Oracle: the format the rows above pin ("\n"-terminated lines), and
+    // what `--dac-trace` documents (a CSV a script can parse with `$` anchors).
+    recorder.start(path.string());
+    recorder.capture(1, 0, 2);
+    recorder.stop();
+    const auto bytes = read_binary(path);
+    check("DAC trace file has LF line ends and no CR byte (binary-mode write)",
+          std::count(bytes.begin(), bytes.end(), uint8_t{'\n'}) == 2 &&
+          std::count(bytes.begin(), bytes.end(), uint8_t{'\r'}) == 0);
+    std::filesystem::remove(path);
+}
+
+void trace_export_binary_test()
+{
+    const auto path = temp_file("trace-export", ".txt");
+    TraceLog log(8);
+    TraceEntry e{};
+    e.pc = 0x8000;
+    e.opcode_len = 1;
+    e.opcode_bytes[0] = 0x00;
+    log.set_enabled(true);
+    log.record(e);
+    log.record(e);
+    check("trace export starts", log.export_to_file(path.string()));
+    const auto bytes = read_binary(path);
+    check("trace export has LF line ends and no CR byte (binary-mode write)",
+          !bytes.empty() && bytes.back() == '\n' &&
+          std::count(bytes.begin(), bytes.end(), uint8_t{'\n'}) == 2 &&
+          std::count(bytes.begin(), bytes.end(), uint8_t{'\r'}) == 0);
+    std::filesystem::remove(path);
 }
 
 }  // namespace
@@ -215,6 +251,7 @@ int main()
     mixer_callback_fanout_test();
     cold_boot_continuity_test();
     dac_trace_format_test();
+    trace_export_binary_test();
 
     const int total = passed + failed;
     std::printf("Total: %d Passed: %d Failed: %d Skipped: 0\n",

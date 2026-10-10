@@ -45,7 +45,7 @@ if want rzx-loaded-program-func; then
 
     lp_dir="$TMP_DIR/rzx-loaded-program"
     rm -rf "$lp_dir"; mkdir -p "$lp_dir"
-    lp_sdl="$PROJECT_DIR/build/sdl-release/jnext"
+    lp_sdl="$JNEXT_SDL"
     lp_faults=()
 
     # lp_run <frontend> <machine> <log> <jnext args...>; prints the status.

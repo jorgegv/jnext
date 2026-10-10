@@ -28,9 +28,15 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 if want joystick-picker-func; then
     begin_func joystick-picker-func
 
-    sdl_bin="$PROJECT_DIR/build/sdl-release/jnext"
+    sdl_bin="$JNEXT_SDL"
     jp_spec="jnext pad A:1234:0001;jnext pad A:1234:0001;jnext stick C:5678:0002:raw"
     jp_g_none="ffffffffffffffffffffffffffffffff"
+    # GH #319: macOS has no Xvfb and a wine Windows exe cannot use one. Off Linux
+    # the same runs use Qt's offscreen platform and SDL's dummy video driver (the
+    # joystick path under test is SDL's virtual devices either way); Linux keeps
+    # xvfb.
+    jp_xvfb=(xvfb-run -d --server-args="-screen 0 1280x1024x24"); jp_qpa=xcb; jp_vid=x11
+    if [[ "${JNEXT_TARGET_OS:-linux}" != linux ]]; then jp_xvfb=(); jp_qpa=offscreen; jp_vid=dummy; fi
 
     # shellcheck disable=SC2016
     # JNEXT_CONFIG_DIR is the row's own $RUN_DIR, which holds the SD-card clone
@@ -38,10 +44,10 @@ if want joystick-picker-func; then
     jp_run() {   # $1 = binary, $2 = log, rest = jnext arguments
         local bin="$1" log="$2"; shift 2
         rm -f "$log"
-        env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
+        env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=$jp_qpa SDL_VIDEODRIVER=$jp_vid SDL_AUDIODRIVER=dummy \
             JNEXT_TEST_VIRTUAL_JOYSTICKS="$jp_spec" \
         timeout --foreground --kill-after=5s 90s \
-        xvfb-run -d --server-args="-screen 0 1280x1024x24" \
+        ${jp_xvfb[@]+"${jp_xvfb[@]}"} \
             "$bin" --machine 48k --silent --delayed-automatic-exit-frames 100 "$@" \
             >"$log" 2>&1 || true
     }
@@ -52,7 +58,7 @@ if want joystick-picker-func; then
         fi
     }
 
-    if ! command -v xvfb-run &>/dev/null; then
+    if [[ ${#jp_xvfb[@]} -gt 0 ]] && ! command -v xvfb-run &>/dev/null; then
         skip_row " (xvfb-run not available; a windowed frontend needs a display)"
     elif [[ ! -x "$sdl_bin" ]]; then
         fail_row " (SDL-only binary not built: $sdl_bin; run 'make sdl-release')"

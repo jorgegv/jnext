@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # a script that does not load is still a startup failure (exit 1).
 if want script-frontends-func; then
     begin_func script-frontends-func
-    sdl_bin="$PROJECT_DIR/build/sdl-release/jnext"
+    sdl_bin="$JNEXT_SDL"
     fails=()
     printf 'on frame 3 do exit 7 end\n' > "$TMP_DIR/sf-exit.jds"
     printf 'on frame 3 do stop "sdl stop" end\n' > "$TMP_DIR/sf-stop.jds"

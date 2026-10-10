@@ -26,7 +26,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 if want script-replay-edge-func; then
     begin_func script-replay-edge-func
     nexdir="$PROJECT_DIR/test/00regression/nex"
-    sdl_bin="$PROJECT_DIR/build/sdl-release/jnext"
+    sdl_bin="$JNEXT_SDL"
     dir="$TMP_DIR/replay-edge"
     mkdir -p "$dir"
     cat > "$dir/probe.jds" <<'JDS'

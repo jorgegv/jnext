@@ -10,8 +10,16 @@
 # accounting.
 # (FUSE Z80 + Z80N opcode coverage lives in `make unit-test`.)
 #
-# Usage: bash test/00regression/regression.sh [--update] [--preflight-only] [test_name...]
+# Usage: bash test/00regression/regression.sh [--update] [--preflight-only] [--platform] [test_name...]
 #   --update          Update reference screenshots instead of comparing
+#   --platform        Run the suite against ANOTHER OS's binaries (GH #319): macOS
+#                     natively, Windows as MinGW exes under wine. The target is read
+#                     from the build trees (JNEXT_TARGET_BUILD / JNEXT_TARGET_SDL_BUILD,
+#                     JNEXT_TARGET_OS in their CMakeCache.txt), never from the caller.
+#                     Runs the screenshots and the functional rows whose `os=` tag in
+#                     functional_tests.conf admits that OS; the 6 lints (tree checks)
+#                     and the stamp stay with the Linux run. `make regression-win` /
+#                     `make regression-macos`.
 #   --preflight-only  Run only the harness preflight checks and exit (no tests).
 #                     This is the seam test/harness-selftest.sh drives.
 #   test_name         Run only specified tests (default: all)
@@ -49,10 +57,19 @@ set -euo pipefail
 # itself and never inherited by the run's children, so a leftover child can
 # never keep the host locked.
 REGRESSION_SLOT=false
+# --platform (GH #319) does not change what a "full run" is: it is full when it
+# names no rows. On macOS a platform run never locks (flock + /proc/locks are
+# Linux-only, and macOS runs happen on a CI runner of their own).
+PLATFORM_MODE=false
+reg_nargs=0
+for reg_arg in "$@"; do
+    if [[ "$reg_arg" == --platform ]]; then PLATFORM_MODE=true; else reg_nargs=$(( reg_nargs + 1 )); fi
+done
 if [[ "${JNEXT_REGRESSION_LOCK:-}" == force || "${JNEXT_REGRESSION_STAMP:-}" == confirm ]] \
-   || [[ $# -eq 0 && -z "${JNEXT_REGRESSION_CONF:-}${JNEXT_REGRESSION_FUNC_CONF:-}${JNEXT_REGRESSION_SCRIPTS_DIR:-}" ]]; then
+   || [[ $reg_nargs -eq 0 && -z "${JNEXT_REGRESSION_CONF:-}${JNEXT_REGRESSION_FUNC_CONF:-}${JNEXT_REGRESSION_SCRIPTS_DIR:-}" ]]; then
     REGRESSION_SLOT=true
 fi
+if $PLATFORM_MODE && [[ "$(uname -s)" == Darwin ]]; then REGRESSION_SLOT=false; fi
 reg_lock=${JNEXT_REGRESSION_LOCK_FILE:-${XDG_CACHE_HOME:-$HOME/.cache}/jnext/regression.lock}
 # A run NESTED inside a run that already holds this very lock — a self-test
 # child, a row that drives the harness — is part of that run: it must never
@@ -212,9 +229,14 @@ regression_lanes
 # Present = an executable on PATH (`type -P`, never a builtin) that does not
 # answer `--version` with 126/127 ("cannot execute" / "not found").
 reg_missing=""
-for reg_tool in awk basename bash cat comm cp date dirname env find flock git grep head \
-                ln ls mkdir mktemp mv nproc rg rm rmdir sed sha256sum sleep sort stat \
-                tail timeout tr uname wc "${CXX:-c++}"; do
+# A platform run executes no lint (the one user of rg), and on macOS takes no
+# host lock (flock).
+reg_tools=(awk basename bash cat comm cp date dirname env find git grep head \
+           ln ls mkdir mktemp mv nproc rm rmdir sed sha256sum sleep sort stat \
+           tail timeout tr uname wc "${CXX:-c++}")
+$PLATFORM_MODE || reg_tools+=(rg)
+if ! $PLATFORM_MODE || [[ "$(uname -s)" != Darwin ]]; then reg_tools+=(flock); fi
+for reg_tool in "${reg_tools[@]}"; do
     reg_tool_path=$(type -P "$reg_tool") || { reg_missing+=" $reg_tool"; continue; }
     reg_rc=0; "$reg_tool_path" --version </dev/null >/dev/null 2>&1 || reg_rc=$?
     [[ $reg_rc -ne 126 && $reg_rc -ne 127 ]] || reg_missing+=" $reg_tool"
@@ -241,6 +263,8 @@ for arg in "$@"; do
         UPDATE_MODE=true
     elif [[ "$arg" == "--preflight-only" ]]; then
         PREFLIGHT_ONLY=true
+    elif [[ "$arg" == "--platform" ]]; then
+        :   # pre-scanned above (PLATFORM_MODE)
     else
         FILTER_TESTS+=("$arg")
     fi
@@ -253,7 +277,7 @@ declare -A IS_FILTERED
 for arg in "${FILTER_TESTS[@]+"${FILTER_TESTS[@]}"}"; do IS_FILTERED["$arg"]=1; done
 
 # Check prerequisites
-if [[ ! -x "$JNEXT" ]]; then
+if ! $PLATFORM_MODE && [[ ! -x "$JNEXT" ]]; then
     echo -e "${RED}ERROR: jnext binary not found at $JNEXT — build first${RESET}"
     exit 1
 fi
@@ -264,6 +288,42 @@ fi
 # manifest/preflight checks below have passed. --preflight-only never needs an
 # SD image at all.
 
+# --- The platform under test (GH #319) ---
+# TARGET_OS is the OS whose binaries the run executes. Without --platform it is
+# linux, and the `os=` tags below admit every row (linux is mandatory in every
+# tag). With it, it is read out of the build trees' own CMakeCache.txt
+# (JNEXT_TARGET_OS, set by CMakeLists.txt from CMAKE_SYSTEM_NAME), never taken
+# from the caller; both trees (the Qt one and the SDL-only one) must agree.
+TARGET_OS=linux
+if $PLATFORM_MODE; then
+    $UPDATE_MODE && harness_fault "${BOLD}--platform${RESET} cannot be combined with --update" \
+                                  "Reference screenshots are regenerated on Linux only."
+    [[ -z "$REG_STAMP_MODE" ]] || harness_fault "${BOLD}--platform${RESET} runs are never stamped" \
+                                  "The stamp is the Linux run's; JNEXT_REGRESSION_STAMP is set."
+    plat_tos=""
+    for plat_var in JNEXT_TARGET_BUILD JNEXT_TARGET_SDL_BUILD; do
+        plat_dir=${!plat_var:-}
+        [[ -n "$plat_dir" ]] || harness_fault "${BOLD}--platform${RESET} needs ${BOLD}$plat_var${RESET} (the build tree whose binary is under test)" \
+                                              "Use ${BOLD}make regression-win${RESET} or ${BOLD}make regression-macos${RESET}."
+        plat_cache="$plat_dir/CMakeCache.txt"
+        [[ -f "$plat_cache" ]] || harness_fault "no CMakeCache.txt in ${BOLD}$plat_dir${RESET} ($plat_var): not a configured build tree"
+        plat_os=$(grep -m1 -oP '^JNEXT_TARGET_OS:[A-Z]+=\K.*' "$plat_cache" || true)
+        [[ -n "$plat_os" ]] || harness_fault "$plat_cache does not define ${BOLD}JNEXT_TARGET_OS${RESET}" \
+                                             "Every build of this project sets it; the harness will not guess."
+        case $plat_os in
+            macos|windows) ;;
+            linux) harness_fault "${BOLD}$plat_dir${RESET} targets linux: --platform is for another OS" \
+                                 "A Linux run is plain ${BOLD}make regression${RESET}." ;;
+            *) harness_fault "unknown target OS '${BOLD}$plat_os${RESET}' in $plat_cache" "Known: linux, macos, windows." ;;
+        esac
+        [[ -z "$plat_tos" || "$plat_tos" == "$plat_os" ]] \
+            || harness_fault "the two build trees disagree about the target OS: ${BOLD}$plat_tos${RESET} and ${BOLD}$plat_os${RESET}" \
+                             "JNEXT_TARGET_BUILD=$JNEXT_TARGET_BUILD, JNEXT_TARGET_SDL_BUILD=$JNEXT_TARGET_SDL_BUILD"
+        plat_tos=$plat_os
+    done
+    TARGET_OS=$plat_tos
+fi
+
 # A manifest that is not there must say so, not be diagnosed as "missing its pin".
 for conf in "$CONF" "$FUNC_CONF"; do
     [[ -f "$conf" ]] || harness_fault "Test manifest not found: ${BOLD}$conf${RESET}"
@@ -273,7 +333,7 @@ echo -e "  manifests: $(basename "$CONF") + $(basename "$FUNC_CONF")"
 # rewind-func runs a unit-test binary that `make clean` deletes. Check it HERE,
 # in the first second, not five minutes into the run: an incomplete build is a
 # harness fault, not a code regression — and never a silently absent row.
-if [[ ${#FILTER_TESTS[@]} -eq 0 || -n "${IS_FILTERED[rewind-func]:-}" ]]; then
+if ! $PLATFORM_MODE && [[ ${#FILTER_TESTS[@]} -eq 0 || -n "${IS_FILTERED[rewind-func]:-}" ]]; then
     if [[ ! -x "$REWIND_TEST" ]]; then
         harness_fault "rewind_test is not built: ${BOLD}$REWIND_TEST${RESET}" \
                       "The suite runs it, so it cannot report a rewind result without it." \
@@ -286,9 +346,9 @@ fi
 # ENABLE_QT_UI=OFF (src/main.cpp:944-951). Same rule as rewind_test above — it
 # is a build artifact the Makefile guarantees, so a missing one is a harness
 # fault in the first second, never a row that quietly reports nothing.
-if [[ ${#FILTER_TESTS[@]} -eq 0 || -n "${IS_FILTERED[sdl-keypress-func]:-}" ]]; then
-    if [[ ! -x "$PROJECT_DIR/build/sdl-release/jnext" ]]; then
-        harness_fault "SDL-only jnext is not built: ${BOLD}$PROJECT_DIR/build/sdl-release/jnext${RESET}" \
+if ! $PLATFORM_MODE && [[ ${#FILTER_TESTS[@]} -eq 0 || -n "${IS_FILTERED[sdl-keypress-func]:-}" ]]; then
+    if [[ ! -x "$JNEXT_SDL" ]]; then
+        harness_fault "SDL-only jnext is not built: ${BOLD}$JNEXT_SDL${RESET}" \
                       "It is the only build that runs SdlApp, so the suite cannot report an SDL keypress result without it." \
                       "Build it with: ${BOLD}make sdl-release${RESET}  (or use ${BOLD}make regression${RESET}, which does)"
     fi
@@ -342,7 +402,8 @@ done
 # own (rows that write to the card). Untagged rows run in the parallel phase on
 # the run's shared clone. An unknown tag is refused, not ignored.
 DECLARED_FUNC=()
-declare -A IS_PRIVATE_SD IS_QUIET IS_SERIAL
+declare -A IS_PRIVATE_SD IS_QUIET IS_SERIAL FUNC_OS
+FUNC_HAS_OS_TAG=false
 while read -r name tags; do
     [[ -z "$name" || "$name" == \#* ]] && continue
     DECLARED_FUNC+=("$name")
@@ -351,8 +412,33 @@ while read -r name tags; do
             quiet)      IS_QUIET["$name"]=1 ;;
             serial)     IS_SERIAL["$name"]=1 ;;
             private-sd) IS_PRIVATE_SD["$name"]=1 ;;
+            os=*)
+                # `os=<list>` (GH #319): the OSes whose run includes this row.
+                # A closed set, comma-separated; linux is mandatory, so a Linux
+                # run still runs every row. No tag = all three.
+                [[ -z "${FUNC_OS[$name]:-}" ]] \
+                    || harness_fault "functional test ${BOLD}$name${RESET} carries two ${BOLD}os=${RESET} tags"
+                os_list=${tag#os=}
+                [[ -n "$os_list" ]] || harness_fault "functional test ${BOLD}$name${RESET} carries an empty ${BOLD}os=${RESET} tag" \
+                                                     "Known OSes: linux, macos, windows."
+                os_has_linux=false
+                for os_one in ${os_list//,/ }; do
+                    case $os_one in
+                        linux) os_has_linux=true ;;
+                        macos|windows) ;;
+                        *) harness_fault "functional test ${BOLD}$name${RESET} names an unknown OS ${BOLD}$os_one${RESET} in ${BOLD}$tag${RESET}" \
+                                         "Known OSes: linux, macos, windows." ;;
+                    esac
+                done
+                [[ -n "$os_list" && "$os_list" != ,* && "$os_list" != *, && "$os_list" != *,,* ]] \
+                    || harness_fault "functional test ${BOLD}$name${RESET} carries a malformed ${BOLD}$tag${RESET}"
+                $os_has_linux || harness_fault "functional test ${BOLD}$name${RESET}: ${BOLD}$tag${RESET} does not list linux" \
+                                               "linux is mandatory: a Linux run runs every declared row."
+                FUNC_OS["$name"]=",$os_list,"
+                FUNC_HAS_OS_TAG=true
+                ;;
             *) harness_fault "functional test ${BOLD}$name${RESET} carries an unknown tag ${BOLD}$tag${RESET}" \
-                             "Known tags: quiet, serial, private-sd." ;;
+                             "Known tags: quiet, serial, private-sd, os=<linux[,macos][,windows]>." ;;
         esac
     done
     [[ -z "${IS_QUIET[$name]:-}" || -z "${IS_SERIAL[$name]:-}" ]] \
@@ -361,6 +447,40 @@ done < "$FUNC_CONF"
 [[ ${#DECLARED_FUNC[@]} -gt 0 ]] || harness_fault "No functional tests declared in $FUNC_CONF"
 declare -A IS_DECLARED_FUNC
 for name in "${DECLARED_FUNC[@]}"; do IS_DECLARED_FUNC["$name"]=1; done
+
+# Which rows each OS runs, and the per-OS pins. A row with no `os=` tag runs
+# everywhere. `# expect-macos: N` / `# expect-windows: N` (beside `# expect:`)
+# state how many rows that OS runs, so retagging a row is a deliberate edit of
+# the pin, exactly like adding one is of `# expect:`. Once any row carries a tag,
+# both pins are required; a pin present without tags must equal the total.
+row_admits() {   # row_admits <row> <os> — does the <os> run include <row>?
+    [[ -z "${FUNC_OS[$1]:-}" || "${FUNC_OS[$1]}" == *",$2,"* ]]
+}
+for os_one in macos windows; do
+    have=0
+    for name in "${DECLARED_FUNC[@]}"; do row_admits "$name" "$os_one" && have=$(( have + 1 )); done
+    pin=$(grep -oP "^#\s*expect-$os_one:\s*\K[0-9]+" "$FUNC_CONF" 2>/dev/null | head -1 || true)
+    if [[ -z "$pin" ]]; then
+        ! $FUNC_HAS_OS_TAG || harness_fault "No '# expect-$os_one: N' pin in ${BOLD}$FUNC_CONF${RESET}" \
+                                            "Rows carry os= tags, so the manifest must state how many rows $os_one runs."
+    else
+        [[ "$pin" -eq "$have" ]] || harness_fault \
+            "${BOLD}$FUNC_CONF${RESET} admits ${BOLD}$have${RESET} rows on $os_one but pins ${BOLD}# expect-$os_one: $pin${RESET}" \
+            "An os= tag or a row was added or removed without updating the pin. If deliberate, update it."
+    fi
+done
+# The rows this run executes, and (platform runs) the ones it declares absent.
+RUN_FUNC=(); ABSENT_FUNC=()
+for name in "${DECLARED_FUNC[@]}"; do
+    if row_admits "$name" "$TARGET_OS"; then RUN_FUNC+=("$name"); else ABSENT_FUNC+=("$name"); fi
+done
+declare -A IS_ABSENT_FUNC
+for name in "${ABSENT_FUNC[@]+"${ABSENT_FUNC[@]}"}"; do IS_ABSENT_FUNC["$name"]=1; done
+# A named row this OS does not run is refused, never silently dropped.
+for name in "${FILTER_TESTS[@]+"${FILTER_TESTS[@]}"}"; do
+    [[ -z "${IS_ABSENT_FUNC[$name]:-}" ]] \
+        || harness_fault "row ${BOLD}$name${RESET} is declared absent on $TARGET_OS (its os= tag does not admit it)"
+done
 REPORTED_FUNC=()
 
 # --- The scripts directory and the conf must agree, in BOTH directions ---
@@ -390,7 +510,56 @@ done
 # guards are what make the denominator trustworthy.
 if $PREFLIGHT_ONLY; then
     echo -e "${GREEN}preflight OK${RESET}: $(declared_count "$CONF") screenshot + ${#DECLARED_FUNC[@]} functional tests declared, pins agree"
+    ! $PLATFORM_MODE || echo "  platform $TARGET_OS: ${#RUN_FUNC[@]} functional rows run, ${#ABSENT_FUNC[@]} declared absent"
     exit 0
+fi
+
+# --- Platform run: the binaries under test (GH #319) ---
+# $JNEXT / $JNEXT_SDL become what the rows execute. On macOS that is the build's
+# own binary. On Windows it is a one-line shim that runs the MinGW exe under wine
+# through test/wine-run.sh --jnext (which carries the translations wine needs: see
+# its header), so a row keeps invoking "$JNEXT" as one word, with its own
+# environment and its own stdout/stderr. The native helper tools (rewind_test,
+# sdfile_tool, the probes) are Linux/macOS binaries of the SDL unit-test tree.
+if $PLATFORM_MODE; then
+    plat_exe=""; [[ "$TARGET_OS" == windows ]] && plat_exe=.exe
+    plat_qt="$JNEXT_TARGET_BUILD/jnext$plat_exe"
+    plat_sdl="$JNEXT_TARGET_SDL_BUILD/jnext$plat_exe"
+    for plat_bin in "$plat_qt" "$plat_sdl"; do
+        [[ -x "$plat_bin" ]] || harness_fault "the $TARGET_OS binary under test is not built: ${BOLD}$plat_bin${RESET}" \
+                                              "Build it with ${BOLD}make regression-$([[ $TARGET_OS == windows ]] && echo win || echo macos)${RESET}, which does."
+    done
+    if [[ "$TARGET_OS" == windows ]]; then
+        command -v wine >/dev/null 2>&1 || harness_fault "wine is not installed" "dnf install wine-core wine-common"
+        plat_qt_abs=$(cd "$JNEXT_TARGET_BUILD" && pwd)
+        plat_sdl_abs=$(cd "$JNEXT_TARGET_SDL_BUILD" && pwd)
+        export WINEPREFIX="$plat_qt_abs/wine-prefix"
+        bash "$PROJECT_DIR/test/wine-run.sh" --init "$plat_qt_abs" \
+            || harness_fault "cannot initialise the wine prefix $WINEPREFIX"
+        # Persistent wineserver, before any row (wine-run.sh header); stopped by regression_cleanup.
+        REG_WINE_PREFIX=$WINEPREFIX
+        bash "$PROJECT_DIR/test/wine-run.sh" --serve "$plat_qt_abs" \
+            || harness_fault "cannot start a persistent wineserver"
+        mkdir -p "$TMP_DIR/platform"
+        for plat_pair in "jnext:$plat_qt_abs" "jnext-sdl:$plat_sdl_abs"; do
+            printf '#!/bin/bash\nexport WINEPREFIX=%q\nexec /bin/bash %q --jnext %q "$@"\n' \
+                "$WINEPREFIX" "$PROJECT_DIR/test/wine-run.sh" "${plat_pair#*:}/jnext.exe" \
+                > "$TMP_DIR/platform/${plat_pair%%:*}"
+            chmod +x "$TMP_DIR/platform/${plat_pair%%:*}"
+        done
+        JNEXT="$TMP_DIR/platform/jnext"
+        JNEXT_SDL="$TMP_DIR/platform/jnext-sdl"
+    else
+        JNEXT=$(cd "$JNEXT_TARGET_BUILD" && pwd)/jnext
+        JNEXT_SDL=$(cd "$JNEXT_TARGET_SDL_BUILD" && pwd)/jnext
+    fi
+    export JNEXT JNEXT_SDL JNEXT_TARGET_OS="$TARGET_OS"
+    echo -e "  platform run: ${BOLD}$TARGET_OS${RESET} (Qt: $plat_qt, SDL-only: $plat_sdl)"
+    echo -e "  ${#RUN_FUNC[@]} functional rows run; ${BOLD}${#ABSENT_FUNC[@]} declared absent on $TARGET_OS${RESET} (os= in functional_tests.conf, reason beside each row):"
+    for name in "${ABSENT_FUNC[@]+"${ABSENT_FUNC[@]}"}"; do echo "    absent: $name"; done
+    for name in "${RUN_FUNC[@]}"; do
+        [[ "$name" == rewind-func ]] && [[ ! -x "$REWIND_TEST" ]] && harness_fault "rewind_test is not built: $REWIND_TEST"
+    done
 fi
 
 if ! $HAS_COMPARE; then
@@ -417,7 +586,12 @@ echo ""
 # whole screenshot suite. Every test script is SOURCED (never exec'd) so all of
 # them share this one shell's counters, REPORTED_FUNC and ORDERED_TESTS.
 # shellcheck source=test/00regression/scripts/00-preflight-lint.sh
-source "$SCRIPTS_DIR/00-preflight-lint.sh"
+if $PLATFORM_MODE; then
+    # The 6 lints check the source tree; they run in the Linux run.
+    echo "  (lints: tree checks, run by the Linux run only)"
+else
+    source "$SCRIPTS_DIR/00-preflight-lint.sh"
+fi
 # shellcheck source=test/00regression/scripts/01-sdcard-provision.sh
 source "$SCRIPTS_DIR/01-sdcard-provision.sh"
 # The run's clone as provisioned. func_phases_end compares against it once
@@ -442,7 +616,7 @@ echo -e "  (screenshots: $(( SECONDS - reg_shots_t0 )) s)"
 # not interleaved with the next. A name filter selects rows exactly as before.
 func_phases_begin
 PAR_ROWS=(); QUIET_ROWS=(); SERIAL_ROWS=()
-for func_name in "${DECLARED_FUNC[@]}"; do
+for func_name in "${RUN_FUNC[@]}"; do
     want "$func_name" || continue
     if [[ -n "${IS_SERIAL[$func_name]:-}" ]]; then SERIAL_ROWS+=("$func_name")
     elif [[ -n "${IS_QUIET[$func_name]:-}" ]]; then QUIET_ROWS+=("$func_name")
@@ -475,18 +649,21 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] && ! $UPDATE_MODE; then
     for name in "${REPORTED_FUNC[@]+"${REPORTED_FUNC[@]}"}"; do
         REPORTED_COUNT["$name"]=$(( ${REPORTED_COUNT["$name"]:-0} + 1 ))
     done
-    for name in "${DECLARED_FUNC[@]}"; do
+    for name in "${RUN_FUNC[@]}"; do
         n=${REPORTED_COUNT["$name"]:-0}
         [[ "$n" -eq 1 ]] || faults+=("declared in functional_tests.conf but reported $n rows: ${BOLD}$name${RESET}")
     done
-    for name in "${REPORTED_FUNC[@]}"; do
+    for name in "${REPORTED_FUNC[@]+"${REPORTED_FUNC[@]}"}"; do
         [[ -n "${IS_DECLARED_FUNC[$name]:-}" ]] \
             || faults+=("reported a row but is NOT declared in functional_tests.conf: ${BOLD}$name${RESET}")
+        [[ -z "${IS_ABSENT_FUNC[$name]:-}" ]] \
+            || faults+=("reported a row although it is declared absent on $TARGET_OS: ${BOLD}$name${RESET}")
     done
-    expected=$(( 6 + 1 + ${#ORDERED_TESTS[@]} + ${#DECLARED_FUNC[@]} ))
+    reg_lints=6; $PLATFORM_MODE && reg_lints=0
+    expected=$(( reg_lints + 1 + ${#ORDERED_TESTS[@]} + ${#RUN_FUNC[@]} ))
     actual=$(( pass + fail + skip ))
     [[ "$actual" -eq "$expected" ]] \
-        || faults+=("row count is ${BOLD}$actual${RESET}, but 6 lint + 1 sdcard-provision + ${#ORDERED_TESTS[@]} screenshot + ${#DECLARED_FUNC[@]} functional = ${BOLD}$expected${RESET} were declared")
+        || faults+=("row count is ${BOLD}$actual${RESET}, but $reg_lints lint + 1 sdcard-provision + ${#ORDERED_TESTS[@]} screenshot + ${#RUN_FUNC[@]} functional = ${BOLD}$expected${RESET} were declared")
     if [[ ${#faults[@]} -gt 0 ]]; then
         harness_fault "${faults[@]}" "" \
             "The suite did not run what it says it ran. Treat this as RED, not as a pass."

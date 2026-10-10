@@ -35,7 +35,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # the actual card yields a usable identity.
 if want snapshot-sdcard-mismatch-func; then
     begin_func snapshot-sdcard-mismatch-func
-    SDID="$PROJECT_DIR/build/test/sd_identity_test"
+    SDID="$TEST_BIN_DIR/sd_identity_test"
     base="$TMP_DIR/sdid-base.img"
     mutant="$TMP_DIR/sdid-mutant.img"
     real_card="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"

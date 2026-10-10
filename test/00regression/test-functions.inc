@@ -128,7 +128,12 @@ show_output() {
 # host_load1 — the 1-minute load average, or nothing if it cannot be read.
 host_load1() {
     local l _rest
-    { read -r l _rest < "$LOADAVG_FILE"; } 2>/dev/null || return 0
+    if [[ ! -r "$LOADAVG_FILE" && "$(uname -s)" == Darwin ]]; then
+        # macOS has no /proc: `sysctl -n vm.loadavg` prints "{ 1.23 4.56 7.89 }".
+        { read -r _ l _rest < <(sysctl -n vm.loadavg); } 2>/dev/null || return 0
+    else
+        { read -r l _rest < "$LOADAVG_FILE"; } 2>/dev/null || return 0
+    fi
     [[ "$l" =~ ^[0-9]+([.][0-9]+)?$ ]] && echo "$l"
     return 0
 }
@@ -218,6 +223,10 @@ regression_cleanup() {
     local p
     for p in ${ROW_RUNNING_PIDS:-} ${HEARTBEAT_PID:-}; do kill -TERM "$p" 2>/dev/null || true; done
     for p in ${ROW_RUNNING_PIDS:-} ${HEARTBEAT_PID:-}; do wait "$p" 2>/dev/null || true; done
+    # A Windows platform run (regression.sh --platform) started a persistent
+    # wineserver; stop it, which also reaps any wine child a row's timeout
+    # could not. Set by the driver only, never exported to a row process.
+    [[ -n "${REG_WINE_PREFIX:-}" ]] && WINEPREFIX="$REG_WINE_PREFIX" wineserver -k >/dev/null 2>&1
     [[ -n "${TMP_DIR:-}" ]] && rm -rf "$TMP_DIR"
     [[ -n "${RUN_DIR:-}" ]] && rm -rf "$RUN_DIR"
     # Prune the (now likely empty) runs/ parent; harmless if other runs are live.
@@ -422,7 +431,14 @@ regression_lib_init() {
     # via `make unit-test-build`, which `make regression` depends on). If it is
     # missing, the rewind functional test FAILS LOUDLY in the preflight —
     # never a silently absent row.
-    REWIND_TEST="$PROJECT_DIR/build/test/rewind_test"
+    # The SDL-only jnext (sdl-keypress and the rows that run both frontends) and
+    # the directory of native helper binaries (rewind_test, sdfile_tool, the
+    # *_probe tools): `regression.sh --platform` points them at another build
+    # tree. Exported so a row process inherits them.
+    JNEXT_SDL="${JNEXT_SDL:-$PROJECT_DIR/build/sdl-release/jnext}"
+    TEST_BIN_DIR="${TEST_BIN_DIR:-$PROJECT_DIR/build/test}"
+    export JNEXT_SDL TEST_BIN_DIR
+    REWIND_TEST="$TEST_BIN_DIR/rewind_test"
     CONF="${JNEXT_REGRESSION_CONF:-$SCRIPT_DIR/regression_tests.conf}"
     FUNC_CONF="${JNEXT_REGRESSION_FUNC_CONF:-$SCRIPT_DIR/functional_tests.conf}"
     # img/ lives next to this file under test/00regression/img.
