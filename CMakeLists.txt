@@ -369,8 +369,10 @@ add_executable(jnext src/main.cpp)
 # (derived, not listed), and the same flag on jnext's LINK line -- under LTO
 # (-fno-fat-lto-objects) the compile-time check is blind and only the link
 # sees the real frames. Test executables are excluded on purpose (fixtures
-# hold Emulators on the stack and are never built for Windows). The Clang+LTO
-# link-time half (macOS) is unverified.
+# hold Emulators on the stack and are never built for Windows). Under Clang
+# LTO (ThinLTO) BOTH halves are blind: a 300 KB frame compiled -flto links
+# clean with the flag on the link line (measured with clang 22 on Linux; ld64
+# untested). Only the GCC LTO link enforces.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set(JNEXT_FRAME_GATE -Werror=frame-larger-than=262144)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -381,7 +383,10 @@ if(JNEXT_FRAME_GATE)
         set(libs)
         get_property(subdirs DIRECTORY ${dir} PROPERTY SUBDIRECTORIES)
         foreach(sub IN LISTS subdirs)
-            if(sub MATCHES "^${CMAKE_SOURCE_DIR}/src(/|$)")
+            # Literal prefix test: a regex built from the checkout path breaks
+            # on + ( [ etc. and would silently drop every library.
+            string(FIND "${sub}/" "${CMAKE_SOURCE_DIR}/src/" _p)
+            if(_p EQUAL 0)
                 get_property(tgts DIRECTORY ${sub} PROPERTY BUILDSYSTEM_TARGETS)
                 foreach(t IN LISTS tgts)
                     get_target_property(ty ${t} TYPE)
@@ -389,13 +394,14 @@ if(JNEXT_FRAME_GATE)
                         list(APPEND libs ${t})
                     endif()
                 endforeach()
-                jnext_collect_src_libs(${sub} sublibs)
-                list(APPEND libs ${sublibs})
             endif()
         endforeach()
         set(${out} ${libs} PARENT_SCOPE)
     endfunction()
     jnext_collect_src_libs(${CMAKE_SOURCE_DIR} JNEXT_SRC_LIBS)
+    if(NOT "jnext_core" IN_LIST JNEXT_SRC_LIBS)
+        message(FATAL_ERROR "frame gate: src/ library list not derived")
+    endif()
     foreach(t IN LISTS JNEXT_SRC_LIBS)
         target_compile_options(${t} PRIVATE ${JNEXT_FRAME_GATE})
     endforeach()
