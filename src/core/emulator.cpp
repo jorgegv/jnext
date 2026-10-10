@@ -11300,9 +11300,10 @@ void Emulator::advance_audio(uint64_t master_cycles)
         if (sample_accum_ >= SAMPLE_THRESHOLD) {
             sample_accum_ -= SAMPLE_THRESHOLD;
             mixer_.emit_sample();
-            // The Pi's next sample is latched at the same boundary, so each
-            // one holds for exactly one output sample: QEMU is asked for the
-            // mixer's own 44.1 kHz.
+            // The Pi's next sample is latched at each output-sample boundary,
+            // so each one holds for exactly one output sample: QEMU is asked
+            // for the mixer's own 44.1 kHz. Before or after emit_sample() is
+            // the same: it only averages what was already accumulated.
             if (config_.pi_audio) feed_pi_audio();
         }
     }
