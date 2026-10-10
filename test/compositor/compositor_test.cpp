@@ -116,13 +116,13 @@ static uint16_t vhdl_fallback_9bit(uint8_t nr4a) {
     return (static_cast<uint16_t>(nr4a) << 1) | lsb;
 }
 
-// Convert the 9-bit VHDL fallback word into ARGB32 by dropping bit 0 and
-// feeding the upper 8 bits through rrrgggbb_to_argb — the same path the
-// Renderer uses. The emulator's fallback pipeline is 8-bit only so we
-// assert against the 8-bit-truncated ARGB equivalent when consulting
-// composite_scanline output.
+// Convert the 9-bit VHDL fallback word into ARGB32 with the full 9 bits
+// (blue LSB included, GH #304 Part B): the word `render_row` hands to
+// composite_scanline, built here from vhdl_fallback_9bit, not from the
+// renderer.
 static uint32_t vhdl_fallback_argb(uint8_t nr4a) {
-    return Renderer::rrrgggbb_to_argb(nr4a);
+    const uint16_t n = vhdl_fallback_9bit(nr4a);
+    return rgb333_to_argb8888((n >> 6) & 7, (n >> 3) & 7, n & 7);
 }
 
 // Build a VHDL-opaque layer pixel tagged with a distinct colour. Upper 24
@@ -144,12 +144,12 @@ static const uint32_t PIX_TM  = opaque_tag(0xDD, 0x00, 0xDD);
 static constexpr uint32_t TRANSP = 0x00000000u;
 
 // Channel extraction from ARGB, mirroring the compositor's own
-// argb_r3/argb_g3/argb_b2 (file-static in renderer.cpp). Used by the LMASK
+// argb_r3/argb_g3/argb_b3 (file-static in renderer.cpp). Used by the LMASK
 // stencil rows to compute the VHDL AND-branch oracle (zxnext.vhd:7113
 // `stencil_rgb <= ula_rgb and tm_rgb`) rather than hard-coding a constant.
 static uint8_t argb_r3_t(uint32_t argb) { return (argb >> 21) & 7; }
 static uint8_t argb_g3_t(uint32_t argb) { return (argb >> 13) & 7; }
-static uint8_t argb_b2_t(uint32_t argb) { return (argb >>  6) & 3; }
+static uint8_t argb_b3_t(uint32_t argb) { return (argb >>  5) & 7; }
 
 static void clear_layers(Renderer& r) {
     for (int i = 0; i < W; ++i) {
@@ -1136,14 +1136,14 @@ static void test_FB() {
         clear_layers(r);
         r.set_layer_priority(0);
         r.set_fallback_colour(nr4a);
-        return composite_one(r, Renderer::rrrgggbb_to_argb(nr4a));
+        return composite_one(r, vhdl_fallback_argb(nr4a));
     };
 
     // FB-10: fallback 0xE3 => 9-bit 0xE3<<1 | (1|1) = 0x1C7.
     {
         uint16_t fb9 = vhdl_fallback_9bit(0xE3);
         uint32_t got = all_transparent_fallback(0xE3);
-        uint32_t expected = Renderer::rrrgggbb_to_argb(0xE3);
+        uint32_t expected = vhdl_fallback_argb(0xE3);
         check("FB-10", "fallback 0xE3 -> 9-bit 0x1C7 (VHDL 7214: bit0|bit1 = 1|1 = 1)",
               fb9 == 0x1C7 && got == expected,
               DETAIL("fb9=0x%03X got=0x%08X exp=0x%08X", fb9, got, expected));
@@ -1153,7 +1153,7 @@ static void test_FB() {
     {
         uint16_t fb9 = vhdl_fallback_9bit(0x00);
         uint32_t got = all_transparent_fallback(0x00);
-        uint32_t expected = Renderer::rrrgggbb_to_argb(0x00);
+        uint32_t expected = vhdl_fallback_argb(0x00);
         check("FB-11", "fallback 0x00 -> 9-bit 0x000 (VHDL zxnext.vhd:7214)",
               fb9 == 0x000 && got == expected,
               DETAIL("fb9=0x%03X got=0x%08X exp=0x%08X", fb9, got, expected));
@@ -1163,7 +1163,7 @@ static void test_FB() {
     {
         uint16_t fb9 = vhdl_fallback_9bit(0x4A);
         uint32_t got = all_transparent_fallback(0x4A);
-        uint32_t expected = Renderer::rrrgggbb_to_argb(0x4A);
+        uint32_t expected = vhdl_fallback_argb(0x4A);
         check("FB-12", "fallback 0x4A -> 9-bit 0x095 (bit1|bit0 = 1|0 = 1) (VHDL 7214)",
               fb9 == 0x095 && got == expected,
               DETAIL("fb9=0x%03X got=0x%08X exp=0x%08X", fb9, got, expected));
@@ -1211,7 +1211,7 @@ static void test_FB() {
     {
         bool all_ok = true;
         uint8_t mode_seen_mask = 0;
-        uint32_t fb = Renderer::rrrgggbb_to_argb(0x42);
+        uint32_t fb = vhdl_fallback_argb(0x42);
         for (int mode = 0; mode < 8; ++mode) {
             clear_layers(r);
             r.set_layer_priority(static_cast<uint8_t>(mode));
@@ -4960,11 +4960,11 @@ static void test_LMASK() {
     // Cell 00 — neither masked: the AND-branch is live, output is the
     // per-channel bitwise AND of the two RGBs (VHDL 7112-7113).
     {
-        const uint8_t  and_rgb = static_cast<uint8_t>(
-            ((argb_r3_t(PIX_ULA) & argb_r3_t(PIX_TM)) << 5) |
-            ((argb_g3_t(PIX_ULA) & argb_g3_t(PIX_TM)) << 2) |
-             (argb_b2_t(PIX_ULA) & argb_b2_t(PIX_TM)));
-        const uint32_t exp = Renderer::rrrgggbb_to_argb(and_rgb);
+        // 9-bit AND (7113): R, G and the 3 blue bits each ANDed.
+        const uint32_t exp = rgb333_to_argb8888(
+            argb_r3_t(PIX_ULA) & argb_r3_t(PIX_TM),
+            argb_g3_t(PIX_ULA) & argb_g3_t(PIX_TM),
+            argb_b3_t(PIX_ULA) & argb_b3_t(PIX_TM));
         const uint32_t got = stencil_cell(Renderer::LAYER_ALL);
         check("LMASK-C09-00",
               "stencil, neither layer masked -> AND-branch live, ULA AND TM "
@@ -5211,7 +5211,7 @@ struct Fix {
     /// whatever a preceding render() call happened to leave behind).
     void render_ula_only(uint32_t* out, int fb_row) {
         r.ula().set_select_bgnd_argb(
-            Renderer::rrrgggbb_to_argb(r.fallback_for_line(fb_row)));
+            Renderer::fallback_to_argb(r.fallback_for_line(fb_row)));
         r.ula().render_scanline(out, fb_row, mmu, nullptr);
         if (!r.ula_enabled_per_line_[fb_row])
             std::fill_n(out, Renderer::FB_WIDTH, TRANSP);
@@ -5228,15 +5228,14 @@ struct Fix {
     }
 };
 
-// RRRGGGBB of a rendered ARGB cell (inverse of rrrgggbb_to_argb for the
-// values this group programs).
+// RRRGGGBB of a rendered ARGB cell: the top 8 of its 9 colour bits, VHDL
+// `rgb(8 downto 1)` (blue bits 2:1 = ARGB bits 7:6).
 static uint8_t rgb8_of(uint32_t argb) {
     return static_cast<uint8_t>((argb_r3_t(argb) << 5) | (argb_g3_t(argb) << 2)
-                                | argb_b2_t(argb));
+                                | ((argb >> 6) & 3));
 }
-static uint32_t channels_to_argb_t(uint8_t r3, uint8_t g3, uint8_t b2) {
-    return Renderer::rrrgggbb_to_argb(
-        static_cast<uint8_t>((r3 << 5) | (g3 << 2) | b2));
+static uint32_t channels_to_argb_t(uint8_t r3, uint8_t g3, uint8_t b3) {
+    return rgb333_to_argb8888(r3, g3, b3);
 }
 static bool is_ula_colour(uint32_t argb)   { return rgb8_of(argb) <= 0x20; }
 static bool is_lores_colour(uint32_t argb) { return rgb8_of(argb) >= 0x40; }
@@ -5866,7 +5865,8 @@ static void test_LORES()
 
         // LR-143 — stencil (zxnext.vhd:7112-7113, 7130-7132).
         {
-            const uint32_t TMC = Renderer::rrrgggbb_to_argb(0x2A);
+            // NR 0x2A as a palette word: 001 010 10 -> 9-bit (1,2,5).
+            const uint32_t TMC = rgb333_to_argb8888(1, 2, 5);
             prep_ula_slot();
             std::fill_n(f.r.layer2_line_.begin(), Renderer::FB_WIDTH, TRANSP);
             std::fill_n(f.r.sprite_line_.begin(), Renderer::FB_WIDTH, TRANSP);
@@ -5881,7 +5881,7 @@ static void test_LORES()
             const uint32_t exp = channels_to_argb_t(
                 argb_r3_t(lores_px) & argb_r3_t(TMC),
                 argb_g3_t(lores_px) & argb_g3_t(TMC),
-                argb_b2_t(lores_px) & argb_b2_t(TMC));
+                argb_b3_t(lores_px) & argb_b3_t(TMC));
             f.r.set_stencil_mode(false);
             f.r.set_tm_enabled(false);
             f.r.snapshot_stencil_mode_for_line(ROW);
@@ -5910,11 +5910,10 @@ static void test_LORES()
             // Mode 110 = additive with clamp; the ULA operand must be the
             // LoRes colour.
             auto clamp3 = [](int v) { return v > 7 ? 7 : v; };
-            auto clamp2 = [](int v) { return v > 3 ? 3 : v; };
             const uint32_t exp = channels_to_argb_t(
                 static_cast<uint8_t>(clamp3(argb_r3_t(lores_px) + argb_r3_t(L2C))),
                 static_cast<uint8_t>(clamp3(argb_g3_t(lores_px) + argb_g3_t(L2C))),
-                static_cast<uint8_t>(clamp2(argb_b2_t(lores_px) + argb_b2_t(L2C))));
+                static_cast<uint8_t>(clamp3(argb_b3_t(lores_px) + argb_b3_t(L2C))));
             f.r.set_layer_priority(0);
             check("LR-144",
                   "LoRes participates in NR $15 blend mode 110 as the ULA "
