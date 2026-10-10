@@ -61,11 +61,11 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: ctc_interrupts_test             |    88 |   88 |    0 |    0 |       0 |          0 |
 | Companion: nextreg_integration_test        |   349 |  349 |    0 |    0 |       0 |          0 |
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
-| Companion: input_integration_test          |    42 |   42 |    0 |    0 |       0 |          0 |
+| Companion: input_integration_test          |    43 |   43 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    97 |   97 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5622 | 5622 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5623 | 5623 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5622**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5243**. Rows the 135 suites declared in `test/unit-tests.conf` run live: **12559**.
+Rows the sections above carry: **5623**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5244**. Rows the 135 suites declared in `test/unit-tests.conf` run live: **12560**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -5995,6 +5995,7 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | GPA-10 | switching a connector to None unbinds its pad and leaves the other connector alone | — | pass | test/input/input_integration_test.cpp:1462 |
 | GPA-11 | after a replug and a host rebuild (cold boot) the assignment stays on the same physical pad, ids unchanged | — | pass | test/input/input_integration_test.cpp:1463 |
 | GPA-12 | fallback line: once on entry, silent on a no-change re-resolve, again after a new assignment and after a match | — | pass | test/input/input_integration_test.cpp:1463 |
+| GPA-13 | a lone remaining pad keeps its '#2' id and Joy 2 across a host rebuild | — | pass | test/input/input_integration_test.cpp:1463 |
 
 ### Companion integration suite — `test/uart/uart_integration_test.cpp`
 
