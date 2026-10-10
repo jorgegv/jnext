@@ -191,6 +191,13 @@ plausible-but-wrong citation is worse than an honest `—`. A `—` here is a re
 visible gap; the fix is to cite the VHDL in the row's own assertion, which also
 makes the cell drift-checked from then on.
 
+A `(...)` cell is a declared tombstone: "there is nothing to cite", either for
+a whole suite or, per row, via `[no-vhdl: <reason>]` in the row's own call. The
+generator refuses a marker beside a VHDL citation in the same call, in another
+call of the same row, in a comment block heading the row, or in the row's
+plan-doc entry. It cannot judge whether a row SHOULD have VHDL; that is the author's
+and the reviewer's call.
+
 ## Memory/MMU — `test/mmu/mmu_test.cpp`
 
 Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIGN.md).
@@ -5139,29 +5146,29 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | HOOK-05 | delivery follows the live prescaler, not a hardcoded 115200 | — | pass | test/esp/esp_uart_adapter_test.cpp:193 |
 | HOOK-06 | a UART held in reset stops device ticking — its RX FIFO is about to be cleared | — | pass | test/esp/esp_uart_adapter_test.cpp:203 |
 | HOOK-06b | ...and resumes when the guest releases it | — | pass | test/esp/esp_uart_adapter_test.cpp:208 |
-| ADP-01 | a fresh adapter mirrors the engine's lowered gate | — | pass | test/esp/esp_uart_adapter_test.cpp:219 |
-| ADP-02 | receive() forwards to the engine AND raises the mirrored gate | — | pass | test/esp/esp_uart_adapter_test.cpp:222 |
-| ADP-03 | tick() forwards, and the engine's output reaches the RX sink | — | pass | test/esp/esp_uart_adapter_test.cpp:226 |
-| ADP-04 | ...and the gate falls again once the engine is idle | — | pass | test/esp/esp_uart_adapter_test.cpp:228 |
-| ADP-05 | the adapter delivered while it was alive | — | pass | test/esp/esp_uart_adapter_test.cpp:246 |
-| ADP-06 | ...and after its destruction the engine's sink is cleared, not dangling | — | pass | test/esp/esp_uart_adapter_test.cpp:250 |
-| ADP-07 | the same adapter drives the THREADED wrapper unchanged | — | pass | test/esp/esp_uart_adapter_test.cpp:271 |
-| ADP-08 | a fresh adapter is live, not inert | — | pass | test/esp/esp_uart_adapter_test.cpp:289 |
-| ADP-09 | an inert adapter does not forward guest TX to the engine | — | pass | test/esp/esp_uart_adapter_test.cpp:293 |
-| ADP-10 | ...and holds the hot-path tick gate DOWN | — | pass | test/esp/esp_uart_adapter_test.cpp:295 |
-| ADP-11 | ...and delivers nothing to the guest | — | pass | test/esp/esp_uart_adapter_test.cpp:297 |
-| ADP-12 | the engine has a reply queued and the gate is up | — | pass | test/esp/esp_uart_adapter_test.cpp:309 |
-| ADP-13 | set_inert(true) lowers the gate immediately | — | pass | test/esp/esp_uart_adapter_test.cpp:312 |
-| ADP-14 | set_inert(false) re-raises it from the ESP's own state | — | pass | test/esp/esp_uart_adapter_test.cpp:314 |
-| ADP-15 | ...and the reply that was held back still arrives intact | — | pass | test/esp/esp_uart_adapter_test.cpp:318 |
-| ADP-16 | repeating set_inert(false) does not disturb a raised gate | — | pass | test/esp/esp_uart_adapter_test.cpp:329 |
-| ADP-17 | repeating set_inert(true) keeps the gate down | — | pass | test/esp/esp_uart_adapter_test.cpp:333 |
-| ALOG-01 | Log::init() registers the esp01 logger | — | pass | test/esp/esp_uart_adapter_test.cpp:342 |
-| ALOG-02 | --log-level esp01=trace reaches the logger | — | pass | test/esp/esp_uart_adapter_test.cpp:346 |
-| ALOG-03 | a module log line reaches jnext's esp01 logger through the seam | — | pass | test/esp/esp_uart_adapter_test.cpp:372 |
-| ALOG-04 | ...and carries the level the module chose, not a flattened one | — | pass | test/esp/esp_uart_adapter_test.cpp:374 |
-| ALOG-05 | an esp01 logger at 'off' raises the module's threshold to error | — | pass | test/esp/esp_uart_adapter_test.cpp:385 |
-| ALOG-06 | ...and turning it up lowers the threshold within one poll | — | pass | test/esp/esp_uart_adapter_test.cpp:389 |
+| ADP-01 | a fresh adapter mirrors the engine's lowered gate [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:219 |
+| ADP-02 | receive() forwards to the engine AND raises the mirrored gate [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:222 |
+| ADP-03 | tick() forwards, and the engine's output reaches the RX sink [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:226 |
+| ADP-04 | ...and the gate falls again once the engine is idle [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:228 |
+| ADP-05 | the adapter delivered while it was alive [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:246 |
+| ADP-06 | ...and after its destruction the engine's sink is cleared, not dangling [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:250 |
+| ADP-07 | the same adapter drives the THREADED wrapper unchanged [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:271 |
+| ADP-08 | a fresh adapter is live, not inert [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:289 |
+| ADP-09 | an inert adapter does not forward guest TX to the engine [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:293 |
+| ADP-10 | ...and holds the hot-path tick gate DOWN [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:295 |
+| ADP-11 | ...and delivers nothing to the guest [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:297 |
+| ADP-12 | the engine has a reply queued and the gate is up [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:309 |
+| ADP-13 | set_inert(true) lowers the gate immediately [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:312 |
+| ADP-14 | set_inert(false) re-raises it from the ESP's own state [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:314 |
+| ADP-15 | ...and the reply that was held back still arrives intact [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:318 |
+| ADP-16 | repeating set_inert(false) does not disturb a raised gate [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:329 |
+| ADP-17 | repeating set_inert(true) keeps the gate down [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:333 |
+| ALOG-01 | Log::init() registers the esp01 logger [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:342 |
+| ALOG-02 | --log-level esp01=trace reaches the logger [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:346 |
+| ALOG-03 | a module log line reaches jnext's esp01 logger through the seam [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:372 |
+| ALOG-04 | ...and carries the level the module chose, not a flattened one [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:374 |
+| ALOG-05 | an esp01 logger at 'off' raises the module's threshold to error [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:385 |
+| ALOG-06 | ...and turning it up lowers the threshold within one poll [no-vhdl: jnext-internal] | (jnext-internal) | pass | test/esp/esp_uart_adapter_test.cpp:389 |
 
 ### Companion integration suite — `test/mmu/mmu_integration_test.cpp`
 
