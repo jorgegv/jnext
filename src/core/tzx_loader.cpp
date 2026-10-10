@@ -7,6 +7,7 @@ extern "C" {
 }
 
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 
 // Cast opaque player_ pointer to ZOT's TZXPlayer*.
@@ -414,9 +415,10 @@ bool TzxLoader::load(const std::string& path) {
     loaded_ = true;
     fast_load_offset_ = is_tzx_ ? 10 : 0;  // skip TZX header
 
-    // Extract filename for UI.
-    auto slash = path.rfind('/');
-    filename_ = (slash != std::string::npos) ? path.substr(slash + 1) : path;
+    // Extract filename for UI. (std::filesystem splits on the host's own
+    // separators: a Windows path from `--load C:\...` or a native dialog has
+    // backslashes, which rfind('/') never saw).
+    filename_ = std::filesystem::path(path).filename().string();
 
     Log::emulator()->info("TZX: loaded '{}' — {} format, {} bytes",
                            filename_, is_tzx_ ? "TZX" : "TAP",
