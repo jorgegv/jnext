@@ -1168,7 +1168,19 @@ at raw line `vblank_top + 150`.
 | G12-TAG-11  | State saved at 28 MHz, loaded into a fresh machine | Write at line 150 after the load                            | 150                                                   |
 | G12-TAG-12  | Soft reset (NR 0x02) at 28 MHz mid-frame         | Reset around line 100; write at line 150                      | 150; counter x divisor = clock - frame start          |
 
-**Total: ~175 test cases across 29 categories.**
+### Category 30: VRAM beam-replay log reads (GH #305)
+
+`AttributeMux::read()` answers "what did the ULA fetch at (line, hc)" from a
+per-offset chain walked by a forward cursor. Rendering is covered by
+`ula_test` S19 (VMUX-01..12); these three rows pin the log's own contract (the render, flush, rewind sequence is VMUX-15).
+
+| ID          | Test                                             | Setup                                                         | Expected                                              |
+|-------------|--------------------------------------------------|---------------------------------------------------------------|-------------------------------------------------------|
+| G12-MUX-12  | Read earlier than the previous read of the byte  | Baseline 0x11, 0x22 @(40,100), 0x33 @(40,200); read @300, @150, @50 | 0x33, 0x22, 0x11                              |
+| G12-MUX-13  | `rewind_to_baseline()` restarts every cursor     | Second pass over the same log; then the previous line         | 0x22 @(40,150); baseline 0x11 on line 39              |
+| G12-MUX-14  | Second pass at the same instant after more writes | Cursor exhausted, write appended; read with and without a rewind | 0x55 both (cursor re-arm and rewind reset each pinned) |
+
+**Total: ~178 test cases across 30 categories.**
 
 ## Test Approach
 

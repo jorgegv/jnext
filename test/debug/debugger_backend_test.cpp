@@ -7899,6 +7899,77 @@ int main() {
                       "/" + hex(pb) + " mux=" + hex(emu.mmu().attr_mux5().current(OFF)));
         }
 
+        // ── INS-14-24 / INS-14-25: the mux's rewind in BOTH render passes ──
+        //
+        // GH #305. A pixel byte the CPU writes AFTER the ULA fetched it must
+        // show its OLD value in every picture of that frame: the main render
+        // (Renderer::render_frame) and the debugger's panel render
+        // (Debugger::render_layer -> replay_*). Both end with the mux's flush,
+        // which leaves each byte's cursor at the end of its chain; a pixel
+        // byte is read once per frame, at one instant, so the NEXT pass reads
+        // it at the very same instant and only its own rewind_to_baseline()
+        // puts the cursor back. (An attribute byte is read on eight rows, so
+        // the restart masks a missing rewind there: INS-14-13 cannot see it.)
+        //   INS-14-24  main render, then the panel   -> the panel's rewind
+        //   INS-14-25  panel (paused mid-frame), then the frame-end main render
+        //              -> the renderer's rewind
+        // Cell column 10 of screen row 68 (framebuffer row S) is written after
+        // its fetch; column 20 is never written (paper); column 30 is a lit
+        // baseline byte (ink), so "paper" and "ink" are both on the same row.
+        {
+            const int y = S - 32;                          // screen row 68
+            const uint16_t poff = static_cast<uint16_t>(
+                ((y & 0xC0) << 5) | ((y & 0x07) << 8) | ((y & 0x38) << 2));
+            auto scenario = [&](bool panel_first, std::string& detail) {
+                Emulator emu; build(emu, MachineType::ZXN_ISSUE2);
+                Debugger dbg(emu);
+                uint8_t* b5 = emu.mmu().bank5_vram();
+                std::fill(b5, b5 + 0x1800, 0x00);
+                std::fill(b5 + 0x1800, b5 + 0x1B00, 0x07);   // white ink, black paper
+                b5[poff + 30] = 0xFF;                        // baseline ink cell
+                wp4d_pause_in_vblank(emu);
+                const int vbt = emu.video_timing().vblank_top();
+                // pbyte00 of an even column latches at hc_ula 8c+9 (zxula.vhd:
+                // 276-286); +1 is one tick after its fetch.
+                const int hc = emu.video_timing().ula_prefetch_origin_hc() + 8 * 10 + 10 + 1;
+                emu.mmu().attr_mux_set_write_pos(vbt + S, hc);
+                emu.mmu().write(static_cast<uint16_t>(0x4000 + poff + 10), 0xFF);
+                auto main_render = [&]() {
+                    emu.renderer().render_frame(emu.get_framebuffer(), emu.mmu(), emu.ram(),
+                                                emu.palette(), emu.layer2(),
+                                                &emu.sprites(), &emu.tilemap());
+                };
+                auto fbpx = [&](const uint32_t* b, int w, int col) {
+                    return b[static_cast<size_t>(S) * w + 64 + 2 * (8 * col) + 4];
+                };
+                std::vector<uint32_t> pb;
+                if (panel_first) { pb = render(dbg, Layer::UlaPrimary); main_render(); }
+                else             { main_render(); pb = render(dbg, Layer::UlaPrimary); }
+                const uint32_t* fb = emu.get_framebuffer();
+                const int fw = Renderer::FB_WIDTH;
+                const bool fb_ok = fbpx(fb, fw, 10) == fbpx(fb, fw, 20) &&
+                                   fbpx(fb, fw, 30) != fbpx(fb, fw, 20);
+                const bool pn_ok = fbpx(pb.data(), RENDER_WIDTH, 10) == fbpx(pb.data(), RENDER_WIDTH, 20) &&
+                                   fbpx(pb.data(), RENDER_WIDTH, 30) != fbpx(pb.data(), RENDER_WIDTH, 20);
+                detail = std::string("framebuffer col10=") + hex(fbpx(fb, fw, 10)) + " paper=" +
+                         hex(fbpx(fb, fw, 20)) + " ink=" + hex(fbpx(fb, fw, 30)) +
+                         "; panel col10=" + hex(fbpx(pb.data(), RENDER_WIDTH, 10)) + " paper=" +
+                         hex(fbpx(pb.data(), RENDER_WIDTH, 20));
+                return fb_ok && pn_ok;
+            };
+            std::string d22, d23;
+            const bool ok22 = scenario(false, d22);
+            const bool ok23 = scenario(true, d23);
+            check("INS-14-24", "pixel mux, main render then the panel: a pixel byte written "
+                               "after its fetch shows the old byte in both pictures "
+                               "(the panel's own mux rewind)",
+                  ok22, d22);
+            check("INS-14-25", "pixel mux, panel render then the frame-end main render: a "
+                               "pixel byte written after its fetch shows the old byte in "
+                               "both pictures (the renderer's own mux rewind)",
+                  ok23, d23);
+        }
+
         // ── INS-14-14: ULA scroll (NR 0x26) ────────────────────────────────
         {
             Emulator emu; build(emu, MachineType::ZXN_ISSUE2);

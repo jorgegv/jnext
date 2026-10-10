@@ -42,7 +42,7 @@ profiler — surround the emulation rather than being part of it.
 |---|---|
 | `core/` | `Emulator` — the top-level machine that owns every subsystem — plus `Clock`, `Scheduler`, `EmulatorConfig`, the CLI option table (`cli_options.h`), the logging wrapper (`log.h`), the state-serialisation primitives (`saveable.h`), all the file loaders and savers (NEX, SNA, SZX, Z80, TAP, TZX, WAV, RZX, JNS) and the extension dispatch that picks one (`snapshot_file`), the screenshot writers (PNG and `.SCR`), the host-side FAT32 reader that extracts ROMs from the SD image, the SD-card provisioner, and the video recorder. |
 | `cpu/` | `Z80Cpu`, the wrapper around the vendored FUSE core; the Z80N extension opcodes (`z80n_ext` — 31 of them, not the 26 the roadmap still says); and the IM2 interrupt controller with its client mixin. |
-| `memory/` | `Mmu` (8 × 8 K slots, the `MemoryInterface` implementation), `Ram`, `Rom`, the `ContentionModel`, and `AttributeMux` — the per-scanline replay of mid-frame attribute writes. |
+| `memory/` | `Mmu` (8 × 8 K slots, the `MemoryInterface` implementation), `Ram`, `Rom`, the `ContentionModel`, and `AttributeMux` — the beam-time replay of mid-frame writes to every byte the ULA fetches (pixels and attributes). |
 | `video/` | The layers and the compositor: `Ula`, `Lores`, `Layer2`, `Tilemap`, `SpriteEngine`, `PaletteManager`, `VideoTiming` (raster counters), and `Renderer`, which composites them. |
 | `audio/` | `AyChip` and the `TurboSound` triple wrapper, `Dac`, `Beeper`, `I2s`, and the `Mixer` that sums them; plus the WAV recorder and the DAC trace recorder. |
 | `port/` | `PortDispatch` (mask/value I/O decode) and `NextReg`, the NextREG register file. |
@@ -71,11 +71,13 @@ typist watches the guest scanning its keyboard and starts typing once the ROM's
 input loop is demonstrably running.
 
 **`AttributeMux`** in `src/memory/` exists for multicolour demos. The ULA
-re-reads a character cell's attribute byte on every one of its eight scanlines,
-so a program that rewrites attributes between those reads gets eight different
-colours down a single cell — the technique Nirvana-class engines are built on.
-Since JNEXT composites the frame at the end, those writes have to be logged and
-replayed per scanline to survive at all.
+fetches every pixel and attribute byte again on every scanline, and a
+character cell's attribute byte on each of its eight, so a program that rewrites
+attributes between those fetches gets eight different colours down a single
+cell — the technique Nirvana-class engines are built on — and a write that
+lands after a pixel byte's fetch is not seen until the next scanline. Since
+JNEXT composites the frame at the end, those writes have to be logged and
+replayed at the instant the ULA fetches each byte to survive at all.
 
 The **rewind ring buffer** in `src/debug/` is the machinery behind the
 debugger's backwards execution: step back one instruction, jump back a frame,

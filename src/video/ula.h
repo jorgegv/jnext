@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+#include "memory/attribute_mux.h"
 
 class Mmu;
 class Ram;
@@ -1018,22 +1019,16 @@ private:
     /// screen_dump().
     uint8_t fetch_vram_bank(uint16_t vram_a, bool bank7) const;
 
-    /// G12 — attribute-byte read for the STANDARD/STANDARD_1 renderer.
-    /// Always-on (no arm/gate — removed round 3): returns the value
-    /// AttributeMux reconstructed for the current render row instead of
-    /// the raw byte currently sitting in RAM (which only ever reflects
-    /// the LAST write of the frame — see attribute_mux.h), for the
-    /// address range AttributeMux actually tracks. Falls back to the
-    /// plain vram_read() path otherwise (STANDARD_1's genuine Timex
-    /// alt-file attribute range, which AttributeMux does not track — see
-    /// .cpp for why), byte-for-byte identical to pre-G12 behaviour.
-    /// `addr` is the full CPU-space attribute address (0x5800-0x5AFF /
-    /// 0x7800-0x7AFF + row/col offset); `alt` is true iff `addr` is in
-    /// the STANDARD_1 (Timex alt-file) 0x7800 range, matching the `alt`
-    /// local already computed in render_display_line from attr_row_base.
-    /// Physical BANK selection (5 vs 7) is NOT taken from `alt` — see
-    /// .cpp for the VHDL citation on why that would be wrong.
-    uint8_t attr_vram_read(uint16_t addr, bool alt, Mmu& mmu) const;
+    /// GH #305 — read one byte the ULA display fetches, as the ULA saw it at
+    /// its fetch instant: the value AttributeMux replayed for the current
+    /// render row, not the byte sitting in RAM at the end of the frame.
+    /// `addr` is the CPU-space address (0x4000-based, as for vram_read());
+    /// `slot` the display column; `kind` which of the slot's four fetches
+    /// (primary/secondary pixel/attribute) this is -- see attribute_mux.h for
+    /// the instants. Falls back to vram_read() when the per-frame lifecycle
+    /// has not run (bare Ula+Mmu fixtures).
+    uint8_t beam_vram_read(uint16_t addr, int slot, AttributeMux::Fetch kind,
+                           Mmu& mmu) const;
 
     /// Compute the interleaved pixel address offset for (screen_row, col).
     /// Returns the offset from 0x4000 (or 0x6000) for the given position.

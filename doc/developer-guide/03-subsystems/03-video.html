@@ -2612,8 +2612,8 @@ are: palette contents (<code>PaletteManager</code>); Layer 2 scroll, clip, bank,
 NR 0x70 (five separate logs); sprite attributes and sprite patterns; the ULA's
 port-0xFF screen mode, ULA scroll, and the NR 0x43 / NR 0x6B b4 active-palette
 selectors; the tilemap's NR 0x6B; the <code>AttributeMux</code> on the <code>Mmu</code>
-(Nirvana-class mid-frame attribute rewrites, resolved per <em>column</em> rather than
-per row); and NR 0x15 layer priority plus sprite enable on the <code>Renderer</code>
+(every ULA-fetched VRAM byte, pixels included, replayed at the instant the ULA
+fetches it, per <em>column</em> rather than per row); and NR 0x15 layer priority plus sprite enable on the <code>Renderer</code>
 itself.</p>
 <p>Two details there are load-bearing. Writes tagged during vblank never match a
 visible row, so <code>flush_remaining_changes</code> must drain them or they are lost
@@ -2631,7 +2631,8 @@ physically lands part-way through a scanline is applied from the <strong>beginni
 of that row. Hardware samples those latches per pixel and would change only the
 pixels after the write.</p>
 <p>Three logs do better. <code>AttributeMux</code> was the first (Nirvana-class attribute
-rewrites), and GH #270 added the Layer 2 <strong>bank</strong> (NR 0x12/0x13) and <strong>scroll</strong>
+rewrites; since GH #305 it covers the pixel bytes too, so a frame can no longer
+show new glyphs on old attributes), and GH #270 added the Layer 2 <strong>bank</strong> (NR 0x12/0x13) and <strong>scroll</strong>
 (NR 0x16/0x17/0x71) logs. Those two carry an <code>hpos</code> beside the line tag,
 <code>Layer2::apply_changes_for_line</code> merges them into one per-row list of render
 segments ordered by column, and <code>render_scanline</code> draws the row as one span per

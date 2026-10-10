@@ -251,8 +251,8 @@ are: palette contents (`PaletteManager`); Layer 2 scroll, clip, bank, enable and
 NR 0x70 (five separate logs); sprite attributes and sprite patterns; the ULA's
 port-0xFF screen mode, ULA scroll, and the NR 0x43 / NR 0x6B b4 active-palette
 selectors; the tilemap's NR 0x6B; the `AttributeMux` on the `Mmu`
-(Nirvana-class mid-frame attribute rewrites, resolved per *column* rather than
-per row); and NR 0x15 layer priority plus sprite enable on the `Renderer`
+(every ULA-fetched VRAM byte, pixels included, replayed at the instant the ULA
+fetches it, per *column* rather than per row); and NR 0x15 layer priority plus sprite enable on the `Renderer`
 itself.
 
 Two details there are load-bearing. Writes tagged during vblank never match a
@@ -275,7 +275,8 @@ of that row. Hardware samples those latches per pixel and would change only the
 pixels after the write.
 
 Three logs do better. `AttributeMux` was the first (Nirvana-class attribute
-rewrites), and GH #270 added the Layer 2 **bank** (NR 0x12/0x13) and **scroll**
+rewrites; since GH #305 it covers the pixel bytes too, so a frame can no longer
+show new glyphs on old attributes), and GH #270 added the Layer 2 **bank** (NR 0x12/0x13) and **scroll**
 (NR 0x16/0x17/0x71) logs. Those two carry an `hpos` beside the line tag,
 `Layer2::apply_changes_for_line` merges them into one per-row list of render
 segments ordered by column, and `render_scanline` draws the row as one span per

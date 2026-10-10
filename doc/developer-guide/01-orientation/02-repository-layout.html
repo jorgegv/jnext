@@ -2403,7 +2403,7 @@ profiler — surround the emulation rather than being part of it.</p>
 </tr>
 <tr>
 <td><code>memory/</code></td>
-<td><code>Mmu</code> (8 × 8 K slots, the <code>MemoryInterface</code> implementation), <code>Ram</code>, <code>Rom</code>, the <code>ContentionModel</code>, and <code>AttributeMux</code> — the per-scanline replay of mid-frame attribute writes.</td>
+<td><code>Mmu</code> (8 × 8 K slots, the <code>MemoryInterface</code> implementation), <code>Ram</code>, <code>Rom</code>, the <code>ContentionModel</code>, and <code>AttributeMux</code> — the beam-time replay of mid-frame writes to every byte the ULA fetches (pixels and attributes).</td>
 </tr>
 <tr>
 <td><code>video/</code></td>
@@ -2480,11 +2480,13 @@ becomes ready differs by machine. Rather than guessing with a fixed delay, the
 typist watches the guest scanning its keyboard and starts typing once the ROM's
 input loop is demonstrably running.</p>
 <p><strong><code>AttributeMux</code></strong> in <code>src/memory/</code> exists for multicolour demos. The ULA
-re-reads a character cell's attribute byte on every one of its eight scanlines,
-so a program that rewrites attributes between those reads gets eight different
-colours down a single cell — the technique Nirvana-class engines are built on.
-Since JNEXT composites the frame at the end, those writes have to be logged and
-replayed per scanline to survive at all.</p>
+fetches every pixel and attribute byte again on every scanline, and a
+character cell's attribute byte on each of its eight, so a program that rewrites
+attributes between those fetches gets eight different colours down a single
+cell — the technique Nirvana-class engines are built on — and a write that
+lands after a pixel byte's fetch is not seen until the next scanline. Since
+JNEXT composites the frame at the end, those writes have to be logged and
+replayed at the instant the ULA fetches each byte to survive at all.</p>
 <p>The <strong>rewind ring buffer</strong> in <code>src/debug/</code> is the machinery behind the
 debugger's backwards execution: step back one instruction, jump back a frame,
 or drag a slider to a frame in recent history. It works by snapshotting the
