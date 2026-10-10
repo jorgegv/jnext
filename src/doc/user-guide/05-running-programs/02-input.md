@@ -89,11 +89,38 @@ NextZXOS to come back to — use Power Reset there.
 
 ## Joysticks and gamepads
 
-Up to two USB gamepads are picked up automatically, hot-plug included, and
-wired to the Next's two joystick connectors. The joystick *protocol* —
+USB gamepads are picked up automatically, hot-plug included, and wired to the
+Next's two joystick connectors: the first two to connect become Joy 1 and
+Joy 2. The joystick *protocol* —
 Kempston, Sinclair, Cursor or MD — is chosen by the software you are running,
 just as on real hardware, so a game that expects Kempston gets Kempston
 without you configuring anything.
+
+### Choosing the controller for each connector
+
+**Input > Joy 1 Source** and **Joy 2 Source** (and **Settings > Preferences >
+Input**) list, for each connector:
+
+- **Automatic (first free controller)** — the default: the behaviour above;
+- every controller currently connected, by name (two identical pads show as
+  `name` and `name #2`);
+- **Cursor Keys + Space**, below;
+- **None** — nothing drives the connector.
+
+A pick applies at once, without a restart, and is remembered by the
+controller's identity rather than its position, so it survives unplugging,
+plugging back in and restarting. If a remembered controller is not connected,
+the menu shows it as `name (not connected)`, the connector uses the first free
+controller in the meantime (jnext logs that) and takes the remembered one back
+as soon as it appears. One controller cannot drive both connectors: picking it
+for one takes it from the other, which goes back to Automatic. With two
+identical pads the `#2` numbering holds only while they are connected in the
+same order. Unplugging a controller lets go of any button it was holding.
+
+From the command line, `--joy1-device ID` / `--joy2-device ID` choose a
+controller for one run; the id is the one in the log line `Joystick 1
+connected: 'name' [id]`, and `--joy1-source none` / `--joy2-source none` leave
+a connector unused.
 
 With no gamepad, point a connector at the host cursor keys instead: arrows to
 move, Space to fire. Choose it in the **Input** menu, in **Settings >

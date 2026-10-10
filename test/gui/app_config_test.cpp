@@ -839,6 +839,78 @@ static void test_debug_keys_conflicts() {
     }
 }
 
+// GH #311 — the assigned controller is persisted by stable id (ACJ-*).
+// Oracle: the issue ("persists in jnext.conf by a stable device identity") and
+// the config-file rule that no value is written with a leading '@'. The key
+// names are the plan's: joyN_device, joyN_device_name under [input].
+static void test_gh311_joy_device(QTemporaryDir& dir) {
+    set_group("ACJ");
+    const QString G  = "ff0047df341200000100000000007601";
+    const QString H  = "ff000211785600000200000000007600";
+    {
+        AppConfig cfg(fresh_ini_path(dir, "acj-defaults"));
+        cfg.load();
+        const AppConfigData& d = cfg.data();
+        check("ACJ-01", "joy_device and joy_device_name default to empty on both connectors",
+              d.joy_device[0].isEmpty() && d.joy_device[1].isEmpty() &&
+              d.joy_device_name[0].isEmpty() && d.joy_device_name[1].isEmpty());
+    }
+    const QString path = fresh_ini_path(dir, "acj-roundtrip");
+    {
+        AppConfig w(path);
+        w.data().joy_device[0]      = G + "#2";
+        w.data().joy_device_name[0] = "Logitech, Inc. F310 & co";
+        w.data().joy_device[1]      = H;
+        w.data().joy_source[1]      = JoySource::None;
+        w.data().joy_device_name[1] = "Stick";
+        w.save();
+        AppConfig r(path);
+        r.load();
+        const AppConfigData& d = r.data();
+        check("ACJ-02", "device ids, names (comma and ampersand included) and source none round-trip",
+              d.joy_device[0] == G + "#2" && d.joy_device_name[0] == "Logitech, Inc. F310 & co" &&
+              d.joy_device[1] == H && d.joy_device_name[1] == "Stick" &&
+              d.joy_source[1] == JoySource::None);
+    }
+    {
+        QFile f(path);
+        const bool opened = f.open(QIODevice::ReadOnly);
+        const QByteArray text = f.readAll();
+        // Only [input] is inspected: the [esp] group's own '@Invalid()' value
+        // is not this feature's and is dealt with by the config fix-ups.
+        const int at  = text.indexOf("\n[input]\n");
+        const int end = at < 0 ? -1 : text.indexOf("\n[", at + 1);
+        const QByteArray input = at < 0 ? QByteArray() : text.mid(at, end < 0 ? -1 : end - at);
+        check("ACJ-03", "[input] carries a bare 'joy1_device=<guid>#2' line and no '=@' value",
+              opened && !input.isEmpty() &&
+              input.contains(("\njoy1_device=" + G + "#2\n").toLatin1()) &&
+              !input.contains("=@"));
+    }
+    {
+        const QString p2 = fresh_ini_path(dir, "acj-badid");
+        {
+            QSettings raw(p2, QSettings::IniFormat);
+            raw.beginGroup("input");
+            raw.setValue("joy1_device", "not-a-guid");
+            raw.setValue("joy1_device_name", "Orphan");
+            raw.setValue("joy2_device", G.toUpper() + "#1");
+            raw.setValue("joy2_device_name", "Upper");
+            raw.setValue("joy1_source", "none");
+            raw.endGroup();
+            raw.sync();
+        }
+        AppConfig r(p2);
+        r.load();
+        const AppConfigData& d = r.data();
+        check("ACJ-04", "an invalid hand-edited id loads as empty id AND empty name",
+              d.joy_device[0].isEmpty() && d.joy_device_name[0].isEmpty());
+        check("ACJ-05", "an uppercase id with #1 loads as the canonical lowercase bare id",
+              d.joy_device[1] == G && d.joy_device_name[1] == "Upper");
+        check("ACJ-06", "joy1_source=none loads as JoySource::None",
+              d.joy_source[0] == JoySource::None);
+    }
+}
+
 // ── AC-FILE: GH #312 — on-disk layout of jnext.conf ────────────────────
 // Oracle: the issue text (lowercase sections, no "@..." values, old files read
 // correctly and rewritten once) and Qt IniFormat semantics. Legacy fixtures
@@ -1020,6 +1092,7 @@ int main() {
     test_debug_keys_bad_entries(dir);
     test_debug_keys_conflicts();
     test_file_layout(dir);
+    test_gh311_joy_device(dir);
 
     std::printf("\n");
     for (const auto& r : g_results) {

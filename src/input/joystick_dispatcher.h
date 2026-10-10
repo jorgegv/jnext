@@ -127,6 +127,14 @@ public:
     /// never has two writers.
     void set_source(int slot, JoySource src);
 
+    /// GH #311 — release connector `slot`: clear every held contribution
+    /// (buttons, directions, hats, axis latches, post-rewind restores) and push
+    /// the zero. Called when a physical controller leaves the connector (unplug,
+    /// rebind, source change), so a button held at that moment cannot stay
+    /// pressed with no device left to send the release. set_source() uses it.
+    /// Out-of-range slots are ignored.
+    void release_connector(int slot);
+
     /// Current source for connector `slot`. Out-of-range slots return Sdl.
     JoySource source(int slot) const {
         if (slot < 0 || slot >= NUM_CONNECTORS) return JoySource::Sdl;

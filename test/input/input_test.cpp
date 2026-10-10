@@ -28,6 +28,7 @@
 #include "input/mouse.h"
 #include "input/mouse_dispatcher.h"
 #include "input/joystick_dispatcher.h"
+#include "input/joy_assign.h"
 #include "input/iomode.h"
 #include "input/joystick.h"
 #include "input/md6_connector_x2.h"
@@ -40,6 +41,7 @@
 #include "core/log.h"
 
 #include <spdlog/sinks/ostream_sink.h>
+#include <array>
 #include <sstream>
 #include <memory>
 #include <climits>
@@ -5640,6 +5642,198 @@ static void test_nr_b2() {
 // that needs the JSON save-descriptor helpers and they belong beside it.
 static void test_gh289_autotype_ranges();
 
+// ══════════════════════════════════════════════════════════════════════════
+// GH #311 — which physical controller drives each joystick connector
+// (JASN-*, JDEV-*)
+//
+// There is no VHDL oracle: the FPGA only sees i_JOY_LEFT/RIGHT
+// (zxnext.vhd:3441-3442). The oracles are the issue's acceptance text and the
+// policy in the GH #311 plan (R1-R4 in input/joy_assign.h), with the device
+// ids measured from SDL 3.4.16 virtual joysticks (GUID of "Pad A" 0x1234/1 and
+// "Stick C" 0x5678/2).
+// ══════════════════════════════════════════════════════════════════════════
+
+static const char* const kJG  = "ff0047df341200000100000000007601";
+static const char* const kJG2 = "ff0047df341200000100000000007601#2";
+static const char* const kJH  = "ff000211785600000200000000007600";
+static const char* const kJD  = "dddddddddddddddddddddddddddddddd";
+
+static std::string joy_norm(const char* in) {
+    std::string out = "<rejected>";
+    normalize_joy_device_id(in, out);
+    return out;
+}
+
+static std::array<int, 2> joy_resolve(const std::vector<std::string>& present,
+                                      JoySource s0, JoySource s1,
+                                      const char* a0, const char* a1, int c0, int c1) {
+    const JoySource src[2] = { s0, s1 };
+    const std::string asg[2] = { a0, a1 };
+    const int cur[2] = { c0, c1 };
+    return resolve_joy_assignment(present, src, asg, cur);
+}
+
+static void test_gh311_assign() {
+    set_group("JASN");
+    const std::string G = kJG, G2 = kJG2, H = kJH;
+
+    check("JASN-01", "normalize: uppercase -> lowercase, #1 dropped, #2 and #10 kept",
+          joy_norm("FF0047DF341200000100000000007601") == G &&
+          joy_norm((G + "#1").c_str()) == G &&
+          joy_norm(kJG2) == G2 &&
+          joy_norm((G + "#10").c_str()) == G + "#10", "");
+    {
+        bool all_rejected = true;
+        const std::string bad[] = {
+            G.substr(0, 31), G + "0", "gf0047df341200000100000000007601", G + "#0",
+            G + "#", G + "#x", G + "#-1", "", G + "#1234567" };
+        std::string out = "keep";
+        for (const auto& b : bad) {
+            if (normalize_joy_device_id(b, out)) all_rejected = false;
+        }
+        check("JASN-02", "normalize rejects 31/33 hex, non-hex, #0, #, #x, #-1, a 7-digit ordinal and empty",
+              all_rejected && out == "keep", "");
+    }
+    check("JASN-03", "make_joy_device_id: ordinal 1 bare, 3 -> #3",
+          make_joy_device_id(G, 1) == G && make_joy_device_id(G, 3) == G + "#3", "");
+    check("JASN-04", "next_joy_ordinal is the smallest free ordinal per GUID",
+          next_joy_ordinal({}, G) == 1 && next_joy_ordinal({G}, G) == 2 &&
+          next_joy_ordinal({G2}, G) == 1 && next_joy_ordinal({G, G2}, G) == 3 &&
+          next_joy_ordinal({H, G}, G) == 2 && next_joy_ordinal({H, G}, H) == 2, "");
+
+    const std::vector<std::string> P3 = { G, G2, H };
+    auto r = joy_resolve(P3, JoySource::Sdl, JoySource::Sdl, "", "", -1, -1);
+    check("JASN-05", "both Automatic, nothing current: first two in arrival order",
+          r[0] == 0 && r[1] == 1, DETAIL("%d %d", r[0], r[1]));
+    r = joy_resolve(P3, JoySource::Sdl, JoySource::Sdl, kJH, "", -1, -1);
+    check("JASN-06", "Joy 1 assigned H: H on Joy 1, Joy 2 takes the first other",
+          r[0] == 2 && r[1] == 0, DETAIL("%d %d", r[0], r[1]));
+    r = joy_resolve(P3, JoySource::Sdl, JoySource::Sdl, "", kJG, -1, -1);
+    check("JASN-07", "Joy 2 assigned G: Automatic Joy 1 skips the device R2 took",
+          r[0] == 1 && r[1] == 0, DETAIL("%d %d", r[0], r[1]));
+    r = joy_resolve(P3, JoySource::Sdl, JoySource::Sdl, kJG2, "", 0, 1);
+    check("JASN-08", "explicit pre-empts the connector holding the device",
+          r[0] == 1 && r[1] == 0, DETAIL("%d %d", r[0], r[1]));
+    r = joy_resolve({ G, G2 }, JoySource::Sdl, JoySource::Sdl, kJD, "", -1, -1);
+    check("JASN-09", "absent assigned id falls back to the first free controller",
+          r[0] == 0 && r[1] == 1, DETAIL("%d %d", r[0], r[1]));
+    r = joy_resolve(P3, JoySource::Sdl, JoySource::Sdl, "", "", 2, 0);
+    check("JASN-10", "sticky: current bindings are kept when still valid",
+          r[0] == 2 && r[1] == 0, DETAIL("%d %d", r[0], r[1]));
+    r = joy_resolve({ G2, H }, JoySource::Sdl, JoySource::Sdl, "", "", -1, 0);
+    check("JASN-11", "a vacated Automatic connector adopts an idle controller",
+          r[0] == 1 && r[1] == 0, DETAIL("%d %d", r[0], r[1]));
+    r = joy_resolve({ G, G2 }, JoySource::None, JoySource::Sdl, "", "", -1, -1);
+    check("JASN-12", "source None binds nothing and leaves the device to the other connector",
+          r[0] == -1 && r[1] == 0, DETAIL("%d %d", r[0], r[1]));
+    r = joy_resolve({ G, G2 }, JoySource::CursorKeys, JoySource::Sdl, kJG, "", -1, -1);
+    check("JASN-13", "a dormant id on a Keys connector reserves nothing",
+          r[0] == -1 && r[1] == 0, DETAIL("%d %d", r[0], r[1]));
+
+    {
+        std::vector<JoyDeviceInfo> dev = { { G, "Pad A", 0 }, { G2, "Pad A", 1 }, { H, "A&B", -1 } };
+        auto ch = joy_choices(0, dev, JoySource::Sdl, JoyDeviceRef{});
+        const char* want[] = { "Automatic (first free controller)", "Pad A", "Pad A #2", "A&B",
+                               "Cursor Keys + Space", "None" };
+        bool ok = ch.size() == 6;
+        int checked = 0;
+        for (size_t i = 0; ok && i < 6; ++i) {
+            if (ch[i].label != want[i]) ok = false;
+            if (ch[i].checked) { ++checked; if (i != 0) ok = false; }
+        }
+        check("JASN-14", "joy_choices order and labels; only Automatic checked",
+              ok && checked == 1, "");
+    }
+    {
+        std::vector<JoyDeviceInfo> dev = { { G, "Pad A", 0 } };
+        auto ch = joy_choices(0, dev, JoySource::Sdl, JoyDeviceRef{ kJD, "Gone Pad" });
+        auto ch2 = joy_choices(0, dev, JoySource::Sdl, JoyDeviceRef{ kJD, "" });
+        bool ok = ch.size() == 5 && ch[2].kind == JoyChoice::Kind::Missing &&
+                  ch[2].label == "Gone Pad (not connected)" && ch[2].checked && !ch[0].checked;
+        ok = ok && ch2.size() == 5 && ch2[2].label == std::string(kJD) + " (not connected)";
+        check("JASN-15", "joy_choices adds a checked '(not connected)' entry for an absent id",
+              ok, "");
+    }
+    {
+        auto k = joy_choices(0, {}, JoySource::CursorKeys, JoyDeviceRef{});
+        auto n = joy_choices(0, {}, JoySource::None, JoyDeviceRef{});
+        // Keys with a dormant absent id: still exactly one entry checked (Keys).
+        auto kd = joy_choices(0, {}, JoySource::CursorKeys, JoyDeviceRef{ kJD, "Gone" });
+        int kd_checked = 0;
+        for (const auto& c : kd) if (c.checked) ++kd_checked;
+        check("JASN-16", "joy_choices checks Cursor Keys / None for those sources only; one entry checked even with a dormant absent id",
+              k.size() == 3 && k[1].checked && !k[0].checked && !k[2].checked &&
+              n.size() == 3 && n[2].checked && !n[0].checked && !n[1].checked &&
+              kd_checked == 1 && kd.size() == 4 && kd[2].checked, "");
+    }
+}
+
+static void test_gh311_device() {
+    set_group("JDEV");
+    const JoyDeviceRef g{ kJG, "Pad A" };
+
+    {
+        Emulator emu;
+        check("JDEV-01", "default controller assignment is empty (Automatic) on both connectors",
+              emu.joystick_device(0).id.empty() && emu.joystick_device(1).id.empty(), "");
+    }
+    {
+        Emulator emu;
+        std::vector<std::pair<int, std::string>> calls;
+        emu.on_joystick_device_changed = [&](int c, const JoyDeviceRef& r) { calls.push_back({ c, r.id }); };
+        emu.set_joystick_device(0, g);
+        calls.clear();
+        emu.set_joystick_device(1, g);
+        check("JDEV-02", "the same controller on the other connector clears the first (last pick wins)",
+              emu.joystick_device(0).id.empty() && emu.joystick_device(1).id == kJG &&
+              calls.size() == 2 && calls[0].first == 0 && calls[0].second.empty() &&
+              calls[1].first == 1 && calls[1].second == kJG,
+              DETAIL("calls=%zu", calls.size()));
+    }
+    {
+        Emulator emu;
+        emu.set_joystick_device(0, g);
+        int n = 0;
+        emu.on_joystick_device_changed = [&](int, const JoyDeviceRef&) { ++n; };
+        emu.set_joystick_device(0, g);
+        check("JDEV-03", "re-setting an unchanged assignment fires no callback", n == 0,
+              DETAIL("n=%d", n));
+    }
+    {
+        Emulator emu;
+        emu.set_joystick_device(1, g);
+        std::vector<std::pair<int, std::string>> calls;
+        emu.on_joystick_device_changed = [&](int c, const JoyDeviceRef& r) { calls.push_back({ c, r.id }); };
+        emu.refresh_joystick_sources();
+        check("JDEV-04", "refresh pushes both assignments to the frontend",
+              calls.size() == 2 && calls[0].first == 0 && calls[0].second.empty() &&
+              calls[1].first == 1 && calls[1].second == kJG,
+              DETAIL("calls=%zu", calls.size()));
+    }
+    {
+        Emulator emu;
+        JoySource p = JoySource::Sdl;
+        const bool parsed = parse_joy_source("NONE", p) && p == JoySource::None;
+        emu.set_joystick_source(0, JoySource::CursorKeys);
+        emu.set_joystick_source(0, JoySource::None);
+        check("JDEV-05", "'none' parses, prints back, and None frees the cursor-key target",
+              parsed && std::string(joy_source_str(JoySource::None)) == "none" &&
+              emu.joystick_source(0) == JoySource::None &&
+              emu.keyboard().cursor_key_target() == -1,
+              DETAIL("target=%d", emu.keyboard().cursor_key_target()));
+    }
+    {
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.set_source(0, JoySource::None);
+        jd.handle_button(0, SDL_GAMEPAD_BUTTON_SOUTH, true);
+        const uint16_t pad = jd.bits12(0);
+        jd.set_cursor_bit(0, JoystickDispatcher::CursorBit::Fire, true);
+        check("JDEV-06", "a None connector ignores both pad and cursor-key input",
+              pad == 0 && jd.bits12(0) == 0, DETAIL("pad=%03X bits=%03X", pad, jd.bits12(0)));
+    }
+}
+
 int main() {
     printf("Input Subsystem Compliance Tests (VHDL-derived plan)\n");
     printf("=====================================================\n\n");
@@ -5666,6 +5860,8 @@ int main() {
     test_t77_kbd();         printf("  Group: T77K   done\n");
     test_gh115_keymap();    printf("  Group: GH115  done\n");
     test_gh289_autotype_ranges(); printf("  Group: GH289  done\n");
+    test_gh311_assign();    printf("  Group: JASN   done\n");
+    test_gh311_device();    printf("  Group: JDEV   done\n");
 
     printf("\n=====================================================\n");
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

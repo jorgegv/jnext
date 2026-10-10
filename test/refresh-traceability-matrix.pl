@@ -1041,6 +1041,7 @@ my %NO_MATRIX_SECTION = (
     'host_hotkey_test'    => 'host hotkey bindings (Alt vs the guest Symbol Shift)',
     'main_window_accel_test' => 'main-window menu mnemonics (host GUI)',
     'main_window_pause_test' => 'main-window Pause: Machine > Pause, Alt+U (host GUI)',
+    'joystick_menu_test' => 'joystick controller picker: Input menu, Preferences (host GUI)',
     'shifted_keys_test'   => 'host shifted-scancode translation; guest matrix is `## Input`',
     'window_scale_test'   => 'main-window scale/fullscreen geometry (host GUI)',
     'window_title_test'   => 'main-window title carries the version (host GUI)',

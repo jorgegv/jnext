@@ -2456,10 +2456,48 @@ in the machine-side class, plus a stated policy.</p>
 <li>
 <p><strong><code>joystick_dispatcher</code> / <code>gamepad_host</code> / <code>mouse_dispatcher</code></strong> stand in for
   the physical adapters the FPGA expects to be driving its input pins.
-  <code>GamepadHost</code> owns the SDL controller lifecycle and auto-assigns a pad to the
-  first free connector; the two dispatchers translate SDL button, axis, motion
-  and wheel events into the machine-side vectors and counters. Both frontends
-  use the same classes, so behaviour cannot drift between them.</p>
+  <code>GamepadHost</code> owns the SDL controller lifecycle; the two dispatchers
+  translate SDL button, axis, motion and wheel events into the machine-side
+  vectors and counters. Both frontends use the same classes, so behaviour
+  cannot drift between them.</p>
+</li>
+<li>
+<p><strong>Which controller drives which connector (GH #311)</strong> is policy in
+  <code>joy_assign.{h,cpp}</code> (pure, no SDL), not an accident of arrival order.
+  <code>GamepadHost</code> keeps the list of present devices and, whenever a device
+  arrives or leaves, a connector's source changes or an assignment is made,
+  asks <code>resolve_joy_assignment()</code> and opens/closes to match. Per connector:
+  R1 a source other than <code>Sdl</code> (including <code>JoySource::None</code>) gets no device and
+  a dormant assignment reserves nothing; R2 an assigned id that is present wins
+  and pre-empts whoever holds it; R3 otherwise a connector keeps its current
+  device (sticky: a pad is never moved under the player); R4 otherwise it takes
+  the first untaken device in arrival order, Joy 1 then Joy 2. An assigned id
+  that is absent falls through to R3/R4, which is the fallback, logged once on
+  entry. The identity is the SDL GUID plus an ordinal (<code>&lt;guid&gt;</code> or
+  <code>&lt;guid&gt;#N</code>, <code>joy_source.h</code>): N is the smallest ordinal no present device of
+  that GUID holds, so unplugging pad #1 leaves pad #2 as <code>#2</code>. The ids live in
+  a process-wide <code>iid -&gt; id</code> registry (<code>GamepadHost::id_registry_</code>), because a
+  cold boot rebuilds the host while SDL and its instance ids carry on: without
+  it, identical pads would be renumbered in arrival order and an assignment
+  would move to the other physical pad. Entries last until SDL stops listing
+  the device (REMOVED, or the purge in the next enumerate/arrival); only a
+  full restart renumbers. The Emulator
+  stores the assignment next to <code>joy_source_</code> (strings only,
+  <code>set_joystick_device()</code>, one controller per connector, last pick wins), the
+  cold boot carries it, and the Input menu and Preferences build the same
+  choice list from <code>joy_choices()</code>. Whenever a device leaves a connector
+  (<code>close_slot()</code>) the dispatcher's <code>release_connector()</code> clears everything it
+  held, since nothing will send the release.</p>
+</li>
+<li>
+<p><strong><code>JNEXT_TEST_VIRTUAL_JOYSTICKS</code></strong> (<code>GamepadHost::attach_test_devices_from_env()</code>,
+  called by both frontends right after <code>SDL_Init</code>) attaches SDL virtual
+  joysticks described as <code>name:vvvv:pppp[:raw];...</code> (vendor/product in hex;
+  <code>raw</code> has no gamepad mapping) and admits only virtual devices from then on, so
+  the regression row <code>joystick-picker-func</code> can drive the real binaries with no
+  hardware and a physical pad on the host cannot disturb it. Inert when unset.
+  The unit suites get the same isolation from <code>GamepadHost::set_virtual_only()</code>,
+  because SDL3 has no hint that disables its Linux backends.</p>
 </li>
 <li>
 <p><strong><code>pointer_capture.h</code></strong> (in <code>src/platform/</code>) decides what the Qt frontend

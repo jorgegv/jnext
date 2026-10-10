@@ -470,25 +470,97 @@ void MainWindow::resync_input_dispatchers() {
     if (mouse_dispatcher_) mouse_dispatcher_->resync();
 }
 
-void MainWindow::on_joy_source_selected(int connector, JoySource src) {
-    if (!emulator_) return;
-    // set_joystick_source enforces the one-cursor-connector rule (it may flip
-    // the other connector back to SDL), so read the effective state back for
-    // both the menu checkmarks and the persisted config.
-    emulator_->set_joystick_source(connector, src);
-    sync_joy_source_menu();
-    app_config_.data().joy_source[0] = emulator_->joystick_source(0);
-    app_config_.data().joy_source[1] = emulator_->joystick_source(1);
+void MainWindow::persist_joy_config() {
+    for (int i = 0; i < 2; ++i) {
+        app_config_.data().joy_source[i] = emulator_->joystick_source(i);
+        app_config_.data().joy_device[i] =
+            QString::fromStdString(emulator_->joystick_device(i).id);
+        app_config_.data().joy_device_name[i] =
+            QString::fromStdString(emulator_->joystick_device(i).name);
+    }
     app_config_.save();
 }
 
-void MainWindow::sync_joy_source_menu() {
+void MainWindow::on_joy_choice_selected(int connector, const JoyChoice& choice) {
     if (!emulator_) return;
+    // The emulator enforces the one-cursor-connector and one-controller-per-
+    // connector rules (it may reset the other connector), so read the
+    // effective state back for both the menu and the persisted config.
+    switch (choice.kind) {
+    case JoyChoice::Kind::Auto:
+        emulator_->set_joystick_source(connector, JoySource::Sdl);
+        emulator_->set_joystick_device(connector, JoyDeviceRef{});
+        break;
+    case JoyChoice::Kind::Device: {
+        std::string name = choice.label;
+        if (joy_device_provider_) {
+            for (const auto& d : joy_device_provider_())
+                if (d.id == choice.id) name = d.name;
+        }
+        emulator_->set_joystick_source(connector, JoySource::Sdl);
+        emulator_->set_joystick_device(connector, JoyDeviceRef{ choice.id, name });
+        break;
+    }
+    case JoyChoice::Kind::Missing:
+        break;   // already the assignment; the entry only displays it
+    case JoyChoice::Kind::Keys:
+        emulator_->set_joystick_source(connector, JoySource::CursorKeys);
+        emulator_->set_joystick_device(connector, JoyDeviceRef{});
+        break;
+    case JoyChoice::Kind::None:
+        emulator_->set_joystick_source(connector, JoySource::None);
+        emulator_->set_joystick_device(connector, JoyDeviceRef{});
+        break;
+    }
+    sync_joy_source_menu();
+    persist_joy_config();
+}
+
+void MainWindow::sync_joy_source_menu() {
+    // Without an emulator (the window before set_emulator()) the menu shows the
+    // defaults: Automatic on both connectors.
+    const std::vector<JoyDeviceInfo> devices =
+        joy_device_provider_ ? joy_device_provider_() : std::vector<JoyDeviceInfo>{};
     for (int conn = 0; conn < 2; ++conn) {
-        const JoySource s = emulator_->joystick_source(conn);
-        const int idx = (s == JoySource::CursorKeys) ? 1 : 0;
-        if (joy_source_action_[conn][idx])
-            joy_source_action_[conn][idx]->setChecked(true);
+        QMenu* sub = joy_menu_[conn];
+        if (!sub) continue;
+        // This runs from inside a triggered action's slot, so the old actions
+        // are retired with deleteLater() rather than deleted under the signal.
+        for (QAction* old : sub->actions()) {
+            sub->removeAction(old);
+            old->deleteLater();
+        }
+        if (joy_group_[conn]) joy_group_[conn]->deleteLater();
+        joy_group_[conn] = new QActionGroup(sub);
+        joy_group_[conn]->setExclusive(true);
+
+        const auto choices = joy_choices(
+            conn, devices, emulator_ ? emulator_->joystick_source(conn) : JoySource::Sdl,
+            emulator_ ? emulator_->joystick_device(conn) : JoyDeviceRef{});
+        for (const JoyChoice& ch : choices) {
+            if (ch.kind == JoyChoice::Kind::Keys) sub->addSeparator();
+            QString text;
+            switch (ch.kind) {
+            case JoyChoice::Kind::Auto: text = tr("&Automatic (first free controller)"); break;
+            case JoyChoice::Kind::Keys: text = tr("Cursor &Keys + Space"); break;
+            // No mnemonic on None: the pinned menu shape (main_window_accel_test
+            // MA-05) counts two per connector submenu, as before this menu listed
+            // controllers; a mnemonic here would change that count.
+            case JoyChoice::Kind::None: text = tr("None"); break;
+            default:
+                // A controller's own name: escape '&' so it is not read as a mnemonic.
+                text = QString::fromStdString(ch.label).replace("&", "&&");
+                break;
+            }
+            QAction* a = sub->addAction(text);
+            a->setCheckable(true);
+            joy_group_[conn]->addAction(a);
+            if (!ch.id.empty()) a->setStatusTip(QString::fromStdString(ch.id));
+            a->setChecked(ch.checked);
+            connect(a, &QAction::triggered, this, [this, conn, ch](bool) {
+                on_joy_choice_selected(conn, ch);
+            });
+        }
     }
 }
 
@@ -972,34 +1044,17 @@ void MainWindow::create_menus() {
 
     // --- Input menu (Task 79) ---
     // Per-connector host input source. Each Next joystick connector can be
-    // driven by an autodetected SDL gamepad or by the host cursor keys + Space
-    // (only one connector may use the cursor keys at a time). Changes apply
+    // driven by a chosen (or the first free) controller, by the host cursor keys + Space,
+    // or by nothing (only one connector may use the cursor keys at a time). Changes apply
     // live and persist to ~/.jnext/jnext.conf.
     QMenu* input_menu = menuBar()->addMenu(tr("&Input"));
-    struct JoyEntry { const char* label; JoySource src; };
-    const JoyEntry joy_entries[2] = {
-        { "&SDL Gamepad",        JoySource::Sdl },
-        { "Cursor &Keys + Space", JoySource::CursorKeys },
-    };
     for (int conn = 0; conn < 2; ++conn) {
-        QMenu* sub = input_menu->addMenu(conn == 0 ? tr("Joy &1 Source (port 0x1F)")
-                                                   : tr("Joy &2 Source (port 0x37)"));
-        auto* group = new QActionGroup(this);
-        group->setExclusive(true);
-        for (int e = 0; e < 2; ++e) {
-            QAction* a = sub->addAction(tr(joy_entries[e].label));
-            a->setCheckable(true);
-            group->addAction(a);
-            joy_source_action_[conn][e] = a;
-            const JoySource src = joy_entries[e].src;
-            connect(a, &QAction::triggered, this, [this, conn, src](bool checked) {
-                if (checked) on_joy_source_selected(conn, src);
-            });
-        }
+        joy_menu_[conn] = input_menu->addMenu(conn == 0 ? tr("Joy &1 Source (port 0x1F)")
+                                                        : tr("Joy &2 Source (port 0x37)"));
     }
-    // Default state before set_emulator() syncs from the effective sources.
-    joy_source_action_[0][0]->setChecked(true);
-    joy_source_action_[1][0]->setChecked(true);
+    // Filled with the defaults now; sync_joy_source_menu() refills them from the
+    // emulator and the host's device list once those exist.
+    sync_joy_source_menu();
 
     // Kempston mouse pointer capture (issue #37). Off by default: capturing
     // uninvited would take the pointer away from a user who only wanted to
@@ -2320,12 +2375,17 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
     // user actually came here to make.
     apply_startup_config(cfg);
 
-    // Task 79 — live-apply the per-connector input sources. The dialog already
-    // enforces the one-cursor rule, so these two calls never conflict; sync the
+    // Task 79 / GH #311 — live-apply the per-connector input sources and the
+    // assigned controllers. The dialog already enforces the one-cursor and
+    // one-controller rules, so these calls never conflict; sync the
     // Input-menu checkmarks to the (now effective) state.
     if (emulator_) {
         emulator_->set_joystick_source(0, cfg.joy_source[0]);
         emulator_->set_joystick_source(1, cfg.joy_source[1]);
+        for (int i = 0; i < 2; ++i) {
+            emulator_->set_joystick_device(i, JoyDeviceRef{ cfg.joy_device[i].toStdString(),
+                                                            cfg.joy_device_name[i].toStdString() });
+        }
         sync_joy_source_menu();
     }
 
@@ -2382,7 +2442,9 @@ void MainWindow::on_open_preferences() {
     // already answers to, harvested from the real QActions rather than
     // hand-listed, so a menu item added later is picked up with no edit here.
     PreferencesDialog dlg(app_config_.data(), this, app_config_.debug_key_issues(),
-                          harvest_host_chords(this));
+                          harvest_host_chords(this),
+                          joy_device_provider_ ? joy_device_provider_()
+                                               : std::vector<JoyDeviceInfo>{});
     connect(&dlg, &PreferencesDialog::apply_requested, this, [this](const AppConfigData& cfg) {
         app_config_.data() = cfg;
         app_config_.save();

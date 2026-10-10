@@ -3555,6 +3555,14 @@ understand is reported on the console at startup and listed at the top of the
 Preferences <strong>Debugger Keys</strong> tab; the action keeps its default. The spelling
 of the action names and of the key combinations is in
 <a href="../06-debugger/functions/09-changing-the-keys.html">6.3.9</a>.</p>
+<p>The joystick connectors are stored in the <code>[input]</code> section: <code>joy1_source</code> and
+<code>joy2_source</code> (<code>sdl</code>, <code>keys</code> or <code>none</code>), <code>joy1_device</code> and <code>joy2_device</code> (the
+chosen controller's id, 32 hex digits optionally followed by <code>#N</code>; empty means
+Automatic) and <code>joy1_device_name</code> and <code>joy2_device_name</code> (the name the menu
+shows while that controller is not connected). They are the same settings as the
+<strong>Input</strong> menu and the Preferences <strong>Input</strong> tab, and <code>--joy1-device</code> /
+<code>--joy2-device</code> override the ids for one run. An id that is not valid is ignored
+together with its name, and the connector falls back to Automatic.</p>
 <p>The quick screenshot is stored in the <code>[screenshot]</code> section: <code>quick_dir</code> (an
 empty value means <code>~/.jnext/screenshots</code>) and <code>quick_format</code>, either <code>png</code> or
 <code>scr</code>. They are the same two settings as the Preferences <strong>Paths</strong> tab;
