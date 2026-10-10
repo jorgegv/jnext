@@ -1641,7 +1641,7 @@ takes are Ctrl+F5 and Ctrl+F6 (start and stop video recording), and function
 keys have no Spectrum meaning to lose.
 
 Alt is the opposite: it is a host modifier, never a Spectrum key. jnext claims
-Alt + Q/O/S/K/R/T/D/P and Alt+Shift+S (menu shortcuts), Alt + F/M/I/A/B/V/N/H
+Alt + Q/O/S/K/R/T/D/P/U and Alt+Shift+S (menu shortcuts), Alt + F/M/I/A/B/V/N/H
 (menu bar) and Alt + 1 to Alt + 8 (the script host keys), which leaves the
 guest only Alt + E/G/C (EDIT, GRAPH, CAPS LOCK) and Alt + the key left of `1`
 (INV VIDEO). Alt + 1 to Alt + 8 no longer type their digit into the program
