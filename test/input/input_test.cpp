@@ -5686,12 +5686,12 @@ static void test_gh311_assign() {
         bool all_rejected = true;
         const std::string bad[] = {
             G.substr(0, 31), G + "0", "gf0047df341200000100000000007601", G + "#0",
-            G + "#", G + "#x", G + "#-1", "" };
+            G + "#", G + "#x", G + "#-1", "", G + "#1234567" };
         std::string out = "keep";
         for (const auto& b : bad) {
             if (normalize_joy_device_id(b, out)) all_rejected = false;
         }
-        check("JASN-02", "normalize rejects 31/33 hex, non-hex, #0, #, #x, #-1 and empty",
+        check("JASN-02", "normalize rejects 31/33 hex, non-hex, #0, #, #x, #-1, a 7-digit ordinal and empty",
               all_rejected && out == "keep", "");
     }
     check("JASN-03", "make_joy_device_id: ordinal 1 bare, 3 -> #3",
@@ -5757,9 +5757,14 @@ static void test_gh311_assign() {
     {
         auto k = joy_choices(0, {}, JoySource::CursorKeys, JoyDeviceRef{});
         auto n = joy_choices(0, {}, JoySource::None, JoyDeviceRef{});
-        check("JASN-16", "joy_choices checks Cursor Keys / None for those sources only",
+        // Keys with a dormant absent id: still exactly one entry checked (Keys).
+        auto kd = joy_choices(0, {}, JoySource::CursorKeys, JoyDeviceRef{ kJD, "Gone" });
+        int kd_checked = 0;
+        for (const auto& c : kd) if (c.checked) ++kd_checked;
+        check("JASN-16", "joy_choices checks Cursor Keys / None for those sources only; one entry checked even with a dormant absent id",
               k.size() == 3 && k[1].checked && !k[0].checked && !k[2].checked &&
-              n.size() == 3 && n[2].checked && !n[0].checked && !n[1].checked, "");
+              n.size() == 3 && n[2].checked && !n[0].checked && !n[1].checked &&
+              kd_checked == 1 && kd.size() == 4 && kd[2].checked, "");
     }
 }
 
