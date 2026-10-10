@@ -12531,7 +12531,7 @@ void Emulator::on_scanline(int line)
     renderer_.ula().set_current_scroll_line(tag);
     renderer_.ula().set_palsel_current_line(tag);
     tilemap_.set_current_nr6b_line(tag);
-    // G12 — tag subsequent attribute-plane writes with this scanline
+    // G12 — tag subsequent ULA-VRAM (pixel and attribute) writes with this scanline
     // (framebuffer-row space, matching every sibling log above).
     mmu_.attr_mux_set_current_line(tag);
     // G02 — tag subsequent NR 0x15 writes (layer priority / sprite enable).

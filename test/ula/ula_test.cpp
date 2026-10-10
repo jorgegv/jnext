@@ -3927,6 +3927,523 @@ static void test_section17_palette_select() {
 // Main
 // =========================================================================
 
+// =========================================================================
+// Section 19: ULA VRAM beam replay (GH #305)
+// =========================================================================
+//
+// The ULA fetches every byte it displays, pixel and attribute alike, at a
+// fixed horizontal instant of every scanline (zxula.vhd:226-303). A write
+// that lands after a byte's fetch instant is not seen until the next
+// scanline's fetch. These rows drive Mmu::write() with an explicit (line, hc)
+// tag, render through the real Ula, and read the rendered pixel back.
+//
+// ORACLE. The instants are NOT taken from AttributeMux::fetch_hc(). They are
+// re-derived here from the "record bytes read" process, zxula.vhd:270-303:
+// on the falling edge of i_CLK_7, hc(3:0) = 1,3,5,7,9,B,D,F latch
+//   pbyte11 abyte11 pbyte01 abyte01 pbyte00 abyte00 pbyte10 abyte10
+// where *00 / *10 are the primary column of an even / odd display slot and
+// *01 / *11 the secondary (px_1) column, and slot j belongs to the 16-tick
+// block j/2. hc_ula = 0 is raw hc = c_min_hactive - 11 (zxula_timing.vhd:
+// 423-436) and hc_origin = c_min_hactive - 12, so raw = hc_ula + origin + 1
+// (the +1 is the calibration the attribute rows G12-MUX-10/11 pin against
+// FUSE, Task 54). A write is seen by a fetch when its tag is <= the instant.
+
+namespace {
+
+constexpr int kBeamOrigin = 116;   // VideoTiming::ula_prefetch_origin_hc(), 48K
+constexpr int kRowY       = 8;     // screen row under test (character row 1)
+constexpr int kFbRow      = Ula::DISP_Y + kRowY;
+
+// hc_ula latch instants, zxula.vhd:270-303 (see the block comment above).
+int vh_pbyte_primary(int j)   { return 16 * (j >> 1) + ((j & 1) ? 0xD : 0x9); }
+int vh_abyte_primary(int j)   { return 16 * (j >> 1) + ((j & 1) ? 0xF : 0xB); }
+int vh_pbyte_secondary(int j) { return (j & 1) ? 16 * ((j >> 1) + 1) + 0x1
+                                               : 16 * (j >> 1) + 0x5; }
+int raw_hc(int hc_ula) { return hc_ula + kBeamOrigin + 1; }
+
+struct BeamBed : UlaBed {
+    BeamBed() {
+        mmu.set_page(4, 14);   // bank 7 page 14 -> 0x8000
+        // White ink on black paper for every attribute cell of every bank.
+        for (int i = 0; i < 768; ++i) {
+            ram.write(10u * 8192u + 0x1800u + i, 0x07);
+            ram.write(14u * 8192u + 0x1800u + i, 0x07);
+            ram.write(11u * 8192u + 0x1800u + i, 0x07);   // alt-screen attrs
+        }
+    }
+    void begin() { mmu.attr_mux_start_frame(kBeamOrigin, 0); }
+    // A write by a non-CPU writer carries the coarse (line, hc) tag.
+    void wr(uint16_t cpu_addr, uint8_t v, int line, int hc) {
+        mmu.attr_mux_set_current_line(line);
+        mmu.attr_mux_set_current_hc(hc);
+        mmu.write(cpu_addr, v);
+    }
+    std::array<uint32_t, Ula::FB_WIDTH> row(int fb_row) {
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        mmu.attr_mux_rewind_to_baseline();
+        mmu.attr_mux_apply_line(fb_row);
+        ula.render_scanline(line.data(), fb_row, mmu);
+        return line;
+    }
+    // The byte a standard-mode cell shows: bit b set where the cell is ink.
+    static uint8_t cell(const std::array<uint32_t, Ula::FB_WIDTH>& line, int col,
+                        uint32_t ink) {
+        uint8_t v = 0;
+        for (int b = 0; b < 8; ++b)
+            if (line[Ula::DISP_X + col * 16 + b * 2] == ink) v |= (0x80 >> b);
+        return v;
+    }
+};
+
+uint16_t pix_addr(int col, int y = kRowY) {
+    return static_cast<uint16_t>(0x4000u + emu_pixel_addr_offset(y, col));
+}
+uint16_t attr_addr(int col) {
+    return static_cast<uint16_t>(0x5800u + (kRowY / 8) * 32 + col);
+}
+
+} // namespace
+
+static void test_section19_beam_replay() {
+    set_group("S19-BeamReplay");
+    const uint32_t white = bed_ink_argb(BeamBed().palette, 7);
+    const uint32_t green = bed_ink_argb(BeamBed().palette, 4);
+
+    // VMUX-01 — a pixel byte written during the PREVIOUS scanline is fetched
+    // by this scanline: the replay must hand it over (control row; the old
+    // and new behaviour agree here, it pins that the replay is not stale).
+    {
+        BeamBed bed;
+        bed.begin();
+        bed.wr(pix_addr(5), 0xFF, kFbRow - 1, 200);
+        const uint8_t got = BeamBed::cell(bed.row(kFbRow), 5, white);
+        check("VMUX-01",
+              "zxula.vhd:270-303 — a pixel byte written on the previous "
+              "scanline is fetched by this scanline's pixel slot",
+              got == 0xFF, fmt("got=0x%02X (expected 0xFF)", got));
+    }
+
+    // VMUX-02 — written on THIS scanline after the column's pixel fetch
+    // (col 5 odd: pbyte10 @ hc_ula 0x2D): this scanline still shows the old
+    // byte; the next frame's fetch shows the new one. The pre-fix renderer
+    // read live RAM at the end of the frame and showed 0xFF here.
+    {
+        BeamBed bed;
+        bed.begin();
+        const int p = raw_hc(vh_pbyte_primary(5));
+        bed.wr(pix_addr(5), 0xFF, kFbRow, p + 1);
+        bed.wr(pix_addr(6), 0xAA, kFbRow - 1, 0);   // in time: seen this frame
+        const uint8_t now = BeamBed::cell(bed.row(kFbRow), 5, white);
+        bed.begin();   // next frame: baseline = live RAM, now holding 0xFF
+        const uint8_t next = BeamBed::cell(bed.row(kFbRow), 5, white);
+        // A frame with no write to a byte shows what RAM holds, however it
+        // got there (loader, state load): no log entry survives the frame,
+        // not even the visible 0xAA one of column 6.
+        bed.ram.write(10u * 8192u + emu_pixel_addr_offset(kRowY, 6), 0x5A);
+        bed.begin();
+        const uint8_t third = BeamBed::cell(bed.row(kFbRow), 6, white);
+        check("VMUX-02",
+              "zxula.vhd:270-303 — a pixel write after the column's pbyte "
+              "fetch is not seen on this scanline (old byte), but is on the "
+              "next frame; a later frame shows RAM as it then is",
+              now == 0x00 && next == 0xFF && third == 0x5A,
+              fmt("this scanline=0x%02X (expected 0x00, end-of-frame read "
+                  "gives 0xFF) next frame=0x%02X (expected 0xFF) third=0x%02X "
+                  "(expected 0x5A)", now, next, third));
+    }
+
+    // VMUX-03 — the instant is exact and has the parity term: pbyte00 @9
+    // (even slot) / pbyte10 @D (odd slot). A write AT the instant is seen
+    // (<=), one tick later is not.
+    {
+        uint8_t got[4];
+        const int cols[2] = {4, 5};
+        for (int k = 0; k < 2; ++k) {
+            const int p = raw_hc(vh_pbyte_primary(cols[k]));
+            for (int d = 0; d < 2; ++d) {
+                BeamBed bed;
+                bed.begin();
+                bed.wr(pix_addr(cols[k]), 0xFF, kFbRow, p + d);
+                got[k * 2 + d] = BeamBed::cell(bed.row(kFbRow), cols[k], white);
+            }
+        }
+        check("VMUX-03",
+              "zxula.vhd:276-286 — pbyte00 latches at hc(3:0)=9 (even slot), "
+              "pbyte10 at D (odd slot): a write at the instant is seen, one "
+              "tick later is not, for both parities",
+              got[0] == 0xFF && got[1] == 0x00 && got[2] == 0xFF && got[3] == 0x00,
+              fmt("col4 @P/@P+1=0x%02X/0x%02X col5 @P/@P+1=0x%02X/0x%02X "
+                  "(expected FF/00/FF/00)", got[0], got[1], got[2], got[3]));
+    }
+
+    // VMUX-04 — the pixel byte is fetched 2 ticks BEFORE the attribute byte
+    // of the same cell (pbyte10 @D, abyte10 @F). A pixel and an attribute
+    // both written between the two instants give the OLD pixel with the NEW
+    // attribute.
+    {
+        BeamBed bed;
+        bed.ram.write(10u * 8192u + emu_pixel_addr_offset(kRowY, 5), 0xFF);
+        bed.begin();
+        const int p = raw_hc(vh_pbyte_primary(5));
+        const int a = raw_hc(vh_abyte_primary(5));
+        bed.wr(pix_addr(5), 0x00, kFbRow, p + 1);
+        bed.wr(attr_addr(5), 0x04, kFbRow, p + 1);
+        const uint8_t got = BeamBed::cell(bed.row(kFbRow), 5, green);
+        check("VMUX-04",
+              "zxula.vhd:276-286 — pbyte10 (@D) is fetched 2 ticks before "
+              "abyte10 (@F): both written in between give the old pixel "
+              "with the new attribute",
+              a == p + 2 && got == 0xFF,
+              fmt("green-ink mask=0x%02X (expected 0xFF: old pixel 0xFF in "
+                  "the new green attribute) a-p=%d", got, a - p));
+    }
+
+    // VMUX-05 — the shadow screen (bank 7, page 0x0E) is replayed too.
+    {
+        BeamBed bed;
+        bed.ula.set_shadow_screen_en(true);
+        bed.begin();
+        const int p = raw_hc(vh_pbyte_primary(5));
+        bed.wr(static_cast<uint16_t>(0x8000u + emu_pixel_addr_offset(kRowY, 5)),
+               0xFF, kFbRow, p + 1);
+        // Positive control: column 6 written before its fetch IS seen, so
+        // "the write was never recorded" cannot pass this row.
+        bed.wr(static_cast<uint16_t>(0x8000u + emu_pixel_addr_offset(kRowY, 6)),
+               0xFF, kFbRow - 1, 0);
+        const auto l = bed.row(kFbRow);
+        const uint8_t got = BeamBed::cell(l, 5, white);
+        const uint8_t ctl = BeamBed::cell(l, 6, white);
+        check("VMUX-05",
+              "zxnext.vhd:6649-6656 + zxula.vhd:276-286 — a bank-7 (shadow) "
+              "pixel write after the pbyte fetch shows the old byte, one "
+              "before it the new byte",
+              got == 0x00 && ctl == 0xFF,
+              fmt("late=0x%02X (expected 0x00) early=0x%02X (expected 0xFF)",
+                  got, ctl));
+    }
+
+    // VMUX-06 — Timex hi-colour (port FF = 2): the colour byte comes from
+    // '1' & addr_p (bank offset 0x2000+, zxula.vhd:238-241) in the ATTRIBUTE
+    // slot. Written at/before abyte10 it is seen, one tick later it is not.
+    {
+        uint8_t got[3];
+        const int a = raw_hc(vh_abyte_primary(5));
+        const int offs[3] = {-1, 0, 1};   // between P and A, at A, after A
+        for (int k = 0; k < 3; ++k) {
+            BeamBed bed;
+            bed.ula.set_screen_mode(0x02);
+            bed.ram.write(10u * 8192u + emu_pixel_addr_offset(kRowY, 5), 0xFF);
+            bed.ram.write(11u * 8192u + emu_pixel_addr_offset(kRowY, 5), 0x07);
+            bed.begin();
+            bed.wr(static_cast<uint16_t>(0x6000u + emu_pixel_addr_offset(kRowY, 5)),
+                   0x04, kFbRow, a + offs[k]);
+            got[k] = BeamBed::cell(bed.row(kFbRow), 5, green);
+        }
+        check("VMUX-06",
+              "zxula.vhd:238-241,276-286 — hi-colour colour byte is fetched "
+              "in the attribute slot (abyte10 @F): seen when written at or "
+              "before it, not one tick after",
+              got[0] == 0xFF && got[1] == 0xFF && got[2] == 0x00,
+              fmt("green mask between/at/after A = 0x%02X/0x%02X/0x%02X "
+                  "(expected FF/FF/00)", got[0], got[1], got[2]));
+    }
+
+    // VMUX-13 — Timex hi-colour (port FF = 2), the PIXEL byte (bank offset
+    // 0x0000+, `screen_mode(0) & addr_p`) is fetched in the pixel slot, two
+    // ticks before the colour byte (pbyte00 @9 / pbyte10 @D vs abyte @B / @F,
+    // zxula.vhd:229-241,276-286). VMUX-06 pins the colour byte; this pins the
+    // sibling fetch: written at the pixel instant it is seen, one tick later
+    // it is not, and at the colour instant it is not (a pixel fetched at the
+    // colour instant would see it).
+    {
+        uint8_t got[4];
+        const int cols[2] = {4, 5};
+        for (int k = 0; k < 2; ++k) {
+            const int p = raw_hc(vh_pbyte_primary(cols[k]));
+            for (int d = 0; d < 2; ++d) {
+                BeamBed bed;
+                bed.ula.set_screen_mode(0x02);
+                bed.ram.write(11u * 8192u + emu_pixel_addr_offset(kRowY, cols[k]), 0x07);
+                bed.begin();
+                bed.wr(pix_addr(cols[k]), 0xFF, kFbRow, p + d);
+                got[k * 2 + d] = BeamBed::cell(bed.row(kFbRow), cols[k], white);
+            }
+        }
+        check("VMUX-13",
+              "zxula.vhd:229-232,276-286 — hi-colour pixel byte is fetched in "
+              "the pixel slot (pbyte00 @9 / pbyte10 @D): seen at the instant, "
+              "not one tick later, for both parities",
+              got[0] == 0xFF && got[1] == 0x00 && got[2] == 0xFF && got[3] == 0x00,
+              fmt("col4 @P/@P+1=0x%02X/0x%02X col5 @P/@P+1=0x%02X/0x%02X "
+                  "(expected FF/00/FF/00)", got[0], got[1], got[2], got[3]));
+    }
+
+    // VMUX-07 — Timex hi-res (port FF = 6): screen 0 (0x4000) is the pixel
+    // slot, screen 1 (0x6000, '1' & addr_p) the attribute slot.
+    {
+        const uint32_t ink = bed_ink_argb(BeamBed().palette, 8 | 5);   // bright cyan
+        auto s0 = [&](const std::array<uint32_t, Ula::FB_WIDTH>& l) {
+            uint8_t v = 0;
+            for (int b = 0; b < 8; ++b)
+                if (l[Ula::DISP_X + 5 * 16 + b] == ink) v |= (0x80 >> b);
+            return v;
+        };
+        auto s1 = [&](const std::array<uint32_t, Ula::FB_WIDTH>& l) {
+            uint8_t v = 0;
+            for (int b = 0; b < 8; ++b)
+                if (l[Ula::DISP_X + 5 * 16 + 8 + b] == ink) v |= (0x80 >> b);
+            return v;
+        };
+        const uint8_t hires = static_cast<uint8_t>(0x06 | (5 << 3));
+        const int p = raw_hc(vh_pbyte_primary(5));
+        const int a = raw_hc(vh_abyte_primary(5));
+        uint8_t r[4];
+        for (int k = 0; k < 4; ++k) {
+            BeamBed bed;
+            bed.ula.set_screen_mode(hires);
+            bed.begin();
+            const bool second = k >= 2;
+            const int hc = second ? a + (k & 1) : p + (k & 1);
+            bed.wr(second ? static_cast<uint16_t>(0x6000u + emu_pixel_addr_offset(kRowY, 5))
+                          : pix_addr(5),
+                   0xFF, kFbRow, hc);
+            const auto l = bed.row(kFbRow);
+            r[k] = second ? s1(l) : s0(l);
+        }
+        check("VMUX-07",
+              "zxula.vhd:238-241,276-286,384-406 — hi-res screen 0 is fetched "
+              "in the pixel slot, screen 1 in the attribute slot: each seen at "
+              "its own instant, not one tick later",
+              r[0] == 0xFF && r[1] == 0x00 && r[2] == 0xFF && r[3] == 0x00,
+              fmt("screen0 @P/@P+1=0x%02X/0x%02X screen1 @A/@A+1=0x%02X/0x%02X "
+                  "(expected FF/00/FF/00)", r[0], r[1], r[2], r[3]));
+    }
+
+    // VMUX-08 — Timex alt screen (port FF = 1): pixels at 0x2000+addr_p
+    // (pixel slot), attributes at 0x3800+ (attribute slot), each replayed at
+    // its own instant. Both written at hc = A: the attribute is seen (<=A),
+    // the pixel (fetched 2 ticks earlier) is not -> old pixel, new attribute.
+    // Both written at hc = A+1: the attribute is no longer seen either.
+    {
+        const int a = raw_hc(vh_abyte_primary(5));
+        uint8_t got[2];
+        const int at[2] = {0, 1};
+        for (int k = 0; k < 2; ++k) {
+            BeamBed bed;
+            bed.ula.set_screen_mode(0x01);
+            bed.ram.write(11u * 8192u + emu_pixel_addr_offset(kRowY, 5), 0xFF);
+            bed.begin();
+            bed.wr(static_cast<uint16_t>(0x6000u + emu_pixel_addr_offset(kRowY, 5)),
+                   0x00, kFbRow, a + at[k]);
+            bed.wr(static_cast<uint16_t>(0x7800u + (kRowY / 8) * 32 + 5),
+                   0x04, kFbRow, a + at[k]);
+            const auto l = bed.row(kFbRow);
+            got[k] = BeamBed::cell(l, 5, k == 0 ? green : white);
+        }
+        check("VMUX-08",
+              "zxula.vhd:218,238-252,276-286 — alt screen: pixels at 0x2000+ "
+              "and attributes at 0x3800+ are each replayed at their own "
+              "instant (old pixel + new attribute at A; old + old at A+1)",
+              got[0] == 0xFF && got[1] == 0xFF,
+              fmt("@A green mask=0x%02X, @A+1 white mask=0x%02X (expected "
+                  "FF/FF)", got[0], got[1]));
+    }
+
+    // VMUX-09 — coarse X scroll of 2 columns (NR 0x26 = 16): display slot 5
+    // shows source column 7 (zxula.vhd:199). The fetch instant is the DISPLAY
+    // slot's, so a write to column 7 after slot 5's pbyte instant but before
+    // slot 7's is NOT seen by slot 5.
+    {
+        uint8_t got[2];
+        const int s5 = raw_hc(vh_pbyte_primary(5));
+        const int s7 = raw_hc(vh_pbyte_primary(7));
+        const int at[2] = {0, (s5 + s7) / 2 - s5};   // at slot 5's instant; between 5 and 7
+        for (int k = 0; k < 2; ++k) {
+            BeamBed bed;
+            bed.ula.set_ula_scroll_x_coarse(16);
+            bed.begin();
+            bed.wr(pix_addr(7), 0xFF, kFbRow, s5 + at[k]);
+            got[k] = BeamBed::cell(bed.row(kFbRow), 5, white);
+        }
+        check("VMUX-09",
+              "zxula.vhd:199,276-286 — with a 2-column coarse scroll slot 5 "
+              "shows column 7 but fetches at slot 5's instant: a write at it "
+              "is seen, one between slots 5 and 7 is not",
+              s5 < s7 && got[0] == 0xFF && got[1] == 0x00,
+              fmt("slot5 @s5=0x%02X @mid=0x%02X (expected FF/00; column-7 "
+                  "timing would give FF/FF)", got[0], got[1]));
+    }
+
+    // VMUX-10 — fine X scroll of 4 pixels: the last 4 pixels of slot s are
+    // shifted in from the NEXT column's bytes, fetched by the secondary
+    // (px_1) fetches (zxula.vhd:216,245-248,383-384): pbyte01/abyte01 @5/@7
+    // for an even slot, pbyte11/abyte11 @1/@3 of the next block for an odd
+    // one. A write AT the secondary instant reaches those pixels, one tick
+    // later does not. Slots 2 and 3 pin both parities, pixel and attribute.
+    {
+        auto last4 = [&](int slot, bool attr, int delta) -> uint8_t {
+            BeamBed bed;
+            bed.ula.set_ula_scroll_x_coarse(4);
+            const int c = slot + 1;
+            if (attr) {
+                bed.ram.write(10u * 8192u + emu_pixel_addr_offset(kRowY, c), 0xFF);
+                bed.begin();
+                bed.wr(attr_addr(c), 0x04, kFbRow,
+                       raw_hc(16 * ((slot >> 1) + (slot & 1)) + ((slot & 1) ? 0x3 : 0x7)) + delta);
+                return BeamBed::cell(bed.row(kFbRow), slot, green);
+            }
+            bed.begin();
+            bed.wr(pix_addr(c), 0xFF, kFbRow, raw_hc(vh_pbyte_secondary(slot)) + delta);
+            return BeamBed::cell(bed.row(kFbRow), slot, white);
+        };
+        const uint8_t s2p[2] = {last4(2, false, 0), last4(2, false, 1)};
+        const uint8_t s3p[2] = {last4(3, false, 0), last4(3, false, 1)};
+        const uint8_t s2a[2] = {last4(2, true, 0),  last4(2, true, 1)};
+        const uint8_t s3a[2] = {last4(3, true, 0),  last4(3, true, 1)};
+        check("VMUX-10",
+              "zxula.vhd:216,245-248,383-384 — fine-scroll pixels follow the "
+              "secondary fetches (pbyte01/abyte01 @5/@7 even slot, pbyte11/"
+              "abyte11 @1/@3 of the next block odd slot): seen at the instant "
+              "(0x0F), not one tick later (0x00)",
+              s2p[0] == 0x0F && s2p[1] == 0x00 && s3p[0] == 0x0F && s3p[1] == 0x00 &&
+              s2a[0] == 0x0F && s2a[1] == 0x00 && s3a[0] == 0x0F && s3a[1] == 0x00,
+              fmt("pixel slot2 %02X/%02X slot3 %02X/%02X attr slot2 %02X/%02X "
+                  "slot3 %02X/%02X (expected 0F/00 each)",
+                  s2p[0], s2p[1], s3p[0], s3p[1], s2a[0], s2a[1], s3a[0], s3a[1]));
+    }
+
+    // VMUX-14 — the scrolled path's PRIMARY fetches. With a fine scroll of 4
+    // the first four pixels of slot s come from the slot's own column
+    // (primary fetches, zxula.vhd:199, 234-252): pixel at P(s), attribute 2
+    // ticks later at A(s). VMUX-10 pins the secondary fetches; here, for an
+    // even and an odd slot: the pixel byte seen at P and not at P+1; the
+    // attribute seen at A and not at A+1 (live RAM would show it, and so would
+    // a read at the wrong instant); both written at P+1 give the old pixel in
+    // the new attribute.
+    {
+        auto first4 = [&](int slot, int what, int delta) -> uint8_t {
+            BeamBed bed;
+            bed.ula.set_ula_scroll_x_coarse(4);
+            const int p = raw_hc(vh_pbyte_primary(slot));
+            const int a = raw_hc(vh_abyte_primary(slot));
+            if (what == 0) {                       // pixel byte at P / P+1
+                bed.begin();
+                bed.wr(pix_addr(slot), 0xFF, kFbRow, p + delta);
+                return BeamBed::cell(bed.row(kFbRow), slot, white);
+            }
+            bed.ram.write(10u * 8192u + emu_pixel_addr_offset(kRowY, slot), 0xFF);
+            bed.begin();
+            if (what == 1) {                       // attribute at A / A+1
+                bed.wr(attr_addr(slot), 0x04, kFbRow, a + delta);
+            } else {                               // pixel 0 and attribute green, both at P+1
+                bed.wr(pix_addr(slot), 0x00, kFbRow, p + 1);
+                bed.wr(attr_addr(slot), 0x04, kFbRow, p + 1);
+            }
+            return BeamBed::cell(bed.row(kFbRow), slot, green);
+        };
+        uint8_t r[2][7];
+        for (int k = 0; k < 2; ++k) {
+            const int slot = 2 + k;
+            r[k][0] = first4(slot, 0, 0); r[k][1] = first4(slot, 0, 1);
+            r[k][2] = first4(slot, 1, 0); r[k][3] = first4(slot, 1, 1);
+            r[k][4] = first4(slot, 2, 0);
+        }
+        bool ok = true;
+        for (int k = 0; k < 2; ++k)
+            ok = ok && r[k][0] == 0xF0 && r[k][1] == 0x00 && r[k][2] == 0xF0
+                    && r[k][3] == 0x00 && r[k][4] == 0xF0;
+        check("VMUX-14",
+              "zxula.vhd:199,234-252,276-286 — scrolled path, primary fetches: "
+              "pixel seen at P not P+1, attribute seen at A not A+1, both at "
+              "P+1 give old pixel + new attribute (slots 2 and 3)",
+              ok,
+              fmt("slot2 pix %02X/%02X attr %02X/%02X both %02X; slot3 pix %02X/%02X "
+                  "attr %02X/%02X both %02X (expected F0/00 F0/00 F0)",
+                  r[0][0], r[0][1], r[0][2], r[0][3], r[0][4],
+                  r[1][0], r[1][1], r[1][2], r[1][3], r[1][4]));
+    }
+
+    // VMUX-15 — the debugger video panel walks the frame a second time AFTER
+    // the main render has flushed the log (Renderer::render_frame ends with
+    // flush_remaining_changes()). Each pixel byte is fetched once per frame, at
+    // one instant, so the second walk reads it at exactly the instant the first
+    // did, and only rewind_to_baseline() puts its cursor back: a byte written
+    // after its fetch must still show the OLD value on the second walk, not the
+    // end-of-frame one.
+    {
+        BeamBed bed;
+        bed.begin();
+        const int p = raw_hc(vh_pbyte_primary(5));
+        bed.wr(pix_addr(5), 0xFF, kFbRow, p + 1);
+        const uint8_t pass1 = BeamBed::cell(bed.row(kFbRow), 5, white);
+        bed.mmu.attr_mux_flush_remaining();
+        const uint8_t pass2 = BeamBed::cell(bed.row(kFbRow), 5, white);
+        check("VMUX-15",
+              "zxula.vhd:270-303 — render, flush, rewind, render again at the "
+              "same instant: a pixel written after its fetch shows the old "
+              "byte on both passes",
+              pass1 == 0x00 && pass2 == 0x00,
+              fmt("pass1=0x%02X pass2=0x%02X (expected 0x00 both; a cursor not "
+                  "rewound gives 0xFF on the second)", pass1, pass2));
+    }
+
+    // VMUX-11 — no write is dropped: 20000 screen writes in one frame (the
+    // old log capped at 8192 and silently dropped the tail) and the last one,
+    // late in the frame, is still resolved.
+    {
+        BeamBed bed;
+        bed.begin();
+        for (int i = 0; i < 20000; ++i)
+            bed.wr(static_cast<uint16_t>(0x4000u + 0x0800u + (i % 0x1000)),
+                   static_cast<uint8_t>(i), 5, 0);
+        bed.wr(pix_addr(5), 0xFF, kFbRow - 1, 200);
+        const uint8_t got = BeamBed::cell(bed.row(kFbRow), 5, white);
+        check("VMUX-11",
+              "zxula.vhd:226-303 — a write is replayed however many came "
+              "before it in the frame (the change log may not drop)",
+              bed.mmu.attr_mux5().log_size() == 20001 && got == 0xFF,
+              fmt("log_size=%zu (expected 20001) got=0x%02X (expected 0xFF)",
+                  bed.mmu.attr_mux5().log_size(), got));
+    }
+
+    // VMUX-12 — each scanline replays the bank IT displays: the 7FFD shadow
+    // bit is sampled per row (GH #256). Row A shows bank 5, row B bank 7; a
+    // bank-5 write must not leak into row B and bank 7's late write must not
+    // show in row B.
+    {
+        BeamBed bed;
+        const int yb = 16, rowb = Ula::DISP_Y + yb;
+        bed.ram.write(14u * 8192u + emu_pixel_addr_offset(yb, 5), 0x0F);
+        bed.begin();
+        // Bank 5: row A's byte arrives in time (0xAA); row B's bank-5 byte
+        // (0xFF) must never show in row B.
+        bed.wr(pix_addr(5), 0xAA, kFbRow - 1, 0);
+        bed.wr(pix_addr(5, yb), 0xFF, rowb - 1, 0);
+        // Bank 7: row B's byte (0x55) arrives after its pbyte fetch.
+        bed.wr(static_cast<uint16_t>(0x8000u + emu_pixel_addr_offset(yb, 5)),
+               0x55, rowb, raw_hc(vh_pbyte_primary(5)) + 1);
+        bed.ula.init_control_per_line();          // every row: bank 5
+        bed.ula.set_shadow_screen_en(true);
+        bed.ula.snapshot_control_for_line(rowb);  // row B: bank 7
+        bed.ula.set_shadow_screen_en(false);
+        // Positive control in bank 7: column 6 written in time is seen.
+        bed.wr(static_cast<uint16_t>(0x8000u + emu_pixel_addr_offset(yb, 6)),
+               0x81, rowb - 1, 0);
+        const uint8_t a = BeamBed::cell(bed.row(kFbRow), 5, white);
+        const auto lb = bed.row(rowb);
+        const uint8_t b = BeamBed::cell(lb, 5, white);
+        const uint8_t c = BeamBed::cell(lb, 6, white);
+        check("VMUX-12",
+              "zxnext.vhd:6649-6656 + zxula.vhd:276-286 — per-row bank: row A "
+              "replays bank 5 (0xAA), row B replays bank 7 as it was at the "
+              "fetch (0x0F; 0x81 for the column written in time), neither "
+              "sees the other bank or the late write",
+              a == 0xAA && b == 0x0F && c == 0x81,
+              fmt("rowA=0x%02X (expected 0xAA) rowB=0x%02X (expected 0x0F) "
+                  "rowB col6=0x%02X (expected 0x81)", a, b, c));
+    }
+}
+
 int main() {
     std::printf("=== ULA Video Compliance Test Suite (Phase-2 idiom, 122 plan rows) ===\n\n");
 
@@ -3948,6 +4465,7 @@ int main() {
     test_section16_nrff_palette();
     test_section17_palette_select();
     test_section18_scr_dump();
+    test_section19_beam_replay();
 
     std::printf("\n=== Results by group ===\n");
     std::string last_group;
