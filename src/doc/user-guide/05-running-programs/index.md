@@ -52,6 +52,14 @@ what was wrong with it.
 The status bar along the bottom tracks the session: frame rate, the emulated
 CPU clock, the emulator speed, tape state, and the current machine.
 
+**Pausing.** To freeze the machine where it is, press the Pause button on the
+toolbar, choose **Machine > Pause**, or press **Alt+U**; press it again to
+carry on. The button stays pressed and a **Paused** cell appears in the status
+bar while the machine is stopped. Sound goes quiet without a click, and the
+debugger window does not open. Alt+U also works in fullscreen, where the menu
+and toolbar are hidden. If you open the debugger while paused it shows the same
+pause, and closing it resumes the machine, as it always does.
+
 Everything else in this chapter is about shaping that session.
 
 ## Programs that need NextZXOS

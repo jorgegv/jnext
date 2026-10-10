@@ -22,6 +22,11 @@ EOF/EOSL all resume through the same mechanism, so they step off the breakpoint
 under the PC too. One consequence worth knowing: **Run to Here** on the line you
 are already stopped at runs a full lap and stops when control comes back.
 
+The emulator window's own **Pause** control (**Machine > Pause**, **Alt+U**, the
+toolbar button) pauses and resumes the same machine, and shows the same pause
+whichever way it was made. Used with the debugger closed, it does not open the
+debugger window.
+
 None of that applies when the machine is *not* stopped. Pressing F5 while a
 program is running — the emulator window takes F5 too, whenever the debugger is
 enabled — does nothing at all. Your breakpoints stay live and stop the machine

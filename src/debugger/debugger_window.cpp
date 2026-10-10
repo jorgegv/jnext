@@ -31,6 +31,8 @@
 #include <QPainter>
 #include <QSettings>
 #include <QDataStream>
+#include <QFile>
+#include <QFileInfo>
 #include <QSplitter>
 #include <QScrollArea>
 #include <QStyle>
@@ -50,9 +52,11 @@
 #include <QDir>
 
 namespace {
-// Debugger window geometry lives alongside the main GUI config under ~/.jnext
-// (see src/gui/app_config.cpp), a plain INI file rather than the platform
-// default (~/.config/JNEXT/...), so all of jnext's state sits in one place.
+// Debugger window geometry lives in the [debugger] section of the main GUI
+// config, ~/.jnext/jnext.conf (see src/gui/app_config.cpp): a plain INI file
+// rather than the platform default (~/.config/JNEXT/...), so all of jnext's
+// state sits in ONE file (GH #312). Older versions kept it in a separate
+// Debugger.conf; migrate_legacy_config() folds that in.
 // JNEXT_CONFIG_DIR overrides the directory (matches AppConfig) for test
 // isolation.
 QString jnext_config_dir() {
@@ -62,7 +66,21 @@ QString jnext_config_dir() {
     return dir;
 }
 QString debugger_config_path() {
+    return jnext_config_dir() + QStringLiteral("/jnext.conf");
+}
+QString legacy_debugger_config_path() {
     return jnext_config_dir() + QStringLiteral("/Debugger.conf");
+}
+
+// "W, H" as QSettings writes a two-element QStringList; false unless it is
+// exactly two integers. (Older versions stored a QDataStream blob.)
+bool read_int_pair(const QVariant& v, int& a, int& b) {
+    const QStringList l = v.toStringList();
+    if (l.size() != 2) return false;
+    bool ok_a = false, ok_b = false;
+    a = l[0].trimmed().toInt(&ok_a);
+    b = l[1].trimmed().toInt(&ok_b);
+    return ok_a && ok_b;
 }
 
 // GH #114 — the size the debugger opens at when nothing is saved. Unchanged
@@ -122,6 +140,7 @@ DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent)
         QGuiApplication::platformName().toUtf8().constData());
     attach_supported_ = !attach_platform_blocked_;
 
+    migrate_legacy_config();
     QSettings settings(debugger_config_path(), QSettings::IniFormat);
 
     // Restore saved size. Position is restored only when the window is NOT
@@ -129,11 +148,8 @@ DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent)
     // window, so restoring one would just be overwritten on the first move.
     int want_w = kDefaultWidth;
     int want_h = kDefaultHeight;
-    QByteArray saved_size = settings.value("debugger/size").toByteArray();
-    if (!saved_size.isEmpty()) {
-        QDataStream ds(saved_size);
-        int w = 0, h = 0;
-        ds >> w >> h;
+    int w = 0, h = 0;
+    if (read_int_pair(settings.value("debugger/size"), w, h)) {
         // GH #114: any sane saved size is honoured, not just one at least as
         // wide as the old 1170 minimum — deliberately shrinking the window and
         // having it come back that way is the point of the issue.
@@ -155,11 +171,8 @@ DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent)
     if (!attach_enabled_ || !attach_supported_) {
         // Detached (by choice or by platform): honour the saved position so a
         // debugger deliberately parked on a second monitor comes back there.
-        QByteArray saved_pos = settings.value("debugger/position").toByteArray();
-        if (!saved_pos.isEmpty()) {
-            QDataStream ds(saved_pos);
-            int x, y;
-            ds >> x >> y;
+        int x = 0, y = 0;
+        if (read_int_pair(settings.value("debugger/position"), x, y)) {
             // Only accept a position that still lands on a screen that exists —
             // a monitor may have been unplugged since it was saved, and an
             // unreachable debugger window is precisely what this issue forbids.
@@ -741,6 +754,43 @@ void DebuggerWindow::update_actions(bool is_paused) {
     if (rewind_jump_btn_)  rewind_jump_btn_->setEnabled(can_rewind);
 }
 
+// GH #312 — fold an older <config-dir>/Debugger.conf into jnext.conf [debugger]
+// and remove it. Debugger.conf wins over a [debugger] already in jnext.conf
+// (only an older jnext can have written it since, so it is the newer state).
+// The old QDataStream size/position blobs become "W, H" / "X, Y"; a corrupt
+// blob (one too short for two ints) is dropped, as the old reader rejected it
+// too; a longer one is read for its first two ints, as the old reader did.
+// Debugger.conf is removed only after it was read and jnext.conf was written
+// without error, so no value is ever lost.
+bool DebuggerWindow::migrate_legacy_config() {
+    const QString legacy_path = legacy_debugger_config_path();
+    if (!QFileInfo::exists(legacy_path)) return false;
+
+    QDir().mkpath(jnext_config_dir());
+    QSettings legacy(legacy_path, QSettings::IniFormat);
+    // An unreadable file yields no keys at all: keep it, or its values are lost.
+    legacy.allKeys();
+    if (legacy.status() == QSettings::AccessError) return false;
+    QSettings dest(debugger_config_path(), QSettings::IniFormat);
+    for (const QString& key : legacy.allKeys()) {
+        const QVariant v = legacy.value(key);
+        if ((key == QLatin1String("debugger/size") || key == QLatin1String("debugger/position"))
+            && v.userType() == QMetaType::QByteArray) {
+            const QByteArray blob = v.toByteArray();
+            QDataStream ds(blob);
+            int a = 0, b = 0;
+            ds >> a >> b;
+            if (ds.status() == QDataStream::Ok)
+                dest.setValue(key, QStringList{QString::number(a), QString::number(b)});
+            continue;
+        }
+        dest.setValue(key, v);
+    }
+    dest.sync();
+    if (dest.status() != QSettings::NoError) return false;
+    return QFile::remove(legacy_path);
+}
+
 void DebuggerWindow::save_position() {
     save_geometry();
 }
@@ -749,10 +799,8 @@ void DebuggerWindow::save_geometry() {
     // Ensure the config dir exists — QSettings will not persist to a missing dir.
     QDir().mkpath(jnext_config_dir());
     QSettings settings(debugger_config_path(), QSettings::IniFormat);
-    QByteArray data;
-    QDataStream ds(&data, QIODevice::WriteOnly);
-    ds << width() << height();
-    settings.setValue("debugger/size", data);
+    settings.setValue("debugger/size",
+                      QStringList{QString::number(width()), QString::number(height())});
 
     settings.setValue("debugger/attached", attach_enabled_);
 
@@ -760,10 +808,8 @@ void DebuggerWindow::save_geometry() {
     // derives it from the emulator window, so saving it would pin a stale
     // coordinate that the next attach immediately overrides.
     if (!attach_enabled_ || !attach_supported_) {
-        QByteArray pos;
-        QDataStream pds(&pos, QIODevice::WriteOnly);
-        pds << x() << y();
-        settings.setValue("debugger/position", pos);
+        settings.setValue("debugger/position",
+                          QStringList{QString::number(x()), QString::number(y())});
     }
 }
 

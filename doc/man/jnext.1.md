@@ -1509,7 +1509,8 @@ on exit. Join it against a z88dk `.map` file to get a per-function heatmap:
 # THE GUI
 
 The Qt6 build gives a native window with menus, a toolbar and a status bar
-(FPS, CPU speed, emulator speed, tape status, machine type), Hi-DPI
+(FPS, CPU speed, emulator speed, tape status, machine type, and a Paused
+indicator while the machine is paused), Hi-DPI
 pixel-perfect rendering at integer scale, and a CRT scanline filter.
 
 Menu shortcuts use **Alt**, never plain **Ctrl**: Ctrl is the Spectrum's Symbol
@@ -1538,7 +1539,10 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
     the boot chain; does nothing while the firmware still holds config mode.
     After a direct **\--load** it resets into 48K BASIC and discards the
     loaded program, because that boot never ran the firmware and so has no
-    NextZXOS to return to - use Power Reset there),
+    NextZXOS to return to - use Power Reset there), Pause (Alt+U - freeze or
+    resume the machine where it is, without opening the debugger; the sound
+    goes quiet, a **Paused** cell appears in the status bar, and a Power Reset
+    or a load made while paused stays paused),
     Machine Type (48K / 128K / +3 / Next), CPU Speed (3.5 / 7 /
     14 / 28 MHz - the Next's own clock), Emulator Speed (0.5x / 1x / 2x / 4x /
     custom % - the host-side throttle).
@@ -1570,7 +1574,7 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
 **Help**
 :   About.
 
-The toolbar has Power Reset, Soft Reset, Load, Screenshot, an NMI button
+The toolbar has Power Reset, Soft Reset, Pause, Load, Screenshot, an NMI button
 (Multiface NMI) and, in a debugger-enabled build, a bug button that opens the
 debugger.
 
@@ -1637,7 +1641,7 @@ takes are Ctrl+F5 and Ctrl+F6 (start and stop video recording), and function
 keys have no Spectrum meaning to lose.
 
 Alt is the opposite: it is a host modifier, never a Spectrum key. jnext claims
-Alt + Q/O/S/K/R/T/D/P and Alt+Shift+S (menu shortcuts), Alt + F/M/I/A/B/V/N/H
+Alt + Q/O/S/K/R/T/D/P/U and Alt+Shift+S (menu shortcuts), Alt + F/M/I/A/B/V/N/H
 (menu bar) and Alt + 1 to Alt + 8 (the script host keys), which leaves the
 guest only Alt + E/G/C (EDIT, GRAPH, CAPS LOCK) and Alt + the key left of `1`
 (INV VIDEO). Alt + 1 to Alt + 8 no longer type their digit into the program
@@ -2107,6 +2111,10 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     means `~/.jnext/screenshots`) and `quick_format` (`png` or `scr`), edited
     under **Settings > Preferences > Paths**; an unrecognised format keeps the
     default.
+    The debugger window's layout is stored under `[debugger]`: `size` (`W, H`),
+    `position` (`X, Y`, written only while the window is detached) and
+    `attached` (`true`/`false`). An older `~/.jnext/Debugger.conf` is merged
+    into this section once and removed. All section names are lowercase.
     CLI options always take precedence over saved values, and headless runs
     never read it.
 

@@ -39,8 +39,9 @@ std::string home_dir() {
 // jnext's per-user state directory. $JNEXT_CONFIG_DIR overrides it, exactly as
 // in src/gui/app_config.cpp (AppConfig::default_config_path) and
 // src/debugger/debugger_window.cpp (jnext_config_dir) — the SD image has always
-// lived in the SAME directory as jnext.conf and Debugger.conf (see
-// src/gui/app_config.h), so all three must resolve it the same way. The
+// lived in the SAME directory as jnext.conf (see src/gui/app_config.h, which
+// also holds the debugger layout since GH #312), so both must resolve it the
+// same way. The
 // provisioner not reading the variable was an oversight, and it is what forced
 // every regression run to share one mutable 1 GB image (GH #65): the suite now
 // points $JNEXT_CONFIG_DIR at a per-run directory holding a private clone.

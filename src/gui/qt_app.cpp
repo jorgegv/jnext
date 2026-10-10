@@ -802,6 +802,10 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
         mgr->refresh_panels();
     }
 #endif
+    // GH #306 — the Machine > Pause checkmark and the "Paused" cell follow the
+    // backend's pause state, whoever caused it. After the block above, and
+    // outside it, so the Qt-without-debugger build gets it too.
+    a.main_window_->sync_pause_state();
 }
 
 void QtApp::TickEffects::set_timer_interval(int ms) {

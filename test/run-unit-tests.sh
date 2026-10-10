@@ -432,10 +432,10 @@ trap 'rm -rf "$TMPDIR_RUN"; unit_cleanup; exit 143' TERM
 # --- The suites' own $HOME --------------------------------------------------
 # Every suite runs with $HOME at an empty directory of this run, the XDG base
 # directories inside it, and JNEXT_CONFIG_DIR unset, so no suite can read the
-# user's configuration: jnext's own (~/.jnext/jnext.conf, Debugger.conf) or
+# user's configuration: jnext's own (~/.jnext/jnext.conf, and a legacy Debugger.conf) or
 # what Qt and its libraries read (~/.config/QtProject/qtlogging.ini,
 # QtProject.conf, fontconfig, ibus, the MIME database). Before this, twelve Qt
-# suites read jnext.conf or Debugger.conf, so a user's saved preferences could
+# suites read jnext.conf or Debugger.conf (before #312), so a user's saved preferences could
 # change a test result. A suite that needs a config directory makes its own.
 # The harness keeps the real $HOME: the SD clone is made from the real master,
 # and suites reach it through JNEXT_TEST_SD_IMAGE, never through $HOME.
