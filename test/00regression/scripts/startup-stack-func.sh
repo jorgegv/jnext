@@ -56,10 +56,10 @@ if want startup-stack-func; then
         rc=$(ss_run headless LANG=C -- "$JNEXT" --headless "${SD_CARD_ARGS[@]}" \
                 --delayed-automatic-exit-frames 200)
         [[ "$rc" == 0 ]] || ss_faults+=("headless rc=$rc")
-        rc=$(ss_run qt QT_QPA_PLATFORM=offscreen -- "$JNEXT" --silent "${SD_CARD_ARGS[@]}" \
+        rc=$(ss_run qt QT_QPA_PLATFORM=offscreen -- env -u WAYLAND_DISPLAY "$JNEXT" --silent "${SD_CARD_ARGS[@]}" \
                 --delayed-automatic-exit-frames 200)
         [[ "$rc" == 0 ]] || ss_faults+=("qt rc=$rc")
-        rc=$(ss_run sdl SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy -- "$ss_sdl" --silent \
+        rc=$(ss_run sdl SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy -- env -u WAYLAND_DISPLAY "$ss_sdl" --silent \
                 "${SD_CARD_ARGS[@]}" --delayed-automatic-exit-frames 200)
         [[ "$rc" == 0 ]] || ss_faults+=("sdl rc=$rc")
 
