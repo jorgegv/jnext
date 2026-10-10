@@ -3215,8 +3215,9 @@ static void g_mixer() {
         }
 
         // MX-33 — RING FULL: with nothing popping, the reader keeps exactly
-        // kCapacity frames and drops (and counts) every one past that, so a
-        // paused emulator never blocks QEMU. jnext-only buffering: no VHDL
+        // 131072 frames (~3 s) and drops (and counts) every one past that, so
+        // a paused emulator never blocks QEMU. Literal numbers, like MX-31/32,
+        // so a changed kCapacity fails. jnext-only buffering: no VHDL
         // counterpart.
         {
             const std::string fifo = (dir / "mx33.fifo").string();
@@ -3225,7 +3226,8 @@ static void g_mixer() {
             const bool opened = a.open(fifo, err);
             const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
             const uint32_t extra = 1000;
-            const uint32_t total = PiAudio::kCapacity + extra;
+            const uint32_t capacity = 131072;
+            const uint32_t total = capacity + extra;
             const std::string stream = header() + frames_bytes(static_cast<int>(total), 0);
             std::size_t off = 0;
             while (w >= 0 && off < stream.size()) {
@@ -3239,13 +3241,12 @@ static void g_mixer() {
             check("MX-33", "with nothing consuming, the Pi I2S ring keeps exactly its capacity "
                   "(131072 frames) and drops, counting them, the frames past it (jnext-only "
                   "buffering, no VHDL counterpart)",
-                  opened && off == stream.size() && a.available() == PiAudio::kCapacity &&
-                      a.frames_received() == PiAudio::kCapacity && a.frames_dropped() == extra,
+                  opened && off == stream.size() && a.available() == capacity &&
+                      a.frames_received() == capacity && a.frames_dropped() == extra,
                   fmt("opened=%d wrote=%zu/%zu available=%u received=%llu dropped=%llu (want %u/%u/%u)",
                       opened ? 1 : 0, off, stream.size(), a.available(),
                       static_cast<unsigned long long>(a.frames_received()),
-                      static_cast<unsigned long long>(a.frames_dropped()), PiAudio::kCapacity,
-                      PiAudio::kCapacity, extra));
+                      static_cast<unsigned long long>(a.frames_dropped()), capacity, capacity, extra));
         }
 
         // MX-34 — RECONNECT: QEMU reopens the FIFO (a restart), and each writer
