@@ -34,7 +34,7 @@ void AttributeMux::start_frame(const uint8_t* baseline, int hc_origin,
 bool AttributeMux::record_write(uint16_t line, uint16_t hc, uint32_t offset, uint8_t value)
 {
     if (offset >= nbytes_) return false;
-    uint32_t key = (static_cast<uint32_t>(line) << 16) | hc;
+    const uint32_t key = (static_cast<uint32_t>(line) << 16) | hc;
     OffState& s = st_[offset];
     const uint32_t n = static_cast<uint32_t>(log_.size());
     if (s.first == kNone) {
@@ -45,8 +45,6 @@ bool AttributeMux::record_write(uint16_t line, uint16_t hc, uint32_t offset, uin
         s.curval  = base_[offset];
         touched_.push_back(offset);
     } else {
-        // Program order wins over the tag: never sort before the previous write.
-        if (log_[s.last].key > key) key = log_[s.last].key;
         log_[s.last].next = n;
         s.last = n;
         if (s.cursor == kNone) s.cursor = n;

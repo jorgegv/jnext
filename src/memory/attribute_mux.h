@@ -79,9 +79,6 @@
 // order. `read()` advances a per-offset cursor lazily and monotonically; a
 // query earlier than the previous one for that offset restarts from the
 // baseline, so the instants of different fetch kinds may interleave freely.
-// A write is clamped to be no earlier than the previous write to its offset:
-// program order is the order that matters, and a coarse-tagged writer (DMA,
-// loader) must not sort before a CPU write that already happened.
 class AttributeMux {
 public:
     // 32 columns x 24 character rows = one full standard attribute plane
