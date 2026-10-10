@@ -33,6 +33,7 @@
 #     and INT are forwarded to it; its exit status is the exit status;
 #   - bash and wine by absolute path, since a row may set PATH to an empty dir;
 #   - DISPLAY is kept only for an xvfb-run display, never a desktop one.
+# (JNEXT_WINE_BIN replaces /usr/bin/wine: the harness self-test's stub.)
 # A persistent wineserver (--serve, started once before the rows, stopped with
 # `wineserver -k`) must exist first: the first wine process otherwise spawns one
 # that inherits the filters' pipes, never lets them see EOF, and the row hangs.
@@ -118,7 +119,7 @@ if [[ -n "${JNEXT_MODE:-}" ]]; then
         exec {err_fd}> >(exec /usr/bin/sed -u 's/\r$//' >&2)
         fpids+=($!)
     fi
-    ${PRIV[@]+"${PRIV[@]}"} /usr/bin/wine "$@" <&3 >&"$out_fd" 2>&"$err_fd" {out_fd}>&- {err_fd}>&- 3<&- &
+    ${PRIV[@]+"${PRIV[@]}"} "${JNEXT_WINE_BIN:-/usr/bin/wine}" "$@" <&3 >&"$out_fd" 2>&"$err_fd" {out_fd}>&- {err_fd}>&- 3<&- &
     wpid=$!
     exec {out_fd}>&- {err_fd}>&- 3<&-
     trap 'kill -TERM "$wpid" 2>/dev/null' TERM
