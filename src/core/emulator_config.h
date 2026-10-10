@@ -454,6 +454,13 @@ struct EmulatorConfig {
     // ends of QEMU's `pipe` chardev. Both empty means no Pi.
     std::string              pi_uart_fifo_rx;
     std::string              pi_uart_fifo_tx;
+    // The Pi's SOUND, when it goes to the Next's mixer (the default): QEMU's
+    // audio stream, read by PiQemu's PiAudio, which the emulator pops one frame
+    // per mixer sample into I2s — so NR 0xA2 gates it and --record captures it.
+    // Non-owning: PiQemu (main.cpp) owns it and outlives every Emulator,
+    // across cold boots too. Null when there is no Pi or its sound goes to the
+    // host directly.
+    class PiAudio*           pi_audio = nullptr;
 
     // Host capture callbacks are reattached by init() after a cold boot.
     std::function<void(const int16_t*, int)> audio_capture_callback;

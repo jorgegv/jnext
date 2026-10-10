@@ -1595,6 +1595,7 @@ int main(int argc, char* argv[]) {
         if (pi_qemu) {                 // NextPi, started before the app below
             cfg.pi_uart_fifo_rx      = pi_qemu->rx_path();
             cfg.pi_uart_fifo_tx      = pi_qemu->tx_path();
+            cfg.pi_audio             = pi_qemu->audio();
         }
 
         // Task 66 — saved GUI preferences fill in fields the CLI left at

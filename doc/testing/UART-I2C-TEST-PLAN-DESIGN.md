@@ -493,7 +493,8 @@ The wire on the Pi GPIO header handed to the host as a `UartDevice` on UART 1
 (design: `doc/design/NEXTPI-DESIGN.md`). The Pi's pins reach UART 1 only
 through the NR 0xA0 GPIO mux (`zxnext.vhd:2278-2281`): bits 5 and 4 together
 put UART 1 on GPIO 14/15 wired for a Pi, the value NextPi's `.pisend` writes
-(0x30). Rows live in `test/uart/uart_integration_test.cpp` (group PI).
+(0x30). Rows live in `test/uart/uart_posix_test.cpp` (group PI), POSIX-only
+since GH #214.
 PI-01..05 drive the link over real FIFOs, like the JOY rows; each fails (does
 not crash) when no link is attached, so removing `setup_pi_uart()` from `init()`
 turns all five red, and removing the NR 0xA0 probe turns PI-02 red. PI-06..09
@@ -509,7 +510,7 @@ network or a NextPi image.
 | PI-03 | guest transmits on UART 1 with the link attached | byte reaches the host; UART 1's unattached loopback does not echo it into its own RX FIFO |
 | PI-04 | NR 0x0B = 0xB1 (joystick UART mode on UART 1), NR 0xA0 = 0x30 | Pi neither heard nor spoken to (`zxnext.vhd:3340-3341,3526-3531`); with NR 0x0B = 0 traffic flows |
 | PI-05 | soft reset, then NR 0xA0 = 0x30 | same device still attached to UART 1; NR 0xA0 read 0x00 after reset (`zxnext.vhd:5080`); traffic flows |
-| PI-06 | `PiQemu::build_args` / `audiodev_arg` for NextPi | raspi0, the directory's kernel/dtb/overlay, `-chardev pipe` on `-serial`, no monitor/display; audio default per platform, `none`, `wav:FILE` (commas doubled) |
+| PI-06 | `PiQemu::build_args` / `audiodev_arg` for NextPi | raspi0, the directory's kernel/dtb/overlay, `-chardev pipe` on `-serial`, no monitor/display; audio `host` (the platform's default output), `none`, `wav:FILE` (commas doubled) |
 | PI-07 | `PiQemu::start` with an unprepared directory, a missing QEMU binary, a QEMU that exits at once | each refused with its reason; nothing left running |
 | PI-08 | `PiQemu::start` with a stand-in QEMU, then an Emulator on its FIFOs, NR 0xA0 = 0x30 | overlay created; guest reads `SUP> `; stand-in receives the guest's CR; stop takes < 2 s (SIGTERM) and removes the FIFOs |
 | PI-09 | two Emulators in turn on the same running `PiQemu` (a hard reset) | the same process receives `A` then `B` |
@@ -551,6 +552,18 @@ network or a NextPi image.
 | PI-45 | the same with no lists (the number walk); `fd_walk_limit` of -1, 0, 1024, 65536, 10^9 | 3, 57 and the last number marked; 58 and 0-2 not; 65536, 65536, 1024, 65536, 65536 |
 | PI-46 | fd 57 open; `mark_close_on_exec_except(-1)`, then with lists {missing, `/dev/fd`}, then with none | returns `/proc/self/fd` (Linux) or `/dev/fd` (no /proc), then `/dev/fd`, then "" (the number walk); 57 marked each time |
 | PI-47 | a pipe end at fd 57; the lowest free number learned; `open_descriptors` of /dev/fd and (where it exists) /proc/self/fd | each read; 57 listed; the lowest free number (the directory's own descriptor) not listed; the lowest free number unchanged after the read and after `mark_close_on_exec_except(-1, {list})` |
+| PI-48 | `PiQemu` (default audio) with a stand-in that plays a 250 ms square wave into the wav FIFO, left ±16384 and right ±8192; Emulator with `pi_audio`; 3 frames at NR 0xA2 = 0x00, 5 at 0xC0 | args carry `wav,...,out.frequency=44100,out.channels=2,out.format=s16`; mixer swing <= 16 while closed; while open, the output's extremes are exactly -1024/+1024 left and -512/+512 right, so a channel swap or a one-step error in the 10-bit value fails (`i2s.vhd:177-180`, `zxnext.vhd:2358-2359`) |
+| PI-49 | same, 8000 frames buffered: 2 frames replay mode, 2 frames RZX playback, 1 frame live | `available()` unchanged through replay and RZX; the replay produces no mixer samples at all (its audio path does not run); during RZX every sample of both channels is 0 (the I2S input at its rest value 0x200, `i2s.vhd:177-180`); once live, `available()` falls by exactly the number of mixer samples the frame produced (one Pi frame per output sample); the I2S latch reads 0x200 in both channels right after `init`, with and without `pi_audio` (`i2s_receive.vhd:129-130`) |
+| PI-50 | `Emulator::warm_start_boot_config` of a config with `pi_audio` set | `pi_audio` cleared. jnext-only, no VHDL counterpart |
+| PI-51 | `PiQemu` (default audio) with `$TMPDIR` nested so deep that `uart.out` fits in `PATH_MAX` but `uart.audio` does not | `start()` fails with an error naming `uart.audio`; no `audio()`, nothing running, the stand-in never spawned. jnext-only, no VHDL counterpart |
+| PI-52 | `PiQemu::mixer_audiodev_arg("/t,mp/uart")` | exactly `wav,id=snd0,path=/t,,mp/uart.audio,out.frequency=44100,out.channels=2,out.format=s16`: the comma escaped for QEMU's option syntax. jnext-only, no VHDL counterpart |
+| PI-54 | `PiQemu::build_args` with `Spec::audio = "host"`, and with it empty | `host`: `-audiodev` is the platform's default output (`pa,id=snd0`; on macOS `coreaudio,id=snd0,...`); empty: the mixer's wav FIFO. jnext-only, no VHDL counterpart |
+| PI-53 | `PiQemu` with `Spec::audio = "none"` | the stand-in's args carry `none,id=snd0` and no `wav,id=snd0,path=`; `audio()` is null; no `uart.audio` FIFO in the runtime directory. jnext-only, no VHDL counterpart |
+| PI-55 | `PiQemu` (default audio), a tone left ±16384 / right ±8192; Emulator with `pi_audio`, one live frame at NR 0xA2 = 0xC0; then reads in replay mode, during RZX playback and during RZX recording; then a snapshot save and load | live: NR 0x2C ∈ {0xC0, 0x40}, NR 0x2E ∈ {0xA0, 0x60}; replay / RZX playback / RZX recording: 0x2C = 0x80, 0x2D = 0x00, 0x2E = 0x80 (the rest value 0x200); after the load the latch is 0x200 in both channels (`zxnext.vhd:6006-6015`) |
+| PI-56 | Stand-in tone, both channels in phase at ±24576 (10-bit 0x380/0x080), flipping every 20 samples; NR 0xA2 = 0xC3; 200 port 0xFE reads, one per 100 stepped instructions; then a read in replay mode while the comparator is 1; then NR 0xA2 = 0xC2 | bit 6 equals `I2s::fe_ear()` at every read and takes both values; 0 in replay; 0 with bit 0 clear (`zxnext.vhd:2361-2373`, `:3459`) |
+| PI-57 | Same tone; a WAV tape of a steady high level playing | bit 6 is the inverse of `fe_ear()` at every read and takes both values: tape XOR comparator (`zxnext_top_issue2.vhd:673`) |
+| PI-58 | A steady tone (no flips), NR 0xA2 = 0xC3; instructions stepped from the comparator's edge | bit 6 is 1 at the edge and 30000 master cycles later, 0 (the issue-2 level, off) 34000 cycles later: 64 ticks of the 512-cycle membrane enable (`zxnext_top_issue2.vhd:663-677`, `symmetric_relaxation.vhd`) |
+| PI-59 | As PI-56 with `cfg.silent` | the same 200 reads match `fe_ear()` and take both values: the Pi's samples are latched without the mixer. jnext-only: --silent has no VHDL counterpart |
 
 ## Special Handling
 

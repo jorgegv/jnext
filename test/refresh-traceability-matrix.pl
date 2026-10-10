@@ -271,7 +271,7 @@ my @SUBSYS = (
     # files, so the entry lists all three (GH #117 review). The field accepts
     # an arrayref; every other section stays a plain scalar.
     ['## Audio — `test/audio/audio_test.cpp`',
-     ['audio_test', 'audio_nextreg_test', 'audio_port_dispatch_test']],
+     ['audio_test', 'audio_nextreg_test', 'audio_port_dispatch_test', 'audio_posix_test']],
     ['## DMA — `test/dma/dma_test.cpp`',             'dma_test'],
     ['## DivMMC+SPI — `test/divmmc/divmmc_test.cpp`', 'divmmc_test'],
     ['## Multiface — `test/multiface/multiface_test.cpp`', 'multiface_test'],
@@ -378,6 +378,7 @@ my %PLAN_DOC = (
     'audio_test'                  => 'AUDIO',
     'audio_nextreg_test'          => 'AUDIO',
     'audio_port_dispatch_test'    => 'AUDIO',
+    'audio_posix_test'            => 'AUDIO',
     'dma_test'                    => 'DMA',
     'divmmc_test'                 => 'DIVMMC-SPI',
     'ctc_test'                    => 'CTC-INTERRUPTS',

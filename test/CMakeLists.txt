@@ -562,6 +562,17 @@ target_link_libraries(audio_test PRIVATE jnext_audio)
 target_include_directories(audio_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME audio_tests COMMAND audio_test)
 
+# The Pi I2S source's rows that need a real FIFO (`# os: posix` in
+# unit-tests.conf, GH #214): PiAudio reading QEMU's WAV stream. Windows has
+# no FIFOs, so they live apart from audio_test, whose count is the same on
+# every OS.
+if(NOT WIN32)
+    add_executable(audio_posix_test audio/audio_posix_test.cpp)
+    target_link_libraries(audio_posix_test PRIVATE jnext_audio)
+    target_include_directories(audio_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME audio_posix_tests COMMAND audio_posix_test)
+endif()
+
 add_executable(audio_capture_test audio/audio_capture_test.cpp)
 target_link_libraries(audio_capture_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video

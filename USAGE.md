@@ -377,8 +377,17 @@ NextPi then takes about a minute to reach its Supervisor prompt
 (`SUP>`). The release, the directory, the QEMU binary and where the Pi’s
 sound goes are set under **Settings \> Preferences \> NextPi** (the
 `[nextpi]` section of `~/.jnext/jnext.conf`); their defaults are release
-`1_93D`, `~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and the host’s
-speakers.
+`1_93D`, `~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and the Next’s
+mixer.
+
+The Pi’s sound reaches the Next’s mixer over I2S, as on the real
+machine: it is mixed with the beeper, the AY chips and the DAC, so
+**--record** and **--wav-record** include it, and NR 0xA2 enables and
+mutes it (NextPi’s tools enable it themselves). It is 10-bit, as the
+hardware’s input is, and arrives about 100 ms late. Rewinds and RZX
+playback hold it silent. With NR 0xA2 bit 0 set it goes to the EAR input
+instead (port 0xFE bit 6), as a tape signal: how a Next loads a tape the
+Pi plays to it.
 
 The guest reaches the Pi only while NR 0xA0 bits 5:4 are `11` — UART 1
 on GPIO 14/15, wired for a Pi — which NextPi’s tools set before they
@@ -2280,25 +2289,28 @@ form of **--nextpi**; **--no-nextpi** overrides it for one run), `dir`
 (the NextPi directory; empty means `~/.jnext/nextpi`), `release` (a
 NextPi release name on the mirror, or `latest` for the newest one listed
 there; empty means `1_93D`), `qemu_binary` (empty means
-`qemu-system-arm` on `PATH`) and `audio` (a QEMU `-audiodev` driver such
-as `coreaudio`, `pa` or `none`, or `wav:`*FILE*; empty means `coreaudio`
-on macOS and `pa` elsewhere). Changing the release makes the next start
-offer to download it, replacing the installed one. The joystick ports
-are stored under `[input]`: `joy1_source` and `joy2_source` (`sdl`,
-`keys` or `none`), `joy1_device` and `joy2_device` (the controller’s id:
-32 hex digits, optionally `#N`; empty means Automatic) and
-`joy1_device_name` and `joy2_device_name` (the name shown while that
-controller is not connected). **--joy1-device** and **--joy2-device**
-override the ids for one run. An id that is not valid is ignored, with
-its name. The quick screenshot is stored under `[screenshot]` as
-`quick_dir` (empty means `~/.jnext/screenshots`) and `quick_format`
-(`png` or `scr`), edited under **Settings \> Preferences \> Paths**; an
-unrecognised format keeps the default. The debugger window’s layout is
-stored under `[debugger]`: `size` (`W, H`), `position` (`X, Y`, written
-only while the window is detached) and `attached` (`true`/`false`). An
-older `~/.jnext/Debugger.conf` is merged into this section once and
-removed. All section names are lowercase. CLI options always take
-precedence over saved values, and headless runs never read it.
+`qemu-system-arm` on `PATH`) and `audio` (empty means the Next’s mixer;
+`host` plays it on this computer’s default output, `pa` on Linux and
+`coreaudio` on macOS; otherwise a QEMU `-audiodev` driver such as
+`coreaudio`, `pa` or `none` to play it straight to the host instead, or
+`wav:`*FILE* to record it on its own). Changing the release makes the
+next start offer to download it, replacing the installed one. The
+joystick ports are stored under `[input]`: `joy1_source` and
+`joy2_source` (`sdl`, `keys` or `none`), `joy1_device` and `joy2_device`
+(the controller’s id: 32 hex digits, optionally `#N`; empty means
+Automatic) and `joy1_device_name` and `joy2_device_name` (the name shown
+while that controller is not connected). **--joy1-device** and
+**--joy2-device** override the ids for one run. An id that is not valid
+is ignored, with its name. The quick screenshot is stored under
+`[screenshot]` as `quick_dir` (empty means `~/.jnext/screenshots`) and
+`quick_format` (`png` or `scr`), edited under **Settings \> Preferences
+\> Paths**; an unrecognised format keeps the default. The debugger
+window’s layout is stored under `[debugger]`: `size` (`W, H`),
+`position` (`X, Y`, written only while the window is detached) and
+`attached` (`true`/`false`). An older `~/.jnext/Debugger.conf` is merged
+into this section once and removed. All section names are lowercase. CLI
+options always take precedence over saved values, and headless runs
+never read it.
 
 `~/.jnext/screenshots/`  
 Where **File \> Quick Screenshot** writes, unless

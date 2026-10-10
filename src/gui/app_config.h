@@ -87,7 +87,7 @@ struct AppConfigData {
     QString     nextpi_dir;            // "" = <config-dir>/nextpi
     QString     nextpi_release;        // "" = nextpi::kDefaultRelease; or "latest"
     QString     nextpi_qemu_binary;    // "" = qemu-system-arm on PATH
-    QString     nextpi_audio;          // "" = platform default; a driver, "none" or "wav:FILE"
+    QString     nextpi_audio;          // "" = the Next's mixer (I2S); "host", a QEMU driver, "none" or "wav:FILE"
 
     // --- Paths (remembered across sessions) ---
     QString last_load_dir;    // seeds "Load Program..." / "Open Tape File..."

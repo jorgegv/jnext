@@ -803,7 +803,7 @@ static void test_pi_qemu() {
             && contains(a, "-device", "usb-audio,audiodev=snd0,buffer=16384");
         const std::string wav  = PiQemu::audiodev_arg("wav:/x,y.wav");
         const std::string none = PiQemu::audiodev_arg("none");
-        const std::string dflt = PiQemu::audiodev_arg("");
+        const std::string dflt = PiQemu::audiodev_arg("host");
 #ifdef __APPLE__
         const bool dflt_ok = dflt.rfind("coreaudio,id=snd0", 0) == 0;
 #else
@@ -812,8 +812,8 @@ static void test_pi_qemu() {
         check("PI-06",
               "jnext builds a raspi0 command line booting the NextPi "
               "directory's kernel, device tree and overlay, with the console UART "
-              "on the pipe chardev jnext opens; -audiodev is the platform default, "
-              "a named driver, or wav:FILE",
+              "on the pipe chardev jnext opens; -audiodev is `host`: the platform's "
+              "default output, a named driver, or wav:FILE",
               shape && wav == "wav,id=snd0,path=/x,,y.wav" && none == "none,id=snd0" && dflt_ok,
               fmt("shape=%d wav='%s' (want wav,id=snd0,path=/x,,y.wav) none='%s' "
                   "default='%s'",
@@ -2040,6 +2040,591 @@ static void test_nextpi_review2_rows() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// NextPi's sound into the Next's mixer (PiAudio → I2s), end to end
+// ══════════════════════════════════════════════════════════════════════
+
+namespace {
+
+/// A WAV file as QEMU's wav back-end writes it (44-byte header, s16 stereo,
+/// 44.1 kHz) holding `frames` frames of a square wave flipping every `half`
+/// frames: left +amp/-amp and right -r_amp/+r_amp. A right amplitude different
+/// from the left one lets a row tell the two channels apart.
+void write_tone(const std::string& path, int frames, int16_t amp, int half, int16_t r_amp) {
+    std::ofstream f(path, std::ios::binary);
+    auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) f.put(static_cast<char>(v >> (8 * i))); };
+    auto u16 = [&](uint16_t v) { f.put(static_cast<char>(v)); f.put(static_cast<char>(v >> 8)); };
+    f.write("RIFF", 4); u32(0); f.write("WAVEfmt ", 8); u32(16); u16(1); u16(2);
+    u32(44100); u32(44100 * 4); u16(4); u16(16); f.write("data", 4); u32(0);
+    for (int i = 0; i < frames; ++i) {
+        const bool low = (i / half) % 2;
+        u16(static_cast<uint16_t>(low ? static_cast<int16_t>(-amp) : amp));
+        u16(static_cast<uint16_t>(low ? r_amp : static_cast<int16_t>(-r_amp)));
+    }
+}
+
+/// The mixer's output over some frames: how many samples, and each channel's
+/// lowest and highest value.
+struct MixerLevels {
+    int n = 0;
+    int lo_l = 32767, hi_l = -32768, lo_r = 32767, hi_r = -32768;
+};
+
+/// Run `frames` frames with NR 0xA2 held at `a2` and return the levels of the
+/// mixer's output over them.
+MixerLevels mixer_levels(Emulator& emu, uint8_t a2, int frames) {
+    MixerLevels m;
+    std::vector<int16_t> buf(2 * 4096);
+    for (int f = 0; f < frames; ++f) {
+        emu.nextreg().write(0xA2, a2);
+        emu.run_frame();
+        int n;
+        while ((n = emu.mixer().read_samples(buf.data(), 4096)) > 0) {
+            m.n += n;
+            for (int i = 0; i < n; ++i) {
+                m.lo_l = std::min<int>(m.lo_l, buf[2 * i]);     m.hi_l = std::max<int>(m.hi_l, buf[2 * i]);
+                m.lo_r = std::min<int>(m.lo_r, buf[2 * i + 1]); m.hi_r = std::max<int>(m.hi_r, buf[2 * i + 1]);
+            }
+        }
+    }
+    return m;
+}
+
+/// The left and right peak-to-peak of the mixer's output (see mixer_levels).
+std::pair<int, int> mixer_swing(Emulator& emu, uint8_t a2, int frames) {
+    const MixerLevels m = mixer_levels(emu, a2, frames);
+    return {m.hi_l - m.lo_l, m.hi_r - m.lo_r};
+}
+
+} // namespace
+
+static void test_nextpi_audio() {
+    set_group("PI");
+
+    // ── PI-48 — THE FEATURE: the Pi's sound reaches the Next's mixer. With the
+    // default audio setting PiQemu asks QEMU for its wav back-end on a FIFO
+    // (44.1 kHz s16 stereo) and reads it; the emulator latches it into I2s,
+    // where NR 0xA2 gates it exactly as on the board (zxnext.vhd:2358-2359):
+    // with 0x00 the output is silent, with 0xC0 (both channels enabled — what
+    // .pisend sets, plus its other bits) the Pi's square wave is in the mix.
+    // The channels carry different amplitudes so a swap shows, and the levels
+    // are EXACT, so an error of one 10-bit step shows too: left ±16384 is
+    // to_i2s 768/256, i.e. ±256 from the 0x200 rest, which the mixer outputs as
+    // exactly +1024/-1024 (MX-06/07's x4); right ±8192 is 640/384, exactly
+    // +512/-512. Each output sample holds one Pi frame for its whole interval,
+    // so the extremes are those values; only the sample in which the gate
+    // opens is a blend, and it lies between them.
+    {
+        FakeNextPi fake("audio");
+        write_tone(fake.bin("tone.wav"), 11025, 16384, 50, 8192);   // 250 ms
+        PiQemu::Spec spec;
+        spec.dir         = fake.dir();
+        spec.qemu_binary = fake.bin("qemu-system-arm");
+        PiQemu qemu;
+        std::string error;
+        const bool started = fake.ok() && qemu.start(spec, error) && qemu.audio() != nullptr;
+        // Up to 5 s: the stand-in is a shell started by a shell, which a busy
+        // host can take well over a second to get going.
+        for (int i = 0; i < 500 && started && qemu.audio()->available() < 11025; ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        // Read the args only now: the stand-in writes them asynchronously, and
+        // before it plays the tone, so audio having arrived means they are in.
+        const std::string args = fake.args();
+        const bool args_ok = args.find("wav,id=snd0,path=") != std::string::npos &&
+                             args.find(",out.frequency=44100,out.channels=2,out.format=s16") != std::string::npos;
+        std::pair<int, int> closed{-1, -1};
+        MixerLevels open;
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            Emulator emu;
+            emu.init(cfg);
+            closed = mixer_swing(emu, 0x00, 3);      // gate shut: Pi frames consumed, silent
+            open   = mixer_levels(emu, 0xC0, 5);     // gate open: the tone
+        }
+        check("PI-48",
+              "NextPi's sound reaches the Next's mixer over I2S: QEMU writes it to a FIFO "
+              "PiQemu reads, the emulator latches it per sample, and NR 0xA2 gates it "
+              "(0x00 silent, 0xC0 the Pi's square wave, each channel on its own side at its "
+              "exact level: left +-1024 and right +-512) (i2s.vhd:177-180, zxnext.vhd:2358-2359)",
+              started && args_ok && closed.first <= 16 && closed.second <= 16 && open.n > 0 &&
+                  open.lo_l == -1024 && open.hi_l == 1024 && open.lo_r == -512 && open.hi_r == 512,
+              fmt("started=%d (%s) args=%d swing closed L=%d R=%d (want <=16) open n=%d L %d..%d "
+                  "R %d..%d (want L -1024..1024, R -512..512)", started ? 1 : 0, error.c_str(),
+                  args_ok ? 1 : 0, closed.first, closed.second, open.n, open.lo_l, open.hi_l,
+                  open.lo_r, open.hi_r));
+    }
+
+    // ── PI-49 — neither a rewind replay nor an RZX playback consumes the Pi's
+    // stream (it belongs to the live session); live again, the emulator draws
+    // from it at exactly one frame per mixer output sample, the rate QEMU is
+    // asked for (a backlog of 8000 is below the trim, so nothing else drops). A replay runs no audio path at all (run_frame does not advance
+    // audio while replay_mode_ holds), so there is no output to inspect: the
+    // row asserts exactly that, zero samples. An RZX playback does produce
+    // output, and it must be silent: the I2S rest value 0x200 in BOTH channels
+    // (i2s.vhd:177-180), which the mixer centres on to output exactly 0
+    // (Mixer::MIX_REST_LEVEL), so every sample of each channel must be 0 — a
+    // swing alone could not show it (a channel stuck at another value is flat
+    // too). RZX playback is driven
+    // through the player's own API, as esp_wiring_test does: a recording of a
+    // few empty frames keeps is_playing() true without overriding any input.
+    {
+        FakeNextPi fake("audio-replay");
+        write_tone(fake.bin("tone.wav"), 8000, 16384, 50, 16384);
+        PiQemu::Spec spec;
+        spec.dir         = fake.dir();
+        spec.qemu_binary = fake.bin("qemu-system-arm");
+        PiQemu qemu;
+        std::string error;
+        const bool started = fake.ok() && qemu.start(spec, error) && qemu.audio() != nullptr;
+        for (int i = 0; i < 500 && started && qemu.audio()->available() < 8000; ++i)   // as PI-48
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        uint32_t before = 0, after_replay = 0, after_rzx = 0, after_live = 0;
+        MixerLevels replay, rzx, live;
+        // The reset value, with and without a Pi: 0x200 in both channels
+        // (i2s_receive.vhd:129-130 resets to 0, i2s.vhd:177-180 inverts bit 12).
+        bool rest_no_pi = false, rest_pi = false;
+        if (started) {
+            EmulatorConfig plain = pi_qemu_config(qemu);   // no pi_audio
+            Emulator bare;
+            bare.init(plain);
+            rest_no_pi = bare.i2s().left() == 0x200 && bare.i2s().right() == 0x200;
+        }
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            Emulator emu;
+            emu.init(cfg);
+            rest_pi = emu.i2s().left() == 0x200 && emu.i2s().right() == 0x200;
+            before = qemu.audio()->available();
+            emu.set_replay_mode(true);
+            replay = mixer_levels(emu, 0xC0, 2);
+            after_replay = qemu.audio()->available();
+            emu.set_replay_mode(false);
+            RzxRecording rec;
+            rec.frames.resize(4);
+            emu.rzx_player().start(std::move(rec));
+            rzx = mixer_levels(emu, 0xC0, 2);
+            after_rzx = qemu.audio()->available();
+            emu.rzx_player().stop();
+            live = mixer_levels(emu, 0xC0, 1);
+            after_live = qemu.audio()->available();
+        }
+        const bool rzx_silent = rzx.n > 0 && rzx.lo_l == 0 && rzx.hi_l == 0 && rzx.lo_r == 0 &&
+                                rzx.hi_r == 0;
+        check("PI-49",
+              "neither a rewind replay nor an RZX playback consumes the Pi's sound; a replay "
+              "produces no audio at all, and an RZX playback leaves the I2S input silent (0x200 "
+              "in both channels, so every output sample is 0); live again, the emulator draws "
+              "exactly one Pi frame per mixer output sample; the I2S input resets to 0x200 with "
+              "or without a Pi (i2s_receive.vhd:129-130, i2s.vhd:177-180)",
+              started && rest_no_pi && rest_pi && before == 8000 && after_replay == before && after_rzx == before &&
+                  replay.n == 0 && rzx_silent && live.n > 0 &&
+                  before - after_live == static_cast<uint32_t>(live.n),
+              fmt("started=%d (%s) available before=%u after replay=%u after rzx=%u after live=%u "
+                  "replay samples=%d (want 0); rzx n=%d L %d..%d R %d..%d (want n>0, all 0); "
+                  "live samples=%d consumed=%u (want equal); reset 0x200 without a Pi=%d, with=%d",
+                  started ? 1 : 0, error.c_str(), before, after_replay, after_rzx, after_live,
+                  replay.n, rzx.n, rzx.lo_l, rzx.hi_l, rzx.lo_r, rzx.hi_r, live.n,
+                  before - after_live, rest_no_pi ? 1 : 0, rest_pi ? 1 : 0));
+    }
+
+    // ── PI-50 — the warm-start recording machine does not get the Pi's sound:
+    // it would be a second consumer of one stream.
+    {
+        PiAudio audio;
+        EmulatorConfig live;
+        live.sd_card_image = "card.img";
+        live.pi_audio      = &audio;
+        const EmulatorConfig b = Emulator::warm_start_boot_config(live);
+        check("PI-50",
+              "the warm-start recording boot gets no NextPi audio reader (one consumer of the "
+              "Pi's sound; jnext-only, no VHDL counterpart)",
+              b.pi_audio == nullptr && b.sd_card_image == "card.img", "");
+    }
+
+    // ── PI-51 — the audio FIFO cannot be made: start() fails with PiAudio's
+    // error rather than starting a QEMU whose sound goes nowhere. $TMPDIR is
+    // nested so deep that the UART FIFO `uart.out` still fits in PATH_MAX but
+    // `uart.audio`, two characters longer, does not (ENAMETOOLONG).
+    {
+        namespace fs = std::filesystem;
+        FakeNextPi fake("audio-fifo");
+        // Canonical: the kernel's limit applies after symlinks resolve, and
+        // macOS's temporary directory sits behind one (/var -> /private/var).
+        std::error_code ec;
+        const fs::path deep_root = fs::canonical(fs::temp_directory_path(), ec) /
+                                   ("jnext-pi51-" + std::to_string(::getpid()));
+        // strlen(<tmp>/jnext-pi-XXXXXX/uart.out) == PATH_MAX - 1, the longest
+        // path the kernel takes; ".audio" makes it PATH_MAX + 1.
+        const std::size_t want = static_cast<std::size_t>(PATH_MAX) - 1 -
+                                 std::strlen("/jnext-pi-XXXXXX/uart.out");
+        std::string deep = deep_root.string();
+        while (deep.size() + 1 < want) {               // each step adds "/" + a name
+            const std::size_t rest = want - deep.size() - 1;
+            // Names of at most 200 chars; never leave exactly 1 char to fill.
+            const std::size_t take = rest <= 200 ? rest : (rest == 201 ? 199 : 200);
+            deep += "/" + std::string(take, 'd');
+        }
+        fs::create_directories(deep, ec);
+        const bool deep_ok = !ec && deep.size() == want;
+        const char* old = std::getenv("TMPDIR");
+        const std::string saved = old ? old : "";
+        ::setenv("TMPDIR", deep.c_str(), 1);
+        PiQemu::Spec spec;
+        spec.dir         = fake.dir();
+        spec.qemu_binary = fake.bin("qemu-system-arm");
+        bool refused = false;
+        std::string error;
+        {
+            PiQemu q;
+            refused = !q.start(spec, error) && !q.running() && q.audio() == nullptr;
+        }
+        if (old) ::setenv("TMPDIR", saved.c_str(), 1); else ::unsetenv("TMPDIR");
+        const bool spawned = fs::exists(fs::path(fake.dir()) / "bin" / "pid");
+        fs::remove_all(deep_root, ec);
+        check("PI-51",
+              "when the Pi's audio FIFO cannot be created, starting NextPi fails with that error "
+              "and starts no QEMU (jnext-only, no VHDL counterpart)",
+              fake.ok() && deep_ok && refused && !spawned &&
+                  error.find("uart.audio") != std::string::npos,
+              fmt("deep=%d (%zu/%zu) refused=%d spawned=%d error='%s'", deep_ok ? 1 : 0, deep.size(),
+                  want, refused ? 1 : 0, spawned ? 1 : 0, error.c_str()));
+    }
+
+    // ── PI-52 — the mixer's -audiodev value escapes the FIFO path: QEMU's
+    // option syntax splits on ',' (a literal comma is written ',,'), and the
+    // path comes from $TMPDIR, which may hold one. Pure.
+    {
+        const std::string arg = PiQemu::mixer_audiodev_arg("/t,mp/uart");
+        const std::string want =
+            "wav,id=snd0,path=/t,,mp/uart.audio,out.frequency=44100,out.channels=2,out.format=s16";
+        check("PI-52",
+              "the -audiodev value that sends the Pi's sound to the mixer escapes a comma in the "
+              "FIFO path, and asks for 44.1 kHz s16 stereo (jnext-only, no VHDL counterpart)",
+              arg == want, fmt("got '%s' want '%s'", arg.c_str(), want.c_str()));
+    }
+
+    // ── PI-54 — `host` reaches QEMU as the platform's default output, and the
+    // empty setting still means the mixer. Pure: build_args only.
+    {
+        auto audiodev = [](const std::vector<std::string>& a) {
+            for (std::size_t i = 0; i + 1 < a.size(); ++i)
+                if (a[i] == "-audiodev") return a[i + 1];
+            return std::string();
+        };
+        PiQemu::Spec spec;
+        spec.dir   = "/n";
+        spec.audio = "host";
+        const std::string host = audiodev(PiQemu::build_args(spec, "/run/uart"));
+        spec.audio.clear();
+        const std::string mixer = audiodev(PiQemu::build_args(spec, "/run/uart"));
+#ifdef __APPLE__
+        const bool host_ok = host.rfind("coreaudio,id=snd0,", 0) == 0;
+#else
+        const bool host_ok = host == "pa,id=snd0";
+#endif
+        check("PI-54",
+              "the Pi audio setting `host` gives QEMU the platform's default output (pa; "
+              "coreaudio on macOS), and the empty setting the mixer's wav FIFO (jnext-only, no "
+              "VHDL counterpart)",
+              host_ok && mixer == PiQemu::mixer_audiodev_arg("/run/uart"),
+              fmt("host='%s' empty='%s'", host.c_str(), mixer.c_str()));
+    }
+
+    // ── PI-53 — a non-default audio setting keeps the Pi's sound away from the
+    // mixer: with Spec::audio = "none" QEMU gets that driver (not the wav
+    // FIFO), PiQemu makes no PiAudio and creates no audio FIFO.
+    {
+        namespace fs = std::filesystem;
+        FakeNextPi fake("audio-none");
+        PiQemu::Spec spec;
+        spec.dir         = fake.dir();
+        spec.qemu_binary = fake.bin("qemu-system-arm");
+        spec.audio       = "none";
+        PiQemu qemu;
+        std::string error;
+        const bool started = fake.ok() && qemu.start(spec, error);
+        const bool no_reader = qemu.audio() == nullptr;
+        const bool recorded = started && fake.child_pid() > 0;   // args written before the pid
+        const std::string args = fake.args();
+        const bool driver = args.find("none,id=snd0") != std::string::npos &&
+                            args.find("wav,id=snd0,path=") == std::string::npos;
+        std::error_code ec;
+        const bool no_fifo = started &&
+            !fs::exists(fs::path(qemu.rx_path()).parent_path() / "uart.audio", ec);
+        check("PI-53",
+              "with the Pi's audio set to a QEMU driver (\"none\"), QEMU is given that driver, "
+              "not the mixer's wav FIFO, and jnext makes no audio reader or FIFO (jnext-only, no "
+              "VHDL counterpart)",
+              started && no_reader && recorded && driver && no_fifo,
+              fmt("started=%d (%s) reader=%s args recorded=%d driver=%d fifo=%s",
+                  started ? 1 : 0, error.c_str(), no_reader ? "none" : "MADE", recorded ? 1 : 0,
+                  driver ? 1 : 0, no_fifo ? "none" : "MADE"));
+    }
+
+    // ── PI-55 — the guest's view of the Pi's sample (NR 0x2C/0x2D/0x2E,
+    // zxnext.vhd:6006-6015) is live in a live run and the rest value 0x200
+    // whenever the run must be reproducible: a rewind replay, an RZX playback
+    // or an RZX recording, none of which can reproduce a host-timed sample. A
+    // restored snapshot also puts the latch back at rest. The tone is left
+    // ±16384 (10-bit 768/256, NR byte 0xC0/0x40) and right ±8192 (640/384,
+    // 0xA0/0x60); the rest value reads 0x80, and NR 0x2D's low bits 0.
+    {
+        namespace fs = std::filesystem;
+        FakeNextPi fake("audio-nr2c");
+        write_tone(fake.bin("tone.wav"), 8000, 16384, 50, 8192);
+        PiQemu::Spec spec;
+        spec.dir         = fake.dir();
+        spec.qemu_binary = fake.bin("qemu-system-arm");
+        PiQemu qemu;
+        std::string error;
+        const bool started = fake.ok() && qemu.start(spec, error) && qemu.audio() != nullptr;
+        for (int i = 0; i < 500 && started && qemu.audio()->available() < 8000; ++i)   // as PI-48
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        struct Read { uint8_t l = 0, d = 0xFF, r = 0; };
+        Read live, replay, rzx_play, rzx_rec;
+        bool rest_after_load = false;
+        const std::string rzx_path =
+            (fs::temp_directory_path() / ("jnext-pi55-" + std::to_string(::getpid()) + ".rzx")).string();
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            Emulator emu;
+            emu.init(cfg);
+            auto read = [&] {
+                Read v;
+                v.l = emu.nextreg().read(0x2C);
+                v.d = emu.nextreg().read(0x2D);
+                v.r = emu.nextreg().read(0x2E);
+                return v;
+            };
+            mixer_swing(emu, 0xC0, 1);          // live: a Pi frame is latched
+            live = read();
+            emu.set_replay_mode(true);
+            replay = read();
+            emu.set_replay_mode(false);
+            RzxRecording rec;
+            rec.frames.resize(4);
+            emu.rzx_player().start(std::move(rec));
+            rzx_play = read();
+            emu.rzx_player().stop();
+            // The recorder itself: Emulator::start_rzx_recording() refuses on
+            // a Next (GH #274), and the gate reads only is_recording().
+            if (emu.rzx_recorder().start(rzx_path)) {
+                rzx_rec = read();
+                emu.rzx_recorder().stop();
+            }
+            StateWriter measure;
+            emu.save_state(measure);
+            std::vector<uint8_t> snap(measure.position());
+            StateWriter w(snap.data(), snap.size());
+            emu.save_state(w);
+            StateReader r(snap.data(), snap.size());
+            emu.load_state(r);
+            rest_after_load = emu.i2s().left() == 0x200 && emu.i2s().right() == 0x200;
+        }
+        std::error_code ec;
+        fs::remove(rzx_path, ec);
+        auto is_rest = [](const Read& v) { return v.l == 0x80 && v.d == 0x00 && v.r == 0x80; };
+        const bool live_ok = (live.l == 0xC0 || live.l == 0x40) && (live.r == 0xA0 || live.r == 0x60);
+        check("PI-55",
+              "the guest reads the Pi's live sample on NR 0x2C/0x2E in a live run, and the rest "
+              "value 0x200 (0x80, NR 0x2D 0) in a rewind replay, an RZX playback and an RZX "
+              "recording; a restored snapshot puts the latch at rest (zxnext.vhd:6006-6015)",
+              started && live_ok && is_rest(replay) && is_rest(rzx_play) && is_rest(rzx_rec) &&
+                  rest_after_load,
+              fmt("started=%d (%s) live 2C=%02X 2E=%02X; replay %02X/%02X/%02X; rzx play "
+                  "%02X/%02X/%02X; rzx rec %02X/%02X/%02X (want 80/00/80); rest after load=%d",
+                  started ? 1 : 0, error.c_str(), live.l, live.r, replay.l, replay.d, replay.r,
+                  rzx_play.l, rzx_play.d, rzx_play.r, rzx_rec.l, rzx_rec.d, rzx_rec.r,
+                  rest_after_load ? 1 : 0));
+    }
+
+    // ── PI-56..59 — NR 0xA2 bit 0: the Pi's audio as the EAR input, read on
+    // port 0xFE bit 6 (zxnext.vhd:2361-2373, :3459; zxnext_top_issue2.vhd:
+    // 663-677). The stand-in plays a square wave with BOTH channels in phase at
+    // ±24576 (10-bit 0x380 / 0x080: t = 11 / 00), flipping every 20 samples
+    // (0.45 ms, well inside the ~1.17 ms relaxation), so the comparator
+    // toggles with it.
+    auto ear_bit = [](Emulator& emu) { return (emu.port().read(0xFFFE) >> 6) & 1; };
+    auto start_pi = [](FakeNextPi& fake, PiQemu& qemu, int frames, int half, std::string& error) {
+        write_tone(fake.bin("tone.wav"), frames, 24576, half, -24576);   // R in phase with L
+        PiQemu::Spec spec;
+        spec.dir         = fake.dir();
+        spec.qemu_binary = fake.bin("qemu-system-arm");
+        const bool started = fake.ok() && qemu.start(spec, error) && qemu.audio() != nullptr;
+        for (int i = 0; i < 500 && started && qemu.audio()->available() < static_cast<uint32_t>(
+                                                   std::min(frames, 40000)); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return started;
+    };
+
+    // Step instructions and read port 0xFE bit 6 every 100 of them, against
+    // the comparator: the stand-in's whole tone is buffered at once, so the
+    // first pop trims it to ~4410 frames (100 ms; MX-32) and the sampling
+    // stays inside them. `invert`: the tape jack is high, so bit 6 = !ear.
+    struct EarReads { int reads = 0, mismatches = 0, ones = 0, zeros = 0; };
+    auto sample_ear = [&](Emulator& emu, int instructions, bool invert) {
+        EarReads r;
+        for (int i = 1; i <= instructions; ++i) {
+            emu.execute_single_instruction();
+            if (i % 100) continue;
+            const int bit = ear_bit(emu);
+            const int want = (emu.i2s().fe_ear() ? 1 : 0) ^ (invert ? 1 : 0);
+            ++r.reads;
+            if (bit != want) ++r.mismatches;
+            (bit ? r.ones : r.zeros)++;
+        }
+        return r;
+    };
+
+    // PI-56 — the CPU reads the comparator: with NR 0xA2 = 0xC3 (stereo +
+    // EAR; bit 1 is reserved and set), port 0xFE bit 6 equals pi_fe_ear at
+    // every read and takes both values. With bit 0 cleared it reads 0, and
+    // during a rewind replay it reads 0 even while the comparator is 1 (a
+    // host-timed level, like the sample on NR 0x2C).
+    {
+        FakeNextPi fake("audio-ear");
+        PiQemu qemu;
+        std::string error;
+        const bool started = start_pi(fake, qemu, 40000, 20, error);
+        EarReads on;
+        int off_ones = -1;
+        bool replay_ok = false;
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            Emulator emu;
+            emu.init(cfg);
+            emu.nextreg().write(0xA2, 0xC3);
+            on = sample_ear(emu, 20000, false);
+            for (int i = 0; i < 20000 && !emu.i2s().fe_ear(); ++i) emu.execute_single_instruction();
+            if (emu.i2s().fe_ear() && ear_bit(emu) == 1) {
+                emu.set_replay_mode(true);
+                replay_ok = ear_bit(emu) == 0;
+                emu.set_replay_mode(false);
+            }
+            emu.nextreg().write(0xA2, 0xC2);                  // bit 0 clear
+            off_ones = 0;
+            for (int i = 1; i <= 5000; ++i) {
+                emu.execute_single_instruction();
+                if (i % 100 == 0) off_ones += ear_bit(emu);
+            }
+        }
+        check("PI-56",
+              "with NR 0xA2 bit 0 set, port 0xFE bit 6 reads the Pi's EAR comparator, toggling "
+              "with a Pi square wave; with bit 0 clear, and during a rewind replay, it reads 0 "
+              "(zxnext.vhd:2361-2373, :3459)",
+              started && on.reads == 200 && on.mismatches == 0 && on.ones > 0 && on.zeros > 0 &&
+                  off_ones == 0 && replay_ok,
+              fmt("started=%d (%s) reads=%d mismatches=%d ones=%d zeros=%d bit0-clear ones=%d "
+                  "replay=%d", started ? 1 : 0, error.c_str(), on.reads, on.mismatches, on.ones,
+                  on.zeros, off_ones, replay_ok ? 1 : 0));
+    }
+
+    // PI-57 — XOR with a playing tape: a WAV tape holding a steady high level
+    // is the EAR jack, and bit 6 is jack XOR pi_fe_ear, i.e. the inverse of
+    // the comparator at every read (zxnext_top_issue2.vhd:673).
+    {
+        namespace fs = std::filesystem;
+        FakeNextPi fake("audio-ear-tape");
+        PiQemu qemu;
+        std::string error;
+        const bool started = start_pi(fake, qemu, 40000, 20, error);
+        const std::string wav = (fs::path(fake.dir()) / "high.wav").string();
+        {
+            std::ofstream f(wav, std::ios::binary);
+            auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) f.put(static_cast<char>(v >> (8 * i))); };
+            auto u16 = [&](uint16_t v) { f.put(static_cast<char>(v)); f.put(static_cast<char>(v >> 8)); };
+            const uint32_t n = 44100 * 3;                     // 3 s of 8-bit mono, all high
+            f.write("RIFF", 4); u32(36 + n); f.write("WAVEfmt ", 8); u32(16); u16(1); u16(1);
+            u32(44100); u32(44100); u16(1); u16(8); f.write("data", 4); u32(n);
+            for (uint32_t i = 0; i < n; ++i) f.put(static_cast<char>(0xF0));
+        }
+        EarReads r;
+        bool loaded = false;
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            Emulator emu;
+            emu.init(cfg);
+            loaded = emu.load_wav(wav) && emu.wav_tape().is_playing();
+            emu.nextreg().write(0xA2, 0xC3);
+            if (loaded) r = sample_ear(emu, 20000, true);
+        }
+        check("PI-57",
+              "with NR 0xA2 bit 0 set and a tape playing a steady high level, port 0xFE bit 6 is "
+              "the tape XOR the Pi's EAR comparator (zxnext_top_issue2.vhd:673)",
+              started && loaded && r.reads == 200 && r.mismatches == 0 && r.ones > 0 && r.zeros > 0,
+              fmt("started=%d (%s) tape=%d reads=%d mismatches=%d ones=%d zeros=%d", started ? 1 : 0,
+                  error.c_str(), loaded ? 1 : 0, r.reads, r.mismatches, r.ones, r.zeros));
+    }
+
+    // PI-58 — the relaxation: the stand-in plays a steady high level, so the
+    // comparator rises once and holds. Stepping instructions from the edge,
+    // bit 6 reads 1 at once and 30000 master cycles later, and has relaxed to
+    // the issue-2 level (0, issue-2 off) 34000 cycles after it: ear_relax
+    // holds a level for 64 ticks of the 512-cycle membrane enable (32768).
+    {
+        FakeNextPi fake("audio-ear-relax");
+        PiQemu qemu;
+        std::string error;
+        const bool started = start_pi(fake, qemu, 40000, 1 << 30, error);   // never flips
+        bool saw_edge = false;
+        int at_edge = -1, at_30000 = -1, at_34000 = -1;
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            Emulator emu;
+            emu.init(cfg);
+            emu.nextreg().write(0xA2, 0xC3);
+            for (int i = 0; i < 2000000 && !emu.i2s().fe_ear(); ++i) emu.execute_single_instruction();
+            saw_edge = emu.i2s().fe_ear();
+            if (saw_edge) {
+                const uint64_t t0 = emu.clock().get();
+                at_edge = ear_bit(emu);
+                while (emu.clock().get() < t0 + 30000) emu.execute_single_instruction();
+                at_30000 = ear_bit(emu);
+                while (emu.clock().get() < t0 + 34000) emu.execute_single_instruction();
+                at_34000 = ear_bit(emu);
+            }
+        }
+        check("PI-58",
+              "a steady Pi EAR level reads 1 on port 0xFE bit 6 from its edge, still 1 30000 "
+              "master cycles later, and relaxed to the issue-2 level (0) 34000 cycles after it "
+              "(ear_relax, zxnext_top_issue2.vhd:663-677: 64 x 512 cycles)",
+              started && saw_edge && at_edge == 1 && at_30000 == 1 && at_34000 == 0,
+              fmt("started=%d (%s) edge=%d bit6 at edge=%d +30000=%d +34000=%d", started ? 1 : 0,
+                  error.c_str(), saw_edge ? 1 : 0, at_edge, at_30000, at_34000));
+    }
+
+    // PI-59 — --silent: no mixing, but the Pi's samples are still latched,
+    // so the EAR path works as in PI-56 (--silent leaves EAR input working).
+    {
+        FakeNextPi fake("audio-ear-silent");
+        PiQemu qemu;
+        std::string error;
+        const bool started = start_pi(fake, qemu, 40000, 20, error);
+        EarReads r;
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            cfg.silent   = true;
+            Emulator emu;
+            emu.init(cfg);
+            emu.nextreg().write(0xA2, 0xC3);
+            r = sample_ear(emu, 20000, false);
+        }
+        check("PI-59",
+              "with --silent the Pi's samples are still latched and NR 0xA2 bit 0's EAR path "
+              "still toggles port 0xFE bit 6 (jnext-only: --silent has no VHDL counterpart)",
+              started && r.reads == 200 && r.mismatches == 0 && r.ones > 0 && r.zeros > 0,
+              fmt("started=%d (%s) reads=%d mismatches=%d ones=%d zeros=%d", started ? 1 : 0,
+                  error.c_str(), r.reads, r.mismatches, r.ones, r.zeros));
+    }
+}
+
 int main() {
     std::printf("UART integration: POSIX-only rows\n");
     std::printf("===============================================\n\n");
@@ -2052,6 +2637,7 @@ int main() {
     test_nextpi_provisioner();
     test_nextpi_review_rows();
     test_nextpi_review2_rows();
+    test_nextpi_audio();
     std::printf("  Group: PI — done\n");
 
     std::printf("\n===============================================\n");

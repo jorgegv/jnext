@@ -2663,7 +2663,8 @@ UART 1, the Pi GPIO header's UART. Three pieces:</p>
   FIFOs while QEMU — holding both ends read-write — keeps running, so the Pi
   neither reboots nor sees an EOF. A reaper thread logs a QEMU that exits on its
   own; the destructor stops it with SIGTERM (SIGKILL after three seconds).</li>
-<li><strong><code>core/nextpi_provisioner.{h,cpp}</code></strong> makes the NextPi directory exist, on
+<li>
+<p><strong><code>core/nextpi_provisioner.{h,cpp}</code></strong> makes the NextPi directory exist, on
   the SD provisioner's seams (<code>DownloadFn</code>, <code>ConfirmFn</code>, <code>ProgressFn</code>,
   <code>BusyFn</code>, so the same GUI dialogs and terminal prompts serve both): it asks,
   downloads the release and its MD5 from the mirror, streams the image out of
@@ -2671,7 +2672,19 @@ UART 1, the Pi GPIO header's UART. Three pieces:</p>
   copies <code>kernel.img</code> and the device tree out of the image's FAT32 boot
   partition with the lenient <code>fat32_read_tree</code>. A <code>release</code> marker records what
   is installed, so a changed release (or <code>latest</code> moving on) re-provisions and
-  discards the overlay.</li>
+  discards the overlay.</p>
+</li>
+<li>
+<p><strong><code>audio/pi_audio.{h,cpp}</code></strong> carries the Pi's sound into the mixer, the way
+  a real Next takes it over I2S. QEMU's <code>wav</code> audio back-end writes 44.1 kHz s16
+  stereo into a FIFO; <code>PiAudio</code>'s reader thread drains it into a lock-free ring
+  (so QEMU never blocks), and <code>Emulator::feed_pi_audio</code> pops one frame at each
+  mixer output sample into <code>I2s</code>, whose NR 0xA2 gating and mixer sum already
+  modelled the hardware. The ring prebuffers 50 ms, plays silence on an
+  underrun and trims a backlog beyond 300 ms, absorbing the drift between QEMU's
+  host clock and the emulated one. RZX playback does not consume it; a rewind's
+  replay never generates audio at all.</p>
+</li>
 </ul>
 <p><code>main()</code> wires them: it merges <code>--nextpi</code>/<code>--no-nextpi</code> over the saved
 preference (GUI sessions only, as for the ESP), provisions, starts QEMU, and

@@ -122,6 +122,7 @@ BEGIN {
     M["audio_test"]                    = "Audio (AY+DAC+Beeper)"
     M["audio_nextreg_test"]            = "Audio (NextREG)"
     M["audio_port_dispatch_test"]      = "Audio (port dispatch)"
+    M["audio_posix_test"]              = "Audio (Pi I2S source, POSIX)"
     M["audio_pacing_test"]             = "Audio (pacing)"
     M["audio_fill_test"]               = "Audio (device fill)"
     M["audio_capture_test"]            = "Audio (capture)"

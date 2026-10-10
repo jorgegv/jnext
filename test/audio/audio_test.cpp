@@ -3064,6 +3064,67 @@ static void g_mixer() {
                   "audio_mixer.vhd:89-90", s[0], s[1]));
     }
 
+
+    // MX-48/49 — NR 0xA2 BIT 0, the Pi's audio as an EAR signal: `pi_fe_ear`,
+    // a comparator with hysteresis on the RAW samples (zxnext.vhd:2361-2373).
+    // With t = L(9:8) OR R(9:8), bitwise: rises at t = 11, falls at t = 00,
+    // holds at 01 and 10; forced to 0 unless I2S is enabled and bit 0 is set.
+    {
+        I2s i2s;
+        i2s.set_nr_a2_ctl(0xC1);                        // enL, enR, ear
+        struct Step { uint16_t l, r; bool want; const char* what; };
+        const Step steps[] = {
+            {0x200, 0x200, false, "rest (t=10): stays 0"},
+            {0x2FF, 0x200, false, "0x2FF (t=10): no rise"},
+            {0x300, 0x200, true,  "0x300 (t=11): rises"},
+            {0x200, 0x200, true,  "back to rest (t=10): holds 1"},
+            {0x100, 0x100, true,  "0x100 (t=01): holds 1"},
+            {0x0FF, 0x0FF, false, "0x0FF both (t=00): falls"},
+            {0x100, 0x0FF, false, "t=01: holds 0"},
+            {0x000, 0x3FF, true,  "R alone (t=11): rises"},
+            {0x0FF, 0x000, false, "t=00: falls"},
+            {0x2FF, 0x100, true,  "L 0x2FF | R 0x100 (bitwise t=11): rises"},
+            {0x0FF, 0x100, true,  "R keeps t=01: holds 1"},
+            {0x000, 0x000, false, "t=00: falls"},
+        };
+        bool ok = true;
+        std::string where;
+        for (const Step& st : steps) {
+            i2s.set_sample(st.l, st.r);
+            if (i2s.fe_ear() != st.want) { ok = false; where = st.what; break; }
+        }
+        check("MX-48", "NR 0xA2 bit 0's EAR comparator rises at L(9:8) OR R(9:8) = 11, falls at "
+              "00 and holds in between, on the raw samples, either channel driving it "
+              "(zxnext.vhd:2361-2373)",
+              ok, fmt("first wrong step: %s", ok ? "-" : where.c_str()));
+    }
+    {
+        I2s i2s;
+        i2s.set_sample(0x3FF, 0x3FF);                    // t = 11 throughout
+        const bool reset_0 = !i2s.fe_ear();              // NR 0xA2 = 0: off
+        i2s.set_nr_a2_ctl(0xC0);                         // enabled, bit 0 clear
+        const bool no_bit0 = !i2s.fe_ear();
+        i2s.set_nr_a2_ctl(0x01);                         // bit 0, I2S not enabled
+        const bool no_en = !i2s.fe_ear();
+        i2s.set_nr_a2_ctl(0x81);                         // enL + bit 0: on at once
+        const bool on_l = i2s.fe_ear();
+        i2s.set_nr_a2_ctl(0x41);                         // enR alone also enables
+        const bool on_r = i2s.fe_ear();
+        const bool muted_mix = i2s.pi_audio_L() == 0x200 && i2s.pi_audio_R() == 0x200;
+        i2s.set_nr_a2_ctl(0x40);                         // bit 0 cleared: forced 0
+        const bool off_again = !i2s.fe_ear();
+        i2s.set_nr_a2_ctl(0xC1);
+        i2s.reset();
+        const bool cleared_by_reset = !i2s.fe_ear();
+        check("MX-49", "NR 0xA2 bit 0's EAR comparator is forced to 0 unless I2S is enabled "
+              "(b7 or b6) and bit 0 is set, re-evaluated on each NR 0xA2 write; with bit 0 set "
+              "the Pi leaves the mixer (0x200); reset clears it (zxnext.vhd:2358-2373)",
+              reset_0 && no_bit0 && no_en && on_l && on_r && muted_mix && off_again &&
+                  cleared_by_reset,
+              fmt("reset=%d bit0=%d en=%d onL=%d onR=%d mix=%d off=%d reset2=%d", reset_0, no_bit0,
+                  no_en, on_l, on_r, muted_mix, off_again, cleared_by_reset));
+    }
+
     // MX-30 — RETIRED 2026-09-24 (GH #201), was the G29 WONT.
     //
     // The row asks for a Pi I2S SOURCE delivering a continuous 10-bit

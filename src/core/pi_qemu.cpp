@@ -1,5 +1,7 @@
 #include "core/pi_qemu.h"
 
+#include "audio/pi_audio.h"
+
 #include "core/log.h"
 
 #include <chrono>
@@ -50,8 +52,10 @@ std::string qemu_escape(const std::string& s) {
 std::string PiQemu::audiodev_arg(const std::string& audio) {
     if (audio.rfind("wav:", 0) == 0)
         return "wav,id=snd0,path=" + qemu_escape(audio.substr(4));
+    // "host" is not a QEMU driver name; it stands for this platform's default
+    // host output, so it is safe to reserve.
     std::string driver = audio;
-    if (driver.empty()) {
+    if (driver == "host") {
 #ifdef __APPLE__
         driver = "coreaudio";
 #else
@@ -65,6 +69,13 @@ std::string PiQemu::audiodev_arg(const std::string& audio) {
     return driver + ",id=snd0";
 }
 
+std::string PiQemu::mixer_audiodev_arg(const std::string& pipe_base) {
+    // The Pi's sound into jnext's mixer: QEMU's `wav` back-end writing a WAV
+    // stream into the FIFO PiAudio reads, at the mixer's own rate and format.
+    return "wav,id=snd0,path=" + qemu_escape(pipe_base + ".audio") +
+           ",out.frequency=" + std::to_string(PiAudio::kRate) + ",out.channels=2,out.format=s16";
+}
+
 std::vector<std::string> PiQemu::build_args(const Spec& spec, const std::string& pipe_base) {
     const fs::path dir(spec.dir);
     return {
@@ -73,7 +84,7 @@ std::vector<std::string> PiQemu::build_args(const Spec& spec, const std::string&
         "-dtb", (dir / "boot" / "bcm2708-rpi-zero.dtb").string(),
         "-drive", "file=" + qemu_escape((dir / "overlay.qcow2").string()) + ",if=sd,format=qcow2",
         "-append", KERNEL_APPEND,
-        "-audiodev", audiodev_arg(spec.audio),
+        "-audiodev", spec.audio.empty() ? mixer_audiodev_arg(pipe_base) : audiodev_arg(spec.audio),
         "-device", "usb-audio,audiodev=snd0,buffer=16384",
         "-chardev", "pipe,id=pi,path=" + qemu_escape(pipe_base),
         "-serial", "chardev:pi",
@@ -363,6 +374,15 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
     watchdog_fd_ = fds[1];
     if (rd < 0) return fail(std::string("fcntl: ") + std::strerror(errno));
 
+    // The Pi's sound into the Next's mixer (the default): open the reader of
+    // QEMU's audio FIFO now, before QEMU, whose open of its end blocks until a
+    // reader exists.
+    if (spec.audio.empty()) {
+        audio_ = std::make_unique<PiAudio>();
+        std::string audio_error;
+        if (!audio_->open(base + ".audio", audio_error)) return fail(audio_error);
+    }
+
     std::vector<std::string> sh_args{"-c", kWatchdog, "jnext-nextpi", qemu};
     const std::vector<std::string> qemu_args = build_args(spec, base);
     sh_args.insert(sh_args.end(), qemu_args.begin(), qemu_args.end());
@@ -414,6 +434,10 @@ void PiQemu::stop() {
         if (!exited_) ::kill(-pid_, SIGKILL);
         if (reaper_.joinable()) reaper_.join();
         pid_ = -1;
+    }
+    if (audio_) {
+        audio_->close();
+        audio_.reset();
     }
     if (!runtime_dir_.empty()) {
         std::error_code ec;

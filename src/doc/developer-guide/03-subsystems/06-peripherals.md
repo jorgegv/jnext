@@ -291,6 +291,16 @@ UART 1, the Pi GPIO header's UART. Three pieces:
   is installed, so a changed release (or `latest` moving on) re-provisions and
   discards the overlay.
 
+* **`audio/pi_audio.{h,cpp}`** carries the Pi's sound into the mixer, the way
+  a real Next takes it over I2S. QEMU's `wav` audio back-end writes 44.1 kHz s16
+  stereo into a FIFO; `PiAudio`'s reader thread drains it into a lock-free ring
+  (so QEMU never blocks), and `Emulator::feed_pi_audio` pops one frame at each
+  mixer output sample into `I2s`, whose NR 0xA2 gating and mixer sum already
+  modelled the hardware. The ring prebuffers 50 ms, plays silence on an
+  underrun and trims a backlog beyond 300 ms, absorbing the drift between QEMU's
+  host clock and the emulated one. RZX playback does not consume it; a rewind's
+  replay never generates audio at all.
+
 `main()` wires them: it merges `--nextpi`/`--no-nextpi` over the saved
 preference (GUI sessions only, as for the ESP), provisions, starts QEMU, and
 puts the FIFO paths in the `EmulatorConfig`. A Pi asked for on the command line

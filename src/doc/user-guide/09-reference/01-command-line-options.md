@@ -311,8 +311,17 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     binary and where the Pi’s sound goes are set under **Settings \>
     Preferences \> NextPi** (the `[nextpi]` section of
     `~/.jnext/jnext.conf`); their defaults are release `1_93D`,
-    `~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and the host’s
-    speakers.
+    `~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and the Next’s
+    mixer.
+
+    The Pi’s sound reaches the Next’s mixer over I2S, as on the real
+    machine: it is mixed with the beeper, the AY chips and the DAC, so
+    **--record** and **--wav-record** include it, and NR 0xA2 enables
+    and mutes it (NextPi’s tools enable it themselves). It is 10-bit, as
+    the hardware’s input is, and arrives about 100 ms late. Rewinds and
+    RZX playback hold it silent. With NR 0xA2 bit 0 set it goes to the
+    EAR input instead (port 0xFE bit 6), as a tape signal: how a Next
+    loads a tape the Pi plays to it.
 
     The guest reaches the Pi only while NR 0xA0 bits 5:4 are `11` — UART
     1 on GPIO 14/15, wired for a Pi — which NextPi’s tools set before

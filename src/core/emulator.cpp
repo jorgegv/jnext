@@ -19,6 +19,7 @@
 #include "peripheral/joy_uart_source.h"
 #include "peripheral/joy_uart_link.h"
 #include "peripheral/pi_uart_device.h"
+#include "audio/pi_audio.h"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -280,6 +281,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         dac_.set_write_callback({});
     }
     i2s_.reset();
+    pi_ear_edge_master_ = 0;
     mixer_.reset();
     mixer_.set_output_gain_db(cfg.audio_gain_db);
     mixer_.set_beeper_gain_db(cfg.audio_gain_beeper_db);
@@ -4900,19 +4902,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // brought up to it, TZX/WAV evaluated at it. It used to be the
             // level at the instruction's start (TAP) or one T-state before
             // the I/O cycle's data latch (TZX/WAV, the live FUSE counter).
-            uint8_t audio_ear_eff = 0;
+            bool playing = true;
+            uint8_t tape_level = 0;
             if (tape_.is_playing()) {
-                audio_ear_eff = tap_ear_for_port_read();
+                tape_level = tap_ear_for_port_read();
             } else if (tzx_tape_.is_playing()) {
                 // Monotonic T-state clock (never resets across frames — G36).
-                audio_ear_eff = tzx_tape_.update(tape_sample_tstates());
+                tape_level = tzx_tape_.update(tape_sample_tstates());
             } else if (wav_tape_.is_playing()) {
-                audio_ear_eff = wav_tape_.get_ear_bit(tape_sample_tstates());
-            } else if ((nr_08_stored_low_ & 0x01) != 0) {
-                // Issue-2 MIC→EAR feedback (VHDL zxnext.vhd:1636, :3459):
-                // i_AUDIO_EAR steady-state = port_fe_mic AND nr_08_keyboard_issue2.
-                audio_ear_eff = beeper_.mic() ? 1 : 0;
+                tape_level = wav_tape_.get_ear_bit(tape_sample_tstates());
+            } else {
+                playing = false;
             }
+            // With no tape playing: the issue-2 MIC→EAR feedback (VHDL
+            // zxnext.vhd:1636, :3459), i_AUDIO_EAR steady-state = port_fe_mic
+            // AND nr_08_keyboard_issue2; and NR 0xA2 bit 0's Pi term.
+            const uint8_t audio_ear_eff =
+                audio_ear_in(playing, tape_level != 0, io_request_edge()) ? 1 : 0;
             // Bit 6 = audio_ear_eff OR port_fe_ear (OUT 0xFE bit 4 latch).
             uint8_t bit6 = (audio_ear_eff | (beeper_.ear() ? 1 : 0)) & 1;
             result = (result & ~0x40) | (bit6 << 6);
@@ -5931,22 +5937,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // zxnext.vhd:2358. When NR 0xA2 disables I2S, pi_audio_L = 0x200
             // (silence midpoint), so the high-8 bits = 0x80 and the latched
             // low-2 bits = 0b00.
-            const uint16_t L = i2s_.pi_audio_L() & 0x3FF;
+            const uint16_t L = guest_pi_audio(true) & 0x3FF;
             nr_2d_i2s_sample_ = static_cast<uint8_t>((L & 0x03) << 6);  // bits [1:0] → byte [7:6]
             return static_cast<uint8_t>((L >> 2) & 0xFF);               // bits [9:2] → byte [7:0]
         },
         [this]() -> uint8_t {   // peek: same byte, no latch
-            return static_cast<uint8_t>(((i2s_.pi_audio_L() & 0x3FF) >> 2) & 0xFF);
+            return static_cast<uint8_t>(((guest_pi_audio(true) & 0x3FF) >> 2) & 0xFF);
         });
     nextreg_.set_destructive_read_handler(0x2E,
         [this]() -> uint8_t {
             // G113: read the GATED pi_audio_R per VHDL zxnext.vhd:6014.
-            const uint16_t R = i2s_.pi_audio_R() & 0x3FF;
+            const uint16_t R = guest_pi_audio(false) & 0x3FF;
             nr_2d_i2s_sample_ = static_cast<uint8_t>((R & 0x03) << 6);
             return static_cast<uint8_t>((R >> 2) & 0xFF);
         },
         [this]() -> uint8_t {   // peek: same byte, no latch
-            return static_cast<uint8_t>(((i2s_.pi_audio_R() & 0x3FF) >> 2) & 0xFF);
+            return static_cast<uint8_t>(((guest_pi_audio(false) & 0x3FF) >> 2) & 0xFF);
         });
     nextreg_.set_read_handler(0x2D, [this]() -> uint8_t {
         return nr_2d_i2s_sample_;  // already in [7:6] form, low 6 bits = 0
@@ -5958,7 +5964,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // muteL/R, ear. The I2s class consumes those bits when computing
     // pi_audio_L/R() per zxnext.vhd:2358-2359.
     nextreg_.set_write_handler(0xA2, [this](uint8_t v) -> uint8_t {
-        i2s_.set_nr_a2_ctl(v);
+        with_pi_ear_tracking([&] { i2s_.set_nr_a2_ctl(v); });
         return v;
     });
     // VHDL zxnext.vhd:6192:
@@ -8625,8 +8631,33 @@ bool Emulator::tape_out_level() const
     const bool mic    = beeper_.mic();
     const bool issue2 = (nr_08_stored_low_ & 0x01) != 0;
     const bool playing = tape_.is_playing() || tzx_tape_.is_playing() || wav_tape_.is_playing();
-    const bool ear_in = playing ? beeper_.tape_ear() : (issue2 && mic);
+    const bool ear_in = audio_ear_in(playing, beeper_.tape_ear(), clock_.get());
     return ear_in != (mic && !issue2);
+}
+
+bool Emulator::audio_ear_in(bool tape_playing, bool tape_level, uint64_t now) const
+{
+    const bool issue2_mic = (nr_08_stored_low_ & 0x01) != 0 && beeper_.mic();
+    const uint8_t a2 = i2s_.nr_a2_ctl();
+    const bool pi_path = (a2 & 0xC0) != 0 && (a2 & 0x01) != 0 &&
+                         !replay_mode_ && !rzx_player_.is_playing();
+    if (!pi_path) return tape_playing ? tape_level : issue2_mic;
+    // ear_relax (zxnext_top_issue2.vhd:663-677): i_sig = ear_jack xor not
+    // pi_fe_ear with INVERT = 1, so the output is ear_jack xor pi_fe_ear,
+    // passed straight through on an edge; after COUNTER_SIZE = 6 (64) ticks
+    // of CLK_28_MEMBRANE_EN with no edge it relaxes to zxn_issue2_fe_mic
+    // (symmetric_relaxation.vhd). The enable fires once per 512 master
+    // cycles (clk_28_div(8 downto 0) all ones, zxnext_top_issue2.vhd:1172-
+    // 1179), so the hold is 64 x 512 master cycles, give or take one enable
+    // with the free-running divider's phase. With no tape playing the jack
+    // is idle and the Pi's comparator is the only edge source; a playing
+    // tape keeps today's model, its own level passed through.
+    static constexpr uint64_t kEarRelaxMaster = 64 * 512;
+    const bool sig = (tape_playing && tape_level) != i2s_.fe_ear();
+    if (!tape_playing && now >= pi_ear_edge_master_ &&
+        now - pi_ear_edge_master_ >= kEarRelaxMaster)
+        return issue2_mic;
+    return sig;
 }
 
 bool Emulator::rzx_refused_by_machine() const
@@ -9451,6 +9482,38 @@ void Emulator::setup_pi_uart()
         "while NR 0xA0 bits 5:4 = 11 (UART 1 on GPIO 14/15, wired for a Pi), which "
         "NextPi's tools set themselves",
         pi_uart_->describe());
+}
+
+// One Pi frame per mixer output sample only holds if QEMU is asked for the
+// mixer's own rate (PiQemu::mixer_audiodev_arg uses PiAudio::kRate).
+static_assert(PiAudio::kRate == Mixer::SAMPLE_RATE,
+              "the Pi's audio must arrive at the mixer's sample rate");
+
+uint16_t Emulator::guest_pi_audio(bool left) const
+{
+    if (replay_mode_ || rzx_player_.is_playing() || rzx_recorder_.is_recording())
+        return 0x200;
+    return left ? i2s_.pi_audio_L() : i2s_.pi_audio_R();
+}
+
+void Emulator::feed_pi_audio()
+{
+    // Silence (the offset-binary midpoint, i2s.vhd:177-180) unless a frame is
+    // ready. During RZX playback the stream is NOT consumed: like the UART
+    // link, the Pi's output belongs to the live session, not to a recording.
+    // A rewind's replay does not get here (run_frame does not advance audio
+    // while replay_mode_ holds); what the guest can READ of the sample is
+    // gated separately, in guest_pi_audio().
+    uint16_t left  = 0x200;
+    uint16_t right = 0x200;
+    if (!rzx_player_.is_playing()) {
+        int16_t l = 0, r = 0;
+        if (config_.pi_audio->pop(l, r)) {
+            left  = PiAudio::to_i2s(l);
+            right = PiAudio::to_i2s(r);
+        }
+    }
+    with_pi_ear_tracking([&] { i2s_.set_sample(left, right); });
 }
 
 void Emulator::service_pi_uart_frame()
@@ -11044,6 +11107,15 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
         if (!replay_mode_) {
             advance_audio(master_cycles);
         }
+    } else if (config_.pi_audio && !replay_mode_) {
+        // --silent skips the mixer, but the Pi's samples still have to be
+        // latched: NR 0xA2 bit 0 turns them into the EAR input, and --silent
+        // leaves tape input (EAR) working. Same sample clock, no mixing.
+        sample_accum_ += master_cycles * Mixer::SAMPLE_RATE;
+        while (sample_accum_ >= MASTER_CLOCK_HZ) {
+            sample_accum_ -= MASTER_CLOCK_HZ;
+            feed_pi_audio();
+        }
     }
 
     // Drain any scheduler events that have become due.
@@ -11284,6 +11356,11 @@ void Emulator::advance_audio(uint64_t master_cycles)
         if (sample_accum_ >= SAMPLE_THRESHOLD) {
             sample_accum_ -= SAMPLE_THRESHOLD;
             mixer_.emit_sample();
+            // The Pi's next sample is latched at each output-sample boundary,
+            // so each one holds for exactly one output sample: QEMU is asked
+            // for the mixer's own 44.1 kHz. Before or after emit_sample() is
+            // the same: it only averages what was already accumulated.
+            if (config_.pi_audio) feed_pi_audio();
         }
     }
 }
@@ -13347,6 +13424,11 @@ bool Emulator::load_state(StateReader& r)
     // END matching save_state().
     i2s_.load_state(r);
     if (!check_sentinel("i2s")) return false;
+    // With a Pi attached the saved latch is a host-timed sample, so a restore
+    // puts the input back at rest (0x200) rather than replaying that moment;
+    // the next live sample replaces it (guest_pi_audio() gates the reads).
+    if (config_.pi_audio) i2s_.set_sample(0x200, 0x200);
+    pi_ear_edge_master_ = 0;
 
     // NMI pipeline Phase 1 scaffold — matches the append order in
     // save_state().
@@ -14116,5 +14198,6 @@ EmulatorConfig Emulator::warm_start_boot_config(const EmulatorConfig& live)
     boot_cfg.joy_uart_pty         = false;
     boot_cfg.pi_uart_fifo_rx.clear();
     boot_cfg.pi_uart_fifo_tx.clear();
+    boot_cfg.pi_audio = nullptr;   // one consumer of the Pi's sound
     return boot_cfg;
 }
