@@ -411,6 +411,10 @@ static void g_pi_audio() {
             if (wa >= 0) ::close(wa);
             for (int i = 0; i < 2000 && a.eof_reads() == eofs; ++i) ::usleep(500);
             const bool saw_eof = a.eof_reads() > eofs;         // the pause has just begun
+            // Wait the pause out, so the reader is already in poll() with no
+            // writer when the new one connects: the case a poll() that is not
+            // woken by the new writer's data would turn into a full timeout.
+            ::usleep(30000);
             const int wb = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
             const std::string second = header() + frames_bytes(1, 1);
             const clk::time_point t0 = clk::now();
@@ -445,14 +449,18 @@ static void g_pi_audio() {
             const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
             ::usleep(50000);
             const double c0 = cpu_ms();
+            const uint64_t r0 = a.idle_reads();
             ::usleep(300000);
             const double used = cpu_ms() - c0;
+            const uint64_t idle = a.idle_reads() - r0;      // one per 100 ms poll timeout
             if (w >= 0) ::close(w);
             check("MX-47", "an idle Pi audio reader, its writer connected but silent, uses under "
-                  "30 ms of CPU in 300 ms: it sleeps in poll() (jnext-only, no VHDL counterpart)",
-                  opened && w >= 0 && used < 30.0,
-                  fmt("opened=%d writer=%d cpu=%.1f ms in 300 ms (want < 30)", opened ? 1 : 0,
-                      w >= 0 ? 1 : 0, used));
+                  "30 ms of CPU in 300 ms and wakes at most 6 times: it sleeps in poll() for "
+                  "100 ms at a time (jnext-only, no VHDL counterpart)",
+                  opened && w >= 0 && used < 30.0 && idle >= 1 && idle <= 6,
+                  fmt("opened=%d writer=%d cpu=%.1f ms in 300 ms (want < 30) idle reads=%llu "
+                      "(want 1..6)", opened ? 1 : 0, w >= 0 ? 1 : 0, used,
+                      static_cast<unsigned long long>(idle)));
         }
 
         // MX-34 — RECONNECT: QEMU reopens the FIFO (a restart), and each writer
@@ -570,10 +578,12 @@ static void g_pi_audio() {
         // reader wakes at most ~50 times a second (a 20 ms pause after each
         // read that finds no writer). Linux's poll() reports a gone writer at
         // once, so without the pause the thread would spin a core after every
-        // QEMU exit; the bound is 60 wakeups in 600 ms. (macOS's poll() waits
-        // its 100 ms instead, so there the row holds with or without the
-        // pause; CI's Linux run is the one that discriminates.) jnext-only, no
-        // VHDL counterpart.
+        // QEMU exit; the upper bound is 60 wakeups in 600 ms, which the Linux
+        // run discriminates. Where poll() does not report the gone writer
+        // (macOS) it times out instead, after the 20 ms it uses with no writer:
+        // 15 wakeups, and 5 if that timeout were the 100 ms a connected writer
+        // gets, which would leave a reconnecting writer waiting; the lower
+        // bound is 8. jnext-only, no VHDL counterpart.
         {
             const std::string fifo = (dir / "mx37.fifo").string();
             PiAudio a;
@@ -590,10 +600,11 @@ static void g_pi_audio() {
             ::usleep(600000);
             const uint64_t wakeups = a.eof_reads() - from;
             check("MX-37", "with no writer on the Pi's audio FIFO, the reader pauses after each "
-                  "read that finds none: at most 60 wakeups in 600 ms, so it never spins "
-                  "(jnext-only, no VHDL counterpart)",
-                  opened && wrote && a.available() == 10 && wakeups >= 1 && wakeups <= 60,
-                  fmt("opened=%d wrote=%d available=%u wakeups in 600 ms=%llu (want 1..60)",
+                  "read that finds none, and polls for 20 ms at a time: 8 to 60 wakeups in "
+                  "600 ms, so it neither spins nor leaves a new writer waiting (jnext-only, no "
+                  "VHDL counterpart)",
+                  opened && wrote && a.available() == 10 && wakeups >= 8 && wakeups <= 60,
+                  fmt("opened=%d wrote=%d available=%u wakeups in 600 ms=%llu (want 8..60)",
                       opened ? 1 : 0, wrote ? 1 : 0, a.available(),
                       static_cast<unsigned long long>(wakeups)));
         }

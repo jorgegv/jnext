@@ -129,6 +129,7 @@ void PiAudio::run() {
     std::size_t header_left = kHeader;
     std::vector<uint8_t> buf(1 << 16);
     std::vector<uint8_t> carry;
+    bool no_writer = true;   // until a read says otherwise (data, or EAGAIN)
     while (!stop_) {
         pollfd p{fd_, POLLIN, 0};
         // Wake up for stop_ at least every 100 ms. On a timeout read anyway:
@@ -136,18 +137,27 @@ void PiAudio::run() {
         // only the non-blocking read's EOF (0, versus EAGAIN while a writer is
         // still there) tells the stream ended, so the next one's header is
         // skipped and a half frame of the old one is not glued to it.
-        if (::poll(&p, 1, 100) < 0) continue;
+        // With no writer the timeout is 20 ms: a poll() that began before a
+        // new writer connected is not always woken by its data (a macOS CI
+        // runner took the pause plus a whole 100 ms timeout to deliver a
+        // reconnecting writer's first frame), and 20 ms bounds that wait.
+        if (::poll(&p, 1, no_writer ? 20 : 100) < 0) continue;
         const ssize_t n = ::read(fd_, buf.data(), buf.size());
         if (n == 0 || (n < 0 && errno != EAGAIN && errno != EINTR)) {
             // No writer: QEMU has not opened its end yet, or closed it. The
             // next writer starts a fresh stream, header included.
             header_left = kHeader;
             carry.clear();
+            no_writer = true;
             eof_reads_.fetch_add(1, std::memory_order_relaxed);
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
             continue;
         }
-        if (n < 0) continue;
+        if (n > 0 || errno == EAGAIN) no_writer = false;   // a writer is there
+        if (n < 0) {
+            if (errno == EAGAIN) idle_reads_.fetch_add(1, std::memory_order_relaxed);
+            continue;
+        }
         std::size_t off = 0;
         const std::size_t got = static_cast<std::size_t>(n);
         if (header_left > 0) {

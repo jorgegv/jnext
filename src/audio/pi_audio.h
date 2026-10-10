@@ -70,6 +70,11 @@ public:
     /// Linux poll() reports a gone writer at once, and without the pause the
     /// reader would spin a core. Exposed so a row can pin that.
     uint64_t eof_reads()       const { return eof_reads_.load(); }
+    /// Reads that found a writer but no data (EAGAIN): the reader's wakeups
+    /// while a connected writer is silent, one per 100 ms poll timeout.
+    /// Exposed so a row can pin that it does not keep the shorter no-writer
+    /// timeout once a writer is there.
+    uint64_t idle_reads()      const { return idle_reads_.load(); }
     /// Frames buffered and not yet popped.
     uint32_t available() const { return head_.load() - tail_.load(); }
 
@@ -88,5 +93,6 @@ private:
     std::atomic<uint64_t>   dropped_{0};
     std::atomic<uint64_t>   underruns_{0};
     std::atomic<uint64_t>   eof_reads_{0};
+    std::atomic<uint64_t>   idle_reads_{0};
     std::atomic<bool>       overflowed_{false};   ///< producer dropped a frame: flush on next pop
 };

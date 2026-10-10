@@ -304,7 +304,10 @@ under QEMU is one, so:
   header and reassembles frames split across reads. A header is found two ways:
   after the EOF a departing writer leaves, and in-stream, at a frame boundary,
   by `RIFF`...`WAVE`, for a writer that follows the last with no read in
-  between (bytes that may still be a header wait for the next read).
+  between (bytes that may still be a header wait for the next read). It polls
+  for 100 ms at a time with a writer connected and 20 ms without one: a
+  `poll()` that began before a new writer connected is not always woken by its
+  data on macOS, and the short timeout bounds a reconnect's delay.
 - **The emulator latches one frame per mixer output sample**
   (`Emulator::feed_pi_audio`, from `advance_audio` at each sample boundary),
   converted to the hardware's 10-bit offset binary (`PiAudio::to_i2s`, 0 → 0x200
