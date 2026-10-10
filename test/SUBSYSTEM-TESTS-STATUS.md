@@ -19,7 +19,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NextREG (integration) |      349 |      349 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub           |      186 |      186 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input                 |      391 |      391 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Input (integration)   |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Input (integration)   |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Phantom Typist        |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC + Interrupts      |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC (integration)     |       88 |       88 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -141,6 +141,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12559**| **12559**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12560**| **12560**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
