@@ -300,8 +300,11 @@ under QEMU is one, so:
 - **`PiAudio` reads it** on a thread of its own into a lock-free single-producer
   single-consumer ring, so QEMU never blocks on a full pipe — not even while
   jnext is paused. The reader is opened before QEMU starts, because QEMU's open
-  of its end blocks until a reader exists. It skips the header and reassembles
-  frames split across reads.
+  of its end blocks until a reader exists. It skips each writer's 44-byte WAV
+  header and reassembles frames split across reads. A header is found two ways:
+  after the EOF a departing writer leaves, and in-stream, at a frame boundary,
+  by `RIFF`...`WAVE`, for a writer that follows the last with no read in
+  between (bytes that may still be a header wait for the next read).
 - **The emulator latches one frame per mixer output sample**
   (`Emulator::feed_pi_audio`, from `advance_audio` at each sample boundary),
   converted to the hardware's 10-bit offset binary (`PiAudio::to_i2s`, 0 → 0x200
@@ -475,7 +478,9 @@ the prebuffer by one frame fails MX-31, the target MX-32/36, and the maximum
 latency MX-36, and trimming at `>=` fails MX-36; an off-by-one in the ring-full
 check, not counting its drops, or a different capacity fails MX-33; not
 flushing the ring after it overflowed fails MX-42; not resetting the
-header skip or the half-frame carry when the writer goes fails MX-34; a FIFO
+header skip or the half-frame carry when the writer goes fails MX-34; not
+recognising a header in-stream, or taking a partial one for a frame, fails
+MX-43; a FIFO
 made 0666, or a regular file accepted, fails MX-35; no pause after a read that
 finds no writer fails MX-37 on Linux (macOS's `poll()` waits anyway); treating
 EAGAIN as the writer's end fails MX-38; no close-on-exec, a leaked descriptor

@@ -3293,6 +3293,54 @@ static void g_mixer() {
                       static_cast<unsigned long long>(a.frames_dropped()), fresh ? 1 : 0, l));
         }
 
+        // MX-43 — BACK-TO-BACK STREAMS: writer B opens the FIFO before writer A
+        // closes it, so the reader never sees an EOF between them. B's WAV
+        // header must still be recognised (in-stream, by RIFF...WAVE) and not
+        // played: exactly 6000 frames arrive, A's then B's, exact. B's header
+        // is split across two reads (6 bytes, a 150 ms pause, the rest), so the
+        // reader must hold a possible header back until it can tell. jnext-only,
+        // no VHDL counterpart.
+        {
+            const std::string fifo = (dir / "mx43.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            auto write_all = [](int fd, const std::string& b) {
+                std::size_t off = 0;
+                while (fd >= 0 && off < b.size()) {
+                    const ssize_t n = ::write(fd, b.data() + off, b.size() - off);
+                    if (n <= 0) return false;
+                    off += static_cast<std::size_t>(n);
+                }
+                return fd >= 0;
+            };
+            const int wa = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const bool a_ok = write_all(wa, header() + frames_bytes(3000, 0));
+            const int wb = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;   // before A closes
+            if (wa >= 0) ::close(wa);
+            const std::string b_stream = header() + frames_bytes(3000, 5000);
+            const bool b1 = write_all(wb, b_stream.substr(0, 6));       // "RIFF" + 2
+            ::usleep(150000);                                           // read on its own
+            const bool b_ok = b1 && write_all(wb, b_stream.substr(6));
+            const uint32_t got = wait_available(a, 6000);
+            ::usleep(100000);                         // anything extra would have landed too
+            const uint64_t received = a.frames_received();
+            int16_t l = 0, r = 0;
+            bool exact = got == 6000 && received == 6000;
+            for (int i = 0; exact && i < 6000; ++i) {
+                const int want = i < 3000 ? i : 5000 + (i - 3000);
+                exact = a.pop(l, r) && l == want && r == -want;
+            }
+            if (wb >= 0) ::close(wb);
+            check("MX-43", "two Pi audio streams back to back with no EOF between them: the second "
+                  "WAV header is recognised in-stream and skipped, and all 6000 frames arrive exact "
+                  "(jnext-only, no VHDL counterpart)",
+                  opened && a_ok && b_ok && exact,
+                  fmt("opened=%d a=%d b=%d available=%u received=%llu (want 6000) exact=%d last L=%d",
+                      opened ? 1 : 0, a_ok ? 1 : 0, b_ok ? 1 : 0, got,
+                      static_cast<unsigned long long>(received), exact ? 1 : 0, l));
+        }
+
         // MX-34 — RECONNECT: QEMU reopens the FIFO (a restart), and each writer
         // starts with its own WAV header. Writer A leaves half a frame behind
         // when it closes; writer B's header must be skipped and that half frame

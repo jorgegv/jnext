@@ -157,12 +157,29 @@ void PiAudio::run() {
         }
         carry.insert(carry.end(), buf.begin() + static_cast<std::ptrdiff_t>(off),
                      buf.begin() + static_cast<std::ptrdiff_t>(got));
-        const std::size_t frames = carry.size() / 4;
-        for (std::size_t f = 0; f < frames; ++f) {
-            const uint8_t* b = &carry[4 * f];
+        // A new writer can follow the last one with no read in between (QEMU
+        // restarted at once), so its header is not always preceded by the EOF
+        // above: it is also recognised in-stream, at a frame boundary, by
+        // "RIFF" ... "WAVE". Bytes that could still turn out to be one wait in
+        // `carry` for the next read; real audio would need three consecutive
+        // frames spelling those letters to be mistaken for a header.
+        std::size_t pos = 0;
+        while (header_left == 0 && carry.size() - pos >= 4) {
+            const std::size_t rest = carry.size() - pos;
+            const uint8_t* b = &carry[pos];
+            if (std::memcmp(b, "RIFF", 4) == 0) {
+                if (rest < 12) break;                    // wait: maybe a header
+                if (std::memcmp(b + 8, "WAVE", 4) == 0) {
+                    const std::size_t skip = std::min(kHeader, rest);
+                    pos += skip;
+                    header_left = kHeader - skip;        // the rest on the next read
+                    continue;
+                }
+            }
             push(static_cast<int16_t>(b[0] | (b[1] << 8)), static_cast<int16_t>(b[2] | (b[3] << 8)));
+            pos += 4;
         }
-        carry.erase(carry.begin(), carry.begin() + static_cast<std::ptrdiff_t>(4 * frames));
+        carry.erase(carry.begin(), carry.begin() + static_cast<std::ptrdiff_t>(pos));
     }
 }
 
