@@ -2976,7 +2976,7 @@ check('SELF-161', 'the control: that later shared assertion still answers for it
     my $nv_rc_ok = $run->();
     my $nv_body  = do { open(my $h, '<', $nv_mat) or die "e2e: read matrix: $!"; local $/; <$h> };
     check('SELF-233', 'END TO END: the discriminator — the same stub with a well-formed marker does not refuse, and the cell is written',
-          scalar($nv_rc_ok != 2 && $nv_body =~ /^\| ADP-01 \|[^\n]*\(jnext-internal\)/m),
+          scalar(($nv_rc_ok == 0 || $nv_rc_ok == 1) && $nv_body =~ /^\| ADP-01 \|[^\n]*\(jnext-internal\)/m),
           "exit $nv_rc_ok");
 
     # (c) GH #202 — `--emit-to` must write the SAME document the in-place run
@@ -3710,6 +3710,60 @@ chmod 0755, "$FIXTURE_ROOT/build/test/nv_emit_stub" or die "chmod nv_emit_stub: 
           'row=' . join('|', @{ $r{'NV-EM-01'} // ['(absent)'] }));
 }
 
+# A marker may not hide a citation the row has elsewhere (review round 1, F1).
+write_fixture('test/nv/h1_test.cpp', <<'CPP');
+void rows() {
+    check("H1-01", "guard [no-vhdl: jnext-internal]", false, d);
+    check("H1-01", "real assertion fixture_a.vhd:10", cond, d);
+}
+CPP
+$nv_e = $nv_refusal->('test/nv/h1_test.cpp');
+check('SELF-234', 'a marked first call is REFUSED when a later call of the same row cites VHDL',
+      scalar($nv_e =~ /REFUSING/ && $nv_e =~ m{test/nv/h1_test\.cpp:2} && $nv_e =~ /H1-01/),
+      "got [$nv_e]");
+
+write_fixture('test/nv/h2_test.cpp', <<'CPP');
+// H2-01: the rule lives at fixture_a.vhd:20
+void rows() {
+    check("H2-01", "own call [no-vhdl: jnext-internal]", cond, d);
+}
+CPP
+$nv_e = $nv_refusal->('test/nv/h2_test.cpp');
+check('SELF-235', 'a marked row is REFUSED when a comment block heading it cites VHDL',
+      scalar($nv_e =~ /REFUSING/ && $nv_e =~ m{test/nv/h2_test\.cpp:3} && $nv_e =~ /H2-01/),
+      "got [$nv_e]");
+
+write_fixture('test/nv/h3_test.cpp', <<'CPP');
+void rows() {
+    check("H3-01", "cited call fixture_a.vhd:10", cond, d);
+    check("H3-01", "second call [no-vhdl: jnext-internal]", cond, d);
+}
+CPP
+$nv_e = $nv_refusal->('test/nv/h3_test.cpp');
+check('SELF-236', 'a marker on a LATER call is REFUSED when an earlier call of the row cites VHDL',
+      scalar($nv_e =~ /REFUSING/ && $nv_e =~ m{test/nv/h3_test\.cpp:3} && $nv_e =~ /H3-01/),
+      "got [$nv_e]");
+
+write_fixture('test/nv/pipe_test.cpp', <<'CPP');
+void rows() {
+    check("NV-PI-01", "reason with a pipe [no-vhdl: a|b]", cond, detail);
+}
+CPP
+$nv_e = $nv_refusal->('test/nv/pipe_test.cpp');
+check('SELF-237', 'a reason containing | (it would split the matrix row) is REFUSED, naming file:line',
+      scalar($nv_e =~ /REFUSING/ && $nv_e =~ m{test/nv/pipe_test\.cpp:2}),
+      "got [$nv_e]");
+
+write_fixture('test/nv/quote_test.cpp', <<'CPP');
+void rows() {
+    check("NV-QU-01", "split literal [no-vhdl: jnext-" "internal]", cond, detail);
+}
+CPP
+$nv_e = $nv_refusal->('test/nv/quote_test.cpp');
+check('SELF-238', 'a marker split across concatenated string literals (reason with ") is REFUSED, naming file:line',
+      scalar($nv_e =~ /REFUSING/ && $nv_e =~ m{test/nv/quote_test\.cpp:2}),
+      "got [$nv_e]");
+
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
 
@@ -3732,7 +3786,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 233;
+my $EXPECTED_ROWS = 238;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"
