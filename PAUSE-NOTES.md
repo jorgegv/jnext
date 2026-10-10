@@ -6,14 +6,14 @@ Timex second plane / alt screen, bank 7) is replayed at the beam instant the VHD
 (`zxula.vhd:270-303`). Not merged, not pushed.
 
 ## State
-Rounds 2 and 3 (review F1-F5, R2-1, R2-2) done; main v1.1.18 merged (functional rows 146, unit suites 134).
-- Gate on the final tree: `make clean && make gui-release` ok; `make unit-test` 12495/12495, no
-  DASHBOARD STALE; `make unit-test-sdl` 11554/11554; FUSE 1356/1356 (plain and PGO);
+Rounds 2-4 (review F1-F5, R2-1, R2-2, R3-1, R3-2) done; main v1.1.18 merged (functional rows 146, unit suites 134).
+- Gate on the final tree: `make clean && make gui-release` ok; `make unit-test` 12497/12497, no
+  DASHBOARD STALE; `make unit-test-sdl` 11556/11556; FUSE 1356/1356 (plain and PGO);
   `make regression`: 219 declared, 217 pass, **2 FAIL, 0 skip**: `nirvana-128k` (380 px = 95
   emulated px) and `nirvana-plus3` (540 px = 135 emulated px). No other row fails, including
   `boot-nextzxos-cpm` (the page-0x0B write the plan flagged is harmless). No stamp is written while
   those two fail.
-- New rows: `ula_test` VMUX-01..15 (151), `mmu_test` G12-MUX-12..14 (262), functional
+- New rows: `ula_test` VMUX-01..15 (151), `mmu_test` G12-MUX-12..14 (262), `debugger_backend_test` INS-14-22/23 (1446), functional
   `editmenu-beam-func` (it fails on main's binary with exactly the 624/254 px frames of stage A).
 
 ## What the owner must decide
