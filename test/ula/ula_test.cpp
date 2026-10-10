@@ -4035,13 +4035,19 @@ static void test_section19_beam_replay() {
         const uint8_t now = BeamBed::cell(bed.row(kFbRow), 5, white);
         bed.begin();   // next frame: baseline = live RAM, now holding 0xFF
         const uint8_t next = BeamBed::cell(bed.row(kFbRow), 5, white);
+        // A frame with no write to the byte shows what RAM holds, however it
+        // got there (loader, state load): no log entry survives the frame.
+        bed.ram.write(10u * 8192u + emu_pixel_addr_offset(kRowY, 5), 0x3C);
+        bed.begin();
+        const uint8_t third = BeamBed::cell(bed.row(kFbRow), 5, white);
         check("VMUX-02",
               "zxula.vhd:270-303 — a pixel write after the column's pbyte "
               "fetch is not seen on this scanline (old byte), but is on the "
-              "next frame",
-              now == 0x00 && next == 0xFF,
+              "next frame; a later frame shows RAM as it then is",
+              now == 0x00 && next == 0xFF && third == 0x3C,
               fmt("this scanline=0x%02X (expected 0x00, end-of-frame read "
-                  "gives 0xFF) next frame=0x%02X (expected 0xFF)", now, next));
+                  "gives 0xFF) next frame=0x%02X (expected 0xFF) third=0x%02X "
+                  "(expected 0x3C)", now, next, third));
     }
 
     // VMUX-03 — the instant is exact and has the parity term: pbyte00 @9
@@ -4098,11 +4104,20 @@ static void test_section19_beam_replay() {
         const int p = raw_hc(vh_pbyte_primary(5));
         bed.wr(static_cast<uint16_t>(0x8000u + emu_pixel_addr_offset(kRowY, 5)),
                0xFF, kFbRow, p + 1);
-        const uint8_t got = BeamBed::cell(bed.row(kFbRow), 5, white);
+        // Positive control: column 6 written before its fetch IS seen, so
+        // "the write was never recorded" cannot pass this row.
+        bed.wr(static_cast<uint16_t>(0x8000u + emu_pixel_addr_offset(kRowY, 6)),
+               0xFF, kFbRow - 1, 0);
+        const auto l = bed.row(kFbRow);
+        const uint8_t got = BeamBed::cell(l, 5, white);
+        const uint8_t ctl = BeamBed::cell(l, 6, white);
         check("VMUX-05",
               "zxnext.vhd:6649-6656 + zxula.vhd:276-286 — a bank-7 (shadow) "
-              "pixel write after the pbyte fetch shows the old byte",
-              got == 0x00, fmt("got=0x%02X (expected 0x00)", got));
+              "pixel write after the pbyte fetch shows the old byte, one "
+              "before it the new byte",
+              got == 0x00 && ctl == 0xFF,
+              fmt("late=0x%02X (expected 0x00) early=0x%02X (expected 0xFF)",
+                  got, ctl));
     }
 
     // VMUX-06 — Timex hi-colour (port FF = 2): the colour byte comes from
@@ -4304,14 +4319,21 @@ static void test_section19_beam_replay() {
         bed.ula.set_shadow_screen_en(true);
         bed.ula.snapshot_control_for_line(rowb);  // row B: bank 7
         bed.ula.set_shadow_screen_en(false);
+        // Positive control in bank 7: column 6 written in time is seen.
+        bed.wr(static_cast<uint16_t>(0x8000u + emu_pixel_addr_offset(yb, 6)),
+               0x81, rowb - 1, 0);
         const uint8_t a = BeamBed::cell(bed.row(kFbRow), 5, white);
-        const uint8_t b = BeamBed::cell(bed.row(rowb), 5, white);
+        const auto lb = bed.row(rowb);
+        const uint8_t b = BeamBed::cell(lb, 5, white);
+        const uint8_t c = BeamBed::cell(lb, 6, white);
         check("VMUX-12",
               "zxnext.vhd:6649-6656 + zxula.vhd:276-286 — per-row bank: row A "
               "replays bank 5 (0xAA), row B replays bank 7 as it was at the "
-              "fetch (0x0F), neither sees the other bank or the late write",
-              a == 0xAA && b == 0x0F,
-              fmt("rowA=0x%02X (expected 0xAA) rowB=0x%02X (expected 0x0F)", a, b));
+              "fetch (0x0F; 0x81 for the column written in time), neither "
+              "sees the other bank or the late write",
+              a == 0xAA && b == 0x0F && c == 0x81,
+              fmt("rowA=0x%02X (expected 0xAA) rowB=0x%02X (expected 0x0F) "
+                  "rowB col6=0x%02X (expected 0x81)", a, b, c));
     }
 }
 
