@@ -4722,7 +4722,9 @@ static void test_nextpi_audio() {
         PiQemu qemu;
         std::string error;
         const bool started = fake.ok() && qemu.start(spec, error) && qemu.audio() != nullptr;
-        for (int i = 0; i < 100 && started && qemu.audio()->available() < 11025; ++i)
+        // Up to 5 s: the stand-in is a shell started by a shell, which a busy
+        // host can take well over a second to get going.
+        for (int i = 0; i < 500 && started && qemu.audio()->available() < 11025; ++i)
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         // Read the args only now: the stand-in writes them asynchronously, and
         // before it plays the tone, so audio having arrived means they are in.
@@ -4774,7 +4776,7 @@ static void test_nextpi_audio() {
         PiQemu qemu;
         std::string error;
         const bool started = fake.ok() && qemu.start(spec, error) && qemu.audio() != nullptr;
-        for (int i = 0; i < 100 && started && qemu.audio()->available() < 8000; ++i)
+        for (int i = 0; i < 500 && started && qemu.audio()->available() < 8000; ++i)   // as PI-48
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         uint32_t before = 0, after_replay = 0, after_rzx = 0, after_live = 0;
         MixerLevels replay, rzx, live;
