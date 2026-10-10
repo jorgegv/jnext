@@ -1864,6 +1864,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#platform-runs-macos-and-windows-under-wine-gh-319" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Platform runs: macOS and Windows under wine (GH #319)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2643,6 +2654,59 @@ regardless of what it produced, so a genuine regression quietly becomes the new
 baseline and every future run agrees with it. Regenerate only when a rendering
 change is both intentional and understood, name the specific rows wherever you
 can, and treat a reference diff appearing in a review as a claim to be checked.</p>
+<h2 id="platform-runs-macos-and-windows-under-wine-gh-319">Platform runs: macOS and Windows under wine (GH #319)<a class="headerlink" href="#platform-runs-macos-and-windows-under-wine-gh-319" title="Permanent link">&para;</a></h2>
+<p><code>regression.sh --platform</code> (<code>make regression-win</code>, <code>make regression-macos</code>) runs
+the screenshots and the functional rows an OS can run against that OS's
+binaries. It reuses the whole driver: the manifest pins, the per-row processes,
+SKIP = failure and the completeness accounting stay as they are; only the
+selection, the binaries and the accounting change.</p>
+<p><strong>Declaring applicability.</strong> A row's line in <code>functional_tests.conf</code> may carry
+<code>os=&lt;list&gt;</code>, a comma-separated subset of <code>linux,macos,windows</code>. <code>linux</code> is
+mandatory (a Linux run runs every row; the Linux pins never change), no tag means
+all three, and an unknown or empty element, or a list without <code>linux</code>, is a
+harness fault. The reason sits in a <code># os:</code> comment on the line above the row.
+<code># expect-macos: N</code> and <code># expect-windows: N</code> beside <code># expect:</code> pin how many rows
+each OS runs; once any row is tagged both are required, and a mismatch in either
+direction is a harness fault, so retagging a row is a deliberate edit. Absent rows
+are printed by name; a named row the OS does not run is refused; an absent row
+that reports is a harness fault. A platform run's total is 1 provision + the
+screenshots + the admitted rows (no lints, no stamp).</p>
+<p><strong>The Windows runner.</strong> <code>test/wine-run.sh --jnext</code> runs <code>jnext.exe</code> as <code>$JNEXT</code>
+(two one-line shims in the run's <code>$TMP_DIR</code> call it, so rows keep invoking
+<code>"$JNEXT"</code> as one word). Each of these was measured to be necessary under wine
+11:</p>
+<ol>
+<li>spdlog writes CRLF on Windows, to stdout and stderr; the runner folds it to LF
+   with an unbuffered <code>sed -u</code>, one filter when both streams are the same file.
+   A row cannot see a CRLF jnext writes there; it is the platform's documented
+   EOL, not a contract any row asserts. Text <em>files</em> are another matter: jnext's
+   trace files are written in binary mode so they are LF on every host.</li>
+<li>wine drops <code>QT_*</code> and <code>SDL_*</code> from the Unix environment and imports
+   <code>WINE&lt;name&gt;</code> as <code>&lt;name&gt;</code>, so the runner exports <code>WINEQT_QPA_PLATFORM</code> and the
+   like. Without it a Qt <code>jnext.exe</code> uses the <code>windows</code> platform and never exits.</li>
+<li>The first wine process spawns a <code>wineserver</code> that inherits the output
+   filters' pipes and never lets them see EOF, so rows hang. The driver starts
+   one with stdio on <code>/dev/null</code> before any row (<code>wine-run.sh --serve</code>) and
+   <code>regression_cleanup</code> stops it (<code>wineserver -k</code>).</li>
+<li>The filter must be unbuffered: the rows' "listening on" polls time out on
+   block-buffered output.</li>
+<li>A background job has stdin on <code>/dev/null</code>; the runner passes stdin on
+   explicitly. TERM and INT are forwarded to wine, and its exit status is the
+   exit status.</li>
+<li>bash and wine are called by absolute path (a row may set <code>PATH</code> to an empty
+   directory); <code>DISPLAY</code> is kept only for an <code>xvfb-run</code> display, never a desktop.</li>
+<li>wine cannot <code>CreateProcess</code> an ELF, so the <code>--record</code> rows (ffmpeg) are absent
+   on Windows; the Windows spawn path is covered by the unit rows SF-*.</li>
+<li>The prefix is ~1.7 GB and lives under the build tree
+   (<code>build/win-release-non-pgo/wine-prefix</code>), never in <code>/tmp</code>.</li>
+<li><code>dzrp-paused-headless-func</code> measures jnext's own CPU: under a wrapper
+   "the first child" is a shell, so the row finds the process named <code>jnext</code> /
+   <code>jnext.exe</code> among the descendants (deepest one) and reads its CPU from <code>/proc</code>
+   or, off Linux, <code>ps -o time=</code>.</li>
+</ol>
+<p><strong>On macOS</strong> the SD image comes from <code>make sdcard-image</code>, the per-run clone falls
+back to a plain copy where <code>cp --reflink=always</code> does not exist (reported as
+<code>copy</code>), the host load comes from <code>sysctl vm.loadavg</code>, and no host lock is taken.</p>
 
 
 

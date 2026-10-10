@@ -2101,6 +2101,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#the-regression-suite-on-other-operating-systems-gh-319" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The regression suite on other operating systems (GH #319)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2481,6 +2492,16 @@ it claims to cover or stop and say so. Shipping a deliberately partial release
 is still possible — it means restoring <code>continue-on-error</code> on that one job in
 that one commit, which makes it an explicit and visible decision each time
 rather than a standing one.</p>
+<h2 id="the-regression-suite-on-other-operating-systems-gh-319">The regression suite on other operating systems (GH #319)<a class="headerlink" href="#the-regression-suite-on-other-operating-systems-gh-319" title="Permanent link">&para;</a></h2>
+<p>Two more blocking jobs run a portable subset of the regression suite, with the
+same plain make targets a developer types. The <strong><code>regression-win</code></strong> leg of the
+<code>test</code> job installs the MinGW cross toolchain (including <code>mingw64-qt6-qtbase</code>)
+and wine and runs <code>make regression-win</code>: the screenshots and the functional rows
+Windows can run, against the Release + LTO Qt exe and the SDL-only exe under
+wine. <strong><code>macos-regression</code></strong> runs <code>make regression-macos</code> on <code>macos-latest</code> with
+Homebrew's <code>qt@6</code>, <code>ffmpeg</code>, <code>imagemagick</code>, <code>mtools</code>, <code>dosfstools</code> and
+<code>libspectrum</code> added to the unit job's list. Rows an OS cannot run are declared
+by <code>os=</code> tags and printed as absent, never skipped.</p>
 
 
 

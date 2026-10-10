@@ -103,6 +103,14 @@ jnext's own download if it is missing. `make unit-test-win` is two steps,
 wine, no compiler needed), so the run step could later be taken over by a real
 Windows host; it is part of the merge gate for every code change.
 
+`make regression-win` (GH #319) runs the regression suite's screenshots and the
+functional rows Windows can run against MinGW-built exes under wine: the Qt exe
+as shipped minus PGO (`win-release-non-pgo`, with `qoffscreen.dll` bundled into
+that test tree only), the SDL-only exe, and the native helpers from the SDL
+unit-test tree. `make regression-macos` is its macOS twin (CI `macos-regression`).
+`ROWS="..."` names rows. Neither is stamped; see
+[the regression suite](../04-testing/03-the-regression-suite.md#platform-runs-macos-and-windows-under-wine-gh-319).
+
 The built tree is **not yet a relocatable directory**, so there is no recipe for
 running it by hand on a real Windows machine, and none has been tried. What
 stands in the way, in order of effort: `JNEXT_BINARY` (the CLI suite) and the

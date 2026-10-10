@@ -102,6 +102,41 @@ Targeted runs: `make regression-rows ROWS="<row> ..."` builds the binaries rows
 execute (gui-release, sdl-release, the unit-test build) and runs the named rows;
 the bare `regression.sh <row>...` form needs them built already.
 
+## Platform runs: macOS and Windows under wine (GH #319)
+
+The unit suites run on three operating systems (GH #214); so does a portable
+subset of this one. `regression.sh --platform` runs the screenshots and the
+functional rows against another OS's binaries, taken from the build trees named
+by `JNEXT_TARGET_BUILD` (the Qt build) and `JNEXT_TARGET_SDL_BUILD` (the SDL-only
+build). The target OS is read from their `CMakeCache.txt` (`JNEXT_TARGET_OS`),
+never from the caller, and the two trees must agree. Use the make targets:
+
+```console
+$ make regression-win      # Linux host: MinGW exes under wine
+$ make regression-macos    # macOS host (CI: macos-regression)
+```
+
+`regression-win` builds the Qt exe as the shipped build minus PGO (Release +
+LTO, `build/win-release-non-pgo`) with Qt's `qoffscreen.dll` bundled into that
+test tree only, and the SDL-only exe (`build/win-sdl-release`); the native helper
+tools (`rewind_test`, `sdfile_tool`, the probes) come from the SDL unit-test
+tree (`TEST_BIN_DIR`). A full run takes the host lock like `make regression`.
+`ROWS="a-func b-func"` runs named rows. Platform runs are never stamped.
+
+Which rows an OS runs is declared in `functional_tests.conf` by the `os=<list>`
+tag (a subset of `linux,macos,windows`; `linux` is mandatory, so a Linux run is
+unchanged; no tag means all three), with a `# os:` reason on the line above the
+row. `# expect-macos: N` and `# expect-windows: N` pin the counts both ways. The
+run prints the absent rows by name; they are not SKIPs and are not counted. The
+6 lints (tree checks) run in the Linux run only. Currently absent: the X11
+key-injection rows and the rows that do not run jnext (Linux only); the
+`--record`/ffmpeg rows, `joy-uart-link`, `nextpi` and `startup-stack` on Windows.
+
+Rows reach the binaries through `$JNEXT` and `$JNEXT_SDL`, the helpers through
+`$TEST_BIN_DIR`, and read `$JNEXT_TARGET_OS` where a row must differ (offscreen
+instead of Xvfb off Linux, `core=-1@0kHz` in `--benchmark`, a failing-write file
+instead of `/dev/full` on macOS).
+
 ## One full run at a time, and green-run stamps (GH #295)
 
 A **full** run — no arguments, the real manifests — takes a per-user host lock

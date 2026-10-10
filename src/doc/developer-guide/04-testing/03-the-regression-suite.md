@@ -272,3 +272,61 @@ regardless of what it produced, so a genuine regression quietly becomes the new
 baseline and every future run agrees with it. Regenerate only when a rendering
 change is both intentional and understood, name the specific rows wherever you
 can, and treat a reference diff appearing in a review as a claim to be checked.
+
+## Platform runs: macOS and Windows under wine (GH #319)
+
+`regression.sh --platform` (`make regression-win`, `make regression-macos`) runs
+the screenshots and the functional rows an OS can run against that OS's
+binaries. It reuses the whole driver: the manifest pins, the per-row processes,
+SKIP = failure and the completeness accounting stay as they are; only the
+selection, the binaries and the accounting change.
+
+**Declaring applicability.** A row's line in `functional_tests.conf` may carry
+`os=<list>`, a comma-separated subset of `linux,macos,windows`. `linux` is
+mandatory (a Linux run runs every row; the Linux pins never change), no tag means
+all three, and an unknown or empty element, or a list without `linux`, is a
+harness fault. The reason sits in a `# os:` comment on the line above the row.
+`# expect-macos: N` and `# expect-windows: N` beside `# expect:` pin how many rows
+each OS runs; once any row is tagged both are required, and a mismatch in either
+direction is a harness fault, so retagging a row is a deliberate edit. Absent rows
+are printed by name; a named row the OS does not run is refused; an absent row
+that reports is a harness fault. A platform run's total is 1 provision + the
+screenshots + the admitted rows (no lints, no stamp).
+
+**The Windows runner.** `test/wine-run.sh --jnext` runs `jnext.exe` as `$JNEXT`
+(two one-line shims in the run's `$TMP_DIR` call it, so rows keep invoking
+`"$JNEXT"` as one word). Each of these was measured to be necessary under wine
+11:
+
+1. spdlog writes CRLF on Windows, to stdout and stderr; the runner folds it to LF
+   with an unbuffered `sed -u`, one filter when both streams are the same file.
+   A row cannot see a CRLF jnext writes there; it is the platform's documented
+   EOL, not a contract any row asserts. Text *files* are another matter: jnext's
+   trace files are written in binary mode so they are LF on every host.
+2. wine drops `QT_*` and `SDL_*` from the Unix environment and imports
+   `WINE<name>` as `<name>`, so the runner exports `WINEQT_QPA_PLATFORM` and the
+   like. Without it a Qt `jnext.exe` uses the `windows` platform and never exits.
+3. The first wine process spawns a `wineserver` that inherits the output
+   filters' pipes and never lets them see EOF, so rows hang. The driver starts
+   one with stdio on `/dev/null` before any row (`wine-run.sh --serve`) and
+   `regression_cleanup` stops it (`wineserver -k`).
+4. The filter must be unbuffered: the rows' "listening on" polls time out on
+   block-buffered output.
+5. A background job has stdin on `/dev/null`; the runner passes stdin on
+   explicitly. TERM and INT are forwarded to wine, and its exit status is the
+   exit status.
+6. bash and wine are called by absolute path (a row may set `PATH` to an empty
+   directory); `DISPLAY` is kept only for an `xvfb-run` display, never a desktop.
+7. wine cannot `CreateProcess` an ELF, so the `--record` rows (ffmpeg) are absent
+   on Windows; the Windows spawn path is covered by the unit rows SF-*.
+8. The prefix is ~1.7 GB and lives under the build tree
+   (`build/win-release-non-pgo/wine-prefix`), never in `/tmp`.
+9. `dzrp-paused-headless-func` measures jnext's own CPU: under a wrapper
+   "the first child" is a shell, so the row finds the process named `jnext` /
+   `jnext.exe` among the descendants (deepest one) and reads its CPU from `/proc`
+   or, off Linux, `ps -o time=`.
+
+**On macOS** the SD image comes from `make sdcard-image`, the per-run clone falls
+back to a plain copy where `cp --reflink=always` does not exist (reported as
+`copy`), the host load comes from `sysctl vm.loadavg`, and no host lock is taken.
+

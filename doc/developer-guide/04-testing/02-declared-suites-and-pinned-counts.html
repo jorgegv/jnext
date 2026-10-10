@@ -1781,6 +1781,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#the-regression-suites-own-per-os-pins-gh-319" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The regression suite's own per-OS pins (GH #319)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2504,6 +2515,14 @@ suites never see the user's own <code>$HOME</code>: each runs with <code>HOME</c
 directories pointing at an empty per-run directory, and <code>JNEXT_CONFIG_DIR</code>
 unset, so a saved <code>~/.jnext/jnext.conf</code>, a legacy <code>Debugger.conf</code> or Qt setting cannot
 change a result.</p>
+<h2 id="the-regression-suites-own-per-os-pins-gh-319">The regression suite's own per-OS pins (GH #319)<a class="headerlink" href="#the-regression-suites-own-per-os-pins-gh-319" title="Permanent link">&para;</a></h2>
+<p><code>functional_tests.conf</code> has the same discipline for the platform runs. Besides
+<code># expect: N</code> (the rows declared) it carries <code># expect-macos: N</code> and
+<code># expect-windows: N</code> (the rows each OS runs), and a row opts out of an OS with
+an <code>os=&lt;list&gt;</code> tag (<code>linux</code> mandatory) and a <code># os:</code> reason above it. Retagging a
+row without moving the pin, in either direction, is a harness fault; so is a
+tagged manifest with a pin missing. The run prints the rows an OS does not run by
+name. See <a href="03-the-regression-suite.html#platform-runs-macos-and-windows-under-wine-gh-319">the regression suite</a>.</p>
 
 
 

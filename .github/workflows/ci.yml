@@ -83,7 +83,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        leg: [build-matrix, unit, unit-win, regression]
+        leg: [build-matrix, unit, unit-win, regression, regression-win]
     runs-on: ubuntu-latest
     # Same fedora:44 container release.yml builds the rpm and Windows artifacts
     # in, and the same distro the maintainer develops on. That is the point: the
@@ -234,12 +234,15 @@ jobs:
       # names it. Its own step, so the other legs do not pull ~1 GB of cross
       # packages they never use.
       - name: Install the MinGW cross toolchain and wine
-        if: matrix.leg == 'unit-win'
+        if: matrix.leg == 'unit-win' || matrix.leg == 'regression-win'
         run: |
           dnf install -y \
             mingw64-gcc mingw64-gcc-c++ mingw64-binutils mingw64-filesystem \
             mingw64-SDL3 mingw64-zlib mingw64-libpng mingw64-winpthreads \
             wine-core wine-common
+          # GH #319. The regression-win leg also builds the Qt frontend for
+          # Windows (the build that ships, minus PGO), so it needs the MinGW Qt6.
+          if [ "${{ matrix.leg }}" = regression-win ]; then dnf install -y mingw64-qt6-qtbase; fi
 
       - name: Check out
         uses: actions/checkout@v5
@@ -376,6 +379,17 @@ jobs:
       - name: make unit-test-win (the SDL-only suites as Windows executables under wine)
         if: matrix.leg == 'unit-win'
         run: LANG=C make unit-test-win
+
+      # GH #319. The regression suite's screenshots and the functional rows an
+      # OS can run, against the MinGW-built Windows executables under wine (the
+      # shipped Qt build minus PGO, and the SDL-only build). Rows that cannot
+      # exist on Windows are declared absent by `os=` in functional_tests.conf and
+      # printed by name, never skipped; `# expect-windows:` pins the count.
+      # BLOCKING from the start, for the reason unit-win is. The host tools the
+      # rows run (xvfb, python3, mtools, ImageMagick ...) are the common list above.
+      - name: make regression-win (the regression suite as Windows executables under wine)
+        if: matrix.leg == 'regression-win'
+        run: LANG=C make regression-win
 
       # Golden-screenshot + functional regression, in two steps.
       #
@@ -684,6 +698,52 @@ jobs:
         with:
           name: jnext-macos-unit-logs
           path: build/sdl-unit-test/test-logs
+          if-no-files-found: ignore
+
+  # GH #319. The regression suite on macOS: the screenshots and the functional
+  # rows macOS can run (`os=` in test/00regression/functional_tests.conf; the
+  # rest are printed by name as absent, never skipped), against the Qt frontend
+  # that ships in the dmg and the SDL-only one. A job of its own, beside
+  # macos-unit, so a red run says which half broke. BLOCKING, like macos-unit.
+  macos-regression:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      # The regression rows shell out to ffmpeg/ffprobe (video-record family),
+      # ImageMagick (screenshot diffs), mtools + dosfstools (the SD-card foreign
+      # validators), libspectrum (the foreign snapshot reader) and python3.
+      - name: Install dependencies (Homebrew)
+        run: brew install cmake sdl3 qt@6 curl openssl libpng bash coreutils grep ccache imagemagick mtools dosfstools libspectrum ffmpeg
+      - name: Cache NextZXOS SD-card image
+        uses: actions/cache@v5
+        with:
+          path: ~/.jnext/sdcard
+          key: sdcard-image-distro-24.11-recipe2-macos
+
+      - name: Cache ccache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/Library/Caches/ccache
+            ~/.cache/ccache
+          key: ccache-macos-regression-${{ github.sha }}
+          restore-keys: |
+            ccache-macos-regression-
+
+      - name: make regression-macos (the regression suite on macOS)
+        run: CMAKE_PREFIX_PATH="$(brew --prefix):$(brew --prefix qt@6)" LANG=C make regression-macos
+
+      - name: Upload the failing rows' artifacts
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: jnext-macos-regression-artifacts
+          path: |
+            test/00regression/img/*-diff.png
           if-no-files-found: ignore
 
   # The flatpak bundle, actually BUILT on every push rather than skipped — and,

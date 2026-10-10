@@ -179,3 +179,15 @@ it claims to cover or stop and say so. Shipping a deliberately partial release
 is still possible — it means restoring `continue-on-error` on that one job in
 that one commit, which makes it an explicit and visible decision each time
 rather than a standing one.
+
+## The regression suite on other operating systems (GH #319)
+
+Two more blocking jobs run a portable subset of the regression suite, with the
+same plain make targets a developer types. The **`regression-win`** leg of the
+`test` job installs the MinGW cross toolchain (including `mingw64-qt6-qtbase`)
+and wine and runs `make regression-win`: the screenshots and the functional rows
+Windows can run, against the Release + LTO Qt exe and the SDL-only exe under
+wine. **`macos-regression`** runs `make regression-macos` on `macos-latest` with
+Homebrew's `qt@6`, `ffmpeg`, `imagemagick`, `mtools`, `dosfstools` and
+`libspectrum` added to the unit job's list. Rows an OS cannot run are declared
+by `os=` tags and printed as absent, never skipped.
