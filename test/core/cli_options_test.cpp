@@ -85,12 +85,29 @@
 //               user is told nothing about; a wrong metavar count is a usage
 //               line that lies about how many arguments to supply.
 //
+//   CLI-NUM-01..04  (GH #317) cli::parse_int / cli::parse_hex16, the ONE checked
+//               parser every numeric option value goes through: what they
+//               accept (bounds included) and what they refuse, `out` untouched.
+//   CLI-NUM-05  Through the real binary: EVERY option that takes a value, given
+//               `x`, is handled without a crash (no "terminate called", no
+//               fatal-signal line) — a bare std::stoi aborted the process.
+//   CLI-NUM-06  Every numeric option refuses a malformed / out-of-range value
+//               BY NAME AND VALUE with a non-zero exit and no crash, accepts
+//               its bounds, and the case table is complete against the OPTIONS
+//               table (a new numeric flag fails until it is listed).
+//   CLI-NUM-07  An empty --delayed-keypress KEY is queued (and so refused
+//               loudly later), no longer dropped silently.
+//   Oracle for CLI-NUM: no VHDL (a host CLI). The man page contract (ranges,
+//   hex ADDR/PORT, exit status 1) and the strtol/strtoul library semantics.
+//
 // Every row above was mutation-tested: the thing it protects was broken, the
 // suite rebuilt, and the row confirmed to fail. CLI-BIN-01's timeout guard
 // exists BECAUSE of that exercise (it hung rather than failed).
 
 #include "core/cli_options.h"
 
+#include <cctype>
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -689,6 +706,71 @@ int main() {
                                  "trailing junk, an empty value and a hex spelling, leaving the outputs "
                                  "untouched", bad.empty(), join(bad));
         }
+        {
+            // GH #317 — cli::parse_int. Oracle: man page contract + strtol semantics.
+            std::vector<std::string> bad;
+            const struct { const char* s; long lo; long hi; long want; } good[] = {
+                {"0", 0, 10, 0}, {"10", 0, 10, 10}, {"-5", -10, 10, -5},
+                {"65535", 0, 65535, 65535}, {"2147483647", 0, INT_MAX, 2147483647L},
+                {"35791394", 0, cli::MAX_DELAY_SECONDS, 35791394L},
+            };
+            for (const auto& c : good) {
+                long out = 99;
+                if (!cli::parse_int(c.s, c.lo, c.hi, out) || out != c.want)
+                    bad.push_back(c.s);
+            }
+            if (cli::MAX_DELAY_SECONDS != 35791394L) bad.push_back("MAX_DELAY_SECONDS");
+            check("CLI-NUM-01", "parse_int accepts a whole decimal number in [lo, hi], bounds and "
+                                "negatives included, and returns exactly it", bad.empty(), join(bad));
+        }
+        {
+            std::vector<std::string> bad;
+            const char* cases[] = { "", "x", "5x", "1.5", "0x10", "-1", "11" };
+            for (const char* c : cases) {
+                long out = 99;
+                if (cli::parse_int(c, 0, 10, out) || out != 99)
+                    bad.push_back(std::string("\"") + c + "\"");
+            }
+            long out = 99;
+            if (cli::parse_int("2147483648", 0, INT_MAX, out) || out != 99) bad.push_back("INT_MAX+1");
+            if (cli::parse_int("99999999999999999999", LONG_MIN, LONG_MAX, out) || out != 99)
+                bad.push_back("ERANGE");
+            if (cli::parse_int(nullptr, 0, 10, out) || out != 99) bad.push_back("null");
+            check("CLI-NUM-02", "parse_int refuses empty, non-numeric, trailing junk, a fraction, a hex "
+                                "spelling, overflow, a value outside [lo, hi] and null, leaving out "
+                                "untouched", bad.empty(), join(bad));
+        }
+        {
+            std::vector<std::string> bad;
+            const struct { const char* s; unsigned want; } good[] = {
+                {"0", 0}, {"8000", 0x8000}, {"0x8000", 0x8000}, {"0X8000", 0x8000},
+                {"ffff", 0xFFFF}, {"FFFF", 0xFFFF}, {"00FF", 0x00FF}, {"0x00FF", 0x00FF},
+                {"CAFE", 0xCAFE},
+            };
+            for (const auto& c : good) {
+                uint16_t out = 0x1234;
+                if (!cli::parse_hex16(c.s, out) || out != c.want) bad.push_back(c.s);
+            }
+            check("CLI-NUM-03", "parse_hex16 accepts 0..FFFF with an optional 0x/0X prefix, any case, "
+                                "leading zeros included", bad.empty(), join(bad));
+        }
+        {
+            std::vector<std::string> bad;
+            const char* cases[] = {
+                "", "0x", "x", "g", "-1", "+1", " 8000", "8000 ", "8000g", "10000", "0x10000",
+                "FFFFFFFFFFFFFFFFFFFFFFFF",
+            };
+            for (const char* c : cases) {
+                uint16_t out = 0x1234;
+                if (cli::parse_hex16(c, out) || out != 0x1234)
+                    bad.push_back(std::string("\"") + c + "\"");
+            }
+            uint16_t out = 0x1234;
+            if (cli::parse_hex16(nullptr, out) || out != 0x1234) bad.push_back("null");
+            check("CLI-NUM-04", "parse_hex16 refuses empty, prefix-only, a sign, whitespace, trailing "
+                                "junk, more than 16 bits and null, leaving out untouched",
+                  bad.empty(), join(bad));
+        }
     }
 
     {
@@ -723,6 +805,12 @@ int main() {
                  "jnext binary not built at " + bin);
             skip("CLI-JNS-05", "the real binary honours the .jns flag values",
                  "jnext binary not built at " + bin);
+            skip("CLI-NUM-05", "no option that takes a value aborts on `x`",
+                 "jnext binary not built at " + bin);
+            skip("CLI-NUM-06", "every numeric option refuses a bad value by name and value",
+                 "jnext binary not built at " + bin);
+            skip("CLI-NUM-07", "an empty --delayed-keypress KEY is not dropped",
+                 "jnext binary not built at " + bin);
         } else if (!have_timeout) {
             skip("CLI-BIN-01", "real binary honours the table",
                  "no timeout(1) on this host; refusing to run unbounded");
@@ -735,6 +823,12 @@ int main() {
             skip("CLI-BIN-04", "`jnext --help` lists every documented flag",
                  "no timeout(1) on this host; refusing to run unbounded");
             skip("CLI-JNS-05", "the real binary honours the .jns flag values",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-NUM-05", "no option that takes a value aborts on `x`",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-NUM-06", "every numeric option refuses a bad value by name and value",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-NUM-07", "an empty --delayed-keypress KEY is not dropped",
                  "no timeout(1) on this host; refusing to run unbounded");
         } else {
             probe.close();
@@ -964,6 +1058,172 @@ int main() {
                   "the real binary accepts every valid .jns flag value, refuses "
                   "the rest BY NAME, and no longer knows the three old spellings",
                   jns.empty(), join(jns));
+
+
+            // --- CLI-NUM-05..07 (GH #317): numeric values, through the REAL BINARY
+            //
+            // A "crash" is libstdc++'s terminate message OR the crash handler's
+            // `signal <n> received` line (main.cpp); the second is platform-
+            // independent. Same `--version` trick as CLI-JNS-05, pinned first.
+            auto crashed = [](const std::string& err) {
+                if (err.find("terminate called") != std::string::npos) return true;
+                const size_t p = err.find("signal ");
+                if (p == std::string::npos) return false;
+                size_t q = p + 7;
+                size_t digits = 0;
+                while (q < err.size() && std::isdigit(static_cast<unsigned char>(err[q]))) { ++q; ++digits; }
+                return digits > 0 && err.compare(q, 9, " received") == 0;
+            };
+
+            struct NumCase {
+                const char* name;
+                const char* head;   // value words BEFORE the value under test
+                const char* tail;   // value words AFTER it (a valid second argument)
+                const char* lo;     // smallest accepted value
+                const char* hi;     // largest accepted value
+                std::vector<const char*> bad;
+            };
+            const char* const SECS_HI = "35791394";   // cli::MAX_DELAY_SECONDS
+            const char* const INT_HI  = "2147483647";
+            const std::vector<NumCase> num_cases = {
+                {"--inject-org",   "", "", "0", "FFFF", {"8000g", "10000", "-1"}},
+                {"--inject-pc",    "", "", "0", "FFFF", {"8000g", "10000", "-1"}},
+                {"--magic-port",   "", "", "00FF", "FFFF", {"8000g", "10000", "-1"}},
+                {"--inject-delay", "", "", "0", INT_HI, {"5x", "2147483648", "-1"}},
+                {"--delayed-screenshot-time",   "", "", "0", SECS_HI, {"5x", "35791395", "-1"}},
+                {"--delayed-screenshot-frames", "", "", "0", INT_HI, {"1.5", "2147483648", "-1"}},
+                {"--delayed-automatic-exit",        "", "", "0", SECS_HI, {"5x", "35791395", "-1"}},
+                {"--delayed-automatic-exit-frames", "", "", "0", INT_HI, {"5x", "2147483648", "-1"}},
+                {"--delayed-snapshot-frames",       "", "", "0", INT_HI, {"5x", "2147483648", "-1"}},
+                {"--benchmark",    "", "", "1", INT_HI, {"5x", "0", "2147483648"}},
+                // --speed clamps to 10..1000 (documented), so 5 and 2000 are ACCEPTED.
+                {"--speed",        "", "", "5", "2000", {"5x", "2147483648"}},
+                {"--delayed-keypress",        "", " a",  "0", SECS_HI, {"5x", "35791395", "-1"}},
+                {"--delayed-keypress-frames", "", " a",  "0", INT_HI, {"5x", "2147483648", "-1"}},
+                // The literal case from the issue.
+                {"--delayed-keypress-frames", "", " 400", "0", "0", {"space"}},
+                {"--delayed-nmi",        "", " mf", "0", SECS_HI, {"5x", "35791395", "-1"}},
+                {"--delayed-nmi-frames", "", " mf", "0", INT_HI, {"5x", "2147483648", "-1"}},
+                {"--delayed-sdcard-insert-frames", "", " img", "0", INT_HI, {"5x", "2147483648", "-1"}},
+                {"--rewind-buffer-size",       "", "", "0", INT_HI, {"5x", "2147483648", "-1"}},
+                {"--compositor-trace-frame",   "", "", "0", INT_HI, {"7junk", "2147483648", "-1"}},
+                {"--joy-uart-rx-delay-frames", "", "", "0", INT_HI, {"5x", "2147483648", "-1"}},
+                {"--joy-uart-connector",       "", "", "1", "2", {"3", "1x"}},
+                {"--esp-delayed-associate-frames",    "", "", "0", INT_HI, {"5x", "2147483648", "-1"}},
+                {"--esp-delayed-disassociate-frames", "", "", "0", INT_HI, {"5x", "2147483648", "-1"}},
+                {"--dzrp-port", "", "", "0", "65535", {"5x", "65536", "-1"}},
+                {"--gdb-port",  "", "", "0", "65535", {"5x", "65536", "-1"}},
+                {"--zrcp-port", "", "", "0", "65535", {"5x", "65536", "-1"}},
+                {"--script-key", "",   " 3", "0", INT_HI, {"7x", "2147483648", "-1"}},
+                {"--script-key", "0 ", "",   "1", "8",    {"3x", "9", "0"}},
+                {"--audio-gain-db",        "", "", "-24", "24", {"24.1", "loud"}},
+                {"--audio-gain-beeper-db", "", "", "-24", "24", {"24.1", "loud"}},
+                {"--audio-gain-ay0-db",    "", "", "-24", "24", {"24.1", "loud"}},
+                {"--audio-gain-ay1-db",    "", "", "-24", "24", {"24.1", "loud"}},
+                {"--audio-gain-ay2-db",    "", "", "-24", "24", {"24.1", "loud"}},
+                {"--audio-gain-dac-db",    "", "", "-24", "24", {"24.1", "loud"}},
+            };
+            std::map<std::string, bool> numeric_names;
+            for (const auto& c : num_cases) numeric_names[c.name] = true;
+
+            // --- CLI-NUM-05: whole table, nothing aborts ---------------------
+            std::vector<std::string> nobreak;
+            if (run("--speed x --version") == 0)
+                nobreak.push_back("--version is parsed BEFORE the flag under test, so every "
+                                  "result below is vacuous");
+            for (const cli::Option& o : cli::OPTIONS) {
+                if (o.arity < 1) continue;
+                // --log-file is skipped: its pre-scan opens FILE before the loop,
+                // so `x` would create a file in the working directory.
+                if (std::strcmp(o.name, "--log-file") == 0) continue;
+                std::string args = o.name;
+                for (int i = 0; i < o.arity; ++i) args += " x";
+                run_split(args + " --version");
+                const std::string e = slurp(err_path);
+                if (crashed(e)) nobreak.push_back(std::string("crash on ") + args);
+                // The numeric options must also refuse `x` BY NAME AND VALUE.
+                if (numeric_names.count(o.name)) {
+                    const int rc = run(args + " --version");
+                    if (rc == 0) nobreak.push_back(std::string("accepted ") + args);
+                    if (e.find(o.name) == std::string::npos || e.find("\"x\"") == std::string::npos)
+                        nobreak.push_back(std::string("refusal of `") + args + "` omits option or value");
+                }
+            }
+            check("CLI-NUM-05", "no option that takes a value aborts on `x`; every numeric option "
+                                "refuses it naming the option and the value",
+                  nobreak.empty(), join(nobreak));
+
+            // --- CLI-NUM-06: refuse by name and value, accept the bounds ------
+            std::vector<std::string> num;
+            // Completeness, from the OPTIONS table itself.
+            for (const cli::Option& o : cli::OPTIONS) {
+                if (o.arity < 1) continue;
+                bool numeric = std::strcmp(o.name, "--inject-org") == 0 ||
+                               std::strcmp(o.name, "--inject-pc") == 0;
+                std::istringstream words(o.args);
+                for (std::string w; words >> w;)
+                    if (w == "N" || w == "SECS" || w == "PERCENT" || w == "PORT" ||
+                        w == "FRAME" || w == "DB") numeric = true;
+                if (numeric && !numeric_names.count(o.name))
+                    num.push_back(std::string("numeric option missing from the case table: ") + o.name);
+            }
+            for (const auto& c : num_cases) {
+                for (const char* v : c.bad) {
+                    const std::string args = std::string(c.name) + " " + c.head + v + c.tail + " --version";
+                    const int rc = run(args);
+                    run_split(args);
+                    const std::string e = slurp(err_path);
+                    if (rc == 0) num.push_back("accepted: " + args);
+                    if (crashed(e)) num.push_back("crash: " + args);
+                    if (e.find(c.name) == std::string::npos) num.push_back("no option name: " + args);
+                    if (e.find(std::string("\"") + v + "\"") == std::string::npos)
+                        num.push_back("no quoted value: " + args);
+                }
+            }
+            // The message names the metavar FROM THE TABLE ROW, so it cannot drift
+            // from --help: one arity-2 int option, one int option, one hex option.
+            for (const char* nm : { "--delayed-keypress", "--benchmark", "--inject-org" }) {
+                for (const cli::Option& o : cli::OPTIONS) {
+                    if (std::strcmp(o.name, nm) != 0) continue;
+                    const std::string a = o.args;
+                    const std::string want = std::string(nm) + ": " + a.substr(0, a.find(' ')) +
+                                             " must be";
+                    run_split(std::string(nm) + " x" + (o.arity == 2 ? " a" : "") + " --version");
+                    if (slurp(err_path).find(want) == std::string::npos)
+                        num.push_back("message lacks `" + want + "`");
+                }
+            }
+            // Bounds: one batched invocation per bound; on failure name the culprit.
+            for (int pass = 0; pass < 2; ++pass) {
+                std::string batch;
+                for (const auto& c : num_cases)
+                    batch += std::string(c.name) + " " + c.head + (pass ? c.hi : c.lo) + c.tail + " ";
+                if (run(batch + "--version") == 0) continue;
+                for (const auto& c : num_cases) {
+                    const std::string one = std::string(c.name) + " " + c.head +
+                                            (pass ? c.hi : c.lo) + c.tail;
+                    if (run(one + " --version") != 0) num.push_back("rejected " + std::string(pass ? "hi: " : "lo: ") + one);
+                }
+            }
+            check("CLI-NUM-06", "every numeric option refuses a malformed or out-of-range value by "
+                                "name and value (exit non-zero, no crash), accepts its bounds, and "
+                                "the case table covers every numeric option",
+                  num.empty(), join(num));
+
+            // --- CLI-NUM-07: an empty KEY is queued, not dropped -------------
+            // Without --headless / --version the press is refused with
+            // "requires --headless", reachable ONLY if it was queued.
+            std::vector<std::string> ek;
+            for (const char* a : { "--delayed-keypress-frames 5 \"\"", "--delayed-keypress 1 \"\"" }) {
+                const int rc = run(a);
+                run_split(a);
+                const std::string e = slurp(err_path);
+                if (rc == 0) ek.push_back(std::string("exit 0: ") + a);
+                if (e.find("--delayed-keypress requires --headless") == std::string::npos)
+                    ek.push_back(std::string("not queued: ") + a);
+            }
+            check("CLI-NUM-07", "an empty --delayed-keypress KEY is queued and refused loudly, not "
+                                "silently dropped", ek.empty(), join(ek));
 
             std::remove(out_path.c_str());
             std::remove(err_path.c_str());

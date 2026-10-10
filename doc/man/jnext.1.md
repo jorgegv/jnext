@@ -44,6 +44,10 @@ debugger ones.
 
 # OPTIONS
 
+A numeric value is taken whole. Trailing characters (`5x`), a value outside the
+option's range, or a negative count are a usage error: **jnext** prints a message
+naming the option and the value, and exits with status 1.
+
 ## Machine and program
 
 **\--machine** *TYPE*
@@ -397,11 +401,11 @@ debugger ones.
 :   Load a raw binary into RAM.
 
 **\--inject-org** *ADDR*
-:   Load address for **\--inject** (hex, default `8000`). Requires
+:   Load address for **\--inject** (hex, `0x` prefix optional, default `8000`). Requires
     **\--inject**.
 
 **\--inject-pc** *ADDR*
-:   Entry point for **\--inject** (hex, default: same as **\--inject-org**).
+:   Entry point for **\--inject** (hex, `0x` prefix optional, default: same as **\--inject-org**).
     Requires **\--inject**.
 
 **\--inject-delay** *N*
@@ -809,7 +813,7 @@ debugger ones.
     startup error.
 
 **\--magic-port** *PORT*
-:   Enable the magic debug port at *PORT* (hex, for example `0x00FF`).
+:   Enable the magic debug port at *PORT* (hex, `0x` prefix optional, for example `0x00FF`).
 
 **\--magic-port-mode** *MODE*
 :   Magic-port output mode: `hex` (default), `dec`, `ascii`, `line`. Requires
@@ -2177,7 +2181,8 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 
 # EXIT STATUS
 
-**jnext** exits 0 on success and non-zero on error. In particular it exits
+**jnext** exits 0 on success and non-zero on error. A command-line usage error
+(an unknown option, or a value an option does not accept) exits 1. In particular it exits
 non-zero when a **\--delayed-screenshot** was requested but never taken,
 rather than silently writing nothing, and likewise when a **\--record**
 recording fails to materialize as a usable output file, and when

@@ -478,6 +478,10 @@ A new row that fails only in the parallel phase gets `quiet`, with the evidence 
 A row that needs an X server starts it with **`xvfb-run -d`** (Xvfb picks the display
 itself): `xvfb-run -a` chooses by scanning lock files, two parallel rows got the same
 display and one silently SKIPPED; `-a`/`-n` are banned (harness-selftest HS-72).
+A row that drives the app with `xdotool` also passes **`-noreset`** in `--server-args`:
+Xvfb resets when its last client disconnects, so the row's own `xdotool` polling can
+land the app's connection in a reset and the app exits without a window (GH #318,
+harness-selftest HS-89).
 
 **No row script may install a `trap`** (GH #153). Every row is still SOURCED — now into its
 row-runner shell, which holds the library's one `trap regression_cleanup EXIT/INT/TERM` that

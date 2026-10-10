@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.25</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.27</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.25</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.27</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2401,7 +2401,7 @@ none, a SKIP or FAIL is never stamped, every non-doc class of path (Makefile,
 CMake, a <code>.conf</code>, <code>tools/</code>, <code>.github/</code>, a gitlink) moves the key while
 documentation does not, the documentation a gate reads does, and the
 pending / solo-confirm path stamps only when every pending row passes. <code>HS-72</code>
-bans <code>xvfb-run -a</code>/<code>-n</code> from the test scripts. <code>HS-76a</code>/<code>b</code> pin that a unit suite
+bans <code>xvfb-run -a</code>/<code>-n</code> from the test scripts. <code>HS-89</code> requires <code>-noreset</code> on every <code>xvfb-run</code> line of a script that drives the app with <code>xdotool</code> (GH #318). <code>HS-76a</code>/<code>b</code> pin that a unit suite
 reporting a SKIP fails the run (named, with its SKIP lines, beside a failing one
 too) and <code>HS-77a</code>..<code>d</code> that the regression driver and a standalone row do the
 same in every mode, with the control that a skip-free run still exits 0 and

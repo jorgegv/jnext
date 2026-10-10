@@ -3,6 +3,7 @@
 ## Unreleased (2026-10-10)
 
 ### Bug Fixes
+- A malformed numeric command-line value is now a clear error instead of a crash or a silently wrong number
 - Windows: the status bar shows a loaded tape's file name instead of its full path
 - esxDOS host folder: a name containing ':' gets the same answer on every OS
 - Windows: `--dac-trace` and `--trace` files no longer get CRLF line endings

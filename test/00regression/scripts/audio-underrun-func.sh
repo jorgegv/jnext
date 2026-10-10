@@ -64,7 +64,7 @@ if want audio-underrun-func; then
         # below is a file write with no backend to fail. A capture that is
         # missing anyway is now a FAIL — see the header.)
         SDL_AUDIODRIVER=disk SDL_AUDIO_DISK_OUTPUT_FILE="$raw_file" \
-        timeout --foreground --kill-after=5s 40s \
+        timeout --kill-after=5s 40s \
         env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=$au_qpa SDL_VIDEODRIVER=$au_vid \
         ${au_xvfb[@]+"${au_xvfb[@]}"} "$JNEXT" \
             "${SD_CARD_ARGS[@]}" \

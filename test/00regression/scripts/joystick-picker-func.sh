@@ -46,7 +46,7 @@ if want joystick-picker-func; then
         rm -f "$log"
         env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=$jp_qpa SDL_VIDEODRIVER=$jp_vid SDL_AUDIODRIVER=dummy \
             JNEXT_TEST_VIRTUAL_JOYSTICKS="$jp_spec" \
-        timeout --foreground --kill-after=5s 90s \
+        timeout --kill-after=5s 90s \
         ${jp_xvfb[@]+"${jp_xvfb[@]}"} \
             "$bin" --machine 48k --silent --delayed-automatic-exit-frames 100 "$@" \
             >"$log" 2>&1 || true

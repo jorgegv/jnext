@@ -98,6 +98,19 @@ display (`-displayfd`). `xvfb-run -a` picks a number by scanning
 1/64 failing with `-a`. `harness-selftest` HS-72 bans `-a`/`-n` in every tracked
 test script.
 
+A row that drives the app with `xdotool` also starts its Xvfb with
+**`-noreset`** (`--server-args="-screen 0 WxHx24 -noreset"`). Without it the X
+server regenerates whenever its last client disconnects, and the row's own
+`xdotool search` poll is such a client while the app is still starting: an app
+connecting during the regeneration is dropped (`SDL_Init: x11 not available`,
+exit 1, no screenshot; GH #318). Measured under 12 busy loops: 18/1000 fresh
+connections failed on a default server, 0/1000 with `-noreset`. `harness-selftest`
+HS-89 requires the flag on every `xvfb-run` line of a script that mentions
+`xdotool`. For the same rows a missing screenshot or a non-zero app exit is a
+FAIL naming the run and the first `[error]` line, not a SKIP, so it has the
+solo-confirm path. The `timeout` in front of `xvfb-run` has no `--foreground`:
+with it a timeout orphans the Xvfb and the app.
+
 Targeted runs: `make regression-rows ROWS="<row> ..."` builds the binaries rows
 execute (gui-release, sdl-release, the unit-test build) and runs the named rows;
 the bare `regression.sh <row>...` form needs them built already.

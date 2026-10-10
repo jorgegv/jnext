@@ -144,6 +144,15 @@ starting together could pick the same one, and the loser SKIPPED (a failure now)
 uses `xvfb-run -d`, where Xvfb picks the display itself, and harness-selftest
 HS-72 bans the racy forms.
 
+A second Xvfb race hit the rows that poll with `xdotool`: without `-noreset` the
+X server regenerates whenever its last client disconnects, and the row's own
+`xdotool search` poll is such a client while the app starts, so an app
+connecting mid-regeneration is dropped (`SDL_Init: x11 not available`, no
+screenshot; GH #318; 18/1000 connections failed under load, 0/1000 with
+`-noreset`). Those rows start Xvfb with `-noreset`, HS-89 enforces it, and a
+missing screenshot or non-zero app exit is a FAIL naming the run and cause (the
+solo-confirm path), never a SKIP.
+
 ## One full run at a time, and the stamp
 
 A full run (no arguments, real manifests) takes a host lock through `flock -o`

@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=184  # 160 + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows); 160 = 75 + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=185  # HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1828,6 +1828,65 @@ racy=$(cd "$PROJECT_DIR" && git ls-files 'test/*.sh' 'test/*.inc' 'tools/*.sh' |
        | xargs grep -nE "$XVFB_RACY_RE" 2>/dev/null || true)
 check "HS-72" "no test script starts Xvfb on a non-atomically chosen display (xvfb-run -a/-n); the matcher's control (GH #295)" 0 0 \
     "control=$ctl racy=[${racy}]" "control=111100 racy=[]"
+
+# ---------------- an xdotool-driven Xvfb must not reset (GH #318) ----------------
+# Xvfb without -noreset REGENERATES whenever its last client disconnects, and a
+# row that polls `xdotool search` while the app is still starting is exactly
+# such a client: a poll that finds nothing closes the only connection, and an
+# app connecting during the regeneration (it re-runs xkbcomp) is dropped
+# (sdl-keypress-func SKIPped: `SDL_Init: x11 not available`). Measured under 12
+# busy loops: 18 of 1000 fresh connections failed on a default server, 0 of
+# 1000 with -noreset (Xserver(1): "prevents a server reset when the last client
+# connection is closed"). Every non-comment `xvfb-run -...` line of a test
+# script that mentions xdotool must therefore carry -noreset.
+# MAY MISS: an `xvfb-run` with no option at all (the regex needs a dash after
+# the command name; house style is always -d, and HS-72 does not ban it either).
+xvfb_lines() {   # stdin: lines; prints the non-comment `xvfb-run -...` ones
+    grep -E 'xvfb-run[[:space:]]+-' | grep -vE '^[[:space:]]*#' || true
+}
+xvfb_noreset_offender() { xvfb_lines | grep -vF -e '-noreset' || true; }
+ctl=""
+for t in 'xvfb-run -d --server-args="-screen 0 1x1x24" bash -c '"'" \
+         'xvfb-run -d --server-args="-screen 0 1x1x24 -noreset" bash -c '"'" \
+         'command -v xvfb-run &>/dev/null' '# xvfb-run only sets DISPLAY' \
+         '    # xvfb-run -d --server-args="-screen 0 1x1x24" bash -c'; do
+    [[ -n "$(xvfb_noreset_offender <<<"$t")" ]] && ctl+=1 || ctl+=0
+done
+# (this file is excluded: the control strings above are deliberate instances)
+# scanned = the xdotool-mentioning files that hold a live `xvfb-run -...` line.
+# It is part of the asserted output because every scanned file is compliant, so
+# a lint whose file set went empty (a mistyped token, a dropped pathspec, a
+# failed git ls-files) would otherwise report offenders=[] and PASS. Pinned like
+# EXPECTED_TOTAL: adding an xdotool-driven xvfb-run script updates it deliberately.
+noreset_files=$(cd "$PROJECT_DIR" && git ls-files 'test/*.sh' 'test/*.inc' 'tools/*.sh' | grep -vx 'test/harness-selftest.sh' \
+                | xargs grep -l xdotool 2>/dev/null || true)
+# noreset_scan <root> <newline-separated files relative to root>
+# sets scan_n (files holding a live xvfb-run line) and scan_off (one offender
+# per line, "file: line"). A function so the same code runs on the tree AND on
+# a fixture: on the tree every file is compliant, so only the fixture proves an
+# offender found in a real file reaches the output.
+noreset_scan() {
+    local root=$1 files=$2 f line
+    scan_n=0; scan_off=""
+    while read -r f; do
+        [[ -n "$f" ]] || continue
+        [[ -n "$(xvfb_lines <"$root/$f")" ]] || continue
+        scan_n=$((scan_n + 1))
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && scan_off+="${scan_off:+$'\n'}$f: $line"
+        done < <(xvfb_noreset_offender <"$root/$f")
+    done <<<"$files"
+}
+noreset_scan "$PROJECT_DIR" "$noreset_files"
+scanned=$scan_n; noreset_off=$scan_off
+# The same scan on a two-file fixture: one compliant file, one offender.
+NR_FIX="$T/noreset-fixture"; mkdir -p "$NR_FIX"
+printf 'xdotool key a\nxvfb-run -d --server-args="-screen 0 1x1x24 -noreset" bash -c x\n' >"$NR_FIX/good.sh"
+printf 'xdotool key a\nxvfb-run -d --server-args="-screen 0 1x1x24" bash -c y\n' >"$NR_FIX/bad.sh"
+noreset_scan "$NR_FIX" $'good.sh\nbad.sh'
+check "HS-89" "every xvfb-run in an xdotool-driving test script passes -noreset; the matcher's controls, the scanned-file count and a fixture offender (GH #318)" 0 0 \
+    "control=$ctl scanned=$scanned offenders=[${noreset_off}] fixture scanned=$scan_n offenders=[${scan_off}]" \
+    "control=10000 scanned=6 offenders=[] fixture scanned=2 offenders=[bad.sh: xvfb-run -d --server-args=\"-screen 0 1x1x24\" bash -c y]"
 
 # ---------------- a nested harness never waits on its ancestor's lock (GH #295) ----------------
 # `make regression-confirm` could not pass harness-selftest-func: the confirm
