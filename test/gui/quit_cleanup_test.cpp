@@ -94,6 +94,7 @@
 // ===========================================================================
 #include <QAbstractButton>
 #include <QAction>
+#include <QFile>
 #include <QApplication>
 #include <QDataStream>
 #include <QEvent>
@@ -341,6 +342,35 @@ void test_geometry_persisted() {
           detail);
 }
 
+// QCF-01 — GH #312: constructing the MainWindow folds a v1.1.15 Debugger.conf
+// into jnext.conf even though the debugger is never enabled. Literal fixture:
+// the bytes the real v1.1.15 binary wrote for a 640x456 window.
+void test_startup_migration() {
+    const fs::path legacy = g_dir / "Debugger.conf";
+    const fs::path conf   = g_dir / "jnext.conf";
+    std::error_code ec;
+    fs::remove(conf, ec);
+    {
+        QFile f(QString::fromStdString(legacy.string()));
+        if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            f.write("[debugger]\nattached=true\n"
+                    R"(size=@ByteArray(\0\0\x2\x80\0\0\x1\xc8))" "\n");
+    }
+    QByteArray text;
+    bool ok = false;
+    {
+        Fixture fx;
+        ok = fx.ok;
+        QFile f(QString::fromStdString(conf.string()));
+        if (f.open(QIODevice::ReadOnly)) text = f.readAll();
+    }
+    check("QCF-01",
+          "constructing the MainWindow migrates Debugger.conf into jnext.conf [debugger] (debugger never opened)",
+          ok && !fs::exists(legacy) && text.split('\n').contains("[debugger]")
+              && text.split('\n').contains("size=640, 456"),
+          text.toStdString());
+}
+
 void test_close_route() {
     Fixture fx;
     if (!fx.ok) {
@@ -482,6 +512,7 @@ int main(int argc, char** argv) {
     test_debugger_teardown();
     test_recorder_stop();
     test_geometry_persisted();
+    test_startup_migration();
     test_close_route();
     std::printf("  Group: Q131           - done\n");
 
