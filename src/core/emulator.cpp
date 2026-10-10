@@ -11337,6 +11337,34 @@ void Emulator::refresh_joystick_sources()
             on_joystick_source_changed(s, joy_source_[s]);
         }
     }
+    if (on_joystick_device_changed) {
+        for (int s = 0; s < 2; ++s) {
+            on_joystick_device_changed(s, joy_device_[s]);
+        }
+    }
+}
+
+void Emulator::set_joystick_device(int connector, const JoyDeviceRef& ref)
+{
+    if (connector < 0 || connector > 1) return;
+    const int other = connector ^ 1;
+    bool changed[2] = { false, false };
+
+    if (joy_device_[connector] != ref) {
+        joy_device_[connector] = ref;
+        changed[connector] = true;
+    }
+    // One controller drives at most one connector: the last pick wins.
+    if (!ref.id.empty() && joy_device_[other].id == ref.id) {
+        joy_device_[other] = JoyDeviceRef{};
+        changed[other] = true;
+    }
+
+    if (on_joystick_device_changed) {
+        for (int s = 0; s < 2; ++s) {
+            if (changed[s]) on_joystick_device_changed(s, joy_device_[s]);
+        }
+    }
 }
 
 void Emulator::soft_reset()

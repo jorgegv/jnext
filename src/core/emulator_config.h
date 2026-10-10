@@ -144,6 +144,7 @@ struct EmulatorConfig {
     // CLI-wins precedence. Default Sdl/Sdl = historical behaviour. At most
     // one may be CursorKeys (main.cpp enforces it before this is populated).
     JoySource joy_source[2] = { JoySource::Sdl, JoySource::Sdl };
+    JoyDeviceRef joy_device[2];   // GH #311 — assigned physical controller (empty = Automatic)
 
     // SD card image. Wave 0.3 (Task 8 Multiface plan, 2026-05-04) made this
     // the canonical source for ALL non-embedded ROMs (DivMMC, NextZXOS,

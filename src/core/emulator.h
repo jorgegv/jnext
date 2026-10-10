@@ -713,6 +713,23 @@ public:
     /// crosses this boundary.
     std::function<void(int connector, JoySource src)> on_joystick_source_changed;
 
+    // --- GH #311: physical controller assigned to each connector -----------
+    // Strings only (see input/joy_source.h JoyDeviceRef): an empty id is
+    // Automatic. The Emulator keeps the assignment so it survives a cold boot
+    // (emulator_boot.h) and owns the "one controller per connector" rule.
+    const JoyDeviceRef& joystick_device(int connector) const {
+        static const JoyDeviceRef none;
+        if (connector < 0 || connector > 1) return none;
+        return joy_device_[connector];
+    }
+    /// Assign a controller to `connector`. A non-empty id already held by the
+    /// other connector is taken from it (the last pick wins). Fires
+    /// on_joystick_device_changed for each connector whose value changed, in
+    /// ascending connector order.
+    void set_joystick_device(int connector, const JoyDeviceRef& ref);
+    /// Frontend callback, wired like on_joystick_source_changed.
+    std::function<void(int connector, const JoyDeviceRef& ref)> on_joystick_device_changed;
+
     KempstonMouse&  mouse()          { return mouse_; }
     Md6ConnectorX2& md6()            { return md6_; }
     MembraneStick&  membrane_stick() { return membrane_stick_; }
@@ -1624,6 +1641,7 @@ private:
     // Task 79 — per-connector host input source. Default Sdl/Sdl reproduces
     // the historical behaviour (SDL pads → slots, arrows → ZX cursor keys).
     JoySource       joy_source_[2] = { JoySource::Sdl, JoySource::Sdl };
+    JoyDeviceRef    joy_device_[2];   // GH #311
     KempstonMouse   mouse_;
     Md6ConnectorX2  md6_;
     MembraneStick   membrane_stick_;
