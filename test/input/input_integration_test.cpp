@@ -1686,14 +1686,23 @@ static void test_gh311_gamepad_host() {
         const size_t quiet = lines();
         h.set_device(0, JoyDeviceRef{ gone2, "Gone 2" });   // a new absent assignment
         const size_t after_new = lines();
-        h.set_device(0, JoyDeviceRef{ F, "jnext pad A" });  // match: re-arms
-        h.set_device(0, JoyDeviceRef{ gone1, "Gone" });     // enters fallback again
+        // Assign the id a second identical pad WILL get, so it is absent now (logs),
+        // matches when the pad arrives (silent), and re-enters fallback when it leaves.
+        h.set_device(0, JoyDeviceRef{ F + "#2", "jnext pad A" });
+        const size_t absent_again = lines();
+        const SDL_JoystickID fb = gpa_attach("jnext pad A", 0x1234, 0x0001, false);
+        gpa_feed(h, SDL_EVENT_JOYSTICK_ADDED, fb);
+        const size_t on_match = lines();
+        SDL_DetachVirtualJoystick(fb);
+        gpa_feed(h, SDL_EVENT_JOYSTICK_REMOVED, fb);
         const size_t after_match = lines();
         Log::input()->sinks().pop_back();
         check("GPA-12", "fallback line: once on entry, silent on a no-change re-resolve, again after a new assignment and after a match",
-              first == 1 && quiet == 1 && after_new == 2 && after_match == 3,
+              first == 1 && quiet == 1 && after_new == 2 && absent_again == 3 &&
+              on_match == 3 && after_match == 4,
               detail("first=%d", (int)first) + detail(" quiet=%d", (int)quiet) +
-              detail(" new=%d", (int)after_new) + detail(" match=%d", (int)after_match));
+              detail(" new=%d", (int)after_new) + detail(" abs=%d", (int)absent_again) +
+              detail(" onmatch=%d", (int)on_match) + detail(" match=%d", (int)after_match));
         SDL_DetachVirtualJoystick(fa);
     }
     GamepadHost::set_virtual_only(false);
