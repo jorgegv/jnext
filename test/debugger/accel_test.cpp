@@ -417,7 +417,7 @@ int main(int argc, char** argv)
     qputenv("QT_QPA_PLATFORM", "offscreen");
 
     // Isolate the config file: the window restores a saved geometry, and the
-    // real ~/.jnext/Debugger.conf belongs to the user.
+    // real ~/.jnext/jnext.conf belongs to the user.
     QTemporaryDir cfg;
     if (!cfg.isValid()) {
         std::printf("  FAIL: could not create a temporary config directory\n");

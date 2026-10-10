@@ -21,7 +21,9 @@
 #include "debug/debug_keymap.h"
 
 #include <QDir>
+#include <QDateTime>
 #include <QFile>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QTemporaryDir>
 
@@ -909,6 +911,166 @@ static void test_gh311_joy_device(QTemporaryDir& dir) {
     }
 }
 
+// ── AC-FILE: GH #312 — on-disk layout of jnext.conf ────────────────────
+// Oracle: the issue text (lowercase sections, no "@..." values, old files read
+// correctly and rewritten once) and Qt IniFormat semantics. Legacy fixtures
+// are LITERAL text written with QFile, not produced by the code under test.
+
+static QByteArray slurp(const QString& path) {
+    QFile f(path);
+    return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+}
+
+static void plant(const QString& path, const char* text) {
+    QFile f(path);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) f.write(text);
+}
+
+static bool has_line(const QByteArray& file, const char* line) {
+    return file.split('\n').contains(QByteArray(line));
+}
+
+static const char kLegacyFile[] =
+    "[General]\nconfig_version=1\nstray=x\n\n[esp]\nallowed_hosts=@Invalid()\nenabled=true\n\n"
+    "[startup]\ncpu_speed=2\n";
+
+static void test_file_layout(QTemporaryDir& dir) {
+    set_group("AC-FILE");
+
+    // Default data (empty host list) saved.
+    const QString p1 = fresh_ini_path(dir, "layout_default");
+    { AppConfig c(p1); c.save(); }
+    const QByteArray f1 = slurp(p1);
+    int bad_headers = 0, at_values = 0;
+    for (const QByteArray& l : f1.split('\n')) {
+        if (l.startsWith('[') && !QRegularExpression("^\\[[a-z0-9_]+\\]$")
+                .match(QString::fromUtf8(l)).hasMatch()) ++bad_headers;
+        if (QRegularExpression("^[^=]*=@").match(QString::fromUtf8(l)).hasMatch()) ++at_values;
+    }
+    check("CF-01", "every section header of a saved file is lowercase [a-z0-9_]",
+          !f1.isEmpty() && bad_headers == 0, std::to_string(bad_headers));
+    check("CF-02", "a saved default file has no \"=@\" value", at_values == 0,
+          std::to_string(at_values));
+
+    const QString p2 = fresh_ini_path(dir, "layout_hosts");
+    { AppConfig c(p2); c.data().esp_allowed_hosts = {"nx.nxtel.org", "sync.lan"}; c.save(); }
+    check("CF-03", "empty hosts are written \"allowed_hosts=\", two hosts \"a, b\"",
+          has_line(f1, "allowed_hosts=")
+              && has_line(slurp(p2), "allowed_hosts=nx.nxtel.org, sync.lan"));
+
+    check("CF-04", "save() writes [config] version=1 and no [General] section",
+          has_line(f1, "[config]") && has_line(f1, "version=1")
+              && !f1.contains("[General]") && !f1.contains("config_version"));
+
+    // Literal legacy file.
+    const QString p5 = fresh_ini_path(dir, "layout_legacy");
+    plant(p5, kLegacyFile);
+    AppConfig c5(p5);
+    c5.load();
+    check("CF-05", "a legacy file ([General], @Invalid()) loads with the right values",
+          c5.data().esp_enabled && c5.data().cpu_speed == static_cast<CpuSpeed>(2)
+              && c5.data().esp_allowed_hosts.empty());
+    const QByteArray f6 = slurp(p5);
+    check("CF-06", "load() rewrites that file once: [config], no [General], no =@, values kept",
+          !f6.contains("[General]") && !f6.contains("=@") && has_line(f6, "[config]")
+              && has_line(f6, "version=1") && has_line(f6, "stray=x")
+              && has_line(f6, "allowed_hosts=") && has_line(f6, "cpu_speed=2")
+              && has_line(f6, "enabled=true"));
+
+    // Idempotence: a new-format file is neither rewritten nor touched.
+    const QString p7 = fresh_ini_path(dir, "layout_idem");
+    { AppConfig c(p7); c.save(); }
+    const QDateTime past = QDateTime::fromSecsSinceEpoch(1000000000);
+    { QFile f(p7); f.open(QIODevice::ReadWrite); f.setFileTime(past, QFileDevice::FileModificationTime); }
+    const QByteArray before = slurp(p7);
+    { AppConfig c(p7); c.load(); }
+    check("CF-07", "load() of a new-format file leaves its bytes and mtime unchanged",
+          slurp(p7) == before && QFileInfo(p7).lastModified() == past);
+
+    // A hand-edited rejected value survives the legacy rewrite.
+    const QString p8 = fresh_ini_path(dir, "layout_banana");
+    plant(p8, "[General]\nconfig_version=1\n\n[startup]\ncpu_speed=banana\n");
+    { AppConfig c(p8); c.load(); }
+    check("CF-08", "a rejected hand-edited value (cpu_speed=banana) is still in the file",
+          has_line(slurp(p8), "cpu_speed=banana"));
+
+    const QString p9 = fresh_ini_path(dir, "layout_nonempty");
+    plant(p9, "[esp]\nallowed_hosts=a.example, b.example\n");
+    AppConfig c9(p9);
+    c9.load();
+    check("CF-09", "a non-empty legacy host list loads and its line is unchanged",
+          c9.data().esp_allowed_hosts.size() == 2
+              && has_line(slurp(p9), "allowed_hosts=a.example, b.example"));
+
+    // The debugger writes [debugger] into the same file; save() must keep it.
+    const QString p10 = fresh_ini_path(dir, "layout_shared");
+    AppConfig c10(p10);
+    c10.load();
+    {
+        QSettings raw(p10, QSettings::IniFormat);
+        raw.setValue("debugger/size", QStringList{"640", "456"});
+        raw.sync();
+    }
+    c10.save();
+    const QByteArray f10 = slurp(p10);
+    check("CF-10", "save() after a debugger write keeps [debugger] size=640, 456",
+          has_line(f10, "[debugger]") && has_line(f10, "size=640, 456"));
+
+    // Gains must be written as TEXT on every Qt: Qt 5.15 turns a float
+    // QVariant into "@Variant(...)". 1.2345679f is written by Qt 6 as the
+    // shortest round-trip "1.2345679" if a float QVariant reaches QSettings,
+    // and as "1.23457" through gain_text(), so this row also fails on Qt 6.
+    const QString p11 = fresh_ini_path(dir, "layout_gain");
+    // All six gain keys get a value with more than 6 significant digits, so
+    // reverting ANY one of the six writes to a raw float is caught.
+    {
+        AppConfig c(p11);
+        c.data().audio_gain_db = 1.2345679f;
+        c.data().audio_gain_beeper_db = 2.3456789f;
+        c.data().audio_gain_ay_db[0] = 3.4567891f;
+        c.data().audio_gain_ay_db[1] = 4.5678912f;
+        c.data().audio_gain_ay_db[2] = -5.6789123f;
+        c.data().audio_gain_dac_db = -6.7891234f;
+        c.save();
+    }
+    const QByteArray f11 = slurp(p11);
+    check("CF-11", "all six gains are written as plain text with 6 significant digits, never a float QVariant",
+          has_line(f11, "gain_db=1.23457") && has_line(f11, "gain_beeper_db=2.34568")
+              && has_line(f11, "gain_ay0_db=3.45679") && has_line(f11, "gain_ay1_db=4.56789")
+              && has_line(f11, "gain_ay2_db=-5.67891") && has_line(f11, "gain_dac_db=-6.78912")
+              && !f11.contains("@"),
+          f11.toStdString());
+
+    // A Qt5-written gain ("@Variant(float 1.5)") is read and rewritten as text.
+    const QString p12 = fresh_ini_path(dir, "layout_gain_legacy");
+    plant(p12, "[audio]\ngain_db=@Variant(\\0\\0\\0\\x87?\\xc0\\0\\0)\n");
+    AppConfig c12(p12);
+    c12.load();
+    check("CF-12", "a legacy @Variant float gain loads as 1.5 and is rewritten as \"gain_db=1.5\"",
+          c12.data().audio_gain_db == 1.5f && has_line(slurp(p12), "gain_db=1.5")
+              && !slurp(p12).contains("@"),
+          slurp(p12).toStdString());
+
+    // save() on a legacy file with NO prior load() must not leave [General].
+    const QString p13 = fresh_ini_path(dir, "layout_save_only");
+    plant(p13, "[General]\nconfig_version=1\nstray=x\n");
+    { AppConfig c(p13); c.save(); }
+    const QByteArray f13 = slurp(p13);
+    check("CF-13", "save() of a legacy file without load() leaves no [General] / config_version",
+          !f13.contains("[General]") && !f13.contains("config_version")
+              && has_line(f13, "stray=x") && has_line(f13, "version=1"),
+          f13.toStdString());
+
+    // The @Invalid() rewrite on its own: no root key to piggy-back on.
+    const QString p14 = fresh_ini_path(dir, "layout_invalid_only");
+    plant(p14, "[esp]\nallowed_hosts=@Invalid()\n");
+    AppConfig c14(p14);   // alive while the file is read: no destructor sync
+    c14.load();
+    check("CF-14", "a lone allowed_hosts=@Invalid() is rewritten as \"allowed_hosts=\" by load() itself",
+          has_line(slurp(p14), "allowed_hosts=") && !slurp(p14).contains("@"),
+          slurp(p14).toStdString());
+}
+
 int main() {
     QTemporaryDir dir;
     if (!dir.isValid()) {
@@ -929,6 +1091,7 @@ int main() {
     test_debug_keys_only_redefinitions(dir);
     test_debug_keys_bad_entries(dir);
     test_debug_keys_conflicts();
+    test_file_layout(dir);
     test_gh311_joy_device(dir);
 
     std::printf("\n");

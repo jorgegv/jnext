@@ -156,5 +156,5 @@ writing back to the card cannot turn `sd_rom_extractor_test` red for reasons
 that have nothing to do with the code under test. For the same reason the
 suites never see the user's own `$HOME`: each runs with `HOME` and the XDG base
 directories pointing at an empty per-run directory, and `JNEXT_CONFIG_DIR`
-unset, so a saved `~/.jnext/jnext.conf`, `Debugger.conf` or Qt setting cannot
+unset, so a saved `~/.jnext/jnext.conf`, a legacy `Debugger.conf` or Qt setting cannot
 change a result.

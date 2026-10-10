@@ -94,6 +94,7 @@
 // ===========================================================================
 #include <QAbstractButton>
 #include <QAction>
+#include <QFile>
 #include <QApplication>
 #include <QDataStream>
 #include <QEvent>
@@ -290,13 +291,13 @@ void test_recorder_stop() {
 
 // Q131-05 — the user-visible loss, asserted where the user would notice it: in
 // the file the next session reads back. save_geometry() writes width/height as
-// a QDataStream blob under "debugger/size" in <config dir>/Debugger.conf
-// (debugger_window.cpp:630-638), and a quit reaches it only through the
-// teardown Q131-01 covers. JNEXT_CONFIG_DIR points that at the scratch dir, so
+// "W, H" under "debugger/size" in <config dir>/jnext.conf [debugger] (GH #312
+// moved it there from Debugger.conf; see debugger_window.cpp save_geometry()),
+// and a quit reaches it only through the teardown Q131-01 covers. JNEXT_CONFIG_DIR points that at the scratch dir, so
 // no developer's real ~/.jnext is touched (the same isolation the regression
 // suite uses).
 void test_geometry_persisted() {
-    const fs::path conf = g_dir / "Debugger.conf";
+    const fs::path conf = g_dir / "jnext.conf";
     std::error_code ec;
     fs::remove(conf, ec);
 
@@ -325,10 +326,10 @@ void test_geometry_persisted() {
     int got_w = -1, got_h = -1;
     {
         QSettings settings(QString::fromStdString(conf.string()), QSettings::IniFormat);
-        const QByteArray blob = settings.value("debugger/size").toByteArray();
-        if (!blob.isEmpty()) {
-            QDataStream ds(blob);
-            ds >> got_w >> got_h;
+        const QStringList sz = settings.value("debugger/size").toStringList();
+        if (sz.size() == 2) {
+            got_w = sz[0].toInt();
+            got_h = sz[1].toInt();
         }
     }
 
@@ -336,9 +337,38 @@ void test_geometry_persisted() {
     std::snprintf(detail, sizeof(detail), "saved=%dx%d expected=%dx%d",
                   got_w, got_h, want_w, want_h);
     check("Q131-05",
-          "Quit persists the debugger window size to Debugger.conf",
+          "Quit persists the debugger window size to jnext.conf [debugger]",
           dbg != nullptr && q != nullptr && got_w == want_w && got_h == want_h,
           detail);
+}
+
+// QCF-01 — GH #312: constructing the MainWindow folds a v1.1.15 Debugger.conf
+// into jnext.conf even though the debugger is never enabled. Literal fixture:
+// the bytes the real v1.1.15 binary wrote for a 640x456 window.
+void test_startup_migration() {
+    const fs::path legacy = g_dir / "Debugger.conf";
+    const fs::path conf   = g_dir / "jnext.conf";
+    std::error_code ec;
+    fs::remove(conf, ec);
+    {
+        QFile f(QString::fromStdString(legacy.string()));
+        if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            f.write("[debugger]\nattached=true\n"
+                    R"(size=@ByteArray(\0\0\x2\x80\0\0\x1\xc8))" "\n");
+    }
+    QByteArray text;
+    bool ok = false;
+    {
+        Fixture fx;
+        ok = fx.ok;
+        QFile f(QString::fromStdString(conf.string()));
+        if (f.open(QIODevice::ReadOnly)) text = f.readAll();
+    }
+    check("QCF-01",
+          "constructing the MainWindow migrates Debugger.conf into jnext.conf [debugger] (debugger never opened)",
+          ok && !fs::exists(legacy) && text.split('\n').contains("[debugger]")
+              && text.split('\n').contains("size=640, 456"),
+          text.toStdString());
 }
 
 void test_close_route() {
@@ -482,6 +512,7 @@ int main(int argc, char** argv) {
     test_debugger_teardown();
     test_recorder_stop();
     test_geometry_persisted();
+    test_startup_migration();
     test_close_route();
     std::printf("  Group: Q131           - done\n");
 
