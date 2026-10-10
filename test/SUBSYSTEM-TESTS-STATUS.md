@@ -14,7 +14,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Copper                |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      259 |      259 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Memory/MMU (int)      |       94 |       94 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Memory/MMU (int)      |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      349 |      349 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub           |      186 |      186 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -139,6 +139,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12428**| **12428**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12435**| **12435**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

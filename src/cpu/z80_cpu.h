@@ -113,6 +113,13 @@ void z80_set_ula_counter_origins(int hc_origin, int vc_origin);
 /// still sets the same fields at init from the MachineType default.
 void z80_set_frame_geometry(int tstates_per_line, int tstates_per_frame);
 
+/// GH #305 — master (28 MHz) cycles per count of the FUSE T-state counter:
+/// 8 at 3.5 MHz ... 1 at 28 MHz. `derive_hc_vc()` needs it to place a CPU
+/// bus cycle on the beam, which runs on the master clock at any CPU speed.
+/// Published by Emulator::rebase_fuse_tstates_(), the only place that
+/// defines the counter's unit; the default (8) is the FUSE harness's.
+void z80_set_tstate_divisor(int divisor);
+
 /// Test-observability getter for the line geometry `derive_hc_vc()` is
 /// currently using (T-states per line). Lets integration rows prove the
 /// Task 51 frame-edge re-push actually reached the CPU side, which has
