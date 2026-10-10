@@ -422,6 +422,10 @@ to end: a stand-in QEMU on the `PATH` plays a square wave into the wav FIFO, a
 6-byte program opens NR 0xA2, and `--wav-record` must carry the tone with each
 channel at its own level. That is the one place `main()` handing PiQemu's reader
 to the emulator (`cfg.pi_audio`) is tested; setting it to null fails the row.
+Its sixth fact is the saved audio preference: a GUI session with `[nextpi]
+audio=none` must start the stand-in QEMU with `-audiodev none`, not the mixer's
+wav FIFO, which is the one test of `main()` copying that preference into the
+start (`spec.audio = saved.nextpi_audio`); dropping that line fails the row.
 
 Settings: `test/gui/app_config_test.cpp` AC-71..74 (`[nextpi]` defaults and
 round-trip) and `test/gui/preferences_apply_test.cpp` PA-20a..e (the tab's

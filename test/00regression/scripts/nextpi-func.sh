@@ -16,7 +16,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # network or a NextPi image: the first run has no QEMU on its PATH, the second
 # answers the download prompt with end-of-input.
 #
-# FIVE FACTS:
+# SIX FACTS:
 #   1. --nextpi with a ready NextPi directory and no QEMU installed exits 1 and
 #      says QEMU is not found (the install hint), without booting.
 #   2. --nextpi with nothing installed and the prompt declined (stdin closed)
@@ -34,7 +34,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      carries it, each channel at its own level (about 2048 and 1024 peak to
 #      peak). This is main.cpp handing PiQemu's reader to the emulator
 #      (cfg.pi_audio), which no unit row can reach.
-# Facts 3 and 4 run the GUI on Qt's offscreen platform, where the warning
+#   6. The saved Pi audio preference reaches QEMU: a GUI session with
+#      [nextpi] audio=none and a stand-in QEMU on PATH starts it with
+#      -audiodev none (not the mixer's wav FIFO). This is main.cpp copying
+#      the preference into the start (spec.audio = saved.nextpi_audio).
+# Facts 3, 4 and 6 run the GUI on Qt's offscreen platform, where the warning
 # dialog of fact 4 is not shown (nobody could dismiss it); the log line that
 # precedes it is what the row reads.
 if want nextpi-func; then
@@ -179,11 +183,47 @@ PY
         fails+=("a Preferences-only NextPi failure was reported as a command-line error")
     fi
 
+    # Fact 6 — the saved audio preference reaches QEMU. A ready directory with
+    # its overlay (no qemu-img needed) and a stand-in QEMU that records its
+    # arguments, then holds its UART FIFOs open as the real one does.
+    printf '[nextpi]\nenabled=true\naudio=none\n' >"$conf"
+    rm -rf "$np"
+    mkdir -p "$np/boot"
+    : >"$np/nextpi.img"
+    : >"$np/boot/kernel.img"
+    : >"$np/boot/bcm2708-rpi-zero.dtb"
+    : >"$np/overlay.qcow2"
+    echo 1_93D >"$np/release"
+    args_bin="$TMP_DIR/nextpi-qemu-args"
+    mkdir -p "$args_bin"
+    cat >"$args_bin/qemu-system-arm" <<'STANDIN'
+#!/bin/sh
+here=$(dirname "$0")
+printf '%s\n' "$@" >"$here/args"
+for a in "$@"; do case "$a" in pipe,*path=*) base="${a##*path=}" ;; esac; done
+exec 3<>"$base.in" 4<>"$base.out"
+exec cat <&3 >/dev/null
+STANDIN
+    chmod +x "$args_bin/qemu-system-arm"
+    rc=0
+    out=$(QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy \
+        timeout --foreground --kill-after=5s 60s \
+        env PATH="$args_bin:$PATH" "$JNEXT" "${SD_CARD_ARGS[@]}" \
+        --delayed-automatic-exit 3 </dev/null 2>&1) || rc=$?
+    [[ $rc -eq 0 ]] || fails+=("a GUI session with the Pi's audio saved as 'none' exited $rc, want 0")
+    qemu_args=""
+    [[ -f "$args_bin/args" ]] && qemu_args=$(<"$args_bin/args")
+    if [[ -z "$qemu_args" ]]; then
+        fails+=("a GUI session with NextPi enabled in Preferences never started the stand-in QEMU")
+    elif ! grep -qx 'none,id=snd0' <<<"$qemu_args" || grep -q 'wav,id=snd0,path=' <<<"$qemu_args"; then
+        fails+=("the saved Pi audio preference 'none' did not reach QEMU's -audiodev")
+    fi
+
     if [[ -n "$conf_saved" ]]; then mv "$conf_saved" "$conf"; else rm -f "$conf"; fi
     rm -rf "$np"
 
     if [[ ${#fails[@]} -eq 0 ]]; then
-        pass_row " (--nextpi without QEMU exits 1 with the install hint; a declined download starts jnext without NextPi; --no-nextpi overrides the preference; a Preferences-only failure is logged and jnext runs on; the Pi's sound is in --wav-record, each channel at its own level)"
+        pass_row " (--nextpi without QEMU exits 1 with the install hint; a declined download starts jnext without NextPi; --no-nextpi overrides the preference; a Preferences-only failure is logged and jnext runs on; the Pi's sound is in --wav-record, each channel at its own level; the saved Pi audio preference reaches QEMU)"
     else
         fail_row " (${fails[*]})"
     fi
