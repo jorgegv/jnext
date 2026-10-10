@@ -1,6 +1,7 @@
 #pragma once
 #include <SDL3/SDL.h>
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 #include "input/joystick_dispatcher.h"
@@ -103,6 +104,14 @@ private:
     bool               fallback_logged_[JoystickDispatcher::NUM_CONNECTORS] = { false, false };
     bool               seen_devices_ = false;  // enumerate or an ADDED has run
     static inline bool virtual_only_ = false;
+
+    // iid -> controller id, PROCESS-WIDE. A cold boot rebuilds the host (and
+    // so known_) while SDL, its instance ids and the plugged pads carry on; the
+    // ids must survive that, or two identical pads renumbered in arrival order
+    // would trade `<guid>#N` and an assignment would move to the other physical
+    // pad. Entries are dropped when SDL no longer lists the device.
+    static inline std::map<SDL_JoystickID, std::string> id_registry_;
+    static void purge_id_registry();
 
     // Record `iid` (no-op if known or filtered out); returns its index or -1.
     int add_known(SDL_JoystickID iid);

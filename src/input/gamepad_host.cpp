@@ -63,17 +63,40 @@ int GamepadHost::add_known(SDL_JoystickID iid)
     }
     if (virtual_only_ && !SDL_IsJoystickVirtual(iid)) return -1;
 
+    purge_id_registry();
     const char* name = SDL_GetJoystickNameForID(iid);
     char guid[33] = {};
     SDL_GUIDToString(SDL_GetJoystickGUIDForID(iid), guid, sizeof(guid));
-    std::vector<std::string> ids;
-    for (const auto& k : known_) ids.push_back(k.id);
+    // Reuse the id this instance already had (a rebuilt host), else number it.
+    std::string id;
+    const auto have = id_registry_.find(iid);
+    if (have != id_registry_.end() && have->second.substr(0, 32) == guid) {
+        id = have->second;
+    } else {
+        id_registry_.erase(iid);
+        std::vector<std::string> ids;
+        for (const auto& kv : id_registry_) ids.push_back(kv.second);
+        id = make_joy_device_id(guid, next_joy_ordinal(ids, guid));
+        id_registry_[iid] = id;
+    }
     Known k;
     k.iid  = iid;
-    k.id   = make_joy_device_id(guid, next_joy_ordinal(ids, guid));
+    k.id   = id;
     k.name = name ? name : "(unnamed device)";
     known_.push_back(k);
     return static_cast<int>(known_.size()) - 1;
+}
+
+void GamepadHost::purge_id_registry()
+{
+    int count = 0;
+    SDL_JoystickID* present = SDL_GetJoysticks(&count);
+    for (auto it = id_registry_.begin(); it != id_registry_.end();) {
+        bool here = false;
+        for (int i = 0; present && i < count; ++i) if (present[i] == it->first) here = true;
+        it = here ? std::next(it) : id_registry_.erase(it);
+    }
+    SDL_free(present);
 }
 
 void GamepadHost::open_into_slot(SDL_JoystickID iid, int slot)
@@ -260,6 +283,7 @@ void GamepadHost::handle_event(const SDL_Event& e)
             for (int s = 0; s < JoystickDispatcher::NUM_CONNECTORS; ++s) {
                 if (held_instance(s) == iid) close_slot(s);
             }
+            id_registry_.erase(iid);
             known_.erase(known_.begin() + static_cast<long>(i));
             reconcile();
             if (on_devices_changed) on_devices_changed();
