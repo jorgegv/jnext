@@ -416,7 +416,11 @@ platform) whose preference enables NextPi, still with no QEMU, `--no-nextpi`
 keeps it from even being tried, and without the flag the failure is logged and
 jnext runs to its automatic exit (0) — the Preferences-only path. On the
 offscreen platform the warning dialog is not shown, since nobody could dismiss
-it; the log line before it carries the message.
+it; the log line before it carries the message. Its fifth fact is the sound end
+to end: a stand-in QEMU on the `PATH` plays a square wave into the wav FIFO, a
+6-byte program opens NR 0xA2, and `--wav-record` must carry the tone with each
+channel at its own level. That is the one place `main()` handing PiQemu's reader
+to the emulator (`cfg.pi_audio`) is tested; setting it to null fails the row.
 
 Settings: `test/gui/app_config_test.cpp` AC-71..74 (`[nextpi]` defaults and
 round-trip) and `test/gui/preferences_apply_test.cpp` PA-20a..e (the tab's
