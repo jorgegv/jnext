@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=160  # 75 + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=161  # 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -1828,6 +1828,33 @@ racy=$(cd "$PROJECT_DIR" && git ls-files 'test/*.sh' 'test/*.inc' 'tools/*.sh' |
        | xargs grep -nE "$XVFB_RACY_RE" 2>/dev/null || true)
 check "HS-72" "no test script starts Xvfb on a non-atomically chosen display (xvfb-run -a/-n); the matcher's control (GH #295)" 0 0 \
     "control=$ctl racy=[${racy}]" "control=111100 racy=[]"
+
+# ---------------- an xdotool-driven Xvfb must not reset (GH #318) ----------------
+# Xvfb without -noreset REGENERATES whenever its last client disconnects, and a
+# row that polls `xdotool search` while the app is still starting is exactly
+# such a client: a poll that finds nothing closes the only connection, and an
+# app connecting during the regeneration (it re-runs xkbcomp) is dropped
+# (sdl-keypress-func SKIPped: `SDL_Init: x11 not available`). Measured under 12
+# busy loops: 18 of 1000 fresh connections failed on a default server, 0 of
+# 1000 with -noreset (Xserver(1): "prevents a server reset when the last client
+# connection is closed"). Every non-comment `xvfb-run -...` line of a test
+# script that mentions xdotool must therefore carry -noreset.
+xvfb_noreset_offender() {   # stdin: lines; prints those missing -noreset
+    grep -E 'xvfb-run[[:space:]]+-' | grep -vE '^[[:space:]]*#' | grep -vF -e '-noreset' || true
+}
+ctl=""
+for t in 'xvfb-run -d --server-args="-screen 0 1x1x24" bash -c '"'" \
+         'xvfb-run -d --server-args="-screen 0 1x1x24 -noreset" bash -c '"'" \
+         'command -v xvfb-run &>/dev/null' '# xvfb-run only sets DISPLAY'; do
+    [[ -n "$(xvfb_noreset_offender <<<"$t")" ]] && ctl+=1 || ctl+=0
+done
+# (this file is excluded: the control strings above are deliberate instances)
+noreset_off=$(cd "$PROJECT_DIR" && git ls-files 'test/*.sh' 'test/*.inc' 'tools/*.sh' | grep -vx 'test/harness-selftest.sh' \
+              | xargs grep -l xdotool 2>/dev/null | while read -r f; do
+                    xvfb_noreset_offender <"$f" | sed "s|^|$f: |"
+                done)
+check "HS-89" "every xvfb-run in an xdotool-driving test script passes -noreset; the matcher's control (GH #318)" 0 0 \
+    "control=$ctl offenders=[${noreset_off}]" "control=1000 offenders=[]"
 
 # ---------------- a nested harness never waits on its ancestor's lock (GH #295) ----------------
 # `make regression-confirm` could not pass harness-selftest-func: the confirm
