@@ -4032,22 +4032,24 @@ static void test_section19_beam_replay() {
         bed.begin();
         const int p = raw_hc(vh_pbyte_primary(5));
         bed.wr(pix_addr(5), 0xFF, kFbRow, p + 1);
+        bed.wr(pix_addr(6), 0xAA, kFbRow - 1, 0);   // in time: seen this frame
         const uint8_t now = BeamBed::cell(bed.row(kFbRow), 5, white);
         bed.begin();   // next frame: baseline = live RAM, now holding 0xFF
         const uint8_t next = BeamBed::cell(bed.row(kFbRow), 5, white);
-        // A frame with no write to the byte shows what RAM holds, however it
-        // got there (loader, state load): no log entry survives the frame.
-        bed.ram.write(10u * 8192u + emu_pixel_addr_offset(kRowY, 5), 0x3C);
+        // A frame with no write to a byte shows what RAM holds, however it
+        // got there (loader, state load): no log entry survives the frame,
+        // not even the visible 0xAA one of column 6.
+        bed.ram.write(10u * 8192u + emu_pixel_addr_offset(kRowY, 6), 0x5A);
         bed.begin();
-        const uint8_t third = BeamBed::cell(bed.row(kFbRow), 5, white);
+        const uint8_t third = BeamBed::cell(bed.row(kFbRow), 6, white);
         check("VMUX-02",
               "zxula.vhd:270-303 — a pixel write after the column's pbyte "
               "fetch is not seen on this scanline (old byte), but is on the "
               "next frame; a later frame shows RAM as it then is",
-              now == 0x00 && next == 0xFF && third == 0x3C,
+              now == 0x00 && next == 0xFF && third == 0x5A,
               fmt("this scanline=0x%02X (expected 0x00, end-of-frame read "
                   "gives 0xFF) next frame=0x%02X (expected 0xFF) third=0x%02X "
-                  "(expected 0x3C)", now, next, third));
+                  "(expected 0x5A)", now, next, third));
     }
 
     // VMUX-03 — the instant is exact and has the parity term: pbyte00 @9
