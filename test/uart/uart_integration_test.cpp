@@ -4749,7 +4749,8 @@ static void test_nextpi_audio() {
 
     // ── PI-49 — neither a rewind replay nor an RZX playback consumes the Pi's
     // stream (it belongs to the live session); live again, the emulator draws
-    // from it. A replay runs no audio path at all (run_frame does not advance
+    // from it at exactly one frame per mixer output sample, the rate QEMU is
+    // asked for (a backlog of 8000 is below the trim, so nothing else drops). A replay runs no audio path at all (run_frame does not advance
     // audio while replay_mode_ holds), so there is no output to inspect: the
     // row asserts exactly that, zero samples. An RZX playback does produce
     // output, and it must be silent: the I2S rest value 0x200 in BOTH channels
@@ -4771,7 +4772,7 @@ static void test_nextpi_audio() {
         for (int i = 0; i < 100 && started && qemu.audio()->available() < 8000; ++i)
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         uint32_t before = 0, after_replay = 0, after_rzx = 0, after_live = 0;
-        MixerLevels replay, rzx;
+        MixerLevels replay, rzx, live;
         if (started) {
             EmulatorConfig cfg = pi_qemu_config(qemu);
             cfg.pi_audio = qemu.audio();
@@ -4788,7 +4789,7 @@ static void test_nextpi_audio() {
             rzx = mixer_levels(emu, 0xC0, 2);
             after_rzx = qemu.audio()->available();
             emu.rzx_player().stop();
-            mixer_swing(emu, 0xC0, 1);
+            live = mixer_levels(emu, 0xC0, 1);
             after_live = qemu.audio()->available();
         }
         const bool rzx_silent = rzx.n > 0 && rzx.lo_l == 0 && rzx.hi_l == 0 && rzx.lo_r == 0 &&
@@ -4797,13 +4798,16 @@ static void test_nextpi_audio() {
               "neither a rewind replay nor an RZX playback consumes the Pi's sound; a replay "
               "produces no audio at all, and an RZX playback leaves the I2S input silent (0x200 "
               "in both channels, so every output sample is 0); live again, the emulator draws "
-              "from it (i2s.vhd:179)",
+              "exactly one Pi frame per mixer output sample (i2s.vhd:177-180)",
               started && before == 8000 && after_replay == before && after_rzx == before &&
-                  replay.n == 0 && rzx_silent && after_live < before,
+                  replay.n == 0 && rzx_silent && live.n > 0 &&
+                  before - after_live == static_cast<uint32_t>(live.n),
               fmt("started=%d (%s) available before=%u after replay=%u after rzx=%u after live=%u "
-                  "replay samples=%d (want 0); rzx n=%d L %d..%d R %d..%d (want n>0, all 0)",
+                  "replay samples=%d (want 0); rzx n=%d L %d..%d R %d..%d (want n>0, all 0); "
+                  "live samples=%d consumed=%u (want equal)",
                   started ? 1 : 0, error.c_str(), before, after_replay, after_rzx, after_live,
-                  replay.n, rzx.n, rzx.lo_l, rzx.hi_l, rzx.lo_r, rzx.hi_r));
+                  replay.n, rzx.n, rzx.lo_l, rzx.hi_l, rzx.lo_r, rzx.hi_r, live.n,
+                  before - after_live));
     }
 
     // ── PI-50 — the warm-start recording machine does not get the Pi's sound:
