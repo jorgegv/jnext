@@ -1460,7 +1460,7 @@ static void test_gh311_gamepad_host() {
     set_group("GPA");
     static const char* const ids[] = { "GPA-01", "GPA-02", "GPA-03", "GPA-04", "GPA-05",
                                        "GPA-06", "GPA-07", "GPA-08", "GPA-09", "GPA-10",
-                                       "GPA-11", "GPA-12" };
+                                       "GPA-11", "GPA-12", "GPA-13" };
     if (!SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD)) {
         for (const char* id : ids) skip(id, "SDL joystick subsystem unavailable on this host");
         return;
@@ -1654,6 +1654,33 @@ static void test_gh311_gamepad_host() {
               before && after && ids_ok, detail("after=%d", after));
         SDL_DetachVirtualJoystick(qb);
         SDL_DetachVirtualJoystick(qa2);
+    }
+    {
+        // Two identical pads, Joy 2 assigned the second ("#2"). The first is
+        // unplugged and NOT replugged; a cold boot rebuilds the host. The
+        // remaining pad must keep "#2" and its connector, not become "<guid>"
+        // and slide to Joy 1 (which would drop Joy 2 into fallback).
+        const SDL_JoystickID ra = gpa_attach("jnext pad A", 0x1234, 0x0001, false);
+        const SDL_JoystickID rb = gpa_attach("jnext pad A", 0x1234, 0x0001, false);
+        const std::string R = gpa_guid(ra);
+        {
+            Joystick jr; jr.reset();
+            GamepadHost h(jr);
+            h.set_device(1, JoyDeviceRef{ R + "#2", "jnext pad A" });
+            h.enumerate_existing_devices();
+            SDL_DetachVirtualJoystick(ra);
+            gpa_feed(h, SDL_EVENT_JOYSTICK_REMOVED, ra);
+        }
+        Joystick jr2; jr2.reset();
+        GamepadHost h2(jr2);   // the rebuilt host
+        h2.set_device(1, JoyDeviceRef{ R + "#2", "jnext pad A" });
+        h2.enumerate_existing_devices();
+        const auto d = h2.devices();
+        check("GPA-13", "a lone remaining pad keeps its '#2' id and Joy 2 across a host rebuild",
+              d.size() == 1 && d[0].id == R + "#2" && d[0].connector == 1 &&
+              h2.dispatcher().slot_for_instance(rb) == 1,
+              detail("slot=%d", h2.dispatcher().slot_for_instance(rb)));
+        SDL_DetachVirtualJoystick(rb);
     }
     {
         // The fallback line is logged when a connector ENTERS fallback, and
