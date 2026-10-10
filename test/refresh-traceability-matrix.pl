@@ -2450,11 +2450,12 @@ sub grep_citations {
                 for my $c (@calls) {
                     next unless $c->{s} <= $occ && $occ <= $c->{e};
                     $own_tb //= $c->{s} + 1 if defined $c->{tb};
-                    $own_vc //= $c->{s} + 1 if defined $c->{vc};
+                    $own_vc //= $c->{s} + 1 if defined $c->{vc} || $c->{nofile};
                 }
             }
             refuse("$source_rel:$own_tb: row $tid carries a [no-vhdl] marker but "
-                 . "another call of the row cites VHDL (line $own_vc)")
+                 . "another call of the row cites VHDL or a filename-less VHDL "
+                 . "line reference (line $own_vc)")
                 if defined $own_tb && defined $own_vc;
             refuse("$source_rel:$own_tb: row $tid carries a [no-vhdl] marker but "
                  . "a comment block heading it cites VHDL ($named{$tid})")

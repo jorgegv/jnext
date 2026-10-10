@@ -3764,6 +3764,25 @@ check('SELF-238', 'a marker split across concatenated string literals (reason wi
       scalar($nv_e =~ /REFUSING/ && $nv_e =~ m{test/nv/quote_test\.cpp:2}),
       "got [$nv_e]");
 
+write_fixture('test/nv/h4a_test.cpp', <<'CPP');
+void rows() {
+    check("H4-01", "guard [no-vhdl: jnext-internal]", false, d);
+    check("H4-01", "real assertion (VHDL 1611)", cond, d);
+}
+CPP
+write_fixture('test/nv/h4b_test.cpp', <<'CPP');
+void rows() {
+    check("H4-02", "real assertion (VHDL 1611)", cond, d);
+    check("H4-02", "guard [no-vhdl: jnext-internal]", false, d);
+}
+CPP
+my $nv_ea = $nv_refusal->('test/nv/h4a_test.cpp');
+my $nv_eb = $nv_refusal->('test/nv/h4b_test.cpp');
+check('SELF-239', 'a marked call is REFUSED when another call of the row has a filename-less VHDL reference, in either order',
+      scalar($nv_ea =~ /REFUSING/ && $nv_ea =~ m{h4a_test\.cpp:2} && $nv_ea =~ /H4-01/
+             && $nv_eb =~ /REFUSING/ && $nv_eb =~ m{h4b_test\.cpp:3} && $nv_eb =~ /H4-02/),
+      "marked-first=[$nv_ea] marked-second=[$nv_eb]");
+
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
 
@@ -3786,7 +3805,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 238;
+my $EXPECTED_ROWS = 239;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"
