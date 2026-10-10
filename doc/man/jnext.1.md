@@ -2136,8 +2136,9 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     empty means `1_93D`), `qemu_binary` (empty means `qemu-system-arm` on
     `PATH`) and `audio` (empty means the Next's mixer; otherwise a QEMU
     `-audiodev` driver such as `coreaudio`, `pa` or `none` to play it straight
-    to the host instead, or `wav:`*FILE* to record it on its own). Changing the release makes the next start offer to download it,
-    replacing the installed one.
+    to the host instead, or `wav:`*FILE* to record it on its own). Changing
+    the release makes the next start offer to download it, replacing the
+    installed one.
     The joystick ports are stored under `[input]`: `joy1_source` and
     `joy2_source` (`sdl`, `keys` or `none`), `joy1_device` and `joy2_device`
     (the controller's id: 32 hex digits, optionally `#N`; empty means
