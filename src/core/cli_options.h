@@ -894,12 +894,12 @@ inline bool parse_int(const char* s, long lo, long hi, long& out) {
 /// hence the first-character guard.)
 inline bool parse_hex16(const char* s, uint16_t& out) {
     if (s == nullptr) return false;
-    const char* digits = s;
-    if (digits[0] == '0' && (digits[1] == 'x' || digits[1] == 'X')) digits += 2;
-    if (!std::isxdigit(static_cast<unsigned char>(digits[0]))) return false;
+    if (!std::isxdigit(static_cast<unsigned char>(s[0]))) return false;
     char* end = nullptr;
     errno = 0;
-    const unsigned long v = std::strtoul(digits, &end, 16);
+    // Base 16 itself accepts the 0x/0X prefix; a bare "0x" stops after the 0
+    // and is refused by the trailing-junk check.
+    const unsigned long v = std::strtoul(s, &end, 16);
     if (errno != 0 || *end != '\0' || v > 0xFFFFUL) return false;
     out = static_cast<uint16_t>(v);
     return true;

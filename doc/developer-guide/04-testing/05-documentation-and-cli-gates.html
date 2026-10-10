@@ -2415,6 +2415,12 @@ the OPTIONS section of <code>doc/man/jnext.1.md</code> in both directions:</p>
   because such a flag appears neither in the table nor in this check.</li>
 <li><code>CLI-BIN-01</code> runs the real binary end to end, proving that the table drives
   the actual parser rather than only this test.</li>
+<li><code>CLI-NUM-05</code> gives every option that takes a value the argument <code>x</code> and fails
+  on any crash, so a future flag parsed with a throwing call is caught without
+  anyone listing it.</li>
+<li><code>CLI-NUM-06</code> checks each numeric option refuses a bad value by name and value,
+  accepts its bounds, and that its case table covers every numeric option in
+  <code>cli::OPTIONS</code>.</li>
 </ul>
 <p>The suite runs both as <code>make cli-check</code>, a prerequisite of <code>make regression</code>,
 and as a declared row of <code>test/unit-tests.conf</code>. It hangs off <code>unit-test-build</code>
