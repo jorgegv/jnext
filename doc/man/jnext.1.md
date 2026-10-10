@@ -1588,7 +1588,7 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
 :   About.
 
 The toolbar has Power Reset, Soft Reset, Pause, Load, Screenshot, an NMI button
-(Multiface NMI) and, in a debugger-enabled build, a bug button that opens the
+(Multiface NMI) and, in a debugger-enabled build, a Debug button (a magnifier over a chip) that opens the
 debugger.
 
 CPU Speed and Emulator Speed are different things: the first changes the clock
