@@ -180,7 +180,7 @@ if want sdl-reset-hotkey-func; then
         # sdl-keypress-func.sh for why).
         if [[ ! -s "$shot" || "$reset_rc" -ne 0 ]]; then
             if [[ -s "$shot" ]]; then png_state="PNG written"; else png_state="PNG missing"; fi
-            err_line=$(grep -m1 -F '[error]' "$log" 2>/dev/null) || err_line="no error logged"
+            err_line=$(grep -m1 -E '\[(error|critical)\]' "$log" 2>/dev/null) || err_line="no error logged"
             fail_row " (jnext exit ${reset_rc}, ${png_state}; ${err_line})"
         elif [[ "$f2_resized" != yes ]] && [[ "$cold_boots" -eq 0 ]]; then
             # Neither hotkey had any effect, so no key reached SdlApp at all and

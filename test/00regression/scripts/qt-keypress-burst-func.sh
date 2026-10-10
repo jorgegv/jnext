@@ -154,7 +154,7 @@ if want qt-keypress-burst-func; then
             case "$m" in none) shot="$shot_control"; label=control ;; slow) shot="$shot_slow"; label=slow ;; *) shot="$shot_burst"; label=burst ;; esac
             if [[ -s "$shot" ]]; then png_state="PNG written"; else png_state="PNG missing"; fi
             if [[ ! -s "$shot" || "${burst_rc[$m]}" -ne 0 ]]; then
-                err_line=$(grep -m1 -F '[error]' "$TMP_DIR/qt_burst_$m.log" 2>/dev/null) || err_line="no error logged"
+                err_line=$(grep -m1 -E '\[(error|critical)\]' "$TMP_DIR/qt_burst_$m.log" 2>/dev/null) || err_line="no error logged"
                 bad_runs+=("$label run: jnext exit ${burst_rc[$m]}, $png_state; $err_line")
             fi
         done

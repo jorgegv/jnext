@@ -82,7 +82,7 @@ JDS
         ' _ "$sdl_bin" "$nexdir" "$dir" "${SD_CARD_ARGS[@]}" >/dev/null 2>&1 && rec_rc=0 || rec_rc=$?
         rec_latch=$(grep -oE 'LATCH [0-9]+ at FRAME [0-9]+' "$dir/record.log" 2>/dev/null | head -n 1) || rec_latch=""
         press=$(grep -oE '^on frame [0-9]+ do press "q" end' "$dir/rec.jds" 2>/dev/null | head -n 1) || press=""
-        rec_err=$(grep -m1 -F '[error]' "$dir/record.log" 2>/dev/null) || rec_err=""
+        rec_err=$(grep -m1 -E '\[(error|critical)\]' "$dir/record.log" 2>/dev/null) || rec_err=""
         if [[ $rec_rc -ne 0 || -n "$rec_err" ]]; then
             # The recording jnext died or logged an error: not "no Q arrived",
             # and never a SKIP (GH #318).

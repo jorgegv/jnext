@@ -1839,22 +1839,36 @@ check "HS-72" "no test script starts Xvfb on a non-atomically chosen display (xv
 # 1000 with -noreset (Xserver(1): "prevents a server reset when the last client
 # connection is closed"). Every non-comment `xvfb-run -...` line of a test
 # script that mentions xdotool must therefore carry -noreset.
-xvfb_noreset_offender() {   # stdin: lines; prints those missing -noreset
-    grep -E 'xvfb-run[[:space:]]+-' | grep -vE '^[[:space:]]*#' | grep -vF -e '-noreset' || true
+# MAY MISS: an `xvfb-run` with no option at all (the regex needs a dash after
+# the command name; house style is always -d, and HS-72 does not ban it either).
+xvfb_lines() {   # stdin: lines; prints the non-comment `xvfb-run -...` ones
+    grep -E 'xvfb-run[[:space:]]+-' | grep -vE '^[[:space:]]*#' || true
 }
+xvfb_noreset_offender() { xvfb_lines | grep -vF -e '-noreset' || true; }
 ctl=""
 for t in 'xvfb-run -d --server-args="-screen 0 1x1x24" bash -c '"'" \
          'xvfb-run -d --server-args="-screen 0 1x1x24 -noreset" bash -c '"'" \
-         'command -v xvfb-run &>/dev/null' '# xvfb-run only sets DISPLAY'; do
+         'command -v xvfb-run &>/dev/null' '# xvfb-run only sets DISPLAY' \
+         '    # xvfb-run -d --server-args="-screen 0 1x1x24" bash -c'; do
     [[ -n "$(xvfb_noreset_offender <<<"$t")" ]] && ctl+=1 || ctl+=0
 done
 # (this file is excluded: the control strings above are deliberate instances)
-noreset_off=$(cd "$PROJECT_DIR" && git ls-files 'test/*.sh' 'test/*.inc' 'tools/*.sh' | grep -vx 'test/harness-selftest.sh' \
-              | xargs grep -l xdotool 2>/dev/null | while read -r f; do
-                    xvfb_noreset_offender <"$f" | sed "s|^|$f: |"
-                done)
-check "HS-89" "every xvfb-run in an xdotool-driving test script passes -noreset; the matcher's control (GH #318)" 0 0 \
-    "control=$ctl offenders=[${noreset_off}]" "control=1000 offenders=[]"
+# scanned = the xdotool-mentioning files that hold a live `xvfb-run -...` line.
+# It is part of the asserted output because every scanned file is compliant, so
+# a lint whose file set went empty (a mistyped token, a dropped pathspec, a
+# failed git ls-files) would otherwise report offenders=[] and PASS. Pinned like
+# EXPECTED_TOTAL: adding an xdotool-driven xvfb-run script updates it deliberately.
+noreset_files=$(cd "$PROJECT_DIR" && git ls-files 'test/*.sh' 'test/*.inc' 'tools/*.sh' | grep -vx 'test/harness-selftest.sh' \
+                | xargs grep -l xdotool 2>/dev/null || true)
+scanned=0; noreset_off=""
+while read -r f; do
+    [[ -n "$f" ]] || continue
+    [[ -n "$(xvfb_lines <"$PROJECT_DIR/$f")" ]] || continue
+    scanned=$((scanned + 1))
+    noreset_off+=$(xvfb_noreset_offender <"$PROJECT_DIR/$f" | sed "s|^|$f: |")
+done <<<"$noreset_files"
+check "HS-89" "every xvfb-run in an xdotool-driving test script passes -noreset; the matcher's controls and the scanned-file count (GH #318)" 0 0 \
+    "control=$ctl scanned=$scanned offenders=[${noreset_off}]" "control=10000 scanned=6 offenders=[]"
 
 # ---------------- a nested harness never waits on its ancestor's lock (GH #295) ----------------
 # `make regression-confirm` could not pass harness-selftest-func: the confirm

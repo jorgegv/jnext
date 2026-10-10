@@ -158,7 +158,7 @@ if want sdl-keypress-func; then
             case "$m" in none) shot="$shot_control"; label=control ;; slow) shot="$shot_slow"; label=slow ;; *) shot="$shot_fast"; label=fast ;; esac
             if [[ -s "$shot" ]]; then png_state="PNG written"; else png_state="PNG missing"; fi
             if [[ ! -s "$shot" || "${sdl_rc[$m]}" -ne 0 ]]; then
-                err_line=$(grep -m1 -F '[error]' "$TMP_DIR/sdl_keypress_$m.log" 2>/dev/null) || err_line="no error logged"
+                err_line=$(grep -m1 -E '\[(error|critical)\]' "$TMP_DIR/sdl_keypress_$m.log" 2>/dev/null) || err_line="no error logged"
                 bad_runs+=("$label run: jnext exit ${sdl_rc[$m]}, $png_state; $err_line")
             fi
         done
