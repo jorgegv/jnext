@@ -2352,6 +2352,11 @@ not a style preference — it buys three separate guarantees:</p>
   marked <code>Doc::UndocumentedAlias</code>, a back-compatible spelling that keeps
   working but is deliberately not advertised.</li>
 </ul>
+<p>A numeric option value is parsed by <code>cli::parse_int</code> or <code>cli::parse_hex16</code>
+(both in <code>cli_options.h</code>), never by a bare <code>std::stoi</code> or <code>std::stoul</code>: those
+throw on <code>x</code>, which aborts the process, and read <code>5x</code> as 5. A value that is not
+a whole number in the option's range is a usage error: <code>main.cpp</code> prints the
+option and the offending value and exits 1.</p>
 <p>Two argument shapes bypass the table lookup, both on purpose.
 <code>--log-level=VALUE</code> is the one inline-value form and is matched by prefix
 before the lookup happens, because scripts using that spelling predate the

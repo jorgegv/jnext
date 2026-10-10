@@ -30,6 +30,11 @@ $ man jnext
 If you ever find the documentation and the program disagreeing, the program is
 right — please [report it](https://github.com/jorgegv/jnext/issues).
 
+A numeric value is taken whole. Trailing characters (`5x`), a value
+outside the option’s range, or a negative count are a usage error:
+**jnext** prints a message naming the option and the value, and exits
+with status 1.
+
 ## Machine and program
 
 **--machine** *TYPE*
@@ -420,12 +425,12 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 :   Load a raw binary into RAM.
 
 **--inject-org** *ADDR*
-:   Load address for **--inject** (hex, default `8000`). Requires
-    **--inject**.
+:   Load address for **--inject** (hex, `0x` prefix optional, default
+    `8000`). Requires **--inject**.
 
 **--inject-pc** *ADDR*
-:   Entry point for **--inject** (hex, default: same as
-    **--inject-org**). Requires **--inject**.
+:   Entry point for **--inject** (hex, `0x` prefix optional, default:
+    same as **--inject-org**). Requires **--inject**.
 
 **--inject-delay** *N*
 :   Wait *N* frames before injecting (default 0). Use around 100 if the
@@ -862,7 +867,8 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     symbols, is a startup error.
 
 **--magic-port** *PORT*
-:   Enable the magic debug port at *PORT* (hex, for example `0x00FF`).
+:   Enable the magic debug port at *PORT* (hex, `0x` prefix optional,
+    for example `0x00FF`).
 
 **--magic-port-mode** *MODE*
 :   Magic-port output mode: `hex` (default), `dec`, `ascii`, `line`.

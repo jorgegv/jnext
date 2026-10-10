@@ -117,6 +117,11 @@ minus the GUI and debugger ones.
 
 ## OPTIONS
 
+A numeric value is taken whole. Trailing characters (`5x`), a value
+outside the option’s range, or a negative count are a usage error:
+**jnext** prints a message naming the option and the value, and exits
+with status 1.
+
 ### Machine and program
 
 **--machine** *TYPE*  
@@ -480,12 +485,12 @@ runs. Tape loading (EAR input) is unaffected.
 Load a raw binary into RAM.
 
 **--inject-org** *ADDR*  
-Load address for **--inject** (hex, default `8000`). Requires
-**--inject**.
+Load address for **--inject** (hex, `0x` prefix optional, default
+`8000`). Requires **--inject**.
 
 **--inject-pc** *ADDR*  
-Entry point for **--inject** (hex, default: same as **--inject-org**).
-Requires **--inject**.
+Entry point for **--inject** (hex, `0x` prefix optional, default: same
+as **--inject-org**). Requires **--inject**.
 
 **--inject-delay** *N*  
 Wait *N* frames before injecting (default 0). Use around 100 if the
@@ -900,7 +905,8 @@ Load MAP** fills). A file that cannot be loaded, or holds no symbols, is
 a startup error.
 
 **--magic-port** *PORT*  
-Enable the magic debug port at *PORT* (hex, for example `0x00FF`).
+Enable the magic debug port at *PORT* (hex, `0x` prefix optional, for
+example `0x00FF`).
 
 **--magic-port-mode** *MODE*  
 Magic-port output mode: `hex` (default), `dec`, `ascii`, `line`.
@@ -2327,13 +2333,14 @@ image) and `qemu.log` (QEMU’s own messages). About 15 GB.
 
 ## EXIT STATUS
 
-**jnext** exits 0 on success and non-zero on error. In particular it
-exits non-zero when a **--delayed-screenshot** was requested but never
-taken, rather than silently writing nothing, and likewise when a
-**--record** recording fails to materialize as a usable output file, and
-when **--delayed-automatic-exit** fires before other deferred work (a
-**--load**, an **--inject**, a keypress…) has happened — see that
-option.
+**jnext** exits 0 on success and non-zero on error. A command-line usage
+error (an unknown option, or a value an option does not accept) exits 1.
+In particular it exits non-zero when a **--delayed-screenshot** was
+requested but never taken, rather than silently writing nothing, and
+likewise when a **--record** recording fails to materialize as a usable
+output file, and when **--delayed-automatic-exit** fires before other
+deferred work (a **--load**, an **--inject**, a keypress…) has happened
+— see that option.
 
 It also exits non-zero when the program given to **--load** (or as a
 bare file name) fails to load, whatever its format, including an RZX

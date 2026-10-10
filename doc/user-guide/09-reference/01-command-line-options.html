@@ -3641,6 +3641,10 @@ $ man jnext
 </code></pre>
 <p>If you ever find the documentation and the program disagreeing, the program is
 right — please <a href="https://github.com/jorgegv/jnext/issues">report it</a>.</p>
+<p>A numeric value is taken whole. Trailing characters (<code>5x</code>), a value
+outside the option’s range, or a negative count are a usage error:
+<strong>jnext</strong> prints a message naming the option and the value, and exits
+with status 1.</p>
 <h2 id="machine-and-program">Machine and program<a class="headerlink" href="#machine-and-program" title="Permanent link">&para;</a></h2>
 <dl>
 <dt><strong>--machine</strong> <em>TYPE</em></dt>
@@ -3984,11 +3988,11 @@ CPU-bound runs. Tape loading (EAR input) is unaffected.</dd>
 <dt><strong>--inject</strong> <em>FILE</em></dt>
 <dd>Load a raw binary into RAM.</dd>
 <dt><strong>--inject-org</strong> <em>ADDR</em></dt>
-<dd>Load address for <strong>--inject</strong> (hex, default <code>8000</code>). Requires
-<strong>--inject</strong>.</dd>
+<dd>Load address for <strong>--inject</strong> (hex, <code>0x</code> prefix optional, default
+<code>8000</code>). Requires <strong>--inject</strong>.</dd>
 <dt><strong>--inject-pc</strong> <em>ADDR</em></dt>
-<dd>Entry point for <strong>--inject</strong> (hex, default: same as
-<strong>--inject-org</strong>). Requires <strong>--inject</strong>.</dd>
+<dd>Entry point for <strong>--inject</strong> (hex, <code>0x</code> prefix optional, default:
+same as <strong>--inject-org</strong>). Requires <strong>--inject</strong>.</dd>
 <dt><strong>--inject-delay</strong> <em>N</em></dt>
 <dd>Wait <em>N</em> frames before injecting (default 0). Use around 100 if the
 binary calls ROM routines that need the system variables set up
@@ -4372,7 +4376,8 @@ written when jnext exits. Works in every frontend.</dd>
 Load MAP</strong> fills). A file that cannot be loaded, or holds no
 symbols, is a startup error.</dd>
 <dt><strong>--magic-port</strong> <em>PORT</em></dt>
-<dd>Enable the magic debug port at <em>PORT</em> (hex, for example <code>0x00FF</code>).</dd>
+<dd>Enable the magic debug port at <em>PORT</em> (hex, <code>0x</code> prefix optional,
+for example <code>0x00FF</code>).</dd>
 <dt><strong>--magic-port-mode</strong> <em>MODE</em></dt>
 <dd>Magic-port output mode: <code>hex</code> (default), <code>dec</code>, <code>ascii</code>, <code>line</code>.
 Requires <strong>--magic-port</strong>.</dd>
