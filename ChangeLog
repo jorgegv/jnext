@@ -5,11 +5,11 @@
 ### User Features
 - Pause/resume button in the emulator window (toolbar, Machine menu, Alt+U) with a Paused status indicator
 - Input menu and Preferences pick which controller drives each joystick port, remembered per device across replug and restart
-- NextPi under QEMU (`--nextpi`, downloaded on first use): NextZXOS's Pi tools (`.pisend`, speech, music, tape streaming) work unmodified
+- NextPi under QEMU (`--nextpi`, Linux/macOS, downloaded on first use): NextZXOS's Pi tools (`.pisend`, speech, music, tape streaming) work unmodified
 
 ### Bug Fixes
-- NextZXOS menus no longer look striped or half-drawn: ULA pixel and attribute writes now land on the right scanline at any CPU speed
-- ULA, LoRes and text-mode tilemap pixels now honour the NR 0x14 transparent colour for every blue shade (PLOTIT-lite drew all blue)
+- NextZXOS menus no longer look striped or half-drawn: ULA screen writes land on the correct scanline at any speed
+- ULA, LoRes and text-mode tilemap pixels honour the NR 0x14 transparent colour for every blue shade (PLOTIT-lite drew all blue)
 - The NR 0x4A fallback colour and the blend/stencil blue channel now use the hardware's 9-bit colour width
 - The joystick-port serial cable's pseudo-terminal (`--joy-uart-pty`) now works on macOS, where it refused to start
 - On macOS the pointer-release hint now names Alt+Cmd, the chord that actually releases the mouse
