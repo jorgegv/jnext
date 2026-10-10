@@ -5,7 +5,7 @@
 ### User Features
 - Pause/resume button in the emulator window (toolbar, Machine menu, Alt+U) with a Paused status indicator
 - Input menu and Preferences pick which controller drives each joystick port, remembered per device across replug and restart
-- NextPi under QEMU (`--nextpi`, Linux/macOS, downloaded on first use): NextZXOS's Pi tools (`.pisend`, speech, music, tape streaming) work unmodified
+- NextPi under QEMU (`--nextpi`, Linux/macOS, downloaded on first use): NextZXOS's Pi tools (`.pisend`, speech, music) work unmodified
 
 ### Bug Fixes
 - NextZXOS menus no longer look striped or half-drawn: ULA screen writes land on the correct scanline at any speed
