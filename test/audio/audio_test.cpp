@@ -3390,6 +3390,45 @@ static void g_mixer() {
                       opened ? 1 : 0, wrote ? 1 : 0, a.available(),
                       static_cast<unsigned long long>(wakeups)));
         }
+
+        // MX-38 — A LIVE WRITER'S PAUSE IS NOT AN END: QEMU writes nothing while
+        // the Pi is silent, so the reader's non-blocking read gets EAGAIN with
+        // the writer still there. That must not reset the stream: a frame split
+        // across a pause longer than the 100 ms poll is reassembled, and no
+        // bytes after the pause are taken for a new header. jnext-only, no VHDL
+        // counterpart.
+        {
+            const std::string fifo = (dir / "mx38.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const std::string frames = frames_bytes(static_cast<int>(PiAudio::kPrebuffer) + 1, 700);
+            const std::string before = header() + frames.substr(0, 6);   // one frame and a half
+            const std::string after  = frames.substr(6);
+            const bool w1 = w >= 0 && ::write(w, before.data(), before.size()) ==
+                                          static_cast<ssize_t>(before.size());
+            ::usleep(250000);                         // > 100 ms: the reader polls out, reads EAGAIN
+            std::size_t off = 0;
+            while (w >= 0 && off < after.size()) {
+                const ssize_t n = ::write(w, after.data() + off, after.size() - off);
+                if (n <= 0) break;
+                off += static_cast<std::size_t>(n);
+            }
+            const uint32_t want = PiAudio::kPrebuffer + 1;
+            const uint32_t got = wait_available(a, want);
+            int16_t l = 0, r = 0;
+            bool exact = got == want;
+            for (int i = 0; exact && i < static_cast<int>(want); ++i)
+                exact = a.pop(l, r) && l == 700 + i && r == -(700 + i);
+            if (w >= 0) ::close(w);
+            check("MX-38", "a pause by a live writer of the Pi's audio FIFO (EAGAIN) does not end "
+                  "the stream: a frame split across a 250 ms pause is reassembled and every frame "
+                  "arrives exact (jnext-only, no VHDL counterpart)",
+                  opened && w1 && off == after.size() && exact,
+                  fmt("opened=%d w1=%d wrote=%zu/%zu available=%u (want %u) exact=%d last L=%d R=%d",
+                      opened ? 1 : 0, w1 ? 1 : 0, off, after.size(), got, want, exact ? 1 : 0, l, r));
+        }
         fs::remove_all(dir, ec);
     }
 #endif
