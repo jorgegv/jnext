@@ -393,15 +393,18 @@ NextPi image is needed.
 | PI-49 | neither a rewind replay nor an RZX playback consumes the stream; a replay produces no audio at all, an RZX playback outputs exactly 0 in both channels (no boot click); live again it is drawn |
 | PI-50 | the warm-start recording boot gets no audio reader |
 | PI-51 | when the audio FIFO cannot be created, `start()` fails with that error and starts no QEMU |
+| PI-52 | the mixer's `-audiodev` value escapes a comma in the FIFO path |
 
-`test/audio/audio_test.cpp` revives **MX-30** and adds MX-31..36 for `PiAudio`
+`test/audio/audio_test.cpp` revives **MX-30** and adds MX-31..38 for `PiAudio`
 against a real FIFO: the stream frame for frame (header and frames split across
 writes), the 10-bit mapping, a frame's level in the mix and the received count;
 prebuffer and underrun (2205 frames, 50 ms); the latency trim (to 4410 frames,
-100 ms) and its edge (13230 frames, 300 ms, kept; 13231 trimmed); the ring full;
-a writer reconnecting with a fresh header; and the open errors and the FIFO's
-0600 mode. The latency rows assert the literal numbers, so changing a constant
-fails them.
+100 ms) and its edge (13230 frames, 300 ms, kept; 13231 trimmed); the ring full
+(131072 frames); a writer reconnecting with a fresh header; the open errors and
+the FIFO's 0600 mode; the reader pausing, not spinning, while there is no
+writer; and a live writer's pause (EAGAIN) not ending the stream. The latency
+and capacity rows assert the literal numbers, so changing a constant fails
+them.
 
 `main()` applying that policy is the functional regression row **nextpi-func**
 (`test/00regression/scripts/`): through the real binary, `--nextpi` with no QEMU
@@ -446,11 +449,14 @@ warm-start config fails PI-50; ignoring the audio FIFO's open error fails PI-51.
 In `PiAudio`: not skipping the WAV header fails MX-30..34, MX-36 and PI-49, and
 skipping one byte too few fails MX-30/32/34/36 and PI-48 (MX-31 never looks at
 sample values); prebuffering at `<=` fails MX-31; no trim fails MX-32; changing
-the prebuffer, the target or the maximum latency by one frame fails MX-31,
-MX-32/36 and MX-36, and trimming at `>=` fails MX-36; an off-by-one in the
-ring-full check, or not counting its drops, fails MX-33; not resetting the
+the prebuffer by one frame fails MX-31, the target MX-32/36, and the maximum
+latency MX-36, and trimming at `>=` fails MX-36; an off-by-one in the ring-full
+check, not counting its drops, or a different capacity fails MX-33; not resetting the
 header skip or the half-frame carry when the writer goes fails MX-34; a FIFO
-made 0666, or a regular file accepted, fails MX-35.
+made 0666, or a regular file accepted, fails MX-35; no pause after a read that
+finds no writer fails MX-37 on Linux (macOS's `poll()` waits anyway); treating
+EAGAIN as the writer's end fails MX-38; not escaping the FIFO path for QEMU
+fails PI-52.
 
 ## 5. Not done
 
