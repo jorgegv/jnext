@@ -3,6 +3,7 @@
 ## Unreleased (2026-10-10)
 
 ### User Features
+- Pause/resume button in the emulator window (toolbar, Machine menu, Alt+U) with a Paused status indicator
 - NextPi under QEMU (`--nextpi`, downloaded on first use): NextZXOS's Pi tools (`.pisend`, speech, music, tape streaming) work unmodified
 
 ### Bug Fixes
