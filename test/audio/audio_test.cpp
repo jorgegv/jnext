@@ -30,12 +30,14 @@
 #include "audio/pi_audio.h"
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #ifndef _WIN32
 #include <csignal>
 #include <fcntl.h>
 #include <pthread.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -3339,6 +3341,131 @@ static void g_mixer() {
                   fmt("opened=%d a=%d b=%d available=%u received=%llu (want 6000) exact=%d last L=%d",
                       opened ? 1 : 0, a_ok ? 1 : 0, b_ok ? 1 : 0, got,
                       static_cast<unsigned long long>(received), exact ? 1 : 0, l));
+        }
+
+        // MX-44..46 — LATENCY. The reader must wake on data at once, give up
+        // its thread promptly on close(), and resume promptly after a writer
+        // goes. Each is timed against the steady clock with margins that hold
+        // on a loaded host and still separate a slower reader. jnext-only, no
+        // VHDL counterpart.
+        using clk = std::chrono::steady_clock;
+        auto ms_since = [](clk::time_point t0) {
+            return std::chrono::duration<double, std::milli>(clk::now() - t0).count();
+        };
+
+        // MX-44 — a write is poppable at once: ten probes, each one frame
+        // written after the reader has gone idle, timed until available()
+        // shows it; the median must be under 25 ms. (Woken only by its 100 ms
+        // poll timeout instead of by the data, the median is ~50 ms.)
+        {
+            const std::string fifo = (dir / "mx44.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const std::string hdr = header();
+            bool ok = w >= 0 && ::write(w, hdr.data(), hdr.size()) == static_cast<ssize_t>(hdr.size());
+            std::vector<double> lat;
+            for (int i = 0; ok && i < 10; ++i) {
+                ::usleep(37000);                              // the reader is back in poll()
+                const uint32_t want = a.available() + 1;
+                const std::string f = frames_bytes(1, i);
+                const clk::time_point t0 = clk::now();
+                ok = ::write(w, f.data(), f.size()) == 4;
+                while (ok && a.available() < want && ms_since(t0) < 1000) ::usleep(200);
+                lat.push_back(ms_since(t0));
+            }
+            if (w >= 0) ::close(w);
+            std::sort(lat.begin(), lat.end());
+            const double median = lat.size() == 10 ? (lat[4] + lat[5]) / 2 : 1e9;
+            check("MX-44", "a frame written to the Pi's audio FIFO is poppable at once: the median of "
+                  "ten write-to-available times is under 25 ms (jnext-only, no VHDL counterpart)",
+                  opened && ok && median < 25.0,
+                  fmt("opened=%d ok=%d median=%.1f ms (want < 25) max=%.1f ms", opened ? 1 : 0,
+                      ok ? 1 : 0, median, lat.empty() ? 0.0 : lat.back()));
+        }
+
+        // MX-45 — close() is prompt: with a writer connected but silent the
+        // reader sits in poll(); close() 30 ms later must return within
+        // 250 ms (~70 ms with the 100 ms poll; ~1 s with a 1000 ms one).
+        {
+            const std::string fifo = (dir / "mx45.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            ::usleep(30000);
+            const clk::time_point t0 = clk::now();
+            a.close();
+            const double took = ms_since(t0);
+            if (w >= 0) ::close(w);
+            check("MX-45", "closing the Pi audio reader while its writer is connected but silent "
+                  "returns within 250 ms (jnext-only, no VHDL counterpart)",
+                  opened && w >= 0 && took < 250.0,
+                  fmt("opened=%d writer=%d close took %.1f ms (want < 250)", opened ? 1 : 0,
+                      w >= 0 ? 1 : 0, took));
+        }
+
+        // MX-46 — a reconnect is prompt: once the reader has seen a writer go
+        // (an EOF read, which starts its no-writer pause), a new writer's frame
+        // must be available within 100 ms (~20 ms with the 20 ms pause;
+        // ~200 ms with a 200 ms one).
+        {
+            const std::string fifo = (dir / "mx46.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            const int wa = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const std::string first = header() + frames_bytes(1, 0);
+            const bool a_ok = wa >= 0 && ::write(wa, first.data(), first.size()) ==
+                                             static_cast<ssize_t>(first.size());
+            wait_available(a, 1);
+            const uint64_t eofs = a.eof_reads();
+            if (wa >= 0) ::close(wa);
+            for (int i = 0; i < 2000 && a.eof_reads() == eofs; ++i) ::usleep(500);
+            const bool saw_eof = a.eof_reads() > eofs;         // the pause has just begun
+            const int wb = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const std::string second = header() + frames_bytes(1, 1);
+            const clk::time_point t0 = clk::now();
+            const bool b_ok = wb >= 0 && ::write(wb, second.data(), second.size()) ==
+                                             static_cast<ssize_t>(second.size());
+            while (b_ok && a.available() < 2 && ms_since(t0) < 1000) ::usleep(200);
+            const double took = ms_since(t0);
+            if (wb >= 0) ::close(wb);
+            check("MX-46", "after a writer goes, a new writer's frame reaches the Pi audio reader "
+                  "within 100 ms (jnext-only, no VHDL counterpart)",
+                  opened && a_ok && saw_eof && b_ok && a.available() == 2 && took < 100.0,
+                  fmt("opened=%d a=%d eof=%d b=%d available=%u took %.1f ms (want < 100)",
+                      opened ? 1 : 0, a_ok ? 1 : 0, saw_eof ? 1 : 0, b_ok ? 1 : 0, a.available(), took));
+        }
+
+        // MX-47 — an idle reader costs nothing: with a writer connected but
+        // silent, 300 ms of waiting must use under 30 ms of CPU (it is ~0: the
+        // reader sleeps in poll()). A reader that polls for the wrong event, or
+        // whose poll() returns at once, spins a core instead (~300 ms).
+        // RUSAGE_SELF covers every thread; the reader is the only one running.
+        {
+            auto cpu_ms = [] {
+                rusage u{};
+                ::getrusage(RUSAGE_SELF, &u);
+                return (u.ru_utime.tv_sec + u.ru_stime.tv_sec) * 1000.0 +
+                       (u.ru_utime.tv_usec + u.ru_stime.tv_usec) / 1000.0;
+            };
+            const std::string fifo = (dir / "mx47.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            ::usleep(50000);
+            const double c0 = cpu_ms();
+            ::usleep(300000);
+            const double used = cpu_ms() - c0;
+            if (w >= 0) ::close(w);
+            check("MX-47", "an idle Pi audio reader, its writer connected but silent, uses under "
+                  "30 ms of CPU in 300 ms: it sleeps in poll() (jnext-only, no VHDL counterpart)",
+                  opened && w >= 0 && used < 30.0,
+                  fmt("opened=%d writer=%d cpu=%.1f ms in 300 ms (want < 30)", opened ? 1 : 0,
+                      w >= 0 ? 1 : 0, used));
         }
 
         // MX-34 — RECONNECT: QEMU reopens the FIFO (a restart), and each writer

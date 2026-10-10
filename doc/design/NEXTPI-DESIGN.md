@@ -414,7 +414,8 @@ prebuffer and underrun (2205 frames, 50 ms); the latency trim (to 4410 frames,
 (131072 frames); a pause longer than the ring, flushed on resume; a writer reconnecting with a
 fresh header; the open errors and
 the FIFO's 0600 mode; the reader pausing, not spinning, while there is no
-writer; a live writer's pause (EAGAIN) not ending the stream; one descriptor
+writer; the latency of a write, of `close()` and of a reconnect, and an idle
+reader's CPU; a live writer's pause (EAGAIN) not ending the stream; one descriptor
 on the FIFO, close-on-exec, released by `close()`; and a signal interrupting the
 reader's `poll()` not ending it. The latency
 and capacity rows assert the literal numbers, so changing a constant fails
@@ -480,7 +481,9 @@ check, not counting its drops, or a different capacity fails MX-33; not
 flushing the ring after it overflowed fails MX-42; not resetting the
 header skip or the half-frame carry when the writer goes fails MX-34; not
 recognising a header in-stream, or taking a partial one for a frame, fails
-MX-43; a FIFO
+MX-43; polling for the wrong event fails MX-44 on Linux (latency) and MX-47
+on macOS (a spinning core); a 1000 ms poll timeout fails MX-45 (`close()`
+waits); a 200 ms no-writer pause fails MX-46 (reconnect latency); a FIFO
 made 0666, or a regular file accepted, fails MX-35; no pause after a read that
 finds no writer fails MX-37 on Linux (macOS's `poll()` waits anyway); treating
 EAGAIN as the writer's end fails MX-38; no close-on-exec, a leaked descriptor

@@ -49,7 +49,7 @@ closed end-to-end (Phases 0→4) on 2026-04-24. Summary:
   traceability matrix, and retired four that cannot honestly become a
   `check()` (AY-41, SD-09, MX-30, IO-04 — each struck in place with its
   rationale). The producer MX-30 lacked now exists — NextPi under QEMU,
-  through `audio/pi_audio.*` — and its stream is MX-41, with MX-31..40, MX-42 and MX-43;
+  through `audio/pi_audio.*` — and its stream is MX-41, with MX-31..40 and MX-42..47;
   MX-30 stays retired and its ID is not reused (owner, PR #315).
   Writing AY-43 found and fixed a real emulator defect: the
   `ena_div_noise` phase in `src/audio/ay_chip.cpp` read the TOGGLED
@@ -468,6 +468,10 @@ VHDL ref: `audio_mixer.vhd` lines 63-90
 | MX-33  | Pi I2S source: ring full | With nothing popping, 131072 + 1000 frames written: exactly 131072 kept and received, 1000 dropped and counted. Literal numbers, so a changed `kCapacity` fails. jnext-only buffering, no VHDL counterpart |
 | MX-42  | Pi I2S source: a pause longer than the ring | 140000 frames written with nothing popping: the next pop returns silence with `available()` 0 and all 140000 counted dropped (the stale ring flushed); a fresh stream then plays from its own first frame after the prebuffer. jnext-only, no VHDL counterpart |
 | MX-43  | Pi I2S source: back-to-back streams | Writer B opens before writer A closes (no EOF between them); each sends a header and 3000 frames: exactly 6000 frames received, A's then B's, exact. B's header, split across two reads (6 bytes, a 150 ms pause, the rest), is recognised in-stream (RIFF...WAVE at a frame boundary). jnext-only, no VHDL counterpart |
+| MX-44  | Pi I2S source: write latency | Ten one-frame writes after the reader has gone idle, each timed until `available()` shows it: median under 25 ms (woken only by the 100 ms poll timeout, ~50 ms). jnext-only, no VHDL counterpart |
+| MX-45  | Pi I2S source: close() is prompt | With a writer connected but silent, `close()` 30 ms after `open` returns within 250 ms (~70 ms with the 100 ms poll; ~1 s with a 1000 ms one). jnext-only, no VHDL counterpart |
+| MX-46  | Pi I2S source: reconnect latency | Right after the reader logs a writer's EOF (its no-writer pause just begun), a new writer's frame is available within 100 ms (~20 ms with the 20 ms pause). jnext-only, no VHDL counterpart |
+| MX-47  | Pi I2S source: an idle reader costs nothing | With a writer connected but silent, 300 ms of waiting uses under 30 ms of CPU (`getrusage`): the reader sleeps in `poll()`. Polling for the wrong event spins a core (~300 ms measured). jnext-only, no VHDL counterpart |
 | MX-34  | Pi I2S source: reconnect | Writer A: header, one frame and half of another, then closes; writer B: a fresh header and `kPrebuffer` frames. B's header is skipped and A's half frame discarded: A's frame, then all of B's, arrive exact. jnext-only, no VHDL counterpart |
 | MX-35  | Pi I2S source: open errors and permissions | `open` of a regular file fails with "exists and is not a FIFO"; of a path in a missing directory, with mkfifo's error; a new FIFO is created 0600 (under umask 022). jnext-only, no VHDL counterpart |
 | MX-36  | Pi I2S source: trim boundary | A backlog of exactly 13230 frames (300 ms) is not trimmed (first frame 0, 13229 left, none dropped); 13231 is trimmed to 4410 (first frame 8821). jnext-only, no VHDL counterpart |
