@@ -216,16 +216,16 @@ int main() {
         EspUartAdapter adapter{eng};
         adapter.set_rx_sink([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
 
-        check("ADP-01", "a fresh adapter mirrors the engine's lowered gate",
+        check("ADP-01", "a fresh adapter mirrors the engine's lowered gate [no-vhdl: jnext-internal]",
               !adapter.tick_wanted());
         for (char c : std::string("AT\r\n")) adapter.receive(static_cast<std::uint8_t>(c));
-        check("ADP-02", "receive() forwards to the engine AND raises the mirrored gate",
+        check("ADP-02", "receive() forwards to the engine AND raises the mirrored gate [no-vhdl: jnext-internal]",
               adapter.tick_wanted());
         for (int i = 0; i < 32 && adapter.tick_wanted(); ++i)
             adapter.tick(BYTE_TICKS, BYTE_TICKS);
-        check_eq("ADP-03", "tick() forwards, and the engine's output reaches the RX sink",
+        check_eq("ADP-03", "tick() forwards, and the engine's output reaches the RX sink [no-vhdl: jnext-internal]",
                  guest, "\r\nOK\r\n");
-        check("ADP-04", "...and the gate falls again once the engine is idle",
+        check("ADP-04", "...and the gate falls again once the engine is idle [no-vhdl: jnext-internal]",
               !adapter.tick_wanted()); }
 
     {   // The adapter must not out-live its own sink installation. Destroying
@@ -243,11 +243,11 @@ int main() {
                 adapter.tick(BYTE_TICKS, BYTE_TICKS);
         }
         const int before = calls;
-        check("ADP-05", "the adapter delivered while it was alive", before == 6);
+        check("ADP-05", "the adapter delivered while it was alive [no-vhdl: jnext-internal]", before == 6);
         // The engine survives; anything it now wants to say must go nowhere.
         for (char c : std::string("AT\r\n")) eng.receive(static_cast<std::uint8_t>(c));
         for (int i = 0; i < 32 && eng.wants_tick(); ++i) eng.tick(BYTE_TICKS, BYTE_TICKS);
-        check("ADP-06", "...and after its destruction the engine's sink is cleared, not dangling",
+        check("ADP-06", "...and after its destruction the engine's sink is cleared, not dangling [no-vhdl: jnext-internal]",
               calls == before); }
 
     {   // The adapter accepts an EspDevice, so it drives the threaded wrapper
@@ -268,7 +268,7 @@ int main() {
                 adapter.tick(BYTE_TICKS, BYTE_TICKS);
             esp.wait_idle(1);
         }
-        check_eq("ADP-07", "the same adapter drives the THREADED wrapper unchanged", guest,
+        check_eq("ADP-07", "the same adapter drives the THREADED wrapper unchanged [no-vhdl: jnext-internal]", guest,
                  "\r\nOK\r\n"); }
 
     // ══ Group B2 — the replay gate (GH #25 branch 4) ═════════════════════
@@ -286,15 +286,15 @@ int main() {
         EspUartAdapter adapter{eng};
         adapter.set_rx_sink([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
 
-        check("ADP-08", "a fresh adapter is live, not inert", !adapter.inert());
+        check("ADP-08", "a fresh adapter is live, not inert [no-vhdl: jnext-internal]", !adapter.inert());
 
         adapter.set_inert(true);
         for (char c : std::string("AT\r\n")) adapter.receive(static_cast<std::uint8_t>(c));
-        check("ADP-09", "an inert adapter does not forward guest TX to the engine",
+        check("ADP-09", "an inert adapter does not forward guest TX to the engine [no-vhdl: jnext-internal]",
               !eng.wants_tick());
-        check("ADP-10", "...and holds the hot-path tick gate DOWN", !adapter.tick_wanted());
+        check("ADP-10", "...and holds the hot-path tick gate DOWN [no-vhdl: jnext-internal]", !adapter.tick_wanted());
         for (int i = 0; i < 32; ++i) adapter.tick(BYTE_TICKS, BYTE_TICKS);
-        check("ADP-11", "...and delivers nothing to the guest", guest.empty()); }
+        check("ADP-11", "...and delivers nothing to the guest [no-vhdl: jnext-internal]", guest.empty()); }
 
     {   // Entering inert with the engine mid-reply must lower the gate at once
         // rather than after one more call, and leaving it must pick the work
@@ -306,16 +306,16 @@ int main() {
         adapter.set_rx_sink([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
 
         for (char c : std::string("AT\r\n")) adapter.receive(static_cast<std::uint8_t>(c));
-        check("ADP-12", "the engine has a reply queued and the gate is up",
+        check("ADP-12", "the engine has a reply queued and the gate is up [no-vhdl: jnext-internal]",
               adapter.tick_wanted());
         adapter.set_inert(true);
-        check("ADP-13", "set_inert(true) lowers the gate immediately", !adapter.tick_wanted());
+        check("ADP-13", "set_inert(true) lowers the gate immediately [no-vhdl: jnext-internal]", !adapter.tick_wanted());
         adapter.set_inert(false);
-        check("ADP-14", "set_inert(false) re-raises it from the ESP's own state",
+        check("ADP-14", "set_inert(false) re-raises it from the ESP's own state [no-vhdl: jnext-internal]",
               adapter.tick_wanted());
         for (int i = 0; i < 32 && adapter.tick_wanted(); ++i)
             adapter.tick(BYTE_TICKS, BYTE_TICKS);
-        check_eq("ADP-15", "...and the reply that was held back still arrives intact", guest,
+        check_eq("ADP-15", "...and the reply that was held back still arrives intact [no-vhdl: jnext-internal]", guest,
                  "\r\nOK\r\n"); }
 
     {   // Idempotent: Emulator calls set_inert() every single frame, so a
@@ -326,11 +326,11 @@ int main() {
         for (char c : std::string("AT\r\n")) adapter.receive(static_cast<std::uint8_t>(c));
         adapter.set_inert(false);
         adapter.set_inert(false);
-        check("ADP-16", "repeating set_inert(false) does not disturb a raised gate",
+        check("ADP-16", "repeating set_inert(false) does not disturb a raised gate [no-vhdl: jnext-internal]",
               adapter.tick_wanted());
         adapter.set_inert(true);
         adapter.set_inert(true);
-        check("ADP-17", "repeating set_inert(true) keeps the gate down",
+        check("ADP-17", "repeating set_inert(true) keeps the gate down [no-vhdl: jnext-internal]",
               !adapter.tick_wanted() && adapter.inert()); }
 
     // ══ Group C — the logging binding ═══════════════════════════════════
@@ -339,11 +339,11 @@ int main() {
     // is wired. ALOG-01/ALOG-02 came from esp_socket_test, which no longer knows
     // spdlog exists. (The group was LOG-* until GH #243: log_test owns that name.)
 
-    check("ALOG-01", "Log::init() registers the esp01 logger",
+    check("ALOG-01", "Log::init() registers the esp01 logger [no-vhdl: jnext-internal]",
           spdlog::get("esp01") != nullptr);
     {
         Log::parse_levels("esp01=trace");
-        check("ALOG-02", "--log-level esp01=trace reaches the logger",
+        check("ALOG-02", "--log-level esp01=trace reaches the logger [no-vhdl: jnext-internal]",
               spdlog::get("esp01") &&
                   spdlog::get("esp01")->level() == spdlog::level::trace);
         Log::parse_levels("esp01=off");
@@ -369,9 +369,9 @@ int main() {
         Log::parse_levels("esp01=off");
         Log::esp01()->sinks() = saved;
 
-        check("ALOG-03", "a module log line reaches jnext's esp01 logger through the seam",
+        check("ALOG-03", "a module log line reaches jnext's esp01 logger through the seam [no-vhdl: jnext-internal]",
               all.find("AT <- \"AT\"") != std::string::npos);
-        check("ALOG-04", "...and carries the level the module chose, not a flattened one",
+        check("ALOG-04", "...and carries the level the module chose, not a flattened one [no-vhdl: jnext-internal]",
               all.find("[debug]") != std::string::npos);
     }
     {
@@ -382,11 +382,11 @@ int main() {
         AtEngine       eng{tr};
         EspUartAdapter adapter{eng};
         adapter.poll();
-        check("ALOG-05", "an esp01 logger at 'off' raises the module's threshold to error",
+        check("ALOG-05", "an esp01 logger at 'off' raises the module's threshold to error [no-vhdl: jnext-internal]",
               log_threshold() == LogLevel::Error);
         Log::parse_levels("esp01=trace");
         adapter.poll();
-        check("ALOG-06", "...and turning it up lowers the threshold within one poll",
+        check("ALOG-06", "...and turning it up lowers the threshold within one poll [no-vhdl: jnext-internal]",
               log_threshold() == LogLevel::Trace);
         Log::parse_levels("esp01=off");
     }
