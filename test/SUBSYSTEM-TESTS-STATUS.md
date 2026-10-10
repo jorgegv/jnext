@@ -42,7 +42,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Snapshot container + descriptor (.jns, GH #27) |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot SD identity (.jns, GH #27 S7) |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Sprites               |      212 |      212 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Compositor            |      247 |      247 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Compositor            |      246 |      246 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor (int)      |       51 |       51 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video             |      136 |      136 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video (int)       |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -140,6 +140,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12484**| **12484**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12483**| **12483**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

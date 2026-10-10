@@ -648,19 +648,6 @@ static void test_TR() {
         r.set_transparent_rgb(0xE3);
     }
 
-    // TR-30: Layer 2 RGB compare vs NR 0x14. VHDL zxnext.vhd:7121.
-    //        Emulator lacks palette-compare path; test pins the VHDL oracle.
-    {
-        clear_layers(r);
-        r.set_layer_priority(0);
-        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(0xE3);
-        uint32_t fb = vhdl_fallback_argb(0xE3);
-        uint32_t got = composite_one(r, fb);
-        check("TR-30", "L2 RGB[8:1]==NR0x14 => layer2_transparent (VHDL 7121)",
-              got == fb,
-              DETAIL("got=0x%08X fb=0x%08X", got, fb));
-    }
-
     // TR-34 (GH #304): TR-19's sweep for Layer 2, `layer2_rgb_2(8 downto 1) =
     //        transparent_rgb_2` (VHDL zxnext.vhd:7121), on palette-producible
     //        colours with a fallback no palette can produce. TR-30 uses one

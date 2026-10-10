@@ -489,7 +489,6 @@ derivation is non-obvious, the arithmetic is shown inline.
 | TR-26 | Text-mode TM colour 9-bit 0x005 is transparent for NR 0x14 = 0x02 | opaque ULA, tm_below=0, text mode | TM colour `"00000010" & "1"` | tm_transparent=1; the ULA shows | 7109, 7116 |
 | TR-27 | NR 0x14 compares only colour bits 8:1 (text-mode TM), exhaustive | opaque ULA colour v^0x81 (never transparent, never equal to the tile), tm_below=0 | TR-19 sweep on the TM colour | 512 matching transparent (ULA shows); 4096 with one bit flipped opaque (TM shows) | 7109 |
 | TRB-01 | PLOTIT-lite state end to end: ULA paper and text-mode tile both colour 0x02 under NR 0x14 = 0x02 | NR 0x15=0x10, NR 0x6B=0x88, NR 0x4A distinct, Layer 2 white, via NR/port writes and a real frame | run one frame | display pixel = Layer 2 white | 7100, 7109, 7121 |
-| TR-30 | Layer 2 RGB compare | NR 0x14=0xE3, l2_pixel_en=1 | L2 palette entry RGB[8:1]=0xE3 | layer2_transparent=1 | 7121 |
 | TR-31 | Layer 2 `pixel_en=0` transparent | — | l2_pixel_en=0 | layer2_transparent=1 | 7121 |
 | TR-32 | Layer 2 opaque pixel with non-zero `layer2_priority_2` propagates | l2 not transparent | palette bit 15 set | `layer2_priority=1` | 7123 |
 | TR-33 | Layer 2 priority forced to 0 when layer is transparent | palette bit 15 set, l2_pixel_en=0 | — | `layer2_priority=0` (even though bit 15=1) | 7123 |
