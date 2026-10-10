@@ -4706,9 +4706,13 @@ static void test_nextpi_audio() {
     // where NR 0xA2 gates it exactly as on the board (zxnext.vhd:2358-2359):
     // with 0x00 the output is silent, with 0xC0 (both channels enabled — what
     // .pisend sets, plus its other bits) the Pi's square wave is in the mix.
-    // The channels carry different amplitudes so a swap shows: left ±16384 is
-    // ±256 in 10 bits = 2048 peak to peak at the output (MX-06/07's x4), right
-    // ±8192 is half that, 1024.
+    // The channels carry different amplitudes so a swap shows, and the levels
+    // are EXACT, so an error of one 10-bit step shows too: left ±16384 is
+    // to_i2s 768/256, i.e. ±256 from the 0x200 rest, which the mixer outputs as
+    // exactly +1024/-1024 (MX-06/07's x4); right ±8192 is 640/384, exactly
+    // +512/-512. Each output sample holds one Pi frame for its whole interval,
+    // so the extremes are those values; only the sample in which the gate
+    // opens is a blend, and it lies between them.
     {
         FakeNextPi fake("audio");
         write_tone(fake.bin("tone.wav"), 11025, 16384, 50, 8192);   // 250 ms
@@ -4725,26 +4729,27 @@ static void test_nextpi_audio() {
         const std::string args = fake.args();
         const bool args_ok = args.find("wav,id=snd0,path=") != std::string::npos &&
                              args.find(",out.frequency=44100,out.channels=2,out.format=s16") != std::string::npos;
-        std::pair<int, int> closed{-1, -1}, open{-1, -1};
+        std::pair<int, int> closed{-1, -1};
+        MixerLevels open;
         if (started) {
             EmulatorConfig cfg = pi_qemu_config(qemu);
             cfg.pi_audio = qemu.audio();
             Emulator emu;
             emu.init(cfg);
             closed = mixer_swing(emu, 0x00, 3);      // gate shut: Pi frames consumed, silent
-            open   = mixer_swing(emu, 0xC0, 5);      // gate open: the tone
+            open   = mixer_levels(emu, 0xC0, 5);     // gate open: the tone
         }
         check("PI-48",
               "NextPi's sound reaches the Next's mixer over I2S: QEMU writes it to a FIFO "
               "PiQemu reads, the emulator latches it per sample, and NR 0xA2 gates it "
-              "(0x00 silent, 0xC0 the Pi's square wave, each channel on its own side: left "
-              "2048 and right 1024 peak to peak) (zxnext.vhd:2358-2359)",
-              started && args_ok && closed.first <= 16 && closed.second <= 16 &&
-                  open.first >= 1900 && open.first <= 2200 && open.second >= 900 &&
-                  open.second <= 1150,
-              fmt("started=%d (%s) args=%d swing closed L=%d R=%d (want <=16) open L=%d R=%d "
-                  "(want L 1900..2200, R 900..1150)", started ? 1 : 0, error.c_str(), args_ok ? 1 : 0,
-                  closed.first, closed.second, open.first, open.second));
+              "(0x00 silent, 0xC0 the Pi's square wave, each channel on its own side at its "
+              "exact level: left +-1024 and right +-512) (i2s.vhd:177-180, zxnext.vhd:2358-2359)",
+              started && args_ok && closed.first <= 16 && closed.second <= 16 && open.n > 0 &&
+                  open.lo_l == -1024 && open.hi_l == 1024 && open.lo_r == -512 && open.hi_r == 512,
+              fmt("started=%d (%s) args=%d swing closed L=%d R=%d (want <=16) open n=%d L %d..%d "
+                  "R %d..%d (want L -1024..1024, R -512..512)", started ? 1 : 0, error.c_str(),
+                  args_ok ? 1 : 0, closed.first, closed.second, open.n, open.lo_l, open.hi_l,
+                  open.lo_r, open.hi_r));
     }
 
     // ── PI-49 — neither a rewind replay nor an RZX playback consumes the Pi's

@@ -389,7 +389,7 @@ NextPi image is needed.
 | PI-45 | the fallback's number walk does the same; its limit is `sysconf`'s capped at 65536, and 65536 for -1 or 0 |
 | PI-46 | the fallback reads `/proc/self/fd` where it exists, else `/dev/fd`, and walks the numbers only with no list |
 | PI-47 | the open-descriptor list names open descriptors but not the directory's own, and leaves no descriptor open (reading it, or marking from it) |
-| PI-48 | the Pi's sound reaches the mixer through QEMU's wav FIFO and `PiAudio`; NR 0xA2 = 0x00 silent, 0xC0 the stand-in's square wave, each channel on its own side (left 2048, right 1024 peak to peak) |
+| PI-48 | the Pi's sound reaches the mixer through QEMU's wav FIFO and `PiAudio`; NR 0xA2 = 0x00 silent, 0xC0 the stand-in's square wave, each channel on its own side at its exact level (left ±1024, right ±512) |
 | PI-49 | neither a rewind replay nor an RZX playback consumes the stream; a replay produces no audio at all, an RZX playback outputs exactly 0 in both channels (no boot click); live again it is drawn at exactly one frame per mixer output sample |
 | PI-50 | the warm-start recording boot gets no audio reader |
 | PI-51 | when the audio FIFO cannot be created, `start()` fails with that error and starts no QEMU |
@@ -452,7 +452,8 @@ and ignoring `--no-nextpi` fails fact 3. For the sound: not calling `feed_pi_aud
 fails PI-48/49, and calling it but not latching the frame into `I2s` fails
 PI-48; feeding twice per output sample (the Pi at double speed) fails PI-49;
 consuming during RZX playback fails PI-49, and so does the
-boot click; swapping the channels, or feeding one from the other, fails PI-48; a
+boot click; swapping the channels, feeding one from the other, or a one-step error in
+either channel's 10-bit value fails PI-48; a
 wrong rest value in either channel fails PI-49; keeping the reader in the
 warm-start config fails PI-50; ignoring the audio FIFO's open error fails PI-51.
 In `PiAudio`: not skipping the WAV header fails MX-30..34, MX-36 and PI-49, and
