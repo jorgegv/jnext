@@ -544,7 +544,7 @@ bool wanted(const Options& o, const char* name) {
 ///     picture of the NextZXOS welcome screen with somebody's demo sprites
 ///     composited over it.
 ///   * Destroyed again, because MainWindow::set_emulator() builds its OWN
-///     DebuggerManager — that is where the toolbar's bug button comes from —
+///     DebuggerManager — that is where the toolbar's Debug button comes from —
 ///     and two managers on one Emulator is a state no product build has. The
 ///     manager owns nothing of the emulator and installs no timer, so the
 ///     teardown leaves the machine as the boot left it; the check that this is
