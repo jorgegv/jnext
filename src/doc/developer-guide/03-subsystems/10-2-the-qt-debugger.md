@@ -44,7 +44,7 @@ debugger too. It is a non-arming observer, attached lazily on the first press of
 Machine > Pause (Alt+U) and detached with the window. With the debugger window
 shut, the action pauses and resumes through this client; with it open, the action
 calls the adapter's `on_pause()` / `on_run()`, the same verbs as the forwarded F9
-and F5 keys. In a build with no debugger it is also the only way to resume a
+and F5 keys. In a build with no debugger it is also the only way, from the GUI, to resume a
 pause made by a magic breakpoint or a script.
 
 ## The pause state is pulled
