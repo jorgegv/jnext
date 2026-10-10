@@ -298,7 +298,8 @@ void run(const QString& confdir) {
     // JMN-07 — None.
     {
         Fixture f;
-        f.find(0, "A&&B stick")->trigger();
+        QAction* first = f.find(0, "A&&B stick");
+        if (first) first->trigger();
         QApplication::processEvents();
         QAction* none = f.find(0, "None");
         if (none) none->trigger();
@@ -310,6 +311,31 @@ void run(const QString& confdir) {
               f.emu.joystick_device(0).id.empty() && f.slot(f.c) == -1 &&
               s.value("joy1_source").toString() == "none" &&
               s.value("joy1_device").toString().isEmpty() && f.checked(0) == "None");
+    }
+
+    // JMN-13 — a controller picked after None / Cursor Keys switches the source back
+    // to Sdl, and Cursor Keys clears an assigned controller (the file matches the menu).
+    {
+        Fixture f;
+        QAction* none = f.find(0, "None");
+        if (none) none->trigger();
+        QApplication::processEvents();
+        QAction* pick = f.find(0, "A&&B stick");
+        if (pick) pick->trigger();
+        QApplication::processEvents();
+        const bool back = f.emu.joystick_source(0) == JoySource::Sdl &&
+                          f.emu.joystick_device(0).id == f.H && f.slot(f.c) == 0;
+        QAction* keys = f.find(0, "Cursor &Keys + Space");
+        if (keys) keys->trigger();
+        QApplication::processEvents();
+        QSettings s = saved_conf(confdir);
+        s.beginGroup("input");
+        check("JMN-13", "a controller picked after None re-enables Sdl; Cursor Keys then clears the controller (emulator, file)",
+              none && pick && keys && back &&
+              f.emu.joystick_source(0) == JoySource::CursorKeys &&
+              f.emu.joystick_device(0).id.empty() && f.slot(f.c) == -1 &&
+              s.value("joy1_source").toString() == "keys" &&
+              s.value("joy1_device").toString().isEmpty());
     }
 
     // JMN-08 .. JMN-10 — the Preferences dialog offers the same choices and does not lose them.
