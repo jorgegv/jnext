@@ -1918,18 +1918,21 @@ int main(int argc, char* argv[]) {
         }
 #endif
 
+        // The -frames form overrides the seconds form when both are given. The
+        // seconds form is EMULATED seconds, counted by the frontends per frame
+        // at the refresh the machine runs at (cli::Delay, GH #320).
         if (!screenshot_file.empty()) {
-            int frames = (screenshot_delay_frames >= 0) ? screenshot_delay_frames
-                                                        : screenshot_delay * 50;
-            app.set_delayed_screenshot(screenshot_file, frames, screenshot_layers);
+            if (screenshot_delay_frames >= 0)
+                app.set_delayed_screenshot(screenshot_file, screenshot_delay_frames,
+                                           screenshot_layers);
+            else
+                app.set_delayed_screenshot_seconds(screenshot_file, screenshot_delay,
+                                                   screenshot_layers);
         }
-        // Same shape as --delayed-screenshot above: the frontends count frames,
-        // and the -frames form overrides the seconds form when both are given.
-        if (auto_exit_delay >= 0 || auto_exit_delay_frames >= 0) {
-            int frames = (auto_exit_delay_frames >= 0) ? auto_exit_delay_frames
-                                                       : auto_exit_delay * 50;
-            app.set_delayed_exit(frames);
-        }
+        if (auto_exit_delay_frames >= 0)
+            app.set_delayed_exit(auto_exit_delay_frames);
+        else if (auto_exit_delay >= 0)
+            app.set_delayed_exit_seconds(auto_exit_delay);
         // --delayed-snapshot is headless-only (Task 13b) — HeadlessApp is
         // the only frontend that implements it.
         if constexpr (std::is_same_v<std::decay_t<decltype(app)>, HeadlessApp>) {

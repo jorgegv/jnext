@@ -7,6 +7,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
+#include "platform/cli_delay.h"
 #include "platform/host_probe.h"
 #include "platform/debug_servers.h"
 #include "script/script_host.h"
@@ -39,12 +40,18 @@ public:
     /// after. Renderer::LAYER_ALL (the default) makes that a no-op.
     void set_delayed_screenshot(const std::string& file, int delay_frames,
                                 uint8_t layer_mask);
+    /// The same capture, due after `delay_seconds` EMULATED seconds (cli::Delay:
+    /// each frame counts 1/50 or 1/60 s at the refresh it ran at).
+    void set_delayed_screenshot_seconds(const std::string& file, int delay_seconds,
+                                        uint8_t layer_mask);
     /// Exit after `delay_frames` frames — the hard bound: it always fires,
     /// even with a --delayed-screenshot / --delayed-snapshot still outstanding
     /// (which then errors and exits non-zero, see shutdown()). main() resolves
     /// --delayed-automatic-exit (seconds) and --delayed-automatic-exit-frames
-    /// (frames, wins when both given) into this frame count.
+    /// (frames, wins when both given) into one of the two setters.
     void set_delayed_exit(int delay_frames);
+    /// The same bound in EMULATED seconds (cli::Delay, see set_delayed_screenshot_seconds).
+    void set_delayed_exit_seconds(int delay_seconds);
 
     /// Benchmark mode (Task 27 T1): run exactly `frames` frames uncapped,
     /// then print ONE machine-parseable `BENCH ...` line plus a human
@@ -85,11 +92,10 @@ public:
     /// one independent keypress.
     bool set_delayed_keypress(const std::string& key, int delay_frames);
 
-    /// Same as set_delayed_keypress, but in emulated seconds. Conversion to
-    /// frames is deferred to run() so the actual machine framerate
-    /// (50 Hz PAL vs 60 Hz NTSC, per video_timing().refresh_60hz()) is
-    /// used. Headless runs at max speed, so wallclock is irrelevant —
-    /// "seconds" here means emulated-machine seconds.
+    /// Same as set_delayed_keypress, but in emulated seconds (cli::Delay):
+    /// each frame counts 1/50 s or 1/60 s according to the refresh it ran at,
+    /// so a guest that switches to 60 Hz is timed in its own seconds.
+    /// Headless runs at max speed, so wallclock is irrelevant.
     bool set_delayed_keypress_seconds(const std::string& key, int delay_seconds);
 
     /// Schedule a hardware NMI BUTTON press after a delay, so an NMI
@@ -125,9 +131,8 @@ public:
     /// Repeatable: each call queues one independent press.
     bool set_delayed_nmi(const std::string& button, int delay_frames);
 
-    /// Same as set_delayed_nmi, but in emulated seconds. Conversion to
-    /// frames is deferred to run() so the actual machine framerate is
-    /// used — identical treatment to set_delayed_keypress_seconds.
+    /// Same as set_delayed_nmi, but in emulated seconds — identical treatment
+    /// to set_delayed_keypress_seconds.
     bool set_delayed_nmi_seconds(const std::string& button, int delay_seconds);
 
     /// GH #93 — --delayed-sdcard-insert-frames: after N frames, insert the
@@ -184,7 +189,7 @@ private:
 
     // Pending --delayed-screenshot state
     std::string screenshot_file_;
-    int         screenshot_countdown_ = -1;
+    cli::Delay  screenshot_countdown_;
     uint8_t     screenshot_layers_ = Renderer::LAYER_ALL;
     // GH #276 B4 (O2) — the capture has been handed to the backend (at the
     // count's zero); `rendered_frames()` then, to tell a tick that rendered it
@@ -194,7 +199,7 @@ private:
     bool        screenshot_refused_   = false;
 
     // Pending --delayed-automatic-exit state
-    int         exit_countdown_ = -1;
+    cli::Delay  exit_countdown_;
 
     // Pending --delayed-snapshot state
     std::string snapshot_file_;
@@ -224,16 +229,9 @@ private:
         std::string name;   // original key name (for logging)
         int row1, col1;     // primary matrix position
         int row2, col2;     // compound second position, or -1/-1
-        int countdown;      // in frames
+        cli::Delay countdown;
     };
     std::vector<DelayedKey> delayed_keys_;
-
-    // Pending seconds-form keys awaiting framerate-aware conversion in run().
-    struct PendingSecondsKey {
-        DelayedKey key;     // countdown unused until conversion
-        int  delay_seconds;
-    };
-    std::vector<PendingSecondsKey> pending_seconds_keys_;
 
     // Pending --delayed-nmi state (GH #209). Which of the two buttons
     // was named is resolved at schedule time (unknown names are
@@ -241,7 +239,7 @@ private:
     struct DelayedNmi {
         std::string   name;     // original button name (for logging)
         NmiButtonName button;
-        int           countdown;  // in frames
+        cli::Delay    countdown;
     };
     std::vector<DelayedNmi> delayed_nmis_;
 
@@ -251,13 +249,6 @@ private:
         int         countdown;  // in frames
     };
     std::vector<DelayedSdInsert> delayed_sd_inserts_;
-
-    // Pending seconds-form NMI presses awaiting conversion in run().
-    struct PendingSecondsNmi {
-        DelayedNmi nmi;     // countdown unused until conversion
-        int  delay_seconds;
-    };
-    std::vector<PendingSecondsNmi> pending_seconds_nmis_;
 
     // In-memory framebuffer size (canonical 640×256 post-G104). Headless
     // never opens a window; these constants are declarative for symmetry
