@@ -2379,15 +2379,18 @@ image, exactly as on real hardware, so there is no machine to run without one.</
 <p>The choice comes down to a single runtime condition wrapped around a single
 compile-time arm:</p>
 <pre><code class="language-cpp">if (headless) {
-    HeadlessApp app;  result = configure_and_run(app);
+    auto app_ptr = std::make_unique&lt;HeadlessApp&gt;();  // ... set-up on *app_ptr
+    result = configure_and_run(*app_ptr);
 } else {
 #ifdef ENABLE_QT_UI
-    QtApp app;        result = configure_and_run(app);
+    auto app = std::make_unique&lt;QtApp&gt;();  result = configure_and_run(*app);
 #else
-    SdlApp app;       result = configure_and_run(app);
+    auto app = std::make_unique&lt;SdlApp&gt;(); result = configure_and_run(*app);
 #endif
 }
 </code></pre>
+<p>The frontends are heap-allocated on purpose: each holds the 1.17 MB <code>Emulator</code>
+by value, so as automatic variables they were <code>main()</code>'s stack frame (GH #308).</p>
 <p><code>configure_and_run</code> is a generic lambda, and that is what lets a single body
 drive three classes that share no base class. They implement the same informal
 interface — <code>set_config</code>, <code>init</code>, <code>run</code>, <code>shutdown</code>, <code>emulator</code>, <code>exit_code</code> —

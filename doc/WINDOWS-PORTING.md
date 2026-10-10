@@ -54,12 +54,13 @@ Windows hardware.
 
 There is very little, which is the point:
 
-- **`CMakeLists.txt`, the `WIN32` link options** — `-Wl,--stack,16777216`. An early
-  startup path (before `main`; same `__chkstk` address for `--version`,
-  `--help` and `--headless`) reserves a >2 MB frame that overflows MinGW's 2 MB
-  default. The 16 MB reserve fully resolves the crash; **the frame itself was
-  never root-caused** and no >256 KB array was found by grep. Tracked in
-  [EMULATOR-DESIGN-PLAN.md](design/EMULATOR-DESIGN-PLAN.md) §11.
+- **No stack override.** jnext runs on MinGW's default 2 MB main-thread reserve.
+  It once needed `--stack,16777216`: `main()` held the frontend by value, the
+  frontend holds the 1.17 MB `Emulator` by value, so the frontend was `main`'s
+  frame (1.2-2.4 MB depending on GCC's stack-slot sharing), overflowing in
+  `__chkstk` before `main` ran. `main()` now heap-allocates the frontend, and a
+  build-time frame gate (`-Werror=frame-larger-than=262144` on production
+  targets, compile and link) keeps the default reserve sufficient (GH #308).
 - The GUI subsystem is selected so no console window appears alongside the app.
 
 ## Known gaps on Windows
