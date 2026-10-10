@@ -336,6 +336,24 @@ under QEMU is one, so:
   on Linux and `coreaudio` with its buffer tuning on macOS), a QEMU driver
   name (`coreaudio`, `pa`, ..., `none`) or `wav:FILE`.
 
+- **NR 0xA2 bit 0: the Pi's audio as the EAR input.** This is how a Next loads
+  a tape NextPi plays over I2S (its TZX streaming): the program sets bit 0 and
+  the ROM loader, or any loader polling port 0xFE bit 6, sees the Pi's audio as
+  the tape signal. Bit 0 takes the Pi out of the mix (`zxnext.vhd:2358-2359`,
+  already modelled) and drives `pi_fe_ear` (`I2s::fe_ear`,
+  `zxnext.vhd:2361-2373`): a comparator with hysteresis on the raw samples,
+  t = L(9:8) OR R(9:8), rising at 11, falling at 00, holding in between,
+  forced to 0 unless I2S is enabled and bit 0 is set. It reaches port 0xFE bit
+  6 through the board's `ear_relax` (`zxnext_top_issue2.vhd:663-677`): XORed
+  with the EAR jack (a playing tape), and with no tape, a level held for 64
+  ticks of the 512-cycle membrane enable (32768 master cycles, ~1.17 ms)
+  relaxes to the issue-2 MIC level (`Emulator::audio_ear_in`, which the MIC
+  output shares). With a tape playing, the tape's own level is passed through
+  as before. Under a rewind replay or an RZX playback the Pi term is held off,
+  like NR 0x2C/0x2E; the comparator is not in the snapshot and restarts from 0
+  on a restore, where the input is put back at rest. `--silent` skips the mixer
+  but still latches the Pi's samples, so EAR input keeps working.
+
 End to end with real QEMU, a headless run typed `nextpi-play_speech` into the
 UART with NR 0xA0 = 0x30 and NR 0xA2 = 0xC0: the `--wav-record` file is silent
 until the command and carries the speech after it.
@@ -413,6 +431,10 @@ NextPi image is needed.
 | PI-53 | a QEMU driver setting (`none`) is passed to QEMU, and jnext makes no audio reader or FIFO |
 | PI-54 | `host` gives QEMU the platform's default output; empty still means the mixer |
 | PI-55 | NR 0x2C/0x2E read the live sample in a live run, and 0x200 in a rewind replay, an RZX playback and an RZX recording; a restored snapshot puts the latch at rest |
+| PI-56 | NR 0xA2 bit 0: port 0xFE bit 6 reads the EAR comparator, toggling with a Pi square wave; 0 with bit 0 clear and during a rewind replay |
+| PI-57 | with a tape playing a steady high level, port 0xFE bit 6 is the tape XOR the comparator |
+| PI-58 | a steady Pi EAR level relaxes to the issue-2 level 64 x 512 master cycles after its edge |
+| PI-59 | under `--silent` the Pi's samples are still latched and the EAR path works |
 
 `test/audio/audio_test.cpp` adds **MX-41** (the stream retired MX-30 asked for; MX-30 itself stays retired, its ID not reused) and MX-31..40 for `PiAudio`
 against a real FIFO: the stream frame for frame (header and frames split across
@@ -446,6 +468,10 @@ Its sixth fact is the saved audio preference: a GUI session with `[nextpi]
 audio=none` must start the stand-in QEMU with `-audiodev none`, not the mixer's
 wav FIFO, which is the one test of `main()` copying that preference into the
 start (`spec.audio = saved.nextpi_audio`); dropping that line fails the row.
+Its seventh is NR 0xA2 bit 0 end to end: on a 48K machine an injected program
+sets NR 0xA2 = 0xC3 and counts changes of port 0xFE bit 6 over 60000 reads,
+reporting the count on the magic port; with the stand-in looping a square wave
+in both channels it must see at least 20, and with the EAR path off it sees 0.
 
 Settings: `test/gui/app_config_test.cpp` AC-71..74 (`[nextpi]` defaults and
 round-trip) and `test/gui/preferences_apply_test.cpp` PA-20a..e (the tab's
@@ -500,7 +526,12 @@ on re-open or close, or a stale one after `close()`, fails MX-39; giving up on a
 QEMU fails PI-52; ignoring a driver setting, or making the reader for one, fails
 PI-53; not mapping `host` to the platform default fails PI-06 and PI-54; reading the
 live sample during a replay, an RZX playback or an RZX recording, or keeping a
-restored latch, fails PI-55.
+restored latch, fails PI-55. For NR 0xA2 bit 0: moving either threshold, or
+using one channel, fails MX-48; dropping the enable or the bit-0 gate, or not
+clearing on reset, fails MX-49; OR instead of XOR with the tape fails PI-57;
+no relaxation, or a hold of half or twice 64 x 512 cycles, fails PI-58; no
+replay gate fails PI-56; not latching under `--silent` fails PI-59; not
+recording the comparator's edge time fails PI-56 and PI-59.
 
 ## 5. Not done
 

@@ -303,7 +303,9 @@ debugger ones.
     it is mixed with the beeper, the AY chips and the DAC, so **\--record** and
     **\--wav-record** include it, and NR 0xA2 enables and mutes it (NextPi's
     tools enable it themselves). It is 10-bit, as the hardware's input is, and
-    arrives about 100 ms late. Rewinds and RZX playback hold it silent.
+    arrives about 100 ms late. Rewinds and RZX playback hold it silent. With
+    NR 0xA2 bit 0 set it goes to the EAR input instead (port 0xFE bit 6), as a
+    tape signal: how a Next loads a tape the Pi plays to it.
 
     The guest reaches the Pi only while NR 0xA0 bits 5:4 are `11` — UART 1 on
     GPIO 14/15, wired for a Pi — which NextPi's tools set before they talk to

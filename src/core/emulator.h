@@ -1841,6 +1841,23 @@ private:
     /// the one it reproduces; the same gate as the UART link's.
     uint16_t guest_pi_audio(bool left) const;
 
+    /// Run an I2s mutation (a latch, an NR 0xA2 write) and note the master
+    /// cycle if it changed `pi_fe_ear`.
+    template <typename F> void with_pi_ear_tracking(F&& mutate) {
+        const bool before = i2s_.fe_ear();
+        mutate();
+        if (i2s_.fe_ear() != before) pi_ear_edge_master_ = clock_.get();
+    }
+
+    /// `i_AUDIO_EAR` at master cycle `now`, for the port 0xFE read and the
+    /// MIC output: the tape jack (`tape_playing`, `tape_level`) and, while NR
+    /// 0xA2 bit 0 sends the Pi's audio there, `pi_fe_ear` XORed in through
+    /// `ear_relax` (zxnext_top_issue2.vhd:663-677). A level held for the
+    /// relaxation time with no tape playing reads as the issue-2 MIC level.
+    /// During a rewind replay or an RZX playback the Pi term is held off: it
+    /// is host-timed, like the sample NR 0x2C/0x2E show.
+    bool audio_ear_in(bool tape_playing, bool tape_level, uint64_t now) const;
+
     /// GH #25 — once-per-`run_frame()` ESP service, and the ONLY place jnext
     /// drives the device outside the per-instruction `tick()`.
     ///
@@ -2136,6 +2153,9 @@ private:
     /// NR 0x2C / 0x2E — pre-shifted into bits [7:6] of the byte; bits [5:0]
     /// are always zero. NR 0x2D read returns this byte verbatim.
     uint8_t nr_2d_i2s_sample_ = 0;
+    /// Master cycle at which `I2s::fe_ear()` last changed (NR 0xA2 bit 0's
+    /// EAR path): the relaxation of `ear_relax` counts from it.
+    uint64_t pi_ear_edge_master_ = 0;
 
     // --- IM2 hardware mode state (NextREG 0xC0–0xCF) ---
     //

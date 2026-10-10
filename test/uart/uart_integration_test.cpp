@@ -5040,6 +5040,189 @@ static void test_nextpi_audio() {
                   rzx_play.l, rzx_play.d, rzx_play.r, rzx_rec.l, rzx_rec.d, rzx_rec.r,
                   rest_after_load ? 1 : 0));
     }
+
+    // ── PI-56..59 — NR 0xA2 bit 0: the Pi's audio as the EAR input, read on
+    // port 0xFE bit 6 (zxnext.vhd:2361-2373, :3459; zxnext_top_issue2.vhd:
+    // 663-677). The stand-in plays a square wave with BOTH channels in phase at
+    // ±24576 (10-bit 0x380 / 0x080: t = 11 / 00), flipping every 20 samples
+    // (0.45 ms, well inside the ~1.17 ms relaxation), so the comparator
+    // toggles with it.
+    auto ear_bit = [](Emulator& emu) { return (emu.port().read(0xFFFE) >> 6) & 1; };
+    auto start_pi = [](FakeNextPi& fake, PiQemu& qemu, int frames, int half, std::string& error) {
+        write_tone(fake.bin("tone.wav"), frames, 24576, half, -24576);   // R in phase with L
+        PiQemu::Spec spec;
+        spec.dir         = fake.dir();
+        spec.qemu_binary = fake.bin("qemu-system-arm");
+        const bool started = fake.ok() && qemu.start(spec, error) && qemu.audio() != nullptr;
+        for (int i = 0; i < 500 && started && qemu.audio()->available() < static_cast<uint32_t>(
+                                                   std::min(frames, 40000)); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return started;
+    };
+
+    // Step instructions and read port 0xFE bit 6 every 100 of them, against
+    // the comparator: the stand-in's whole tone is buffered at once, so the
+    // first pop trims it to ~4410 frames (100 ms; MX-32) and the sampling
+    // stays inside them. `invert`: the tape jack is high, so bit 6 = !ear.
+    struct EarReads { int reads = 0, mismatches = 0, ones = 0, zeros = 0; };
+    auto sample_ear = [&](Emulator& emu, int instructions, bool invert) {
+        EarReads r;
+        for (int i = 1; i <= instructions; ++i) {
+            emu.execute_single_instruction();
+            if (i % 100) continue;
+            const int bit = ear_bit(emu);
+            const int want = (emu.i2s().fe_ear() ? 1 : 0) ^ (invert ? 1 : 0);
+            ++r.reads;
+            if (bit != want) ++r.mismatches;
+            (bit ? r.ones : r.zeros)++;
+        }
+        return r;
+    };
+
+    // PI-56 — the CPU reads the comparator: with NR 0xA2 = 0xC3 (stereo +
+    // EAR; bit 1 is reserved and set), port 0xFE bit 6 equals pi_fe_ear at
+    // every read and takes both values. With bit 0 cleared it reads 0, and
+    // during a rewind replay it reads 0 even while the comparator is 1 (a
+    // host-timed level, like the sample on NR 0x2C).
+    {
+        FakeNextPi fake("audio-ear");
+        PiQemu qemu;
+        std::string error;
+        const bool started = start_pi(fake, qemu, 40000, 20, error);
+        EarReads on;
+        int off_ones = -1;
+        bool replay_ok = false;
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            Emulator emu;
+            emu.init(cfg);
+            emu.nextreg().write(0xA2, 0xC3);
+            on = sample_ear(emu, 20000, false);
+            for (int i = 0; i < 20000 && !emu.i2s().fe_ear(); ++i) emu.execute_single_instruction();
+            if (emu.i2s().fe_ear() && ear_bit(emu) == 1) {
+                emu.set_replay_mode(true);
+                replay_ok = ear_bit(emu) == 0;
+                emu.set_replay_mode(false);
+            }
+            emu.nextreg().write(0xA2, 0xC2);                  // bit 0 clear
+            off_ones = 0;
+            for (int i = 1; i <= 5000; ++i) {
+                emu.execute_single_instruction();
+                if (i % 100 == 0) off_ones += ear_bit(emu);
+            }
+        }
+        check("PI-56",
+              "with NR 0xA2 bit 0 set, port 0xFE bit 6 reads the Pi's EAR comparator, toggling "
+              "with a Pi square wave; with bit 0 clear, and during a rewind replay, it reads 0 "
+              "(zxnext.vhd:2361-2373, :3459)",
+              started && on.reads == 200 && on.mismatches == 0 && on.ones > 0 && on.zeros > 0 &&
+                  off_ones == 0 && replay_ok,
+              fmt("started=%d (%s) reads=%d mismatches=%d ones=%d zeros=%d bit0-clear ones=%d "
+                  "replay=%d", started ? 1 : 0, error.c_str(), on.reads, on.mismatches, on.ones,
+                  on.zeros, off_ones, replay_ok ? 1 : 0));
+    }
+
+    // PI-57 — XOR with a playing tape: a WAV tape holding a steady high level
+    // is the EAR jack, and bit 6 is jack XOR pi_fe_ear, i.e. the inverse of
+    // the comparator at every read (zxnext_top_issue2.vhd:673).
+    {
+        namespace fs = std::filesystem;
+        FakeNextPi fake("audio-ear-tape");
+        PiQemu qemu;
+        std::string error;
+        const bool started = start_pi(fake, qemu, 40000, 20, error);
+        const std::string wav = (fs::path(fake.dir()) / "high.wav").string();
+        {
+            std::ofstream f(wav, std::ios::binary);
+            auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) f.put(static_cast<char>(v >> (8 * i))); };
+            auto u16 = [&](uint16_t v) { f.put(static_cast<char>(v)); f.put(static_cast<char>(v >> 8)); };
+            const uint32_t n = 44100 * 3;                     // 3 s of 8-bit mono, all high
+            f.write("RIFF", 4); u32(36 + n); f.write("WAVEfmt ", 8); u32(16); u16(1); u16(1);
+            u32(44100); u32(44100); u16(1); u16(8); f.write("data", 4); u32(n);
+            for (uint32_t i = 0; i < n; ++i) f.put(static_cast<char>(0xF0));
+        }
+        EarReads r;
+        bool loaded = false;
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            Emulator emu;
+            emu.init(cfg);
+            loaded = emu.load_wav(wav) && emu.wav_tape().is_playing();
+            emu.nextreg().write(0xA2, 0xC3);
+            if (loaded) r = sample_ear(emu, 20000, true);
+        }
+        check("PI-57",
+              "with NR 0xA2 bit 0 set and a tape playing a steady high level, port 0xFE bit 6 is "
+              "the tape XOR the Pi's EAR comparator (zxnext_top_issue2.vhd:673)",
+              started && loaded && r.reads == 200 && r.mismatches == 0 && r.ones > 0 && r.zeros > 0,
+              fmt("started=%d (%s) tape=%d reads=%d mismatches=%d ones=%d zeros=%d", started ? 1 : 0,
+                  error.c_str(), loaded ? 1 : 0, r.reads, r.mismatches, r.ones, r.zeros));
+    }
+
+    // PI-58 — the relaxation: the stand-in plays a steady high level, so the
+    // comparator rises once and holds. Stepping instructions from the edge,
+    // bit 6 reads 1 at once and 30000 master cycles later, and has relaxed to
+    // the issue-2 level (0, issue-2 off) 34000 cycles after it: ear_relax
+    // holds a level for 64 ticks of the 512-cycle membrane enable (32768).
+    {
+        FakeNextPi fake("audio-ear-relax");
+        PiQemu qemu;
+        std::string error;
+        const bool started = start_pi(fake, qemu, 40000, 1 << 30, error);   // never flips
+        bool saw_edge = false;
+        int at_edge = -1, at_30000 = -1, at_34000 = -1;
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            Emulator emu;
+            emu.init(cfg);
+            emu.nextreg().write(0xA2, 0xC3);
+            for (int i = 0; i < 2000000 && !emu.i2s().fe_ear(); ++i) emu.execute_single_instruction();
+            saw_edge = emu.i2s().fe_ear();
+            if (saw_edge) {
+                const uint64_t t0 = emu.clock().get();
+                at_edge = ear_bit(emu);
+                while (emu.clock().get() < t0 + 30000) emu.execute_single_instruction();
+                at_30000 = ear_bit(emu);
+                while (emu.clock().get() < t0 + 34000) emu.execute_single_instruction();
+                at_34000 = ear_bit(emu);
+            }
+        }
+        check("PI-58",
+              "a steady Pi EAR level reads 1 on port 0xFE bit 6 from its edge, still 1 30000 "
+              "master cycles later, and relaxed to the issue-2 level (0) 34000 cycles after it "
+              "(ear_relax, zxnext_top_issue2.vhd:663-677: 64 x 512 cycles)",
+              started && saw_edge && at_edge == 1 && at_30000 == 1 && at_34000 == 0,
+              fmt("started=%d (%s) edge=%d bit6 at edge=%d +30000=%d +34000=%d", started ? 1 : 0,
+                  error.c_str(), saw_edge ? 1 : 0, at_edge, at_30000, at_34000));
+    }
+
+    // PI-59 — --silent: no mixing, but the Pi's samples are still latched,
+    // so the EAR path works as in PI-56 (--silent leaves EAR input working).
+    {
+        FakeNextPi fake("audio-ear-silent");
+        PiQemu qemu;
+        std::string error;
+        const bool started = start_pi(fake, qemu, 40000, 20, error);
+        EarReads r;
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            cfg.silent   = true;
+            Emulator emu;
+            emu.init(cfg);
+            emu.nextreg().write(0xA2, 0xC3);
+            r = sample_ear(emu, 20000, false);
+        }
+        check("PI-59",
+              "with --silent the Pi's samples are still latched and NR 0xA2 bit 0's EAR path "
+              "still toggles port 0xFE bit 6 (jnext-only: --silent has no VHDL counterpart)",
+              started && r.reads == 200 && r.mismatches == 0 && r.ones > 0 && r.zeros > 0,
+              fmt("started=%d (%s) reads=%d mismatches=%d ones=%d zeros=%d", started ? 1 : 0,
+                  error.c_str(), r.reads, r.mismatches, r.ones, r.zeros));
+    }
 }
 
 static void test_nr_a0_pi_uart_routing(Emulator& emu) {

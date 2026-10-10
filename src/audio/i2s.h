@@ -50,7 +50,7 @@ public:
     ///   b2 = pi_i2s_muteR
     ///   b1 = pi_i2s_slave (commented out in VHDL; reserved)
     ///   b0 = pi_i2s_ear
-    void    set_nr_a2_ctl(uint8_t v) { nr_a2_ctl_ = v; }
+    void    set_nr_a2_ctl(uint8_t v) { nr_a2_ctl_ = v; update_fe_ear(); }
     uint8_t nr_a2_ctl() const         { return nr_a2_ctl_; }
 
     /// Gated left-channel 10-bit value per VHDL zxnext.vhd:2358:
@@ -65,6 +65,15 @@ public:
     /// (mirror of pi_audio_L with R/L swapped).
     uint16_t pi_audio_R() const;
 
+    /// `pi_fe_ear` (zxnext.vhd:2361-2373): the Pi's audio as an EAR signal,
+    /// for NR 0xA2 bit 0 ("direct i2s audio to EAR on port 0xFE"). A
+    /// comparator with hysteresis on the RAW received samples (not the gated
+    /// pi_audio_L/R): with t = L(9:8) OR R(9:8), it goes to 1 at t = 11, back
+    /// to 0 at t = 00, and holds in between; forced to 0 unless I2S is enabled
+    /// (NR 0xA2 b7 or b6) and bit 0 is set. Re-evaluated on every latch and
+    /// every NR 0xA2 write, which is when its inputs change.
+    bool fe_ear() const { return fe_ear_; }
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
@@ -77,4 +86,7 @@ private:
     uint16_t left_{0};
     uint16_t right_{0};
     uint8_t  nr_a2_ctl_{0};
+    bool     fe_ear_{false};
+
+    void update_fe_ear();
 };

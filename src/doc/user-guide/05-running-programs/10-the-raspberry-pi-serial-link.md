@@ -40,7 +40,9 @@ the Next's own mixer, as on the real machine: it plays with the rest of the
 Next's sound, a video or WAV recording of the session includes it, and NextREG
 `0xA2` turns it on and off (NextPi's tools turn it on themselves). It arrives a
 little late — about a tenth of a second — and at the 10-bit quality of the
-Next's input.
+Next's input. With bit 0 of NextREG `0xA2` set, the Pi's sound goes to the EAR
+input instead, the tape signal port `0xFE` bit 6 reads, which is how a Next loads
+a tape the Pi plays to it.
 
 QEMU runs in the background for as long as JNEXT does, and stops with it. A
 soft or hard reset of the Next leaves the Pi running, as it would on the real

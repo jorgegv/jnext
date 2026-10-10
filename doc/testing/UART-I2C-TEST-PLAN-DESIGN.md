@@ -559,6 +559,10 @@ network or a NextPi image.
 | PI-54 | `PiQemu::build_args` with `Spec::audio = "host"`, and with it empty | `host`: `-audiodev` is the platform's default output (`pa,id=snd0`; on macOS `coreaudio,id=snd0,...`); empty: the mixer's wav FIFO. jnext-only, no VHDL counterpart |
 | PI-53 | `PiQemu` with `Spec::audio = "none"` | the stand-in's args carry `none,id=snd0` and no `wav,id=snd0,path=`; `audio()` is null; no `uart.audio` FIFO in the runtime directory. jnext-only, no VHDL counterpart |
 | PI-55 | `PiQemu` (default audio), a tone left ±16384 / right ±8192; Emulator with `pi_audio`, one live frame at NR 0xA2 = 0xC0; then reads in replay mode, during RZX playback and during RZX recording; then a snapshot save and load | live: NR 0x2C ∈ {0xC0, 0x40}, NR 0x2E ∈ {0xA0, 0x60}; replay / RZX playback / RZX recording: 0x2C = 0x80, 0x2D = 0x00, 0x2E = 0x80 (the rest value 0x200); after the load the latch is 0x200 in both channels (`zxnext.vhd:6006-6015`) |
+| PI-56 | Stand-in tone, both channels in phase at ±24576 (10-bit 0x380/0x080), flipping every 20 samples; NR 0xA2 = 0xC3; 200 port 0xFE reads, one per 100 stepped instructions; then a read in replay mode while the comparator is 1; then NR 0xA2 = 0xC2 | bit 6 equals `I2s::fe_ear()` at every read and takes both values; 0 in replay; 0 with bit 0 clear (`zxnext.vhd:2361-2373`, `:3459`) |
+| PI-57 | Same tone; a WAV tape of a steady high level playing | bit 6 is the inverse of `fe_ear()` at every read and takes both values: tape XOR comparator (`zxnext_top_issue2.vhd:673`) |
+| PI-58 | A steady tone (no flips), NR 0xA2 = 0xC3; instructions stepped from the comparator's edge | bit 6 is 1 at the edge and 30000 master cycles later, 0 (the issue-2 level, off) 34000 cycles later: 64 ticks of the 512-cycle membrane enable (`zxnext_top_issue2.vhd:663-677`, `symmetric_relaxation.vhd`) |
+| PI-59 | As PI-56 with `cfg.silent` | the same 200 reads match `fe_ear()` and take both values: the Pi's samples are latched without the mixer. jnext-only: --silent has no VHDL counterpart |
 
 ## Special Handling
 

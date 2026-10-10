@@ -2435,8 +2435,11 @@ reads it on a thread into a ring, and the emulator latches one frame per mixer
 output sample into <code>I2s</code> (<code>Emulator::feed_pi_audio</code>), or 0x200 when none is
 ready. <code>PiAudio</code> absorbs the drift between QEMU's host clock and the emulated
 one: it prebuffers 50 ms, plays silence on an underrun and prebuffers again, and
-trims a backlog past 300 ms back to 100 ms. The chapter on peripherals describes
-how NextPi itself runs.</p>
+trims a backlog past 300 ms back to 100 ms. NR 0xA2 bit 0 sends the Pi's audio
+to EAR instead: <code>I2s::fe_ear()</code> is the hardware's comparator with hysteresis
+(<code>zxnext.vhd:2361-2373</code>), and <code>Emulator::audio_ear_in</code> folds it into the port
+0xFE bit 6 read and the MIC output through the board's <code>ear_relax</code>. The chapter
+on peripherals describes how NextPi itself runs.</p>
 <h2 id="the-mixer">The mixer<a class="headerlink" href="#the-mixer" title="Permanent link">&para;</a></h2>
 <p><code>src/audio/mixer.*</code> reproduces <code>audio_mixer.vhd</code>'s 13-bit unsigned sum exactly:
 EAR contributes 512, MIC 128, the AY pair is zero-extended, the DAC pair is

@@ -16,7 +16,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # network or a NextPi image: the first run has no QEMU on its PATH, the second
 # answers the download prompt with end-of-input.
 #
-# SIX FACTS:
+# SEVEN FACTS:
 #   1. --nextpi with a ready NextPi directory and no QEMU installed exits 1 and
 #      says QEMU is not found (the install hint), without booting.
 #   2. --nextpi with nothing installed and the prompt declined (stdin closed)
@@ -38,6 +38,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      [nextpi] audio=none and a stand-in QEMU on PATH starts it with
 #      -audiodev none (not the mixer's wav FIFO). This is main.cpp copying
 #      the preference into the start (spec.audio = saved.nextpi_audio).
+#   7. NR 0xA2 bit 0 sends the Pi's audio to the EAR input: a program that
+#      sets NR 0xA2 = 0xC3 and polls port 0xFE sees bit 6 toggle with a Pi
+#      square wave, as a tape loader does when NextPi streams a tape.
 # Facts 3, 4 and 6 run the GUI on Qt's offscreen platform, where the warning
 # dialog of fact 4 is not shown (nobody could dismiss it); the log line that
 # precedes it is what the row reads.
@@ -220,10 +223,49 @@ STANDIN
     fi
 
     if [[ -n "$conf_saved" ]]; then mv "$conf_saved" "$conf"; else rm -f "$conf"; fi
+
+    # Fact 7 — the Pi as a tape. The stand-in loops a square wave with both
+    # channels in phase at +-24576 (10-bit 0x380/0x080: the EAR comparator's
+    # thresholds 11 and 00), flipping every 20 frames. On a 48K machine the
+    # injected program (org 0x8000) sets NR 0xA2 = 0xC3 (stereo + EAR; bit 1
+    # reserved), counts changes of port 0xFE bit 6 over 60000 reads, then
+    # writes 0xA5 and the count (high, low) to the magic port and loops:
+    #   NEXTREG $A2,$C3 ; LD HL,0 ; LD DE,60000 ; LD C,0
+    #   loop: LD A,$FF ; IN A,($FE) ; AND $40 ; CP C ; JR Z,same ; LD C,A ; INC HL
+    #   same: DEC DE ; LD A,D ; OR E ; JR NZ,loop
+    #   LD BC,$1234 ; LD A,$A5 ; OUT (C),A ; OUT (C),H ; OUT (C),L ; JR $
+    rm -rf "$np"
+    mkdir -p "$np/boot"
+    : >"$np/nextpi.img"
+    : >"$np/boot/kernel.img"
+    : >"$np/boot/bcm2708-rpi-zero.dtb"
+    : >"$np/overlay.qcow2"
+    echo 1_93D >"$np/release"
+    ear_bin="$TMP_DIR/nextpi-qemu-ear"
+    mkdir -p "$ear_bin"
+    printf '%044d' 0 >"$ear_bin/header.bin"
+    : >"$ear_bin/tone.pcm"
+    for _ in $(seq 20); do printf '\000\140\000\140' >>"$ear_bin/tone.pcm"; done   # +24576 both
+    for _ in $(seq 20); do printf '\000\240\000\240' >>"$ear_bin/tone.pcm"; done   # -24576 both
+    cp "$stand_in/qemu-system-arm" "$ear_bin/qemu-system-arm"   # fact 5's, reading its own dir
+    printf '\355\221\242\303\041\000\000\021\140\352\016\000\076\377\333\376\346\100\271\050\002\117\043\033\172\263\040\360\001\064\022\076\245\355\171\355\141\355\151\030\376' \
+        >"$TMP_DIR/nextpi-ear.bin"
+    rc=0
+    out=$(timeout --foreground --kill-after=5s 60s \
+        env PATH="$ear_bin:$PATH" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" --machine 48k \
+        --nextpi --inject "$TMP_DIR/nextpi-ear.bin" --magic-port 0x1234 --magic-port-mode dec \
+        --delayed-automatic-exit-frames 150 </dev/null 2>&1) || rc=$?
+    [[ $rc -eq 0 ]] || fails+=("the NR 0xA2 bit 0 EAR run exited $rc, want 0")
+    toggles=$(awk '$0=="165" {getline h; getline l; print h * 256 + l; exit}' <<<"$out")
+    if [[ ! "$toggles" =~ ^[0-9]+$ ]]; then
+        fails+=("the EAR-polling program never reported its count")
+    elif (( toggles < 20 )); then
+        fails+=("port 0xFE bit 6 changed $toggles times with the Pi on EAR, want at least 20")
+    fi
     rm -rf "$np"
 
     if [[ ${#fails[@]} -eq 0 ]]; then
-        pass_row " (--nextpi without QEMU exits 1 with the install hint; a declined download starts jnext without NextPi; --no-nextpi overrides the preference; a Preferences-only failure is logged and jnext runs on; the Pi's sound is in --wav-record, each channel at its own level; the saved Pi audio preference reaches QEMU)"
+        pass_row " (--nextpi without QEMU exits 1 with the install hint; a declined download starts jnext without NextPi; --no-nextpi overrides the preference; a Preferences-only failure is logged and jnext runs on; the Pi's sound is in --wav-record, each channel at its own level; the saved Pi audio preference reaches QEMU; with NR 0xA2 bit 0 the Pi's square wave toggles port 0xFE bit 6)"
     else
         fail_row " (${fails[*]})"
     fi
