@@ -1730,8 +1730,8 @@ command-line options always take precedence over them.
 About.
 
 The toolbar has Power Reset, Soft Reset, Pause, Load, Screenshot, an NMI
-button (Multiface NMI) and, in a debugger-enabled build, a bug button
-that opens the debugger.
+button (Multiface NMI) and, in a debugger-enabled build, a Debug button
+(a magnifier over a chip) that opens the debugger.
 
 CPU Speed and Emulator Speed are different things: the first changes the
 clock the emulated Z80 runs at, which is a real Next feature; the second
