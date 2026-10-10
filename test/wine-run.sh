@@ -94,6 +94,10 @@ fi
 
 if [[ "${1:-}" == --serve ]]; then
     # stdio on /dev/null: the daemon must hold none of our callers' pipes.
+    # A server left over from --init's wineboot would make -p fail (status 2):
+    # stop it first, and wait until it is gone.
+    /usr/bin/wineserver -k >/dev/null 2>&1 || true
+    /usr/bin/wineserver -w >/dev/null 2>&1 || true
     ${PRIV[@]+"${PRIV[@]}"} /usr/bin/wineserver -p </dev/null >/dev/null 2>&1 \
         || { echo "wine-run: cannot start wineserver" >&2; exit 2; }
     exit 0
