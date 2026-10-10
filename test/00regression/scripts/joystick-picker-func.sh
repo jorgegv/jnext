@@ -33,20 +33,23 @@ if want joystick-picker-func; then
     jp_g_none="ffffffffffffffffffffffffffffffff"
 
     # shellcheck disable=SC2016
-    jp_run() {   # $1 = binary, $2 = log, $3 = config dir, rest = jnext arguments
-        local bin="$1" log="$2" cfg="$3"; shift 3
+    # JNEXT_CONFIG_DIR is the row's own $RUN_DIR, which holds the SD-card clone
+    # the frontends look for; only jnext.conf is rewritten between runs.
+    jp_run() {   # $1 = binary, $2 = log, rest = jnext arguments
+        local bin="$1" log="$2"; shift 2
         rm -f "$log"
         env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=xcb SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
-            JNEXT_CONFIG_DIR="$cfg" JNEXT_TEST_VIRTUAL_JOYSTICKS="$jp_spec" \
+            JNEXT_TEST_VIRTUAL_JOYSTICKS="$jp_spec" \
         timeout --foreground --kill-after=5s 90s \
         xvfb-run -d --server-args="-screen 0 1280x1024x24" \
             "$bin" --machine 48k --silent --delayed-automatic-exit-frames 100 "$@" \
             >"$log" 2>&1 || true
     }
-    jp_conf() {   # $1 = dir, rest = lines of the [input] group
-        local dir="$1"; shift
-        mkdir -p "$dir"
-        { echo "[input]"; printf '%s\n' "$@"; } >"$dir/jnext.conf"
+    jp_conf() {   # no arguments = no config file; else the lines of the [input] group
+        rm -f "$RUN_DIR/jnext.conf"
+        if [[ $# -gt 0 ]]; then
+            { echo "[input]"; printf '%s\n' "$@"; } >"$RUN_DIR/jnext.conf"
+        fi
     }
 
     if ! command -v xvfb-run &>/dev/null; then
@@ -60,7 +63,8 @@ if want joystick-picker-func; then
         # F1 — Qt, fresh config: today's behaviour. Pads on Joy 1 and Joy 2 in
         # arrival order, the stick unbound; every line carries the id.
         log1="$TMP_DIR/jp_f1.log"
-        jp_run "$JNEXT" "$log1" "$TMP_DIR/jp_cfg1"
+        jp_conf
+        jp_run "$JNEXT" "$log1"
         g=$(sed -n "s/.*Joystick 1 connected: 'jnext pad A' \[\([0-9a-f]\{32\}\)\].*/\1/p" "$log1" | head -1)
         h=$(sed -n "s/.*'jnext stick C' \[\([0-9a-f]\{32\}\)\] detected but not connected.*/\1/p" "$log1" | head -1)
         if [[ -z "$g" || -z "$h" ]]; then
@@ -72,28 +76,30 @@ if want joystick-picker-func; then
         if [[ -n "$g" && -n "$h" ]]; then
             # F2 — Qt, saved assignment: stick on Joy 1, the second pad on Joy 2.
             log2="$TMP_DIR/jp_f2.log"
-            jp_conf "$TMP_DIR/jp_cfg2" "joy1_device=$h" "joy2_device=${g}#2"
-            jp_run "$JNEXT" "$log2" "$TMP_DIR/jp_cfg2"
+            jp_conf "joy1_device=$h" "joy2_device=${g}#2"
+            jp_run "$JNEXT" "$log2"
             grep -qF "Joystick 1 connected: 'jnext stick C' [$h]" "$log2" || note "F2: Joy 1 is not the saved stick"
             grep -qF "Joystick 2 connected: 'jnext pad A' [${g}#2]" "$log2" || note "F2: Joy 2 is not the saved second pad"
 
             # F3 — Qt, saved controller that is not present: fall back to the
             # first free one, saying so.
             log3="$TMP_DIR/jp_f3.log"
-            jp_conf "$TMP_DIR/jp_cfg3" "joy1_device=$jp_g_none" "joy1_device_name=Gone Pad"
-            jp_run "$JNEXT" "$log3" "$TMP_DIR/jp_cfg3"
+            jp_conf "joy1_device=$jp_g_none" "joy1_device_name=Gone Pad"
+            jp_run "$JNEXT" "$log3"
             grep -qF "Joy 1: assigned controller 'Gone Pad' [$jp_g_none] is not connected; using the first free controller instead" "$log3" \
                 || note "F3: no fallback line"
             grep -qF "Joystick 1 connected: 'jnext pad A' [$g]" "$log3" || note "F3: Joy 1 did not fall back to the first pad"
 
             # F4 — Qt, the command line beats the saved assignment.
             log4="$TMP_DIR/jp_f4.log"
-            jp_run "$JNEXT" "$log4" "$TMP_DIR/jp_cfg2" --joy1-device "$g"
+            jp_conf "joy1_device=$h" "joy2_device=${g}#2"
+            jp_run "$JNEXT" "$log4" --joy1-device "$g"
             grep -qF "Joystick 1 connected: 'jnext pad A' [$g]" "$log4" || note "F4: --joy1-device did not win over the saved stick"
 
             # F5 — the SDL-only frontend: no config file, the command line is all.
             log5="$TMP_DIR/jp_f5.log"
-            jp_run "$sdl_bin" "$log5" "$TMP_DIR/jp_cfg5" --joy1-device "$h"
+            jp_conf
+            jp_run "$sdl_bin" "$log5" --joy1-device "$h"
             grep -qF "Joystick 1 connected: 'jnext stick C' [$h]" "$log5" || note "F5: SDL-only --joy1-device not applied"
 
             # F6 — a malformed id is refused; headless says the flag is inert.
