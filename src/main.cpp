@@ -152,8 +152,38 @@ static void print_usage(const char* prog) {
     }
 }
 
-static uint16_t parse_hex16(const char* s) {
-    return static_cast<uint16_t>(std::stoul(s, nullptr, 16));
+// GH #317 — numeric option values go through cli::parse_int / cli::parse_hex16,
+// never a bare std::sto*: that throws (and aborts the process) on `x` and reads
+// `5x` as 5. A bad value is a usage error naming the option and the value; the
+// caller returns 1. The metavar comes from the option's own table row, so the
+// message cannot drift from `--help`.
+static std::string first_metavar(const cli::Option* opt) {
+    const std::string a = opt->args;
+    return a.substr(0, a.find(' '));
+}
+
+static bool int_arg(const std::string& arg, const cli::Option* opt, const char* v,
+                    long lo, long hi, int& out) {
+    long n = 0;
+    if (!cli::parse_int(v, lo, hi, n)) {
+        fprintf(stderr, "%s: %s must be a whole number from %ld to %ld, not \"%s\".\n",
+                arg.c_str(), first_metavar(opt).c_str(), lo, hi, v);
+        return false;
+    }
+    out = static_cast<int>(n);
+    return true;
+}
+
+static bool hex16_arg(const std::string& arg, const cli::Option* opt, const char* v,
+                      uint16_t& out) {
+    if (!cli::parse_hex16(v, out)) {
+        fprintf(stderr,
+                "%s: %s must be a hexadecimal number from 0 to FFFF (0x prefix optional), "
+                "not \"%s\".\n",
+                arg.c_str(), first_metavar(opt).c_str(), v);
+        return false;
+    }
+    return true;
 }
 
 int main(int argc, char* argv[]) {
@@ -382,15 +412,15 @@ int main(int argc, char* argv[]) {
                 inject_file = v[0];
                 break;
             case cli::OptId::InjectOrg:
-                inject_org = parse_hex16(v[0]);
+                if (!hex16_arg(arg, opt, v[0], inject_org)) return 1;
                 inject_org_set = true;
                 break;
             case cli::OptId::InjectPc:
-                inject_pc = parse_hex16(v[0]);
+                if (!hex16_arg(arg, opt, v[0], inject_pc)) return 1;
                 inject_pc_set = true;
                 break;
             case cli::OptId::InjectDelay:
-                inject_delay = std::stoi(v[0]);
+                if (!int_arg(arg, opt, v[0], 0, INT_MAX, inject_delay)) return 1;
                 inject_delay_set = true;
                 break;
             case cli::OptId::Load:
@@ -440,11 +470,11 @@ int main(int argc, char* argv[]) {
                 screenshot_file = v[0];
                 break;
             case cli::OptId::DelayedScreenshotTime:
-                screenshot_delay = std::stoi(v[0]);
+                if (!int_arg(arg, opt, v[0], 0, cli::MAX_DELAY_SECONDS, screenshot_delay)) return 1;
                 screenshot_delay_set = true;
                 break;
             case cli::OptId::DelayedScreenshotFrames:
-                screenshot_delay_frames = std::stoi(v[0]);
+                if (!int_arg(arg, opt, v[0], 0, INT_MAX, screenshot_delay_frames)) return 1;
                 break;
             case cli::OptId::DelayedScreenshotLayers: {
                 std::string err;
@@ -456,16 +486,16 @@ int main(int argc, char* argv[]) {
                 break;
             }
             case cli::OptId::DelayedAutomaticExit:
-                auto_exit_delay = std::stoi(v[0]);
+                if (!int_arg(arg, opt, v[0], 0, cli::MAX_DELAY_SECONDS, auto_exit_delay)) return 1;
                 break;
             case cli::OptId::DelayedAutomaticExitFrames:
-                auto_exit_delay_frames = std::stoi(v[0]);
+                if (!int_arg(arg, opt, v[0], 0, INT_MAX, auto_exit_delay_frames)) return 1;
                 break;
             case cli::OptId::DelayedSnapshot:
                 snapshot_file = v[0];
                 break;
             case cli::OptId::DelayedSnapshotFrames:
-                snapshot_delay_frames = std::stoi(v[0]);
+                if (!int_arg(arg, opt, v[0], 0, INT_MAX, snapshot_delay_frames)) return 1;
                 snapshot_delay_frames_set = true;
                 break;
             // GH #27 — the two `.jns` flags (design §15.1). They reach the
@@ -509,11 +539,7 @@ int main(int argc, char* argv[]) {
                 headless = true;
                 break;
             case cli::OptId::Benchmark:
-                benchmark_frames = std::stoi(v[0]);
-                if (benchmark_frames <= 0) {
-                    fprintf(stderr, "--benchmark: frame count must be > 0\n");
-                    return 1;
-                }
+                if (!int_arg(arg, opt, v[0], 1, INT_MAX, benchmark_frames)) return 1;
                 break;
             case cli::OptId::BenchmarkLabel:
                 // Canonical workload name for the BENCH line (Task 27 T1 review):
@@ -546,10 +572,8 @@ int main(int argc, char* argv[]) {
                 // A port that silently became another one would be a server
                 // the user cannot find, so anything but 0..65535, whole, is a
                 // usage error — `11000x` is not 11000.
-                char* end = nullptr;
-                errno = 0;
-                const long n = std::strtol(v[0], &end, 10);
-                if (errno != 0 || end == v[0] || *end != '\0' || n < 0 || n > 65535) {
+                long n = 0;
+                if (!cli::parse_int(v[0], 0, 65535, n)) {
                     fprintf(stderr,
                             "--dzrp-port: PORT must be a number from 0 to 65535, not \"%s\" "
                             "(0 binds an OS-chosen port and logs it).\n",
@@ -561,10 +585,8 @@ int main(int argc, char* argv[]) {
             }
             case cli::OptId::GdbPort: {
                 // GH #281 — the same rule, for the same reason, as --dzrp-port.
-                char* end = nullptr;
-                errno = 0;
-                const long n = std::strtol(v[0], &end, 10);
-                if (errno != 0 || end == v[0] || *end != '\0' || n < 0 || n > 65535) {
+                long n = 0;
+                if (!cli::parse_int(v[0], 0, 65535, n)) {
                     fprintf(stderr,
                             "--gdb-port: PORT must be a number from 0 to 65535, not \"%s\" "
                             "(0 binds an OS-chosen port and logs it).\n",
@@ -600,10 +622,8 @@ int main(int argc, char* argv[]) {
             case cli::OptId::ZrcpPort: {
                 // GH #280 — the same port rule and the same strictness as
                 // --dzrp-port: `10000x` is not 10000.
-                char* end = nullptr;
-                errno = 0;
-                const long n = std::strtol(v[0], &end, 10);
-                if (errno != 0 || end == v[0] || *end != '\0' || n < 0 || n > 65535) {
+                long n = 0;
+                if (!cli::parse_int(v[0], 0, 65535, n)) {
                     fprintf(stderr,
                             "--zrcp-port: PORT must be a number from 0 to 65535, not \"%s\" "
                             "(0 binds an OS-chosen port and logs it).\n",
@@ -708,10 +728,8 @@ int main(int argc, char* argv[]) {
                 // with trailing junk — `10s` reading as frame 10 would be a
                 // different outage than the one asked for.
                 const bool down = (opt->id == cli::OptId::EspDelayedDisassociateFrames);
-                char* end = nullptr;
-                errno = 0;
-                const long n = std::strtol(v[0], &end, 10);
-                if (errno != 0 || end == v[0] || *end != '\0' || n < 0 || n > INT_MAX) {
+                long n = 0;
+                if (!cli::parse_int(v[0], 0, INT_MAX, n)) {
                     fprintf(stderr,
                             "%s: N must be a non-negative frame number, not \"%s\".\n",
                             arg.c_str(), v[0]);
@@ -766,7 +784,7 @@ int main(int argc, char* argv[]) {
             }
             case cli::OptId::MagicPort:
                 magic_port_enabled = true;
-                magic_port_address = static_cast<uint16_t>(std::stoul(v[0], nullptr, 0));
+                if (!hex16_arg(arg, opt, v[0], magic_port_address)) return 1;
                 break;
             case cli::OptId::MagicPortMode: {
                 std::string mode = v[0];
@@ -804,8 +822,8 @@ int main(int argc, char* argv[]) {
                         throw std::invalid_argument("range");
                     }
                 } catch (const std::exception&) {
-                    fprintf(stderr, "%s: expected a number from -24 to +24 dB\n",
-                            arg.c_str());
+                    fprintf(stderr, "%s: expected a number from -24 to +24 dB, not \"%s\".\n",
+                            arg.c_str(), v[0]);
                     return 1;
                 }
                 (void)cli::assign_audio_gain(opt->id, parsed, audio_gain);
@@ -818,7 +836,16 @@ int main(int argc, char* argv[]) {
                 rzx_record_file = v[0];
                 break;
             case cli::OptId::Speed:
-                speed_percent = std::stoi(v[0]);
+                {
+                    long n = 0;
+                    if (!cli::parse_int(v[0], INT_MIN, INT_MAX, n)) {
+                        fprintf(stderr,
+                                "--speed: PERCENT must be a whole number (outside 10..1000 it "
+                                "is clamped), not \"%s\".\n", v[0]);
+                        return 1;
+                    }
+                    speed_percent = static_cast<int>(n);
+                }
                 if (speed_percent < 10) speed_percent = 10;
                 if (speed_percent > 1000) speed_percent = 1000;
                 speed_percent_set = true;
@@ -885,9 +912,7 @@ int main(int argc, char* argv[]) {
                 // Parsed here so a typo is a usage error, not a stream that
                 // starts at frame 0 and is spent before the guest is listening
                 // — the exact silent no-op this option exists to prevent.
-                char* end = nullptr;
-                joy_uart_rx_delay_frames = std::strtol(v[0], &end, 10);
-                if (end == v[0] || *end != '\0' || joy_uart_rx_delay_frames < 0) {
+                if (!cli::parse_int(v[0], 0, INT_MAX, joy_uart_rx_delay_frames)) {
                     std::fprintf(stderr,
                                  "--joy-uart-rx-delay-frames: N must be a non-negative "
                                  "whole number of frames, not \"%s\".\n", v[0]);
@@ -917,15 +942,17 @@ int main(int argc, char* argv[]) {
                 // run() start using the active machine's framerate.
                 // FRAMES form: stored as frames directly.
                 const bool in_frames = (opt->id == cli::OptId::DelayedKeypressFrames);
-                int dk_n = std::stoi(v[0]);
+                int dk_n = 0;
+                if (!int_arg(arg, opt, v[0], 0, in_frames ? INT_MAX : cli::MAX_DELAY_SECONDS, dk_n)) return 1;
                 std::string dk_key = v[1];
                 // Key-name parsing (single char, ENTER/SPACE/cursor names,
                 // punctuation, sym+X / caps+X compounds) lives in
                 // HeadlessApp::set_delayed_keypress, which rejects unknown
                 // names loudly (Task 57). Just store the raw name here.
-                if (!dk_key.empty()) {
-                    delayed_keys.push_back({dk_n, dk_key, in_frames});
-                }
+                // Queued UNCONDITIONALLY, including an empty name (GH #317): the
+                // parser rejects what it does not recognise, and skipping it here
+                // would drop the press silently.
+                delayed_keys.push_back({dk_n, dk_key, in_frames});
                 break;
             }
             case cli::OptId::DelayedNmi:
@@ -938,7 +965,8 @@ int main(int argc, char* argv[]) {
                 // which rejects unknown names loudly. Store the raw
                 // name here (GH #209).
                 const bool in_frames = (opt->id == cli::OptId::DelayedNmiFrames);
-                int dn_n = std::stoi(v[0]);
+                int dn_n = 0;
+                if (!int_arg(arg, opt, v[0], 0, in_frames ? INT_MAX : cli::MAX_DELAY_SECONDS, dn_n)) return 1;
                 // Queued UNCONDITIONALLY, including an empty name: the
                 // parser below rejects what it does not recognise, and an
                 // empty BUTTON is exactly such a name. Skipping it here
@@ -953,10 +981,8 @@ int main(int argc, char* argv[]) {
                 // are refused HERE, because each would otherwise run on and
                 // exit 0: an empty FILE is an EJECT to the emulator (a script
                 // with an unset variable would pull the card), and a bad N.
-                char* end = nullptr;
-                errno = 0;
-                const long n = std::strtol(v[0], &end, 10);
-                if (errno != 0 || end == v[0] || *end != '\0' || n < 0 || n > INT_MAX) {
+                long n = 0;
+                if (!cli::parse_int(v[0], 0, INT_MAX, n)) {
                     fprintf(stderr, "--delayed-sdcard-insert-frames: N must be a "
                                     "non-negative frame number, not \"%s\".\n", v[0]);
                     return 1;
@@ -970,8 +996,7 @@ int main(int argc, char* argv[]) {
                 break;
             }
             case cli::OptId::RewindBufferSize:
-                rewind_buffer_frames = std::stoi(v[0]);
-                if (rewind_buffer_frames < 0) rewind_buffer_frames = 0;
+                if (!int_arg(arg, opt, v[0], 0, INT_MAX, rewind_buffer_frames)) return 1;
                 break;
             case cli::OptId::Trace:
                 trace_enabled = true;
@@ -980,7 +1005,7 @@ int main(int argc, char* argv[]) {
                 compositor_trace_path = v[0];
                 break;
             case cli::OptId::CompositorTraceFrame:
-                compositor_trace_frame = std::stoi(v[0]);
+                if (!int_arg(arg, opt, v[0], 0, INT_MAX, compositor_trace_frame)) return 1;
                 compositor_trace_frame_set = true;
                 break;
             case cli::OptId::Profile:
