@@ -101,6 +101,13 @@ if [[ "${1:-}" == --serve ]]; then
     /usr/bin/wineserver -w >/dev/null 2>&1 || true
     ${PRIV[@]+"${PRIV[@]}"} /usr/bin/wineserver -p </dev/null >/dev/null 2>&1 \
         || { echo "wine-run: cannot start wineserver" >&2; exit 2; }
+    # Start wine's own services (services.exe, winedevice.exe ...) NOW, with stdio
+    # on /dev/null: the first wine client otherwise starts them, they inherit ITS
+    # stdout/stderr -- the CRLF filters' pipes -- and never let the filters see EOF
+    # (measured: a row hung to its bound). `wineboot -u` is not enough: it leaves
+    # no services running; a cmd.exe client does.
+    timeout --kill-after=5s 300s ${PRIV[@]+"${PRIV[@]}"} /usr/bin/wine cmd /c exit </dev/null >/dev/null 2>&1 \
+        || { echo "wine-run: the services warm-up after wineserver -p failed" >&2; exit 2; }
     exit 0
 fi
 
