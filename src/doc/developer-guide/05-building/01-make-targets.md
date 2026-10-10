@@ -93,8 +93,10 @@ display variable set so no window can open on your desktop. The test executables
 link with an 8 MB stack (their fixtures hold emulators on the stack; Linux gives
 a main thread 8 MB, MinGW 2 MB), while `jnext.exe` keeps the default and its
 frame gate. Both need the SD image, which `make sdcard-image` provisions through
-jnext's own download if it is missing. `make unit-test-win` is part of the merge
-gate for every code change.
+jnext's own download if it is missing. `make unit-test-win` is two steps,
+`unit-test-win-build` (cross-build the tree) and `unit-test-win-run` (run it under
+wine, no compiler needed), so the run step could later be taken over by a real
+Windows host; it is part of the merge gate for every code change.
 
 Chapter [4. Testing](../04-testing/index.md) covers what each of these actually
 proves.

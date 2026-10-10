@@ -190,7 +190,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
-       unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build sdcard-image \
+       unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
        kloc-count regression regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
@@ -854,16 +854,21 @@ unit-test-sdl-build:
 	@$(CMAKE) --build $(BUILD_DIR_SDL_UNIT_TEST) -j$(JOBS)
 
 # Run the SDL-only unit suites as Windows executables (MinGW cross build) under wine
-unit-test-win: unit-test-win-build sdcard-image
+unit-test-win: unit-test-win-build unit-test-win-run
 	@# GH #214. The same suite set `unit-test-sdl` runs, built for Windows with the
-	@# Fedora MinGW toolchain and run under wine (test/wine-run.sh), so a Windows
-	@# compile break, a Win32 code path (esp_socket_win.cpp, win_process.h, the
-	@# _WIN32 arms) or a path-separator bug shows up on the Linux development host
-	@# and in the fedora:44 CI container. Suites the platform cannot have are
-	@# declared absent with `# os:` in test/unit-tests.conf, never skipped.
-	@# What wine cannot stand in for stays untested until a native Windows leg
-	@# exists: symlink creation, a real console attach for a GUI-subsystem exe,
-	@# NTFS short names / streams.
+	@# Fedora MinGW toolchain and run under wine, in two steps: -build cross-builds
+	@# the tree, -run executes it. This target is just both. What wine cannot stand
+	@# in for stays untested: symlink creation, a real console attach for a
+	@# GUI-subsystem exe, NTFS short names and streams. Suites the platform cannot
+	@# have are declared absent with `# os:` in test/unit-tests.conf, never skipped.
+	@true
+
+# Run the already-built Windows unit-test tree (build/win-sdl-unit-test) under wine
+unit-test-win-run: sdcard-image
+	@# Needs only the tree and wine, no compiler: the run step a real Windows host
+	@# could later take over (the tree is not yet a relocatable directory -- the
+	@# suites still read the source tree and the SD image by absolute path).
+	@bash test/wine-run.sh --init $(BUILD_DIR_WIN_UNIT_TEST)
 	@# JNEXT_UNIT_TEST_JOBS: one wine process per CPU, not a burst of a hundred.
 	@JNEXT_TEST_RUNNER="bash $(CURDIR)/test/wine-run.sh" JNEXT_UNIT_TEST_JOBS=$(JOBS) \
 		bash test/run-unit-tests.sh $(BUILD_DIR_WIN_UNIT_TEST)
@@ -900,7 +905,6 @@ unit-test-win-build:
 		done; \
 	fi
 	@$(CMAKE) --build $(BUILD_DIR_WIN_UNIT_TEST) -j$(JOBS)
-	@bash test/wine-run.sh --init $(BUILD_DIR_WIN_UNIT_TEST)
 
 # Build every ENABLE_QT_UI x ENABLE_DEBUGGER combination; fails if any breaks
 build-matrix:
