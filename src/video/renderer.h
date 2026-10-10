@@ -337,7 +337,7 @@ public:
     /// zxnext.vhd:7218-7352: each priority mux defaults to `fallback_rgb_2`
     /// and is only overwritten by an opaque layer).
     ///
-    /// This is the exact byte `render_row` feeds `rrrgggbb_to_argb` for that
+    /// This is the exact byte `render_row` feeds `fallback_to_argb` for that
     /// row, so the debugger's "Background" view reads the compositor's own
     /// per-scanline snapshot instead of re-deriving anything.  It is per-LINE
     /// because a Copper program can MOVE NR 0x4A mid-frame to paint a gradient
@@ -476,6 +476,14 @@ public:
         uint8_t b8 = (b2 << 6) | (b2 << 4) | (b2 << 2) | b2;
         return 0xFF000000u | (r8 << 16) | (g8 << 8) | b8;
     }
+
+    /// NR 0x4A (fallback) byte -> ARGB8888 as the hardware makes it: a 9-bit
+    /// colour, RRRGGGBB plus blue LSB = B1|B0 (zxnext.vhd:7214, :6990), the
+    /// NR 0x41 expansion. The ONE place that expansion lives: render_row and
+    /// the debugger's Background / ULA views all call it, so a view of the
+    /// fallback cannot disagree with the composite. (rrrgggbb_to_argb is the
+    /// debugger API's 8-bit colour and is not the fallback.)
+    static uint32_t fallback_to_argb(uint8_t nr4a);
 
     /// Render one complete frame into the ARGB8888 framebuffer.
     ///

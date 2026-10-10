@@ -28,7 +28,7 @@ mentions them, so a test can no longer be absent from this document.
 | Sprites                                    |   217 |  217 |    0 |    0 |       0 |          0 |
 | Tilemap                                    |    98 |   98 |    0 |    0 |       0 |          0 |
 | Copper                                     |   110 |  110 |    0 |    0 |       0 |          0 |
-| Compositor                                 |   290 |  290 |    0 |    0 |       0 |          0 |
+| Compositor                                 |   294 |  294 |    0 |    0 |       0 |          0 |
 | Audio                                      |   221 |  221 |    0 |    0 |       0 |          0 |
 | DMA                                        |   185 |  185 |    0 |    0 |       0 |          0 |
 | DivMMC+SPI                                 |   162 |  162 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   30 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    97 |   97 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5566 | 5566 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5570 | 5570 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5566**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5187**. Rows the 134 suites declared in `test/unit-tests.conf` run live: **12477**.
+Rows the sections above carry: **5570**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5191**. Rows the 134 suites declared in `test/unit-tests.conf` run live: **12483**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -77,7 +77,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 91 suites (7374 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 91 suites (7376 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -128,7 +128,7 @@ These 91 suites (7374 live rows) have no VHDL-derived plan row to map, so they h
 | `resume_guard_test` | 11 | debugger resume-confirmation policy (jnext-internal) |
 | `debug_qt_free_test` | 13 | source-tree layout lint (GH #278 WP1: no Qt under src/debug/), no hardware behaviour |
 | `step_out_test` | 50 | debugger Step Out execution control (jnext-internal); the T80N core has no debugger |
-| `debugger_backend_test` | 1444 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
+| `debugger_backend_test` | 1446 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
 | `persistent_bp_test` | 22 | debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger |
 | `io_watchpoint_test` | 25 | debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger |
 | `bp_enable_test` | 23 | debugger breakpoint enable/disable policy (GH #225, jnext-internal); the T80N core has no debugger |
@@ -1334,127 +1334,131 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | TR-26 | NR0x14=0x02, text-mode TM colour 9-bit 0x005 (blue 101) is transparent; the ULA shows (VHDL zxnext.vhd:7109, 7116) | zxnext.vhd:7109,7116 | pass | test/compositor/compositor_test.cpp:602 |
 | TR-27 | text-mode TM compares exactly colour bits 8:1: 512 matching colours transparent, 4096 with one compared bit flipped opaque (VHDL zxnext.vhd:7109) | zxnext.vhd:7109 | pass | test/compositor/compositor_test.cpp:641 |
 | TRB-01 | NR 0x14=0x02 with ULA paper and text-mode tile both palette colour 0x02 (9-bit 0x005): both transparent, Layer 2 white shows (zxnext.vhd:7100,7109,7121) | zxnext.vhd:7100,7109,7121 | pass | test/compositor/compositor_integration_test.cpp:1995 |
-| TR-30 | L2 RGB[8:1]==NR0x14 => layer2_transparent (VHDL 7121) | zxnext.vhd:7121 | pass | test/compositor/compositor_test.cpp:659 |
-| TR-31 | L2 pixel_en=0 => layer2_transparent (VHDL zxnext.vhd:7121) | zxnext.vhd:7121 | pass | test/compositor/compositor_test.cpp:708 |
-| TR-32 | L2 opaque; priority bit propagation checked in L2P (VHDL 7123) | zxnext.vhd:7123 | pass | test/compositor/compositor_test.cpp:726 |
-| TR-33 | layer2_transparent=1 suppresses priority bit (VHDL 7123) | zxnext.vhd:7123 | pass | test/compositor/compositor_test.cpp:741 |
-| TR-34 | Layer 2 compares exactly colour bits 8:1: 512 matching colours transparent, 4096 with one compared bit flipped opaque (VHDL zxnext.vhd:7121) | zxnext.vhd:7121 | pass | test/compositor/compositor_test.cpp:691 |
-| TR-40 | sprite_pixel_en=0 => sprite_transparent (VHDL zxnext.vhd:7118) | zxnext.vhd:7118 | pass | test/compositor/compositor_test.cpp:753 |
-| TR-41 | Sprite opaque even if RGB==NR0x14 (no sprite RGB compare) (VHDL zxnext.vhd:7118) | zxnext.vhd:7118 | pass | test/compositor/compositor_test.cpp:770 |
-| TR-50 | NR 0x14 write mid-frame does not retroactively affect a row whose per-line snapshot already ran — row still shows the pre-write ULA pixel (VHDL 1137,5226,6822,6912-6913,7078,7100) | zxnext.vhd:5445-5446,6810-6811 | pass | test/compositor/compositor_test.cpp:817 |
-| TR-51 | After the deferred snapshot lands, the SAME row selects the new NR 0x14 value and the ULA pixel goes transparent (VHDL 1137,5226,6822,6912-6913,7078,7100) | — | pass | test/compositor/compositor_test.cpp:833 |
-| TR-52 | mid-frame NR 0x14 write does not retroactively make Layer2::render_scanline skip-write a pixel on a row whose snapshot already ran — pixel survives using the pre-write deferred value (VHDL 7121, 1137,5226,6822,6912-6913,7078) | zxnext.vhd:7121 | pass | test/compositor/compositor_test.cpp:934 |
-| TR-53 | After the deferred snapshot lands, the SAME row selects the new NR 0x14 value and Layer2 correctly skip-writes the now-transparent pixel — fallback colour wins (VHDL 7121, 1137,5226,6822,6912-6913,7078) | — | pass | test/compositor/compositor_test.cpp:954 |
-| L2EQ-01 | layer2_rgb8(entry)!=X implies layer2_colour(entry)!=rrrgggbb_to_argb(X), for all 512 RGB333 entries x all 256 register values — a pixel Layer2's own gate writes (opaque) can never be independently re-flagged transparent by renderer.cpp's redundant l2_transp RGB-match clause (VHDL 7121) | — | pass | test/compositor/compositor_test.cpp:1071 |
-| TRI-10 | sprite index=NR0x4B => pixel_en=0 => transparent (sprites.vhd:1067, zxnext 7118) | sprites.vhd:1067 | pass | test/compositor/compositor_test.cpp:1098 |
-| TRI-11 | sprite index!=NR0x4B => pixel_en=1 => opaque (sprites.vhd:1067, zxnext 7118) | sprites.vhd:1067 | pass | test/compositor/compositor_test.cpp:1109 |
-| TRI-20 | TM nibble==NR0x4C => pixel_en=0 (zxnext 4395, 7109) | zxnext.vhd:4395,7109 | pass | test/compositor/compositor_test.cpp:1122 |
-| FB-10 | fallback 0xE3 -> 9-bit 0x1C7 (VHDL 7214: bit0\|bit1 = 1\|1 = 1) | — | pass | test/compositor/compositor_test.cpp:1147 |
-| FB-11 | fallback 0x00 -> 9-bit 0x000 (VHDL zxnext.vhd:7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:1157 |
-| FB-12 | fallback 0x4A -> 9-bit 0x095 (bit1\|bit0 = 1\|0 = 1) (VHDL 7214) | — | pass | test/compositor/compositor_test.cpp:1167 |
-| FB-13 | fallback 0x01 -> 9-bit 0x003 (bit0=1) (VHDL zxnext.vhd:7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:1175 |
-| FB-14 | fallback 0x02 -> 9-bit 0x005 (bit1=1) (VHDL zxnext.vhd:7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:1183 |
-| FB-15 | Opaque sprite overrides fallback (VHDL zxnext.vhd:7222) | zxnext.vhd:7222 | pass | test/compositor/compositor_test.cpp:1195 |
-| FB-16 | Reset default fallback = 0xE3 (VHDL zxnext.vhd:5014 nr_4a_fallback_rgb reset) | zxnext.vhd:5014 | pass | test/compositor/compositor_test.cpp:1204 |
-| FB-17 | All 8 modes -> fallback when all layers transp; 0x42 9-bit=0x085 (VHDL zxnext.vhd:7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:1224 |
-| PRI-010-SLU-3 | Mode 000, all three opaque | zxnext.vhd:7222 | pass | test/compositor/compositor_test.cpp:1268 |
-| PRI-010-SLU-LU | Mode 000, only L+U | zxnext.vhd:7224 | pass | test/compositor/compositor_test.cpp:1269 |
-| PRI-010-SLU-U | Mode 000, only U | zxnext.vhd:7226 | pass | test/compositor/compositor_test.cpp:1270 |
-| PRI-010-SLU-0 | Mode 000, none | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:1271 |
-| PRI-011-LSU-3 | Mode 001, all three | zxnext.vhd:7232 | pass | test/compositor/compositor_test.cpp:1274 |
-| PRI-011-LSU-SU | Mode 001, S+U only | zxnext.vhd:7234 | pass | test/compositor/compositor_test.cpp:1275 |
-| PRI-011-LSU-U | Mode 001, U only | zxnext.vhd:7236 | pass | test/compositor/compositor_test.cpp:1276 |
-| PRI-010-SUL-3 | Mode 010, all three | zxnext.vhd:7244 | pass | test/compositor/compositor_test.cpp:1279 |
-| PRI-010-SUL-UL | Mode 010, U+L | zxnext.vhd:7246 | pass | test/compositor/compositor_test.cpp:1280 |
-| PRI-010-SUL-L | Mode 010, L only | zxnext.vhd:7248 | pass | test/compositor/compositor_test.cpp:1281 |
-| PRI-011-LUS-3 | Mode 011, all three | zxnext.vhd:7254 | pass | test/compositor/compositor_test.cpp:1284 |
-| PRI-011-LUS-US | Mode 011, U(non-border)+S | zxnext.vhd:7256 | pass | test/compositor/compositor_test.cpp:1285 |
-| PRI-011-LUS-S | Mode 011, S only | zxnext.vhd:7258 | pass | test/compositor/compositor_test.cpp:1286 |
-| PRI-011-LUS-border | mode 011 border exception: U suppressed, S shows (VHDL 7256) | zxnext.vhd:7256 | pass | test/compositor/compositor_test.cpp:1309 |
-| PRI-100-USL-3 | Mode 100, all three | zxnext.vhd:7266 | pass | test/compositor/compositor_test.cpp:1289 |
-| PRI-100-USL-border | mode 100 border exception: S wins (VHDL zxnext.vhd:7266) | zxnext.vhd:7266 | pass | test/compositor/compositor_test.cpp:1323 |
-| PRI-100-USL-L | Mode 100, L only | zxnext.vhd:7270 | pass | test/compositor/compositor_test.cpp:1290 |
-| PRI-101-ULS-3 | Mode 101, all three | zxnext.vhd:7278 | pass | test/compositor/compositor_test.cpp:1293 |
-| PRI-101-ULS-border | mode 101 border exception: L2 wins after U suppressed (VHDL zxnext.vhd:7278,7280) | zxnext.vhd:7278,7280 | pass | test/compositor/compositor_test.cpp:1340 |
-| PRI-101-ULS-S | Mode 101, S only | zxnext.vhd:7282 | pass | test/compositor/compositor_test.cpp:1294 |
-| PRI-B-0 | All modes 000..101 with 0 opaque layers => fallback (VHDL zxnext.vhd:7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:1365 |
-| PRI-B-1 | Sprite RGB==NR0x14 still opaque (VHDL zxnext.vhd:7118) | zxnext.vhd:7118 | pass | test/compositor/compositor_test.cpp:1376 |
-| PRI-B-2 | mode 001: L2 beats S when both opaque (VHDL zxnext.vhd:7232) | zxnext.vhd:7232 | pass | test/compositor/compositor_test.cpp:1388 |
-| L2P-10 | L2 priority-bit promotion (VHDL zxnext.vhd:7220,7232,7242,7254,7264,7276) | zxnext.vhd:7220,7232,7242,7254,7264,7276 | pass | test/compositor/compositor_test.cpp:1408 |
-| L2P-11 | L2 priority-bit promotion (VHDL zxnext.vhd:7220,7232,7242,7254,7264,7276) | zxnext.vhd:7220,7232,7242,7254,7264,7276 | pass | test/compositor/compositor_test.cpp:1409 |
-| L2P-12 | L2 priority-bit promotion (VHDL zxnext.vhd:7220,7232,7242,7254,7264,7276) | zxnext.vhd:7220,7232,7242,7254,7264,7276 | pass | test/compositor/compositor_test.cpp:1410 |
-| L2P-13 | L2 priority-bit promotion (VHDL zxnext.vhd:7220,7232,7242,7254,7264,7276) | zxnext.vhd:7220,7232,7242,7254,7264,7276 | pass | test/compositor/compositor_test.cpp:1411 |
-| L2P-14 | L2 priority-bit promotion (VHDL zxnext.vhd:7220,7232,7242,7254,7264,7276) | zxnext.vhd:7220,7232,7242,7254,7264,7276 | pass | test/compositor/compositor_test.cpp:1412 |
-| L2P-15 | L2 priority-bit promotion (VHDL zxnext.vhd:7220,7232,7242,7254,7264,7276) | zxnext.vhd:7220,7232,7242,7254,7264,7276 | pass | test/compositor/compositor_test.cpp:1413 |
-| L2P-16 | L2 transparent => promotion suppressed, S wins (VHDL zxnext.vhd:7123,7222) | zxnext.vhd:7123,7222 | pass | test/compositor/compositor_test.cpp:1436 |
-| L2P-17 | mode 110 + L2 priority bit => blend output shown (VHDL zxnext.vhd:7300) | zxnext.vhd:7300 | pass | test/compositor/compositor_test.cpp:1460 |
-| L2P-18 | mode 111 + L2 priority bit => subtracted blend shown (VHDL zxnext.vhd:7342) | zxnext.vhd:7342 | pass | test/compositor/compositor_test.cpp:1475 |
-| L2P-19 | Native 640: layer2_priority_[] honours both even and odd columns; L2 promotion fires at every native pixel (VHDL 7039-7050; renderer.cpp:194-201) | zxnext.vhd:7039-7050 | pass | test/compositor/compositor_test.cpp:1532 |
+| TR-31 | L2 pixel_en=0 => layer2_transparent (VHDL zxnext.vhd:7121) | zxnext.vhd:7121 | pass | test/compositor/compositor_test.cpp:695 |
+| TR-32 | L2 opaque; priority bit propagation checked in L2P (VHDL 7123) | zxnext.vhd:7123 | pass | test/compositor/compositor_test.cpp:713 |
+| TR-33 | layer2_transparent=1 suppresses priority bit (VHDL 7123) | zxnext.vhd:7123 | pass | test/compositor/compositor_test.cpp:728 |
+| TR-34 | Layer 2 compares exactly colour bits 8:1: 512 matching colours transparent, 4096 with one compared bit flipped opaque (VHDL zxnext.vhd:7121) | zxnext.vhd:7121 | pass | test/compositor/compositor_test.cpp:678 |
+| TR-40 | sprite_pixel_en=0 => sprite_transparent (VHDL zxnext.vhd:7118) | zxnext.vhd:7118 | pass | test/compositor/compositor_test.cpp:740 |
+| TR-41 | Sprite opaque even if RGB==NR0x14 (no sprite RGB compare) (VHDL zxnext.vhd:7118) | zxnext.vhd:7118 | pass | test/compositor/compositor_test.cpp:757 |
+| TR-50 | NR 0x14 write mid-frame does not retroactively affect a row whose per-line snapshot already ran — row still shows the pre-write ULA pixel (VHDL 1137,5226,6822,6912-6913,7078,7100) | zxnext.vhd:5445-5446,6810-6811 | pass | test/compositor/compositor_test.cpp:804 |
+| TR-51 | After the deferred snapshot lands, the SAME row selects the new NR 0x14 value and the ULA pixel goes transparent (VHDL 1137,5226,6822,6912-6913,7078,7100) | — | pass | test/compositor/compositor_test.cpp:820 |
+| TR-52 | mid-frame NR 0x14 write does not retroactively make Layer2::render_scanline skip-write a pixel on a row whose snapshot already ran — pixel survives using the pre-write deferred value (VHDL 7121, 1137,5226,6822,6912-6913,7078) | zxnext.vhd:7121 | pass | test/compositor/compositor_test.cpp:921 |
+| TR-53 | After the deferred snapshot lands, the SAME row selects the new NR 0x14 value and Layer2 correctly skip-writes the now-transparent pixel — fallback colour wins (VHDL 7121, 1137,5226,6822,6912-6913,7078) | — | pass | test/compositor/compositor_test.cpp:941 |
+| L2EQ-01 | layer2_rgb8(entry)!=X implies layer2_colour(entry)!=rrrgggbb_to_argb(X), for all 512 RGB333 entries x all 256 register values — a pixel Layer2's own gate writes (opaque) can never be independently re-flagged transparent by renderer.cpp's redundant l2_transp RGB-match clause (VHDL 7121) | — | pass | test/compositor/compositor_test.cpp:1058 |
+| TRI-10 | sprite index=NR0x4B => pixel_en=0 => transparent (sprites.vhd:1067, zxnext 7118) | sprites.vhd:1067 | pass | test/compositor/compositor_test.cpp:1085 |
+| TRI-11 | sprite index!=NR0x4B => pixel_en=1 => opaque (sprites.vhd:1067, zxnext 7118) | sprites.vhd:1067 | pass | test/compositor/compositor_test.cpp:1096 |
+| TRI-20 | TM nibble==NR0x4C => pixel_en=0 (zxnext 4395, 7109) | zxnext.vhd:4395,7109 | pass | test/compositor/compositor_test.cpp:1109 |
+| FB-10 | fallback 0xE3 -> 9-bit 0x1C7 (VHDL 7214: bit0\|bit1 = 1\|1 = 1) | — | pass | test/compositor/compositor_test.cpp:1134 |
+| FB-11 | fallback 0x00 -> 9-bit 0x000 (VHDL zxnext.vhd:7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:1144 |
+| FB-12 | fallback 0x4A -> 9-bit 0x095 (bit1\|bit0 = 1\|0 = 1) (VHDL 7214) | — | pass | test/compositor/compositor_test.cpp:1154 |
+| FB-13 | fallback 0x01 -> 9-bit 0x003 (bit0=1) (VHDL zxnext.vhd:7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:1162 |
+| FB-14 | fallback 0x02 -> 9-bit 0x005 (bit1=1) (VHDL zxnext.vhd:7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:1170 |
+| FB-15 | Opaque sprite overrides fallback (VHDL zxnext.vhd:7222) | zxnext.vhd:7222 | pass | test/compositor/compositor_test.cpp:1182 |
+| FB-16 | Reset default fallback = 0xE3 (VHDL zxnext.vhd:5014 nr_4a_fallback_rgb reset) | zxnext.vhd:5014 | pass | test/compositor/compositor_test.cpp:1191 |
+| FB-17 | All 8 modes -> fallback when all layers transp; 0x42 9-bit=0x085 (VHDL zxnext.vhd:7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:1211 |
+| FB9-01 | NR $4A fallback is 9-bit: blue LSB = B1\|B0 on all 256 values, display and border (zxnext.vhd:7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:6217 |
+| FB9-02 | ULAnext select_bgnd takes the 9-bit NR $4A colour (blue LSB = B1\|B0) on 255 values (zxnext.vhd:6990) | zxnext.vhd:6990 | pass | test/compositor/compositor_test.cpp:6253 |
+| PRI-010-SLU-3 | Mode 000, all three opaque | zxnext.vhd:7222 | pass | test/compositor/compositor_test.cpp:1255 |
+| PRI-010-SLU-LU | Mode 000, only L+U | zxnext.vhd:7224 | pass | test/compositor/compositor_test.cpp:1256 |
+| PRI-010-SLU-U | Mode 000, only U | zxnext.vhd:7226 | pass | test/compositor/compositor_test.cpp:1257 |
+| PRI-010-SLU-0 | Mode 000, none | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:1258 |
+| PRI-011-LSU-3 | Mode 001, all three | zxnext.vhd:7232 | pass | test/compositor/compositor_test.cpp:1261 |
+| PRI-011-LSU-SU | Mode 001, S+U only | zxnext.vhd:7234 | pass | test/compositor/compositor_test.cpp:1262 |
+| PRI-011-LSU-U | Mode 001, U only | zxnext.vhd:7236 | pass | test/compositor/compositor_test.cpp:1263 |
+| PRI-010-SUL-3 | Mode 010, all three | zxnext.vhd:7244 | pass | test/compositor/compositor_test.cpp:1266 |
+| PRI-010-SUL-UL | Mode 010, U+L | zxnext.vhd:7246 | pass | test/compositor/compositor_test.cpp:1267 |
+| PRI-010-SUL-L | Mode 010, L only | zxnext.vhd:7248 | pass | test/compositor/compositor_test.cpp:1268 |
+| PRI-011-LUS-3 | Mode 011, all three | zxnext.vhd:7254 | pass | test/compositor/compositor_test.cpp:1271 |
+| PRI-011-LUS-US | Mode 011, U(non-border)+S | zxnext.vhd:7256 | pass | test/compositor/compositor_test.cpp:1272 |
+| PRI-011-LUS-S | Mode 011, S only | zxnext.vhd:7258 | pass | test/compositor/compositor_test.cpp:1273 |
+| PRI-011-LUS-border | mode 011 border exception: U suppressed, S shows (VHDL 7256) | zxnext.vhd:7256 | pass | test/compositor/compositor_test.cpp:1296 |
+| PRI-100-USL-3 | Mode 100, all three | zxnext.vhd:7266 | pass | test/compositor/compositor_test.cpp:1276 |
+| PRI-100-USL-border | mode 100 border exception: S wins (VHDL zxnext.vhd:7266) | zxnext.vhd:7266 | pass | test/compositor/compositor_test.cpp:1310 |
+| PRI-100-USL-L | Mode 100, L only | zxnext.vhd:7270 | pass | test/compositor/compositor_test.cpp:1277 |
+| PRI-101-ULS-3 | Mode 101, all three | zxnext.vhd:7278 | pass | test/compositor/compositor_test.cpp:1280 |
+| PRI-101-ULS-border | mode 101 border exception: L2 wins after U suppressed (VHDL zxnext.vhd:7278,7280) | zxnext.vhd:7278,7280 | pass | test/compositor/compositor_test.cpp:1327 |
+| PRI-101-ULS-S | Mode 101, S only | zxnext.vhd:7282 | pass | test/compositor/compositor_test.cpp:1281 |
+| PRI-B-0 | All modes 000..101 with 0 opaque layers => fallback (VHDL zxnext.vhd:7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:1352 |
+| PRI-B-1 | Sprite RGB==NR0x14 still opaque (VHDL zxnext.vhd:7118) | zxnext.vhd:7118 | pass | test/compositor/compositor_test.cpp:1363 |
+| PRI-B-2 | mode 001: L2 beats S when both opaque (VHDL zxnext.vhd:7232) | zxnext.vhd:7232 | pass | test/compositor/compositor_test.cpp:1375 |
+| L2P-10 | L2 priority-bit promotion (VHDL zxnext.vhd:7220,7232,7242,7254,7264,7276) | zxnext.vhd:7220,7232,7242,7254,7264,7276 | pass | test/compositor/compositor_test.cpp:1395 |
+| L2P-11 | L2 priority-bit promotion (VHDL zxnext.vhd:7220,7232,7242,7254,7264,7276) | zxnext.vhd:7220,7232,7242,7254,7264,7276 | pass | test/compositor/compositor_test.cpp:1396 |
+| L2P-12 | L2 priority-bit promotion (VHDL zxnext.vhd:7220,7232,7242,7254,7264,7276) | zxnext.vhd:7220,7232,7242,7254,7264,7276 | pass | test/compositor/compositor_test.cpp:1397 |
+| L2P-13 | L2 priority-bit promotion (VHDL zxnext.vhd:7220,7232,7242,7254,7264,7276) | zxnext.vhd:7220,7232,7242,7254,7264,7276 | pass | test/compositor/compositor_test.cpp:1398 |
+| L2P-14 | L2 priority-bit promotion (VHDL zxnext.vhd:7220,7232,7242,7254,7264,7276) | zxnext.vhd:7220,7232,7242,7254,7264,7276 | pass | test/compositor/compositor_test.cpp:1399 |
+| L2P-15 | L2 priority-bit promotion (VHDL zxnext.vhd:7220,7232,7242,7254,7264,7276) | zxnext.vhd:7220,7232,7242,7254,7264,7276 | pass | test/compositor/compositor_test.cpp:1400 |
+| L2P-16 | L2 transparent => promotion suppressed, S wins (VHDL zxnext.vhd:7123,7222) | zxnext.vhd:7123,7222 | pass | test/compositor/compositor_test.cpp:1423 |
+| L2P-17 | mode 110 + L2 priority bit => blend output shown (VHDL zxnext.vhd:7300) | zxnext.vhd:7300 | pass | test/compositor/compositor_test.cpp:1447 |
+| L2P-18 | mode 111 + L2 priority bit => subtracted blend shown (VHDL zxnext.vhd:7342) | zxnext.vhd:7342 | pass | test/compositor/compositor_test.cpp:1462 |
+| L2P-19 | Native 640: layer2_priority_[] honours both even and odd columns; L2 promotion fires at every native pixel (VHDL 7039-7050; renderer.cpp:194-201) | zxnext.vhd:7039-7050 | pass | test/compositor/compositor_test.cpp:1519 |
 | PFF-G108-01 | NR 0x69 b5:0 fans into port_ff_reg(5:0); bits 7:6 unchanged (zxnext.vhd:3617-3618) | zxnext.vhd:3617-3618 | pass | test/compositor/compositor_integration_test.cpp:541 |
 | PFF-G108-02 | NR 0x22 b2 fans into port_ff_reg(6) (zxnext.vhd:3619-3620) | zxnext.vhd:3619-3620 | pass | test/compositor/compositor_integration_test.cpp:560 |
 | PFF-G108-03 | NR 0xC4 b0 fans into port_ff_reg(6) with inverted polarity (zxnext.vhd:3621-3622) | zxnext.vhd:3621-3622 | pass | test/compositor/compositor_integration_test.cpp:598 |
-| BL-10 | mode 110 add no clamp: (3,2,1)+(3,2,1)=(6,4,2) (VHDL zxnext.vhd:7201-7203,7286) | zxnext.vhd:7201-7203,7286 | pass | test/compositor/compositor_test.cpp:1590 |
-| BL-11 | mode 110 add clamp to 7 (VHDL zxnext.vhd:7288-7298) | zxnext.vhd:7288-7298 | pass | test/compositor/compositor_test.cpp:1603 |
-| BL-12 | mode 110 add 0+0=0 (VHDL zxnext.vhd:7201-7203) | zxnext.vhd:7201-7203 | pass | test/compositor/compositor_test.cpp:1616 |
-| BL-13 | mode 110: mix_top (TM) opaque wins over blend (VHDL zxnext.vhd:7302) | zxnext.vhd:7302 | pass | test/compositor/compositor_test.cpp:1632 |
-| BL-14 | mode 110: sprite between mix_top and mix_bot (VHDL zxnext.vhd:7304) | zxnext.vhd:7304 | pass | test/compositor/compositor_test.cpp:1646 |
-| BL-15 | mode 110: mix_bot (TM) wins after mix_top+S transp (VHDL zxnext.vhd:7306) | zxnext.vhd:7306 | pass | test/compositor/compositor_test.cpp:1662 |
-| BL-16 | mode 110: only L2 opaque => blend(L2+0)=L2 (VHDL zxnext.vhd:7308) | zxnext.vhd:7308 | pass | test/compositor/compositor_test.cpp:1676 |
-| BL-20 | mode 111 sub: sum<=4 -> 0 (VHDL zxnext.vhd:7316-7317) | zxnext.vhd:7316-7317 | pass | test/compositor/compositor_test.cpp:1690 |
-| BL-21 | mode 111 sub: sum>=12 -> 7 (VHDL zxnext.vhd:7318-7319) | zxnext.vhd:7318-7319 | pass | test/compositor/compositor_test.cpp:1704 |
-| BL-22 | mode 111 sub middle: (3,4,2) -> (1,3,0) (VHDL zxnext.vhd:7321) | zxnext.vhd:7321 | pass | test/compositor/compositor_test.cpp:1718 |
-| BL-23 | mode 111 sub gated off by mix_rgb_transparent (VHDL zxnext.vhd:7314) | zxnext.vhd:7314 | pass | test/compositor/compositor_test.cpp:1732 |
-| BL-24 | mode 111: mix_top (TM) opaque wins (VHDL zxnext.vhd:7344) | zxnext.vhd:7344 | pass | test/compositor/compositor_test.cpp:1745 |
-| BL-25 | mode 111: sprite wins between mix_top/mix_bot (VHDL zxnext.vhd:7346) | zxnext.vhd:7346 | pass | test/compositor/compositor_test.cpp:1757 |
-| BL-26 | mode 111: mix_bot (TM) fallback wins (VHDL zxnext.vhd:7348) | zxnext.vhd:7348 | pass | test/compositor/compositor_test.cpp:1769 |
-| BL-27 | mode 111: only L2 opaque, sub formula skipped (VHDL 7314,7350) | — | pass | test/compositor/compositor_test.cpp:1786 |
-| BL-28 | mode 110: L2 priority bit overrides mix_top (VHDL 7300) | — | pass | test/compositor/compositor_test.cpp:1802 |
-| BL-29 | mode 111: L2 priority bit overrides mix_top (VHDL 7342) | — | pass | test/compositor/compositor_test.cpp:1817 |
-| UTB-10 | NR0x68 mode 00 TM above: TM wins in U slot (VHDL 7142-7148) | — | pass | test/compositor/compositor_test.cpp:2082 |
-| UTB-11 | NR0x68 mode 00 TM below: ULA wins in U slot (VHDL 7142-7148) | — | pass | test/compositor/compositor_test.cpp:2095 |
-| UTB-20 | NR0x68 mode 10: mix_rgb = ula_final_rgb (VHDL 7149-7155) | — | pass | test/compositor/compositor_test.cpp:2108 |
-| UTB-30 | NR0x68 mode 11 below=1: ULA floats to top (VHDL 7156-7162) | — | pass | test/compositor/compositor_test.cpp:2126 |
-| UTB-31 | NR0x68 mode 11 below=0: ULA floats to bot, TM on top (VHDL 7156-7162) | — | pass | test/compositor/compositor_test.cpp:2141 |
-| UTB-40 | NR0x68 mode 01 below=0: mix_top=TM (zxnext.vhd:7163-7176 else) | zxnext.vhd:7163-7176 | pass | test/compositor/compositor_test.cpp:2157 |
-| UTB-41 | NR0x68 mode 01 below=1: mix_top=ULA (zxnext.vhd:7163-7176 if) | zxnext.vhd:7163-7176 | pass | test/compositor/compositor_test.cpp:2170 |
-| UB-G26-01 | NR0x68 blend mode 01: tm_pixel_below_2 swaps mix_top/mix_bot (ULA on top when below=1, TM on top when below=0) — proven against an opaque sprite in the cascade slot between them (zxnext.vhd:7163-7177, 7300-7310) | zxnext.vhd:7163-7177,7300-7310 | pass | test/compositor/compositor_test.cpp:2226 |
-| UB-G26-02 | NR0x68 mode 110 (additive): layer2_priority wins over opaque mix_top (VHDL zxnext.vhd:7300 first if) | zxnext.vhd:7300 | pass | test/compositor/compositor_test.cpp:2259 |
-| UTB-50 | NR 0x68 b6:5 write mid-frame does not retroactively affect a row whose per-line snapshot already ran — row still shows the pre-write mode "00" result (VHDL 5446,6811,6900-6901,7065) | zxnext.vhd:5446,6811,6900-6901,7065 | pass | test/compositor/compositor_test.cpp:2319 |
-| UTB-51 | After the deferred snapshot lands, the SAME row selects mode "10" (VHDL 7149-7155,7300-7310) | — | pass | test/compositor/compositor_test.cpp:2333 |
-| STEN-10 | stencil bitwise AND ULA&TM (VHDL 7113) | — | pass | test/compositor/compositor_test.cpp:2386 |
-| STEN-11 | stencil AND with zero: 0xFF & 0x00 = 0x00 (VHDL 7113) | — | pass | test/compositor/compositor_test.cpp:2403 |
-| STEN-12 | ULA transp => stencil_transp=1 (VHDL 7112) | — | pass | test/compositor/compositor_test.cpp:2419 |
-| STEN-13 | TM transp => stencil_transp=1 (VHDL 7112) | — | pass | test/compositor/compositor_test.cpp:2435 |
-| STEN-14 | Both transp => stencil_transp=1 => fallback (VHDL 7112) | — | pass | test/compositor/compositor_test.cpp:2448 |
-| STEN-15 | tm_en=0 disables stencil => non-stencil path, ULA shows (VHDL 7130) | — | pass | test/compositor/compositor_test.cpp:2463 |
-| STEN-16 | ula_en=0 disables stencil; non-stencil path shows TM (VHDL 7130) | — | pass | test/compositor/compositor_test.cpp:2476 |
-| STEN-17 | stencil bit=0 => non-stencil path: TM replaces ULA (VHDL 7130) | — | pass | test/compositor/compositor_test.cpp:2489 |
-| STEN-20 | NR 0x68 b0 write mid-frame does not retroactively affect a row whose per-line snapshot already ran — row still shows the pre-write non-stencil merge (VHDL 5445,6810,6897-6898,7064) | — | pass | test/compositor/compositor_test.cpp:2604 |
-| STEN-21 | After the deferred snapshot lands, the SAME row selects the stencil AND-branch (VHDL 7112-7113,7130) | — | pass | test/compositor/compositor_test.cpp:2620 |
+| BL-10 | mode 110 add no clamp: (3,2,1)+(3,2,1)=(6,4,2) (VHDL zxnext.vhd:7201-7203,7286) | zxnext.vhd:7201-7203,7286 | pass | test/compositor/compositor_test.cpp:1579 |
+| BL-11 | mode 110 add clamp to 7 (VHDL zxnext.vhd:7288-7298) | zxnext.vhd:7288-7298 | pass | test/compositor/compositor_test.cpp:1592 |
+| BL-12 | mode 110 add 0+0=0 (VHDL zxnext.vhd:7201-7203) | zxnext.vhd:7201-7203 | pass | test/compositor/compositor_test.cpp:1605 |
+| BL-13 | mode 110: mix_top (TM) opaque wins over blend (VHDL zxnext.vhd:7302) | zxnext.vhd:7302 | pass | test/compositor/compositor_test.cpp:1621 |
+| BL-14 | mode 110: sprite between mix_top and mix_bot (VHDL zxnext.vhd:7304) | zxnext.vhd:7304 | pass | test/compositor/compositor_test.cpp:1635 |
+| BL-15 | mode 110: mix_bot (TM) wins after mix_top+S transp (VHDL zxnext.vhd:7306) | zxnext.vhd:7306 | pass | test/compositor/compositor_test.cpp:1651 |
+| BL-16 | mode 110: only L2 opaque => blend(L2+0)=L2 (VHDL zxnext.vhd:7308) | zxnext.vhd:7308 | pass | test/compositor/compositor_test.cpp:1664 |
+| BL-20 | mode 111 sub: sum<=4 -> 0 (VHDL zxnext.vhd:7316-7317) | zxnext.vhd:7316-7317 | pass | test/compositor/compositor_test.cpp:1677 |
+| BL-21 | mode 111 sub: sum>=12 -> 7 (VHDL zxnext.vhd:7318-7319) | zxnext.vhd:7318-7319 | pass | test/compositor/compositor_test.cpp:1691 |
+| BL-22 | mode 111 sub middle: (3,4,5) -> (1,3,5) (VHDL zxnext.vhd:7321) | zxnext.vhd:7321 | pass | test/compositor/compositor_test.cpp:1705 |
+| BL-23 | mode 111 sub gated off by mix_rgb_transparent (VHDL zxnext.vhd:7314) | zxnext.vhd:7314 | pass | test/compositor/compositor_test.cpp:1719 |
+| BL-24 | mode 111: mix_top (TM) opaque wins (VHDL zxnext.vhd:7344) | zxnext.vhd:7344 | pass | test/compositor/compositor_test.cpp:1732 |
+| BL-25 | mode 111: sprite wins between mix_top/mix_bot (VHDL zxnext.vhd:7346) | zxnext.vhd:7346 | pass | test/compositor/compositor_test.cpp:1744 |
+| BL-26 | mode 111: mix_bot (TM) fallback wins (VHDL zxnext.vhd:7348) | zxnext.vhd:7348 | pass | test/compositor/compositor_test.cpp:1756 |
+| BL-27 | mode 111: only L2 opaque, sub formula skipped (VHDL 7314,7350) | — | pass | test/compositor/compositor_test.cpp:1773 |
+| BL-28 | mode 110: L2 priority bit overrides mix_top (VHDL 7300) | — | pass | test/compositor/compositor_test.cpp:1789 |
+| BL-29 | mode 111: L2 priority bit overrides mix_top (VHDL 7342) | — | pass | test/compositor/compositor_test.cpp:1804 |
+| BLC-01 | mode 110: blue is a 3-bit channel, L2+mix summed and clamped at 7 for all 64 pairs (zxnext.vhd:7203,7286-7298) | zxnext.vhd:7203,7286-7298 | pass | test/compositor/compositor_test.cpp:6294 |
+| BLC-02 | mode 111: blue is a 3-bit channel, subtractive rule for all 64 pairs (zxnext.vhd:7203,7312-7352) | zxnext.vhd:7203,7312-7352 | pass | test/compositor/compositor_test.cpp:6316 |
+| BLC-03 | stencil: ula_rgb AND tm_rgb over all 9 bits, blue is 3 bits, for all 64 blue pairs (zxnext.vhd:7113) | zxnext.vhd:7113 | pass | test/compositor/compositor_test.cpp:6343 |
+| UTB-10 | NR0x68 mode 00 TM above: TM wins in U slot (VHDL 7142-7148) | — | pass | test/compositor/compositor_test.cpp:2056 |
+| UTB-11 | NR0x68 mode 00 TM below: ULA wins in U slot (VHDL 7142-7148) | — | pass | test/compositor/compositor_test.cpp:2069 |
+| UTB-20 | NR0x68 mode 10: mix_rgb = ula_final_rgb (VHDL 7149-7155) | — | pass | test/compositor/compositor_test.cpp:2082 |
+| UTB-30 | NR0x68 mode 11 below=1: ULA floats to top (VHDL 7156-7162) | — | pass | test/compositor/compositor_test.cpp:2100 |
+| UTB-31 | NR0x68 mode 11 below=0: ULA floats to bot, TM on top (VHDL 7156-7162) | — | pass | test/compositor/compositor_test.cpp:2115 |
+| UTB-40 | NR0x68 mode 01 below=0: mix_top=TM (zxnext.vhd:7163-7176 else) | zxnext.vhd:7163-7176 | pass | test/compositor/compositor_test.cpp:2131 |
+| UTB-41 | NR0x68 mode 01 below=1: mix_top=ULA (zxnext.vhd:7163-7176 if) | zxnext.vhd:7163-7176 | pass | test/compositor/compositor_test.cpp:2144 |
+| UB-G26-01 | NR0x68 blend mode 01: tm_pixel_below_2 swaps mix_top/mix_bot (ULA on top when below=1, TM on top when below=0) — proven against an opaque sprite in the cascade slot between them (zxnext.vhd:7163-7177, 7300-7310) | zxnext.vhd:7163-7177,7300-7310 | pass | test/compositor/compositor_test.cpp:2200 |
+| UB-G26-02 | NR0x68 mode 110 (additive): layer2_priority wins over opaque mix_top (VHDL zxnext.vhd:7300 first if) | zxnext.vhd:7300 | pass | test/compositor/compositor_test.cpp:2233 |
+| UTB-50 | NR 0x68 b6:5 write mid-frame does not retroactively affect a row whose per-line snapshot already ran — row still shows the pre-write mode "00" result (VHDL 5446,6811,6900-6901,7065) | zxnext.vhd:5446,6811,6900-6901,7065 | pass | test/compositor/compositor_test.cpp:2293 |
+| UTB-51 | After the deferred snapshot lands, the SAME row selects mode "10" (VHDL 7149-7155,7300-7310) | — | pass | test/compositor/compositor_test.cpp:2307 |
+| STEN-10 | stencil bitwise AND ULA&TM (VHDL 7113) | — | pass | test/compositor/compositor_test.cpp:2360 |
+| STEN-11 | stencil AND with zero: 0xFF & 0x00 = 0x00 (VHDL 7113) | — | pass | test/compositor/compositor_test.cpp:2377 |
+| STEN-12 | ULA transp => stencil_transp=1 (VHDL 7112) | — | pass | test/compositor/compositor_test.cpp:2393 |
+| STEN-13 | TM transp => stencil_transp=1 (VHDL 7112) | — | pass | test/compositor/compositor_test.cpp:2409 |
+| STEN-14 | Both transp => stencil_transp=1 => fallback (VHDL 7112) | — | pass | test/compositor/compositor_test.cpp:2422 |
+| STEN-15 | tm_en=0 disables stencil => non-stencil path, ULA shows (VHDL 7130) | — | pass | test/compositor/compositor_test.cpp:2437 |
+| STEN-16 | ula_en=0 disables stencil; non-stencil path shows TM (VHDL 7130) | — | pass | test/compositor/compositor_test.cpp:2450 |
+| STEN-17 | stencil bit=0 => non-stencil path: TM replaces ULA (VHDL 7130) | — | pass | test/compositor/compositor_test.cpp:2463 |
+| STEN-20 | NR 0x68 b0 write mid-frame does not retroactively affect a row whose per-line snapshot already ran — row still shows the pre-write non-stencil merge (VHDL 5445,6810,6897-6898,7064) | — | pass | test/compositor/compositor_test.cpp:2578 |
+| STEN-21 | After the deferred snapshot lands, the SAME row selects the stencil AND-branch (VHDL 7112-7113,7130) | — | pass | test/compositor/compositor_test.cpp:2594 |
 | UDIS-01 | NR 0x68 bit 7 toggles ULA transparency → display pixel switches between ULA ink and NR 0x4A fallback (zxnext.vhd:7103; emulator.cpp:816-825; renderer.cpp:83-85) | zxnext.vhd:5445 | pass | test/compositor/compositor_integration_test.cpp:279 |
 | UDIS-02 | Copper mid-frame MOVE NR 0x68,0x80 flips ULA-enable at line 100 → pre-rows show ULA, post-rows show NR 0x4A fallback (zxnext.vhd:7103,6809; copper.cpp:75-154; emulator.cpp:2609-2616) | zxnext.vhd:5445 | pass | test/compositor/compositor_integration_test.cpp:398 |
-| UDIS-03 | NR 0x68 bits 6:5 decode → Renderer::blend_mode (VHDL 7141-7178, emulator.cpp:816-825) | zxnext.vhd:7141-7178 | pass | test/compositor/compositor_test.cpp:2672 |
-| SOB-10 | Opaque sprite beats border-ULA in mode 000 (VHDL 7118,7222) | sprites.vhd | pass | test/compositor/compositor_test.cpp:2698 |
-| LINE-10 | NR0x15 mid-line write -> current line keeps old mode (VHDL 6799) | zxnext.vhd:6799 | pass | test/compositor/compositor_test.cpp:2729 |
-| LINE-11 | NR0x14 mid-line write -> current-line value unchanged (VHDL 6822) | — | pass | test/compositor/compositor_test.cpp:2746 |
-| LINE-12 | NR0x4A mid-line: current line keeps old fallback (VHDL 6730-6832) | — | pass | test/compositor/compositor_test.cpp:2760 |
-| LINE-13 | Copper write at hblank: next line has new mode (VHDL 6799) | — | pass | test/compositor/compositor_test.cpp:2773 |
-| LINE-14 | Two mid-line writes: only last visible next line (VHDL 6799) | — | pass | test/compositor/compositor_test.cpp:2783 |
-| PSCAN-G04-01 | NR 0x14 transparent RGB per-scanline snapshot/replay captures distinct mid-frame writes (G04) | zxnext.vhd:1137,5226 | pass | test/compositor/compositor_test.cpp:3592 |
+| UDIS-03 | NR 0x68 bits 6:5 decode → Renderer::blend_mode (VHDL 7141-7178, emulator.cpp:816-825) | zxnext.vhd:7141-7178 | pass | test/compositor/compositor_test.cpp:2646 |
+| SOB-10 | Opaque sprite beats border-ULA in mode 000 (VHDL 7118,7222) | sprites.vhd | pass | test/compositor/compositor_test.cpp:2672 |
+| LINE-10 | NR0x15 mid-line write -> current line keeps old mode (VHDL 6799) | zxnext.vhd:6799 | pass | test/compositor/compositor_test.cpp:2703 |
+| LINE-11 | NR0x14 mid-line write -> current-line value unchanged (VHDL 6822) | — | pass | test/compositor/compositor_test.cpp:2720 |
+| LINE-12 | NR0x4A mid-line: current line keeps old fallback (VHDL 6730-6832) | — | pass | test/compositor/compositor_test.cpp:2734 |
+| LINE-13 | Copper write at hblank: next line has new mode (VHDL 6799) | — | pass | test/compositor/compositor_test.cpp:2747 |
+| LINE-14 | Two mid-line writes: only last visible next line (VHDL 6799) | — | pass | test/compositor/compositor_test.cpp:2757 |
+| PSCAN-G04-01 | NR 0x14 transparent RGB per-scanline snapshot/replay captures distinct mid-frame writes (G04) | zxnext.vhd:1137,5226 | pass | test/compositor/compositor_test.cpp:3566 |
 | PSCAN-G04-02 | Copper MOVE NR 0x4B mid-frame: the sprite appears from the split row, not the whole frame (sprites.vhd:971-972; zxnext.vhd:4339) | sprites.vhd:971-972, zxnext.vhd:4339 | pass | test/compositor/compositor_integration_test.cpp:763 |
-| PSCAN-G11-01 | NR 0x68 b0 (stencil_mode) per-scanline snapshot captures mid-frame flip (G11) | zxnext.vhd:5445,7142-7176 | pass | test/compositor/compositor_test.cpp:3655 |
-| PSCAN-G11-02 | NR 0x68 b6:5 (blend_mode) per-scanline snapshot captures mid-frame mode flip (G11) | zxnext.vhd:5445,7142-7176 | pass | test/compositor/compositor_test.cpp:3683 |
-| PSCAN-G11-03 | NR 0x68 b3 (ulap_en) per-scanline snapshot on Ula captures mid-frame enable flip (G11) | zxnext.vhd:5445 | pass | test/compositor/compositor_test.cpp:3716 |
-| PSCAN-G02-01 | mid-frame NR 0x15 priority write (USL->SLU at line 100) composites USL before and SLU at/after the tagged line (VHDL 6799, 7216) | zxnext.vhd:6799,7216-7290 | pass | test/compositor/compositor_test.cpp:3805 |
-| PSCAN-G02-02 | NR 0x15 value written in frame F persists as frame F+1's baseline with no rewrite (VHDL 5229-5234: register holds) | — | pass | test/compositor/compositor_test.cpp:3881 |
-| PSCAN-G02-03 | NR 0x15 write tagged in vblank leaves visible rows of its own frame untouched, survives via flush to live state, and baselines frame F+1 (audit: dormant class had no flush) | — | pass | test/compositor/compositor_test.cpp:3961 |
-| PSCAN-G02-04 | NR 0x15 b0 per-line: sprite half-band before the mid-sprite disable renders, half-band after is suppressed, with the engine live flag ending FALSE (VHDL 6819/6934/7118) | zxnext.vhd:6819,6906-6907,6934,7118, sprites.vhd | pass | test/compositor/compositor_test.cpp:4048 |
-| PSCAN-G02-05 | NR 0x15 change log caps at MAX, warn latch fires once and start_frame_nr15 re-arms it; live state tracks writes past the cap | — | pass | test/compositor/compositor_test.cpp:4088 |
-| PSCAN-G10-01 | mid-frame NR 0x43 b2 flip (line 100) switches the Layer 2 palette bank from that row on; rows above keep bank 0 (VHDL 5392, 6827) | — | pass | test/compositor/compositor_test.cpp:4219 |
-| PSCAN-G10-02 | mid-frame NR 0x43 b2 flip also moves the Layer 2 NR 0x14 transparency comparison to the new bank: bank-0 rows stay transparent (ULA shows), bank-1 rows are opaque (VHDL 5392, 6827, 7121) | — | pass | test/compositor/compositor_test.cpp:4293 |
-| PSCAN-G10-03 | mid-frame NR 0x43 b2 flip also moves the Layer 2 palette PRIORITY bit lookup to the new bank: sprite wins above the flip line, promoted Layer 2 wins below it (VHDL 5392, 6827, 7050, 7220) | — | pass | test/compositor/compositor_test.cpp:4380 |
-| PSCAN-G10-04 | mid-frame NR 0x43 b3 flip (line 98) switches the SPRITE palette bank from that row on; rows above keep bank 0 (VHDL 5391, 6828) | — | pass | test/compositor/compositor_test.cpp:4452 |
-| PSCAN-G10-05 | mid-frame NR 0x6B b4 flip (line 100) switches the TILEMAP palette bank from that row on; rows above keep bank 0 (VHDL 5462, 6826, 6981) | zxnext.vhd:5462, zxnext.vhd:6826, zxnext.vhd:6921-6922, zxnext.vhd:6981 | pass | test/compositor/compositor_test.cpp:4567 |
+| PSCAN-G11-01 | NR 0x68 b0 (stencil_mode) per-scanline snapshot captures mid-frame flip (G11) | zxnext.vhd:5445,7142-7176 | pass | test/compositor/compositor_test.cpp:3629 |
+| PSCAN-G11-02 | NR 0x68 b6:5 (blend_mode) per-scanline snapshot captures mid-frame mode flip (G11) | zxnext.vhd:5445,7142-7176 | pass | test/compositor/compositor_test.cpp:3657 |
+| PSCAN-G11-03 | NR 0x68 b3 (ulap_en) per-scanline snapshot on Ula captures mid-frame enable flip (G11) | zxnext.vhd:5445 | pass | test/compositor/compositor_test.cpp:3690 |
+| PSCAN-G02-01 | mid-frame NR 0x15 priority write (USL->SLU at line 100) composites USL before and SLU at/after the tagged line (VHDL 6799, 7216) | zxnext.vhd:6799,7216-7290 | pass | test/compositor/compositor_test.cpp:3779 |
+| PSCAN-G02-02 | NR 0x15 value written in frame F persists as frame F+1's baseline with no rewrite (VHDL 5229-5234: register holds) | — | pass | test/compositor/compositor_test.cpp:3855 |
+| PSCAN-G02-03 | NR 0x15 write tagged in vblank leaves visible rows of its own frame untouched, survives via flush to live state, and baselines frame F+1 (audit: dormant class had no flush) | — | pass | test/compositor/compositor_test.cpp:3935 |
+| PSCAN-G02-04 | NR 0x15 b0 per-line: sprite half-band before the mid-sprite disable renders, half-band after is suppressed, with the engine live flag ending FALSE (VHDL 6819/6934/7118) | zxnext.vhd:6819,6906-6907,6934,7118, sprites.vhd | pass | test/compositor/compositor_test.cpp:4022 |
+| PSCAN-G02-05 | NR 0x15 change log caps at MAX, warn latch fires once and start_frame_nr15 re-arms it; live state tracks writes past the cap | — | pass | test/compositor/compositor_test.cpp:4062 |
+| PSCAN-G10-01 | mid-frame NR 0x43 b2 flip (line 100) switches the Layer 2 palette bank from that row on; rows above keep bank 0 (VHDL 5392, 6827) | — | pass | test/compositor/compositor_test.cpp:4193 |
+| PSCAN-G10-02 | mid-frame NR 0x43 b2 flip also moves the Layer 2 NR 0x14 transparency comparison to the new bank: bank-0 rows stay transparent (ULA shows), bank-1 rows are opaque (VHDL 5392, 6827, 7121) | — | pass | test/compositor/compositor_test.cpp:4267 |
+| PSCAN-G10-03 | mid-frame NR 0x43 b2 flip also moves the Layer 2 palette PRIORITY bit lookup to the new bank: sprite wins above the flip line, promoted Layer 2 wins below it (VHDL 5392, 6827, 7050, 7220) | — | pass | test/compositor/compositor_test.cpp:4354 |
+| PSCAN-G10-04 | mid-frame NR 0x43 b3 flip (line 98) switches the SPRITE palette bank from that row on; rows above keep bank 0 (VHDL 5391, 6828) | — | pass | test/compositor/compositor_test.cpp:4426 |
+| PSCAN-G10-05 | mid-frame NR 0x6B b4 flip (line 100) switches the TILEMAP palette bank from that row on; rows above keep bank 0 (VHDL 5462, 6826, 6981) | zxnext.vhd:5462, zxnext.vhd:6826, zxnext.vhd:6921-6922, zxnext.vhd:6981 | pass | test/compositor/compositor_test.cpp:4541 |
 | PLRS-SPR-01 | Copper re-clip via NR 0x19 mid-frame clips the sprite from the split row only (sprites.vhd:1037-1067; zxnext.vhd:4366-4369) | sprites.vhd:1037-1067, zxnext.vhd:4366-4369 | pass | test/compositor/compositor_integration_test.cpp:780 |
 | PLRS-SPR-02 | Copper clears NR 0x15 b1 mid-frame: the border sprite is clipped from the split row only (sprites.vhd:1043-1067; zxnext.vhd:4336) | sprites.vhd:1043-1067, zxnext.vhd:4336 | pass | test/compositor/compositor_integration_test.cpp:796 |
 | PLRS-SPR-03 | Copper sets NR 0x15 b5 mid-frame: the clip window applies from the split row only (sprites.vhd:1043-1050; zxnext.vhd:4335) | sprites.vhd:1043-1050, zxnext.vhd:4335 | pass | test/compositor/compositor_integration_test.cpp:817 |
@@ -1496,116 +1500,116 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | SRST-16 | Attribute writes made after a mid-frame soft reset land on the rows drawn after them, not on rows drawn before the reset (zxula.vhd:218-263; zxnext.vhd:6370) | zxula.vhd:218-263, zxnext.vhd:6370 | pass | test/compositor/compositor_integration_test.cpp:1870 |
 | SRST-17 | A soft reset leaves the FLASH phase running: frames 20..31 after a reset at frame 20 stay swapped, frame 32 is not (zxula.vhd:470,474-480 — no reset) | zxula.vhd:470,474-480 | pass | test/compositor/compositor_integration_test.cpp:1900 |
 | SRST-18 | A soft reset does not blank the picture: after a guest reset the debugger stops on, and after F4 while paused, the screen still shows the last frame drawn (zxnext.vhd:6370; zxula_timing.vhd — no reset) | zxnext.vhd:6370, zxula_timing.vhd | pass | test/compositor/compositor_integration_test.cpp:1943 |
-| UCLIP-01 | mid-frame NR 0x1A write does not retroactively re-mask a row whose per-line snapshot already ran — col 200 survives under the stale window A (VHDL zxnext.vhd:988-991, 6779-6783) | zxnext.vhd:988-991,6779-6783 | pass | test/compositor/compositor_test.cpp:4641 |
-| UCLIP-02 | …and the left border is clipped per the SNAPSHOTTED window A (x1=128>0) — proves the snapshot is captured, not the reset default (renderer.cpp left_clipped; VHDL 6779-6783) | — | pass | test/compositor/compositor_test.cpp:4652 |
-| UCLIP-03 | after the deferred snapshot lands, the SAME row selects window B: col 200 clipped, left border kept, right border clipped (VHDL zxnext.vhd:988-991, 6779-6783) | zxnext.vhd:988-991,6779-6783 | pass | test/compositor/compositor_test.cpp:4671 |
-| UCLIP-04 | split frame: rows < S masked with window A, rows >= S with window B — mid-frame NR 0x1A change lands exactly at the scanline where it was written (VHDL zxnext.vhd:988-991) | zxnext.vhd:988-991 | pass | test/compositor/compositor_test.cpp:4707 |
-| BLANK-10 | Active area: rgb_out = composited rgb (VHDL 7395-7412) | — | pass | test/compositor/compositor_test.cpp:2804 |
-| BLANK-11 | Horizontal blanking: rgb_out_o = 0 (VHDL 7395-7412) | — | pass | test/compositor/compositor_test.cpp:2818 |
-| BLANK-12 | Vertical blanking: rgb_out_o = 0 (VHDL 7395-7412) | — | pass | test/compositor/compositor_test.cpp:2821 |
-| BLANK-13 | Fallback colour NOT shown during blank (VHDL 7395-7412) | — | pass | test/compositor/compositor_test.cpp:2824 |
-| BLANK-G27-01 | Combinational compositor: adjacent columns at an active-to-blank stylised edge each pick up their own layer state — no 1-pixel desync (VHDL 7395-7412 invariant satisfied by-construction in the combinational model) | zxnext.vhd:7395-7412 | pass | test/compositor/compositor_test.cpp:2871 |
-| PAL-10 | ULA pixel index -> ULA/TM palette -> rgb_out_2 (VHDL 6936-7005) | — | pass | test/compositor/compositor_test.cpp:2899 |
-| PAL-11 | ULA background substitution uses NR0x4A (VHDL 6987-6991) | — | pass | test/compositor/compositor_test.cpp:2917 |
-| PAL-12 | LoRes pixel overrides ULA background (VHDL 6987-6991 else) | — | pass | test/compositor/compositor_test.cpp:2930 |
-| PAL-13 | L2 palette select produces distinct RGB outputs (VHDL palette addressing) | — | pass | test/compositor/compositor_test.cpp:2947 |
-| PAL-14 | L2 palette bit 15 -> layer2_priority_2 (propagation sanity) (VHDL 7123) | — | pass | test/compositor/compositor_test.cpp:2963 |
-| PAL-15 | Sprite palette entry -> sprite_rgb -> compositor (VHDL 6936-7005) | — | pass | test/compositor/compositor_test.cpp:2975 |
-| RST-10 | Reset: fallback 0xE3 (9-bit 0x1C7) shown (VHDL 7214, 4946) | — | pass | test/compositor/compositor_test.cpp:2995 |
-| RST-11 | Reset: mode=000 (SLU), L2 wins when no S/ULA (VHDL 4951, 7222) | — | pass | test/compositor/compositor_test.cpp:3008 |
-| RST-12 | Reset: NR 0x4A = 0xE3 (VHDL reset clause) | — | pass | test/compositor/compositor_test.cpp:3017 |
-| RST-13 | Reset: NR 0x14 = 0xE3 (VHDL 4946) | — | pass | test/compositor/compositor_test.cpp:3027 |
-| LMASK-P01 | single name 'ula' | — | pass | test/compositor/compositor_test.cpp:4752 |
-| LMASK-P02 | single name 'layer2' | — | pass | test/compositor/compositor_test.cpp:4753 |
-| LMASK-P03 | single name 'sprites' | — | pass | test/compositor/compositor_test.cpp:4754 |
-| LMASK-P04 | single name 'tiles' | — | pass | test/compositor/compositor_test.cpp:4755 |
-| LMASK-P05 | 'all' selects every layer | — | pass | test/compositor/compositor_test.cpp:4756 |
-| LMASK-P06 | two names | — | pass | test/compositor/compositor_test.cpp:4757 |
-| LMASK-P07 | order does not matter | — | pass | test/compositor/compositor_test.cpp:4760 |
-| LMASK-P08 | all four names spelled out == 'all' | — | pass | test/compositor/compositor_test.cpp:4763 |
-| LMASK-E01 | empty list is an error | — | pass | test/compositor/compositor_test.cpp:4780 |
-| LMASK-E02 | unknown name is an error | — | pass | test/compositor/compositor_test.cpp:4781 |
-| LMASK-E03 | names are lowercase only — 'ULA' is unknown | — | pass | test/compositor/compositor_test.cpp:4782 |
-| LMASK-E04 | mixed case is unknown | — | pass | test/compositor/compositor_test.cpp:4783 |
-| LMASK-E05 | one bad name in a good list still errors | — | pass | test/compositor/compositor_test.cpp:4784 |
-| LMASK-E06 | no whitespace tolerance — ' ' is part of the name | — | pass | test/compositor/compositor_test.cpp:4785 |
-| LMASK-E07 | duplicate name is an error | — | pass | test/compositor/compositor_test.cpp:4786 |
-| LMASK-E08 | 'all' plus another name double-selects — error | — | pass | test/compositor/compositor_test.cpp:4787 |
-| LMASK-E09 | …in either order | — | pass | test/compositor/compositor_test.cpp:4788 |
-| LMASK-E10 | 'all' twice is an error | — | pass | test/compositor/compositor_test.cpp:4789 |
-| LMASK-E11 | trailing comma leaves an empty name — error | — | pass | test/compositor/compositor_test.cpp:4790 |
-| LMASK-E12 | leading comma leaves an empty name — error | — | pass | test/compositor/compositor_test.cpp:4791 |
-| LMASK-E13 | empty element in the middle — error | — | pass | test/compositor/compositor_test.cpp:4792 |
-| LMASK-E14 | a lone comma is an error | — | pass | test/compositor/compositor_test.cpp:4793 |
-| LMASK-S01 | layer_mask_to_string: ALL->'all', ula\|tiles->'ula,tiles', 0->'none' | — | pass | test/compositor/compositor_test.cpp:4811 |
-| LMASK-C01 | default mask is LAYER_ALL and composes every layer (SLU: sprite wins) | — | pass | test/compositor/compositor_test.cpp:4846 |
-| LMASK-C02 | 'sprites' alone -> sprite pixel (ULA/L2/TM suppressed) | zxnext.vhd:7118 | pass | test/compositor/compositor_test.cpp:4857 |
-| LMASK-C03 | 'layer2' alone -> L2 pixel even though SLU puts sprites on top | zxnext.vhd:7121 | pass | test/compositor/compositor_test.cpp:4862 |
-| LMASK-C04 | 'ula' alone -> ULA pixel (TM masked, so no ULA/TM override) | zxnext.vhd:7103 | pass | test/compositor/compositor_test.cpp:4867 |
-| LMASK-C05 | 'tiles' alone -> TM pixel (ULA transparent, TM wins the merge) | zxnext.vhd:7109 | pass | test/compositor/compositor_test.cpp:4872 |
-| LMASK-C06 | 'layer2' alone with L2 transparent -> NR 0x4A fallback, no leakage from the masked ULA/sprite/TM pixels (VHDL 7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:4889 |
-| LMASK-C07 | excluding 'ula' removes the BORDER as well; those pixels take the NR 0x4A fallback (== hardware ula_en=0, VHDL 7103) | — | pass | test/compositor/compositor_test.cpp:4914 |
-| LMASK-C08 | mode 100 border exception survives masking: sprite still wins over the border ULA (VHDL 7266); masking the sprite away hands the border back to the ULA | zxnext.vhd:7266 | pass | test/compositor/compositor_test.cpp:4942 |
-| LMASK-C10 | masking 'layer2' out also cancels its priority-bit promotion over the sprites (VHDL 7220) | — | pass | test/compositor/compositor_test.cpp:5061 |
-| LMASK-C11 | blend mode 110: masking 'ula' zeroes the mix_rgb contribution, so the mixer emits Layer 2 alone (VHDL 7101/7122, 7288-7298) | — | pass | test/compositor/compositor_test.cpp:5095 |
-| LMASK-C09-00 | stencil, neither layer masked -> AND-branch live, ULA AND TM (VHDL 7130, 7112-7113) | — | pass | test/compositor/compositor_test.cpp:4982 |
-| LMASK-C09-01 | stencil, 'tiles' masked -> AND-branch off (tm_en=0), ulatm merge shows the ULA (VHDL 7130, 7134-7135) | — | pass | test/compositor/compositor_test.cpp:4992 |
-| LMASK-C09-10 | stencil, 'ula' masked -> AND-branch off (ula_en=0), ulatm merge shows the TILE, NOT the fallback (VHDL 7130, 7134-7135) | — | pass | test/compositor/compositor_test.cpp:5005 |
-| LMASK-C09-11 | stencil, both 'ula' and 'tiles' masked -> ulatm merge transparent, NR 0x4A fallback (VHDL 7214) | — | pass | test/compositor/compositor_test.cpp:5017 |
-| LMASK-C09-SPR | stencil, CLI mask 'layer2,sprites,tiles' (i.e. only 'ula' excluded) -> tile survives (VHDL 7130) | — | pass | test/compositor/compositor_test.cpp:5033 |
+| UCLIP-01 | mid-frame NR 0x1A write does not retroactively re-mask a row whose per-line snapshot already ran — col 200 survives under the stale window A (VHDL zxnext.vhd:988-991, 6779-6783) | zxnext.vhd:988-991,6779-6783 | pass | test/compositor/compositor_test.cpp:4615 |
+| UCLIP-02 | …and the left border is clipped per the SNAPSHOTTED window A (x1=128>0) — proves the snapshot is captured, not the reset default (renderer.cpp left_clipped; VHDL 6779-6783) | — | pass | test/compositor/compositor_test.cpp:4626 |
+| UCLIP-03 | after the deferred snapshot lands, the SAME row selects window B: col 200 clipped, left border kept, right border clipped (VHDL zxnext.vhd:988-991, 6779-6783) | zxnext.vhd:988-991,6779-6783 | pass | test/compositor/compositor_test.cpp:4645 |
+| UCLIP-04 | split frame: rows < S masked with window A, rows >= S with window B — mid-frame NR 0x1A change lands exactly at the scanline where it was written (VHDL zxnext.vhd:988-991) | zxnext.vhd:988-991 | pass | test/compositor/compositor_test.cpp:4681 |
+| BLANK-10 | Active area: rgb_out = composited rgb (VHDL 7395-7412) | — | pass | test/compositor/compositor_test.cpp:2778 |
+| BLANK-11 | Horizontal blanking: rgb_out_o = 0 (VHDL 7395-7412) | — | pass | test/compositor/compositor_test.cpp:2792 |
+| BLANK-12 | Vertical blanking: rgb_out_o = 0 (VHDL 7395-7412) | — | pass | test/compositor/compositor_test.cpp:2795 |
+| BLANK-13 | Fallback colour NOT shown during blank (VHDL 7395-7412) | — | pass | test/compositor/compositor_test.cpp:2798 |
+| BLANK-G27-01 | Combinational compositor: adjacent columns at an active-to-blank stylised edge each pick up their own layer state — no 1-pixel desync (VHDL 7395-7412 invariant satisfied by-construction in the combinational model) | zxnext.vhd:7395-7412 | pass | test/compositor/compositor_test.cpp:2845 |
+| PAL-10 | ULA pixel index -> ULA/TM palette -> rgb_out_2 (VHDL 6936-7005) | — | pass | test/compositor/compositor_test.cpp:2873 |
+| PAL-11 | ULA background substitution uses NR0x4A (VHDL 6987-6991) | — | pass | test/compositor/compositor_test.cpp:2891 |
+| PAL-12 | LoRes pixel overrides ULA background (VHDL 6987-6991 else) | — | pass | test/compositor/compositor_test.cpp:2904 |
+| PAL-13 | L2 palette select produces distinct RGB outputs (VHDL palette addressing) | — | pass | test/compositor/compositor_test.cpp:2921 |
+| PAL-14 | L2 palette bit 15 -> layer2_priority_2 (propagation sanity) (VHDL 7123) | — | pass | test/compositor/compositor_test.cpp:2937 |
+| PAL-15 | Sprite palette entry -> sprite_rgb -> compositor (VHDL 6936-7005) | — | pass | test/compositor/compositor_test.cpp:2949 |
+| RST-10 | Reset: fallback 0xE3 (9-bit 0x1C7) shown (VHDL 7214, 4946) | — | pass | test/compositor/compositor_test.cpp:2969 |
+| RST-11 | Reset: mode=000 (SLU), L2 wins when no S/ULA (VHDL 4951, 7222) | — | pass | test/compositor/compositor_test.cpp:2982 |
+| RST-12 | Reset: NR 0x4A = 0xE3 (VHDL reset clause) | — | pass | test/compositor/compositor_test.cpp:2991 |
+| RST-13 | Reset: NR 0x14 = 0xE3 (VHDL 4946) | — | pass | test/compositor/compositor_test.cpp:3001 |
+| LMASK-P01 | single name 'ula' | — | pass | test/compositor/compositor_test.cpp:4726 |
+| LMASK-P02 | single name 'layer2' | — | pass | test/compositor/compositor_test.cpp:4727 |
+| LMASK-P03 | single name 'sprites' | — | pass | test/compositor/compositor_test.cpp:4728 |
+| LMASK-P04 | single name 'tiles' | — | pass | test/compositor/compositor_test.cpp:4729 |
+| LMASK-P05 | 'all' selects every layer | — | pass | test/compositor/compositor_test.cpp:4730 |
+| LMASK-P06 | two names | — | pass | test/compositor/compositor_test.cpp:4731 |
+| LMASK-P07 | order does not matter | — | pass | test/compositor/compositor_test.cpp:4734 |
+| LMASK-P08 | all four names spelled out == 'all' | — | pass | test/compositor/compositor_test.cpp:4737 |
+| LMASK-E01 | empty list is an error | — | pass | test/compositor/compositor_test.cpp:4754 |
+| LMASK-E02 | unknown name is an error | — | pass | test/compositor/compositor_test.cpp:4755 |
+| LMASK-E03 | names are lowercase only — 'ULA' is unknown | — | pass | test/compositor/compositor_test.cpp:4756 |
+| LMASK-E04 | mixed case is unknown | — | pass | test/compositor/compositor_test.cpp:4757 |
+| LMASK-E05 | one bad name in a good list still errors | — | pass | test/compositor/compositor_test.cpp:4758 |
+| LMASK-E06 | no whitespace tolerance — ' ' is part of the name | — | pass | test/compositor/compositor_test.cpp:4759 |
+| LMASK-E07 | duplicate name is an error | — | pass | test/compositor/compositor_test.cpp:4760 |
+| LMASK-E08 | 'all' plus another name double-selects — error | — | pass | test/compositor/compositor_test.cpp:4761 |
+| LMASK-E09 | …in either order | — | pass | test/compositor/compositor_test.cpp:4762 |
+| LMASK-E10 | 'all' twice is an error | — | pass | test/compositor/compositor_test.cpp:4763 |
+| LMASK-E11 | trailing comma leaves an empty name — error | — | pass | test/compositor/compositor_test.cpp:4764 |
+| LMASK-E12 | leading comma leaves an empty name — error | — | pass | test/compositor/compositor_test.cpp:4765 |
+| LMASK-E13 | empty element in the middle — error | — | pass | test/compositor/compositor_test.cpp:4766 |
+| LMASK-E14 | a lone comma is an error | — | pass | test/compositor/compositor_test.cpp:4767 |
+| LMASK-S01 | layer_mask_to_string: ALL->'all', ula\|tiles->'ula,tiles', 0->'none' | — | pass | test/compositor/compositor_test.cpp:4785 |
+| LMASK-C01 | default mask is LAYER_ALL and composes every layer (SLU: sprite wins) | — | pass | test/compositor/compositor_test.cpp:4820 |
+| LMASK-C02 | 'sprites' alone -> sprite pixel (ULA/L2/TM suppressed) | zxnext.vhd:7118 | pass | test/compositor/compositor_test.cpp:4831 |
+| LMASK-C03 | 'layer2' alone -> L2 pixel even though SLU puts sprites on top | zxnext.vhd:7121 | pass | test/compositor/compositor_test.cpp:4836 |
+| LMASK-C04 | 'ula' alone -> ULA pixel (TM masked, so no ULA/TM override) | zxnext.vhd:7103 | pass | test/compositor/compositor_test.cpp:4841 |
+| LMASK-C05 | 'tiles' alone -> TM pixel (ULA transparent, TM wins the merge) | zxnext.vhd:7109 | pass | test/compositor/compositor_test.cpp:4846 |
+| LMASK-C06 | 'layer2' alone with L2 transparent -> NR 0x4A fallback, no leakage from the masked ULA/sprite/TM pixels (VHDL 7214) | zxnext.vhd:7214 | pass | test/compositor/compositor_test.cpp:4863 |
+| LMASK-C07 | excluding 'ula' removes the BORDER as well; those pixels take the NR 0x4A fallback (== hardware ula_en=0, VHDL 7103) | — | pass | test/compositor/compositor_test.cpp:4888 |
+| LMASK-C08 | mode 100 border exception survives masking: sprite still wins over the border ULA (VHDL 7266); masking the sprite away hands the border back to the ULA | zxnext.vhd:7266 | pass | test/compositor/compositor_test.cpp:4916 |
+| LMASK-C10 | masking 'layer2' out also cancels its priority-bit promotion over the sprites (VHDL 7220) | — | pass | test/compositor/compositor_test.cpp:5035 |
+| LMASK-C11 | blend mode 110: masking 'ula' zeroes the mix_rgb contribution, so the mixer emits Layer 2 alone (VHDL 7101/7122, 7288-7298) | — | pass | test/compositor/compositor_test.cpp:5068 |
+| LMASK-C09-00 | stencil, neither layer masked -> AND-branch live, ULA AND TM (VHDL 7130, 7112-7113) | — | pass | test/compositor/compositor_test.cpp:4956 |
+| LMASK-C09-01 | stencil, 'tiles' masked -> AND-branch off (tm_en=0), ulatm merge shows the ULA (VHDL 7130, 7134-7135) | — | pass | test/compositor/compositor_test.cpp:4966 |
+| LMASK-C09-10 | stencil, 'ula' masked -> AND-branch off (ula_en=0), ulatm merge shows the TILE, NOT the fallback (VHDL 7130, 7134-7135) | — | pass | test/compositor/compositor_test.cpp:4979 |
+| LMASK-C09-11 | stencil, both 'ula' and 'tiles' masked -> ulatm merge transparent, NR 0x4A fallback (VHDL 7214) | — | pass | test/compositor/compositor_test.cpp:4991 |
+| LMASK-C09-SPR | stencil, CLI mask 'layer2,sprites,tiles' (i.e. only 'ula' excluded) -> tile survives (VHDL 7130) | — | pass | test/compositor/compositor_test.cpp:5007 |
 | TR-24 | GH#113: textmode paper opaque + below=0 hides ULA (VHDL 7116) | tilemap.vhd:388, tilemap.vhd:429, zxnext.vhd:7116 | pass | test/compositor/compositor_test.cpp:561 |
 | TR-25 | GH#113 control: textmode paper with below=1 => ULA wins (VHDL 7116) | zxnext.vhd:7116 | pass | test/compositor/compositor_test.cpp:580 |
-| BL-30 | mode "01" prio6: mix_bot=ULA wins (zxnext.vhd:7163-7176) | zxnext.vhd:7163-7176 | pass | test/compositor/compositor_test.cpp:1842 |
-| BL-31 | mode "01" prio6: mix_top=TM (ULA masked) (zxnext.vhd:7163-7176) | zxnext.vhd:7163-7176 | pass | test/compositor/compositor_test.cpp:1865 |
-| BL-32 | mode "01" prio6: tm_below=1 swap, mix_top=ULA wins (zxnext.vhd:7163-7176) | zxnext.vhd:7163-7176 | pass | test/compositor/compositor_test.cpp:1888 |
-| BL-40 | mode "10" prio6: mix_rgb=ula_final, add(L2,ULA) (zxnext.vhd:7149-7155,7286-7298) | zxnext.vhd:7149-7155,7286-7298 | pass | test/compositor/compositor_test.cpp:1909 |
-| BL-41 | mode "10" prio6: ulatm merge → TM, add(L2,TM) (zxnext.vhd:7115-7116,7149-7155) | zxnext.vhd:7115-7116,7149-7155 | pass | test/compositor/compositor_test.cpp:1931 |
-| BL-42 | mode "10" prio6: stencil ULA&TM routes via ula_final_rgb (zxnext.vhd:7130-7132,7149-7155) | zxnext.vhd:7130-7132,7149-7155 | pass | test/compositor/compositor_test.cpp:1956 |
-| BL-50 | mode "11" prio6: mix_bot=ULA wins (zxnext.vhd:7156-7162) | zxnext.vhd:7156-7162 | pass | test/compositor/compositor_test.cpp:1982 |
-| BL-51 | mode "11" prio6: tm_below=1, mix_top=ULA wins (zxnext.vhd:7156-7162) | zxnext.vhd:7156-7162 | pass | test/compositor/compositor_test.cpp:2005 |
-| BL-52 | mode "11" prio6: TM as mix_rgb, ULA overlays transp (zxnext.vhd:7156-7162) | zxnext.vhd:7156-7162 | pass | test/compositor/compositor_test.cpp:2029 |
-| BL-60 | mode "11" prio7: sub(L2,TM)=(4,2,0) (zxnext.vhd:7156-7162,7312-7352) | zxnext.vhd:7156-7162,7312-7352 | pass | test/compositor/compositor_test.cpp:2052 |
-| STEN-18 | ula_en_2=0 disables stencil gate even with stencil+tm_en set; TM pixel shows, NOT the NR0x4A fallback (VHDL 7103,7130,7134-7135) | zxnext.vhd:7130 | pass | test/compositor/compositor_test.cpp:2523 |
-| STEN-19 | ula_en_2=1 (default): stencil AND-branch still fires normally (VHDL 7130,7112-7113) | — | pass | test/compositor/compositor_test.cpp:2547 |
-| PSCAN-01 | zxnext.vhd:6957-6978 — palette_utm (dpram2) is a genuine 28 MHz edge-triggered write with no per-frame batching: an NR-side palette write (nr_ulatm_we) commits at whatever raster line it occurs on; write_8bit logs (line=123, ULA_FIRST, idx=5, rgb333) so replay can reproduce that same per-line timing | zxnext.vhd:6957-6978 | pass | test/compositor/compositor_test.cpp:3054 |
-| PSCAN-02 | zxnext.vhd:6957-6978 — palette RAM (palette_utm) holds genuine persistent state with no frame-boundary clear; rewind_to_baseline restores live palette state | zxnext.vhd:6957-6978 | pass | test/compositor/compositor_test.cpp:3080 |
-| PSCAN-03 | zxnext.vhd:6957-6978 — a real palette write (nr_ulatm_we) commits immediately at its own raster line, never batched; apply_changes_for_line replays only matching lines, cursor monotonic across the frame | zxnext.vhd:6957-6978 | pass | test/compositor/compositor_test.cpp:3139 |
-| PSCAN-04 | (jnext-internal safety canary, no hardware counterpart) — real palette writes are rate-unlimited (no VHDL throttling or logging exists); MAX_CHANGES_PER_FRAME / overflow_warned_ is a jnext-only runaway-write safety canary: change_log_size saturates at the sanity bound; live palette still tracks past it; overflow_warned_ latches once and survives further writes; start_frame() resets it | — | pass | test/compositor/compositor_test.cpp:3203 |
-| PSCAN-06 | log grows past the old 4096 cap; write #4097 still replays per-scanline at its own line; no overflow warn (GH #110) | — | pass | test/compositor/compositor_test.cpp:3268 |
-| PSCAN-05 | zxnext.vhd:6957-6978 — end-to-end against the same immediate-write hardware model: Renderer::render_frame replays per-line palette changes — lines before the change show baseline red, lines after show the mid-frame cyan write | zxnext.vhd:6957-6978 | pass | test/compositor/compositor_test.cpp:3352 |
-| PSCAN-VBLANK-PALETTE | PaletteManager::flush_remaining_changes drains a log entry tagged at line >= FB_HEIGHT and applies it to the live state (regression check: tilemap_demo black-screen at NR 0x07 >= 0x02) | — | pass | test/compositor/compositor_test.cpp:3389 |
-| PSCAN-VBLANK-LAYER2 | Layer2::flush_remaining_changes drains scroll/clip/bank/enable/nr70 entries tagged at line >= FB_HEIGHT | — | pass | test/compositor/compositor_test.cpp:3434 |
-| PSCAN-VBLANK-SPRITE | SpriteEngine::flush_remaining_changes drains attribute and pattern entries tagged at line >= FB_HEIGHT (regression check: parallax-style port 0x57 bursts that finish in vblank) | — | pass | test/compositor/compositor_test.cpp:3470 |
-| PSCAN-VBLANK-ULA-PORTFF | Ula::flush_remaining_changes drains port-0xFF entry tagged at line >= FB_HEIGHT | — | pass | test/compositor/compositor_test.cpp:3491 |
-| PSCAN-VBLANK-ULA-SCROLL | Ula::flush_remaining_scroll_changes drains scroll entry tagged at line >= FB_HEIGHT | — | pass | test/compositor/compositor_test.cpp:3517 |
-| PSCAN-VBLANK-ULA-PALSEL | Ula::palsel_flush_remaining_changes drains NR 0x43 + NR 0x6B b4 entries tagged at line >= FB_HEIGHT | — | pass | test/compositor/compositor_test.cpp:3547 |
-| LR-20 | with NR $15 bit 7 = 0 every framebuffer cell is bit-identical to the pure-ULA pipeline — LoRes content in bank 5 is invisible (zxnext.vhd:6933, 6980) | zxnext.vhd:6933,6980 | pass | test/compositor/compositor_test.cpp:5280 |
-| LR-21 | with NR $15 bit 7 = 1 all 256x192 display pixels take LoRes values and none takes a ULA value (zxnext.vhd:6980) | zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5308 |
-| LR-22 | LoRes never paints the border — every border cell keeps the port $FE colour (lores.vhd:115; zxula.vhd:414-415) | lores.vhd:115, zxula.vhd:414-415 | pass | test/compositor/compositor_test.cpp:5346 |
-| LR-26 | LoRes occupies the ULA slot in NR $15 priority — in every mode 000..101 it wins or loses exactly where the ULA would, and the winning colour is the LoRes one (zxnext.vhd:6980-6981) | zxnext.vhd:6980-6981 | pass | test/compositor/compositor_test.cpp:5402 |
-| LR-27 | NR $68 bit 7 (ULA disable) blanks LoRes too — the display falls through to the NR $4A fallback, no LoRes pixel survives (zxnext.vhd:7103-7104) | zxnext.vhd:7103-7104 | pass | test/compositor/compositor_test.cpp:5428 |
-| LR-28 | in Timex hi-res mode both 512-grid half-pixels take the SAME LoRes colour and no hi-res detail survives (zxnext.vhd:6843 vs 6858, 6980, 6986) | zxnext.vhd:6843 | pass | test/compositor/compositor_test.cpp:5461 |
-| LR-29 | ULA attribute FLASH does not modulate a LoRes pixel — both flash phases render the display area identically (zxula.vhd:470; zxnext.vhd:6980) | zxula.vhd:470, zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5486 |
-| LR-30 | the LoRes byte indexes the ULA palette, not the Layer 2 / sprite / tilemap palette (zxnext.vhd:6960-6978, 6981) | zxnext.vhd:6960-6978,6981 | pass | test/compositor/compositor_test.cpp:5517 |
-| LR-31 | NR $43 bit 1 selects which of the two ULA palette banks LoRes indexes (zxnext.vhd:6825, 6981) | zxnext.vhd:6825,6981 | pass | test/compositor/compositor_test.cpp:5550 |
-| LR-49 | LoRes reads physical bank 5 regardless of the MMU slot mapping (zxnext.vhd:6631, 6558-6578; lores.vhd:56) | zxnext.vhd:6631,6558-6578, lores.vhd:56 | pass | test/compositor/compositor_test.cpp:5571 |
-| LR-50 | LoRes is unaffected by the port $7FFD bit 3 shadow-screen select — it always shows bank-5 content (zxnext.vhd:6631 vs 6651-6655) | zxnext.vhd:6631 | pass | test/compositor/compositor_test.cpp:5595 |
-| LR-66 | dfile = port $FF bit 0 XOR NR $6A bit 4: (0,0)->half 0, (1,0)->half 1, (0,1)->half 1, (1,1)->half 0 (zxnext.vhd:6796) | zxnext.vhd:6796 | pass | test/compositor/compositor_test.cpp:5634 |
-| LR-69 | Radastan and 8-bit mode reach different bytes for the same screen position: (phc=8, vc=4) reads 0x0104 vs 0x0082 (lores.vhd:91, 96) | lores.vhd:91,96 | pass | test/compositor/compositor_test.cpp:5660 |
-| LR-87 | ULANext cancels the ULA+ translation of the Radastan high nibble — pixel 0x1A, not 0xDA (zxnext.vhd:4246) | zxnext.vhd:4246 | pass | test/compositor/compositor_test.cpp:5696 |
-| LR-140 | a LoRes pixel never shows the NR $4A fallback: with the ULA asserting ula_select_bgnd (ULAnext format 0x00 paper, zxula.vhd:525) the LoRes palette colour is emitted (zxnext.vhd:6986-6991); the identical state without LoRes takes the fallback, proving the stimulus | zxula.vhd:525, zxnext.vhd:6986-6991 | pass | test/compositor/compositor_test.cpp:5760 |
-| LR-141 | the LoRes colour is subject to NR $14 global transparency — matching the key makes the pixel transparent and the layer below shows (zxnext.vhd:7100-7101) | zxnext.vhd:7100-7101 | pass | test/compositor/compositor_test.cpp:5805 |
-| LR-142 | transparency compares the palette RGB[8:1], not the palette index — only the entry whose RGB is the key goes transparent (zxnext.vhd:7100) | zxnext.vhd:7100 | pass | test/compositor/compositor_test.cpp:5846 |
-| LR-143 | LoRes participates in ULA/tilemap stencil mode as the ULA colour — the AND uses the LoRes RGB (zxnext.vhd:7112-7113, 7130-7132) | zxnext.vhd:7112-7113,7130-7132 | pass | test/compositor/compositor_test.cpp:5900 |
-| LR-144 | LoRes participates in NR $15 blend mode 110 as the ULA operand of the mixer (zxnext.vhd:7100-7101, 7139-7148) | zxnext.vhd:7100-7101,7139-7148 | pass | test/compositor/compositor_test.cpp:5931 |
-| LR-145 | the tilemap 'below ULA' ordering applies unchanged to LoRes: tilemap over the LoRes colour when above, LoRes over the tilemap when below (zxnext.vhd:7116) | zxnext.vhd:7116 | pass | test/compositor/compositor_test.cpp:5954 |
-| LR-146 | sprite and Layer 2 priority relative to the ULA slot is unchanged by LoRes — only the ULA-slot colour changes (zxnext.vhd:6980, 7139+) | zxnext.vhd:6980,7139 | pass | test/compositor/compositor_test.cpp:5997 |
-| LR-127a | LoRes and the ULA share ONE clip window and are suppressed together: inside NR $1A the LoRes pixel draws, outside it the pixel falls to the NR $4A fallback and no ULA pixel shows through (zxula.vhd:562; lores.vhd:115; zxnext.vhd:4258-4261, 7100/7104) | zxula.vhd:562, lores.vhd:115, zxnext.vhd:4258-4261 | pass | test/compositor/compositor_test.cpp:6056 |
-| LR-PSCAN | NR $15 bit 7 / $32 / $33 / $6A are replayed per scanline — a mid-frame enable+scroll affects only the rows from the write onward, never the rows the beam already passed (zxnext.vhd:6768-6802, 6817) | zxnext.vhd:6768-6802,6817 | pass | test/compositor/compositor_test.cpp:6107 |
-| LR-161 | NR $68 bit 2 (ULA half-pixel scroll) does not move the LoRes image (zxnext.vhd:4241-4271 — no such port on the LoRes module) | zxnext.vhd:4241-4271 | pass | test/compositor/compositor_test.cpp:6137 |
-| LR-165 | LoRes does not disturb the ULA's own VRAM fetch — switching LoRes off again restores an intact ULA screen (zxnext.vhd:6631, 6660) | zxnext.vhd:6631,6660 | pass | test/compositor/compositor_test.cpp:6157 |
-| LR-166 | NR $19 (sprite clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4366-4369) | zxnext.vhd:4258-4261,4366-4369 | pass | test/compositor/compositor_test.cpp:6182 |
-| LR-167 | NR $1B (tilemap clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4424-4427) | zxnext.vhd:4258-4261,4424-4427 | pass | test/compositor/compositor_test.cpp:6191 |
+| BL-30 | mode "01" prio6: mix_bot=ULA wins (zxnext.vhd:7163-7176) | zxnext.vhd:7163-7176 | pass | test/compositor/compositor_test.cpp:1829 |
+| BL-31 | mode "01" prio6: mix_top=TM (ULA masked) (zxnext.vhd:7163-7176) | zxnext.vhd:7163-7176 | pass | test/compositor/compositor_test.cpp:1852 |
+| BL-32 | mode "01" prio6: tm_below=1 swap, mix_top=ULA wins (zxnext.vhd:7163-7176) | zxnext.vhd:7163-7176 | pass | test/compositor/compositor_test.cpp:1875 |
+| BL-40 | mode "10" prio6: mix_rgb=ula_final, add(L2,ULA) (zxnext.vhd:7149-7155,7286-7298) | zxnext.vhd:7149-7155,7286-7298 | pass | test/compositor/compositor_test.cpp:1893 |
+| BL-41 | mode "10" prio6: ulatm merge → TM, add(L2,TM) (zxnext.vhd:7115-7116,7149-7155) | zxnext.vhd:7115-7116,7149-7155 | pass | test/compositor/compositor_test.cpp:1912 |
+| BL-42 | mode "10" prio6: stencil ULA&TM routes via ula_final_rgb (zxnext.vhd:7130-7132,7149-7155) | zxnext.vhd:7130-7132,7149-7155 | pass | test/compositor/compositor_test.cpp:1936 |
+| BL-50 | mode "11" prio6: mix_bot=ULA wins (zxnext.vhd:7156-7162) | zxnext.vhd:7156-7162 | pass | test/compositor/compositor_test.cpp:1962 |
+| BL-51 | mode "11" prio6: tm_below=1, mix_top=ULA wins (zxnext.vhd:7156-7162) | zxnext.vhd:7156-7162 | pass | test/compositor/compositor_test.cpp:1985 |
+| BL-52 | mode "11" prio6: TM as mix_rgb, ULA overlays transp (zxnext.vhd:7156-7162) | zxnext.vhd:7156-7162 | pass | test/compositor/compositor_test.cpp:2006 |
+| BL-60 | mode "11" prio7: sub(L2,TM)=(4,2,0) (zxnext.vhd:7156-7162,7312-7352) | zxnext.vhd:7156-7162,7312-7352 | pass | test/compositor/compositor_test.cpp:2026 |
+| STEN-18 | ula_en_2=0 disables stencil gate even with stencil+tm_en set; TM pixel shows, NOT the NR0x4A fallback (VHDL 7103,7130,7134-7135) | zxnext.vhd:7130 | pass | test/compositor/compositor_test.cpp:2497 |
+| STEN-19 | ula_en_2=1 (default): stencil AND-branch still fires normally (VHDL 7130,7112-7113) | — | pass | test/compositor/compositor_test.cpp:2521 |
+| PSCAN-01 | zxnext.vhd:6957-6978 — palette_utm (dpram2) is a genuine 28 MHz edge-triggered write with no per-frame batching: an NR-side palette write (nr_ulatm_we) commits at whatever raster line it occurs on; write_8bit logs (line=123, ULA_FIRST, idx=5, rgb333) so replay can reproduce that same per-line timing | zxnext.vhd:6957-6978 | pass | test/compositor/compositor_test.cpp:3028 |
+| PSCAN-02 | zxnext.vhd:6957-6978 — palette RAM (palette_utm) holds genuine persistent state with no frame-boundary clear; rewind_to_baseline restores live palette state | zxnext.vhd:6957-6978 | pass | test/compositor/compositor_test.cpp:3054 |
+| PSCAN-03 | zxnext.vhd:6957-6978 — a real palette write (nr_ulatm_we) commits immediately at its own raster line, never batched; apply_changes_for_line replays only matching lines, cursor monotonic across the frame | zxnext.vhd:6957-6978 | pass | test/compositor/compositor_test.cpp:3113 |
+| PSCAN-04 | (jnext-internal safety canary, no hardware counterpart) — real palette writes are rate-unlimited (no VHDL throttling or logging exists); MAX_CHANGES_PER_FRAME / overflow_warned_ is a jnext-only runaway-write safety canary: change_log_size saturates at the sanity bound; live palette still tracks past it; overflow_warned_ latches once and survives further writes; start_frame() resets it | — | pass | test/compositor/compositor_test.cpp:3177 |
+| PSCAN-06 | log grows past the old 4096 cap; write #4097 still replays per-scanline at its own line; no overflow warn (GH #110) | — | pass | test/compositor/compositor_test.cpp:3242 |
+| PSCAN-05 | zxnext.vhd:6957-6978 — end-to-end against the same immediate-write hardware model: Renderer::render_frame replays per-line palette changes — lines before the change show baseline red, lines after show the mid-frame cyan write | zxnext.vhd:6957-6978 | pass | test/compositor/compositor_test.cpp:3326 |
+| PSCAN-VBLANK-PALETTE | PaletteManager::flush_remaining_changes drains a log entry tagged at line >= FB_HEIGHT and applies it to the live state (regression check: tilemap_demo black-screen at NR 0x07 >= 0x02) | — | pass | test/compositor/compositor_test.cpp:3363 |
+| PSCAN-VBLANK-LAYER2 | Layer2::flush_remaining_changes drains scroll/clip/bank/enable/nr70 entries tagged at line >= FB_HEIGHT | — | pass | test/compositor/compositor_test.cpp:3408 |
+| PSCAN-VBLANK-SPRITE | SpriteEngine::flush_remaining_changes drains attribute and pattern entries tagged at line >= FB_HEIGHT (regression check: parallax-style port 0x57 bursts that finish in vblank) | — | pass | test/compositor/compositor_test.cpp:3444 |
+| PSCAN-VBLANK-ULA-PORTFF | Ula::flush_remaining_changes drains port-0xFF entry tagged at line >= FB_HEIGHT | — | pass | test/compositor/compositor_test.cpp:3465 |
+| PSCAN-VBLANK-ULA-SCROLL | Ula::flush_remaining_scroll_changes drains scroll entry tagged at line >= FB_HEIGHT | — | pass | test/compositor/compositor_test.cpp:3491 |
+| PSCAN-VBLANK-ULA-PALSEL | Ula::palsel_flush_remaining_changes drains NR 0x43 + NR 0x6B b4 entries tagged at line >= FB_HEIGHT | — | pass | test/compositor/compositor_test.cpp:3521 |
+| LR-20 | with NR $15 bit 7 = 0 every framebuffer cell is bit-identical to the pure-ULA pipeline — LoRes content in bank 5 is invisible (zxnext.vhd:6933, 6980) | zxnext.vhd:6933,6980 | pass | test/compositor/compositor_test.cpp:5252 |
+| LR-21 | with NR $15 bit 7 = 1 all 256x192 display pixels take LoRes values and none takes a ULA value (zxnext.vhd:6980) | zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5280 |
+| LR-22 | LoRes never paints the border — every border cell keeps the port $FE colour (lores.vhd:115; zxula.vhd:414-415) | lores.vhd:115, zxula.vhd:414-415 | pass | test/compositor/compositor_test.cpp:5318 |
+| LR-26 | LoRes occupies the ULA slot in NR $15 priority — in every mode 000..101 it wins or loses exactly where the ULA would, and the winning colour is the LoRes one (zxnext.vhd:6980-6981) | zxnext.vhd:6980-6981 | pass | test/compositor/compositor_test.cpp:5374 |
+| LR-27 | NR $68 bit 7 (ULA disable) blanks LoRes too — the display falls through to the NR $4A fallback, no LoRes pixel survives (zxnext.vhd:7103-7104) | zxnext.vhd:7103-7104 | pass | test/compositor/compositor_test.cpp:5400 |
+| LR-28 | in Timex hi-res mode both 512-grid half-pixels take the SAME LoRes colour and no hi-res detail survives (zxnext.vhd:6843 vs 6858, 6980, 6986) | zxnext.vhd:6843 | pass | test/compositor/compositor_test.cpp:5433 |
+| LR-29 | ULA attribute FLASH does not modulate a LoRes pixel — both flash phases render the display area identically (zxula.vhd:470; zxnext.vhd:6980) | zxula.vhd:470, zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5458 |
+| LR-30 | the LoRes byte indexes the ULA palette, not the Layer 2 / sprite / tilemap palette (zxnext.vhd:6960-6978, 6981) | zxnext.vhd:6960-6978,6981 | pass | test/compositor/compositor_test.cpp:5489 |
+| LR-31 | NR $43 bit 1 selects which of the two ULA palette banks LoRes indexes (zxnext.vhd:6825, 6981) | zxnext.vhd:6825,6981 | pass | test/compositor/compositor_test.cpp:5522 |
+| LR-49 | LoRes reads physical bank 5 regardless of the MMU slot mapping (zxnext.vhd:6631, 6558-6578; lores.vhd:56) | zxnext.vhd:6631,6558-6578, lores.vhd:56 | pass | test/compositor/compositor_test.cpp:5543 |
+| LR-50 | LoRes is unaffected by the port $7FFD bit 3 shadow-screen select — it always shows bank-5 content (zxnext.vhd:6631 vs 6651-6655) | zxnext.vhd:6631 | pass | test/compositor/compositor_test.cpp:5567 |
+| LR-66 | dfile = port $FF bit 0 XOR NR $6A bit 4: (0,0)->half 0, (1,0)->half 1, (0,1)->half 1, (1,1)->half 0 (zxnext.vhd:6796) | zxnext.vhd:6796 | pass | test/compositor/compositor_test.cpp:5606 |
+| LR-69 | Radastan and 8-bit mode reach different bytes for the same screen position: (phc=8, vc=4) reads 0x0104 vs 0x0082 (lores.vhd:91, 96) | lores.vhd:91,96 | pass | test/compositor/compositor_test.cpp:5632 |
+| LR-87 | ULANext cancels the ULA+ translation of the Radastan high nibble — pixel 0x1A, not 0xDA (zxnext.vhd:4246) | zxnext.vhd:4246 | pass | test/compositor/compositor_test.cpp:5668 |
+| LR-140 | a LoRes pixel never shows the NR $4A fallback: with the ULA asserting ula_select_bgnd (ULAnext format 0x00 paper, zxula.vhd:525) the LoRes palette colour is emitted (zxnext.vhd:6986-6991); the identical state without LoRes takes the fallback, proving the stimulus | zxula.vhd:525, zxnext.vhd:6986-6991 | pass | test/compositor/compositor_test.cpp:5734 |
+| LR-141 | the LoRes colour is subject to NR $14 global transparency — matching the key makes the pixel transparent and the layer below shows (zxnext.vhd:7100-7101) | zxnext.vhd:7100-7101 | pass | test/compositor/compositor_test.cpp:5779 |
+| LR-142 | transparency compares the palette RGB[8:1], not the palette index — only the entry whose RGB is the key goes transparent (zxnext.vhd:7100) | zxnext.vhd:7100 | pass | test/compositor/compositor_test.cpp:5820 |
+| LR-143 | LoRes participates in ULA/tilemap stencil mode as the ULA colour — the AND uses the LoRes RGB (zxnext.vhd:7112-7113, 7130-7132) | zxnext.vhd:7112-7113,7130-7132 | pass | test/compositor/compositor_test.cpp:5875 |
+| LR-144 | LoRes participates in NR $15 blend mode 110 as the ULA operand of the mixer (zxnext.vhd:7100-7101, 7139-7148) | zxnext.vhd:7100-7101,7139-7148 | pass | test/compositor/compositor_test.cpp:5905 |
+| LR-145 | the tilemap 'below ULA' ordering applies unchanged to LoRes: tilemap over the LoRes colour when above, LoRes over the tilemap when below (zxnext.vhd:7116) | zxnext.vhd:7116 | pass | test/compositor/compositor_test.cpp:5928 |
+| LR-146 | sprite and Layer 2 priority relative to the ULA slot is unchanged by LoRes — only the ULA-slot colour changes (zxnext.vhd:6980, 7139+) | zxnext.vhd:6980,7139 | pass | test/compositor/compositor_test.cpp:5971 |
+| LR-127a | LoRes and the ULA share ONE clip window and are suppressed together: inside NR $1A the LoRes pixel draws, outside it the pixel falls to the NR $4A fallback and no ULA pixel shows through (zxula.vhd:562; lores.vhd:115; zxnext.vhd:4258-4261, 7100/7104) | zxula.vhd:562, lores.vhd:115, zxnext.vhd:4258-4261 | pass | test/compositor/compositor_test.cpp:6032 |
+| LR-PSCAN | NR $15 bit 7 / $32 / $33 / $6A are replayed per scanline — a mid-frame enable+scroll affects only the rows from the write onward, never the rows the beam already passed (zxnext.vhd:6768-6802, 6817) | zxnext.vhd:6768-6802,6817 | pass | test/compositor/compositor_test.cpp:6083 |
+| LR-161 | NR $68 bit 2 (ULA half-pixel scroll) does not move the LoRes image (zxnext.vhd:4241-4271 — no such port on the LoRes module) | zxnext.vhd:4241-4271 | pass | test/compositor/compositor_test.cpp:6113 |
+| LR-165 | LoRes does not disturb the ULA's own VRAM fetch — switching LoRes off again restores an intact ULA screen (zxnext.vhd:6631, 6660) | zxnext.vhd:6631,6660 | pass | test/compositor/compositor_test.cpp:6133 |
+| LR-166 | NR $19 (sprite clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4366-4369) | zxnext.vhd:4258-4261,4366-4369 | pass | test/compositor/compositor_test.cpp:6158 |
+| LR-167 | NR $1B (tilemap clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4424-4427) | zxnext.vhd:4258-4261,4424-4427 | pass | test/compositor/compositor_test.cpp:6167 |
 
 ## Audio — `test/audio/audio_test.cpp`
 
@@ -3960,18 +3964,18 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-10 | NR $6A bits 3:0 are the palette offset and read back (zxnext.vhd:5458, 6099) | zxnext.vhd:5458,6099 | pass | test/nextreg/nextreg_integration_test.cpp:7262 |
 | LR-11 | NR $6A bits 7:6 are not stored — the read mux hard-wires "00", so 0xFF reads back 0x3F (zxnext.vhd:5456-5458, 6099) | zxnext.vhd:5456-5458,6099 | pass | test/nextreg/nextreg_integration_test.cpp:7271 |
 | LR-12 | NR $6A resets to 0x00 — 8-bit mode, no XOR, offset 0 (zxnext.vhd:5032-5034) | zxnext.vhd:5032-5034 | pass | test/nextreg/nextreg_integration_test.cpp:7189 |
-| LR-20 | with NR $15 bit 7 = 0 every framebuffer cell is bit-identical to the pure-ULA pipeline — LoRes content in bank 5 is invisible (zxnext.vhd:6933, 6980) | zxnext.vhd:6933,6980 | pass | test/compositor/compositor_test.cpp:5280 |
-| LR-21 | with NR $15 bit 7 = 1 all 256x192 display pixels take LoRes values and none takes a ULA value (zxnext.vhd:6980) | zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5308 |
-| LR-22 | LoRes never paints the border — every border cell keeps the port $FE colour (lores.vhd:115; zxula.vhd:414-415) | lores.vhd:115, zxula.vhd:414-415, zxula_timing.vhd:513-517 | pass | test/compositor/compositor_test.cpp:5346 |
+| LR-20 | with NR $15 bit 7 = 0 every framebuffer cell is bit-identical to the pure-ULA pipeline — LoRes content in bank 5 is invisible (zxnext.vhd:6933, 6980) | zxnext.vhd:6933,6980 | pass | test/compositor/compositor_test.cpp:5252 |
+| LR-21 | with NR $15 bit 7 = 1 all 256x192 display pixels take LoRes values and none takes a ULA value (zxnext.vhd:6980) | zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5280 |
+| LR-22 | LoRes never paints the border — every border cell keeps the port $FE colour (lores.vhd:115; zxula.vhd:414-415) | lores.vhd:115, zxula.vhd:414-415, zxula_timing.vhd:513-517 | pass | test/compositor/compositor_test.cpp:5318 |
 | LR-23 | pixel_en = 0 for phc >= 256 (phc(8) set; clip_x2 is 8-bit) (lores.vhd:115) | lores.vhd:115 | pass | test/lores/lores_test.cpp:153 |
 | LR-24 | pixel_en = 0 for vc >= 192 at the default clip (clip_y2 reset 0xBF) (lores.vhd:115; zxnext.vhd:4974) | lores.vhd:115, zxnext.vhd:4974 | pass | test/lores/lores_test.cpp:166 |
 | LR-25 | pixel_en = 1 at all four display corners (0,0)/(255,0)/(0,191)/(255,191) (lores.vhd:115) | lores.vhd:115 | pass | test/lores/lores_test.cpp:180 |
-| LR-26 | LoRes occupies the ULA slot in NR $15 priority — in every mode 000..101 it wins or loses exactly where the ULA would, and the winning colour is the LoRes one (zxnext.vhd:6980-6981) | zxnext.vhd:6980-6981 | pass | test/compositor/compositor_test.cpp:5402 |
-| LR-27 | NR $68 bit 7 (ULA disable) blanks LoRes too — the display falls through to the NR $4A fallback, no LoRes pixel survives (zxnext.vhd:7103-7104) | zxnext.vhd:7103-7104 | pass | test/compositor/compositor_test.cpp:5428 |
-| LR-28 | in Timex hi-res mode both 512-grid half-pixels take the SAME LoRes colour and no hi-res detail survives (zxnext.vhd:6843 vs 6858, 6980, 6986) | zxnext.vhd:6843 | pass | test/compositor/compositor_test.cpp:5461 |
-| LR-29 | ULA attribute FLASH does not modulate a LoRes pixel — both flash phases render the display area identically (zxula.vhd:470; zxnext.vhd:6980) | zxula.vhd:470, zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5486 |
-| LR-30 | the LoRes byte indexes the ULA palette, not the Layer 2 / sprite / tilemap palette (zxnext.vhd:6960-6978, 6981) | zxnext.vhd:6960-6978,6981 | pass | test/compositor/compositor_test.cpp:5517 |
-| LR-31 | NR $43 bit 1 selects which of the two ULA palette banks LoRes indexes (zxnext.vhd:6825, 6981) | zxnext.vhd:6825,6981 | pass | test/compositor/compositor_test.cpp:5550 |
+| LR-26 | LoRes occupies the ULA slot in NR $15 priority — in every mode 000..101 it wins or loses exactly where the ULA would, and the winning colour is the LoRes one (zxnext.vhd:6980-6981) | zxnext.vhd:6980-6981 | pass | test/compositor/compositor_test.cpp:5374 |
+| LR-27 | NR $68 bit 7 (ULA disable) blanks LoRes too — the display falls through to the NR $4A fallback, no LoRes pixel survives (zxnext.vhd:7103-7104) | zxnext.vhd:7103-7104 | pass | test/compositor/compositor_test.cpp:5400 |
+| LR-28 | in Timex hi-res mode both 512-grid half-pixels take the SAME LoRes colour and no hi-res detail survives (zxnext.vhd:6843 vs 6858, 6980, 6986) | zxnext.vhd:6843 | pass | test/compositor/compositor_test.cpp:5433 |
+| LR-29 | ULA attribute FLASH does not modulate a LoRes pixel — both flash phases render the display area identically (zxula.vhd:470; zxnext.vhd:6980) | zxula.vhd:470, zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5458 |
+| LR-30 | the LoRes byte indexes the ULA palette, not the Layer 2 / sprite / tilemap palette (zxnext.vhd:6960-6978, 6981) | zxnext.vhd:6960-6978,6981 | pass | test/compositor/compositor_test.cpp:5489 |
+| LR-31 | NR $43 bit 1 selects which of the two ULA palette banks LoRes indexes (zxnext.vhd:6825, 6981) | zxnext.vhd:6825,6981 | pass | test/compositor/compositor_test.cpp:5522 |
 | LR-40 | top-left LoRes pixel reads bank-5 offset 0 (lores.vhd:91) | lores.vhd:91 | pass | test/lores/lores_test.cpp:198 |
 | LR-41 | row stride is 128 bytes: y(7:1) occupies addr bits 13:7 (lores.vhd:91) | lores.vhd:91 | pass | test/lores/lores_test.cpp:204 |
 | LR-42 | column stride is 1 byte per 2 display pixels: x(7:1) occupies addr bits 6:0 (lores.vhd:91) | lores.vhd:91 | pass | test/lores/lores_test.cpp:210 |
@@ -3981,8 +3985,8 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-46 | last byte of the bottom half (phc=254, vc=190) is 0x37FF (lores.vhd:91, 93) | lores.vhd:91,93 | pass | test/lores/lores_test.cpp:237 |
 | LR-47 | no address in 0x1800-0x1FFF is ever generated in 8-bit mode across the whole display (lores.vhd:93-94) | lores.vhd:93-94 | pass | test/lores/lores_test.cpp:255 |
 | LR-48 | the half-select uses the SCROLLED y, not vc: vc=0 scroll_y=96 gives y=96 and therefore 0x2000 (lores.vhd:86-87, 93) | lores.vhd:86-87,93 | pass | test/lores/lores_test.cpp:262 |
-| LR-49 | LoRes reads physical bank 5 regardless of the MMU slot mapping (zxnext.vhd:6631, 6558-6578; lores.vhd:56) | zxnext.vhd:6631,6558-6578, lores.vhd:56 | pass | test/compositor/compositor_test.cpp:5571 |
-| LR-50 | LoRes is unaffected by the port $7FFD bit 3 shadow-screen select — it always shows bank-5 content (zxnext.vhd:6631 vs 6651-6655) | zxnext.vhd:6631 | pass | test/compositor/compositor_test.cpp:5595 |
+| LR-49 | LoRes reads physical bank 5 regardless of the MMU slot mapping (zxnext.vhd:6631, 6558-6578; lores.vhd:56) | zxnext.vhd:6631,6558-6578, lores.vhd:56 | pass | test/compositor/compositor_test.cpp:5543 |
+| LR-50 | LoRes is unaffected by the port $7FFD bit 3 shadow-screen select — it always shows bank-5 content (zxnext.vhd:6631 vs 6651-6655) | zxnext.vhd:6631 | pass | test/compositor/compositor_test.cpp:5567 |
 | LR-51 | in 8-bit mode the Timex display-file bit and NR $6A bit 4 have no effect on the address (lores.vhd:96, 98) | lores.vhd:96,98 | pass | test/lores/lores_test.cpp:284 |
 | LR-60 | Radastan row stride is 64 bytes (lores.vhd:96) | lores.vhd:96 | pass | test/lores/lores_test.cpp:300 |
 | LR-61 | two LoRes pixels per byte: phc 0..3 all read offset 0 (x(7:2) drops both low bits) (lores.vhd:96) | lores.vhd:96 | pass | test/lores/lores_test.cpp:306 |
@@ -3990,10 +3994,10 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-63 | dfile=0 bases the image at offset 0: last row starts at 0x17C0 (lores.vhd:96) | lores.vhd:96 | pass | test/lores/lores_test.cpp:326 |
 | LR-64 | dfile=1 bases the image at offset 0x2000 (lores.vhd:96) | lores.vhd:96 | pass | test/lores/lores_test.cpp:332 |
 | LR-65 | Radastan applies NO +0x800 correction at row 48: vc=96 gives 0x0C00, not 0x1400 (lores.vhd:96 vs 93-94) | lores.vhd:96 | pass | test/lores/lores_test.cpp:338 |
-| LR-66 | dfile = port $FF bit 0 XOR NR $6A bit 4: (0,0)->half 0, (1,0)->half 1, (0,1)->half 1, (1,1)->half 0 (zxnext.vhd:6796) | zxnext.vhd:6796 | pass | test/compositor/compositor_test.cpp:5634 |
+| LR-66 | dfile = port $FF bit 0 XOR NR $6A bit 4: (0,0)->half 0, (1,0)->half 1, (0,1)->half 1, (1,1)->half 0 (zxnext.vhd:6796) | zxnext.vhd:6796 | pass | test/compositor/compositor_test.cpp:5606 |
 | LR-67 | the Radastan image is 6144 bytes, contiguous within its half, and every byte is reachable (lores.vhd:96) | lores.vhd:96 | pass | test/lores/lores_test.cpp:355 |
 | LR-68 | toggling NR $6A bit 5 switches the address generator and nothing else is latched (lores.vhd:98) | lores.vhd:98 | pass | test/lores/lores_test.cpp:373 |
-| LR-69 | Radastan and 8-bit mode reach different bytes for the same screen position: (phc=8, vc=4) reads 0x0104 vs 0x0082 (lores.vhd:91, 96) | lores.vhd:91,96 | pass | test/compositor/compositor_test.cpp:5660 |
+| LR-69 | Radastan and 8-bit mode reach different bytes for the same screen position: (phc=8, vc=4) reads 0x0104 vs 0x0082 (lores.vhd:91, 96) | lores.vhd:91,96 | pass | test/compositor/compositor_test.cpp:5632 |
 | LR-80 | 8-bit: the offset adds to the HIGH nibble only — 0x35 + offset 2 gives 0x55 (lores.vhd:102, 111) | lores.vhd:102,111 | pass | test/lores/lores_test.cpp:406 |
 | LR-81 | 8-bit: the high-nibble add wraps at 4 bits with no carry out — 0xF7 + offset 3 gives 0x27 (lores.vhd:102) | lores.vhd:102 | pass | test/lores/lores_test.cpp:412 |
 | LR-82 | 8-bit: the low nibble passes through untouched by any offset — 0x0F + offset 0xF gives 0xFF (lores.vhd:111) | lores.vhd:111 | pass | test/lores/lores_test.cpp:418 |
@@ -4001,7 +4005,7 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-84 | Radastan: the high nibble IS the offset, not an add — byte 0xAB offset 5 gives 0x5A (lores.vhd:107, 111) | lores.vhd:107,111 | pass | test/lores/lores_test.cpp:429 |
 | LR-85 | Radastan + ULA+: the high nibble becomes "11" & offset(1:0) — offset 1 gives 0xDA (lores.vhd:107) | lores.vhd:107 | pass | test/lores/lores_test.cpp:435 |
 | LR-86 | Radastan + ULA+: offset bits 3:2 are ignored — offsets 0x1 and 0xD give the same pixel (lores.vhd:107) | lores.vhd:107 | pass | test/lores/lores_test.cpp:442 |
-| LR-87 | ULANext cancels the ULA+ translation of the Radastan high nibble — pixel 0x1A, not 0xDA (zxnext.vhd:4246) | zxnext.vhd:4246 | pass | test/compositor/compositor_test.cpp:5696 |
+| LR-87 | ULANext cancels the ULA+ translation of the Radastan high nibble — pixel 0x1A, not 0xDA (zxnext.vhd:4246) | zxnext.vhd:4246 | pass | test/compositor/compositor_test.cpp:5668 |
 | LR-88 | the palette offset never affects pixel_en (lores.vhd:111, 115) | lores.vhd:111,115 | pass | test/lores/lores_test.cpp:460 |
 | LR-100 | X scroll advances the source column: scroll_x=4 moves the image left by 2 LoRes pixels (lores.vhd:82, 91) | lores.vhd:82,91 | pass | test/lores/lores_test.cpp:475 |
 | LR-101 | the X-scroll LSB is discarded in 8-bit mode (x(0) unused) but bit 1 is not (lores.vhd:82, 91) | lores.vhd:82,91 | pass | test/lores/lores_test.cpp:485 |
@@ -4022,23 +4026,23 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-124 | clip_y2 values with bits 7:6 = "11" clamp to 0xBF at the consumer latch LoRes shares with the ULA; 0xA0 is left alone and the raw NR $1A byte is preserved (zxnext.vhd:6779-6783) | zxnext.vhd:6779-6783 | pass | test/nextreg/nextreg_integration_test.cpp:7305 |
 | LR-125 | an inverted X window (x1 > x2) draws nothing (lores.vhd:115) | lores.vhd:115 | pass | test/lores/lores_test.cpp:674 |
 | LR-126 | an inverted Y window (y1 > y2) draws nothing (lores.vhd:115) | lores.vhd:115 | pass | test/lores/lores_test.cpp:682 |
-| LR-127a | LoRes and the ULA share ONE clip window and are suppressed together: inside NR $1A the LoRes pixel draws, outside it the pixel falls to the NR $4A fallback and no ULA pixel shows through (zxula.vhd:562; lores.vhd:115; zxnext.vhd:4258-4261, 7100/7104) | lores.vhd:115, zxula.vhd:562, zxnext.vhd:4258-4261 | pass | test/compositor/compositor_test.cpp:6056 |
-| LR-140 | a LoRes pixel never shows the NR $4A fallback: with the ULA asserting ula_select_bgnd (ULAnext format 0x00 paper, zxula.vhd:525) the LoRes palette colour is emitted (zxnext.vhd:6986-6991); the identical state without LoRes takes the fallback, proving the stimulus | zxnext.vhd:6986-6991 | pass | test/compositor/compositor_test.cpp:5760 |
-| LR-141 | the LoRes colour is subject to NR $14 global transparency — matching the key makes the pixel transparent and the layer below shows (zxnext.vhd:7100-7101) | zxnext.vhd:7100-7101 | pass | test/compositor/compositor_test.cpp:5805 |
-| LR-142 | transparency compares the palette RGB[8:1], not the palette index — only the entry whose RGB is the key goes transparent (zxnext.vhd:7100) | zxnext.vhd:7100 | pass | test/compositor/compositor_test.cpp:5846 |
-| LR-143 | LoRes participates in ULA/tilemap stencil mode as the ULA colour — the AND uses the LoRes RGB (zxnext.vhd:7112-7113, 7130-7132) | zxnext.vhd:7112-7113,7130-7132 | pass | test/compositor/compositor_test.cpp:5900 |
-| LR-144 | LoRes participates in NR $15 blend mode 110 as the ULA operand of the mixer (zxnext.vhd:7100-7101, 7139-7148) | zxnext.vhd:7100-7101,7139-7148 | pass | test/compositor/compositor_test.cpp:5931 |
-| LR-145 | the tilemap 'below ULA' ordering applies unchanged to LoRes: tilemap over the LoRes colour when above, LoRes over the tilemap when below (zxnext.vhd:7116) | zxnext.vhd:7116 | pass | test/compositor/compositor_test.cpp:5954 |
-| LR-146 | sprite and Layer 2 priority relative to the ULA slot is unchanged by LoRes — only the ULA-slot colour changes (zxnext.vhd:6980, 7139+) | zxnext.vhd:6980,7139 | pass | test/compositor/compositor_test.cpp:5997 |
-| LR-PSCAN | NR $15 bit 7 / $32 / $33 / $6A are replayed per scanline — a mid-frame enable+scroll affects only the rows from the write onward, never the rows the beam already passed (zxnext.vhd:6768-6802, 6817) | zxnext.vhd:6768-6802 | pass | test/compositor/compositor_test.cpp:6107 |
+| LR-127a | LoRes and the ULA share ONE clip window and are suppressed together: inside NR $1A the LoRes pixel draws, outside it the pixel falls to the NR $4A fallback and no ULA pixel shows through (zxula.vhd:562; lores.vhd:115; zxnext.vhd:4258-4261, 7100/7104) | lores.vhd:115, zxula.vhd:562, zxnext.vhd:4258-4261 | pass | test/compositor/compositor_test.cpp:6032 |
+| LR-140 | a LoRes pixel never shows the NR $4A fallback: with the ULA asserting ula_select_bgnd (ULAnext format 0x00 paper, zxula.vhd:525) the LoRes palette colour is emitted (zxnext.vhd:6986-6991); the identical state without LoRes takes the fallback, proving the stimulus | zxnext.vhd:6986-6991 | pass | test/compositor/compositor_test.cpp:5734 |
+| LR-141 | the LoRes colour is subject to NR $14 global transparency — matching the key makes the pixel transparent and the layer below shows (zxnext.vhd:7100-7101) | zxnext.vhd:7100-7101 | pass | test/compositor/compositor_test.cpp:5779 |
+| LR-142 | transparency compares the palette RGB[8:1], not the palette index — only the entry whose RGB is the key goes transparent (zxnext.vhd:7100) | zxnext.vhd:7100 | pass | test/compositor/compositor_test.cpp:5820 |
+| LR-143 | LoRes participates in ULA/tilemap stencil mode as the ULA colour — the AND uses the LoRes RGB (zxnext.vhd:7112-7113, 7130-7132) | zxnext.vhd:7112-7113,7130-7132 | pass | test/compositor/compositor_test.cpp:5875 |
+| LR-144 | LoRes participates in NR $15 blend mode 110 as the ULA operand of the mixer (zxnext.vhd:7100-7101, 7139-7148) | zxnext.vhd:7100-7101,7139-7148 | pass | test/compositor/compositor_test.cpp:5905 |
+| LR-145 | the tilemap 'below ULA' ordering applies unchanged to LoRes: tilemap over the LoRes colour when above, LoRes over the tilemap when below (zxnext.vhd:7116) | zxnext.vhd:7116 | pass | test/compositor/compositor_test.cpp:5928 |
+| LR-146 | sprite and Layer 2 priority relative to the ULA slot is unchanged by LoRes — only the ULA-slot colour changes (zxnext.vhd:6980, 7139+) | zxnext.vhd:6980,7139 | pass | test/compositor/compositor_test.cpp:5971 |
+| LR-PSCAN | NR $15 bit 7 / $32 / $33 / $6A are replayed per scanline — a mid-frame enable+scroll affects only the rows from the write onward, never the rows the beam already passed (zxnext.vhd:6768-6802, 6817) | zxnext.vhd:6768-6802 | pass | test/compositor/compositor_test.cpp:6083 |
 | LR-160 | NR $26 / $27 (ULA scroll) do not move the LoRes image (lores.vhd:82,84 - the address generator consumes LoRes's own scroll_x_i/scroll_y_i, which zxnext.vhd:4241-4271 drives from NR $32/$33, never from the ULA's NR $26/$27) | lores.vhd:82,84, zxnext.vhd:4241-4271 | pass | test/lores/lores_test.cpp:733 |
-| LR-161 | NR $68 bit 2 (ULA half-pixel scroll) does not move the LoRes image (zxnext.vhd:4241-4271 — no such port on the LoRes module) | zxnext.vhd:4241-4271 | pass | test/compositor/compositor_test.cpp:6137 |
+| LR-161 | NR $68 bit 2 (ULA half-pixel scroll) does not move the LoRes image (zxnext.vhd:4241-4271 — no such port on the LoRes module) | zxnext.vhd:4241-4271 | pass | test/compositor/compositor_test.cpp:6113 |
 | LR-162 | NR $1D is not a LoRes clip register — writing it changes neither the shared ULA/LoRes clip window nor any LoRes register (zxnext.vhd:1167-1171, 5278 undecoded, 6785-6793) | zxnext.vhd:1167-1171,5278 | pass | test/nextreg/nextreg_integration_test.cpp:7351 |
 | LR-163 | enabling LoRes does not change ULA memory contention — 20000 instructions of contended bank-5 access cost the same T-states with NR $15 bit 7 = 0 and = 1 (zxula.vhd:583; zxnext.vhd:6603-6631, separate BRAM port) | zxula.vhd:583, zxnext.vhd:6603-6631 | pass | test/lores/lores_integration_test.cpp:154 |
 | LR-164 | enabling LoRes does not change the floating-bus value — 500 port 0xFF reads spread across a frame are byte-identical with NR $15 bit 7 = 0 and = 1 (zxula.vhd:573, ULA port B only) | zxula.vhd:573 | pass | test/lores/lores_integration_test.cpp:209 |
-| LR-165 | LoRes does not disturb the ULA's own VRAM fetch — switching LoRes off again restores an intact ULA screen (zxnext.vhd:6631, 6660) | zxnext.vhd:6631,6660 | pass | test/compositor/compositor_test.cpp:6157 |
-| LR-166 | NR $19 (sprite clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4366-4369) | zxnext.vhd:4258-4261 | pass | test/compositor/compositor_test.cpp:6182 |
-| LR-167 | NR $1B (tilemap clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4424-4427) | zxnext.vhd:4258-4261,4424-4427 | pass | test/compositor/compositor_test.cpp:6191 |
+| LR-165 | LoRes does not disturb the ULA's own VRAM fetch — switching LoRes off again restores an intact ULA screen (zxnext.vhd:6631, 6660) | zxnext.vhd:6631,6660 | pass | test/compositor/compositor_test.cpp:6133 |
+| LR-166 | NR $19 (sprite clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4366-4369) | zxnext.vhd:4258-4261 | pass | test/compositor/compositor_test.cpp:6158 |
+| LR-167 | NR $1B (tilemap clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4424-4427) | zxnext.vhd:4258-4261,4424-4427 | pass | test/compositor/compositor_test.cpp:6167 |
 
 ## SD Card — `test/sdcard/sdcard_test.cpp`
 
