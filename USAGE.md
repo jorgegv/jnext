@@ -2255,8 +2255,12 @@ offer to download it, replacing the installed one. The quick screenshot
 is stored under `[screenshot]` as `quick_dir` (empty means
 `~/.jnext/screenshots`) and `quick_format` (`png` or `scr`), edited
 under **Settings \> Preferences \> Paths**; an unrecognised format keeps
-the default. CLI options always take precedence over saved values, and
-headless runs never read it.
+the default. The debugger window’s layout is stored under `[debugger]`:
+`size` (`W, H`), `position` (`X, Y`, written only while the window is
+detached) and `attached` (`true`/`false`). An older
+`~/.jnext/Debugger.conf` is merged into this section once and removed.
+All section names are lowercase. CLI options always take precedence over
+saved values, and headless runs never read it.
 
 `~/.jnext/screenshots/`  
 Where **File \> Quick Screenshot** writes, unless
