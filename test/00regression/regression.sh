@@ -448,6 +448,30 @@ done < "$FUNC_CONF"
 declare -A IS_DECLARED_FUNC
 for name in "${DECLARED_FUNC[@]}"; do IS_DECLARED_FUNC["$name"]=1; done
 
+REPORTED_FUNC=()
+
+# --- The scripts directory and the conf must agree, in BOTH directions ---
+# Exactly like the reference-image witness above: a declared test with no
+# scripts/<name>.sh could never report its row, and a stray scripts/*.sh is a
+# test that was dropped from the manifest.
+for name in "${DECLARED_FUNC[@]}"; do
+    [[ -f "$SCRIPTS_DIR/$name.sh" ]] \
+        || harness_fault "functional test ${BOLD}$name${RESET} is declared in functional_tests.conf but has NO test script" \
+                         "Expected ${BOLD}$SCRIPTS_DIR/$name.sh${RESET} — a declared test with no script can never report its row." \
+                         "If the test was removed deliberately, remove its conf line and update the pin."
+done
+for script in "$SCRIPTS_DIR"/*.sh; do
+    [[ -e "$script" ]] || continue        # no scripts at all — caught above
+    script_name=${script##*/}
+    case "$script_name" in
+        00-preflight-lint.sh|01-sdcard-provision.sh|screenshots.sh) continue ;;
+    esac
+    test_name=${script_name%.sh}
+    [[ -n "${IS_DECLARED_FUNC[$test_name]:-}" ]] \
+        || harness_fault "test script ${BOLD}$SCRIPTS_DIR/$script_name${RESET} exists, but ${BOLD}$test_name${RESET} is NOT declared in functional_tests.conf" \
+                         "A functional test was dropped from the manifest. If that was deliberate, delete its script too."
+done
+
 # Which rows each OS runs, and the per-OS pins. A row with no `os=` tag runs
 # everywhere. `# expect-macos: N` / `# expect-windows: N` (beside `# expect:`)
 # state how many rows that OS runs, so retagging a row is a deliberate edit of
@@ -480,29 +504,6 @@ for name in "${ABSENT_FUNC[@]+"${ABSENT_FUNC[@]}"}"; do IS_ABSENT_FUNC["$name"]=
 for name in "${FILTER_TESTS[@]+"${FILTER_TESTS[@]}"}"; do
     [[ -z "${IS_ABSENT_FUNC[$name]:-}" ]] \
         || harness_fault "row ${BOLD}$name${RESET} is declared absent on $TARGET_OS (its os= tag does not admit it)"
-done
-REPORTED_FUNC=()
-
-# --- The scripts directory and the conf must agree, in BOTH directions ---
-# Exactly like the reference-image witness above: a declared test with no
-# scripts/<name>.sh could never report its row, and a stray scripts/*.sh is a
-# test that was dropped from the manifest.
-for name in "${DECLARED_FUNC[@]}"; do
-    [[ -f "$SCRIPTS_DIR/$name.sh" ]] \
-        || harness_fault "functional test ${BOLD}$name${RESET} is declared in functional_tests.conf but has NO test script" \
-                         "Expected ${BOLD}$SCRIPTS_DIR/$name.sh${RESET} — a declared test with no script can never report its row." \
-                         "If the test was removed deliberately, remove its conf line and update the pin."
-done
-for script in "$SCRIPTS_DIR"/*.sh; do
-    [[ -e "$script" ]] || continue        # no scripts at all — caught above
-    script_name=${script##*/}
-    case "$script_name" in
-        00-preflight-lint.sh|01-sdcard-provision.sh|screenshots.sh) continue ;;
-    esac
-    test_name=${script_name%.sh}
-    [[ -n "${IS_DECLARED_FUNC[$test_name]:-}" ]] \
-        || harness_fault "test script ${BOLD}$SCRIPTS_DIR/$script_name${RESET} exists, but ${BOLD}$test_name${RESET} is NOT declared in functional_tests.conf" \
-                         "A functional test was dropped from the manifest. If that was deliberate, delete its script too."
 done
 
 # Every preflight guard has now run. --preflight-only exists so the self-test
