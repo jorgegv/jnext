@@ -318,32 +318,47 @@ void DebuggerManager::ensure_window() {
 // Toolbar (minimal: just a toggle button in the main window)
 // ---------------------------------------------------------------------------
 
+// The Debug toolbar icon: a magnifier over a chip, drawn on a 24-unit grid
+// scaled to `px`. QtSvg is deliberately not linked, hence QPainter.
+QPixmap make_debug_toolbar_icon(int px) {
+    QPixmap pix(px, px);
+    pix.fill(Qt::transparent);
+    QPainter p(&pix);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.scale(px / 24.0, px / 24.0);
+    // Chip body
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0x3a, 0x3f, 0x4a));
+    p.drawRoundedRect(QRectF(3, 3, 13, 13), 1.5, 1.5);
+    // Pins
+    p.setPen(QPen(QColor(0x9a, 0xa3, 0xb2), 1.2, Qt::SolidLine, Qt::FlatCap));
+    for (double x : {6.0, 9.5, 13.0}) p.drawLine(QPointF(x, 1), QPointF(x, 3));
+    for (double x : {6.0, 9.5})       p.drawLine(QPointF(x, 16), QPointF(x, 18));
+    for (double y : {6.0, 9.5, 13.0}) p.drawLine(QPointF(1, y), QPointF(3, y));
+    p.drawLine(QPointF(16, 6), QPointF(18, 6));
+    // Magnifier: handle, then the lens over the chip
+    const QColor orange(0xe0, 0x8a, 0x1e);
+    p.setPen(QPen(orange, 2.8, Qt::SolidLine, Qt::RoundCap));
+    p.drawLine(QPointF(18.6, 18.6), QPointF(22.2, 22.2));
+    QColor lens(0xff, 0xf5, 0xe0);
+    lens.setAlphaF(0.85);
+    p.setPen(QPen(orange, 2.0));
+    p.setBrush(lens);
+    p.drawEllipse(QPointF(15, 15), 5.0, 5.0);
+    return pix;
+}
+
 void DebuggerManager::create_debug_toolbar() {
     debug_toolbar_ = main_window_->addToolBar(QObject::tr("Debug"));
     debug_toolbar_->setMovable(false);
 
-    // Draw a simple bug icon
-    QPixmap bug_pix(24, 24);
-    bug_pix.fill(Qt::transparent);
-    {
-        QPainter p(&bug_pix);
-        p.setRenderHint(QPainter::Antialiasing);
-        // Body (dark green oval)
-        p.setBrush(QColor(40, 120, 40));
-        p.setPen(Qt::NoPen);
-        p.drawEllipse(7, 8, 10, 12);
-        // Head
-        p.drawEllipse(9, 4, 6, 6);
-        // Legs (3 pairs)
-        p.setPen(QPen(QColor(40, 120, 40), 1.5));
-        p.drawLine(7, 11, 3, 8);   p.drawLine(17, 11, 21, 8);
-        p.drawLine(7, 14, 3, 14);  p.drawLine(17, 14, 21, 14);
-        p.drawLine(7, 17, 3, 20);  p.drawLine(17, 17, 21, 20);
-        // Antennae
-        p.drawLine(10, 5, 7, 1);   p.drawLine(14, 5, 17, 1);
-    }
+    // Several sizes, so a HiDPI toolbar picks a pixmap drawn for it rather
+    // than scaling a 24 px one up.
+    QIcon debug_icon;
+    for (int px : {16, 24, 32, 48})
+        debug_icon.addPixmap(make_debug_toolbar_icon(px));
     QAction* dbg_toggle = debug_toolbar_->addAction(
-        QIcon(bug_pix), QObject::tr("Debug"));
+        debug_icon, QObject::tr("Debug"));
     dbg_toggle->setCheckable(true);
     dbg_toggle->setChecked(false);
     // Alt+D, not Ctrl+D (#115): this button shares the View > Debugger action's

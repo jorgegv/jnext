@@ -59,6 +59,7 @@
 // ===========================================================================
 #include <QAction>
 #include <QApplication>
+#include <QImage>
 #include <QFile>
 #include <QKeyEvent>
 #include <QKeySequence>
@@ -1247,6 +1248,38 @@ int main(int argc, char** argv) {
         test_features_md(live);
     }
     std::printf("  Group: H115           - done\n");
+
+    // DBGICON-01 — the Debug toolbar button is the magnifier over a chip (no
+    // VHDL oracle: host UI; oracle is the owner-approved design, 24-unit SVG
+    // /home/jorgegv/tmp/autorun/2026-10-09/debug-icon-option3.svg). Sampled at
+    // 24 px, where one unit is one pixel.
+#ifdef ENABLE_DEBUGGER
+    {
+        const QImage img = make_debug_toolbar_icon(24).toImage().convertToFormat(QImage::Format_ARGB32);
+        const QColor body = img.pixelColor(4, 4);      // chip, upper left
+        const QColor ring = img.pixelColor(19, 15);    // magnifier rim
+        const QColor lens = img.pixelColor(17, 17);    // lens interior, off the chip
+        const QColor c0 = img.pixelColor(23, 0), c1 = img.pixelColor(0, 23);
+        const bool ok = body.rgb() == qRgb(0x3a, 0x3f, 0x4a) && body.alpha() == 255 &&
+                        ring.rgb() == qRgb(0xe0, 0x8a, 0x1e) && ring.alpha() == 255 &&
+                        lens.rgb() == qRgb(0xff, 0xf5, 0xe0) && lens.alpha() > 200 && lens.alpha() < 230 &&
+                        c0.alpha() == 0 && c1.alpha() == 0;
+        check("DBGICON-01", "the Debug toolbar icon is a magnifier over a chip: chip body, orange rim, "
+                            "translucent lens, transparent corners",
+              ok, "body=" + body.name().toStdString() + " ring=" + ring.name().toStdString() +
+                  " lens=" + lens.name(QColor::HexArgb).toStdString() +
+                  " a0=" + std::to_string(c0.alpha()) + " a1=" + std::to_string(c1.alpha()));
+    }
+#else
+    {
+        int debug_toolbars = 0;
+        for (QWidget* w : QApplication::allWidgets())
+            if (auto* tb = qobject_cast<QToolBar*>(w))
+                debug_toolbars += tb->windowTitle() == "Debug";
+        check("DBGICON-01", "with the debugger compiled out there is no Debug toolbar",
+              debug_toolbars == 0, std::to_string(debug_toolbars));
+    }
+#endif
 
     std::printf("\n==============================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
