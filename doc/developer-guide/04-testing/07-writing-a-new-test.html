@@ -1878,6 +1878,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#portable-suites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Portable suites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-row-idiom" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2379,6 +2390,39 @@ bugs" each survived four reviews before anyone noticed.</p>
 <code>*_integration_test</code> that drives the same area through a more fully assembled
 machine. The two ESP-01 suites are the exception to the layout: they live under
 <code>src/esp01/test/</code> and are declared by that module's own CMakeLists.</p>
+<h2 id="portable-suites">Portable suites<a class="headerlink" href="#portable-suites" title="Permanent link">&para;</a></h2>
+<p>The SDL-only suites run on three operating systems: natively on Linux and macOS,
+and as MinGW-built Windows executables under wine (<code>make unit-test-win</code>). So a
+suite that is not <code># os: posix</code> must build and pass on all three, which in
+practice means a handful of rules:</p>
+<ul>
+<li>Do not call <code>setenv</code>, <code>unsetenv</code>, <code>mkdtemp</code>, <code>localtime_r</code>, <code>mkdir(path, mode)</code>
+  or <code>geteuid</code> directly. <code>test/test_portable.h</code> has <code>jtp::set_env</code>,
+  <code>jtp::unset_env</code>, <code>jtp::make_temp_dir</code>, <code>jtp::local_time</code>, <code>jtp::make_dir</code>,
+  <code>jtp::running_as_root</code> and <code>jtp::process_id_string</code>. Only scaffolding belongs
+  there: a call the <em>product</em> makes gets a platform arm in the product.</li>
+<li>Do not write <code>"/tmp/..."</code> as a place to create things. Use
+  <code>std::filesystem::temp_directory_path()</code> (or <code>jtp::make_temp_dir</code>); <code>/tmp</code>
+  resolves under wine only because <code>Z:\tmp</code> happens to map to it.</li>
+<li>Compare paths as <code>std::filesystem::path</code>, not as strings built with <code>/</code>: the
+  product joins with the host's own separator, and <code>weakly_canonical</code> / <code>absolute</code>
+  add a drive on Windows.</li>
+<li>Open the row-ID file (and any file whose bytes you compare) in binary mode:
+  <code>test/row_id.h</code> uses <code>"ab"</code>, because text mode writes <code>\r\n</code> on Windows and every
+  ID would then differ from its source literal.</li>
+<li>To run the real binary with a bound, use <code>jtp::run_bounded</code> in
+  <code>test/test_spawn.h</code>, not <code>std::system("timeout ...")</code>; a stand-in program a test
+  needs (the ffmpeg stub) is a small executable built by CMake, not a shell
+  script, because Windows runs <code>.exe</code> files only.</li>
+<li>A test whose fixture needs <code>fork</code>, FIFOs, ptys, symbolic links or <code>chmod 0</code>
+  belongs in a suite the manifest declares <code># os: posix</code>, with the rows moved
+  there unchanged; see <a href="02-declared-suites-and-pinned-counts.html">4.2</a>.</li>
+</ul>
+<p>What wine cannot stand in for stays untested until a native Windows leg exists:
+symlink creation (so the symlink-refusal rows are <code>posix</code>), a real console attach
+for a GUI-subsystem executable, NTFS short names and streams, and the timestamp
+resolution of a real filesystem (wine keeps whole seconds, so a fixture mtime is
+set 250 ms past the second, never exactly on it).</p>
 <h2 id="the-row-idiom">The row idiom<a class="headerlink" href="#the-row-idiom" title="Permanent link">&para;</a></h2>
 <p>Suites are standalone binaries with a small local harness — there is no
 GoogleTest anywhere in the project. <code>test/copper/copper_test.cpp</code> is the

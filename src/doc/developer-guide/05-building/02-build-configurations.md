@@ -45,6 +45,17 @@ build through `make unit-test-sdl`. The other two, Qt without the debugger and
 SDL with it, are not used in practice and remain build-only. CI runs both
 targets.
 
+The configurations are about *what* is built; the suites also run on three
+operating systems (GH #214). The SDL-only set runs natively on Linux
+(`make unit-test-sdl`), natively on macOS (the same target, with Homebrew's GNU
+tools first on `PATH`), and as MinGW-built Windows executables under wine
+(`make unit-test-win`). Which suites each OS owes is declared by `# os:` in
+`test/unit-tests.conf` ([4.2](../04-testing/02-declared-suites-and-pinned-counts.md)).
+The Qt and debugger suites run on Linux only, and the regression suite, the
+documentation gates and the traceability matrix are Linux-only by design: they
+gate committed artifacts that are byte-checked against the `fedora:44`
+toolchain.
+
 ## Where each target builds
 
 There is one scheme, `build/<variant>-<config>`, and everything lives under

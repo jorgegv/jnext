@@ -39,6 +39,41 @@ There is one directory per subsystem under `test/` — `test/copper/copper_test.
 machine. The two ESP-01 suites are the exception to the layout: they live under
 `src/esp01/test/` and are declared by that module's own CMakeLists.
 
+## Portable suites
+
+The SDL-only suites run on three operating systems: natively on Linux and macOS,
+and as MinGW-built Windows executables under wine (`make unit-test-win`). So a
+suite that is not `# os: posix` must build and pass on all three, which in
+practice means a handful of rules:
+
+- Do not call `setenv`, `unsetenv`, `mkdtemp`, `localtime_r`, `mkdir(path, mode)`
+  or `geteuid` directly. `test/test_portable.h` has `jtp::set_env`,
+  `jtp::unset_env`, `jtp::make_temp_dir`, `jtp::local_time`, `jtp::make_dir`,
+  `jtp::running_as_root` and `jtp::process_id_string`. Only scaffolding belongs
+  there: a call the *product* makes gets a platform arm in the product.
+- Do not write `"/tmp/..."` as a place to create things. Use
+  `std::filesystem::temp_directory_path()` (or `jtp::make_temp_dir`); `/tmp`
+  resolves under wine only because `Z:\tmp` happens to map to it.
+- Compare paths as `std::filesystem::path`, not as strings built with `/`: the
+  product joins with the host's own separator, and `weakly_canonical` / `absolute`
+  add a drive on Windows.
+- Open the row-ID file (and any file whose bytes you compare) in binary mode:
+  `test/row_id.h` uses `"ab"`, because text mode writes `\r\n` on Windows and every
+  ID would then differ from its source literal.
+- To run the real binary with a bound, use `jtp::run_bounded` in
+  `test/test_spawn.h`, not `std::system("timeout ...")`; a stand-in program a test
+  needs (the ffmpeg stub) is a small executable built by CMake, not a shell
+  script, because Windows runs `.exe` files only.
+- A test whose fixture needs `fork`, FIFOs, ptys, symbolic links or `chmod 0`
+  belongs in a suite the manifest declares `# os: posix`, with the rows moved
+  there unchanged; see [4.2](02-declared-suites-and-pinned-counts.md).
+
+What wine cannot stand in for stays untested until a native Windows leg exists:
+symlink creation (so the symlink-refusal rows are `posix`), a real console attach
+for a GUI-subsystem executable, NTFS short names and streams, and the timestamp
+resolution of a real filesystem (wine keeps whole seconds, so a fixture mtime is
+set 250 ms past the second, never exactly on it).
+
 ## The row idiom
 
 Suites are standalone binaries with a small local harness — there is no

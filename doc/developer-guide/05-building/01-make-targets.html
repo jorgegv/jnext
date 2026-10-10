@@ -2391,6 +2391,21 @@ frontend options, <code>make unit-test-sdl</code> runs the declared suites a sec
 the SDL-only configuration (its own <code>build/sdl-unit-test</code> tree, so <code>build/</code> stays
 the Qt one), and <code>make unit-test-dashboard</code> runs the unit tests and refreshes the
 committed per-subsystem status table.</p>
+<p>Two more targets run the SDL-only suites on other operating systems (GH #214).
+<code>make unit-test-sdl</code> also works on macOS, where the test harness needs Homebrew's
+<code>bash</code>, <code>coreutils</code> and <code>grep</code> (<code>brew install bash coreutils grep</code>; the target
+puts them first on <code>PATH</code> for its own recipe only, and the harness refuses with
+that install line when they are missing). <code>make unit-test-win</code> cross-builds the
+same suites for Windows with the Fedora MinGW toolchain into
+<code>build/win-sdl-unit-test</code> (<code>dnf install mingw64-gcc mingw64-gcc-c++
+mingw64-SDL3 mingw64-zlib mingw64-libpng mingw64-winpthreads wine-core
+wine-common</code>) and runs them under wine through <code>test/wine-run.sh</code>, with no
+display variable set so no window can open on your desktop. The test executables
+link with an 8 MB stack (their fixtures hold emulators on the stack; Linux gives
+a main thread 8 MB, MinGW 2 MB), while <code>jnext.exe</code> keeps the default and its
+frame gate. Both need the SD image, which <code>make sdcard-image</code> provisions through
+jnext's own download if it is missing. <code>make unit-test-win</code> is part of the merge
+gate for every code change.</p>
 <p>Chapter <a href="../04-testing/index.html">4. Testing</a> covers what each of these actually
 proves.</p>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
