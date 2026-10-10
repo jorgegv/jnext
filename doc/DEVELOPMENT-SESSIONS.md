@@ -194,4 +194,9 @@
 |         |      | version single source; #155 frame-loop fixes (janko confirmed). v1.1.1->1.1.7                          |
 | 5/10    |      | #155 diagnostic builds: no per-frame regression left; #155 closed; #295 stamp XDG fix                  |
 |         |      | v1.1.8 PUBLIC RELEASE                                                                                  |
+| 6/10    |      | CI skip-free: every gate fails on a SKIP, z88dk-gdb provisioned; package job mkdocs. v1.1.9->1.1.10    |
+| 7/10    |      | PR protocol: one topic per PR, small commits; PR #313 macOS --joy-uart-pty (vmorilla). v1.1.11          |
+| 8/10    |      | PR #310 NextPi under QEMU, --nextpi (vmorilla, 6 review rounds). v1.1.12                               |
+| 9-10/10 |      | Autonomous run: #307 #304 #305 #308 #306 #312 #309 #311 (#314 fixed by #304). v1.1.13->1.1.22         |
+|         |      | v1.1.23 PUBLIC RELEASE                                                                                 |
 | TOTAL:  | 666h |                                                                                                        |

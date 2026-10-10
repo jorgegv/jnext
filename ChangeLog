@@ -1,6 +1,6 @@
 # ChangeLog
 
-## Unreleased (2026-10-10)
+## v1.1.23 (2026-10-10)
 
 ### User Features
 - Pause/resume button in the emulator window (toolbar, Machine menu, Alt+U) with a Paused status indicator
