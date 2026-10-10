@@ -262,12 +262,19 @@ void test_pause() {
         const bool idle_hidden = fx.indicators(false);
         alt_u(*fx.w);
         const bool on_now = fx.paused() && fx.indicators(true);
+        const auto first_by = fx.backend->state().pause_reason.by;
         alt_u(*fx.w);
         const bool off_now = !fx.paused() && fx.indicators(false);
-        check("MWP-04", "Alt+U sets then clears the checkmark and the Paused label with no tick in between",
-              idle_hidden && on_now && off_now,
+        // A third press pauses again as the SAME client: the window attaches
+        // one pause client, on its first press, and keeps it (no leak).
+        alt_u(*fx.w);
+        const bool same_client = fx.paused() &&
+            first_by != jnext::dbg::CLIENT_NONE &&
+            fx.backend->state().pause_reason.by == first_by;
+        check("MWP-04", "Alt+U sets then clears the checkmark and the Paused label with no tick in between, as one pause client",
+              idle_hidden && on_now && off_now && same_client,
               std::string("idle=") + (idle_hidden ? "1" : "0") + " on=" + (on_now ? "1" : "0") +
-              " off=" + (off_now ? "1" : "0"));
+              " off=" + (off_now ? "1" : "0") + " same_client=" + (same_client ? "1" : "0"));
     }
 
     // MWP-05 — positive control for MWP-03: a SECOND client of the same kind
@@ -357,14 +364,18 @@ void test_pause() {
     {
         Fixture fx;
         alt_u(*fx.w);
+        const auto owner_before = fx.backend->state().pause_reason.by;
         fx.backend->on_cold_boot_begin();
         emulator_cold_boot(fx.emu, fx.emu.config());   // QtApp::boot_machine()
         fx.backend->on_cold_boot_done();
         fx.tick();
         bool shut = !fx.debugger_open();
-        check("MWP-08", "a cold boot while paused stays paused, quietly (debugger window still shut)",
-              fx.paused() && shut && fx.indicators(true),
-              std::string("paused=") + (fx.paused() ? "1" : "0") + " shut=" + (shut ? "1" : "0"));
+        const bool owner_kept = owner_before != jnext::dbg::CLIENT_NONE &&
+            fx.backend->state().pause_reason.by == owner_before;
+        check("MWP-08", "a cold boot while paused stays paused, with the same owner, quietly (debugger window still shut)",
+              fx.paused() && owner_kept && shut && fx.indicators(true),
+              std::string("paused=") + (fx.paused() ? "1" : "0") + " owner_kept=" +
+              (owner_kept ? "1" : "0") + " shut=" + (shut ? "1" : "0"));
     }
 
     // MWP-09 — with the menu bar, toolbars and status bar hidden, as
@@ -374,9 +385,10 @@ void test_pause() {
         Fixture fx;
         fx.w->menuBar()->hide();
         for (QToolBar* tb : fx.w->findChildren<QToolBar*>()) tb->hide();
+        fx.w->statusBar()->hide();
         QApplication::processEvents();
         alt_u(*fx.w);
-        check("MWP-09", "Alt+U pauses with the menu bar and toolbars hidden (fullscreen chrome)",
+        check("MWP-09", "Alt+U pauses with the menu bar, toolbars and status bar hidden (fullscreen chrome)",
               fx.paused());
     }
 
