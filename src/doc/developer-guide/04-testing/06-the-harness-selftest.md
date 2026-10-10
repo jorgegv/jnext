@@ -85,7 +85,7 @@ none, a SKIP or FAIL is never stamped, every non-doc class of path (Makefile,
 CMake, a `.conf`, `tools/`, `.github/`, a gitlink) moves the key while
 documentation does not, the documentation a gate reads does, and the
 pending / solo-confirm path stamps only when every pending row passes. `HS-72`
-bans `xvfb-run -a`/`-n` from the test scripts. `HS-76a`/`b` pin that a unit suite
+bans `xvfb-run -a`/`-n` from the test scripts. `HS-89` requires `-noreset` on every `xvfb-run` line of a script that drives the app with `xdotool` (GH #318). `HS-76a`/`b` pin that a unit suite
 reporting a SKIP fails the run (named, with its SKIP lines, beside a failing one
 too) and `HS-77a`..`d` that the regression driver and a standalone row do the
 same in every mode, with the control that a skip-free run still exits 0 and
