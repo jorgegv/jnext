@@ -6,13 +6,14 @@ Timex second plane / alt screen, bank 7) is replayed at the beam instant the VHD
 (`zxula.vhd:270-303`). Not merged, not pushed.
 
 ## State
-- Gate on the final tree: `make clean && make gui-release` ok; `make unit-test` 12449/12449, no
-  DASHBOARD STALE; `make unit-test-sdl` 11550/11550; FUSE 1356/1356 (plain and PGO);
-  `make regression`: 218 declared, 216 pass, **2 FAIL, 0 skip**: `nirvana-128k` (380 px = 95
+Round 2 (review F1-F5) done; main v1.1.16 merged (functional rows recounted to 146).
+- Gate on the final tree: `make clean && make gui-release` ok; `make unit-test` 12452/12452, no
+  DASHBOARD STALE; `make unit-test-sdl` 11553/11553; FUSE 1356/1356 (plain and PGO);
+  `make regression`: 219 declared, 217 pass, **2 FAIL, 0 skip**: `nirvana-128k` (380 px = 95
   emulated px) and `nirvana-plus3` (540 px = 135 emulated px). No other row fails, including
   `boot-nextzxos-cpm` (the page-0x0B write the plan flagged is harmless). No stamp is written while
   those two fail.
-- New rows: `ula_test` VMUX-01..12 (148), `mmu_test` G12-MUX-12/13 (261), functional
+- New rows: `ula_test` VMUX-01..14 (150), `mmu_test` G12-MUX-12..14 (262), functional
   `editmenu-beam-func` (it fails on main's binary with exactly the 624/254 px frames of stage A).
 
 ## What the owner must decide
@@ -24,7 +25,7 @@ OLD output (= the committed references) on the 5 frames where old and new differ
     cd /home/jorgegv/tmp/worktrees/gh305b
     bash test/00regression/generate-references.sh nirvana-128k nirvana-plus3
     # review `git diff --stat` (only those two PNGs), commit, then:
-    LANG=C make regression        # expect 218/218 and a stamp
+    LANG=C make regression        # expect 219/219 and a stamp
 Then the branch is landable by the usual protocol (independent review, merge, `make bump-patch`).
 The ChangeLog line is already in Unreleased. Draft close note is in the report.
 
