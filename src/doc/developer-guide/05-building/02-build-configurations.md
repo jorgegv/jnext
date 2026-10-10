@@ -130,8 +130,8 @@ flag to `jnext` and to every `STATIC_LIBRARY` target under `src/` (derived from
 the directory tree, not listed), at **both** compile and link: under LTO the
 compile-time check is blind and only the link sees real frames. Test
 executables are excluded on purpose: their fixtures hold `Emulator`s on the
-stack and are never built for Windows. Clang+LTO link-time enforcement is
-unverified. The runtime witness is `startup-stack-func`, which boots all three
+stack and are never built for Windows. Under Clang LTO both halves are blind
+(measured with clang 22 on Linux; ld64 untested), so only GCC enforces there. The runtime witness is `startup-stack-func`, which boots all three
 frontends on a 1 MiB stack.
 
 ## ccache
