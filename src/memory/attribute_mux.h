@@ -148,8 +148,9 @@ public:
     /// last write at or before (line, hc), else the frame baseline.
     uint8_t read(uint32_t offset, uint16_t hc) const {
         if (offset >= nbytes_) return 0;
+        if (linked_ != log_.size()) link_pending_();
+        if (!hot_[offset]) return base_[offset];   // never written this frame
         OffState& s = st_[offset];
-        if (s.first == kNone) return base_[offset];
         const uint32_t key = (static_cast<uint32_t>(target_line_) << 16) | hc;
         if (key < s.lastkey) {           // out-of-order query: replay from the start
             s.cursor = s.first;
@@ -200,12 +201,18 @@ private:
     };
 
     void reset_touched_();
+    void link_pending_() const;
 
     uint32_t              nbytes_    = 0;
     std::vector<uint8_t>  base_;
+    // The write path only appends to log_ (it runs inside the CPU's hot loop);
+    // the per-offset chains are built from the new entries the first time they
+    // are needed (link_pending_), once per frame in practice.
     mutable std::vector<OffState> st_;
-    std::vector<Entry>    log_;
-    std::vector<uint32_t> touched_;
+    mutable std::vector<uint8_t>  hot_;   // 1 = offset written this frame (the untouched read stays on two small arrays)
+    mutable std::vector<Entry>    log_;
+    mutable std::vector<uint32_t> touched_;
+    mutable size_t                linked_ = 0;   // log_ entries already chained
     bool                  started_   = false;
     int                   hc_origin_ = 0;
     uint16_t              target_line_ = 0;

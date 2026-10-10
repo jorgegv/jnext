@@ -2425,13 +2425,21 @@ void test_cat21_nirvana_multiplex() {
         f.mmu.attr_mux_rewind_to_baseline();
         f.mmu.attr_mux_apply_line(39);
         const uint8_t prev_line = m.read(0x0123, 0xFFFF);
+        // A write recorded AFTER the rewind is part of the log the next read
+        // sees, with no second rewind (the write path only appends).
+        f.mmu.attr_mux_apply_line(40);
+        f.mmu.attr_mux_set_current_hc(250);
+        f.mmu.write(pix, 0x44);
+        const uint8_t after_write = m.read(0x0123, 300);
         check("G12-MUX-13",
               "rewind_to_baseline() restarts every cursor: a second pass over "
               "the recorded log sees 0x22 at (40,150) again and the baseline "
-              "0x11 on the previous line",
-              again == 0x22 && prev_line == 0x11,
+              "0x11 on the previous line; a write made after the rewind is "
+              "seen by the next read (0x44 @250 on line 40)",
+              again == 0x22 && prev_line == 0x11 && after_write == 0x44,
               fmt("second pass @(40,150)=0x%02X (expected 22) "
-                  "@(39,end)=0x%02X (expected 11)", again, prev_line));
+                  "@(39,end)=0x%02X (expected 11) late write=0x%02X (expected 44)",
+                  again, prev_line, after_write));
     }
 }
 
