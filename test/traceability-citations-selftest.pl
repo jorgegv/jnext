@@ -3651,7 +3651,8 @@ void rows() {
 CPP
 $nv_e = $nv_refusal->('test/nv/reason_vhd_test.cpp');
 check('SELF-226', 'a reason that names a .vhd is REFUSED, naming file:line',
-      scalar($nv_e =~ /REFUSING/ && $nv_e =~ m{test/nv/reason_vhd_test\.cpp:2}),
+      scalar($nv_e =~ /REFUSING/ && $nv_e =~ m{test/nv/reason_vhd_test\.cpp:2}
+             && $nv_e =~ /names a \.vhd/),
       "got [$nv_e]");
 
 write_fixture('test/nv/two_test.cpp', <<'CPP');
