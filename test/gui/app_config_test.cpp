@@ -978,8 +978,9 @@ static void test_file_layout(QTemporaryDir& dir) {
     // The @Invalid() rewrite on its own: no root key to piggy-back on.
     const QString p14 = fresh_ini_path(dir, "layout_invalid_only");
     plant(p14, "[esp]\nallowed_hosts=@Invalid()\n");
-    { AppConfig c(p14); c.load(); }
-    check("CF-14", "a lone allowed_hosts=@Invalid() is rewritten as \"allowed_hosts=\" by load()",
+    AppConfig c14(p14);   // alive while the file is read: no destructor sync
+    c14.load();
+    check("CF-14", "a lone allowed_hosts=@Invalid() is rewritten as \"allowed_hosts=\" by load() itself",
           has_line(slurp(p14), "allowed_hosts=") && !slurp(p14).contains("@"),
           slurp(p14).toStdString());
 }

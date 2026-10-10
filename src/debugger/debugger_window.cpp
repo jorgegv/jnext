@@ -758,14 +758,19 @@ void DebuggerWindow::update_actions(bool is_paused) {
 // and remove it. Debugger.conf wins over a [debugger] already in jnext.conf
 // (only an older jnext can have written it since, so it is the newer state).
 // The old QDataStream size/position blobs become "W, H" / "X, Y"; a corrupt
-// blob is dropped (the old reader rejected it too). Debugger.conf is removed
-// only after jnext.conf was written without error, so no value is ever lost.
+// blob (one too short for two ints) is dropped, as the old reader rejected it
+// too; a longer one is read for its first two ints, as the old reader did.
+// Debugger.conf is removed only after it was read and jnext.conf was written
+// without error, so no value is ever lost.
 bool DebuggerWindow::migrate_legacy_config() {
     const QString legacy_path = legacy_debugger_config_path();
     if (!QFileInfo::exists(legacy_path)) return false;
 
     QDir().mkpath(jnext_config_dir());
     QSettings legacy(legacy_path, QSettings::IniFormat);
+    // An unreadable file yields no keys at all: keep it, or its values are lost.
+    legacy.allKeys();
+    if (legacy.status() == QSettings::AccessError) return false;
     QSettings dest(debugger_config_path(), QSettings::IniFormat);
     for (const QString& key : legacy.allKeys()) {
         const QVariant v = legacy.value(key);
@@ -775,7 +780,7 @@ bool DebuggerWindow::migrate_legacy_config() {
             QDataStream ds(blob);
             int a = 0, b = 0;
             ds >> a >> b;
-            if (blob.size() == 8 && ds.status() == QDataStream::Ok)
+            if (ds.status() == QDataStream::Ok)
                 dest.setValue(key, QStringList{QString::number(a), QString::number(b)});
             continue;
         }

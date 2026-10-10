@@ -59,6 +59,7 @@
 #include <QDataStream>
 #include <QDir>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QFile>
 #include <QEventLoop>
 #include <QMainWindow>
@@ -578,6 +579,98 @@ static void test_one_file(const QString& dir)
               !r && QFileInfo::exists(legacy));
         QDir().rmdir(conf);
         wipe_dir(dir);
+    }
+
+    // A window opened on jnext.conf text `text`; geometry as the window shows it.
+    struct Geo { bool ok; int x, y, w, h; };
+    auto open_with = [&](const char* text) {
+        wipe_dir(dir);
+        // QSettings reuses a parsed file when its size and mtime are unchanged,
+        // and two of these texts have the same length: pad each one differently.
+        static int n = 0;
+        put(conf, QByteArray(text) + "; " + QByteArray(++n, 'p') + "\n");
+        Fixture fx;
+        if (!fx.ok) return Geo{false, 0, 0, 0, 0};
+        return Geo{true, fx.dbg->x(), fx.dbg->y(), fx.dbg->width(), fx.dbg->height()};
+    };
+
+    // DCF-08 — "Debugger.conf wins" holds for `attached` too, not only `size`.
+    {
+        wipe_dir(dir);
+        put(conf, "[debugger]\nattached=true\n");
+        put(legacy, "[debugger]\nattached=false\n");
+        DebuggerWindow::migrate_legacy_config();
+        const QByteArray c = get(conf);
+        check("DCF-08", "migration: Debugger.conf's attached=false wins over jnext.conf's attached=true",
+              line_in(c, "attached=false") && !line_in(c, "attached=true"), c.toStdString());
+    }
+
+    // DCF-09 — a detached window's position is written as plain "X, Y".
+    {
+        wipe_dir(dir);
+        put(conf, "[debugger]\nattached=false\nsize=400, 300\n");
+        {
+            Fixture fx;
+            if (fx.ok) { fx.dbg->move(130, 90); settle(); }
+        }
+        const QByteArray c = get(conf);
+        check("DCF-09", "a detached window saves position=X, Y (two integers, no =@)",
+              QRegularExpression("(^|\\n)position=-?[0-9]+, -?[0-9]+(\\n|$)")
+                  .match(QString::fromUtf8(c)).hasMatch() && !c.contains("=@"),
+              c.toStdString());
+    }
+
+    // DCF-10..13 — the position/size READ path. The baseline is the same
+    // detached window with no position saved; each input must either move the
+    // window to (120,100) (the valid one) or leave it where the baseline is.
+    {
+        const Geo base = open_with("[debugger]\nattached=false\nsize=400, 300\n");
+        const Geo good = open_with("[debugger]\nattached=false\nsize=400, 300\nposition=120, 100\n");
+        check("DCF-10", "a detached window opens at the saved position=120, 100",
+              base.ok && good.ok && good.x == 120 && good.y == 100
+                  && !(base.x == 120 && base.y == 100),
+              fmt("base %d,%d good %d,%d", base.x, base.y, good.x, good.y));
+        const Geo bad = open_with("[debugger]\nattached=false\nsize=400, 300\nposition=120, abc\n");
+        check("DCF-11", "a non-numeric position (\"120, abc\") is ignored: default placement",
+              bad.ok && bad.x == base.x && bad.y == base.y,
+              fmt("base %d,%d bad %d,%d", base.x, base.y, bad.x, bad.y));
+        const Geo three = open_with("[debugger]\nattached=false\nsize=400, 300\nposition=120, 100, 7\n");
+        check("DCF-12", "a three-element position is ignored: default placement",
+              three.ok && three.x == base.x && three.y == base.y,
+              fmt("base %d,%d three %d,%d", base.x, base.y, three.x, three.y));
+        const Geo size3 = open_with("[debugger]\nattached=false\nsize=400, 300, 9\n");
+        check("DCF-13", "a three-element size is ignored: the window does not open at 400x300",
+              size3.ok && base.ok && !(size3.w == 400 && size3.h == 300),
+              fmt("%dx%d", size3.w, size3.h));
+    }
+
+    // DCF-14 — a legacy blob LONGER than two ints is read for its first two
+    // (the v1.1.15 reader did exactly that), not dropped.
+    {
+        wipe_dir(dir);
+        put(legacy, QByteArray(kLegacyHead)
+                        + R"(size=@ByteArray(\0\0\x2\x80\0\0\x1\xc8\0\0\0\0))" + "\n");
+        DebuggerWindow::migrate_legacy_config();
+        const QByteArray c = get(conf);
+        check("DCF-14", "a 12-byte legacy size blob migrates its first two ints (640, 456)",
+              line_in(c, "size=640, 456"), c.toStdString());
+    }
+
+    // DCF-15 — an UNREADABLE Debugger.conf is kept, not deleted unmigrated. A
+    // symlink to a directory is unreadable for root too (a chmod 000 is not),
+    // and QFile::remove() would delete the link, so the row discriminates.
+    {
+        wipe_dir(dir);
+        const QString target = dir + "/legacy-target-dir";
+        QDir().mkpath(target);
+        const bool linked = QFile::link(target, legacy);
+        const bool r = DebuggerWindow::migrate_legacy_config();
+        const bool kept = QFileInfo(legacy).isSymLink();
+        QFile::remove(legacy);   // the link itself
+        wipe_dir(dir);
+        QDir().rmdir(target);
+        check("DCF-15", "an unreadable Debugger.conf is left in place and not reported migrated",
+              linked && !r && kept, fmt("linked=%d r=%d kept=%d", linked, r, kept));
     }
 }
 
