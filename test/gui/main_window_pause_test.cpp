@@ -12,8 +12,8 @@
 // "The per-tick call" below is exactly what QtApp::TickEffects::post_frames()
 // calls: DebuggerManager::check_breakpoint_hit() (debugger builds) and then
 // MainWindow::sync_pause_state(). No suite can construct a QtApp, so the call
-// itself in post_frames() is checked by hand on the real binary (see the issue
-// report); everything it calls is driven here.
+// itself in post_frames() is pinned by MWP-12 as a source check; everything it
+// calls is driven here.
 //
 // Row count is the same in both Qt configurations; a row that needs the
 // DebuggerManager asserts the Qt-only property in the #else arm.
@@ -45,6 +45,8 @@
 
 #include <cstdarg>
 #include <cstdio>
+#include <fstream>
+#include <sstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -175,6 +177,31 @@ struct Fixture {
         return a && l && a->isChecked() == want && l->isVisibleTo(w.get()) == want;
     }
 };
+
+// MWP-12 — the per-tick wiring. No suite can construct a QtApp, so the one
+// line that makes QtApp pull the pause state per tick is checked in the source
+// of QtApp::TickEffects::post_frames(): the call must be there, in code (not a
+// comment), AFTER the ENABLE_DEBUGGER block so a Qt-without-debugger build gets
+// it too. What the call does is MWP-04/07. Reached on the real binary by hand
+// (GH #306 report, check A9): this row is a source check, not a behavioural one.
+bool post_frames_syncs_pause_state() {
+    std::ifstream in(JNEXT_QT_APP_CPP);
+    std::stringstream ss;
+    ss << in.rdbuf();
+    const std::string src = ss.str();
+    const size_t b = src.find("void QtApp::TickEffects::post_frames(");
+    const size_t e = src.find("void QtApp::TickEffects::set_timer_interval(");
+    if (b == std::string::npos || e == std::string::npos || e < b) return false;
+    std::string body = src.substr(b, e - b), code;
+    std::istringstream ls(body);
+    for (std::string line; std::getline(ls, line);) {
+        const size_t c = line.find("//");
+        code += (c == std::string::npos ? line : line.substr(0, c)) + "\n";
+    }
+    const size_t call = code.find("main_window_->sync_pause_state();");
+    const size_t last_endif = code.rfind("#endif");
+    return call != std::string::npos && last_endif != std::string::npos && call > last_endif;
+}
 
 void test_pause() {
     // MWP-01 — one checkable QAction, Alt+U, in the Machine menu and on the
@@ -376,6 +403,10 @@ void test_pause() {
         check("MWP-11", "destroying the window while paused releases its pause",
               was && !fx.paused());
     }
+
+    // MWP-12 — see post_frames_syncs_pause_state().
+    check("MWP-12", "QtApp::post_frames() pulls the pause state each tick, outside the debugger block",
+          post_frames_syncs_pause_state());
 }
 
 }  // namespace

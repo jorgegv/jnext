@@ -1289,6 +1289,9 @@ if(ENABLE_QT_UI)
     set_target_properties(main_window_pause_test PROPERTIES AUTOMOC ON)
     target_link_libraries(main_window_pause_test PRIVATE jnext_gui Qt${JNEXT_QT_MAJOR}::Test)
     target_include_directories(main_window_pause_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # MWP-12 reads QtApp::post_frames() from the source tree.
+    target_compile_definitions(main_window_pause_test PRIVATE
+        JNEXT_QT_APP_CPP="${CMAKE_SOURCE_DIR}/src/gui/qt_app.cpp")
     add_test(NAME main_window_pause_tests COMMAND main_window_pause_test)
 
     add_executable(shifted_keys_test gui/shifted_keys_test.cpp)
