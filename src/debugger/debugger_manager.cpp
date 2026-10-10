@@ -336,15 +336,15 @@ QPixmap make_debug_toolbar_icon(int px) {
     for (double x : {6.0, 9.5})       p.drawLine(QPointF(x, 16), QPointF(x, 18));
     for (double y : {6.0, 9.5, 13.0}) p.drawLine(QPointF(1, y), QPointF(3, y));
     p.drawLine(QPointF(16, 6), QPointF(18, 6));
-    // Magnifier: handle, then the lens over the chip
+    // Magnifier: lens over the chip, then the handle on top (the SVG's order)
     const QColor orange(0xe0, 0x8a, 0x1e);
-    p.setPen(QPen(orange, 2.8, Qt::SolidLine, Qt::RoundCap));
-    p.drawLine(QPointF(18.6, 18.6), QPointF(22.2, 22.2));
     QColor lens(0xff, 0xf5, 0xe0);
     lens.setAlphaF(0.85);
     p.setPen(QPen(orange, 2.0));
     p.setBrush(lens);
     p.drawEllipse(QPointF(15, 15), 5.0, 5.0);
+    p.setPen(QPen(orange, 2.8, Qt::SolidLine, Qt::RoundCap));
+    p.drawLine(QPointF(18.6, 18.6), QPointF(22.2, 22.2));
     return pix;
 }
 
