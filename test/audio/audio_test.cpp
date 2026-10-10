@@ -3430,6 +3430,54 @@ static void g_mixer() {
                   fmt("opened=%d w1=%d wrote=%zu/%zu available=%u (want %u) exact=%d last L=%d R=%d",
                       opened ? 1 : 0, w1 ? 1 : 0, off, after.size(), got, want, exact ? 1 : 0, l, r));
         }
+
+        // MX-39 — DESCRIPTOR HYGIENE: the reader holds exactly one descriptor
+        // on the FIFO, close-on-exec (QEMU and ffmpeg must not inherit it);
+        // opening again does not leak the first; close() releases it and
+        // forgets its number, so a second close() (the destructor's) cannot
+        // close an unrelated descriptor that reused it. The FIFO's descriptors
+        // are found by inode, which works the same on Linux and macOS.
+        // jnext-only, no VHDL counterpart.
+        {
+            const std::string fifo = (dir / "mx39.fifo").string();
+            auto fifo_fds = [&](std::vector<int>& out) {
+                out.clear();
+                struct stat want{};
+                if (::stat(fifo.c_str(), &want) != 0) return;
+                for (int fd = 0; fd < 1024; ++fd) {
+                    struct stat st{};
+                    if (::fstat(fd, &st) == 0 && st.st_dev == want.st_dev && st.st_ino == want.st_ino)
+                        out.push_back(fd);
+                }
+            };
+            PiAudio a;
+            std::string err;
+            std::vector<int> fds;
+            const bool opened = a.open(fifo, err);
+            fifo_fds(fds);
+            const bool one = fds.size() == 1;
+            const bool cloexec = one && (::fcntl(fds[0], F_GETFD) & FD_CLOEXEC) != 0;
+            const bool reopened = a.open(fifo, err);
+            fifo_fds(fds);
+            const bool no_leak = fds.size() == 1;
+            const int held = no_leak ? fds[0] : -1;
+            a.close();
+            fifo_fds(fds);
+            const bool released = fds.empty();
+            const int other = ::open("/dev/null", O_RDONLY | O_CLOEXEC);   // likely reuses `held`
+            a.close();                                                     // the destructor's call
+            const bool other_alive = other >= 0 && ::fcntl(other, F_GETFD) != -1;
+            if (other >= 0) ::close(other);
+            check("MX-39", "the Pi audio reader holds one close-on-exec descriptor on its FIFO, a "
+                  "second open does not leak the first, and close() releases it and forgets it, so "
+                  "closing again cannot close a descriptor that reused its number (jnext-only, no "
+                  "VHDL counterpart)",
+                  opened && one && cloexec && reopened && no_leak && released && other_alive,
+                  fmt("opened=%d one=%d cloexec=%d reopened=%d no_leak=%d released=%d held=%d "
+                      "other=%d alive=%d", opened ? 1 : 0, one ? 1 : 0, cloexec ? 1 : 0,
+                      reopened ? 1 : 0, no_leak ? 1 : 0, released ? 1 : 0, held, other,
+                      other_alive ? 1 : 0));
+        }
         fs::remove_all(dir, ec);
     }
 #endif

@@ -48,7 +48,7 @@ closed end-to-end (Phases 0→4) on 2026-04-24. Summary:
   `// G:` / `WONT` comments and were publishing as `missing` in the
   traceability matrix, and retired four that cannot honestly become a
   `check()` (AY-41, SD-09, MX-30, IO-04 — each struck in place with its
-  rationale). MX-30 has since been revived, with MX-31..38, by the NextPi
+  rationale). MX-30 has since been revived, with MX-31..39, by the NextPi
   sound path (`audio/pi_audio.*`): NextPi under QEMU is the producer it
   lacked. Writing AY-43 found and fixed a real emulator defect: the
   `ena_div_noise` phase in `src/audio/ay_chip.cpp` read the TOGGLED
@@ -470,6 +470,7 @@ VHDL ref: `audio_mixer.vhd` lines 63-90
 | MX-36  | Pi I2S source: trim boundary | A backlog of exactly 13230 frames (300 ms) is not trimmed (first frame 0, 13229 left, none dropped); 13231 is trimmed to 4410 (first frame 8821). jnext-only, no VHDL counterpart |
 | MX-37  | Pi I2S source: no spin without a writer | After the writer closes, `eof_reads()` grows by 1..60 in 600 ms: the reader pauses 20 ms after each read that finds no writer. Discriminates on Linux, where `poll()` reports a gone writer at once; on macOS `poll()` waits its 100 ms anyway. jnext-only, no VHDL counterpart |
 | MX-38  | Pi I2S source: a live writer's pause | A writer sends a header and one frame and a half, pauses 250 ms (the reader polls out and reads EAGAIN), then the rest: all `kPrebuffer` + 1 frames arrive exact. Treating EAGAIN as the writer's end would take 44 bytes after the pause for a header. EINTR is not testable portably. jnext-only, no VHDL counterpart |
+| MX-39  | Pi I2S source: descriptor hygiene | Found by inode: one descriptor on the FIFO after `open`, with `FD_CLOEXEC`; still one after a second `open`; none after `close()`; a second `close()` leaves a descriptor that reused the number open. jnext-only, no VHDL counterpart |
 
 ### 5.2 Final Mix
 
