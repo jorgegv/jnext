@@ -106,8 +106,8 @@ that implements it:
 
 The classes that carry one are `PaletteManager`, `Layer2` (scroll and bank),
 `SpriteEngine` (attributes), `Ula` (Timex screen mode, scroll, active-palette
-select), `Tilemap` (NR 0x6B), `Mmu`'s `AttributeMux` (Nirvana-class mid-frame
-attribute writes), and `Renderer` itself (NR 0x15 priority and sprite enable).
+select), `Tilemap` (NR 0x6B), `Mmu`'s `AttributeMux` (mid-frame writes to every
+ULA-fetched VRAM byte), and `Renderer` itself (NR 0x15 priority and sprite enable).
 
 A soft reset (NR 0x02 bit 0, F4) can land in the middle of a frame, and the
 hardware draws the rows above it with the old registers and the rows below with
@@ -119,8 +119,8 @@ log entries —
 the per-line snapshots pick the reset values up on their own from the reset
 row down. Memory with no reset port (palette RAM, sprite attribute and
 pattern RAM) is not touched by a soft reset at all, and `Z80Cpu` keeps its
-frame-relative T-state count, which is the beam position the attribute mux
-tags each VRAM write with. Until GH #263 the two
+frame-relative T-state count, which scaled by the divisor is the beam position
+the VRAM mux tags each write with. Until GH #263 the two
 mechanisms failed in opposite directions: `PaletteManager::reset()` changed
 the live RAM without the log, so the render replayed the old palette over it,
 while the other classes wiped their history and repainted the rows above the

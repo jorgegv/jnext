@@ -1046,6 +1046,46 @@ matrix accordingly.
 | S18.05 | Shadow-screen enabled, distinct markers in bank 5 and bank 7                                 | The dump is bank 7's; no bank-5 byte appears                             | pass |
 | S18.06 | Hi-colour selected in port 0xFF AND shadow enabled                                           | 6912 bytes (mode masked to "000"), port 0xFF still reads 0x02            | pass |
 
+## Section 19: ULA VRAM beam replay (GH #305)
+
+### VHDL reference
+
+The ULA fetches a pixel byte and an attribute byte for every column of every
+scanline, at fixed instants (`zxula.vhd:226-303`). The "record bytes read"
+process (`:270-303`) latches, on the falling edge of `i_CLK_7` with `hc(3:0)` =
+1, 3, 5, 7, 9, B, D, F: `pbyte11 abyte11 pbyte01 abyte01 pbyte00 abyte00
+pbyte10 abyte10`. `*00`/`*10` are the primary column of an even/odd display slot
+(`px` latched at `hc(3:0)` = 3/B, column `(hc(7:3) + scroll_x(7:3)) mod 32`,
+`:198-200`), `*01`/`*11` the secondary column (`px_1 = px + 1`, `:216`), which
+only the bits a fine X scroll shifts in use (`:383-384`). `hc_ula = 0` is raw
+`hc = c_min_hactive - 11` (`zxula_timing.vhd:423-436`). The pixel slot reads
+`screen_mode(0) & addr_p`; the attribute slot reads `'1' & addr_p` when
+`screen_mode(1)` (hi-colour, hi-res) and `screen_mode(0) & addr_a` otherwise
+(`:235-252`). With the shadow screen, Timex modes are forced off (`:191`).
+
+The rows write through `Mmu::write()` with an explicit `(line, hc)` tag, render
+through the real `Ula`, and read the rendered pixel back. The expected instants
+are re-derived in the test from the register table above, not from
+`AttributeMux::fetch_hc()`.
+
+| ID      | Test                                                                                  | Expected                                                           | Status |
+|---------|---------------------------------------------------------------------------------------|--------------------------------------------------------------------|--------|
+| VMUX-01 | Pixel byte written on the previous scanline                                           | This scanline shows it                                             | pass |
+| VMUX-02 | Pixel byte written after its fetch on this scanline; then next frame; then a RAM poke | Old byte; next frame new; a later frame shows RAM as it then is    | pass |
+| VMUX-03 | Write at the pixel instant and one tick later, even and odd slot                      | Seen / not seen, both parities                                     | pass |
+| VMUX-04 | Pixel and attribute both written between pbyte10 (@D) and abyte10 (@F)                | Old pixel in the new attribute                                     | pass |
+| VMUX-05 | Shadow screen (bank 7), write after / before the fetch                                | Old / new byte                                                     | pass |
+| VMUX-06 | Hi-colour colour byte written before / at / after the attribute slot                  | Seen / seen / not seen                                             | pass |
+| VMUX-07 | Hi-res screen 0 at the pixel slot, screen 1 at the attribute slot                     | Each seen at its own instant, not one tick later                   | pass |
+| VMUX-08 | Alt screen: pixel at 0x2000+, attribute at 0x3800+, both written at the attribute instant | Old pixel, new attribute; at +1 neither                        | pass |
+| VMUX-09 | Coarse scroll of 2 columns, write to the source column between its slot's and the source column's instants | Follows the DISPLAY slot                     | pass |
+| VMUX-10 | Fine scroll 4, writes at / one tick after the secondary fetch, slots 2 and 3, pixel and attribute | Shifted-in pixels follow the secondary instant            | pass |
+| VMUX-11 | 20000 writes in one frame, the last late                                              | Log holds all 20001, last one resolved                             | pass |
+| VMUX-12 | Per-row bank: row A bank 5, row B bank 7, late and in-time bank-7 writes              | Each row replays its own bank                                      | pass |
+
+The end-to-end check is the functional row `editmenu-beam-func`: NextZXOS's EDIT
+menu frames, rebuilt from the debugger's own write log with this fetch rule.
+
 ## Total Test Count
 
 | Section | Area | Tests |
@@ -1067,6 +1107,7 @@ matrix accordingly.
 | 15 | Shadow screen | 4 |
 | 16 | NR 0xFF palette side-channel | 1 (G150) |
 | 17 | Per-scanline active-palette select | 4 (G10) |
+| 19 | ULA VRAM beam replay | 12 (GH #305) |
 | | **Total** | **~138** |
 
 ## Implementation Notes
