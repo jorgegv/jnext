@@ -1710,15 +1710,15 @@ static void test_BL() {
     {
         clear_layers(r);
         r.set_layer_priority(7);
-        r.layer2_line_[0] = rgb333_to_argb8888(3,4,2);
-        r.ula_line_[0]    = rgb333_to_argb8888(3,4,2);
+        r.layer2_line_[0] = rgb333_to_argb8888(3,4,5);
+        r.ula_line_[0]    = rgb333_to_argb8888(3,4,5);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        // R: 3+3=6 -> sum-5=1 ; G: 4+4=8 -> 3 ; B: 2+2=4 -> 0 (<=4)
-        uint32_t expected = rgb333_to_argb8888(bl_sub(3,3), bl_sub(4,4), bl_sub(2,2));
-        check("BL-22", "mode 111 sub middle: (3,4,2) -> (1,3,0) (VHDL zxnext.vhd:7321)",
+        // R: 3+3=6 -> sum-5=1 ; G: 4+4=8 -> 3 ; B: 5+5=10 -> 5 (all three in the sum-5 arm)
+        uint32_t expected = rgb333_to_argb8888(bl_sub(3,3), bl_sub(4,4), bl_sub(5,5));
+        check("BL-22", "mode 111 sub middle: (3,4,5) -> (1,3,5) (VHDL zxnext.vhd:7321)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X R=%u G=%u B=%u",
-                     got, expected, bl_sub(3,3), bl_sub(4,4), bl_sub(2,2)));
+                     got, expected, bl_sub(3,3), bl_sub(4,4), bl_sub(5,5)));
     }
 
     // BL-23: mode 111 sub gated by mix_rgb_transparent. VHDL 7314.
@@ -1917,14 +1917,11 @@ static void test_BL() {
         clear_layers(r);
         r.set_layer_priority(6);
         r.set_blend_mode(2);                                // "10"
-        uint8_t l2c = rgb8(1,1,1);
-        uint8_t tmc = rgb8(2,2,2);
-        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
-        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
+        r.layer2_line_[0]  = rgb333_to_argb8888(1,1,1);
+        r.tilemap_line_[0] = rgb333_to_argb8888(2,2,2);
         r.tm_pixel_below_[0] = true;                        // tm_below=1
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(
-            rgb8(bl_add(1,2), bl_add(1,2), bl_add(1,2)));
+        uint32_t expected = rgb333_to_argb8888(bl_add(1,2), bl_add(1,2), bl_add(1,2));
         check("BL-41",
               "mode \"10\" prio6: ulatm merge → TM, add(L2,TM) (zxnext.vhd:7115-7116,7149-7155)",
               got == expected,
