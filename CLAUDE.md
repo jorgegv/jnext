@@ -425,7 +425,7 @@ in `ENABLE_QT_UI=ON / ENABLE_DEBUGGER=OFF` and nothing noticed.
 | `make unit-test-sdl` | macOS (native)                  | `build/sdl-unit-test`     | 107 | CI `macos-unit` (Homebrew `bash coreutils grep` required); one fewer than Linux because `sdcard_file_add_linux_test` is `# os: linux` (SDFA-T26 needs a case-sensitive filesystem; APFS is not) |
 | `make unit-test-win` | Windows, MinGW cross under wine | `build/win-sdl-unit-test` | 103 | local gate, CI `test (unit-win)` |
 | `make regression-win` | Windows, MinGW exes under wine | `build/win-release-non-pgo`, `build/win-sdl-release` | 1 + 66 + 127 rows | local gate, CI `test (regression-win)` |
-| `make regression-macos` | macOS (native) | `build/gui-release-non-pgo`, `build/sdl-release` | 1 + 66 + 133 rows | CI `macos-regression` |
+| `make regression-macos` | macOS (native) | `build/gui-release-non-pgo`, `build/sdl-release` | 1 + 66 + 131 rows | CI `macos-regression` |
 
 **The regression suite also runs off Linux** (GH #319, owner decisions 2026-10-10): `regression.sh --platform` runs the screenshots and the functional rows an OS can run. A row's line in `functional_tests.conf` opts out with `os=<list>` (a subset of `linux,macos,windows`, `linux` mandatory, no tag = all three) and a `# os:` reason above it; `# expect-macos:` / `# expect-windows:` pin the counts; the absent rows are printed by name, never SKIPs. The 6 lints and the stamp stay Linux-only. The wine runner (`test/wine-run.sh --jnext`) folds CRLF, translates `QT_*`/`SDL_*`, and needs a persistent wineserver; the Qt test exe bundles `qoffscreen.dll`, in the test tree only, never in a package. See the developer guide, section 4.3.
 

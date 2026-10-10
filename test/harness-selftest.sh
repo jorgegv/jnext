@@ -2308,7 +2308,7 @@ check "HS-91a" "a platform preflight names the target and the admitted / absent 
     "platform windows: 127 functional rows run, 20 declared absent"
 plat_tree "$T/pt-mac" macos macos
 out=$(run_plat "$T/pt-mac" "$REG_FUNC"); rc=$?
-check "HS-91b" "...macOS runs 133 and declares 14 absent" 0 $rc "$out" "platform macos: 133 functional rows run, 14 declared absent"
+check "HS-91b" "...macOS runs 131 and declares 16 absent" 0 $rc "$out" "platform macos: 131 functional rows run, 16 declared absent"
 plat_tree "$T/pt-none" windows windows; sed -i '/^JNEXT_TARGET_OS/d' "$T/pt-none/s/CMakeCache.txt"
 out=$(run_plat "$T/pt-none" "$REG_FUNC"); rc=$?
 check "HS-91c" "a build tree without JNEXT_TARGET_OS is a refusal naming it, not an assumed OS" 2 $rc "$out" "HARNESS FAULT" "JNEXT_TARGET_OS"
@@ -2334,9 +2334,9 @@ check "HS-92b" "...and a named admitted row is accepted" 0 $rc "$out" "preflight
 sed 's/^# expect-windows: 127$/# expect-windows: 126/' "$REG_FUNC" > "$T/pin-lo.conf"
 out=$(run_preflight "$REG_CONF" "$T/pin-lo.conf"); rc=$?
 check "HS-93a" "a Windows pin one too low is a refusal naming the OS" 2 $rc "$out" "HARNESS FAULT" "windows" "expect-windows: 126"
-sed 's/^# expect-macos: 133$/# expect-macos: 134/' "$REG_FUNC" > "$T/pin-hi.conf"
+sed 's/^# expect-macos: 131$/# expect-macos: 132/' "$REG_FUNC" > "$T/pin-hi.conf"
 out=$(run_preflight "$REG_CONF" "$T/pin-hi.conf"); rc=$?
-check "HS-93b" "a macOS pin one too high is a refusal" 2 $rc "$out" "HARNESS FAULT" "macos" "expect-macos: 134"
+check "HS-93b" "a macOS pin one too high is a refusal" 2 $rc "$out" "HARNESS FAULT" "macos" "expect-macos: 132"
 grep -v '^# expect-macos:' "$REG_FUNC" > "$T/pin-none.conf"
 out=$(run_preflight "$REG_CONF" "$T/pin-none.conf"); rc=$?
 check "HS-93c" "os= tags without the per-OS pin are a refusal" 2 $rc "$out" "HARNESS FAULT" "No '# expect-macos: N' pin"
