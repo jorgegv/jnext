@@ -177,13 +177,25 @@ debugger ones.
     under **Settings > Preferences > Startup**, which applies live.
 
 **\--joy1-source** *SRC*
-:   Host source for Joy 1 (port 0x1F): `sdl` (autodetected gamepad, default) or
-    `keys` (host arrow keys, Space = fire).
+:   Host source for Joy 1 (port 0x1F): `sdl` (autodetected gamepad, default),
+    `keys` (host arrow keys, Space = fire) or `none` (nothing drives it).
 
 **\--joy2-source** *SRC*
-:   Host source for Joy 2 (port 0x37): `sdl` (default) or `keys`. Only one
-    connector may use `keys`. Interactive (SDL/Qt) frontends only; inert under
-    **\--headless**.
+:   Host source for Joy 2 (port 0x37): `sdl` (default), `keys` or `none`. Only
+    one connector may use `keys`. Interactive (SDL/Qt) frontends only; inert
+    under **\--headless**.
+
+**\--joy1-device** *ID*
+:   Physical controller for Joy 1 (port 0x1F), by the id jnext logs when it
+    connects it (`Joystick 1 connected: 'name' [id]`): 32 hex digits, optionally
+    followed by `#N` to tell identical pads apart. Used while the connector's
+    source is `sdl`; if that controller is not connected, jnext logs it and
+    uses the first free one. Wins over the saved choice for this run.
+
+**\--joy2-device** *ID*
+:   Physical controller for Joy 2 (port 0x37); same form as **\--joy1-device**.
+    The two connectors cannot name the same controller. Interactive (SDL/Qt)
+    frontends only; inert under **\--headless**.
 
 **\--joy-uart-rx** *FILE*
 :   Attach *FILE* as a serial byte source on the joystick-port UART RX pin — the
@@ -1549,7 +1561,8 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
 
 **Input**
 :   Joy 1 Source (port 0x1F) and Joy 2 Source (port 0x37), each selecting what
-    drives that connector; Capture Mouse, which confines the host pointer so
+    drives that connector: Automatic (the first free controller), any
+    connected controller by name, Cursor Keys + Space, or None; Capture Mouse, which confines the host pointer so
     the Kempston mouse can move freely (Ctrl+Alt releases it; Alt+Cmd on macOS).
 
 **Tape**
@@ -1649,9 +1662,21 @@ guest only Alt + E/G/C (EDIT, GRAPH, CAPS LOCK) and Alt + the key left of `1`
 Alt to EXTEND MODE and Right Alt to GRAPH; jnext deliberately does not,
 following the FUSE/ZEsarUX convention that puts EXTEND MODE on Tab.
 
-Up to two USB gamepads are picked up automatically (hot-plug) and mapped to the
-Next's two joystick ports; the joystick mode (Kempston / Sinclair / Cursor /
-MD) follows NextREG 0x05, as on real hardware.
+USB gamepads are picked up automatically (hot-plug) and mapped to the Next's
+two joystick ports, the first two controllers to Joy 1 and Joy 2 in the order
+they connect; the joystick mode (Kempston / Sinclair / Cursor / MD) follows
+NextREG 0x05, as on real hardware.
+
+To choose which controller drives which port, use **Input > Joy 1 Source** and
+**Joy 2 Source** (or **Settings > Preferences > Input**): each lists Automatic,
+every connected controller by name (identical models appear as `name` and
+`name #2`), Cursor Keys + Space and None. The choice applies at once and is
+remembered by the controller's identity, so it survives unplugging and
+restarting; a controller that is not connected is shown as `name (not
+connected)` and the port uses the first free controller meanwhile, which jnext
+logs. The same controller cannot drive both ports. With two identical pads the
+numbering holds only while they are connected in the same order. Unplugging a
+controller releases any button it held.
 
 Either joystick port can instead be driven by the host cursor keys (arrows for
 direction, Space for fire), which is useful for the many games that read the
@@ -2107,6 +2132,13 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     `none`, or `wav:`*FILE*; empty means `coreaudio` on macOS and `pa`
     elsewhere). Changing the release makes the next start offer to download it,
     replacing the installed one.
+    The joystick ports are stored under `[input]`: `joy1_source` and
+    `joy2_source` (`sdl`, `keys` or `none`), `joy1_device` and `joy2_device`
+    (the controller's id: 32 hex digits, optionally `#N`; empty means
+    Automatic) and `joy1_device_name` and `joy2_device_name` (the name shown
+    while that controller is not connected). **\--joy1-device** and
+    **\--joy2-device** override the ids for one run. An id that is not valid is
+    ignored, with its name.
     The quick screenshot is stored under `[screenshot]` as `quick_dir` (empty
     means `~/.jnext/screenshots`) and `quick_format` (`png` or `scr`), edited
     under **Settings > Preferences > Paths**; an unrecognised format keeps the

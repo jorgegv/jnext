@@ -50,6 +50,15 @@ Preferences **Debugger Keys** tab; the action keeps its default. The spelling
 of the action names and of the key combinations is in
 [6.3.9](../06-debugger/functions/09-changing-the-keys.md).
 
+The joystick connectors are stored in the `[input]` section: `joy1_source` and
+`joy2_source` (`sdl`, `keys` or `none`), `joy1_device` and `joy2_device` (the
+chosen controller's id, 32 hex digits optionally followed by `#N`; empty means
+Automatic) and `joy1_device_name` and `joy2_device_name` (the name the menu
+shows while that controller is not connected). They are the same settings as the
+**Input** menu and the Preferences **Input** tab, and `--joy1-device` /
+`--joy2-device` override the ids for one run. An id that is not valid is ignored
+together with its name, and the connector falls back to Automatic.
+
 The quick screenshot is stored in the `[screenshot]` section: `quick_dir` (an
 empty value means `~/.jnext/screenshots`) and `quick_format`, either `png` or
 `scr`. They are the same two settings as the Preferences **Paths** tab;
