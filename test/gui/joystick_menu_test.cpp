@@ -338,6 +338,26 @@ void run(const QString& confdir) {
               s.value("joy1_device").toString().isEmpty());
     }
 
+    // JMN-14 — the way back: Automatic after a controller clears the assignment.
+    {
+        Fixture f;
+        QAction* pick = f.find(0, "A&&B stick");
+        if (pick) pick->trigger();
+        QApplication::processEvents();
+        QAction* autom = f.find(0, auto_txt);
+        if (autom) autom->trigger();
+        QApplication::processEvents();
+        QSettings s = saved_conf(confdir);
+        s.beginGroup("input");
+        check("JMN-14", "Automatic after a controller clears the assignment (emulator, menu, file); the pad already bound stays bound",
+              pick && autom && f.emu.joystick_device(0).id.empty() &&
+              f.emu.joystick_source(0) == JoySource::Sdl && f.checked(0) == auto_txt &&
+              s.value("joy1_device").toString().isEmpty() &&
+              s.value("joy1_source").toString() == "sdl" &&
+              f.slot(f.c) == 0,   // sticky: the pad is not moved under the player
+              "c=" + std::to_string(f.slot(f.c)) + " a1=" + std::to_string(f.slot(f.a1)));
+    }
+
     // JMN-08 .. JMN-10 — the Preferences dialog offers the same choices and does not lose them.
     {
         Fixture f;
