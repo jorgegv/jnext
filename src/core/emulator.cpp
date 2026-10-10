@@ -281,11 +281,6 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         dac_.set_write_callback({});
     }
     i2s_.reset();
-    // With NextPi's sound attached, the I2S input starts at SILENCE (the
-    // offset-binary midpoint, i2s.vhd:177-180), not at the register's reset value
-    // 0 — which is a full-negative excursion, and would click at every boot
-    // until the first Pi frame is latched (feed_pi_audio, one sample later).
-    if (cfg.pi_audio) i2s_.set_sample(0x200, 0x200);
     mixer_.reset();
     mixer_.set_output_gain_db(cfg.audio_gain_db);
     mixer_.set_beeper_gain_db(cfg.audio_gain_beeper_db);

@@ -7,9 +7,12 @@ I2s::I2s() { reset(); }
 
 void I2s::reset()
 {
-    // VHDL: signals default to all-zero (silence) at reset.
-    left_       = 0;
-    right_      = 0;
+    // The 10-bit sample rests at 0x200 (offset-binary silence), with or
+    // without a Pi attached: the receiver resets its words to 0
+    // (i2s_receive.vhd:129-130), and i2s.vhd:177-180 inverts the sign bit
+    // on the way out, so the value the mixer sees is 0x200, not 0.
+    left_       = 0x200;
+    right_      = 0x200;
     // VHDL zxnext.vhd:5564 — nr_a2_pi_i2s_ctl resets to 0x00 (no Pi I2S
     // path enabled). With NR 0xA2 = 0, pi_audio_L/R are forced to the
     // 10-bit DC midpoint (0x200) per zxnext.vhd:2358-2359.

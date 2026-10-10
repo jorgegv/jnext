@@ -315,8 +315,9 @@ under QEMU is one, so:
 - **Replay.** RZX playback does not consume the stream (the Pi's output belongs
   to the live session) and holds the input silent; a rewind's replay never
   advances audio at all.
-- **No boot click.** `I2s` resets to sample 0, a full-negative excursion; with a
-  Pi attached the input starts at 0x200 instead.
+- **The rest value.** `I2s` resets to 0x200, offset-binary silence, on every
+  machine with or without a Pi: the receiver resets its words to 0
+  (`i2s_receive.vhd:129-130`) and `i2s.vhd:177-180` inverts the sign bit.
 - The other settings (`coreaudio`, `pa`, ..., `none`, `wav:FILE`) keep sending
   the Pi's sound to the host or a file directly, bypassing the mixer.
 
@@ -390,7 +391,7 @@ NextPi image is needed.
 | PI-46 | the fallback reads `/proc/self/fd` where it exists, else `/dev/fd`, and walks the numbers only with no list |
 | PI-47 | the open-descriptor list names open descriptors but not the directory's own, and leaves no descriptor open (reading it, or marking from it) |
 | PI-48 | the Pi's sound reaches the mixer through QEMU's wav FIFO and `PiAudio`; NR 0xA2 = 0x00 silent, 0xC0 the stand-in's square wave, each channel on its own side at its exact level (left ±1024, right ±512) |
-| PI-49 | neither a rewind replay nor an RZX playback consumes the stream; a replay produces no audio at all, an RZX playback outputs exactly 0 in both channels (no boot click); live again it is drawn at exactly one frame per mixer output sample |
+| PI-49 | neither a rewind replay nor an RZX playback consumes the stream; a replay produces no audio at all, an RZX playback outputs exactly 0 in both channels; the I2S input resets to 0x200 with or without a Pi; live again it is drawn at exactly one frame per mixer output sample |
 | PI-50 | the warm-start recording boot gets no audio reader |
 | PI-51 | when the audio FIFO cannot be created, `start()` fails with that error and starts no QEMU |
 | PI-52 | the mixer's `-audiodev` value escapes a comma in the FIFO path |
@@ -455,8 +456,8 @@ In **nextpi-func**, `start_outcome(true, …)` in `main()` fails fact 4 (exit 1)
 and ignoring `--no-nextpi` fails fact 3. For the sound: not calling `feed_pi_audio`
 fails PI-48/49, and calling it but not latching the frame into `I2s` fails
 PI-48; feeding twice per output sample (the Pi at double speed) fails PI-49;
-consuming during RZX playback fails PI-49, and so does the
-boot click; swapping the channels, feeding one from the other, or a one-step error in
+consuming during RZX playback fails PI-49, and so does an `I2s` reset value
+other than 0x200; swapping the channels, feeding one from the other, or a one-step error in
 either channel's 10-bit value fails PI-48; a
 wrong rest value in either channel fails PI-49; keeping the reader in the
 warm-start config fails PI-50; ignoring the audio FIFO's open error fails PI-51.
