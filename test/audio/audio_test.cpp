@@ -33,7 +33,9 @@
 #include <filesystem>
 #include <fstream>
 #ifndef _WIN32
+#include <csignal>
 #include <fcntl.h>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -3477,6 +3479,49 @@ static void g_mixer() {
                       "other=%d alive=%d", opened ? 1 : 0, one ? 1 : 0, cloexec ? 1 : 0,
                       reopened ? 1 : 0, no_leak ? 1 : 0, released ? 1 : 0, held, other,
                       other_alive ? 1 : 0));
+        }
+
+        // MX-40 — A SIGNAL DOES NOT STOP THE READER: poll() returns EINTR when a
+        // signal without SA_RESTART lands on the reader thread (poll is never
+        // restarted), and the reader must poll again, not give up. A SIGUSR1
+        // handler is installed without SA_RESTART and the signal is blocked in
+        // this thread, so the process-directed kill() lands on the reader;
+        // afterwards a stream must still arrive. (A non-blocking FIFO read()
+        // cannot return EINTR, so that branch has no row.) jnext-only, no VHDL
+        // counterpart.
+        {
+            const std::string fifo = (dir / "mx40.fifo").string();
+            struct sigaction sa{}, old_sa{};
+            sa.sa_handler = [](int) {};
+            sigemptyset(&sa.sa_mask);
+            sa.sa_flags = 0;                                  // no SA_RESTART
+            ::sigaction(SIGUSR1, &sa, &old_sa);
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);            // the reader thread exists now
+            sigset_t usr1, old_mask;
+            sigemptyset(&usr1);
+            sigaddset(&usr1, SIGUSR1);
+            ::pthread_sigmask(SIG_BLOCK, &usr1, &old_mask);   // only the reader can take it
+            ::usleep(150000);
+            for (int i = 0; i < 5; ++i) {
+                ::kill(::getpid(), SIGUSR1);
+                ::usleep(30000);
+            }
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const std::string stream = header() + frames_bytes(10, 0);
+            const bool wrote = w >= 0 && ::write(w, stream.data(), stream.size()) ==
+                                             static_cast<ssize_t>(stream.size());
+            const uint32_t got = wait_available(a, 10);
+            if (w >= 0) ::close(w);
+            a.close();
+            ::pthread_sigmask(SIG_SETMASK, &old_mask, nullptr);
+            ::sigaction(SIGUSR1, &old_sa, nullptr);
+            check("MX-40", "a signal interrupting the Pi audio reader's poll() (EINTR) does not end "
+                  "the reader: a stream written afterwards still arrives (jnext-only, no VHDL "
+                  "counterpart)",
+                  opened && wrote && got == 10,
+                  fmt("opened=%d wrote=%d available=%u (want 10)", opened ? 1 : 0, wrote ? 1 : 0, got));
         }
         fs::remove_all(dir, ec);
     }
