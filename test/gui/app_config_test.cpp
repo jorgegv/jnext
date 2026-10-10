@@ -949,10 +949,24 @@ static void test_file_layout(QTemporaryDir& dir) {
     // shortest round-trip "1.2345679" if a float QVariant reaches QSettings,
     // and as "1.23457" through gain_text(), so this row also fails on Qt 6.
     const QString p11 = fresh_ini_path(dir, "layout_gain");
-    { AppConfig c(p11); c.data().audio_gain_db = 1.2345679f; c.data().audio_gain_dac_db = -3.5f; c.save(); }
+    // All six gain keys get a value with more than 6 significant digits, so
+    // reverting ANY one of the six writes to a raw float is caught.
+    {
+        AppConfig c(p11);
+        c.data().audio_gain_db = 1.2345679f;
+        c.data().audio_gain_beeper_db = 2.3456789f;
+        c.data().audio_gain_ay_db[0] = 3.4567891f;
+        c.data().audio_gain_ay_db[1] = 4.5678912f;
+        c.data().audio_gain_ay_db[2] = -5.6789123f;
+        c.data().audio_gain_dac_db = -6.7891234f;
+        c.save();
+    }
     const QByteArray f11 = slurp(p11);
-    check("CF-11", "gains are written as plain text (gain_db=1.23457, gain_dac_db=-3.5), never a float QVariant",
-          has_line(f11, "gain_db=1.23457") && has_line(f11, "gain_dac_db=-3.5") && !f11.contains("@"),
+    check("CF-11", "all six gains are written as plain text with 6 significant digits, never a float QVariant",
+          has_line(f11, "gain_db=1.23457") && has_line(f11, "gain_beeper_db=2.34568")
+              && has_line(f11, "gain_ay0_db=3.45679") && has_line(f11, "gain_ay1_db=4.56789")
+              && has_line(f11, "gain_ay2_db=-5.67891") && has_line(f11, "gain_dac_db=-6.78912")
+              && !f11.contains("@"),
           f11.toStdString());
 
     // A Qt5-written gain ("@Variant(float 1.5)") is read and rewritten as text.
