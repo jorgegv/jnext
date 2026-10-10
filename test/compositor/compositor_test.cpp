@@ -116,13 +116,13 @@ static uint16_t vhdl_fallback_9bit(uint8_t nr4a) {
     return (static_cast<uint16_t>(nr4a) << 1) | lsb;
 }
 
-// Convert the 9-bit VHDL fallback word into ARGB32 by dropping bit 0 and
-// feeding the upper 8 bits through rrrgggbb_to_argb — the same path the
-// Renderer uses. The emulator's fallback pipeline is 8-bit only so we
-// assert against the 8-bit-truncated ARGB equivalent when consulting
-// composite_scanline output.
+// Convert the 9-bit VHDL fallback word into ARGB32 with the full 9 bits
+// (blue LSB included, GH #304 Part B): the word `render_row` hands to
+// composite_scanline, built here from vhdl_fallback_9bit, not from the
+// renderer.
 static uint32_t vhdl_fallback_argb(uint8_t nr4a) {
-    return Renderer::rrrgggbb_to_argb(nr4a);
+    const uint16_t n = vhdl_fallback_9bit(nr4a);
+    return rgb333_to_argb8888((n >> 6) & 7, (n >> 3) & 7, n & 7);
 }
 
 // Build a VHDL-opaque layer pixel tagged with a distinct colour. Upper 24
@@ -144,12 +144,12 @@ static const uint32_t PIX_TM  = opaque_tag(0xDD, 0x00, 0xDD);
 static constexpr uint32_t TRANSP = 0x00000000u;
 
 // Channel extraction from ARGB, mirroring the compositor's own
-// argb_r3/argb_g3/argb_b2 (file-static in renderer.cpp). Used by the LMASK
+// argb_r3/argb_g3/argb_b3 (file-static in renderer.cpp). Used by the LMASK
 // stencil rows to compute the VHDL AND-branch oracle (zxnext.vhd:7113
 // `stencil_rgb <= ula_rgb and tm_rgb`) rather than hard-coding a constant.
 static uint8_t argb_r3_t(uint32_t argb) { return (argb >> 21) & 7; }
 static uint8_t argb_g3_t(uint32_t argb) { return (argb >> 13) & 7; }
-static uint8_t argb_b2_t(uint32_t argb) { return (argb >>  6) & 3; }
+static uint8_t argb_b3_t(uint32_t argb) { return (argb >>  5) & 7; }
 
 static void clear_layers(Renderer& r) {
     for (int i = 0; i < W; ++i) {
@@ -648,24 +648,11 @@ static void test_TR() {
         r.set_transparent_rgb(0xE3);
     }
 
-    // TR-30: Layer 2 RGB compare vs NR 0x14. VHDL zxnext.vhd:7121.
-    //        Emulator lacks palette-compare path; test pins the VHDL oracle.
-    {
-        clear_layers(r);
-        r.set_layer_priority(0);
-        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(0xE3);
-        uint32_t fb = vhdl_fallback_argb(0xE3);
-        uint32_t got = composite_one(r, fb);
-        check("TR-30", "L2 RGB[8:1]==NR0x14 => layer2_transparent (VHDL 7121)",
-              got == fb,
-              DETAIL("got=0x%08X fb=0x%08X", got, fb));
-    }
-
     // TR-34 (GH #304): TR-19's sweep for Layer 2, `layer2_rgb_2(8 downto 1) =
     //        transparent_rgb_2` (VHDL zxnext.vhd:7121), on palette-producible
-    //        colours with a fallback no palette can produce. TR-30 uses one
-    //        word for both stimulus and fallback, so it cannot tell the two
-    //        outcomes apart; this row can.
+    //        colours with a fallback no palette can produce, so a transparent
+    //        Layer 2 pixel (fallback) and an opaque one (the colour itself)
+    //        are told apart.
     {
         const uint32_t fb = 0xFF010203u;
         int bad = 0, first_v = -1, cases = 0;
@@ -1136,14 +1123,14 @@ static void test_FB() {
         clear_layers(r);
         r.set_layer_priority(0);
         r.set_fallback_colour(nr4a);
-        return composite_one(r, Renderer::rrrgggbb_to_argb(nr4a));
+        return composite_one(r, vhdl_fallback_argb(nr4a));
     };
 
     // FB-10: fallback 0xE3 => 9-bit 0xE3<<1 | (1|1) = 0x1C7.
     {
         uint16_t fb9 = vhdl_fallback_9bit(0xE3);
         uint32_t got = all_transparent_fallback(0xE3);
-        uint32_t expected = Renderer::rrrgggbb_to_argb(0xE3);
+        uint32_t expected = vhdl_fallback_argb(0xE3);
         check("FB-10", "fallback 0xE3 -> 9-bit 0x1C7 (VHDL 7214: bit0|bit1 = 1|1 = 1)",
               fb9 == 0x1C7 && got == expected,
               DETAIL("fb9=0x%03X got=0x%08X exp=0x%08X", fb9, got, expected));
@@ -1153,7 +1140,7 @@ static void test_FB() {
     {
         uint16_t fb9 = vhdl_fallback_9bit(0x00);
         uint32_t got = all_transparent_fallback(0x00);
-        uint32_t expected = Renderer::rrrgggbb_to_argb(0x00);
+        uint32_t expected = vhdl_fallback_argb(0x00);
         check("FB-11", "fallback 0x00 -> 9-bit 0x000 (VHDL zxnext.vhd:7214)",
               fb9 == 0x000 && got == expected,
               DETAIL("fb9=0x%03X got=0x%08X exp=0x%08X", fb9, got, expected));
@@ -1163,7 +1150,7 @@ static void test_FB() {
     {
         uint16_t fb9 = vhdl_fallback_9bit(0x4A);
         uint32_t got = all_transparent_fallback(0x4A);
-        uint32_t expected = Renderer::rrrgggbb_to_argb(0x4A);
+        uint32_t expected = vhdl_fallback_argb(0x4A);
         check("FB-12", "fallback 0x4A -> 9-bit 0x095 (bit1|bit0 = 1|0 = 1) (VHDL 7214)",
               fb9 == 0x095 && got == expected,
               DETAIL("fb9=0x%03X got=0x%08X exp=0x%08X", fb9, got, expected));
@@ -1211,7 +1198,7 @@ static void test_FB() {
     {
         bool all_ok = true;
         uint8_t mode_seen_mask = 0;
-        uint32_t fb = Renderer::rrrgggbb_to_argb(0x42);
+        uint32_t fb = vhdl_fallback_argb(0x42);
         for (int mode = 0; mode < 8; ++mode) {
             clear_layers(r);
             r.set_layer_priority(static_cast<uint8_t>(mode));
@@ -1583,10 +1570,12 @@ static void test_BL() {
     {
         clear_layers(r);
         r.set_layer_priority(6);                // 110
-        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(rgb8(3,2,1));
-        r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(rgb8(3,2,1));
+        // 9-bit palette words (R,G,B3) = (3,2,1); the mixer adds all three
+        // 3-bit channels (zxnext.vhd:7201-7203).
+        r.layer2_line_[0] = rgb333_to_argb8888(3,2,1);
+        r.ula_line_[0]    = rgb333_to_argb8888(3,2,1);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(bl_add(3,3), bl_add(2,2), bl_add(1,1)));
+        uint32_t expected = rgb333_to_argb8888(bl_add(3,3), bl_add(2,2), bl_add(1,1));
         check("BL-10", "mode 110 add no clamp: (3,2,1)+(3,2,1)=(6,4,2) (VHDL zxnext.vhd:7201-7203,7286)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
@@ -1596,10 +1585,10 @@ static void test_BL() {
     {
         clear_layers(r);
         r.set_layer_priority(6);
-        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(rgb8(5,6,3));  // B only 2 bits
+        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(rgb8(5,6,3));  // blue 0xFF = 7: endpoint, same in 2 and 3 bits
         r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(rgb8(5,6,3));
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(7,7,3));  // B clamp at 3 (2-bit)
+        uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(7,7,3));  // B: 7+7 clamps to 7 (0xFF)
         check("BL-11", "mode 110 add clamp to 7 (VHDL zxnext.vhd:7288-7298)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
@@ -1669,10 +1658,9 @@ static void test_BL() {
     {
         clear_layers(r);
         r.set_layer_priority(6);
-        uint8_t c = rgb8(3, 3, 2);
-        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(c);
+        r.layer2_line_[0] = rgb333_to_argb8888(3, 3, 2);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(bl_add(3,0), bl_add(3,0), bl_add(2,0)));
+        uint32_t expected = rgb333_to_argb8888(bl_add(3,0), bl_add(3,0), bl_add(2,0));
         check("BL-16", "mode 110: only L2 opaque => blend(L2+0)=L2 (VHDL zxnext.vhd:7308)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
@@ -1682,25 +1670,24 @@ static void test_BL() {
     {
         clear_layers(r);
         r.set_layer_priority(7);
-        uint8_t c = rgb8(2,2,2);
-        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(c);
-        r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(c);
+        r.layer2_line_[0] = rgb333_to_argb8888(2,2,2);
+        r.ula_line_[0]    = rgb333_to_argb8888(2,2,2);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(bl_sub(2,2), bl_sub(2,2), bl_sub(2,2)));
+        uint32_t expected = rgb333_to_argb8888(bl_sub(2,2), bl_sub(2,2), bl_sub(2,2));
         check("BL-20", "mode 111 sub: sum<=4 -> 0 (VHDL zxnext.vhd:7316-7317)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
     }
 
-    // BL-21: sum>=12 -> 7. (7,7,3)+(7,7,3) (B is 2-bit so max 3)
+    // BL-21: sum>=12 -> 7. (7,7,7)+(7,7,7): blue is 3 bits like R and G
+    // (zxnext.vhd:7203), so all three channels reach the >=12 arm.
     {
         clear_layers(r);
         r.set_layer_priority(7);
-        uint8_t c = rgb8(7,7,3);
-        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(c);
-        r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(c);
+        r.layer2_line_[0] = rgb333_to_argb8888(7,7,7);
+        r.ula_line_[0]    = rgb333_to_argb8888(7,7,7);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(bl_sub(7,7), bl_sub(7,7), bl_sub(3,3)));
+        uint32_t expected = rgb333_to_argb8888(bl_sub(7,7), bl_sub(7,7), bl_sub(7,7));
         check("BL-21", "mode 111 sub: sum>=12 -> 7 (VHDL zxnext.vhd:7318-7319)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
@@ -1710,15 +1697,15 @@ static void test_BL() {
     {
         clear_layers(r);
         r.set_layer_priority(7);
-        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(rgb8(3,4,2));
-        r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(rgb8(3,4,2));
+        r.layer2_line_[0] = rgb333_to_argb8888(3,4,5);
+        r.ula_line_[0]    = rgb333_to_argb8888(3,4,5);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        // R: 3+3=6 -> sum-5=1 ; G: 4+4=8 -> 3 ; B: 2+2=4 -> 0 (<=4)
-        uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(bl_sub(3,3), bl_sub(4,4), bl_sub(2,2)));
-        check("BL-22", "mode 111 sub middle: (3,4,2) -> (1,3,0) (VHDL zxnext.vhd:7321)",
+        // R: 3+3=6 -> sum-5=1 ; G: 4+4=8 -> 3 ; B: 5+5=10 -> 5 (all three in the sum-5 arm)
+        uint32_t expected = rgb333_to_argb8888(bl_sub(3,3), bl_sub(4,4), bl_sub(5,5));
+        check("BL-22", "mode 111 sub middle: (3,4,5) -> (1,3,5) (VHDL zxnext.vhd:7321)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X R=%u G=%u B=%u",
-                     got, expected, bl_sub(3,3), bl_sub(4,4), bl_sub(2,2)));
+                     got, expected, bl_sub(3,3), bl_sub(4,4), bl_sub(5,5)));
     }
 
     // BL-23: mode 111 sub gated by mix_rgb_transparent. VHDL 7314.
@@ -1899,13 +1886,10 @@ static void test_BL() {
         clear_layers(r);
         r.set_layer_priority(6);
         r.set_blend_mode(2);                                // "10"
-        uint8_t l2c  = rgb8(3,2,1);
-        uint8_t ulac = rgb8(3,2,1);
-        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(l2c);
-        r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(ulac);
+        r.layer2_line_[0] = rgb333_to_argb8888(3,2,1);
+        r.ula_line_[0]    = rgb333_to_argb8888(3,2,1);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(
-            rgb8(bl_add(3,3), bl_add(2,2), bl_add(1,1)));
+        uint32_t expected = rgb333_to_argb8888(bl_add(3,3), bl_add(2,2), bl_add(1,1));
         check("BL-40",
               "mode \"10\" prio6: mix_rgb=ula_final, add(L2,ULA) (zxnext.vhd:7149-7155,7286-7298)",
               got == expected,
@@ -1920,14 +1904,11 @@ static void test_BL() {
         clear_layers(r);
         r.set_layer_priority(6);
         r.set_blend_mode(2);                                // "10"
-        uint8_t l2c = rgb8(1,1,1);
-        uint8_t tmc = rgb8(2,2,2);
-        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
-        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
+        r.layer2_line_[0]  = rgb333_to_argb8888(1,1,1);
+        r.tilemap_line_[0] = rgb333_to_argb8888(2,2,2);
         r.tm_pixel_below_[0] = true;                        // tm_below=1
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(
-            rgb8(bl_add(1,2), bl_add(1,2), bl_add(1,2)));
+        uint32_t expected = rgb333_to_argb8888(bl_add(1,2), bl_add(1,2), bl_add(1,2));
         check("BL-41",
               "mode \"10\" prio6: ulatm merge → TM, add(L2,TM) (zxnext.vhd:7115-7116,7149-7155)",
               got == expected,
@@ -1945,14 +1926,13 @@ static void test_BL() {
         r.set_blend_mode(2);                                // "10"
         r.stencil_mode_ = true;
         r.tm_enabled_   = true;
-        uint8_t pc = rgb8(3,2,1);
-        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(rgb8(0,0,0));
-        r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(pc);
-        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(pc);
+        const uint32_t pc = rgb333_to_argb8888(3,2,1);
+        r.layer2_line_[0]  = rgb333_to_argb8888(0,0,0);
+        r.ula_line_[0]     = pc;
+        r.tilemap_line_[0] = pc;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         // Stencil AND of identical pixels = pc; add(L2=0, stencil=pc) = pc.
-        uint32_t expected = Renderer::rrrgggbb_to_argb(
-            rgb8(bl_add(0,3), bl_add(0,2), bl_add(0,1)));
+        uint32_t expected = rgb333_to_argb8888(bl_add(0,3), bl_add(0,2), bl_add(0,1));
         check("BL-42",
               "mode \"10\" prio6: stencil ULA&TM routes via ula_final_rgb (zxnext.vhd:7130-7132,7149-7155)",
               got == expected,
@@ -2018,14 +1998,11 @@ static void test_BL() {
         clear_layers(r);
         r.set_layer_priority(6);
         r.set_blend_mode(3);                                // "11"
-        uint8_t l2c = rgb8(0,0,0);
-        uint8_t tmc = rgb8(4,2,1);
-        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
-        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
+        r.layer2_line_[0]  = rgb333_to_argb8888(0,0,0);
+        r.tilemap_line_[0] = rgb333_to_argb8888(4,2,1);
         r.tm_pixel_below_[0] = false;                       // tm_below=0
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(
-            rgb8(bl_add(0,4), bl_add(0,2), bl_add(0,1)));
+        uint32_t expected = rgb333_to_argb8888(bl_add(0,4), bl_add(0,2), bl_add(0,1));
         check("BL-52",
               "mode \"11\" prio6: TM as mix_rgb, ULA overlays transp (zxnext.vhd:7156-7162)",
               got == expected,
@@ -2041,14 +2018,11 @@ static void test_BL() {
         clear_layers(r);
         r.set_layer_priority(7);
         r.set_blend_mode(3);                                // "11"
-        uint8_t l2c = rgb8(5,5,3);
-        uint8_t tmc = rgb8(4,2,1);
-        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
-        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
+        r.layer2_line_[0]  = rgb333_to_argb8888(5,5,3);
+        r.tilemap_line_[0] = rgb333_to_argb8888(4,2,1);
         r.tm_pixel_below_[0] = false;                       // tm_below=0
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(
-            rgb8(bl_sub(5,4), bl_sub(5,2), bl_sub(3,1)));
+        uint32_t expected = rgb333_to_argb8888(bl_sub(5,4), bl_sub(5,2), bl_sub(3,1));
         check("BL-60",
               "mode \"11\" prio7: sub(L2,TM)=(4,2,0) (zxnext.vhd:7156-7162,7312-7352)",
               got == expected,
@@ -4973,11 +4947,11 @@ static void test_LMASK() {
     // Cell 00 — neither masked: the AND-branch is live, output is the
     // per-channel bitwise AND of the two RGBs (VHDL 7112-7113).
     {
-        const uint8_t  and_rgb = static_cast<uint8_t>(
-            ((argb_r3_t(PIX_ULA) & argb_r3_t(PIX_TM)) << 5) |
-            ((argb_g3_t(PIX_ULA) & argb_g3_t(PIX_TM)) << 2) |
-             (argb_b2_t(PIX_ULA) & argb_b2_t(PIX_TM)));
-        const uint32_t exp = Renderer::rrrgggbb_to_argb(and_rgb);
+        // 9-bit AND (7113): R, G and the 3 blue bits each ANDed.
+        const uint32_t exp = rgb333_to_argb8888(
+            argb_r3_t(PIX_ULA) & argb_r3_t(PIX_TM),
+            argb_g3_t(PIX_ULA) & argb_g3_t(PIX_TM),
+            argb_b3_t(PIX_ULA) & argb_b3_t(PIX_TM));
         const uint32_t got = stencil_cell(Renderer::LAYER_ALL);
         check("LMASK-C09-00",
               "stencil, neither layer masked -> AND-branch live, ULA AND TM "
@@ -5070,11 +5044,10 @@ static void test_LMASK() {
     // mix_rgb transparent, i.e. its channels contribute 0 to the sum (VHDL
     // 7101/7122 + 7288-7298), so the mixer emits Layer 2 unchanged.
     {
-        const uint8_t  L2_RGB   = 0x24;                       // r=1 g=1 b=0
-        const uint8_t  ULA_RGB  = 0x49;                       // r=2 g=2 b=1
-        const uint32_t L2_ARGB  = Renderer::rrrgggbb_to_argb(L2_RGB);
-        const uint32_t ULA_ARGB = Renderer::rrrgggbb_to_argb(ULA_RGB);
-        const uint32_t SUM_ARGB = Renderer::rrrgggbb_to_argb(0x6D);  // r=3 g=3 b=1
+        // 9-bit palette words, 3-bit blue (zxnext.vhd:7203).
+        const uint32_t L2_ARGB  = rgb333_to_argb8888(1, 1, 0);
+        const uint32_t ULA_ARGB = rgb333_to_argb8888(2, 2, 1);
+        const uint32_t SUM_ARGB = rgb333_to_argb8888(3, 3, 1);
 
         clear_layers(r);
         r.set_layer_priority(6);           // additive blend
@@ -5225,7 +5198,7 @@ struct Fix {
     /// whatever a preceding render() call happened to leave behind).
     void render_ula_only(uint32_t* out, int fb_row) {
         r.ula().set_select_bgnd_argb(
-            Renderer::rrrgggbb_to_argb(r.fallback_for_line(fb_row)));
+            Renderer::fallback_to_argb(r.fallback_for_line(fb_row)));
         r.ula().render_scanline(out, fb_row, mmu, nullptr);
         if (!r.ula_enabled_per_line_[fb_row])
             std::fill_n(out, Renderer::FB_WIDTH, TRANSP);
@@ -5242,15 +5215,14 @@ struct Fix {
     }
 };
 
-// RRRGGGBB of a rendered ARGB cell (inverse of rrrgggbb_to_argb for the
-// values this group programs).
+// RRRGGGBB of a rendered ARGB cell: the top 8 of its 9 colour bits, VHDL
+// `rgb(8 downto 1)` (blue bits 2:1 = ARGB bits 7:6).
 static uint8_t rgb8_of(uint32_t argb) {
     return static_cast<uint8_t>((argb_r3_t(argb) << 5) | (argb_g3_t(argb) << 2)
-                                | argb_b2_t(argb));
+                                | ((argb >> 6) & 3));
 }
-static uint32_t channels_to_argb_t(uint8_t r3, uint8_t g3, uint8_t b2) {
-    return Renderer::rrrgggbb_to_argb(
-        static_cast<uint8_t>((r3 << 5) | (g3 << 2) | b2));
+static uint32_t channels_to_argb_t(uint8_t r3, uint8_t g3, uint8_t b3) {
+    return rgb333_to_argb8888(r3, g3, b3);
 }
 static bool is_ula_colour(uint32_t argb)   { return rgb8_of(argb) <= 0x20; }
 static bool is_lores_colour(uint32_t argb) { return rgb8_of(argb) >= 0x40; }
@@ -5746,7 +5718,9 @@ static void test_LORES()
         f.ram.write(10u * 8192u + ula_off, 0x00);
         f.r.set_fallback_colour(0x21);        // outside both colour halves
         f.refresh_snapshots();
-        const uint32_t FB = Renderer::rrrgggbb_to_argb(0x21);
+        // NR $4A = 0x21 -> 9-bit 001 000 011 (zxnext.vhd:7214/6990: blue LSB =
+        // B1 or B0 = 1): R=1 -> 0x24, G=0, B=3 -> 0x6D. Literal, not a helper.
+        const uint32_t FB = 0xFF24006Du;
 
         std::vector<uint32_t> g(Renderer::FB_WIDTH);
         f.enable_lores(true);
@@ -5878,7 +5852,8 @@ static void test_LORES()
 
         // LR-143 — stencil (zxnext.vhd:7112-7113, 7130-7132).
         {
-            const uint32_t TMC = Renderer::rrrgggbb_to_argb(0x2A);
+            // NR 0x2A as a palette word: 001 010 10 -> 9-bit (1,2,5).
+            const uint32_t TMC = rgb333_to_argb8888(1, 2, 5);
             prep_ula_slot();
             std::fill_n(f.r.layer2_line_.begin(), Renderer::FB_WIDTH, TRANSP);
             std::fill_n(f.r.sprite_line_.begin(), Renderer::FB_WIDTH, TRANSP);
@@ -5893,7 +5868,7 @@ static void test_LORES()
             const uint32_t exp = channels_to_argb_t(
                 argb_r3_t(lores_px) & argb_r3_t(TMC),
                 argb_g3_t(lores_px) & argb_g3_t(TMC),
-                argb_b2_t(lores_px) & argb_b2_t(TMC));
+                argb_b3_t(lores_px) & argb_b3_t(TMC));
             f.r.set_stencil_mode(false);
             f.r.set_tm_enabled(false);
             f.r.snapshot_stencil_mode_for_line(ROW);
@@ -5922,11 +5897,10 @@ static void test_LORES()
             // Mode 110 = additive with clamp; the ULA operand must be the
             // LoRes colour.
             auto clamp3 = [](int v) { return v > 7 ? 7 : v; };
-            auto clamp2 = [](int v) { return v > 3 ? 3 : v; };
             const uint32_t exp = channels_to_argb_t(
                 static_cast<uint8_t>(clamp3(argb_r3_t(lores_px) + argb_r3_t(L2C))),
                 static_cast<uint8_t>(clamp3(argb_g3_t(lores_px) + argb_g3_t(L2C))),
-                static_cast<uint8_t>(clamp2(argb_b2_t(lores_px) + argb_b2_t(L2C))));
+                static_cast<uint8_t>(clamp3(argb_b3_t(lores_px) + argb_b3_t(L2C))));
             f.r.set_layer_priority(0);
             check("LR-144",
                   "LoRes participates in NR $15 blend mode 110 as the ULA "
@@ -6028,7 +6002,9 @@ static void test_LORES()
         f.r.ula().set_clip_y1(32);
         f.r.ula().set_clip_y2(159);
         f.refresh_snapshots();
-        const uint32_t FB = Renderer::rrrgggbb_to_argb(0x21);
+        // NR $4A = 0x21 -> 9-bit 001 000 011 (zxnext.vhd:7214/6990: blue LSB =
+        // B1 or B0 = 1): R=1 -> 0x24, G=0, B=3 -> 0x6D. Literal, not a helper.
+        const uint32_t FB = 0xFF24006Du;
 
         std::vector<uint32_t> inside_row(Renderer::FB_WIDTH);
         std::vector<uint32_t> outside_row(Renderer::FB_WIDTH);
@@ -6196,6 +6172,182 @@ static void test_LORES()
     }
 }
 
+// ── FB9 — the NR $4A fallback is a 9-bit colour (GH #304 Part B) ─────────
+//
+// zxnext.vhd:7214  rgb_out_2 <= fallback_rgb_2 & (fallback_rgb_2(1) or
+//                                                 fallback_rgb_2(0));
+// zxnext.vhd:6990  ula_rgb_1 <= fallback_rgb_1 & (fallback_rgb_1(1) or
+//                                                 fallback_rgb_1(0));
+// i.e. RRRGGGBB gains blue LSB = B1 or B0, so blue 01 -> 011 and 10 -> 101
+// (8-bit 0x6D / 0xB6), not the 2-bit replication 0x55 / 0xAA. Driven through
+// the real render_row path (composite_scanline gets the fallback from it).
+// Expected words are built here from the VHDL formula, bit by bit.
+static uint32_t fb9_expect(uint8_t nr4a) {
+    const unsigned lsb  = ((nr4a >> 1) & 1) | (nr4a & 1);
+    const unsigned r3   = (nr4a >> 5) & 7;
+    const unsigned g3   = (nr4a >> 2) & 7;
+    const unsigned b3   = ((nr4a & 3) << 1) | lsb;
+    auto x8 = [](unsigned c) { return (c << 5) | (c << 2) | (c >> 1); };
+    return 0xFF000000u | (x8(r3) << 16) | (x8(g3) << 8) | x8(b3);
+}
+
+static void test_FB9()
+{
+    using namespace lores_c;
+    set_group("FB9");
+
+    // ── FB9-01 — every NR $4A value, ULA off: the fallback reaches the
+    // display area AND the border at its 9-bit colour.
+    {
+        Fix f;
+        f.r.ula().set_ula_enabled(false);        // NR 0x68 b7: ULA slot transparent
+        const int ROW = Renderer::DISP_Y + 100;
+        std::vector<uint32_t> g(Renderer::FB_WIDTH);
+        int bad = 0, first_bad = -1;
+        uint32_t got_bad = 0;
+        for (int v = 0; v < 256; ++v) {
+            f.r.set_fallback_colour(static_cast<uint8_t>(v));
+            f.refresh_snapshots();
+            f.render(g.data(), ROW);
+            const uint32_t exp = fb9_expect(static_cast<uint8_t>(v));
+            if (g[Renderer::DISP_X] != exp || g[0] != exp) {
+                if (!bad++) { first_bad = v; got_bad = g[Renderer::DISP_X]; }
+            }
+        }
+        check("FB9-01",
+              "NR $4A fallback is 9-bit: blue LSB = B1|B0 on all 256 values, "
+              "display and border (zxnext.vhd:7214)",
+              bad == 0,
+              DETAIL("%d of 256 wrong; first v=0x%02X got=0x%08X exp=0x%08X",
+                     bad, first_bad, got_bad,
+                     fb9_expect(static_cast<uint8_t>(first_bad < 0 ? 0 : first_bad))));
+    }
+
+    // ── FB9-02 — the ULAnext select_bgnd substitution (:6990) takes the same
+    // 9-bit expansion. Stimulus as LR-140 (format 0x00 paper asserts
+    // ula_select_bgnd, zxula.vhd:525), all 256 NR $4A values.
+    {
+        Fix f;
+        const unsigned vc = 100;
+        const int ROW = Renderer::DISP_Y + static_cast<int>(vc);
+        f.r.ula().set_ulanext_en(true);
+        f.r.ula().set_ulanext_format(0x00);
+        const uint16_t ula_off = static_cast<uint16_t>(
+            ((vc & 0xC0) << 5) | ((vc & 0x07) << 8) | ((vc & 0x38) << 2));
+        f.ram.write(10u * 8192u + ula_off, 0x00);   // screen col 0 all paper
+        std::vector<uint32_t> g(Renderer::FB_WIDTH);
+        int bad = 0, first_bad = -1;
+        uint32_t got_bad = 0;
+        for (int v = 0; v < 256; ++v) {
+            // 0x3F is the fixture's NR $14 key: keep the fallback off it so
+            // the substituted pixel is not made transparent (which would
+            // route through :7214 instead of :6990).
+            if (v == 0x3F) continue;
+            f.r.set_fallback_colour(static_cast<uint8_t>(v));
+            f.refresh_snapshots();
+            f.render(g.data(), ROW);
+            if (g[Renderer::DISP_X] != fb9_expect(static_cast<uint8_t>(v))) {
+                if (!bad++) { first_bad = v; got_bad = g[Renderer::DISP_X]; }
+            }
+        }
+        check("FB9-02",
+              "ULAnext select_bgnd takes the 9-bit NR $4A colour (blue LSB = "
+              "B1|B0) on 255 values (zxnext.vhd:6990)",
+              bad == 0,
+              DETAIL("%d wrong; first v=0x%02X got=0x%08X exp=0x%08X",
+                     bad, first_bad, got_bad,
+                     fb9_expect(static_cast<uint8_t>(first_bad < 0 ? 0 : first_bad))));
+    }
+}
+
+// ── BLC — blend modes and stencil work on 3 blue bits (GH #304 Part C) ───
+//
+// zxnext.vhd:7201-7203  mixer_b_t := ('0' & layer2_rgb(2 downto 0)) +
+//                                    ('0' & mix_rgb(2 downto 0));   (4-bit sum)
+// zxnext.vhd:7286-7298  mode 110: sum > 7 clamps to 7
+// zxnext.vhd:7312-7352  mode 111: <=4 -> 0, >=12 -> 7, else sum-5
+// zxnext.vhd:7113       stencil_rgb <= ula_rgb and tm_rgb;       (9-bit AND)
+// Stimuli are palette-producible words (rgb333_to_argb8888); expected words are
+// built from the VHDL arithmetic (bl_add/bl_sub above), blue only: R and G are 0.
+static void test_BLC()
+{
+    set_group("BLC");
+    Renderer r;
+    r.reset();
+
+    // BLC-01: every blue pair, mode 110. Sums 8..14 clamp to 7; with the old
+    // 2-bit clamp (3) or 2-bit extraction every pair above 3 differs.
+    {
+        int bad = 0, fx = -1, fy = -1; uint32_t gotb = 0, expb = 0;
+        for (int x = 0; x < 8; ++x) for (int y = 0; y < 8; ++y) {
+            clear_layers(r);
+            r.set_layer_priority(6);
+            r.layer2_line_[0] = rgb333_to_argb8888(0, 0, x);
+            r.ula_line_[0]    = rgb333_to_argb8888(0, 0, y);
+            const uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+            const uint32_t exp = rgb333_to_argb8888(0, 0, bl_add(x, y));
+            if (got != exp) {
+                if (!bad) { fx = x; fy = y; gotb = got; expb = exp; }
+                ++bad;
+            }
+        }
+        check("BLC-01",
+              "mode 110: blue is a 3-bit channel, L2+mix summed and clamped at 7 for all 64 pairs (zxnext.vhd:7203,7286-7298)",
+              bad == 0,
+              DETAIL("%d of 64 wrong; first (%d,%d) got=0x%08X exp=0x%08X",
+                     bad, fx, fy, gotb, expb));
+    }
+
+    // BLC-02: every blue pair, mode 111 (sum<=4 -> 0, >=12 -> 7, else -5).
+    {
+        int bad = 0, fx = -1, fy = -1; uint32_t gotb = 0, expb = 0;
+        for (int x = 0; x < 8; ++x) for (int y = 0; y < 8; ++y) {
+            clear_layers(r);
+            r.set_layer_priority(7);
+            r.layer2_line_[0] = rgb333_to_argb8888(0, 0, x);
+            r.ula_line_[0]    = rgb333_to_argb8888(0, 0, y);
+            const uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+            const uint32_t exp = rgb333_to_argb8888(0, 0, bl_sub(x, y));
+            if (got != exp) {
+                if (!bad) { fx = x; fy = y; gotb = got; expb = exp; }
+                ++bad;
+            }
+        }
+        check("BLC-02",
+              "mode 111: blue is a 3-bit channel, subtractive rule for all 64 pairs (zxnext.vhd:7203,7312-7352)",
+              bad == 0,
+              DETAIL("%d of 64 wrong; first (%d,%d) got=0x%08X exp=0x%08X",
+                     bad, fx, fy, gotb, expb));
+    }
+
+    // BLC-03: stencil AND over all blue pairs, plus R and G carried through
+    // (R,G chosen so the AND of the two sources is distinct per channel).
+    {
+        int bad = 0, fx = -1, fy = -1; uint32_t gotb = 0, expb = 0;
+        for (int x = 0; x < 8; ++x) for (int y = 0; y < 8; ++y) {
+            clear_layers(r);
+            r.stencil_mode_ = true;
+            r.tm_enabled_   = true;
+            r.set_layer_priority(0);
+            r.ula_line_[0]     = rgb333_to_argb8888(7, 5, x);
+            r.tilemap_line_[0] = rgb333_to_argb8888(3, 6, y);
+            const uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+            const uint32_t exp = rgb333_to_argb8888(7 & 3, 5 & 6, x & y);
+            if (got != exp) {
+                if (!bad) { fx = x; fy = y; gotb = got; expb = exp; }
+                ++bad;
+            }
+        }
+        r.stencil_mode_ = false;
+        r.tm_enabled_   = false;
+        check("BLC-03",
+              "stencil: ula_rgb AND tm_rgb over all 9 bits, blue is 3 bits, for all 64 blue pairs (zxnext.vhd:7113)",
+              bad == 0,
+              DETAIL("%d of 64 wrong; first (%d,%d) got=0x%08X exp=0x%08X",
+                     bad, fx, fy, gotb, expb));
+    }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────
 
 int main() {
@@ -6223,6 +6375,8 @@ int main() {
     test_UCLIP();      printf("  Group: UCLIP — done\n");
     test_LMASK();      printf("  Group: LMASK — done\n");
     test_LORES();      printf("  Group: LR — done\n");
+    test_FB9();        printf("  Group: FB9 — done\n");
+    test_BLC();        printf("  Group: BLC — done\n");
 
     printf("\n=====================================\n");
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

@@ -225,7 +225,7 @@ Result Debugger::render_layer(Layer layer, int vc, uint32_t* dst,
                 emu.ula().render_scanline_bank(
                     line, row, emu.mmu(),
                     /*use_bank7=*/layer == Layer::UlaShadow,
-                    Renderer::rrrgggbb_to_argb(
+                    Renderer::fallback_to_argb(
                         emu.renderer().fallback_for_line(row)));
                 // The ULA is the one layer whose clip window (NR 0x1A) is
                 // applied by the COMPOSITOR rather than inside its own
@@ -296,11 +296,11 @@ Result Debugger::render_layer(Layer layer, int vc, uint32_t* dst,
                 // point (sonic.nex's sky is nothing but this).
                 //
                 // Read PER ROW from the renderer's own snapshot — the exact byte
-                // render_row feeds rrrgggbb_to_argb for this row — not from the
+                // render_row feeds fallback_to_argb for this row — not from the
                 // live NR 0x4A.  A Copper MOVE to NR 0x4A mid-frame paints a
                 // gradient down the raster; a flat swatch of the live register
                 // would show only the last value of the frame.
-                const uint32_t argb = Renderer::rrrgggbb_to_argb(
+                const uint32_t argb = Renderer::fallback_to_argb(
                     emu.renderer().fallback_for_line(row));
                 std::fill_n(line, layer_w, argb);
                 break;
