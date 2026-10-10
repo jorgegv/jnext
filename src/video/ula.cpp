@@ -891,11 +891,22 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
     const bool sm2 = (mode_ == TimexScreenMode::HI_RES);
     if (scroll_x == 0 && !fine) {
         // Fast path (unchanged semantics under default NR 0x26/NR 0x68 bit 2).
+        // The mux, its bank mask and the pending-write check are per row, not
+        // per byte (what beam_vram_read() does for every call): this loop is
+        // the hottest user of it.
+        const AttributeMux& bmux = vram_use_bank7_ ? mmu.attr_mux7() : mmu.attr_mux5();
+        const bool     beam  = bmux.started();
+        const uint32_t bmask = vram_use_bank7_ ? 0x1FFFu : 0x3FFFu;
+        if (beam) bmux.prepare();
         for (int col = 0; col < 32; ++col) {
-            const uint8_t pixels = beam_vram_read(
-                static_cast<uint16_t>(pixel_base + col), col, AttributeMux::Fetch::Pixel, mmu);
-            const uint8_t attr_raw = beam_vram_read(
-                static_cast<uint16_t>(eff_attr_base + col), col, AttributeMux::Fetch::Attr, mmu);
+            const uint16_t paddr = static_cast<uint16_t>(pixel_base + col);
+            const uint16_t aaddr = static_cast<uint16_t>(eff_attr_base + col);
+            const uint8_t pixels = beam
+                ? bmux.read_prepared(paddr & bmask, bmux.fetch_hc(col, AttributeMux::Fetch::Pixel))
+                : vram_read(paddr, mmu);
+            const uint8_t attr_raw = beam
+                ? bmux.read_prepared(aaddr & bmask, bmux.fetch_hc(col, AttributeMux::Fetch::Attr))
+                : vram_read(aaddr, mmu);
 
             // zxula.vhd:470 — `attr_active(7) and flash_cnt(4) and
             // (not i_ulanext_en) and not i_ulap_en`: BOTH ULAnext (Wave B)

@@ -148,7 +148,22 @@ public:
     /// last write at or before (line, hc), else the frame baseline.
     uint8_t read(uint32_t offset, uint16_t hc) const {
         if (offset >= nbytes_) return 0;
+        prepare();
+        return read_prepared(offset, hc);
+    }
+
+    /// Chain every write recorded so far. read() does it itself; a caller that
+    /// reads many bytes in a row (a scanline's 32 columns) calls it once and
+    /// then uses read_prepared().
+    void prepare() const {
         if (linked_ != log_.size()) link_pending_();
+    }
+
+    /// read() without the bounds check and the pending-entries check. The
+    /// caller guarantees `offset < bank size` and that prepare() ran after the
+    /// last write (the render path masks the offset to the bank and no CPU
+    /// write can happen while a row is rendered).
+    uint8_t read_prepared(uint32_t offset, uint16_t hc) const {
         if (!hot_[offset]) return base_[offset];   // never written this frame
         OffState& s = st_[offset];
         const uint32_t key = (static_cast<uint32_t>(target_line_) << 16) | hc;
