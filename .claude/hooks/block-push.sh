@@ -5,28 +5,60 @@
 # CLAUDE.md mandate: "NEVER push to origin without explicit user authorization.
 # This applies to the manager AND every spawned agent."
 #
-# Override: prefix the command with `JNEXT_ALLOW_PUSH=1` (the user types this,
-# or Claude does it after the user explicitly says "push", or for a push inside
-# the standing authorization written in CLAUDE.md's push rule).
+# Override: prefix EACH push invocation with `JNEXT_ALLOW_PUSH=1 ` (the user
+# types this, or Claude does it after the user explicitly says "push", or for a
+# push inside the standing authorization written in CLAUDE.md's push rule).
+#
+# Rules:
+#  * Every `git ... push` / `gh ... pr create` in the command must be immediately
+#    preceded by `JNEXT_ALLOW_PUSH=1<blanks>`; one unprefixed invocation blocks
+#    the whole command. The override elsewhere (another command, a previous
+#    line, after the push) covers nothing.
+#  * `git` / `gh` are detected as standalone words, whatever precedes them
+#    (quote, paren, backtick, path such as /usr/bin/git), so `bash -c '...'`,
+#    `eval "..."`, `(...)` and `$(...)` are seen. A push inside them is allowed
+#    only if it carries its own prefix (`bash -c 'JNEXT_ALLOW_PUSH=1 git push'`).
+#  * Global options before the subcommand are skipped (`git --no-pager push`,
+#    `git -c k=v push`, `git -C "a b" push`, `--git-dir/--work-tree X`,
+#    `gh -R o/r pr create`, `gh --repo o/r pr create`).
+#  * Matching is textual and conservative: a harmless mention of the text
+#    (a grep pattern, a commit message) blocks too. That is accepted.
+#  * FAIL CLOSED: Claude Code blocks only on exit 2, so every failure path
+#    (missing jq/perl, bad JSON, perl error) exits 2 with a message.
+#
+# Scope: this catches the ACCIDENTAL push, not deliberate obfuscation. EXAMPLES
+# it does not see (not an exhaustive list): variable or alias indirection
+# (`g=git; $g push`, git aliases), a push inside a script file, a push built by
+# string concatenation, `gh api` / `gh release create` writes.
 
 set -euo pipefail
+
+trap 'echo "[block-push hook] BLOCKED: internal error, failing closed (exit 2)." >&2; exit 2' ERR
+
+for tool in jq perl; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "[block-push hook] BLOCKED: required tool '$tool' not found, failing closed." >&2
+    exit 2
+  fi
+done
 
 input="$(cat)"
 cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // ""')"
 
-# Match `git push`, `git -C <path> push`, and `gh pr create`. EVERY such
-# invocation must itself be immediately preceded by `JNEXT_ALLOW_PUSH=1 ` (an
-# env-assignment prefix of that simple command); the override anywhere else in
-# the command (another command, an earlier push) does not cover it. Matching is
-# textual and conservative: a quoted mention of `git push` is treated as a push.
+# Prints 1 if some push invocation lacks its prefix, 0 if all are prefixed.
 unprefixed="$(printf '%s' "$cmd" | perl -0777 -ne '
-  my $bad = 0;
-  while (/(?:^|[\s;&|])(git(?:\s+-C\s+\S+)?\s+push|gh\s+pr\s+create)/g) {
-    my $pre = substr($_, 0, $-[1]);
-    $bad = 1 unless $pre =~ /(?:^|[\s;&|(])JNEXT_ALLOW_PUSH=1[ \t]+$/;
+  BEGIN { our $bad = 0; }
+  our $bad;
+  my $opt_git = q{(?:\s+(?:-[Cc]\s*(?:"[^"]*"|\x27[^\x27]*\x27|\S+)|--(?:git-dir|work-tree|namespace)\s+\S+|-\S+))*};
+  my $opt_gh  = q{(?:\s+(?:-R\s+\S+|--repo\s+\S+|-\S+))*};
+  s/\\\n/ /g;   # a backslash-newline continues the same simple command
+  while (/(?<![\w.\/-])(?:[\w.\/-]*\/)?(?:git["\x27]?$opt_git\s+push|gh["\x27]?$opt_gh\s+pr\s+create)/g) {
+    my $pre = substr($_, 0, $-[0]);
+    $bad = 1 unless $pre =~ /(?<!\w)JNEXT_ALLOW_PUSH=1[ \t]+\z/;
   }
-  print $bad;')"
-if [ "$unprefixed" = "1" ]; then
+  END { print $bad; }')"
+
+if [ "$unprefixed" != "0" ]; then
   cat >&2 <<'EOF'
 [block-push hook] BLOCKED: git push / gh pr create requires explicit user authorization.
 
