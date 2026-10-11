@@ -667,8 +667,9 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] && ! $UPDATE_MODE; then
     for name in "${REPORTED_FUNC[@]+"${REPORTED_FUNC[@]}"}"; do
         [[ -n "${IS_DECLARED_FUNC[$name]:-}" ]] \
             || faults+=("reported a row but is NOT declared in functional_tests.conf: ${BOLD}$name${RESET}")
-        [[ -z "${IS_ABSENT_FUNC[$name]:-}" ]] \
-            || faults+=("reported a row although it is declared absent on $TARGET_OS: ${BOLD}$name${RESET}")
+        # (A row declared absent on this OS cannot reach REPORTED_FUNC: only a STARTED
+        # row's merge adds a name, it must equal the row's own, and started rows are
+        # RUN_FUNC -- run_row_merge faults on any other name, HS-95d.)
     done
     reg_lints=6; $PLATFORM_MODE && reg_lints=0
     expected=$(( reg_lints + 1 + ${#ORDERED_TESTS[@]} + ${#RUN_FUNC[@]} ))

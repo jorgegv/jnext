@@ -2439,7 +2439,7 @@ check "HS-95c" "an admitted row that reports nothing is a harness fault, not a p
 # an ABSENT row that reports (through an admitted row's script, one result in all)
 printf 'if want adm-b-func; then begin_func abs-c-func; pass_row; fi\n' > "$PLT/scripts/adm-b-func.sh"
 out=$(pl_run --platform); rc=$?
-check "HS-95d" "a row declared absent on the OS that reports a result is a harness fault naming it" 2 $rc "$out" "HARNESS FAULT" "declared absent on macos" "abs-c-func"
+check "HS-95d" "a row declared absent on the OS that reports a result is a harness fault naming it" 2 $rc "$out" "HARNESS FAULT" "reported pass/fail/skip" "under the name(s) 'abs-c-func'"
 cp "$T/adm-b.good" "$PLT/scripts/adm-b-func.sh"
 # two os= tags on one row
 printf '# expect: 3\n# expect-macos: 2\n# expect-windows: 2\nadm-a-func\nadm-b-func os=linux,macos\nabs-c-func os=linux os=windows\n' > "$PLT/functional_tests.conf"
