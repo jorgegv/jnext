@@ -39,12 +39,18 @@ inline bool emulator_apply_load(Emulator& emu, const std::string& file,
     }
     if (ext == ".tap") return emu.load_tap(file, !tape_realtime);
     if (ext == ".tzx") return emu.load_tzx(file, !tape_realtime);
-    if (ext == ".sna") return emu.load_sna(file);
-    if (ext == ".szx") return emu.load_szx(file);
-    if (ext == ".z80") return emu.load_z80(file);
+    // GH #321 — a snapshot restores machine state, but the keys the HOST held
+    // when it was taken (the Shift of the Alt+Shift+F5 chord) are not state to
+    // come back to: their host release is long gone, so they would stay stuck.
+    // After any snapshot load the guest starts with no key down; a key the
+    // user still holds is re-asserted by its next event, as after a cold boot.
+    auto snapshot = [&emu](bool ok) { if (ok) emu.keyboard().release_all_keys(); return ok; };
+    if (ext == ".sna") return snapshot(emu.load_sna(file));
+    if (ext == ".szx") return snapshot(emu.load_szx(file));
+    if (ext == ".z80") return snapshot(emu.load_z80(file));
     if (ext == ".wav") return emu.load_wav(file);
     if (ext == ".rzx") return emu.load_rzx(file);
-    if (ext == ".jns") return emu.load_jns_file(file);   // GH #27 S8
+    if (ext == ".jns") return snapshot(emu.load_jns_file(file));   // GH #27 S8
     return emu.load_nex(file);   // .nex + unknown extensions
 }
 

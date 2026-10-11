@@ -22,6 +22,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   save   BORDER 1, Alt+Shift+F5, BORDER 2, Alt+Shift+F5, screenshot A: two files, named
 #          jnext-YYYYMMDD-HHMMSS[-NN].jns, two "quick save: wrote" lines;
 #   load   Alt+Shift+F9 on a fresh machine: the border must equal A's (the newest);
+#   typeafter  Alt+Shift+F9 again, then BORDER 5 typed: the border must change.
+#          The chord's Shift sits in the saved keyboard matrix and used to come
+#          back held (BORDER 5 became CAPS SHIFT+5 and did nothing);
 #   load2  after `touch`ing the OLDER save into the future, Alt+Shift+F9: the border
 #          must differ from `load`'s and from the untouched machine's. This is
 #          what proves the two saves really differ AND that "newest" is by
@@ -81,6 +84,7 @@ if want quick-snapshot-sdl-func; then
                 case "$mode" in
                     empty|load|load2) tap alt+shift+F9 ;;
                     keep1) tap alt+shift+F5 ;;
+                    typeafter) tap alt+shift+F9; sleep 3; tap b; tap 5; tap Return ;;
                     save)
                         tap b; tap 1; tap Return; tap alt+shift+F5
                         tap b; tap 2; tap Return; tap alt+shift+F5 ;;
@@ -102,7 +106,7 @@ if want quick-snapshot-sdl-func; then
 
     shot_e="$TMP_DIR/qs_sdl_e.png"; shot_a="$TMP_DIR/qs_sdl_a.png"
     shot_l="$TMP_DIR/qs_sdl_l.png"; shot_l2="$TMP_DIR/qs_sdl_l2.png"
-    shot_bad="$TMP_DIR/qs_sdl_bad.png"; shot_k="$TMP_DIR/qs_sdl_k.png"
+    shot_bad="$TMP_DIR/qs_sdl_bad.png"; shot_k="$TMP_DIR/qs_sdl_k.png"; shot_t="$TMP_DIR/qs_sdl_t.png"
 
     if [[ ! -x "$sdl_bin" ]]; then
         fail_row " (SDL-only binary not built: $sdl_bin; run 'make sdl-release')"
@@ -123,6 +127,10 @@ if want quick-snapshot-sdl-func; then
         [[ -n "$snap_names" ]] || bad_names=0
         first_saved=$(sort <<<"$snap_names" | head -1)   # names sort in save order
         qs_run load "$shot_l"
+        # Typing AFTER a Quick Load: the chord's Shift is in the saved keyboard
+        # matrix, and a restored CAPS SHIFT that nothing releases turns BORDER 5
+        # into CAPS SHIFT+5 and the border does not move.
+        qs_run typeafter "$shot_t"
         # Make the OLDER save the newest by modification time: the load must now
         # restore a DIFFERENT state, which also proves the two saves differ.
         [[ -n "$first_saved" ]] && touch -d '10 minutes' "$first_saved"
@@ -139,8 +147,8 @@ if want quick-snapshot-sdl-func; then
         n_keep=$(grep -cE '/jnext-[0-9]{8}-[0-9]{6}(-[0-9]{2})?\.jns$' <<<"$keep_names") || n_keep=0
 
         problems=()
-        for m in empty save load load2 bad keep1; do
-            case "$m" in empty) shot="$shot_e" ;; save) shot="$shot_a" ;; load) shot="$shot_l" ;; load2) shot="$shot_l2" ;; bad) shot="$shot_bad" ;; *) shot="$shot_k" ;; esac
+        for m in empty save load typeafter load2 bad keep1; do
+            case "$m" in empty) shot="$shot_e" ;; save) shot="$shot_a" ;; load) shot="$shot_l" ;; typeafter) shot="$shot_t" ;; load2) shot="$shot_l2" ;; bad) shot="$shot_bad" ;; *) shot="$shot_k" ;; esac
             if [[ ! -s "$shot" || "${qs_rc[$m]}" -ne 0 ]]; then
                 err_line=$(grep -m1 -E '\[(error|critical)\]' "$TMP_DIR/qs_sdl_$m.log" 2>/dev/null) || err_line="no error logged"
                 problems+=("$m run: jnext exit ${qs_rc[$m]}, png $([[ -s "$shot" ]] && echo written || echo missing); $err_line")
@@ -159,7 +167,7 @@ if want quick-snapshot-sdl-func; then
             boots_bad=$(grep -c 'Cold boot' "$(L bad)" || true)
             bad_msg=$(grep -c 'quick load: refused' "$(L bad)" || true)
             px_e=$(border_px "$shot_e"); px_a=$(border_px "$shot_a"); px_l=$(border_px "$shot_l")
-            px_l2=$(border_px "$shot_l2"); px_bad=$(border_px "$shot_bad")
+            px_l2=$(border_px "$shot_l2"); px_t=$(border_px "$shot_t"); px_bad=$(border_px "$shot_bad")
             if [[ "$n_files" -ne 2 || "$bad_names" -ne 0 || "$saved_lines" -ne 2 ]]; then
                 fail_row " (save: $n_files file(s), $bad_names misnamed, $saved_lines 'quick save: wrote' line(s); want 2/0/2)"
             elif [[ "$empty_msg" -lt 1 || "$boots_empty" -ne "$boots_save" ]]; then
@@ -170,6 +178,8 @@ if want quick-snapshot-sdl-func; then
                 fail_row " (Alt+Shift+F9 with snapshots present did not cold-boot a .jns)"
             elif [[ "$px_l" != "$px_a" ]]; then
                 fail_row " (Quick Load did not restore the newest save: border $px_l, saved $px_a, untouched $px_e)"
+            elif [[ "$px_t" == "$px_l" || "$px_t" == "$px_e" ]]; then
+                fail_row " (typing after a Quick Load did not work: BORDER 5 left the border at $px_t (restored $px_l, untouched $px_e); a CAPS SHIFT held in the saved keyboard matrix?)"
             elif [[ "$px_l2" == "$px_l" || "$px_l2" == "$px_e" ]]; then
                 fail_row " (the two saves are not distinguishable, or Quick Load ignored modification time: after touching the older save the border is $px_l2; newest-by-name gave $px_l, untouched $px_e)"
             elif [[ "$bad_msg" -lt 1 || "$bad_boot" -ne 0 || "$boots_bad" -ne "$boots_save" ]]; then

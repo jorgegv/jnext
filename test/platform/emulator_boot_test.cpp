@@ -734,6 +734,34 @@ void run_rows()
         }
     }
 
+
+    // QS-28: GH #321 R3-1 — the keyboard matrix in a snapshot is a recording of
+    // the keys the HOST held when it was saved (the Shift of Alt+Shift+F5), and
+    // nothing will ever release them. Oracle: the frontends' load route
+    // (emulator_apply_load) starts the guest with no key down, for every
+    // snapshot format; the CORE load keeps the matrix (the .jns round-trip
+    // contract, rewind_test JNS-RT-02: a byte-identical state stream).
+    {
+        auto a_up = std::make_unique<Emulator>();
+        a_up->init(base_config());
+        for (int i = 0; i < 3; ++i) a_up->run_frame();
+        a_up->keyboard().set_matrix_bit(0, 0, true);                    // CAPS SHIFT down
+        const fs::path jns = root / "shift-held.jns";
+        const bool saved = a_up->save_jns_file(jns.string());
+        auto core_up = std::make_unique<Emulator>();
+        core_up->init(base_config());
+        const bool core_ok = saved && core_up->load_jns_file(jns.string());
+        const bool core_keeps = (core_up->keyboard().matrix_row(0) & 0x01) == 0;
+        auto fe_up = std::make_unique<Emulator>();
+        fe_up->init(base_config());
+        const bool fe_ok = saved && emulator_apply_load(*fe_up, jns.string(), false);
+        const bool fe_clear = fe_up->keyboard().matrix_row(0) == 0xFF;
+        check("QS-28", "a .jns saved with CAPS SHIFT down: the core load keeps the matrix, the "
+                       "frontend load route (emulator_apply_load) starts the guest with no key down",
+              saved && core_ok && core_keeps && fe_ok && fe_clear,
+              "core_keeps=" + std::to_string(core_keeps) + " fe_clear=" + std::to_string(fe_clear));
+    }
+
     std::error_code ec;
     fs::remove_all(root, ec);
 }

@@ -29,6 +29,7 @@ bool is_quick_snapshot_name(const std::string& name);
 /// recent modification time, ties to the lesser name stem), and ONLY regular
 /// files whose names match is_quick_snapshot_name(): a file the user put there
 /// under another name, a directory, anything else is never touched.
+/// A symbolic link is never deleted, whatever it is named or points at.
 /// keep <= 0 (unlimited) deletes nothing. Returns the number deleted.
 int prune_quick_snapshots(const std::string& dir, int keep);
 

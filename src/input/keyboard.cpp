@@ -304,6 +304,13 @@ static void init_map() {
 // Public methods
 // ---------------------------------------------------------------------------
 
+void Keyboard::release_all_keys() {
+    std::memset(matrix_, 0xFF, sizeof(matrix_));
+    ex_matrix_     = 0x0000;
+    shift_hist_[0] = 0xFF;
+    shift_hist_[1] = 0xFF;
+}
+
 void Keyboard::reset() {
     init_map();
     // All bits set = all keys released (active-low).

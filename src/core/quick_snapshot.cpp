@@ -80,7 +80,9 @@ int prune_quick_snapshots(const std::string& dir, int keep)
     for (const fs::directory_iterator end; it != end; it.increment(ec)) {
         if (ec) break;
         std::error_code e2;
-        if (!it->is_regular_file(e2) || e2) continue;
+        // symlink_status, NOT is_regular_file(): the latter follows a symlink,
+        // and prune must never delete one (it is not a file jnext wrote).
+        if (fs::symlink_status(it->path(), e2).type() != fs::file_type::regular || e2) continue;
         if (!is_quick_snapshot_name(it->path().filename().string())) continue;
         const fs::file_time_type t = it->last_write_time(e2);
         if (e2) continue;
