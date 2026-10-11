@@ -63,11 +63,12 @@ int main(void) {
     intrinsic_halt();
 
     /* Delay to get into active display area.
-     * After HALT + IM1 ISR (~2000 T), we're at vc≈10.
-     * Active pixel fetches start at vc≈64 (48K top border = 64 lines).
-     * Need ~54 lines × 228 T/line ≈ 12312 T.  Each loop iteration
-     * is ~30 T, so ~420 iterations puts us well into active display. */
-    for (i = 0; i < 420; i++) {
+     * The HALT returns at the frame interrupt, which fires just before the
+     * frame's end (VC_ULA ~ 248).  The loop is ~4 T per iteration (measured
+     * with a jds `on io_read 0xFF` trace), so ~7500 iterations put the 32
+     * reads (59 T apart, ~8 lines in all) at VC_ULA ~ 80, well inside the
+     * 0..191 active display, where the ULA is fetching screen bytes. */
+    for (i = 0; i < 7500; i++) {
         __asm nop __endasm;
     }
 
