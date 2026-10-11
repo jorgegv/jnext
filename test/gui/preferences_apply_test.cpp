@@ -905,9 +905,13 @@ void test_quick_snapshot_actions()
     }
     loaded.clear();
     if (load) { load->trigger(); QApplication::processEvents(); }
-    check("PA-22e", "Quick Load of an unreadable newest .jns requests no load (the session is kept)",
-          load != nullptr && loaded.empty(),
-          loaded.empty() ? std::string("none") : loaded[0]);
+    // The wording is Quick Load's own ("Quick Load: refused"), not File > Load's
+    // dialog text ("Cannot load"): Quick Load asks for no dialog.
+    check("PA-22e", "Quick Load of an unreadable newest .jns requests no load and says so in the "
+                    "status bar, no dialog (the session is kept)",
+          load != nullptr && loaded.empty() &&
+              f.win.statusBar()->currentMessage().startsWith(QStringLiteral("Quick Load: refused")),
+          f.win.statusBar()->currentMessage().toStdString());
 
     // (f) the same refusal on File > Load's own route: handle_load_path() is
     // what the menu picker calls, and the cold boot it requests would throw the

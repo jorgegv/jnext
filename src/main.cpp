@@ -1690,7 +1690,8 @@ int main(int argc, char* argv[]) {
         // playback boots that machine (emulator_boot_machine()) — the same
         // rule every cold boot applies. An explicit --machine wins, and
         // Emulator::load_rzx() warns when it disagrees with the recording.
-        if (!machine_type_set) cfg.type = emulator_boot_machine(cfg.load_file, cfg.type);
+        // A `.jns` names its machine too and wins even over --machine (GH #321).
+        cfg.type = emulator_startup_machine(cfg.load_file, cfg.type, machine_type_set);
 
         // An allowlist with nothing to restrict is a user error worth naming:
         // it reads as "I have restricted the ESP" when in fact the ESP is off.

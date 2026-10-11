@@ -116,6 +116,18 @@ inline MachineType emulator_boot_machine(const std::string& load_file, MachineTy
     return configured;
 }
 
+/// GH #321 — the machine the COMMAND-LINE startup boots. An explicit --machine
+/// wins over an RZX's recorded machine (load_rzx() warns), but never over a
+/// `.jns`'s: load_jns() always reconfigures to the snapshot's machine, so
+/// booting any other would leave the frontend naming a machine that is not
+/// running.
+inline MachineType emulator_startup_machine(const std::string& load_file,
+                                            MachineType configured, bool machine_explicit) {
+    if (jnext::is_jns_path(load_file) || !machine_explicit)
+        return emulator_boot_machine(load_file, configured);
+    return configured;
+}
+
 /// The per-format boot delay the CLI startup uses (main.cpp): tape formats that
 /// still key through BASIC need the machine at its prompt first; everything else
 /// loads immediately. Kept here so cold_boot schedules the load identically.

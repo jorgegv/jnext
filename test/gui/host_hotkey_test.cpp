@@ -665,12 +665,17 @@ const char* const QUICK_LOAD_TEXT = "Quick Load Snapshot";
 
 void quick_snapshot_chord_rows(MainWindow& w, const char* text, const char* seq,
                                Qt::Key key, SDL_Scancode sc,
-                               const char* id_bound, const char* id_fires)
+                               const char* id_bound, const char* id_fires,
+                               bool menubar_hidden = false)
 {
     QAction* a = find_action(w, text);
-    check(id_bound, (std::string("action \"") + text + "\" is bound to " + seq).c_str(),
-          a != nullptr && seq_of(a) == QString::fromLatin1(seq),
-          a ? ("got='" + seq_of(a) + "'").toStdString() : "action not found");
+    if (id_bound)
+        check(id_bound, (std::string("action \"") + text + "\" is bound to " + seq).c_str(),
+              a != nullptr && seq_of(a) == QString::fromLatin1(seq),
+              a ? ("got='" + seq_of(a) + "'").toStdString() : "action not found");
+    // Fullscreen hides the menu bar, and a shortcut of an action that lives
+    // only in a hidden menu never matches: the window must carry the action.
+    if (menubar_hidden) w.menuBar()->hide();
 
     bool fired = false;
     if (a) QObject::connect(a, &QAction::triggered, [&fired]() { fired = true; });
@@ -693,6 +698,7 @@ void quick_snapshot_chord_rows(MainWindow& w, const char* text, const char* seq,
 
     if (a) QObject::disconnect(a, nullptr, nullptr, nullptr);
     w.set_key_callback(nullptr);
+    if (menubar_hidden) w.menuBar()->show();
 }
 
 void test_quick_snapshot_chords(MainWindow& w) {
@@ -700,6 +706,22 @@ void test_quick_snapshot_chords(MainWindow& w) {
                               "H115-38", "H115-39");
     quick_snapshot_chord_rows(w, QUICK_LOAD_TEXT, "Alt+F9", Qt::Key_F9, SDL_SCANCODE_F9,
                               "H115-40", "H115-41");
+    // The same chords with the menu bar hidden, as in fullscreen (the Alt+K
+    // Quick Screenshot had the identical gap).
+    quick_snapshot_chord_rows(w, QUICK_SAVE_TEXT, "Alt+F5", Qt::Key_F5, SDL_SCANCODE_F5,
+                              nullptr, "H115-42", true);
+    quick_snapshot_chord_rows(w, QUICK_LOAD_TEXT, "Alt+F9", Qt::Key_F9, SDL_SCANCODE_F9,
+                              nullptr, "H115-43", true);
+    quick_snapshot_chord_rows(w, QUICK_SHOT_TEXT, "Alt+K", Qt::Key_K, SDL_SCANCODE_K,
+                              nullptr, "H115-44", true);
+    // One action per press: Qt re-fires a held shortcut unless autoRepeat is off.
+    {
+        QAction* sv = find_action(w, QUICK_SAVE_TEXT);
+        QAction* ld = find_action(w, QUICK_LOAD_TEXT);
+        QAction* sh = find_action(w, QUICK_SHOT_TEXT);
+        check("H115-45", "Quick Save, Quick Load and Quick Screenshot do not auto-repeat",
+              sv && ld && sh && !sv->autoRepeat() && !ld->autoRepeat() && !sh->autoRepeat(), "");
+    }
 }
 
 // ---------------------------------------------------------------------------

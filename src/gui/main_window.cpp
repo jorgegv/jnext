@@ -852,6 +852,10 @@ void MainWindow::create_menus() {
     quick_screenshot_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_K));
     connect(quick_screenshot_action_, &QAction::triggered,
             this, &MainWindow::on_quick_screenshot);
+    // Same two fixes as the quick snapshot actions below (GH #321): reachable
+    // with the menu bar hidden, and one capture per press.
+    quick_screenshot_action_->setAutoRepeat(false);
+    addAction(quick_screenshot_action_);
 
     // Save Snapshot... — wires SnaSaver to the GUI (G35: closes
     // BOOT-SNAPSAVE-01 + BOOT-SNAPSAVE-04). Shift+S keeps the standard
@@ -882,6 +886,14 @@ void MainWindow::create_menus() {
     quick_load_action_ = file_menu->addAction(tr("Quick Load Snapshot"));
     quick_load_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_F9));
     connect(quick_load_action_, &QAction::triggered, this, &MainWindow::on_quick_load);
+    // A held chord must act once, not once per autorepeat (35 saves in 2 s).
+    quick_save_action_->setAutoRepeat(false);
+    quick_load_action_->setAutoRepeat(false);
+    // Also on the window itself, as pause_action_ is: with the menu bar hidden
+    // (fullscreen) a menu action's shortcut never matches, the key falls to
+    // keyPressEvent, and Alt+F9 would fire the Multiface NMI.
+    addAction(quick_save_action_);
+    addAction(quick_load_action_);
 
     file_menu->addSeparator();
 
@@ -2215,7 +2227,15 @@ void MainWindow::on_quick_load() {
         Log::platform()->info("status bar: {}", msg.toStdString());
         return;
     }
-    // handle_load_path() refuses a bad .jns BEFORE the cold boot (R1).
+    // Refuse a bad file BEFORE the cold boot throws the session away. Quick
+    // Load asks for no dialog, so this is a status-bar line (and the log).
+    if (!emulator_->probe_jns_file(path, why)) {
+        const QString msg = tr("Quick Load: refused %1: %2")
+                                .arg(QString::fromStdString(path), QString::fromStdString(why));
+        statusBar()->showMessage(msg, 8000);
+        Log::platform()->error("status bar: {}", msg.toStdString());
+        return;
+    }
     const QString msg = tr("Quick loading: %1").arg(QString::fromStdString(path));
     statusBar()->showMessage(msg, 5000);
     Log::platform()->info("status bar: {}", msg.toStdString());

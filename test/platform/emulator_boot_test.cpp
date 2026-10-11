@@ -301,6 +301,8 @@ void run_rows()
     const fs::path root(tmp);
     const char* old_cfg  = std::getenv("JNEXT_CONFIG_DIR");
     const char* old_home = std::getenv("HOME");
+    const char* old_prof = std::getenv("USERPROFILE");
+    const std::string keep_prof = old_prof ? old_prof : "";
     const std::string keep_cfg  = old_cfg ? old_cfg : "";
     const std::string keep_home = old_home ? old_home : "";
 
@@ -326,6 +328,8 @@ void run_rows()
               q.parent_path() == c.parent_path(), q.string() + " vs " + c.string());
     }
     if (old_home) jtp::set_env("HOME", keep_home.c_str());
+    if (old_prof) jtp::set_env("USERPROFILE", keep_prof.c_str());
+    else          jtp::unset_env("USERPROFILE");
     if (old_cfg)  jtp::set_env("JNEXT_CONFIG_DIR", keep_cfg.c_str());
     else          jtp::unset_env("JNEXT_CONFIG_DIR");
 
@@ -390,15 +394,42 @@ void run_rows()
     check("QS-11", "the .jns extension is matched case-insensitively",
           fs::path(latest_quick_snapshot(d2.string(), why)).filename() == "UPPER.JNS", why);
 
-    const fs::path d3 = root / "tie";
-    fs::create_directories(d3);
-    touch(d3 / "jnext-20260101-000000.jns");
-    touch(d3 / "jnext-20260101-000000-02.jns");
-    fs::last_write_time(d3 / "jnext-20260101-000000.jns", t0);
-    fs::last_write_time(d3 / "jnext-20260101-000000-02.jns", t0);
-    check("QS-12", "equal modification times: the -02 name wins over the bare name",
-          fs::path(latest_quick_snapshot(d3.string(), why)).filename() ==
-              "jnext-20260101-000000-02.jns", why);
+    // QS-12: equal modification times -> the greater name STEM wins. Three tie
+    // sets, so the verdict cannot come from directory listing order: in name
+    // order the winner is last in {a,b}, first in {x,x-02} ('-' sorts before
+    // '.') and in the middle of {x-02,x-03,x}; a first-wins or a last-wins
+    // chooser fails at least one set on any listing order.
+    {
+        struct Tie { const char* dir; std::vector<std::string> names; const char* winner; };
+        const std::vector<Tie> ties = {
+            {"tie1", {"a.jns", "b.jns"}, "b.jns"},
+            {"tie2", {"x.jns", "x-02.jns"}, "x-02.jns"},
+            {"tie3", {"x.jns", "x-02.jns", "x-03.jns"}, "x-03.jns"},
+        };
+        bool all = true;
+        std::string got;
+        // Each set twice, files created in opposite orders: tmpfs lists newest
+        // first and ext4 by hash, so creation order must not decide either.
+        for (const Tie& t : ties) {
+            for (int rev = 0; rev < 2; ++rev) {
+                const fs::path d = root / (std::string(t.dir) + (rev ? "r" : "f"));
+                fs::create_directories(d);
+                std::vector<std::string> names = t.names;
+                if (rev) std::reverse(names.begin(), names.end());
+                for (const std::string& n : names) {
+                    touch(d / n);
+                    fs::last_write_time(d / n, t0);
+                }
+                const std::string w =
+                    fs::path(latest_quick_snapshot(d.string(), why)).filename().string();
+                if (w != t.winner) all = false;
+                got += w + " ";
+            }
+        }
+        check("QS-12", "equal modification times: the greater name stem wins, whatever the listing "
+                       "order (a<b, x-02 over x, x-03 over x-02 and x)",
+              all, got);
+    }
 
     // QS-13: end to end on real machines.
     constexpr uint16_t kMarkerAddr = 0xBF00;
@@ -477,6 +508,18 @@ void run_rows()
                        "the frontend (keep_machine)",
               saved && kept == MachineType::ZX48K && e.config().type == MachineType::ZX48K);
     }
+
+    // QS-17 / QS-18: the command-line startup route (R2). An explicit --machine
+    // wins over an RZX's machine but never over a .jns's, which load_jns()
+    // always reconfigures to; otherwise the frontend names a machine that is
+    // not running.
+    check("QS-17", "startup with an explicit --machine next still boots a 48K .jns as the 48K",
+          saved && emulator_startup_machine(file1, MachineType::ZXN_ISSUE2, true) == MachineType::ZX48K);
+    check("QS-18", "startup keeps an explicit --machine for every other file, and follows the "
+                   ".jns when --machine is absent",
+          emulator_startup_machine("x.nex", MachineType::ZXN_ISSUE2, true) == MachineType::ZXN_ISSUE2 &&
+              emulator_startup_machine("", MachineType::ZX128K, true) == MachineType::ZX128K &&
+              saved && emulator_startup_machine(file1, MachineType::ZXN_ISSUE2, false) == MachineType::ZX48K);
 
     std::error_code ec;
     fs::remove_all(root, ec);

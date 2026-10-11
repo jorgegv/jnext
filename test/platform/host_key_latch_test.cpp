@@ -1751,6 +1751,58 @@ int main()
               quick_snapshot_chord_held(F9, 1u << 2) == QuickChord::Load &&
               quick_snapshot_chord_held(F9, (1u << 2) | (1u << 1)) == QuickChord::None &&
               quick_snapshot_chord_held(F9, 0) == QuickChord::None);
+        // The press/release bookkeeping (QuickChordTracker). Oracle: a held
+        // modifier is exactly the keys currently down, and one key press is one
+        // action (autorepeat must not repeat a snapshot).
+        {
+            using jnext::QuickChordTracker;
+            QuickChordTracker t;
+            t.on_key(226, true);
+            const QuickChord a = t.on_key(F5, true);
+            t.on_key(F5, false);
+            t.on_key(226, false);
+            const QuickChord bare = t.on_key(F9, true);
+            check("HKL-QS-08", "after Alt is released a bare F9 is not Quick Load (a release clears the "
+                               "modifier)",
+                  a == QuickChord::Save && bare == QuickChord::None);
+        }
+        {
+            jnext::QuickChordTracker t;
+            t.on_key(226, true);
+            const QuickChord first = t.on_key(F5, true);
+            const QuickChord rep1  = t.on_key(F5, true);
+            const QuickChord rep2  = t.on_key(F5, true);
+            t.on_key(F5, false);
+            const QuickChord again = t.on_key(F5, true);
+            check("HKL-QS-09", "a held Alt+F5 acts once and its autorepeats are swallowed; a fresh "
+                               "press acts again",
+                  first == QuickChord::Save && rep1 == QuickChord::Repeat &&
+                      rep2 == QuickChord::Repeat && again == QuickChord::Save);
+        }
+        {
+            jnext::QuickChordTracker t;
+            t.on_key(226, true);
+            t.on_key(230, true);
+            t.on_key(226, false);              // left up, right still down
+            const QuickChord one = t.on_key(F9, true);
+            t.on_key(F9, false);
+            t.on_key(230, false);
+            const QuickChord none = t.on_key(F9, true);
+            check("HKL-QS-10", "left and right Alt count separately: releasing one keeps the chord, "
+                               "releasing both ends it",
+                  one == QuickChord::Load && none == QuickChord::None);
+        }
+        {
+            jnext::QuickChordTracker t;
+            t.on_key(226, true);
+            t.on_key(225, true);               // Alt+LShift
+            const QuickChord shifted = t.on_key(F5, true);
+            t.on_key(F5, false);
+            t.on_key(225, false);
+            const QuickChord plain = t.on_key(F5, true);
+            check("HKL-QS-11", "Alt+Shift+F5 is not Quick Save, and releasing Shift restores Alt+F5",
+                  shifted == QuickChord::None && plain == QuickChord::Save);
+        }
         check("HKL-QS-06", "the scancodes the predicate tests are SDL's F5 and F9",
               jnext::kQuickSaveScancode == static_cast<int>(SDL_SCANCODE_F5) &&
               jnext::kQuickLoadScancode == static_cast<int>(SDL_SCANCODE_F9));

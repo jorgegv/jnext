@@ -124,12 +124,8 @@ bool SdlApp::init(int argc, char* argv[]) {
     // "the keyboard went elsewhere" signal forgotten, which is the failure the
     // Qt side shipped with and no test saw. See platform/host_key_wiring.h.
     wire_host_keys(input_, key_router_, [this](SDL_Scancode sc, bool pressed) {
-        // GH #321 — the held modifier keys, from the event stream itself
-        // (bit n = scancode 224+n: LCtrl LShift LAlt LGui RCtrl RShift RAlt RGui).
-        if (sc >= SDL_SCANCODE_LCTRL && sc <= SDL_SCANCODE_RGUI) {
-            const unsigned bit = 1u << (sc - SDL_SCANCODE_LCTRL);
-            if (pressed) host_mod_keys_ |= bit; else host_mod_keys_ &= ~bit;
-        }
+        // GH #321 — quick-snapshot chords: the tracker sees every event.
+        const jnext::QuickChord quick = quick_chords_.on_key(static_cast<int>(sc), pressed);
         if (pressed) {
             // Ctrl+Alt releases the pointer — the VirtualBox/VMware
             // convention, and the same combo the Qt frontend uses. It is
@@ -148,15 +144,14 @@ bool SdlApp::init(int argc, char* argv[]) {
                 }
             }
             // GH #321 — Alt+F5 / Alt+F9, tested BEFORE the F-key block below
-            // so Alt+F9 is not the Multiface NMI. The modifiers come from the
-            // key events themselves (host_mod_keys_, kept above), not from
-            // SDL_GetModState(): xdotool and fast typists deliver Alt-down,
-            // F5-down, F5-up, Alt-up in one poll batch, and SDL's state is
-            // already the END of the batch when this callback runs.
-            switch (jnext::quick_snapshot_chord_held(static_cast<int>(sc), host_mod_keys_)) {
-            case jnext::QuickChord::Save: quick_save(); return;
-            case jnext::QuickChord::Load: quick_load_requested_ = true; return;
-            case jnext::QuickChord::None: break;
+            // so Alt+F9 is not the Multiface NMI; an autorepeat of the chord
+            // is swallowed. The tracker (platform/quick_snapshot_chord.h) keeps
+            // the modifiers from the key events, not SDL_GetModState().
+            switch (quick) {
+            case jnext::QuickChord::Save:   quick_save(); return;
+            case jnext::QuickChord::Load:   quick_load_requested_ = true; return;
+            case jnext::QuickChord::Repeat: return;
+            case jnext::QuickChord::None:   break;
             }
             if (sc == SDL_SCANCODE_F11) {
                 display_.toggle_fullscreen();
@@ -260,18 +255,15 @@ void SdlApp::set_pending_inject(const std::string& file, uint16_t org,
                            file, org, pc, delay_frames);
 }
 
+static_assert(jnext::kQuickSaveScancode == SDL_SCANCODE_F5 &&
+              jnext::kQuickLoadScancode == SDL_SCANCODE_F9,
+              "quick_snapshot_chord.h scancodes must match SDL");
+
 void SdlApp::set_pending_load(const std::string& file, int delay_frames) {
     load_file_ = file;
     load_countdown_ = delay_frames;
     Log::platform()->info("--load: will load '{}' after {} frame(s)", file, delay_frames);
 }
-
-// GH #276 B4 — CTL-12 rule 5: a boot the loop owner decides on (F1, a guest
-// NR 0x02 hard reset, a NEX load request) is bracketed by the hosted backend's
-// begin/done, so its reconstruct contract runs as for a client's `reset(Hard)`.
-static_assert(jnext::kQuickSaveScancode == SDL_SCANCODE_F5 &&
-              jnext::kQuickLoadScancode == SDL_SCANCODE_F9,
-              "quick_snapshot_chord.h scancodes must match SDL");
 
 // GH #321 — SDL has no status bar or OSD, so both report in the log.
 void SdlApp::quick_save() {
@@ -306,6 +298,9 @@ void SdlApp::quick_load() {
     cold_boot(path);
 }
 
+// GH #276 B4 — CTL-12 rule 5: a boot the loop owner decides on (F1, a guest
+// NR 0x02 hard reset, a NEX load request) is bracketed by the hosted backend's
+// begin/done, so its reconstruct contract runs as for a client's `reset(Hard)`.
 void SdlApp::cold_boot(const std::string& load_file) {
     debugger_->on_cold_boot_begin();
     boot_machine(load_file);
