@@ -759,9 +759,9 @@ jobs:
         with:
           submodules: recursive
       - name: Install dependencies (Homebrew)
-        run: brew install cmake sdl3 curl openssl libpng bash coreutils grep ccache
+        run: brew install cmake sdl3 qt@6 curl openssl libpng bash coreutils grep ccache
       - name: Build the SDL-only jnext
-        run: CMAKE_PREFIX_PATH="$(brew --prefix)" LANG=C make sdl-release
+        run: CMAKE_PREFIX_PATH="$(brew --prefix):$(brew --prefix qt@6)" LANG=C make sdl-release
       - name: Measure
         run: bash tmp-diag/macos-timing.sh
 

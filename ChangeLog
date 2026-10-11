@@ -7,7 +7,7 @@
 - A malformed numeric command-line value is now a clear error instead of a crash or a silently wrong number
 - Windows: the status bar shows a loaded tape's file name instead of its full path
 - esxDOS host folder: a name containing ':' gets the same answer on every OS
-- Windows: `--dac-trace` and `--trace` files no longer get CRLF line endings
+- Windows: `--dac-trace` files and the debugger's exported instruction traces no longer get CRLF line endings
 
 ### Internal JNEXT Development
 - Unit test suites now also run on macOS and on Windows (under wine) in CI, blocking

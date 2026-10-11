@@ -25,3 +25,14 @@ for sp in 400 100; do
 done
 echo "== headless frames 100 (no pacing)"
 run "headless 100 frames" timeout 60 $SDL --headless --machine 48k --delayed-automatic-exit-frames 100
+echo "== dzrp paused-headless row, 5 attempts: peer output + log timestamps"
+for n in 1 2 3 4 5; do
+  port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
+  log=$(mktemp)
+  JNEXT_CONFIG_DIR=$(mktemp -d) timeout 60 $SDL --headless --machine 48k --dzrp-port $port --delayed-automatic-exit-frames 100 >"$log" 2>&1 &
+  jp=$!
+  out=$(timeout 45 python3 test/00regression/dzrp-peer.py paused-headless $port $jp 100 2>&1); rc=$?
+  wait $jp; jrc=$?
+  echo "-- attempt $n peer_rc=$rc jnext_rc=$jrc: $(echo "$out" | tail -1)"
+  grep -E "listening|CMD_INIT|automatic exit|Headless mode shutdown|jnext 1" "$log" | cut -c1-160
+done
