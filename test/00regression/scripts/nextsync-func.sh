@@ -80,6 +80,8 @@ if want nextsync-func; then
             && cp "$peer_log" "$art/nextsync-peer-$$.log" 2>/dev/null \
             && cp "$run_log" "$art/nextsync-jnext-$$.log" 2>/dev/null \
             && echo "        --- full logs kept in build/regression-artifacts/nextsync-{peer,jnext}-$$.log ---" || true
+        echo "        --- WHICH HOP DAMAGED IT: first checkpoint (every 256 bytes) where consecutive hops' byte digests differ ---"
+        python3 -I "$SCRIPT_DIR/nextsync-digest.py" "$peer_log" "$run_log" 2>&1 | sed 's/^/        |/' || true
         echo "        --- the peer's whole exchange (RX = what the guest sent, TX = the reply; times are the peer's wall clock) ---"
         head -n 400 "$peer_log" | sed 's/^/        | /'
         # The guest-visible side: the UART logs every byte it had to DROP (RX FIFO

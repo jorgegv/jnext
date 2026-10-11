@@ -1,5 +1,7 @@
 #include "peripheral/uart.h"
 #include "core/log.h"
+#include "esp01/stream_digest.h"
+#include <map>
 #include "core/saveable.h"
 #include "save/state_desc.h"
 #include "save/state_desc_bin.h"
@@ -273,6 +275,28 @@ void UartChannel::write_tx(uint8_t val) {
         uart_log()->trace("TX write {:#04x}, FIFO size={}", val, tx_fifo_.size());
 }
 
+namespace {
+
+// GH #319: byte-stream digests of what entered a channel's RX FIFO and of what
+// the guest read out of it (esp01/stream_digest.h), logged at debug level only.
+// Static and keyed by channel because UartChannel's layout is saved state's
+// neighbour and this is diagnosis, not state.
+struct RxDigests {
+    esp::StreamDigest in, read;
+    int ordinal = 0;
+};
+RxDigests& rx_digests(const UartChannel* c) {
+    static std::map<const UartChannel*, RxDigests> m;
+    auto it = m.find(c);
+    if (it == m.end()) {
+        it = m.emplace(c, RxDigests{}).first;
+        it->second.ordinal = static_cast<int>(m.size()) - 1;
+    }
+    return it->second;
+}
+
+}  // namespace
+
 uint8_t UartChannel::read_rx() {
     if (rx_fifo_.empty()) {
         uart_log()->trace("RX read: FIFO empty, returning 0");
@@ -280,6 +304,11 @@ uint8_t UartChannel::read_rx() {
     }
     uint16_t entry = rx_fifo_.pop();
     uint8_t val = static_cast<uint8_t>(entry & 0xFF);
+    if (uart_log()->should_log(spdlog::level::debug)) {
+        RxDigests& d = rx_digests(this);
+        if (d.read.feed(val))
+            uart_log()->debug("digest uart{}-guest-read off={} fnv={}", d.ordinal, d.read.offset(), d.read.hash_hex());
+    }
     if (uart_log()->should_log(spdlog::level::trace))
         uart_log()->trace("RX read {:#04x}, FIFO size={}", val, rx_fifo_.size());
     return val;
@@ -381,6 +410,11 @@ void UartChannel::push_rx_with_flag(uint8_t byte, bool err_bit) {
     }
     uint16_t entry = static_cast<uint16_t>(byte) | (err_bit ? 0x0100u : 0u);
     rx_fifo_.push(entry);
+    if (uart_log()->should_log(spdlog::level::debug)) {
+        RxDigests& d = rx_digests(this);
+        if (d.in.feed(byte))
+            uart_log()->debug("digest uart{}-fifo-in off={} fnv={}", d.ordinal, d.in.offset(), d.in.hash_hex());
+    }
     if (uart_log()->should_log(spdlog::level::trace))
         uart_log()->trace("RX inject {:#04x} (err={}), FIFO size={}",
                           byte, err_bit ? 1 : 0, rx_fifo_.size());

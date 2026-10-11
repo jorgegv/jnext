@@ -7,6 +7,7 @@
 #include <cstdlib>
 
 #include "esp01/esp_log.h"
+#include "esp01/stream_digest.h"
 
 #include <algorithm>
 #include <cctype>
@@ -16,6 +17,19 @@
 namespace esp {
 
 namespace {
+
+// GH #319: the byte-stream digests of the nextsync-func diagnosis (see
+// stream_digest.h). One per hop this file owns; each is fed from one place only,
+// and only when the debug level is on.
+//   sock-in     bytes the peer's socket handed the engine
+//   ipd-framed  bytes taken out of the receive buffer into a +IPD frame
+//   esp-out     bytes the engine releases toward the guest's UART
+StreamDigest g_dg_sock_in, g_dg_ipd_framed, g_dg_esp_out;
+
+void digest_feed(StreamDigest& d, const char* name, std::uint8_t b) {
+    if (!detail::log_wanted(LogLevel::Debug)) return;
+    if (d.feed(b)) log_debug("digest {} off={} fnv={}", name, d.offset(), d.hash_hex());
+}
 
 /// Case-insensitive prefix test; `rest` receives what follows the prefix. An
 /// EXACT match is the case where `rest` comes back empty, which is how the
@@ -1900,7 +1914,10 @@ void AtEngine::drain_socket(std::size_t cid) {
     for (int i = 0; i < RECV_MAX_ITER; ++i) {
         const std::size_t n = c.transport->recv(buf, sizeof(buf));
         if (n == 0) break;
-        for (std::size_t j = 0; j < n; ++j) c.rx.push_back(buf[j]);
+        for (std::size_t j = 0; j < n; ++j) {
+            digest_feed(g_dg_sock_in, "sock-in", buf[j]);
+            c.rx.push_back(buf[j]);
+        }
         total += n;
         if (c.transport->state() != TransportState::Connected) break;
     }
@@ -2028,6 +2045,7 @@ void AtEngine::frame_ipd() {
         log_debug("+IPD framing {} byte(s) on cid {}, {} left buffered", n, cid, c.rx.size() - n);
         queue_ipd_header(cid, c.multiplexed, n);
         for (std::size_t i = 0; i < n; ++i) {
+            digest_feed(g_dg_ipd_framed, "ipd-framed", c.rx.front());
             out_.push_back(c.rx.front());
             c.rx.pop_front();
         }
@@ -2083,6 +2101,7 @@ void AtEngine::tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte) {
     std::size_t released = 0;
     while (!out_.empty() && pace_accum_ >= ticks_per_byte) {
         pace_accum_ -= ticks_per_byte;
+        digest_feed(g_dg_esp_out, "esp-out", out_.front());
         send_to_guest(out_.front());
         out_.pop_front();
         ++released;

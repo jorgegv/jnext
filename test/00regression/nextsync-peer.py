@@ -195,6 +195,23 @@ def ev(msg):
                                     int((now % 1) * 1000), (time.monotonic() - T0) * 1000, msg))
 
 
+class Digest:
+    """The peer's twin of esp::StreamDigest (src/esp01/include/esp01/stream_digest.h):
+    FNV-1a/32 over everything this peer sends, a `digest peer-sent off=N fnv=H` line
+    at every 256-byte checkpoint. jnext logs the same lines for the same bytes at each
+    hop it owns; nextsync-digest.py compares them and names the first hop that differs."""
+    def __init__(self):
+        self.h = 2166136261
+        self.n = 0
+
+    def feed(self, data):
+        for b in data:
+            self.h = ((self.h ^ b) * 16777619) & 0xFFFFFFFF
+            self.n += 1
+            if self.n % 256 == 0:
+                log("digest peer-sent off=%d fnv=%08x" % (self.n, self.h))
+
+
 def serve_one(srv, corpus):
     """One connection's worth of the protocol."""
     conn, addr = srv.accept()
@@ -205,11 +222,15 @@ def serve_one(srv, corpus):
     fileofs = 0
     packetno = 0
 
+    sent = Digest()
+
     def send(payload, seq):
         state["last"] = payload
         state["packets"] += 1
-        ev("TX seq=%d len=%d first=%r" % (seq & 0xFF, len(payload), payload[:8]))
-        conn.sendall(framed(payload, seq))
+        frame = framed(payload, seq)
+        ev("TX seq=%d len=%d first=%r frame=%d sent_through=%d" % (seq & 0xFF, len(payload), payload[:8], len(frame), sent.n + len(frame)))
+        sent.feed(frame)
+        conn.sendall(frame)
 
     def handle(data):
         """Answer one command; True when the conversation is over."""
