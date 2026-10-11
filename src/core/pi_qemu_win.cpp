@@ -332,7 +332,10 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
 
     // A QEMU that rejects its arguments or the image dies at once; report that
     // here, as a startup failure, rather than as a Pi that never answers.
-    for (int i = 0; i < 6 && !exited_; ++i)
+    // Starting a process on Windows (and under wine) is slower than a fork, and
+    // a QEMU rejecting its arguments dies only once it is loaded, so the window
+    // is a second rather than POSIX's 300 ms.
+    for (int i = 0; i < 20 && !exited_; ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     if (exited_) return fail(spec.qemu_binary + " exited at once; see " + log_path);
 
