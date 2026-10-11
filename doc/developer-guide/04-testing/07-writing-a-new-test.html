@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.31</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.32</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.31</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.32</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2441,7 +2441,11 @@ gate may run the same suite on the same host.</p>
 symlink creation (so the symlink-refusal rows are <code>posix</code>), a real console attach
 for a GUI-subsystem executable, NTFS short names and streams, and the timestamp
 resolution of a real filesystem (wine keeps whole seconds, so a fixture mtime is
-set 250 ms past the second, never exactly on it).</p>
+set 250 ms past the second, never exactly on it).
+Wine's Winsock can also return a peer reset as a 0-byte read followed by
+WSAECONNRESET (a race in its server), so the Windows socket shim confirms a
+0-byte stream read with a <code>MSG_PEEK</code> recv before calling it an orderly close
+(GH #326).</p>
 <h2 id="portable-regression-rows">Portable regression rows<a class="headerlink" href="#portable-regression-rows" title="Permanent link">&para;</a></h2>
 <p>A functional row also runs on macOS and, under wine, on Windows
 (<code>make regression-macos</code>, <code>make regression-win</code>) unless its <code>os=</code> tag in
