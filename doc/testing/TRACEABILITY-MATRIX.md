@@ -4593,97 +4593,97 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | NET-ERR-02 | the failure carries an explanatory error string | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1322 |
 | ESP-RST-01 | a peer that RSTs after serving its data is reported at warn, and the run carries no error line at all | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1390 |
 | ESP-RST-02 | a peer that RSTs having served nothing is still an error | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1423 |
-| ESP-RST-03 | across 500 abortive closes a peer RST is reported as a reset every time, never as an orderly close | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1475 |
-| ASYNC-01 | an IP literal resolves synchronously in the first poll() and never reaches the resolver | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1513 |
-| ASYNC-11 | the poll() that STARTS a lookup returns immediately instead of waiting it out | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1549 |
-| ASYNC-02 | 200 poll()s during an outstanding lookup return promptly and leave the transport in Resolving | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1575 |
-| ASYNC-03 | the lookup ran on a thread other than the caller's | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1580 |
-| ASYNC-04 | opening the gate completes the connect through the async path, to the address the resolver returned | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1586 |
-| ASYNC-05 | the address policy is enforced on the RESOLVED address, and the refused connect never reached the listener | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1608 |
-| ASYNC-06 | close() during a lookup returns at once and the late result never resurrects the transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1645 |
-| ASYNC-10 | a lookup abandoned by close() is never applied to the next connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1661 |
-| ASYNC-07 | destroying a transport mid-lookup returns immediately instead of waiting out the resolver | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1696 |
-| ASYNC-08 | ...and the orphaned lookup runs to completion AFTER it, into a result block that outlived the transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1710 |
-| ASYNC-09 | AT+CIPSTART's deadline bounds NAME RESOLUTION, not just the TCP handshake | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1750 |
-| ASYNC-12 | a throwing resolver degrades to a failed lookup instead of aborting the process, and its half-built address list is discarded | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1783 |
-| IPP-01 | a dotted quad parses to the address it spells | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1811 |
-| IPP-02 | the wildcard parses | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1813 |
-| IPP-03 | an IPv6 literal parses, elision and all | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1814 |
-| IPP-04 | a NAME is refused rather than resolved — a bind address that could depend on DNS is one that could change under the user | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1816 |
-| IPP-05 | so is an empty string | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1820 |
-| IPP-06 | and so is a malformed quad | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1821 |
-| IPP-07 | round trip: to_string(parse_ip(x)) == x | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1822 |
-| LSN-01 | open(0) binds and reports the port the OS chose | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1836 |
-| LSN-02 | accept() with nothing pending returns null rather than waiting | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1838 |
-| LSN-03 | a real client can connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1843 |
-| LSN-04 | poll() + accept() yield a transport, already Connected | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1845 |
-| LSN-05 | whose peer_address() is the client's | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1847 |
-| LSN-21 | recv() on the accepted transport with nothing pending returns 0 at once and stays Connected — the accepted socket really is non-blocking | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1866 |
-| LSN-06 | guest -> peer: send() on the accepted transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1875 |
-| LSN-07 | ...and the client receives exactly those bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1877 |
-| LSN-08 | peer -> guest: the client can send | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1881 |
-| LSN-09 | ...and recv() on the accepted transport yields them | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1889 |
-| LSN-10 | a client close moves the accepted transport to Closed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1893 |
-| LSN-11 | two connects, but poll() parks only one | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1911 |
-| LSN-12 | ...and the second is taken by the NEXT poll | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1913 |
-| LSN-13 | close() stops listening | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1920 |
-| LSN-14 | ...and the port can be bound again | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1925 |
-| LSN-15 | a port already in use is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1944 |
-| LSN-16 | ...with a reason, and nothing listening | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1946 |
-| LSN-17 | an address that is not local is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1958 |
-| LSN-18 | ...and does not silently become the wildcard | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1960 |
-| LSN-19 | a listener bound to 127.0.0.1 is NOT reachable through this host's LAN address — the default really confines it | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1976 |
-| LSN-20 | ...and --esp-listen-address 0.0.0.0 IS, so widening is a real act and not a no-op | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1988 |
-| RSLV-01 | a fresh resolver is Idle and holds no error | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2011 |
-| RSLV-02 | an empty host is REFUSED outright, leaving the state untouched | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2016 |
-| RSLV-03 | an IP literal resolves synchronously, and the injected resolver is never consulted for one | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2023 |
-| RSLV-04 | a literal the policy denies FAILS rather than being echoed back — the command cannot launder a refused address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2035 |
-| RSLV-05 | a NAME that resolves to a denied address is refused on the address, not on the name | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2046 |
-| RSLV-06 | an allowed name reaches Done carrying the resolved address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2058 |
-| RSLV-07 | ...and the lookup really ran off the calling thread | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2061 |
-| RSLV-08 | a second begin() while one is in flight is refused, so an answer can never be silently replaced | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2068 |
-| RSLV-09 | a resolver that throws AFTER appending an address fails the lookup and adopts nothing | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2078 |
-| RSLV-10 | reset() returns it to Idle and drops the result | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2088 |
-| RSLV-12 | a resolver that says SUCCESS but returns no addresses is a FAILED lookup, not a success with nothing in it | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2095 |
-| RSLV-11a | the lookup is genuinely in flight before we destroy it | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2111 |
-| RSLV-11 | destroying a resolver mid-lookup returns immediately — one shared_ptr dropped, no join, nothing to wait for | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2117 |
-| PHOST-01 | an ordinary hostname is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2133 |
-| PHOST-02 | an IPv4 literal is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2135 |
-| PHOST-03 | an IPv6 literal is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2136 |
-| PHOST-04 | underscores and hyphens inside a name are accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2137 |
-| PHOST-05 | an empty host is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2139 |
-| PHOST-06 | a leading '-' is refused — it would be an OPTION, not a host | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2144 |
-| PHOST-07 | ...including a long-form option | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2146 |
-| PHOST-08 | a shell metacharacter is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2149 |
-| PHOST-09 | a command substitution is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2150 |
-| PHOST-10 | a pipe or redirect is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2152 |
-| PHOST-11 | an embedded space is refused — it would split into two argv words | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2154 |
-| PHOST-12 | an embedded NUL truncates nothing, because the whole string is checked and the NUL itself is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2156 |
-| PHOST-13 | a newline is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2159 |
-| PHOST-14 | 255 bytes is the longest accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2160 |
-| PHOST-15 | 256 bytes is the first refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2162 |
-| PICMP-01 | an implausible host is refused before anything is opened | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2185 |
-| PICMP-02 | a literal the address policy denies FAILS without an echo ever being sent | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2197 |
-| PICMP-03 | and so does the cloud-metadata address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2206 |
-| PICMP-04 | reset() returns it to Idle, as EspPinger promises | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2214 |
-| PICMP-05 | an IPv6-only address is refused as having no IPv4 address, not echoed at four bytes of itself | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2232 |
-| SNTPR-01 | a server the address policy denies FAILS *on the policy*, without a datagram being sent — an NTP server is not an exception to the rule the rest of this surface follows | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2259 |
-| SNTPR-02 | an implausible server name is refused outright | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2268 |
-| NTPC-01 | the NTP epoch offset is applied exactly (2 208 988 800 s) | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2285 |
-| NTPC-02 | and it formats to the string the 1.x manual's own example gives | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2287 |
-| NTPC-03 | a ZERO timestamp means 'unsynchronised' and is REFUSED, not turned into 1900 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2292 |
-| NTPC-04 | a pre-1970 timestamp is refused too | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2295 |
-| NTPC-05 | the largest NTP second still converts | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2297 |
-| SNTP-01 | a positive timezone moves the clock forward | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2302 |
-| SNTP-02 | a negative one moves it back, across a day boundary | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2304 |
-| SNTP-03 | +13 crosses into the next day and the weekday follows | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2306 |
-| SNTP-04 | the Unix epoch itself formats as a Thursday | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2312 |
-| SNTP-05 | a leap day is a real day, not the 1st of March | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2314 |
-| SNTP-06 | and the arithmetic survives past the 32-bit time_t wrap | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2316 |
-| SNTP-08 | 2100 is NOT a leap year, so 1 March falls where it should | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2324 |
-| SNTP-09 | ...and February 2100 has 28 days, not 29 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2326 |
-| SNTP-10 | a date after 2100 is not shifted by a phantom leap day | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2335 |
-| SNTP-07 | a negative result is clamped rather than wrapping | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2337 |
+| ESP-RST-03 | across 500 abortive closes a peer RST is reported as a reset every time, never as an orderly close | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1486 |
+| ASYNC-01 | an IP literal resolves synchronously in the first poll() and never reaches the resolver | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1525 |
+| ASYNC-11 | the poll() that STARTS a lookup returns immediately instead of waiting it out | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1561 |
+| ASYNC-02 | 200 poll()s during an outstanding lookup return promptly and leave the transport in Resolving | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1587 |
+| ASYNC-03 | the lookup ran on a thread other than the caller's | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1592 |
+| ASYNC-04 | opening the gate completes the connect through the async path, to the address the resolver returned | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1598 |
+| ASYNC-05 | the address policy is enforced on the RESOLVED address, and the refused connect never reached the listener | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1620 |
+| ASYNC-06 | close() during a lookup returns at once and the late result never resurrects the transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1657 |
+| ASYNC-10 | a lookup abandoned by close() is never applied to the next connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1673 |
+| ASYNC-07 | destroying a transport mid-lookup returns immediately instead of waiting out the resolver | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1708 |
+| ASYNC-08 | ...and the orphaned lookup runs to completion AFTER it, into a result block that outlived the transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1722 |
+| ASYNC-09 | AT+CIPSTART's deadline bounds NAME RESOLUTION, not just the TCP handshake | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1762 |
+| ASYNC-12 | a throwing resolver degrades to a failed lookup instead of aborting the process, and its half-built address list is discarded | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1795 |
+| IPP-01 | a dotted quad parses to the address it spells | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1823 |
+| IPP-02 | the wildcard parses | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1825 |
+| IPP-03 | an IPv6 literal parses, elision and all | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1826 |
+| IPP-04 | a NAME is refused rather than resolved — a bind address that could depend on DNS is one that could change under the user | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1828 |
+| IPP-05 | so is an empty string | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1832 |
+| IPP-06 | and so is a malformed quad | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1833 |
+| IPP-07 | round trip: to_string(parse_ip(x)) == x | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1834 |
+| LSN-01 | open(0) binds and reports the port the OS chose | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1848 |
+| LSN-02 | accept() with nothing pending returns null rather than waiting | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1850 |
+| LSN-03 | a real client can connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1855 |
+| LSN-04 | poll() + accept() yield a transport, already Connected | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1857 |
+| LSN-05 | whose peer_address() is the client's | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1859 |
+| LSN-21 | recv() on the accepted transport with nothing pending returns 0 at once and stays Connected — the accepted socket really is non-blocking | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1878 |
+| LSN-06 | guest -> peer: send() on the accepted transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1887 |
+| LSN-07 | ...and the client receives exactly those bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1889 |
+| LSN-08 | peer -> guest: the client can send | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1893 |
+| LSN-09 | ...and recv() on the accepted transport yields them | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1901 |
+| LSN-10 | a client close moves the accepted transport to Closed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1905 |
+| LSN-11 | two connects, but poll() parks only one | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1923 |
+| LSN-12 | ...and the second is taken by the NEXT poll | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1925 |
+| LSN-13 | close() stops listening | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1932 |
+| LSN-14 | ...and the port can be bound again | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1937 |
+| LSN-15 | a port already in use is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1956 |
+| LSN-16 | ...with a reason, and nothing listening | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1958 |
+| LSN-17 | an address that is not local is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1970 |
+| LSN-18 | ...and does not silently become the wildcard | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1972 |
+| LSN-19 | a listener bound to 127.0.0.1 is NOT reachable through this host's LAN address — the default really confines it | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1988 |
+| LSN-20 | ...and --esp-listen-address 0.0.0.0 IS, so widening is a real act and not a no-op | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2000 |
+| RSLV-01 | a fresh resolver is Idle and holds no error | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2023 |
+| RSLV-02 | an empty host is REFUSED outright, leaving the state untouched | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2028 |
+| RSLV-03 | an IP literal resolves synchronously, and the injected resolver is never consulted for one | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2035 |
+| RSLV-04 | a literal the policy denies FAILS rather than being echoed back — the command cannot launder a refused address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2047 |
+| RSLV-05 | a NAME that resolves to a denied address is refused on the address, not on the name | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2058 |
+| RSLV-06 | an allowed name reaches Done carrying the resolved address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2070 |
+| RSLV-07 | ...and the lookup really ran off the calling thread | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2073 |
+| RSLV-08 | a second begin() while one is in flight is refused, so an answer can never be silently replaced | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2080 |
+| RSLV-09 | a resolver that throws AFTER appending an address fails the lookup and adopts nothing | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2090 |
+| RSLV-10 | reset() returns it to Idle and drops the result | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2100 |
+| RSLV-12 | a resolver that says SUCCESS but returns no addresses is a FAILED lookup, not a success with nothing in it | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2107 |
+| RSLV-11a | the lookup is genuinely in flight before we destroy it | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2123 |
+| RSLV-11 | destroying a resolver mid-lookup returns immediately — one shared_ptr dropped, no join, nothing to wait for | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2129 |
+| PHOST-01 | an ordinary hostname is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2145 |
+| PHOST-02 | an IPv4 literal is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2147 |
+| PHOST-03 | an IPv6 literal is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2148 |
+| PHOST-04 | underscores and hyphens inside a name are accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2149 |
+| PHOST-05 | an empty host is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2151 |
+| PHOST-06 | a leading '-' is refused — it would be an OPTION, not a host | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2156 |
+| PHOST-07 | ...including a long-form option | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2158 |
+| PHOST-08 | a shell metacharacter is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2161 |
+| PHOST-09 | a command substitution is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2162 |
+| PHOST-10 | a pipe or redirect is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2164 |
+| PHOST-11 | an embedded space is refused — it would split into two argv words | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2166 |
+| PHOST-12 | an embedded NUL truncates nothing, because the whole string is checked and the NUL itself is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2168 |
+| PHOST-13 | a newline is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2171 |
+| PHOST-14 | 255 bytes is the longest accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2172 |
+| PHOST-15 | 256 bytes is the first refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2174 |
+| PICMP-01 | an implausible host is refused before anything is opened | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2197 |
+| PICMP-02 | a literal the address policy denies FAILS without an echo ever being sent | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2209 |
+| PICMP-03 | and so does the cloud-metadata address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2218 |
+| PICMP-04 | reset() returns it to Idle, as EspPinger promises | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2226 |
+| PICMP-05 | an IPv6-only address is refused as having no IPv4 address, not echoed at four bytes of itself | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2244 |
+| SNTPR-01 | a server the address policy denies FAILS *on the policy*, without a datagram being sent — an NTP server is not an exception to the rule the rest of this surface follows | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2271 |
+| SNTPR-02 | an implausible server name is refused outright | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2280 |
+| NTPC-01 | the NTP epoch offset is applied exactly (2 208 988 800 s) | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2297 |
+| NTPC-02 | and it formats to the string the 1.x manual's own example gives | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2299 |
+| NTPC-03 | a ZERO timestamp means 'unsynchronised' and is REFUSED, not turned into 1900 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2304 |
+| NTPC-04 | a pre-1970 timestamp is refused too | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2307 |
+| NTPC-05 | the largest NTP second still converts | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2309 |
+| SNTP-01 | a positive timezone moves the clock forward | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2314 |
+| SNTP-02 | a negative one moves it back, across a day boundary | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2316 |
+| SNTP-03 | +13 crosses into the next day and the weekday follows | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2318 |
+| SNTP-04 | the Unix epoch itself formats as a Thursday | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2324 |
+| SNTP-05 | a leap day is a real day, not the 1st of March | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2326 |
+| SNTP-06 | and the arithmetic survives past the 32-bit time_t wrap | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2328 |
+| SNTP-08 | 2100 is NOT a leap year, so 1 March falls where it should | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2336 |
+| SNTP-09 | ...and February 2100 has 28 days, not 29 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2338 |
+| SNTP-10 | a date after 2100 is not shifted by a phantom leap day | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2347 |
+| SNTP-07 | a negative result is clamped rather than wrapping | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2349 |
 
 ### Companion POSIX-only suite — `src/esp01/test/esp_sigpipe_test.cpp`
 
