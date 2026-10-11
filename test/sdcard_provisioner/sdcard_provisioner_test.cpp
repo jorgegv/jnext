@@ -351,7 +351,7 @@ int main() {
     // -- PROV-PATH-04: HOME, then USERPROFILE, then "." (GH #316) --
     // Oracle: the order QDir::homePath() and screenshot.cpp's
     // default_quick_screenshot_dir() use. A native Windows session has
-    // USERPROFILE and no HOME, and wine imports HOME, which masked the defect.
+    // USERPROFILE and no HOME, and wine 11 exposes no HOME either, so under wine the old code returned ".".
     {
         const std::string profile = g_tmpdir + "/profile";
         jtp::unset_env("JNEXT_CONFIG_DIR");

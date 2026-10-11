@@ -4,7 +4,7 @@
 
 ### User Features
 - The Pause key pauses and resumes emulation (alongside Alt+U); holding it no longer toggles repeatedly
-- NextPi (--nextpi) now runs on Windows too, over a loopback socket to QEMU for Windows; the Pi has no sound there yet
+- NextPi (--nextpi) now runs on Windows too, over a loopback socket to QEMU for Windows; the Pi's sound plays on the host speakers, not yet through the Next's mixer
 
 ### Bug Fixes
 - Seconds-form delays (--delayed-automatic-exit, -screenshot-time, -keypress, -nmi) now count programs running at 60 Hz as 1/60 s per frame

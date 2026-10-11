@@ -17,8 +17,8 @@ You need **QEMU** installed — on macOS `brew install qemu`; on Fedora
 `sudo apt install qemu-system-arm qemu-utils`; on Windows install QEMU for
 Windows and either add its folder to your `PATH` or set the QEMU binary under
 **Settings ▸ Preferences ▸ NextPi**. On Windows the Pi is reached over a local
-(loopback) socket, which may raise a firewall prompt the first time, and it has
-no sound yet. Then either tick **Start
+(loopback) socket, which may raise a firewall prompt the first time; the Pi's sound plays on your speakers
+(QEMU's `dsound`). Then either tick **Start
 NextPi** under **Settings ▸ Preferences ▸ NextPi** and restart JNEXT, or start
 it for one run with:
 
@@ -58,7 +58,7 @@ the Preferences tab means that default:
 | NextPi directory | `~/.jnext/nextpi` | where the download goes and NextPi runs from |
 | NextPi release | `1_93D` | a release name on the NextPi mirror, or `latest` for the newest one there |
 | QEMU | `qemu-system-arm` on your `PATH` | the QEMU to run; `qemu-img` is expected beside it |
-| Pi audio | your speakers (not yet on Windows) | a QEMU audio driver, `none` to mute it, or `wav:FILE` to record it |
+| Pi audio | your speakers | a QEMU audio driver, `none` to mute it, or `wav:FILE` to record it |
 
 Changes take effect the next time JNEXT starts. Changing the release makes the
 next start offer to download that one in place of the installed one. With

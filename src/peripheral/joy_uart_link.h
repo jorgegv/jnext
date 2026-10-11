@@ -248,8 +248,9 @@ private:
 ///     O_NONBLOCK` on a FIFO with no reader fails with `ENXIO` — that is the
 ///     exact failure the issue reports for the one-way path. So it is opened
 ///     LAZILY, retried on every flush until a reader appears, and bytes
-///     transmitted before then are dropped and counted (`JoyUartLink::unsent`),
-///     which is what the wire does when nothing is plugged in. When the reader
+///     transmitted before then stay queued in the link (up to `TX_QUEUE_MAX`,
+///     then drop-newest, counted in `JoyUartLink::unsent`) and are written
+///     once a reader attaches. When the reader
 ///     goes away mid-session `write()` fails with `EPIPE`; the descriptor is
 ///     closed and the lazy open resumes, so a reader that restarts is picked up
 ///     within one frame. `SIGPIPE` is ignored process-wide when the first

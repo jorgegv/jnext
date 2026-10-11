@@ -105,7 +105,7 @@ at once. NextPi then takes about a minute to reach `SUP>`, after which:
   jnext starts without the Pi either way. The policy is one pure function,
   `nextpi::start_outcome`, which `main()` applies.
 - **Not in this PR:** a live start/stop from the running GUI, a progress bar for
-  the unpack (it is a busy indicator; the download has the bar), and Windows audio
+  the unpack (it is a busy indicator; the download has the bar), and the Pi's sound through the Next's mixer on Windows
   (§3.7). The earlier manual-wiring flags (`--pi-uart-fifo`,
   `--pi-uart-pty`) were dropped in review.
 
@@ -295,9 +295,10 @@ The launch is `core/pi_qemu_win.cpp`: `CreateProcessW` with an explicit handle
 list, a job object with kill-on-close (never orphaned), `LANG=C`/`LC_ALL=C` in a
 Unicode environment block, and a graceful stop by `quit` on the monitor on stdin.
 The MD5 of the archive is CNG on Windows, OpenSSL elsewhere. The socket transport
-can be selected on POSIX too, so `nextpi_test` exercises it everywhere. The Pi has
-no audio on Windows yet: the default back-end is `dsound`, but the path that brings
-the Pi's sound into the Next's mixer is a later stage. Rows PIT-01..15 and
+can be selected on POSIX too, so `nextpi_test` exercises it everywhere. The Pi's
+sound plays on the host speakers on Windows too (default back-end `dsound`); the
+path that brings it into the Next's mixer (NR 0xA2, the volume controls) is a
+later stage. Rows PIT-01..15 and
 `nextpi-link-func` (§4).
 
 ## 4. Testing

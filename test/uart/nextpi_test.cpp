@@ -572,6 +572,7 @@ int main(int argc, char** argv) {
             esp::net::close(p1);
             sleep_ms(200);
             link.send_to_host('Y');            // fails: the peer is gone
+            link.send_to_host('V');            // a second byte right behind it: the dead socket must be gone
         }
         const bool discarded = got1 && link.unsent() == 1 && !link.rx_pending() && link.faults() == 0;
 
@@ -587,6 +588,8 @@ int main(int argc, char** argv) {
         }
         // An orderly close, seen by a read with nothing queued to send.
         bool eof_discarded = false, got3 = false;
+        esp::net::NativeSocket p4 = esp::net::kInvalidSocket;
+        bool reset_leg = false;
         if (got2) {
             peer_send(p2, "Q");
             const auto t0 = std::chrono::steady_clock::now();
@@ -596,20 +599,33 @@ int main(int argc, char** argv) {
             eof_discarded = link.received() == 2 && !link.rx_pending();
             got3 = accept_while_polling(p3);
         }
-        for (esp::net::NativeSocket s : {p1, p2, p3})
+        // A reset (peer closed with unread data) seen by a READ, with nothing
+        // queued to send, is a lost peer and not a fault; the link reconnects.
+        if (got3) {
+            link.send_to_host('U');
+            sleep_ms(100);
+            esp::net::close(p3);
+            p3 = esp::net::kInvalidSocket;
+            sleep_ms(200);
+            const bool got4 = accept_while_polling(p4);
+            reset_leg = got4 && link.faults() == 0 && !link.rx_pending();
+        }
+        for (esp::net::NativeSocket s : {p1, p2, p3, p4})
             if (s != esp::net::kInvalidSocket) esp::net::close(s);
         check("PIT-06",
               "when a TCP peer goes away its conversation is discarded, not handed to the next one: "
               "the byte it had sent and the byte that could not be delivered are dropped (the latter "
               "counted in unsent()) without a fault, and a new peer on the same listener gets traffic "
-              "again and receives only what was sent after the loss; an orderly close is reconnected too",
-              listening && got1 && rx_queued && discarded && got2 && at_p2 == "Z" && eof_discarded && got3 &&
-                  link.faults() == 0,
+              "again and receives only what was sent after the loss, including a second byte sent "
+              "straight after it; an orderly close and a reset seen by a read are reconnected too "
+              "without a fault",
+              listening && got1 && rx_queued && discarded && got2 && at_p2 == "VZ" && eof_discarded && got3 &&
+                  reset_leg && link.faults() == 0,
               fmt("listening=%d accepted=%d rx_queued=%d discarded=%d (unsent=%zu rx_pending=%d faults=%zu) "
-                  "second peer=%d got '%s' (want Z) eof_discarded=%d third peer=%d",
+                  "second peer=%d got '%s' (want VZ) eof_discarded=%d third peer=%d reset_leg=%d",
                   listening ? 1 : 0, got1 ? 1 : 0, rx_queued ? 1 : 0, discarded ? 1 : 0, link.unsent(),
                   link.rx_pending() ? 1 : 0, link.faults(), got2 ? 1 : 0, at_p2.c_str(),
-                  eof_discarded ? 1 : 0, got3 ? 1 : 0));
+                  eof_discarded ? 1 : 0, got3 ? 1 : 0, reset_leg ? 1 : 0));
     }
 
     // ── PIT-07 — link_config is the one place a launcher's transport becomes
@@ -629,8 +645,10 @@ int main(int argc, char** argv) {
         std::string error;
         const bool started = fx.ok() && sock.start(spec, error);
         EmulatorConfig cfg;
-        cfg.type          = MachineType::ZXN_ISSUE2;
-        cfg.sd_card_image = "card.img";
+        cfg.type              = MachineType::ZXN_ISSUE2;
+        cfg.sd_card_image     = "card.img";
+        cfg.pi_uart_fifo_rx   = "stale.out";      // link_config must clear what it does not use
+        cfg.pi_uart_fifo_tx   = "stale.in";
         sock.link_config(cfg);
         const bool socket_ok = started && sock.tcp_port() != 0 && cfg.pi_uart_tcp_port == sock.tcp_port() &&
                                cfg.pi_uart_fifo_rx.empty() && cfg.pi_uart_fifo_tx.empty();
@@ -647,14 +665,26 @@ int main(int argc, char** argv) {
         fspec.transport   = PiQemu::Transport::Fifo;
         PiQemu fifo;
         EmulatorConfig fcfg;
+        fcfg.pi_uart_tcp_port = 1234;             // stale; the FIFO transport must clear it
         fifo.start(fspec, fifo_error);
         fifo.link_config(fcfg);
         fifo_ok = fifo.running() && !fcfg.pi_uart_fifo_rx.empty() && fcfg.pi_uart_fifo_rx == fifo.rx_path() &&
                   fcfg.pi_uart_fifo_tx == fifo.tx_path() && fcfg.pi_uart_tcp_port == 0;
+        // With both set (a hand-built config), the FIFO pair wins.
+        if (fifo_ok) {
+            EmulatorConfig both = fcfg;
+            both.type                 = MachineType::ZXN_ISSUE2;
+            both.rewind_buffer_frames = 0;
+            both.pi_uart_tcp_port     = 1234;
+            Emulator emu;
+            emu.init(both);
+            fifo_ok = emu.pi_uart() && emu.pi_uart()->link().describe().rfind("FIFO pair ", 0) == 0;
+        }
 #endif
         check("PIT-07",
               "link_config turns the launcher's transport into Emulator configuration (the port for the "
-              "socket transport, the two FIFO paths for the FIFO one, never both) and the warm-start "
+              "socket transport, the two FIFO paths for the FIFO one, never both: stale values of the "
+              "other are cleared, and with both set the FIFO pair wins) and the warm-start "
               "recording machine gets neither while the machine itself is kept",
               socket_ok && warm_ok && fifo_ok,
               fmt("started=%d (%s) socket_ok=%d warm_ok=%d fifo_ok=%d (%s)", started ? 1 : 0, error.c_str(),
@@ -785,12 +815,25 @@ int main(int argc, char** argv) {
             dies_refused = !c.start(s, err_dies) && err_dies.find("exited at once") != std::string::npos &&
                            !c.running();
         }
+        // A QEMU given as a path without its extension (Windows: Preferences > QEMU
+        // = C:\\...\\qemu-system-arm) is completed with .exe; on POSIX it is the file itself.
+        bool noext_ok = false;
+        {
+            std::string full = fx.bin("qemu-system-arm");
+            if (std::strlen(kExe) && full.size() > std::strlen(kExe)) full.resize(full.size() - std::strlen(kExe));
+            PiQemu::Spec s = spec;
+            s.qemu_binary  = full;
+            PiQemu d;
+            std::string err_noext;
+            noext_ok = d.start(s, err_noext) && d.running();
+        }
         check("PIT-10",
               "starting NextPi is refused, leaving nothing running, when QEMU is not on PATH, when the "
-              "only match on PATH is a directory, and when QEMU exits at once",
-              fx.ok() && none_refused && dir_refused && dies_refused,
-              fmt("fixture=%d none='%s' dir='%s' dies='%s'", fx.ok() ? 1 : 0, err_none.c_str(), err_dir.c_str(),
-                  err_dies.c_str()));
+              "only match on PATH is a directory, and when QEMU exits at once; a QEMU path given without "
+              "its .exe is completed",
+              fx.ok() && none_refused && dir_refused && dies_refused && noext_ok,
+              fmt("fixture=%d none='%s' dir='%s' dies='%s' no_extension=%d", fx.ok() ? 1 : 0, err_none.c_str(),
+                  err_dir.c_str(), err_dies.c_str(), noext_ok ? 1 : 0));
     }
 
     // ── PIT-11 — FORCE AFTER THE GRACE PERIOD (PI-17 for the portable launcher): a
