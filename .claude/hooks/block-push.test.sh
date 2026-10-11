@@ -138,6 +138,29 @@ check 2 "git -C /a\\ b push"                  "git -C /a\\ b push origin B"
 check 2 "git subtree push"                    "git subtree push --prefix=p r B"
 check 0 "git subtree add (not a push)"        "git subtree add --prefix=p r B"
 
+# gh release writes (G1).
+check 2 "gh release create"                   "gh release create v1 --notes x"
+check 2 "gh release new"                      "gh release new v1"
+check 2 "gh release upload"                   "gh release upload v1 f.zip"
+check 2 "gh release edit"                     "gh release edit v1"
+check 2 "gh release delete"                   "gh release delete v1"
+check 2 "gh release delete-asset"             "gh release delete-asset v1 f"
+check 2 "gh -R release create"                "gh -R o/r release create v1"
+check 0 "prefixed gh release create"          "$O gh release create v1"
+check 0 "gh release view"                     "gh release view v1"
+check 0 "gh release list"                     "gh release list"
+check 0 "gh release download"                 "gh release download v1"
+
+# Quoted option arguments (G2).
+check 2 "git --git-dir=\"/a b\" push"         "git --git-dir=\"/a b\" push origin B"
+check 2 "git --work-tree \"/a b\" push"       "git --work-tree \"/a b\" push origin B"
+check 2 "git --namespace 'n m' push"          "git --namespace 'n m' push origin B"
+
+# Separators glued to the override (G3).
+check 0 "a;<override> push"                   "a;$O $P x"
+check 0 "a&<override> push"                   "a&$O $P x"
+check 0 "a|<override> push"                   "a|$O $P x"
+
 # Fail closed (R2): any failure path must exit 2, never 0/1/127/5.
 check_path 2 "no perl"                        "$GOODJSON" jq cat
 check_path 2 "no jq"                          "$GOODJSON" perl cat

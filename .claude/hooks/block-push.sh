@@ -21,6 +21,8 @@
 #  * Global options before the subcommand are skipped (`git --no-pager push`,
 #    `git -c k=v push`, `git -C "a b" push`, `--git-dir/--work-tree X`,
 #    `gh -R o/r pr create`, `gh --repo o/r pr create`).
+#  * Also gated: gh release write verbs (create/new/upload/edit/delete/
+#    delete-asset); view/list/download stay allowed.
 #  * Matching is textual and conservative: a harmless mention of the text
 #    (a grep pattern, a commit message) blocks too. That is accepted.
 #  * FAIL CLOSED: Claude Code blocks only on exit 2, so every failure path
@@ -29,7 +31,7 @@
 # Scope: this catches the ACCIDENTAL push, not deliberate obfuscation. EXAMPLES
 # it does not see (not an exhaustive list): variable or alias indirection
 # (`g=git; $g push`, git aliases), a push inside a script file, a push built by
-# string concatenation, `gh api` / `gh release create` writes.
+# string concatenation, `gh api` writes.
 
 set -euo pipefail
 
@@ -50,10 +52,10 @@ unprefixed="$(printf '%s' "$cmd" | perl -0777 -ne '
   BEGIN { our $bad = 0; }
   our $bad;
   my $tok = q{(?:[^\s"\x27\\\\]|"[^"]*"|\x27[^\x27]*\x27|\\\\.)+};
-  my $opt_git = q{(?:\s+(?:-[Cc]\s*} . $tok . q{|--(?:git-dir|work-tree|namespace)\s+\S+|-\S+))*};
+  my $opt_git = q{(?:\s+(?:-[Cc]\s*} . $tok . q{|--(?:git-dir|work-tree|namespace)\s+} . $tok . q{|-} . $tok . q{))*};
   my $opt_gh  = q{(?:\s+(?:-R\s+\S+|--repo\s+\S+|-\S+))*};
   s/\\\n/ /g;   # a backslash-newline continues the same simple command
-  while (/(?<![\w.\/-])(?:[\w.\/-]*\/)?(?:git["\x27]?$opt_git\s+(?:subtree\s+)?["\x27]?push|gh["\x27]?$opt_gh\s+pr\s+(?:create|new))/g) {
+  while (/(?<![\w.\/-])(?:[\w.\/-]*\/)?(?:git["\x27]?$opt_git\s+(?:subtree\s+)?["\x27]?push|gh["\x27]?$opt_gh\s+(?:pr\s+(?:create|new)|release\s+(?:create|new|upload|edit|delete|delete-asset)))/g) {
     my $pre = substr($_, 0, $-[0]);
     $bad = 1 unless $pre =~ /(?<![^\s;&|(`"\x27])JNEXT_ALLOW_PUSH=1[ \t]+\z/;
   }
@@ -61,7 +63,7 @@ unprefixed="$(printf '%s' "$cmd" | perl -0777 -ne '
 
 if [ "$unprefixed" != "0" ]; then
   cat >&2 <<'EOF'
-[block-push hook] BLOCKED: git push / gh pr create requires explicit user authorization.
+[block-push hook] BLOCKED: git push / gh pr create / gh release write requires explicit user authorization.
 
 Per CLAUDE.md: "NEVER push to origin without explicit user authorization. This
 applies to the manager AND every spawned agent. Local commits, rebases, and
