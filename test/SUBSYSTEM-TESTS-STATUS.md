@@ -66,7 +66,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Present cadence       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Render-skip policy    |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Screenshot output (PNG/.SCR) |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Emulator Boot         |       98 |       98 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Emulator Boot         |      100 |      100 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply Policy) |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Attach |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Pointer Capture       |       64 |       64 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -74,7 +74,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Frame-tick sequencer (wiring) |      116 |      116 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tick-delivery stats   |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Achieved-speed report |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Host key minimum-hold latch |      135 |      135 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Host key minimum-hold latch |      139 |      139 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SDL window title (version) |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -124,7 +124,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | RZX Menus             |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI load-failure dialogs |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Esc/BREAK + fullscreen routing |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Host hotkeys on Alt (Ctrl to guest) |       60 |       60 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Host hotkeys on Alt (Ctrl to guest) |       64 |       64 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Main-window menu mnemonics |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Main-window Pause (Alt+U) |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Joystick controller picker (Input menu, Preferences) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -146,6 +146,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12617**| **12617**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12627**| **12627**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
