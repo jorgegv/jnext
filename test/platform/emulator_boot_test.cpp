@@ -426,7 +426,7 @@ void run_rows()
         b.init(base_config());
         const bool loaded = saved && b.load_jns_file(latest);
         check("QS-13", "quick save twice, then the newest restores the second save's state",
-              saved && latest == file2 && loaded && b.mmu().read(kMarkerAddr) == 0x22,
+              saved && fs::path(latest).lexically_normal() == fs::path(file2).lexically_normal() && loaded && b.mmu().read(kMarkerAddr) == 0x22,
               "latest=" + latest + " file2=" + file2);
     }
 
