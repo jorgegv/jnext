@@ -762,6 +762,64 @@ void run_rows()
               "core_keeps=" + std::to_string(core_keeps) + " fe_clear=" + std::to_string(fe_clear));
     }
 
+
+    // QS-29 / QS-30: the other two parts of the keyboard that a snapshot records
+    // and release_all_keys() must clear (review R4-1). An ARROW held when the
+    // snapshot is taken lives in the extended-key register (ex_matrix_, folded
+    // into the matrix when read), and a held shift in the two-scan hysteresis
+    // (shift_hist_, which keeps a just-released shift reading "pressed" until the
+    // next scan). Oracle as QS-28: the core load keeps them, the frontend load
+    // route starts the guest with nothing down.
+    {
+        auto a_up = std::make_unique<Emulator>();
+        a_up->init(base_config());
+        for (int i = 0; i < 3; ++i) a_up->run_frame();
+        a_up->keyboard().set_extended_key(static_cast<int>(Keyboard::ExtKey::LEFT), true);
+        const fs::path jns = root / "arrow-held.jns";
+        const bool saved = a_up->save_jns_file(jns.string());
+        auto core_up = std::make_unique<Emulator>();
+        core_up->init(base_config());
+        const bool core_ok = saved && core_up->load_jns_file(jns.string());
+        // LEFT is NR 0xB0 bit 1, and folds into row 3 column 4 (port 0xF7FE bit 4).
+        const bool core_keeps = (core_up->keyboard().nr_b0_byte() & 0x02) != 0 &&
+                                (core_up->keyboard().read_rows(0xF7) & 0x10) == 0;
+        auto fe_up = std::make_unique<Emulator>();
+        fe_up->init(base_config());
+        const bool fe_ok = saved && emulator_apply_load(*fe_up, jns.string(), false);
+        const bool fe_clear = fe_up->keyboard().nr_b0_byte() == 0 &&
+                              (fe_up->keyboard().read_rows(0xF7) & 0x10) != 0;
+        check("QS-29", "an arrow held when a .jns was saved: the core load keeps it, the frontend "
+                       "load route (emulator_apply_load) releases it (extended-key register and the "
+                       "folded matrix bit)",
+              saved && core_ok && core_keeps && fe_ok && fe_clear,
+              "core_keeps=" + std::to_string(core_keeps) + " fe_clear=" + std::to_string(fe_clear));
+    }
+    {
+        // Shift hysteresis: a pressed shift that has been through a scan reads as
+        // pressed for one scan after its release; the guest must start clean.
+        auto e_up = std::make_unique<Emulator>();
+        e_up->init(base_config());
+        Keyboard& kb = e_up->keyboard();
+        kb.set_matrix_bit(0, 0, true);      // CAPS SHIFT down
+        kb.tick_scan();                     // the scan history now says "pressed"
+        kb.set_matrix_bit(0, 0, false);     // released
+        const bool held_over = (kb.read_rows(0xFE) & 0x01) == 0;   // the hysteresis holds it
+        const std::string path = (root / "hyst.jns").string();
+        const bool saved = e_up->save_jns_file(path);
+        // The history is not part of the .jns, so it is the machine the file is
+        // loaded INTO that must be dirty (a shift the user was holding).
+        auto fe_up = std::make_unique<Emulator>();
+        fe_up->init(base_config());
+        fe_up->keyboard().set_matrix_bit(0, 0, true);
+        fe_up->keyboard().tick_scan();
+        const bool fe_ok = saved && emulator_apply_load(*fe_up, path, false);
+        const bool fe_clear = (fe_up->keyboard().read_rows(0xFE) & 0x01) != 0;
+        check("QS-30", "a shift still held over by the two-scan hysteresis when a .jns was saved "
+                       "reads released after the frontend load route",
+              held_over && saved && fe_ok && fe_clear,
+              "held_over=" + std::to_string(held_over) + " fe_clear=" + std::to_string(fe_clear));
+    }
+
     std::error_code ec;
     fs::remove_all(root, ec);
 }

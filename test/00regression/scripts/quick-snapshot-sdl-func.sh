@@ -182,7 +182,7 @@ if want quick-snapshot-sdl-func; then
             elif [[ "$px_l" != "$px_a" ]]; then
                 fail_row " (Quick Load did not restore the newest save: border $px_l, saved $px_a, untouched $px_e)"
             elif [[ "$px_t" == "$px_l" || "$px_t" == "$px_e" ]]; then
-                fail_row " (typing after a Quick Load did not work: BORDER 5 left the border at $px_t (restored $px_l, untouched $px_e); a CAPS SHIFT held in the saved keyboard matrix?)"
+                fail_row " (typing after a Quick Load did not work: BORDER 5 left the border at $px_t (restored $px_l, untouched $px_e); lost keystrokes (the usual cause on a loaded host: the load had not landed, or a key was dropped), or a CAPS SHIFT held in the saved keyboard matrix?)"
             elif [[ "$px_l2" == "$px_l" || "$px_l2" == "$px_e" ]]; then
                 fail_row " (the two saves are not distinguishable, or Quick Load ignored modification time: after touching the older save the border is $px_l2; newest-by-name gave $px_l, untouched $px_e)"
             elif [[ "$bad_msg" -lt 1 || "$bad_boot" -ne 0 || "$boots_bad" -ne "$boots_save" ]]; then
