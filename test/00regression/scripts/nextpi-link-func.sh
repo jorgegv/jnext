@@ -50,7 +50,7 @@ if want nextpi-link-func; then
 
         rc=0
         out=$(timeout --foreground --kill-after=5s 90s \
-            env PATH="$bindir:$PATH" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" \
+            env PATH="$bindir:$PATH" JNEXT_EXTRA_WINEPATH="$bindir" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" \
             --nextpi --delayed-automatic-exit-frames 50 </dev/null 2>&1) || rc=$?
         [[ $rc -eq 0 ]] || fails+=("--nextpi with the stand-in QEMU exited $rc, want 0")
         grep -q 'NextPi: QEMU raspi0 started (pid ' <<<"$out" \
@@ -84,6 +84,7 @@ if want nextpi-link-func; then
             pass_row " (--nextpi starts the stand-in QEMU, attaches the launcher's serial link to UART 1 over the platform's transport, creates the overlay and stops QEMU the orderly way)"
         else
             fail_row " (${fails[*]})"
+            echo "        jnext said (last lines): $(tail -n 6 <<<"$out" | tr '\n' '|')"
         fi
     fi
 fi

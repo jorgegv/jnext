@@ -413,10 +413,13 @@ QWidget* PreferencesDialog::build_nextpi_tab() {
     nextpi_audio_combo_->setEditable(true);
     nextpi_audio_combo_->addItems({QString(), QStringLiteral("none"), QStringLiteral("coreaudio"),
                                    QStringLiteral("pa"), QStringLiteral("pipewire"),
-                                   QStringLiteral("alsa"), QStringLiteral("sdl")});
+                                   QStringLiteral("alsa"), QStringLiteral("sdl"),
+                                   QStringLiteral("dsound")});
     nextpi_audio_combo_->lineEdit()->setPlaceholderText(
 #ifdef __APPLE__
         tr("coreaudio (default)"));
+#elif defined(_WIN32)
+        tr("dsound (default)"));
 #else
         tr("pa (default)"));
 #endif
