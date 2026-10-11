@@ -25,4 +25,12 @@ inline QuickChord quick_snapshot_chord(int scancode, bool alt, bool ctrl,
     return QuickChord::None;
 }
 
+// The same, from a bitmask of held modifier KEYS (bit n = scancode 224+n:
+// LCtrl LShift LAlt LGui RCtrl RShift RAlt RGui), left or right counting alike.
+inline QuickChord quick_snapshot_chord_held(int scancode, unsigned held)
+{
+    return quick_snapshot_chord(scancode, (held & 0x44u) != 0, (held & 0x11u) != 0,
+                                (held & 0x22u) != 0, (held & 0x88u) != 0);
+}
+
 }  // namespace jnext

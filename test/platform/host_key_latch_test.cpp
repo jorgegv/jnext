@@ -1744,6 +1744,12 @@ int main()
               quick_snapshot_chord(63, true, false, false, false) == QuickChord::None &&
               quick_snapshot_chord(61, true, false, false, false) == QuickChord::None &&
               quick_snapshot_chord(30, true, false, false, false) == QuickChord::None);
+        check("HKL-QS-07", "the held-key mask form: right Alt works, Alt+LShift does not, and the "
+                           "answer depends only on what is held, not on event order",
+              quick_snapshot_chord_held(F5, 1u << 6) == QuickChord::Save &&
+              quick_snapshot_chord_held(F9, 1u << 2) == QuickChord::Load &&
+              quick_snapshot_chord_held(F9, (1u << 2) | (1u << 1)) == QuickChord::None &&
+              quick_snapshot_chord_held(F9, 0) == QuickChord::None);
         check("HKL-QS-06", "the scancodes the predicate tests are SDL's F5 and F9",
               jnext::kQuickSaveScancode == static_cast<int>(SDL_SCANCODE_F5) &&
               jnext::kQuickLoadScancode == static_cast<int>(SDL_SCANCODE_F9));

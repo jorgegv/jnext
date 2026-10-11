@@ -124,6 +124,12 @@ bool SdlApp::init(int argc, char* argv[]) {
     // "the keyboard went elsewhere" signal forgotten, which is the failure the
     // Qt side shipped with and no test saw. See platform/host_key_wiring.h.
     wire_host_keys(input_, key_router_, [this](SDL_Scancode sc, bool pressed) {
+        // GH #321 — the held modifier keys, from the event stream itself
+        // (bit n = scancode 224+n: LCtrl LShift LAlt LGui RCtrl RShift RAlt RGui).
+        if (sc >= SDL_SCANCODE_LCTRL && sc <= SDL_SCANCODE_RGUI) {
+            const unsigned bit = 1u << (sc - SDL_SCANCODE_LCTRL);
+            if (pressed) host_mod_keys_ |= bit; else host_mod_keys_ &= ~bit;
+        }
         if (pressed) {
             // Ctrl+Alt releases the pointer — the VirtualBox/VMware
             // convention, and the same combo the Qt frontend uses. It is
@@ -142,17 +148,15 @@ bool SdlApp::init(int argc, char* argv[]) {
                 }
             }
             // GH #321 — Alt+F5 / Alt+F9, tested BEFORE the F-key block below
-            // so Alt+F9 is not the Multiface NMI.
-            {
-                const SDL_Keymod m = SDL_GetModState();
-                switch (jnext::quick_snapshot_chord(
-                            static_cast<int>(sc), (m & SDL_KMOD_ALT) != 0,
-                            (m & SDL_KMOD_CTRL) != 0, (m & SDL_KMOD_SHIFT) != 0,
-                            (m & SDL_KMOD_GUI) != 0)) {
-                case jnext::QuickChord::Save: quick_save(); return;
-                case jnext::QuickChord::Load: quick_load_requested_ = true; return;
-                case jnext::QuickChord::None: break;
-                }
+            // so Alt+F9 is not the Multiface NMI. The modifiers come from the
+            // key events themselves (host_mod_keys_, kept above), not from
+            // SDL_GetModState(): xdotool and fast typists deliver Alt-down,
+            // F5-down, F5-up, Alt-up in one poll batch, and SDL's state is
+            // already the END of the batch when this callback runs.
+            switch (jnext::quick_snapshot_chord_held(static_cast<int>(sc), host_mod_keys_)) {
+            case jnext::QuickChord::Save: quick_save(); return;
+            case jnext::QuickChord::Load: quick_load_requested_ = true; return;
+            case jnext::QuickChord::None: break;
             }
             if (sc == SDL_SCANCODE_F11) {
                 display_.toggle_fullscreen();

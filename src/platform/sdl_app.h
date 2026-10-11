@@ -133,6 +133,7 @@ private:
     void quick_save();
     void quick_load();
     bool quick_load_requested_ = false;
+    unsigned host_mod_keys_ = 0;   ///< held modifier keys, bit n = scancode 224+n
 
     // Kempston mouse host adapter — wires SDL_MOUSE* events into the
     // emulator's KempstonMouse. Created in init() once emulator_ is
