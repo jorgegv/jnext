@@ -208,7 +208,7 @@ if want sdcard-file-add-func; then
         mv "$W/back-tree/.dotfile_" "$W/back-tree/.dotfile"
     fi
     diff -r "$T" "$W/back-tree" > "$W/tree-diff.txt" 2>&1 \
-        || faults+=("mtools reads back a DIFFERENT tree: $(head -4 "$W/tree-diff.txt" | tr '\n' ';')")
+        || faults+=("mtools reads back a DIFFERENT tree: $(head -4 "$W/tree-diff.txt" | tr '\n' ';') card: $(mdir -/ -b -i "$CARD@@$OFF" ::/JNEXTGH292 2>&1 | tr '\n' ';') extracted: $(cd "$W/back-tree" && find . | LC_ALL=C sort | tr '\n' ';')")
     # A refusal inside a tree leaves nothing behind: the FIFO is found before
     # anything is written, so the good file sorted ahead of it is not on the
     # card either.
