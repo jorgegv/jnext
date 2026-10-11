@@ -3,12 +3,14 @@
 A screenshot is only useful as a test if the same input always produces the
 same image. Three things make that true.
 
-**Count frames, not seconds.** `--delayed-screenshot-time` is wall-clock and
-therefore depends on how fast the host is. `--delayed-screenshot-frames`
-counts *emulated* frames, so a slow CI runner and a fast desktop capture the
-identical machine state. The same applies to the exit bound:
-`--delayed-automatic-exit-frames` overrides `--delayed-automatic-exit` when
-both are given. **Use the frame forms for anything you intend to compare.**
+**Count frames, not seconds.** `--delayed-screenshot-time` counts *emulated*
+seconds, not the host's, so a slow CI runner and a fast desktop agree on it.
+What it depends on is the refresh rate the program selects: a frame at 50 Hz
+counts 1/50 s and one at 60 Hz counts 1/60 s, so the frame it lands on moves
+if the program switches. `--delayed-screenshot-frames` names one exact frame.
+The same applies to the exit bound: `--delayed-automatic-exit-frames`
+overrides `--delayed-automatic-exit` when both are given. **Use the frame forms
+for anything you intend to compare.**
 
 **Pin the clock.** Anything that draws the date or time — the NextZXOS menu,
 most obviously — changes between runs. `--rtc` freezes it:

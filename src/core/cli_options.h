@@ -568,7 +568,7 @@ inline constexpr Option OPTIONS[] = {
       "anything else writes a PNG of the composited picture" },
     { "--delayed-screenshot-time", 1, Doc::Documented, OptId::DelayedScreenshotTime,
       "N",
-      "Delay in seconds (default 10)" },
+      "Delay in emulated seconds (default 10)" },
     { "--delayed-screenshot-frames", 1, Doc::Documented, OptId::DelayedScreenshotFrames,
       "N",
       "Delay in frames (overrides --delayed-screenshot-time)" },
@@ -584,7 +584,7 @@ inline constexpr Option OPTIONS[] = {
       "Rejected with a .scr screenshot, which has no layers." },
     { "--delayed-automatic-exit", 1, Doc::Documented, OptId::DelayedAutomaticExit,
       "N",
-      "Exit the emulator after N seconds" },
+      "Exit the emulator after N emulated seconds" },
     { "--delayed-automatic-exit-frames", 1, Doc::Documented, OptId::DelayedAutomaticExitFrames,
       "N",
       "Exit after N frames (overrides --delayed-automatic-exit)" },
@@ -631,7 +631,8 @@ inline constexpr Option OPTIONS[] = {
     // The two-value options: SECS/N and KEY (or BUTTON) are consumed together.
     { "--delayed-keypress", 2, Doc::Documented, OptId::DelayedKeypress,
       "SECS KEY",
-      "Press KEY after SECS seconds (headless only, repeatable).\n"
+      "Press KEY after SECS emulated seconds (headless only,\n"
+      "repeatable).\n"
       "KEY (case-insensitive): single char (a-z 0-9 . , ; :),\n"
       "ENTER / RETURN / SPACE / UP / DOWN / LEFT / RIGHT, or a\n"
       "compound sym+<char> / caps+<char> (e.g. sym+m = '.')" },
@@ -642,8 +643,8 @@ inline constexpr Option OPTIONS[] = {
       "KEY takes the same values as --delayed-keypress." },
     { "--delayed-nmi", 2, Doc::Documented, OptId::DelayedNmi,
       "SECS BUTTON",
-      "Press an NMI BUTTON after SECS seconds (headless only,\n"
-      "repeatable). BUTTON (case-insensitive) is the label on\n"
+      "Press an NMI BUTTON after SECS emulated seconds (headless\n"
+      "only, repeatable). BUTTON (case-insensitive) is the label on\n"
       "the real case: nmi (aliases mf, m1) = the NMI button,\n"
       "driven by the Multiface; drive (alias divmmc) = the DRIVE\n"
       "button, driven by DivMMC. RESET is not an NMI button" },
@@ -905,9 +906,10 @@ inline bool parse_hex16(const char* s, uint16_t& out) {
     return true;
 }
 
-/// Largest SECS a seconds-form option accepts: seconds become frames by
-/// multiplying by the refresh rate, at most 60 (HeadlessApp::run), so this is
-/// the largest value whose frame count still fits an int.
+/// Largest SECS a seconds-form option accepts. cli::Delay counts seconds in
+/// 1/300 s units (int64) and charges one frame per tick, so a delay never
+/// overflows; the bound keeps the frame count at the fastest rate, 60 Hz
+/// (cli::Delay::frames_left), within an int.
 inline constexpr long MAX_DELAY_SECONDS = INT_MAX / 60;
 
 /// GH #26 WP4 — `--script-key FRAME N` (dsl-frontend.md §6.6). FRAME a whole

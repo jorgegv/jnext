@@ -2,6 +2,7 @@
 #include "platform/emulator_boot.h"
 #include "platform/auto_exit.h"
 #include "platform/cli_capture.h"
+#include "platform/cli_delay.h"
 #include "platform/recording_info.h"   // GH #26 WP6
 #include "platform/rzx_startup.h"
 #include "core/log.h"
@@ -139,10 +140,21 @@ void HeadlessApp::set_pending_load(const std::string& file, int delay_frames) {
 void HeadlessApp::set_delayed_screenshot(const std::string& file, int delay_frames,
                                          uint8_t layer_mask) {
     screenshot_file_ = file;
-    screenshot_countdown_ = delay_frames;
+    screenshot_countdown_ = cli::Delay::frames(delay_frames);
     screenshot_layers_ = layer_mask;
     Log::platform()->info("--delayed-screenshot: will save '{}' after {} frame(s) (layers: {})",
                            file, delay_frames,
+                           Renderer::layer_mask_to_string(layer_mask));
+}
+
+void HeadlessApp::set_delayed_screenshot_seconds(const std::string& file, int delay_seconds,
+                                                 uint8_t layer_mask) {
+    screenshot_file_ = file;
+    screenshot_countdown_ = cli::Delay::seconds(delay_seconds);
+    screenshot_layers_ = layer_mask;
+    Log::platform()->info("--delayed-screenshot: will save '{}' after {} emulated second(s) "
+                           "(layers: {})",
+                           file, delay_seconds,
                            Renderer::layer_mask_to_string(layer_mask));
 }
 
@@ -225,9 +237,15 @@ void HeadlessApp::print_benchmark_result(double wall_seconds) {
 }
 
 void HeadlessApp::set_delayed_exit(int delay_frames) {
-    exit_countdown_ = delay_frames;
+    exit_countdown_ = cli::Delay::frames(delay_frames);
     Log::platform()->info("--delayed-automatic-exit: will exit after {} frame(s)",
                            delay_frames);
+}
+
+void HeadlessApp::set_delayed_exit_seconds(int delay_seconds) {
+    exit_countdown_ = cli::Delay::seconds(delay_seconds);
+    Log::platform()->info("--delayed-automatic-exit: will exit after {} emulated second(s)",
+                           delay_seconds);
 }
 
 // GH #276 §4.5 — the key-name vocabulary moved to the backend
@@ -245,7 +263,7 @@ static bool key_name_to_matrix(const std::string& name,
 bool HeadlessApp::set_delayed_keypress(const std::string& key, int delay_frames) {
     DelayedKey dk;
     dk.name = key;
-    dk.countdown = delay_frames;
+    dk.countdown = cli::Delay::frames(delay_frames);
     if (!key_name_to_matrix(key, dk.row1, dk.col1, dk.row2, dk.col2)) {
         Log::platform()->error("delayed-keypress: unknown key name '{}'", key);
         return false;
@@ -259,12 +277,12 @@ bool HeadlessApp::set_delayed_keypress(const std::string& key, int delay_frames)
 bool HeadlessApp::set_delayed_keypress_seconds(const std::string& key, int delay_seconds) {
     DelayedKey dk;
     dk.name = key;
-    dk.countdown = -1;  // converted to frames in run()
+    dk.countdown = cli::Delay::seconds(delay_seconds);
     if (!key_name_to_matrix(key, dk.row1, dk.col1, dk.row2, dk.col2)) {
         Log::platform()->error("delayed-keypress: unknown key name '{}'", key);
         return false;
     }
-    pending_seconds_keys_.push_back({dk, delay_seconds});
+    delayed_keys_.push_back(dk);
     Log::platform()->info("delayed-keypress: will press '{}' after {} emulated second(s)",
                            key, delay_seconds);
     return true;
@@ -311,7 +329,7 @@ bool HeadlessApp::set_delayed_nmi(const std::string& button, int delay_frames) {
     DelayedNmi dn;
     dn.name      = button;
     dn.button    = which;
-    dn.countdown = delay_frames;
+    dn.countdown = cli::Delay::frames(delay_frames);
     delayed_nmis_.push_back(dn);
     Log::platform()->info("delayed-nmi: will press '{}' NMI button after {} frame(s)",
                           button, delay_frames);
@@ -328,8 +346,8 @@ bool HeadlessApp::set_delayed_nmi_seconds(const std::string& button, int delay_s
     DelayedNmi dn;
     dn.name      = button;
     dn.button    = which;
-    dn.countdown = -1;  // converted to frames in run()
-    pending_seconds_nmis_.push_back({dn, delay_seconds});
+    dn.countdown = cli::Delay::seconds(delay_seconds);
+    delayed_nmis_.push_back(dn);
     Log::platform()->info("delayed-nmi: will press '{}' NMI button after {} emulated second(s)",
                           button, delay_seconds);
     return true;
@@ -342,33 +360,6 @@ void HeadlessApp::set_delayed_sdcard_insert(const std::string& image, int delay_
 }
 
 void HeadlessApp::run() {
-    // Convert any seconds-form delayed keypresses to frames now that the
-    // emulator is fully initialized and the machine framerate is known.
-    if (!pending_seconds_keys_.empty()) {
-        const int fps = emulator_.video_timing().refresh_60hz() ? 60 : 50;
-        for (const auto& pk : pending_seconds_keys_) {
-            DelayedKey dk = pk.key;
-            dk.countdown = pk.delay_seconds * fps;
-            delayed_keys_.push_back(dk);
-            Log::platform()->info("delayed-keypress: '{}' scheduled at frame {} ({} s × {} fps)",
-                                   dk.name, dk.countdown, pk.delay_seconds, fps);
-        }
-        pending_seconds_keys_.clear();
-    }
-
-    // Same framerate-aware conversion for seconds-form NMI presses.
-    if (!pending_seconds_nmis_.empty()) {
-        const int fps = emulator_.video_timing().refresh_60hz() ? 60 : 50;
-        for (const auto& pn : pending_seconds_nmis_) {
-            DelayedNmi dn = pn.nmi;
-            dn.countdown = pn.delay_seconds * fps;
-            delayed_nmis_.push_back(dn);
-            Log::platform()->info("delayed-nmi: '{}' scheduled at frame {} ({} s × {} fps)",
-                                   dn.name, dn.countdown, pn.delay_seconds, fps);
-        }
-        pending_seconds_nmis_.clear();
-    }
-
     // Command-line RZX play/record — shared with QtApp/SdlApp, and applied
     // here in run() for the reason given at emulator_start_rzx().
     // The recording starts later, once the command-line load is in: see
@@ -572,16 +563,19 @@ void HeadlessApp::run() {
         if (DebugServers::headless_should_wait(debugger_->state().paused, pump_hint_)) {
             const auto wait_start = std::chrono::steady_clock::now();
             pump_hint_ = debugger_->pump(DebugServers::headless_wait_budget());
-            if (exit_countdown_ > 0) {
+            if (exit_countdown_.pending()) {
                 paused_wait_us += std::chrono::duration_cast<std::chrono::microseconds>(
                                       std::chrono::steady_clock::now() - wait_start)
                                       .count();
-                while (paused_wait_us >= 20000 && exit_countdown_ > 0) {
-                    --exit_countdown_;
+                while (paused_wait_us >= 20000 && exit_countdown_.pending()) {
+                    // 20 ms is exactly a 50 Hz frame: the -frames form keeps
+                    // "one frame per 20 ms" and the seconds form counts wall
+                    // seconds, whatever refresh the paused guest selected.
+                    exit_countdown_.tick(false);
                     paused_wait_us -= 20000;
                 }
             }
-            if (exit_countdown_ != 0) continue;
+            if (!exit_countdown_.due()) continue;
         }
 
         // Headless reset facility (env-gated, zero cost when unset): --headless
@@ -639,7 +633,7 @@ void HeadlessApp::run() {
         // Delayed keypresses. Matrix positions were resolved at schedule
         // time (unknown names are rejected there, never dropped here).
         for (auto it = delayed_keys_.begin(); it != delayed_keys_.end(); ) {
-            if (it->countdown <= 0) {
+            if (!it->countdown.pending()) {
                 // GH #276 B4 (O2) — the ACTION through the backend's IN-01 verb:
                 // a 5-frame pulse on the (appending) auto-type queue, the same
                 // call every debugger client makes. The countdown stays here.
@@ -649,7 +643,7 @@ void HeadlessApp::run() {
                 Log::platform()->info("Delayed keypress '{}' injected", it->name);
                 it = delayed_keys_.erase(it);
             } else {
-                --it->countdown;
+                it->countdown.tick(emulator_.video_timing().refresh_60hz());
                 ++it;
             }
         }
@@ -663,7 +657,7 @@ void HeadlessApp::run() {
         // one-cycle edge pulses, zxnext.vhd:6348-6349), hence erase
         // after firing rather than holding a level down.
         for (auto it = delayed_nmis_.begin(); it != delayed_nmis_.end(); ) {
-            if (it->countdown <= 0) {
+            if (!it->countdown.pending()) {
                 debugger_->press_nmi(jnext::dbg::CLIENT_NONE,
                                      it->button == NmiButtonName::Mf
                                          ? jnext::dbg::NmiButton::Mf
@@ -671,7 +665,7 @@ void HeadlessApp::run() {
                 Log::platform()->info("Delayed NMI button '{}' pressed", it->name);
                 it = delayed_nmis_.erase(it);
             } else {
-                --it->countdown;
+                it->countdown.tick(emulator_.video_timing().refresh_60hz());
                 ++it;
             }
         }
@@ -699,7 +693,7 @@ void HeadlessApp::run() {
         // this loop used to handle itself. Queued once: a tick that cold-boots
         // `continue`s past the rest of the loop and comes back here with the
         // capture still queued (the backend re-arms it on the rebuilt machine).
-        if (screenshot_countdown_ == 0 && !screenshot_queued_) {
+        if (screenshot_countdown_.due() && !screenshot_queued_) {
             screenshot_queued_at_ = emulator_.rendered_frames();
             if (queue_cli_screenshot(*debugger_, screenshot_file_, screenshot_layers_) ==
                 jnext::dbg::Result::Ok)
@@ -861,7 +855,7 @@ void HeadlessApp::run() {
         // frame, never the stale framebuffer" (§4.5 CAP-01). Headless used to
         // write the stale framebuffer here; that is the one change of behaviour
         // O2 brings to this flag, and it is the design's (B4 report).
-        if (screenshot_countdown_ == 0) {
+        if (screenshot_countdown_.due()) {
             const bool rendered = emulator_.rendered_frames() != screenshot_queued_at_;
             if (screenshot_refused_ || rendered) {
                 const bool ok = !screenshot_refused_ &&
@@ -874,12 +868,12 @@ void HeadlessApp::run() {
                         screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_));
                     exit_code_ = 1;
                 }
-                screenshot_countdown_ = -1;
+                screenshot_countdown_.disarm();
                 screenshot_queued_    = false;
                 screenshot_refused_   = false;
             }
-        } else if (screenshot_countdown_ > 0) {
-            --screenshot_countdown_;
+        } else if (screenshot_countdown_.pending()) {
+            screenshot_countdown_.tick(emulator_.video_timing().refresh_60hz());
         }
 
         // Delayed snapshot save (Task 13b). Format by extension, same
@@ -950,7 +944,7 @@ void HeadlessApp::run() {
 
         // Delayed automatic exit. Deferred command-line work it cuts off
         // fails the run (platform/auto_exit.h).
-        if (exit_countdown_ == 0) {
+        if (exit_countdown_.due()) {
             Log::platform()->info("automatic exit triggered");
             std::string keys, nmis;
             for (const auto& k : delayed_keys_) keys += (keys.empty() ? "" : ", ") + k.name;
@@ -975,8 +969,8 @@ void HeadlessApp::run() {
                 if (exit_code_ == 0) exit_code_ = 3;
             }
             running_ = false;
-        } else if (exit_countdown_ > 0) {
-            --exit_countdown_;
+        } else if (exit_countdown_.pending()) {
+            exit_countdown_.tick(emulator_.video_timing().refresh_60hz());
         }
     }
 
@@ -1000,15 +994,15 @@ void HeadlessApp::shutdown() {
     // --delayed-automatic-exit that fires before --delayed-screenshot-time /
     // -frames comes due. That misconfiguration used to exit 0 with no PNG and
     // no message — a silent no-op in the one mode built for scripting.
-    if (screenshot_countdown_ > 0 && !screenshot_file_.empty()) {
+    if (screenshot_countdown_.pending() && !screenshot_file_.empty()) {
         Log::platform()->error(
             "--delayed-screenshot: NO screenshot was written to '{}' (layers: {}); "
             "--delayed-automatic-exit fired {} frame(s) before the capture was due. "
             "Exiting non-zero.",
             screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_),
-            screenshot_countdown_);
+            screenshot_countdown_.frames_left(emulator_.video_timing().refresh_60hz()));
         exit_code_ = 1;
-    } else if (screenshot_countdown_ == 0 && !screenshot_file_.empty()) {
+    } else if (screenshot_countdown_.due() && !screenshot_file_.empty()) {
         // GH #276 B4 — due, handed to the backend, and never taken: the machine
         // rendered no frame for it (paused) before the exit. The exit bound
         // drops it (flush_captures() → NoFrame), so it cannot land after the
