@@ -691,6 +691,27 @@ int main() {
                   bad.empty(), join(bad));
         }
         {
+            // GH #321 — --quick-snapshot-keep N|unlimited (0 = unlimited internally).
+            std::vector<std::string> bad;
+            int n = -7;
+            if (!cli::parse_quick_snapshot_keep("20", n) || n != 20) bad.push_back("20");
+            if (!cli::parse_quick_snapshot_keep("1", n) || n != 1) bad.push_back("1");
+            if (!cli::parse_quick_snapshot_keep("1000000", n) || n != 1000000) bad.push_back("1000000");
+            if (!cli::parse_quick_snapshot_keep("unlimited", n) || n != 0) bad.push_back("unlimited");
+            for (const char* v : { "", "0", "-1", "5x", "1.5", " 5", "1000001", "Unlimited", "all",
+                                   static_cast<const char*>(nullptr) }) {
+                int out = 123;
+                if (cli::parse_quick_snapshot_keep(v, out))
+                    bad.push_back(std::string("accepted \"") + (v ? v : "(null)") + "\"");
+                if (out != 123)
+                    bad.push_back(std::string("\"") + (v ? v : "(null)") + "\" overwrote the output");
+            }
+            check("CLI-QSK-01",
+                  "--quick-snapshot-keep accepts 1..1000000 and unlimited (=0), and refuses "
+                  "anything else without writing through",
+                  bad.empty(), join(bad));
+        }
+        {
             // GH #26 WP4 — --script-key FRAME N (dsl-frontend.md §6.6).
             std::vector<std::string> bad;
             const struct { const char* f; const char* k; uint32_t wf; int wk; } good[] = {

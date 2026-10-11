@@ -355,6 +355,61 @@ static void test_merge_precedence() {
           merge_cli_precedence(false, 6.0f, -12.0f) == -12.0f);
 }
 
+// ── AC-80..83: GH #321 — [snapshot] quick_keep (Quick Save retention) ────
+
+static void test_quick_keep(QTemporaryDir& dir) {
+    set_group("AC-QUICKKEEP");
+
+    const QString none = fresh_ini_path(dir, "quickkeep-none");
+    AppConfig absent(none);
+    absent.load();
+    check("AC-80", "quick_snapshot_keep defaults to 20 with no file",
+          absent.data().quick_snapshot_keep == 20,
+          std::to_string(absent.data().quick_snapshot_keep));
+
+    int back_n = -1, back_unl = -1;
+    {
+        const QString p = fresh_ini_path(dir, "quickkeep-n");
+        { AppConfig w(p); w.data().quick_snapshot_keep = 7; w.save(); }
+        AppConfig r(p); r.load();
+        back_n = r.data().quick_snapshot_keep;
+        const QString q = fresh_ini_path(dir, "quickkeep-unl");
+        { AppConfig w(q); w.data().quick_snapshot_keep = 0; w.save(); }
+        AppConfig r2(q); r2.load();
+        back_unl = r2.data().quick_snapshot_keep;
+        // The file spells it: a number, or the word `unlimited`.
+        QSettings raw(q, QSettings::IniFormat);
+        raw.beginGroup("snapshot");
+        check("AC-81", "quick_keep round-trips as a number and as the word unlimited (0)",
+              back_n == 7 && back_unl == 0 &&
+                  raw.value("quick_keep").toString() == QStringLiteral("unlimited"),
+              std::to_string(back_n) + "/" + std::to_string(back_unl));
+    }
+    {
+        // A hand-edited word hand-written in [snapshot] is honoured; junk keeps
+        // the default, so a typo cannot silently turn pruning off.
+        const QString p = fresh_ini_path(dir, "quickkeep-hand");
+        { QSettings raw(p, QSettings::IniFormat); raw.beginGroup("snapshot");
+          raw.setValue("quick_keep", " Unlimited "); raw.endGroup(); raw.sync(); }
+        AppConfig a(p); a.load();
+        bool junk_ok = true;
+        for (const char* bad : {"0", "-3", "many", "5x", "1000001", ""}) {
+            const QString q = fresh_ini_path(dir, (std::string("quickkeep-bad-") + bad).c_str());
+            { QSettings raw(q, QSettings::IniFormat); raw.beginGroup("snapshot");
+              raw.setValue("quick_keep", bad); raw.endGroup(); raw.sync(); }
+            AppConfig b(q); b.load();
+            if (b.data().quick_snapshot_keep != 20) junk_ok = false;
+        }
+        check("AC-82", "the word unlimited (any case, padded) means 0; 0, negatives, junk and "
+                       "out-of-range keep the default of 20",
+              a.data().quick_snapshot_keep == 0 && junk_ok);
+    }
+    check("AC-83", "an explicit --quick-snapshot-keep beats the saved setting, and the saved "
+                   "setting applies when the flag is absent",
+          merge_cli_precedence(true, 3, 20) == 3 && merge_cli_precedence(false, 3, 20) == 20 &&
+              merge_cli_precedence(true, 0, 20) == 0);
+}
+
 // ── AC-PATH: the production config lives under ~/.jnext, not ~/.config ──
 
 static void test_default_path() {
@@ -1099,6 +1154,7 @@ int main() {
     test_partial_file(dir);
     test_malformed_values(dir);
     test_merge_precedence();
+    test_quick_keep(dir);
     test_default_path();
     test_debug_keys_defaults(dir);
     test_debug_keys_grammar();

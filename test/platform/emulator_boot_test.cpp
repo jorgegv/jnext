@@ -521,6 +521,104 @@ void run_rows()
               emulator_startup_machine("", MachineType::ZX128K, true) == MachineType::ZX128K &&
               saved && emulator_startup_machine(file1, MachineType::ZXN_ISSUE2, false) == MachineType::ZX48K);
 
+
+    // QS-19..QS-24: retention (--quick-snapshot-keep). Oracle: the owner decision
+    // (default 20; N; unlimited; delete ONLY jnext's own quick-snapshot names).
+    {
+        check("QS-19", "the retention default is 20, in the library and in a default EmulatorConfig; "
+                       "0 means unlimited",
+              kQuickSnapshotKeepDefault == 20 && EmulatorConfig{}.quick_snapshot_keep == 20 &&
+                  !EmulatorConfig{}.quick_snapshot_keep_cli && kQuickSnapshotKeepUnlimited == 0);
+
+        bool names_ok = true;
+        for (const char* n : {"jnext-20260101-000000.jns", "jnext-20261231-235959-02.jns",
+                              "jnext-20261231-235959-99.jns"})
+            if (!is_quick_snapshot_name(n)) names_ok = false;
+        bool names_bad = false;
+        for (const char* n : {"", "x.jns", "jnext-20260101-000000.JNS", "JNEXT-20260101-000000.jns",
+                              "jnext-2026010-000000.jns", "jnext-20260101-00000.jns",
+                              "jnext-20260101-000000-2.jns", "jnext-20260101-000000-002.jns",
+                              "jnext-20260101-000000.jns.bak", "jnext-20260101-000000.png",
+                              "xjnext-20260101-000000.jns", "jnext-2026010a-000000.jns",
+                              "jnext-20260101-000000-0a.jns", "jnext-20260101_000000.jns"})
+            if (is_quick_snapshot_name(n)) names_bad = true;
+        check("QS-20", "only jnext-YYYYMMDD-HHMMSS[-NN].jns is a quick-snapshot name",
+              names_ok && !names_bad);
+
+        // Make N matching files with strictly increasing mtimes (f0 oldest).
+        auto make_set = [&](const fs::path& d, int n) {
+            fs::create_directories(d);
+            std::vector<std::string> names;
+            for (int i = 0; i < n; ++i) {
+                char b[48];
+                std::snprintf(b, sizeof(b), "jnext-20260101-%06d.jns", i);
+                touch(d / b);
+                fs::last_write_time(d / b, t0 + std::chrono::seconds(i));
+                names.push_back(b);
+            }
+            return names;
+        };
+        auto count_matching = [&](const fs::path& d) {
+            int c = 0;
+            for (const auto& e : fs::directory_iterator(d))
+                if (e.is_regular_file() && is_quick_snapshot_name(e.path().filename().string())) ++c;
+            return c;
+        };
+
+        {   // QS-21: a custom N keeps the NEWEST N and deletes the oldest, in mtime order,
+            // even when names sort the other way round.
+            const fs::path d = root / "keep3";
+            auto names = make_set(d, 6);
+            // reverse the mtimes so the NAME order and the age order disagree
+            for (int i = 0; i < 6; ++i)
+                fs::last_write_time(d / names[i], t0 + std::chrono::seconds(10 - i));
+            const int deleted = prune_quick_snapshots(d.string(), 3);
+            const bool kept_newest = fs::exists(d / names[0]) && fs::exists(d / names[1]) &&
+                                     fs::exists(d / names[2]);
+            const bool gone_oldest = !fs::exists(d / names[3]) && !fs::exists(d / names[4]) &&
+                                     !fs::exists(d / names[5]);
+            check("QS-21", "prune keeps the newest N by modification time and deletes the rest",
+                  deleted == 3 && kept_newest && gone_oldest && count_matching(d) == 3,
+                  "deleted=" + std::to_string(deleted));
+        }
+        {   // QS-22: unlimited deletes nothing; N at or above the count deletes nothing.
+            const fs::path d = root / "unl";
+            make_set(d, 25);
+            const int a = prune_quick_snapshots(d.string(), kQuickSnapshotKeepUnlimited);
+            const int b = prune_quick_snapshots(d.string(), 25);
+            check("QS-22", "unlimited (0) and N >= the file count delete nothing",
+                  a == 0 && b == 0 && count_matching(d) == 25);
+        }
+        {   // QS-23: the default, 20, applied to 25 files.
+            const fs::path d = root / "def20";
+            auto names = make_set(d, 25);
+            const int deleted = prune_quick_snapshots(d.string(), kQuickSnapshotKeepDefault);
+            bool oldest_gone = true, newest_kept = true;
+            for (int i = 0; i < 5; ++i)  if (fs::exists(d / names[i])) oldest_gone = false;
+            for (int i = 5; i < 25; ++i) if (!fs::exists(d / names[i])) newest_kept = false;
+            check("QS-23", "the default of 20 deletes the 5 oldest of 25 and nothing else",
+                  deleted == 5 && oldest_gone && newest_kept && count_matching(d) == 20);
+        }
+        {   // QS-24: nothing that is not a quick-snapshot name is ever touched, however old.
+            const fs::path d = root / "foreign";
+            make_set(d, 4);
+            const std::vector<std::string> foreign = {
+                "mine.jns", "jnext-20260101-000000.JNS", "jnext-2026.jns", "notes.txt",
+                "jnext-20260101-000000.png", "jnext-20260101-000000.jns.bak"};
+            for (const std::string& f : foreign) {
+                touch(d / f);
+                fs::last_write_time(d / f, t0 - std::chrono::hours(48));   // oldest of all
+            }
+            fs::create_directories(d / "jnext-20250101-000000.jns");        // a directory
+            const int deleted = prune_quick_snapshots(d.string(), 1);
+            bool all_there = fs::is_directory(d / "jnext-20250101-000000.jns");
+            for (const std::string& f : foreign) if (!fs::exists(d / f)) all_there = false;
+            check("QS-24", "pruning to 1 deletes only the 3 older quick-snapshot names; a user's "
+                           "files, other extensions and a directory are untouched",
+                  deleted == 3 && all_there && count_matching(d) == 1);
+        }
+    }
+
     std::error_code ec;
     fs::remove_all(root, ec);
 }

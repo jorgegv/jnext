@@ -128,10 +128,16 @@ struct Fixture {
     /// callbacks, so neither one alone can observe it.
     std::vector<std::string> order;
 
-    explicit Fixture(MachineType type = MachineType::ZX48K)
+    /// `keep_cli` >= 0 stands for `--quick-snapshot-keep` given on the command
+    /// line with that value (0 = unlimited); -1 = flag absent (GH #321).
+    explicit Fixture(MachineType type = MachineType::ZX48K, int keep_cli = -1)
     {
         EmulatorConfig cfg;
         cfg.type = type;
+        if (keep_cli >= 0) {
+            cfg.quick_snapshot_keep     = keep_cli;
+            cfg.quick_snapshot_keep_cli = true;
+        }
         emu.init(cfg);
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
         win.set_debugger(backend.get());
@@ -924,6 +930,120 @@ void test_quick_snapshot_actions()
     qunsetenv("JNEXT_CONFIG_DIR");
 }
 
+/// PA-22g..j — GH #321: Quick Save prunes the oldest quick snapshots beyond the
+/// retention count, from the setting or, when given, the CLI flag.
+///
+/// Oracle: the owner decision (default 20; the setting in jnext.conf
+/// [snapshot] quick_keep; `--quick-snapshot-keep` overrides it; only jnext's own
+/// quick-snapshot names are ever deleted). The files that exist before the save
+/// are made old by an explicit mtime, so "oldest" is not the new one.
+void test_quick_save_prunes()
+{
+    static const QRegularExpression pattern(
+        QStringLiteral("^jnext-\\d{8}-\\d{6}(-\\d{2})?\\.jns$"));
+    auto run = [](const char* conf_value, int keep_cli, int precreated, bool foreign,
+                  QStringList& left, bool& new_kept, bool& foreign_kept) {
+        QTemporaryDir home;
+        if (conf_value) {
+            QSettings raw(home.path() + QStringLiteral("/jnext.conf"), QSettings::IniFormat);
+            raw.beginGroup("snapshot");
+            raw.setValue("quick_keep", conf_value);
+            raw.endGroup();
+            raw.sync();
+        }
+        qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+        const QDir snaps(home.path() + QStringLiteral("/snapshots"));
+        QDir().mkpath(snaps.path());
+        const auto old = std::filesystem::file_time_type::clock::now() - std::chrono::hours(48);
+        for (int i = 0; i < precreated; ++i) {
+            const QString name = QStringLiteral("jnext-20200101-%1.jns")
+                                     .arg(i, 6, 10, QLatin1Char('0'));
+            QFile f(snaps.filePath(name));
+            if (f.open(QIODevice::WriteOnly)) f.write("x");
+            f.close();
+            std::filesystem::last_write_time(f.fileName().toStdString(),
+                                             old + std::chrono::seconds(i));
+        }
+        if (foreign) {
+            QFile f(snaps.filePath(QStringLiteral("mine.jns")));
+            if (f.open(QIODevice::WriteOnly)) f.write("x");
+            f.close();
+            std::filesystem::last_write_time(f.fileName().toStdString(), old - std::chrono::hours(9));
+        }
+        {
+            Fixture f(MachineType::ZX48K, keep_cli);
+            f.win.set_unattended(true);
+            QAction* save = nullptr;
+            for (QAction* a : f.win.findChildren<QAction*>())
+                if (a->text() == QStringLiteral("Quick Save Snapshot")) save = a;
+            if (save) { save->trigger(); QApplication::processEvents(); }
+        }
+        left.clear();
+        new_kept = false;
+        for (const QString& n : snaps.entryList(QDir::Files, QDir::Name)) {
+            left << n;
+            if (!n.startsWith(QStringLiteral("jnext-2020")) && pattern.match(n).hasMatch())
+                new_kept = true;
+        }
+        foreign_kept = left.contains(QStringLiteral("mine.jns"));
+        qunsetenv("JNEXT_CONFIG_DIR");
+    };
+
+    QStringList left; bool nk = false, fk = false;
+    auto quick = [&]() { int c = 0; for (const QString& n : left) if (pattern.match(n).hasMatch()) ++c; return c; };
+
+    run("2", -1, 5, true, left, nk, fk);
+    check("PA-22g", "with quick_keep=2 in jnext.conf a Quick Save leaves the new snapshot and one "
+                    "older, and does not touch a file that is not jnext's",
+          quick() == 2 && nk && fk, left.join(QLatin1Char(',')).toStdString());
+
+    run("5", 1, 3, false, left, nk, fk);
+    check("PA-22h", "--quick-snapshot-keep 1 overrides quick_keep=5 from jnext.conf",
+          quick() == 1 && nk, left.join(QLatin1Char(',')).toStdString());
+
+    run("unlimited", -1, 25, false, left, nk, fk);
+    check("PA-22i", "quick_keep=unlimited deletes nothing (25 old + 1 new)",
+          quick() == 26 && nk, std::to_string(quick()));
+
+    run(nullptr, -1, 25, false, left, nk, fk);
+    check("PA-22j", "with no setting and no flag the default of 20 applies (25 old + 1 new -> 20)",
+          quick() == 20 && nk, std::to_string(quick()));
+}
+
+/// PA-23 — GH #321: Preferences has a control for the retention count, carries
+/// it through Apply, and an untouched dialog does not reset it (collect()
+/// rebuilds the whole struct, so a field without a control is silently reset).
+void test_quick_keep_control()
+{
+    AppConfigData initial;
+    initial.quick_snapshot_keep = 7;
+    PreferencesDialog dlg(initial);
+    auto* spin = dlg.findChild<QSpinBox*>(QStringLiteral("quickKeepSpin"));
+    check("PA-23a", "Preferences exposes the quick-snapshot retention control, starting from the "
+                    "persisted value, with 0 shown as Unlimited",
+          spin != nullptr && spin->value() == 7 &&
+              spin->specialValueText() == QStringLiteral("Unlimited") && spin->minimum() == 0,
+          spin ? std::to_string(spin->value()) : "no control");
+    if (!spin) return;
+
+    AppConfigData collected;
+    bool emitted = false;
+    QObject::connect(&dlg, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) { emitted = true; collected = cfg; });
+    auto* buttons = dlg.findChild<QDialogButtonBox*>();
+    if (buttons && buttons->button(QDialogButtonBox::Apply))
+        buttons->button(QDialogButtonBox::Apply)->click();
+    const bool untouched = emitted && collected.quick_snapshot_keep == 7;
+    emitted = false;
+    spin->setValue(0);
+    if (buttons && buttons->button(QDialogButtonBox::Apply))
+        buttons->button(QDialogButtonBox::Apply)->click();
+    check("PA-23b", "Apply returns the edited retention count (0 = unlimited)",
+          emitted && collected.quick_snapshot_keep == 0, std::to_string(collected.quick_snapshot_keep));
+    check("PA-23c", "an untouched dialog does NOT reset the persisted retention count",
+          untouched, std::to_string(collected.quick_snapshot_keep));
+}
+
 /// PA-16 — issue #35: the policy lives in the frontend's frame sequencer, not
 /// in the emulator, so Apply must forward it. It applies live in every
 /// outcome, including the one where the user declined a machine-type restart.
@@ -1044,6 +1164,8 @@ int main(int argc, char** argv)
     test_quick_screenshot_controls();
     test_quick_screenshot_writes_a_file();
     test_quick_snapshot_actions();
+    test_quick_save_prunes();
+    test_quick_keep_control();
     test_debug_keymap_passthrough();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

@@ -279,6 +279,7 @@ void SdlApp::quick_save() {
         return;
     }
     Log::platform()->info("quick save: wrote '{}'", path);
+    prune_quick_snapshots(default_quick_snapshot_dir(), emulator_.config().quick_snapshot_keep);
 }
 
 void SdlApp::quick_load() {

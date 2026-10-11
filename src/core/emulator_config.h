@@ -292,6 +292,12 @@ struct EmulatorConfig {
     bool jns_strict       = false;   ///< --snapshot-mode strict
     bool jns_force_sdcard = false;   ///< --snapshot-mode force
 
+    /// GH #321 — Quick Save retention: keep the newest N (0 = unlimited).
+    /// `quick_snapshot_keep_cli` says --quick-snapshot-keep was given, which
+    /// then overrides the Preferences / jnext.conf setting for the whole run.
+    int  quick_snapshot_keep     = 20;
+    bool quick_snapshot_keep_cli = false;
+
     // Magic port: debug output port that logs bytes to stderr
     bool     magic_port_enabled = false;
     uint16_t magic_port_address = 0x0000;  // 16-bit port address (default disabled)

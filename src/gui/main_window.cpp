@@ -2210,7 +2210,13 @@ void MainWindow::on_quick_save() {
         return;
     }
     const QString qpath = QString::fromStdString(path);
-    save_jns_with_feedback(qpath, tr("Quick saved: %1").arg(qpath), 5000);
+    if (save_jns_with_feedback(qpath, tr("Quick saved: %1").arg(qpath), 5000)) {
+        // --quick-snapshot-keep overrides the Preferences setting for the run.
+        const EmulatorConfig& ec = emulator_->config();
+        prune_quick_snapshots(dir, ec.quick_snapshot_keep_cli
+                                       ? ec.quick_snapshot_keep
+                                       : app_config_.data().quick_snapshot_keep);
+    }
 }
 
 // GH #321 — File > Quick Load Snapshot (Alt+Shift+F9): the newest .jns in the quick

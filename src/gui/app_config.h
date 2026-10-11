@@ -125,6 +125,11 @@ struct AppConfigData {
     // GH #19 meet, since a no-dialog capture has no filename for an extension
     // to be read from. Persisted as "png"/"scr".
     ScreenshotFormat quick_screenshot_format = ScreenshotFormat::Png;
+
+    // GH #321 — Quick Save keeps the newest N quick snapshots (0 = unlimited).
+    // `[snapshot] quick_keep` in jnext.conf: a number, or the word `unlimited`.
+    // --quick-snapshot-keep overrides it for a run (EmulatorConfig).
+    int quick_snapshot_keep = 20;
 };
 
 /// Task 66 — CLI-vs-saved-preference precedence, one definition shared by
