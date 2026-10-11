@@ -114,6 +114,30 @@ check 2 "gh --repo o/r pr create"             "gh --repo o/r pr create"
 check 0 "prefixed gh -R pr create"            "$O gh -R o/r pr create"
 check 0 "gh pr list (not create)"             "gh -R o/r pr list"
 
+# Override left anchor (F1): only a command-start char may precede it.
+check 2 "X=<override> push (assignment glue)" "X=$O $P origin B"
+check 2 "colon before override"               "FOO=bar:$O $P origin B"
+check 2 "slash before override"               "/$O $P origin B"
+check 2 "dot before override"                 ".$O $P origin B"
+check 2 "dash before override"                "-$O $P origin B"
+check 0 "backtick before override"            "echo \`$O $P origin B\`"
+check 0 "double-quote before override"        "sh -c \"$O $P origin B\""
+check 0 "after && and |"                      "a && $O $P origin B | cat"
+
+# gh alias and more forms (F2, F3, notes).
+check 2 "gh pr new (alias of create)"         "gh pr new --fill"
+check 2 "gh -R pr new"                        "gh -R o/r pr new"
+check 0 "prefixed gh pr new"                  "$O gh pr new --fill"
+check 0 "gh pr view stays allowed"            "gh pr view 3"
+check 2 "quoted \"gh\" pr create"            "\"gh\" pr create"
+check 2 "gh --repo=o/r pr create"             "gh --repo=o/r pr create"
+check 2 "git 'push' quoted subcommand"        "git 'push' origin B"
+check 2 "git \"push\" quoted subcommand"     "git \"push\" origin B"
+check 2 "git -c k=\"a b\" push"               "git -c k=\"a b\" push origin B"
+check 2 "git -C /a\\ b push"                  "git -C /a\\ b push origin B"
+check 2 "git subtree push"                    "git subtree push --prefix=p r B"
+check 0 "git subtree add (not a push)"        "git subtree add --prefix=p r B"
+
 # Fail closed (R2): any failure path must exit 2, never 0/1/127/5.
 check_path 2 "no perl"                        "$GOODJSON" jq cat
 check_path 2 "no jq"                          "$GOODJSON" perl cat

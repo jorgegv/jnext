@@ -49,12 +49,13 @@ cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // ""')"
 unprefixed="$(printf '%s' "$cmd" | perl -0777 -ne '
   BEGIN { our $bad = 0; }
   our $bad;
-  my $opt_git = q{(?:\s+(?:-[Cc]\s*(?:"[^"]*"|\x27[^\x27]*\x27|\S+)|--(?:git-dir|work-tree|namespace)\s+\S+|-\S+))*};
+  my $tok = q{(?:[^\s"\x27\\\\]|"[^"]*"|\x27[^\x27]*\x27|\\\\.)+};
+  my $opt_git = q{(?:\s+(?:-[Cc]\s*} . $tok . q{|--(?:git-dir|work-tree|namespace)\s+\S+|-\S+))*};
   my $opt_gh  = q{(?:\s+(?:-R\s+\S+|--repo\s+\S+|-\S+))*};
   s/\\\n/ /g;   # a backslash-newline continues the same simple command
-  while (/(?<![\w.\/-])(?:[\w.\/-]*\/)?(?:git["\x27]?$opt_git\s+push|gh["\x27]?$opt_gh\s+pr\s+create)/g) {
+  while (/(?<![\w.\/-])(?:[\w.\/-]*\/)?(?:git["\x27]?$opt_git\s+(?:subtree\s+)?["\x27]?push|gh["\x27]?$opt_gh\s+pr\s+(?:create|new))/g) {
     my $pre = substr($_, 0, $-[0]);
-    $bad = 1 unless $pre =~ /(?<!\w)JNEXT_ALLOW_PUSH=1[ \t]+\z/;
+    $bad = 1 unless $pre =~ /(?<![^\s;&|(`"\x27])JNEXT_ALLOW_PUSH=1[ \t]+\z/;
   }
   END { print $bad; }')"
 
