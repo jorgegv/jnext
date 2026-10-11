@@ -2215,11 +2215,7 @@ void MainWindow::on_quick_load() {
         Log::platform()->info("status bar: {}", msg.toStdString());
         return;
     }
-    // Refuse a bad file BEFORE the cold boot throws the session away.
-    if (!emulator_->probe_jns_file(path, why)) {
-        refuse_jns(QString::fromStdString(path), QString::fromStdString(why));
-        return;
-    }
+    // handle_load_path() refuses a bad .jns BEFORE the cold boot (R1).
     const QString msg = tr("Quick loading: %1").arg(QString::fromStdString(path));
     statusBar()->showMessage(msg, 5000);
     Log::platform()->info("status bar: {}", msg.toStdString());

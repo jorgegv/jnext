@@ -909,6 +909,14 @@ void test_quick_snapshot_actions()
           load != nullptr && loaded.empty(),
           loaded.empty() ? std::string("none") : loaded[0]);
 
+    // (f) the same refusal on File > Load's own route: handle_load_path() is
+    // what the menu picker calls, and the cold boot it requests would throw the
+    // session away before load_jns_file() refused the file.
+    loaded.clear();
+    f.win.handle_load_path(snaps.filePath(QStringLiteral("junk.jns")));
+    check("PA-22f", "File > Load of an unreadable .jns requests no cold boot (the session is kept)",
+          loaded.empty(), loaded.empty() ? std::string("none") : loaded[0]);
+
     qunsetenv("JNEXT_CONFIG_DIR");
 }
 
