@@ -570,11 +570,11 @@ the Windows audio path are a later stage (a separate issue).
 | PIT-03 | `audiodev_arg("")` | `dsound,id=snd0` (Windows), `coreaudio,...` (macOS), `pa,id=snd0` |
 | PIT-04 | Emulator on `pi_uart_tcp_port`; host listener sends `SUP> `; guest sends CR; NR 0xA0 = 0x30 | guest reads `SUP> `, host gets CR, UART 0 quiet, `describe()` is `TCP 127.0.0.1:N` |
 | PIT-05 | no listener for over 2 s, a guest byte sent, then a listener appears | no fault, nothing discarded; then both directions flow and the early byte arrives |
-| PIT-06 | peer closed with unread data (reset) with a byte pending; second and third peers | the dead peer's byte and the undeliverable byte discarded (`unsent()` 1), no fault; the second peer receives only the byte sent after the loss; an orderly close is reconnected too |
-| PIT-07 | `link_config` for the socket and FIFO transports; `warm_start_boot_config` | port or the two paths, never both; the warm-start config has neither, machine kept |
+| PIT-06 | peer closed with unread data (reset) with a byte pending; two guest bytes (`Y`, `V`) sent right after; then `Z`; second, third and fourth peers | the dead peer's byte and the undeliverable `Y` discarded (`unsent()` 1), no fault; the second peer receives exactly `VZ` (the dead socket was dropped, so `V` reconnects); an orderly close seen by a read is reconnected; a reset seen by a read with nothing queued is no fault and reconnects |
+| PIT-07 | `link_config` for the socket and FIFO transports on a config pre-filled with the other transport's stale values; an Emulator with both the FIFO pair and a port (POSIX); `warm_start_boot_config` | port or the two paths, never both (stale ones cleared); with both set the FIFO pair wins; the warm-start config has neither, machine kept |
 | PIT-08 | end to end, NextPi directory `nextpi dir,1`, QEMU found on PATH | overlay created, recorded argv == `build_args`, `SUP> ` heard, CR received, orderly stop in < 2 s |
 | PIT-09 | a rebuilt Emulator from the same `link_config` | same stand-in pid, received `AB` |
-| PIT-10 | QEMU absent; a directory named like QEMU on PATH; QEMU exiting at once | "qemu-system-arm not found" twice, "exited at once"; nothing running |
+| PIT-10 | QEMU absent; a directory named like QEMU on PATH; QEMU exiting at once; `qemu_binary` = the stand-in's path without `.exe` | "qemu-system-arm not found" twice, "exited at once", nothing running; the extension-less path starts (Windows completes `.exe`) |
 | PIT-11 | a QEMU ignoring the orderly stop, grace 300 ms | killed, `stop()` returns in 300..1800 ms |
 | PIT-12 | a QEMU exiting 7 on its own | `exit_status()` decodes to 7 |
 | PIT-13 | the process holding the launcher killed outright | QEMU gone within 3 s (watchdog / job kill-on-close) |
