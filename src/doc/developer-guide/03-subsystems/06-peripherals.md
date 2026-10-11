@@ -385,6 +385,13 @@ Four consequences, all deliberate:
   inline by a consumer with its own scheduler. It is always built, so no one
   has to reconfigure to get it, and both modes are exercised by the module's
   suites — an unexercised alternative mode rots.
+- **Detached workers go through `net::start_detached`.** The DNS, `AT+PING` and
+  `AT+CIPSNTPTIME?` workers are threads nobody joins, started by that one
+  function in `esp_socket_platform.h`. On Windows it is a Win32 thread, not
+  `std::thread::detach`: MinGW winpthreads recycles the descriptor of a thread
+  that ended before `pthread_detach` ran while that thread's exit callback can
+  still reach it, so the *next* thread created may never run its body (GH #328).
+  `test/lint-thread-detach.sh` fails the build on any other `.detach()`.
 
 Everything that couples the two sides lives on **jnext's** side of the line:
 

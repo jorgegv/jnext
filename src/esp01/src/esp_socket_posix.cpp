@@ -35,6 +35,8 @@
 
 #include <cerrno>
 #include <cstring>
+#include <thread>
+#include <utility>
 
 namespace esp {
 namespace net {
@@ -424,6 +426,11 @@ NativeSocket accept_nonblocking(NativeSocket listener, IpAddress& peer,
 void close(NativeSocket s) {
     if (s != kInvalidSocket) ::close(s);
 }
+
+// The one sanctioned `.detach()` in the tree (test/lint-thread-detach.sh):
+// glibc and libpthread do not recycle a detached thread's descriptor the way
+// MinGW winpthreads does (GH #328), so std::thread is fine here.
+void start_detached(std::function<void()> body) { std::thread(std::move(body)).detach(); }
 
 }  // namespace net
 }  // namespace esp
