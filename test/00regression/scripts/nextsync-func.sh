@@ -70,7 +70,12 @@ if want nextsync-func; then
     # next failure then names its own cause: a reply that never arrived intact
     # (the peer's TX with no matching +IPD) reads differently from a late one.
     nextsync_exchange() {
-        local first t
+        local first t t2 n_over
+        # The guest-visible side: the UART logs every byte it had to DROP (RX FIFO
+        # full) at debug level. A dropped reply byte is a corrupt packet to the guest.
+        n_over=$(grep -ac "RX FIFO overflow" "$run_log" || true)
+        echo "        --- UART RX FIFO overflow lines in jnext's log: ${n_over:-0}; first 3: ---"
+        grep -a "RX FIFO overflow" "$run_log" | head -n 3 | sed 's/^/        | /' || true
         first=$(grep -an "RX b'Re" "$peer_log" | head -1 | cut -d: -f1 || true)
         if [[ -z "$first" ]]; then
             echo "        --- no Retry/Restart in the peer log; its last 12 lines ---"
@@ -79,14 +84,18 @@ if want nextsync-func; then
         fi
         echo "        --- peer log around its first Retry/Restart (line $first) ---"
         sed -n "$(( first > 8 ? first - 8 : 1 )),$(( first + 8 ))p" "$peer_log" | sed 's/^/        | /'
-        t=$(sed -n "${first}p" "$peer_log" | awk '{print $2}')
-        echo "        --- jnext esp01 lines within 400 ms of $t ---"
-        awk -v t="$t" 'function ms(x,  a){ split(x, a, /[:.]/); return ((a[1]*60 + a[2])*60 + a[3])*1000 + a[4] }
-            BEGIN { c = ms(t) }
+        # The window starts at the peer's last event BEFORE the Restart (the reply the
+        # guest then failed to act on) and ends 300 ms after the Restart; the UART's
+        # per-byte TX lines are left out, they bury the rest.
+        t=$(sed -n "$(( first > 1 ? first - 1 : 1 ))p" "$peer_log" | awk '{print $2}')
+        echo "        --- jnext esp01/uart lines from $t (the peer's last event before the Restart) to its Restart + 300 ms ---"
+        t2=$(sed -n "${first}p" "$peer_log" | awk '{print $2}')
+        awk -v t="$t" -v t2="$t2" 'function ms(x,  a){ split(x, a, /[:.]/); return ((a[1]*60 + a[2])*60 + a[3])*1000 + a[4] }
+            BEGIN { c = ms(t) - 30; e = ms(t2) + 300 }
             match($0, /\[[0-9][0-9]:[0-9][0-9]:[0-9][0-9]\.[0-9][0-9][0-9]\]/) {
-                d = ms(substr($0, RSTART + 1, RLENGTH - 2)) - c
-                if (d > -400 && d < 400) print
-            }' "$run_log" | grep -a "esp" | head -n 60 | sed 's/^/        | /'
+                d = ms(substr($0, RSTART + 1, RLENGTH - 2))
+                if (d > c && d < e) print
+            }' "$run_log" | grep -aE "esp|uart" | grep -av "TX write" | head -n 80 | sed 's/^/        | /' || true
     }
 
     # Preconditions. A missing SD clone is a SKIP (the provision row will have
@@ -171,7 +180,7 @@ if want nextsync-func; then
             --delayed-keypress-frames 605 n \
             --delayed-keypress-frames 620 c \
             --delayed-keypress-frames 635 enter \
-            --log-level info,esp01=debug \
+            --log-level info,esp01=debug,uart=debug \
             --delayed-automatic-exit-frames 4000 \
             >"$run_log" 2>&1 || true
 
