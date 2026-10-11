@@ -83,6 +83,24 @@ for a GUI-subsystem executable, NTFS short names and streams, and the timestamp
 resolution of a real filesystem (wine keeps whole seconds, so a fixture mtime is
 set 250 ms past the second, never exactly on it).
 
+## Portable regression rows
+
+A functional row also runs on macOS and, under wine, on Windows
+(`make regression-macos`, `make regression-win`) unless its `os=` tag in
+`functional_tests.conf` says otherwise. So a row that is not tagged must:
+
+- run the binary as `"$JNEXT"` (Qt) or `"$JNEXT_SDL"` (SDL-only), never a path of
+  its own, and the native helpers as `"$TEST_BIN_DIR/<tool>"`;
+- not read `/proc`, `/dev/full`, `/sys` or assume a process tree (a wrapper sits
+  between the row and jnext on Windows); where it must differ by OS it reads
+  `$JNEXT_TARGET_OS` (`linux` by default) and keeps the Linux assertion intact;
+- use `QT_QPA_PLATFORM=offscreen` and `SDL_VIDEODRIVER=dummy`, not Xvfb, unless
+  the row is about X11;
+- not depend on CRLF or on seeing the exact stdout bytes jnext writes on Windows
+  (the runner folds CRLF); a file jnext writes must be written in binary mode;
+- not use a pty, a FIFO, `ulimit` or ffmpeg unless it is tagged `os=linux` or
+  `os=linux,macos` with the reason above it.
+
 ## The row idiom
 
 Suites are standalone binaries with a small local harness — there is no

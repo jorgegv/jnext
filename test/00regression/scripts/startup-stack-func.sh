@@ -30,7 +30,7 @@ if want startup-stack-func; then
 
     ss_dir="$TMP_DIR/startup-stack"
     rm -rf "$ss_dir"; mkdir -p "$ss_dir"
-    ss_sdl="$PROJECT_DIR/build/sdl-release/jnext"
+    ss_sdl="$JNEXT_SDL"
     ss_faults=()
 
     # ss_run <name> <env...> -- <cmd...>: run under a 1 MiB stack; prints rc.

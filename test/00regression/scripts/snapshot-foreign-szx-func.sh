@@ -51,7 +51,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # reads a Next snapshot.
 if want snapshot-foreign-szx-func; then
     begin_func snapshot-foreign-szx-func
-    PROBE="$PROJECT_DIR/build/test/szx_probe"
+    PROBE="$TEST_BIN_DIR/szx_probe"
     READER="$PROJECT_DIR/test/snapshot/jns_reader.py"
     if [[ ! -x "$PROBE" ]]; then
         skip_row " (szx_probe not built — libspectrum-devel absent; this is the ONLY foreign adjudication in the tree, so its absence is worth seeing)"

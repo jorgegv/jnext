@@ -1889,6 +1889,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#portable-regression-rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Portable regression rows
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-row-idiom" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2431,6 +2442,23 @@ symlink creation (so the symlink-refusal rows are <code>posix</code>), a real co
 for a GUI-subsystem executable, NTFS short names and streams, and the timestamp
 resolution of a real filesystem (wine keeps whole seconds, so a fixture mtime is
 set 250 ms past the second, never exactly on it).</p>
+<h2 id="portable-regression-rows">Portable regression rows<a class="headerlink" href="#portable-regression-rows" title="Permanent link">&para;</a></h2>
+<p>A functional row also runs on macOS and, under wine, on Windows
+(<code>make regression-macos</code>, <code>make regression-win</code>) unless its <code>os=</code> tag in
+<code>functional_tests.conf</code> says otherwise. So a row that is not tagged must:</p>
+<ul>
+<li>run the binary as <code>"$JNEXT"</code> (Qt) or <code>"$JNEXT_SDL"</code> (SDL-only), never a path of
+  its own, and the native helpers as <code>"$TEST_BIN_DIR/&lt;tool&gt;"</code>;</li>
+<li>not read <code>/proc</code>, <code>/dev/full</code>, <code>/sys</code> or assume a process tree (a wrapper sits
+  between the row and jnext on Windows); where it must differ by OS it reads
+  <code>$JNEXT_TARGET_OS</code> (<code>linux</code> by default) and keeps the Linux assertion intact;</li>
+<li>use <code>QT_QPA_PLATFORM=offscreen</code> and <code>SDL_VIDEODRIVER=dummy</code>, not Xvfb, unless
+  the row is about X11;</li>
+<li>not depend on CRLF or on seeing the exact stdout bytes jnext writes on Windows
+  (the runner folds CRLF); a file jnext writes must be written in binary mode;</li>
+<li>not use a pty, a FIFO, <code>ulimit</code> or ffmpeg unless it is tagged <code>os=linux</code> or
+  <code>os=linux,macos</code> with the reason above it.</li>
+</ul>
 <h2 id="the-row-idiom">The row idiom<a class="headerlink" href="#the-row-idiom" title="Permanent link">&para;</a></h2>
 <p>Suites are standalone binaries with a small local harness — there is no
 GoogleTest anywhere in the project. <code>test/copper/copper_test.cpp</code> is the

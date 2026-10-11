@@ -18,7 +18,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../dzrp-functions.inc"
 # tick, ~20 ms apart. Then CONTINUE runs frames and PAUSE notifies (reason 1).
 if want dzrp-sdl-func; then
     begin_func dzrp-sdl-func
-    sdl_bin="$PROJECT_DIR/build/sdl-release/jnext"
+    sdl_bin="$JNEXT_SDL"
     log="$TMP_DIR/dzrp-sdl-func.log"
     if [[ ! -x "$sdl_bin" ]]; then
         fail_row " (SDL-only binary not built: $sdl_bin; run 'make sdl-release')"

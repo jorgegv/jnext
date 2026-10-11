@@ -15,7 +15,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../zrcp-functions.inc"
 # (PC 8001), exit-cpu-step, quit.
 if want zrcp-sdl-func; then
     begin_func zrcp-sdl-func
-    sdl_bin="$PROJECT_DIR/build/sdl-release/jnext"
+    sdl_bin="$JNEXT_SDL"
     log="$TMP_DIR/zrcp-sdl-func.log"
     if [[ ! -x "$sdl_bin" ]]; then
         fail_row " (SDL-only binary not built: $sdl_bin; run 'make sdl-release')"
