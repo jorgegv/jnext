@@ -379,7 +379,10 @@ A soft or hard reset leaves the Pi running.
 A Pi asked for with this option that cannot start (no QEMU, a failed
 download) is an error; declining the download is not \(em jnext then
 starts without the Pi.
-POSIX only.
+On Linux and macOS the link is a pair of FIFOs; on Windows (QEMU for
+Windows, its folder on \f[CR]PATH\f[R] or set in Preferences) it is a
+loopback TCP socket QEMU listens on.
+On Windows the Pi has no sound yet.
 .RE
 .TP
 \f[B]\-\-no\-nextpi\f[R]
@@ -2850,8 +2853,8 @@ there; empty means \f[CR]1_93D\f[R]), \f[CR]qemu_binary\f[R] (empty
 means \f[CR]qemu\-system\-arm\f[R] on \f[CR]PATH\f[R]) and
 \f[CR]audio\f[R] (a QEMU \f[CR]\-audiodev\f[R] driver such as
 \f[CR]coreaudio\f[R], \f[CR]pa\f[R] or \f[CR]none\f[R], or
-\f[CR]wav:\f[R]\f[I]FILE\f[R]; empty means \f[CR]coreaudio\f[R] on macOS
-and \f[CR]pa\f[R] elsewhere).
+\f[CR]wav:\f[R]\f[I]FILE\f[R]; empty means \f[CR]coreaudio\f[R] on
+macOS, \f[CR]dsound\f[R] on Windows and \f[CR]pa\f[R] elsewhere).
 Changing the release makes the next start offer to download it,
 replacing the installed one.
 The joystick ports are stored under \f[CR][input]\f[R]:

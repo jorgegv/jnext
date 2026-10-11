@@ -395,7 +395,10 @@ baud; a rewind or an RZX playback holds the link inert, and nothing
 about it is saved in a snapshot. A soft or hard reset leaves the Pi
 running. A Pi asked for with this option that cannot start (no QEMU, a
 failed download) is an error; declining the download is not — jnext then
-starts without the Pi. POSIX only.
+starts without the Pi. On Linux and macOS the link is a pair of FIFOs;
+on Windows (QEMU for Windows, its folder on `PATH` or set in
+Preferences) it is a loopback TCP socket QEMU listens on. On Windows the
+Pi has no sound yet.
 
 **--no-nextpi**  
 Do not start NextPi this run, overriding a saved preference that enables
@@ -2308,23 +2311,24 @@ NextPi release name on the mirror, or `latest` for the newest one listed
 there; empty means `1_93D`), `qemu_binary` (empty means
 `qemu-system-arm` on `PATH`) and `audio` (a QEMU `-audiodev` driver such
 as `coreaudio`, `pa` or `none`, or `wav:`*FILE*; empty means `coreaudio`
-on macOS and `pa` elsewhere). Changing the release makes the next start
-offer to download it, replacing the installed one. The joystick ports
-are stored under `[input]`: `joy1_source` and `joy2_source` (`sdl`,
-`keys` or `none`), `joy1_device` and `joy2_device` (the controller’s id:
-32 hex digits, optionally `#N`; empty means Automatic) and
-`joy1_device_name` and `joy2_device_name` (the name shown while that
-controller is not connected). **--joy1-device** and **--joy2-device**
-override the ids for one run. An id that is not valid is ignored, with
-its name. The quick screenshot is stored under `[screenshot]` as
-`quick_dir` (empty means `~/.jnext/screenshots`) and `quick_format`
-(`png` or `scr`), edited under **Settings \> Preferences \> Paths**; an
-unrecognised format keeps the default. The debugger window’s layout is
-stored under `[debugger]`: `size` (`W, H`), `position` (`X, Y`, written
-only while the window is detached) and `attached` (`true`/`false`). An
-older `~/.jnext/Debugger.conf` is merged into this section once and
-removed. All section names are lowercase. CLI options always take
-precedence over saved values, and headless runs never read it.
+on macOS, `dsound` on Windows and `pa` elsewhere). Changing the release
+makes the next start offer to download it, replacing the installed one.
+The joystick ports are stored under `[input]`: `joy1_source` and
+`joy2_source` (`sdl`, `keys` or `none`), `joy1_device` and `joy2_device`
+(the controller’s id: 32 hex digits, optionally `#N`; empty means
+Automatic) and `joy1_device_name` and `joy2_device_name` (the name shown
+while that controller is not connected). **--joy1-device** and
+**--joy2-device** override the ids for one run. An id that is not valid
+is ignored, with its name. The quick screenshot is stored under
+`[screenshot]` as `quick_dir` (empty means `~/.jnext/screenshots`) and
+`quick_format` (`png` or `scr`), edited under **Settings \> Preferences
+\> Paths**; an unrecognised format keeps the default. The debugger
+window’s layout is stored under `[debugger]`: `size` (`W, H`),
+`position` (`X, Y`, written only while the window is detached) and
+`attached` (`true`/`false`). An older `~/.jnext/Debugger.conf` is merged
+into this section once and removed. All section names are lowercase. CLI
+options always take precedence over saved values, and headless runs
+never read it.
 
 `~/.jnext/screenshots/`  
 Where **File \> Quick Screenshot** writes, unless
