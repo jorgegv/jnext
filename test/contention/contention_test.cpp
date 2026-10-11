@@ -4959,6 +4959,34 @@ static void test_overshoot_counter(void) {
     }
 }
 
+// GH #324 -- the Pentagon personality has no contention (machine_timing_pentagon
+// gates i_contention_en off, zxnext.vhd:4481), where the 128K it shares its
+// ROM/paging family with does contend the same access.
+static void test_pentagon_no_contention() {
+    set_group("CT-PENT-MACHINE");
+    bool pent = true, m128 = false;
+    {
+        Emulator emu;
+        if (make_emu(emu, MachineType::PENTAGON)) {
+            emu.contention().set_mem_active_page(0x0A);   // bank 5 first half
+            pent = emu.contention().is_contended_access();
+        }
+    }
+    {
+        Emulator emu;
+        if (make_emu(emu, MachineType::ZX128K)) {
+            emu.contention().set_mem_active_page(0x0A);
+            m128 = emu.contention().is_contended_access();
+        }
+    }
+    check("PENT-07",
+          "--machine pentagon: a bank-5 access is not contended (machine_timing_pentagon "
+          "gates i_contention_en off); the same access on ZX128K is [zxnext.vhd:4481]",
+          !pent && m128,
+          std::string("pentagon=") + (pent ? "1" : "0") + " 128k=" + (m128 ? "1" : "0") +
+          " (exp 0/1)");
+}
+
 int main() {
     std::printf("Contention Model Compliance Tests\n");
     std::printf("=================================\n\n");
@@ -5004,6 +5032,9 @@ int main() {
 
     test_fuse_inopcode_contention();
     std::printf("  Group: CT-FUSE        — done\n");
+
+    test_pentagon_no_contention();
+    std::printf("  Group: CT-PENT-MACHINE — done\n");
 
     // Cat 27: testcov-memory regression rows for verify6/verify9
     // memory-subsystem fixes that touched ContentionModel / Mmu page

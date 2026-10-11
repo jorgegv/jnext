@@ -489,6 +489,41 @@ static void test_rzx_reset_notice() {
               "(48K at start, 128K after a boot to it)",
               on_48k && on_128k, fmt("48k=%d 128k=%d", on_48k ? 1 : 0, on_128k ? 1 : 0));
     }
+
+    // PENT-21 (GH #324) -- Machine > Machine Type lists "Pentagon 128K"; picking
+    // it asks the frontend to cold-boot a PENTAGON, and a window set on a
+    // running Pentagon shows "Pentagon" in the status bar with that entry checked.
+    {
+        Fixture f;
+        std::vector<MachineType> reboots;
+        f.win.set_reboot_callback([&reboots](MachineType t) { reboots.push_back(t); });
+        QAction* entry = nullptr;
+        for (QAction* a : f.win.findChildren<QAction*>())
+            if (a->isCheckable() && a->text().remove('&') == "Pentagon 128K" &&
+                a->data().toInt() == static_cast<int>(MachineType::PENTAGON))
+                entry = a;
+        if (entry) entry->trigger();
+        const bool asked = reboots.size() == 1 && reboots[0] == MachineType::PENTAGON;
+
+        EmulatorConfig cfg;
+        cfg.type                 = MachineType::PENTAGON;
+        cfg.rewind_buffer_frames = 0;
+        const bool rebooted = f.emu.init(cfg);
+        f.win.set_emulator(&f.emu);
+        bool checked = false, labelled = false;
+        for (QAction* a : f.win.findChildren<QAction*>())
+            if (a->isCheckable() && a->isChecked() &&
+                a->data().toInt() == static_cast<int>(MachineType::PENTAGON))
+                checked = true;
+        for (QLabel* l : f.win.findChildren<QLabel*>())
+            if (l->text() == "Pentagon") labelled = true;
+        check("PENT-21",
+              "Machine > Machine Type has \"Pentagon 128K\"; picking it requests a PENTAGON "
+              "cold boot; a window on a running Pentagon checks it and shows \"Pentagon\"",
+              entry && asked && rebooted && checked && labelled,
+              fmt("entry=%d asked=%d rebooted=%d checked=%d labelled=%d", entry ? 1 : 0,
+                  asked ? 1 : 0, rebooted ? 1 : 0, checked ? 1 : 0, labelled ? 1 : 0));
+    }
 }
 
 int main(int argc, char** argv) {

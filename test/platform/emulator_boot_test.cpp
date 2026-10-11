@@ -1346,7 +1346,7 @@ int main()
             bool ok = true;
             std::string why;
             for (MachineType m : recordable) {
-                const std::string path = path_for(rzx::machine_marker_name(m));
+                const std::string path = path_for(machine_type_key(m));
                 EmulatorConfig cfg = base_config();
                 cfg.type = m;
                 Emulator emu;
@@ -1357,8 +1357,8 @@ int main()
                 for (MachineType configured : all) {
                     if (written && emulator_boot_machine(path, configured) == m) continue;
                     ok = false;
-                    why += std::string(" ") + rzx::machine_marker_name(m) + "/" +
-                           rzx::machine_marker_name(configured);
+                    why += std::string(" ") + machine_type_key(m) + "/" +
+                           machine_type_key(configured);
                 }
                 std::remove(path.c_str());
             }
@@ -1720,6 +1720,49 @@ int main()
 
         std::remove(card_a.c_str());
         std::remove(card_b.c_str());
+    }
+
+    // --- GH #324: the Pentagon machine type's names -------------------------
+    {
+        MachineType a = MachineType::ZXN_ISSUE2, b = MachineType::ZXN_ISSUE2;
+        const bool p1 = parse_machine_type("pentagon", a) && a == MachineType::PENTAGON;
+        const bool p2 = parse_machine_type("pent", b) && b == MachineType::PENTAGON;
+        const MachineType every[] = {MachineType::ZXN_ISSUE2, MachineType::ZX48K,
+                                     MachineType::ZX128K, MachineType::ZX_PLUS3,
+                                     MachineType::PENTAGON};
+        bool round_trip = true;
+        for (MachineType t : every) {
+            MachineType back = MachineType::ZXN_ISSUE2;
+            round_trip = round_trip && parse_machine_type(machine_type_key(t), back) && back == t;
+        }
+        check("PENT-13",
+              "parse_machine_type accepts \"pentagon\"/\"pent\", machine_type_str names it "
+              "\"Pentagon\", and parse(machine_type_key(t)) == t for all five machines",
+              p1 && p2 && std::string(machine_type_str(MachineType::PENTAGON)) == "Pentagon" &&
+                  round_trip,
+              "p1=" + std::to_string(p1) + " p2=" + std::to_string(p2) +
+                  " round_trip=" + std::to_string(round_trip));
+    }
+
+    // --- GH #324: a Pentagon recording boots the Pentagon -------------------
+    {
+        const std::filesystem::path tmp = std::filesystem::temp_directory_path();
+        const std::string path = (tmp / ("jnext-eb-pent-" + std::to_string(getpid()) + ".rzx")).string();
+        EmulatorConfig cfg = base_config();
+        cfg.type = MachineType::PENTAGON;
+        Emulator emu;
+        emu.init(cfg);
+        const bool made = emu.start_rzx_recording(path);
+        emu.run_frame();
+        const bool written = made && emu.stop_rzx_recording();
+        const bool boots = written &&
+            emulator_boot_machine(path, MachineType::ZXN_ISSUE2) == MachineType::PENTAGON &&
+            emulator_boot_machine(path, MachineType::ZX128K) == MachineType::PENTAGON;
+        std::remove(path.c_str());
+        check("PENT-23",
+              "an RZX recorded on the Pentagon (embedded SZX id 7, creator marker \"pentagon\") "
+              "boots the Pentagon whatever machine is configured",
+              boots, "made=" + std::to_string(made) + " written=" + std::to_string(written));
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

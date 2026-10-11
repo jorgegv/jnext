@@ -7990,6 +7990,109 @@ static void test_nr_mmu_arbitration(Emulator& emu) {
     hard_reset(emu);
 }
 
+// ── GH #324 — the Next's Pentagon 128 personality (`--machine pentagon`) ──
+//
+// Oracle: tbblue.fw boot.c for mode 3 (menu.def "Pentagon 128K,3,8,128.rom"),
+// observed by booting the real firmware with config.ini default=14: it writes
+// NR 0x82 = 0xC6 (`case 3: hwenables[0] = 0xc6`), NR 0x84 = 0xFB (Soundrive 2
+// DAC disabled), NR 0x85 = 0x01 (bit 31 = 0) and NR 0x03 = 0xC4
+// (0x80 | (3+1)<<4 | (3+1)), and never writes NR 0x8F.
+static void test_gh324_pentagon_personality() {
+    set_group("PENT-PERSONALITY");
+
+    auto boot_pentagon = [](Emulator& e) {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::PENTAGON;
+        cfg.rewind_buffer_frames = 0;
+        e.init(cfg);
+    };
+
+    {
+        Emulator emu;
+        boot_pentagon(emu);
+        const uint8_t got = nr_read(emu, 0x03);
+        check("PENT-01",
+              "--machine pentagon: NR 0x03 reads 0x44 (typ_sel 100, tim_sel 100) "
+              "[boot.c 0x80|(3+1)<<4|(3+1); zxnext.vhd:5894]",
+              got == 0x44, detail_eq(got, 0x44));
+    }
+    {
+        Emulator emu;
+        boot_pentagon(emu);
+        const uint8_t r82 = nr_read(emu, 0x82);
+        const uint8_t r84 = nr_read(emu, 0x84);
+        const uint8_t r85 = nr_read(emu, 0x85);
+        check("PENT-02",
+              "cold boot writes the firmware's mode-3 port enables: NR 0x82 = 0xC6, "
+              "NR 0x84 = 0xFB (Soundrive 2 off), NR 0x85 bit 7 = 0 "
+              "[boot.c case 3; hwenables[2] &= 0xfb; bit 31 = 0]",
+              r82 == 0xC6 && r84 == 0xFB && (r85 & 0x80) == 0,
+              fmt("82=%02x 84=%02x 85=%02x", r82, r84, r85));
+    }
+    {
+        Emulator emu;
+        boot_pentagon(emu);
+        guest_soft_reset(emu);
+        const uint8_t a82 = nr_read(emu, 0x82);
+        const uint8_t a84 = nr_read(emu, 0x84);
+        // A guest that changed the enables keeps ITS value across the reset
+        // (reset_type = 0), so the cold-boot values are not re-applied from cfg.
+        nr_write(emu, 0x82, 0xCE);
+        guest_soft_reset(emu);
+        const uint8_t g82 = nr_read(emu, 0x82);
+        check("PENT-03",
+              "NR 0x85 bit 7 = 0: a soft reset keeps NR 0x82/0x84 (0xC6/0xFB) and a "
+              "guest-modified NR 0x82 (0xCE) rather than reloading them "
+              "[zxnext.vhd:5052-5067]",
+              a82 == 0xC6 && a84 == 0xFB && g82 == 0xCE,
+              fmt("after reset 82=%02x 84=%02x; guest-set 0xCE then reset: 82=%02x",
+                  a82, a84, g82));
+    }
+    {
+        Emulator emu;
+        boot_pentagon(emu);
+        nr_write(emu, 0x05, 0x85);
+        const uint8_t got = nr_read(emu, 0x05);
+        check("PENT-04",
+              "Pentagon timing forces 50 Hz: NR 0x05 write 0x85 reads back with bit 2 = 0 "
+              "[zxnext.vhd:5835-5836]",
+              (got & 0x04) == 0, detail_eq(got, 0x81));
+    }
+    {
+        Emulator emu;
+        boot_pentagon(emu);
+        const uint8_t got = nr_read(emu, 0x8F);
+        check("PENT-05",
+              "Pentagon 128 cold boot leaves NR 0x8F = 0x00 (standard mapping; the "
+              "firmware never writes it, and the VHDL has no reset clause) [zxnext.vhd:888]",
+              got == 0x00, detail_eq(got, 0x00));
+    }
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0x03, 0x07);        // re-enter config mode (:5147-5151)
+        nr_write(emu, 0x03, 0xC4);        // the firmware's Pentagon commit
+        check("PENT-06",
+              "a Next committing typ_sel 100 through NR 0x03 ends in MachineType::PENTAGON "
+              "(machine_type_128 family, same as --machine pentagon) [zxnext.vhd:5139-5142, :5751]",
+              emu.mmu().machine_type() == MachineType::PENTAGON,
+              fmt("machine_type=%d", static_cast<int>(emu.mmu().machine_type())));
+    }
+    {
+        Emulator emu;
+        boot_pentagon(emu);
+        const uint8_t r08 = nr_read(emu, 0x08);
+        emu.port().out(0x00FB, 0xF0);
+        const uint16_t left  = emu.dac().pcm_left();    // A + B
+        const uint16_t right = emu.dac().pcm_right();   // C + D
+        check("PENT-22",
+              "Pentagon Covox: NR 0x08 bit 3 (DAC) set and OUT 0xFB reaches DAC channels A "
+              "and D (NR 0x84 bit 5 mono_AD_fb, bit 2 clear) [zxnext.vhd:2433, :2661-2664]",
+              (r08 & 0x08) != 0 && left == 0xF0 + 0x80 && right == 0x80 + 0xF0,
+              fmt("nr08=%02x left=%04x right=%04x", r08, left, right));
+    }
+}
+
 int main() {
     std::printf("NextREG Integration Tests (full-machine reset defaults)\n");
     std::printf("====================================\n\n");
@@ -8134,6 +8237,9 @@ int main() {
 
     test_nr_mmu_arbitration(emu);
     std::printf("  Group: NR-MMU-Arbitration — done\n");
+
+    test_gh324_pentagon_personality();
+    std::printf("  Group: PENT-PERSONALITY — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

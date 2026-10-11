@@ -253,6 +253,31 @@ static void test_partial_file(QTemporaryDir& dir) {
               && d.quick_screenshot_format == def.quick_screenshot_format);
 }
 
+// ── PENT-20 (GH #324): the Pentagon machine type persists as "pentagon" ──
+
+static void test_pentagon_roundtrip(QTemporaryDir& dir) {
+    set_group("AC-PENTAGON");
+
+    const QString path = fresh_ini_path(dir, "pentagon");
+    {
+        AppConfig writer(path);
+        writer.data().machine_type = MachineType::PENTAGON;
+        writer.save();
+    }
+    QString on_disk;
+    {
+        QSettings raw(path, QSettings::IniFormat);
+        raw.beginGroup("startup");
+        on_disk = raw.value("machine_type").toString();
+        raw.endGroup();
+    }
+    AppConfig reader(path);
+    reader.load();
+    check("PENT-20", "machine_type PENTAGON is written as \"pentagon\" and read back",
+          on_disk == "pentagon" && reader.data().machine_type == MachineType::PENTAGON,
+          on_disk.toStdString());
+}
+
 // ── AC-MALFORMED: garbage / out-of-range values must not be accepted ───
 
 static void test_malformed_values(QTemporaryDir& dir) {
@@ -1080,6 +1105,7 @@ int main() {
 
     test_defaults_no_file(dir);
     test_roundtrip(dir);
+    test_pentagon_roundtrip(dir);
     test_partial_file(dir);
     test_malformed_values(dir);
     test_merge_precedence();

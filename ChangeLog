@@ -4,12 +4,15 @@
 
 ### User Features
 - The Pause key pauses and resumes emulation (alongside Alt+U); holding it no longer toggles repeatedly
+- `--machine pentagon` and Machine > Machine Type > Pentagon 128K: the Next's Pentagon personality (128K ROM, Pentagon timing, Covox)
 
 ### Bug Fixes
 - Seconds-form delays (--delayed-automatic-exit, -screenshot-time, -keypress, -nmi) now count programs running at 60 Hz as 1/60 s per frame
 - A malformed numeric command-line value is now a clear error instead of a crash or a silently wrong number
 - Windows: the status bar shows a loaded tape's file name instead of its full path
 - esxDOS host folder: a name containing ':' gets the same answer on every OS
+- Writes to ports 0x1FFD/0x3FFD page like 0x7FFD where the Next does (Pentagon and 128K timing)
+- A `.szx` is refused instead of saved with the wrong bank when extended paging (0xDFFD, NR 0x8F) is in use
 
 ### Internal JNEXT Development
 - Unit test suites now also run on macOS and on Windows (under wine) in CI, blocking

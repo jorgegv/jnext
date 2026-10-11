@@ -9,7 +9,7 @@ JNEXT writes four, and the extension picks one:
 | Extension | What it is | Use it when |
 |---|---|---|
 | `.jns` | **JNEXT's own snapshot.** The only one that can represent a ZX Spectrum Next. | You are on a Next — which is JNEXT's default machine. |
-| `.sna` | The classic 48K/128K snapshot every Spectrum emulator reads. | You are on a 48K, 128K or +3 and want to hand the file to another emulator. |
+| `.sna` | The classic 48K/128K snapshot every Spectrum emulator reads. | You are on a 48K, 128K, Pentagon or +3 and want to hand the file to another emulator. |
 | `.szx` | ZX-State: richer than `.sna` — it names the machine and carries the +3's own paging register. | Same, when `.sna` cannot describe the machine (see below). |
 | `.nex` | Not a snapshot — a *program* file the Next's own loader runs. | You are producing something to run on real hardware. |
 
@@ -23,9 +23,10 @@ that quietly misrepresents your machine.
 |---|---|---|---|
 | 48K | 48K form, exact | yes | yes |
 | 128K | 128K form: all eight banks, the paging register | yes | yes |
+| Pentagon | 128K form | yes, as a Pentagon 128 | yes |
 | +3, ordinary paging | 128K form | yes | yes |
 | +3, special paging or ROM 2/3 paged | **refused** — use `.szx` | yes | yes |
-| any machine using extended paging (port 0xDFFD) | **refused** — use `.jns` | — | yes |
+| any machine using extended paging (port 0xDFFD, or NextREG 0x8F's 512K/1024K modes) | **refused** — use `.jns` | **refused** — use `.jns` | yes |
 | Next | **refused** — use `.jns` | **refused** — use `.jns` | yes |
 
 `.sna` and `.szx` describe a machine the Next is not: no Layer 2, no sprites, no
@@ -62,7 +63,7 @@ jnext --headless --load game.nex \
 ```
 
 On a Next the file dialog offers `.jns` first and adds `.jns` if you type a
-name with no extension; on a 48K, 128K or +3 it offers `.sna` first and adds
+name with no extension; on a 48K, 128K, Pentagon or +3 it offers `.sna` first and adds
 that. Type any of the four extensions and you get that format, unless the table
 above says it is refused: the dialog then says why, and headless says why and
 exits non-zero rather than leaving you a file you would have trusted.

@@ -51,7 +51,7 @@ naming the option and the value, and exits with status 1.
 ## Machine and program
 
 **\--machine** *TYPE*
-:   Machine type: `48k`, `128k`, `plus3`, `next` (default).
+:   Machine type: `48k`, `128k`, `plus3`, `pentagon`, `next` (default).
 
 **\--load** *FILE*
 :   Load a program. The format is detected from the extension: `.nex`, `.jns`,
@@ -545,11 +545,11 @@ naming the option and the value, and exits with status 1.
     Recording**). Works the same in the GUI, the SDL-only build and under
     **\--headless**. While recording, a tape loads in real time: a fast load
     skips the ROM loader, which a recording cannot replay. The snapshot is an
-    SZX on the 128K and +3 and a 48K SNA on the 48K. The file names the machine
+    SZX on the 128K, Pentagon and +3 and a 48K SNA on the 48K. The file names the machine
     it was recorded on, which **\--rzx-play** then uses.
 
     **Recording is not available on a ZX Spectrum Next, which is jnext's default
-    machine, so this needs an explicit \--machine 48k, 128k or plus3.** An RZX
+    machine, so this needs an explicit \--machine 48k, 128k, pentagon or plus3.** An RZX
     carries a snapshot of the machine it starts from plus a log of the values the
     program read from ports — and the log records the values without the ports
     they came from. So no snapshot an RZX can carry both describes a Next (none
@@ -858,6 +858,13 @@ naming the option and the value, and exits with status 1.
 `plus3`
 :   ZX Spectrum +2A/+3 - extended paging.
 
+`pentagon`
+:   The Next's Pentagon 128 personality, as the TBBlue firmware's own Pentagon
+    entry runs it: the 128K ROM (`128.rom`) and paging, Pentagon timing (no
+    contention, a 448 x 320 frame, always 50 Hz), the Covox on port 0xFB, and
+    Pentagon-512/1024 paging through NextREG 0x8F. Not the original Russian
+    clone's own hardware.
+
 `next`
 :   ZX Spectrum Next (Issue 2) - full Next hardware and extended features.
 
@@ -874,7 +881,7 @@ hardware. Where each one comes from:
   flash IPL of the real machine.
 - **The ROMs jnext loads itself** - 48K / 128K / +3 BASIC, DivMMC firmware,
   Multiface firmware and the Alt ROM - are read from the SD-card image at the
-  canonical TBBlue paths under `/MACHINES/NEXT/` (`48.rom`, `128.rom`,
+  canonical TBBlue paths under `/MACHINES/NEXT/` (`48.rom`, `128.rom` (also the Pentagon's),
   `plus3.rom`, `enNxtmmc.rom`, `enNextMf.rom`, `enAltZX.rom`). That is the
   whole list of files jnext reads from the card itself.
 - **NextZXOS is not one of them.** It is loaded by the firmware, not by jnext:
@@ -1156,7 +1163,7 @@ NextZXOS's file commands stop working.
 # JNEXT SNAPSHOTS
 
 A `.jns` file is jnext's own whole-machine snapshot, and the only format that
-can represent a ZX Spectrum Next: `.sna` and `.szx` describe a 48K/128K/+3
+can represent a ZX Spectrum Next: `.sna` and `.szx` describe a 48K/128K/Pentagon/+3
 machine, which a Next is not, so asking for either on a Next is refused rather
 than written lossily.
 
@@ -1170,14 +1177,16 @@ at 0xC000 in a field that reaches only banks 0-7, so a machine using **extended
 paging** (port 0xDFFD, which works on every machine type, not only a Next) is
 refused too, pointing at `.jns` — `.szx` has no field for that register either.
 An SNA also carries no machine identifier, so FUSE reads a 128K one as a
-Pentagon 128 — the right RAM and paging, a different timing model.
+Pentagon 128 — the right RAM and paging, a different timing model. On
+**\--machine** `pentagon` jnext writes that same 128K form, and an `.szx` as a
+Pentagon 128 (machine ID 7).
 
 Write one with **File > Save Snapshot...** (Alt+Shift+S), or headless with
 **\--delayed-snapshot** naming a `.jns` file. Read one back with **\--load**, a
 bare file name, or **File > Load NEX File...**, which lists `.jns` alongside
 every other format. On a Next the save dialog offers `.jns` first and appends
-it to a name typed without an extension; on a 48K, 128K or +3 it offers `.sna`
-first and appends that instead.
+it to a name typed without an extension; on a 48K, 128K, Pentagon or +3 it offers
+`.sna` first and appends that instead.
 
 Loading a `.jns` restores the machine *type* as well as its contents, so one
 taken on a Next comes back as a Next whatever **\--machine** says. A snapshot

@@ -2147,6 +2147,16 @@ static void legacy_rows() {
                   ends_with(lp3r, "MMU=80030005000200000000000000000000"),
               esc(l128) + " / " + esc(lp3));
 
+        // GH #324 -- ZEsarUX's own name for its Pentagon machine (the string is in
+        // ZEsarUX 12.0's machine-name table); a Pentagon is a legacy-form machine,
+        // so MMU= is the 128K's four 16K segments, not the Next's eight 8K pages.
+        const std::string lpent = register_line(r, legacy_slots(0, 0), MachineType::PENTAGON);
+        check("PENT-19", "get-current-machine names the Pentagon \"Pentagon\", and its MMU= is the "
+                         "legacy four-segment form [ZEsarUX mem128.c]",
+              machine_name(MachineType::PENTAGON) == "Pentagon" &&
+                  ends_with(lpent, "MMU=80000005000200000000000000000000"),
+              esc(lpent));
+
         const std::string p128  = memory_pages(legacy_slots(1, 7), false, MachineType::ZX128K);
         const std::string pp3   = memory_pages(all_ram, false, MachineType::ZX_PLUS3);
         const std::string p48   = memory_pages(legacy_slots(0, 0), false, MachineType::ZX48K);
