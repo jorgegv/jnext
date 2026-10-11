@@ -806,8 +806,9 @@ void run_rows()
         const bool held_over = (kb.read_rows(0xFE) & 0x01) == 0;   // the hysteresis holds it
         const std::string path = (root / "hyst.jns").string();
         const bool saved = e_up->save_jns_file(path);
-        // The history is not part of the .jns, so it is the machine the file is
-        // loaded INTO that must be dirty (a shift the user was holding).
+        // The history IS in the .jns (Keyboard::describe_state "shift_hist"), so the
+        // restored value is "pressed" too; the machine loaded INTO is dirtied as
+        // well, so the row cannot pass because the target happened to be clean.
         auto fe_up = std::make_unique<Emulator>();
         fe_up->init(base_config());
         fe_up->keyboard().set_matrix_bit(0, 0, true);
