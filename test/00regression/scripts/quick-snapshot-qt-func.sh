@@ -53,6 +53,12 @@ if want quick-snapshot-qt-func; then
             [ -n "$wid" ] && eval "$(xdotool getwindowgeometry --shell "$wid" 2>/dev/null)"
             if [ "$WIDTH" -ge 320 ] && [ "$HEIGHT" -ge 240 ]; then
                 xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)) 2>/dev/null || true
+                # A QAction shortcut only fires in the ACTIVE window, and with no
+                # window manager nothing activates one: the keys of
+                # qt-keypress-func reach the guest through the pointer, but
+                # Alt+F5 never matched until the window took the input focus
+                # (measured: Qt activates it on the FocusIn this generates).
+                xdotool windowfocus --sync "$wid" 2>/dev/null || true
                 tap() { xdotool key "$1" 2>/dev/null || true; sleep 0.4; }
                 case "$mode" in
                     empty|load) tap alt+F9 ;;
@@ -84,9 +90,13 @@ if want quick-snapshot-qt-func; then
         rm -rf "$snap_dir"
         qs_run empty   "$shot_e"
         qs_run save    "$shot_a"
-        n_files=$(find "$snap_dir" -maxdepth 1 -type f -name 'jnext-*.jns' 2>/dev/null | wc -l)
-        bad_names=$(find "$snap_dir" -maxdepth 1 -type f -name '*.jns' 2>/dev/null \
-                    | grep -vcE '/jnext-[0-9]{8}-[0-9]{6}(-[0-9]{2})?\.jns$') || bad_names=0
+        # A missing folder (nothing saved) is a count of 0, not an error under
+        # pipefail: the verdict below reports it.
+        snap_names=""
+        [[ -d "$snap_dir" ]] && snap_names=$(find "$snap_dir" -maxdepth 1 -type f -name '*.jns')
+        n_files=$(grep -c . <<<"$snap_names") || n_files=0
+        bad_names=$(grep -vcE '/jnext-[0-9]{8}-[0-9]{6}(-[0-9]{2})?\.jns$' <<<"$snap_names") || bad_names=0
+        [[ -n "$snap_names" ]] || bad_names=0
         qs_run load    "$shot_b"
         qs_run control "$shot_c"
 
