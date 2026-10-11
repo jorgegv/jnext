@@ -2845,6 +2845,15 @@ static void wp4_condition_rows() {
                   ram128 + "/" + seg128 + " 48K ROM/SEG0=" + rom48 + "/" + seg48);
     }
     {
+        // GH #324: a Pentagon is a legacy-form machine like the 128K.
+        Rig rp(MachineType::PENTAGON);
+        Zc  cp(rp);
+        cp.cmd("write-port 32765 19");   // ROM 1, bank 3 at C000
+        const std::string rom = ev(cp, "ROM"), ram = ev(cp, "RAM"), seg3 = ev(cp, "SEG3");
+        check("PENT-30", "ROM / RAM / SEG3 on the Pentagon are the 128K's: ROM image, bank at C000, 0",
+              rom == "1" && ram == "3" && seg3 == "0", rom + "/" + ram + "/" + seg3);
+    }
+    {
         Rig rig;
         Zc  c(rig);
         bp_on(c);

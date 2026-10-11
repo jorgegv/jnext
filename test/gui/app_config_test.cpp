@@ -276,6 +276,19 @@ static void test_pentagon_roundtrip(QTemporaryDir& dir) {
     check("PENT-20", "machine_type PENTAGON is written as \"pentagon\" and read back",
           on_disk == "pentagon" && reader.data().machine_type == MachineType::PENTAGON,
           on_disk.toStdString());
+
+    // D10: older jnext wrote the +3 as "+3"; both spellings still load.
+    const QString old_path = fresh_ini_path(dir, "old-plus3");
+    {
+        QSettings raw(old_path, QSettings::IniFormat);
+        raw.beginGroup("startup");
+        raw.setValue("machine_type", "+3");
+        raw.endGroup();
+    }
+    AppConfig old_reader(old_path);
+    old_reader.load();
+    check("PENT-29", "an older file's machine_type=+3 still loads as the +3 (the key is now plus3)",
+          old_reader.data().machine_type == MachineType::ZX_PLUS3);
 }
 
 // ── AC-MALFORMED: garbage / out-of-range values must not be accepted ───

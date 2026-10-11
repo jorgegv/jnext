@@ -8049,6 +8049,23 @@ static void test_gh324_pentagon_personality() {
                   a82, a84, g82));
     }
     {
+        // The other side of the reset_type condition: with NR 0x85 bit 7 = 1 the
+        // soft reset reloads NR 0x82-0x85 to all ones; the personality must NOT be
+        // re-applied on top of that.
+        Emulator emu;
+        boot_pentagon(emu);
+        nr_write(emu, 0x85, 0x8F);
+        guest_soft_reset(emu);
+        const uint8_t r82 = nr_read(emu, 0x82);
+        const uint8_t r84 = nr_read(emu, 0x84);
+        const uint8_t r85 = nr_read(emu, 0x85);
+        check("PENT-27",
+              "guest NR 0x85 bit 7 = 1 on the Pentagon, then a soft reset: NR 0x82/0x84/0x85 "
+              "reload to FF/FF/8F, the personality is not re-applied [zxnext.vhd:5052-5057]",
+              r82 == 0xFF && r84 == 0xFF && r85 == 0x8F,
+              fmt("82=%02x 84=%02x 85=%02x", r82, r84, r85));
+    }
+    {
         Emulator emu;
         boot_pentagon(emu);
         nr_write(emu, 0x05, 0x85);
