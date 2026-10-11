@@ -1431,6 +1431,28 @@ On a Next the save dialog offers \f[CR].jns\f[R] first and appends it to
 a name typed without an extension; on a 48K, 128K or +3 it offers
 \f[CR].sna\f[R] first and appends that instead.
 .PP
+\f[B]File > Quick Save Snapshot\f[R] (Alt+F5) and \f[B]Quick Load
+Snapshot\f[R] (Alt+F9) need no dialog.
+Quick Save writes a \f[CR].jns\f[R] named
+\f[CR]jnext\-YYYYMMDD\-HHMMSS.jns\f[R] (a \f[CR]\-02\f[R],
+\f[CR]\-03\f[R] suffix if the name is taken, so nothing is overwritten)
+into \f[CR]\(ti/.jnext/snapshots/\f[R] on every machine type, and names
+the file in the status bar.
+Quick Load restores the \f[I]newest\f[R] \f[CR].jns\f[R] in that folder
+by modification time, by the same route as \f[B]File > Load NEX
+File\&...\f[R]: a full cold boot, then the load.
+An empty or missing folder only reports that there is no snapshot, and a
+newest file that cannot be loaded is refused before anything is reset,
+so the running session is kept.
+Older quick saves, and any \f[CR].jns\f[R] you put in the folder
+yourself, are loaded through the ordinary load dialog; nothing is ever
+deleted.
+The folder is \f[CR]$JNEXT_CONFIG_DIR/snapshots\f[R] when that variable
+is set.
+The SDL\-only build has the same two keys and the same folder, and
+reports in the log instead of the status bar.
+Plain F5 and F9 are unchanged.
+.PP
 Loading a \f[CR].jns\f[R] restores the machine \f[I]type\f[R] as well as
 its contents, so one taken on a Next comes back as a Next whatever
 \f[B]\-\-machine\f[R] says.
@@ -1934,7 +1956,9 @@ Load a program (Alt+O \- NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Insert SD
 Card Image / Eject SD Card (see \f[B]CHANGING THE CARD WHILE
 RUNNING\f[R]), Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX /
 Record RZX / Stop RZX, Save Screenshot (Alt+S), Quick Screenshot
-(Alt+K), Save Snapshot (Alt+Shift+S), Quit (Alt+Q).
+(Alt+K), Save Snapshot (Alt+Shift+S), Quick Save Snapshot (Alt+F5),
+Quick Load Snapshot (Alt+F9) (see \f[B]JNEXT SNAPSHOTS\f[R] above), Quit
+(Alt+Q).
 .RS
 .PP
 \f[B]Save Screenshot\&...\f[R] asks for a name; the extension chooses
@@ -2162,6 +2186,11 @@ Multiface NMI, F10 fires the DivMMC NMI, F2 cycles the window scale and
 F11 toggles fullscreen.
 With the debugger open F9 belongs to the debugger (Pause / Break)
 instead.
+With Alt held, F5 and F9 are the quick snapshot keys (Alt+F5 saves,
+Alt+F9 loads) and reach neither the Multiface nor the guest.
+Some desktops claim Alt+F5 themselves (for example stock GNOME, as
+\(lqrestore window\(rq); there the key never reaches jnext and the
+\f[B]File\f[R] menu entry does the same job.
 .PP
 Ctrl is left alone for the guest.
 No Ctrl+letter chord of any kind is a jnext shortcut, so the Symbol
@@ -2177,10 +2206,10 @@ and stop video recording), and function keys have no Spectrum meaning to
 lose.
 .PP
 Alt is the opposite: it is a host modifier, never a Spectrum key.
-jnext claims Alt + Q/O/S/K/R/T/D/P/U and Alt+Shift+S (menu shortcuts),
-Alt + F/M/I/A/B/V/N/H (menu bar) and Alt + 1 to Alt + 8 (the script host
-keys), which leaves the guest only Alt + E/G/C (EDIT, GRAPH, CAPS LOCK)
-and Alt + the key left of \f[CR]1\f[R] (INV VIDEO).
+jnext claims Alt + Q/O/S/K/R/T/D/P/U, Alt+F5, Alt+F9 and Alt+Shift+S
+(menu shortcuts), Alt + F/M/I/A/B/V/N/H (menu bar) and Alt + 1 to Alt +
+8 (the script host keys), which leaves the guest only Alt + E/G/C (EDIT,
+GRAPH, CAPS LOCK) and Alt + the key left of \f[CR]1\f[R] (INV VIDEO).
 Alt + 1 to Alt + 8 no longer type their digit into the program (earlier
 releases let them through as plain 1\-8); Alt + 9 and Alt + 0 still do.
 Real Next hardware instead maps Left Alt to EXTEND MODE and Right Alt to
@@ -2876,6 +2905,12 @@ never read it.
 Where \f[B]File > Quick Screenshot\f[R] writes, unless
 \f[CR][screenshot] quick_dir\f[R] says otherwise.
 Created on the first capture.
+.TP
+\f[CR]\(ti/.jnext/snapshots/\f[R]
+Where \f[B]File > Quick Save Snapshot\f[R] writes and \f[B]Quick Load
+Snapshot\f[R] reads (the newest \f[CR].jns\f[R] in it).
+Created on the first save.
+Never pruned.
 .TP
 \f[CR]\(ti/.jnext/warm\-start/\f[R]
 The recorded NextZXOS\-resident machine a \f[B]\-\-load\f[R] of a

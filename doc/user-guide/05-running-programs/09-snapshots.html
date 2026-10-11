@@ -1606,6 +1606,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#quick-save-and-quick-load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick save and quick load
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#loading" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3769,6 +3780,29 @@ the save and never greys the menu item out — the only refusal is the format on
 above; the consequence is that the restored machine is up to one frame (20 ms)
 past where you stopped. If you need the precise instant, that
 is what the rewind buffer is for.</p>
+<h2 id="quick-save-and-quick-load">Quick save and quick load<a class="headerlink" href="#quick-save-and-quick-load" title="Permanent link">&para;</a></h2>
+<p><strong>File ▸ Quick Save Snapshot</strong> (<strong>Alt+F5</strong>) and <strong>File ▸ Quick Load Snapshot</strong>
+(<strong>Alt+F9</strong>) ask nothing. Quick Save writes a <code>.jns</code>, on every machine type,
+to <code>~/.jnext/snapshots/</code> (or <code>$JNEXT_CONFIG_DIR/snapshots</code> when that variable is
+set), named <code>jnext-YYYYMMDD-HHMMSS.jns</code>, and shows the path in the status bar.
+Two saves in the same second get a <code>-02</code>, <code>-03</code> suffix, so nothing is
+overwritten. Quick Load restores the <strong>newest</strong> <code>.jns</code> in that folder, judged by
+modification time, the same way <strong>File ▸ Load NEX File…</strong> does: a full cold
+boot, then the load. A <code>.jns</code> you save into that folder yourself counts too.</p>
+<ul>
+<li>An empty or missing folder only says "no snapshot" in the status bar; the
+  machine is not touched.</li>
+<li>A newest file that cannot be loaded (damaged, or taken with a different SD
+  card) is refused <strong>before</strong> anything is reset, so you keep your session.</li>
+<li>JNEXT never deletes quick saves; the folder grows until you tidy it. Older
+  ones load through the ordinary load dialog.</li>
+<li>The SDL-only build has the same two keys and the same folder, and reports in
+  the log instead of the status bar.</li>
+<li>Plain F5 and F9 are unchanged. Some desktops take Alt+F5 for themselves (stock
+  GNOME uses it for "restore window"); there the key never reaches JNEXT, and
+  the menu entry does the same job.</li>
+<li>Only <code>.jns</code> is used: it is the one format that can hold a whole machine.</li>
+</ul>
 <h2 id="loading">Loading<a class="headerlink" href="#loading" title="Permanent link">&para;</a></h2>
 <p>Drop the file on the command line, or <strong>File ▸ Load NEX File…</strong> (Alt+O) — the
 dialog lists <code>.jns</code> alongside everything else.</p>

@@ -3236,6 +3236,29 @@ the name is taken. Its directory and format are separate config fields from the
 Save-Screenshot dialog's remembered directory, deliberately — that one follows
 the dialog around, and a no-dialog capture whose destination moves is
 unfindable.</p>
+<p><strong>Quick Save / Quick Load</strong> (File ▸ Quick Save Snapshot Alt+F5, Quick Load
+Snapshot Alt+F9; the same two chords in the SDL-only build) follow the same
+shape for <code>.jns</code>. <code>src/core/quick_snapshot.*</code> holds the folder
+(<code>default_quick_snapshot_dir()</code> = <code>sdcard::default_state_dir()</code> + <code>/snapshots</code>,
+so <code>$JNEXT_CONFIG_DIR</code> and the SD image's own state-dir resolution apply — on
+Windows it inherits the HOME → USERPROFILE fix tracked in GH #316, and until
+then a missing HOME puts it beside the SD image under <code>./.jnext</code>), the name
+(<code>auto_timestamped_path()</code>, the one function <code>auto_screenshot_path()</code> also
+uses) and the choice of file (<code>latest_quick_snapshot()</code>: greatest modification
+time among <code>*.jns</code> regular files directly in the folder, ties to the greater
+name stem so <code>…-02</code> beats the bare name; local-time names are not ordered across
+a DST change, which is why the name is not the key). Quick Load goes through
+<code>MainWindow::handle_load_path()</code> / <code>SdlApp::cold_boot()</code>, i.e. a full cold boot
+and then <code>load_jns_file()</code>, never an in-place load. Two things make that route
+safe for a <code>.jns</code>: <code>Emulator::probe_jns_file()</code> runs the pre-touch half of
+<code>load_jns</code> (<code>check_jns()</code>) BEFORE the cold boot, so a file that will be refused
+costs no session; and <code>emulator_boot_machine()</code> reads the <code>.jns</code> manifest's
+machine the way it reads an RZX's, so the cold boot builds the snapshot's
+machine and the frontend's <code>keep_machine</code> hook records it (otherwise a later
+reset would boot the old machine). <code>.sna</code>, <code>.szx</code> and <code>.z80</code> reconfigure the
+machine without telling the frontend in the same way; that is not fixed here.
+The SDL chord predicate is <code>platform/quick_snapshot_chord.h</code>; the Qt chords are
+the two QAction shortcuts in <code>main_window.cpp</code>.</p>
 <p>Video recording needs <strong>FFmpeg on the host</strong>. jnext writes raw ARGB frames and
 raw stereo PCM to temporary files during the run, so the hot loop pays no
 encoding cost, and shells out once at stop, trying <code>libx264</code>, <code>mpeg4</code> and
