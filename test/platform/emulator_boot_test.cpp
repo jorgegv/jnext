@@ -332,7 +332,7 @@ void run_rows()
     // QS-04..QS-07: naming.
     const fs::path dir = root / "names";
     const std::time_t when = 1767225600;   // an arbitrary fixed instant
-    const std::string expect = (dir / stamp_name(when, "")).string();
+    const std::string expect = dir.string() + "/" + stamp_name(when, "");
     const std::string p1 = auto_quick_snapshot_path(dir.string(), when);
     check("QS-04", "the auto name is <dir>/jnext-YYYYMMDD-HHMMSS.jns (local time)",
           p1 == expect, "got '" + p1 + "' want '" + expect + "'");
@@ -342,8 +342,8 @@ void run_rows()
     touch(p2);
     const std::string p3 = auto_quick_snapshot_path(dir.string(), when);
     check("QS-05", "a taken name gets -02, then -03; nothing is overwritten",
-          p2 == (dir / stamp_name(when, "-02")).string() &&
-              p3 == (dir / stamp_name(when, "-03")).string(),
+          p2 == dir.string() + "/" + stamp_name(when, "-02") &&
+              p3 == dir.string() + "/" + stamp_name(when, "-03"),
           p2 + " | " + p3);
     {
         const fs::path file = root / "plain-file";
@@ -363,7 +363,9 @@ void run_rows()
         check("QS-08", "a missing or empty folder gives no file and a 'no snapshot' reason",
               miss_ok && b.empty() && why.find("no snapshot") != std::string::npos, why);
     }
-    const auto t0 = fs::file_time_type::clock::now();
+    // Two hours back, so the directory created below (whose own time cannot be
+    // set on Windows) is certainly the newest entry.
+    const auto t0 = fs::file_time_type::clock::now() - std::chrono::hours(2);
     const fs::path d2 = root / "pick";
     fs::create_directories(d2);
     touch(d2 / "a-first.jns");
@@ -375,10 +377,11 @@ void run_rows()
 
     touch(d2 / "newer.png");
     touch(d2 / "newer.txt");
+    // The directory keeps its creation time (Windows refuses to set a
+    // directory's time): newer than every file here but the .png/.txt below.
     fs::create_directories(d2 / "newest-dir.jns");
     fs::last_write_time(d2 / "newer.png", t0 + std::chrono::hours(1));
     fs::last_write_time(d2 / "newer.txt", t0 + std::chrono::hours(1));
-    fs::last_write_time(d2 / "newest-dir.jns", t0 + std::chrono::hours(1));
     check("QS-10", "other extensions and a directory named .jns are ignored",
           fs::path(latest_quick_snapshot(d2.string(), why)).filename() == "a-first.jns", why);
 
