@@ -52,6 +52,7 @@ const char* type_name(MachineType t)
     case MachineType::ZX48K:      return "ZX48K";
     case MachineType::ZX128K:     return "ZX128K";
     case MachineType::ZX_PLUS3:   return "ZX_PLUS3";
+    case MachineType::PENTAGON:   return "PENTAGON";
     }
     return "?";
 }

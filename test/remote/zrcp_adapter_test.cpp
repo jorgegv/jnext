@@ -2147,6 +2147,16 @@ static void legacy_rows() {
                   ends_with(lp3r, "MMU=80030005000200000000000000000000"),
               esc(l128) + " / " + esc(lp3));
 
+        // GH #324 -- ZEsarUX's own name for its Pentagon machine (the string is in
+        // ZEsarUX 12.0's machine-name table); a Pentagon is a legacy-form machine,
+        // so MMU= is the 128K's four 16K segments, not the Next's eight 8K pages.
+        const std::string lpent = register_line(r, legacy_slots(0, 0), MachineType::PENTAGON);
+        check("PENT-19", "get-current-machine names the Pentagon \"Pentagon\", and its MMU= is the "
+                         "legacy four-segment form [ZEsarUX mem128.c]",
+              machine_name(MachineType::PENTAGON) == "Pentagon" &&
+                  ends_with(lpent, "MMU=80000005000200000000000000000000"),
+              esc(lpent));
+
         const std::string p128  = memory_pages(legacy_slots(1, 7), false, MachineType::ZX128K);
         const std::string pp3   = memory_pages(all_ram, false, MachineType::ZX_PLUS3);
         const std::string p48   = memory_pages(legacy_slots(0, 0), false, MachineType::ZX48K);
@@ -2833,6 +2843,15 @@ static void wp4_condition_rows() {
                   seg128 == "0" && rom48 == "0" && seg48 == "0",
               bad + " next ROM/RAM=" + rom + "/" + ram + " 128K ROM/RAM/SEG3=" + rom128 + "/" +
                   ram128 + "/" + seg128 + " 48K ROM/SEG0=" + rom48 + "/" + seg48);
+    }
+    {
+        // GH #324: a Pentagon is a legacy-form machine like the 128K.
+        Rig rp(MachineType::PENTAGON);
+        Zc  cp(rp);
+        cp.cmd("write-port 32765 19");   // ROM 1, bank 3 at C000
+        const std::string rom = ev(cp, "ROM"), ram = ev(cp, "RAM"), seg3 = ev(cp, "SEG3");
+        check("PENT-30", "ROM / RAM / SEG3 on the Pentagon are the 128K's: ROM image, bank at C000, 0",
+              rom == "1" && ram == "3" && seg3 == "0", rom + "/" + ram + "/" + seg3);
     }
     {
         Rig rig;

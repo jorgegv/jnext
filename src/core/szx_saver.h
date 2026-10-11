@@ -26,9 +26,10 @@ class Emulator;
 /// rejection AND the writer's `write_ram_pages()` machine-specific page
 /// sets) treats the RAM model as fixed per `chMachineId`: a classic
 /// Spectrum's 8-bank-max memory map, not an arbitrary-sized blob. jnext
-/// therefore saves `.szx` ONLY for the three machines that map cleanly onto
-/// that model — 48K, 128K, +2A/+3 — and REFUSES for anything else
-/// (Next/Pentagon/unknown), rather than truncating or lying in the header.
+/// therefore saves `.szx` ONLY for the machines that map cleanly onto
+/// that model — 48K, 128K, Pentagon 128 (chMachineId 7), +2A/+3 — and REFUSES
+/// for anything else (Next/unknown), and for a machine whose 0x4000-0xFFFF
+/// map extended paging or the Next MMU registers moved (GH #324), rather than truncating or lying in the header.
 /// The Next-specific full-state format is Task 13a (PARKED); `.nex` already
 /// exists as the Next-native program/snapshot container.
 ///
@@ -67,7 +68,7 @@ class Emulator;
 ///
 /// REFUSAL — `build()`/`save()` return an EMPTY buffer (no partial/lying
 /// file) plus a human-readable `error` string when `machine_id` doesn't map
-/// to one of {1, 2, 4, 5}. Callers (GUI, headless CLI) must surface this as
+/// to one of {1, 2, 4, 5, 7}. Callers (GUI, headless CLI) must surface this as
 /// a real failure, not silently write nothing.
 class SzxSaver {
 public:
@@ -87,14 +88,14 @@ public:
     /// The set of physical RAM bank numbers (== ZXSTRAMPAGE chPageNo, see
     /// class doc-comment PAGE NUMBERING) that make up a given chMachineId's
     /// RAM. Empty iff `machine_id` is not one of the four .szx supports
-    /// (1=48K, 2=128K, 4=+2A, 5=+3) — jnext's `save()` only ever produces
+    /// (1=48K, 2=128K, 4=+2A, 5=+3, 7=Pentagon 128) — jnext's `save()` only ever produces
     /// 1, 2 or 5 (no distinct +2A `MachineType`), but `build()`/this helper
     /// accept 4 too since it is a valid chMachineId per spec.
     static std::vector<uint8_t> ram_page_set(uint8_t machine_id)
     {
         switch (machine_id) {
             case 1: return {0, 2, 5};                          // 48K
-            case 2: case 4: case 5:                             // 128K / +2A / +3
+            case 2: case 4: case 5: case 7:                     // 128K / +2A / +3 / Pentagon 128
                 return {0, 1, 2, 3, 4, 5, 6, 7};
             default: return {};                                 // unsupported
         }

@@ -9,18 +9,24 @@ and the line it came from.
 ## What it emulates
 
 The machine set is small and explicit. `MachineType` in
-`src/memory/contention.h:5` has exactly four values — `ZXN_ISSUE2`, `ZX48K`,
-`ZX128K` and `ZX_PLUS3` — and those are the four things `--machine` accepts
-(`next`, `48k`, `128k`, `plus3`).
+`src/memory/contention.h:5` has exactly five values — `ZXN_ISSUE2`, `ZX48K`,
+`ZX128K`, `ZX_PLUS3` and `PENTAGON` — and those are the five things `--machine`
+accepts (`next`, `48k`, `128k`, `plus3`, `pentagon`). `PENTAGON` is appended
+last so the ordinals of the others, which the save streams carry, stay put.
 
-Pentagon is deliberately not among them, and the reason is worth understanding
-because it explains why there are two enums where you might expect one. On real
-Next hardware a guest can ask for a different *video timing* without becoming a
-different machine, by writing NextREG 0x03. JNEXT models that faithfully:
-Pentagon survives only as `MachineTimingMode::TimingPentagon`, one of the
-timing modes selectable at run time alongside the 48K, 128K and +3 timings,
-while the machine type is fixed at startup. The two axes are independent once
-the emulator is running, so they are separate types.
+`PENTAGON` is the Next's own Pentagon 128 *personality*, not a model of the
+Russian clone: the one the Next firmware's machine menu starts (`menu.def`,
+"Pentagon 128K", loading `128.rom`). It follows from two independent NextREG
+0x03 fields. On the machine-type axis (`typ_sel` 100) the VHDL decodes it to
+the 128K family, so every ROM and paging decision treats `PENTAGON` as
+`ZX128K`; on the timing axis (`tim_sel` 100) it selects
+`MachineTimingMode::TimingPentagon`. A guest on a Next can reach the same state
+by writing NR 0x03, and the commit lands on `MachineType::PENTAGON` too. The two
+axes stay separate types because they are independent once the emulator is
+running. `Emulator::init` builds the whole personality for a plain
+`--machine pentagon`: the 128K ROM, NR 0x03 = 0x44, the firmware's mode-3 port
+enables (NR 0x82 = 0xC6, NR 0x84 bit 2 clear, NR 0x85 bit 7 clear so a soft
+reset keeps them) and the Covox DAC.
 
 Per-machine geometry lives in `MachineTiming` (`src/core/emulator_config.h:259`)
 and is derived from `zxula_timing.vhd`: a 48K frame is 448 pixels × 312 lines,

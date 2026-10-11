@@ -218,7 +218,7 @@ inline constexpr Option OPTIONS[] = {
     // Machine and program
     { "--machine", 1, Doc::Documented, OptId::Machine,
       "TYPE",
-      "Machine type: 48k, 128k, plus3, next (default)" },
+      "Machine type: 48k, 128k, plus3, pentagon, next (default)" },
     { "--load", 1, Doc::Documented, OptId::Load,
       "FILE",
       "Load a program file (auto-detect format by extension)\n"

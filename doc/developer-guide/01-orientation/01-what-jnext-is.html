@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.32</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.33</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.32</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.33</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2321,17 +2321,23 @@ answer comes from that source, and is pinned there by a test citing the file
 and the line it came from.</p>
 <h2 id="what-it-emulates">What it emulates<a class="headerlink" href="#what-it-emulates" title="Permanent link">&para;</a></h2>
 <p>The machine set is small and explicit. <code>MachineType</code> in
-<code>src/memory/contention.h:5</code> has exactly four values — <code>ZXN_ISSUE2</code>, <code>ZX48K</code>,
-<code>ZX128K</code> and <code>ZX_PLUS3</code> — and those are the four things <code>--machine</code> accepts
-(<code>next</code>, <code>48k</code>, <code>128k</code>, <code>plus3</code>).</p>
-<p>Pentagon is deliberately not among them, and the reason is worth understanding
-because it explains why there are two enums where you might expect one. On real
-Next hardware a guest can ask for a different <em>video timing</em> without becoming a
-different machine, by writing NextREG 0x03. JNEXT models that faithfully:
-Pentagon survives only as <code>MachineTimingMode::TimingPentagon</code>, one of the
-timing modes selectable at run time alongside the 48K, 128K and +3 timings,
-while the machine type is fixed at startup. The two axes are independent once
-the emulator is running, so they are separate types.</p>
+<code>src/memory/contention.h:5</code> has exactly five values — <code>ZXN_ISSUE2</code>, <code>ZX48K</code>,
+<code>ZX128K</code>, <code>ZX_PLUS3</code> and <code>PENTAGON</code> — and those are the five things <code>--machine</code>
+accepts (<code>next</code>, <code>48k</code>, <code>128k</code>, <code>plus3</code>, <code>pentagon</code>). <code>PENTAGON</code> is appended
+last so the ordinals of the others, which the save streams carry, stay put.</p>
+<p><code>PENTAGON</code> is the Next's own Pentagon 128 <em>personality</em>, not a model of the
+Russian clone: the one the Next firmware's machine menu starts (<code>menu.def</code>,
+"Pentagon 128K", loading <code>128.rom</code>). It follows from two independent NextREG
+0x03 fields. On the machine-type axis (<code>typ_sel</code> 100) the VHDL decodes it to
+the 128K family, so every ROM and paging decision treats <code>PENTAGON</code> as
+<code>ZX128K</code>; on the timing axis (<code>tim_sel</code> 100) it selects
+<code>MachineTimingMode::TimingPentagon</code>. A guest on a Next can reach the same state
+by writing NR 0x03, and the commit lands on <code>MachineType::PENTAGON</code> too. The two
+axes stay separate types because they are independent once the emulator is
+running. <code>Emulator::init</code> builds the whole personality for a plain
+<code>--machine pentagon</code>: the 128K ROM, NR 0x03 = 0x44, the firmware's mode-3 port
+enables (NR 0x82 = 0xC6, NR 0x84 bit 2 clear, NR 0x85 bit 7 clear so a soft
+reset keeps them) and the Covox DAC.</p>
 <p>Per-machine geometry lives in <code>MachineTiming</code> (<code>src/core/emulator_config.h:259</code>)
 and is derived from <code>zxula_timing.vhd</code>: a 48K frame is 448 pixels × 312 lines,
 while 128K, +3 and Next frames are 456 × 311. Underneath all of it, everything

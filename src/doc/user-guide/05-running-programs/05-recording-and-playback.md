@@ -123,7 +123,7 @@ one mid-recording — plays up to the second snapshot, and JNEXT says so.
 Because it stores input rather than pixels, an RZX is tiny compared with a
 video — but it only replays correctly in an emulator that models the machine the
 same way. It also only replays what its snapshot holds: the memory and the paging
-of the 48K, 128K or +3. The Next hardware a program on those machines can still
+of the 48K, 128K, Pentagon or +3. The Next hardware a program on those machines can still
 reach — on JNEXT as on a real Next — is not in it: the NextREGs, the DMA, and the
 sprite, palette and Copper memory.
 
@@ -137,8 +137,8 @@ faithfully.
 
 ## Recording is not available on a Next
 
-JNEXT records an RZX on a **48K, 128K or +3** only. The Next is JNEXT's default
-machine, so recording needs `--machine 48k`, `128k` or `plus3` — or, in the GUI,
+JNEXT records an RZX on a **48K, 128K, Pentagon or +3** only. The Next is JNEXT's default
+machine, so recording needs `--machine 48k`, `128k`, `pentagon` or `plus3` — or, in the GUI,
 **Machine ▸ Machine Type**. Ask for a recording on a Next and JNEXT says so
 instead of starting one.
 

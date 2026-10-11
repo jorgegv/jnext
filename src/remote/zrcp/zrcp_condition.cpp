@@ -630,7 +630,8 @@ Translation translate_condition(const std::string& text, bool fast_path) {
 
 std::int32_t native_value(NativeTerm::Var var, int n,
                           const std::array<jnext::dbg::SlotInfo, 8>& slots, MachineType type) {
-    const bool legacy128 = type == MachineType::ZX128K || type == MachineType::ZX_PLUS3;
+    const bool legacy128 = type == MachineType::ZX128K || type == MachineType::ZX_PLUS3 ||
+                           type == MachineType::PENTAGON;
     switch (var) {
         case NativeTerm::Var::Seg:
             return type == MachineType::ZXN_ISSUE2 ? mapped_page(slots, n, type) : 0;

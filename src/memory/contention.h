@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <array>
 
-enum class MachineType { ZXN_ISSUE2, ZX48K, ZX128K, ZX_PLUS3 };
+enum class MachineType { ZXN_ISSUE2, ZX48K, ZX128K, ZX_PLUS3, PENTAGON };
 
 // VHDL `machine_timing_48 / _128 / _p3 / _pentagon` (zxnext.vhd:1282-1285)
 // — one-hot per-frame-latched signals derived combinationally from
@@ -69,6 +69,7 @@ inline constexpr MachineTimingMode default_machine_timing_for(MachineType t) {
         case MachineType::ZX48K:      return MachineTimingMode::Timing48;
         case MachineType::ZX128K:     return MachineTimingMode::Timing128;
         case MachineType::ZX_PLUS3:   return MachineTimingMode::TimingPlus3;
+        case MachineType::PENTAGON:   return MachineTimingMode::TimingPentagon;
         case MachineType::ZXN_ISSUE2: return MachineTimingMode::Timing128;
     }
     return MachineTimingMode::Timing128;

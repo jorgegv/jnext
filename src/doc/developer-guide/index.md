@@ -82,8 +82,7 @@ records what was intended and in what order. **The design plan is a plan; this
 guide is a description.** Where the two disagree, the code
 is right — and they do disagree: the plan still describes a `DebuggerInterface`
 class that does not exist, a `render_scanline(vc)` call inside the scanline
-loop that is not how frames are composited, and a Pentagon machine type that
-no longer exists.
+loop that is not how frames are composited.
 
 Every claim on the following pages was checked against the source. If you find
 one that no longer holds, that is a defect in this guide — and it is the one
