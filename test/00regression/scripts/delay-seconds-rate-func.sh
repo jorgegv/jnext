@@ -42,6 +42,7 @@ if want delay-seconds-rate-func; then
     ds_sdl="$JNEXT_SDL"
     ds_beast="$PROJECT_DIR/test/00regression/nex/beast.nex"
     ds_faults=()
+    ds_wrap=()   # a command prefix for ds_run: set only around the lost-write run (Q3)
 
     # ds_run <frontend> <tag> <jnext args...>: run it, print the exit status.
     # The log is $ds_dir/<tag>.log.
@@ -54,7 +55,7 @@ if want delay-seconds-rate-func; then
                     >"$ds_dir/$tag.log" 2>&1 || rc=$? ;;
             qt)
                 env -u WAYLAND_DISPLAY QT_QPA_PLATFORM=offscreen \
-                timeout --foreground --kill-after=5s 120s "$JNEXT" --silent \
+                timeout --foreground --kill-after=5s 120s ${ds_wrap[@]+"${ds_wrap[@]}"} "$JNEXT" --silent \
                     "${SD_CARD_ARGS[@]}" --rewind-buffer-size 0 "$@" \
                     >"$ds_dir/$tag.log" 2>&1 || rc=$? ;;
             sdl)
@@ -173,8 +174,13 @@ if want delay-seconds-rate-func; then
         # QtApp::set_delayed_exit_seconds() is the only thing that sets it.
         printf '\xfb\x06\x32\x76\x10\xfd\x01\x3b\x24\x3e\x02\xed\x79\x04\xed\x79\x18\xfe' \
             > "$ds_dir/hardreset.bin"
+        # GH #319: /dev/full where the host has one; else (macOS) a file whose
+        # writes fail, through full-disk.sh.
+        ds_full=/dev/full
+        if [[ ! -e /dev/full ]]; then ds_full="$ds_dir/q3-full.rzx"; ds_wrap=(bash "$SCRIPT_DIR/full-disk.sh"); fi
         rc=$(ds_run qt q3 --machine 48k --inject "$ds_dir/hardreset.bin" --inject-delay 100 \
-                --rzx-record /dev/full --delayed-automatic-exit 6)
+                --rzx-record "$ds_full" --delayed-automatic-exit 6)
+        ds_wrap=()
         if [[ "$rc" != 1 ]] || ! grep -qF "unattended run, so no dialog" "$ds_dir/q3.log" \
            || grep -qF "reporting it in a dialog" "$ds_dir/q3.log"; then
             ds_faults+=("q3: a seconds-form exit did not make the Qt run unattended (rc=$rc)")
