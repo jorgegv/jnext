@@ -138,6 +138,7 @@ struct Fixture {
     std::unique_ptr<jnext::dbg::Debugger> backend;
     std::unique_ptr<MainWindow> w;
     std::vector<int> guest_keys;   // scancodes the guest saw pressed
+    std::vector<int> guest_events; // every key-callback event, presses AND releases
 
     Fixture() {
         build(emu);
@@ -146,6 +147,7 @@ struct Fixture {
         w->set_debugger(backend.get());
         w->set_emulator(&emu);
         w->set_key_callback([this](SDL_Scancode sc, bool pressed) {
+            guest_events.push_back(static_cast<int>(sc));
             if (pressed) guest_keys.push_back(static_cast<int>(sc));
         });
         w->show();
@@ -463,9 +465,10 @@ void test_pause() {
         pause_key(*fx.w);
         const bool off = !fx.paused() && fx.indicators(false);
         check("MWP-14", "the Pause key pauses (User, the window's own client) and resumes, debugger closed, and types nothing into the guest",
-              on && off && fx.guest_keys.empty(),
+              on && off && fx.guest_keys.empty() && fx.guest_events.empty(),
               std::string("on=") + (on ? "1" : "0") + " off=" + (off ? "1" : "0") +
-              " guest_keys=" + std::to_string(fx.guest_keys.size()));
+              " guest_keys=" + std::to_string(fx.guest_keys.size()) +
+              " guest_events=" + std::to_string(fx.guest_events.size()));
     }
 
     // MWP-15 — fullscreen chrome.
