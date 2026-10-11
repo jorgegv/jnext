@@ -40,8 +40,8 @@ mentions them, so a test can no longer be absent from this document.
 | Input                                      |   401 |  401 |    0 |    0 |       0 |          0 |
 | Rewind                                     |   308 |  308 |    0 |    0 |       0 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
-| VideoTiming                                |   112 |  112 |    0 |    0 |       0 |          0 |
-| Contention                                 |   161 |  161 |    0 |    0 |       0 |          0 |
+| VideoTiming                                |   113 |  113 |    0 |    0 |       0 |          0 |
+| Contention                                 |   162 |  162 |    0 |    0 |       0 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    88 |   88 |    0 |    0 |       0 |          0 |
 | NMI Source Pipeline                        |    78 |   78 |    0 |    0 |       0 |          0 |
@@ -65,9 +65,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: input_integration_test          |    43 |   43 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    55 |   55 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5646 | 5646 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5648 | 5648 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5646**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5267**. Rows the 140 suites declared in `test/unit-tests.conf` run live: **12618**.
+Rows the sections above carry: **5648**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5269**. Rows the 140 suites declared in `test/unit-tests.conf` run live: **12621**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -79,7 +79,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 95 suites (7435 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 95 suites (7436 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -106,7 +106,7 @@ These 95 suites (7435 live rows) have no VHDL-derived plan row to map, so they h
 | `present_cadence_test` | 34 | host present cadence policy (wall-clock, not core timing) |
 | `render_policy_test` | 10 | host render/skip policy (wall-clock, not core timing) |
 | `screenshot_test` | 24 | host screenshot file formats and auto-naming, no core counterpart |
-| `emulator_boot_test` | 84 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
+| `emulator_boot_test` | 85 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
 | `preferences_apply_policy_test` | 20 | Preferences apply/revert policy (host GUI) |
 | `window_attach_test` | 32 | host window-attach geometry (GH #39 contract, no VHDL oracle) |
 | `pointer_capture_test` | 64 | host mouse-capture policy (window-manager behaviour) |
@@ -3826,6 +3826,7 @@ Notes and rationale: [VIDEOTIMING-TEST-PLAN-DESIGN.md](VIDEOTIMING-TEST-PLAN-DES
 | VT-GH22-01 | 128K in_display() uses c_min_hactive=136, not the 48K 128 (zxula_timing.vhd:195) | zxula_timing.vhd:195 | pass | test/videotiming/videotiming_test.cpp:1764 |
 | VT-GH22-02 | Pentagon in_display() uses c_min_vactive=80, not the 48K 64 (zxula_timing.vhd:167) | zxula_timing.vhd:167 | pass | test/videotiming/videotiming_test.cpp:1780 |
 | PENT-08 | --machine pentagon: frame is 448x320 (71680 T-states, 573440 master cycles), VideoTiming hc_max 447, vc_max 319, interrupt at vc 319 [zxula_timing.vhd:150-168] | zxula_timing.vhd:150-168 | pass | test/videotiming/videotiming_test.cpp:3272 |
+| PENT-24 | machine_timing(PENTAGON) is the 448x320 frame: 224 T-states per line, 71680 per frame, 1792 / 573440 master cycles [zxula_timing.vhd:160,168] | zxula_timing.vhd:160,168 | pass | test/videotiming/videotiming_test.cpp:3287 |
 
 ## Contention — `test/contention/contention_test.cpp`
 
@@ -3994,6 +3995,7 @@ Notes and rationale: [CONTENTION-TEST-PLAN-DESIGN.md](CONTENTION-TEST-PLAN-DESIG
 | T50-05 | 48K, read $4000 on a display line but at hc=4 (LEFT BORDER, before ula_min_hactive=c_min_hactive-12=116) → NO contention (zxula.vhd:416 border_active_ula = i_hc(8) or border_active_v; zxula_timing.vhd:423) | zxula.vhd:416, zxula_timing.vhd:423 | pass | test/contention/contention_test.cpp:3761 |
 | T50-06 | 128K (c_min_hactive=136, 228 T/line): top border does not contend and a display line does — proves the ULA counter origins are taken per-machine from VideoTiming, not hardcoded to the 48K values (zxula_timing.vhd:195,203) | zxula_timing.vhd:195,203 | pass | test/contention/contention_test.cpp:3789 |
 | PENT-07 | --machine pentagon: a bank-5 access is not contended (machine_timing_pentagon gates i_contention_en off); the same access on ZX128K is [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:4982 |
+| PENT-25 | default_machine_timing_for(PENTAGON) is TimingPentagon, the 128K's is Timing128 [zxnext.vhd:5769-5770] | zxnext.vhd:5769-5770 | pass | test/contention/contention_test.cpp:4991 |
 
 ## LoRes — `test/lores/lores_test.cpp`
 
