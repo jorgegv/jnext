@@ -181,6 +181,20 @@ def framed(payload, packetno):
             + bytes([c0, c1, packetno & 0xFF]))
 
 
+COMMANDS = (b"Sync3", b"Next", b"Neex", b"Get", b"Gee", b"Retry", b"Restart", b"Bye")
+T0 = time.monotonic()
+
+
+def ev(msg):
+    """One timestamped exchange event: wall clock (to line up with jnext's own
+    log), then milliseconds since the peer started. The row prints the events
+    around the first Retry/Restart when it fails (GH #319): a failure must name
+    its own cause. None of these lines contains 'packets: ', which the row greps."""
+    now = time.time()
+    log("ev %s.%03d +%8.1fms %s" % (time.strftime("%H:%M:%S", time.localtime(now)),
+                                    int((now % 1) * 1000), (time.monotonic() - T0) * 1000, msg))
+
+
 def serve_one(srv, corpus):
     """One connection's worth of the protocol."""
     conn, addr = srv.accept()
@@ -194,48 +208,73 @@ def serve_one(srv, corpus):
     def send(payload, seq):
         state["last"] = payload
         state["packets"] += 1
+        ev("TX seq=%d len=%d first=%r" % (seq & 0xFF, len(payload), payload[:8]))
         conn.sendall(framed(payload, seq))
+
+    def handle(data):
+        """Answer one command; True when the conversation is over."""
+        nonlocal fn, filedata, fileofs, packetno
+        # "Neex"/"Gee" are the mistransmits the vendored server tolerates;
+        # accepted here too so a real UART glitch degrades the same way.
+        if data == b"Sync3":
+            send(b"NextSync3", 0)
+        elif data in (b"Next", b"Neex"):
+            if fn >= len(corpus):
+                send(b"\x00\x00\x00\x00\x00", 0)      # end of list
+            else:
+                sd_path, filedata, _digest = corpus[fn]
+                spec = "/" + sd_path
+                send(len(filedata).to_bytes(4, "big")
+                     + bytes([len(spec)]) + spec.encode(), 0)
+                log("peer: sending %s, %d bytes" % (spec, len(filedata)))
+                fileofs = 0
+                packetno = 0
+                fn += 1
+        elif data in (b"Get", b"Gee"):
+            n = min(MAX_PAYLOAD, len(filedata) - fileofs)
+            send(filedata[fileofs:fileofs + n], packetno)
+            fileofs += n
+            packetno += 1
+        elif data == b"Retry":
+            state["retries"] += 1
+            send(state["last"], packetno - 1)
+        elif data == b"Restart":
+            state["restarts"] += 1
+            fileofs = 0
+            packetno = 0
+            send(b"Back", 0)
+        elif data == b"Bye":
+            send(b"Later", 0)
+            return True
+        else:
+            send(b"Error", 0)
+        return False
 
     with conn:
         conn.settimeout(WATCHDOG_S)
-        while True:
+        buf = b""
+        done = False
+        while not done:
             data = conn.recv(1024)
             if not data:
                 break
-            # "Neex"/"Gee" are the mistransmits the vendored server tolerates;
-            # accepted here too so a real UART glitch degrades the same way.
-            if data == b"Sync3":
-                send(b"NextSync3", 0)
-            elif data in (b"Next", b"Neex"):
-                if fn >= len(corpus):
-                    send(b"\x00\x00\x00\x00\x00", 0)      # end of list
-                else:
-                    sd_path, filedata, _digest = corpus[fn]
-                    spec = "/" + sd_path
-                    send(len(filedata).to_bytes(4, "big")
-                         + bytes([len(spec)]) + spec.encode(), 0)
-                    log("peer: sending %s, %d bytes" % (spec, len(filedata)))
-                    fileofs = 0
-                    packetno = 0
-                    fn += 1
-            elif data in (b"Get", b"Gee"):
-                n = min(MAX_PAYLOAD, len(filedata) - fileofs)
-                send(filedata[fileofs:fileofs + n], packetno)
-                fileofs += n
-                packetno += 1
-            elif data == b"Retry":
-                state["retries"] += 1
-                send(state["last"], packetno - 1)
-            elif data == b"Restart":
-                state["restarts"] += 1
-                fileofs = 0
-                packetno = 0
-                send(b"Back", 0)
-            elif data == b"Bye":
-                send(b"Later", 0)
-                break
-            else:
-                send(b"Error", 0)
+            ev("RX %r" % data)
+            # A STREAM, not one command per recv(): two commands that arrive glued
+            # together (a late reply crossing a Restart, say) are two commands. The
+            # old one-recv-one-command framing answered them "Error" and turned any
+            # single event into a cascade that destroyed the evidence (GH #319).
+            buf += data
+            while buf and not done:
+                cmd = next((c for c in COMMANDS if buf.startswith(c)), None)
+                if cmd is None:
+                    if any(c.startswith(buf) for c in COMMANDS):
+                        break               # the start of a command: wait for the rest
+                    ev("RX unknown %r" % buf)
+                    buf = b""
+                    done = handle(b"")
+                    continue
+                buf = buf[len(cmd):]
+                done = handle(cmd)
     # Same shape as the vendored server's summary line, because the row greps it.
     log("peer: packets: %d, retries: %d, restarts: %d"
         % (state["packets"], state["retries"], state["restarts"]))

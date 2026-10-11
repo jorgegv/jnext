@@ -64,6 +64,31 @@ if want nextsync-func; then
     peer_pid=""
     verdict=""
 
+    # On a failure, print the exchange around the FIRST Retry/Restart, from both
+    # sides (GH #319): the peer's timestamped RX/TX events, and jnext's own esp01
+    # debug lines (+IPD framing, flushes) within 400 ms of it, by wall clock. The
+    # next failure then names its own cause: a reply that never arrived intact
+    # (the peer's TX with no matching +IPD) reads differently from a late one.
+    nextsync_exchange() {
+        local first t
+        first=$(grep -an "RX b'Re" "$peer_log" | head -1 | cut -d: -f1 || true)
+        if [[ -z "$first" ]]; then
+            echo "        --- no Retry/Restart in the peer log; its last 12 lines ---"
+            tail -n 12 "$peer_log" | sed 's/^/        | /'
+            return 0
+        fi
+        echo "        --- peer log around its first Retry/Restart (line $first) ---"
+        sed -n "$(( first > 8 ? first - 8 : 1 )),$(( first + 8 ))p" "$peer_log" | sed 's/^/        | /'
+        t=$(sed -n "${first}p" "$peer_log" | awk '{print $2}')
+        echo "        --- jnext esp01 lines within 400 ms of $t ---"
+        awk -v t="$t" 'function ms(x,  a){ split(x, a, /[:.]/); return ((a[1]*60 + a[2])*60 + a[3])*1000 + a[4] }
+            BEGIN { c = ms(t) }
+            match($0, /\[[0-9][0-9]:[0-9][0-9]:[0-9][0-9]\.[0-9][0-9][0-9]\]/) {
+                d = ms(substr($0, RSTART + 1, RLENGTH - 2)) - c
+                if (d > -400 && d < 400) print
+            }' "$run_log" | grep -a "esp" | head -n 60 | sed 's/^/        | /'
+    }
+
     # Preconditions. A missing SD clone is a SKIP (the provision row will have
     # said why); a missing sdfile_tool is a FAILURE, because `make regression`
     # depends on unit-test-build and its absence means the build is broken —
@@ -146,6 +171,7 @@ if want nextsync-func; then
             --delayed-keypress-frames 605 n \
             --delayed-keypress-frames 620 c \
             --delayed-keypress-frames 635 enter \
+            --log-level info,esp01=debug \
             --delayed-automatic-exit-frames 4000 \
             >"$run_log" 2>&1 || true
 
@@ -182,6 +208,7 @@ if want nextsync-func; then
             pass_row " (NextSync 1.2 synced 2 files from $peer_ip, byte-identical, no retries)"
         else
             fail_row " (${fails[*]})"
+            nextsync_exchange
         fi
     fi
 

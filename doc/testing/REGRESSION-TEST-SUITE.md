@@ -143,8 +143,7 @@ row. `# expect-macos: N` and `# expect-windows: N` pin the counts both ways. The
 run prints the absent rows by name; they are not SKIPs and are not counted. The
 6 lints (tree checks) run in the Linux run only. Currently absent: the X11
 key-injection rows and the rows that do not run jnext (Linux only); the
-`--record`/ffmpeg rows, `joy-uart-link`, `nextpi`, `startup-stack` and `nextsync`
-(timing-fragile under wine, reason beside the tag) on Windows;
+`--record`/ffmpeg rows, `joy-uart-link`, `nextpi`, `startup-stack` on Windows;
 `audio-underrun`, `sdl-options` and `dzrp-paused-headless` (the macOS CI runner's
 timers inflate a 5 ms sleep to 26 ms; measured, reason beside each tag) and the two libspectrum `snapshot-foreign-*` rows (no
 Homebrew formula) on macOS.
