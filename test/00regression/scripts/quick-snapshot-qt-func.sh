@@ -42,9 +42,12 @@ if want quick-snapshot-qt-func; then
             bin="$1"; out="$2"; mode="$3"; log="$4"
             extra=""
             [ "$mode" = keep1 ] && extra="--quick-snapshot-keep 1"
+            # typeafter waits for the load, then types: it needs a later capture.
+            shot_frame=700; exit_frame=760
+            [ "$mode" = typeafter ] && { shot_frame=950; exit_frame=1010; }
             "$bin" --machine 48k --silent $extra \
-                --delayed-screenshot "$out" --delayed-screenshot-frames 700 \
-                --delayed-automatic-exit-frames 760 >"$log" 2>&1 &
+                --delayed-screenshot "$out" --delayed-screenshot-frames $shot_frame \
+                --delayed-automatic-exit-frames $exit_frame >"$log" 2>&1 &
             pid=$!
             wid=""
             for _ in $(seq 1 100); do
@@ -64,7 +67,7 @@ if want quick-snapshot-qt-func; then
                 case "$mode" in
                     empty|load|load2) tap alt+shift+F9 ;;
                     keep1) tap alt+shift+F5 ;;
-                    typeafter) tap alt+shift+F9; sleep 3; tap b; tap 5; tap Return ;;
+                    typeafter) tap alt+shift+F9; sleep 5; tap b; tap 5; tap Return ;;
                     save)
                         tap b; tap 1; tap Return; tap alt+shift+F5
                         tap b; tap 2; tap Return; tap alt+shift+F5 ;;
