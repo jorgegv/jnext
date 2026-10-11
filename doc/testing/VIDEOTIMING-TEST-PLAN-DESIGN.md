@@ -1086,3 +1086,12 @@ The matrix is a generated artifact now and carries no prose of its own; it
 links here instead. These notes were written alongside the rows they explain.
 
 Plan: `doc/testing/VIDEOTIMING-TEST-PLAN-DESIGN.md`. The VideoTiming expansion plan was closed 2026-04-26 once the per-machine accessors landed (V1 rebase, `display_origin()`, `ula_prefetch_origin_hc()`, `int_position()`, 60 Hz toggle, `int_line_num()` promotion). All 22 originally-scoped rows (Sections 1-6, VT-01..VT-21) flipped from skip() to live `check()` and pass. Task 7 round 1 added Section 7 ("Production scheduler wiring") with VT-22..VT-25 as F-skips for the production-wiring gaps tracked under G106 / G107 / G109 in `doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md`. Task 7 round 2 added VT-26, a class-G walkback row pinning the test-only pulse-counter accessors at `src/video/timing.h:97-134` as dead-code-pending-removal — the cleanup lands as a consequence of the G106/G107 fixes (see G71). Final per-row tally: 22 pass, 4 skip (F-blocked on the scheduler refactor), 1 skip (G-walkback).
+
+## GH #324: Pentagon machine type
+
+`PENT-08` (`videotiming_test`, group `VT-GH324-PENTAGON`): `--machine pentagon`
+runs the 448 x 320 frame (`c_max_hc` 447, `c_max_vc` 319, `c_int_v` 319,
+`zxula_timing.vhd:150-168`): 71680 T-states, 573440 master cycles. This
+replaces the retired `VT-03`/`VT-05`/`VT-09`/`VT-12` family, which assumed a
+Pentagon `VideoTiming` init the timing block no longer has: the geometry now
+comes from the tim_sel axis.

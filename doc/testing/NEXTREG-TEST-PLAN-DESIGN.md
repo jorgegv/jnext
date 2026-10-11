@@ -515,3 +515,18 @@ oracle ("internal-port-enable bits AND with reset_type-derived defaults; NOT
 raw shadow") disagrees with the VHDL — `:5499` stores all eight written bits
 and `:6128-6129` returns them verbatim, so the read on NR 0x82 *is* the raw
 shadow. The live `PE-INT-82` already carries the corrected oracle.
+
+## GH #324: the Next's Pentagon 128 personality (`--machine pentagon`)
+
+Rows `PENT-01`..`PENT-06` and `PENT-22` (`nextreg_integration_test`, group
+`PENT-PERSONALITY`). The oracle is the real firmware, not the emulator:
+`tbblue.fw` booting with `config.ini default=14` (`menu.def` "Pentagon 128K")
+runs `boot.c` mode 3 and writes NR 0x82 = 0xC6, NR 0x84 = 0xFB, NR 0x85 bit 7 =
+0, NR 0x03 = 0xC4, and never NR 0x8F. A standalone `--machine pentagon` must read
+back the same: NR 0x03 = 0x44 (`PENT-01`), the port enables (`PENT-02`), kept
+across a soft reset and a guest-modified NR 0x82 kept too (`PENT-03`, NR 0x85
+bit 7 = 0, `zxnext.vhd:5052-5067`), 50 Hz forced (`PENT-04`, `:5835-5836`), NR
+0x8F untouched (`PENT-05`, `:888`), a Next committing typ_sel 100 landing on
+`MachineType::PENTAGON` (`PENT-06`, `:5139-5142`, `:5751`) and the Covox on
+0xFB reaching DAC channels A and D (`PENT-22`, `:2433`, `:2661-2664`). The
+firmware parity itself is the functional row `machine-pentagon-func`.
