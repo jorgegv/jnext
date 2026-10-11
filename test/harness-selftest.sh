@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=196  # HS-96a..c (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=197  # HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -786,6 +786,12 @@ echo 'void s() { std::thread(f).detach(); }' > "$DT/src/other/stray.cpp"
 out_bad=$(timeout --kill-after=5s "${INVOKE_TIMEOUT}s" bash "$PROJECT_DIR/test/lint-thread-detach.sh" "$DT" 2>&1); rc_bad=$?
 check "HS-96b" "the detached-thread lint passes the sanctioned twin alone and fails, naming the file, on a stray .detach() (GH #328)" 1 $rc_bad "$out_bad" \
     "src/other/stray.cpp:1" "start_detached"
+# test/ is in scope too (test binaries run under wine): a stray there alone must fail.
+rm -f "$DT/src/other/stray.cpp"
+echo 'void s() { std::thread(f).detach(); }' > "$DT/test/stray_test.cpp"
+out_t=$(timeout --kill-after=5s "${INVOKE_TIMEOUT}s" bash "$PROJECT_DIR/test/lint-thread-detach.sh" "$DT" 2>&1); rc_t=$?
+check "HS-96d" "...and fails on a stray .detach() under test/ alone (the lint scans test/, not only src/)" 1 $rc_t "$out_t" \
+    "test/stray_test.cpp:1"
 check "HS-96c" "...and exits 0 on the tree holding only the sanctioned twin" 0 $rc_clean "$out_clean" "clean"
 
 # ------------- worktree-bootstrap must not call an unprovisioned tree "ready" (GH #149)

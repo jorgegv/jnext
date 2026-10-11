@@ -509,6 +509,10 @@ unsigned __stdcall detached_entry(void* arg) {
 void start_detached(std::function<void()> body) {
     auto* p = new std::function<void()>(std::move(body));
     const std::uintptr_t h = ::_beginthreadex(nullptr, 0, &detached_entry, p, 0, nullptr);
+    // Untestable under wine, by design: neither this failure arm (a Win32
+    // thread cannot be made to fail creation) nor the CloseHandle below (a
+    // leaked handle is only visible through ProcessHandleCount, which wine
+    // stubs to return 0: dlls/ntdll/unix/process.c) has an oracle here.
     if (h == 0) {
         const int e = errno;
         delete p;

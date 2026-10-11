@@ -89,7 +89,8 @@ hits=$(grep -v "^$ALLOWED:" <<<"$hits" | grep -v '^$' || true)
 if [[ -n "$hits" ]]; then
     echo "[lint-thread-detach] detached thread outside $ALLOWED (GH #328):" >&2
     printf '%s\n' "$hits" >&2
-    echo "Use esp::net::start_detached (src/esp01/include/esp01/esp_socket_platform.h)." >&2
+    echo "Inside src/esp01 use net::start_detached (private header esp_socket_platform.h);" >&2
+    echo "elsewhere use a joined thread, or move that helper somewhere public on purpose." >&2
     exit 1
 fi
 echo "[lint-thread-detach] clean"

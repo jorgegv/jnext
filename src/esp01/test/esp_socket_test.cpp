@@ -2133,6 +2133,23 @@ int main() {
                       " stuck_at=" + std::to_string(stuck_at) + " entered=" +
                       std::to_string(fake_dns::entered.load() - entered0)); }
 
+        {   // GH #328 (review F1): the Windows worker owns its body by hand
+            // (new std::function, freed by the trampoline). A finished worker
+            // must have released everything it captured, or every lookup leaks.
+            auto sentinel = std::make_shared<int>(0);
+            {
+                ResolveFn fn = [sentinel](const std::string&, std::vector<IpAddress>&,
+                                          std::string&) { return true; };
+                auto r = make_socket_resolver(loopback_ok(), fn);
+                r->begin("x.test");
+                wait_until([&] { r->poll(); return r->state() != ResolveState::Resolving; },
+                           4000);
+            }
+            check("RSLV-14",
+                  "a finished lookup worker has released what it captured (GH #328)",
+                  wait_until([&] { return sentinel.use_count() == 1; }, 2000),
+                  "use_count=" + std::to_string(sentinel.use_count())); }
+
         {   // THE LIFETIME PROPERTY, from this side. The gate is held SHUT, so
             // a lookup is provably parked in the resolver function when the
             // object is destroyed; destruction must not wait for it.

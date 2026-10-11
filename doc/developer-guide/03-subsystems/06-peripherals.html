@@ -2762,7 +2762,7 @@ designed in and is checked, not one that happens to hold today.</p>
   <code>std::thread::detach</code>: MinGW winpthreads recycles the descriptor of a thread
   that ended before <code>pthread_detach</code> ran while that thread's exit callback can
   still reach it, so the <em>next</em> thread created may never run its body (GH #328).
-  <code>test/lint-thread-detach.sh</code> fails the build on any other <code>.detach()</code>.</li>
+  <code>test/lint-thread-detach.sh</code> fails <code>make unit-test</code> and <code>make regression</code> on any other <code>.detach()</code>.</li>
 </ul>
 <p>Everything that couples the two sides lives on <strong>jnext's</strong> side of the line:</p>
 <ul>

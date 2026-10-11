@@ -391,7 +391,7 @@ Four consequences, all deliberate:
   `std::thread::detach`: MinGW winpthreads recycles the descriptor of a thread
   that ended before `pthread_detach` ran while that thread's exit callback can
   still reach it, so the *next* thread created may never run its body (GH #328).
-  `test/lint-thread-detach.sh` fails the build on any other `.detach()`.
+  `test/lint-thread-detach.sh` fails `make unit-test` and `make regression` on any other `.detach()`.
 
 Everything that couples the two sides lives on **jnext's** side of the line:
 
