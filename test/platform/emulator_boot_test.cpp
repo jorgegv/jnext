@@ -516,9 +516,24 @@ void run_rows()
     // not running.
     check("QS-17", "startup with an explicit --machine next still boots a 48K .jns as the 48K",
           saved && emulator_startup_machine(file1, MachineType::ZXN_ISSUE2, true) == MachineType::ZX48K);
-    check("QS-18", "startup keeps an explicit --machine for every other file, and follows the "
-                   ".jns when --machine is absent",
-          emulator_startup_machine("x.nex", MachineType::ZXN_ISSUE2, true) == MachineType::ZXN_ISSUE2 &&
+    // An RZX records its machine, and there an explicit --machine WINS (load_rzx()
+    // warns): the one case that tells the helper's rule from "always follow the file".
+    const std::string rzx_path = (root / "rec48.rzx").string();
+    bool rzx_made = false;
+    {
+        auto src_up = std::make_unique<Emulator>();
+        src_up->init(base_config());   // 48K
+        rzx_made = src_up->start_rzx_recording(rzx_path);
+        src_up->run_frame();
+        rzx_made = rzx_made && src_up->stop_rzx_recording();
+    }
+    check("QS-18", "startup keeps an explicit --machine for every other file (an RZX included: "
+                   "explicit next beats the recorded 48K), and follows the .jns, or the RZX when "
+                   "--machine is absent",
+          rzx_made &&
+              emulator_startup_machine(rzx_path, MachineType::ZXN_ISSUE2, true) == MachineType::ZXN_ISSUE2 &&
+              emulator_startup_machine(rzx_path, MachineType::ZXN_ISSUE2, false) == MachineType::ZX48K &&
+              emulator_startup_machine("x.nex", MachineType::ZXN_ISSUE2, true) == MachineType::ZXN_ISSUE2 &&
               emulator_startup_machine("", MachineType::ZX128K, true) == MachineType::ZX128K &&
               saved && emulator_startup_machine(file1, MachineType::ZXN_ISSUE2, false) == MachineType::ZX48K);
 
