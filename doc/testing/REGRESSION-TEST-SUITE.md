@@ -144,8 +144,8 @@ run prints the absent rows by name; they are not SKIPs and are not counted. The
 6 lints (tree checks) run in the Linux run only. Currently absent: the X11
 key-injection rows and the rows that do not run jnext (Linux only); the
 `--record`/ffmpeg rows, `joy-uart-link`, `nextpi` and `startup-stack` on Windows;
-`audio-underrun` and `sdl-options` (real-time pacing the 3-vCPU macOS CI runner
-cannot meet, measured) and the two libspectrum `snapshot-foreign-*` rows (no
+`audio-underrun`, `sdl-options` and `dzrp-paused-headless` (real-time pacing the
+3-vCPU macOS CI runner cannot meet, measured) and the two libspectrum `snapshot-foreign-*` rows (no
 Homebrew formula) on macOS.
 
 Rows reach the binaries through `$JNEXT` and `$JNEXT_SDL`, the helpers through
