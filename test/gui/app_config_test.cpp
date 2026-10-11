@@ -554,6 +554,10 @@ static void test_debug_keys_validation() {
         { "DK-33", "Alt+8",    false, "Alt+8 is refused — a script host key" },
         { "DK-34", "Alt+9",    true,  "Alt+9 stays bindable — the reservation is 1..8" },
         { "DK-35", "Alt+Shift+1", true, "Alt+Shift+1 stays bindable — a different chord" },
+        // GH #321 — Alt+Shift+F5 / Alt+Shift+F9 are Quick Save / Quick Load.
+        { "DK-36", "Alt+Shift+F5", false, "Alt+Shift+F5 is refused — Quick Save Snapshot" },
+        { "DK-37", "Alt+Shift+F9", false, "Alt+Shift+F9 is refused — Quick Load Snapshot" },
+        { "DK-38", "Alt+Shift+F6", true,  "Alt+Shift+F6 stays bindable — only F5 and F9 are reserved" },
     };
     for (const Row& r : rows) {
         const V v = V_(r.text);
@@ -811,6 +815,18 @@ static void test_debug_keys_conflicts() {
                   + render_combo(km.combo(Action::StepOut)));
         check("DK-74", "that collision is reported too", issues.size() == 1,
               std::to_string(issues.size()));
+    }
+    {
+        // GH #321 — a hand-edited file naming a quick-snapshot key is refused AT
+        // LOAD, with a reason that says what the chord is, and the default stays.
+        std::vector<LoadIssue> issues;
+        Keymap km = build_keymap({{"step_into", "Alt+Shift+F9"}}, issues);
+        check("DK-79", "a config naming Alt+Shift+F9 for a debugger action is refused at load, "
+                       "naming the quick-snapshot keys, and the default stays",
+              issues.size() == 1
+                  && issues[0].reason.find("quick-snapshot") != std::string::npos
+                  && render_combo(km.combo(Action::StepInto)) != "Alt+Shift+F9",
+              issues.empty() ? "no issue" : issues[0].reason);
     }
     {
         // A SWAP is not a conflict and must survive intact — the single most

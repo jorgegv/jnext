@@ -721,7 +721,7 @@ void MainWindow::create_menus() {
     // menubar mnemonics ('&' in addMenu). A letter used twice is an AMBIGUOUS
     // Qt shortcut — QAction::event() only prints a warning and does nothing, so
     // BOTH bindings break. host_hotkey_test pins the two sets disjoint.
-    // Reserved today: Alt+Q/O/S/K/R/T/D/P/U, Alt+F5 and Alt+F9 (shortcuts) and Alt+F/M/I/A/B/V/N/H
+    // Reserved today: Alt+Q/O/S/K/R/T/D/P/U, Alt+Shift+F5 and Alt+Shift+F9 (shortcuts) and Alt+F/M/I/A/B/V/N/H
     // (mnemonics). Alt+E/G/C/` stay free because the GUEST uses them
     // (keyboard.cpp:163,172-174).
     //
@@ -881,17 +881,17 @@ void MainWindow::create_menus() {
     // mnemonic (every letter is taken in some Alt namespace, #217). The chords
     // live HERE; the SDL frontend's twin is platform/quick_snapshot_chord.h.
     quick_save_action_ = file_menu->addAction(tr("Quick Save Snapshot"));
-    quick_save_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_F5));
+    quick_save_action_->setShortcut(QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_F5));
     connect(quick_save_action_, &QAction::triggered, this, &MainWindow::on_quick_save);
     quick_load_action_ = file_menu->addAction(tr("Quick Load Snapshot"));
-    quick_load_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_F9));
+    quick_load_action_->setShortcut(QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_F9));
     connect(quick_load_action_, &QAction::triggered, this, &MainWindow::on_quick_load);
     // A held chord must act once, not once per autorepeat (35 saves in 2 s).
     quick_save_action_->setAutoRepeat(false);
     quick_load_action_->setAutoRepeat(false);
     // Also on the window itself, as pause_action_ is: with the menu bar hidden
     // (fullscreen) a menu action's shortcut never matches, the key falls to
-    // keyPressEvent, and Alt+F9 would fire the Multiface NMI.
+    // keyPressEvent, and Alt+Shift+F9 would fire the Multiface NMI.
     addAction(quick_save_action_);
     addAction(quick_load_action_);
 
@@ -2197,7 +2197,7 @@ bool MainWindow::save_jns_with_feedback(const QString& path, const QString& ok_m
     return true;
 }
 
-// GH #321 — File > Quick Save Snapshot (Alt+F5).
+// GH #321 — File > Quick Save Snapshot (Alt+Shift+F5).
 void MainWindow::on_quick_save() {
     if (!emulator_) return;
     const std::string dir = default_quick_snapshot_dir();
@@ -2213,7 +2213,7 @@ void MainWindow::on_quick_save() {
     save_jns_with_feedback(qpath, tr("Quick saved: %1").arg(qpath), 5000);
 }
 
-// GH #321 — File > Quick Load Snapshot (Alt+F9): the newest .jns in the quick
+// GH #321 — File > Quick Load Snapshot (Alt+Shift+F9): the newest .jns in the quick
 // folder, through the same route as File > Load.
 void MainWindow::on_quick_load() {
     if (!emulator_) return;

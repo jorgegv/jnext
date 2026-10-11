@@ -227,8 +227,8 @@ static void test_accelerators(MainWindow& w)
     // File > Quic&k Screenshot, Alt+K. GH #93 added a mnemonic: File > &Eject
     // SD Card. GH #89 added two: Tape > Start &Saving... and Stop Sa&ving.
     // GH #306 added one of each: Machine > P&ause, Alt+U. GH #321 added two
-    // shortcuts: File > Quick Save Snapshot, Alt+F5, and Quick Load Snapshot,
-    // Alt+F9; neither has a mnemonic.)
+    // shortcuts: File > Quick Save Snapshot, Alt+Shift+F5, and Quick Load Snapshot,
+    // Alt+Shift+F9; neither has a mnemonic.)
     //
     // ADDING OR REMOVING A MENU ENTRY MEANS UPDATING THESE NUMBERS, and that
     // edit is the point: it is the claim about how much of the menu tree is

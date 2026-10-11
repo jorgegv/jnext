@@ -143,8 +143,8 @@ bool SdlApp::init(int argc, char* argv[]) {
                     // key-down would desync Keyboard's host Alt-modifier state.
                 }
             }
-            // GH #321 — Alt+F5 / Alt+F9, tested BEFORE the F-key block below
-            // so Alt+F9 is not the Multiface NMI; an autorepeat of the chord
+            // GH #321 — Alt+Shift+F5 / Alt+Shift+F9, tested BEFORE the F-key block below
+            // so Alt+Shift+F9 is not the Multiface NMI; an autorepeat of the chord
             // is swallowed. The tracker (platform/quick_snapshot_chord.h) keeps
             // the modifiers from the key events, not SDL_GetModState().
             switch (quick) {

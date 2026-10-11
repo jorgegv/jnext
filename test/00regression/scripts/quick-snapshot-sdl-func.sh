@@ -6,8 +6,8 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 
-# SDL frontend Quick Save / Quick Load (GitHub issue #321): Alt+F5 writes a
-# snapshot into $JNEXT_CONFIG_DIR/snapshots, Alt+F9 restores the newest.
+# SDL frontend Quick Save / Quick Load (GitHub issue #321): Alt+Shift+F5 writes a
+# snapshot into $JNEXT_CONFIG_DIR/snapshots, Alt+Shift+F9 restores the newest.
 #
 # WHY A FUNCTIONAL ROW. host_key_latch_test (HKL-QS-*) pins the chord
 # predicate and its press/release tracker, but nothing in the unit tree runs
@@ -16,18 +16,18 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # binary shows that. The binary is build/sdl-release, as sdl-keypress-func.
 #
 # THE RUNS (all 48K, $JNEXT_CONFIG_DIR is this row's own directory):
-#   empty  Alt+F9, no snapshot: the log says so and NO cold boot follows (the
+#   empty  Alt+Shift+F9, no snapshot: the log says so and NO cold boot follows (the
 #          count of "Cold boot" lines equals the save run's, which has only the
 #          startup one); its border is the untouched machine's;
-#   save   BORDER 1, Alt+F5, BORDER 2, Alt+F5, screenshot A: two files, named
+#   save   BORDER 1, Alt+Shift+F5, BORDER 2, Alt+Shift+F5, screenshot A: two files, named
 #          jnext-YYYYMMDD-HHMMSS[-NN].jns, two "quick save: wrote" lines;
-#   load   Alt+F9 on a fresh machine: the border must equal A's (the newest);
-#   load2  after `touch`ing the OLDER save into the future, Alt+F9: the border
+#   load   Alt+Shift+F9 on a fresh machine: the border must equal A's (the newest);
+#   load2  after `touch`ing the OLDER save into the future, Alt+Shift+F9: the border
 #          must differ from `load`'s and from the untouched machine's. This is
 #          what proves the two saves really differ AND that "newest" is by
 #          modification time: the row FAILS if the BORDER keystrokes were lost
 #          and both saves are the same state (it used to pass vacuously then);
-#   bad    a garbage .jns, newest of all; BORDER 3 then Alt+F9: refused with a
+#   bad    a garbage .jns, newest of all; BORDER 3 then Alt+Shift+F9: refused with a
 #          log line, no .jns cold boot, no cold boot at all, and the BORDER 3
 #          session survives.
 # No palette value is hard-coded: every comparison is between renders of this
@@ -73,12 +73,12 @@ if want quick-snapshot-sdl-func; then
                 xdotool windowactivate --sync "$wid" 2>/dev/null || true
                 tap() { xdotool key "$1" 2>/dev/null || true; sleep 0.5; }
                 case "$mode" in
-                    empty|load|load2) tap alt+F9 ;;
+                    empty|load|load2) tap alt+shift+F9 ;;
                     save)
-                        tap b; tap 1; tap Return; tap alt+F5
-                        tap b; tap 2; tap Return; tap alt+F5 ;;
+                        tap b; tap 1; tap Return; tap alt+shift+F5
+                        tap b; tap 2; tap Return; tap alt+shift+F5 ;;
                     bad)
-                        tap b; tap 3; tap Return; tap alt+F9 ;;
+                        tap b; tap 3; tap Return; tap alt+shift+F9 ;;
                 esac
             fi
             wait $pid
@@ -155,7 +155,7 @@ if want quick-snapshot-sdl-func; then
             elif [[ "$px_a" == "$px_e" ]]; then
                 fail_row " (the saves did not change the machine: border $px_a equals the untouched machine's; BORDER keystrokes lost?)"
             elif [[ "$load_boot" -lt 1 ]]; then
-                fail_row " (Alt+F9 with snapshots present did not cold-boot a .jns)"
+                fail_row " (Alt+Shift+F9 with snapshots present did not cold-boot a .jns)"
             elif [[ "$px_l" != "$px_a" ]]; then
                 fail_row " (Quick Load did not restore the newest save: border $px_l, saved $px_a, untouched $px_e)"
             elif [[ "$px_l2" == "$px_l" || "$px_l2" == "$px_e" ]]; then
@@ -165,7 +165,7 @@ if want quick-snapshot-sdl-func; then
             elif [[ "$px_bad" == "$px_e" ]]; then
                 fail_row " (unreadable newest .jns reset the session (or BORDER 3 was lost): border $px_bad equals the untouched machine's)"
             else
-                pass_row " (2 distinct saves; Alt+F9 restored the newer ($px_l) and, once the older was touched, the older ($px_l2); empty and unreadable folders left the session alone)"
+                pass_row " (2 distinct saves; Alt+Shift+F9 restored the newer ($px_l) and, once the older was touched, the older ($px_l2); empty and unreadable folders left the session alone)"
             fi
         fi
     fi

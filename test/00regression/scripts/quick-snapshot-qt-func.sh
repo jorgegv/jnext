@@ -7,7 +7,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 
 # Qt frontend Quick Save / Quick Load (GitHub issue #321): File > Quick Save
-# Snapshot (Alt+F5) and Quick Load Snapshot (Alt+F9) on the real binary, so the
+# Snapshot (Alt+Shift+F5) and Quick Load Snapshot (Alt+Shift+F9) on the real binary, so the
 # MainWindow wiring and the real QtApp::cold_boot are exercised end to end
 # (preferences_apply_test PA-22* drives the slots without a cold boot).
 #
@@ -19,7 +19,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # The window is found by title and keys are aimed with the pointer, exactly as
 # qt-keypress-func; a QAction shortcut only fires in the ACTIVE window and no
 # window manager runs, so the window also takes the input focus (measured: Qt
-# activates it on the FocusIn this generates; without it Alt+F5 does nothing).
+# activates it on the FocusIn this generates; without it Alt+Shift+F5 does nothing).
 # The Xvfb is started with -noreset (GH #318; HS-89 enforces it). Tagged
 # `quiet` like its SDL twin.
 
@@ -60,12 +60,12 @@ if want quick-snapshot-qt-func; then
                 xdotool windowfocus --sync "$wid" 2>/dev/null || true
                 tap() { xdotool key "$1" 2>/dev/null || true; sleep 0.5; }
                 case "$mode" in
-                    empty|load|load2) tap alt+F9 ;;
+                    empty|load|load2) tap alt+shift+F9 ;;
                     save)
-                        tap b; tap 1; tap Return; tap alt+F5
-                        tap b; tap 2; tap Return; tap alt+F5 ;;
+                        tap b; tap 1; tap Return; tap alt+shift+F5
+                        tap b; tap 2; tap Return; tap alt+shift+F5 ;;
                     bad)
-                        tap b; tap 3; tap Return; tap alt+F9 ;;
+                        tap b; tap 3; tap Return; tap alt+shift+F9 ;;
                 esac
             fi
             wait $pid
@@ -140,7 +140,7 @@ if want quick-snapshot-qt-func; then
             elif [[ "$px_a" == "$px_e" ]]; then
                 fail_row " (the saves did not change the machine: border $px_a equals the untouched machine's; BORDER keystrokes lost?)"
             elif [[ "$load_boot" -lt 1 ]]; then
-                fail_row " (Alt+F9 with snapshots present did not cold-boot a .jns)"
+                fail_row " (Alt+Shift+F9 with snapshots present did not cold-boot a .jns)"
             elif [[ "$px_l" != "$px_a" ]]; then
                 fail_row " (Quick Load did not restore the newest save: border $px_l, saved $px_a, untouched $px_e)"
             elif [[ "$px_l2" == "$px_l" || "$px_l2" == "$px_e" ]]; then
@@ -150,7 +150,7 @@ if want quick-snapshot-qt-func; then
             elif [[ "$px_bad" == "$px_e" ]]; then
                 fail_row " (unreadable newest .jns reset the session (or BORDER 3 was lost): border $px_bad equals the untouched machine's)"
             else
-                pass_row " (2 distinct saves; Alt+F9 restored the newer ($px_l) and, once the older was touched, the older ($px_l2); empty and unreadable folders left the session alone)"
+                pass_row " (2 distinct saves; Alt+Shift+F9 restored the newer ($px_l) and, once the older was touched, the older ($px_l2); empty and unreadable folders left the session alone)"
             fi
         fi
     fi

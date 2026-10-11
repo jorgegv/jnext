@@ -1721,91 +1721,101 @@ int main()
         }
     }
 
-    // --- HKL-QS: the quick-snapshot chords Alt+F5 / Alt+F9 (GH #321) -------
-    // Oracle: the owner decision (Alt+F5 = Quick Save, Alt+F9 = Quick Load) and
-    // the exact-modifier policy of the script keys; bare F5/F9 stay the guest's
-    // EmuFnKeys strobe and Multiface NMI.
+    // --- HKL-QS: the quick-snapshot chords Alt+Shift+F5 / Alt+Shift+F9 (GH #321)
+    // Oracle: the owner decision (Alt+Shift+F5 = Quick Save, Alt+Shift+F9 = Quick
+    // Load; plain Alt+F5/F9 are NOT claimed) and the exact-modifier policy of the
+    // script keys; bare F5/F9 stay the guest's EmuFnKeys strobe and Multiface NMI.
     {
         using jnext::QuickChord;
+        using jnext::QuickChordTracker;
         using jnext::quick_snapshot_chord;
         using jnext::quick_snapshot_chord_held;
-        constexpr int F5 = 62, F9 = 66;
-        check("HKL-QS-01", "Alt+F5 is Quick Save",
-              quick_snapshot_chord(F5, true, false, false, false) == QuickChord::Save);
-        check("HKL-QS-02", "Alt+F9 is Quick Load",
-              quick_snapshot_chord(F9, true, false, false, false) == QuickChord::Load);
-        check("HKL-QS-03", "bare F5 and bare F9 are not claimed",
+        constexpr int F5 = 62, F9 = 66, LALT = 226, RALT = 230, LSHIFT = 225, RSHIFT = 229;
+        // quick_snapshot_chord(scancode, alt, ctrl, shift, gui)
+        check("HKL-QS-01", "Alt+Shift+F5 is Quick Save",
+              quick_snapshot_chord(F5, true, false, true, false) == QuickChord::Save);
+        check("HKL-QS-02", "Alt+Shift+F9 is Quick Load",
+              quick_snapshot_chord(F9, true, false, true, false) == QuickChord::Load);
+        check("HKL-QS-03", "bare F5/F9, Alt+F5/F9 and Shift+F5/F9 are not claimed",
               quick_snapshot_chord(F5, false, false, false, false) == QuickChord::None &&
-              quick_snapshot_chord(F9, false, false, false, false) == QuickChord::None);
-        check("HKL-QS-04", "Alt+Shift+F9, Ctrl+Alt+F9 and Alt+GUI+F9 are not Quick Load",
-              quick_snapshot_chord(F9, true, false, true, false) == QuickChord::None &&
-              quick_snapshot_chord(F9, true, true, false, false) == QuickChord::None &&
-              quick_snapshot_chord(F9, true, false, false, true) == QuickChord::None);
-        check("HKL-QS-05", "Alt+F6, Alt+F4 and Alt+1 are not quick-snapshot chords",
-              quick_snapshot_chord(63, true, false, false, false) == QuickChord::None &&
-              quick_snapshot_chord(61, true, false, false, false) == QuickChord::None &&
-              quick_snapshot_chord(30, true, false, false, false) == QuickChord::None);
-        check("HKL-QS-07", "the held-key mask form: right Alt works, Alt+LShift does not, and the "
-                           "answer depends only on what is held, not on event order",
-              quick_snapshot_chord_held(F5, 1u << 6) == QuickChord::Save &&
-              quick_snapshot_chord_held(F9, 1u << 2) == QuickChord::Load &&
-              quick_snapshot_chord_held(F9, (1u << 2) | (1u << 1)) == QuickChord::None &&
+              quick_snapshot_chord(F9, false, false, false, false) == QuickChord::None &&
+              quick_snapshot_chord(F5, true, false, false, false) == QuickChord::None &&
+              quick_snapshot_chord(F9, true, false, false, false) == QuickChord::None &&
+              quick_snapshot_chord(F9, false, false, true, false) == QuickChord::None);
+        check("HKL-QS-04", "Ctrl+Alt+Shift+F9 and Alt+Shift+GUI+F9 are not Quick Load",
+              quick_snapshot_chord(F9, true, true, true, false) == QuickChord::None &&
+              quick_snapshot_chord(F9, true, false, true, true) == QuickChord::None);
+        check("HKL-QS-05", "Alt+Shift+F6, Alt+Shift+F4 and Alt+Shift+1 are not quick-snapshot chords",
+              quick_snapshot_chord(63, true, false, true, false) == QuickChord::None &&
+              quick_snapshot_chord(61, true, false, true, false) == QuickChord::None &&
+              quick_snapshot_chord(30, true, false, true, false) == QuickChord::None);
+        check("HKL-QS-06", "the scancodes the predicate tests are SDL's F5 and F9",
+              jnext::kQuickSaveScancode == static_cast<int>(SDL_SCANCODE_F5) &&
+              jnext::kQuickLoadScancode == static_cast<int>(SDL_SCANCODE_F9));
+        check("HKL-QS-07", "the held-key mask form: right Alt and right Shift work, Alt alone or "
+                           "Shift alone do not",
+              quick_snapshot_chord_held(F5, (1u << 6) | (1u << 5)) == QuickChord::Save &&
+              quick_snapshot_chord_held(F9, (1u << 2) | (1u << 1)) == QuickChord::Load &&
+              quick_snapshot_chord_held(F9, 1u << 2) == QuickChord::None &&
+              quick_snapshot_chord_held(F9, 1u << 1) == QuickChord::None &&
               quick_snapshot_chord_held(F9, 0) == QuickChord::None);
         // The press/release bookkeeping (QuickChordTracker). Oracle: a held
         // modifier is exactly the keys currently down, and one key press is one
         // action (autorepeat must not repeat a snapshot).
         {
-            using jnext::QuickChordTracker;
             QuickChordTracker t;
-            t.on_key(226, true);
+            t.on_key(LALT, true);
+            t.on_key(LSHIFT, true);
             const QuickChord a = t.on_key(F5, true);
             t.on_key(F5, false);
-            t.on_key(226, false);
+            t.on_key(LSHIFT, false);
+            t.on_key(LALT, false);
             const QuickChord bare = t.on_key(F9, true);
-            check("HKL-QS-08", "after Alt is released a bare F9 is not Quick Load (a release clears the "
-                               "modifier)",
+            check("HKL-QS-08", "after Alt and Shift are released a bare F9 is not Quick Load (a "
+                               "release clears the modifier)",
                   a == QuickChord::Save && bare == QuickChord::None);
         }
         {
-            jnext::QuickChordTracker t;
-            t.on_key(226, true);
+            QuickChordTracker t;
+            t.on_key(LALT, true);
+            t.on_key(LSHIFT, true);
             const QuickChord first = t.on_key(F5, true);
             const QuickChord rep1  = t.on_key(F5, true);
             const QuickChord rep2  = t.on_key(F5, true);
             t.on_key(F5, false);
             const QuickChord again = t.on_key(F5, true);
-            check("HKL-QS-09", "a held Alt+F5 acts once and its autorepeats are swallowed; a fresh "
-                               "press acts again",
+            check("HKL-QS-09", "a held Alt+Shift+F5 acts once and its autorepeats are swallowed; a "
+                               "fresh press acts again",
                   first == QuickChord::Save && rep1 == QuickChord::Repeat &&
                       rep2 == QuickChord::Repeat && again == QuickChord::Save);
         }
         {
-            jnext::QuickChordTracker t;
-            t.on_key(226, true);
-            t.on_key(230, true);
-            t.on_key(226, false);              // left up, right still down
+            QuickChordTracker t;
+            t.on_key(LALT, true);
+            t.on_key(RALT, true);
+            t.on_key(LSHIFT, true);
+            t.on_key(LALT, false);             // left Alt up, right Alt still down
             const QuickChord one = t.on_key(F9, true);
             t.on_key(F9, false);
-            t.on_key(230, false);
+            t.on_key(RALT, false);
             const QuickChord none = t.on_key(F9, true);
             check("HKL-QS-10", "left and right Alt count separately: releasing one keeps the chord, "
                                "releasing both ends it",
                   one == QuickChord::Load && none == QuickChord::None);
         }
         {
-            jnext::QuickChordTracker t;
-            t.on_key(226, true);
-            t.on_key(225, true);               // Alt+LShift
-            const QuickChord shifted = t.on_key(F5, true);
+            QuickChordTracker t;
+            t.on_key(LALT, true);
+            t.on_key(RSHIFT, true);
+            t.on_key(LSHIFT, true);
+            t.on_key(RSHIFT, false);           // right Shift up, left still down
+            const QuickChord held = t.on_key(F5, true);
             t.on_key(F5, false);
-            t.on_key(225, false);
-            const QuickChord plain = t.on_key(F5, true);
-            check("HKL-QS-11", "Alt+Shift+F5 is not Quick Save, and releasing Shift restores Alt+F5",
-                  shifted == QuickChord::None && plain == QuickChord::Save);
+            t.on_key(LSHIFT, false);
+            const QuickChord noshift = t.on_key(F5, true);   // Alt+F5: not claimed
+            check("HKL-QS-11", "Shift counts per side, and Alt+F5 without Shift is not Quick Save",
+                  held == QuickChord::Save && noshift == QuickChord::None);
         }
-        check("HKL-QS-06", "the scancodes the predicate tests are SDL's F5 and F9",
-              jnext::kQuickSaveScancode == static_cast<int>(SDL_SCANCODE_F5) &&
-              jnext::kQuickLoadScancode == static_cast<int>(SDL_SCANCODE_F9));
     }
 
     std::printf("\n====================================================\n");

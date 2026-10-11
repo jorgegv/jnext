@@ -129,7 +129,7 @@ private:
     void boot_machine(const std::string& load_file);
     bool       running_ = false;
 
-    /// GH #321 — Alt+F5 / Alt+F9. Save runs from the key callback (between
+    /// GH #321 — Alt+Shift+F5 / Alt+Shift+F9. Save runs from the key callback (between
     /// frames); Load is serviced in run() beside the NEX load request.
     void quick_save();
     void quick_load();

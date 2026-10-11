@@ -397,8 +397,8 @@ private:
     // Snapshot save slot (G35: wires SnaSaver to File menu).
     void on_save_snapshot();
 
-    /// GH #321 — File > Quick Save Snapshot (Alt+F5) / Quick Load Snapshot
-    /// (Alt+F9): no dialog, `<state dir>/snapshots/`, newest `.jns` on load.
+    /// GH #321 — File > Quick Save Snapshot (Alt+Shift+F5) / Quick Load
+    /// Snapshot (Alt+Shift+F9): no dialog, `<state dir>/snapshots/`, newest `.jns` on load.
     void on_quick_save();
     void on_quick_load();
     /// The `.jns` write path shared by Save Snapshot and Quick Save.
