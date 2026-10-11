@@ -26,7 +26,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 if want machine-pentagon-func; then
     begin_func machine-pentagon-func
 
-    sdfile="$PROJECT_DIR/build/test/sdfile_tool"
+    sdfile="$TEST_BIN_DIR/sdfile_tool"
     sd_image="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
     jds="$TMP_DIR/machine_pentagon.jds"
     jds_fw="$TMP_DIR/machine_pentagon_fw.jds"
@@ -42,7 +42,7 @@ if want machine-pentagon-func; then
         skip_row " (no SD-card image clone for this run)"
         verdict=settled
     elif [[ ! -x "$sdfile" ]]; then
-        fail_row " (build/test/sdfile_tool missing — run 'make unit-test-build')"
+        fail_row " ($TEST_BIN_DIR/sdfile_tool missing — run 'make unit-test-build')"
         verdict=settled
     fi
 

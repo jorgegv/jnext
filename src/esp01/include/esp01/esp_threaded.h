@@ -293,6 +293,12 @@ private:
     std::atomic<std::uint64_t> passes_{0};
     /// Service passes lost to a throwing transport. See `pass_exceptions()`.
     std::atomic<std::uint64_t> pass_exceptions_{0};
+    /// GH #319, DIAGNOSIS ONLY (debug log): how long the worker holds `core_mutex_`
+    /// for the locked half of a service pass, and for how long `tick()` ran into a
+    /// held lock (and how many ticks it dropped). Written by `tick()`'s thread alone.
+    bool                                  tick_skipping_ = false;
+    std::chrono::steady_clock::time_point tick_skip_since_{};
+    std::uint64_t                         tick_skip_ticks_ = 0;
 
     /// Wakes the worker when guest input arrives, so a command is not held for
     /// up to `poll_interval_` before the core even sees it.

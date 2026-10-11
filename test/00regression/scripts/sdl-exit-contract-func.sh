@@ -30,7 +30,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 if want sdl-exit-contract-func; then
     begin_func sdl-exit-contract-func
 
-    sdl_bin="$PROJECT_DIR/build/sdl-release/jnext"
+    sdl_bin="$JNEXT_SDL"
     at_n="$TMP_DIR/sdl-exit-at-n.png"      # capture at the exit frame -> taken
     past_n="$TMP_DIR/sdl-exit-past-n.png"  # capture one frame later   -> never taken
     rm -f "$at_n" "$past_n"

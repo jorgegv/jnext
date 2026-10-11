@@ -7,6 +7,7 @@
 #include <cstdlib>
 
 #include "esp01/esp_log.h"
+#include "esp01/stream_digest.h"
 
 #include <algorithm>
 #include <cctype>
@@ -16,6 +17,25 @@
 namespace esp {
 
 namespace {
+
+// GH #319: the byte-stream digests of the nextsync-func diagnosis (see
+// stream_digest.h). One per hop this file owns; each is fed from one place only,
+// and only when the debug level is on.
+//   sock-in     bytes the peer's socket handed the engine
+//   ipd-framed  bytes taken out of the receive buffer into a +IPD frame
+//   esp-out     bytes the engine releases toward the guest's UART
+StreamDigest g_dg_sock_in, g_dg_ipd_framed, g_dg_esp_out;
+
+void digest_exact(const StreamDigest& d, const char* name, long queued = -1) {
+    if (!detail::log_wanted(LogLevel::Debug)) return;
+    if (queued < 0) log_debug("digest-exact {} off={} fnv={}", name, d.offset(), d.hash_hex());
+    else log_debug("digest-exact {} off={} fnv={} queued={}", name, d.offset(), d.hash_hex(), queued);
+}
+
+void digest_feed(StreamDigest& d, const char* name, std::uint8_t b) {
+    if (!detail::log_wanted(LogLevel::Debug)) return;
+    if (d.feed(b)) log_debug("digest {} off={} fnv={}", name, d.offset(), d.hash_hex());
+}
 
 /// Case-insensitive prefix test; `rest` receives what follows the prefix. An
 /// EXACT match is the case where `rest` comes back empty, which is how the
@@ -193,6 +213,10 @@ AtEngine::AtEngine(EspTransport& transport, EspListener* listener, EspResolver* 
 // ─── Guest TX -> engine ───────────────────────────────────────────────
 
 void AtEngine::receive(std::uint8_t byte) {
+    // GH #319: the guest is starting a command. What the engine has released so
+    // far, EXACTLY, and how many bytes it still holds for the guest: if the guest
+    // timed out waiting for a reply, `queued` says whether the reply was all out.
+    if (mode_ == Mode::Command && line_.empty() && (byte == 'A' || byte == 'a')) digest_exact(g_dg_esp_out, "esp-out-at-cmd", static_cast<long>(out_.size()));
     if (conn_[SINGLE_CID].connecting || domain_pending_ || ping_pending_ || sntp_pending_) {
         // A connect is in flight and its OK/ERROR has not been decided yet.
         // Real firmware answers `busy p...`, which is on the never-emit list,
@@ -1900,10 +1924,14 @@ void AtEngine::drain_socket(std::size_t cid) {
     for (int i = 0; i < RECV_MAX_ITER; ++i) {
         const std::size_t n = c.transport->recv(buf, sizeof(buf));
         if (n == 0) break;
-        for (std::size_t j = 0; j < n; ++j) c.rx.push_back(buf[j]);
+        for (std::size_t j = 0; j < n; ++j) {
+            digest_feed(g_dg_sock_in, "sock-in", buf[j]);
+            c.rx.push_back(buf[j]);
+        }
         total += n;
         if (c.transport->state() != TransportState::Connected) break;
     }
+    if (total != 0) digest_exact(g_dg_sock_in, "sock-in");
     if (total != 0) {
         // THE ONE PLACE `AT+CIPSTO`'s TIMER IS RE-ARMED (GH #240). Bytes from
         // the CLIENT, and nothing else: `flush_outbound` deliberately does not
@@ -2028,9 +2056,11 @@ void AtEngine::frame_ipd() {
         log_debug("+IPD framing {} byte(s) on cid {}, {} left buffered", n, cid, c.rx.size() - n);
         queue_ipd_header(cid, c.multiplexed, n);
         for (std::size_t i = 0; i < n; ++i) {
+            digest_feed(g_dg_ipd_framed, "ipd-framed", c.rx.front());
             out_.push_back(c.rx.front());
             c.rx.pop_front();
         }
+        digest_exact(g_dg_ipd_framed, "ipd-framed");
         refresh_tick_gate();
         return;  // one chunk per quiet moment — the next follows when this drains
     }
@@ -2083,6 +2113,7 @@ void AtEngine::tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte) {
     std::size_t released = 0;
     while (!out_.empty() && pace_accum_ >= ticks_per_byte) {
         pace_accum_ -= ticks_per_byte;
+        digest_feed(g_dg_esp_out, "esp-out", out_.front());
         send_to_guest(out_.front());
         out_.pop_front();
         ++released;
@@ -2095,6 +2126,7 @@ void AtEngine::tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte) {
         // early. Bounded, but it is exactly the pacing slip this whole
         // mechanism exists to prevent.
         pace_accum_ = 0;
+        digest_exact(g_dg_esp_out, "esp-out-drained", 0);
         frame_ipd();
     }
     if (released != 0) {

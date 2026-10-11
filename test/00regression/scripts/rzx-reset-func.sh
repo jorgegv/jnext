@@ -29,9 +29,10 @@ if want rzx-reset-func; then
 
     rr_dir="$TMP_DIR/rzx-reset"
     rm -rf "$rr_dir"; mkdir -p "$rr_dir"
-    rr_sdl="$PROJECT_DIR/build/sdl-release/jnext"
+    rr_sdl="$JNEXT_SDL"
     rr_prog="$rr_dir/hardreset.bin"
     rr_faults=()
+    rr_wrap=()   # a command prefix for rr_run: set only around the "lost" run
     # EI; LD B,50; loop: HALT; DJNZ loop; LD BC,0x243B; LD A,2; OUT (C),A
     # (select NR 0x02); INC B (BC = 0x253B); OUT (C),A (NR 0x02 = 2: hard
     # reset); JR $.
@@ -43,15 +44,15 @@ if want rzx-reset-func; then
         local fe=$1 log=$2 rc=0; shift 2
         case $fe in
             headless)
-                timeout --foreground --kill-after=5s 60s "$JNEXT" --headless \
+                timeout --foreground --kill-after=5s 60s ${rr_wrap[@]+"${rr_wrap[@]}"} "$JNEXT" --headless \
                     "${SD_CARD_ARGS[@]}" --machine 48k "$@" >"$log" 2>&1 || rc=$? ;;
             qt)
                 env QT_QPA_PLATFORM=offscreen \
-                timeout --foreground --kill-after=5s 120s "$JNEXT" --silent \
+                timeout --foreground --kill-after=5s 120s ${rr_wrap[@]+"${rr_wrap[@]}"} "$JNEXT" --silent \
                     "${SD_CARD_ARGS[@]}" --machine 48k "$@" >"$log" 2>&1 || rc=$? ;;
             sdl)
                 env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
-                timeout --foreground --kill-after=5s 120s "$rr_sdl" --silent \
+                timeout --foreground --kill-after=5s 120s ${rr_wrap[@]+"${rr_wrap[@]}"} "$rr_sdl" --silent \
                     "${SD_CARD_ARGS[@]}" --machine 48k "$@" >"$log" 2>&1 || rc=$? ;;
         esac
         echo "$rc"
@@ -80,9 +81,14 @@ if want rzx-reset-func; then
 
             # lost: the write fails at the reset.
             log="$rr_dir/$fe-lost.log"
+            # GH #319: /dev/full where the host has one; else (macOS) a file whose
+            # writes fail, through full-disk.sh.
+            rr_full=/dev/full
+            if [[ ! -e /dev/full ]]; then rr_full="$rr_dir/$fe-full.rzx"; rr_wrap=(bash "$SCRIPT_DIR/full-disk.sh"); fi
             rc=$(rr_run "$fe" "$log" --inject "$rr_prog" --inject-delay 100 \
-                    --rzx-record /dev/full --delayed-automatic-exit-frames 300)
-            if [[ "$rc" != 1 ]] || ! grep -qF "RZX: failed to write '/dev/full'" "$log"; then
+                    --rzx-record "$rr_full" --delayed-automatic-exit-frames 300)
+            rr_wrap=()
+            if [[ "$rc" != 1 ]] || ! grep -qF "RZX: failed to write '$rr_full'" "$log"; then
                 rr_faults+=("$fe lost: rc=$rc (want 1 + 'RZX: failed to write')")
             elif [[ "$fe" == qt ]] \
                  && { ! grep -qF "unattended run, so no dialog" "$log" \

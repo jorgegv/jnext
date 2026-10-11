@@ -13,6 +13,9 @@ if want video-record-status-func; then
     empty_file="$TMP_DIR/jnext_test_empty_recording.mp4"
     fake_bin="$TMP_DIR/fake-ffmpeg-bin"
     mkdir -p "$fake_bin"
+    # The directory of `timeout`, so the restricted PATH below still finds it
+    # where it is not in /usr/bin (macOS: Homebrew coreutils). /usr/bin on Linux.
+    vr_tool_dir=$(dirname "$(command -v timeout)")
     {
         echo '#!/bin/sh'
         echo '[ "$JNEXT_TEST_FFMPEG_MODE" = "probe-fail" ] && exit 41'
@@ -40,7 +43,7 @@ if want video-record-status-func; then
     # non-empty file so the recorder must remove it before encoding; merely
     # checking "a non-empty file exists afterwards" would accept the stale one.
     printf 'stale recording\n' > "$empty_file"
-    if start_out=$(PATH="$fake_bin:/usr/bin:/bin" JNEXT_TEST_FFMPEG_MODE=probe-fail \
+    if start_out=$(PATH="$fake_bin:$vr_tool_dir:/usr/bin:/bin" JNEXT_TEST_FFMPEG_MODE=probe-fail \
         timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
         "${SD_CARD_ARGS[@]}" --record "$start_file" \
         --delayed-automatic-exit-frames 5 2>&1); then
@@ -48,7 +51,7 @@ if want video-record-status-func; then
     else
         start_rc=$?
     fi
-    if failed_out=$(PATH="$fake_bin:/usr/bin:/bin" JNEXT_TEST_FFMPEG_MODE=fail \
+    if failed_out=$(PATH="$fake_bin:$vr_tool_dir:/usr/bin:/bin" JNEXT_TEST_FFMPEG_MODE=fail \
         timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
         "${SD_CARD_ARGS[@]}" --record "$failed_file" \
         --delayed-automatic-exit-frames 5 2>&1); then
@@ -56,7 +59,7 @@ if want video-record-status-func; then
     else
         failed_rc=$?
     fi
-    if empty_out=$(PATH="$fake_bin:/usr/bin:/bin" JNEXT_TEST_FFMPEG_MODE=empty-success \
+    if empty_out=$(PATH="$fake_bin:$vr_tool_dir:/usr/bin:/bin" JNEXT_TEST_FFMPEG_MODE=empty-success \
         timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
         "${SD_CARD_ARGS[@]}" --record "$empty_file" \
         --delayed-automatic-exit-frames 5 2>&1); then
@@ -73,7 +76,7 @@ if want video-record-status-func; then
     dir_target="$TMP_DIR/jnext_test_dir_target.mp4"
     mkdir -p "$dir_target"
     printf 'occupied\n' > "$dir_target/keep.txt"
-    if dir_out=$(PATH="$fake_bin:/usr/bin:/bin" \
+    if dir_out=$(PATH="$fake_bin:$vr_tool_dir:/usr/bin:/bin" \
         timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
         "${SD_CARD_ARGS[@]}" --record "$dir_target" \
         --delayed-automatic-exit-frames 5 2>&1); then
@@ -90,7 +93,7 @@ if want video-record-status-func; then
     # wall-clock bound.
     abort_file="$TMP_DIR/jnext_test_abort_early.mp4"
     abort_t0=$(date +%s)
-    if abort_out=$(PATH="$fake_bin:/usr/bin:/bin" JNEXT_TEST_FFMPEG_MODE=probe-fail \
+    if abort_out=$(PATH="$fake_bin:$vr_tool_dir:/usr/bin:/bin" JNEXT_TEST_FFMPEG_MODE=probe-fail \
         timeout --foreground --kill-after=5s 40s "$JNEXT" --headless \
         "${SD_CARD_ARGS[@]}" --record "$abort_file" \
         --delayed-automatic-exit-frames 500000 2>&1); then
@@ -104,7 +107,7 @@ if want video-record-status-func; then
     # and then fails must still fail the exit contract, but the partial file
     # is KEPT for inspection (only 0-byte leftovers are removed).
     partial_file="$TMP_DIR/jnext_test_partial_recording.mp4"
-    if partial_out=$(PATH="$fake_bin:/usr/bin:/bin" JNEXT_TEST_FFMPEG_MODE=partial-fail \
+    if partial_out=$(PATH="$fake_bin:$vr_tool_dir:/usr/bin:/bin" JNEXT_TEST_FFMPEG_MODE=partial-fail \
         timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
         "${SD_CARD_ARGS[@]}" --record "$partial_file" \
         --delayed-automatic-exit-frames 5 2>&1); then

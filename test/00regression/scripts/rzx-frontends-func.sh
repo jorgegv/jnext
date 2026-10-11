@@ -42,7 +42,7 @@ if want rzx-frontends-func; then
 
     rf_dir="$TMP_DIR/rzx-frontends"
     rm -rf "$rf_dir"; mkdir -p "$rf_dir"
-    rf_sdl="$PROJECT_DIR/build/sdl-release/jnext"
+    rf_sdl="$JNEXT_SDL"
     rf_rec="$rf_dir/truth.rzx"
     rf_bad="$rf_dir/bad.rzx"
     rf_faults=()

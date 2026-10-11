@@ -183,3 +183,13 @@ suites never see the user's own `$HOME`: each runs with `HOME` and the XDG base
 directories pointing at an empty per-run directory, and `JNEXT_CONFIG_DIR`
 unset, so a saved `~/.jnext/jnext.conf`, a legacy `Debugger.conf` or Qt setting cannot
 change a result.
+
+## The regression suite's own per-OS pins (GH #319)
+
+`functional_tests.conf` has the same discipline for the platform runs. Besides
+`# expect: N` (the rows declared) it carries `# expect-macos: N` and
+`# expect-windows: N` (the rows each OS runs), and a row opts out of an OS with
+an `os=<list>` tag (`linux` mandatory) and a `# os:` reason above it. Retagging a
+row without moving the pin, in either direction, is a harness fault; so is a
+tagged manifest with a pin missing. The run prints the rows an OS does not run by
+name. See [the regression suite](03-the-regression-suite.md#platform-runs-macos-and-windows-under-wine-gh-319).
