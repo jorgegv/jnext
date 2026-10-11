@@ -158,7 +158,7 @@ long enough to rot into failing on 18 rows.
 
 ## The lint self-tests
 
-Four of the lints verify themselves on **every invocation**, before their
+Five of the lints verify themselves on **every invocation**, before their
 verdict on the real tree is trusted at all:
 
 - `test/lint-assertions.sh` writes a fixture containing one instance of each
@@ -166,6 +166,11 @@ verdict on the real tree is trusted at all:
   `a == b || a != b` — and refuses with exit 2 if any of its patterns fails to
   match that fixture. A lint that has silently become a no-op reports success,
   which is worse than not running it.
+- `test/lint-thread-detach.sh` writes a fixture with five must-flag lines
+  (`.detach()`, `->detach()`, `pthread_detach(`, and a spaced form) and a
+  fixture of must-not-flag comment and identifier lines, and refuses with exit 2
+  if either count is off. The harness self-test also runs it against a
+  throwaway tree to prove it fails on a stray `.detach()` (GH #328).
 - `test/00regression/lint-traps.sh` carries **86 pinned cases: 57 that must
   flag and 29 that must not.** There is one fixture file per case,
   deliberately, because a combined fixture still passed when a case was lost,

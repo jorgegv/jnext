@@ -10,7 +10,6 @@
 #include <cstring>
 #include <memory>
 #include <string>
-#include <thread>
 #include <vector>
 
 #if defined(_WIN32)
@@ -134,7 +133,7 @@ public:
         const unsigned      t   = timeout_s_;
         const AddressPolicy p   = policy_;
         try {
-            std::thread([job, sv, t, p]() {
+            net::start_detached([job, sv, t, p]() {
                 // NOTHING MAY ESCAPE — an exception out of a thread entry point
                 // is std::terminate, a process abort rather than an error.
                 bool         ok = false;
@@ -168,7 +167,7 @@ public:
                 job->unix_time = when;
                 job->err       = std::move(err);
                 job->done.store(true, std::memory_order_release);
-            }).detach();
+            });
         } catch (const std::system_error& e) {
             job_.reset();
             err_   = std::string("cannot start SNTP thread: ") + e.what();
