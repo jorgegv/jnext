@@ -12,7 +12,13 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 
+#include "save/jns_container.h"
+#include "save/zip_archive.h"
+
 #include <cctype>
+#include <fstream>
+#include <iterator>
+#include <vector>
 #include <functional>
 #include <new>
 #include <optional>
@@ -81,6 +87,28 @@ inline bool emulator_load_routes_to_rzx(const std::string& file) {
 /// an explicit --machine wins) and every cold boot (emulator_cold_boot()), the
 /// route of the GUI's File > Play RZX Recording and File > Load NEX File....
 inline MachineType emulator_boot_machine(const std::string& load_file, MachineType configured) {
+    if (jnext::is_jns_path(load_file)) {
+        // GH #321 — a `.jns` names its machine too. Boot that machine, so the
+        // frontend's keep_machine hook records it; load_jns would otherwise
+        // reconfigure behind the frontend's back and a later reset would boot
+        // the old machine. An unreadable manifest returns `configured`: the
+        // load refuses the file anyway.
+        std::ifstream f(load_file, std::ios::binary);
+        if (!f) return configured;
+        std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
+                                   std::istreambuf_iterator<char>());
+        jnext::zip::Reader zip;
+        std::string why, text;
+        jnext::jns::Manifest m;
+        std::vector<std::string> unknown;
+        MachineType want = configured;
+        if (zip.open(bytes.data(), bytes.size(), why) &&
+            zip.read_text(jnext::jns::kManifestMember, text, why) &&
+            jnext::jns::manifest_from_json(text, m, unknown, why) &&
+            parse_machine_type(m.model.machine, want))
+            return want;
+        return configured;
+    }
     if (!emulator_load_routes_to_rzx(load_file)) return configured;
     RzxRecording rec;
     MachineType  recorded = configured;

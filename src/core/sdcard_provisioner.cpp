@@ -117,6 +117,7 @@ std::string read_stored_sha256(const std::string& path) {
 }
 } // namespace
 
+std::string default_state_dir() { return config_dir(); }
 std::string default_sdcard_dir() {
     return config_dir() + "/sdcard";
 }
