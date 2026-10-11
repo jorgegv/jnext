@@ -7,7 +7,8 @@
 
 ### Bug Fixes
 - Loading an unreadable .jns no longer resets the running machine before refusing it
-- Loading a .jns made on another machine keeps that machine for later resets
+- Loading a .jns made on another machine, from the menu or the command line, keeps that machine for later resets
+- Quick Screenshot (Alt+K) now works in fullscreen
 - Seconds-form delays (--delayed-automatic-exit, -screenshot-time, -keypress, -nmi) now count programs running at 60 Hz as 1/60 s per frame
 - A malformed numeric command-line value is now a clear error instead of a crash or a silently wrong number
 - Windows: the status bar shows a loaded tape's file name instead of its full path

@@ -3255,7 +3255,7 @@ safe for a <code>.jns</code>: <code>Emulator::probe_jns_file()</code> runs the p
 costs no session; and <code>emulator_boot_machine()</code> reads the <code>.jns</code> manifest's
 machine the way it reads an RZX's, so the cold boot builds the snapshot's
 machine and the frontend's <code>keep_machine</code> hook records it (otherwise a later
-reset would boot the old machine). <code>.sna</code>, <code>.szx</code> and <code>.z80</code> reconfigure the
+reset would boot the old machine); the command-line startup does the same through <code>emulator_startup_machine()</code>, where a <code>.jns</code> wins even over an explicit <code>--machine</code>. Quick Load failures (no snapshot, unreadable newest file) are a status-bar line in Qt and a log line in SDL, never a dialog; both actions act once per key press (<code>QuickChordTracker</code>, <code>setAutoRepeat(false)</code>). <code>.sna</code>, <code>.szx</code> and <code>.z80</code> reconfigure the
 machine without telling the frontend in the same way; that is not fixed here.
 The SDL chord predicate is <code>platform/quick_snapshot_chord.h</code>; the Qt chords are
 the two QAction shortcuts in <code>main_window.cpp</code>.</p>
