@@ -53,6 +53,7 @@ int main()
     }
     const fs::path target = root / "precious.jns";
     touch(target);
+    fs::last_write_time(target, t0 - std::chrono::hours(1));   // a followed link is OLD, hence prunable
     std::error_code ec;
     fs::create_symlink(target, d / "jnext-20250101-000000.jns", ec);
     const bool link_made = !ec;
