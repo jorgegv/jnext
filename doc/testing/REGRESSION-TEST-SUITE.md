@@ -153,6 +153,17 @@ Rows reach the binaries through `$JNEXT` and `$JNEXT_SDL`, the helpers through
 instead of Xvfb off Linux, `core=-1@0kHz` in `--benchmark`, a failing-write file
 instead of `/dev/full` on macOS).
 
+### nextsync-func under wine: self-diagnosing (GH #319)
+
+`nextsync-func` has failed rarely under wine (about 1 loaded run in 15). It stays in the
+Windows run, and a failure prints its own diagnosis into the job log (and keeps the full logs
+in `build/regression-artifacts/`, uploaded by CI): the peer's timestamped exchange, and
+`nextsync-digest.py`'s comparison of byte digests (FNV-1a every 256 bytes, `digest <stream>`
+log lines at debug level) across the hops peer -> socket -> ESP buffer -> ESP output ->
+UART RX FIFO -> guest read, naming the first hop that differs, or a STALL (the ESP stopped
+releasing output) when none does. The digest lines cost ~410 jnext log lines (+28 KB) on a
+green run of that row and nothing when the debug level is off.
+
 ## One full run at a time, and green-run stamps (GH #295)
 
 A **full** run — no arguments, the real manifests — takes a per-user host lock

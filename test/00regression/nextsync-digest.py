@@ -22,6 +22,57 @@ Restart/Retry, so the checkpoint can be placed against it.
 import re
 import sys
 
+TS = re.compile(r"\[(\d\d):(\d\d):(\d\d)\.(\d\d\d)\]")
+PEER_TS = re.compile(r"^ev (\d\d):(\d\d):(\d\d)\.(\d\d\d)")
+
+
+def ms_of(m):
+    h, mi, se, mm = (int(x) for x in m.groups())
+    return ((h * 60 + mi) * 60 + se) * 1000 + mm
+
+
+def fmt(ms):
+    return "%02d:%02d:%02d.%03d" % (ms // 3600000, ms // 60000 % 60, ms // 1000 % 60, ms % 1000)
+
+
+def stall_report(peer_path, jnext_path):
+    """A STALL is not corruption: the digests match at every hop, but the ESP stopped
+    releasing bytes toward the guest while some were still queued. Seen as a long gap
+    between consecutive `esp-out` checkpoints ending at the guest's Restart (a healthy
+    exchange has them a few ms apart: the pacer releases a byte per UART byte time)."""
+    t_restart = None
+    with open(peer_path, errors="replace") as f:
+        for line in f:
+            m = PEER_TS.match(line)
+            if m and re.search(r"RX b'(Retry|Restart)'", line):
+                t_restart = ms_of(m)
+                break
+    if t_restart is None:
+        return None
+    stamps = []
+    with open(jnext_path, errors="replace") as f:
+        for line in f:
+            if "digest esp-out " in line:
+                m = TS.search(line)
+                if m:
+                    stamps.append(ms_of(m))
+    before = [t for t in stamps if t <= t_restart + 20]     # the Restart's own reply may be stamped in the same ms
+    if len(before) < 5:
+        return None
+    gaps = sorted(((b - a, a, b) for a, b in zip(before, before[1:])), reverse=True)
+    typical = sorted(g[0] for g in gaps)[len(gaps) // 2]
+    worst, t_a, t_b = gaps[0]
+    msg = ("  esp-out checkpoints: %d up to the first Retry/Restart; the typical gap between two is %d ms, the LARGEST %d ms "
+           "(between %s and %s, the Restart reached the peer at %s)"
+           % (len(before), typical, worst, fmt(t_a), fmt(t_b), fmt(t_restart)))
+    if worst > 200 and worst > 5 * max(typical, 10):
+        msg += ("\n  STALL: the ESP released NO byte toward the guest for %d ms (%s .. %s) before the guest gave up and "
+                "sent its Restart. Every hop's bytes matched, so nothing was corrupted: the ESP stopped releasing output, the "
+                "guest (missing the tail of the reply, < 256 bytes after the last checkpoint before the gap) timed out, and "
+                "the pump ran again only when the guest's next command arrived. Look at AtEngine::tick / the tick gate (refresh_tick_gate, "
+                "EspUartAdapter::mirror_gate) and ThreadedEsp::tick's try-lock." % (worst, fmt(t_a), fmt(t_b)))
+    return msg
+
 DIG = re.compile(r"digest (\S+) off=(\d+) fnv=([0-9a-f]{8})")
 HOPS = [("1 network (peer-sent -> sock-in)", "peer-sent", "sock-in"),
         ("2 ESP receive buffer (sock-in -> ipd-framed)", "sock-in", "ipd-framed"),
@@ -80,6 +131,9 @@ def main(argv):
     if reply:
         out.append("  the reply sent last before the first Retry/Restart: seq %d, %d bytes, peer stream bytes %d..%d"
                    % (reply[0], reply[1], reply[2] - reply[1], reply[2] - 1))
+    stall = stall_report(argv[1], argv[2])
+    if stall:
+        out.append(stall)
     if first_bad:
         out.append("  VERDICT: the first hop whose bytes differ is %s, at checkpoint offset %d."
                    % first_bad)
