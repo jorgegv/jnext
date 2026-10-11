@@ -62,7 +62,9 @@ if want dzrp-paused-headless-func; then
         if (( ${#fails[@]} == 0 )); then
             pass_row " ($(tail -n 1 <<<"$peer_out" | sed 's/^PASS //'); exit status 0)"
         else
-            fail_row " (${fails[*]})"
+            # A late attach and an early exit look alike from the peer's side: say when
+            # jnext saw the client and when it left, from its own timestamps (GH #319).
+            fail_row " (${fails[*]}; jnext log: $(grep -aE 'CMD_INIT from|automatic exit triggered' "$log" | cut -c1-12,14- | tr '\n' '|'))"
         fi
         verdict=done
     done

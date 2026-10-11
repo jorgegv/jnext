@@ -22,6 +22,7 @@ const char* const kMachineTypeNameArr[] = {
     "zx48k",        // MachineType::ZX48K
     "zx128k",       // MachineType::ZX128K
     "zx_plus3",     // MachineType::ZX_PLUS3
+    "pentagon",     // MachineType::PENTAGON
 };
 const jnext::save::EnumNames kMachineTypeNames{
     kMachineTypeNameArr, sizeof(kMachineTypeNameArr) / sizeof(kMachineTypeNameArr[0])};

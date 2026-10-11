@@ -940,6 +940,7 @@ public:
                 if (lk1 || lk0) return lk1;
                 return ((port_7ffd_ >> 4) & 1) != 0;
             case MachineType::ZX128K:
+            case MachineType::PENTAGON:   // typ_sel 100 decodes to machine_type_128 (zxnext.vhd:5751)
             case MachineType::ZXN_ISSUE2:
             default:
                 // zxnext.vhd:2998-3005 (the non-48K, non-+3 branch —
@@ -1199,6 +1200,7 @@ public:
                 }
                 return current_rom_bank();
             case MachineType::ZX128K:
+            case MachineType::PENTAGON:   // typ_sel 100 decodes to machine_type_128 (zxnext.vhd:5751)
             case MachineType::ZXN_ISSUE2:
             default:
                 // VHDL zxnext.vhd:2997-3007 — the else branch covers BOTH
@@ -1256,6 +1258,7 @@ public:
                 if (lk1 || lk0) return lk1 && lk0;       // VHDL :2990
                 return a13 && a14;                       // VHDL :2994
             case MachineType::ZX128K:
+            case MachineType::PENTAGON:   // typ_sel 100 decodes to machine_type_128 (zxnext.vhd:5751)
             case MachineType::ZXN_ISSUE2:
             default:
                 if (lk1 || lk0) return lk1;              // VHDL :3000

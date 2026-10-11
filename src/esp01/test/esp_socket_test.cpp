@@ -1423,8 +1423,76 @@ int main() {
             check("ESP-RST-02",
                   "a peer that RSTs having served nothing is still an error",
                   aborted && has_level(unserved, LogLevel::Error));
+
+            // (c) THE REPEAT (GH #326). Oracle: Microsoft's recv reference ("If
+            //     the connection has been reset, a recv will fail with the error
+            //     WSAECONNRESET") and, on POSIX, tcp_recvmsg reporting sk_err.
+            //     Every abortive close must be a reset, none an orderly close.
+            //     On Linux/macOS this pins the deterministic path. Under wine
+            //     it is a STATISTICAL guard: wine 11.0 sometimes returns the
+            //     reset as a 0-byte read first (per-close rate measured 0.2%
+            //     idle, 0.6% loaded), so without the shim's MSG_PEEK confirm one
+            //     run catches it with probability ~63% (idle) to ~95% (loaded).
+            //     The fix itself is deterministic.
+            int setup_bad = 0, wrong = 0, first_bad = -1;
+            std::string first_bad_text, unserved_ref;
+            (void)capture_log(LogLevel::Info, [&] {
+                for (int i = 0; i < 500; ++i) {
+                    auto t = make_socket_transport(loopback_ok());
+                    t->begin_connect("127.0.0.1", l.port());
+                    if (!pump_until(*t, TransportState::Connected)) { ++setup_bad; continue; }
+                    const int srv = l.accept_one(1000);
+                    if (srv < 0) { ++setup_bad; continue; }
+                    const bool served = (i % 2 == 0);
+                    if (served) {
+                        const char* pl = "PAY";
+                        const ssize_t w = ::send(srv, pl, 3, 0);
+                        (void)w;
+                        std::uint8_t rx[16];
+                        std::size_t  got = 0;
+                        for (int waited = 0; waited < 2000 && got < 3; waited += 2) {
+                            const std::size_t n = t->recv(rx, sizeof(rx));
+                            got += n;
+                            if (n == 0) sleep_ms(2);
+                        }
+                    }
+                    close_with_reset(srv);
+                    const bool ended = pump_recv_until_not_connected(*t);
+                    const bool failed = ended && t->state() == TransportState::Failed;
+                    // Served: the text is note_peer_reset's. Unserved: it is
+                    // "recv failed: " + the shim's reason, so it must carry a
+                    // reason and be the same on every such try (a raced reset
+                    // that lost its reason would differ or be empty).
+                    bool text_ok = true;
+                    if (served) {
+                        text_ok = t->last_error().find("reset by the peer") != std::string::npos;
+                    } else {
+                        const std::string le = t->last_error();
+                        const std::string pre = "recv failed: ";
+                        if (unserved_ref.empty()) unserved_ref = le;
+                        text_ok = le.compare(0, pre.size(), pre) == 0 &&
+                                  le.size() > pre.size() && le == unserved_ref;
+                    }
+                    if (!failed || !text_ok) {
+                        if (++wrong == 1) {
+                            first_bad = i;
+                            first_bad_text = "state=" +
+                                std::to_string(static_cast<int>(t->state())) +
+                                " last_error=" + t->last_error();
+                        }
+                    }
+                }
+            });
+            check("ESP-RST-03",
+                  "across 500 abortive closes a peer RST is reported as a reset "
+                  "every time, never as an orderly close",
+                  setup_bad == 0 && wrong == 0,
+                  "setup_failures=" + std::to_string(setup_bad) +
+                      " wrong_outcomes=" + std::to_string(wrong) +
+                      " first_bad=" + std::to_string(first_bad) + " " + first_bad_text +
+                      " unserved_ref='" + unserved_ref + "'");
         } else {
-            for (const char* id : {"ESP-RST-01", "ESP-RST-02"}) {
+            for (const char* id : {"ESP-RST-01", "ESP-RST-02", "ESP-RST-03"}) {
                 report_row_id(id);
                 ++g_total; ++g_skip;
                 std::printf("  SKIP %s: could not bind a loopback listener\n", id);

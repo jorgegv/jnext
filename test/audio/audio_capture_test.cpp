@@ -2,8 +2,11 @@
 #include "audio/dac_trace_recorder.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "debug/trace.h"
+#include "esp01/stream_digest.h"
 #include "platform/emulator_boot.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -204,6 +207,64 @@ void dac_trace_format_test()
           "0,101,3,200\n"
           "1,5,1,7\n");
     std::filesystem::remove(path);
+
+    // GH #319: the file is written in binary mode, so a Windows host gets "\n"
+    // line ends like every other host. read_text above is a TEXT-mode read,
+    // which folds CRLF to LF on Windows and so cannot see the difference.
+    // Oracle: the format the rows above pin ("\n"-terminated lines), and
+    // what `--dac-trace` documents (a CSV a script can parse with `$` anchors).
+    recorder.start(path.string());
+    recorder.capture(1, 0, 2);
+    recorder.stop();
+    const auto bytes = read_binary(path);
+    check("DAC trace file has LF line ends and no CR byte (binary-mode write)",
+          std::count(bytes.begin(), bytes.end(), uint8_t{'\n'}) == 2 &&
+          std::count(bytes.begin(), bytes.end(), uint8_t{'\r'}) == 0);
+    std::filesystem::remove(path);
+}
+
+// GH #319: the byte-stream digest the NextSync diagnosis logs at every hop must be the
+// SAME function the peer (nextsync-peer.py) and the comparison tool (nextsync-digest.py)
+// compute. Oracle: the published FNV-1a/32 test vectors (isthe.com/chongo/tech/comp/fnv),
+// which nextsync-digest.py --selftest pins as well.
+void stream_digest_vector_test()
+{
+    auto digest_of = [](const char* s) {
+        esp::StreamDigest d;
+        for (const char* p = s; *p; ++p) d.feed(static_cast<std::uint8_t>(*p));
+        return d.hash_hex();
+    };
+    check("FNV-1a/32 test vectors: empty, a, foobar (the peer and the tool pin the same)",
+          digest_of("") == "811c9dc5" && digest_of("a") == "e40c292c" && digest_of("foobar") == "bf9cf968");
+    esp::StreamDigest d;
+    // Bytes 1..255 are NOT checkpoints and the 256th is, so an interval of 1, 64 or 128 fails.
+    bool early = false, at_256 = false;
+    for (int i = 1; i <= 256; ++i) {
+        const bool cp = d.feed(0);
+        if (i < 256 && cp) early = true;
+        if (i == 256) at_256 = cp;
+    }
+    check("StreamDigest reports a checkpoint at the 256th byte and at no earlier one", !early && at_256 && d.offset() == 256);
+}
+
+void trace_export_binary_test()
+{
+    const auto path = temp_file("trace-export", ".txt");
+    TraceLog log(8);
+    TraceEntry e{};
+    e.pc = 0x8000;
+    e.opcode_len = 1;
+    e.opcode_bytes[0] = 0x00;
+    log.set_enabled(true);
+    log.record(e);
+    log.record(e);
+    check("trace export starts", log.export_to_file(path.string()));
+    const auto bytes = read_binary(path);
+    check("trace export has LF line ends and no CR byte (binary-mode write)",
+          !bytes.empty() && bytes.back() == '\n' &&
+          std::count(bytes.begin(), bytes.end(), uint8_t{'\n'}) == 2 &&
+          std::count(bytes.begin(), bytes.end(), uint8_t{'\r'}) == 0);
+    std::filesystem::remove(path);
 }
 
 }  // namespace
@@ -215,6 +276,8 @@ int main()
     mixer_callback_fanout_test();
     cold_boot_continuity_test();
     dac_trace_format_test();
+    trace_export_binary_test();
+    stream_digest_vector_test();
 
     const int total = passed + failed;
     std::printf("Total: %d Passed: %d Failed: %d Skipped: 0\n",

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.33</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.33</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2627,6 +2627,12 @@ and Alt+E, Alt+G, Alt+C and Alt+<code>`</code> are reserved for the guest's EDIT
 GRAPH, CAPS LOCK and INV VIDEO. Adding a menu on one of those would silently
 kill a guest key, so <code>host_hotkey_test</code> pins the two sets disjoint — see
 <a href="../04-testing/index.html">Testing</a>.</p>
+<p>The one bare non-function host key is <strong>Pause</strong>, an alternate shortcut on
+Machine &gt; Pause (GH #322, an owner-approved exception to the Alt rule; it is the
+conventional emulator pause key). It is safe because Next PS/2 Pause/Break is
+"reset ps2 module" (<code>keymaps.vhd:104</code>, <code>ps2_keyb.vhd:245</code>) with no guest meaning,
+and jnext models no PS/2. Alt+U stays the primary shortcut (QMenu shows only the
+primary, and Mac keyboards have no Pause key). The action does not auto-repeat.</p>
 <p>Qt has its own claim on Alt, and jnext declines it. A bare Alt tap normally
 moves keyboard focus to the menu bar, where the next letter that is a top-level
 mnemonic is swallowed and opens that popup instead of typing. In an ordinary

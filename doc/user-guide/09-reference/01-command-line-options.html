@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.33</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.33</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3648,7 +3648,7 @@ with status 1.</p>
 <h2 id="machine-and-program">Machine and program<a class="headerlink" href="#machine-and-program" title="Permanent link">&para;</a></h2>
 <dl>
 <dt><strong>--machine</strong> <em>TYPE</em></dt>
-<dd>Machine type: <code>48k</code>, <code>128k</code>, <code>plus3</code>, <code>next</code> (default).</dd>
+<dd>Machine type: <code>48k</code>, <code>128k</code>, <code>plus3</code>, <code>pentagon</code>, <code>next</code> (default).</dd>
 <dt><strong>--load</strong> <em>FILE</em></dt>
 <dd>
 <p>Load a program. The format is detected from the extension: <code>.nex</code>,
@@ -4130,21 +4130,21 @@ in the GUI, at <strong>File &gt; Stop RZX Recording</strong>). Works the same in
 the GUI, the SDL-only build and under <strong>--headless</strong>. While
 recording, a tape loads in real time: a fast load skips the ROM
 loader, which a recording cannot replay. The snapshot is an SZX on
-the 128K and +3 and a 48K SNA on the 48K. The file names the machine
-it was recorded on, which <strong>--rzx-play</strong> then uses.</p>
+the 128K, Pentagon and +3 and a 48K SNA on the 48K. The file names
+the machine it was recorded on, which <strong>--rzx-play</strong> then uses.</p>
 <p><strong>Recording is not available on a ZX Spectrum Next, which is jnext’s
-default machine, so this needs an explicit --machine 48k, 128k or
-plus3.</strong> An RZX carries a snapshot of the machine it starts from
-plus a log of the values the program read from ports — and the log
-records the values without the ports they came from. So no snapshot
-an RZX can carry both describes a Next (none of SNA, SZX or Z80
-holds its extra RAM, NextREGs, Layer 2, tilemap, sprites or Copper)
-and keeps the value log aligned with what the restored machine goes
-on to read. jnext refuses rather than write a file that looks fine
-and replays wrong. <strong>--rzx-play</strong> still plays a Next recording made
-by an earlier jnext, with a warning that it may not replay
-faithfully. A <em>FILE</em> that cannot be written is refused before the
-machine starts, and a recording that cannot be saved when it is
+default machine, so this needs an explicit --machine 48k, 128k,
+pentagon or plus3.</strong> An RZX carries a snapshot of the machine it
+starts from plus a log of the values the program read from ports —
+and the log records the values without the ports they came from. So
+no snapshot an RZX can carry both describes a Next (none of SNA, SZX
+or Z80 holds its extra RAM, NextREGs, Layer 2, tilemap, sprites or
+Copper) and keeps the value log aligned with what the restored
+machine goes on to read. jnext refuses rather than write a file that
+looks fine and replays wrong. <strong>--rzx-play</strong> still plays a Next
+recording made by an earlier jnext, with a warning that it may not
+replay faithfully. A <em>FILE</em> that cannot be written is refused before
+the machine starts, and a recording that cannot be saved when it is
 written is logged; either way <strong>jnext</strong> exits non-zero. A reset ends
 the recording: a hard reset (the Reset button, F1, or the program’s
 own), loading another program from the GUI, changing the machine

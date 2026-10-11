@@ -2,7 +2,7 @@
 
 | Area | What you get |
 |------|--------------|
-| Machines | ZX Spectrum 48K, 128K, +2A/+3, and ZX Spectrum Next (Issue 2) |
+| Machines | ZX Spectrum 48K, 128K, +2A/+3, the Next's Pentagon 128, and ZX Spectrum Next (Issue 2) |
 | CPU | Z80N — the Next's Z80 with its extra instructions |
 | Video | ULA (including the Timex modes), Layer 2, 128 hardware sprites, tilemap, Copper, and the layer compositor |
 | Audio | Three AY-3-8910 chips (TurboSound), the DAC, and the beeper |

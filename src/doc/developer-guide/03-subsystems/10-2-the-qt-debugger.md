@@ -41,7 +41,7 @@ master switch is the backend's (`set_master_enabled()`).
 **The emulator window's Pause client** is a third Qt client, owned by
 `MainWindow` rather than the adapter, so it exists in a Qt build with no
 debugger too. It is a non-arming observer, attached lazily on the first press of
-Machine > Pause (Alt+U) and detached with the window. With the debugger window
+Machine > Pause (Alt+U or the Pause key) and detached with the window. With the debugger window
 shut, the action pauses and resumes through this client; with it open, the action
 calls the adapter's `on_pause()` / `on_run()`, the same verbs as the forwarded F9
 and F5 keys. In a build with no debugger it is also the only way, from the GUI, to resume a

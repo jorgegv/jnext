@@ -1917,7 +1917,7 @@ int main()
             bool ok = true;
             std::string why;
             for (MachineType m : recordable) {
-                const std::string path = path_for(rzx::machine_marker_name(m));
+                const std::string path = path_for(machine_type_key(m));
                 EmulatorConfig cfg = base_config();
                 cfg.type = m;
                 Emulator emu;
@@ -1928,8 +1928,8 @@ int main()
                 for (MachineType configured : all) {
                     if (written && emulator_boot_machine(path, configured) == m) continue;
                     ok = false;
-                    why += std::string(" ") + rzx::machine_marker_name(m) + "/" +
-                           rzx::machine_marker_name(configured);
+                    why += std::string(" ") + machine_type_key(m) + "/" +
+                           machine_type_key(configured);
                 }
                 std::remove(path.c_str());
             }
@@ -1966,13 +1966,13 @@ int main()
                 {"szx48",  snap_rec(szx(1), "szx"),       true,  MachineType::ZX48K},
                 {"szx128", snap_rec(szx(2), "szx"),       true,  MachineType::ZX128K},
                 {"szx+3",  snap_rec(szx(5), "szx"),       true,  MachineType::ZX_PLUS3},
-                {"szxpent",snap_rec(szx(7), "szx"),       false, MachineType::ZX48K},
+                {"szxpent",snap_rec(szx(7), "szx"),       true,  MachineType::PENTAGON},
                 {"z80v1",  snap_rec(z80v1, "z80"),        true,  MachineType::ZX48K},
                 {"z80v2-3",snap_rec(z80(23, 3), "z80"),   true,  MachineType::ZX128K},
                 {"z80v3-3",snap_rec(z80(54, 3), "z80"),   true,  MachineType::ZX48K},
                 {"z80v3-4",snap_rec(z80(54, 4), "z80"),   true,  MachineType::ZX128K},
                 {"z80v3-7",snap_rec(z80(54, 7), "z80"),   true,  MachineType::ZX_PLUS3},
-                {"z80v3-9",snap_rec(z80(54, 9), "z80"),   false, MachineType::ZX48K},
+                {"z80v3-9",snap_rec(z80(54, 9), "z80"),   true,  MachineType::PENTAGON},
                 {"none",   snap_rec({}, ""),              false, MachineType::ZX48K},
             };
             std::string why;
@@ -1982,7 +1982,7 @@ int main()
                 if (known != c.known || (known && got != c.m)) why += std::string(" ") + c.name;
             }
             check("EB-47", "a foreign recording's machine comes from its snapshot "
-                           "(SNA size, SZX ID, .z80 version+mode); Pentagon/none name none",
+                           "(SNA size, SZX ID, .z80 version+mode); Pentagon 128 is SZX 7 / .z80 hw 9, none names none",
                   why.empty(), "wrong for:" + why);
         }
 
@@ -2291,6 +2291,59 @@ int main()
 
         std::remove(card_a.c_str());
         std::remove(card_b.c_str());
+    }
+
+    // --- GH #324: the Pentagon machine type's names -------------------------
+    {
+        MachineType a = MachineType::ZXN_ISSUE2, b = MachineType::ZXN_ISSUE2;
+        const bool p1 = parse_machine_type("pentagon", a) && a == MachineType::PENTAGON;
+        const bool p2 = parse_machine_type("pent", b) && b == MachineType::PENTAGON;
+        const MachineType every[] = {MachineType::ZXN_ISSUE2, MachineType::ZX48K,
+                                     MachineType::ZX128K, MachineType::ZX_PLUS3,
+                                     MachineType::PENTAGON};
+        bool round_trip = true;
+        for (MachineType t : every) {
+            MachineType back = MachineType::ZXN_ISSUE2;
+            round_trip = round_trip && parse_machine_type(machine_type_key(t), back) && back == t;
+        }
+        check("PENT-13",
+              "parse_machine_type accepts \"pentagon\"/\"pent\", machine_type_str names it "
+              "\"Pentagon\", and parse(machine_type_key(t)) == t for all five machines",
+              p1 && p2 && std::string(machine_type_str(MachineType::PENTAGON)) == "Pentagon" &&
+                  round_trip,
+              "p1=" + std::to_string(p1) + " p2=" + std::to_string(p2) +
+                  " round_trip=" + std::to_string(round_trip));
+    }
+
+    // --- GH #324: a Pentagon recording boots the Pentagon -------------------
+    {
+        const std::filesystem::path tmp = std::filesystem::temp_directory_path();
+        const std::string path = (tmp / ("jnext-eb-pent-" + std::to_string(getpid()) + ".rzx")).string();
+        EmulatorConfig cfg = base_config();
+        cfg.type = MachineType::PENTAGON;
+        Emulator emu;
+        emu.init(cfg);
+        const bool made = emu.start_rzx_recording(path);
+        emu.run_frame();
+        const bool written = made && emu.stop_rzx_recording();
+        const bool boots = written &&
+            emulator_boot_machine(path, MachineType::ZXN_ISSUE2) == MachineType::PENTAGON &&
+            emulator_boot_machine(path, MachineType::ZX128K) == MachineType::PENTAGON;
+        RzxRecording rec;
+        const bool parsed = written && rzx::parse(path, rec);
+        MachineType embedded = MachineType::ZXN_ISSUE2;
+        const bool szx_pentagon = parsed && rec.snapshot_ext == "szx" &&
+            rzx::snapshot_machine(rec.snapshot_data, rec.snapshot_ext, embedded) &&
+            embedded == MachineType::PENTAGON;
+        std::remove(path.c_str());
+        check("PENT-26",
+              "a Pentagon recording embeds an SZX (Pentagon 128, id 7), as the 128K and +3 do, "
+              "not the 48K SNA",
+              szx_pentagon, "parsed=" + std::to_string(parsed) + " ext=" + rec.snapshot_ext);
+        check("PENT-23",
+              "an RZX recorded on the Pentagon (embedded SZX id 7, creator marker \"pentagon\") "
+              "boots the Pentagon whatever machine is configured",
+              boots, "made=" + std::to_string(made) + " written=" + std::to_string(written));
     }
 
     qs::run_rows();

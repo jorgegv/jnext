@@ -28,6 +28,7 @@ whatever the RAM test left there. A 32-bit counter loop cannot wrap in a run.
 import os
 import socket
 import struct
+import subprocess
 import sys
 import time
 
@@ -520,24 +521,82 @@ def sc_gui_drain(port):
 # ---------------------------------------------------------------------------
 
 
-def child_of(ppid):
-    for d in os.listdir("/proc"):
-        if not d.isdigit():
-            continue
-        try:
-            with open("/proc/%s/stat" % d) as f:
-                st = f.read()
-        except OSError:
-            continue
-        fields = st[st.rindex(")") + 2:].split()
-        if int(fields[1]) == ppid:
-            return int(d)
-    return None
+def process_table():
+    """{pid: (ppid, name)} of every process. /proc where there is one (a bare
+    CI container has no `ps`), else `ps` (macOS)."""
+    table = {}
+    if os.path.isdir("/proc/self"):
+        for d in os.listdir("/proc"):
+            if not d.isdigit():
+                continue
+            try:
+                with open("/proc/%s/stat" % d) as f:
+                    st = f.read()
+            except OSError:
+                continue
+            fields = st[st.rindex(")") + 2:].split()
+            table[int(d)] = (int(fields[1]), st[st.index("(") + 1:st.rindex(")")])
+        return table
+    out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,comm="], capture_output=True,
+                         text=True, env={"LANG": "C", "PATH": os.environ.get("PATH", "")}).stdout
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
+            table[int(parts[0])] = (int(parts[1]), os.path.basename(parts[2].strip()))
+    return table
+
+
+def jnext_process_under(root):
+    """The jnext process started (directly or through wrappers) by <root>.
+
+    Not "the first child": a wrapper (the wine runner of `make regression-win`
+    is two shells deep, and a shim script's comm is its own name) puts other
+    processes between. The candidates are the descendants named jnext or
+    jnext.exe; the DEEPEST one is the real process (a shim is its ancestor). On
+    Linux without a wrapper it finds the same pid the first child was.
+    """
+    table = process_table()
+    kids = {}
+    for pid, (ppid, _) in table.items():
+        kids.setdefault(ppid, []).append(pid)
+    best, frontier, seen = None, [root], {root}
+    while frontier:
+        nxt = []
+        for p in frontier:
+            for k in kids.get(p, []):
+                if k in seen:
+                    continue
+                seen.add(k)
+                nxt.append(k)
+                if table[k][1] in ("jnext", "jnext.exe"):
+                    best = k
+        frontier = nxt
+    return best
 
 
 def cpu_seconds(pid):
-    with open("/proc/%d/stat" % pid) as f:
-        st = f.read()
+    """CPU seconds (user + system) the process has used: /proc where there is
+    one, else POSIX `ps -o time=` ([[dd-]hh:]mm:ss[.ff], macOS)."""
+    try:
+        with open("/proc/%d/stat" % pid) as f:
+            st = f.read()
+    except FileNotFoundError:
+        t = subprocess.run(["ps", "-o", "time=", "-p", str(pid)], capture_output=True, text=True,
+                           env={"LANG": "C", "PATH": os.environ.get("PATH", "")}).stdout.strip()
+        if not t:
+            # The process is gone (Linux: /proc entry vanished) or ps cannot tell.
+            seen = subprocess.run(["ps", "-A", "-o", "pid,ppid,stat,time,comm"], capture_output=True,
+                                  text=True, env={"LANG": "C", "PATH": os.environ.get("PATH", "")}).stdout
+            mine = [l.strip() for l in seen.splitlines() if "jnext" in l or "timeout" in l or str(pid) in l]
+            raise RuntimeError("no CPU time for pid %d; ps sees: %s" % (pid, " | ".join(mine)))
+        days = 0
+        if "-" in t:
+            d, t = t.split("-", 1)
+            days = int(d)
+        secs = 0.0
+        for part in t.split(":"):
+            secs = secs * 60 + float(part)
+        return days * 86400 + secs
     fields = st[st.rindex(")") + 2:].split()
     return (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")
 
@@ -571,7 +630,7 @@ def sc_paused_headless(port, wrapper_pid, exit_frames):
             time.sleep(0.001)
     c.init(name="jnext-regression")
     t_attach = time.monotonic()
-    jpid = child_of(wrapper_pid)
+    jpid = jnext_process_under(wrapper_pid)
     check(jpid is not None, "could not find jnext under pid %d" % wrapper_pid)
     # The whole register set, R included (it counts every opcode fetch): a
     # machine that executed anything while held would not read back the same.

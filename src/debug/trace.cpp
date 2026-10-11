@@ -241,7 +241,7 @@ const TraceEntry& TraceLog::at(size_t index) const
 
 bool TraceLog::export_to_file(const std::string& path) const
 {
-    std::ofstream ofs(path);
+    std::ofstream ofs(path, std::ios::binary);   // "\n" lines on every host (GH #319)
     if (!ofs.is_open())
         return false;
 

@@ -50,8 +50,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # timing model. Use `.szx` (which names the machine) when that matters.
 if want snapshot-foreign-sna-func; then
     begin_func snapshot-foreign-sna-func
-    SNA_PROBE="$PROJECT_DIR/build/test/sna_probe"
-    SZX_PROBE="$PROJECT_DIR/build/test/szx_probe"
+    SNA_PROBE="$TEST_BIN_DIR/sna_probe"
+    SZX_PROBE="$TEST_BIN_DIR/szx_probe"
     if [[ ! -x "$SNA_PROBE" || ! -x "$SZX_PROBE" ]]; then
         skip_row " (sna_probe/szx_probe not built — libspectrum-devel absent; these are the only foreign adjudications in the tree, so their absence is worth seeing)"
     else

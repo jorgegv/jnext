@@ -62,7 +62,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 if want sdl-render-func; then
     begin_func sdl-render-func
 
-    sdl_bin="$PROJECT_DIR/build/sdl-release/jnext"
+    sdl_bin="$JNEXT_SDL"
     boot_png="$TMP_DIR/sdl-render-boot.png"
     nex_png="$TMP_DIR/sdl-render-nex.png"
     boot_log="$TMP_DIR/sdl-render-boot.log"

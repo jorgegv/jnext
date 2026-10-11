@@ -38,7 +38,7 @@ with status 1.
 ## Machine and program
 
 **--machine** *TYPE*
-:   Machine type: `48k`, `128k`, `plus3`, `next` (default).
+:   Machine type: `48k`, `128k`, `plus3`, `pentagon`, `next` (default).
 
 **--load** *FILE*
 
@@ -586,22 +586,22 @@ with status 1.
     the GUI, the SDL-only build and under **--headless**. While
     recording, a tape loads in real time: a fast load skips the ROM
     loader, which a recording cannot replay. The snapshot is an SZX on
-    the 128K and +3 and a 48K SNA on the 48K. The file names the machine
-    it was recorded on, which **--rzx-play** then uses.
+    the 128K, Pentagon and +3 and a 48K SNA on the 48K. The file names
+    the machine it was recorded on, which **--rzx-play** then uses.
 
     **Recording is not available on a ZX Spectrum Next, which is jnext’s
-    default machine, so this needs an explicit --machine 48k, 128k or
-    plus3.** An RZX carries a snapshot of the machine it starts from
-    plus a log of the values the program read from ports — and the log
-    records the values without the ports they came from. So no snapshot
-    an RZX can carry both describes a Next (none of SNA, SZX or Z80
-    holds its extra RAM, NextREGs, Layer 2, tilemap, sprites or Copper)
-    and keeps the value log aligned with what the restored machine goes
-    on to read. jnext refuses rather than write a file that looks fine
-    and replays wrong. **--rzx-play** still plays a Next recording made
-    by an earlier jnext, with a warning that it may not replay
-    faithfully. A *FILE* that cannot be written is refused before the
-    machine starts, and a recording that cannot be saved when it is
+    default machine, so this needs an explicit --machine 48k, 128k,
+    pentagon or plus3.** An RZX carries a snapshot of the machine it
+    starts from plus a log of the values the program read from ports —
+    and the log records the values without the ports they came from. So
+    no snapshot an RZX can carry both describes a Next (none of SNA, SZX
+    or Z80 holds its extra RAM, NextREGs, Layer 2, tilemap, sprites or
+    Copper) and keeps the value log aligned with what the restored
+    machine goes on to read. jnext refuses rather than write a file that
+    looks fine and replays wrong. **--rzx-play** still plays a Next
+    recording made by an earlier jnext, with a warning that it may not
+    replay faithfully. A *FILE* that cannot be written is refused before
+    the machine starts, and a recording that cannot be saved when it is
     written is logged; either way **jnext** exits non-zero. A reset ends
     the recording: a hard reset (the Reset button, F1, or the program’s
     own), loading another program from the GUI, changing the machine

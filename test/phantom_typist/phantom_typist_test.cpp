@@ -142,6 +142,21 @@ static void test_pt_04_arm_plus3() {
           pt.is_active(), "");
 }
 
+static void test_pent_17_arm_pentagon() {
+    // GH #324 -- Pentagon boots the 128 ROM menu, so it types ENTER (one key),
+    // not the 48K BASIC's J, SS+P, SS+P, ENTER (four): after one key's ~9
+    // frames the typist is done.
+    Keyboard kb; kb.reset();
+    PhantomTypist pt; pt.attach(&kb);
+    pt.arm(MachineType::PENTAGON);
+    simulate_full_scan_to_post_delay(pt);
+    for (int i = 0; i < 60 && !kb.auto_typing(); ++i) pt.tick_frame();
+    const bool typing = kb.auto_typing();
+    for (int i = 0; i < 12; ++i) kb.tick_auto_type();
+    check("PENT-17", "arm(PENTAGON) → ENTER mode (the 128 ROM menu): one keystroke, consumed in ~9 frames",
+          typing && !kb.auto_typing(), "");
+}
+
 static void test_pt_05_arm_next() {
     // The runtime gate in Emulator::load_tap() blocks Next-mode arming,
     // but the unit-level API is robust — falls through to JPP mode.
@@ -346,6 +361,7 @@ int main(int argc, char** argv) {
     test_pt_02_arm_48k();
     test_pt_03_arm_128k();
     test_pt_04_arm_plus3();
+    test_pent_17_arm_pentagon();
     test_pt_05_arm_next();
     test_pt_06_non_single_bit_ignored();
     test_pt_07_single_bit_accumulates_and_fires();

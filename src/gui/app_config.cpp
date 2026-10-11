@@ -9,18 +9,10 @@
 
 namespace {
 
-// Short machine-type codes accepted by core/emulator_config.h's
-// parse_machine_type() (48k/128k/+3/next) — distinct from machine_type_str()'s
-// display strings ("ZX Next" etc.), which parse_machine_type() does not accept
-// back. Keeping the round-trip local to this file avoids coupling the on-disk
-// format to display text that may change.
+// On-disk machine type: core/emulator_config.h's machine_type_key(), the
+// spelling parse_machine_type() reads back (older files wrote "+3"; both parse).
 QString machine_type_to_key(MachineType t) {
-    switch (t) {
-        case MachineType::ZX48K:      return QStringLiteral("48k");
-        case MachineType::ZX128K:     return QStringLiteral("128k");
-        case MachineType::ZX_PLUS3:   return QStringLiteral("+3");
-        case MachineType::ZXN_ISSUE2: default: return QStringLiteral("next");
-    }
+    return QString::fromLatin1(machine_type_key(t));
 }
 
 // Issue #35 — on-disk spelling of the degradation policy. Deliberately the

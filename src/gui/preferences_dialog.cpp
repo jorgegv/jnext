@@ -124,6 +124,7 @@ QWidget* PreferencesDialog::build_startup_tab() {
     machine_combo_->addItem(tr("48K"),  static_cast<int>(MachineType::ZX48K));
     machine_combo_->addItem(tr("128K"), static_cast<int>(MachineType::ZX128K));
     machine_combo_->addItem(tr("+3"),   static_cast<int>(MachineType::ZX_PLUS3));
+    machine_combo_->addItem(tr("Pentagon"), static_cast<int>(MachineType::PENTAGON));
     machine_combo_->addItem(tr("Next"), static_cast<int>(MachineType::ZXN_ISSUE2));
     form->addRow(tr("Machine type:"), machine_combo_);
 

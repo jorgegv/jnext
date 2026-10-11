@@ -69,7 +69,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 if want sdl-reset-hotkey-func; then
     begin_func sdl-reset-hotkey-func
 
-    sdl_bin="$PROJECT_DIR/build/sdl-release/jnext"
+    sdl_bin="$JNEXT_SDL"
     shot="$TMP_DIR/sdl-reset-hotkey.png"
     log="$TMP_DIR/sdl-reset-hotkey.log"
     geom="$TMP_DIR/sdl-reset-hotkey.geom"

@@ -125,7 +125,7 @@ with status 1.
 ### Machine and program
 
 **--machine** *TYPE*  
-Machine type: `48k`, `128k`, `plus3`, `next` (default).
+Machine type: `48k`, `128k`, `plus3`, `pentagon`, `next` (default).
 
 **--load** *FILE*  
 Load a program. The format is detected from the extension: `.nex`,
@@ -634,19 +634,19 @@ replays it. The file is written when **jnext** exits (or, in the GUI, at
 **File \> Stop RZX Recording**). Works the same in the GUI, the SDL-only
 build and under **--headless**. While recording, a tape loads in real
 time: a fast load skips the ROM loader, which a recording cannot replay.
-The snapshot is an SZX on the 128K and +3 and a 48K SNA on the 48K. The
-file names the machine it was recorded on, which **--rzx-play** then
-uses.
+The snapshot is an SZX on the 128K, Pentagon and +3 and a 48K SNA on the
+48K. The file names the machine it was recorded on, which **--rzx-play**
+then uses.
 
 **Recording is not available on a ZX Spectrum Next, which is jnext’s
-default machine, so this needs an explicit --machine 48k, 128k or
-plus3.** An RZX carries a snapshot of the machine it starts from plus a
-log of the values the program read from ports — and the log records the
-values without the ports they came from. So no snapshot an RZX can carry
-both describes a Next (none of SNA, SZX or Z80 holds its extra RAM,
-NextREGs, Layer 2, tilemap, sprites or Copper) and keeps the value log
-aligned with what the restored machine goes on to read. jnext refuses
-rather than write a file that looks fine and replays wrong.
+default machine, so this needs an explicit --machine 48k, 128k, pentagon
+or plus3.** An RZX carries a snapshot of the machine it starts from plus
+a log of the values the program read from ports — and the log records
+the values without the ports they came from. So no snapshot an RZX can
+carry both describes a Next (none of SNA, SZX or Z80 holds its extra
+RAM, NextREGs, Layer 2, tilemap, sprites or Copper) and keeps the value
+log aligned with what the restored machine goes on to read. jnext
+refuses rather than write a file that looks fine and replays wrong.
 **--rzx-play** still plays a Next recording made by an earlier jnext,
 with a warning that it may not replay faithfully. A *FILE* that cannot
 be written is refused before the machine starts, and a recording that
@@ -962,6 +962,13 @@ ZX Spectrum 128K - AY sound and memory paging.
 `plus3`  
 ZX Spectrum +2A/+3 - extended paging.
 
+`pentagon`  
+The Next’s Pentagon 128 personality, as the TBBlue firmware’s own
+Pentagon entry runs it: the 128K ROM (`128.rom`) and paging, Pentagon
+timing (no contention, a 448 x 320 frame, always 50 Hz), the Covox on
+port 0xFB, and Pentagon-512/1024 paging through NextREG 0x8F. Not the
+original Russian clone’s own hardware.
+
 `next`  
 ZX Spectrum Next (Issue 2) - full Next hardware and extended features.
 
@@ -979,9 +986,9 @@ Spectrum Next hardware. Where each one comes from:
 - **The ROMs jnext loads itself** - 48K / 128K / +3 BASIC, DivMMC
   firmware, Multiface firmware and the Alt ROM - are read from the
   SD-card image at the canonical TBBlue paths under `/MACHINES/NEXT/`
-  (`48.rom`, `128.rom`, `plus3.rom`, `enNxtmmc.rom`, `enNextMf.rom`,
-  `enAltZX.rom`). That is the whole list of files jnext reads from the
-  card itself.
+  (`48.rom`, `128.rom` (also the Pentagon’s), `plus3.rom`,
+  `enNxtmmc.rom`, `enNextMf.rom`, `enAltZX.rom`). That is the whole list
+  of files jnext reads from the card itself.
 - **NextZXOS is not one of them.** It is loaded by the firmware, not by
   jnext: the machine boots `/TBBLUE.FW` from the card through the
   emulated SD interface and that firmware streams
@@ -1276,8 +1283,8 @@ of NextZXOS’s own esxDOS, and NextZXOS’s file commands stop working.
 
 A `.jns` file is jnext’s own whole-machine snapshot, and the only format
 that can represent a ZX Spectrum Next: `.sna` and `.szx` describe a
-48K/128K/+3 machine, which a Next is not, so asking for either on a Next
-is refused rather than written lossily.
+48K/128K/Pentagon/+3 machine, which a Next is not, so asking for either
+on a Next is refused rather than written lossily.
 
 The other formats are written for the machines they can describe, and
 refused for the states they cannot. A `.sna` follows the machine: a 48K
@@ -1290,14 +1297,17 @@ reaches only banks 0-7, so a machine using **extended paging** (port
 0xDFFD, which works on every machine type, not only a Next) is refused
 too, pointing at `.jns` — `.szx` has no field for that register either.
 An SNA also carries no machine identifier, so FUSE reads a 128K one as a
-Pentagon 128 — the right RAM and paging, a different timing model.
+Pentagon 128 — the right RAM and paging, a different timing model. On
+**--machine** `pentagon` jnext writes that same 128K form, and an `.szx`
+as a Pentagon 128 (machine ID 7).
 
 Write one with **File \> Save Snapshot…** (Alt+Shift+S), or headless
 with **--delayed-snapshot** naming a `.jns` file. Read one back with
 **--load**, a bare file name, or **File \> Load NEX File…**, which lists
 `.jns` alongside every other format. On a Next the save dialog offers
 `.jns` first and appends it to a name typed without an extension; on a
-48K, 128K or +3 it offers `.sna` first and appends that instead.
+48K, 128K, Pentagon or +3 it offers `.sna` first and appends that
+instead.
 
 **File \> Quick Save Snapshot** (Alt+Shift+F5) and **Quick Load
 Snapshot** (Alt+Shift+F9) need no dialog. Quick Save writes a `.jns`
@@ -1739,12 +1749,12 @@ re-running the boot chain; does nothing while the firmware still holds
 config mode. After a direct **--load** it resets into 48K BASIC and
 discards the loaded program, because that boot never ran the firmware
 and so has no NextZXOS to return to - use Power Reset there), Pause
-(Alt+U - freeze or resume the machine where it is, without opening the
-debugger; the sound goes quiet, a **Paused** cell appears in the status
-bar, and a Power Reset or a load made while paused stays paused),
-Machine Type (48K / 128K / +3 / Next), CPU Speed (3.5 / 7 / 14 / 28
-MHz - the Next’s own clock), Emulator Speed (0.5x / 1x / 2x / 4x /
-custom % - the host-side throttle).
+(Alt+U or the Pause key - freeze or resume the machine where it is,
+without opening the debugger; the sound goes quiet, a **Paused** cell
+appears in the status bar, and a Power Reset or a load made while paused
+stays paused), Machine Type (48K / 128K / +3 / Next), CPU Speed (3.5 / 7
+/ 14 / 28 MHz - the Next’s own clock), Emulator Speed (0.5x / 1x / 2x /
+4x / custom % - the host-side throttle).
 
 **Input**  
 Joy 1 Source (port 0x1F) and Joy 2 Source (port 0x37), each selecting
@@ -1837,6 +1847,12 @@ snapshot keys (Alt+Shift+F5 saves, Alt+Shift+F9 loads) and reach neither
 the Multiface nor the guest; Alt+F5 and Alt+F9 on their own are not
 claimed. Shift is the guest’s Caps Shift, so it is held down for the
 guest while you press the chord.
+
+The Pause key (Pause/Break) pauses and resumes the machine in the GUI,
+the same as Machine \> Pause; keyboards without one, such as most Mac
+keyboards, use Alt+U. On a real Next that key only resets the PS/2
+keyboard interface, so no Spectrum key is lost. The SDL-only build has
+no pause.
 
 Ctrl is left alone for the guest. No Ctrl+letter chord of any kind is a
 jnext shortcut, so the Symbol Shift sequences NextBASIC needs

@@ -540,7 +540,7 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::Machine:
                 if (!parse_machine_type(v[0], machine_type)) {
-                    fprintf(stderr, "Unknown machine type: %s (valid: 48k, 128k, plus3, next)\n", v[0]);
+                    fprintf(stderr, "Unknown machine type: %s (valid: 48k, 128k, plus3, pentagon, next)\n", v[0]);
                     return 1;
                 }
                 machine_type_set = true;

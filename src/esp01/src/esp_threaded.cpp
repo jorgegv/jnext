@@ -8,6 +8,16 @@
 
 #include <utility>
 
+namespace {
+
+using Clock = std::chrono::steady_clock;
+
+long ms_since(Clock::time_point t) {
+    return static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t).count());
+}
+
+}  // namespace
+
 namespace esp {
 
 constexpr std::chrono::milliseconds ThreadedEsp::DEFAULT_POLL_INTERVAL;
@@ -97,11 +107,22 @@ void ThreadedEsp::run() {
         try {
             {
                 std::lock_guard<std::mutex> lock(core_mutex_);
+                const auto held_from = Clock::now();
                 drain_inbound();
+                if (ms_since(held_from) >= 20)
+                    log_debug("ESP worker held the core lock for {} ms (drain_inbound)", ms_since(held_from));
             }
             core_.advance_transports();  // UNLOCKED — see above
             {
                 std::lock_guard<std::mutex> lock(core_mutex_);
+                const auto held_from = Clock::now();
+                struct HoldNote {   // logs (debug) when the locked half of the pass took >= 20 ms
+                    Clock::time_point t;
+                    ~HoldNote() {
+                        if (ms_since(t) >= 20)
+                            log_debug("ESP worker held the core lock for {} ms (service pass)", ms_since(t));
+                    }
+                } hold_note{held_from};
                 core_.service_transports();
                 // GH #154. NOT reached via `core_.poll()` — this loop calls the
                 // halves directly so the transport pass can run unlocked — so
@@ -231,7 +252,20 @@ void ThreadedEsp::tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte
     if (!lock.owns_lock()) {
         log_trace("tick skipped: the ESP worker holds the core ({} ticks dropped)",
                   elapsed_ticks);
+        if (!tick_skipping_) {
+            tick_skipping_ = true;
+            tick_skip_since_ = Clock::now();
+            tick_skip_ticks_ = 0;
+        }
+        tick_skip_ticks_ += elapsed_ticks;
         return;
+    }
+    if (tick_skipping_) {
+        // One summary line per streak, only for a streak long enough to matter.
+        if (ms_since(tick_skip_since_) >= 20)
+            log_debug("ESP tick() ran into the worker's lock for {} ms ({} ticks dropped)",
+                      ms_since(tick_skip_since_), tick_skip_ticks_);
+        tick_skipping_ = false;
     }
     core_.tick(elapsed_ticks, ticks_per_byte);
     wants_tick_.store(core_.wants_tick(), std::memory_order_release);

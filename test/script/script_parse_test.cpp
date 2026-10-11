@@ -1397,6 +1397,15 @@ static void eval_state_rows(Emulator& emu) {
     }
 
     {
+        Emulator e2;
+        build(e2, MachineType::PENTAGON);
+        Debugger d2(e2);
+        const EvalResult r = eval_expr("MACHINE", d2);
+        check("PENT-18", "MACHINE on --machine pentagon is 3 (§2.3: 3 = Pentagon)",
+              r.ok && r.value == 3, std::to_string(r.value));
+    }
+
+    {
         char path[] = "/tmp/jnext_script_parse_XXXXXX";
         const int fd = mkstemp(path);
         bool loaded = false;
