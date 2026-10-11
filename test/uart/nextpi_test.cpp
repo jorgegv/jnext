@@ -822,6 +822,7 @@ int main(int argc, char** argv) {
             return false;
         }();
         const long ms = ms_since(t0);
+        if (!returned_in_time && pid != 0) nxs::kill_hard(pid);   // so the join below ends
         if (stopper.joinable()) stopper.join();
         const bool killed = pid != 0 && nxs::gone_within(pid, 1500);
         if (!killed && pid != 0) nxs::kill_hard(pid);    // never leave the stand-in behind
