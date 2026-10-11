@@ -1395,13 +1395,13 @@ int main()
                 {"szx48",  snap_rec(szx(1), "szx"),       true,  MachineType::ZX48K},
                 {"szx128", snap_rec(szx(2), "szx"),       true,  MachineType::ZX128K},
                 {"szx+3",  snap_rec(szx(5), "szx"),       true,  MachineType::ZX_PLUS3},
-                {"szxpent",snap_rec(szx(7), "szx"),       false, MachineType::ZX48K},
+                {"szxpent",snap_rec(szx(7), "szx"),       true,  MachineType::PENTAGON},
                 {"z80v1",  snap_rec(z80v1, "z80"),        true,  MachineType::ZX48K},
                 {"z80v2-3",snap_rec(z80(23, 3), "z80"),   true,  MachineType::ZX128K},
                 {"z80v3-3",snap_rec(z80(54, 3), "z80"),   true,  MachineType::ZX48K},
                 {"z80v3-4",snap_rec(z80(54, 4), "z80"),   true,  MachineType::ZX128K},
                 {"z80v3-7",snap_rec(z80(54, 7), "z80"),   true,  MachineType::ZX_PLUS3},
-                {"z80v3-9",snap_rec(z80(54, 9), "z80"),   false, MachineType::ZX48K},
+                {"z80v3-9",snap_rec(z80(54, 9), "z80"),   true,  MachineType::PENTAGON},
                 {"none",   snap_rec({}, ""),              false, MachineType::ZX48K},
             };
             std::string why;
@@ -1411,7 +1411,7 @@ int main()
                 if (known != c.known || (known && got != c.m)) why += std::string(" ") + c.name;
             }
             check("EB-47", "a foreign recording's machine comes from its snapshot "
-                           "(SNA size, SZX ID, .z80 version+mode); Pentagon/none name none",
+                           "(SNA size, SZX ID, .z80 version+mode); Pentagon 128 is SZX 7 / .z80 hw 9, none names none",
                   why.empty(), "wrong for:" + why);
         }
 
