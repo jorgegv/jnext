@@ -8,6 +8,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
+#include "platform/cli_delay.h"
 #include "platform/host_probe.h"
 #include "platform/debug_servers.h"
 #include "script/script_host.h"
@@ -56,11 +57,17 @@ public:
     /// renderer for the captured frame only. Renderer::LAYER_ALL = no-op.
     void set_delayed_screenshot(const std::string& file, int delay_frames,
                                 uint8_t layer_mask);
+    /// The same capture, due after `delay_seconds` EMULATED seconds (cli::Delay:
+    /// each frame counts 1/50 or 1/60 s at the refresh it ran at).
+    void set_delayed_screenshot_seconds(const std::string& file, int delay_seconds,
+                                        uint8_t layer_mask);
 
     /// Schedule automatic exit after `delay_frames` frames. main() resolves
     /// --delayed-automatic-exit (seconds) and --delayed-automatic-exit-frames
-    /// (frames, wins when both given) into this frame count.
+    /// (frames, wins when both given) into one of the two setters.
     void set_delayed_exit(int delay_frames);
+    /// The same bound in EMULATED seconds (cli::Delay).
+    void set_delayed_exit_seconds(int delay_seconds);
 
     /// Process exit status, valid after shutdown(). Non-zero when a requested
     /// --delayed-screenshot was never written (the debugger stayed paused, so
@@ -143,7 +150,7 @@ private:
         int     queued_ms() const;  // SdlAudio is incomplete here
         bool    paused() const { return app.emulator_.debug_state().paused(); }
         bool    fastload_active() const { return app.emulator_.fastload_active(); }
-        bool    screenshot_due() const { return app.screenshot_countdown_ == 0; }
+        bool    screenshot_due() const { return app.screenshot_countdown_.due(); }
 
         bool pre_frames();
         void run_frame(bool composite);
@@ -231,7 +238,7 @@ private:
 
     // Pending --delayed-screenshot state
     std::string screenshot_file_;
-    int         screenshot_countdown_ = -1;  // in frames; -1 = no pending
+    cli::Delay  screenshot_countdown_;  // frames or emulated seconds; unarmed = none pending
     uint8_t     screenshot_layers_ = Renderer::LAYER_ALL;
     // Set once we have warned that the capture is being held back because no
     // frame is rendering (debugger paused). Keeps the warning off every tick.
@@ -246,7 +253,7 @@ private:
     int         exit_code_ = 0;
 
     // Pending --delayed-automatic-exit state
-    int         exit_countdown_ = -1;  // in frames; -1 = no pending
+    cli::Delay  exit_countdown_;  // frames or emulated seconds; unarmed = none pending
 
     // Emulator config
     EmulatorConfig config_;

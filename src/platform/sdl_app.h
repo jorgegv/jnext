@@ -1,4 +1,5 @@
 #pragma once
+#include "platform/cli_delay.h"
 #include <SDL3/SDL.h>
 #include <memory>
 #include <string>
@@ -58,11 +59,17 @@ public:
     /// renderer for the captured frame only. Renderer::LAYER_ALL = no-op.
     void set_delayed_screenshot(const std::string& file, int delay_frames,
                                 uint8_t layer_mask);
+    /// The same capture, due after `delay_seconds` EMULATED seconds (cli::Delay:
+    /// each frame counts 1/50 or 1/60 s at the refresh it ran at).
+    void set_delayed_screenshot_seconds(const std::string& file, int delay_seconds,
+                                        uint8_t layer_mask);
 
     /// Schedule automatic exit after `delay_frames` frames. main() resolves
     /// --delayed-automatic-exit (seconds) and --delayed-automatic-exit-frames
-    /// (frames, wins when both given) into this frame count.
+    /// (frames, wins when both given) into one of the two setters.
     void set_delayed_exit(int delay_frames);
+    /// The same bound in EMULATED seconds (cli::Delay).
+    void set_delayed_exit_seconds(int delay_seconds);
 
     /// Process exit status, valid after shutdown(). Non-zero when a requested
     /// --delayed-screenshot was never written.
@@ -167,7 +174,7 @@ private:
 
     // Pending --delayed-screenshot state
     std::string screenshot_file_;
-    int         screenshot_countdown_ = -1;  // in frames; -1 = no pending
+    cli::Delay  screenshot_countdown_;  // frames or emulated seconds; unarmed = none pending
     // GH #276 B4 (O2) — the capture has been handed to the backend; and a
     // queue the backend refused (reported as a failed write).
     bool        screenshot_queued_  = false;
@@ -178,7 +185,7 @@ private:
     int         exit_code_ = 0;
 
     // Pending --delayed-automatic-exit state
-    int         exit_countdown_ = -1;  // in frames; -1 = no pending
+    cli::Delay  exit_countdown_;  // frames or emulated seconds; unarmed = none pending
 
     // Last frame-pacing period logged (ms); logs only on a 50/60 Hz change.
     uint32_t    last_frame_ms_ = 0;

@@ -241,11 +241,15 @@ make a non-deterministic emulator reproducible.
 
 **Count frames, not seconds.** `--delayed-screenshot-frames`,
 `--delayed-automatic-exit-frames`, `--delayed-keypress-frames` and
-`--delayed-snapshot-frames` are all counted in *emulated* frames, and they
-override their wall-clock counterparts when both are given. `HeadlessApp::run()`
-goes one step further and converts a seconds-form keypress using the machine's
-actual refresh rate, `video_timing().refresh_60hz() ? 60 : 50`, rather than
-assuming 50 Hz.
+`--delayed-snapshot-frames` are all counted in *emulated* frames;
+`--delayed-screenshot-frames` and `--delayed-automatic-exit-frames` override
+their seconds counterparts when both are given, and the keypress and NMI forms
+queue instead. The seconds forms are not wall-clock either: they are
+`cli::Delay` (`src/platform/cli_delay.h`), which counts in 1/300 s units and
+is charged once per frame at the refresh rate that frame ran at (1/50 s or
+1/60 s), so a guest that switches to 60 Hz is timed in its own seconds. The rate
+is always 50 Hz at startup, which is why the conversion cannot be done once
+when the option is read.
 
 **Pin the clock.** `--rtc` sets `EmulatorConfig::rtc_fixed_tm`, which reaches
 `I2cRtc::set_fixed_time()`. The emulated DS1307 then answers from a frozen time

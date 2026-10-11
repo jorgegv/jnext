@@ -1,5 +1,6 @@
 #pragma once
 
+#include <climits>
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
@@ -10,6 +11,7 @@
 
 // MachineType is the canonical shared enum; defined once in contention.h.
 // All emulator modules that need the machine type include this header.
+#include "core/cli_options.h"   // GH #317 — cli::parse_int
 #include "memory/contention.h"
 #include "input/joy_source.h"   // Task 79 — per-connector host input source
 
@@ -80,12 +82,29 @@ inline bool parse_machine_type(const std::string& s, MachineType& out) {
 /// algorithm) are computed directly. Trailing characters after the
 /// seconds field are rejected. Returns true on success.
 inline bool parse_rtc_datetime(const std::string& s, std::tm& out) {
-    int y = 0, mo = 0, d = 0, h = 0, mi = 0, se = 0, consumed = -1;
-    if (std::sscanf(s.c_str(), "%d-%d-%d%*1[T ]%d:%d:%d%n",
-                    &y, &mo, &d, &h, &mi, &se, &consumed) != 6)
-        return false;
-    if (consumed < 0 || s[static_cast<size_t>(consumed)] != '\0')
-        return false;                       // trailing garbage
+    // Six fields split on '-' '-' (T|space) ':' ':'. Each is plain ASCII digits
+    // (no sign, no whitespace) that fits an int: sscanf("%d") accepted `+1` and
+    // wrapped 4294967300 to 4 (GH #317). Trailing characters after the seconds
+    // field are part of that field, so they are rejected too.
+    static const char seps[5] = {'-', '-', 'T', ':', ':'};
+    int v[6] = {0, 0, 0, 0, 0, 0};
+    size_t pos = 0;
+    for (int i = 0; i < 6; ++i) {
+        size_t end = pos;
+        while (end < s.size() && s[end] >= '0' && s[end] <= '9') ++end;
+        if (end == pos) return false;                   // no digits (sign, space, junk)
+        long n = 0;
+        if (!cli::parse_int(s.substr(pos, end - pos).c_str(), 0, INT_MAX, n)) return false;
+        v[i] = static_cast<int>(n);
+        pos = end;
+        if (i < 5) {
+            const char c = pos < s.size() ? s[pos] : '\0';
+            if (!(c == seps[i] || (i == 2 && c == ' '))) return false;
+            ++pos;
+        }
+    }
+    if (pos != s.size()) return false;                  // trailing garbage
+    const int y = v[0], mo = v[1], d = v[2], h = v[3], mi = v[4], se = v[5];
     if (y < 1900 || mo < 1 || mo > 12 || d < 1 ||
         h < 0 || h > 23 || mi < 0 || mi > 59 || se < 0 || se > 59)
         return false;

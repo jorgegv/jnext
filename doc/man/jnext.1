@@ -29,6 +29,10 @@ The examples below use the Qt6 GUI build
 The SDL\-only build (\f[CR]build/sdl\-release/jnext\f[R]) takes the same
 options minus the GUI and debugger ones.
 .SH OPTIONS
+A numeric value is taken whole.
+Trailing characters (\f[CR]5x\f[R]), a value outside the option\(cqs
+range, or a negative count are a usage error: \f[B]jnext\f[R] prints a
+message naming the option and the value, and exits with status 1.
 .SS Machine and program
 .TP
 \f[B]\-\-machine\f[R] \f[I]TYPE\f[R]
@@ -493,12 +497,13 @@ Tape loading (EAR input) is unaffected.
 Load a raw binary into RAM.
 .TP
 \f[B]\-\-inject\-org\f[R] \f[I]ADDR\f[R]
-Load address for \f[B]\-\-inject\f[R] (hex, default \f[CR]8000\f[R]).
+Load address for \f[B]\-\-inject\f[R] (hex, \f[CR]0x\f[R] prefix
+optional, default \f[CR]8000\f[R]).
 Requires \f[B]\-\-inject\f[R].
 .TP
 \f[B]\-\-inject\-pc\f[R] \f[I]ADDR\f[R]
-Entry point for \f[B]\-\-inject\f[R] (hex, default: same as
-\f[B]\-\-inject\-org\f[R]).
+Entry point for \f[B]\-\-inject\f[R] (hex, \f[CR]0x\f[R] prefix
+optional, default: same as \f[B]\-\-inject\-org\f[R]).
 Requires \f[B]\-\-inject\f[R].
 .TP
 \f[B]\-\-inject\-delay\f[R] \f[I]N\f[R]
@@ -736,7 +741,8 @@ One still waiting when the exit comes is an error (see
 \f[B]\-\-delayed\-automatic\-exit\f[R]).
 .TP
 \f[B]\-\-delayed\-screenshot\-time\f[R] \f[I]N\f[R]
-Delay in seconds (default 10).
+Delay in emulated seconds (default 10; see \f[I]Emulated seconds\f[R]
+under HEADLESS MODE).
 Requires \f[B]\-\-delayed\-screenshot\f[R].
 .TP
 \f[B]\-\-delayed\-screenshot\-frames\f[R] \f[I]N\f[R]
@@ -752,7 +758,8 @@ Requires \f[B]\-\-delayed\-screenshot\f[R], and is rejected when that
 screenshot is a \f[CR].scr\f[R], which has no layers to choose from.
 .TP
 \f[B]\-\-delayed\-automatic\-exit\f[R] \f[I]N\f[R]
-Exit the emulator after \f[I]N\f[R] seconds.
+Exit the emulator after \f[I]N\f[R] emulated seconds (see \f[I]Emulated
+seconds\f[R] under HEADLESS MODE).
 The exit always fires, but work the command line deferred to a later
 frame and that has not happened by then is an error, and \f[B]jnext\f[R]
 exits non\-zero: a \f[B]\-\-load\f[R] still waiting out its boot delay
@@ -827,7 +834,8 @@ Any other \f[I]MODE\f[R] is an error.
 .RE
 .TP
 \f[B]\-\-delayed\-keypress\f[R] \f[I]SECS\f[R] \f[I]KEY\f[R]
-Press \f[I]KEY\f[R] after \f[I]SECS\f[R] seconds.
+Press \f[I]KEY\f[R] after \f[I]SECS\f[R] emulated seconds (see
+\f[I]Emulated seconds\f[R] under HEADLESS MODE).
 Headless only (requires \f[B]\-\-headless\f[R]), repeatable.
 .TP
 \f[B]\-\-delayed\-keypress\-frames\f[R] \f[I]N\f[R] \f[I]KEY\f[R]
@@ -838,7 +846,8 @@ both schedules two keypresses.
 Requires \f[B]\-\-headless\f[R].
 .TP
 \f[B]\-\-delayed\-nmi\f[R] \f[I]SECS\f[R] \f[I]BUTTON\f[R]
-Press an NMI \f[I]BUTTON\f[R] after \f[I]SECS\f[R] seconds.
+Press an NMI \f[I]BUTTON\f[R] after \f[I]SECS\f[R] emulated seconds (see
+\f[I]Emulated seconds\f[R] under HEADLESS MODE).
 Headless only (requires \f[B]\-\-headless\f[R]), repeatable.
 \f[I]BUTTON\f[R] is case\-insensitive and names which button to press,
 spelled as the label on a real Next\(cqs case.
@@ -993,8 +1002,8 @@ same table \f[B]Map > Load MAP\f[R] fills).
 A file that cannot be loaded, or holds no symbols, is a startup error.
 .TP
 \f[B]\-\-magic\-port\f[R] \f[I]PORT\f[R]
-Enable the magic debug port at \f[I]PORT\f[R] (hex, for example
-\f[CR]0x00FF\f[R]).
+Enable the magic debug port at \f[I]PORT\f[R] (hex, \f[CR]0x\f[R] prefix
+optional, for example \f[CR]0x00FF\f[R]).
 .TP
 \f[B]\-\-magic\-port\-mode\f[R] \f[I]MODE\f[R]
 Magic\-port output mode: \f[CR]hex\f[R] (default), \f[CR]dec\f[R],
@@ -1462,11 +1471,24 @@ device, as fast as the host allows: the mode built for scripting and CI.
 .PP
 Notes worth knowing:
 .IP \(bu 2
-\f[B]\-\-delayed\-screenshot\-frames\f[R] is the deterministic one.
-Frame counts are reproducible; wall\-clock seconds are not.
+\f[B]\-\-delayed\-screenshot\-frames\f[R] is the deterministic one: it
+names one exact frame, whatever refresh rate the program selects.
 \f[B]\-\-delayed\-automatic\-exit\-frames\f[R] is the same idea for the
 exit bound, and wins over \f[B]\-\-delayed\-automatic\-exit\f[R] when
 both are given.
+.IP \(bu 2
+\f[I]Emulated seconds.\f[R] The seconds forms
+(\f[B]\-\-delayed\-screenshot\-time\f[R],
+\f[B]\-\-delayed\-automatic\-exit\f[R], \f[B]\-\-delayed\-keypress\f[R],
+\f[B]\-\-delayed\-nmi\f[R]) count the machine\(cqs own time, not the
+host\(cqs: a frame run at 50 Hz counts 1/50 s and one run at 60 Hz
+counts 1/60 s, and the delay comes due on the first frame at which the
+total reaches \f[I]N\f[R].
+A machine that stays at 50 Hz therefore fires at frame \f[I]N\f[R] x 50
+and one that stays at 60 Hz at frame \f[I]N\f[R] x 60; a program that
+switches the refresh rate (NextREG 0x05) is timed in its own seconds on
+each side of the switch.
+The host\(cqs speed does not matter.
 .IP \(bu 2
 \f[B]\-\-rtc\f[R] makes boot screenshots reproducible by freezing the
 clock, so the NextZXOS date and time on screen never change between
@@ -2423,7 +2445,8 @@ holds its frames too: nothing is emulated and jnext waits for the next
 command without using the CPU.
 The automatic exit (\f[B]\-\-delayed\-automatic\-exit\f[R] and its
 \f[B]\-frames\f[R] form) is still a hard bound: while a client holds the
-machine paused it is counted in wall time, one frame per 20 ms.
+machine paused it is counted in wall time: the \f[B]\-frames\f[R] form
+one frame per 20 ms, the seconds form real seconds.
 .PP
 The server listens on \f[CR]127.0.0.1\f[R] unless
 \f[B]\-\-debug\-listen\-address\f[R] says otherwise.
@@ -2891,6 +2914,8 @@ delete it to start again from a pristine image) and \f[CR]qemu.log\f[R]
 About 15 GB.
 .SH EXIT STATUS
 \f[B]jnext\f[R] exits 0 on success and non\-zero on error.
+A command\-line usage error (an unknown option, or a value an option
+does not accept) exits 1.
 In particular it exits non\-zero when a
 \f[B]\-\-delayed\-screenshot\f[R] was requested but never taken, rather
 than silently writing nothing, and likewise when a \f[B]\-\-record\f[R]

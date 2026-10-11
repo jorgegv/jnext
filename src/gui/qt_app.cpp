@@ -5,6 +5,7 @@
 #include "gui/frame_timer.h"
 #include "platform/emulator_boot.h"
 #include "platform/cli_capture.h"
+#include "platform/cli_delay.h"
 #include "platform/auto_exit.h"
 #include "platform/recording_info.h"   // GH #26 WP6
 #include "platform/rzx_startup.h"
@@ -111,10 +112,21 @@ void QtApp::set_pending_load(const std::string& file, int delay_frames) {
 void QtApp::set_delayed_screenshot(const std::string& file, int delay_frames,
                                    uint8_t layer_mask) {
     screenshot_file_ = file;
-    screenshot_countdown_ = delay_frames;
+    screenshot_countdown_ = cli::Delay::frames(delay_frames);
     screenshot_layers_ = layer_mask;
     Log::platform()->info("--delayed-screenshot: will save '{}' after {} frame(s) (layers: {})",
                            file, delay_frames,
+                           Renderer::layer_mask_to_string(layer_mask));
+}
+
+void QtApp::set_delayed_screenshot_seconds(const std::string& file, int delay_seconds,
+                                    uint8_t layer_mask) {
+    screenshot_file_ = file;
+    screenshot_countdown_ = cli::Delay::seconds(delay_seconds);
+    screenshot_layers_ = layer_mask;
+    Log::platform()->info("--delayed-screenshot: will save '{}' after {} emulated second(s) "
+                           "(layers: {})",
+                           file, delay_seconds,
                            Renderer::layer_mask_to_string(layer_mask));
 }
 
@@ -148,13 +160,20 @@ void QtApp::set_when_slow_prefer(audio_pacing::WhenSlowPrefer prefer) {
 }
 
 void QtApp::set_delayed_exit(int delay_frames) {
-    exit_countdown_ = delay_frames;
+    exit_countdown_ = cli::Delay::frames(delay_frames);
     // A run that ends by itself is unattended: the window must not stop it on
     // a question nobody is there to answer (see MainWindow::set_unattended()).
     // init() applies it too, for a call made before the window exists.
     if (main_window_) main_window_->set_unattended(true);
     Log::platform()->info("--delayed-automatic-exit: will exit after {} frame(s)",
                            delay_frames);
+}
+
+void QtApp::set_delayed_exit_seconds(int delay_seconds) {
+    exit_countdown_ = cli::Delay::seconds(delay_seconds);
+    if (main_window_) main_window_->set_unattended(true);   // as set_delayed_exit()
+    Log::platform()->info("--delayed-automatic-exit: will exit after {} emulated second(s)",
+                           delay_seconds);
 }
 
 void QtApp::wire_gamepad_and_sources(const EmulatorConfig& cfg) {
@@ -326,7 +345,7 @@ bool QtApp::init(int argc, char* argv[]) {
     main_window_->set_debugger(debugger_.get());
     main_window_->set_script_host(&script_host_);   // GH #26 WP5 — the Script tab
     main_window_->set_emulator(&emulator_);
-    main_window_->set_unattended(exit_countdown_ >= 0);   // see set_delayed_exit()
+    main_window_->set_unattended(exit_countdown_.armed());   // see set_delayed_exit()
     main_window_->set_joy_device_provider([this]() {      // GH #311
         return gamepad_host_ ? gamepad_host_->devices() : std::vector<JoyDeviceInfo>{};
     });
@@ -451,7 +470,7 @@ void QtApp::shutdown() {
     // trap the old unconditional write avoided by emitting a stale frame.
     // Per src/core/log.h, error = "the user asked for something and did not get
     // it". That is precisely this, so: error + non-zero exit.
-    if (screenshot_countdown_ >= 0 && !screenshot_file_.empty()) {
+    if (screenshot_countdown_.armed() && !screenshot_file_.empty()) {
         // GH #276 B4 — a capture already handed to the backend is dropped at
         // this exit bound (flush_captures() → NoFrame), so it cannot land after
         // the verdict.
@@ -653,7 +672,7 @@ bool QtApp::TickEffects::pre_frames() {
     // to render, and post_frames()' pump writes the last of them and takes the
     // mask down — the frame, mask and file this tick used to handle itself.
     // Queued once, however many (paused) ticks it then waits.
-    if (a.screenshot_countdown_ == 0 && !a.screenshot_queued_) {
+    if (a.screenshot_countdown_.due() && !a.screenshot_queued_) {
         if (queue_cli_screenshot(*a.debugger_, a.screenshot_file_, a.screenshot_layers_) ==
             jnext::dbg::Result::Ok)
             a.screenshot_queued_ = true;
@@ -745,7 +764,7 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
     // are taken in headless mode (SDL path), which is unaffected; in
     // GUI use the imprecision is on the order of the burst length
     // (sub-second) and not user-visible.
-    if (a.screenshot_countdown_ == 0) {
+    if (a.screenshot_countdown_.due()) {
         if (a.screenshot_refused_ || frames_rendered > 0) {
             // The pump above wrote the frame composited with the mask armed in
             // pre_frames(); flush_captures() — the backend's exit bound for its
@@ -765,7 +784,7 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
                     a.screenshot_file_, Renderer::layer_mask_to_string(a.screenshot_layers_));
                 a.exit_code_ = 1;
             }
-            a.screenshot_countdown_ = -1;  // done
+            a.screenshot_countdown_.disarm();  // done
             a.screenshot_queued_    = false;
             a.screenshot_refused_   = false;
             a.screenshot_deferred_warned_ = false;
@@ -787,12 +806,12 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
             // its mask armed until a frame renders (it used to be taken down
             // here and re-armed by the next pre_frames()).
         }
-    } else if (a.screenshot_countdown_ > 0) {
-        --a.screenshot_countdown_;
+    } else if (a.screenshot_countdown_.pending()) {
+        a.screenshot_countdown_.tick(a.emulator_.video_timing().refresh_60hz());
     }
 
     // Delayed automatic exit.
-    if (a.exit_countdown_ == 0) {
+    if (a.exit_countdown_.due()) {
         Log::platform()->info("automatic exit triggered");
         // Deferred command-line work it cuts off fails the run
         // (platform/auto_exit.h).
@@ -809,9 +828,9 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
         // unattended exit would then wait forever on a dialog nobody answers.
         if (!emulator_finish_rzx(a.emulator_, a.rzx_record_file_)) a.exit_code_ = 1;
         a.qapp_->quit();
-        a.exit_countdown_ = -1;  // done
-    } else if (a.exit_countdown_ > 0) {
-        --a.exit_countdown_;
+        a.exit_countdown_.disarm();  // done
+    } else if (a.exit_countdown_.pending()) {
+        a.exit_countdown_.tick(a.emulator_.video_timing().refresh_60hz());
     }
 
 #ifdef ENABLE_DEBUGGER

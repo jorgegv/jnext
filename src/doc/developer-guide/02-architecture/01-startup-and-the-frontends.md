@@ -30,6 +30,12 @@ not a style preference — it buys three separate guarantees:
   marked `Doc::UndocumentedAlias`, a back-compatible spelling that keeps
   working but is deliberately not advertised.
 
+A numeric option value is parsed by `cli::parse_int` or `cli::parse_hex16`
+(both in `cli_options.h`), never by a bare `std::stoi` or `std::stoul`: those
+throw on `x`, which aborts the process, and read `5x` as 5. A value that is not
+a whole number in the option's range is a usage error: `main.cpp` prints the
+option and the offending value and exits 1.
+
 Two argument shapes bypass the table lookup, both on purpose.
 `--log-level=VALUE` is the one inline-value form and is matched by prefix
 before the lookup happens, because scripts using that spelling predate the

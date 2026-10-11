@@ -30,6 +30,11 @@ $ man jnext
 If you ever find the documentation and the program disagreeing, the program is
 right — please [report it](https://github.com/jorgegv/jnext/issues).
 
+A numeric value is taken whole. Trailing characters (`5x`), a value
+outside the option’s range, or a negative count are a usage error:
+**jnext** prints a message naming the option and the value, and exits
+with status 1.
+
 ## Machine and program
 
 **--machine** *TYPE*
@@ -429,12 +434,12 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 :   Load a raw binary into RAM.
 
 **--inject-org** *ADDR*
-:   Load address for **--inject** (hex, default `8000`). Requires
-    **--inject**.
+:   Load address for **--inject** (hex, `0x` prefix optional, default
+    `8000`). Requires **--inject**.
 
 **--inject-pc** *ADDR*
-:   Entry point for **--inject** (hex, default: same as
-    **--inject-org**). Requires **--inject**.
+:   Entry point for **--inject** (hex, `0x` prefix optional, default:
+    same as **--inject-org**). Requires **--inject**.
 
 **--inject-delay** *N*
 :   Wait *N* frames before injecting (default 0). Use around 100 if the
@@ -648,7 +653,8 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     **--delayed-automatic-exit**).
 
 **--delayed-screenshot-time** *N*
-:   Delay in seconds (default 10). Requires **--delayed-screenshot**.
+:   Delay in emulated seconds (default 10; see *Emulated seconds* under
+    HEADLESS MODE). Requires **--delayed-screenshot**.
 
 **--delayed-screenshot-frames** *N*
 :   Delay in frames. Overrides **--delayed-screenshot-time**. Requires
@@ -661,11 +667,12 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     `.scr`, which has no layers to choose from.
 
 **--delayed-automatic-exit** *N*
-:   Exit the emulator after *N* seconds. The exit always fires, but work
-    the command line deferred to a later frame and that has not happened
-    by then is an error, and **jnext** exits non-zero: a **--load**
-    still waiting out its boot delay (100 frames for `.tzx` and `.wav`),
-    an **--inject** with **--inject-delay**, an **--rzx-record** waiting
+:   Exit the emulator after *N* emulated seconds (see *Emulated seconds*
+    under HEADLESS MODE). The exit always fires, but work the command
+    line deferred to a later frame and that has not happened by then is
+    an error, and **jnext** exits non-zero: a **--load** still waiting
+    out its boot delay (100 frames for `.tzx` and `.wav`), an
+    **--inject** with **--inject-delay**, an **--rzx-record** waiting
     for that load, a **--delayed-keypress**, **--delayed-nmi** or
     **--delayed-screenshot** still to come, a **--joy-uart-rx** stream
     still held by **--joy-uart-rx-delay-frames**, and an edge of the
@@ -727,8 +734,9 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     Any other *MODE* is an error.
 
 **--delayed-keypress** *SECS* *KEY*
-:   Press *KEY* after *SECS* seconds. Headless only (requires
-    **--headless**), repeatable.
+:   Press *KEY* after *SECS* emulated seconds (see *Emulated seconds*
+    under HEADLESS MODE). Headless only (requires **--headless**),
+    repeatable.
 
 **--delayed-keypress-frames** *N* *KEY*
 :   Press *KEY* after *N* emulated frames. This is the frames-unit
@@ -737,7 +745,8 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     keypresses. Requires **--headless**.
 
 **--delayed-nmi** *SECS* *BUTTON*
-:   Press an NMI *BUTTON* after *SECS* seconds. Headless only (requires
+:   Press an NMI *BUTTON* after *SECS* emulated seconds (see *Emulated
+    seconds* under HEADLESS MODE). Headless only (requires
     **--headless**), repeatable. *BUTTON* is case-insensitive and names
     which button to press, spelled as the label on a real Next’s case.
     Of its three buttons, two raise an NMI: `nmi` (aliases `mf`, `m1`)
@@ -871,7 +880,8 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     symbols, is a startup error.
 
 **--magic-port** *PORT*
-:   Enable the magic debug port at *PORT* (hex, for example `0x00FF`).
+:   Enable the magic debug port at *PORT* (hex, `0x` prefix optional,
+    for example `0x00FF`).
 
 **--magic-port-mode** *MODE*
 :   Magic-port output mode: `hex` (default), `dec`, `ascii`, `line`.

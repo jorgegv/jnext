@@ -26,7 +26,9 @@
 #define JNEXT_CORE_CLI_OPTIONS_H
 
 #include <array>
+#include <cctype>
 #include <cerrno>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -566,7 +568,7 @@ inline constexpr Option OPTIONS[] = {
       "anything else writes a PNG of the composited picture" },
     { "--delayed-screenshot-time", 1, Doc::Documented, OptId::DelayedScreenshotTime,
       "N",
-      "Delay in seconds (default 10)" },
+      "Delay in emulated seconds (default 10)" },
     { "--delayed-screenshot-frames", 1, Doc::Documented, OptId::DelayedScreenshotFrames,
       "N",
       "Delay in frames (overrides --delayed-screenshot-time)" },
@@ -582,7 +584,7 @@ inline constexpr Option OPTIONS[] = {
       "Rejected with a .scr screenshot, which has no layers." },
     { "--delayed-automatic-exit", 1, Doc::Documented, OptId::DelayedAutomaticExit,
       "N",
-      "Exit the emulator after N seconds" },
+      "Exit the emulator after N emulated seconds" },
     { "--delayed-automatic-exit-frames", 1, Doc::Documented, OptId::DelayedAutomaticExitFrames,
       "N",
       "Exit after N frames (overrides --delayed-automatic-exit)" },
@@ -629,7 +631,8 @@ inline constexpr Option OPTIONS[] = {
     // The two-value options: SECS/N and KEY (or BUTTON) are consumed together.
     { "--delayed-keypress", 2, Doc::Documented, OptId::DelayedKeypress,
       "SECS KEY",
-      "Press KEY after SECS seconds (headless only, repeatable).\n"
+      "Press KEY after SECS emulated seconds (headless only,\n"
+      "repeatable).\n"
       "KEY (case-insensitive): single char (a-z 0-9 . , ; :),\n"
       "ENTER / RETURN / SPACE / UP / DOWN / LEFT / RIGHT, or a\n"
       "compound sym+<char> / caps+<char> (e.g. sym+m = '.')" },
@@ -640,8 +643,8 @@ inline constexpr Option OPTIONS[] = {
       "KEY takes the same values as --delayed-keypress." },
     { "--delayed-nmi", 2, Doc::Documented, OptId::DelayedNmi,
       "SECS BUTTON",
-      "Press an NMI BUTTON after SECS seconds (headless only,\n"
-      "repeatable). BUTTON (case-insensitive) is the label on\n"
+      "Press an NMI BUTTON after SECS emulated seconds (headless\n"
+      "only, repeatable). BUTTON (case-insensitive) is the label on\n"
       "the real case: nmi (aliases mf, m1) = the NMI button,\n"
       "driven by the Multiface; drive (alias divmmc) = the DRIVE\n"
       "button, driven by DivMMC. RESET is not an NMI button" },
@@ -872,21 +875,52 @@ inline bool parse_snapshot_compression(const char* state, bool& uncompressed) {
     return false;
 }
 
+/// A whole decimal number, ALL of `s`, in [lo, hi] (GH #317). Returns false and
+/// leaves `out` UNTOUCHED for a null/empty value, trailing junk (`5x`, `1.5`),
+/// overflow or a value outside the range. Never throws: a bare std::stoi would
+/// abort the process on `x` and read `5x` as 5.
+inline bool parse_int(const char* s, long lo, long hi, long& out) {
+    if (s == nullptr) return false;
+    char* end = nullptr;
+    errno = 0;
+    const long n = std::strtol(s, &end, 10);
+    if (errno != 0 || end == s || *end != '\0' || n < lo || n > hi) return false;
+    out = n;
+    return true;
+}
+
+/// A 16-bit hexadecimal number: optional 0x/0X, then hex digits only, value
+/// 0..FFFF. No sign, no whitespace, no trailing junk. Same untouched-on-false
+/// rule as parse_int. (strtoul alone accepts a sign and leading whitespace,
+/// hence the first-character guard.)
+inline bool parse_hex16(const char* s, uint16_t& out) {
+    if (s == nullptr) return false;
+    if (!std::isxdigit(static_cast<unsigned char>(s[0]))) return false;
+    char* end = nullptr;
+    errno = 0;
+    // Base 16 itself accepts the 0x/0X prefix; a bare "0x" stops after the 0
+    // and is refused by the trailing-junk check.
+    const unsigned long v = std::strtoul(s, &end, 16);
+    if (errno != 0 || *end != '\0' || v > 0xFFFFUL) return false;
+    out = static_cast<uint16_t>(v);
+    return true;
+}
+
+/// Largest SECS a seconds-form option accepts. cli::Delay counts seconds in
+/// 1/300 s units (int64) and charges one frame per tick, so a delay never
+/// overflows; the bound keeps the frame count at the fastest rate, 60 Hz
+/// (cli::Delay::frames_left), within an int.
+inline constexpr long MAX_DELAY_SECONDS = INT_MAX / 60;
+
 /// GH #26 WP4 — `--script-key FRAME N` (dsl-frontend.md §6.6). FRAME a whole
 /// number 0..2^31-1, N a host key 1..8, both in full: `7x` is not 7. A key
 /// that silently became another, or a frame that became 0, would fire a
 /// different rule at a different time than the one asked. Returns false and
 /// leaves the outputs UNTOUCHED on any malformed value.
 inline bool parse_script_key(const char* frame_s, const char* key_s, uint32_t& frame, int& key) {
-    if (frame_s == nullptr || key_s == nullptr) return false;
-    char* end = nullptr;
-    errno = 0;
-    const long f = std::strtol(frame_s, &end, 10);
-    if (errno != 0 || end == frame_s || *end != '\0' || f < 0 || f > 0x7FFFFFFFL) return false;
-    end = nullptr;
-    errno = 0;
-    const long k = std::strtol(key_s, &end, 10);
-    if (errno != 0 || end == key_s || *end != '\0' || k < 1 || k > 8) return false;
+    long f = 0;
+    long k = 0;
+    if (!parse_int(frame_s, 0, 0x7FFFFFFFL, f) || !parse_int(key_s, 1, 8, k)) return false;
     frame = static_cast<uint32_t>(f);
     key   = static_cast<int>(k);
     return true;
