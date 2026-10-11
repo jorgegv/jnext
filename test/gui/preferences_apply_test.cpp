@@ -55,7 +55,9 @@
 #include <QDialogButtonBox>
 #include <QLineEdit>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QStatusBar>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -63,7 +65,9 @@
 #include <QPushButton>
 #include <QSlider>
 
+#include <chrono>
 #include <cstdio>
+#include <filesystem>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -832,6 +836,82 @@ void test_quick_screenshot_writes_a_file()
     qunsetenv("JNEXT_CONFIG_DIR");
 }
 
+/// PA-22 — GH #321: File > Quick Save / Quick Load Snapshot are wired to the
+/// real machine and the real folder (<JNEXT_CONFIG_DIR>/snapshots).
+///
+/// Oracles: the issue text and the owner decisions (no dialog, timestamped name
+/// that never overwrites, Quick Load = the NEWEST .jns through the File > Load
+/// route, nothing touched when there is nothing to load or the file is bad).
+/// The pieces are pinned in emulator_boot_test (QS-*); what only this covers is
+/// MainWindow::on_quick_save / on_quick_load.
+void test_quick_snapshot_actions()
+{
+    QTemporaryDir home;
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+    const QDir snaps(home.path() + QStringLiteral("/snapshots"));
+    static const QRegularExpression shape(
+        QStringLiteral("^jnext-\\d{8}-\\d{6}(-\\d{2})?\\.jns$"));
+
+    Fixture f;
+    f.win.set_unattended(true);   // a refusal logs instead of blocking on a dialog
+    auto find = [&f](const char* text) {
+        for (QAction* a : f.win.findChildren<QAction*>())
+            if (a->text() == QString::fromLatin1(text)) return a;
+        return static_cast<QAction*>(nullptr);
+    };
+    QAction* save = find("Quick Save Snapshot");
+    QAction* load = find("Quick Load Snapshot");
+    std::vector<std::string> loaded;
+    f.win.set_load_file_callback([&loaded](const std::string& p, bool) { loaded.push_back(p); });
+
+    // (d) first: nothing saved yet, the folder does not exist.
+    if (load) { load->trigger(); QApplication::processEvents(); }
+    check("PA-22d", "Quick Load with no snapshot loads nothing and says so in the status bar",
+          load != nullptr && loaded.empty() &&
+              f.win.statusBar()->currentMessage().contains(QStringLiteral("no snapshot")),
+          f.win.statusBar()->currentMessage().toStdString());
+
+    if (save) { save->trigger(); QApplication::processEvents(); }
+    const QStringList one = snaps.entryList(QDir::Files);
+    const bool named = one.size() == 1 && shape.match(one.first()).hasMatch();
+    check("PA-22a", "Quick Save writes one timestamped non-empty .jns into <config>/snapshots",
+          save != nullptr && named && QFileInfo(snaps.filePath(one.first())).size() > 0,
+          one.join(QLatin1Char(',')).toStdString());
+
+    if (save) { save->trigger(); QApplication::processEvents(); }
+    const QStringList two = snaps.entryList(QDir::Files, QDir::Name);
+    check("PA-22b", "a second Quick Save writes a second file and overwrites nothing",
+          two.size() == 2 && two[0] != two[1],
+          two.join(QLatin1Char(',')).toStdString());
+
+    // (c) make the lexically FIRST file the newer one, so name order and mtime
+    // order disagree.
+    std::filesystem::last_write_time(
+        snaps.filePath(two[0]).toStdString(),
+        std::filesystem::file_time_type::clock::now() + std::chrono::hours(1));
+    if (load) { load->trigger(); QApplication::processEvents(); }
+    check("PA-22c", "Quick Load hands the newest file to the File > Load route, exactly once",
+          loaded.size() == 1 && loaded[0] == snaps.filePath(two[0]).toStdString(),
+          loaded.empty() ? std::string("no load") : loaded[0]);
+
+    // (e) a garbage newest file is refused before any load is requested.
+    {
+        QFile junk(snaps.filePath(QStringLiteral("junk.jns")));
+        if (junk.open(QIODevice::WriteOnly)) junk.write("not a snapshot");
+        junk.close();
+        std::filesystem::last_write_time(
+            junk.fileName().toStdString(),
+            std::filesystem::file_time_type::clock::now() + std::chrono::hours(2));
+    }
+    loaded.clear();
+    if (load) { load->trigger(); QApplication::processEvents(); }
+    check("PA-22e", "Quick Load of an unreadable newest .jns requests no load (the session is kept)",
+          load != nullptr && loaded.empty(),
+          loaded.empty() ? std::string("none") : loaded[0]);
+
+    qunsetenv("JNEXT_CONFIG_DIR");
+}
+
 /// PA-16 — issue #35: the policy lives in the frontend's frame sequencer, not
 /// in the emulator, so Apply must forward it. It applies live in every
 /// outcome, including the one where the user declined a machine-type restart.
@@ -951,6 +1031,7 @@ int main(int argc, char** argv)
     test_when_slow_prefer_reaches_the_frontend();
     test_quick_screenshot_controls();
     test_quick_screenshot_writes_a_file();
+    test_quick_snapshot_actions();
     test_debug_keymap_passthrough();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

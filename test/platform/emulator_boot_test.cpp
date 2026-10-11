@@ -43,11 +43,15 @@
 #include "core/saveable.h"
 #include "core/sna_saver.h"
 #include "core/rzx.h"
+#include "core/quick_snapshot.h"
+#include "core/sdcard_provisioner.h"
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/uart.h"
 
 #include <algorithm>
 #include <chrono>
+#include <ctime>
+#include <memory>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -255,6 +259,227 @@ int card_write_response(SdCardDevice& sd)
 }
 
 }  // namespace
+
+// --- QS-01..QS-16: Quick Save / Quick Load snapshots (GH #321) ----------------
+//
+// Oracles: the issue text and the owner decisions (folder = <state dir>/
+// snapshots, name = the GH #19 screenshot naming, load = the newest .jns), the
+// .jns round-trip contract (rewind_test JNS-RT-02b: a marker only the source
+// wrote must reappear), and the RZX precedent in emulator_boot_machine() (EB-50).
+namespace qs {
+
+namespace fs = std::filesystem;
+
+std::string stamp_name(std::time_t t, const char* suffix)
+{
+    std::tm tm{};
+    jtp::local_time(t, tm);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y%m%d-%H%M%S", &tm);
+    return std::string("jnext-") + buf + suffix + ".jns";
+}
+
+void touch(const fs::path& p)
+{
+    std::ofstream f(p, std::ios::binary);
+    f << "x";
+}
+
+std::vector<uint8_t> stream_of(const Emulator& e)
+{
+    StateWriter measure;
+    e.save_state(measure);
+    std::vector<uint8_t> buf(measure.position());
+    StateWriter w(buf.data(), buf.size());
+    e.save_state(w);
+    return buf;
+}
+
+void run_rows()
+{
+    const std::string tmp = jtp::make_temp_dir("jnext-qs-");
+    const fs::path root(tmp);
+    const char* old_cfg  = std::getenv("JNEXT_CONFIG_DIR");
+    const char* old_home = std::getenv("HOME");
+    const std::string keep_cfg  = old_cfg ? old_cfg : "";
+    const std::string keep_home = old_home ? old_home : "";
+
+    // QS-01: JNEXT_CONFIG_DIR wins.
+    jtp::set_env("JNEXT_CONFIG_DIR", tmp.c_str());
+    check("QS-01", "the quick folder is $JNEXT_CONFIG_DIR/snapshots",
+          default_quick_snapshot_dir() == tmp + "/snapshots", default_quick_snapshot_dir());
+
+    // QS-02: otherwise $HOME/.jnext/snapshots.
+    jtp::unset_env("JNEXT_CONFIG_DIR");
+    jtp::set_env("HOME", "/jnext-qs-home");
+    check("QS-02", "without JNEXT_CONFIG_DIR the quick folder is $HOME/.jnext/snapshots",
+          default_quick_snapshot_dir() == "/jnext-qs-home/.jnext/snapshots",
+          default_quick_snapshot_dir());
+
+    // QS-03: it sits beside the SD card, whatever the environment resolves to.
+    jtp::unset_env("HOME");
+    jtp::set_env("USERPROFILE", "/jnext-qs-profile");
+    {
+        const fs::path q = default_quick_snapshot_dir();
+        const fs::path c = sdcard::default_sdcard_dir();
+        check("QS-03", "the quick folder shares its parent (the state dir) with the SD card dir",
+              q.parent_path() == c.parent_path(), q.string() + " vs " + c.string());
+    }
+    if (old_home) jtp::set_env("HOME", keep_home.c_str());
+    if (old_cfg)  jtp::set_env("JNEXT_CONFIG_DIR", keep_cfg.c_str());
+    else          jtp::unset_env("JNEXT_CONFIG_DIR");
+
+    // QS-04..QS-07: naming.
+    const fs::path dir = root / "names";
+    const std::time_t when = 1767225600;   // an arbitrary fixed instant
+    const std::string expect = (dir / stamp_name(when, "")).string();
+    const std::string p1 = auto_quick_snapshot_path(dir.string(), when);
+    check("QS-04", "the auto name is <dir>/jnext-YYYYMMDD-HHMMSS.jns (local time)",
+          p1 == expect, "got '" + p1 + "' want '" + expect + "'");
+    check("QS-06", "the directory is created on demand", fs::is_directory(dir));
+    touch(expect);
+    const std::string p2 = auto_quick_snapshot_path(dir.string(), when);
+    touch(p2);
+    const std::string p3 = auto_quick_snapshot_path(dir.string(), when);
+    check("QS-05", "a taken name gets -02, then -03; nothing is overwritten",
+          p2 == (dir / stamp_name(when, "-02")).string() &&
+              p3 == (dir / stamp_name(when, "-03")).string(),
+          p2 + " | " + p3);
+    {
+        const fs::path file = root / "plain-file";
+        touch(file);
+        check("QS-07", "a folder that cannot be created gives an empty path",
+              auto_quick_snapshot_path((file / "sub").string(), when).empty());
+    }
+
+    // QS-08..QS-12: choosing the newest.
+    std::string why;
+    const fs::path empty_dir = root / "empty";
+    fs::create_directories(empty_dir);
+    {
+        const std::string a = latest_quick_snapshot((root / "missing").string(), why);
+        const bool miss_ok = a.empty() && why.find("no snapshot") != std::string::npos;
+        const std::string b = latest_quick_snapshot(empty_dir.string(), why);
+        check("QS-08", "a missing or empty folder gives no file and a 'no snapshot' reason",
+              miss_ok && b.empty() && why.find("no snapshot") != std::string::npos, why);
+    }
+    const auto t0 = fs::file_time_type::clock::now();
+    const fs::path d2 = root / "pick";
+    fs::create_directories(d2);
+    touch(d2 / "a-first.jns");
+    touch(d2 / "b-second.jns");
+    fs::last_write_time(d2 / "a-first.jns", t0);                       // NAME sorts first...
+    fs::last_write_time(d2 / "b-second.jns", t0 - std::chrono::hours(1));
+    check("QS-09", "the newest is chosen by modification time, not by name",
+          fs::path(latest_quick_snapshot(d2.string(), why)).filename() == "a-first.jns", why);
+
+    touch(d2 / "newer.png");
+    touch(d2 / "newer.txt");
+    fs::create_directories(d2 / "newest-dir.jns");
+    fs::last_write_time(d2 / "newer.png", t0 + std::chrono::hours(1));
+    fs::last_write_time(d2 / "newer.txt", t0 + std::chrono::hours(1));
+    fs::last_write_time(d2 / "newest-dir.jns", t0 + std::chrono::hours(1));
+    check("QS-10", "other extensions and a directory named .jns are ignored",
+          fs::path(latest_quick_snapshot(d2.string(), why)).filename() == "a-first.jns", why);
+
+    touch(d2 / "UPPER.JNS");
+    fs::last_write_time(d2 / "UPPER.JNS", t0 + std::chrono::minutes(1));
+    check("QS-11", "the .jns extension is matched case-insensitively",
+          fs::path(latest_quick_snapshot(d2.string(), why)).filename() == "UPPER.JNS", why);
+
+    const fs::path d3 = root / "tie";
+    fs::create_directories(d3);
+    touch(d3 / "jnext-20260101-000000.jns");
+    touch(d3 / "jnext-20260101-000000-02.jns");
+    fs::last_write_time(d3 / "jnext-20260101-000000.jns", t0);
+    fs::last_write_time(d3 / "jnext-20260101-000000-02.jns", t0);
+    check("QS-12", "equal modification times: the -02 name wins over the bare name",
+          fs::path(latest_quick_snapshot(d3.string(), why)).filename() ==
+              "jnext-20260101-000000-02.jns", why);
+
+    // QS-13: end to end on real machines.
+    constexpr uint16_t kMarkerAddr = 0xBF00;
+    const fs::path d4 = root / "e2e";
+    std::string file1, file2, latest;
+    bool saved = false;
+    {
+        auto a_up = std::make_unique<Emulator>();
+        Emulator& a = *a_up;
+        a.init(base_config());
+        for (int i = 0; i < 5; ++i) a.run_frame();
+        a.mmu().write(kMarkerAddr, 0x11);
+        file1 = auto_quick_snapshot_path(d4.string(), when);
+        const bool s1 = a.save_jns_file(file1);
+        a.mmu().write(kMarkerAddr, 0x22);
+        file2 = auto_quick_snapshot_path(d4.string(), when);
+        const bool s2 = a.save_jns_file(file2);
+        saved = s1 && s2 && file1 != file2;
+        if (saved) fs::last_write_time(file2, fs::last_write_time(file1) + std::chrono::seconds(5));
+        latest = latest_quick_snapshot(d4.string(), why);
+    }
+    {
+        auto b_up = std::make_unique<Emulator>();
+        Emulator& b = *b_up;
+        b.init(base_config());
+        const bool loaded = saved && b.load_jns_file(latest);
+        check("QS-13", "quick save twice, then the newest restores the second save's state",
+              saved && latest == file2 && loaded && b.mmu().read(kMarkerAddr) == 0x22,
+              "latest=" + latest + " file2=" + file2);
+    }
+
+    // QS-14: the probe refuses garbage and touches nothing.
+    {
+        const fs::path junk = root / "junk.jns";
+        {
+            std::ofstream f(junk, std::ios::binary);
+            f << "this is not a zip archive";
+        }
+        auto e_up = std::make_unique<Emulator>();
+        Emulator& e = *e_up;
+        e.init(base_config());
+        for (int i = 0; i < 3; ++i) e.run_frame();
+        const std::vector<uint8_t> before = stream_of(e);
+        std::string bad_why, good_why;
+        const bool bad  = e.probe_jns_file(junk.string(), bad_why);
+        const bool good = saved && e.probe_jns_file(file1, good_why);
+        const std::vector<uint8_t> after = stream_of(e);
+        check("QS-14", "probe_jns_file refuses garbage with a reason, accepts a real .jns, and "
+                       "leaves the machine byte-identical",
+              !bad && !bad_why.empty() && good && before == after,
+              "bad_why='" + bad_why + "' good_why='" + good_why + "'");
+    }
+
+    // QS-15 / QS-16: a .jns names its machine (R2).
+    {
+        const fs::path junk = root / "junk.jns";
+        check("QS-15", "emulator_boot_machine reads a .jns's machine; garbage or a .nex keep the "
+                       "configured one",
+              saved &&
+                  emulator_boot_machine(file1, MachineType::ZXN_ISSUE2) == MachineType::ZX48K &&
+                  emulator_boot_machine(junk.string(), MachineType::ZXN_ISSUE2) ==
+                      MachineType::ZXN_ISSUE2 &&
+                  emulator_boot_machine("x.nex", MachineType::ZXN_ISSUE2) ==
+                      MachineType::ZXN_ISSUE2);
+
+        EmulatorConfig frontend = base_config();
+        frontend.type = MachineType::ZXN_ISSUE2;
+        ColdBootHooks hooks;
+        MachineType kept = MachineType::ZXN_ISSUE2;
+        hooks.keep_machine = [&kept](MachineType t) { kept = t; };
+        auto e_up = std::make_unique<Emulator>();
+        Emulator& e = *e_up;
+        e.init(frontend);
+        if (saved) emulator_frontend_cold_boot(e, frontend, file1, hooks);
+        check("QS-16", "a frontend cold boot of a 48K .jns on a Next builds the 48K and tells "
+                       "the frontend (keep_machine)",
+              saved && kept == MachineType::ZX48K && e.config().type == MachineType::ZX48K);
+    }
+
+    std::error_code ec;
+    fs::remove_all(root, ec);
+}
+
+}  // namespace qs
 
 int main()
 {
@@ -1721,6 +1946,8 @@ int main()
         std::remove(card_a.c_str());
         std::remove(card_b.c_str());
     }
+
+    qs::run_rows();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);

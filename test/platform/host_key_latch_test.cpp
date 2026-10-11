@@ -67,6 +67,7 @@
 #include "platform/host_key_latch.h"
 #include "platform/host_key_wiring.h"
 #include "platform/sdl_input.h"
+#include "platform/quick_snapshot_chord.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -1718,6 +1719,34 @@ int main()
                                "never depends on whether anything listens",
                   kb.count(digit(1), true) == 0 && kb.count(digit(1), false) == 0, got(kb));
         }
+    }
+
+    // --- HKL-QS: the quick-snapshot chords Alt+F5 / Alt+F9 (GH #321) -------
+    // Oracle: the owner decision (Alt+F5 = Quick Save, Alt+F9 = Quick Load) and
+    // the exact-modifier policy of the script keys; bare F5/F9 stay the guest's
+    // EmuFnKeys strobe and Multiface NMI.
+    {
+        using jnext::QuickChord;
+        using jnext::quick_snapshot_chord;
+        constexpr int F5 = 62, F9 = 66;
+        check("HKL-QS-01", "Alt+F5 is Quick Save",
+              quick_snapshot_chord(F5, true, false, false, false) == QuickChord::Save);
+        check("HKL-QS-02", "Alt+F9 is Quick Load",
+              quick_snapshot_chord(F9, true, false, false, false) == QuickChord::Load);
+        check("HKL-QS-03", "bare F5 and bare F9 are not claimed",
+              quick_snapshot_chord(F5, false, false, false, false) == QuickChord::None &&
+              quick_snapshot_chord(F9, false, false, false, false) == QuickChord::None);
+        check("HKL-QS-04", "Alt+Shift+F9, Ctrl+Alt+F9 and Alt+GUI+F9 are not Quick Load",
+              quick_snapshot_chord(F9, true, false, true, false) == QuickChord::None &&
+              quick_snapshot_chord(F9, true, true, false, false) == QuickChord::None &&
+              quick_snapshot_chord(F9, true, false, false, true) == QuickChord::None);
+        check("HKL-QS-05", "Alt+F6, Alt+F4 and Alt+1 are not quick-snapshot chords",
+              quick_snapshot_chord(63, true, false, false, false) == QuickChord::None &&
+              quick_snapshot_chord(61, true, false, false, false) == QuickChord::None &&
+              quick_snapshot_chord(30, true, false, false, false) == QuickChord::None);
+        check("HKL-QS-06", "the scancodes the predicate tests are SDL's F5 and F9",
+              jnext::kQuickSaveScancode == static_cast<int>(SDL_SCANCODE_F5) &&
+              jnext::kQuickLoadScancode == static_cast<int>(SDL_SCANCODE_F9));
     }
 
     std::printf("\n====================================================\n");
