@@ -70,7 +70,18 @@ if want nextsync-func; then
     # next failure then names its own cause: a reply that never arrived intact
     # (the peer's TX with no matching +IPD) reads differently from a late one.
     nextsync_exchange() {
-        local first t t2 n_over
+        local first t t2 n_over art
+        # Keep the two full logs where the CI job can upload them (build/ is the
+        # workspace's, so it survives the row's $TMP_DIR; ci.yml uploads
+        # build/regression-artifacts on a red run), and print the peer's WHOLE
+        # exchange below -- it is ~100 lines -- so the job log alone names the cause.
+        art="$PROJECT_DIR/build/regression-artifacts"
+        mkdir -p "$art" 2>/dev/null \
+            && cp "$peer_log" "$art/nextsync-peer-$$.log" 2>/dev/null \
+            && cp "$run_log" "$art/nextsync-jnext-$$.log" 2>/dev/null \
+            && echo "        --- full logs kept in build/regression-artifacts/nextsync-{peer,jnext}-$$.log ---" || true
+        echo "        --- the peer's whole exchange (RX = what the guest sent, TX = the reply; times are the peer's wall clock) ---"
+        head -n 400 "$peer_log" | sed 's/^/        | /'
         # The guest-visible side: the UART logs every byte it had to DROP (RX FIFO
         # full) at debug level. A dropped reply byte is a corrupt packet to the guest.
         n_over=$(grep -ac "RX FIFO overflow" "$run_log" || true)

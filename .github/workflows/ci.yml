@@ -415,6 +415,7 @@ jobs:
           path: |
             test/00regression/img/*-diff.png
             build/test-summary.tsv
+            build/regression-artifacts
           if-no-files-found: ignore
 
       # GH #214. The built Windows test tree (executables and the suites' logs)
@@ -748,6 +749,7 @@ jobs:
           name: jnext-macos-regression-artifacts
           path: |
             test/00regression/img/*-diff.png
+            build/regression-artifacts
           if-no-files-found: ignore
 
   # The flatpak bundle, actually BUILT on every push rather than skipped — and,
