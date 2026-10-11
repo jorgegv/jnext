@@ -3514,7 +3514,7 @@
 
 
 <h1 id="51-choosing-a-machine">5.1 Choosing a machine<a class="headerlink" href="#51-choosing-a-machine" title="Permanent link">&para;</a></h1>
-<p>JNEXT emulates four machines. Pick one with <code>--machine</code>, or from <strong>Machine &gt;
+<p>JNEXT emulates five machines. Pick one with <code>--machine</code>, or from <strong>Machine &gt;
 Machine Type</strong> while running — switching restarts the machine, so load your
 program afterwards.</p>
 <table>
@@ -3540,6 +3540,11 @@ program afterwards.</p>
 <td><code>plus3</code></td>
 <td>ZX Spectrum +2A/+3</td>
 <td>128K plus the +3's extended paging model</td>
+</tr>
+<tr>
+<td><code>pentagon</code></td>
+<td>Pentagon 128</td>
+<td>The Next's Pentagon personality: the 128K ROM and paging, no contention, Pentagon's 448 x 320 frame at 50 Hz, a Covox on port 0xFB, and 512K/1024K paging through NextREG 0x8F</td>
 </tr>
 <tr>
 <td><code>next</code></td>
@@ -3570,9 +3575,9 @@ JNEXT reads the BASIC ROMs from, exactly as real Next hardware does. See
 <p><img alt="48K" src="../img/machine-48k.png" /> <img alt="Next" src="../img/machine-next.png" /></p>
 <p><em>A 48K start-up screen, and the Next booting NextZXOS.</em></p>
 <blockquote>
-<p>There is no Pentagon machine option. Pentagon <em>timing</em> exists only as
-something a program can ask for from inside the emulated machine, and it
-turns memory contention off.</p>
+<p>The Pentagon is the Next's own Pentagon 128 personality, the one the Next
+firmware's machine menu starts: it uses the 128K ROM (<code>128.rom</code> on the SD
+card). It is not a model of the original Russian clone's hardware.</p>
 </blockquote>
 <hr />
 

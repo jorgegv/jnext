@@ -260,13 +260,13 @@ int32_t binary(const Expr& e, const EvalContext& ctx) {
 }  // namespace
 
 // The MACHINE constants of §2.3: 0=48K 1=128K 2=+3 3=Pentagon 4=Next. jnext
-// has no standalone Pentagon machine type any more (emulator.cpp: "the
-// standalone Pentagon machine type was dropped"), so 3 is never produced.
+// Pentagon is the Next's Pentagon 128 personality (`--machine pentagon`).
 int32_t machine_code(MachineType t) {
     switch (t) {
         case MachineType::ZX48K:      return 0;
         case MachineType::ZX128K:     return 1;
         case MachineType::ZX_PLUS3:   return 2;
+        case MachineType::PENTAGON:   return 3;
         case MachineType::ZXN_ISSUE2: return 4;
     }
     return -1;

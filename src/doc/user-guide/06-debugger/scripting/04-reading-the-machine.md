@@ -78,7 +78,7 @@ filter itself is 64-bit.
 
 | Name | What |
 |---|---|
-| `MACHINE` | 0 = 48K, 1 = 128K, 2 = +3, 4 = Next |
+| `MACHINE` | 0 = 48K, 1 = 128K, 2 = +3, 3 = Pentagon, 4 = Next |
 | `AUDIO_MUTE` | the host-side mute mask, the Audio panel's (bit 0 to 2: AY chips 0 to 2, bit 3: the DACs, bit 4: the beeper) |
 
 ## An example

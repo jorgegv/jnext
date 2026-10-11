@@ -3250,6 +3250,48 @@ static void section16_gh290_cvc_reload() {
 
 // ── Main ──────────────────────────────────────────────────────────────
 
+// GH #324 -- `--machine pentagon` runs the Pentagon frame: 448 x 320 pixel
+// clocks (c_max_hc 447, c_max_vc 319, interrupt at vc 319) instead of the
+// 128K's 456 x 311, via the tim_sel axis the firmware's Pentagon personality
+// selects (NR 0x03 tim_sel 100).
+static void gh324_pentagon_frame() {
+    set_group("VT-GH324-PENTAGON");
+
+    Emulator emu;
+    EmulatorConfig cfg;
+    cfg.type = MachineType::PENTAGON;
+    cfg.rewind_buffer_frames = 0;
+    const bool ok = emu.init(cfg);
+    const MachineTiming t = emu.timing();
+    const bool geometry =
+        t.pixels_per_line == 448 && t.lines_per_frame == 320 &&
+        t.tstates_per_frame == 71680 && t.master_cycles_per_frame == 573440;
+    const bool vt =
+        emu.video_timing().hc_max() == 447 && emu.video_timing().vc_max() == 319 &&
+        emu.video_timing().int_position().vc == 319;
+    check("PENT-08",
+          "--machine pentagon: frame is 448x320 (71680 T-states, 573440 master cycles), "
+          "VideoTiming hc_max 447, vc_max 319, interrupt at vc 319 "
+          "[zxula_timing.vhd:150-168]",
+          ok && geometry && vt,
+          "init=" + std::to_string(ok) + " px=" + std::to_string(t.pixels_per_line) +
+          " lines=" + std::to_string(t.lines_per_frame) +
+          " mcf=" + std::to_string(t.master_cycles_per_frame) +
+          " hc_max=" + std::to_string(emu.video_timing().hc_max()) +
+          " vc_max=" + std::to_string(emu.video_timing().vc_max()) +
+          " int_v=" + std::to_string(emu.video_timing().int_position().vc));
+
+    // The per-machine table the CPU frame geometry is seeded from before the
+    // tim_sel axis takes over (z80_set_contention_runtime(machine_timing(type))).
+    const MachineTiming m = machine_timing(MachineType::PENTAGON);
+    check("PENT-24",
+          "machine_timing(PENTAGON) is the 448x320 frame: 224 T-states per line, 71680 per "
+          "frame, 1792 / 573440 master cycles [zxula_timing.vhd:160,168]",
+          m.pixels_per_line == 448 && m.lines_per_frame == 320 && m.tstates_per_line == 224 &&
+              m.tstates_per_frame == 71680 && m.master_cycles_per_line == 1792 &&
+              m.master_cycles_per_frame == 573440);
+}
+
 int main() {
     std::printf("VideoTiming Expansion Compliance Tests\n");
     std::printf("======================================\n\n");
@@ -3308,6 +3350,9 @@ int main() {
 
     section16_gh290_cvc_reload();
     std::printf("  Section 16: VT-S16-GH290-CVC-RELOAD — done (47 live)\n");
+
+    gh324_pentagon_frame();
+    std::printf("  GH #324: VT-GH324-PENTAGON — done (1 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

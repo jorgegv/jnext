@@ -8,7 +8,7 @@
 
 | Setting | Choices | Notes |
 |---|---|---|
-| Machine type | 48K, 128K, +3, Next | See [5.1](../05-running-programs/01-choosing-a-machine.md) |
+| Machine type | 48K, 128K, +3, Pentagon, Next | See [5.1](../05-running-programs/01-choosing-a-machine.md) |
 | CPU speed | 3.5, 7, 14, 28 MHz | The emulated Next's own clock |
 | Emulator speed | 10%–1000% | How fast the emulator runs against real time |
 | When the host is too slow | Smooth sound / Smooth picture | Which of the two to sacrifice when one emulated frame costs more than its real-time budget; inert on a host with headroom |

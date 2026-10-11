@@ -37,7 +37,7 @@ message naming the option and the value, and exits with status 1.
 .TP
 \f[B]\-\-machine\f[R] \f[I]TYPE\f[R]
 Machine type: \f[CR]48k\f[R], \f[CR]128k\f[R], \f[CR]plus3\f[R],
-\f[CR]next\f[R] (default).
+\f[CR]pentagon\f[R], \f[CR]next\f[R] (default).
 .TP
 \f[B]\-\-load\f[R] \f[I]FILE\f[R]
 Load a program.
@@ -662,16 +662,17 @@ Works the same in the GUI, the SDL\-only build and under
 \f[B]\-\-headless\f[R].
 While recording, a tape loads in real time: a fast load skips the ROM
 loader, which a recording cannot replay.
-The snapshot is an SZX on the 128K and +3 and a 48K SNA on the 48K.
+The snapshot is an SZX on the 128K, Pentagon and +3 and a 48K SNA on the
+48K.
 The file names the machine it was recorded on, which
 \f[B]\-\-rzx\-play\f[R] then uses.
 .RS
 .PP
 \f[B]Recording is not available on a ZX Spectrum Next, which is
 jnext\(cqs default machine, so this needs an explicit \-\-machine 48k,
-128k or plus3.\f[R] An RZX carries a snapshot of the machine it starts
-from plus a log of the values the program read from ports \(em and the
-log records the values without the ports they came from.
+128k, pentagon or plus3.\f[R] An RZX carries a snapshot of the machine
+it starts from plus a log of the values the program read from ports \(em
+and the log records the values without the ports they came from.
 So no snapshot an RZX can carry both describes a Next (none of SNA, SZX
 or Z80 holds its extra RAM, NextREGs, Layer 2, tilemap, sprites or
 Copper) and keeps the value log aligned with what the restored machine
@@ -1037,6 +1038,13 @@ ZX Spectrum 128K \- AY sound and memory paging.
 \f[CR]plus3\f[R]
 ZX Spectrum +2A/+3 \- extended paging.
 .TP
+\f[CR]pentagon\f[R]
+The Next\(cqs Pentagon 128 personality, as the TBBlue firmware\(cqs own
+Pentagon entry runs it: the 128K ROM (\f[CR]128.rom\f[R]) and paging,
+Pentagon timing (no contention, a 448 x 320 frame, always 50 Hz), the
+Covox on port 0xFB, and Pentagon\-512/1024 paging through NextREG 0x8F.
+Not the original Russian clone\(cqs own hardware.
+.TP
 \f[CR]next\f[R]
 ZX Spectrum Next (Issue 2) \- full Next hardware and extended features.
 .PP
@@ -1055,9 +1063,9 @@ machine.
 \f[B]The ROMs jnext loads itself\f[R] \- 48K / 128K / +3 BASIC, DivMMC
 firmware, Multiface firmware and the Alt ROM \- are read from the
 SD\-card image at the canonical TBBlue paths under
-\f[CR]/MACHINES/NEXT/\f[R] (\f[CR]48.rom\f[R], \f[CR]128.rom\f[R],
-\f[CR]plus3.rom\f[R], \f[CR]enNxtmmc.rom\f[R], \f[CR]enNextMf.rom\f[R],
-\f[CR]enAltZX.rom\f[R]).
+\f[CR]/MACHINES/NEXT/\f[R] (\f[CR]48.rom\f[R], \f[CR]128.rom\f[R] (also
+the Pentagon\(cqs), \f[CR]plus3.rom\f[R], \f[CR]enNxtmmc.rom\f[R],
+\f[CR]enNextMf.rom\f[R], \f[CR]enAltZX.rom\f[R]).
 That is the whole list of files jnext reads from the card itself.
 .IP \(bu 2
 \f[B]NextZXOS is not one of them.\f[R] It is loaded by the firmware, not
@@ -1402,8 +1410,9 @@ NextZXOS\(cqs file commands stop working.
 .SH JNEXT SNAPSHOTS
 A \f[CR].jns\f[R] file is jnext\(cqs own whole\-machine snapshot, and
 the only format that can represent a ZX Spectrum Next: \f[CR].sna\f[R]
-and \f[CR].szx\f[R] describe a 48K/128K/+3 machine, which a Next is not,
-so asking for either on a Next is refused rather than written lossily.
+and \f[CR].szx\f[R] describe a 48K/128K/Pentagon/+3 machine, which a
+Next is not, so asking for either on a Next is refused rather than
+written lossily.
 .PP
 The other formats are written for the machines they can describe, and
 refused for the states they cannot.
@@ -1420,6 +1429,8 @@ on every machine type, not only a Next) is refused too, pointing at
 either.
 An SNA also carries no machine identifier, so FUSE reads a 128K one as a
 Pentagon 128 \(em the right RAM and paging, a different timing model.
+On \f[B]\-\-machine\f[R] \f[CR]pentagon\f[R] jnext writes that same 128K
+form, and an \f[CR].szx\f[R] as a Pentagon 128 (machine ID 7).
 .PP
 Write one with \f[B]File > Save Snapshot\&...\f[R] (Alt+Shift+S), or
 headless with \f[B]\-\-delayed\-snapshot\f[R] naming a \f[CR].jns\f[R]
@@ -1428,8 +1439,8 @@ Read one back with \f[B]\-\-load\f[R], a bare file name, or \f[B]File >
 Load NEX File\&...\f[R], which lists \f[CR].jns\f[R] alongside every
 other format.
 On a Next the save dialog offers \f[CR].jns\f[R] first and appends it to
-a name typed without an extension; on a 48K, 128K or +3 it offers
-\f[CR].sna\f[R] first and appends that instead.
+a name typed without an extension; on a 48K, 128K, Pentagon or +3 it
+offers \f[CR].sna\f[R] first and appends that instead.
 .PP
 Loading a \f[CR].jns\f[R] restores the machine \f[I]type\f[R] as well as
 its contents, so one taken on a Next comes back as a Next whatever

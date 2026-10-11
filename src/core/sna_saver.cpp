@@ -98,8 +98,8 @@ static std::vector<uint8_t> extra_bank_set(uint8_t paged_bank) {
 /// contain. A diversion is also not memory the file could describe: it is a
 /// mapping, and an SNA has no field for one. This note exists because the next
 /// reader would otherwise re-derive it from scratch.
-static bool classic_window_intact(Mmu& mmu, uint8_t bank_at_c000,
-                                  std::string& found)
+bool classic_window_intact(Mmu& mmu, uint8_t bank_at_c000,
+                           std::string& found)
 {
     const uint8_t want[6] = {10, 11, 4, 5,
                              static_cast<uint8_t>(bank_at_c000 * 2),
@@ -154,7 +154,8 @@ std::vector<uint8_t> SnaSaver::save(Emulator& emu, std::string* error) {
             return save_48k(emu);
         }
 
-        case MachineType::ZX128K: {
+        case MachineType::ZX128K:
+        case MachineType::PENTAGON: {   // the 128K form (FUSE reads a 128K SNA as Pentagon 128 too)
             const std::string w = window_refusal(static_cast<uint8_t>(mmu.port_7ffd() & 0x07));
             if (!w.empty()) return refuse(w);
             return save_128k(emu);
@@ -192,7 +193,7 @@ std::vector<uint8_t> SnaSaver::save(Emulator& emu, std::string* error) {
             return refuse(
                 "SNA saver: the '.sna' format cannot represent a ZX Spectrum Next — it "
                 "describes a 48K/128K Spectrum, with none of the Next's extra RAM, "
-                "NextREGs or video hardware (--machine 48k|128k|plus3). "
+                "NextREGs or video hardware (--machine 48k|128k|plus3|pentagon). "
                 "Use '.jns' for a Next-native snapshot instead.");
     }
 }
