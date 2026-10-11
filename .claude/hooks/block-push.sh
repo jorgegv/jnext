@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PreToolUse hook for Bash. Blocks `git push` and `gh pr create` unless
-# JNEXT_ALLOW_PUSH=1 is set in the environment of the launched command.
+# each push invocation is prefixed with JNEXT_ALLOW_PUSH=1.
 #
 # CLAUDE.md mandate: "NEVER push to origin without explicit user authorization.
 # This applies to the manager AND every spawned agent."
@@ -14,13 +14,19 @@ set -euo pipefail
 input="$(cat)"
 cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // ""')"
 
-# If the user/agent embedded the override, allow.
-if printf '%s' "$cmd" | grep -qE '(^|[[:space:]])JNEXT_ALLOW_PUSH=1([[:space:]]|$)'; then
-  exit 0
-fi
-
-# Match `git push`, `git -C <path> push`, and `gh pr create`.
-if printf '%s' "$cmd" | grep -qE '(^|[[:space:];&|])(git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+push|gh[[:space:]]+pr[[:space:]]+create)'; then
+# Match `git push`, `git -C <path> push`, and `gh pr create`. EVERY such
+# invocation must itself be immediately preceded by `JNEXT_ALLOW_PUSH=1 ` (an
+# env-assignment prefix of that simple command); the override anywhere else in
+# the command (another command, an earlier push) does not cover it. Matching is
+# textual and conservative: a quoted mention of `git push` is treated as a push.
+unprefixed="$(printf '%s' "$cmd" | perl -0777 -ne '
+  my $bad = 0;
+  while (/(?:^|[\s;&|])(git(?:\s+-C\s+\S+)?\s+push|gh\s+pr\s+create)/g) {
+    my $pre = substr($_, 0, $-[1]);
+    $bad = 1 unless $pre =~ /(?:^|[\s;&|(])JNEXT_ALLOW_PUSH=1[ \t]+$/;
+  }
+  print $bad;')"
+if [ "$unprefixed" = "1" ]; then
   cat >&2 <<'EOF'
 [block-push hook] BLOCKED: git push / gh pr create requires explicit user authorization.
 
