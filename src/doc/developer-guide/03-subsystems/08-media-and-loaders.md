@@ -800,6 +800,30 @@ Save-Screenshot dialog's remembered directory, deliberately — that one follows
 the dialog around, and a no-dialog capture whose destination moves is
 unfindable.
 
+**Quick Save / Quick Load** (File ▸ Quick Save Snapshot Alt+F5, Quick Load
+Snapshot Alt+F9; the same two chords in the SDL-only build) follow the same
+shape for `.jns`. `src/core/quick_snapshot.*` holds the folder
+(`default_quick_snapshot_dir()` = `sdcard::default_state_dir()` + `/snapshots`,
+so `$JNEXT_CONFIG_DIR` and the SD image's own state-dir resolution apply — on
+Windows it inherits the HOME → USERPROFILE fix tracked in GH #316, and until
+then a missing HOME puts it beside the SD image under `./.jnext`), the name
+(`auto_timestamped_path()`, the one function `auto_screenshot_path()` also
+uses) and the choice of file (`latest_quick_snapshot()`: greatest modification
+time among `*.jns` regular files directly in the folder, ties to the greater
+name stem so `…-02` beats the bare name; local-time names are not ordered across
+a DST change, which is why the name is not the key). Quick Load goes through
+`MainWindow::handle_load_path()` / `SdlApp::cold_boot()`, i.e. a full cold boot
+and then `load_jns_file()`, never an in-place load. Two things make that route
+safe for a `.jns`: `Emulator::probe_jns_file()` runs the pre-touch half of
+`load_jns` (`check_jns()`) BEFORE the cold boot, so a file that will be refused
+costs no session; and `emulator_boot_machine()` reads the `.jns` manifest's
+machine the way it reads an RZX's, so the cold boot builds the snapshot's
+machine and the frontend's `keep_machine` hook records it (otherwise a later
+reset would boot the old machine). `.sna`, `.szx` and `.z80` reconfigure the
+machine without telling the frontend in the same way; that is not fixed here.
+The SDL chord predicate is `platform/quick_snapshot_chord.h`; the Qt chords are
+the two QAction shortcuts in `main_window.cpp`.
+
 Video recording needs **FFmpeg on the host**. jnext writes raw ARGB frames and
 raw stereo PCM to temporary files during the run, so the hot loop pays no
 encoding cost, and shells out once at stop, trying `libx264`, `mpeg4` and

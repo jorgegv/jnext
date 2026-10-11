@@ -1728,6 +1728,7 @@ int main()
     {
         using jnext::QuickChord;
         using jnext::quick_snapshot_chord;
+        using jnext::quick_snapshot_chord_held;
         constexpr int F5 = 62, F9 = 66;
         check("HKL-QS-01", "Alt+F5 is Quick Save",
               quick_snapshot_chord(F5, true, false, false, false) == QuickChord::Save);

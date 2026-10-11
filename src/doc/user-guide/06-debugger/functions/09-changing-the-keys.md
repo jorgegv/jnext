@@ -52,7 +52,7 @@ Four kinds of combination are refused, and the dialog says which and why:
   typing into ever sees it — the memory panel edits hex with the bare number
   and letter keys, and the disassembly has an address box. `Shift+F6` is fine:
   the key is still a function key.
-- **Alt + a letter.** The debugger's menu bar owns those. `Alt+F5` is fine.
+- **Alt + a letter.** The debugger's menu bar owns those. `Alt+F5` is accepted, but Alt+F5 and Alt+F9 are also the emulator window's Quick Save and Quick Load: a debugger command bound to either of them is taken by Quick Save/Load while the emulator window has focus, and still works in the debugger window.
 - **Ctrl+C and Ctrl+A.** The disassembly panel's Copy and Select All.
 - **A combination another debugger command already has.** Rebind that one
   first. This is refused rather than silently taken over, because Qt answers

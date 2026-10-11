@@ -2,7 +2,12 @@
 
 ## Unreleased (2026-10-10)
 
+### User Features
+- Quick Save (Alt+F5) and Quick Load (Alt+F9): one key saves a snapshot, another restores the newest
+
 ### Bug Fixes
+- Loading an unreadable .jns no longer resets the running machine before refusing it
+- Loading a .jns made on another machine keeps that machine for later resets
 - Seconds-form delays (--delayed-automatic-exit, -screenshot-time, -keypress, -nmi) now count programs running at 60 Hz as 1/60 s per frame
 - A malformed numeric command-line value is now a clear error instead of a crash or a silently wrong number
 - Windows: the status bar shows a loaded tape's file name instead of its full path
@@ -12,7 +17,7 @@
 - Unit test suites now also run on macOS and on Windows (under wine) in CI, blocking
 
 ### Contributors in this release
-- @janko-jj, @vmorilla
+- @janko-jj, @pavero01, @vmorilla
 
 ## v1.1.23 (2026-10-10)
 

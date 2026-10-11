@@ -8,6 +8,7 @@ Everything JNEXT keeps for you lives under `~/.jnext`.
 | `~/.jnext/sdcard/cspect-next-1gb-fixed.img` | The SD-card image used when `--sdcard` is not given.                             |
 | `~/.jnext/sdcard/cspect-next-1gb.img`      | The canonical distribution image the one above is produced from.                  |
 | `~/.jnext/warm-start/`                     | The recorded NextZXOS machine a `.nex` load starts from ([5. Running programs](../05-running-programs/index.md)). One file per machine type, about 100 KB. Deleting it costs one cold boot. |
+| `~/.jnext/snapshots/`                      | Where **File ▸ Quick Save Snapshot** writes and **Quick Load Snapshot** reads the newest `.jns` ([5.9 Snapshots](../05-running-programs/09-snapshots.md#quick-save-and-quick-load)). Created on the first save; never pruned. |
 | `~/.jnext/screenshots/`                    | Where **File ▸ Quick Screenshot** writes, unless Preferences says otherwise ([5.3 Display](../05-running-programs/03-display.md)). Created on the first capture. |
 
 Two rules worth remembering:

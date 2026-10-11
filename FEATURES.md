@@ -102,6 +102,7 @@
 - Screenshots in PNG or `.SCR` (Alt+S, toolbar, `--delayed-screenshot`): the filename's extension picks the format. `.SCR` is the raw ULA screen memory of the displayed bank — 6912 bytes, or 12288 in a Timex hi-colour/hi-res mode — and records only the classic ULA layer
 - Pause / resume from the emulator window (toolbar button, Machine > Pause, Alt+U; works in fullscreen) without opening the debugger; a Paused cell in the status bar
 - Quick Screenshot (Alt+K): no dialog, timestamped collision-free name, into a configurable directory (default `~/.jnext/screenshots`), in the configured default format; the status bar names the file written
+- Quick Save (Alt+F5) / Quick Load (Alt+F9): one-key `.jns` snapshot into `~/.jnext/snapshots`, timestamped and never overwritten; Quick Load restores the newest after a bad-file check
 - Video recording to MP4 via FFmpeg pipe (`--record`)
 - Direct audio recording to WAV (`--wav-record`, no FFmpeg required)
 - Preferences dialog (Settings → Preferences…, Alt+P): configure startup defaults, input sources, live host audio gain, remembered paths and the quick-screenshot directory/format; saved to `~/.jnext/jnext.conf` — CLI flags always override saved settings

@@ -76,6 +76,30 @@ above; the consequence is that the restored machine is up to one frame (20 ms)
 past where you stopped. If you need the precise instant, that
 is what the rewind buffer is for.
 
+## Quick save and quick load
+
+**File ▸ Quick Save Snapshot** (**Alt+F5**) and **File ▸ Quick Load Snapshot**
+(**Alt+F9**) ask nothing. Quick Save writes a `.jns`, on every machine type,
+to `~/.jnext/snapshots/` (or `$JNEXT_CONFIG_DIR/snapshots` when that variable is
+set), named `jnext-YYYYMMDD-HHMMSS.jns`, and shows the path in the status bar.
+Two saves in the same second get a `-02`, `-03` suffix, so nothing is
+overwritten. Quick Load restores the **newest** `.jns` in that folder, judged by
+modification time, the same way **File ▸ Load NEX File…** does: a full cold
+boot, then the load. A `.jns` you save into that folder yourself counts too.
+
+- An empty or missing folder only says "no snapshot" in the status bar; the
+  machine is not touched.
+- A newest file that cannot be loaded (damaged, or taken with a different SD
+  card) is refused **before** anything is reset, so you keep your session.
+- JNEXT never deletes quick saves; the folder grows until you tidy it. Older
+  ones load through the ordinary load dialog.
+- The SDL-only build has the same two keys and the same folder, and reports in
+  the log instead of the status bar.
+- Plain F5 and F9 are unchanged. Some desktops take Alt+F5 for themselves (stock
+  GNOME uses it for "restore window"); there the key never reaches JNEXT, and
+  the menu entry does the same job.
+- Only `.jns` is used: it is the one format that can hold a whole machine.
+
 ## Loading
 
 Drop the file on the command line, or **File ▸ Load NEX File…** (Alt+O) — the
