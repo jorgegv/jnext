@@ -20,7 +20,7 @@ void kill_hard(unsigned long pid);
 unsigned long self_pid();
 
 /// A child process started with its stdout captured. `start` returns once the
-/// child has printed a line (the "ready" signal) or `timeout_ms` passed.
+/// child has printed a line starting `ready` or `failed` (others are skipped) or `timeout_ms` passed.
 class Child {
 public:
     Child() = default;

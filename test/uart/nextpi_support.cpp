@@ -19,6 +19,11 @@ extern char** environ;
 
 namespace nxs {
 
+namespace {
+// The child logs to stdout too; its signal is the line `ready` (or `failed: ...`).
+bool is_signal(const std::string& l) { return l.rfind("ready", 0) == 0 || l.rfind("failed", 0) == 0; }
+}
+
 #ifdef _WIN32
 
 bool process_alive(unsigned long pid) {
@@ -73,8 +78,12 @@ bool Child::start(const std::string& exe, const std::vector<std::string>& args,
             char c;
             DWORD got = 0;
             while (avail-- > 0 && ReadFile(rd, &c, 1, &got, nullptr) && got == 1) {
-                if (c == '\n') return true;
-                if (c != '\r') first_line.push_back(c);
+                if (c == '\n') {
+                    if (is_signal(first_line)) return true;
+                    first_line.clear();
+                } else if (c != '\r') {
+                    first_line.push_back(c);
+                }
             }
         } else {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -164,8 +173,12 @@ bool Child::start(const std::string& exe, const std::vector<std::string>& args,
         if (::poll(&p, 1, static_cast<int>(left)) <= 0) return false;
         char c;
         if (::read(fds[0], &c, 1) != 1) return false;      // EOF: the child ended
-        if (c == '\n') return true;
-        first_line.push_back(c);
+        if (c == '\n') {
+            if (is_signal(first_line)) return true;
+            first_line.clear();
+        } else {
+            first_line.push_back(c);
+        }
     }
 }
 

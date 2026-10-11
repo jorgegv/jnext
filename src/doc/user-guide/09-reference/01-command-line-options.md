@@ -329,7 +329,10 @@ with status 1.
     inert, and nothing about it is saved in a snapshot. A soft or hard
     reset leaves the Pi running. A Pi asked for with this option that
     cannot start (no QEMU, a failed download) is an error; declining the
-    download is not — jnext then starts without the Pi. POSIX only.
+    download is not — jnext then starts without the Pi.
+    On Linux and macOS the link is a pair of FIFOs; on Windows (QEMU for
+    Windows, its folder on `PATH` or set in Preferences) it is a loopback TCP
+    socket QEMU listens on. On Windows the Pi has no sound yet.
 
 **--no-nextpi**
 :   Do not start NextPi this run, overriding a saved preference that
