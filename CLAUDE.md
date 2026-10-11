@@ -435,7 +435,7 @@ into this file would go stale on the next branch that adds a suite.
 | `make regression-win` | Windows, MinGW exes under wine | `build/win-release-non-pgo`, `build/win-sdl-release` | local gate, CI `test (regression-win)`; rows pinned by `# expect-windows:` |
 | `make regression-macos` | macOS (native) | `build/gui-release-non-pgo`, `build/sdl-release` | CI `macos-regression`; rows pinned by `# expect-macos:` |
 
-**The regression suite also runs off Linux** (GH #319, owner decisions 2026-10-10): `regression.sh --platform` runs the screenshots and the functional rows an OS can run. A row's line in `functional_tests.conf` opts out with `os=<list>` (a subset of `linux,macos,windows`, `linux` mandatory, no tag = all three) and a `# os:` reason above it; `# expect-macos:` / `# expect-windows:` pin the counts; the absent rows are printed by name, never SKIPs. The 6 lints and the stamp stay Linux-only. The wine runner (`test/wine-run.sh --jnext`) folds CRLF, translates `QT_*`/`SDL_*`, and needs a persistent wineserver; the Qt test exe bundles `qoffscreen.dll`, in the test tree only, never in a package. See the developer guide, section 4.3.
+**The regression suite also runs off Linux** (GH #319, owner decisions 2026-10-10): `regression.sh --platform` runs the screenshots and the functional rows an OS can run. A row's line in `functional_tests.conf` opts out with `os=<list>` (a subset of `linux,macos,windows`, `linux` mandatory, no tag = all three) and a `# os:` reason above it; `# expect-macos:` / `# expect-windows:` pin the counts; the absent rows are printed by name, never SKIPs. The preflight lints and the stamp stay Linux-only. The wine runner (`test/wine-run.sh --jnext`) folds CRLF, translates `QT_*`/`SDL_*`, and needs a persistent wineserver; the Qt test exe bundles `qoffscreen.dll`, in the test tree only, never in a package. See the developer guide, section 4.3.
 
 Both new CI jobs are BLOCKING. The `# os: all | posix | linux` directive in
 `test/unit-tests.conf` declares which target OSes own a suite — read from the build
@@ -467,7 +467,8 @@ run stayed green, which is the same silent shrinking the manifest exists to forb
 **`test/00regression/regression_tests.conf`** (screenshots) + **`functional_tests.conf`**
 (functional). At the end of a full run, `regression.sh` asserts every declared functional
 test reported exactly one row, no undeclared row appeared, and the total equals
-`6 lint + 1 sdcard-provision + screenshots + functional`. Screenshots additionally get an
+the preflight lint rows (`scripts/00-preflight-lint.sh`) + 1 sdcard-provision + screenshots +
+functional. Screenshots additionally get an
 *independent* witness: every checked-in `img/<name>-reference.png` must have a conf entry, so
 truncating the conf cannot silently shrink the suite. Any mismatch is a **harness fault** (exit 2).
 
