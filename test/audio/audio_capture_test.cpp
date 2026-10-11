@@ -3,6 +3,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debug/trace.h"
+#include "esp01/stream_digest.h"
 #include "platform/emulator_boot.h"
 
 #include <algorithm>
@@ -222,6 +223,25 @@ void dac_trace_format_test()
     std::filesystem::remove(path);
 }
 
+// GH #319: the byte-stream digest the NextSync diagnosis logs at every hop must be the
+// SAME function the peer (nextsync-peer.py) and the comparison tool (nextsync-digest.py)
+// compute. Oracle: the published FNV-1a/32 test vectors (isthe.com/chongo/tech/comp/fnv),
+// which nextsync-digest.py --selftest pins as well.
+void stream_digest_vector_test()
+{
+    auto digest_of = [](const char* s) {
+        esp::StreamDigest d;
+        for (const char* p = s; *p; ++p) d.feed(static_cast<std::uint8_t>(*p));
+        return d.hash_hex();
+    };
+    check("FNV-1a/32 test vectors: empty, a, foobar (the peer and the tool pin the same)",
+          digest_of("") == "811c9dc5" && digest_of("a") == "e40c292c" && digest_of("foobar") == "bf9cf968");
+    esp::StreamDigest d;
+    bool checkpoint_at_256 = false;
+    for (int i = 0; i < 256; ++i) checkpoint_at_256 = d.feed(0) && i == 255;
+    check("StreamDigest reports a checkpoint exactly at every 256th byte", checkpoint_at_256 && d.offset() == 256);
+}
+
 void trace_export_binary_test()
 {
     const auto path = temp_file("trace-export", ".txt");
@@ -252,6 +272,7 @@ int main()
     cold_boot_continuity_test();
     dac_trace_format_test();
     trace_export_binary_test();
+    stream_digest_vector_test();
 
     const int total = passed + failed;
     std::printf("Total: %d Passed: %d Failed: %d Skipped: 0\n",

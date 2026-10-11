@@ -1,10 +1,11 @@
 #include "peripheral/uart.h"
 #include "core/log.h"
-#include "esp01/stream_digest.h"
-#include <map>
 #include "core/saveable.h"
+#include "esp01/stream_digest.h"
 #include "save/state_desc.h"
 #include "save/state_desc_bin.h"
+
+#include <map>
 
 namespace {
 
@@ -260,6 +261,38 @@ void UartChannel::tick(uint32_t master_cycles) {
     }
 }
 
+namespace {
+
+// GH #319: byte-stream digests of what entered a channel's RX FIFO and of what
+// the guest read out of it (esp01/stream_digest.h), logged at debug level only.
+// Static and keyed by channel because UartChannel's layout is saved state's
+// neighbour and this is diagnosis, not state. Emulator thread only.
+struct RxDigests {
+    esp::StreamDigest in, read;
+    int ordinal = 0;
+    std::uint64_t last_exact_in = 0, last_exact_read = 0;
+};
+RxDigests& rx_digests(const UartChannel* c) {
+    static std::map<const UartChannel*, RxDigests> m;
+    const std::size_t before = m.size();
+    RxDigests& d = m[c];
+    if (m.size() != before) d.ordinal = static_cast<int>(before);
+    return d;
+}
+
+// EXACT offsets (the checkpoints stop at multiples of 256), logged when the guest
+// starts speaking: what the RX FIFO took in and what the guest had read by then.
+void log_rx_exact(const UartChannel* c) {
+    RxDigests& d = rx_digests(c);
+    if (d.in.offset() == d.last_exact_in && d.read.offset() == d.last_exact_read) return;
+    d.last_exact_in = d.in.offset();
+    d.last_exact_read = d.read.offset();
+    uart_log()->debug("digest-exact uart{}-fifo-in off={} fnv={}", d.ordinal, d.in.offset(), d.in.hash_hex());
+    uart_log()->debug("digest-exact uart{}-guest-read off={} fnv={}", d.ordinal, d.read.offset(), d.read.hash_hex());
+}
+
+}  // namespace
+
 void UartChannel::write_tx(uint8_t val) {
     // Every log call on the per-byte and per-port-read paths in this file is
     // guarded, for the should_log() reason given in PortDispatch::read
@@ -270,32 +303,12 @@ void UartChannel::write_tx(uint8_t val) {
             uart_log()->debug("TX FIFO full, byte {:#04x} dropped", val);
         return;
     }
+    if (tx_fifo_.empty() && uart_log()->should_log(spdlog::level::debug)) log_rx_exact(this);
     tx_fifo_.push(val);
     if (uart_log()->should_log(spdlog::level::trace))
         uart_log()->trace("TX write {:#04x}, FIFO size={}", val, tx_fifo_.size());
 }
 
-namespace {
-
-// GH #319: byte-stream digests of what entered a channel's RX FIFO and of what
-// the guest read out of it (esp01/stream_digest.h), logged at debug level only.
-// Static and keyed by channel because UartChannel's layout is saved state's
-// neighbour and this is diagnosis, not state.
-struct RxDigests {
-    esp::StreamDigest in, read;
-    int ordinal = 0;
-};
-RxDigests& rx_digests(const UartChannel* c) {
-    static std::map<const UartChannel*, RxDigests> m;
-    auto it = m.find(c);
-    if (it == m.end()) {
-        it = m.emplace(c, RxDigests{}).first;
-        it->second.ordinal = static_cast<int>(m.size()) - 1;
-    }
-    return it->second;
-}
-
-}  // namespace
 
 uint8_t UartChannel::read_rx() {
     if (rx_fifo_.empty()) {

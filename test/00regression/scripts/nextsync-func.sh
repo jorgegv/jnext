@@ -80,7 +80,7 @@ if want nextsync-func; then
             && cp "$peer_log" "$art/nextsync-peer-$$.log" 2>/dev/null \
             && cp "$run_log" "$art/nextsync-jnext-$$.log" 2>/dev/null \
             && echo "        --- full logs kept in build/regression-artifacts/nextsync-{peer,jnext}-$$.log ---" || true
-        echo "        --- WHICH HOP DAMAGED IT: first checkpoint (every 256 bytes) where consecutive hops' byte digests differ ---"
+        echo "        --- WHERE IT WENT WRONG: byte digests per hop, then the exact counts when the guest sent its Restart/Retry ---"
         python3 -I "$SCRIPT_DIR/nextsync-digest.py" "$peer_log" "$run_log" 2>&1 | sed 's/^/        |/' || true
         echo "        --- the peer's whole exchange (RX = what the guest sent, TX = the reply; times are the peer's wall clock) ---"
         head -n 400 "$peer_log" | sed 's/^/        | /'
@@ -225,6 +225,13 @@ if want nextsync-func; then
             [[ "$got_hash" == "$want_hash" ]] \
                 || fails+=("$sd_path is CORRUPT: sha256 $got_hash, expected $want_hash")
         done <"$manifest"
+
+        # The byte-digest instrumentation is part of the row (GH #319): on every run each hop's
+        # digests must agree with its neighbour's, with a checkpoint count above zero on all four
+        # hops, so a drifted twin (C++ vs Python) or a moved/deleted hook fails HERE and not as a
+        # lying verdict in some later dump. It is also an assertion that no hop changed a byte.
+        digest_bad=$(python3 -I "$SCRIPT_DIR/nextsync-digest.py" --check "$peer_log" "$run_log" 2>&1) \
+            || fails+=("byte-digest check failed: ${digest_bad//$'\n'/;}")
 
         if [[ ${#fails[@]} -eq 0 ]]; then
             pass_row " (NextSync 1.2 synced 2 files from $peer_ip, byte-identical, no retries)"

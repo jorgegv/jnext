@@ -211,6 +211,9 @@ class Digest:
             if self.n % 256 == 0:
                 log("digest peer-sent off=%d fnv=%08x" % (self.n, self.h))
 
+    def exact(self):
+        log("digest-exact peer-sent off=%d fnv=%08x" % (self.n, self.h))
+
 
 def serve_one(srv, corpus):
     """One connection's worth of the protocol."""
@@ -230,6 +233,7 @@ def serve_one(srv, corpus):
         frame = framed(payload, seq)
         ev("TX seq=%d len=%d first=%r frame=%d sent_through=%d" % (seq & 0xFF, len(payload), payload[:8], len(frame), sent.n + len(frame)))
         sent.feed(frame)
+        sent.exact()
         conn.sendall(frame)
 
     def handle(data):

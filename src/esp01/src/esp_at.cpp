@@ -26,6 +26,12 @@ namespace {
 //   esp-out     bytes the engine releases toward the guest's UART
 StreamDigest g_dg_sock_in, g_dg_ipd_framed, g_dg_esp_out;
 
+void digest_exact(const StreamDigest& d, const char* name, long queued = -1) {
+    if (!detail::log_wanted(LogLevel::Debug)) return;
+    if (queued < 0) log_debug("digest-exact {} off={} fnv={}", name, d.offset(), d.hash_hex());
+    else log_debug("digest-exact {} off={} fnv={} queued={}", name, d.offset(), d.hash_hex(), queued);
+}
+
 void digest_feed(StreamDigest& d, const char* name, std::uint8_t b) {
     if (!detail::log_wanted(LogLevel::Debug)) return;
     if (d.feed(b)) log_debug("digest {} off={} fnv={}", name, d.offset(), d.hash_hex());
@@ -207,6 +213,10 @@ AtEngine::AtEngine(EspTransport& transport, EspListener* listener, EspResolver* 
 // ─── Guest TX -> engine ───────────────────────────────────────────────
 
 void AtEngine::receive(std::uint8_t byte) {
+    // GH #319: the guest is starting a command. What the engine has released so
+    // far, EXACTLY, and how many bytes it still holds for the guest: if the guest
+    // timed out waiting for a reply, `queued` says whether the reply was all out.
+    if (mode_ == Mode::Command && line_.empty() && (byte == 'A' || byte == 'a')) digest_exact(g_dg_esp_out, "esp-out-at-cmd", static_cast<long>(out_.size()));
     if (conn_[SINGLE_CID].connecting || domain_pending_ || ping_pending_ || sntp_pending_) {
         // A connect is in flight and its OK/ERROR has not been decided yet.
         // Real firmware answers `busy p...`, which is on the never-emit list,
@@ -1921,6 +1931,7 @@ void AtEngine::drain_socket(std::size_t cid) {
         total += n;
         if (c.transport->state() != TransportState::Connected) break;
     }
+    if (total != 0) digest_exact(g_dg_sock_in, "sock-in");
     if (total != 0) {
         // THE ONE PLACE `AT+CIPSTO`'s TIMER IS RE-ARMED (GH #240). Bytes from
         // the CLIENT, and nothing else: `flush_outbound` deliberately does not
@@ -2049,6 +2060,7 @@ void AtEngine::frame_ipd() {
             out_.push_back(c.rx.front());
             c.rx.pop_front();
         }
+        digest_exact(g_dg_ipd_framed, "ipd-framed");
         refresh_tick_gate();
         return;  // one chunk per quiet moment — the next follows when this drains
     }
@@ -2114,6 +2126,7 @@ void AtEngine::tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte) {
         // early. Bounded, but it is exactly the pacing slip this whole
         // mechanism exists to prevent.
         pace_accum_ = 0;
+        digest_exact(g_dg_esp_out, "esp-out-drained", 0);
         frame_ipd();
     }
     if (released != 0) {
