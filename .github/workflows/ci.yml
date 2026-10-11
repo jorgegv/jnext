@@ -750,6 +750,21 @@ jobs:
             test/00regression/img/*-diff.png
           if-no-files-found: ignore
 
+  # TEMPORARY (GH #319 round 2): macOS timer / pacing measurement. Reverted.
+  macos-diag:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Install dependencies (Homebrew)
+        run: brew install cmake sdl3 curl openssl libpng bash coreutils grep ccache
+      - name: Build the SDL-only jnext
+        run: CMAKE_PREFIX_PATH="$(brew --prefix)" LANG=C make sdl-release
+      - name: Measure
+        run: bash tmp-diag/macos-timing.sh
+
   # The flatpak bundle, actually BUILT on every push rather than skipped — and,
   # since it now goes through the shared definition, PERMISSION-GATED on every
   # push too.
