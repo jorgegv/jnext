@@ -342,7 +342,8 @@ private:
     ///
     /// The count is meaningful because of an ordering guarantee, not by luck:
     /// the OS hands back everything already queued and reports the reset only
-    /// once that queue is empty (see the note in `esp_socket_posix.cpp`), so
+    /// once that queue is empty (Linux and macOS; Windows documents no such
+    /// order — see `esp_socket_win.cpp`; see also `esp_socket_posix.cpp`), so
     /// `received_` is the whole of what the peer's TCP managed to deliver.
     void note_peer_reset() {
         log_warn("connection to {}:{} was RESET by the peer after {} byte(s) received "
