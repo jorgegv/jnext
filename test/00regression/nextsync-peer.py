@@ -212,7 +212,9 @@ class Digest:
                 log("digest peer-sent off=%d fnv=%08x" % (self.n, self.h))
 
     def exact(self):
-        log("digest-exact peer-sent off=%d fnv=%08x" % (self.n, self.h))
+        # through ev(): the record carries the wall-clock stamp the comparison needs to find
+        # "what the peer had sent when the guest started its command".
+        ev("digest-exact peer-sent off=%d fnv=%08x" % (self.n, self.h))
 
 
 def serve_one(srv, corpus):

@@ -123,8 +123,12 @@ def verdict(peer_path, jnext_path):
                 diff, diff - 256, diff - 1, a, sa[diff], b, sb[diff])) if diff is not None else "all equal"))
     # the peer's first Retry/Restart, and the reply before it
     t_r, t_reply, reply, prev = None, None, None, None
+    sent_at_anomaly, last_sent = None, None
     with open(peer_path, errors="replace") as f:
         for line in f:
+            mx = EXACT.search(line)
+            if mx and mx.group(1) == "peer-sent":
+                last_sent = (None, "peer-sent", int(mx.group(2)), mx.group(3), None)
             m = re.search(r"TX seq=(\d+) len=(\d+).*frame=(\d+) sent_through=(\d+)", line)
             if m:
                 ts = PEER_TS.match(line)
@@ -133,6 +137,7 @@ def verdict(peer_path, jnext_path):
             if re.search(r"RX b'(Retry|Restart)'", line) or re.search(r"RX b'(?!(?:Sync3|Next|Neex|Get|Gee|Bye)')", line):
                 ts = PEER_TS.match(line)
                 t_r = ms_of(ts) if ts else None
+                sent_at_anomaly = last_sent       # by FILE ORDER: what the peer had sent when the anomaly arrived
                 reply = prev
                 t_reply = prev[3] if prev else None
                 break
@@ -173,7 +178,7 @@ def verdict(peer_path, jnext_path):
         return c[-1] if c else None
     uart_in = [s for s in {e[1] for e in jex} if s.startswith("uart") and s.endswith("-fifo-in")]
     uart_rd = [s for s in {e[1] for e in jex} if s.startswith("uart") and s.endswith("-guest-read")]
-    peer_sent = last_exact("peer-sent", t_c)
+    peer_sent = sent_at_anomaly
     sock_in = last_exact("sock-in", t_c)
     framed = last_exact("ipd-framed", t_c)
     fifo_in = last_exact(uart_in[0], t_c) if uart_in else None
@@ -183,6 +188,8 @@ def verdict(peer_path, jnext_path):
                % (peer_sent[2] if peer_sent else "?", sock_in[2] if sock_in else "?", framed[2] if framed else "?"))
     out.append("    ESP released   %d bytes (esp-out), still queued in the ESP: %s" % (e_off, queued))
     out.append("    UART FIFO took %s    the guest had read %s" % (fifo_in[2] if fifo_in else "?", guest_rd[2] if guest_rd else "?"))
+    unknown = [n for n, v in (("peer sent", peer_sent), ("jnext received (sock-in)", sock_in), ("framed (ipd-framed)", framed),
+                              ("UART FIFO took", fifo_in), ("guest read", guest_rd)) if v is None]
     why = None
     if peer_sent and sock_in and sock_in[2] < peer_sent[2]:
         why = "jnext had received only %d of the %d bytes the peer had sent (the network/receive side)" % (sock_in[2], peer_sent[2])
@@ -196,10 +203,15 @@ def verdict(peer_path, jnext_path):
         why = "%d bytes sat in the UART RX FIFO unread by the guest" % (fifo_in[2] - guest_rd[2])
     if why:
         out.append("  VERDICT: no byte was changed. The stage that was short: %s." % why)
+    elif unknown:
+        out.append("  VERDICT: UNDETERMINED: the count(s) for %s are missing from the logs, so whether every stage had passed "
+                   "everything on cannot be said (and the guest is NOT blamed)." % ", ".join(unknown))
     else:
-        out.append("  VERDICT: no byte was changed and every stage had passed on everything (ESP queue empty, FIFO fully "
-                   "read): the guest HAD all the bytes and still sent its Restart. The cause is in the guest's handling "
-                   "or its timing, not in the transport.")
+        silent = t_c - t_reply if t_reply is not None else None
+        out.append("  VERDICT: no byte was changed and every stage had passed on everything the peer had sent (%d bytes: ESP "
+                   "queue empty, FIFO fully read): the guest HAD every byte that existed and still sent its Restart. Nothing "
+                   "in the transport was short%s; look at the guest's handling or at the peer's own timing."
+                   % (peer_sent[2], (" -- the peer's last reply was %d ms before the guest's command" % silent) if silent is not None else ""))
     lock_lines = [text for t, text in jlines if re.search(r"held the core lock|ran into the worker's lock", text)]
     out.append("  ESP worker/lock evidence in jnext's log (debug lines when the worker held the core lock >= 20 ms, or "
                "tick() lost >= 20 ms to it): %s" % (("%d line(s), first: %s" % (len(lock_lines), lock_lines[0])) if lock_lines else "none"))

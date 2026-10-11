@@ -237,9 +237,14 @@ void stream_digest_vector_test()
     check("FNV-1a/32 test vectors: empty, a, foobar (the peer and the tool pin the same)",
           digest_of("") == "811c9dc5" && digest_of("a") == "e40c292c" && digest_of("foobar") == "bf9cf968");
     esp::StreamDigest d;
-    bool checkpoint_at_256 = false;
-    for (int i = 0; i < 256; ++i) checkpoint_at_256 = d.feed(0) && i == 255;
-    check("StreamDigest reports a checkpoint exactly at every 256th byte", checkpoint_at_256 && d.offset() == 256);
+    // Bytes 1..255 are NOT checkpoints and the 256th is, so an interval of 1, 64 or 128 fails.
+    bool early = false, at_256 = false;
+    for (int i = 1; i <= 256; ++i) {
+        const bool cp = d.feed(0);
+        if (i < 256 && cp) early = true;
+        if (i == 256) at_256 = cp;
+    }
+    check("StreamDigest reports a checkpoint at the 256th byte and at no earlier one", !early && at_256 && d.offset() == 256);
 }
 
 void trace_export_binary_test()
