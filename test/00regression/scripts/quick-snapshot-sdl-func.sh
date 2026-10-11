@@ -30,6 +30,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   bad    a garbage .jns, newest of all; BORDER 3 then Alt+Shift+F9: refused with a
 #          log line, no .jns cold boot, no cold boot at all, and the BORDER 3
 #          session survives.
+#   keep1  Alt+Shift+F5 with --quick-snapshot-keep 1: exactly one quick snapshot
+#          is left (the new one) and the garbage file, which is not jnext's
+#          name, is untouched (the SDL build has no config, so the flag is its
+#          only way to set the retention).
 # No palette value is hard-coded: every comparison is between renders of this
 # row. Border pixels, not text, because the BASIC cursor flashes.
 #
@@ -56,7 +60,9 @@ if want quick-snapshot-sdl-func; then
         xvfb-run -d --server-args="-screen 0 1280x1024x24 -noreset" bash -c '
             set -uo pipefail
             bin="$1"; out="$2"; mode="$3"; log="$4"
-            "$bin" --machine 48k --silent \
+            extra=""
+            [ "$mode" = keep1 ] && extra="--quick-snapshot-keep 1"
+            "$bin" --machine 48k --silent $extra \
                 --delayed-screenshot "$out" --delayed-screenshot-frames 700 \
                 --delayed-automatic-exit-frames 760 >"$log" 2>&1 &
             pid=$!
@@ -74,6 +80,7 @@ if want quick-snapshot-sdl-func; then
                 tap() { xdotool key "$1" 2>/dev/null || true; sleep 0.5; }
                 case "$mode" in
                     empty|load|load2) tap alt+shift+F9 ;;
+                    keep1) tap alt+shift+F5 ;;
                     save)
                         tap b; tap 1; tap Return; tap alt+shift+F5
                         tap b; tap 2; tap Return; tap alt+shift+F5 ;;
@@ -95,7 +102,7 @@ if want quick-snapshot-sdl-func; then
 
     shot_e="$TMP_DIR/qs_sdl_e.png"; shot_a="$TMP_DIR/qs_sdl_a.png"
     shot_l="$TMP_DIR/qs_sdl_l.png"; shot_l2="$TMP_DIR/qs_sdl_l2.png"
-    shot_bad="$TMP_DIR/qs_sdl_bad.png"
+    shot_bad="$TMP_DIR/qs_sdl_bad.png"; shot_k="$TMP_DIR/qs_sdl_k.png"
 
     if [[ ! -x "$sdl_bin" ]]; then
         fail_row " (SDL-only binary not built: $sdl_bin; run 'make sdl-release')"
@@ -125,10 +132,15 @@ if want quick-snapshot-sdl-func; then
         printf 'not a snapshot' >"$snap_dir/zz-bad.jns" 2>/dev/null || true
         touch -d '20 minutes' "$snap_dir/zz-bad.jns" 2>/dev/null || true
         qs_run bad "$shot_bad"
+        # Retention: one more Quick Save with --quick-snapshot-keep 1 leaves only
+        # the new quick snapshot; the garbage file (not jnext's name) stays.
+        qs_run keep1 "$shot_k"
+        keep_names=$(find "$snap_dir" -maxdepth 1 -type f -name '*.jns' 2>/dev/null)
+        n_keep=$(grep -cE '/jnext-[0-9]{8}-[0-9]{6}(-[0-9]{2})?\.jns$' <<<"$keep_names") || n_keep=0
 
         problems=()
-        for m in empty save load load2 bad; do
-            case "$m" in empty) shot="$shot_e" ;; save) shot="$shot_a" ;; load) shot="$shot_l" ;; load2) shot="$shot_l2" ;; *) shot="$shot_bad" ;; esac
+        for m in empty save load load2 bad keep1; do
+            case "$m" in empty) shot="$shot_e" ;; save) shot="$shot_a" ;; load) shot="$shot_l" ;; load2) shot="$shot_l2" ;; bad) shot="$shot_bad" ;; *) shot="$shot_k" ;; esac
             if [[ ! -s "$shot" || "${qs_rc[$m]}" -ne 0 ]]; then
                 err_line=$(grep -m1 -E '\[(error|critical)\]' "$TMP_DIR/qs_sdl_$m.log" 2>/dev/null) || err_line="no error logged"
                 problems+=("$m run: jnext exit ${qs_rc[$m]}, png $([[ -s "$shot" ]] && echo written || echo missing); $err_line")
@@ -164,8 +176,10 @@ if want quick-snapshot-sdl-func; then
                 fail_row " (unreadable newest .jns: 'quick load: refused' lines=$bad_msg, .jns cold boots=$bad_boot, cold boots $boots_bad vs $boots_save; want >=1/0/equal)"
             elif [[ "$px_bad" == "$px_e" ]]; then
                 fail_row " (unreadable newest .jns reset the session (or BORDER 3 was lost): border $px_bad equals the untouched machine's)"
+            elif [[ "$n_keep" -ne 1 || ! -f "$snap_dir/zz-bad.jns" ]]; then
+                fail_row " (--quick-snapshot-keep 1: $n_keep quick snapshot(s) left, garbage file present=$([[ -f "$snap_dir/zz-bad.jns" ]] && echo yes || echo no); want exactly 1 and the garbage file untouched)"
             else
-                pass_row " (2 distinct saves; Alt+Shift+F9 restored the newer ($px_l) and, once the older was touched, the older ($px_l2); empty and unreadable folders left the session alone)"
+                pass_row " (2 distinct saves; Alt+Shift+F9 restored the newer ($px_l) and, once the older was touched, the older ($px_l2); empty and unreadable folders left the session alone; --quick-snapshot-keep 1 pruned to one and spared the foreign file)"
             fi
         fi
     fi

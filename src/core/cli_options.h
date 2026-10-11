@@ -889,6 +889,7 @@ inline bool parse_quick_snapshot_keep(const char* s, int& out) {
     char* end = nullptr;
     errno = 0;
     const long n = std::strtol(s, &end, 10);
+    if (s[0] < '0' || s[0] > '9') return false;   // no sign, no leading space
     if (errno != 0 || end == s || *end != '\0' || n < 1 || n > 1000000) return false;
     out = static_cast<int>(n);
     return true;

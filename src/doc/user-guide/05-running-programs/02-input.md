@@ -47,8 +47,8 @@ Three things catch people out:
   combinations above are used, because the menu bar and the menu shortcuts
   claim the rest — and **Alt+1 to Alt+8** are the
   [script host keys](../06-debugger/functions/13-debugger-scripts.md#host-keys-alt1-to-alt8):
-  they do not type their digit (Alt+9 and Alt+0 still do). **Alt+F5** and
-  **Alt+F9** are Quick Save and Quick Load
+  they do not type their digit (Alt+9 and Alt+0 still do). **Alt+Shift+F5**
+  and **Alt+Shift+F9** are Quick Save and Quick Load
   ([5.9 Snapshots](09-snapshots.md#quick-save-and-quick-load)).
 
 **Ctrl belongs to the program you are running.** No Ctrl+letter chord of any

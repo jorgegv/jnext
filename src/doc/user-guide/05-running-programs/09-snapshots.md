@@ -78,8 +78,8 @@ is what the rewind buffer is for.
 
 ## Quick save and quick load
 
-**File ▸ Quick Save Snapshot** (**Alt+F5**) and **File ▸ Quick Load Snapshot**
-(**Alt+F9**) ask nothing. Quick Save writes a `.jns`, on every machine type,
+**File ▸ Quick Save Snapshot** (**Alt+Shift+F5**) and **File ▸ Quick Load Snapshot**
+(**Alt+Shift+F9**) ask nothing. Quick Save writes a `.jns`, on every machine type,
 to `~/.jnext/snapshots/` (or `$JNEXT_CONFIG_DIR/snapshots` when that variable is
 set), named `jnext-YYYYMMDD-HHMMSS.jns`, and shows the path in the status bar.
 Two saves in the same second get a `-02`, `-03` suffix, so nothing is
@@ -91,13 +91,20 @@ boot, then the load. A `.jns` you save into that folder yourself counts too.
   machine is not touched.
 - A newest file that cannot be loaded (damaged, or taken with a different SD
   card) is refused **before** anything is reset, so you keep your session.
-- JNEXT never deletes quick saves; the folder grows until you tidy it. Older
-  ones load through the ordinary load dialog.
-- The SDL-only build has the same two keys and the same folder, and reports in
-  the log instead of the status bar.
-- Plain F5 and F9 are unchanged. Some desktops take Alt+F5 for themselves (stock
-  GNOME uses it for "restore window"); there the key never reaches JNEXT, and
-  the menu entry does the same job.
+- Quick Save keeps the **newest 20** of its own files and deletes older ones
+  after each save. Change that with `--quick-snapshot-keep N` (or
+  `unlimited`), with **Settings ▸ Preferences ▸ Paths ▸ Quick snapshots to
+  keep**, or `quick_keep` under `[snapshot]` in `jnext.conf`; the command-line
+  option wins for the run. Only files named exactly like Quick Save's own
+  (`jnext-YYYYMMDD-HHMMSS.jns`, optional `-NN`) are ever deleted: a `.jns` you
+  saved into the folder under another name is never touched. Older quick saves
+  that are still there load through the ordinary load dialog.
+- The SDL-only build has the same two keys, the same folder and the same
+  `--quick-snapshot-keep` option (it reads no `jnext.conf`), and reports in the
+  log instead of the status bar.
+- Plain F5 and F9, and Alt+F5 and Alt+F9 on their own, are unchanged. Shift is
+  the Spectrum's Caps Shift, so it is held down for the program while you press
+  the chord.
 - Only `.jns` is used: it is the one format that can hold a whole machine.
 
 ## Loading
@@ -110,8 +117,9 @@ jnext state.jns
 ```
 
 A `.jns` restores the machine **type** as well as its contents: one taken on a
-Next comes back as a Next even if `--machine` says otherwise, the same way a
-`.sna` or `.szx` already behaves. You do not have to remember what you saved.
+Next comes back as a Next even if `--machine` says otherwise. You do not have
+to remember what you saved. (A `.sna`, `.szx` or `.z80` is different: it is
+loaded onto the machine that is running, whatever machine it was made on.)
 
 ## What travels, and what does not
 

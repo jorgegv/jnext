@@ -64,6 +64,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSlider>
+#include <QSpinBox>
 
 #include <chrono>
 #include <cstdio>

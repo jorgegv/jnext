@@ -42,6 +42,7 @@
 #include "platform/rzx_startup.h"
 #include "core/saveable.h"
 #include "core/sna_saver.h"
+#include "core/szx_saver.h"
 #include "core/rzx.h"
 #include "core/quick_snapshot.h"
 #include "core/sdcard_provisioner.h"
@@ -616,6 +617,104 @@ void run_rows()
             check("QS-24", "pruning to 1 deletes only the 3 older quick-snapshot names; a user's "
                            "files, other extensions and a directory are untouched",
                   deleted == 3 && all_there && count_matching(d) == 1);
+        }
+    }
+
+
+    // QS-25..QS-27: GH #321 D12 — R2 for the OTHER snapshot formats. Evidence, not
+    // a fix: .sna/.szx/.z80 loaders never reconfigure the machine (they apply the
+    // file onto the machine that is running; SnaLoader/SzxLoader/Z80Loader touch
+    // no config), so the frontend's idea of the machine cannot go stale. These
+    // rows pin that: through the real frontend cold boot and the real load, for a
+    // file made on one machine and loaded on another, the machine that runs, the
+    // one the frontend keeps, the boot machine and the startup machine all agree
+    // on the CONFIGURED one. If a loader ever starts switching machines, this
+    // fails and emulator_boot_machine() must learn that format (as it did .jns).
+    {
+        auto write_file = [&](const fs::path& p, const std::vector<uint8_t>& b) {
+            std::ofstream f(p, std::ios::binary);
+            f.write(reinterpret_cast<const char*>(b.data()), static_cast<std::streamsize>(b.size()));
+            return f.good() && !b.empty();
+        };
+        // Machines the files are made on.
+        auto machine_of = [](MachineType t) {
+            auto up = std::make_unique<Emulator>();
+            EmulatorConfig c;
+            c.type = t;
+            up->init(c);
+            for (int i = 0; i < 3; ++i) up->run_frame();
+            return up;
+        };
+        auto up128 = machine_of(MachineType::ZX128K);
+        auto up48  = machine_of(MachineType::ZX48K);
+        const fs::path d = root / "formats";
+        fs::create_directories(d);
+        // .z80 by hand (there is no saver): v1 = 48K, v3 hardware mode 4 = 128K.
+        std::vector<uint8_t> z48(30 + 49152, 0);
+        z48[6] = 0x00; z48[7] = 0x80;                       // PC = 0x8000 (non-zero: v1)
+        std::vector<uint8_t> z128(30, 0);
+        z128.insert(z128.end(), {54, 0});                   // extended header length
+        std::vector<uint8_t> ext(54, 0);
+        ext[0] = 0x00; ext[1] = 0x80;                       // PC
+        ext[2] = 4;                                         // hardware mode: 128K
+        z128.insert(z128.end(), ext.begin(), ext.end());
+        for (int page = 3; page <= 10; ++page) {
+            z128.insert(z128.end(), {0xFF, 0xFF, static_cast<uint8_t>(page)});
+            z128.insert(z128.end(), 16384, 0);
+        }
+        struct Case { const char* id; const char* what; fs::path file; MachineType run_on; bool ok; };
+        std::vector<Case> cases;
+        {
+            const auto sna128 = SnaSaver::save(*up128);
+            const auto sna48  = SnaSaver::save(*up48);
+            const auto szx128 = SzxSaver::save(*up128);
+            const auto szx48  = SzxSaver::save(*up48);
+            cases.push_back({"QS-25", ".sna: a 128K file on a 48K machine and a 48K file on a 128K one",
+                             d / "a128.sna", MachineType::ZX48K, write_file(d / "a128.sna", sna128)});
+            cases.push_back({"QS-25", "", d / "a48.sna", MachineType::ZX128K, write_file(d / "a48.sna", sna48)});
+            cases.push_back({"QS-26", ".szx: a 128K file on a 48K machine and a 48K file on a 128K one",
+                             d / "b128.szx", MachineType::ZX48K,
+                             szx128.ok && write_file(d / "b128.szx", szx128.data)});
+            cases.push_back({"QS-26", "", d / "b48.szx", MachineType::ZX128K,
+                             szx48.ok && write_file(d / "b48.szx", szx48.data)});
+            cases.push_back({"QS-27", ".z80: a 128K file on a 48K machine and a 48K file on a 128K one",
+                             d / "c128.z80", MachineType::ZX48K, write_file(d / "c128.z80", z128)});
+            cases.push_back({"QS-27", "", d / "c48.z80", MachineType::ZX128K, write_file(d / "c48.z80", z48)});
+        }
+        std::string detail[3];
+        bool good[3] = {true, true, true};
+        for (size_t i = 0; i < cases.size(); ++i) {
+            const Case& c = cases[i];
+            const int k = static_cast<int>(i / 2);
+            EmulatorConfig frontend = base_config();
+            frontend.type = c.run_on;
+            ColdBootHooks hooks;
+            MachineType kept = c.run_on;
+            hooks.keep_machine = [&kept](MachineType t) { kept = t; };
+            auto e_up = std::make_unique<Emulator>();
+            Emulator& e = *e_up;
+            e.init(frontend);
+            const std::string file = c.file.string();
+            emulator_frontend_cold_boot(e, frontend, file, hooks);
+            const bool loaded = c.ok && emulator_apply_load(e, file, false);
+            const bool same = kept == c.run_on && e.config().type == c.run_on &&
+                              emulator_boot_machine(file, c.run_on) == c.run_on &&
+                              emulator_startup_machine(file, c.run_on, true) == c.run_on &&
+                              emulator_startup_machine(file, c.run_on, false) == c.run_on;
+            if (!(loaded && same)) good[k] = false;
+            detail[k] += std::string(c.ok ? "" : "[file not made] ") + (loaded ? "loaded " : "NOT loaded ") +
+                         (same ? "same; " : "machine changed; ");
+        }
+        for (int k = 0; k < 3; ++k) {
+            const char* ids[3] = {"QS-25", "QS-26", "QS-27"};
+            const char* what[3] = {
+                ".sna: loading a 128K file on a 48K machine and a 48K file on a 128K one leaves the "
+                "machine as configured, so the frontend and the emulator agree",
+                ".szx: loading a 128K file on a 48K machine and a 48K file on a 128K one leaves the "
+                "machine as configured, so the frontend and the emulator agree",
+                ".z80: loading a 128K file on a 48K machine and a 48K file on a 128K one leaves the "
+                "machine as configured, so the frontend and the emulator agree"};
+            check(ids[k], what[k], good[k], detail[k]);
         }
     }
 

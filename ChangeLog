@@ -3,7 +3,7 @@
 ## Unreleased (2026-10-10)
 
 ### User Features
-- Quick Save (Alt+Shift+F5) and Quick Load (Alt+Shift+F9): one key saves a snapshot, another restores the newest
+- Quick Save (Alt+Shift+F5) and Quick Load (Alt+Shift+F9): one key saves a snapshot, another restores the newest; Quick Save keeps the newest 20 (--quick-snapshot-keep)
 
 ### Bug Fixes
 - Loading an unreadable .jns no longer resets the running machine before refusing it

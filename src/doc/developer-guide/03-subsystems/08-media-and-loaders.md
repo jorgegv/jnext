@@ -800,8 +800,8 @@ Save-Screenshot dialog's remembered directory, deliberately — that one follows
 the dialog around, and a no-dialog capture whose destination moves is
 unfindable.
 
-**Quick Save / Quick Load** (File ▸ Quick Save Snapshot Alt+F5, Quick Load
-Snapshot Alt+F9; the same two chords in the SDL-only build) follow the same
+**Quick Save / Quick Load** (File ▸ Quick Save Snapshot Alt+Shift+F5, Quick Load
+Snapshot Alt+Shift+F9; the same two chords in the SDL-only build) follow the same
 shape for `.jns`. `src/core/quick_snapshot.*` holds the folder
 (`default_quick_snapshot_dir()` = `sdcard::default_state_dir()` + `/snapshots`,
 so `$JNEXT_CONFIG_DIR` and the SD image's own state-dir resolution apply — on
@@ -819,8 +819,16 @@ safe for a `.jns`: `Emulator::probe_jns_file()` runs the pre-touch half of
 costs no session; and `emulator_boot_machine()` reads the `.jns` manifest's
 machine the way it reads an RZX's, so the cold boot builds the snapshot's
 machine and the frontend's `keep_machine` hook records it (otherwise a later
-reset would boot the old machine); the command-line startup does the same through `emulator_startup_machine()`, where a `.jns` wins even over an explicit `--machine`. Quick Load failures (no snapshot, unreadable newest file) are a status-bar line in Qt and a log line in SDL, never a dialog; both actions act once per key press (`QuickChordTracker`, `setAutoRepeat(false)`). `.sna`, `.szx` and `.z80` reconfigure the
-machine without telling the frontend in the same way; that is not fixed here.
+reset would boot the old machine); the command-line startup does the same through `emulator_startup_machine()`, where a `.jns` wins even over an explicit `--machine`. Quick Load failures (no snapshot, unreadable newest file) are a status-bar line in Qt and a log line in SDL, never a dialog; both actions act once per key press (`QuickChordTracker`, `setAutoRepeat(false)`). `.sna`, `.szx` and `.z80` do NOT
+reconfigure the machine at all (their loaders apply the file onto the running
+one), so no stale-frontend symptom exists for them; QS-25..27 pin that, and
+if a loader ever starts switching machines `emulator_boot_machine()` must learn
+that format as it did `.jns`. Retention: `prune_quick_snapshots()` runs after
+each Quick Save and deletes only names matching `is_quick_snapshot_name()`;
+the count is `EmulatorConfig::quick_snapshot_keep` (CLI) or
+`AppConfigData::quick_snapshot_keep` (`[snapshot] quick_keep`, Preferences),
+the CLI winning (`quick_snapshot_keep_cli`). The debugger keymap refuses
+Alt+Shift+F5/F9 by name (`validate_combo`).
 The SDL chord predicate is `platform/quick_snapshot_chord.h`; the Qt chords are
 the two QAction shortcuts in `main_window.cpp`.
 

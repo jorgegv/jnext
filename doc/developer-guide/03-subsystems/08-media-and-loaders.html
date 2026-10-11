@@ -3236,8 +3236,8 @@ the name is taken. Its directory and format are separate config fields from the
 Save-Screenshot dialog's remembered directory, deliberately — that one follows
 the dialog around, and a no-dialog capture whose destination moves is
 unfindable.</p>
-<p><strong>Quick Save / Quick Load</strong> (File ▸ Quick Save Snapshot Alt+F5, Quick Load
-Snapshot Alt+F9; the same two chords in the SDL-only build) follow the same
+<p><strong>Quick Save / Quick Load</strong> (File ▸ Quick Save Snapshot Alt+Shift+F5, Quick Load
+Snapshot Alt+Shift+F9; the same two chords in the SDL-only build) follow the same
 shape for <code>.jns</code>. <code>src/core/quick_snapshot.*</code> holds the folder
 (<code>default_quick_snapshot_dir()</code> = <code>sdcard::default_state_dir()</code> + <code>/snapshots</code>,
 so <code>$JNEXT_CONFIG_DIR</code> and the SD image's own state-dir resolution apply — on
@@ -3255,8 +3255,16 @@ safe for a <code>.jns</code>: <code>Emulator::probe_jns_file()</code> runs the p
 costs no session; and <code>emulator_boot_machine()</code> reads the <code>.jns</code> manifest's
 machine the way it reads an RZX's, so the cold boot builds the snapshot's
 machine and the frontend's <code>keep_machine</code> hook records it (otherwise a later
-reset would boot the old machine); the command-line startup does the same through <code>emulator_startup_machine()</code>, where a <code>.jns</code> wins even over an explicit <code>--machine</code>. Quick Load failures (no snapshot, unreadable newest file) are a status-bar line in Qt and a log line in SDL, never a dialog; both actions act once per key press (<code>QuickChordTracker</code>, <code>setAutoRepeat(false)</code>). <code>.sna</code>, <code>.szx</code> and <code>.z80</code> reconfigure the
-machine without telling the frontend in the same way; that is not fixed here.
+reset would boot the old machine); the command-line startup does the same through <code>emulator_startup_machine()</code>, where a <code>.jns</code> wins even over an explicit <code>--machine</code>. Quick Load failures (no snapshot, unreadable newest file) are a status-bar line in Qt and a log line in SDL, never a dialog; both actions act once per key press (<code>QuickChordTracker</code>, <code>setAutoRepeat(false)</code>). <code>.sna</code>, <code>.szx</code> and <code>.z80</code> do NOT
+reconfigure the machine at all (their loaders apply the file onto the running
+one), so no stale-frontend symptom exists for them; QS-25..27 pin that, and
+if a loader ever starts switching machines <code>emulator_boot_machine()</code> must learn
+that format as it did <code>.jns</code>. Retention: <code>prune_quick_snapshots()</code> runs after
+each Quick Save and deletes only names matching <code>is_quick_snapshot_name()</code>;
+the count is <code>EmulatorConfig::quick_snapshot_keep</code> (CLI) or
+<code>AppConfigData::quick_snapshot_keep</code> (<code>[snapshot] quick_keep</code>, Preferences),
+the CLI winning (<code>quick_snapshot_keep_cli</code>). The debugger keymap refuses
+Alt+Shift+F5/F9 by name (<code>validate_combo</code>).
 The SDL chord predicate is <code>platform/quick_snapshot_chord.h</code>; the Qt chords are
 the two QAction shortcuts in <code>main_window.cpp</code>.</p>
 <p>Video recording needs <strong>FFmpeg on the host</strong>. jnext writes raw ARGB frames and

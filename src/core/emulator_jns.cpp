@@ -719,9 +719,9 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
     report.ignored_members = v.ignored_members;
     report.reconfigured_to = v.reconfigure_to;
 
-    // §7.3 — the file's machine wins, the same courtesy `.sna`/`.szx`/`.z80`
-    // already get: the user must not have to get `--machine` right to reload
-    // their own save.
+    // §7.3 — the file's machine wins (unlike `.sna`/`.szx`/`.z80`, whose
+    // loaders apply onto the running machine): the user must not have to get
+    // `--machine` right to reload their own save.
     if (!v.reconfigure_to.empty()) {
         MachineType want = config_.type;
         if (parse_machine_type(v.reconfigure_to, want) && want != config_.type) {
