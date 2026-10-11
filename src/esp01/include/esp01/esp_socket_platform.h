@@ -8,8 +8,10 @@
 #include <vector>
 
 /// PRIVATE header — the OS primitives the portable transport is built from.
-/// Included only by esp_socket.cpp and its two platform twins; nothing outside
-/// src/peripheral should ever include it.
+/// Included only by esp_socket.cpp and its two platform twins, and by
+/// src/peripheral/joy_uart_link.cpp (GH #316), whose TCP-client endpoint is the
+/// NextPi link on Windows and is built from these non-blocking shims rather
+/// than from a second copy of Winsock/BSD code. Nothing else should include it.
 ///
 /// This header deliberately pulls in NO platform headers of its own (no
 /// <sys/socket.h>, no <winsock2.h>): `NativeSocket` is spelled as a plain

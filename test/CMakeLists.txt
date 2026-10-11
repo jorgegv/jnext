@@ -259,6 +259,25 @@ if(NOT WIN32)
     add_test(NAME uart_posix_tests COMMAND uart_posix_test)
 endif()
 
+# NextPi under QEMU on every OS (GH #316; `# os: all` in unit-tests.conf): the
+# socket transport and the Windows launch, run natively on Linux and macOS and
+# under wine. The QEMU stand-in is a program (uart/nextpi_qemu_stub.cpp), copied
+# by the suite as `qemu-system-arm[.exe]` / `qemu-img[.exe]` (the ffmpeg_stub
+# idiom: CreateProcess runs an .exe and nothing else). Not an add_test() -- a
+# test-support binary.
+add_executable(nextpi_qemu_stub uart/nextpi_qemu_stub.cpp)
+target_link_libraries(nextpi_qemu_stub PRIVATE esp01)
+add_executable(nextpi_test uart/nextpi_test.cpp uart/nextpi_support.cpp)
+target_link_libraries(nextpi_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(nextpi_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_dependencies(nextpi_test nextpi_qemu_stub)
+target_compile_definitions(nextpi_test PRIVATE
+    JNEXT_NEXTPI_STUB="$<TARGET_FILE:nextpi_qemu_stub>")
+add_test(NAME nextpi_tests COMMAND nextpi_test)
+
 # The emulated ESP-01's own suites (esp_at_test, esp_socket_test) are NOT
 # declared here. They ship WITH the module and are registered from
 # src/esp01/CMakeLists.txt — see that file for why, and test/run-unit-tests.sh

@@ -473,6 +473,11 @@ struct EmulatorConfig {
     // ends of QEMU's `pipe` chardev. Both empty means no Pi.
     std::string              pi_uart_fifo_rx;
     std::string              pi_uart_fifo_tx;
+    // Or, instead of the FIFOs (GH #316; Windows, where QEMU's `pipe` chardev
+    // is a blocking single-client named-pipe server): the loopback TCP port
+    // QEMU's `socket` chardev listens on. jnext connects to 127.0.0.1:<port>.
+    // The FIFOs win when both are set; 0 with no FIFOs means no Pi.
+    uint16_t                 pi_uart_tcp_port = 0;
 
     // Host capture callbacks are reattached by init() after a cold boot.
     std::function<void(const int16_t*, int)> audio_capture_callback;

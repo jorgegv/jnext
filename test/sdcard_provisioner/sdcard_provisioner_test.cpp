@@ -12,6 +12,9 @@
 //   PROV-PATH-03   provision_sd_card RESOLVES through the override: with a
 //                  fixed image at BOTH $HOME/.jnext and the override, it
 //                  returns the override one and never falls back.
+//   PROV-PATH-04   with $HOME unset (a native Windows session) the home directory
+//                  is $USERPROFILE; $HOME wins when both are set; with neither
+//                  the state directory is ./.jnext (GH #316).
 //   PROV-PREC-01   Explicit --sdcard wins; download seam is never invoked.
 //   PROV-PREC-02   Default-location FIXED image is used when present; no download.
 //   PROV-PREC-03   --sdcard-download-force ignores an explicit path and an
@@ -343,6 +346,33 @@ int main() {
         check("PROV-PATH-02f", "unset $JNEXT_CONFIG_DIR falls back to $HOME/.jnext",
               sdcard::default_sdcard_dir() == g_tmpdir + "/.jnext/sdcard",
               sdcard::default_sdcard_dir());
+    }
+
+    // -- PROV-PATH-04: HOME, then USERPROFILE, then "." (GH #316) --
+    // Oracle: the order QDir::homePath() and screenshot.cpp's
+    // default_quick_screenshot_dir() use. A native Windows session has
+    // USERPROFILE and no HOME, and wine imports HOME, which masked the defect.
+    {
+        const std::string profile = g_tmpdir + "/profile";
+        jtp::unset_env("JNEXT_CONFIG_DIR");
+        jtp::unset_env("HOME");
+        jtp::set_env("USERPROFILE", profile.c_str());
+        const std::string only_profile = sdcard::default_sdcard_dir();
+        check("PROV-PATH-04", "with $HOME unset the state directory is under $USERPROFILE",
+              only_profile == profile + "/.jnext/sdcard", only_profile);
+
+        jtp::set_env("HOME", g_tmpdir.c_str());
+        const std::string both = sdcard::default_sdcard_dir();
+        check("PROV-PATH-04b", "$HOME wins over $USERPROFILE when both are set",
+              both == g_tmpdir + "/.jnext/sdcard", both);
+
+        jtp::unset_env("HOME");
+        jtp::unset_env("USERPROFILE");
+        const std::string neither = sdcard::default_sdcard_dir();
+        check("PROV-PATH-04c", "with neither set the state directory is ./.jnext",
+              neither == "./.jnext/sdcard", neither);
+
+        jtp::set_env("HOME", g_tmpdir.c_str());   // the rest of the suite runs on the isolated $HOME
     }
 
     // -- PROV-PATH-03: resolution FOLLOWS the override, it does not merely

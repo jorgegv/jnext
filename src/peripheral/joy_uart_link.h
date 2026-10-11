@@ -217,9 +217,17 @@ private:
     /// machine is not told, because the hardware is not either — the Next has
     /// no carrier-detect on the joystick connector.
     void flush_tx();
+
+    /// If the endpoint reports that a peer which had been attached went away,
+    /// discard both queues exactly as `flush_tx` describes (transmit bytes
+    /// counted in `unsent()`), and say so. `flush_tx` finds the loss when a
+    /// write fails; a socket peer is also found by a READ seeing EOF, which
+    /// happens with nothing queued to send, so `poll()` asks here as well.
+    void discard_on_peer_loss();
 };
 
-/// The host-side descriptors behind a `JoyUartLink`: a FIFO pair, or a pty.
+/// The host-side descriptors behind a `JoyUartLink`: a FIFO pair, a pty, or a
+/// loopback TCP socket.
 ///
 /// NON-BLOCKING IS THE WHOLE CONTRACT. The emulator's frame loop calls into
 /// this from `JoyUartLink::poll()`, so every operation here must return
@@ -254,11 +262,23 @@ private:
 /// gives `EAGAIN` ("nothing right now") and `write()` simply buffers, and when
 /// a process opens the slave again the same descriptor carries the traffic.
 ///
-/// POSIX ONLY. Both factories fail with an explanatory message on Windows,
-/// which has neither FIFOs nor ptys in this form; the CLI refuses there rather
-/// than pretending. The flags stay in the option table on every platform so
-/// that `--help`, the man page and `cli_options_test` do not have to be
-/// conditional.
+/// The TCP CLIENT form (GH #316) is the NextPi link on Windows, where QEMU's
+/// `pipe` chardev is a named-pipe server that blocks its startup until a
+/// client connects and never listens again; its `socket` chardev (`server=on,
+/// wait=off`) listens, and re-listens after a disconnect. The endpoint is the
+/// client. It is non-blocking in the same sense: the connect is started and
+/// polled, never waited for, and "nobody listening yet" is the normal state
+/// before QEMU is up, so a refused or pending connect is not a fault and is
+/// retried on every call. A peer that goes away (EOF, RST, a failed send)
+/// closes the socket and is reported through `take_peer_lost()` exactly as the
+/// FIFO form's EPIPE is; the next call connects again. Built on the `esp::net`
+/// shims, which are non-blocking on both families and suppress SIGPIPE.
+///
+/// FIFOs and ptys are POSIX ONLY: those two factories fail with an explanatory
+/// message on Windows, which has neither in this form; the CLI refuses there
+/// rather than pretending. The flags stay in the option table on every
+/// platform so that `--help`, the man page and `cli_options_test` do not have
+/// to be conditional.
 class JoyUartEndpoint {
 public:
     ~JoyUartEndpoint();
@@ -290,6 +310,13 @@ public:
     /// on the master so no line discipline mangles the byte stream.
     static std::unique_ptr<JoyUartEndpoint> open_pty(std::string& error);
 
+    /// A TCP CLIENT of `host`:`port`; `host` is a numeric IPv4 address
+    /// (127.0.0.1 for QEMU). Returns at once whether or not anything is
+    /// listening; see above. `describe()` is "TCP <host>:<port>".
+    static std::unique_ptr<JoyUartEndpoint> open_tcp_client(const std::string& host,
+                                                            std::uint16_t port,
+                                                            std::string& error);
+
     /// Non-blocking read of at most `cap` bytes. Returns how many landed in
     /// `buf`; 0 means "nothing right now", which covers no-writer, no-data and
     /// a pty with no slave alike.
@@ -308,9 +335,10 @@ public:
     const std::string& last_error() const { return last_error_; }
 
     /// True ONCE for each time a peer that had been attached went away — i.e.
-    /// a `write()` that failed with `EPIPE`. Cleared by the call.
+    /// a `write()` that failed with `EPIPE`, or a socket that saw EOF or a
+    /// reset. Cleared by the call.
     ///
-    /// Only the FIFO form can report this, and that is a property of the
+    /// Only the FIFO and TCP forms can report this, and that is a property of the
     /// kernel rather than a simplification: closing the read end of a FIFO
     /// destroys the write end's target and the next write says so, whereas a
     /// pty master survives its slave closing and is re-shared by whatever
@@ -324,7 +352,13 @@ public:
     }
 
 private:
-    JoyUartEndpoint() = default;
+    JoyUartEndpoint();
+
+    struct Tcp;                       ///< the TCP form's socket state (joy_uart_link.cpp)
+    std::unique_ptr<Tcp> tcp_;
+    bool        tcp_connected();      ///< start / advance the connect; true when usable
+    std::size_t tcp_read(uint8_t* buf, std::size_t cap);
+    std::size_t tcp_write(const uint8_t* buf, std::size_t len);
 
     /// Try to open the lazy TX FIFO. No-op when already open or when there is
     /// no path to open (pty / adopted descriptors).

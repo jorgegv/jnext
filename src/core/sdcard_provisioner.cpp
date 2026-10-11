@@ -31,9 +31,16 @@ const char* const kZx81Rom16kSha256 =
 // Paths
 // ---------------------------------------------------------------------------
 namespace {
+// HOME first, USERPROFILE second: the order that makes this the directory
+// QDir::homePath() reports on both platforms (src/core/screenshot.cpp does the
+// same). A native Windows session normally has no HOME, and without the second
+// name the SD image and the NextPi directory landed in the launch folder while
+// jnext.conf went to %USERPROFILE%\.jnext.
 std::string home_dir() {
-    const char* h = std::getenv("HOME");
-    if (h && *h) return h;
+    for (const char* var : {"HOME", "USERPROFILE"}) {
+        const char* h = std::getenv(var);
+        if (h && *h) return h;
+    }
     return ".";
 }
 // jnext's per-user state directory. $JNEXT_CONFIG_DIR overrides it, exactly as
