@@ -415,8 +415,8 @@ std::thread::id main_thread_id;
 /// than to the name the guest typed. Caps its own wait so a forgotten gate
 /// cannot wedge the suite.
 bool gated(const std::string&, std::vector<IpAddress>& out, std::string& err) {
-    entered.fetch_add(1);
     if (std::this_thread::get_id() != main_thread_id) off_thread.store(true);
+    entered.fetch_add(1);
     const bool opened = wait_until([] { return gate.load(); }, 5000);
     if (!opened) {
         err = "the gate was never opened";
