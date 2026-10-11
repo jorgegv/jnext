@@ -42,7 +42,8 @@ of the time — saves as a 128K SNA.
 
 The extended-paging row is the one that can surprise you. A `.sna` records which
 16 KB bank is at 0xC000 in a single byte that can only name banks 0-7. Port
-0xDFFD — which works on any machine JNEXT emulates, not just a Next — can put a
+0xDFFD — on by default on a Next and a Pentagon, and on the other machines once
+software enables it in NextREG 0x82 — can put a
 bank *above* 7 there. The snapshot would then come back with a different bank
 mapped and that bank's contents missing altogether, so JNEXT refuses instead.
 `.szx` has no field for that register either; `.jns` is the format that carries

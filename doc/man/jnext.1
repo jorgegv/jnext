@@ -1048,6 +1048,15 @@ Not the original Russian clone\(cqs own hardware.
 \f[CR]next\f[R]
 ZX Spectrum Next (Issue 2) \- full Next hardware and extended features.
 .PP
+Like the Next firmware\(cqs own 48K, 128K, +3 and Pentagon
+personalities, the four standalone machines start with the Next\-only
+ports off: Timex port 0xFF, the zxnDMA\(cqs port 0x6B, the Layer 2 and
+sprite ports, the CTC and 0xEFF7 (and 0xDFFD, except on the Pentagon).
+The 48K also has 0x7FFD paging and the AY off; 0x1FFD and the +3
+floating bus are on only on the +3.
+Software turns any of them back on through NextREG 0x82\-0x85, as on the
+hardware.
+.PP
 The machine type can also be switched at runtime from the GUI
 (\f[B]Machine > Machine Type\f[R]); switching resets the machine.
 .SH SD CARD AND ROMS
@@ -1423,8 +1432,9 @@ An SNA has no byte for the +3\(cqs second paging register, so a +3 in
 \f[I]special paging\f[R], or with ROM 2 or ROM 3 paged, is refused with
 \f[CR].szx\f[R] named as the format that can hold it.
 An SNA names the bank at 0xC000 in a field that reaches only banks 0\-7,
-so a machine using \f[B]extended paging\f[R] (port 0xDFFD, which works
-on every machine type, not only a Next) is refused too, pointing at
+so a machine using \f[B]extended paging\f[R] (port 0xDFFD, which is on
+by default on a Next and a Pentagon and reachable on the other machines
+once software enables it in NextREG 0x82) is refused too, pointing at
 \f[CR].jns\f[R] \(em \f[CR].szx\f[R] has no field for that register
 either.
 An SNA also carries no machine identifier, so FUSE reads a 128K one as a

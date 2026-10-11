@@ -17,7 +17,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #
 # THE FIXTURE: bin/rzx_dma_demo.bin (source and build:
 # demo/rzx_dma_demo/rzx_dma_demo.asm), a 48K program — RZX recording is refused
-# on a Next (GH #274), and the zxnDMA is there on every machine type. Every
+# on a Next (GH #274), and the program turns the zxnDMA's port 0x6B on through NextREG (the 48K
+# personality starts with it off, GH #325). Every
 # frame the CPU reads one keyboard half-row (IN), the DMA reads another 32 times
 # into a buffer, and the program paints an attribute row from what the DMA read
 # (PAPER) and the CPU read (INK), then moves a cursor one row on — two while
