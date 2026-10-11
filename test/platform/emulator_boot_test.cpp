@@ -619,8 +619,9 @@ void run_rows()
             const fs::path d = root / "foreign";
             make_set(d, 4);
             const std::vector<std::string> foreign = {
-                "mine.jns", "jnext-20260101-000000.JNS", "jnext-2026.jns", "notes.txt",
-                "jnext-20260101-000000.png", "jnext-20260101-000000.jns.bak"};
+                "mine.jns", "JNEXT-20250505-000000.JNS", "jnext-2026.jns", "notes.txt",
+                "jnext-20250505-000000.png", "jnext-20250505-000000.jns.bak"};   // none equal a quick
+                                                                                    // name even case-folded
             for (const std::string& f : foreign) {
                 touch(d / f);
                 fs::last_write_time(d / f, t0 - std::chrono::hours(48));   // oldest of all
