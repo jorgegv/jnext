@@ -3665,7 +3665,7 @@
 <tr>
 <td><code>.sna</code></td>
 <td>The classic 48K/128K snapshot every Spectrum emulator reads.</td>
-<td>You are on a 48K, 128K or +3 and want to hand the file to another emulator.</td>
+<td>You are on a 48K, 128K, Pentagon or +3 and want to hand the file to another emulator.</td>
 </tr>
 <tr>
 <td><code>.szx</code></td>
@@ -3706,6 +3706,12 @@ that quietly misrepresents your machine.</p>
 <td>yes</td>
 </tr>
 <tr>
+<td>Pentagon</td>
+<td>128K form</td>
+<td>yes, as a Pentagon 128</td>
+<td>yes</td>
+</tr>
+<tr>
 <td>+3, ordinary paging</td>
 <td>128K form</td>
 <td>yes</td>
@@ -3718,9 +3724,9 @@ that quietly misrepresents your machine.</p>
 <td>yes</td>
 </tr>
 <tr>
-<td>any machine using extended paging (port 0xDFFD)</td>
+<td>any machine using extended paging (port 0xDFFD, or NextREG 0x8F's 512K/1024K modes)</td>
 <td><strong>refused</strong> — use <code>.jns</code></td>
-<td>—</td>
+<td><strong>refused</strong> — use <code>.jns</code></td>
 <td>yes</td>
 </tr>
 <tr>
@@ -3757,7 +3763,7 @@ SNA as a <em>Pentagon</em> 128 — the right RAM and paging, a different timing 
       --delayed-snapshot state.jns --delayed-snapshot-frames 600
 </code></pre>
 <p>On a Next the file dialog offers <code>.jns</code> first and adds <code>.jns</code> if you type a
-name with no extension; on a 48K, 128K or +3 it offers <code>.sna</code> first and adds
+name with no extension; on a 48K, 128K, Pentagon or +3 it offers <code>.sna</code> first and adds
 that. Type any of the four extensions and you get that format, unless the table
 above says it is refused: the dialog then says why, and headless says why and
 exits non-zero rather than leaving you a file you would have trusted.</p>
