@@ -1886,7 +1886,7 @@ printf 'xdotool key a\nxvfb-run -d --server-args="-screen 0 1x1x24" bash -c y\n'
 noreset_scan "$NR_FIX" $'good.sh\nbad.sh'
 check "HS-89" "every xvfb-run in an xdotool-driving test script passes -noreset; the matcher's controls, the scanned-file count and a fixture offender (GH #318)" 0 0 \
     "control=$ctl scanned=$scanned offenders=[${noreset_off}] fixture scanned=$scan_n offenders=[${scan_off}]" \
-    "control=10000 scanned=6 offenders=[] fixture scanned=2 offenders=[bad.sh: xvfb-run -d --server-args=\"-screen 0 1x1x24\" bash -c y]"
+    "control=10000 scanned=8 offenders=[] fixture scanned=2 offenders=[bad.sh: xvfb-run -d --server-args=\"-screen 0 1x1x24\" bash -c y]"
 
 # ---------------- a nested harness never waits on its ancestor's lock (GH #295) ----------------
 # `make regression-confirm` could not pass harness-selftest-func: the confirm
