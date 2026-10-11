@@ -4985,6 +4985,14 @@ static void test_pentagon_no_contention() {
           !pent && m128,
           std::string("pentagon=") + (pent ? "1" : "0") + " 128k=" + (m128 ? "1" : "0") +
           " (exp 0/1)");
+
+    // The machine type's own default timing mode is the Pentagon one (the tim_sel
+    // axis a plain init(cfg) seeds, zxnext.vhd:5769-5770).
+    check("PENT-25",
+          "default_machine_timing_for(PENTAGON) is TimingPentagon, the 128K's is Timing128 "
+          "[zxnext.vhd:5769-5770]",
+          default_machine_timing_for(MachineType::PENTAGON) == MachineTimingMode::TimingPentagon &&
+              default_machine_timing_for(MachineType::ZX128K) == MachineTimingMode::Timing128);
 }
 
 int main() {

@@ -1758,7 +1758,17 @@ int main()
         const bool boots = written &&
             emulator_boot_machine(path, MachineType::ZXN_ISSUE2) == MachineType::PENTAGON &&
             emulator_boot_machine(path, MachineType::ZX128K) == MachineType::PENTAGON;
+        RzxRecording rec;
+        const bool parsed = written && rzx::parse(path, rec);
+        MachineType embedded = MachineType::ZXN_ISSUE2;
+        const bool szx_pentagon = parsed && rec.snapshot_ext == "szx" &&
+            rzx::snapshot_machine(rec.snapshot_data, rec.snapshot_ext, embedded) &&
+            embedded == MachineType::PENTAGON;
         std::remove(path.c_str());
+        check("PENT-26",
+              "a Pentagon recording embeds an SZX (Pentagon 128, id 7), as the 128K and +3 do, "
+              "not the 48K SNA",
+              szx_pentagon, "parsed=" + std::to_string(parsed) + " ext=" + rec.snapshot_ext);
         check("PENT-23",
               "an RZX recorded on the Pentagon (embedded SZX id 7, creator marker \"pentagon\") "
               "boots the Pentagon whatever machine is configured",

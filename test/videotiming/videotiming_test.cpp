@@ -3280,6 +3280,16 @@ static void gh324_pentagon_frame() {
           " hc_max=" + std::to_string(emu.video_timing().hc_max()) +
           " vc_max=" + std::to_string(emu.video_timing().vc_max()) +
           " int_v=" + std::to_string(emu.video_timing().int_position().vc));
+
+    // The per-machine table the CPU frame geometry is seeded from before the
+    // tim_sel axis takes over (z80_set_contention_runtime(machine_timing(type))).
+    const MachineTiming m = machine_timing(MachineType::PENTAGON);
+    check("PENT-24",
+          "machine_timing(PENTAGON) is the 448x320 frame: 224 T-states per line, 71680 per "
+          "frame, 1792 / 573440 master cycles [zxula_timing.vhd:160,168]",
+          m.pixels_per_line == 448 && m.lines_per_frame == 320 && m.tstates_per_line == 224 &&
+              m.tstates_per_frame == 71680 && m.master_cycles_per_line == 1792 &&
+              m.master_cycles_per_frame == 573440);
 }
 
 int main() {
