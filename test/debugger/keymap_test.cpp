@@ -470,6 +470,8 @@ void test_preferences_tab() {
 //     Ctrl+F5  Record MPEG4 Video...      F4   Soft Reset
 //     Ctrl+F6  Stop MPEG4 Recording       F11  Fullscreen
 //
+// (GH #321 later added Alt+F5 / Alt+F9, Quick Save / Quick Load Snapshot.)
+//
 // Bind Run to Ctrl+F5 and, in the EMULATOR window, the recording starts and Run
 // never fires. That is real, and the first cut of this feature said nothing
 // about it at all.
@@ -492,7 +494,7 @@ void test_preferences_tab() {
 void test_host_chord_enumeration() {
     MainWindowFixture fx;
     if (!fx.ok) {
-        check("DKH-01", "the emulator window's bindable chords are exactly the four known",
+        check("DKH-01", "the emulator window's bindable chords are exactly the six known",
               false, "fixture failed");
         return;
     }
@@ -507,9 +509,12 @@ void test_host_chord_enumeration() {
                    .arg(QString::fromStdString(render_combo(h.combo)), h.label);
     got.sort();
     const QString want =
-        QStringLiteral("Ctrl+F5=Record MPEG4 Video...|Ctrl+F6=Stop MPEG4 Recording|"
+        QStringLiteral("Alt+F5=Quick Save Snapshot|Alt+F9=Quick Load Snapshot|"
+                       "Ctrl+F5=Record MPEG4 Video...|Ctrl+F6=Stop MPEG4 Recording|"
                        "F11=Fullscreen|F4=Soft Reset");
-    check("DKH-01", "the emulator window's bindable chords are exactly the four known",
+    // GH #321 added Alt+F5 / Alt+F9 (Quick Save / Quick Load Snapshot): the
+    // pin is updated as its own comment above prescribes for a new menu shortcut.
+    check("DKH-01", "the emulator window's bindable chords are exactly the six known",
           got.join(QStringLiteral("|")) == want, got.join(QStringLiteral("|")).toStdString());
 }
 
