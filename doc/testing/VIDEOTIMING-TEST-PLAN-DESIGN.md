@@ -1091,7 +1091,6 @@ Plan: `doc/testing/VIDEOTIMING-TEST-PLAN-DESIGN.md`. The VideoTiming expansion p
 
 `PENT-08` (`videotiming_test`, group `VT-GH324-PENTAGON`): `--machine pentagon`
 runs the 448 x 320 frame (`c_max_hc` 447, `c_max_vc` 319, `c_int_v` 319,
-`zxula_timing.vhd:150-168`): 71680 T-states, 573440 master cycles. This
-replaces the retired `VT-03`/`VT-05`/`VT-09`/`VT-12` family, which assumed a
-Pentagon `VideoTiming` init the timing block no longer has: the geometry now
-comes from the tim_sel axis.
+`zxula_timing.vhd:150-168`): 71680 T-states, 573440 master cycles.
+The retired `VT-03`/`VT-05`/`VT-09`/`VT-12` rows tested a `VideoTiming::init`
+Pentagon branch; the geometry now arrives through the tim_sel axis.
