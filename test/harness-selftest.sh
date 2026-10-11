@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=185  # HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=193  # HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -2288,15 +2288,16 @@ retag() {   # retag <out> <row> <tag-list> — the real conf with <row>'s os= re
 retag "$T/os-bad.conf" magic-bp-func "os=linux,beos"
 out=$(run_preflight "$REG_CONF" "$T/os-bad.conf"); rc=$?
 check "HS-90a" "an os= tag naming an unknown OS is a refusal naming it" 2 $rc "$out" "HARNESS FAULT" "unknown OS" "beos"
-retag "$T/os-empty.conf" magic-bp-func "os="
-out=$(run_preflight "$REG_CONF" "$T/os-empty.conf"); rc=$?
-check "HS-90b" "an empty os= tag is a refusal" 2 $rc "$out" "HARNESS FAULT" "empty"
+retag "$T/fx-a.conf" magic-bp-func "os="
+out=$(run_preflight "$REG_CONF" "$T/fx-a.conf"); rc=$?
+check "HS-90b" "an empty os= tag is a refusal that says so" 2 $rc "$out" "HARNESS FAULT" "carries an empty"
 retag "$T/os-nolinux.conf" magic-bp-func "os=macos,windows"
 out=$(run_preflight "$REG_CONF" "$T/os-nolinux.conf"); rc=$?
 check "HS-90c" "an os= list without linux is a refusal (a Linux run runs every row)" 2 $rc "$out" "HARNESS FAULT" "does not list linux"
-retag "$T/os-malformed.conf" magic-bp-func "os=linux,,macos"
-out=$(run_preflight "$REG_CONF" "$T/os-malformed.conf"); rc=$?
-check "HS-90d" "a malformed os= list (empty element) is a refusal" 2 $rc "$out" "HARNESS FAULT" "malformed"
+# every OS kept, so no per-OS pin can fault first: only the grammar check can refuse this
+retag "$T/fx-b.conf" magic-bp-func "os=linux,,macos,windows"
+out=$(run_preflight "$REG_CONF" "$T/fx-b.conf"); rc=$?
+check "HS-90d" "a malformed os= list (empty element) is a refusal that says so" 2 $rc "$out" "HARNESS FAULT" "carries a malformed"
 # retagged rows change the per-OS counts, so the pins refuse them: the tags themselves are valid.
 retag "$T/os-ok.conf" magic-bp-func "os=linux,macos,windows"
 out=$(run_preflight "$REG_CONF" "$T/os-ok.conf"); rc=$?
@@ -2353,6 +2354,8 @@ case "${2:-}" in
     env)  echo "QPA=${QT_QPA_PLATFORM:-unset} WQPA=${WINEQT_QPA_PLATFORM:-unset} SDLV=${WINESDL_VIDEODRIVER:-unset}" ;;
     crlf) printf 'out line\r\n'; printf 'err line\r\n' >&2 ;;
     exit) exit 7 ;;
+    stdin) echo "stdin=$(cat)" ;;
+    disp) echo "D=${DISPLAY:-unset} W=${WAYLAND_DISPLAY:-unset} X=${XDG_RUNTIME_DIR:-unset}" ;;
     hang) trap 'echo got-term; exit 9' TERM; echo ready; while :; do sleep 0.1; done ;;
 esac
 WEOF
@@ -2370,13 +2373,78 @@ n=$(wrun crlf 2>&1 | tr -cd '\n' | wc -l)
 check "HS-94d" "...and the text survives (both lines arrive)" 0 $((n == 2 ? 0 : 1)) "lines=$n" "lines=2"
 out=$(wrun exit 2>&1); rc=$?
 check "HS-94e" "wine's exit status is the runner's exit status" 7 $rc "$out"
+# TERM: the runner is bounded by a watchdog (GH #81: a runner that swallowed TERM must not hang this file).
 JNEXT_WINE_BIN="$wstub" WINEPREFIX="$T/wp" bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$T/fake.exe" hang > "$T/hang.out" 2>&1 &
 hang_pid=$!
+( sleep 40; kill -KILL "$hang_pid" 2>/dev/null ) &
+hang_dog=$!
 for _ in $(seq 1 50); do grep -q ready "$T/hang.out" 2>/dev/null && break; sleep 0.1; done
 kill -TERM "$hang_pid" 2>/dev/null
 hang_rc=0; wait "$hang_pid" || hang_rc=$?
+kill "$hang_dog" 2>/dev/null; wait "$hang_dog" 2>/dev/null || true
+pkill -KILL -f -- "$wstub" 2>/dev/null || true   # a runner that swallowed TERM would leave the stub's loop behind
 out=$(cat "$T/hang.out")
-check "HS-94f" "a TERM sent to the runner reaches wine (the stub saw it; its status 9 comes back)" 9 $hang_rc "$out" "got-term"
+check "HS-94f" "a TERM sent to the runner reaches wine (the stub saw it; its status 9 comes back), bounded" 9 $hang_rc "$out" "got-term"
+out=$(echo "hello from the row" | wrun stdin 2>&1); rc=$?
+check "HS-94g" "the row's stdin reaches wine (the runner must not replace it with /dev/null)" 0 $rc "$out" "stdin=hello from the row"
+out=$(DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 XAUTHORITY=/srv/session/Xauthority wrun disp 2>&1); rc=$?
+check "HS-94h" "a desktop DISPLAY / WAYLAND_DISPLAY is never passed to wine (no window on the developer's desktop)" 0 $rc "$out" "D=unset W=unset X=unset"
+out=$(DISPLAY=:99 WAYLAND_DISPLAY=wayland-0 XAUTHORITY=/tmp/xvfb-run.AbC123/Xauthority wrun disp 2>&1); rc=$?
+check "HS-94i" "...but an xvfb-run display is kept" 0 $rc "$out" "D=:99 W=unset"
+
+# ---------------- the platform run's run-time accounting, end to end (GH #319) ----------------
+# A throwaway repository holding the REAL driver, library, scheduler and row
+# runner (as HS-73/HS-77 do), with stub group scripts, stub rows and stub build
+# trees for macOS; no SD image and no wine are needed. Rows: adm-a (every OS),
+# adm-b (linux,macos) and abs-c (linux,windows: ABSENT on macOS). The lint stub
+# and abs-c's script leave marker files, so "the lints did not run" and "an
+# absent row was never started" are observed, not assumed.
+PL="$T/platrepo"; PLT="$PL/test/00regression"; PLM="$T/plmarks"
+mkdir -p "$PLT/scripts" "$PLT/img" "$T/plfix" "$PL/bq" "$PL/bs" "$PL/helpers" "$PLM"
+cp "$PROJECT_DIR/test/00regression/regression.sh" "$PROJECT_DIR/test/00regression/test-functions.inc" \
+   "$PROJECT_DIR/test/00regression/parallel-rows.inc" "$PROJECT_DIR/test/00regression/row-runner.sh" "$PLT/"
+cp "$PROJECT_DIR/test/regression-stamp.sh" "$PL/test/"
+printf '# expect: 2\nshot-a\nshot-b\n' > "$PLT/regression_tests.conf"
+printf 'touch "%s/lint-ran"\nfor lint_n in 1 2 3 4 5 6; do CURRENT_ROW="lint-$lint_n"; pass_row; done\n' "$PLM" > "$PLT/scripts/00-preflight-lint.sh"
+printf 'CURRENT_ROW=sdcard-provision; pass_row\n' > "$PLT/scripts/01-sdcard-provision.sh"
+printf 'ORDERED_TESTS=(shot-a shot-b)\nfor shot_n in shot-a shot-b; do CURRENT_ROW=$shot_n; pass_row; done\n' > "$PLT/scripts/screenshots.sh"
+printf 'if want adm-a-func; then begin_func adm-a-func; pass_row; fi\n' > "$PLT/scripts/adm-a-func.sh"
+printf 'if want adm-b-func; then begin_func adm-b-func; pass_row; fi\n' > "$PLT/scripts/adm-b-func.sh"
+printf 'if want abs-c-func; then touch "%s/ran-abs-c"; begin_func abs-c-func; pass_row; fi\n' "$PLM" > "$PLT/scripts/abs-c-func.sh"
+printf '# expect: 3\n# expect-macos: 2\n# expect-windows: 2\nadm-a-func\n# os: stub\nadm-b-func os=linux,macos\n# os: stub\nabs-c-func os=linux,windows\n' > "$PLT/functional_tests.conf"
+for pl_d in bq bs; do
+    printf 'JNEXT_TARGET_OS:INTERNAL=macos\n' > "$PL/$pl_d/CMakeCache.txt"
+    printf '#!/bin/sh\nexit 0\n' > "$PL/$pl_d/jnext"; chmod +x "$PL/$pl_d/jnext"
+done
+printf 'build/\n' > "$PL/.gitignore"
+sg_pl() { git -C "$PL" -c user.name=t -c user.email=t@t "$@" >/dev/null 2>&1; }
+sg_pl init -q; sg_pl add -A; sg_pl commit -qm fixture --allow-empty
+pl_run() {   # pl_run <regression.sh args...>
+    rm -f "$PLM/lint-ran" "$PLM/ran-abs-c"
+    ( cd "$PL" && HOME="$T/plfix" JNEXT=/bin/true JNEXT_TARGET_BUILD="$PL/bq" JNEXT_TARGET_SDL_BUILD="$PL/bs" TEST_BIN_DIR="$PL/helpers" \
+      JNEXT_REGRESSION_LOCK_FILE="$T/pl.lock" JNEXT_REGRESSION_LOCK_WAIT=6 \
+      JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-idle" JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_HEARTBEAT=0 \
+      JNEXT_TEST_JOBS=1 timeout --kill-after=5s 120s bash "$PLT/regression.sh" "$@" 2>&1 )
+}
+pl_marks() { echo "abs_ran=$([[ -e "$PLM/ran-abs-c" ]] && echo 1 || echo 0) lint_ran=$([[ -e "$PLM/lint-ran" ]] && echo 1 || echo 0)"; }
+out=$(pl_run --platform); rc=$?; out+=$'\n'"$(pl_marks)"
+check "HS-95a" "a full platform run starts only the admitted rows and reports provision + screenshots + admitted (5/5), no lints" 0 $rc "$out" \
+    "[adm-a-func]" "[adm-b-func]" "5/5 declared tests reported" "abs_ran=0 lint_ran=0"
+check "HS-95b" "...and prints the absent row by name" 0 $rc "$out" "absent: abs-c-func" "1 declared absent on macos"
+# an admitted row that reports nothing
+cp "$PLT/scripts/adm-b-func.sh" "$T/adm-b.good"
+printf 'if want adm-b-func; then :; fi\n' > "$PLT/scripts/adm-b-func.sh"
+out=$(pl_run --platform); rc=$?
+check "HS-95c" "an admitted row that reports nothing is a harness fault, not a pass" 2 $rc "$out" "HARNESS FAULT" "adm-b-func"
+# an ABSENT row that reports (through an admitted row's script, one result in all)
+printf 'if want adm-b-func; then begin_func abs-c-func; pass_row; fi\n' > "$PLT/scripts/adm-b-func.sh"
+out=$(pl_run --platform); rc=$?
+check "HS-95d" "a row declared absent on the OS that reports a result is a harness fault naming it" 2 $rc "$out" "HARNESS FAULT" "declared absent on macos" "abs-c-func"
+cp "$T/adm-b.good" "$PLT/scripts/adm-b-func.sh"
+# two os= tags on one row
+printf '# expect: 3\n# expect-macos: 2\n# expect-windows: 2\nadm-a-func\nadm-b-func os=linux,macos\nabs-c-func os=linux os=windows\n' > "$PLT/functional_tests.conf"
+out=$(pl_run --platform --preflight-only); rc=$?
+check "HS-95e" "two os= tags on one row are a refusal that says so" 2 $rc "$out" "HARNESS FAULT" "carries two"
 
 echo ""
 echo "====================================="
