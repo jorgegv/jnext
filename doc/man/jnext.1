@@ -382,7 +382,9 @@ starts without the Pi.
 On Linux and macOS the link is a pair of FIFOs; on Windows (QEMU for
 Windows, its folder on \f[CR]PATH\f[R] or set in Preferences) it is a
 loopback TCP socket QEMU listens on.
-On Windows the Pi has no sound yet.
+On Windows the Pi\(cqs sound plays on the host speakers (QEMU\(cqs
+\f[CR]dsound\f[R]); sending it through the Next\(cqs mixer (NR 0xA2, the
+volume controls) is not there yet.
 .RE
 .TP
 \f[B]\-\-no\-nextpi\f[R]

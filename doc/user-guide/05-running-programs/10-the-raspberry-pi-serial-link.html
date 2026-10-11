@@ -3609,8 +3609,8 @@ the genuine article.</p>
 <code>sudo apt install qemu-system-arm qemu-utils</code>; on Windows install QEMU for
 Windows and either add its folder to your <code>PATH</code> or set the QEMU binary under
 <strong>Settings ▸ Preferences ▸ NextPi</strong>. On Windows the Pi is reached over a local
-(loopback) socket, which may raise a firewall prompt the first time, and it has
-no sound yet. Then either tick <strong>Start
+(loopback) socket, which may raise a firewall prompt the first time; the Pi's sound plays on your speakers
+(QEMU's <code>dsound</code>). Then either tick <strong>Start
 NextPi</strong> under <strong>Settings ▸ Preferences ▸ NextPi</strong> and restart JNEXT, or start
 it for one run with:</p>
 <pre><code>jnext --nextpi
@@ -3660,7 +3660,7 @@ the Preferences tab means that default:</p>
 </tr>
 <tr>
 <td>Pi audio</td>
-<td>your speakers (not yet on Windows)</td>
+<td>your speakers</td>
 <td>a QEMU audio driver, <code>none</code> to mute it, or <code>wav:FILE</code> to record it</td>
 </tr>
 </tbody>

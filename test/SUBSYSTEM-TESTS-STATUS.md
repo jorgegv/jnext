@@ -28,7 +28,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | UART + I2C/RTC        |      104 |      104 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (POSIX-only rows) |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| nextpi_test           |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "nextpi_test" to the label map in refresh-subsystem-status.sh. |
+| NextPi launcher + TCP link (all OSes) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket transport |      236 |      236 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket SIGPIPE (POSIX) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 AT command engine |      489 |      489 |      0 |       0 |    100% | 🟢 All tests pass. |
