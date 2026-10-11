@@ -648,7 +648,7 @@ load_summary
 # --- Completeness: prove the suite ran everything it declares ---
 # A green result is only as trustworthy as its denominator. On a full run, every
 # declared functional test must have reported exactly one row, no undeclared row
-# may appear, and the grand total must equal 5 (preflight lints) +
+# may appear, and the grand total must equal the preflight lint rows (reg_lints) +
 # 1 (sdcard-provision) + screenshots + functional. Anything else means a test
 # went missing, which is a harness fault, not a pass.
 if [[ ${#FILTER_TESTS[@]} -eq 0 ]] && ! $UPDATE_MODE; then

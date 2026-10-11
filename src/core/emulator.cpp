@@ -386,6 +386,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // restore the power-on default 0x10 (b4=1 = internal_speaker_en).
     if (!preserve_memory) {
         nr_08_stored_low_ = 0x10;
+        // GH #324: the firmware's Pentagon personality runs with the
+        // distribution default dac=1 (boot.c PERIPH3 bit 3) and disables
+        // Soundrive 2 (NR 0x84 bit 2, below), which makes port 0xFB the
+        // Pentagon/ATM Covox (zxnext.vhd:2433). Without NR 0x08 b3 that
+        // Covox is silent.
+        if (cfg.type == MachineType::PENTAGON) nr_08_stored_low_ |= 0x08;
     }
     // Note: `dac_enabled_` was unconditionally set false above. That is also
     // a same-shape divergence (nr_08_dac_en survives reset). Restore it from
@@ -600,6 +606,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             case MachineType::ZX48K:      typ_sel = 0x01; break;
             case MachineType::ZX128K:     typ_sel = 0x02; break;
             case MachineType::ZX_PLUS3:   typ_sel = 0x03; break;
+            case MachineType::PENTAGON:   typ_sel = 0x04; break;  // boot.c mode 3: 0x80|(3+1)<<4|(3+1) = 0xC4
             case MachineType::ZXN_ISSUE2: typ_sel = 0x03; break;  // +3 per VHDL power-on default
         }
         nextreg_.set_nr_03_machine_type(typ_sel);
@@ -620,6 +627,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             case MachineType::ZX48K:      tim_sel = 0x01; break;
             case MachineType::ZX128K:     tim_sel = 0x02; break;
             case MachineType::ZX_PLUS3:   tim_sel = 0x03; break;
+            case MachineType::PENTAGON:   tim_sel = 0x04; break;  // machine_timing_pentagon (zxnext.vhd:5769)
             case MachineType::ZXN_ISSUE2: tim_sel = 0x03; break;  // Next → +3 timing (VHDL default)
         }
         nextreg_.set_nr_03_machine_timing(tim_sel);
@@ -3738,10 +3746,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                            // Pentagon: VHDL :5751 maps typ_sel=$04 to
                            // machine_type_128, which falls into the same
                            // sram_rom 1-bit "else" branch as ZXN
-                           // (VHDL :2997-3007). Our MachineType enum
-                           // models that family as ZXN_ISSUE2 — Pentagon
-                           // and Next share current_sram_rom() behavior.
-                           new_mt = MachineType::ZXN_ISSUE2;  commit = true; break;
+                           // (VHDL :2997-3007). Mmu treats PENTAGON as
+                           // the 128K family, so a Next running the
+                           // firmware's Pentagon personality and
+                           // `--machine pentagon` end in the same state.
+                           new_mt = MachineType::PENTAGON;    commit = true; break;
                 default: /* VHDL :5143 others => null (no change) */ break;
             }
             if (commit && new_mt != mmu_.machine_type()) {
@@ -4723,6 +4732,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     nr_d9_iotrap_write_ = v;
                 }
             }
+            // The port_3ffd and port_7ffd decodes run in PARALLEL
+            // (zxnext.vhd:2593, :2601): 7FFD only excludes port_1ffd, so a
+            // 0x3FFD write also pages unless +3 timing needs A14=1. Decline,
+            // so the 0x7FFD handler (which owns that gate) sees it (GH #324, F1).
+            port_.decline_write();
         });
 
     // +3 paging — port 0x1FFD.
@@ -4732,7 +4746,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nullptr,
         [this](uint16_t, uint8_t v) {
             // VHDL zxnext.vhd:2599: gated by port_1ffd_io_en (NR 0x82 bit 3).
-            if ((effective_internal_port_enable(0x82) & 0x08) == 0) return;
+            // With the gate off port_1ffd is 0, so the 0x7FFD decode
+            // (:2593, `... and port_1ffd=0`) fires for this address instead:
+            // decline, and the 0x7FFD handler (which keeps its own
+            // p3-timing / A14 gate) takes the write (GH #324, F1; the
+            // Pentagon personality runs with NR 0x82 bit 3 = 0).
+            if ((effective_internal_port_enable(0x82) & 0x08) == 0) {
+                port_.decline_write();
+                return;
+            }
             mmu_.map_plus3_bank(v);
             // Push the new ROM3 state to DivMmc (Task 7 Branch B).
             // Verify7-memory class-(a) fix: use `sram_rom3()` per VHDL
@@ -6832,6 +6854,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 load_machine_rom("/MACHINES/NEXT/plus3.rom", 4, 0x10000, "+3 BASIC");
                 break;
 
+            case MachineType::PENTAGON:
+                // The TBBlue firmware's own Pentagon personality loads
+                // 128.rom (menu.def "Pentagon 128K,3,8,128.rom"; boot.c
+                // load_roms() default arm: "128K, Pentagon").
+                load_machine_rom("/MACHINES/NEXT/128.rom", 2, 0x8000,
+                                 "Pentagon 128K (128.rom, as the TBBlue firmware's Pentagon personality)");
+                break;
+
             case MachineType::ZXN_ISSUE2:
             default:
                 load_machine_rom("/MACHINES/NEXT/48.rom", 1, 0x4000, "Next 48K fallback");
@@ -7212,6 +7242,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // through their handlers after init(), which re-propagates; the
     // snapshot/NEX loaders' in-place init() writes nothing back (GH #239,
     // V16-NMP-02-LOAD-REINIT).
+    // GH #324: the Pentagon personality's type-dependent port enables, as
+    // tbblue.fw boot.c writes them for mode 3 (case 3: hwenables[0] = 0xc6,
+    // "Disable: ff/1ffd/+3 FB/6b"; hwenables[2] &= 0xfb, "Disable:
+    // Soundrive 2 DAC"; bit 31 of the 32-bit enable word = 0, "won't be
+    // reinitialised on a soft reset" = NR 0x85 b7). Cold boot only: a soft
+    // reset must keep them, which NR 0x85 b7 = 0 does on hardware too
+    // (zxnext.vhd:5052-5057). Written through the NextReg handlers so
+    // they propagate.
+    if (!preserve_memory && cfg.type == MachineType::PENTAGON) {
+        nextreg_.write(0x82, 0xC6);
+        nextreg_.write(0x84, static_cast<uint8_t>(nextreg_.cached(0x84) & ~0x04));
+        nextreg_.write(0x85, static_cast<uint8_t>(nextreg_.cached(0x85) & ~0x80));
+    }
     propagate_effective_port_enables();
 
     // Wire palette manager and RAM into ULA for enhanced palette and
@@ -8484,7 +8527,8 @@ bool Emulator::start_rzx_recording(const std::string& path)
     // rzx_refused_by_machine().
     std::vector<uint8_t> snap;
     std::string          snap_ext;
-    if (config_.type == MachineType::ZX128K || config_.type == MachineType::ZX_PLUS3) {
+    if (config_.type == MachineType::ZX128K || config_.type == MachineType::ZX_PLUS3 ||
+        config_.type == MachineType::PENTAGON) {
         SzxSaver::SaveResult szx = SzxSaver::save(*this);
         if (szx.ok) {
             snap     = std::move(szx.data);

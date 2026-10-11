@@ -215,6 +215,7 @@ std::string machine_name(MachineType type) {
         case MachineType::ZX48K:      return "ZX Spectrum 48k";
         case MachineType::ZX128K:     return "ZX Spectrum 128k";
         case MachineType::ZX_PLUS3:   return "ZX Spectrum +3";
+        case MachineType::PENTAGON:   return "Pentagon";
     }
     return "ZX Spectrum Next";
 }

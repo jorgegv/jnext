@@ -214,18 +214,10 @@ void Emulator::describe_jns_exceptions(jnext::save::StateDesc& d)
 namespace {
 
 /// The manifest's `model.machine`, in the vocabulary the container's
-/// `constructible_machines` set and `parse_machine_type` both use. NOT
-/// `machine_type_str`, which returns display strings ("ZX Next", "+3") a
-/// reader would have to special-case back.
-const char* manifest_machine_name(MachineType t) {
-    switch (t) {
-        case MachineType::ZX48K:      return "48k";
-        case MachineType::ZX128K:     return "128k";
-        case MachineType::ZX_PLUS3:   return "plus3";
-        case MachineType::ZXN_ISSUE2: return "next";
-    }
-    return "next";
-}
+/// `constructible_machines` set and `parse_machine_type` both use:
+/// `machine_type_key`. NOT `machine_type_str`, which returns display strings
+/// ("ZX Next", "+3") a reader would have to special-case back.
+inline const char* manifest_machine_name(MachineType t) { return machine_type_key(t); }
 
 /// The write visitor. One member per subsystem, plus every blob that
 /// subsystem's declaration says it owns.

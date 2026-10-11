@@ -45,7 +45,7 @@ end
 | `mmu[s] page[s] nextreg[r]` | MMU, NextREGs |
 | `FRAME CYCLE TFRAME` | time |
 | `RAW_HC RAW_VC HC_ULA VC_ULA CVC PHC` | the raster |
-| `MACHINE AUDIO_MUTE` | 0 48K, 1 128K, 2 +3, 4 Next; the mute mask |
+| `MACHINE AUDIO_MUTE` | 0 48K, 1 128K, 2 +3, 3 Pentagon, 4 Next; the mute mask |
 | `@name` | a MAP symbol (`; addr` or `; const`) |
 | `NAME.FIELD`, `changed(NAME, GROUP)`, `depth(NAME)` | snapshots; GROUP is `regs`, `mmu`, `iff1` or `stack0` |
 

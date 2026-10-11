@@ -102,6 +102,7 @@ const char* type_name(MachineType t)
     case MachineType::ZX48K:      return "48K";
     case MachineType::ZX128K:     return "128K";
     case MachineType::ZX_PLUS3:   return "+3";
+    case MachineType::PENTAGON:   return "Pentagon";
     }
     return "?";
 }
@@ -486,6 +487,35 @@ void test_esp_preference_controls()
               passthrough.esp_allowed_hosts == initial.esp_allowed_hosts,
           "enabled=" + std::to_string(passthrough.esp_enabled) + " hosts=" +
               std::to_string(passthrough.esp_allowed_hosts.size()));
+}
+
+/// PENT-28 — GH #324: the machine combo lists the Pentagon, and an untouched
+/// dialog on a Pentagon config hands the Pentagon back. Without the item,
+/// findData() is -1, currentData() is an invalid variant (0 = the Next) and
+/// pressing OK would silently switch a Pentagon user to a Next.
+void test_pentagon_preference()
+{
+    AppConfigData initial;
+    initial.machine_type = MachineType::PENTAGON;
+    PreferencesDialog dlg(initial);
+    bool listed = false;
+    for (auto* combo : dlg.findChildren<QComboBox*>())
+        for (int i = 0; i < combo->count(); ++i)
+            if (combo->itemText(i) == QStringLiteral("Pentagon") &&
+                combo->itemData(i).toInt() == static_cast<int>(MachineType::PENTAGON))
+                listed = true;
+    AppConfigData got;
+    bool emitted = false;
+    QObject::connect(&dlg, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) { emitted = true; got = cfg; });
+    auto* buttons = dlg.findChild<QDialogButtonBox*>();
+    if (buttons && buttons->button(QDialogButtonBox::Apply))
+        buttons->button(QDialogButtonBox::Apply)->click();
+    check("PENT-28", "the Preferences machine combo lists Pentagon, and an untouched dialog "
+                     "on a Pentagon config gives the Pentagon back (not the Next)",
+          listed && emitted && got.machine_type == MachineType::PENTAGON,
+          "listed=" + std::to_string(listed) + " emitted=" + std::to_string(emitted) +
+              " type=" + std::to_string(static_cast<int>(got.machine_type)));
 }
 
 /// PA-20 — the NextPi tab: one control per [nextpi] field, starting from the
@@ -944,6 +974,7 @@ int main(int argc, char** argv)
     test_confirm_asked_once();
     test_audio_gain_preference_control();
     test_esp_preference_controls();
+    test_pentagon_preference();
     test_nextpi_preference_controls();
     test_esp_settings_reach_the_frontend();
     test_esp_forward_precedes_the_reboot();

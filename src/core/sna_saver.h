@@ -5,6 +5,13 @@
 #include <vector>
 
 class Emulator;
+class Mmu;
+
+/// True iff the RAM mapped at 0x4000-0xFFFF is the classic map (bank 5, bank 2,
+/// `bank_at_c000`) that an '.sna' or '.szx' describes by position. On false,
+/// `found` names the logical pages in slots 2-7. Shared by SnaSaver and
+/// SzxSaver; the derivation is in sna_saver.cpp.
+bool classic_window_intact(Mmu& mmu, uint8_t bank_at_c000, std::string& found);
 
 /// Save the current emulator state as an SNA snapshot byte vector — the
 /// inverse of SnaLoader, and written to BE its exact inverse: SnaLoader is the

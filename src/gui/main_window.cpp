@@ -968,6 +968,7 @@ void MainWindow::create_menus() {
         {"ZX Spectrum &48K",  MachineType::ZX48K},
         {"ZX Spectrum &128K", MachineType::ZX128K},
         {"ZX Spectrum +&3",   MachineType::ZX_PLUS3},
+        {"&Pentagon 128K",    MachineType::PENTAGON},
         {"ZX &Next",          MachineType::ZXN_ISSUE2},
     };
     for (auto& e : type_entries) {
@@ -1978,10 +1979,10 @@ QString MainWindow::rzx_record_refusal() const {
     if (emulator_->config().type == MachineType::ZXN_ISSUE2) {
         return tr("RZX recording is not available on a ZX Spectrum Next.\n\n"
                   "An RZX carries a snapshot of the machine it starts from, and the "
-                  "formats it can carry describe a 48K, 128K or +3 Spectrum — none of "
+                  "formats it can carry describe a 48K, 128K, Pentagon or +3 Spectrum — none of "
                   "them holds the Next's extra RAM, NextREGs, Layer 2, tilemap, sprites "
                   "or Copper.\n\n"
-                  "Switch to Machine > Machine Type > 48K, 128K or +3 and record there. "
+                  "Switch to Machine > Machine Type > 48K, 128K, Pentagon or +3 and record there. "
                   "Playing a Next recording made by an older JNEXT still works, with a "
                   "warning that it may not replay faithfully.");
     }
