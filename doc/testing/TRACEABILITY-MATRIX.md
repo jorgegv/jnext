@@ -158,7 +158,7 @@ These 95 suites (7428 live rows) have no VHDL-derived plan row to map, so they h
 | `esc_break_test` | 6 | host ESC->BREAK binding; guest matrix is `## Input` |
 | `host_hotkey_test` | 56 | host hotkey bindings (Alt vs the guest Symbol Shift) |
 | `main_window_accel_test` | 5 | main-window menu mnemonics (host GUI) |
-| `main_window_pause_test` | 12 | main-window Pause: Machine > Pause, Alt+U (host GUI) |
+| `main_window_pause_test` | 17 | main-window Pause: Machine > Pause, Alt+U, Pause key (host GUI) |
 | `joystick_menu_test` | 14 | joystick controller picker: Input menu, Preferences (host GUI) |
 | `shifted_keys_test` | 22 | host shifted-scancode translation; guest matrix is `## Input` |
 | `window_scale_test` | 10 | main-window scale/fullscreen geometry (host GUI) |

@@ -126,7 +126,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Esc/BREAK + fullscreen routing |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Host hotkeys on Alt (Ctrl to guest) |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Main-window menu mnemonics |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Main-window Pause (Alt+U) |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Main-window Pause (Alt+U, Pause key) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Joystick controller picker (Input menu, Preferences) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Shifted symbols reach the guest |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Window scale + fullscreen geometry |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |

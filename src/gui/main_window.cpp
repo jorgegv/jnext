@@ -939,11 +939,20 @@ void MainWindow::create_menus() {
     // popup's P/S/T/U/E are taken). The SAME QAction goes on the Main toolbar
     // (one checkmark) and on the window, so the shortcut also works with the
     // menu bar hidden in fullscreen.
+    // GH #322 — the Pause key is a second shortcut (the conventional emulator
+    // pause key, as in FUSE): an owner-approved exception to "host keys are
+    // Alt+key". Harmless: on a Next, PS/2 Pause/Break only resets the PS/2
+    // module (keymaps.vhd:104, ps2_keyb.vhd:245), jnext models no PS/2, and
+    // qt_key_to_sdl never forwarded the key. Alt+U stays first: QMenu shows
+    // only the primary shortcut and Mac keyboards have no Pause key.
     pause_action_ = machine_menu->addAction(tr("P&ause"));
     pause_action_->setCheckable(true);
-    pause_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_U));
+    pause_action_->setShortcuts({QKeySequence(Qt::ALT | Qt::Key_U),
+                                 QKeySequence(Qt::Key_Pause)});
+    // A held key re-fired the action (measured ~20 toggles in 1.5 s).
+    pause_action_->setAutoRepeat(false);
     pause_action_->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
-    pause_action_->setToolTip(tr("Pause / resume emulation (Alt+U)"));
+    pause_action_->setToolTip(tr("Pause / resume emulation (Alt+U or Pause)"));
     connect(pause_action_, &QAction::triggered, this, [this]() { toggle_pause(); });
     addAction(pause_action_);
 

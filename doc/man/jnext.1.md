@@ -1566,7 +1566,7 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
     the boot chain; does nothing while the firmware still holds config mode.
     After a direct **\--load** it resets into 48K BASIC and discards the
     loaded program, because that boot never ran the firmware and so has no
-    NextZXOS to return to - use Power Reset there), Pause (Alt+U - freeze or
+    NextZXOS to return to - use Power Reset there), Pause (Alt+U or the Pause key - freeze or
     resume the machine where it is, without opening the debugger; the sound
     goes quiet, a **Paused** cell appears in the status bar, and a Power Reset
     or a load made while paused stays paused),
@@ -1658,6 +1658,11 @@ The function keys are host controls, not Spectrum keys. F1 is Power Reset (the
 same as Alt+R), F4 is Soft Reset, F9 fires the Multiface NMI, F10 fires the
 DivMMC NMI, F2 cycles the window scale and F11 toggles fullscreen. With the
 debugger open F9 belongs to the debugger (Pause / Break) instead.
+
+The Pause key (Pause/Break) pauses and resumes the machine in the GUI, the same
+as Machine > Pause; keyboards without one, such as most Mac keyboards, use
+Alt+U. On a real Next that key only resets the PS/2 keyboard interface, so no
+Spectrum key is lost. The SDL-only build has no pause.
 
 Ctrl is left alone for the guest. No Ctrl+letter chord of any kind is a jnext
 shortcut, so the Symbol Shift sequences NextBASIC needs constantly - Ctrl+O

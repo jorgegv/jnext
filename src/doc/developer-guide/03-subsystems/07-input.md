@@ -310,6 +310,13 @@ GRAPH, CAPS LOCK and INV VIDEO. Adding a menu on one of those would silently
 kill a guest key, so `host_hotkey_test` pins the two sets disjoint — see
 [Testing](../04-testing/index.md).
 
+The one bare non-function host key is **Pause**, an alternate shortcut on
+Machine > Pause (GH #322, an owner-approved exception to the Alt rule; it is the
+conventional emulator pause key). It is safe because Next PS/2 Pause/Break is
+"reset ps2 module" (`keymaps.vhd:104`, `ps2_keyb.vhd:245`) with no guest meaning,
+and jnext models no PS/2. Alt+U stays the primary shortcut (QMenu shows only the
+primary, and Mac keyboards have no Pause key). The action does not auto-repeat.
+
 Qt has its own claim on Alt, and jnext declines it. A bare Alt tap normally
 moves keyboard focus to the menu bar, where the next letter that is a top-level
 mnemonic is swallowed and opens that popup instead of typing. In an ordinary
