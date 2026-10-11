@@ -2,6 +2,7 @@
 #include "platform/host_key_wiring.h"   // GH #268
 #include "platform/emulator_boot.h"
 #include "platform/cli_capture.h"
+#include "platform/cli_delay.h"
 #include "platform/auto_exit.h"
 #include "platform/recording_info.h"   // GH #26 WP6
 #include "platform/rzx_startup.h"
@@ -313,10 +314,21 @@ void SdlApp::boot_machine(const std::string& load_file) {
 void SdlApp::set_delayed_screenshot(const std::string& file, int delay_frames,
                                     uint8_t layer_mask) {
     screenshot_file_ = file;
-    screenshot_countdown_ = delay_frames;
+    screenshot_countdown_ = cli::Delay::frames(delay_frames);
     screenshot_layers_ = layer_mask;
     Log::platform()->info("--delayed-screenshot: will save '{}' after {} frame(s) (layers: {})",
                            file, delay_frames,
+                           Renderer::layer_mask_to_string(layer_mask));
+}
+
+void SdlApp::set_delayed_screenshot_seconds(const std::string& file, int delay_seconds,
+                                    uint8_t layer_mask) {
+    screenshot_file_ = file;
+    screenshot_countdown_ = cli::Delay::seconds(delay_seconds);
+    screenshot_layers_ = layer_mask;
+    Log::platform()->info("--delayed-screenshot: will save '{}' after {} emulated second(s) "
+                           "(layers: {})",
+                           file, delay_seconds,
                            Renderer::layer_mask_to_string(layer_mask));
 }
 
@@ -329,9 +341,15 @@ void SdlApp::set_speed_percent(int percent) {
 }
 
 void SdlApp::set_delayed_exit(int delay_frames) {
-    exit_countdown_ = delay_frames;
+    exit_countdown_ = cli::Delay::frames(delay_frames);
     Log::platform()->info("--delayed-automatic-exit: will exit after {} frame(s)",
                            delay_frames);
+}
+
+void SdlApp::set_delayed_exit_seconds(int delay_seconds) {
+    exit_countdown_ = cli::Delay::seconds(delay_seconds);
+    Log::platform()->info("--delayed-automatic-exit: will exit after {} emulated second(s)",
+                           delay_seconds);
 }
 
 void SdlApp::run() {
@@ -391,7 +409,7 @@ void SdlApp::run() {
         // loop used to handle itself. As in QtApp, the mask lives on the
         // Renderer the window also shows, so the captured frame is displayed
         // masked for that tick. Queued once, however many ticks it waits.
-        if (screenshot_countdown_ == 0 && !screenshot_queued_) {
+        if (screenshot_countdown_.due() && !screenshot_queued_) {
             if (queue_cli_screenshot(debugger(), screenshot_file_, screenshot_layers_) ==
                 jnext::dbg::Result::Ok)
                 screenshot_queued_ = true;
@@ -415,7 +433,7 @@ void SdlApp::run() {
         // audio pacer cannot hold and the loop paces on the wall clock at the
         // scaled period instead (the sleep below) — exactly as QtApp does.
         const bool speed_scaled = (speed_multiplier_ != 1.0);
-        const bool screenshot_due = (screenshot_countdown_ == 0);
+        const bool screenshot_due = screenshot_countdown_.due();
         // Above 100%, present at most every RENDER_INTERVAL_MS (QtApp's
         // compositor throttle): the frames in between are never seen, and the
         // renderer is vsynced, so presenting every one would cap the machine
@@ -532,7 +550,7 @@ void SdlApp::run() {
         // the capture if a frame was rendered in it; flush_captures() — the
         // backend's exit bound for its CLIENT_NONE captures — says how it
         // ended (GH #276 B4, O2).
-        if (screenshot_countdown_ == 0) {
+        if (screenshot_countdown_.due()) {
             if (screenshot_refused_ || frames_rendered > 0) {
                 // A failed write means no file — same failure as never taking
                 // the capture, so same contract as SdlApp::shutdown(): error +
@@ -549,7 +567,7 @@ void SdlApp::run() {
                         Renderer::layer_mask_to_string(screenshot_layers_));
                     exit_code_ = 1;
                 }
-                screenshot_countdown_ = -1;  // done
+                screenshot_countdown_.disarm();  // done
                 screenshot_queued_    = false;
                 screenshot_refused_   = false;
             }
@@ -557,13 +575,13 @@ void SdlApp::run() {
             // ahead of the card). The countdown holds at 0 and the capture stays
             // queued — the backend keeps its mask armed and takes it at the next
             // tick that renders, never a stale frame with the wrong layers.
-        } else if (screenshot_countdown_ > 0) {
-            --screenshot_countdown_;
+        } else if (screenshot_countdown_.pending()) {
+            screenshot_countdown_.tick(emulator_.video_timing().refresh_60hz());
         }
 
         // Delayed automatic exit. Deferred command-line work it cuts off
         // fails the run (platform/auto_exit.h).
-        if (exit_countdown_ == 0) {
+        if (exit_countdown_.due()) {
             Log::platform()->info("automatic exit triggered");
             if (!auto_exit_finds_no_deferred_work(emulator_, {
                     {"--load", load_file_, load_countdown_ >= 0},
@@ -577,8 +595,8 @@ void SdlApp::run() {
                 if (exit_code_ == 0) exit_code_ = 3;
             }
             running_ = false;
-        } else if (exit_countdown_ > 0) {
-            --exit_countdown_;
+        } else if (exit_countdown_.pending()) {
+            exit_countdown_.tick(emulator_.video_timing().refresh_60hz());
         }
 
         // Frame pacing: target the emulated video refresh (~20 ms at 50 Hz,
@@ -616,7 +634,7 @@ void SdlApp::shutdown() {
     // footnote — same contract as QtApp::shutdown(). Reachable here if the
     // capture was still deferred (no frame rendered on its tick) when
     // --delayed-automatic-exit fired.
-    if (screenshot_countdown_ >= 0 && !screenshot_file_.empty()) {
+    if (screenshot_countdown_.armed() && !screenshot_file_.empty()) {
         // GH #276 B4 — a capture already handed to the backend is dropped at
         // this exit bound (flush_captures() → NoFrame), so it cannot land after
         // the verdict.

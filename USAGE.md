@@ -692,7 +692,8 @@ still waiting when the exit comes is an error (see
 **--delayed-automatic-exit**).
 
 **--delayed-screenshot-time** *N*  
-Delay in seconds (default 10). Requires **--delayed-screenshot**.
+Delay in emulated seconds (default 10; see *Emulated seconds* under
+HEADLESS MODE). Requires **--delayed-screenshot**.
 
 **--delayed-screenshot-frames** *N*  
 Delay in frames. Overrides **--delayed-screenshot-time**. Requires
@@ -705,11 +706,12 @@ Layers to compose into the screenshot: a comma-separated list of `ula`,
 `.scr`, which has no layers to choose from.
 
 **--delayed-automatic-exit** *N*  
-Exit the emulator after *N* seconds. The exit always fires, but work the
-command line deferred to a later frame and that has not happened by then
-is an error, and **jnext** exits non-zero: a **--load** still waiting
-out its boot delay (100 frames for `.tzx` and `.wav`), an **--inject**
-with **--inject-delay**, an **--rzx-record** waiting for that load, a
+Exit the emulator after *N* emulated seconds (see *Emulated seconds*
+under HEADLESS MODE). The exit always fires, but work the command line
+deferred to a later frame and that has not happened by then is an error,
+and **jnext** exits non-zero: a **--load** still waiting out its boot
+delay (100 frames for `.tzx` and `.wav`), an **--inject** with
+**--inject-delay**, an **--rzx-record** waiting for that load, a
 **--delayed-keypress**, **--delayed-nmi** or **--delayed-screenshot**
 still to come, a **--joy-uart-rx** stream still held by
 **--joy-uart-rx-delay-frames**, and an edge of the
@@ -768,8 +770,8 @@ full.
 Any other *MODE* is an error.
 
 **--delayed-keypress** *SECS* *KEY*  
-Press *KEY* after *SECS* seconds. Headless only (requires
-**--headless**), repeatable.
+Press *KEY* after *SECS* emulated seconds (see *Emulated seconds* under
+HEADLESS MODE). Headless only (requires **--headless**), repeatable.
 
 **--delayed-keypress-frames** *N* *KEY*  
 Press *KEY* after *N* emulated frames. This is the frames-unit spelling
@@ -778,17 +780,18 @@ the same list, so giving both schedules two keypresses. Requires
 **--headless**.
 
 **--delayed-nmi** *SECS* *BUTTON*  
-Press an NMI *BUTTON* after *SECS* seconds. Headless only (requires
-**--headless**), repeatable. *BUTTON* is case-insensitive and names
-which button to press, spelled as the label on a real Next’s case. Of
-its three buttons, two raise an NMI: `nmi` (aliases `mf`, `m1`) is the
-**NMI** button, wired to the Multiface; `drive` (alias `divmmc`) is the
-**DRIVE** button, wired to the DivMMC. **RESET** is not an NMI button
-and is not accepted here. The press goes through the same path as the
-host F9 / F10 hotkeys, so it is subject to the same enable gates —
-NextREG 0x06 bit 3 for the Multiface, bit 4 plus NextREG 0x83 bit 0 for
-the DivMMC — and a press with its gate closed does nothing, exactly as
-on hardware. One press generates one NMI, not a repeating one.
+Press an NMI *BUTTON* after *SECS* emulated seconds (see *Emulated
+seconds* under HEADLESS MODE). Headless only (requires **--headless**),
+repeatable. *BUTTON* is case-insensitive and names which button to
+press, spelled as the label on a real Next’s case. Of its three buttons,
+two raise an NMI: `nmi` (aliases `mf`, `m1`) is the **NMI** button,
+wired to the Multiface; `drive` (alias `divmmc`) is the **DRIVE**
+button, wired to the DivMMC. **RESET** is not an NMI button and is not
+accepted here. The press goes through the same path as the host F9 / F10
+hotkeys, so it is subject to the same enable gates — NextREG 0x06 bit 3
+for the Multiface, bit 4 plus NextREG 0x83 bit 0 for the DivMMC — and a
+press with its gate closed does nothing, exactly as on hardware. One
+press generates one NMI, not a repeating one.
 
 **--delayed-nmi-frames** *N* *BUTTON*  
 Press *BUTTON* after *N* emulated frames. This is the frames-unit
@@ -1312,10 +1315,20 @@ fast as the host allows: the mode built for scripting and CI.
 
 Notes worth knowing:
 
-- **--delayed-screenshot-frames** is the deterministic one. Frame counts
-  are reproducible; wall-clock seconds are not.
+- **--delayed-screenshot-frames** is the deterministic one: it names one
+  exact frame, whatever refresh rate the program selects.
   **--delayed-automatic-exit-frames** is the same idea for the exit
   bound, and wins over **--delayed-automatic-exit** when both are given.
+
+- *Emulated seconds.* The seconds forms (**--delayed-screenshot-time**,
+  **--delayed-automatic-exit**, **--delayed-keypress**,
+  **--delayed-nmi**) count the machine’s own time, not the host’s: a
+  frame run at 50 Hz counts 1/50 s and one run at 60 Hz counts 1/60 s,
+  and the delay comes due on the first frame at which the total reaches
+  *N*. A machine that stays at 50 Hz therefore fires at frame *N* x 50
+  and one that stays at 60 Hz at frame *N* x 60; a program that switches
+  the refresh rate (NextREG 0x05) is timed in its own seconds on each
+  side of the switch. The host’s speed does not matter.
 
 - **--rtc** makes boot screenshots reproducible by freezing the clock,
   so the NextZXOS date and time on screen never change between runs.
@@ -1973,7 +1986,8 @@ In **--headless** mode a client that holds the machine paused holds its
 frames too: nothing is emulated and jnext waits for the next command
 without using the CPU. The automatic exit (**--delayed-automatic-exit**
 and its **-frames** form) is still a hard bound: while a client holds
-the machine paused it is counted in wall time, one frame per 20 ms.
+the machine paused it is counted in wall time: the **-frames** form one
+frame per 20 ms, the seconds form real seconds.
 
 The server listens on `127.0.0.1` unless **--debug-listen-address** says
 otherwise. DZRP has no authentication: anyone who can reach the port

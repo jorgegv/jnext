@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.27</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.27</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4182,7 +4182,8 @@ it is never written from the frame that was on screen before the
 pause. One still waiting when the exit comes is an error (see
 <strong>--delayed-automatic-exit</strong>).</dd>
 <dt><strong>--delayed-screenshot-time</strong> <em>N</em></dt>
-<dd>Delay in seconds (default 10). Requires <strong>--delayed-screenshot</strong>.</dd>
+<dd>Delay in emulated seconds (default 10; see <em>Emulated seconds</em> under
+HEADLESS MODE). Requires <strong>--delayed-screenshot</strong>.</dd>
 <dt><strong>--delayed-screenshot-frames</strong> <em>N</em></dt>
 <dd>Delay in frames. Overrides <strong>--delayed-screenshot-time</strong>. Requires
 <strong>--delayed-screenshot</strong>.</dd>
@@ -4192,11 +4193,12 @@ pause. One still waiting when the exit comes is an error (see
 <strong>--delayed-screenshot</strong>, and is rejected when that screenshot is a
 <code>.scr</code>, which has no layers to choose from.</dd>
 <dt><strong>--delayed-automatic-exit</strong> <em>N</em></dt>
-<dd>Exit the emulator after <em>N</em> seconds. The exit always fires, but work
-the command line deferred to a later frame and that has not happened
-by then is an error, and <strong>jnext</strong> exits non-zero: a <strong>--load</strong>
-still waiting out its boot delay (100 frames for <code>.tzx</code> and <code>.wav</code>),
-an <strong>--inject</strong> with <strong>--inject-delay</strong>, an <strong>--rzx-record</strong> waiting
+<dd>Exit the emulator after <em>N</em> emulated seconds (see <em>Emulated seconds</em>
+under HEADLESS MODE). The exit always fires, but work the command
+line deferred to a later frame and that has not happened by then is
+an error, and <strong>jnext</strong> exits non-zero: a <strong>--load</strong> still waiting
+out its boot delay (100 frames for <code>.tzx</code> and <code>.wav</code>), an
+<strong>--inject</strong> with <strong>--inject-delay</strong>, an <strong>--rzx-record</strong> waiting
 for that load, a <strong>--delayed-keypress</strong>, <strong>--delayed-nmi</strong> or
 <strong>--delayed-screenshot</strong> still to come, a <strong>--joy-uart-rx</strong> stream
 still held by <strong>--joy-uart-rx-delay-frames</strong>, and an edge of the
@@ -4249,15 +4251,17 @@ spelled out in full.</p>
 <p>Any other <em>MODE</em> is an error.</p>
 </dd>
 <dt><strong>--delayed-keypress</strong> <em>SECS</em> <em>KEY</em></dt>
-<dd>Press <em>KEY</em> after <em>SECS</em> seconds. Headless only (requires
-<strong>--headless</strong>), repeatable.</dd>
+<dd>Press <em>KEY</em> after <em>SECS</em> emulated seconds (see <em>Emulated seconds</em>
+under HEADLESS MODE). Headless only (requires <strong>--headless</strong>),
+repeatable.</dd>
 <dt><strong>--delayed-keypress-frames</strong> <em>N</em> <em>KEY</em></dt>
 <dd>Press <em>KEY</em> after <em>N</em> emulated frames. This is the frames-unit
 spelling of <strong>--delayed-keypress</strong>, not an override of it: both
 forms queue into the same list, so giving both schedules two
 keypresses. Requires <strong>--headless</strong>.</dd>
 <dt><strong>--delayed-nmi</strong> <em>SECS</em> <em>BUTTON</em></dt>
-<dd>Press an NMI <em>BUTTON</em> after <em>SECS</em> seconds. Headless only (requires
+<dd>Press an NMI <em>BUTTON</em> after <em>SECS</em> emulated seconds (see <em>Emulated
+seconds</em> under HEADLESS MODE). Headless only (requires
 <strong>--headless</strong>), repeatable. <em>BUTTON</em> is case-insensitive and names
 which button to press, spelled as the label on a real Next’s case.
 Of its three buttons, two raise an NMI: <code>nmi</code> (aliases <code>mf</code>, <code>m1</code>)

@@ -242,7 +242,9 @@ hard bound; a frame tag does neither. Only the actions go through the backend:
 `press_key`, `press_nmi` (which calls the F9/F10 hotkey functions, gates
 included), `save_snapshot`, and `screenshot()` through
 `src/platform/cli_capture.h`, whose outcome the loop owner reads back with
-`flush_captures(CLIENT_NONE)`.
+`flush_captures(CLIENT_NONE)`. The seconds-form countdowns are `cli::Delay`
+(`src/platform/cli_delay.h`): each tick is charged at the refresh of the frame
+just run (`video_timing().refresh_60hz()`).
 
 ## The reconstruct contract
 

@@ -100,11 +100,30 @@
 //   Oracle for CLI-NUM: no VHDL (a host CLI). The man page contract (ranges,
 //   hex ADDR/PORT, exit status 1) and the strtol/strtoul library semantics.
 //
+//   CLI-DLY-01..09  (GH #320) cli::Delay, the ONE countdown behind the
+//               seconds forms (--delayed-screenshot-time, --delayed-automatic-exit,
+//               --delayed-keypress, --delayed-nmi) and the frames forms. "N seconds"
+//               is EMULATED seconds: a frame run at 50 Hz counts 1/50 s, one run at
+//               60 Hz counts 1/60 s, and the delay is due on the first frame at
+//               which the total reaches N; a frames delay ignores the rate.
+//   CLI-DLY-01  frames(3): due after 3 ticks at either rate.
+//   CLI-DLY-02  seconds(2), all 50 Hz: pending after 99 ticks, due after 100.
+//   CLI-DLY-03  seconds(2), all 60 Hz: pending after 119, due after 120.
+//   CLI-DLY-04  seconds(1), 25 ticks at 50 Hz then 60 Hz: due after 25+30.
+//   CLI-DLY-05  seconds(0) / frames(0): due before any tick.
+//   CLI-DLY-06  seconds(MAX_DELAY_SECONDS): frames_left is exact, no int overflow.
+//   CLI-DLY-07  a default Delay is neither armed nor due, and ticks leave it so.
+//   CLI-DLY-08  overshoot clamps at 0: due, and stays due, never negative.
+//   CLI-DLY-09  frames_left rounds UP (a partial frame still has to run).
+//   Oracle for CLI-DLY: no VHDL (a host CLI). The arithmetic of the definition
+//   above: nominal 1/50 s and 1/60 s per frame.
+//
 // Every row above was mutation-tested: the thing it protects was broken, the
 // suite rebuilt, and the row confirmed to fail. CLI-BIN-01's timeout guard
 // exists BECAUSE of that exercise (it hung rather than failed).
 
 #include "core/cli_options.h"
+#include "platform/cli_delay.h"
 
 #include <cctype>
 #include <climits>
@@ -1227,6 +1246,85 @@ int main() {
 
             std::remove(out_path.c_str());
             std::remove(err_path.c_str());
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // CLI-DLY-01..09 (GH #320): cli::Delay.
+    // -----------------------------------------------------------------
+    {
+        auto tick_n = [](cli::Delay& d, int n, bool r60) { for (int i = 0; i < n; ++i) d.tick(r60); };
+        auto fr = [](int n, bool r60, int ticks_before) {
+            cli::Delay d = cli::Delay::frames(n);
+            for (int i = 0; i < ticks_before; ++i) d.tick(r60);
+            return d;
+        };
+
+        {
+            bool ok = true;
+            for (bool r60 : { false, true }) {
+                ok = ok && fr(3, r60, 2).pending() && !fr(3, r60, 2).due()
+                        && fr(3, r60, 3).due() && !fr(3, r60, 3).pending();
+            }
+            check("CLI-DLY-01", "frames(3) ignores the refresh rate: pending after 2 ticks, due after 3, "
+                                "at 50 Hz and at 60 Hz", ok);
+        }
+        {
+            cli::Delay a = cli::Delay::seconds(2), b = a;
+            tick_n(a, 99, false); tick_n(b, 100, false);
+            check("CLI-DLY-02", "seconds(2) all at 50 Hz: pending after 99 ticks, due after 100",
+                  a.pending() && !a.due() && b.due());
+        }
+        {
+            cli::Delay a = cli::Delay::seconds(2), b = a;
+            tick_n(a, 119, true); tick_n(b, 120, true);
+            check("CLI-DLY-03", "seconds(2) all at 60 Hz: pending after 119 ticks, due after 120",
+                  a.pending() && !a.due() && b.due());
+        }
+        {
+            cli::Delay a = cli::Delay::seconds(1), b = a;
+            tick_n(a, 25, false); tick_n(b, 25, false);
+            tick_n(a, 29, true);  tick_n(b, 30, true);
+            check("CLI-DLY-04", "seconds(1), 25 ticks at 50 Hz then 60 Hz: pending after 25+29, due "
+                                "after 25+30", a.pending() && b.due());
+        }
+        check("CLI-DLY-05", "seconds(0) and frames(0) are due before any tick",
+              cli::Delay::seconds(0).due() && cli::Delay::frames(0).due());
+        {
+            cli::Delay d = cli::Delay::seconds(static_cast<int>(cli::MAX_DELAY_SECONDS));
+            const bool at_max = d.frames_left(true) == 2147483640LL &&
+                                d.frames_left(false) == 1789569700LL;
+            d.tick(true);
+            check("CLI-DLY-06", "seconds(MAX_DELAY_SECONDS): frames_left is 2147483640 at 60 Hz and "
+                                "1789569700 at 50 Hz, one 60 Hz tick takes it to 2147483639 (no overflow)",
+                  at_max && d.pending() && d.frames_left(true) == 2147483639LL);
+        }
+        {
+            cli::Delay d;
+            tick_n(d, 3, true);
+            check("CLI-DLY-07", "a default-constructed Delay is neither armed nor due, and ticks leave "
+                                "it so", !d.armed() && !d.due() && !d.pending());
+        }
+        {
+            cli::Delay d = cli::Delay::seconds(1);
+            d.tick(true); tick_n(d, 49, false);          // 295 + 294 = 1 unit left
+            const bool one_left = d.pending();
+            d.tick(false);
+            const bool due1 = d.due();
+            tick_n(d, 3, false);
+            check("CLI-DLY-08", "overshoot clamps: seconds(1) with 1/300 s left is pending, one more "
+                                "tick makes it due, and further ticks keep it due (never negative)",
+                  one_left && due1 && d.due() && !d.pending());
+        }
+        {
+            cli::Delay d = cli::Delay::seconds(2);
+            tick_n(d, 10, false);
+            const bool a = d.frames_left(false) == 90 && d.frames_left(true) == 108;
+            cli::Delay e = cli::Delay::seconds(1);
+            e.tick(true); tick_n(e, 49, false);
+            check("CLI-DLY-09", "frames_left rounds up: seconds(2) after 10 ticks at 50 Hz has 90 frames "
+                                "left at 50 Hz and 108 at 60 Hz; with 1/300 s left it is 1 at both",
+                  a && e.frames_left(false) == 1 && e.frames_left(true) == 1);
         }
     }
 
