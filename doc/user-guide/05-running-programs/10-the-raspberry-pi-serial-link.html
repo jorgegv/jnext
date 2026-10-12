@@ -3606,7 +3606,11 @@ the genuine article.</p>
 <h2 id="turning-it-on">Turning it on<a class="headerlink" href="#turning-it-on" title="Permanent link">&para;</a></h2>
 <p>You need <strong>QEMU</strong> installed — on macOS <code>brew install qemu</code>; on Fedora
 <code>sudo dnf install qemu-system-arm qemu-img</code>; on Debian or Ubuntu
-<code>sudo apt install qemu-system-arm qemu-utils</code>. Then either tick <strong>Start
+<code>sudo apt install qemu-system-arm qemu-utils</code>; on Windows install QEMU for
+Windows and either add its folder to your <code>PATH</code> or set the QEMU binary under
+<strong>Settings ▸ Preferences ▸ NextPi</strong>. On Windows the Pi is reached over a local
+(loopback) socket, which may raise a firewall prompt the first time; the Pi's sound plays on your speakers
+(QEMU's <code>dsound</code>). Then either tick <strong>Start
 NextPi</strong> under <strong>Settings ▸ Preferences ▸ NextPi</strong> and restart JNEXT, or start
 it for one run with:</p>
 <pre><code>jnext --nextpi

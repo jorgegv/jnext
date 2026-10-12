@@ -9469,18 +9469,21 @@ void Emulator::service_joy_uart_link_frame()
 
 void Emulator::setup_pi_uart()
 {
-    if (config_.pi_uart_fifo_rx.empty()) return;  // no Pi
+    if (config_.pi_uart_fifo_rx.empty() && config_.pi_uart_tcp_port == 0) return;  // no Pi
     // A SOFT reset must not unplug it: the Pi on the far end never sees a
     // Next-side reset, and re-opening the endpoint would drop what it holds.
     if (pi_uart_) return;
 
     std::string error;
     std::unique_ptr<JoyUartEndpoint> endpoint =
-        JoyUartEndpoint::open_fifo_paths(config_.pi_uart_fifo_rx, config_.pi_uart_fifo_tx, error);
+        !config_.pi_uart_fifo_rx.empty()
+            ? JoyUartEndpoint::open_fifo_paths(config_.pi_uart_fifo_rx, config_.pi_uart_fifo_tx, error)
+            : JoyUartEndpoint::open_tcp_client("127.0.0.1", config_.pi_uart_tcp_port, error);
     if (!endpoint) {
-        // Unreachable from main.cpp, which creates both FIFOs before the machine
-        // boots; a hand-built EmulatorConfig gets NO link rather than a
-        // silently dead one, and UART 1 keeps its unattached loopback.
+        // Unreachable from main.cpp, which creates both FIFOs (or chooses the
+        // port) before the machine boots; a hand-built EmulatorConfig gets NO
+        // link rather than a silently dead one, and UART 1 keeps its
+        // unattached loopback.
         Log::uart()->error("Raspberry Pi serial link: {} — not attached", error);
         return;
     }
@@ -14160,5 +14163,6 @@ EmulatorConfig Emulator::warm_start_boot_config(const EmulatorConfig& live)
     boot_cfg.joy_uart_pty         = false;
     boot_cfg.pi_uart_fifo_rx.clear();
     boot_cfg.pi_uart_fifo_tx.clear();
+    boot_cfg.pi_uart_tcp_port     = 0;
     return boot_cfg;
 }

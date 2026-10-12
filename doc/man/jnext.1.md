@@ -314,7 +314,9 @@ naming the option and the value, and exits with status 1.
     A soft or hard reset leaves the Pi running. A Pi asked for with this option
     that cannot start (no QEMU, a failed download) is an error; declining the
     download is not — jnext then starts without the Pi.
-    POSIX only.
+    On Linux and macOS the link is a pair of FIFOs; on Windows (QEMU for
+    Windows, its folder on `PATH` or set in Preferences) it is a loopback TCP
+    socket QEMU listens on. On Windows the Pi's sound plays on the host speakers (QEMU's `dsound`); sending it through the Next's mixer (NR 0xA2, the volume controls) is not there yet.
 
 **\--no-nextpi**
 :   Do not start NextPi this run, overriding a saved preference that
@@ -2194,8 +2196,8 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     release name on the mirror, or `latest` for the newest one listed there;
     empty means `1_93D`), `qemu_binary` (empty means `qemu-system-arm` on
     `PATH`) and `audio` (a QEMU `-audiodev` driver such as `coreaudio`, `pa` or
-    `none`, or `wav:`*FILE*; empty means `coreaudio` on macOS and `pa`
-    elsewhere). Changing the release makes the next start offer to download it,
+    `none`, or `wav:`*FILE*; empty means `coreaudio` on macOS, `dsound` on
+    Windows and `pa` elsewhere). Changing the release makes the next start offer to download it,
     replacing the installed one.
     The joystick ports are stored under `[input]`: `joy1_source` and
     `joy2_source` (`sdl`, `keys` or `none`), `joy1_device` and `joy2_device`

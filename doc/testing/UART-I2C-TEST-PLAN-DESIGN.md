@@ -552,6 +552,40 @@ network or a NextPi image.
 | PI-46 | fd 57 open; `mark_close_on_exec_except(-1)`, then with lists {missing, `/dev/fd`}, then with none | returns `/proc/self/fd` (Linux) or `/dev/fd` (no /proc), then `/dev/fd`, then "" (the number walk); 57 marked each time |
 | PI-47 | a pipe end at fd 57; the lowest free number learned; `open_descriptors` of /dev/fd and (where it exists) /proc/self/fd | each read; 57 listed; the lowest free number (the directory's own descriptor) not listed; the lowest free number unchanged after the read and after `mark_close_on_exec_except(-1, {list})` |
 
+### Companion suite — `test/uart/nextpi_test.cpp`
+
+Portable launcher rows (GH #316, `# os: all`). The
+socket transport and the Windows launch, run natively on Linux and macOS and under
+wine. The QEMU stand-in is a program (`nextpi_qemu_stub.cpp`) copied as
+`qemu-system-arm[.exe]` / `qemu-img[.exe]`. Oracles: RFC 1321; qemu(1) 10.2
+`-chardev socket` and QEMU's `char-socket.c` (host defaults to 0.0.0.0, a listener
+waits for a client unless `wait=off`, the listener re-arms after a disconnect);
+`zxnext.vhd:2278-2281`; the `JoyUartLink` contract. The moved provisioner rows and
+the Windows audio path are a later stage (a separate issue).
+
+| ID | Stimulus | Expected |
+|----|----------|----------|
+| PIT-01 | `md5_file` of "", "abc", "message digest", 1 048 577 x 'a', a missing file | d41d8cd98f00b204e9800998ecf8427e, 900150983cd24fb0d6963f7d28e17f72, f96b697d7cb7938d525a2f31aaf161d0, 6f0555ac53cecbf068d354c08863805a, "" |
+| PIT-02 | `build_args(spec, port)` | `-chardev socket,id=pi,host=127.0.0.1,port=N,server=on,wait=off,nodelay=on`, `-serial chardev:pi`, `-monitor stdio` (Windows) / `none`, the raspi0 arguments of PI-06, no `pipe,` |
+| PIT-03 | `audiodev_arg("")` | `dsound,id=snd0` (Windows), `coreaudio,...` (macOS), `pa,id=snd0` |
+| PIT-04 | Emulator on `pi_uart_tcp_port`; host listener sends `SUP> `; guest sends CR; NR 0xA0 = 0x30 | guest reads `SUP> `, host gets CR, UART 0 quiet, `describe()` is `TCP 127.0.0.1:N` |
+| PIT-05 | no listener for over 2 s, a guest byte sent, then a listener appears | no fault, nothing discarded; then both directions flow and the early byte arrives |
+| PIT-06 | peer closed with unread data (reset) with a byte pending; two guest bytes (`Y`, `V`) sent right after; then `Z`; second, third and fourth peers | the dead peer's byte and the undeliverable `Y` discarded (`unsent()` 1), no fault; the second peer receives exactly `VZ` (the dead socket was dropped, so `V` reconnects); an orderly close seen by a read is reconnected; a reset seen by a read with nothing queued is no fault and reconnects |
+| PIT-07 | `link_config` for the socket and FIFO transports on a config pre-filled with the other transport's stale values; an Emulator with both the FIFO pair and a port (POSIX); `warm_start_boot_config` | port or the two paths, never both (stale ones cleared); with both set the FIFO pair wins; the warm-start config has neither, machine kept |
+| PIT-08 | end to end, NextPi directory `nextpi dir,1`, QEMU found on PATH | overlay created, recorded argv == `build_args`, `SUP> ` heard, CR received, orderly stop in < 2 s |
+| PIT-09 | a rebuilt Emulator from the same `link_config` | same stand-in pid, received `AB` |
+| PIT-10 | QEMU absent; a directory named like QEMU on PATH; QEMU exiting at once; `qemu_binary` = the stand-in's path without `.exe` | "qemu-system-arm not found" twice, "exited at once", nothing running; the extension-less path starts (Windows completes `.exe`) |
+| PIT-11 | a QEMU ignoring the orderly stop, grace 300 ms | killed, `stop()` returns in 300..1800 ms |
+| PIT-12 | a QEMU exiting 7 on its own | `exit_status()` decodes to 7 |
+| PIT-13 | the process holding the launcher killed outright | QEMU gone within 3 s (watchdog / job kill-on-close) |
+| PIT-14 | an inheritable pipe holding `JNEXTMAG` open in jnext | the child cannot read it |
+| PIT-15 | parent `LANG`/`LC_ALL` (any letter case on Windows) | the child has exactly `LANG=C` and `LC_ALL=C`; parent unchanged |
+
+Functional row `nextpi-link-func`: the real binary starts the stand-in QEMU, the
+launcher's link is attached to UART 1 over the platform's transport (the FIFO pair,
+or `TCP 127.0.0.1:<the port QEMU was given>`), the overlay exists and QEMU is stopped
+the orderly way.
+
 ## Special Handling
 
 ### FIFO Edge-Triggered Semantics

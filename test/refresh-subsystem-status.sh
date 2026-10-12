@@ -93,6 +93,7 @@ BEGIN {
     M["uart_test"]                     = "UART + I2C/RTC"
     M["uart_integration_test"]         = "UART (integration)"
     M["uart_posix_test"]               = "UART (POSIX-only rows)"
+    M["nextpi_test"]                   = "NextPi launcher + TCP link (all OSes)"
     M["esp_socket_test"]               = "ESP-01 socket transport"
     M["esp_sigpipe_test"]              = "ESP-01 socket SIGPIPE (POSIX)"
     M["esp_at_test"]                   = "ESP-01 AT command engine"

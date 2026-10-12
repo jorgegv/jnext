@@ -2656,13 +2656,29 @@ UART 1, the Pi GPIO header's UART. Three pieces:</p>
   <code>Emulator::pi_uart_connected()</code> — NR 0xA0 bits 5 and 4 both set, the value
   NextPi's <code>.pisend</code> writes — and drops traffic in both directions while it is
   false, counting it, and logging the first loss once.</li>
-<li><strong><code>core/pi_qemu.{h,cpp}</code></strong> spawns <code>qemu-system-arm -M raspi0</code> with the Pi's
-  console on a QEMU <code>pipe</code> chardev, whose two FIFOs the Emulator opens as the
-  link (<code>JoyUartEndpoint::open_fifo_paths</code>). <code>PiQemu</code> belongs to <code>main()</code>, not
+<li><strong><code>core/pi_qemu.{h,cpp}</code></strong> (POSIX launch) and <strong><code>core/pi_qemu_win.cpp</code></strong>
+  (Windows launch) spawn <code>qemu-system-arm -M raspi0</code>. The transport is per
+  platform (<code>PiQemu::Spec::transport</code>): on POSIX the Pi's console is a QEMU
+  <code>pipe</code> chardev, whose two FIFOs the Emulator opens as the link
+  (<code>JoyUartEndpoint::open_fifo_paths</code>); on Windows, where QEMU's <code>pipe</code> chardev
+  is a named-pipe server that blocks QEMU's startup until a client connects and
+  never listens again, it is a <code>socket</code> chardev (<code>host=127.0.0.1</code>, a port jnext
+  picks, <code>server=on,wait=off</code>) that QEMU listens on and re-listens on, and the
+  Emulator is the TCP client (<code>JoyUartEndpoint::open_tcp_client</code>, built on the
+  ESP-01's <code>esp::net</code> shims; <code>EmulatorConfig::pi_uart_tcp_port</code>). The socket
+  transport can be selected on POSIX too, which is how <code>nextpi_test</code> exercises
+  it on Linux and macOS. <code>PiQemu::link_config</code> is the one place the transport
+  becomes <code>EmulatorConfig</code>. The Windows launch is <code>CreateProcessW</code> with an
+  explicit handle list (the counterpart of <code>addclosefrom_np</code>), a job object with
+  kill-on-close in place of the shell watchdog, <code>LANG=C</code> / <code>LC_ALL=C</code> in an
+  explicit Unicode environment block (names matched case-insensitively), and a
+  graceful stop by <code>quit</code> on QEMU's stdin (<code>-monitor stdio</code>) before the job is
+  terminated. <code>PiQemu</code> belongs to <code>main()</code>, not
   to the <code>Emulator</code>: a hard reset rebuilds the Emulator, which re-opens the same
   FIFOs while QEMU — holding both ends read-write — keeps running, so the Pi
   neither reboots nor sees an EOF. A reaper thread logs a QEMU that exits on its
-  own; the destructor stops it with SIGTERM (SIGKILL after three seconds).</li>
+  own; the destructor stops it with SIGTERM (SIGKILL after three seconds; on
+  Windows <code>quit</code>, then the job is terminated).</li>
 <li><strong><code>core/nextpi_provisioner.{h,cpp}</code></strong> makes the NextPi directory exist, on
   the SD provisioner's seams (<code>DownloadFn</code>, <code>ConfirmFn</code>, <code>ProgressFn</code>,
   <code>BusyFn</code>, so the same GUI dialogs and terminal prompts serve both): it asks,
@@ -2675,7 +2691,7 @@ UART 1, the Pi GPIO header's UART. Three pieces:</p>
 </ul>
 <p><code>main()</code> wires them: it merges <code>--nextpi</code>/<code>--no-nextpi</code> over the saved
 preference (GUI sessions only, as for the ESP), provisions, starts QEMU, and
-puts the FIFO paths in the <code>EmulatorConfig</code>. A Pi asked for on the command line
+puts the link (<code>PiQemu::link_config</code>) in the <code>EmulatorConfig</code>. A Pi asked for on the command line
 that cannot start is a usage error; one enabled only in Preferences is reported
 in a dialog and the session goes on without it. Design:
 <code>doc/design/NEXTPI-DESIGN.md</code>.</p>
