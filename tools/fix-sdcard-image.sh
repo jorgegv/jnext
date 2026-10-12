@@ -90,6 +90,27 @@ for tool in mcopy mdir mformat minfo mmd sha256sum; do
     fi
 done
 
+# --- Locale (GH #330) ---
+# mtools builds host file names from the locale's charset, and the card's long
+# names are Unicode: in a locale that cannot represent one (C/POSIX in a
+# minimal container) an extracted "Música.txt" or "日本.txt" becomes "M_sica.txt"
+# or "__.txt", and the copy back would rename it ON THE CARD. Everything below
+# (extraction, verification, copy back) therefore runs in one UTF-8 locale,
+# which LC_ALL pins whatever the caller's environment says. If the host has no
+# UTF-8 locale and the caller's charset is not UTF-8 either, the script refuses
+# BEFORE touching anything.
+LOCALES_AVAILABLE=$(locale -a 2>/dev/null || true)
+for loc in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do
+    if grep -qix "$loc" <<< "$LOCALES_AVAILABLE"; then
+        export LC_ALL="$loc"
+        break
+    fi
+done
+if [ "$(locale charmap 2>/dev/null || true)" != UTF-8 ]; then
+    echo "ERROR: no UTF-8 locale is installed; non-ASCII card names would be lost — install C.UTF-8 (or en_US.UTF-8) or run in a UTF-8 locale (GH #330). Nothing was changed." >&2
+    exit 1
+fi
+
 # --- mtools setup ---
 # Partition 1 starts at sector 63 on every shipped CSpect / NextZXOS image
 # (verified by fdisk). MBR offset = 63 * 512 = 32256 bytes.
@@ -200,8 +221,11 @@ if [ "$NEEDS_FAT32_FIX" = "1" ]; then
     # The guard's mtools calls run in the SAME locale as the extraction (no
     # LANG=C): mtools encodes a host name from the locale's charset, so a
     # name like "Música.txt" extracted in a UTF-8 locale can only be found again
-    # in that locale. (Parsed child output is not involved: only exit statuses
-    # and a line count are read.)
+    # in that locale (pinned to UTF-8 above). Only exit statuses and a line count
+    # are read, never mtools' printed names: those go through the same safe_iconv
+    # defect (macOS), so a name-by-name comparison against a listing would refuse
+    # a correctly extracted card there. A lookup also matches 8.3 aliases; with a
+    # UTF-8 locale pinned no lossy "__.txt" can arise, so that hole is closed.
     mt_escape() {
         local e=$1
         e=${e//\\/\\\\}; e=${e//\*/\\*}; e=${e//\?/\\?}; e=${e//\[/\\[}
@@ -225,7 +249,7 @@ if [ "$NEEDS_FAT32_FIX" = "1" ]; then
                         [ "$found" -ge 5 ] && break
                     fi
                 done < <(cd "$EXTRACT_DIR" && find . -mindepth 1 -print0)
-                echo "ERROR: mtools extracted names that are not on the card (${bad[*]:-?}) — this mtools build mis-names host files (GH #330); $DST was NOT re-formatted" >&2
+                echo "ERROR: mtools extracted names that are not on the card (${bad[*]:-?}) — this mtools build mis-names host files, or the locale cannot represent a card name — use a UTF-8 locale (GH #330); $DST was NOT re-formatted" >&2
                 return 1
             fi
         fi
