@@ -226,6 +226,21 @@ if want fix-sdcard-image-func; then
             [[ "$f_cs" == 16 ]] || faults+=("F: the re-clustered card has -c '$f_cs', not 16 (8 KB clusters)")
             rm -f "$W/f-fixed.img" "$W/f.out"
 
+            # FC — the same card, the script run in the C/POSIX locale that CI
+            #      containers have (LC_ALL=C outranks LANG): the script pins a
+            #      UTF-8 locale itself, so "Música.txt" survives the re-cluster
+            #      (without that it becomes "M_sica.txt" or is refused).
+            rc=0
+            env LANG=C LC_ALL=C timeout --kill-after=5s 120s bash "$FIX" "$W/f.img" "$W/fc-fixed.img" \
+                > "$W/FC.log" 2>&1 || rc=$?
+            [[ $rc == 0 ]] || faults+=("FC: the script exited $rc in the C locale: $(tail -n1 "$W/FC.log")")
+            fc_got=$(big_listing "$W/fc-fixed.img") || fc_got=""
+            if [[ "$fc_got" != "$big_want" ]]; then
+                fc_diff=$(diff <(printf '%s\n' "$big_want") <(printf '%s\n' "$fc_got") | head -6 | tr '\n' ';') || true
+                faults+=("FC: the C-locale re-cluster changed the card's names: $fc_diff")
+            fi
+            rm -f "$W/fc-fixed.img"
+
             # G — a defect-mimicking mcopy: after the bulk extraction it
             #     renames one host file (G-a) or drops one (G-b: the card has
             #     an entry no host file stands for). The script must refuse

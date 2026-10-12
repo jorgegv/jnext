@@ -90,6 +90,24 @@ for tool in mcopy mdir mformat minfo mmd sha256sum; do
     fi
 done
 
+# --- Locale (GH #330) ---
+# mtools builds host file names from the locale's charset, and the card's long
+# names are Unicode: in a locale that cannot represent one (C/POSIX in a
+# minimal container) an extracted "Música.txt" becomes "M_sica.txt", and the
+# copy back would rename it ON THE CARD. Everything below (extraction, the
+# verification, the copy back) therefore runs in one UTF-8 locale, which LC_ALL
+# pins whatever the caller's environment says. Only exit statuses and line
+# counts are read from mtools, never its text. With no UTF-8 locale installed
+# the caller's locale is kept and the verification refuses a card whose names
+# do not survive it.
+LOCALES_AVAILABLE=$(locale -a 2>/dev/null || true)
+for loc in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do
+    if grep -qix "$loc" <<< "$LOCALES_AVAILABLE"; then
+        export LC_ALL="$loc"
+        break
+    fi
+done
+
 # --- mtools setup ---
 # Partition 1 starts at sector 63 on every shipped CSpect / NextZXOS image
 # (verified by fdisk). MBR offset = 63 * 512 = 32256 bytes.
@@ -225,7 +243,7 @@ if [ "$NEEDS_FAT32_FIX" = "1" ]; then
                         [ "$found" -ge 5 ] && break
                     fi
                 done < <(cd "$EXTRACT_DIR" && find . -mindepth 1 -print0)
-                echo "ERROR: mtools extracted names that are not on the card (${bad[*]:-?}) — this mtools build mis-names host files (GH #330); $DST was NOT re-formatted" >&2
+                echo "ERROR: mtools extracted names that are not on the card (${bad[*]:-?}) — this mtools build mis-names host files, or the locale cannot represent a card name — use a UTF-8 locale (GH #330); $DST was NOT re-formatted" >&2
                 return 1
             fi
         fi
