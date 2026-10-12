@@ -163,6 +163,15 @@ if want fix-sdcard-image-func; then
         head -c   999 /dev/urandom > "$BIG/top.bin"
         head -c    17 /dev/urandom > "$BIG/.dotfile"
         head -c    33 /dev/urandom > "$BIG/a[1].bin"
+        head -c    21 /dev/urandom > "$BIG/Música.txt"
+        head -c    22 /dev/urandom > "$BIG/hid.txt"
+        head -c    23 /dev/urandom > "$BIG/sys.txt"
+        # F runs in a UTF-8 locale, set explicitly like C.UTF-8 and with LC_ALL
+        # and LC_CTYPE unset (they outrank LANG): mtools encodes host names from
+        # the locale, so the guard has to look names up in the one the
+        # extraction used. "Música.txt" is the case a guard forced to LANG=C
+        # falsely refuses. hid.txt (+h) and sys.txt (+s) need mdir -a.
+        U8=(env -u LC_ALL -u LC_CTYPE LANG=C.UTF-8)
         big_files=(); big_want=""
         while IFS= read -r -d '' p; do
             rel=${p#"$BIG"/}
@@ -176,24 +185,29 @@ if want fix-sdcard-image-func; then
         mkbig() {   # mkbig <img> — under-clustered card holding $BIG
             local sz=$((600 * 1024 * 1024)) rel d
             rm -f "$1"; truncate -s "$sz" "$1"
-            LANG=C mformat -i "$1@@$OFF" -F -T $(( (sz - OFF) / 512 )) -h 255 -s 63 -c 64 :: \
+            "${U8[@]}" mformat -i "$1@@$OFF" -F -T $(( (sz - OFF) / 512 )) -h 255 -s 63 -c 64 :: \
                 </dev/null >/dev/null 2>&1 || return 1
             while IFS= read -r -d '' d; do
-                LANG=C mmd -i "$1@@$OFF" "::/${d#"$BIG"/}" </dev/null >/dev/null 2>&1 || return 1
+                "${U8[@]}" mmd -i "$1@@$OFF" "::/${d#"$BIG"/}" </dev/null >/dev/null 2>&1 || return 1
             done < <(find "$BIG" -mindepth 1 -type d -print0 | LC_ALL=C sort -z)
             for rel in "${big_files[@]}"; do
-                LANG=C mcopy -i "$1@@$OFF" "$BIG/$rel" "::/$rel" </dev/null >/dev/null 2>&1 || return 1
+                "${U8[@]}" mcopy -i "$1@@$OFF" "$BIG/$rel" "::/$rel" </dev/null >/dev/null 2>&1 || return 1
             done
+            "${U8[@]}" mattrib -i "$1@@$OFF" +h ::/hid.txt </dev/null >/dev/null 2>&1 || return 1
+            "${U8[@]}" mattrib -i "$1@@$OFF" +s ::/sys.txt </dev/null >/dev/null 2>&1 || return 1
         }
         big_listing() {   # big_listing <img> — sorted `mdir -/ -a -b` of the card
-            LANG=C mdir -/ -a -b -i "$1@@$OFF" :: </dev/null 2>/dev/null | LC_ALL=C sort
+            "${U8[@]}" mdir -/ -a -b -i "$1@@$OFF" :: </dev/null 2>/dev/null | LC_ALL=C sort
         }
         if ! mkbig "$W/f.img"; then
             faults+=("harness: could not build the under-clustered scratch card")
         else
             # F — CONTROL: no defect, the card is re-clustered and the tree
             #     survives (also the first coverage of the re-cluster path).
-            run_fix F "$W/f.img" "$W/f-fixed.img"
+            rc=0
+            "${U8[@]}" timeout --kill-after=5s 120s bash "$FIX" "$W/f.img" "$W/f-fixed.img" \
+                > "$W/F.log" 2>&1 || rc=$?
+            [[ $rc == 0 ]] || faults+=("F: the script exited $rc: $(tail -n1 "$W/F.log")")
             f_got=$(big_listing "$W/f-fixed.img") || f_got=""
             if [[ "$f_got" != "$big_want" ]]; then
                 f_diff=$(diff <(printf '%s\n' "$big_want") <(printf '%s\n' "$f_got") | head -6 | tr '\n' ';') || true
@@ -201,7 +215,7 @@ if want fix-sdcard-image-func; then
             fi
             for rel in "${big_files[@]}"; do
                 rm -f "$W/f.out"
-                LANG=C mcopy -n -i "$W/f-fixed.img@@$OFF" "::/${rel//\[/\\[}" "$W/f.out" </dev/null 2>/dev/null \
+                "${U8[@]}" mcopy -n -i "$W/f-fixed.img@@$OFF" "::/${rel//\[/\\[}" "$W/f.out" </dev/null 2>/dev/null \
                     && cmp -s "$W/f.out" "$BIG/$rel" \
                     || faults+=("F: '$rel' is missing or has different bytes after the re-cluster")
             done
@@ -246,25 +260,63 @@ WRAP
         fi
         rm -f "$W/f.img" "$W/f-fixed.img"
 
-        # H — tools/extract-sdcard-nex.sh --with-siblings (same exposure, GH
-        #     #330): a NEX in the card ROOT used to copy the whole card into
-        #     the PARENT of the output directory. Only its siblings, in the
-        #     output directory, are right.
+        # H — tools/extract-sdcard-nex.sh (same exposure, GH #330). A NEX in the
+        #     card ROOT used to copy the whole card into the PARENT of the
+        #     output directory; a name with glob characters ("Foo [48].nex")
+        #     must be looked up literally; the --with-siblings result is
+        #     verified against the card; a single NEX goes to an explicit host
+        #     name. Four runs: --with-siblings and single-file, each plain and
+        #     with a defect-mimicking mcopy that renames the last file it
+        #     writes into a DIRECTORY target.
         XN="$RUN_DIR/private/fix-sdcard-image/xn"
-        mkdir -p "$XN"
+        mkdir -p "$XN/wrapbin"
+        nexcard() {   # nexcard <dest-card-path> — copy the 48.rom bytes there
+            LANG=C mcopy -i "$XN/c.img@@$OFF" "$W/48.rom" "$1" </dev/null >/dev/null 2>&1
+        }
         if mkimg "$XN/c.img" && LANG=C mmd -i "$XN/c.img@@$OFF" ::/GAMES </dev/null >/dev/null 2>&1 \
-           && LANG=C mcopy -i "$XN/c.img@@$OFF" "$W/48.rom" ::/b.nex </dev/null \
-           && LANG=C mcopy -i "$XN/c.img@@$OFF" "$W/48.rom" ::/readme.txt </dev/null \
-           && LANG=C mcopy -i "$XN/c.img@@$OFF" "$W/48.rom" ::/GAMES/a.nex </dev/null \
-           && LANG=C mcopy -i "$XN/c.img@@$OFF" "$W/48.rom" ::/GAMES/data.bin </dev/null; then
-            LANG=C timeout --kill-after=5s 120s bash "$PROJECT_DIR/tools/extract-sdcard-nex.sh" \
-                "$XN/out" -s -i "$XN/c.img" > "$XN/H.log" 2>&1 \
-                || faults+=("H: extract-sdcard-nex.sh --with-siblings exited non-zero: $(tail -n1 "$XN/H.log")")
-            for f in b.nex readme.txt GAMES/a.nex GAMES/data.bin; do
-                [[ -f "$XN/out/$f" ]] || faults+=("H: '$f' was not extracted into the output directory")
+           && nexcard ::/b.nex && nexcard ::/readme.txt && nexcard ::/GAMES/a.nex \
+           && nexcard "::/GAMES/Foo [48].nex" && nexcard ::/GAMES/data.bin; then
+            cat > "$XN/wrapbin/mcopy" <<WRAP
+#!/bin/sh
+"$real_mcopy" "\$@" || exit \$?
+for last; do :; done
+case "\$last" in
+  :*) exit 0 ;;
+  */) f=\$(find "\$last" -type f | LC_ALL=C sort | tail -n 1)
+      [ -z "\$f" ] || mv "\$f" "\${f}_file" ;;
+esac
+WRAP
+            chmod +x "$XN/wrapbin/mcopy"
+            nex_run() {   # nex_run <label> <wrap 0|1> <out> [options]
+                local label=$1 wrap=$2 out=$3; shift 3
+                local rc=0 pre=$PATH
+                [[ $wrap == 0 ]] || pre="$XN/wrapbin:$PATH"
+                PATH=$pre LANG=C timeout --kill-after=5s 120s \
+                    bash "$PROJECT_DIR/tools/extract-sdcard-nex.sh" "$out" -i "$XN/c.img" "$@" \
+                    > "$XN/$label.log" 2>&1 || rc=$?
+                echo "$rc"
+            }
+            for mode in sib single; do
+                opt=(); [[ $mode == sib ]] && opt=(-s)
+                rc=$(nex_run "H-$mode" 0 "$XN/out-$mode" "${opt[@]}")
+                [[ $rc == 0 ]] || faults+=("H-$mode: extract-sdcard-nex.sh exited $rc: $(tail -n1 "$XN/H-$mode.log")")
+                want=(b.nex GAMES/a.nex "GAMES/Foo [48].nex")
+                [[ $mode != sib ]] || want+=(readme.txt GAMES/data.bin)
+                for f in "${want[@]}"; do
+                    [[ -f "$XN/out-$mode/$f" ]] || faults+=("H-$mode: '$f' was not extracted into the output directory")
+                done
+                [[ ! -e "$XN/GAMES" && ! -e "$XN/b.nex" && ! -e "$XN/readme.txt" ]] \
+                    || faults+=("H-$mode: files were written to the PARENT of the output directory")
+                # the defect-mimicking mcopy
+                rc=$(nex_run "H-$mode-wrap" 1 "$XN/outw-$mode" "${opt[@]}")
+                if [[ $mode == sib ]]; then
+                    [[ $rc != 0 ]] && grep -q "GH #330" "$XN/H-$mode-wrap.log" \
+                        || faults+=("H-sib-wrap: a mis-named sibling was not refused with a GH #330 message (exit $rc)")
+                else
+                    [[ $rc == 0 && -f "$XN/outw-single/GAMES/a.nex" && -f "$XN/outw-single/GAMES/Foo [48].nex" ]] \
+                        || faults+=("H-single-wrap: single-file extraction depends on mtools' own host naming (exit $rc)")
+                fi
             done
-            [[ ! -e "$XN/GAMES" && ! -e "$XN/b.nex" && ! -e "$XN/readme.txt" ]] \
-                || faults+=("H: files were written to the PARENT of the output directory")
         else
             faults+=("harness: could not build the extract-sdcard-nex scratch card")
         fi
@@ -274,7 +326,7 @@ WRAP
     rm -rf "$W"
 
     if [[ ${#faults[@]} -eq 0 ]]; then
-        pass_row " (the 24.11 16 KB zx81.rom becomes itself twice; a re-run, another 16 KB file, another size and no file are left alone; an under-clustered card is re-clustered with its tree intact, and a mis-named extraction is refused before the re-format)"
+        pass_row " (the 24.11 16 KB zx81.rom becomes itself twice; a re-run, another 16 KB file, another size and no file are left alone; an under-clustered card is re-clustered with its tree intact, and a mis-named extraction is refused before the re-format; extract-sdcard-nex.sh keeps its files in the output tree)"
     else
         fail_row " (${#faults[@]} fault(s) in tools/fix-sdcard-image.sh)"
         printf '      %s\n' "${faults[@]}"

@@ -197,6 +197,11 @@ if [ "$NEEDS_FAT32_FIX" = "1" ]; then
     #  (a) every extracted path is found on the card (a renamed one is not);
     #  (b) the entry counts agree (two card names mangled onto one host name).
     # mtools pattern characters are escaped; -a includes hidden/system entries.
+    # The guard's mtools calls run in the SAME locale as the extraction (no
+    # LANG=C): mtools encodes a host name from the locale's charset, so a
+    # name like "Música.txt" extracted in a UTF-8 locale can only be found again
+    # in that locale. (Parsed child output is not involved: only exit statuses
+    # and a line count are read.)
     mt_escape() {
         local e=$1
         e=${e//\\/\\\\}; e=${e//\*/\\*}; e=${e//\?/\\?}; e=${e//\[/\\[}
@@ -210,11 +215,11 @@ if [ "$NEEDS_FAT32_FIX" = "1" ]; then
             if ! { while IFS= read -r -d '' p; do
                        printf '%s\0' "::/$(mt_escape "${p#./}")"
                    done < <(cd "$EXTRACT_DIR" && find . -mindepth 1 -print0)
-                 } | LANG=C xargs -0 -n 64 mdir -a -b -i "$DRIVE_SPEC" >/dev/null 2>&1; then
+                 } | xargs -0 -n 64 mdir -a -b -i "$DRIVE_SPEC" >/dev/null 2>&1; then
                 # Name the first few extracted paths the card does not have.
                 local bad=() found=0
                 while IFS= read -r -d '' p; do
-                    if ! LANG=C mdir -a -b -i "$DRIVE_SPEC" "::/$(mt_escape "${p#./}")" \
+                    if ! mdir -a -b -i "$DRIVE_SPEC" "::/$(mt_escape "${p#./}")" \
                             </dev/null >/dev/null 2>&1; then
                         bad+=("${p#./}"); found=$(( found + 1 ))
                         [ "$found" -ge 5 ] && break
@@ -224,7 +229,7 @@ if [ "$NEEDS_FAT32_FIX" = "1" ]; then
                 return 1
             fi
         fi
-        n_card=$(LANG=C mdir -/ -a -b -i "$DRIVE_SPEC" "::/" </dev/null 2>/dev/null | wc -l)
+        n_card=$(mdir -/ -a -b -i "$DRIVE_SPEC" "::/" </dev/null 2>/dev/null | wc -l)
         n_card=$(( n_card ))
         if [ "$n_card" -ne "$n_ext" ]; then
             echo "ERROR: mtools extracted ${n_ext} entries but the card lists ${n_card} — this mtools build mis-names host files (GH #330); $DST was NOT re-formatted" >&2
