@@ -416,7 +416,7 @@ can be selected on POSIX too, so `nextpi_test` exercises it everywhere. The Pi's
 sound reaches the Next's mixer over the named pipe of §3.7 (GH #331), created
 before QEMU is spawned. **The rule for `audio=""`:** it is the Next's mixer on
 every OS (`PiQemu::uses_mixer`); `host` is the host output (`audiodev_arg("host")`:
-dsound, coreaudio, pa). Rows PIT-01..23 and `nextpi-link-func` (§4).
+dsound, coreaudio, pa). Rows PIT-01..25 and `nextpi-link-func` (§4).
 
 ## 4. Testing
 
@@ -495,7 +495,7 @@ NextPi image is needed.
 | PI-62 | a restore taken while the comparator was 1 leaves it 0, and the relaxed MIC level reads at once |
 | PI-63 | under `--silent` a rewind replay does not consume the Pi's sound; a live run does |
 | PI-64 | a tape save made with the Pi on the EAR input records the comparator's edges (the MIC jack carries it) |
-| PIT-01..23 | `nextpi_test` (every OS): `md5_file`, the socket command line, the host audio back-end per OS, what an empty audio setting means (the mixer, PIT-16/17/18), the Pi audio pipe (writers coming and going, a full ring, a prompt `close()`, no spinning, an uncreatable pipe: PIT-19..23), the TCP endpoint (both directions, lazy connect, peer loss and reconnect), `link_config` and warm start, end to end with a stand-in QEMU, hard reset, refusals, force-kill, exit status, never orphaned, no inherited handles, child locale |
+| PIT-01..25 | `nextpi_test` (every OS): `md5_file`, the socket command line, the host audio back-end per OS, what an empty audio setting means (the mixer, PIT-16/17/18), the Pi audio pipe (writers coming and going, a full ring, a prompt `close()`, no spinning, an uncreatable pipe: PIT-19..23), the TCP endpoint (both directions, lazy connect, peer loss and reconnect), `link_config` and warm start, end to end with a stand-in QEMU, hard reset, refusals, force-kill, exit status, never orphaned, no inherited handles, child locale, the stop grace and the startup window are elapsed time, not a count of sleeps (PIT-24/25, GH #355) |
 | `nextpi-link-func` | the real binary attaches the launcher's link to UART 1 over the platform's transport and stops QEMU the orderly way |
 
 `test/audio/audio_posix_test.cpp` (POSIX-only: the rows use a real FIFO) adds **MX-41** (the stream retired MX-30 asked for; MX-30 itself stays retired, its ID not reused) and MX-31..40 and MX-42..47 and MX-50..52 for `PiAudio`
