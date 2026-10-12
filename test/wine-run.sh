@@ -119,31 +119,35 @@ if [[ "${1:-}" == --serve ]]; then
     # ICMP, which a CI container may lack). Its pid is the only stdout output; the
     # driver faults if that pid is not the one running at the end of the run.
     setsid ${PRIV[@]+"${PRIV[@]}"} /usr/bin/wine start /wait cmd /c pause </dev/null >/dev/null 2>&1 &
-    # Exactly one explorer.exe of this prefix, all of fds 0-2 on /dev/null.
+    # Exactly one explorer.exe of this prefix, all of fds 0-2 on /dev/null. Scans
+    # /proc, not pgrep: the CI container has no procps-ng (GH #295, 716cff6a9).
     find_explorer() {
-        local p env_txt n=0 found=
-        for p in $(/usr/bin/pgrep -x explorer.exe || true); do
-            env_txt=$(tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null || true)
+        local d p c env_txt n=0 found=
+        for d in /proc/[0-9]*; do
+            p=${d#/proc/}
+            { read -r c < "$d/comm"; } 2>/dev/null || continue
+            [[ $c == explorer.exe ]] || continue
+            env_txt=$({ tr '\0' '\n' < "$d/environ"; } 2>/dev/null || true)
             grep -qxF "WINEPREFIX=$WINEPREFIX" <<<"$env_txt" || continue
             n=$((n + 1))
-            [[ "$(readlink "/proc/$p/fd/0" 2>/dev/null)" == /dev/null \
-               && "$(readlink "/proc/$p/fd/1" 2>/dev/null)" == /dev/null \
-               && "$(readlink "/proc/$p/fd/2" 2>/dev/null)" == /dev/null ]] && found=$p
+            [[ "$(readlink "$d/fd/0" 2>/dev/null)" == /dev/null \
+               && "$(readlink "$d/fd/1" 2>/dev/null)" == /dev/null \
+               && "$(readlink "$d/fd/2" 2>/dev/null)" == /dev/null ]] && found=$p
         done
         [[ $n -eq 1 && -n $found ]] && echo "$found"
         return 0
     }
-    kpid=
+    # Poll (30 s bound) until ONE pid has stayed the same for 3 s (15 polls of 0.2 s,
+    # longer than the ~1 s close timeout of the warm-up explorer on its way out); a
+    # change of pid restarts the count, so a slow keeper attach is not a fault.
+    kpid=; cur=; stable=0
     for ((i = 0; i < 150; i++)); do
-        kpid=$(find_explorer)
-        [[ -z $kpid ]] || break
+        cur=$(find_explorer)
+        if [[ -n $cur && $cur == "${last:-}" ]]; then stable=$((stable + 1)); else stable=0; fi
+        last=$cur
+        [[ $stable -ge 15 ]] && { kpid=$cur; break; }
         /usr/bin/sleep 0.2
     done
-    if [[ -n $kpid ]]; then
-        # Stable: longer than the ~1 s close timeout of a warm-up explorer on its way out.
-        /usr/bin/sleep 3
-        [[ "$(find_explorer)" == "$kpid" ]] || kpid=
-    fi
     [[ -n $kpid ]] || { echo "wine-run: no persistent explorer.exe on /dev/null for $WINEPREFIX (GH #329)" >&2; exit 2; }
     echo "$kpid"
     exit 0

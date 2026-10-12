@@ -72,7 +72,7 @@ if want sdcard-file-add-tree-func; then
         JNEXT_CONFIG_DIR="$BASE/$1" timeout --foreground --kill-after=5s 120s \
             "$JNEXT" --sdcard-file-add "$2" --sdcard-file-dest /GH292 \
             > "$W/add-$1.log" 2>&1 || rc=$?
-        [[ $rc -eq 0 ]] || faults+=("$1: --sdcard-file-add exited $rc (log: $(tail -n 2 "$W/add-$1.log" 2>/dev/null | tr '\n' ' '))")
+        [[ $rc -eq 0 ]] || faults+=("$1: --sdcard-file-add exited $rc (log: $(tail -n 2 "$W/add-$1.log" 2>/dev/null | tr '\n' ' ' || true))")
     }
 
     boot_ls() {     # boot_ls <name> — boot, type `.ls gh292/sub`, shoot
@@ -101,7 +101,7 @@ if want sdcard-file-add-tree-func; then
                      --delayed-screenshot-frames 950 \
                      --delayed-automatic-exit-frames 970 \
             > "$W/boot-$1.log" 2>&1 || rc=$?
-        [[ $rc -eq 0 ]] || faults+=("$1: the NextZXOS boot exited $rc (log: $(tail -n 2 "$W/boot-$1.log" 2>/dev/null | tr '\n' ' '))")
+        [[ $rc -eq 0 ]] || faults+=("$1: the NextZXOS boot exited $rc (log: $(tail -n 2 "$W/boot-$1.log" 2>/dev/null | tr '\n' ' ' || true))")
         [[ -f "$W/$1.png" ]] || faults+=("$1: no screenshot was produced")
     }
 
