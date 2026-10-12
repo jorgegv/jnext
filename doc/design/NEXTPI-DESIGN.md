@@ -456,6 +456,10 @@ NextPi image is needed.
 | PI-57 | with a tape playing a steady high level, port 0xFE bit 6 is the tape XOR the comparator |
 | PI-58 | a steady Pi EAR level relaxes to the issue-2 level 64 x 512 master cycles after its edge |
 | PI-59 | under `--silent` the Pi's samples are still latched and the EAR path works |
+| PI-60 | the relaxed level is the issue-2 MIC level: with issue-2 keyboard mode and MIC set, a fallen Pi level reads 0 for the hold and 1 after it |
+| PI-61 | setting NR 0xA2 bit 0 with the sample already at t = 11 is an edge: bit 6 reads 1 at the write and for the hold |
+| PI-62 | a restore taken while the comparator was 1 leaves it 0, and the relaxed MIC level reads at once |
+| PI-63 | under `--silent` a rewind replay does not consume the Pi's sound; a live run does |
 | PIT-01..17 | `nextpi_test` (every OS): `md5_file`, the socket command line, the platform audio default, what an empty audio setting means per OS (PIT-16/17), the TCP endpoint (both directions, lazy connect, peer loss and reconnect), `link_config` and warm start, end to end with a stand-in QEMU, hard reset, refusals, force-kill, exit status, never orphaned, no inherited handles, child locale |
 | `nextpi-link-func` | the real binary attaches the launcher's link to UART 1 over the platform's transport and stops QEMU the orderly way |
 

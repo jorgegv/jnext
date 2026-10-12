@@ -564,6 +564,10 @@ network or a NextPi image.
 | PI-57 | Same tone; a WAV tape of a steady high level playing | bit 6 is the inverse of `fe_ear()` at every read and takes both values: tape XOR comparator (`zxnext_top_issue2.vhd:673`) |
 | PI-58 | A steady tone (no flips), NR 0xA2 = 0xC3; instructions stepped from the comparator's edge | bit 6 is 1 at the edge and 30000 master cycles later, 0 (the issue-2 level, off) 34000 cycles later: 64 ticks of the 512-cycle membrane enable (`zxnext_top_issue2.vhd:663-677`, `symmetric_relaxation.vhd`) |
 | PI-59 | As PI-56 with `cfg.silent` | the same 200 reads match `fe_ear()` and take both values: the Pi's samples are latched without the mixer. jnext-only: --silent has no VHDL counterpart |
+| PI-60 | A Pi square wave (flips every 1500 frames), NR 0xA2 = 0xC3, NR 0x08 bit 0 (issue-2 keyboard) and OUT 0xFE MIC set before each read; instructions stepped from the comparator's FALL | bit 6 is 0 at the fall and 30000 master cycles later, 1 (the MIC level) 34000 later: the relaxed level is `zxn_issue2_fe_mic` (`zxnext_top_issue2.vhd:675-676`, `symmetric_relaxation.vhd`) |
+| PI-61 | A steady high Pi level latched (t = 11) with NR 0xA2 = 0xC2 (bit 0 clear), the previous stamp aged past the hold, then NR 0xA2 = 0xC3 | bit 6 is 1 at the write and 30000 master cycles later, 0 at 34000: setting bit 0 is an edge (`zxnext.vhd:2361-2373`, `zxnext_top_issue2.vhd:663-677`) |
+| PI-62 | Snapshot saved while `fe_ear()` is 1, then loaded; issue-2 keyboard and MIC set after the load | `fe_ear()` is 0 after the load (it is not in the stream) and bit 6 reads the relaxed MIC level 1 at once. jnext-only: snapshots have no VHDL counterpart |
+| PI-63 | `cfg.silent`, a Pi ring of 8000 frames; two frames in rewind replay, then one live | `available()` unchanged after the replay, lower after the live frame. jnext-only: `--silent` and the replay have no VHDL counterpart |
 
 ### Companion suite — `test/uart/nextpi_test.cpp`
 

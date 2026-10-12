@@ -2623,6 +2623,179 @@ static void test_nextpi_audio() {
               fmt("started=%d (%s) reads=%d mismatches=%d ones=%d zeros=%d", started ? 1 : 0,
                   error.c_str(), r.reads, r.mismatches, r.ones, r.zeros));
     }
+
+    // PI-60 — the relaxed level is the ISSUE-2 MIC level (R3-1): ear_relax
+    // relaxes to zxn_issue2_fe_mic = port_fe_mic AND nr_08_keyboard_issue2
+    // (i_relax_0/1, zxnext_top_issue2.vhd:675-676), not to a constant 0. With
+    // issue-2 keyboard mode and MIC set, a Pi level that falls and then holds
+    // reads 0 (the Pi's level) 30000 master cycles after the fall and 1 (the MIC
+    // level) 34000 after. The two are re-asserted before every read: the ROM
+    // running between the steps may write either.
+    {
+        FakeNextPi fake("audio-ear-relax-mic");
+        PiQemu qemu;
+        std::string error;
+        const bool started = start_pi(fake, qemu, 40000, 1500, error);   // flips every 1500 frames
+        bool saw_fall = false;
+        int at_fall = -1, at_30000 = -1, at_34000 = -1;
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            Emulator emu;
+            emu.init(cfg);
+            emu.nextreg().write(0xA2, 0xC3);
+            auto read_issue2_mic = [&] {
+                emu.nextreg().write(0x08, 0x01);       // keyboard issue 2
+                emu.port().out(0x00FE, 0x08);          // MIC set
+                return ear_bit(emu);
+            };
+            for (int i = 0; i < 2000000 && !emu.i2s().fe_ear(); ++i) emu.execute_single_instruction();
+            for (int i = 0; i < 2000000 && emu.i2s().fe_ear(); ++i) emu.execute_single_instruction();
+            saw_fall = !emu.i2s().fe_ear();
+            if (saw_fall) {
+                const uint64_t t0 = emu.clock().get();
+                at_fall = read_issue2_mic();
+                while (emu.clock().get() < t0 + 30000) emu.execute_single_instruction();
+                at_30000 = read_issue2_mic();
+                while (emu.clock().get() < t0 + 34000) emu.execute_single_instruction();
+                at_34000 = read_issue2_mic();
+            }
+        }
+        check("PI-60",
+              "with issue-2 keyboard mode and MIC set, a Pi EAR level that fell reads 0 on port "
+              "0xFE bit 6 at its edge and 30000 master cycles later, and has relaxed to the MIC "
+              "level (1) 34000 cycles after it (ear_relax i_relax_0/1 = zxn_issue2_fe_mic, "
+              "zxnext_top_issue2.vhd:675-676)",
+              started && saw_fall && at_fall == 0 && at_30000 == 0 && at_34000 == 1,
+              fmt("started=%d (%s) fall=%d bit6 at edge=%d +30000=%d +34000=%d", started ? 1 : 0,
+                  error.c_str(), saw_fall ? 1 : 0, at_fall, at_30000, at_34000));
+    }
+
+    // PI-61 — setting NR 0xA2 bit 0 is itself an edge (R3-1). With bit 0 clear
+    // the comparator is held at 0 whatever the Pi sends (zxnext.vhd:2361-2373);
+    // a sample already at t = 11 therefore raises pi_fe_ear AT the NR 0xA2
+    // write, and ear_relax passes that edge through: bit 6 reads 1 at once and
+    // still 30000 master cycles later, instead of the relaxed level.
+    {
+        FakeNextPi fake("audio-ear-write-edge");
+        PiQemu qemu;
+        std::string error;
+        const bool started = start_pi(fake, qemu, 40000, 1 << 30, error);   // steady high
+        bool latched = false, was_clear = false;
+        int at_write = -1, at_30000 = -1, at_34000 = -1;
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            Emulator emu;
+            emu.init(cfg);
+            emu.nextreg().write(0xA2, 0xC2);                  // stereo, bit 0 clear
+            for (int i = 0; i < 2000000 && (emu.i2s().left() >> 8) != 3; ++i)
+                emu.execute_single_instruction();
+            latched = (emu.i2s().left() >> 8) == 3;           // t = 11 is in the latch
+            was_clear = !emu.i2s().fe_ear();
+            // Let any earlier stamp age past the hold, so only the write can make an edge.
+            const uint64_t t_age = emu.clock().get() + 40000;
+            while (emu.clock().get() < t_age) emu.execute_single_instruction();
+            emu.nextreg().write(0xA2, 0xC3);
+            const uint64_t t0 = emu.clock().get();
+            at_write = ear_bit(emu);
+            while (emu.clock().get() < t0 + 30000) emu.execute_single_instruction();
+            at_30000 = ear_bit(emu);
+            while (emu.clock().get() < t0 + 34000) emu.execute_single_instruction();
+            at_34000 = ear_bit(emu);
+        }
+        check("PI-61",
+              "setting NR 0xA2 bit 0 while the Pi's sample is already at t = 11 raises the EAR "
+              "comparator at the write: port 0xFE bit 6 reads 1 at once and 30000 master cycles "
+              "later, and has relaxed 34000 after it (zxnext.vhd:2361-2373, "
+              "zxnext_top_issue2.vhd:663-677)",
+              started && latched && was_clear && at_write == 1 && at_30000 == 1 && at_34000 == 0,
+              fmt("started=%d (%s) latched=%d clear-before=%d bit6 at write=%d +30000=%d +34000=%d",
+                  started ? 1 : 0, error.c_str(), latched ? 1 : 0, was_clear ? 1 : 0, at_write,
+                  at_30000, at_34000));
+    }
+
+    // PI-62 — a snapshot restore starts the comparator from rest (R3-1): pi_fe_ear
+    // is not in the stream, and the restored latch is 0x200 (t = 10), which
+    // holds a comparator that was 1. Save while it is 1 (and its edge fresh),
+    // load: it is 0, and with issue-2 MIC set bit 6 reads the relaxed MIC level
+    // at once, not a hold from before the restore.
+    {
+        FakeNextPi fake("audio-ear-restore");
+        PiQemu qemu;
+        std::string error;
+        const bool started = start_pi(fake, qemu, 40000, 1 << 30, error);   // steady high
+        bool was_one = false, ear_after = true;
+        int bit6_after = -1;
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            Emulator emu;
+            emu.init(cfg);
+            emu.run_frame();                                  // the clock past one hold (32768)
+            emu.nextreg().write(0xA2, 0xC3);
+            for (int i = 0; i < 2000000 && !emu.i2s().fe_ear(); ++i) emu.execute_single_instruction();
+            was_one = emu.i2s().fe_ear();
+            StateWriter measure;
+            emu.save_state(measure);
+            std::vector<uint8_t> snap(measure.position());
+            StateWriter w(snap.data(), snap.size());
+            emu.save_state(w);
+            StateReader r(snap.data(), snap.size());
+            emu.load_state(r);
+            ear_after = emu.i2s().fe_ear();
+            emu.nextreg().write(0x08, 0x01);                  // issue-2 keyboard (the load restored its own)
+            emu.port().out(0x00FE, 0x08);                     // MIC set
+            bit6_after = ear_bit(emu);
+        }
+        check("PI-62",
+              "restoring a snapshot taken while the Pi's EAR comparator was 1 leaves it 0 (it is "
+              "not in the stream), and port 0xFE bit 6 then reads the relaxed issue-2 MIC level "
+              "at once (zxnext.vhd:2361-2373; jnext-only: snapshots have no VHDL counterpart)",
+              started && was_one && !ear_after && bit6_after == 1,
+              fmt("started=%d (%s) was_one=%d fe_ear after load=%d bit6 after load=%d (want 0, 1)",
+                  started ? 1 : 0, error.c_str(), was_one ? 1 : 0, ear_after ? 1 : 0, bit6_after));
+    }
+
+    // PI-63 — --silent keeps the replay rule (R3-1): the silent path that
+    // latches the Pi's samples for the EAR input must not run in a rewind
+    // replay, or it would pop the live ring and steal frames from the resumed
+    // timeline (PI-49's rule, on the branch PI-49 does not reach). A live
+    // --silent run does consume it, so the row can fail.
+    {
+        FakeNextPi fake("audio-silent-replay");
+        write_tone(fake.bin("tone.wav"), 8000, 16384, 50, 16384);
+        PiQemu::Spec spec;
+        spec.dir         = fake.dir();
+        spec.qemu_binary = fake.bin("qemu-system-arm");
+        PiQemu qemu;
+        std::string error;
+        const bool started = fake.ok() && qemu.start(spec, error) && qemu.audio() != nullptr;
+        for (int i = 0; i < 500 && started && qemu.audio()->available() < 8000; ++i)   // as PI-48
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        uint32_t before = 0, after_replay = 0, after_live = 0;
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            cfg.silent   = true;
+            Emulator emu;
+            emu.init(cfg);
+            before = qemu.audio()->available();
+            emu.set_replay_mode(true);
+            for (int f = 0; f < 2; ++f) emu.run_frame();
+            after_replay = qemu.audio()->available();
+            emu.set_replay_mode(false);
+            emu.run_frame();
+            after_live = qemu.audio()->available();
+        }
+        check("PI-63",
+              "under --silent a rewind replay does not consume the Pi's sound, and a live run "
+              "does (jnext-only: --silent and the rewind replay have no VHDL counterpart)",
+              started && before == 8000 && after_replay == before && after_live < before,
+              fmt("started=%d (%s) available before=%u after replay=%u after live=%u (want "
+                  "equal, then fewer)", started ? 1 : 0, error.c_str(), before, after_replay,
+                  after_live));
+    }
 }
 
 int main() {
