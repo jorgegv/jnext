@@ -33,9 +33,11 @@ enum class Wait { Done, Failed, Stopped };
 /// Wait for the overlapped operation `ov` (already started, pending) or for
 /// `stop`. On stop the operation is cancelled and reaped, because the buffer and
 /// the OVERLAPPED must outlive it. On Failed, `err` is the I/O's error.
-Wait finish(HANDLE pipe, OVERLAPPED& ov, HANDLE stop, DWORD& n, DWORD& err) {
+Wait finish(HANDLE pipe, OVERLAPPED& ov, HANDLE stop, DWORD& n, DWORD& err,
+            std::atomic<uint64_t>& wakeups) {
     const HANDLE h[2] = {stop, ov.hEvent};
     const DWORD w = ::WaitForMultipleObjects(2, h, FALSE, INFINITE);
+    wakeups.fetch_add(1, std::memory_order_relaxed);   // every return of the wait (PiAudio::idle_reads)
     if (w == WAIT_OBJECT_0) {
         ::CancelIoEx(pipe, &ov);
         DWORD ignored = 0;
@@ -58,7 +60,8 @@ void arm(OVERLAPPED& ov, HANDLE io) {
 bool PiAudio::open(const std::string& name, std::string& error) {
     close();
     HANDLE pipe = ::CreateNamedPipeW(widen(name).c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-                                     PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 65536, 65536,
+                                     PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                                     1, 65536, 65536,
                                      0, nullptr);
     if (pipe == INVALID_HANDLE_VALUE) {
         error = name + ": CreateNamedPipe: error " + std::to_string(::GetLastError());
@@ -102,7 +105,7 @@ void PiAudio::run() {
             const DWORD e = ::GetLastError();
             if (e == ERROR_IO_PENDING) {
                 DWORD n = 0, err = 0;
-                const Wait w = finish(pipe, ov, stop, n, err);
+                const Wait w = finish(pipe, ov, stop, n, err, idle_reads_);
                 if (w == Wait::Stopped) return;
                 if (w == Wait::Failed) {
                     ::DisconnectNamedPipe(pipe);
@@ -127,7 +130,7 @@ void PiAudio::run() {
                     got = 0;
                 } else {
                     DWORD err = 0;
-                    const Wait w = finish(pipe, ov, stop, got, err);
+                    const Wait w = finish(pipe, ov, stop, got, err, idle_reads_);
                     if (w == Wait::Stopped) return;
                     ok = w == Wait::Done;
                 }

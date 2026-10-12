@@ -116,6 +116,10 @@ public:
     /// error points at it.
     bool start(const Spec& spec, std::string& error);
 
+    /// Stop QEMU (the orderly way, then by force after `stop_grace_ms`) and
+    /// release the audio reader. Idempotent; the destructor calls it.
+    void stop();
+
     bool running() const { return pid_ > 0; }
     int  pid() const { return pid_; }
 
@@ -217,8 +221,6 @@ public:
     static long fd_walk_limit(long open_max);
 
 private:
-    void stop();
-
     /// `build_args` with the console chardev already rendered.
     static std::vector<std::string> build_args_with_chardev(const Spec& spec,
                                                             const std::string& chardev,

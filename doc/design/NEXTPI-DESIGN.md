@@ -323,7 +323,11 @@ under QEMU is one, so:
   listens again. QEMU opens the wav file once per run (the usb-audio voice is
   opened at realize, `hw/usb/dev-audio.c:960`, and `wav_init_out` runs once,
   `audio/audio_template.h:520-545`), so the re-listen is a robustness path. The
-  default security descriptor lets only the same user (QEMU) connect. Verified
+  pipe is local only (`PIPE_REJECT_REMOTE_CLIENTS`; no row can pin the flag under
+  wine, which accepts it either way) and carries the default security descriptor
+  of the creating user: full control for the creator owner, Administrators and
+  SYSTEM, read for Everyone, so QEMU (the same user) can connect and so can other
+  local processes with those rights. Verified
   under wine with another process's `fopen`; **not verified on real Windows**:
   QEMU for Windows calls the narrow `fopen` of its own CRT, Wireshark the wide
   one (see §5).

@@ -582,7 +582,7 @@ wine. The QEMU stand-in is a program (`nextpi_qemu_stub.cpp`) copied as
 `-chardev socket` and QEMU's `char-socket.c` (host defaults to 0.0.0.0, a listener
 waits for a client unless `wait=off`, the listener re-arms after a disconnect);
 `zxnext.vhd:2278-2281`; the `JoyUartLink` contract. The provisioner rows
-listed in Group 17 moved here in GH #331; the Windows audio path follows in the same issue.
+listed in Group 17 moved here in GH #331, and PIT-16..23 cover the Pi audio path on every OS.
 
 | ID | Stimulus | Expected |
 |----|----------|----------|
@@ -602,12 +602,12 @@ listed in Group 17 moved here in GH #331; the Windows audio path follows in the 
 | PIT-14 | an inheritable pipe holding `JNEXTMAG` open in jnext | the child cannot read it |
 | PIT-15 | parent `LANG`/`LC_ALL` (any letter case on Windows) | the child has exactly `LANG=C` and `LC_ALL=C`; parent unchanged |
 | PIT-16 | `build_args` with `Spec::audio` empty and with `host`, `uses_mixer` for each | empty: the mixer's wav back-end (`mixer_audiodev_arg`) and `uses_mixer` true on every OS; `host`: the host output (pa / coreaudio / dsound), never the mixer. jnext-only, no VHDL counterpart |
-| PIT-17 | `PiQemu::start` on the socket transport with `Spec::audio` empty, the stand-in as QEMU | the stand-in's `-audiodev` is the wav FIFO at 44.1 kHz s16 stereo, `audio()` is non-null and `link_config` hands it to the Emulator. Linux/macOS: in a runtime directory that exists while QEMU runs and is removed after, nothing in the cwd; Windows: `\\.\pipe\jnext-pi-<pid>-<n>.audio`, which the stand-in could `fopen` (`audio` record `opened`) and which is gone after the launcher is destroyed. jnext-only, no VHDL counterpart |
+| PIT-17 | `PiQemu::start` on the socket transport with `Spec::audio` empty, the stand-in as QEMU | the stand-in's `-audiodev` is the wav FIFO at 44.1 kHz s16 stereo, `audio()` is non-null and `link_config` hands it to the Emulator. Linux/macOS: in a runtime directory that exists while QEMU runs and is removed after, nothing in the cwd; Windows: `\\.\pipe\jnext-pi-<pid>-<n>.audio`, which the stand-in could `fopen` (`audio` record `opened`) and which is gone once `stop()` has returned. jnext-only, no VHDL counterpart |
 | PIT-18 | stand-in QEMU writing a tone into the audio path of a real `start()`; the Emulator from `link_config`; NR 0xA2 = 0x00 then 0xC0 | `i2s.vhd:177-180`, `zxnext.vhd:2358-2359`, MX-06/07 x4: gate shut: swing <= 16 both channels; open: exactly left -1024..+1024, right -512..+512; `-audiodev` is the wav one. The end to end of PI-48 on every OS (a named pipe, written by another process, on Windows) |
 | PIT-19 | a writer that sends a header, a frame and 2 stray bytes and leaves; a second writer with a header and 2205 frames | MX-34 on every OS: the second header is skipped, the stray bytes are not glued to it: `available()` 2206, then the frames pop exactly. jnext-only |
 | PIT-20 | 200 000 frames written with nothing popping | the writer finishes within 5 s; `frames_received` 131072 (`kCapacity`), `frames_dropped` 68928; the next pop flushes (dropped 200000). MX-33 + MX-42 on every OS. jnext-only |
 | PIT-21 | `close()` with no writer ever connected, and with a connected silent writer; then `open` on the same name | each `close()` < 1000 ms; the name can be served again (a leaked Windows pipe handle would refuse it). jnext-only |
-| PIT-22 | the writer has left | over 1 s: < 100 ms CPU (`nxs::process_cpu_ms`) and <= 60 writer-gone reads (POSIX ~50, Windows 1). jnext-only |
+| PIT-22 | the writer has left | over 1 s: < 100 ms CPU (`nxs::process_cpu_ms`), so no spinning on any OS; <= 60 writer-gone reads (POSIX ~50, which bounds its poll rate; Windows 1) and <= 60 wakeups (`idle_reads`: on Windows each return of the reader's one wait, so a timed poll in it shows; a poll built elsewhere is not seen). jnext-only |
 | PIT-23 | the audio pipe cannot be made (Windows: every candidate name held by a one-instance server; POSIX: `$TMPDIR` so deep that `<base>.audio` is one byte past `PATH_MAX`) | `start()` fails naming the pipe (`jnext-pi-<pid>-` / `uart.audio`), `audio()` null, no QEMU spawned. PI-51 for the portable launcher. jnext-only |
 
 Functional row `nextpi-link-func`: the real binary starts the stand-in QEMU, the

@@ -1117,9 +1117,11 @@ static void test_pi_audio_pipe() {
     }
 
     // ── PIT-22 — NO SPINNING WITHOUT A WRITER. After the writer has left, a
-    // second of waiting costs under 100 ms of CPU and a bounded number of
-    // writer-gone reads (POSIX pauses 20 ms after each, about 50; Windows waits
-    // in ConnectNamedPipe and counts one).
+    // second of waiting costs under 100 ms of CPU (every OS), and at most 60
+    // writer-gone reads (POSIX: bounds the poll rate, a 20 ms pause after each,
+    // about 50; Windows: counts departures, 1) and at most 60 wakeups (Windows: each
+    // return of the reader's one wait, so a timed poll in it shows; POSIX: none while
+    // there is no writer). A poll built elsewhere than in that wait is not seen.
     {
         AudioPath ap(22);
         PiAudio au;
@@ -1136,16 +1138,18 @@ static void test_pi_audio_pipe() {
         }
         sleep_ms(200);
         const long cpu0 = nxs::process_cpu_ms();
-        const uint64_t eof0 = au.eof_reads();
+        const uint64_t eof0 = au.eof_reads(), idle0 = au.idle_reads();
         sleep_ms(1000);
         const long cpu = nxs::process_cpu_ms() - cpu0;
-        const uint64_t eofs = au.eof_reads() - eof0;
+        const uint64_t eofs = au.eof_reads() - eof0, idles = au.idle_reads() - idle0;
         check("PIT-22",
-              "with no writer connected the Pi audio reader neither spins nor polls fast: under 100 ms "
-              "of CPU and at most 60 writer-gone reads in a second (jnext-only, no VHDL counterpart)",
-              opened && w && got && cpu >= 0 && cpu < 100 && eofs <= 60,
-              fmt("opened=%d (%s) got=%d cpu=%ld ms (want <100) eof_reads=%llu (want <=60)",
-                  opened ? 1 : 0, err.c_str(), got ? 1 : 0, cpu, static_cast<unsigned long long>(eofs)));
+              "with no writer connected the Pi audio reader neither spins nor polls fast: under 100 ms of "
+              "CPU, at most 60 writer-gone reads and at most 60 wakeups in a second (jnext-only, no VHDL "
+              "counterpart)",
+              opened && w && got && cpu >= 0 && cpu < 100 && eofs <= 60 && idles <= 60,
+              fmt("opened=%d (%s) got=%d cpu=%ld ms (want <100) eof_reads=%llu idle_reads=%llu (want <=60)",
+                  opened ? 1 : 0, err.c_str(), got ? 1 : 0, cpu, static_cast<unsigned long long>(eofs),
+                  static_cast<unsigned long long>(idles)));
     }
 }
 
@@ -1849,7 +1853,7 @@ int main(int argc, char** argv) {
     // may appear in the current directory. On Windows the path is the named pipe
     // `\\.\pipe\jnext-pi-<this pid>-<n>.audio`, which must exist when "QEMU"
     // starts (the stand-in records `opened` or `failed <errno>` for its fopen,
-    // as QEMU's wav back-end does) and is gone once PiQemu is destroyed.
+    // as QEMU's wav back-end does) and is gone once stop() has returned.
     {
         Fixture fx("emptyaudio");
         PiQemu::Spec spec;
@@ -1876,6 +1880,12 @@ int main(int argc, char** argv) {
                 wav_path = dev.substr(std::strlen("wav,id=snd0,path="));
                 wav_path = wav_path.substr(0, wav_path.find(".audio,out.") + 6);
                 dir_ok = named && fx.file("audio") == "opened\n";
+                qemu.stop();     // the pipe must be gone once stop() returns
+                if (std::FILE* leaked = std::fopen(wav_path.c_str(), "wb")) {
+                    std::fclose(leaked);
+                    gone = false;
+                }
+                gone = gone && !wav_path.empty();
             }
 #else
             per_os = dev.rfind("wav,id=snd0,path=", 0) == 0 &&
@@ -1897,12 +1907,6 @@ int main(int argc, char** argv) {
         gone = !wav_path.empty() && !fs::exists(fs::path(wav_path).parent_path(), ec2) &&
                !fs::exists(cwd_fifo, ec2);
         cwd_clean = cwd_clean && !fs::exists(cwd_fifo, ec2);
-#else
-        if (std::FILE* leaked = wav_path.empty() ? nullptr : std::fopen(wav_path.c_str(), "wb")) {
-            std::fclose(leaked);     // the pipe outlived PiQemu
-            gone = false;
-        }
-        gone = gone && !wav_path.empty();
 #endif
         check("PIT-17",
               "starting NextPi with the audio setting empty gives QEMU the mixer's wav FIFO and makes "

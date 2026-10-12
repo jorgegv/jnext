@@ -79,7 +79,8 @@ public:
     /// Reads that found a writer but no data (EAGAIN): the reader's wakeups
     /// while a connected writer is silent, one per 100 ms poll timeout.
     /// Exposed so a row can pin that it does not keep the shorter no-writer
-    /// timeout once a writer is there. Always 0 on Windows (no timed wakeups).
+    /// timeout once a writer is there. On Windows: the reader's wakeups (returns of its
+    /// one wait, which has no timeout), so a poll added to it shows here.
     uint64_t idle_reads()      const { return idle_reads_.load(); }
     /// Frames buffered and not yet popped.
     uint32_t available() const { return head_.load() - tail_.load(); }
