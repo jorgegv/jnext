@@ -68,7 +68,7 @@ public:
     /// Reads that found no writer (QEMU not started yet, or gone). Each came
     /// after a poll() that either timed out (20 ms) or, on Linux for a gone
     /// writer, returned at once and was followed by a 20 ms pause, so this
-    /// grows by at most ~100 a second.
+    /// grows by at most ~50 a second (every pass blocks at least 20 ms).
     uint64_t eof_reads()       const { return eof_reads_.load(); }
     /// The 20 ms pauses taken after a no-writer read whose poll() had returned
     /// at once (Linux POLLHUP; without it the reader would spin a core). Zero

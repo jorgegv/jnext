@@ -514,9 +514,9 @@ static void g_pi_audio() {
         }
 
         // MX-46 — a reconnect is prompt: once the reader has seen a writer go
-        // (an EOF read, which starts its no-writer pause), a new writer's frame
-        // must be available within 100 ms (~20 ms with the 20 ms pause;
-        // ~200 ms with a 200 ms one).
+        // (an EOF read; on Linux it then pauses 20 ms, on macOS it is back in
+        // its 20 ms poll()), a new writer's frame must be available within
+        // 100 ms (~20 ms with the 20 ms pause; ~200 ms with a 200 ms one).
         {
             const std::string fifo = (dir / "mx46.fifo").string();
             PiAudio a;
@@ -532,8 +532,8 @@ static void g_pi_audio() {
             for (int i = 0; i < 2000 && a.eof_reads() == eofs; ++i) ::usleep(500);
             const bool saw_eof = a.eof_reads() > eofs;         // the pause has just begun
             // Wait the pause out, so the reader is already in poll() with no
-            // writer when the new one connects: the case a poll() that is not
-            // woken by the new writer's data would turn into a full timeout.
+            // writer when the new one connects: the data must wake that poll()
+            // at once, not leave the frame waiting for its timeout.
             ::usleep(30000);
             const int wb = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
             const std::string second = header() + frames_bytes(1, 1);
@@ -700,10 +700,11 @@ static void g_pi_audio() {
         // once, so without the pause the thread would spin a core after every
         // QEMU exit; the upper bound is 60 wakeups in 600 ms, which the Linux
         // run discriminates. Where poll() does not report the gone writer
-        // (macOS) it times out instead, after the 20 ms it uses with no writer:
-        // 15 wakeups, and 5 if that timeout were the 100 ms a connected writer
-        // gets, which would leave a reconnecting writer waiting; the lower
-        // bound is 8. jnext-only, no VHDL counterpart.
+        // (macOS) it times out instead, after the 20 ms it uses with no writer,
+        // and the reader takes no further pause: 30 wakeups on both OSes, and
+        // about 6 if that timeout were the 100 ms a connected writer gets,
+        // which would leave a reconnecting writer waiting; the lower bound is
+        // 8. jnext-only, no VHDL counterpart.
         {
             const std::string fifo = (dir / "mx37.fifo").string();
             PiAudio a;
