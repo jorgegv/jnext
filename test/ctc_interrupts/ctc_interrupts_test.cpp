@@ -3586,6 +3586,7 @@ static void test_gh265_ctc_ports() {
     {
         Emulator emu;
         bool ok = build(emu, MachineType::ZX48K);
+        emu.nextreg().write(0x85, static_cast<uint8_t>(emu.nextreg().cached(0x85) | 0x08));  // GH #325: CTC ports are off on a 48K personality
         write_code(emu, 0x8000, {0x01, 0x3B, 0x18, 0x3E, 0x05, 0xED, 0x79,
                                  0x3E, 0x80, 0xED, 0x79, 0x16, 0x00,
                                  0xED, 0x78, 0x76});
@@ -3611,6 +3612,7 @@ static void test_gh265_ctc_ports() {
         auto read_at = [](uint64_t s) -> uint8_t {
             Emulator emu;
             if (!build(emu, MachineType::ZX48K)) return 0xEE;
+            emu.nextreg().write(0x85, static_cast<uint8_t>(emu.nextreg().cached(0x85) | 0x08));  // GH #325: CTC ports are off on a 48K personality
             emu.port().out(0x183B, 0x05);
             emu.port().out(0x183B, 0x80);
             write_code(emu, 0x8000, {0xED, 0x78});
@@ -3644,6 +3646,7 @@ static void test_gh265_ctc_ports() {
         auto status_seen = [](uint64_t sn) -> uint8_t {
             Emulator emu;
             if (!build(emu, MachineType::ZX48K)) return 0xEE;
+            emu.nextreg().write(0x85, static_cast<uint8_t>(emu.nextreg().cached(0x85) | 0x08));  // GH #325: CTC ports are off on a 48K personality
             emu.port().out(0x183B, 0x85);            // int on, timer, TC follows
             write_code(emu, 0x8000, {0xED, 0x79});    // OUT (C),A
             auto r = emu.cpu().get_registers();

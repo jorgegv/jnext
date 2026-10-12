@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.36</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.38</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.36</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.38</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3759,8 +3759,8 @@ a field for that register, so it can hold both. An ordinary +3 — which is most
 of the time — saves as a 128K SNA.</p>
 <p>The extended-paging row is the one that can surprise you. A <code>.sna</code> records which
 16 KB bank is at 0xC000 in a single byte that can only name banks 0-7. Port
-0xDFFD — which works on any machine JNEXT emulates, not just a Next — can put a
-bank <em>above</em> 7 there. The snapshot would then come back with a different bank
+0xDFFD — on by default on a Next and a Pentagon, and on the other machines
+once software enables it in NextREG 0x82 — can put a bank <em>above</em> 7 there. The snapshot would then come back with a different bank
 mapped and that bank's contents missing altogether, so JNEXT refuses instead.
 <code>.szx</code> has no field for that register either; <code>.jns</code> is the format that carries
 it.</p>

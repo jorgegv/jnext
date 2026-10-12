@@ -25,8 +25,14 @@ by writing NR 0x03, and the commit lands on `MachineType::PENTAGON` too. The two
 axes stay separate types because they are independent once the emulator is
 running. `Emulator::init` builds the whole personality for a plain
 `--machine pentagon`: the 128K ROM, NR 0x03 = 0x44, the firmware's mode-3 port
-enables (NR 0x82 = 0xC6, NR 0x84 bit 2 clear, NR 0x85 bit 7 clear so a soft
-reset keeps them) and the Covox DAC.
+enables and the Covox DAC. Every standalone personality (48K, 128K, +3,
+Pentagon) gets the port enables `tbblue.fw` `boot.c` writes for its mode, on a
+cold boot only (GH #325): NR 0x82 = 0xC0 / 0xC2 / 0xDA / 0xC6, NR 0x83 bits 7:6
+clear (Layer 2, sprites), NR 0x85 bits 7, 3 and 2 clear (so a soft reset keeps
+them; no CTC, no 0xEFF7), NR 0x84 bit 0 clear on the 48K (AY) and bit 2 on the
+Pentagon. The rule: a bit `boot.c` writes the same whatever `config.ini` says
+takes the firmware's value; a config-dependent bit stays on, except the 48K AY.
+The Next itself is untouched.
 
 Per-machine geometry lives in `MachineTiming` (`src/core/emulator_config.h:259`)
 and is derived from `zxula_timing.vhd`: a 48K frame is 448 pixels × 312 lines,

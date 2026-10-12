@@ -4,6 +4,7 @@
 
 ### User Features
 - The Pause key pauses and resumes emulation (alongside Alt+U); holding it no longer toggles repeatedly
+- NextPi (--nextpi) now runs on Windows too, over a loopback socket to QEMU for Windows; the Pi's sound plays on the host speakers, not yet through the Next's mixer
 - `--machine pentagon` and Machine > Machine Type > Pentagon 128K: the Next's Pentagon personality (128K ROM, Pentagon timing, Covox)
 - Quick Save (Alt+Shift+F5) and Quick Load (Alt+Shift+F9) snapshots; Quick Save keeps the newest 20 (--quick-snapshot-keep)
 
@@ -17,9 +18,12 @@
 - A malformed numeric command-line value is now a clear error instead of a crash or a silently wrong number
 - Windows: the status bar shows a loaded tape's file name instead of its full path
 - esxDOS host folder: a name containing ':' gets the same answer on every OS
+- Windows: the SD image and NextPi download into %USERPROFILE%\.jnext, not the current folder
 - Writes to ports 0x1FFD/0x3FFD page like 0x7FFD where the Next does (Pentagon and 128K timing)
 - A `.szx` is refused instead of saved with the wrong bank when extended paging (0xDFFD, NR 0x8F) is in use
 - Windows: `--dac-trace` files and the debugger's exported instruction traces no longer get CRLF line endings
+- 48K, 128K, +3 boot with the firmware's port set: no Timex, 0xDFFD, DMA or Layer 2 ports; 48K beeper only
+- With port 0xDFFD disabled, writes to it select an AY register, as on the Next
 - Windows: ESP-01 DNS lookups, AT+PING and AT+CIPSNTPTIME no longer fail sporadically or crash jnext (a MinGW thread-library race)
 
 ### Internal JNEXT Development

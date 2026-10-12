@@ -509,12 +509,14 @@ gui-clean: gui-debug-clean gui-release-clean
 clean: sdl-debug-clean sdl-release-clean gui-clean unit-test-clean
 
 # Run the regression suite's Windows rows and screenshots: MinGW exes under wine (GH #319)
-regression-win: unit-test-sdl-build win-sdl-release z88dk-gdb sdcard-image
+regression-win: unit-test-sdl-build unit-test-win-build win-sdl-release z88dk-gdb sdcard-image
 	@# `regression.sh --platform` against the Windows binaries: the Qt exe is the
 	@# shipped build minus PGO (Release + LTO, `win-release-non-pgo`) with Qt's
 	@# offscreen platform plugin bundled into THIS test tree only (never into a
 	@# package), the SDL-only exe is `win-sdl-release`, and the native helper tools
-	@# (rewind_test, sdfile_tool, the probes) come from the SDL unit-test tree.
+	@# (rewind_test, sdfile_tool, the probes) come from the SDL unit-test tree. The one
+	@# exception is nextpi-link-func's stand-in QEMU, which must be a PE: it comes from
+	@# the Windows unit-test tree (unit-test-win-build, GH #316).
 	@# Rows that cannot exist on Windows are declared absent with `os=` in
 	@# functional_tests.conf and printed by name, never skipped. A full run takes
 	@# the host lock like `make regression`; ROWS="a-func b-func" runs named rows.

@@ -17,7 +17,19 @@
 
 #include <zlib.h>
 
-#ifndef _WIN32
+#ifdef _WIN32
+// The one place this file touches the Win32 API: MD5 through CNG, the twin of
+// the OpenSSL path below. NOMINMAX / LEAN_AND_MEAN keep <windows.h> from
+// redefining names this file uses (std::min / std::max).
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <bcrypt.h>
+#else
 #include <openssl/evp.h>
 #endif
 
@@ -206,7 +218,52 @@ std::string prepared_release(const std::string& dir) {
 }
 
 #ifdef _WIN32
-std::string md5_file(const std::string&) { return {}; }
+// CNG (bcrypt.dll, Vista-era, already linked for the SD-card SHA-256), so the
+// Windows build carries no OpenSSL. Streamed in 1 MiB reads like the OpenSSL
+// twin: the archive is gigabytes. "" on any failure, as there.
+std::string md5_file(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return {};
+    BCRYPT_ALG_HANDLE  alg  = nullptr;
+    BCRYPT_HASH_HANDLE hash = nullptr;
+    std::string result;
+    DWORD obj_len = 0, got = 0, md_len = 0;
+    std::vector<UCHAR> obj;
+    if (BCryptOpenAlgorithmProvider(&alg, BCRYPT_MD5_ALGORITHM, nullptr, 0) < 0) return {};
+    if (BCryptGetProperty(alg, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&obj_len),
+                          sizeof(obj_len), &got, 0) >= 0
+        && BCryptGetProperty(alg, BCRYPT_HASH_LENGTH, reinterpret_cast<PUCHAR>(&md_len),
+                             sizeof(md_len), &got, 0) >= 0
+        && md_len > 0 && md_len <= 64) {
+        obj.resize(obj_len);
+        if (BCryptCreateHash(alg, &hash, obj.data(), obj_len, nullptr, 0, 0) >= 0) {
+            std::vector<char> buf(1 << 20);
+            bool ok = true;
+            while (true) {
+                f.read(buf.data(), static_cast<std::streamsize>(buf.size()));
+                const std::streamsize n = f.gcount();
+                if (n > 0 && BCryptHashData(hash, reinterpret_cast<PUCHAR>(buf.data()),
+                                            static_cast<ULONG>(n), 0) < 0) {
+                    ok = false;
+                    break;
+                }
+                if (f.bad()) { ok = false; break; }
+                if (f.eof()) break;
+            }
+            UCHAR md[64];
+            if (ok && BCryptFinishHash(hash, md, md_len, 0) >= 0) {
+                static const char* hexd = "0123456789abcdef";
+                for (DWORD i = 0; i < md_len; ++i) {
+                    result.push_back(hexd[md[i] >> 4]);
+                    result.push_back(hexd[md[i] & 0x0F]);
+                }
+            }
+            BCryptDestroyHash(hash);
+        }
+    }
+    BCryptCloseAlgorithmProvider(alg, 0);
+    return result;
+}
 #else
 std::string md5_file(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
@@ -427,11 +484,6 @@ bool extract_boot_files(const std::string& image_path, const std::string& boot_d
 
 ProvisionResult provision(const ProvisionOptions& opts) {
     ProvisionResult res;
-#ifdef _WIN32
-    (void)opts;
-    res.error = "NextPi under QEMU is not supported on Windows";
-    return res;
-#else
     const std::string dir     = opts.dir.empty() ? default_dir() : opts.dir;
     const std::string wanted  = trim(opts.release.empty() ? std::string(kDefaultRelease) : opts.release);
     const std::string mirror  = mirror_of(opts);
@@ -623,7 +675,6 @@ ProvisionResult provision(const ProvisionOptions& opts) {
     res.dir     = dir;
     res.release = target;
     return res;
-#endif
 }
 
 } // namespace nextpi

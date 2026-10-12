@@ -5157,7 +5157,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0xF003, 0xD001,
         nullptr,
         [this](uint16_t, uint8_t v) {
-            if ((effective_internal_port_enable(0x82) & 0x04) == 0) return;  // NR 0x82 b2 gate
+            // With the gate off port_dffd is 0, so `port_fffd_wr <= ... and
+            // not port_dffd` (:2773) fires for 0xDFFD: it is an AY register
+            // select. Decline, so the AY select handler sees it (GH #325, F1).
+            if ((effective_internal_port_enable(0x82) & 0x04) == 0) {
+                port_.decline_write();
+                return;
+            }
             mmu_.write_port_dffd(v);
         });
 
@@ -5202,10 +5208,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         },
         [this](uint16_t port, uint8_t val) {
             if ((effective_internal_port_enable(0x84) & 0x01) == 0) return;  // gated off
-            // VHDL 2772: NOT port_dffd gate is handled by exclusive dispatch —
-            // Pentagon handler (mask 0xF003, 6 bits) is more specific than
-            // this AY handler (mask 0xC007, 5 bits), so Pentagon wins for
-            // 0xDFFD writes and this handler is never called.
+            // VHDL 2773: NOT port_dffd gate is handled by exclusive dispatch —
+            // the 0xDFFD handler (mask 0xF003, more specific than this
+            // 0xC007) wins while NR 0x82 b2 = 1 and never declines; with b2 = 0
+            // port_dffd is 0 and it declines, so the write lands here (GH #325).
             turbosound_.reg_addr(val);
         });
 
@@ -7242,18 +7248,42 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // through their handlers after init(), which re-propagates; the
     // snapshot/NEX loaders' in-place init() writes nothing back (GH #239,
     // V16-NMP-02-LOAD-REINIT).
-    // GH #324: the Pentagon personality's type-dependent port enables, as
-    // tbblue.fw boot.c writes them for mode 3 (case 3: hwenables[0] = 0xc6,
-    // "Disable: ff/1ffd/+3 FB/6b"; hwenables[2] &= 0xfb, "Disable:
-    // Soundrive 2 DAC"; bit 31 of the 32-bit enable word = 0, "won't be
-    // reinitialised on a soft reset" = NR 0x85 b7). Cold boot only: a soft
-    // reset must keep them, which NR 0x85 b7 = 0 does on hardware too
-    // (zxnext.vhd:5052-5057). Written through the NextReg handlers so
-    // they propagate.
-    if (!preserve_memory && cfg.type == MachineType::PENTAGON) {
-        nextreg_.write(0x82, 0xC6);
-        nextreg_.write(0x84, static_cast<uint8_t>(nextreg_.cached(0x84) & ~0x04));
-        nextreg_.write(0x85, static_cast<uint8_t>(nextreg_.cached(0x85) & ~0x80));
+    // GH #325 (corrects the Pentagon-only GH #324 block): the standalone
+    // personalities' cold-boot port enables, as tbblue.fw boot.c
+    // init_registers() writes them for the menu entry's mode (:325-406).
+    // Rule: every bit boot.c writes identically whatever config.ini says takes
+    // the firmware value; a config-dependent bit stays on (the firmware's
+    // result with the option enabled), except the 48K AY (ay48 = 0 default).
+    //   NR 0x82 (hwenables[0], a constant per mode):
+    //     48K  C0 = 0xFF, 7FFD, DFFD, 1FFD, +3 floating bus, 6B off
+    //     128K C2 = as 48K, 7FFD on
+    //     +3   DA = 0xFF, DFFD, 6B off
+    //     Pent C6 = 0xFF, 1FFD, +3 floating bus, 6B off (GH #324)
+    //   NR 0x83 b7:6 (Layer 2 0x123B; sprites 0x57/0x5B/0x303B): never set.
+    //   NR 0x84: 48K clears b0 (AY, ay48 = 0); Pentagon clears b2 (Soundrive 2).
+    //   NR 0x85 b7 (reset type, "won't be reinitialised on a soft reset"),
+    //     b3 (CTC) and b2 (EFF7): never set.
+    // Cold boot only: a soft reset keeps them, which NR 0x85 b7 = 0 does on
+    // hardware too (zxnext.vhd:5052-5059). The Next (ZXN_ISSUE2) is untouched:
+    // its firmware and NextZXOS write the enables themselves. Written through
+    // the NextReg handlers so they propagate. No default: arm, so a new
+    // machine type fails -Werror=switch.
+    if (!preserve_memory) {
+        uint8_t nr82 = 0, nr84_and = 0xFF;
+        bool standalone = true;
+        switch (cfg.type) {
+        case MachineType::ZX48K:    nr82 = 0xC0; nr84_and = static_cast<uint8_t>(~0x01); break;
+        case MachineType::ZX128K:   nr82 = 0xC2; break;
+        case MachineType::ZX_PLUS3: nr82 = 0xDA; break;
+        case MachineType::PENTAGON: nr82 = 0xC6; nr84_and = static_cast<uint8_t>(~0x04); break;
+        case MachineType::ZXN_ISSUE2: standalone = false; break;
+        }
+        if (standalone) {
+            nextreg_.write(0x82, nr82);
+            nextreg_.write(0x83, static_cast<uint8_t>(nextreg_.cached(0x83) & 0x3F));
+            nextreg_.write(0x84, static_cast<uint8_t>(nextreg_.cached(0x84) & nr84_and));
+            nextreg_.write(0x85, static_cast<uint8_t>(nextreg_.cached(0x85) & 0x03));
+        }
     }
     propagate_effective_port_enables();
 
@@ -9469,18 +9499,21 @@ void Emulator::service_joy_uart_link_frame()
 
 void Emulator::setup_pi_uart()
 {
-    if (config_.pi_uart_fifo_rx.empty()) return;  // no Pi
+    if (config_.pi_uart_fifo_rx.empty() && config_.pi_uart_tcp_port == 0) return;  // no Pi
     // A SOFT reset must not unplug it: the Pi on the far end never sees a
     // Next-side reset, and re-opening the endpoint would drop what it holds.
     if (pi_uart_) return;
 
     std::string error;
     std::unique_ptr<JoyUartEndpoint> endpoint =
-        JoyUartEndpoint::open_fifo_paths(config_.pi_uart_fifo_rx, config_.pi_uart_fifo_tx, error);
+        !config_.pi_uart_fifo_rx.empty()
+            ? JoyUartEndpoint::open_fifo_paths(config_.pi_uart_fifo_rx, config_.pi_uart_fifo_tx, error)
+            : JoyUartEndpoint::open_tcp_client("127.0.0.1", config_.pi_uart_tcp_port, error);
     if (!endpoint) {
-        // Unreachable from main.cpp, which creates both FIFOs before the machine
-        // boots; a hand-built EmulatorConfig gets NO link rather than a
-        // silently dead one, and UART 1 keeps its unattached loopback.
+        // Unreachable from main.cpp, which creates both FIFOs (or chooses the
+        // port) before the machine boots; a hand-built EmulatorConfig gets NO
+        // link rather than a silently dead one, and UART 1 keeps its
+        // unattached loopback.
         Log::uart()->error("Raspberry Pi serial link: {} — not attached", error);
         return;
     }
@@ -14160,5 +14193,6 @@ EmulatorConfig Emulator::warm_start_boot_config(const EmulatorConfig& live)
     boot_cfg.joy_uart_pty         = false;
     boot_cfg.pi_uart_fifo_rx.clear();
     boot_cfg.pi_uart_fifo_tx.clear();
+    boot_cfg.pi_uart_tcp_port     = 0;
     return boot_cfg;
 }

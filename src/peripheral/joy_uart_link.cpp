@@ -1,5 +1,7 @@
 #include "joy_uart_link.h"
 
+#include "esp01/esp_socket_platform.h"
+
 #include <cerrno>
 #include <cstring>
 
@@ -43,12 +45,117 @@ bool set_nonblocking(int fd) {
 // JoyUartEndpoint
 // ══════════════════════════════════════════════════════════════════════
 
+/// The TCP form's state: one non-blocking socket and whether its connect is
+/// still in flight.
+struct JoyUartEndpoint::Tcp {
+    esp::net::NativeSocket sock       = esp::net::kInvalidSocket;
+    bool                   connecting = false;
+    esp::IpAddress         ip;
+    std::uint16_t          port = 0;
+    ~Tcp() { drop(); }
+    void drop() {
+        if (sock != esp::net::kInvalidSocket) esp::net::close(sock);
+        sock       = esp::net::kInvalidSocket;
+        connecting = false;
+    }
+};
+
+JoyUartEndpoint::JoyUartEndpoint() = default;
+
 JoyUartEndpoint::~JoyUartEndpoint() {
 #ifndef _WIN32
     if (tx_fd_ >= 0 && !shared_fd_) ::close(tx_fd_);
     if (rx_fd_ >= 0)                ::close(rx_fd_);
     if (held_fd_ >= 0)              ::close(held_fd_);
 #endif
+}
+
+std::unique_ptr<JoyUartEndpoint> JoyUartEndpoint::open_tcp_client(const std::string& host,
+                                                                  std::uint16_t port,
+                                                                  std::string& error) {
+    esp::IpAddress ip;
+    if (!esp::parse_ip(host, ip) || ip.family != esp::IpFamily::V4) {
+        error = host + ": not a numeric IPv4 address";
+        return nullptr;
+    }
+    if (port == 0) {
+        error = "TCP port 0 cannot be connected to";
+        return nullptr;
+    }
+    std::string err;
+    if (!esp::net::init(err)) {
+        error = "network init: " + err;
+        return nullptr;
+    }
+    std::unique_ptr<JoyUartEndpoint> ep(new JoyUartEndpoint());
+    ep->tcp_       = std::make_unique<Tcp>();
+    ep->tcp_->ip   = ip;
+    ep->tcp_->port = port;
+    ep->description_ = "TCP " + host + ":" + std::to_string(port);
+    return ep;
+}
+
+// Start the connect if there is no socket, and advance it if one is in flight.
+// Nothing here waits. A connect that fails (nobody listening yet, QEMU not up)
+// is NOT a fault: the socket is dropped and the next call tries again. Only
+// being unable to make a socket at all is recorded.
+bool JoyUartEndpoint::tcp_connected() {
+    Tcp& t = *tcp_;
+    std::string err;
+    if (t.sock == esp::net::kInvalidSocket) {
+        t.sock = esp::net::open_nonblocking(esp::IpFamily::V4, esp::Protocol::Tcp, 0, err);
+        if (t.sock == esp::net::kInvalidSocket) {
+            last_error_ = err;
+            ++faults_;
+            return false;
+        }
+        switch (esp::net::begin_connect(t.sock, t.ip, t.port, err)) {
+        case esp::net::ConnectProgress::Connected: return true;
+        case esp::net::ConnectProgress::Pending:   t.connecting = true; return false;
+        case esp::net::ConnectProgress::Failed:    t.drop(); return false;
+        }
+        return false;
+    }
+    if (!t.connecting) return true;
+    switch (esp::net::poll_connect(t.sock, err)) {
+    case esp::net::ConnectProgress::Connected: t.connecting = false; return true;
+    case esp::net::ConnectProgress::Pending:   return false;
+    case esp::net::ConnectProgress::Failed:    t.drop(); return false;
+    }
+    return false;
+}
+
+std::size_t JoyUartEndpoint::tcp_read(uint8_t* buf, std::size_t cap) {
+    if (cap == 0 || !tcp_connected()) return 0;
+    bool eof = false, failed = false, reset = false;
+    std::string err;
+    const std::size_t n = esp::net::recv(tcp_->sock, buf, cap, true, eof, failed, reset, err);
+    if (n > 0) return n;
+    if (eof || failed) {
+        // The peer is gone. An orderly close or a reset is the cable being
+        // unplugged; any other error is also recorded. Either way the socket
+        // is dead, so it is dropped and the next call connects again.
+        if (failed && !reset) {
+            last_error_ = err;
+            ++faults_;
+        }
+        tcp_->drop();
+        peer_lost_ = true;
+    }
+    return 0;
+}
+
+std::size_t JoyUartEndpoint::tcp_write(const uint8_t* buf, std::size_t len) {
+    if (len == 0 || !tcp_connected()) return 0;      // nothing plugged in
+    bool failed = false;
+    std::string err;
+    const std::size_t n = esp::net::send(tcp_->sock, buf, len, failed, err);
+    if (n > 0) return n;
+    if (failed) {                                    // EPIPE / reset: the reader went away
+        tcp_->drop();
+        peer_lost_ = true;
+    }
+    return 0;
 }
 
 #ifdef _WIN32
@@ -76,8 +183,12 @@ std::unique_ptr<JoyUartEndpoint> JoyUartEndpoint::open_pty(std::string& error) {
 
 void JoyUartEndpoint::open_tx_if_needed() {}
 
-std::size_t JoyUartEndpoint::read(uint8_t*, std::size_t) { return 0; }
-std::size_t JoyUartEndpoint::write(const uint8_t*, std::size_t) { return 0; }
+std::size_t JoyUartEndpoint::read(uint8_t* buf, std::size_t cap) {
+    return tcp_ ? tcp_read(buf, cap) : 0;
+}
+std::size_t JoyUartEndpoint::write(const uint8_t* buf, std::size_t len) {
+    return tcp_ ? tcp_write(buf, len) : 0;
+}
 
 #else   // POSIX
 
@@ -226,6 +337,7 @@ void JoyUartEndpoint::open_tx_if_needed() {
 }
 
 std::size_t JoyUartEndpoint::read(uint8_t* buf, std::size_t cap) {
+    if (tcp_) return tcp_read(buf, cap);
     if (rx_fd_ < 0 || cap == 0) return 0;
     const ssize_t n = ::read(rx_fd_, buf, cap);
     if (n > 0) return static_cast<std::size_t>(n);
@@ -248,6 +360,7 @@ std::size_t JoyUartEndpoint::read(uint8_t* buf, std::size_t cap) {
 }
 
 std::size_t JoyUartEndpoint::write(const uint8_t* buf, std::size_t len) {
+    if (tcp_) return tcp_write(buf, len);
     if (len == 0) return 0;
     open_tx_if_needed();
     if (tx_fd_ < 0) return 0;          // nothing plugged in; caller counts the loss
@@ -313,6 +426,10 @@ void JoyUartLink::poll() {
         rx_queue_.insert(rx_queue_.end(), buf, buf + got);
         received_ += got;
     }
+    // A socket peer that hung up is seen by the read above, with nothing
+    // queued to send, so flush_tx() would never look. The FIFO form has
+    // already been handled by flush_tx() and reports nothing here.
+    discard_on_peer_loss();
 }
 
 void JoyUartLink::tick(uint32_t master_cycles, uint32_t byte_ticks) {
@@ -372,16 +489,19 @@ void JoyUartLink::flush_tx() {
             // it: both queues hold half of an exchange with a process that has
             // exited, and giving that to whoever connects next is worse than
             // losing it. See flush_tx()'s declaration for the whole argument.
-            if (endpoint_->take_peer_lost()) {
-                unsent_ += tx_queue_.size();
-                tx_queue_.clear();
-                rx_queue_.clear();
-                timer_ = 0;
-            }
+            discard_on_peer_loss();
             return;                        // else: nothing plugged in, or peer is full
         }
         tx_queue_.erase(tx_queue_.begin(),
                         tx_queue_.begin() + static_cast<std::ptrdiff_t>(wrote));
         sent_ += wrote;
     }
+}
+
+void JoyUartLink::discard_on_peer_loss() {
+    if (!endpoint_->take_peer_lost()) return;
+    unsent_ += tx_queue_.size();
+    tx_queue_.clear();
+    rx_queue_.clear();
+    timer_ = 0;
 }

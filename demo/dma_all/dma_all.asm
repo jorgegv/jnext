@@ -77,6 +77,12 @@ start:
         ld   e, a
         ld   a, 8
         call nr_write
+        ld   a, $82             ; NR $82 bit 5: port $6B on (the 48K personality
+        call nr_read            ; starts with it off, like the firmware's 48K mode;
+        or   $20                ; zxnext.vhd:2405, :2643; GH #325)
+        ld   e, a
+        ld   a, $82
+        call nr_write
         xor  a
         ld   (PASS), a
         ld   (FAILID), a
