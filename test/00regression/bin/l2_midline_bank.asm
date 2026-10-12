@@ -52,6 +52,12 @@ GREEN   equ  $1C
 start:
         di
 
+        ; The 128K personality starts with the Layer 2 port 0x123B off, as the
+        ; Next firmware's 128K mode does (tbblue.fw boot.c: NR 0x83 b7 = 0), so
+        ; turn it on through NextREG first (zxnext.vhd:2424, :2635; GH #325).
+        ld   de, $83BF              ; NR 0x83 = 0xBF: Layer 2 port on
+        call nreg
+
         ; ---- paint bank 8 (NR 0x12, the active bank) solid red ----------
         ; Port 0x123B bit 0 maps a 16K third of the Layer 2 bitmap over
         ; 0x0000-0x3FFF for WRITES; bits 7:6 pick the third; bit 3 selects

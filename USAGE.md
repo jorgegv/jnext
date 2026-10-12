@@ -977,6 +977,14 @@ original Russian clone’s own hardware.
 `next`  
 ZX Spectrum Next (Issue 2) - full Next hardware and extended features.
 
+Like the Next firmware’s own 48K, 128K, +3 and Pentagon personalities,
+the four standalone machines start with the Next-only ports off: Timex
+port 0xFF, the zxnDMA’s port 0x6B, the Layer 2 and sprite ports, the CTC
+and 0xEFF7 (and 0xDFFD, except on the Pentagon). The 48K also has 0x7FFD
+paging and the AY off; 0x1FFD and the +3 floating bus are on only on the
++3. Software turns any of them back on through NextREG 0x82-0x85, as on
+the hardware.
+
 The machine type can also be switched at runtime from the GUI (**Machine
 \> Machine Type**); switching resets the machine.
 
@@ -1299,7 +1307,8 @@ byte for the +3’s second paging register, so a +3 in *special paging*,
 or with ROM 2 or ROM 3 paged, is refused with `.szx` named as the format
 that can hold it. An SNA names the bank at 0xC000 in a field that
 reaches only banks 0-7, so a machine using **extended paging** (port
-0xDFFD, which works on every machine type, not only a Next) is refused
+0xDFFD, which is on by default on a Next and a Pentagon and reachable on
+the other machines once software enables it in NextREG 0x82) is refused
 too, pointing at `.jns` — `.szx` has no field for that register either.
 An SNA also carries no machine identifier, so FUSE reads a 128K one as a
 Pentagon 128 — the right RAM and paging, a different timing model. On
