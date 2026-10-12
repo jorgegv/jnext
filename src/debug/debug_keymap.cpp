@@ -201,6 +201,16 @@ bool validate_combo(const Combo& c, std::string& why) {
         return false;
     }
 
+    // GH #321: Alt+Shift+F5 / Alt+Shift+F9 are Quick Save / Quick Load Snapshot
+    // in the emulator window (a QAction there, the key Router in the SDL
+    // build). Refused by name, as the script host keys are: a debugger action
+    // bound there would be taken by the quick snapshot while the emulator
+    // window has focus. Alt+F5, Alt+Shift+F6 and the rest stay bindable.
+    if (c.mods == (MOD_ALT | MOD_SHIFT) && (c.key == Key::F5 || c.key == Key::F9)) {
+        why = "Alt+Shift+F5 and Alt+Shift+F9 are the quick-snapshot keys";
+        return false;
+    }
+
     // GH #21: the disassembly panel's Copy / Select All.
     if (c.mods == MOD_CTRL && (c.key == Key::C || c.key == Key::A)) {
         why = "reserved by the disassembly panel for Copy / Select All";

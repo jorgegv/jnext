@@ -47,7 +47,9 @@ Three things catch people out:
   combinations above are used, because the menu bar and the menu shortcuts
   claim the rest — and **Alt+1 to Alt+8** are the
   [script host keys](../06-debugger/functions/13-debugger-scripts.md#host-keys-alt1-to-alt8):
-  they do not type their digit (Alt+9 and Alt+0 still do).
+  they do not type their digit (Alt+9 and Alt+0 still do). **Alt+Shift+F5**
+  and **Alt+Shift+F9** are Quick Save and Quick Load
+  ([5.9 Snapshots](09-snapshots.md#quick-save-and-quick-load)).
 
 **Ctrl belongs to the program you are running.** No Ctrl+letter chord of any
 kind is a JNEXT shortcut, so the Symbol Shift sequences NextBASIC leans on —
@@ -78,7 +80,8 @@ them as usual. Only the tap-Alt-then-arrow route is gone.
 
 The machine's own front-panel keys are on function keys: **F1** hard reset,
 **F4** soft reset, **F9** Multiface NMI, **F10** DivMMC. (With the debugger
-open, F9 belongs to the debugger.) The **Pause** key pauses and resumes the
+open, F9 belongs to the debugger.) With Alt and Shift held, F5 and F9 are the quick
+snapshot keys instead and reach neither the Multiface nor the guest. The **Pause** key pauses and resumes the
 machine (**Machine > Pause**, also **Alt+U**). The two resets are also in the **Machine**
 menu and on the toolbar: **Power Reset** (Alt+R, same as F1) is a power
 off/on cold boot that re-runs the whole boot chain; **Soft Reset** (same as

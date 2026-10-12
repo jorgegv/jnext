@@ -116,6 +116,7 @@ private:
 
     QLineEdit* quick_screenshot_dir_edit_  = nullptr;   // GH #19
     QComboBox* quick_screenshot_fmt_combo_ = nullptr;
+    QSpinBox*  quick_keep_spin_ = nullptr;   // GH #321: 0 = Unlimited
 
     // GH #1 — the edited copy of the key bindings. ALWAYS present, even in a
     // build with no Debugger Keys tab, because collect() must hand it back.

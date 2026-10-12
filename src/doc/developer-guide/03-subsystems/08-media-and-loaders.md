@@ -800,6 +800,38 @@ Save-Screenshot dialog's remembered directory, deliberately — that one follows
 the dialog around, and a no-dialog capture whose destination moves is
 unfindable.
 
+**Quick Save / Quick Load** (File ▸ Quick Save Snapshot Alt+Shift+F5, Quick Load
+Snapshot Alt+Shift+F9; the same two chords in the SDL-only build) follow the same
+shape for `.jns`. `src/core/quick_snapshot.*` holds the folder
+(`default_quick_snapshot_dir()` = `sdcard::default_state_dir()` + `/snapshots`,
+so `$JNEXT_CONFIG_DIR` and the SD image's own state-dir resolution apply — on
+Windows it inherits the HOME → USERPROFILE fix tracked in GH #316, and until
+then a missing HOME puts it beside the SD image under `./.jnext`), the name
+(`auto_timestamped_path()`, the one function `auto_screenshot_path()` also
+uses) and the choice of file (`latest_quick_snapshot()`: greatest modification
+time among `*.jns` regular files directly in the folder, ties to the greater
+name stem so `…-02` beats the bare name; local-time names are not ordered across
+a DST change, which is why the name is not the key). Quick Load goes through
+`MainWindow::handle_load_path()` / `SdlApp::cold_boot()`, i.e. a full cold boot
+and then `load_jns_file()`, never an in-place load. Two things make that route
+safe for a `.jns`: `Emulator::probe_jns_file()` runs the pre-touch half of
+`load_jns` (`check_jns()`) BEFORE the cold boot, so a file that will be refused
+costs no session; and `emulator_boot_machine()` reads the `.jns` manifest's
+machine the way it reads an RZX's, so the cold boot builds the snapshot's
+machine and the frontend's `keep_machine` hook records it (otherwise a later
+reset would boot the old machine); the command-line startup does the same through `emulator_startup_machine()`, where a `.jns` wins even over an explicit `--machine`. After ANY snapshot load the frontends' `emulator_apply_load()` calls `Keyboard::release_all_keys()`: the membrane matrix in a `.jns` records the keys the host held at save time (the Shift of the Alt+Shift+F5 chord), whose release would never arrive, so the guest starts with no key down (the matrix, the extended-key register that the arrows use, and the shift scan history; the core load keeps them, the round-trip contract: QS-28..30). Debugger-initiated loads (DZRP, ZRCP, GDB) go through `emulator_apply_load()` too, so they release held keys as well. `prune_quick_snapshots()` never deletes a symbolic link. Quick Load failures (no snapshot, unreadable newest file) are a status-bar line in Qt and a log line in SDL, never a dialog; both actions act once per key press (`QuickChordTracker`, `setAutoRepeat(false)`). `.sna`, `.szx` and `.z80` do NOT
+reconfigure the machine at all (their loaders apply the file onto the running
+one), so no stale-frontend symptom exists for them; QS-25..27 pin that, and
+if a loader ever starts switching machines `emulator_boot_machine()` must learn
+that format as it did `.jns`. Retention: `prune_quick_snapshots()` runs after
+each Quick Save and deletes only names matching `is_quick_snapshot_name()`;
+the count is `EmulatorConfig::quick_snapshot_keep` (CLI) or
+`AppConfigData::quick_snapshot_keep` (`[snapshot] quick_keep`, Preferences),
+the CLI winning (`quick_snapshot_keep_cli`). The debugger keymap refuses
+Alt+Shift+F5/F9 by name (`validate_combo`).
+The SDL chord predicate is `platform/quick_snapshot_chord.h`; the Qt chords are
+the two QAction shortcuts in `main_window.cpp`.
+
 Video recording needs **FFmpeg on the host**. jnext writes raw ARGB frames and
 raw stereo PCM to temporary files during the run, so the hot loop pays no
 encoding cost, and shells out once at stop, trying `libx264`, `mpeg4` and

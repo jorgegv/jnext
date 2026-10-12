@@ -267,6 +267,8 @@ int main(int argc, char* argv[]) {
     // separate booleans this replaced could express and nothing rejected —
     // has no spelling.
     bool        snapshot_uncompressed = false;  // --snapshot-compression off
+    int         quick_snapshot_keep = 20;       // --quick-snapshot-keep (0 = unlimited)
+    bool        quick_snapshot_keep_set = false;
     bool        snapshot_strict       = false;  // --snapshot-mode strict
     bool        snapshot_force_sdcard = false;  // --snapshot-mode force
     MachineType machine_type = MachineType::ZXN_ISSUE2;
@@ -512,6 +514,15 @@ int main(int argc, char* argv[]) {
                                  v[0]);
                     return 1;
                 }
+                break;
+            case cli::OptId::QuickSnapshotKeep:
+                if (!cli::parse_quick_snapshot_keep(v[0], quick_snapshot_keep)) {
+                    std::fprintf(stderr,
+                                 "--quick-snapshot-keep: N must be a whole number from 1 to "
+                                 "1000000, or \"unlimited\", not \"%s\".\n", v[0]);
+                    return 1;
+                }
+                quick_snapshot_keep_set = true;
                 break;
             case cli::OptId::SnapshotMode:
                 // The mapping lives in `cli_options.h` so a test can assert it
@@ -1576,6 +1587,8 @@ int main(int argc, char* argv[]) {
         cfg.jns_uncompressed = snapshot_uncompressed;
         cfg.jns_strict       = snapshot_strict;
         cfg.jns_force_sdcard = snapshot_force_sdcard;
+        cfg.quick_snapshot_keep = quick_snapshot_keep;
+        cfg.quick_snapshot_keep_cli = quick_snapshot_keep_set;
         cfg.magic_port_enabled = magic_port_enabled;
         cfg.magic_port_address = magic_port_address;
         cfg.magic_port_mode = magic_port_mode;
@@ -1633,6 +1646,9 @@ int main(int argc, char* argv[]) {
             cfg.type   = merge_cli_precedence(machine_type_set, machine_type,
                                                gui_app_config.data().machine_type);
             cfg.silent = merge_cli_precedence(silent, true, gui_app_config.data().silent);
+            cfg.quick_snapshot_keep = merge_cli_precedence(
+                quick_snapshot_keep_set, quick_snapshot_keep,
+                gui_app_config.data().quick_snapshot_keep);
             cfg.audio_gain_db = merge_cli_precedence(
                 audio_gain.master_set, audio_gain.master,
                 gui_app_config.data().audio_gain_db);
@@ -1690,7 +1706,8 @@ int main(int argc, char* argv[]) {
         // playback boots that machine (emulator_boot_machine()) — the same
         // rule every cold boot applies. An explicit --machine wins, and
         // Emulator::load_rzx() warns when it disagrees with the recording.
-        if (!machine_type_set) cfg.type = emulator_boot_machine(cfg.load_file, cfg.type);
+        // A `.jns` names its machine too and wins even over --machine (GH #321).
+        cfg.type = emulator_startup_machine(cfg.load_file, cfg.type, machine_type_set);
 
         // An allowlist with nothing to restrict is a user error worth naming:
         // it reads as "I have restricted the ESP" when in fact the ESP is off.
