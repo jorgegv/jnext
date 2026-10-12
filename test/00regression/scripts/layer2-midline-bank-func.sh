@@ -46,8 +46,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #
 # 128K, not Next: the fixture programs every register it needs and wants no
 # firmware underneath it, so this row costs a fast boot instead of a NextZXOS
-# one. The Copper and Layer 2 are core hardware, present in every machine
-# mode. Injected binary + fixed frame counts + no RTC = deterministic.
+# one. The Copper and Layer 2 are core hardware, but the 128K personality
+# starts with the Layer 2 port off (as the firmware's 128K mode does), so the
+# fixture turns it on through NR 0x83 first (GH #325). Injected binary + fixed
+# frame counts + no RTC = deterministic.
 if want layer2-midline-bank-func; then
     begin_func layer2-midline-bank-func
 

@@ -530,3 +530,24 @@ bit 7 = 0, `zxnext.vhd:5052-5067`), 50 Hz forced (`PENT-04`, `:5835-5836`), NR
 `MachineType::PENTAGON` (`PENT-06`, `:5139-5142`, `:5751`) and the Covox on
 0xFB reaching DAC channels A and D (`PENT-22`, `:2433`, `:2661-2664`). The
 firmware parity itself is the functional row `machine-pentagon-func`.
+
+## GH #325: the 48K, 128K and +3 personalities get the firmware's port enables
+
+Rows `PERS-01`..`PERS-09` and `PERS-P01`..`PERS-P13` (`nextreg_integration_test`,
+group `PERS-PORT-ENABLES`). The oracle is `tbblue.fw` `boot.c` `init_registers()`
+(`:325-406`), observed by booting the real firmware with `config.ini default=2/3/5`
+and reading NR 0x82-0x85 at frame 700: 48K C0/3D/FE/01, 128K C2/3D/FF/01, +3
+DA/3D/FF/01 (Pentagon C6/3D/FB/01 from GH #324). jnext keeps the config-dependent
+bits on (except the 48K AY, `ay48=0`) and takes the config-invariant ones from the
+firmware: NR 0x83 b7:6 and NR 0x85 b7/b3/b2 are never set. Cold boot:
+`PERS-01`..`PERS-04` read 48k C0/3F/FE/03, 128k C2/3F/FF/03, +3 DA/3F/FF/03,
+Pentagon C6/3F/FB/03. `PERS-05`..`PERS-07` a soft reset keeps them (NR 0x85 b7 = 0,
+`zxnext.vhd:5052-5059`); `PERS-09` reset_type = 1 reloads FF/FF/FF/8F; `PERS-08` the
+Next is untouched. Port behaviour (VHDL decodes): `PERS-P01` 0x7FFD (`:2399,2593`),
+`PERS-P02` 0xDFFD (`:2400,2596`), `PERS-P03`/`P04` a disabled 0xDFFD write is an AY
+register select (`:2596,2647,2773`), `PERS-P05` AY off on the 48K (`:2428`),
+`PERS-P06` port 0xFF (`:2397,2813`), `PERS-P07` +3 floating bus (`:2403,2589`),
+`PERS-P08` 0x6B (`:2405,2643`), `PERS-P09` 0x123B (`:2424`), `PERS-P10` sprites
+(`:2423`), `PERS-P11` CTC (`:2442`), `PERS-P12` 0xEFF7 (`:2440,2604`), `PERS-P13`
+0x1FFD falling through to 0x7FFD (`:2593,2599`). The firmware parity itself is the
+functional row `machine-port-enables-func`.

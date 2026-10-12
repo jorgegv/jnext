@@ -16,7 +16,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Memory/MMU            |      262 |      262 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU (int)      |      114 |      114 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NextREG (integration) |      357 |      357 |      0 |       0 |    100% | 🟢 All tests pass. |
+| NextREG (integration) |      379 |      379 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub           |      185 |      185 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub (symlinks, POSIX) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | quick_snapshot_posix_test |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "quick_snapshot_posix_test" to the label map in refresh-subsystem-status.sh. |
@@ -29,7 +29,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | UART + I2C/RTC        |      104 |      104 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (POSIX-only rows) |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 socket transport |      237 |      237 |      0 |       0 |    100% | 🟢 All tests pass. |
+| NextPi launcher + TCP link (all OSes) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 socket transport |      241 |      241 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket SIGPIPE (POSIX) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 AT command engine |      489 |      489 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -43,7 +44,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD File Add (POSIX-only rows) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (case-sensitive host) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card Provisioner   |       82 |       82 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card Provisioner   |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Warm start (GH #234)  |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot container + descriptor (.jns, GH #27) |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot SD identity (.jns, GH #27 S7) |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -147,6 +148,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12705**| **12705**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12749**| **12749**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

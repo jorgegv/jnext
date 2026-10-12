@@ -1935,6 +1935,7 @@ static void test_snapsave_sna_machine_boundary() {
         emu.init(reinit_cfg(MachineType::ZX128K));
         emu.port().out(0x7FFD, 0x00);          // 0x7FFD names bank 0
         emu.mmu().write(0xC000, 0xAA);
+        emu.nextreg().write(0x82, static_cast<uint8_t>(emu.nextreg().cached(0x82) | 0x04));  // GH #325: enable 0xDFFD
         emu.port().out(0xDFFD, 0x01);          // extended paging: bank 8 at 0xC000
         emu.mmu().write(0xC000, 0xBB);
         const uint8_t slot6 = emu.mmu().get_page(6);
@@ -2013,11 +2014,13 @@ static void test_snapsave_sna_machine_boundary() {
     {
         Emulator emu;
         emu.init(reinit_cfg(MachineType::ZX48K));
+        emu.nextreg().write(0x82, static_cast<uint8_t>(emu.nextreg().cached(0x82) | 0x04));  // GH #325: enable 0xDFFD
         emu.port().out(0xDFFD, 0x01);
         const uint8_t slot6 = emu.mmu().get_page(6);
         std::string error;
         const std::vector<uint8_t> sna = SnaSaver::save(emu, &error);
-        // MEASURED, not assumed: port 0xDFFD is live on `--machine 48k` too —
+        // MEASURED, not assumed: port 0xDFFD is live on `--machine 48k` once
+        // NR 0x82 bit 2 enables it (GH #325; off by default there) —
         // compose_bank_() does not branch on machine type, only on Pentagon
         // mode — so slot 6 really does move to page 16 (bank 8) here, and the
         // refusal is asserted unconditionally rather than "if it moved".
@@ -3038,6 +3041,7 @@ static void test_gh324_pentagon_savers() {
     {
         Emulator emu;
         boot_machine(emu, MachineType::ZX128K);
+        emu.nextreg().write(0x82, static_cast<uint8_t>(emu.nextreg().cached(0x82) | 0x04));  // GH #325: enable 0xDFFD
         emu.port().out(0xDFFD, 0x01);          // bank 8 at 0xC000
         const auto r = SzxSaver::save(emu);
         check("SZXW-EXT-01",

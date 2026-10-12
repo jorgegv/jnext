@@ -321,7 +321,10 @@ int main()
               same_path(warm_start::cache_dir(), g_dir + "/warm-start"),
               warm_start::cache_dir());
 
+        // HOME, then USERPROFILE, then "." -- sdcard's home_dir() (GH #316): a native
+        // Windows session, and wine, have USERPROFILE and no HOME.
         const char* home = std::getenv("HOME");
+        if (!(home && *home)) home = std::getenv("USERPROFILE");
         jtp::unset_env("JNEXT_CONFIG_DIR");
         const std::string unset_dir = warm_start::cache_dir();
         set_config_dir("");

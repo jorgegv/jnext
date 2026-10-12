@@ -1,8 +1,11 @@
 #pragma once
 #include <atomic>
+#include <cstdint>
 #include <string>
 #include <thread>
 #include <vector>
+
+struct EmulatorConfig;
 
 /// NextPi under QEMU, launched and owned by jnext (`--nextpi`).
 /// Design: doc/design/NEXTPI-DESIGN.md §3.5.
@@ -45,16 +48,46 @@
 /// `posix_spawn_file_actions_addclosefrom_np` on glibc 2.34+, and elsewhere
 /// `mark_close_on_exec_except` over the descriptors actually open.
 ///
-/// POSIX ONLY, like the FIFO endpoint it feeds. `start()` refuses on Windows.
+/// TWO TRANSPORTS (GH #316). POSIX uses the FIFO pair above. Windows has no
+/// FIFOs, and QEMU's Windows `pipe` chardev is a named-pipe SERVER that blocks
+/// QEMU's startup until a client connects, takes one client and never listens
+/// again, so a hard reset (a rebuilt Emulator) would lose the Pi for good. Its
+/// `socket` chardev with `server=on,wait=off` listens at once and listens again
+/// after a disconnect, so on Windows QEMU listens on a loopback TCP port jnext
+/// picks, and the Emulator (`JoyUartEndpoint::open_tcp_client`) is the client.
+/// The socket transport can be selected on POSIX too (`Spec::transport`); the
+/// default there stays the FIFO pair, which exposes nothing to the network.
+///
+/// WINDOWS LAUNCH is in pi_qemu_win.cpp (the only TU that includes
+/// <windows.h>): `CreateProcessW` with an explicit handle list, a job object
+/// with KILL_ON_JOB_CLOSE in place of the watchdog (the kernel kills QEMU when
+/// jnext goes, however it goes), and a graceful stop by `quit` on QEMU's stdin
+/// (`-monitor stdio`) before the job is terminated. The environment is built
+/// explicitly with `LANG=C` / `LC_ALL=C`, matched case-insensitively.
 class PiQemu {
 public:
+    enum class Transport { Fifo, Socket };
+
+    /// The transport `Spec` defaults to: the FIFO pair on POSIX, the loopback
+    /// socket on Windows.
+    static constexpr Transport default_transport() {
+#ifdef _WIN32
+        return Transport::Socket;
+#else
+        return Transport::Fifo;
+#endif
+    }
+
     struct Spec {
         std::string dir;                              ///< NextPi directory (layout above)
-        std::string qemu_binary = "qemu-system-arm";  ///< PATH-searched unless it has a '/'
-        /// Pi audio: "" for the platform default (coreaudio on macOS, pa
-        /// elsewhere), a QEMU -audiodev driver name ("none" mutes), or
-        /// "wav:FILE" to record it.
+        /// PATH-searched unless it has a path separator (Windows: also tried
+        /// with `.exe`).
+        std::string qemu_binary = "qemu-system-arm";
+        /// Pi audio: "" for the platform default (coreaudio on macOS, dsound
+        /// on Windows, pa elsewhere), a QEMU -audiodev driver name ("none"
+        /// mutes), or "wav:FILE" to record it.
         std::string audio;
+        Transport   transport = default_transport();
         /// How long `stop()` waits after asking QEMU to stop before it
         /// SIGKILLs it. A test seam; production uses the default.
         int stop_grace_ms = 3000;
@@ -78,8 +111,24 @@ public:
     int  pid() const { return pid_; }
 
     /// The wait status the watchdog exited with — which is QEMU's own exit
-    /// status, passed on — or -1 while it runs (and before any start).
+    /// status, passed on — or -1 while it runs (and before any start). On
+    /// Windows it is the process's exit code.
     int exit_status() const { return exit_status_; }
+
+    /// The loopback port QEMU's socket chardev listens on; 0 for the FIFO
+    /// transport.
+    std::uint16_t tcp_port() const { return tcp_port_; }
+
+    /// Point `cfg` at this Pi: the FIFO paths for the FIFO transport, the TCP
+    /// port for the socket one (the other fields cleared). The one place the
+    /// transport turns into Emulator configuration, so `main()` and the rows
+    /// run the same code.
+    void link_config(EmulatorConfig& cfg) const;
+
+    /// A free loopback port, found by binding 127.0.0.1:0 and closing it again.
+    /// 0 with `error` set on failure. Another process can take the port before
+    /// QEMU binds it; QEMU then exits at once and `start()` says so.
+    static std::uint16_t free_loopback_port(std::string& error);
 
     /// The FIFO jnext READS (QEMU's `<pipe>.out`: Pi → Next) and the one it
     /// WRITES (QEMU's `<pipe>.in`: Next → Pi).
@@ -89,6 +138,13 @@ public:
     /// The QEMU argument vector, argv[0] excluded. Pure; exposed for tests.
     /// `pipe_base` is the chardev path whose `.in` / `.out` are the FIFOs.
     static std::vector<std::string> build_args(const Spec& spec, const std::string& pipe_base);
+    /// The same with the console UART on a loopback TCP chardev QEMU listens
+    /// on: `socket,host=127.0.0.1,port=<port>,server=on,wait=off,nodelay=on`.
+    /// `host=` is not optional (QEMU's default is 0.0.0.0) and neither is
+    /// `wait=off` (a listening chardev otherwise blocks QEMU's startup until
+    /// a client connects). The monitor is `stdio` on Windows (where `quit`
+    /// on stdin is the graceful stop) and `none` elsewhere.
+    static std::vector<std::string> build_args(const Spec& spec, std::uint16_t port);
 
     /// The `-audiodev` value for `audio` as `Spec::audio` describes it.
     static std::string audiodev_arg(const std::string& audio);
@@ -129,7 +185,17 @@ public:
 private:
     void stop();
 
+    /// `build_args` with the console chardev already rendered.
+    static std::vector<std::string> build_args_with_chardev(const Spec& spec,
+                                                            const std::string& chardev);
+
     int               pid_ = -1;
+    std::uint16_t     tcp_port_ = 0;
+    // Windows only (pi_qemu_win.cpp): HANDLEs, spelled void* so no header here
+    // needs <windows.h>.
+    void*             process_    = nullptr;
+    void*             job_        = nullptr;
+    void*             stdin_write_ = nullptr;
     std::string       runtime_dir_;   ///< holds the FIFOs; removed on stop
     std::string       rx_path_;
     std::string       tx_path_;

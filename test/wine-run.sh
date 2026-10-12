@@ -45,7 +45,9 @@ set -euo pipefail
 
 if [[ "${1:-}" == --jnext ]]; then
     EXE=${2:?usage: wine-run.sh --jnext <jnext.exe> [args...]}
-    BUILD=$(cd "$(dirname "$EXE")" && pwd)
+    # No dirname here: a row may have set PATH to an empty directory (below), and
+    # this line runs before it is reset. Parameter expansion needs no PATH.
+    BUILD=$(cd "${EXE%/*}" && pwd)
     JNEXT_MODE=1
     # A row may set PATH to an empty directory (nextpi-func does): this script's
     # own tools must not depend on it.
@@ -63,7 +65,10 @@ fi
 SYSROOT=${MINGW_SYSROOT:-/usr/x86_64-w64-mingw32/sys-root/mingw}
 export WINEPREFIX="${WINEPREFIX:-$BUILD/wine-prefix}"
 export WINEDLLOVERRIDES="mscoree,mshtml=" WINEDEBUG=-all LC_ALL=C.UTF-8 LANG=C.UTF-8
-export WINEPATH="$SYSROOT/bin;$BUILD/third_party/spdlog"
+# JNEXT_EXTRA_WINEPATH: directories a row wants on the Windows PATH of what it runs
+# (wine does not import the Unix PATH: nextpi-link-func puts its stand-in QEMU's
+# directory here, GH #316). Unix or DOS form; appended after the two above.
+export WINEPATH="$SYSROOT/bin;$BUILD/third_party/spdlog${JNEXT_EXTRA_WINEPATH:+;$JNEXT_EXTRA_WINEPATH}"
 unset DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR
 [[ -z "${KEEP_DISPLAY:-}" ]] || export DISPLAY=$KEEP_DISPLAY
 

@@ -200,7 +200,11 @@ bool g1_build_48k(Emulator& emu) {
     EmulatorConfig cfg;
     cfg.type = MachineType::ZX48K;
     cfg.rewind_buffer_frames = 0;
-    return emu.init(cfg);
+    // GH #325: the 48K personality starts with port 0x6B off (NR 0x82 = 0xC0);
+    // the decode has no machine-type term, the personality's enable gates it.
+    if (!emu.init(cfg)) return false;
+    emu.nextreg().write(0x82, static_cast<uint8_t>(emu.nextreg().cached(0x82) | 0x20));
+    return true;
 }
 
 // Program, through I/O port `port` (0x6B or 0x0B) as a guest's OUT would, an
@@ -3595,7 +3599,11 @@ bool g283_build_48k(Emulator& emu) {
     EmulatorConfig cfg;
     cfg.type = MachineType::ZX48K;
     cfg.rewind_buffer_frames = 0;
-    return emu.init(cfg);
+    // GH #325: the 48K personality starts with port 0x6B off (NR 0x82 = 0xC0);
+    // the decode has no machine-type term, the personality's enable gates it.
+    if (!emu.init(cfg)) return false;
+    emu.nextreg().write(0x82, static_cast<uint8_t>(emu.nextreg().cached(0x82) | 0x20));
+    return true;
 }
 
 void group25_gh283_rzx() {
