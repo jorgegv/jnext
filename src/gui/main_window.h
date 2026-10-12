@@ -403,8 +403,9 @@ private:
     void on_quick_load();
     /// The `.jns` write path shared by Save Snapshot and Quick Save.
     bool save_jns_with_feedback(const QString& path, const QString& ok_msg, int ok_ms);
-    /// A `.jns` the pre-boot probe refused: status line, log, and (unless
-    /// unattended) the "Load Failed" dialog.
+    /// A `.jns` (or, GH #323, a `.sna`/`.szx`/`.z80`) the pre-boot probe
+    /// refused: status line, log, and (unless unattended) the "Load Failed"
+    /// dialog.
     void refuse_jns(const QString& path, const QString& why);
 
     /// GH #18/#19 — the single write path behind both screenshot menu

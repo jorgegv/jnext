@@ -155,14 +155,15 @@ inline std::string snapshot_file_ext(const std::string& path) {
     return e;
 }
 
-/// snapshot_machine() of the file at `path`; the type comes from its
-/// extension, case-insensitively. Unreadable -> not ok.
-inline SnapshotMachine snapshot_file_machine(const std::string& path) {
+/// snapshot_machine() of the file at `path`. The type is `ext` when given (a
+/// loader knows which format it was asked for, whatever the file is called),
+/// else the path's extension, case-insensitively. Unreadable -> not ok.
+inline SnapshotMachine snapshot_file_machine(const std::string& path, const std::string& ext = {}) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return snapshot_machine_detail::refuse("cannot read '" + path + "'");
     const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
                                      std::istreambuf_iterator<char>());
-    return snapshot_machine(bytes, snapshot_file_ext(path));
+    return snapshot_machine(bytes, ext.empty() ? snapshot_file_ext(path) : ext);
 }
 
 /// True when `path` is a snapshot jnext can load: snapshot_file_machine() says

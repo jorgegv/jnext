@@ -1473,8 +1473,7 @@ void MainWindow::handle_load_path(const QString& path) {
     if (emulator_load_routes_to_snapshot(file)) {
         std::string why;
         if (!snapshot_file_loadable(file, why)) {
-            QMessageBox::warning(this, tr("Load"),
-                tr("Cannot load %1: %2.").arg(path, QString::fromStdString(why)));
+            refuse_jns(path, QString::fromStdString(why));   // status bar, and a dialog unless unattended
             return;
         }
     }

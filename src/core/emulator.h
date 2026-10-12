@@ -1438,10 +1438,10 @@ private:
     /// load_sna/szx/z80 and load_jns. Does nothing when `want` already runs.
     void switch_machine_for_load_(MachineType want, const std::string& what);
 
-    /// GH #323 — the machine of the snapshot file `path` (snapshot_machine.h)
+    /// GH #323 — the machine of the `ext` ("sna"/"szx"/"z80") snapshot `path` (snapshot_machine.h)
     /// and the switch to it. False, with the reason logged, when jnext cannot
     /// run that machine: the caller returns false BEFORE touching anything.
-    bool switch_to_snapshot_machine_(const std::string& path);
+    bool switch_to_snapshot_machine_(const std::string& path, const char* ext);
 
     // Task 79 — recompute the Keyboard cursor-key target from joy_source_:
     // the connector (0/1) whose source is CursorKeys, or -1 for none.
