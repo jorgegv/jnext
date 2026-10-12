@@ -79,7 +79,17 @@ public:
     uint32_t available() const { return head_.load() - tail_.load(); }
 
 private:
+    static constexpr std::size_t kHeader = 44;   ///< QEMU's WAV header
+
+    /// Where a stream is: header bytes still to skip, and a partial frame.
+    struct Stream {
+        std::size_t          header_left = kHeader;
+        std::vector<uint8_t> carry;
+    };
+
     void run();
+    void consume(const uint8_t* data, std::size_t got, Stream& st);   ///< bytes read -> frames
+    void writer_gone(Stream& st);                                     ///< the next stream starts afresh
     void push(int16_t left, int16_t right);
 
     int                     fd_ = -1;
