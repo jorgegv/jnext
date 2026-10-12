@@ -291,8 +291,8 @@ Pi's audio enters the FPGA over I2S and is summed into the mixer, gated by NR
 is why MX-30 had been retired ("no Raspberry Pi to be the producer"). NextPi
 under QEMU is one, so:
 
-- **QEMU writes the Pi's sound to a FIFO.** With the default audio setting,
-  `PiQemu` passes `-audiodev wav,...,path=<base>.audio,out.frequency=44100,
+- **QEMU writes the Pi's sound to a FIFO.** With the default audio setting (on
+  Linux and macOS; Windows has no such path yet, GH #331), `PiQemu` passes `-audiodev wav,...,path=<base>.audio,out.frequency=44100,
   out.channels=2,out.format=s16`: a 44-byte WAV header, then 16-bit stereo PCM
   at the mixer's own rate. Measured against real NextPi 1_93D: nothing is
   written while the Pi is silent, and while it plays the stream arrives in
@@ -338,7 +338,8 @@ under QEMU is one, so:
   (`i2s_receive.vhd:129-130`) and `i2s.vhd:177-180` inverts the sign bit.
 - The other settings keep sending the Pi's sound to the host or a file
   directly, bypassing the mixer: `host` (the platform's default output, `pa`
-  on Linux and `coreaudio` with its buffer tuning on macOS), a QEMU driver
+  on Linux, `coreaudio` with its buffer tuning on macOS and `dsound` on
+  Windows), a QEMU driver
   name (`coreaudio`, `pa`, ..., `none`) or `wav:FILE`.
 
 - **NR 0xA2 bit 0: the Pi's audio as the EAR input.** This is how a Next loads
@@ -361,7 +362,8 @@ under QEMU is one, so:
   The MIC jack carries the same level (`tape_out_level`, `beep_mic_final`,
   `zxnext.vhd:6503`), so a tape save records every comparator edge: the recorder
   is sampled where `pi_fe_ear` changes (`with_pi_ear_tracking`), the only place
-  that sees it move.
+  that sees it move. The relaxation of that level, 1.17 ms after the last edge,
+  is recorded late (§5).
 
 End to end with real QEMU, a headless run typed `nextpi-play_speech` into the
 UART with NR 0xA0 = 0x30 and NR 0xA2 = 0xC0: the `--wav-record` file is silent
@@ -387,7 +389,7 @@ later stage (GH #331). **The rule for `audio=""`:** it is the Next's mixer
 wherever the FIFO path exists (Linux, macOS: `PiQemu::uses_mixer`), and the host
 output on Windows, where it does not; `host` is the host output on every OS.
 `PiQemu::audiodev_arg("")` is therefore the host driver, which is what an empty
-setting resolves to on Windows. Rows PIT-01..16 and
+setting resolves to on Windows. Rows PIT-01..17 and
 `nextpi-link-func` (§4).
 
 ## 4. Testing
@@ -584,6 +586,14 @@ without the Pi term, or no sample at a comparator edge, fails PI-64.
 - **No separate gain for the Pi.** Its level is the hardware's share of the mix
   (a 10-bit input among the 13-bit sum); the master gain raises it with the rest.
 - **No GPIO, I2C1 or SPI0 to the Pi.** Only the UART crosses the wire.
+- **A Pi-fed tape save records the MIC level's relaxation late.** With the Pi on
+  EAR and no tape, `i_AUDIO_EAR` relaxes to the issue-2 MIC level 64 x 512
+  master cycles after the last comparator edge (`zxnext_top_issue2.vhd:663-677`)
+  and the MIC jack follows it (`zxnext.vhd:6503`). The recorder is sampled at
+  comparator edges and at frame end, never at the relaxation instant, so that
+  level change is written up to a frame (about 20 ms) late instead of 1.17 ms
+  after the edge: in practice the trailing pulse after a block. Sampling there
+  needs an event at edge + 32768 cycles; not done.
 - **The comparator is not mixed in.** On the board the mixer's `mic_i` is the same
   `beep_mic_final` as the MIC jack (`zxnext.vhd:6503`, `:6516`;
   `audio_mixer.vhd:81`, `:128`), so while bit 0 takes the Pi out of the mix its
