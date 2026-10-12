@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <spawn.h>
+#include <sys/resource.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <fstream>
@@ -42,6 +43,15 @@ void kill_hard(unsigned long pid) {
 }
 
 unsigned long self_pid() { return GetCurrentProcessId(); }
+
+long process_cpu_ms() {
+    FILETIME create, exit_t, kernel, user;
+    if (!GetProcessTimes(GetCurrentProcess(), &create, &exit_t, &kernel, &user)) return -1;
+    auto ms = [](const FILETIME& f) {
+        return static_cast<long long>((static_cast<unsigned long long>(f.dwHighDateTime) << 32 | f.dwLowDateTime) / 10000);
+    };
+    return static_cast<long>(ms(kernel) + ms(user));
+}
 
 bool Child::start(const std::string& exe, const std::vector<std::string>& args,
                   std::string& first_line, int timeout_ms) {
@@ -138,6 +148,13 @@ bool process_alive(unsigned long pid) {
 void kill_hard(unsigned long pid) { ::kill(static_cast<pid_t>(pid), SIGKILL); }
 
 unsigned long self_pid() { return static_cast<unsigned long>(::getpid()); }
+
+long process_cpu_ms() {
+    rusage ru{};
+    if (::getrusage(RUSAGE_SELF, &ru) != 0) return -1;
+    return static_cast<long>(ru.ru_utime.tv_sec * 1000 + ru.ru_utime.tv_usec / 1000 +
+                             ru.ru_stime.tv_sec * 1000 + ru.ru_stime.tv_usec / 1000);
+}
 
 bool Child::start(const std::string& exe, const std::vector<std::string>& args,
                   std::string& first_line, int timeout_ms) {

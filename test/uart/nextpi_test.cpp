@@ -23,6 +23,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/nextpi_provisioner.h"
+#include "audio/pi_audio.h"
 #include "core/pi_qemu.h"
 #include "esp01/esp_socket.h"
 #include "esp01/esp_socket_platform.h"
@@ -51,6 +52,7 @@
 #include <vector>
 
 #ifndef _WIN32
+#include <csignal>
 #include <sys/wait.h>
 #endif
 
@@ -905,6 +907,242 @@ static void test_nextpi_review2_rows() {
     }
 }
 
+// ── PiAudio over its pipe: a FIFO on POSIX, a named pipe on Windows (GH #331) ──
+//
+// The writer is this process's own fopen("wb") on the path, the call QEMU's wav
+// back-end makes (audio/wavaudio.c:116), unbuffered so each fwrite reaches the
+// pipe. jnext-only rows: no VHDL counterpart; the stream format is QEMU's
+// (wavaudio.c:78-90: a 44-byte header, then s16 stereo at 44.1 kHz).
+
+namespace {
+
+/// The path a row's PiAudio serves: a FIFO in a directory of its own on POSIX,
+/// a pipe name unique to this process and row on Windows.
+struct AudioPath {
+    std::string path, dir;
+    explicit AudioPath(int k) {
+#ifdef _WIN32
+        path = "\\\\.\\pipe\\jnext-pit-" + std::to_string(nxs::self_pid()) + "-" + std::to_string(k) + ".audio";
+#else
+        dir  = jtp::make_temp_dir("jnext-pit-au" + std::to_string(k) + "-");
+        path = dir + "/audio.fifo";
+#endif
+    }
+    ~AudioPath() {
+        if (!dir.empty()) { std::error_code ec; fs::remove_all(dir, ec); }
+    }
+};
+
+std::string wav_header() {
+    std::string h;
+    auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) h.push_back(static_cast<char>(v >> (8 * i))); };
+    auto u16 = [&](uint16_t v) { h.push_back(static_cast<char>(v)); h.push_back(static_cast<char>(v >> 8)); };
+    h += "RIFF"; u32(0); h += "WAVEfmt "; u32(16); u16(1); u16(2);
+    u32(44100); u32(44100 * 4); u16(4); u16(16); h += "data"; u32(0);
+    return h;
+}
+
+void put_frame(std::string& s, int16_t l, int16_t r) {
+    s.push_back(static_cast<char>(l)); s.push_back(static_cast<char>(l >> 8));
+    s.push_back(static_cast<char>(r)); s.push_back(static_cast<char>(r >> 8));
+}
+
+/// fopen(path, "wb") as QEMU does, retried for up to `ms` (a Windows pipe that
+/// has just lost its writer is busy for a moment); unbuffered.
+std::FILE* open_writer(const std::string& path, int ms) {
+    for (int waited = 0;; waited += 5) {
+        if (std::FILE* f = std::fopen(path.c_str(), "wb")) {
+            std::setvbuf(f, nullptr, _IONBF, 0);
+            return f;
+        }
+        if (waited >= ms) return nullptr;
+        sleep_ms(5);
+    }
+}
+
+template <class Pred>
+bool wait_for(Pred p, int ms) {
+    for (int waited = 0; waited <= ms; waited += 5) {
+        if (p()) return true;
+        sleep_ms(5);
+    }
+    return p();
+}
+
+} // namespace
+
+static void test_pi_audio_pipe() {
+#ifndef _WIN32
+    std::signal(SIGPIPE, SIG_IGN);   // a reader closed under a writer is a write error, not a kill
+#endif
+
+    // ── PIT-19 — A WRITER THAT LEAVES, AND THE NEXT ONE (MX-34 on every OS). The
+    // first stream ends with half a frame; the second starts with a header of its
+    // own. Nothing of the first may leak into the second: the header is skipped
+    // again and the stray bytes are not glued to its first frame. Oracle: QEMU's
+    // wav stream (wavaudio.c:78-90); kPrebuffer = 2205 frames before playback.
+    {
+        AudioPath ap(19);
+        PiAudio au;
+        std::string err;
+        const bool opened = au.open(ap.path, err);
+        bool a_ok = false, got_a = false, left = false, b_ok = false, got_b = false;
+        std::FILE* a = opened ? open_writer(ap.path, 2000) : nullptr;
+        if (a) {
+            std::string s = wav_header();
+            put_frame(s, 500, -500);
+            s += "xy";
+            a_ok = std::fwrite(s.data(), 1, s.size(), a) == s.size();
+            got_a = wait_for([&] { return au.frames_received() >= 1; }, 2000);
+            const uint64_t eof0 = au.eof_reads();
+            std::fclose(a);
+            left = wait_for([&] { return au.eof_reads() > eof0; }, 2000);
+        }
+        std::FILE* b = (opened && left) ? open_writer(ap.path, 2000) : nullptr;
+        if (b) {
+            std::string s = wav_header();
+            for (int i = 0; i < 2205; ++i)
+                put_frame(s, static_cast<int16_t>(1000 + i), static_cast<int16_t>(-(1000 + i)));
+            b_ok = std::fwrite(s.data(), 1, s.size(), b) == s.size();
+            got_b = wait_for([&] { return au.frames_received() >= 2206; }, 2000);
+            std::fclose(b);
+        }
+        const uint32_t avail = au.available();
+        bool exact = avail == 2206;
+        int16_t l = 0, r = 0;
+        exact = exact && au.pop(l, r) && l == 500 && r == -500;
+        for (int i = 0; exact && i < 2205; ++i)
+            exact = au.pop(l, r) && l == 1000 + i && r == -(1000 + i);
+        check("PIT-19",
+              "a writer that leaves and the next one that connects: the second stream's header is "
+              "skipped and the first's half frame is not glued to it (jnext-only, no VHDL counterpart)",
+              opened && a && a_ok && got_a && left && b && b_ok && got_b && exact,
+              fmt("opened=%d (%s) a=%d got_a=%d left=%d b=%d got_b=%d avail=%u (want 2206) exact=%d",
+                  opened ? 1 : 0, err.c_str(), a ? 1 : 0, got_a ? 1 : 0, left ? 1 : 0, b ? 1 : 0,
+                  got_b ? 1 : 0, avail, exact ? 1 : 0));
+    }
+
+    // ── PIT-20 — A WRITER IS NEVER BLOCKED BY A FULL RING (MX-33 + MX-42 on every
+    // OS). Nothing pops while 200 000 frames are written: the reader keeps
+    // draining, the ring keeps its capacity (131 072 frames), the rest is
+    // counted as dropped, and the next pop flushes what is stale.
+    {
+        AudioPath ap(20);
+        PiAudio au;
+        std::string err;
+        const bool opened = au.open(ap.path, err);
+        std::FILE* w = opened ? open_writer(ap.path, 2000) : nullptr;
+        std::atomic<bool> done{false};
+        std::thread t;
+        if (w) {
+            t = std::thread([&] {
+                std::string s = wav_header();
+                std::fwrite(s.data(), 1, s.size(), w);
+                for (int sent = 0; sent < 200000;) {
+                    std::string chunk;
+                    for (int i = 0; i < 4096 && sent < 200000; ++i, ++sent)
+                        put_frame(chunk, static_cast<int16_t>(sent), static_cast<int16_t>(-sent));
+                    if (std::fwrite(chunk.data(), 1, chunk.size(), w) != chunk.size()) break;
+                }
+                done = true;
+            });
+        }
+        const bool finished = w && wait_for([&] { return done.load(); }, 5000);
+        const bool counted  = finished && wait_for([&] {
+            return au.frames_received() + au.frames_dropped() == 200000; }, 2000);
+        const uint64_t recv = au.frames_received(), drop = au.frames_dropped();
+        int16_t l = 0, r = 0;
+        const bool flushed = counted && !au.pop(l, r) && au.frames_dropped() == 200000;
+        if (!finished) au.close();            // breaks the pipe so the writer cannot hang the row
+        if (t.joinable()) t.join();
+        if (w) std::fclose(w);
+        check("PIT-20",
+              "a writer sending far more than the ring holds is never blocked: the ring keeps its "
+              "131072 frames, the rest is counted as dropped, and the next pop flushes it "
+              "(jnext-only, no VHDL counterpart)",
+              opened && w && finished && counted && recv == PiAudio::kCapacity && drop == 200000 - PiAudio::kCapacity &&
+                  flushed,
+              fmt("opened=%d (%s) finished=%d counted=%d received=%llu dropped=%llu flushed=%d",
+                  opened ? 1 : 0, err.c_str(), finished ? 1 : 0, counted ? 1 : 0,
+                  static_cast<unsigned long long>(recv), static_cast<unsigned long long>(drop),
+                  flushed ? 1 : 0));
+    }
+
+    // ── PIT-21 — close() IS PROMPT AND RELEASES THE NAME, with no writer ever
+    // connected and with one connected but silent. A reader that waited for data
+    // would hang here; one that leaked its handle would leave the name taken (on
+    // Windows a second server on a 1-instance name is refused, ERROR_PIPE_BUSY).
+    {
+        AudioPath ap(21);
+        std::string err1, err2, err3;
+        long ms_a = -1, ms_b = -1;
+        bool reopened_a = false, reopened_b = false;
+        {
+            PiAudio au;
+            const bool o = au.open(ap.path, err1);
+            const auto t0 = std::chrono::steady_clock::now();
+            au.close();
+            ms_a = o ? ms_since(t0) : -1;
+        }
+        {
+            PiAudio au;
+            reopened_a = au.open(ap.path, err2);
+            std::FILE* w = reopened_a ? open_writer(ap.path, 2000) : nullptr;
+            if (w) {
+                const std::string h = wav_header();
+                std::fwrite(h.data(), 1, h.size(), w);
+                sleep_ms(50);
+                const auto t0 = std::chrono::steady_clock::now();
+                au.close();
+                ms_b = ms_since(t0);
+                std::fclose(w);
+            }
+        }
+        {
+            PiAudio au;
+            reopened_b = au.open(ap.path, err3);
+        }
+        check("PIT-21",
+              "closing the Pi audio reader returns within a second whether or not a writer ever "
+              "connected, and the name can be served again afterwards (jnext-only, no VHDL counterpart)",
+              ms_a >= 0 && ms_a < 1000 && reopened_a && ms_b >= 0 && ms_b < 1000 && reopened_b,
+              fmt("close without writer=%ld ms, with silent writer=%ld ms, reopen=%d/%d (%s / %s)", ms_a,
+                  ms_b, reopened_a ? 1 : 0, reopened_b ? 1 : 0, err2.c_str(), err3.c_str()));
+    }
+
+    // ── PIT-22 — NO SPINNING WITHOUT A WRITER. After the writer has left, a
+    // second of waiting costs under 100 ms of CPU and a bounded number of
+    // writer-gone reads (POSIX pauses 20 ms after each, about 50; Windows waits
+    // in ConnectNamedPipe and counts one).
+    {
+        AudioPath ap(22);
+        PiAudio au;
+        std::string err;
+        const bool opened = au.open(ap.path, err);
+        std::FILE* w = opened ? open_writer(ap.path, 2000) : nullptr;
+        bool got = false;
+        if (w) {
+            std::string s = wav_header();
+            put_frame(s, 1, -1);
+            std::fwrite(s.data(), 1, s.size(), w);
+            got = wait_for([&] { return au.frames_received() >= 1; }, 2000);
+            std::fclose(w);
+        }
+        sleep_ms(200);
+        const long cpu0 = nxs::process_cpu_ms();
+        const uint64_t eof0 = au.eof_reads();
+        sleep_ms(1000);
+        const long cpu = nxs::process_cpu_ms() - cpu0;
+        const uint64_t eofs = au.eof_reads() - eof0;
+        check("PIT-22",
+              "with no writer connected the Pi audio reader neither spins nor polls fast: under 100 ms "
+              "of CPU and at most 60 writer-gone reads in a second (jnext-only, no VHDL counterpart)",
+              opened && w && got && cpu >= 0 && cpu < 100 && eofs <= 60,
+              fmt("opened=%d (%s) got=%d cpu=%ld ms (want <100) eof_reads=%llu (want <=60)",
+                  opened ? 1 : 0, err.c_str(), got ? 1 : 0, cpu, static_cast<unsigned long long>(eofs)));
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc >= 2 && std::strcmp(argv[1], "--holder") == 0) return holder_main(argc, argv);
     const std::string self = fs::absolute(argv[0]).string();
@@ -1662,6 +1900,7 @@ int main(int argc, char** argv) {
     test_nextpi_provisioner();
     test_nextpi_review_rows();
     test_nextpi_review2_rows();
+    test_pi_audio_pipe();
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

@@ -32,7 +32,10 @@
 /// pop flushes it and playback restarts on fresh audio.
 ///
 /// Single producer (the thread), single consumer (the emulator thread).
-/// POSIX only, like the rest of NextPi.
+///
+/// The pipe is a FIFO on POSIX and a named pipe jnext serves on Windows
+/// (pi_audio_win.cpp: QEMU's wav back-end opens the path with fopen("wb"), and
+/// the pipe must exist before QEMU starts). The stream parser is shared.
 class PiAudio {
 public:
     static constexpr int      kRate        = 44100;      ///< what QEMU is asked for, and Mixer::SAMPLE_RATE
@@ -49,6 +52,8 @@ public:
 
     /// Create (if missing) and open the FIFO for reading — non-blocking, so it
     /// succeeds before QEMU, the writer, exists — and start the reader thread.
+    /// On Windows `fifo_path` is a pipe name (`\\.\pipe\...`) and the pipe is
+    /// created here, as a server that waits for the writer.
     bool open(const std::string& fifo_path, std::string& error);
 
     /// Stop the thread and close the FIFO. Idempotent; the destructor calls it.
@@ -68,12 +73,13 @@ public:
     /// Reads that found no writer (QEMU not started yet, or gone). Each is
     /// followed by a 20 ms pause, so this grows by at most ~50 a second — on
     /// Linux poll() reports a gone writer at once, and without the pause the
-    /// reader would spin a core. Exposed so a row can pin that.
+    /// reader would spin a core. Exposed so a row can pin that. On Windows it
+    /// counts writers that left (the reader waits, it does not poll).
     uint64_t eof_reads()       const { return eof_reads_.load(); }
     /// Reads that found a writer but no data (EAGAIN): the reader's wakeups
     /// while a connected writer is silent, one per 100 ms poll timeout.
     /// Exposed so a row can pin that it does not keep the shorter no-writer
-    /// timeout once a writer is there.
+    /// timeout once a writer is there. Always 0 on Windows (no timed wakeups).
     uint64_t idle_reads()      const { return idle_reads_.load(); }
     /// Frames buffered and not yet popped.
     uint32_t available() const { return head_.load() - tail_.load(); }
@@ -92,7 +98,10 @@ private:
     void writer_gone(Stream& st);                                     ///< the next stream starts afresh
     void push(int16_t left, int16_t right);
 
-    int                     fd_ = -1;
+    int                     fd_ = -1;            ///< POSIX: the FIFO
+    void*                   pipe_ = nullptr;     ///< Windows: the named pipe server (HANDLE)
+    void*                   stop_event_ = nullptr;   ///< Windows: close() signals the reader
+    void*                   io_event_ = nullptr;     ///< Windows: the overlapped I/O's event
     std::thread             thread_;
     std::atomic<bool>       stop_{false};
     std::vector<int16_t>    ring_ = std::vector<int16_t>(2 * kCapacity);

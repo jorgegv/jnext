@@ -122,16 +122,9 @@ void PiAudio::consume(const uint8_t* data, std::size_t got, Stream& st) {
     carry.erase(carry.begin(), carry.begin() + static_cast<std::ptrdiff_t>(pos));
 }
 
-#ifdef _WIN32
-
-bool PiAudio::open(const std::string&, std::string& error) {
-    error = "the Pi's audio input is not supported on Windows";
-    return false;
-}
-void PiAudio::close() {}
-void PiAudio::run() {}
-
-#else
+// The transport is per OS: the FIFO below, and on Windows a named pipe in
+// pi_audio_win.cpp (the only TU of this library that includes <windows.h>).
+#ifndef _WIN32
 
 bool PiAudio::open(const std::string& fifo_path, std::string& error) {
     close();

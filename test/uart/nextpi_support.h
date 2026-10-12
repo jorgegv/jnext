@@ -19,6 +19,9 @@ void kill_hard(unsigned long pid);
 
 unsigned long self_pid();
 
+/// CPU time (user + kernel) this process has used so far, in milliseconds.
+long process_cpu_ms();
+
 /// A child process started with its stdout captured. `start` returns once the
 /// child has printed a line starting `ready` or `failed` (others are skipped) or `timeout_ms` passed.
 class Child {
