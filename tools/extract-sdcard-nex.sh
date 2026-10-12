@@ -64,6 +64,20 @@ for tool in mdir mcopy; do
     command -v "$tool" >/dev/null 2>&1 || die "'$tool' (from mtools) is required"
 done
 
+# GH #330: mtools builds host file names from the locale's charset; in one that
+# cannot represent a card name (C/POSIX) "日本.nex" is extracted as "__.nex".
+# Pin a UTF-8 locale for the whole run (LC_ALL outranks the caller's settings),
+# and refuse, before extracting anything, when none exists.
+LOCALES_AVAILABLE=$(locale -a 2>/dev/null || true)
+for loc in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do
+    if grep -qix "$loc" <<< "$LOCALES_AVAILABLE"; then
+        export LC_ALL="$loc"
+        break
+    fi
+done
+[[ "$(locale charmap 2>/dev/null || true)" == UTF-8 ]] \
+    || die "no UTF-8 locale is installed; non-ASCII card names would be lost — install C.UTF-8 (or en_US.UTF-8) or run in a UTF-8 locale (GH #330). Nothing was extracted."
+
 # mtools wants an absolute path in the drive spec.
 abspath() { case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s\n' "$PWD/$1" ;; esac; }
 DRIVE="$(abspath "$IMAGE")@@$PART_OFFSET"
