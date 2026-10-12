@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2384,7 +2384,9 @@ hand-maintain a priority list.</p>
   cleared <code>internal_port_enable</code> bit simply drops out of the equation set, and
   an overlapping decode fires instead. So with NR <code>0x84</code> bit 2 clear,
   <code>OUT (0x7FF1),A</code> stops being a Soundrive write and becomes a plain <code>0x7FFD</code>
-  paging write.</li>
+  paging write. Likewise with NR <code>0x82</code> bit 2 clear, <code>OUT (0xDFFD),A</code> stops
+  being an extended-paging write and becomes an AY register select (<code>port_fffd_wr
+  = ... and not port_dffd</code>, <code>zxnext.vhd:2773</code>).</li>
 <li><strong>Observers run before dispatch, unconditionally.</strong> <code>add_io_observer()</code>
   installs a side-effect-only callback invoked on every <code>IN</code> and <code>OUT</code>
   regardless of what matches. The Multiface needs this: its enable and disable

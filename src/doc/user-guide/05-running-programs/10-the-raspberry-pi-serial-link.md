@@ -14,7 +14,11 @@ the genuine article.
 
 You need **QEMU** installed — on macOS `brew install qemu`; on Fedora
 `sudo dnf install qemu-system-arm qemu-img`; on Debian or Ubuntu
-`sudo apt install qemu-system-arm qemu-utils`. Then either tick **Start
+`sudo apt install qemu-system-arm qemu-utils`; on Windows install QEMU for
+Windows and either add its folder to your `PATH` or set the QEMU binary under
+**Settings ▸ Preferences ▸ NextPi**. On Windows the Pi is reached over a local
+(loopback) socket, which may raise a firewall prompt the first time; with the Pi audio setting empty, the Pi's
+sound plays on your speakers (QEMU's `dsound`). Then either tick **Start
 NextPi** under **Settings ▸ Preferences ▸ NextPi** and restart JNEXT, or start
 it for one run with:
 
@@ -59,7 +63,7 @@ the Preferences tab means that default:
 | NextPi directory | `~/.jnext/nextpi` | where the download goes and NextPi runs from |
 | NextPi release | `1_93D` | a release name on the NextPi mirror, or `latest` for the newest one there |
 | QEMU | `qemu-system-arm` on your `PATH` | the QEMU to run; `qemu-img` is expected beside it |
-| Pi audio | the Next's mixer | or `host` to play it on your computer's default output (`pa` on Linux, `coreaudio` on macOS), a QEMU audio driver to play it straight to your computer, `none` to mute it, or `wav:FILE` to record it on its own |
+| Pi audio | the Next's mixer (on Windows: your computer's default output, until the mixer path arrives there) | or `host` to play it on your computer's default output (`pa` on Linux, `coreaudio` on macOS, `dsound` on Windows), a QEMU audio driver to play it straight to your computer, `none` to mute it, or `wav:FILE` to record it on its own |
 
 Changes take effect the next time JNEXT starts. Changing the release makes the
 next start offer to download that one in place of the installed one. With

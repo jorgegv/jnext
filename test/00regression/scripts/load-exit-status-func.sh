@@ -88,7 +88,7 @@ PY
     fi
 
     # SDL-only frontend (dummy drivers: no X server, no audio device).
-    sdl_bin="$PROJECT_DIR/build/sdl-release/jnext"
+    sdl_bin="$JNEXT_SDL"
     sdl_ok=0; sdl_note=""
     if [[ ! -x "$sdl_bin" ]]; then
         sdl_note="SDL-only binary not built: $sdl_bin; run 'make sdl-release'"

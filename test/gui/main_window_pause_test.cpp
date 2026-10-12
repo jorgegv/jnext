@@ -1,5 +1,5 @@
 // ===========================================================================
-// Pause from the emulator window (GitHub issue #306).
+// Pause from the emulator window (GitHub issues #306, #322).
 //
 // No VHDL oracle: this is host UI wiring. The oracle is the issue text ("add a
 // button in the main emulator window that pauses/resumes emulation") plus the
@@ -14,6 +14,11 @@
 // MainWindow::sync_pause_state(). No suite can construct a QtApp, so the call
 // itself in post_frames() is pinned by MWP-12 as a source check; everything it
 // calls is driven here.
+//
+// GH #322 adds the Pause key as a second shortcut of the same QAction (owner-
+// approved exception to the Alt+key rule; on a Next, PS/2 Pause/Break only
+// resets the PS/2 module, keymaps.vhd:104) and turns auto-repeat off. Oracles
+// for MWP-13..17: the issue text, the owner decision, Qt QAction semantics.
 //
 // Row count is the same in both Qt configurations; a row that needs the
 // DebuggerManager asserts the Qt-only property in the #else arm.
@@ -102,6 +107,18 @@ void alt_u(MainWindow& w) {
     send(w, Qt::Key_Alt, Qt::NoModifier, false);
 }
 
+// Auto-repeat press, as a held key delivers it.
+void send_rep(MainWindow& w, Qt::Key k, Qt::KeyboardModifiers mods) {
+    QKeyEvent e(QEvent::KeyPress, k, mods, QString(), /*autorep=*/true);
+    QApplication::sendEvent(&w, &e);
+}
+
+void pause_key(MainWindow& w) {
+    send(w, Qt::Key_Pause, Qt::NoModifier, true);
+    QApplication::processEvents();
+    send(w, Qt::Key_Pause, Qt::NoModifier, false);
+}
+
 QAction* find_pause(MainWindow& w) {
     for (QAction* a : w.findChildren<QAction*>())
         if (a->text() == QStringLiteral("P&ause")) return a;
@@ -121,6 +138,7 @@ struct Fixture {
     std::unique_ptr<jnext::dbg::Debugger> backend;
     std::unique_ptr<MainWindow> w;
     std::vector<int> guest_keys;   // scancodes the guest saw pressed
+    std::vector<int> guest_events; // every key-callback event, presses AND releases
 
     Fixture() {
         build(emu);
@@ -129,6 +147,7 @@ struct Fixture {
         w->set_debugger(backend.get());
         w->set_emulator(&emu);
         w->set_key_callback([this](SDL_Scancode sc, bool pressed) {
+            guest_events.push_back(static_cast<int>(sc));
             if (pressed) guest_keys.push_back(static_cast<int>(sc));
         });
         w->show();
@@ -419,6 +438,98 @@ void test_pause() {
     // MWP-12 — see post_frames_syncs_pause_state().
     check("MWP-12", "QtApp::post_frames() pulls the pause state each tick, outside the debugger block",
           post_frames_syncs_pause_state());
+    // MWP-13 — Alt+U first (primary, shown by the menu), then the Pause key;
+    // no auto-repeat; the tooltip names both.
+    {
+        Fixture fx;
+        QAction* a = fx.action();
+        const QList<QKeySequence> want{QKeySequence(Qt::ALT | Qt::Key_U),
+                                       QKeySequence(Qt::Key_Pause)};
+        check("MWP-13", "Machine > P&ause carries Alt+U then the Pause key, does not auto-repeat, and its tooltip names both",
+              a && a->shortcuts() == want &&
+              a->shortcut() == QKeySequence(Qt::ALT | Qt::Key_U) &&
+              !a->autoRepeat() &&
+              a->toolTip() == QStringLiteral("Pause / resume emulation (Alt+U or Pause)"),
+              a ? QKeySequence::listToString(a->shortcuts()).toStdString() : std::string("no action"));
+    }
+
+    // MWP-14 — the Pause key pauses/resumes as the window's own client and
+    // types nothing into the guest.
+    {
+        Fixture fx;
+        pause_key(*fx.w);
+        fx.tick();
+        const bool on = fx.paused() &&
+            fx.backend->state().pause_reason.kind == jnext::dbg::PauseReason::Kind::User &&
+            !fx.emu.debug_state().armed() && fx.indicators(true) && !fx.debugger_open();
+        pause_key(*fx.w);
+        const bool off = !fx.paused() && fx.indicators(false);
+        check("MWP-14", "the Pause key pauses (User, the window's own client) and resumes, debugger closed, and types nothing into the guest",
+              on && off && fx.guest_keys.empty() && fx.guest_events.empty(),
+              std::string("on=") + (on ? "1" : "0") + " off=" + (off ? "1" : "0") +
+              " guest_keys=" + std::to_string(fx.guest_keys.size()) +
+              " guest_events=" + std::to_string(fx.guest_events.size()));
+    }
+
+    // MWP-15 — fullscreen chrome.
+    {
+        Fixture fx;
+        fx.w->menuBar()->hide();
+        for (QToolBar* tb : fx.w->findChildren<QToolBar*>()) tb->hide();
+        fx.w->statusBar()->hide();
+        QApplication::processEvents();
+        pause_key(*fx.w);
+        check("MWP-15", "the Pause key pauses with the menu bar, toolbars and status bar hidden (fullscreen chrome)",
+              fx.paused());
+    }
+
+    // MWP-16 — debugger open: through the manager.
+    {
+        Fixture fx;
+#ifdef ENABLE_DEBUGGER
+        auto* mgr = fx.w->debugger_manager();
+        mgr->set_enabled(true);
+        QSignalSpy paused_spy(mgr, &DebuggerManager::paused);
+        QSignalSpy resumed_spy(mgr, &DebuggerManager::resumed);
+        pause_key(*fx.w);
+        const bool p1 = fx.paused() && paused_spy.count() == 1;
+        fx.w->activateWindow();
+        QApplication::processEvents();
+        pause_key(*fx.w);
+        const bool p2 = !fx.paused() && resumed_spy.count() == 1;
+        check("MWP-16", "with the debugger open, the Pause key pauses and resumes through the manager (signals before any tick)",
+              p1 && p2 && paused_spy.count() == 1,
+              std::string("paused_signals=") + std::to_string(paused_spy.count()) +
+              " resumed_signals=" + std::to_string(resumed_spy.count()));
+#else
+        pause_key(*fx.w);
+        const bool p1 = fx.paused();
+        pause_key(*fx.w);
+        check("MWP-16", "without a debugger, the Pause key pauses and resumes the machine",
+              p1 && !fx.paused());
+#endif
+    }
+
+    // MWP-17 — a held key delivers auto-repeat presses; they must not toggle.
+    {
+        Fixture fx;
+        pause_key(*fx.w);
+        const bool a = fx.paused();
+        for (int i = 0; i < 3; ++i) send_rep(*fx.w, Qt::Key_Pause, Qt::NoModifier);
+        QApplication::processEvents();
+        const bool b = fx.paused();
+        send(*fx.w, Qt::Key_Alt, Qt::NoModifier, true);
+        for (int i = 0; i < 3; ++i) send_rep(*fx.w, Qt::Key_U, Qt::AltModifier);
+        QApplication::processEvents();
+        send(*fx.w, Qt::Key_Alt, Qt::NoModifier, false);
+        const bool c = fx.paused();
+        pause_key(*fx.w);
+        const bool d = !fx.paused();
+        check("MWP-17", "holding Pause or Alt+U does not toggle again: auto-repeat presses are ignored",
+              a && b && c && d,
+              std::string("after_press=") + (a ? "1" : "0") + " after_pause_repeats=" + (b ? "1" : "0") +
+              " after_altu_repeats=" + (c ? "1" : "0") + " resumed=" + (d ? "1" : "0"));
+    }
 }
 
 }  // namespace

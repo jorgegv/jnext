@@ -42,12 +42,17 @@
 #include "platform/rzx_startup.h"
 #include "core/saveable.h"
 #include "core/sna_saver.h"
+#include "core/szx_saver.h"
 #include "core/rzx.h"
+#include "core/quick_snapshot.h"
+#include "core/sdcard_provisioner.h"
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/uart.h"
 
 #include <algorithm>
 #include <chrono>
+#include <ctime>
+#include <memory>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -255,6 +260,609 @@ int card_write_response(SdCardDevice& sd)
 }
 
 }  // namespace
+
+// --- QS-01..QS-16: Quick Save / Quick Load snapshots (GH #321) ----------------
+//
+// Oracles: the issue text and the owner decisions (folder = <state dir>/
+// snapshots, name = the GH #19 screenshot naming, load = the newest .jns), the
+// .jns round-trip contract (rewind_test JNS-RT-02b: a marker only the source
+// wrote must reappear), and the RZX precedent in emulator_boot_machine() (EB-50).
+namespace qs {
+
+namespace fs = std::filesystem;
+
+std::string stamp_name(std::time_t t, const char* suffix)
+{
+    std::tm tm{};
+    jtp::local_time(t, tm);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y%m%d-%H%M%S", &tm);
+    return std::string("jnext-") + buf + suffix + ".jns";
+}
+
+void touch(const fs::path& p)
+{
+    std::ofstream f(p, std::ios::binary);
+    f << "x";
+}
+
+std::vector<uint8_t> stream_of(const Emulator& e)
+{
+    StateWriter measure;
+    e.save_state(measure);
+    std::vector<uint8_t> buf(measure.position());
+    StateWriter w(buf.data(), buf.size());
+    e.save_state(w);
+    return buf;
+}
+
+void run_rows()
+{
+    const std::string tmp = jtp::make_temp_dir("jnext-qs-");
+    const fs::path root(tmp);
+    const char* old_cfg  = std::getenv("JNEXT_CONFIG_DIR");
+    const char* old_home = std::getenv("HOME");
+    const char* old_prof = std::getenv("USERPROFILE");
+    const std::string keep_prof = old_prof ? old_prof : "";
+    const std::string keep_cfg  = old_cfg ? old_cfg : "";
+    const std::string keep_home = old_home ? old_home : "";
+
+    // QS-01: JNEXT_CONFIG_DIR wins.
+    jtp::set_env("JNEXT_CONFIG_DIR", tmp.c_str());
+    check("QS-01", "the quick folder is $JNEXT_CONFIG_DIR/snapshots",
+          default_quick_snapshot_dir() == tmp + "/snapshots", default_quick_snapshot_dir());
+
+    // QS-02: otherwise $HOME/.jnext/snapshots.
+    jtp::unset_env("JNEXT_CONFIG_DIR");
+    jtp::set_env("HOME", "/jnext-qs-home");
+    check("QS-02", "without JNEXT_CONFIG_DIR the quick folder is $HOME/.jnext/snapshots",
+          default_quick_snapshot_dir() == "/jnext-qs-home/.jnext/snapshots",
+          default_quick_snapshot_dir());
+
+    // QS-03: it sits beside the SD card, whatever the environment resolves to.
+    jtp::unset_env("HOME");
+    jtp::set_env("USERPROFILE", "/jnext-qs-profile");
+    {
+        const fs::path q = default_quick_snapshot_dir();
+        const fs::path c = sdcard::default_sdcard_dir();
+        check("QS-03", "the quick folder shares its parent (the state dir) with the SD card dir",
+              q.parent_path() == c.parent_path(), q.string() + " vs " + c.string());
+    }
+    if (old_home) jtp::set_env("HOME", keep_home.c_str());
+    if (old_prof) jtp::set_env("USERPROFILE", keep_prof.c_str());
+    else          jtp::unset_env("USERPROFILE");
+    if (old_cfg)  jtp::set_env("JNEXT_CONFIG_DIR", keep_cfg.c_str());
+    else          jtp::unset_env("JNEXT_CONFIG_DIR");
+
+    // QS-04..QS-07: naming.
+    const fs::path dir = root / "names";
+    const std::time_t when = 1767225600;   // an arbitrary fixed instant
+    const std::string expect = dir.string() + "/" + stamp_name(when, "");
+    const std::string p1 = auto_quick_snapshot_path(dir.string(), when);
+    check("QS-04", "the auto name is <dir>/jnext-YYYYMMDD-HHMMSS.jns (local time)",
+          p1 == expect, "got '" + p1 + "' want '" + expect + "'");
+    check("QS-06", "the directory is created on demand", fs::is_directory(dir));
+    touch(expect);
+    const std::string p2 = auto_quick_snapshot_path(dir.string(), when);
+    touch(p2);
+    const std::string p3 = auto_quick_snapshot_path(dir.string(), when);
+    check("QS-05", "a taken name gets -02, then -03; nothing is overwritten",
+          p2 == dir.string() + "/" + stamp_name(when, "-02") &&
+              p3 == dir.string() + "/" + stamp_name(when, "-03"),
+          p2 + " | " + p3);
+    {
+        const fs::path file = root / "plain-file";
+        touch(file);
+        check("QS-07", "a folder that cannot be created gives an empty path",
+              auto_quick_snapshot_path((file / "sub").string(), when).empty());
+    }
+
+    // QS-08..QS-12: choosing the newest.
+    std::string why;
+    const fs::path empty_dir = root / "empty";
+    fs::create_directories(empty_dir);
+    {
+        const std::string a = latest_quick_snapshot((root / "missing").string(), why);
+        const bool miss_ok = a.empty() && why.find("no snapshot") != std::string::npos;
+        const std::string b = latest_quick_snapshot(empty_dir.string(), why);
+        check("QS-08", "a missing or empty folder gives no file and a 'no snapshot' reason",
+              miss_ok && b.empty() && why.find("no snapshot") != std::string::npos, why);
+    }
+    // Two hours back, so the directory created below (whose own time cannot be
+    // set on Windows) is certainly the newest entry.
+    const auto t0 = fs::file_time_type::clock::now() - std::chrono::hours(2);
+    const fs::path d2 = root / "pick";
+    fs::create_directories(d2);
+    touch(d2 / "a-first.jns");
+    touch(d2 / "b-second.jns");
+    fs::last_write_time(d2 / "a-first.jns", t0);                       // NAME sorts first...
+    fs::last_write_time(d2 / "b-second.jns", t0 - std::chrono::hours(1));
+    check("QS-09", "the newest is chosen by modification time, not by name",
+          fs::path(latest_quick_snapshot(d2.string(), why)).filename() == "a-first.jns", why);
+
+    touch(d2 / "newer.png");
+    touch(d2 / "newer.txt");
+    // The directory keeps its creation time (Windows refuses to set a
+    // directory's time): newer than every file here but the .png/.txt below.
+    fs::create_directories(d2 / "newest-dir.jns");
+    fs::last_write_time(d2 / "newer.png", t0 + std::chrono::hours(1));
+    fs::last_write_time(d2 / "newer.txt", t0 + std::chrono::hours(1));
+    check("QS-10", "other extensions and a directory named .jns are ignored",
+          fs::path(latest_quick_snapshot(d2.string(), why)).filename() == "a-first.jns", why);
+
+    touch(d2 / "UPPER.JNS");
+    fs::last_write_time(d2 / "UPPER.JNS", t0 + std::chrono::minutes(1));
+    check("QS-11", "the .jns extension is matched case-insensitively",
+          fs::path(latest_quick_snapshot(d2.string(), why)).filename() == "UPPER.JNS", why);
+
+    // QS-12: equal modification times -> the greater name STEM wins. Three tie
+    // sets, so the verdict cannot come from directory listing order: in name
+    // order the winner is last in {a,b}, first in {x,x-02} ('-' sorts before
+    // '.') and in the middle of {x-02,x-03,x}; a first-wins or a last-wins
+    // chooser fails at least one set on any listing order.
+    {
+        struct Tie { const char* dir; std::vector<std::string> names; const char* winner; };
+        const std::vector<Tie> ties = {
+            {"tie1", {"a.jns", "b.jns"}, "b.jns"},
+            {"tie2", {"x.jns", "x-02.jns"}, "x-02.jns"},
+            {"tie3", {"x.jns", "x-02.jns", "x-03.jns"}, "x-03.jns"},
+        };
+        bool all = true;
+        std::string got;
+        // Each set twice, files created in opposite orders: tmpfs lists newest
+        // first and ext4 by hash, so creation order must not decide either.
+        for (const Tie& t : ties) {
+            for (int rev = 0; rev < 2; ++rev) {
+                const fs::path d = root / (std::string(t.dir) + (rev ? "r" : "f"));
+                fs::create_directories(d);
+                std::vector<std::string> names = t.names;
+                if (rev) std::reverse(names.begin(), names.end());
+                for (const std::string& n : names) {
+                    touch(d / n);
+                    fs::last_write_time(d / n, t0);
+                }
+                const std::string w =
+                    fs::path(latest_quick_snapshot(d.string(), why)).filename().string();
+                if (w != t.winner) all = false;
+                got += w + " ";
+            }
+        }
+        check("QS-12", "equal modification times: the greater name stem wins, whatever the listing "
+                       "order (a<b, x-02 over x, x-03 over x-02 and x)",
+              all, got);
+    }
+
+    // QS-13: end to end on real machines.
+    constexpr uint16_t kMarkerAddr = 0xBF00;
+    const fs::path d4 = root / "e2e";
+    std::string file1, file2, latest;
+    bool saved = false;
+    {
+        auto a_up = std::make_unique<Emulator>();
+        Emulator& a = *a_up;
+        a.init(base_config());
+        for (int i = 0; i < 5; ++i) a.run_frame();
+        a.mmu().write(kMarkerAddr, 0x11);
+        file1 = auto_quick_snapshot_path(d4.string(), when);
+        const bool s1 = a.save_jns_file(file1);
+        a.mmu().write(kMarkerAddr, 0x22);
+        file2 = auto_quick_snapshot_path(d4.string(), when);
+        const bool s2 = a.save_jns_file(file2);
+        saved = s1 && s2 && file1 != file2;
+        if (saved) fs::last_write_time(file2, fs::last_write_time(file1) + std::chrono::seconds(5));
+        latest = latest_quick_snapshot(d4.string(), why);
+    }
+    {
+        auto b_up = std::make_unique<Emulator>();
+        Emulator& b = *b_up;
+        b.init(base_config());
+        const bool loaded = saved && b.load_jns_file(latest);
+        check("QS-13", "quick save twice, then the newest restores the second save's state",
+              saved && fs::path(latest).lexically_normal() == fs::path(file2).lexically_normal() && loaded && b.mmu().read(kMarkerAddr) == 0x22,
+              "latest=" + latest + " file2=" + file2);
+    }
+
+    // QS-14: the probe refuses garbage and touches nothing.
+    {
+        const fs::path junk = root / "junk.jns";
+        {
+            std::ofstream f(junk, std::ios::binary);
+            f << "this is not a zip archive";
+        }
+        auto e_up = std::make_unique<Emulator>();
+        Emulator& e = *e_up;
+        e.init(base_config());
+        for (int i = 0; i < 3; ++i) e.run_frame();
+        const std::vector<uint8_t> before = stream_of(e);
+        std::string bad_why, good_why;
+        const bool bad  = e.probe_jns_file(junk.string(), bad_why);
+        const bool good = saved && e.probe_jns_file(file1, good_why);
+        const std::vector<uint8_t> after = stream_of(e);
+        check("QS-14", "probe_jns_file refuses garbage with a reason, accepts a real .jns, and "
+                       "leaves the machine byte-identical",
+              !bad && !bad_why.empty() && good && before == after,
+              "bad_why='" + bad_why + "' good_why='" + good_why + "'");
+    }
+
+    // QS-15 / QS-16: a .jns names its machine (R2).
+    {
+        const fs::path junk = root / "junk.jns";
+        check("QS-15", "emulator_boot_machine reads a .jns's machine; garbage or a .nex keep the "
+                       "configured one",
+              saved &&
+                  emulator_boot_machine(file1, MachineType::ZXN_ISSUE2) == MachineType::ZX48K &&
+                  emulator_boot_machine(junk.string(), MachineType::ZXN_ISSUE2) ==
+                      MachineType::ZXN_ISSUE2 &&
+                  emulator_boot_machine("x.nex", MachineType::ZXN_ISSUE2) ==
+                      MachineType::ZXN_ISSUE2);
+
+        EmulatorConfig frontend = base_config();
+        frontend.type = MachineType::ZXN_ISSUE2;
+        ColdBootHooks hooks;
+        MachineType kept = MachineType::ZXN_ISSUE2;
+        hooks.keep_machine = [&kept](MachineType t) { kept = t; };
+        auto e_up = std::make_unique<Emulator>();
+        Emulator& e = *e_up;
+        e.init(frontend);
+        if (saved) emulator_frontend_cold_boot(e, frontend, file1, hooks);
+        check("QS-16", "a frontend cold boot of a 48K .jns on a Next builds the 48K and tells "
+                       "the frontend (keep_machine)",
+              saved && kept == MachineType::ZX48K && e.config().type == MachineType::ZX48K);
+    }
+
+    // QS-17 / QS-18: the command-line startup route (R2). An explicit --machine
+    // wins over an RZX's machine but never over a .jns's, which load_jns()
+    // always reconfigures to; otherwise the frontend names a machine that is
+    // not running.
+    check("QS-17", "startup with an explicit --machine next still boots a 48K .jns as the 48K",
+          saved && emulator_startup_machine(file1, MachineType::ZXN_ISSUE2, true) == MachineType::ZX48K);
+    // An RZX records its machine, and there an explicit --machine WINS (load_rzx()
+    // warns): the one case that tells the helper's rule from "always follow the file".
+    const std::string rzx_path = (root / "rec48.rzx").string();
+    bool rzx_made = false;
+    {
+        auto src_up = std::make_unique<Emulator>();
+        src_up->init(base_config());   // 48K
+        rzx_made = src_up->start_rzx_recording(rzx_path);
+        src_up->run_frame();
+        rzx_made = rzx_made && src_up->stop_rzx_recording();
+    }
+    check("QS-18", "startup keeps an explicit --machine for every other file (an RZX included: "
+                   "explicit next beats the recorded 48K), and follows the .jns, or the RZX when "
+                   "--machine is absent",
+          rzx_made &&
+              emulator_startup_machine(rzx_path, MachineType::ZXN_ISSUE2, true) == MachineType::ZXN_ISSUE2 &&
+              emulator_startup_machine(rzx_path, MachineType::ZXN_ISSUE2, false) == MachineType::ZX48K &&
+              emulator_startup_machine("x.nex", MachineType::ZXN_ISSUE2, true) == MachineType::ZXN_ISSUE2 &&
+              emulator_startup_machine("", MachineType::ZX128K, true) == MachineType::ZX128K &&
+              saved && emulator_startup_machine(file1, MachineType::ZXN_ISSUE2, false) == MachineType::ZX48K);
+
+
+    // QS-19..QS-24: retention (--quick-snapshot-keep). Oracle: the owner decision
+    // (default 20; N; unlimited; delete ONLY jnext's own quick-snapshot names).
+    {
+        check("QS-19", "the retention default is 20, in the library and in a default EmulatorConfig; "
+                       "0 means unlimited",
+              kQuickSnapshotKeepDefault == 20 && EmulatorConfig{}.quick_snapshot_keep == 20 &&
+                  !EmulatorConfig{}.quick_snapshot_keep_cli && kQuickSnapshotKeepUnlimited == 0);
+
+        bool names_ok = true;
+        for (const char* n : {"jnext-20260101-000000.jns", "jnext-20261231-235959-02.jns",
+                              "jnext-20261231-235959-99.jns"})
+            if (!is_quick_snapshot_name(n)) names_ok = false;
+        bool names_bad = false;
+        for (const char* n : {"", "x.jns", "jnext-20260101-000000.JNS", "JNEXT-20260101-000000.jns",
+                              "jnext-2026010-000000.jns", "jnext-20260101-00000.jns",
+                              "jnext-20260101-000000-2.jns", "jnext-20260101-000000-002.jns",
+                              "jnext-20260101-000000.jns.bak", "jnext-20260101-000000.png",
+                              "xjnext-20260101-000000.jns", "jnext-2026010a-000000.jns",
+                              "jnext-20260101-000000-0a.jns", "jnext-20260101_000000.jns"})
+            if (is_quick_snapshot_name(n)) names_bad = true;
+        check("QS-20", "only jnext-YYYYMMDD-HHMMSS[-NN].jns is a quick-snapshot name",
+              names_ok && !names_bad);
+
+        // Make N matching files with strictly increasing mtimes (f0 oldest).
+        auto make_set = [&](const fs::path& d, int n) {
+            fs::create_directories(d);
+            std::vector<std::string> names;
+            for (int i = 0; i < n; ++i) {
+                char b[48];
+                std::snprintf(b, sizeof(b), "jnext-20260101-%06d.jns", i);
+                touch(d / b);
+                fs::last_write_time(d / b, t0 + std::chrono::seconds(i));
+                names.push_back(b);
+            }
+            return names;
+        };
+        auto count_matching = [&](const fs::path& d) {
+            int c = 0;
+            for (const auto& e : fs::directory_iterator(d))
+                if (e.is_regular_file() && is_quick_snapshot_name(e.path().filename().string())) ++c;
+            return c;
+        };
+
+        {   // QS-21: a custom N keeps the NEWEST N and deletes the oldest, in mtime order,
+            // even when names sort the other way round.
+            const fs::path d = root / "keep3";
+            auto names = make_set(d, 6);
+            // reverse the mtimes so the NAME order and the age order disagree
+            for (int i = 0; i < 6; ++i)
+                fs::last_write_time(d / names[i], t0 + std::chrono::seconds(10 - i));
+            const int deleted = prune_quick_snapshots(d.string(), 3);
+            const bool kept_newest = fs::exists(d / names[0]) && fs::exists(d / names[1]) &&
+                                     fs::exists(d / names[2]);
+            const bool gone_oldest = !fs::exists(d / names[3]) && !fs::exists(d / names[4]) &&
+                                     !fs::exists(d / names[5]);
+            check("QS-21", "prune keeps the newest N by modification time and deletes the rest",
+                  deleted == 3 && kept_newest && gone_oldest && count_matching(d) == 3,
+                  "deleted=" + std::to_string(deleted));
+        }
+        {   // QS-22: unlimited deletes nothing; N at or above the count deletes nothing.
+            const fs::path d = root / "unl";
+            make_set(d, 25);
+            const int a = prune_quick_snapshots(d.string(), kQuickSnapshotKeepUnlimited);
+            const int b = prune_quick_snapshots(d.string(), 25);
+            check("QS-22", "unlimited (0) and N >= the file count delete nothing",
+                  a == 0 && b == 0 && count_matching(d) == 25);
+        }
+        {   // QS-23: the default, 20, applied to 25 files.
+            const fs::path d = root / "def20";
+            auto names = make_set(d, 25);
+            const int deleted = prune_quick_snapshots(d.string(), kQuickSnapshotKeepDefault);
+            bool oldest_gone = true, newest_kept = true;
+            for (int i = 0; i < 5; ++i)  if (fs::exists(d / names[i])) oldest_gone = false;
+            for (int i = 5; i < 25; ++i) if (!fs::exists(d / names[i])) newest_kept = false;
+            check("QS-23", "the default of 20 deletes the 5 oldest of 25 and nothing else",
+                  deleted == 5 && oldest_gone && newest_kept && count_matching(d) == 20);
+        }
+        {   // QS-24: nothing that is not a quick-snapshot name is ever touched, however old.
+            const fs::path d = root / "foreign";
+            make_set(d, 4);
+            const std::vector<std::string> foreign = {
+                "mine.jns", "JNEXT-20250505-000000.JNS", "jnext-2026.jns", "notes.txt",
+                "jnext-20250505-000000.png", "jnext-20250505-000000.jns.bak"};   // none equal a quick
+                                                                                    // name even case-folded
+            for (const std::string& f : foreign) {
+                touch(d / f);
+                fs::last_write_time(d / f, t0 - std::chrono::hours(48));   // oldest of all
+            }
+            fs::create_directories(d / "jnext-20250101-000000.jns");        // a directory
+            const int deleted = prune_quick_snapshots(d.string(), 1);
+            bool all_there = fs::is_directory(d / "jnext-20250101-000000.jns");
+            for (const std::string& f : foreign) if (!fs::exists(d / f)) all_there = false;
+            check("QS-24", "pruning to 1 deletes only the 3 older quick-snapshot names; a user's "
+                           "files, other extensions and a directory are untouched",
+                  deleted == 3 && all_there && count_matching(d) == 1);
+        }
+    }
+
+
+    // QS-25..QS-27: GH #321 D12, FLIPPED by GH #323 (owner decision: "of course,
+    // snapshots should switch to the saved machine"). #321 pinned that a
+    // .sna/.szx/.z80 loads onto the machine that is running; #323 makes it run
+    // on the machine it was SAVED on. Through the real frontend cold boot and
+    // the real load, for a file made on one machine and loaded on another, the
+    // machine that runs, the one the frontend keeps, the boot machine and the
+    // startup machine (with and without an explicit --machine) all agree on the
+    // FILE's machine. Oracle: the file's own header (libspectrum sna.c/szx.c/
+    // z80.c), not the code.
+    {
+        auto write_file = [&](const fs::path& p, const std::vector<uint8_t>& b) {
+            std::ofstream f(p, std::ios::binary);
+            f.write(reinterpret_cast<const char*>(b.data()), static_cast<std::streamsize>(b.size()));
+            return f.good() && !b.empty();
+        };
+        // Machines the files are made on.
+        auto machine_of = [](MachineType t) {
+            auto up = std::make_unique<Emulator>();
+            EmulatorConfig c;
+            c.type = t;
+            up->init(c);
+            for (int i = 0; i < 3; ++i) up->run_frame();
+            return up;
+        };
+        auto up128 = machine_of(MachineType::ZX128K);
+        auto up48  = machine_of(MachineType::ZX48K);
+        const fs::path d = root / "formats";
+        fs::create_directories(d);
+        // .z80 by hand (there is no saver): v1 = 48K, v3 hardware mode 4 = 128K.
+        std::vector<uint8_t> z48(30 + 49152, 0);
+        z48[6] = 0x00; z48[7] = 0x80;                       // PC = 0x8000 (non-zero: v1)
+        std::vector<uint8_t> z128(30, 0);
+        z128.insert(z128.end(), {54, 0});                   // extended header length
+        std::vector<uint8_t> ext(54, 0);
+        ext[0] = 0x00; ext[1] = 0x80;                       // PC
+        ext[2] = 4;                                         // hardware mode: 128K
+        z128.insert(z128.end(), ext.begin(), ext.end());
+        for (int page = 3; page <= 10; ++page) {
+            z128.insert(z128.end(), {0xFF, 0xFF, static_cast<uint8_t>(page)});
+            z128.insert(z128.end(), 16384, 0);
+        }
+        struct Case { const char* id; const char* what; fs::path file; MachineType run_on; bool ok; MachineType made_on; };
+        std::vector<Case> cases;
+        {
+            const auto sna128 = SnaSaver::save(*up128);
+            const auto sna48  = SnaSaver::save(*up48);
+            const auto szx128 = SzxSaver::save(*up128);
+            const auto szx48  = SzxSaver::save(*up48);
+            cases.push_back({"QS-25", ".sna: a 128K file on a 48K machine and a 48K file on a 128K one",
+                             d / "a128.sna", MachineType::ZX48K, write_file(d / "a128.sna", sna128), MachineType::ZX128K});
+            cases.push_back({"QS-25", "", d / "a48.sna", MachineType::ZX128K, write_file(d / "a48.sna", sna48), MachineType::ZX48K});
+            cases.push_back({"QS-26", ".szx: a 128K file on a 48K machine and a 48K file on a 128K one",
+                             d / "b128.szx", MachineType::ZX48K,
+                             szx128.ok && write_file(d / "b128.szx", szx128.data), MachineType::ZX128K});
+            cases.push_back({"QS-26", "", d / "b48.szx", MachineType::ZX128K,
+                             szx48.ok && write_file(d / "b48.szx", szx48.data), MachineType::ZX48K});
+            cases.push_back({"QS-27", ".z80: a 128K file on a 48K machine and a 48K file on a 128K one",
+                             d / "c128.z80", MachineType::ZX48K, write_file(d / "c128.z80", z128), MachineType::ZX128K});
+            cases.push_back({"QS-27", "", d / "c48.z80", MachineType::ZX128K, write_file(d / "c48.z80", z48), MachineType::ZX48K});
+        }
+        std::string detail[3];
+        bool good[3] = {true, true, true};
+        for (size_t i = 0; i < cases.size(); ++i) {
+            const Case& c = cases[i];
+            const int k = static_cast<int>(i / 2);
+            EmulatorConfig frontend = base_config();
+            frontend.type = c.run_on;
+            ColdBootHooks hooks;
+            MachineType kept = c.run_on;
+            hooks.keep_machine = [&kept](MachineType t) { kept = t; };
+            auto e_up = std::make_unique<Emulator>();
+            Emulator& e = *e_up;
+            e.init(frontend);
+            const std::string file = c.file.string();
+            emulator_frontend_cold_boot(e, frontend, file, hooks);
+            const bool loaded = c.ok && emulator_apply_load(e, file, false);
+            const bool same = kept == c.made_on && e.config().type == c.made_on &&
+                              emulator_boot_machine(file, c.run_on) == c.made_on &&
+                              emulator_startup_machine(file, c.run_on, true) == c.made_on &&
+                              emulator_startup_machine(file, c.run_on, false) == c.made_on;
+            if (!(loaded && same)) good[k] = false;
+            detail[k] += std::string(c.ok ? "" : "[file not made] ") + (loaded ? "loaded " : "NOT loaded ") +
+                         (same ? "file's machine; " : "not the file's machine; ");
+        }
+        for (int k = 0; k < 3; ++k) {
+            const char* ids[3] = {"QS-25", "QS-26", "QS-27"};
+            const char* what[3] = {
+                ".sna: loading a 128K file on a 48K machine and a 48K file on a 128K one runs the "
+                "FILE's machine, and the frontend, the boot and the startup machine agree",
+                ".szx: loading a 128K file on a 48K machine and a 48K file on a 128K one runs the "
+                "FILE's machine, and the frontend, the boot and the startup machine agree",
+                ".z80: loading a 128K file on a 48K machine and a 48K file on a 128K one runs the "
+                "FILE's machine, and the frontend, the boot and the startup machine agree"};
+            check(ids[k], what[k], good[k], detail[k]);
+        }
+
+        // SNM-40 / SNM-41: GH #323 — a snapshot jnext cannot run, and the
+        // frontends' follow-the-load helper. Oracle: libspectrum szx.c:2613-2680
+        // (ID 12 is a Timex TS2068), the contract in emulator_apply_load_keeping().
+        {
+            std::vector<uint8_t> ts2068 = {'Z', 'X', 'S', 'T', 1, 4, 12, 0};
+            const std::string bad = (d / "ts2068.szx").string();
+            const bool made = write_file(bad, ts2068);
+            const std::string good_file = (d / "b128.szx").string();
+            std::string why_bad, why_good;
+            const bool bad_ok = snapshot_file_loadable(bad, why_bad);
+            const bool good_ok = snapshot_file_loadable(good_file, why_good);
+            check("SNM-40", "a snapshot jnext cannot run (.szx Timex TS2068) boots the configured machine "
+                            "at startup (explicit or not) and is reported unloadable with a reason; a good "
+                            "one is loadable",
+                  made && emulator_boot_machine(bad, MachineType::ZX48K) == MachineType::ZX48K &&
+                  emulator_startup_machine(bad, MachineType::ZX128K, true) == MachineType::ZX128K &&
+                  emulator_startup_machine(bad, MachineType::ZX128K, false) == MachineType::ZX128K &&
+                  !bad_ok && why_bad.find("TS2068") != std::string::npos && good_ok,
+                  "bad_ok=" + std::to_string(bad_ok) + " why='" + why_bad + "' good_ok=" +
+                  std::to_string(good_ok) + " " + why_good);
+
+            std::vector<MachineType> got;
+            auto keep = [&got](MachineType t) { got.push_back(t); };
+            EmulatorConfig c48 = base_config();
+            auto e_up = std::make_unique<Emulator>();
+            e_up->init(c48);
+            const bool r1 = emulator_apply_load_keeping(*e_up, good_file, false, keep);
+            const bool r2 = emulator_apply_load_keeping(*e_up, (d / "b48.szx").string(), false, keep);
+            const bool r3 = emulator_apply_load_keeping(*e_up, bad, false, keep);
+            check("SNM-41", "emulator_apply_load_keeping() tells the frontend the machine now running: "
+                            "128K after a 128K .szx on a 48K, 48K after a 48K one, and the unchanged 48K "
+                            "after a refused file (which returns false)",
+                  r1 && r2 && !r3 && got.size() == 3 && got[0] == MachineType::ZX128K &&
+                  got[1] == MachineType::ZX48K && got[2] == MachineType::ZX48K &&
+                  e_up->config().type == MachineType::ZX48K);
+        }
+    }
+
+
+    // QS-28: GH #321 R3-1 — the keyboard matrix in a snapshot is a recording of
+    // the keys the HOST held when it was saved (the Shift of Alt+Shift+F5), and
+    // nothing will ever release them. Oracle: the frontends' load route
+    // (emulator_apply_load) starts the guest with no key down, for every
+    // snapshot format; the CORE load keeps the matrix (the .jns round-trip
+    // contract, rewind_test JNS-RT-02: a byte-identical state stream).
+    {
+        auto a_up = std::make_unique<Emulator>();
+        a_up->init(base_config());
+        for (int i = 0; i < 3; ++i) a_up->run_frame();
+        a_up->keyboard().set_matrix_bit(0, 0, true);                    // CAPS SHIFT down
+        const fs::path jns = root / "shift-held.jns";
+        const bool saved = a_up->save_jns_file(jns.string());
+        auto core_up = std::make_unique<Emulator>();
+        core_up->init(base_config());
+        const bool core_ok = saved && core_up->load_jns_file(jns.string());
+        const bool core_keeps = (core_up->keyboard().matrix_row(0) & 0x01) == 0;
+        auto fe_up = std::make_unique<Emulator>();
+        fe_up->init(base_config());
+        const bool fe_ok = saved && emulator_apply_load(*fe_up, jns.string(), false);
+        const bool fe_clear = fe_up->keyboard().matrix_row(0) == 0xFF;
+        check("QS-28", "a .jns saved with CAPS SHIFT down: the core load keeps the matrix, the "
+                       "frontend load route (emulator_apply_load) starts the guest with no key down",
+              saved && core_ok && core_keeps && fe_ok && fe_clear,
+              "core_keeps=" + std::to_string(core_keeps) + " fe_clear=" + std::to_string(fe_clear));
+    }
+
+
+    // QS-29 / QS-30: the other two parts of the keyboard that a snapshot records
+    // and release_all_keys() must clear (review R4-1). An ARROW held when the
+    // snapshot is taken lives in the extended-key register (ex_matrix_, folded
+    // into the matrix when read), and a held shift in the two-scan hysteresis
+    // (shift_hist_, which keeps a just-released shift reading "pressed" until the
+    // next scan). Oracle as QS-28: the core load keeps them, the frontend load
+    // route starts the guest with nothing down.
+    {
+        auto a_up = std::make_unique<Emulator>();
+        a_up->init(base_config());
+        for (int i = 0; i < 3; ++i) a_up->run_frame();
+        a_up->keyboard().set_extended_key(static_cast<int>(Keyboard::ExtKey::LEFT), true);
+        const fs::path jns = root / "arrow-held.jns";
+        const bool saved = a_up->save_jns_file(jns.string());
+        auto core_up = std::make_unique<Emulator>();
+        core_up->init(base_config());
+        const bool core_ok = saved && core_up->load_jns_file(jns.string());
+        // LEFT is NR 0xB0 bit 1, and folds into row 3 column 4 (port 0xF7FE bit 4).
+        const bool core_keeps = (core_up->keyboard().nr_b0_byte() & 0x02) != 0 &&
+                                (core_up->keyboard().read_rows(0xF7) & 0x10) == 0;
+        auto fe_up = std::make_unique<Emulator>();
+        fe_up->init(base_config());
+        const bool fe_ok = saved && emulator_apply_load(*fe_up, jns.string(), false);
+        const bool fe_clear = fe_up->keyboard().nr_b0_byte() == 0 &&
+                              (fe_up->keyboard().read_rows(0xF7) & 0x10) != 0;
+        check("QS-29", "an arrow held when a .jns was saved: the core load keeps it, the frontend "
+                       "load route (emulator_apply_load) releases it (extended-key register and the "
+                       "folded matrix bit)",
+              saved && core_ok && core_keeps && fe_ok && fe_clear,
+              "core_keeps=" + std::to_string(core_keeps) + " fe_clear=" + std::to_string(fe_clear));
+    }
+    {
+        // Shift hysteresis: a pressed shift that has been through a scan reads as
+        // pressed for one scan after its release; the guest must start clean.
+        auto e_up = std::make_unique<Emulator>();
+        e_up->init(base_config());
+        Keyboard& kb = e_up->keyboard();
+        kb.set_matrix_bit(0, 0, true);      // CAPS SHIFT down
+        kb.tick_scan();                     // the scan history now says "pressed"
+        kb.set_matrix_bit(0, 0, false);     // released
+        const bool held_over = (kb.read_rows(0xFE) & 0x01) == 0;   // the hysteresis holds it
+        const std::string path = (root / "hyst.jns").string();
+        const bool saved = e_up->save_jns_file(path);
+        // The history IS in the .jns (Keyboard::describe_state "shift_hist"), so the
+        // restored value is "pressed" too; the machine loaded INTO is dirtied as
+        // well, so the row cannot pass because the target happened to be clean.
+        auto fe_up = std::make_unique<Emulator>();
+        fe_up->init(base_config());
+        fe_up->keyboard().set_matrix_bit(0, 0, true);
+        fe_up->keyboard().tick_scan();
+        const bool fe_ok = saved && emulator_apply_load(*fe_up, path, false);
+        const bool fe_clear = (fe_up->keyboard().read_rows(0xFE) & 0x01) != 0;
+        check("QS-30", "a shift still held over by the two-scan hysteresis when a .jns was saved "
+                       "reads released after the frontend load route",
+              held_over && saved && fe_ok && fe_clear,
+              "held_over=" + std::to_string(held_over) + " fe_clear=" + std::to_string(fe_clear));
+    }
+
+    std::error_code ec;
+    fs::remove_all(root, ec);
+}
+
+}  // namespace qs
 
 int main()
 {
@@ -1346,7 +1954,7 @@ int main()
             bool ok = true;
             std::string why;
             for (MachineType m : recordable) {
-                const std::string path = path_for(rzx::machine_marker_name(m));
+                const std::string path = path_for(machine_type_key(m));
                 EmulatorConfig cfg = base_config();
                 cfg.type = m;
                 Emulator emu;
@@ -1357,8 +1965,8 @@ int main()
                 for (MachineType configured : all) {
                     if (written && emulator_boot_machine(path, configured) == m) continue;
                     ok = false;
-                    why += std::string(" ") + rzx::machine_marker_name(m) + "/" +
-                           rzx::machine_marker_name(configured);
+                    why += std::string(" ") + machine_type_key(m) + "/" +
+                           machine_type_key(configured);
                 }
                 std::remove(path.c_str());
             }
@@ -1395,13 +2003,13 @@ int main()
                 {"szx48",  snap_rec(szx(1), "szx"),       true,  MachineType::ZX48K},
                 {"szx128", snap_rec(szx(2), "szx"),       true,  MachineType::ZX128K},
                 {"szx+3",  snap_rec(szx(5), "szx"),       true,  MachineType::ZX_PLUS3},
-                {"szxpent",snap_rec(szx(7), "szx"),       false, MachineType::ZX48K},
+                {"szxpent",snap_rec(szx(7), "szx"),       true,  MachineType::PENTAGON},
                 {"z80v1",  snap_rec(z80v1, "z80"),        true,  MachineType::ZX48K},
                 {"z80v2-3",snap_rec(z80(23, 3), "z80"),   true,  MachineType::ZX128K},
                 {"z80v3-3",snap_rec(z80(54, 3), "z80"),   true,  MachineType::ZX48K},
                 {"z80v3-4",snap_rec(z80(54, 4), "z80"),   true,  MachineType::ZX128K},
                 {"z80v3-7",snap_rec(z80(54, 7), "z80"),   true,  MachineType::ZX_PLUS3},
-                {"z80v3-9",snap_rec(z80(54, 9), "z80"),   false, MachineType::ZX48K},
+                {"z80v3-9",snap_rec(z80(54, 9), "z80"),   true,  MachineType::PENTAGON},
                 {"none",   snap_rec({}, ""),              false, MachineType::ZX48K},
             };
             std::string why;
@@ -1411,7 +2019,7 @@ int main()
                 if (known != c.known || (known && got != c.m)) why += std::string(" ") + c.name;
             }
             check("EB-47", "a foreign recording's machine comes from its snapshot "
-                           "(SNA size, SZX ID, .z80 version+mode); Pentagon/none name none",
+                           "(SNA size, SZX ID, .z80 version+mode); Pentagon 128 is SZX 7 / .z80 hw 9, none names none",
                   why.empty(), "wrong for:" + why);
         }
 
@@ -1721,6 +2329,61 @@ int main()
         std::remove(card_a.c_str());
         std::remove(card_b.c_str());
     }
+
+    // --- GH #324: the Pentagon machine type's names -------------------------
+    {
+        MachineType a = MachineType::ZXN_ISSUE2, b = MachineType::ZXN_ISSUE2;
+        const bool p1 = parse_machine_type("pentagon", a) && a == MachineType::PENTAGON;
+        const bool p2 = parse_machine_type("pent", b) && b == MachineType::PENTAGON;
+        const MachineType every[] = {MachineType::ZXN_ISSUE2, MachineType::ZX48K,
+                                     MachineType::ZX128K, MachineType::ZX_PLUS3,
+                                     MachineType::PENTAGON};
+        bool round_trip = true;
+        for (MachineType t : every) {
+            MachineType back = MachineType::ZXN_ISSUE2;
+            round_trip = round_trip && parse_machine_type(machine_type_key(t), back) && back == t;
+        }
+        check("PENT-13",
+              "parse_machine_type accepts \"pentagon\"/\"pent\", machine_type_str names it "
+              "\"Pentagon\", and parse(machine_type_key(t)) == t for all five machines",
+              p1 && p2 && std::string(machine_type_str(MachineType::PENTAGON)) == "Pentagon" &&
+                  round_trip,
+              "p1=" + std::to_string(p1) + " p2=" + std::to_string(p2) +
+                  " round_trip=" + std::to_string(round_trip));
+    }
+
+    // --- GH #324: a Pentagon recording boots the Pentagon -------------------
+    {
+        const std::filesystem::path tmp = std::filesystem::temp_directory_path();
+        const std::string path = (tmp / ("jnext-eb-pent-" + std::to_string(getpid()) + ".rzx")).string();
+        EmulatorConfig cfg = base_config();
+        cfg.type = MachineType::PENTAGON;
+        Emulator emu;
+        emu.init(cfg);
+        const bool made = emu.start_rzx_recording(path);
+        emu.run_frame();
+        const bool written = made && emu.stop_rzx_recording();
+        const bool boots = written &&
+            emulator_boot_machine(path, MachineType::ZXN_ISSUE2) == MachineType::PENTAGON &&
+            emulator_boot_machine(path, MachineType::ZX128K) == MachineType::PENTAGON;
+        RzxRecording rec;
+        const bool parsed = written && rzx::parse(path, rec);
+        MachineType embedded = MachineType::ZXN_ISSUE2;
+        const bool szx_pentagon = parsed && rec.snapshot_ext == "szx" &&
+            rzx::snapshot_machine(rec.snapshot_data, rec.snapshot_ext, embedded) &&
+            embedded == MachineType::PENTAGON;
+        std::remove(path.c_str());
+        check("PENT-26",
+              "a Pentagon recording embeds an SZX (Pentagon 128, id 7), as the 128K and +3 do, "
+              "not the 48K SNA",
+              szx_pentagon, "parsed=" + std::to_string(parsed) + " ext=" + rec.snapshot_ext);
+        check("PENT-23",
+              "an RZX recorded on the Pentagon (embedded SZX id 7, creator marker \"pentagon\") "
+              "boots the Pentagon whatever machine is configured",
+              boots, "made=" + std::to_string(made) + " written=" + std::to_string(written));
+    }
+
+    qs::run_rows();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);

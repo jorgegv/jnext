@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2379,7 +2379,7 @@ to keep that combination building.</p>
 <p><code>make unit-test</code> builds <code>build/</code> and runs every declared subsystem suite, and
 <code>make regression</code> runs the screenshot and functional suite headless. Between
 them they pull in a set of structural gates as prerequisites —
-<code>lint-assertions</code>, <code>lint-makefile-help</code>, <code>cli-check</code>, <code>docs-check</code>,
+<code>lint-assertions</code>, <code>lint-makefile-help</code>, <code>lint-thread-detach</code>, <code>cli-check</code>, <code>docs-check</code>,
 <code>traceability-check</code> and friends — which is deliberate: it puts those checks in
 your inner loop instead of leaving them for CI to discover. <code>make regression</code>
 also runs <code>make fuse-pgo</code>, the FUSE Z80 opcode suite built against the PGO
@@ -2413,6 +2413,13 @@ jnext's own download if it is missing. <code>make unit-test-win</code> is two st
 <code>unit-test-win-build</code> (cross-build the tree) and <code>unit-test-win-run</code> (run it under
 wine, no compiler needed), so the run step could later be taken over by a real
 Windows host; it is part of the merge gate for every code change.</p>
+<p><code>make regression-win</code> (GH #319) runs the regression suite's screenshots and the
+functional rows Windows can run against MinGW-built exes under wine: the Qt exe
+as shipped minus PGO (<code>win-release-non-pgo</code>, with <code>qoffscreen.dll</code> bundled into
+that test tree only), the SDL-only exe, and the native helpers from the SDL
+unit-test tree. <code>make regression-macos</code> is its macOS twin (CI <code>macos-regression</code>).
+<code>ROWS="..."</code> names rows. Neither is stamped; see
+<a href="../04-testing/03-the-regression-suite.html#platform-runs-macos-and-windows-under-wine-gh-319">the regression suite</a>.</p>
 <p>The built tree is <strong>not yet a relocatable directory</strong>, so there is no recipe for
 running it by hand on a real Windows machine, and none has been tried. What
 stands in the way, in order of effort: <code>JNEXT_BINARY</code> (the CLI suite) and the

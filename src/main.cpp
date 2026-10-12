@@ -267,6 +267,8 @@ int main(int argc, char* argv[]) {
     // separate booleans this replaced could express and nothing rejected —
     // has no spelling.
     bool        snapshot_uncompressed = false;  // --snapshot-compression off
+    int         quick_snapshot_keep = 20;       // --quick-snapshot-keep (0 = unlimited)
+    bool        quick_snapshot_keep_set = false;
     bool        snapshot_strict       = false;  // --snapshot-mode strict
     bool        snapshot_force_sdcard = false;  // --snapshot-mode force
     MachineType machine_type = MachineType::ZXN_ISSUE2;
@@ -513,6 +515,15 @@ int main(int argc, char* argv[]) {
                     return 1;
                 }
                 break;
+            case cli::OptId::QuickSnapshotKeep:
+                if (!cli::parse_quick_snapshot_keep(v[0], quick_snapshot_keep)) {
+                    std::fprintf(stderr,
+                                 "--quick-snapshot-keep: N must be a whole number from 1 to "
+                                 "1000000, or \"unlimited\", not \"%s\".\n", v[0]);
+                    return 1;
+                }
+                quick_snapshot_keep_set = true;
+                break;
             case cli::OptId::SnapshotMode:
                 // The mapping lives in `cli_options.h` so a test can assert it
                 // directly. It writes BOTH booleans on every accepted MODE,
@@ -529,7 +540,7 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::Machine:
                 if (!parse_machine_type(v[0], machine_type)) {
-                    fprintf(stderr, "Unknown machine type: %s (valid: 48k, 128k, plus3, next)\n", v[0]);
+                    fprintf(stderr, "Unknown machine type: %s (valid: 48k, 128k, plus3, pentagon, next)\n", v[0]);
                     return 1;
                 }
                 machine_type_set = true;
@@ -1576,6 +1587,8 @@ int main(int argc, char* argv[]) {
         cfg.jns_uncompressed = snapshot_uncompressed;
         cfg.jns_strict       = snapshot_strict;
         cfg.jns_force_sdcard = snapshot_force_sdcard;
+        cfg.quick_snapshot_keep = quick_snapshot_keep;
+        cfg.quick_snapshot_keep_cli = quick_snapshot_keep_set;
         cfg.magic_port_enabled = magic_port_enabled;
         cfg.magic_port_address = magic_port_address;
         cfg.magic_port_mode = magic_port_mode;
@@ -1617,11 +1630,7 @@ int main(int argc, char* argv[]) {
         cfg.joy_uart_rx_delay_frames = static_cast<uint32_t>(joy_uart_rx_delay_frames);
         cfg.joy_uart_fifo            = joy_uart_fifo;
         cfg.joy_uart_pty             = joy_uart_pty;
-        if (pi_qemu) {                 // NextPi, started before the app below
-            cfg.pi_uart_fifo_rx      = pi_qemu->rx_path();
-            cfg.pi_uart_fifo_tx      = pi_qemu->tx_path();
-            cfg.pi_audio             = pi_qemu->audio();
-        }
+        if (pi_qemu) pi_qemu->link_config(cfg);   // NextPi, started before the app below
 
         // Task 66 — saved GUI preferences fill in fields the CLI left at
         // their default; merge_cli_precedence() (src/gui/app_config.h) always
@@ -1634,6 +1643,9 @@ int main(int argc, char* argv[]) {
             cfg.type   = merge_cli_precedence(machine_type_set, machine_type,
                                                gui_app_config.data().machine_type);
             cfg.silent = merge_cli_precedence(silent, true, gui_app_config.data().silent);
+            cfg.quick_snapshot_keep = merge_cli_precedence(
+                quick_snapshot_keep_set, quick_snapshot_keep,
+                gui_app_config.data().quick_snapshot_keep);
             cfg.audio_gain_db = merge_cli_precedence(
                 audio_gain.master_set, audio_gain.master,
                 gui_app_config.data().audio_gain_db);
@@ -1691,7 +1703,18 @@ int main(int argc, char* argv[]) {
         // playback boots that machine (emulator_boot_machine()) — the same
         // rule every cold boot applies. An explicit --machine wins, and
         // Emulator::load_rzx() warns when it disagrees with the recording.
-        if (!machine_type_set) cfg.type = emulator_boot_machine(cfg.load_file, cfg.type);
+        // A `.jns` (GH #321) and a `.sna`/`.szx`/`.z80` (GH #323) name their
+        // machine too and win even over --machine.
+        {
+            const MachineType given = cfg.type;
+            cfg.type = emulator_startup_machine(cfg.load_file, cfg.type, machine_type_set);
+            // GH #323: a snapshot runs on the machine it was saved on, even
+            // over an explicit --machine; say so rather than do it silently.
+            if (machine_type_set && cfg.type != given)
+                Log::emulator()->warn("--machine {}: '{}' was saved on the {}; running the {}",
+                                      machine_type_key(given), cfg.load_file,
+                                      machine_type_str(cfg.type), machine_type_str(cfg.type));
+        }
 
         // An allowlist with nothing to restrict is a user error worth naming:
         // it reads as "I have restricted the ESP" when in fact the ESP is off.

@@ -64,6 +64,20 @@ for tool in mdir mcopy; do
     command -v "$tool" >/dev/null 2>&1 || die "'$tool' (from mtools) is required"
 done
 
+# GH #330: mtools builds host file names from the locale's charset; in one that
+# cannot represent a card name (C/POSIX) "日本.nex" is extracted as "__.nex".
+# Pin a UTF-8 locale for the whole run (LC_ALL outranks the caller's settings),
+# and refuse, before extracting anything, when none exists.
+LOCALES_AVAILABLE=$(locale -a 2>/dev/null || true)
+for loc in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do
+    if grep -qix "$loc" <<< "$LOCALES_AVAILABLE"; then
+        export LC_ALL="$loc"
+        break
+    fi
+done
+[[ "$(locale charmap 2>/dev/null || true)" == UTF-8 ]] \
+    || die "no UTF-8 locale is installed; non-ASCII card names would be lost — install C.UTF-8 (or en_US.UTF-8) or run in a UTF-8 locale (GH #330). Nothing was extracted."
+
 # mtools wants an absolute path in the drive spec.
 abspath() { case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s\n' "$PWD/$1" ;; esac; }
 DRIVE="$(abspath "$IMAGE")@@$PART_OFFSET"
@@ -83,16 +97,53 @@ echo "Found:  ${#NEX_FILES[@]} NEX file(s)"
 echo "Output: $OUT_DIR"
 echo
 
+# Escape the glob characters mtools and find treat as patterns (\ * ? [), so a
+# card name such as "Foo [48].nex" is looked up literally.
+mt_escape() {
+    local e=$1
+    e=${e//\\/\\\\}; e=${e//\*/\\*}; e=${e//\?/\\?}; e=${e//\[/\\[}
+    printf '%s' "$e"
+}
+
 copied=0
 for src in "${NEX_FILES[@]}"; do
     rel="${src#::/}"                 # strip the mtools drive prefix
     dest_dir="$OUT_DIR/$(dirname "$rel")"
     mkdir -p "$dest_dir"
+    # GH #330: mtools 4.0.49 can name a host file it extracts into a DIRECTORY
+    # wrongly (a "_" and the tail of the previous name; macOS). A single file
+    # therefore goes to an EXPLICIT host name, which mtools uses verbatim. The
+    # --with-siblings bulk copy cannot be named: it is extracted into a scratch
+    # directory, every extracted entry is looked up on the card (a mis-named one
+    # is not there), and only then is it merged into the output tree.
     if (( WITH_SIBLINGS )); then
-        # -s recurses, so point it at the NEX's directory and take everything.
-        mcopy -i "$DRIVE" -s -m -p -Q -n "::/$(dirname "$rel")" "$dest_dir/.." </dev/null 2>/dev/null
+        sib_dir=$(dirname "$rel")
+        scratch=$(mktemp -d "$OUT_DIR/.siblings.XXXXXX")
+        if [[ "$sib_dir" == . ]]; then
+            # NEX in the card root: its siblings are the root's files (no -s:
+            # that would copy the whole card).
+            sib_prefix=""
+            mcopy -i "$DRIVE" -m -p -Q -n "::/*" "$scratch/" </dev/null 2>/dev/null \
+                || { rm -rf "$scratch"; die "mcopy failed extracting the card root's files for '$rel'"; }
+        else
+            # -s recurses: the NEX's directory arrives as $scratch/<its name>.
+            sib_prefix="$(dirname "$sib_dir")/"; [[ "$sib_prefix" != ./ ]] || sib_prefix=""
+            mcopy -i "$DRIVE" -s -m -p -Q -n "::/$(mt_escape "$sib_dir")" "$scratch/" </dev/null 2>/dev/null \
+                || { rm -rf "$scratch"; die "mcopy failed extracting the directory of '$rel'"; }
+        fi
+        while IFS= read -r -d '' p; do
+            mdir -a -b -i "$DRIVE" "::/$(mt_escape "$sib_prefix${p#./}")" </dev/null >/dev/null 2>&1 \
+                || { rm -rf "$scratch"; die "mtools extracted '${p#./}' under a name that is not on the card (GH #330: this mtools build mis-names host files)"; }
+        done < <(cd "$scratch" && find . -mindepth 1 -print0)
+        nex_in=$(dirname "$scratch/${rel#"$sib_prefix"}")
+        [[ -n "$(find "$nex_in" -maxdepth 1 -iname "$(mt_escape "$(basename "$rel")")" -print -quit 2>/dev/null)" ]] \
+            || { rm -rf "$scratch"; die "mtools did not extract '$rel' (GH #330: this mtools build mis-names host files)"; }
+        mkdir -p "$OUT_DIR/$sib_prefix"
+        cp -pR "$scratch/." "$OUT_DIR/$sib_prefix"
+        rm -rf "$scratch"
     else
-        mcopy -i "$DRIVE" -m -p -Q -n "::/$rel" "$dest_dir/" </dev/null 2>/dev/null
+        mcopy -i "$DRIVE" -m -p -Q -n "::/$(mt_escape "$rel")" "$OUT_DIR/$rel" </dev/null 2>/dev/null \
+            || die "mcopy failed extracting '$rel'"
     fi
     copied=$(( copied + 1 ))
     printf '  [%2d/%2d] %s\n' "$copied" "${#NEX_FILES[@]}" "$rel"

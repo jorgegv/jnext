@@ -9,7 +9,6 @@
 #include <cstring>
 #include <memory>
 #include <string>
-#include <thread>
 #include <vector>
 
 #if defined(_WIN32)
@@ -200,7 +199,7 @@ public:
         const unsigned    t   = timeout_s_;
         const AddressPolicy p = policy_;
         try {
-            std::thread([job, h, t, p]() {
+            net::start_detached([job, h, t, p]() {
                 // NOTHING MAY ESCAPE. An exception leaving a thread's entry
                 // point is `std::terminate` — a process abort, not an error.
                 bool        ok = false;
@@ -238,7 +237,7 @@ public:
                 job->ms  = ms;
                 job->err = std::move(err);
                 job->done.store(true, std::memory_order_release);
-            }).detach();
+            });
         } catch (const std::system_error& e) {
             job_.reset();
             err_   = std::string("cannot start ping thread: ") + e.what();

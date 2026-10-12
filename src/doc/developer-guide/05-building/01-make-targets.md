@@ -67,7 +67,7 @@ to keep that combination building.
 `make unit-test` builds `build/` and runs every declared subsystem suite, and
 `make regression` runs the screenshot and functional suite headless. Between
 them they pull in a set of structural gates as prerequisites —
-`lint-assertions`, `lint-makefile-help`, `cli-check`, `docs-check`,
+`lint-assertions`, `lint-makefile-help`, `lint-thread-detach`, `cli-check`, `docs-check`,
 `traceability-check` and friends — which is deliberate: it puts those checks in
 your inner loop instead of leaving them for CI to discover. `make regression`
 also runs `make fuse-pgo`, the FUSE Z80 opcode suite built against the PGO
@@ -102,6 +102,14 @@ jnext's own download if it is missing. `make unit-test-win` is two steps,
 `unit-test-win-build` (cross-build the tree) and `unit-test-win-run` (run it under
 wine, no compiler needed), so the run step could later be taken over by a real
 Windows host; it is part of the merge gate for every code change.
+
+`make regression-win` (GH #319) runs the regression suite's screenshots and the
+functional rows Windows can run against MinGW-built exes under wine: the Qt exe
+as shipped minus PGO (`win-release-non-pgo`, with `qoffscreen.dll` bundled into
+that test tree only), the SDL-only exe, and the native helpers from the SDL
+unit-test tree. `make regression-macos` is its macOS twin (CI `macos-regression`).
+`ROWS="..."` names rows. Neither is stamped; see
+[the regression suite](../04-testing/03-the-regression-suite.md#platform-runs-macos-and-windows-under-wine-gh-319).
 
 The built tree is **not yet a relocatable directory**, so there is no recipe for
 running it by hand on a real Windows machine, and none has been tried. What

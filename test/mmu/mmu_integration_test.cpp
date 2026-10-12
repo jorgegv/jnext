@@ -14,6 +14,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/rzx.h"
 #include "core/saveable.h"
 #include "core/szx_saver.h"
 #include "core/sna_saver.h"
@@ -1934,6 +1935,7 @@ static void test_snapsave_sna_machine_boundary() {
         emu.init(reinit_cfg(MachineType::ZX128K));
         emu.port().out(0x7FFD, 0x00);          // 0x7FFD names bank 0
         emu.mmu().write(0xC000, 0xAA);
+        emu.nextreg().write(0x82, static_cast<uint8_t>(emu.nextreg().cached(0x82) | 0x04));  // GH #325: enable 0xDFFD
         emu.port().out(0xDFFD, 0x01);          // extended paging: bank 8 at 0xC000
         emu.mmu().write(0xC000, 0xBB);
         const uint8_t slot6 = emu.mmu().get_page(6);
@@ -2012,11 +2014,13 @@ static void test_snapsave_sna_machine_boundary() {
     {
         Emulator emu;
         emu.init(reinit_cfg(MachineType::ZX48K));
+        emu.nextreg().write(0x82, static_cast<uint8_t>(emu.nextreg().cached(0x82) | 0x04));  // GH #325: enable 0xDFFD
         emu.port().out(0xDFFD, 0x01);
         const uint8_t slot6 = emu.mmu().get_page(6);
         std::string error;
         const std::vector<uint8_t> sna = SnaSaver::save(emu, &error);
-        // MEASURED, not assumed: port 0xDFFD is live on `--machine 48k` too —
+        // MEASURED, not assumed: port 0xDFFD is live on `--machine 48k` once
+        // NR 0x82 bit 2 enables it (GH #325; off by default there) —
         // compose_bank_() does not branch on machine type, only on Pentagon
         // mode — so slot 6 really does move to page 16 (bank 8) here, and the
         // refusal is asserted unconditionally rather than "if it moved".
@@ -2864,6 +2868,208 @@ static void test_g12_attribute_write_tags() {
     }
 }
 
+// ── GH #324 -- Pentagon 128 machine type + the 0x1FFD/0x3FFD aliasing of 0x7FFD ──
+//
+// VHDL: typ_sel 100 decodes to machine_type_128 (zxnext.vhd:5751), so a
+// Pentagon is the 128K family on every ROM/paging axis (:2997-3007).
+// NR 0x8F selects the Pentagon 512/1024 mapping (:3764-3801).
+static bool boot_machine(Emulator& emu, MachineType t) {
+    EmulatorConfig cfg;
+    cfg.type = t;
+    cfg.rewind_buffer_frames = 0;
+    return emu.init(cfg);
+}
+
+static void test_gh324_pentagon_paging() {
+    set_group("PENT-PAGING");
+
+    {
+        Emulator emu;
+        boot_machine(emu, MachineType::PENTAGON);
+        emu.port().out(0x7FFD, 0x10);
+        const bool ok = emu.mmu().machine_type() == MachineType::PENTAGON &&
+                        emu.mmu().current_sram_rom() == 1 && emu.mmu().sram_rom3();
+        check("PENT-09",
+              "Pentagon is the 128K family: OUT 0x7FFD 0x10 selects ROM 1 and sram_rom3 "
+              "[zxnext.vhd:5751, :2997-3007]",
+              ok, fmt("rom=%d rom3=%d", emu.mmu().current_sram_rom(),
+                      emu.mmu().sram_rom3() ? 1 : 0));
+    }
+    {
+        Emulator emu;
+        boot_machine(emu, MachineType::PENTAGON);
+        emu.port().out(0x7FFD, 0x43);
+        const uint8_t pg = emu.mmu().get_page(6);
+        check("PENT-10",
+              "NR 0x8F = 00 (standard): OUT 0x7FFD 0x43 pages bank 3 at 0xC000 "
+              "(bits 7:6 ignored) [zxnext.vhd:3764]",
+              pg == 6, fmt("slot6 page=%d (exp 6)", pg));
+    }
+    {
+        Emulator emu;
+        boot_machine(emu, MachineType::PENTAGON);
+        nr_write(emu, 0x8F, 0x02);
+        emu.port().out(0x7FFD, 0x43);
+        const uint8_t pg = emu.mmu().get_page(6);
+        check("PENT-11",
+              "NR 0x8F = 02 (Pentagon 512): OUT 0x7FFD 0x43 pages bank 0b01_011 = 11 "
+              "(page 22) [zxnext.vhd:3764, :3798]",
+              pg == 22, fmt("slot6 page=%d (exp 22)", pg));
+    }
+    {
+        Emulator emu;
+        boot_machine(emu, MachineType::PENTAGON);
+        nr_write(emu, 0x8F, 0x03);
+        emu.port().out(0x7FFD, 0x20);
+        const uint8_t first = emu.mmu().get_page(6);
+        emu.port().out(0x7FFD, 0x01);
+        const uint8_t second = emu.mmu().get_page(6);
+        check("PENT-12",
+              "NR 0x8F = 03 (Pentagon 1024): OUT 0x7FFD 0x20 pages bank 32 (page 64) and "
+              "the lock bit does not lock, so a second write pages bank 1 (page 2) "
+              "[zxnext.vhd:3765, :3769, :3801]",
+              first == 64 && second == 2, fmt("first=%d (exp 64) second=%d (exp 2)", first, second));
+    }
+
+    // PENT-F1-xx: port 0x1FFD / 0x3FFD decode in parallel with 0x7FFD.
+    {
+        Emulator emu;
+        boot_machine(emu, MachineType::PENTAGON);
+        emu.port().out(0x1FFD, 0x13);
+        const uint8_t pg = emu.mmu().get_page(6);
+        check("PENT-F1-01",
+              "port_1ffd_io_en = 0 (NR 0x82 bit 3, Pentagon): OUT 0x1FFD 0x13 is a 0x7FFD "
+              "write, bank 3 at 0xC000 [zxnext.vhd:2593, :2599]",
+              pg == 6, fmt("slot6 page=%d (exp 6)", pg));
+    }
+    {
+        Emulator emu;
+        boot_machine(emu, MachineType::ZX_PLUS3);
+        nr_write(emu, 0x82, 0xC6);   // 0x1FFD decode off, 0x7FFD on
+        emu.port().out(0x1FFD, 0x13);
+        const uint8_t pg = emu.mmu().get_page(6);
+        check("PENT-F1-02",
+              "+3 timing needs A14 = 1 for 0x7FFD: with 0x1FFD disabled, OUT 0x1FFD 0x13 "
+              "pages nothing [zxnext.vhd:2593 p3_timing_hw_en term]",
+              pg == 0, fmt("slot6 page=%d (exp 0)", pg));
+    }
+    {
+        Emulator emu;
+        boot_machine(emu, MachineType::ZX_PLUS3);
+        emu.port().out(0x7FFD, 0x01);
+        emu.port().out(0x1FFD, 0x04);
+        const uint8_t pg = emu.mmu().get_page(6);
+        const uint8_t rom = emu.mmu().current_rom_bank();
+        check("PENT-F1-03",
+              "port_1ffd_io_en = 1 (+3): OUT 0x1FFD 0x04 selects +3 ROM bank 2 and leaves "
+              "the 0x7FFD bank alone [zxnext.vhd:2599]",
+              rom == 2 && pg == 2 && emu.mmu().port_7ffd() == 0x01,
+              fmt("rom=%d slot6 page=%d p7ffd=%02x", rom, pg, emu.mmu().port_7ffd()));
+    }
+    {
+        Emulator emu;
+        boot_machine(emu, MachineType::ZX128K);
+        nr_write(emu, 0xD8, 0x01);   // FDC trap on
+        emu.port().out(0x3FFD, 0x13);
+        const uint8_t pg = emu.mmu().get_page(6);
+        const uint8_t cap = nr_read(emu, 0xD9);
+        const uint8_t cause = nr_read(emu, 0xDA);
+        check("PENT-F1-04",
+              "128K timing: OUT 0x3FFD 0x13 is both the FDC trap write (NR 0xD9 = 0x13, "
+              "cause 11) and a 0x7FFD write (bank 3) [zxnext.vhd:2593, :2601]",
+              pg == 6 && cap == 0x13 && (cause & 0x03) == 0x03,
+              fmt("slot6 page=%d (exp 6) d9=%02x da=%02x", pg, cap, cause));
+    }
+}
+
+// ── GH #324 -- Pentagon 128 in the savers + the extended-paging refusal (F3) ──
+//
+// ZXSTMID_PENTAGON128 = 7 (libspectrum szx.c:41-57; ram_page_set(7) = banks
+// 0-7, szx.c:2645). A 128K SNA is the form FUSE reads as Pentagon 128 too.
+// F3: an .szx carries banks 0-7, ch7ffd and ch1ffd only, so a map whose 0xC000
+// bank is above 7 (port 0xDFFD bits, NR 0x8F Pentagon 512/1024 --
+// zxnext.vhd:3763-3766) cannot be described and must be refused.
+static void test_gh324_pentagon_savers() {
+    set_group("PENT-SAVERS");
+
+    {
+        Emulator emu;
+        boot_machine(emu, MachineType::PENTAGON);
+        const auto r = SzxSaver::save(emu);
+        const auto scan = scan_szx_ramp_pages(r.data);
+        bool all8 = scan.ok && scan.ramp_chunk_count == 8;
+        for (int p = 0; p < 8; ++p) all8 = all8 && scan.page_seen[p];
+        check("PENT-14",
+              "SzxSaver on PENTAGON writes chMachineId 7 and RAM pages 0-7 "
+              "[libspectrum szx.c:41-57, :2645]",
+              r.ok && r.data.size() > 8 && r.data[6] == 7 && all8,
+              fmt("ok=%d id=%d ramp=%d", r.ok, r.data.size() > 6 ? r.data[6] : -1,
+                  scan.ramp_chunk_count));
+    }
+    {
+        Emulator emu;
+        boot_machine(emu, MachineType::PENTAGON);
+        emu.port().out(0x7FFD, 0x03);   // bank 3 at 0xC000: not 5/2, so no duplicate block
+        std::string error;
+        const std::vector<uint8_t> sna = SnaSaver::save(emu, &error);
+        check("PENT-15",
+              "SnaSaver on PENTAGON writes the 128K form (131103 bytes) with the 0x7FFD "
+              "byte [SNA 128K layout; FUSE reads it as Pentagon 128]",
+              sna.size() == 131103 && sna[49179 + 2] == 0x03,
+              fmt("size=%zu 7ffd=%02x error='%s'", sna.size(),
+                  sna.size() > 49181 ? sna[49181] : 0, error.c_str()));
+    }
+    {
+        std::vector<uint8_t> szx(8, 0);
+        std::memcpy(szx.data(), "ZXST", 4);
+        MachineType m_szx7 = MachineType::ZXN_ISSUE2;
+        szx[6] = 7;
+        const bool a = rzx::snapshot_machine(szx, "szx", m_szx7) && m_szx7 == MachineType::PENTAGON;
+        MachineType unused = MachineType::ZXN_ISSUE2;
+        szx[6] = 13;
+        const bool b = !rzx::snapshot_machine(szx, "szx", unused);   // Pentagon 512 stays unmapped
+        std::vector<uint8_t> z80(86, 0);
+        z80[30] = 54;   // v3 header
+        z80[34] = 9;    // hardware mode: Pentagon (libspectrum z80.c:81)
+        MachineType m_z80 = MachineType::ZXN_ISSUE2;
+        const bool c = rzx::snapshot_machine(z80, "z80", m_z80) && m_z80 == MachineType::PENTAGON;
+        check("PENT-16",
+              "rzx::snapshot_machine identifies SZX id 7 and .z80 v3 hardware 9 as PENTAGON; "
+              "SZX id 13 (Pentagon 512) stays unrecognised [libspectrum szx.c:41-57, z80.c:81]",
+              a && b && c, fmt("szx7=%d szx13_refused=%d z80_9=%d", a, b, c));
+    }
+    {
+        Emulator emu;
+        boot_machine(emu, MachineType::ZX128K);
+        emu.nextreg().write(0x82, static_cast<uint8_t>(emu.nextreg().cached(0x82) | 0x04));  // GH #325: enable 0xDFFD
+        emu.port().out(0xDFFD, 0x01);          // bank 8 at 0xC000
+        const auto r = SzxSaver::save(emu);
+        check("SZXW-EXT-01",
+              "128K with OUT 0xDFFD 0x01 (bank 8 at 0xC000): SzxSaver refuses, naming .jns "
+              "[zxnext.vhd:3763-3766]",
+              !r.ok && r.data.empty() && r.error.find(".jns") != std::string::npos,
+              fmt("ok=%d size=%zu error='%s'", r.ok, r.data.size(), r.error.c_str()));
+    }
+    {
+        Emulator ext;
+        boot_machine(ext, MachineType::PENTAGON);
+        nr_write(ext, 0x8F, 0x02);
+        ext.port().out(0x7FFD, 0x40);          // bank 0b01_000 = 8 at 0xC000
+        const auto refused = SzxSaver::save(ext);
+
+        Emulator std_;
+        boot_machine(std_, MachineType::PENTAGON);
+        std_.port().out(0x7FFD, 0x03);         // standard mapping, bank 3
+        const auto saved = SzxSaver::save(std_);
+        check("SZXW-EXT-02",
+              "PENTAGON with NR 0x8F = 02 and 0x7FFD 0x40 (bank 8): SzxSaver refuses; the "
+              "same machine in the standard mapping with bank 3 saves (control) "
+              "[zxnext.vhd:3764]",
+              !refused.ok && refused.data.empty() && saved.ok && !saved.data.empty(),
+              fmt("ext ok=%d std ok=%d", refused.ok, saved.ok));
+    }
+}
+
 int main() {
     std::printf("MMU Integration Tests (full-Emulator + port-dispatch)\n");
     std::printf("====================================================\n\n");
@@ -2904,6 +3110,12 @@ int main() {
 
     test_snapsave_szx_roundtrip();
     std::printf("  Group: SNAPSAVE-SZX-RT (Task 13b .szx +3 full round trip) — done\n");
+
+    test_gh324_pentagon_paging();
+    std::printf("  Group: PENT-PAGING (GH #324) — done\n");
+
+    test_gh324_pentagon_savers();
+    std::printf("  Group: PENT-SAVERS (GH #324) — done\n");
 
     test_snapsave_szx_refused_for_next();
     std::printf("  Group: SNAPSAVE-SZX-RT-REFUSED (Task 13b .szx refused for Next) — done\n");

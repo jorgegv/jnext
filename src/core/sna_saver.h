@@ -5,6 +5,13 @@
 #include <vector>
 
 class Emulator;
+class Mmu;
+
+/// True iff the RAM mapped at 0x4000-0xFFFF is the classic map (bank 5, bank 2,
+/// `bank_at_c000`) that an '.sna' or '.szx' describes by position. On false,
+/// `found` names the logical pages in slots 2-7. Shared by SnaSaver and
+/// SzxSaver; the derivation is in sna_saver.cpp.
+bool classic_window_intact(Mmu& mmu, uint8_t bank_at_c000, std::string& found);
 
 /// Save the current emulator state as an SNA snapshot byte vector — the
 /// inverse of SnaLoader, and written to BE its exact inverse: SnaLoader is the
@@ -64,8 +71,9 @@ class Emulator;
 /// EXTENDED PAGING breaks that: `port_7ffd_bank` composes bits 6:3 of the bank
 /// at 0xC000 from `port_dffd_reg` on every non-Pentagon machine
 /// (zxnext.vhd:3763-3766, `Mmu::compose_bank_()`), and port 0xDFFD is writable
-/// whenever paging is unlocked — on `--machine 48k` as much as on a 128K, since
-/// neither the composition nor the port decode is gated on machine type. The
+/// whenever paging is unlocked and NR 0x82 bit 2 enables it — by default on
+/// the Next and the Pentagon, and on `--machine 48k`/`128k`/`plus3` once
+/// software sets that bit (GH #325); the composition is not gated on machine type. The
 /// file then cannot describe the machine even with every byte in it correct:
 /// the MAPPING comes back wrong, and a bank above 7 has no block to live in at
 /// all. The Next MMU registers (NR 0x50-0x57, ungated per zxnext.vhd:4686) can

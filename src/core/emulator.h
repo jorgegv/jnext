@@ -1,6 +1,7 @@
 #pragma once
 
 namespace jnext { namespace save { class StateDesc; } }
+namespace jnext { namespace zip { class Reader; } namespace jns { struct Manifest; struct Verdict; } }
 
 #include <cstdint>
 #include <cstdio>
@@ -478,6 +479,12 @@ public:
 
     /// Load a `.z80` snapshot file (v1/v2/v3). Returns true on success.
     bool load_z80(const std::string& path);
+
+    /// Restore the sound chip of a snapshot through its ports, as the program
+    /// that took it wrote it: OUT 0xFFFD,r / OUT 0xBFFD,value for the 16
+    /// registers, then OUT 0xFFFD,`selected` (low 4 bits). For the snapshot
+    /// loaders, on 128K-class machines (GH #323).
+    void restore_ay_registers(const uint8_t regs[16], uint8_t selected);
 
     /// Load a WAV file and start real-time EAR bit playback.
     /// WAV loading is always real-time (no fast-load possible).
@@ -1019,6 +1026,12 @@ public:
     bool load_jns_file(const std::string& path);
     bool save_jns_file(const std::string& path);
 
+    /// GH #321 — run ONLY the checks `load_jns` does before it touches the
+    /// machine (container, manifest, media identity) on the file at `path`.
+    /// Touches no machine state. Lets a frontend refuse a bad `.jns` BEFORE
+    /// the cold boot a menu load performs.
+    bool probe_jns_file(const std::string& path, std::string& why);
+
     /// What the last `load_jns_file` / `save_jns_file` had to say. The GUI
     /// shows the warnings; §15.2: "it must be visible, not log-only — a user
     /// who ignores a mismatch should have had to ignore it."
@@ -1418,6 +1431,18 @@ public:
     bool pi_uart_connected() const { return (nr_a0_pi_peripheral_en_ & 0x30) == 0x30; }
 
 private:
+    /// GH #323 — the machine a program/snapshot load must run on: when `want`
+    /// is not the running machine, end a running RZX recording first (its file
+    /// would otherwise name the wrong machine), log the switch and set
+    /// `config_.type`; the caller's init(config_) then builds it. Shared by
+    /// load_sna/szx/z80 and load_jns. Does nothing when `want` already runs.
+    void switch_machine_for_load_(MachineType want, const std::string& what);
+
+    /// GH #323 — the machine of the `ext` ("sna"/"szx"/"z80") snapshot `path` (snapshot_machine.h)
+    /// and the switch to it. False, with the reason logged, when jnext cannot
+    /// run that machine: the caller returns false BEFORE touching anything.
+    bool switch_to_snapshot_machine_(const std::string& path, const char* ext);
+
     // Task 79 — recompute the Keyboard cursor-key target from joy_source_:
     // the connector (0/1) whose source is CursorKeys, or -1 for none.
     void update_cursor_key_target();
@@ -1681,6 +1706,12 @@ private:
     /// What the last `.jns` file operation reported. Held here so every
     /// frontend reads it the same way instead of each threading its own
     /// out-params through a dispatch table.
+    /// GH #321 — the pre-touch half of `load_jns`, shared with
+    /// `probe_jns_file`: builds the ReaderEnv and opens the snapshot.
+    bool check_jns(const uint8_t* data, std::size_t len,
+                   const jnext::JnsLoadOptions& opt, jnext::zip::Reader& zip,
+                   jnext::jns::Manifest& m, jnext::jns::Verdict& v);
+
     jnext::JnsLoadReport jns_report_;
     std::string          jns_error_;
     Mixer           mixer_;

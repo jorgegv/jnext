@@ -960,7 +960,9 @@ static void test_section6_nr08_override(void) {
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
-        // NR 0x82 default 0xFF (bit 0 set → port_ff_io_en=1). Set NR 0x08
+        emu.nextreg().write(0x82, static_cast<uint8_t>(emu.nextreg().cached(0x82) | 0x01));  // GH #325: port 0xFF is off on a 48K until enabled
+        // The 48K personality starts with NR 0x82 = 0xC0; the line above sets
+        // bit 0 → port_ff_io_en=1. Set NR 0x08
         // bit 2 to enable the Timex arm, then write port 0xFF = 0x02
         // (mode 010 = HI_COLOUR; canonical so no unknown-mode warn).
         emu.nextreg().write(0x08, 0x14);            // bit 4 (default) + bit 2
@@ -1072,6 +1074,7 @@ static void test_section7_d3f_followup(void) {
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
+        emu.nextreg().write(0x82, static_cast<uint8_t>(emu.nextreg().cached(0x82) | 0x10));  // GH #325: the +3 floating bus is off on a 48K until enabled
 
         // NR 0x03 = 0xB1: bit7=1 (commit gate), tim_sel=3 (+3 timing,
         // bits 6:4 = 011), bit3=0 (don't toggle dt_lock), typ_sel=1
@@ -1709,6 +1712,7 @@ static void test_section10_ula_counters(void) {
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX128K);
+        emu.nextreg().write(0x82, static_cast<uint8_t>(emu.nextreg().cached(0x82) | 0x01));  // GH #325: port 0xFF is off on a 128K until enabled
         emu.mmu().write(static_cast<uint16_t>(scr_pix(36, 4) + 0x2000), 0x95);
         emu.mmu().write(scr_attr(36, 4), 0x96);
         emu.port().out(0x00FF, 0x02);                  // Timex hi-colour
@@ -1736,6 +1740,7 @@ static void test_section10_ula_counters(void) {
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
+        emu.nextreg().write(0x82, static_cast<uint8_t>(emu.nextreg().cached(0x82) | 0x01));  // GH #325: port 0xFF is off on a 48K until enabled
         emu.mmu().write(scr_pix(36, 4), 0x11);
         emu.mmu().write(static_cast<uint16_t>(scr_pix(36, 4) + 0x2000), 0x22);
         emu.port().out(0x00FF, 0x01);                  // alternate screen
@@ -1749,6 +1754,7 @@ static void test_section10_ula_counters(void) {
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
+        emu.nextreg().write(0x82, static_cast<uint8_t>(emu.nextreg().cached(0x82) | 0x01));  // GH #325: port 0xFF is off on a 48K until enabled
         emu.mmu().write(scr_attr(36, 4), 0x33);
         emu.mmu().write(static_cast<uint16_t>(scr_pix(36, 4) + 0x2000), 0x44);
         emu.port().out(0x00FF, 0x02);                  // hi-colour
@@ -1763,6 +1769,7 @@ static void test_section10_ula_counters(void) {
         std::string bad;
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
+        emu.nextreg().write(0x82, static_cast<uint8_t>(emu.nextreg().cached(0x82) | 0x01));  // GH #325: port 0xFF is off on a 48K until enabled
         emu.mmu().write(scr_pix(36, 4), 0x55);
         emu.mmu().write(static_cast<uint16_t>(scr_pix(36, 4) + 0x2000), 0x66);
         emu.port().out(0x00FF, 0x06);                  // hi-res

@@ -2,7 +2,7 @@
 
 Visual reference for every screenshot regression test in `test/00regression/`. Each entry shows the canonical reference screenshot the test runs are compared against. The full test suite is defined in [test/00regression/regression_tests.conf](../../test/00regression/regression_tests.conf) and run by [test/00regression/regression.sh](../../test/00regression/regression.sh); see [doc/testing/REGRESSION-TEST-SUITE.md](REGRESSION-TEST-SUITE.md) for execution details.
 
-**66 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
+**67 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
 
 This document is checked against the conf by `make regression-doc-check`, which
 is a prerequisite of `make regression`: a conf row with no entry here, an entry
@@ -62,6 +62,11 @@ The firmware boot menu's ZX81 entry (SPACE during the firmware boot, eight times
 +3 Spectrum boot screen — `+3 BASIC / Loader / Calculator / 48 BASIC` menu.
 
 <img src="../../test/00regression/img/boot-plus3-reference.png" width="384" alt="boot-plus3 reference"/>
+
+### `boot-pentagon`
+Pentagon 128 personality (`--machine pentagon`) boot menu — the 128K ROM; the reference is byte-identical to `boot-128k` and to the real firmware's own Pentagon personality (config.ini `default=14`).
+
+<img src="../../test/00regression/img/boot-pentagon-reference.png" width="384" alt="boot-pentagon reference"/>
 
 ---
 

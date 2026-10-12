@@ -8,6 +8,16 @@
 
 #include <utility>
 
+namespace {
+
+using Clock = std::chrono::steady_clock;
+
+long ms_since(Clock::time_point t) {
+    return static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t).count());
+}
+
+}  // namespace
+
 namespace esp {
 
 constexpr std::chrono::milliseconds ThreadedEsp::DEFAULT_POLL_INTERVAL;
@@ -69,7 +79,7 @@ void ThreadedEsp::run() {
         // as long as the transport takes. Measured on the version that held
         // the lock throughout: 11 827 226 `tick()` calls over 400 ms of a
         // 500 ms transport stall delivered ZERO of the 39 bytes that were already
-        // queued in `out_` before the stall began. The emulated CPU does not
+        // queued in the guest-bound wire (then `out_`) before the stall began. The emulated CPU does not
         // stop while the ESP is busy, so those are real T-states of silence on
         // a wire whose receivers have no retry.
         //
@@ -97,11 +107,22 @@ void ThreadedEsp::run() {
         try {
             {
                 std::lock_guard<std::mutex> lock(core_mutex_);
+                const auto held_from = Clock::now();
                 drain_inbound();
+                if (ms_since(held_from) >= 20)
+                    log_debug("ESP worker held the core lock for {} ms (drain_inbound)", ms_since(held_from));
             }
             core_.advance_transports();  // UNLOCKED — see above
             {
                 std::lock_guard<std::mutex> lock(core_mutex_);
+                const auto held_from = Clock::now();
+                struct HoldNote {   // logs (debug) when the locked half of the pass took >= 20 ms
+                    Clock::time_point t;
+                    ~HoldNote() {
+                        if (ms_since(t) >= 20)
+                            log_debug("ESP worker held the core lock for {} ms (service pass)", ms_since(t));
+                    }
+                } hold_note{held_from};
                 core_.service_transports();
                 // GH #154. NOT reached via `core_.poll()` — this loop calls the
                 // halves directly so the transport pass can run unlocked — so
@@ -210,30 +231,54 @@ void ThreadedEsp::poll() {
 }
 
 void ThreadedEsp::tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte) {
-    // TRY-lock, never lock. The worker no longer holds this across the
-    // transport poll (see `run()`), so the expected hold is microseconds — but
-    // a transport that violates its non-blocking contract in `send`/`recv`
-    // would stall inside the LOCKED half, and inheriting that on the caller's
-    // thread is exactly what this class exists to avoid. On contention the
-    // elapsed ticks are DROPPED rather than banked — banking would release a
-    // burst at unbounded speed once the lock came free, which is the RX FIFO
-    // overrun the pacing exists to prevent.
+    // GH #327. THE RELEASE OF BYTES THE ESP HAS ALREADY COMMITTED TO ITS UART
+    // NEVER WAITS FOR `core_mutex_`. It used to: tick() try-locked the core and,
+    // while the worker held it (under wine across a Winsock send/recv, 1-25 ms of
+    // wall time, measured up to 382 018 emulated 28 MHz cycles), dropped the
+    // elapsed ticks. A reply already framed stopped flowing in the middle of a
+    // message while the guest kept executing, and NextSync 1.2 abandons a packet
+    // whose `+IPD,<n>:` header has a gap of more than ~1 750 cycles.
+    //
+    // `release_to_guest` touches only the guest-bound wire (its own short lock,
+    // never held across a transport or sink call) and the sink, so it runs
+    // lock-free with respect to the engine. Nothing is banked while the wire is
+    // empty, so the burst-overrun concern of the old comment does not arise.
+    //
+    // What the core lock still gates is the START of the next message: framing
+    // the next `+IPD` reads engine state. That is only attempted once the wire has
+    // drained, with a try-lock; a failed attempt delays the START of the next
+    // message (the ESP is "busy", which nothing on the Next can observe), never
+    // a byte already committed, and `wants_tick_` stays raised so the next tick
+    // retries.
     //
     // AND DELIBERATELY NO try/catch HERE, unlike `run()`. This runs on the
     // CALLER's thread, so an exception — from the core, or from the host's own
-    // output sink, which `tick()` is the only thing that invokes — propagates
-    // to a caller who can decide what to do about it. `run()` is a thread ENTRY
-    // POINT: it has no caller to propagate to, which is what makes
-    // `std::terminate` the only outcome there and the guard necessary. Adding
-    // one here would be swallowing exceptions raised on somebody else's thread,
-    // which is not this class's to swallow.
+    // output sink — propagates to a caller who can decide what to do about it.
+    // `run()` is a thread ENTRY POINT: it has no caller to propagate to, which is
+    // what makes `std::terminate` the only outcome there and the guard necessary.
+    core_.release_to_guest(elapsed_ticks, ticks_per_byte);
+    if (core_.pending_to_guest() != 0) return;   // still releasing; wants_tick_ is still raised
+
     std::unique_lock<std::mutex> lock(core_mutex_, std::try_to_lock);
     if (!lock.owns_lock()) {
-        log_trace("tick skipped: the ESP worker holds the core ({} ticks dropped)",
-                  elapsed_ticks);
+        log_trace("framing deferred: the ESP worker holds the core ({} ticks)", elapsed_ticks);
+        if (!tick_skipping_) {
+            tick_skipping_ = true;
+            tick_skip_since_ = Clock::now();
+            tick_skip_ticks_ = 0;
+        }
+        tick_skip_ticks_ += elapsed_ticks;
+        wants_tick_.store(true, std::memory_order_release);
         return;
     }
-    core_.tick(elapsed_ticks, ticks_per_byte);
+    if (tick_skipping_) {
+        // One summary line per streak, only for a streak long enough to matter.
+        if (ms_since(tick_skip_since_) >= 20)
+            log_debug("ESP tick() could not frame the next message for {} ms ({} ticks): "
+                      "the worker held the core", ms_since(tick_skip_since_), tick_skip_ticks_);
+        tick_skipping_ = false;
+    }
+    core_.service_wire();
     wants_tick_.store(core_.wants_tick(), std::memory_order_release);
 }
 

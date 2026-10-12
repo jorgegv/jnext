@@ -158,11 +158,13 @@ displaced contention-locked engines such as BIFROST by about 22 T-states per
 line — which is what the distinction costs when you get it wrong.
 
 Two axes stay separate throughout, following the VHDL. `MachineType`
-(`ZXN_ISSUE2`, `ZX48K`, `ZX128K`, `ZX_PLUS3`) is the `typ_sel` axis and comes
+(`ZXN_ISSUE2`, `ZX48K`, `ZX128K`, `ZX_PLUS3`, `PENTAGON`) is the `typ_sel` axis and comes
 from `--machine`. `MachineTimingMode` (`Timing48`, `Timing128`, `TimingPlus3`,
 `TimingPentagon`) is the `tim_sel` axis, switchable at runtime through NR 0x03.
-**Pentagon is a timing mode only** — there is no Pentagon `MachineType` and no
-`--machine pentagon`; guest software reaches it by writing NR 0x03.
+`PENTAGON` is both: `typ_sel` 100 is the 128K family (`Mmu` has
+the same arm for it as for `ZX128K`), and its default timing is
+`TimingPentagon`. Guest software can still reach Pentagon *timing* on any
+machine by writing NR 0x03.
 
 `AttributeMux` replays, at beam time, every byte the ULA fetches from VRAM: the
 pixel planes and the attribute plane of bank 5 (pages 0x0A and 0x0B, the second

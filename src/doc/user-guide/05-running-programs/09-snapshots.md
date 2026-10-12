@@ -9,7 +9,7 @@ JNEXT writes four, and the extension picks one:
 | Extension | What it is | Use it when |
 |---|---|---|
 | `.jns` | **JNEXT's own snapshot.** The only one that can represent a ZX Spectrum Next. | You are on a Next — which is JNEXT's default machine. |
-| `.sna` | The classic 48K/128K snapshot every Spectrum emulator reads. | You are on a 48K, 128K or +3 and want to hand the file to another emulator. |
+| `.sna` | The classic 48K/128K snapshot every Spectrum emulator reads. | You are on a 48K, 128K, Pentagon or +3 and want to hand the file to another emulator. |
 | `.szx` | ZX-State: richer than `.sna` — it names the machine and carries the +3's own paging register. | Same, when `.sna` cannot describe the machine (see below). |
 | `.nex` | Not a snapshot — a *program* file the Next's own loader runs. | You are producing something to run on real hardware. |
 
@@ -23,9 +23,10 @@ that quietly misrepresents your machine.
 |---|---|---|---|
 | 48K | 48K form, exact | yes | yes |
 | 128K | 128K form: all eight banks, the paging register | yes | yes |
+| Pentagon | 128K form | yes, as a Pentagon 128 | yes |
 | +3, ordinary paging | 128K form | yes | yes |
 | +3, special paging or ROM 2/3 paged | **refused** — use `.szx` | yes | yes |
-| any machine using extended paging (port 0xDFFD) | **refused** — use `.jns` | — | yes |
+| any machine using extended paging (port 0xDFFD, or NextREG 0x8F's 512K/1024K modes) | **refused** — use `.jns` | **refused** — use `.jns` | yes |
 | Next | **refused** — use `.jns` | **refused** — use `.jns` | yes |
 
 `.sna` and `.szx` describe a machine the Next is not: no Layer 2, no sprites, no
@@ -41,8 +42,8 @@ of the time — saves as a 128K SNA.
 
 The extended-paging row is the one that can surprise you. A `.sna` records which
 16 KB bank is at 0xC000 in a single byte that can only name banks 0-7. Port
-0xDFFD — which works on any machine JNEXT emulates, not just a Next — can put a
-bank *above* 7 there. The snapshot would then come back with a different bank
+0xDFFD — on by default on a Next and a Pentagon, and on the other machines
+once software enables it in NextREG 0x82 — can put a bank *above* 7 there. The snapshot would then come back with a different bank
 mapped and that bank's contents missing altogether, so JNEXT refuses instead.
 `.szx` has no field for that register either; `.jns` is the format that carries
 it.
@@ -62,7 +63,7 @@ jnext --headless --load game.nex \
 ```
 
 On a Next the file dialog offers `.jns` first and adds `.jns` if you type a
-name with no extension; on a 48K, 128K or +3 it offers `.sna` first and adds
+name with no extension; on a 48K, 128K, Pentagon or +3 it offers `.sna` first and adds
 that. Type any of the four extensions and you get that format, unless the table
 above says it is refused: the dialog then says why, and headless says why and
 exits non-zero rather than leaving you a file you would have trusted.
@@ -76,6 +77,37 @@ above; the consequence is that the restored machine is up to one frame (20 ms)
 past where you stopped. If you need the precise instant, that
 is what the rewind buffer is for.
 
+## Quick save and quick load
+
+**File ▸ Quick Save Snapshot** (**Alt+Shift+F5**) and **File ▸ Quick Load Snapshot**
+(**Alt+Shift+F9**) ask nothing. Quick Save writes a `.jns`, on every machine type,
+to `~/.jnext/snapshots/` (or `$JNEXT_CONFIG_DIR/snapshots` when that variable is
+set), named `jnext-YYYYMMDD-HHMMSS.jns`, and shows the path in the status bar.
+Two saves in the same second get a `-02`, `-03` suffix, so nothing is
+overwritten. Quick Load restores the **newest** `.jns` in that folder, judged by
+modification time, the same way **File ▸ Load NEX File…** does: a full cold
+boot, then the load. A `.jns` you save into that folder yourself counts too.
+
+- An empty or missing folder only says "no snapshot" in the status bar; the
+  machine is not touched.
+- A newest file that cannot be loaded (damaged, or taken with a different SD
+  card) is refused **before** anything is reset, so you keep your session.
+- Quick Save keeps the **newest 20** of its own files and deletes older ones
+  after each save. Change that with `--quick-snapshot-keep N` (or
+  `unlimited`), with **Settings ▸ Preferences ▸ Paths ▸ Quick snapshots to
+  keep**, or `quick_keep` under `[snapshot]` in `jnext.conf`; the command-line
+  option wins for the run. Only files named exactly like Quick Save's own
+  (`jnext-YYYYMMDD-HHMMSS.jns`, optional `-NN`) are ever deleted: a `.jns` you
+  saved into the folder under another name is never touched. Older quick saves
+  that are still there load through the ordinary load dialog.
+- The SDL-only build has the same two keys, the same folder and the same
+  `--quick-snapshot-keep` option (it reads no `jnext.conf`), and reports in the
+  log instead of the status bar.
+- Plain F5 and F9, and Alt+F5 and Alt+F9 on their own, are unchanged. Shift is
+  the Spectrum's Caps Shift, so it is held down for the program while you press
+  the chord.
+- Only `.jns` is used: it is the one format that can hold a whole machine.
+
 ## Loading
 
 Drop the file on the command line, or **File ▸ Load NEX File…** (Alt+O) — the
@@ -86,8 +118,38 @@ jnext state.jns
 ```
 
 A `.jns` restores the machine **type** as well as its contents: one taken on a
-Next comes back as a Next even if `--machine` says otherwise, the same way a
-`.sna` or `.szx` already behaves. You do not have to remember what you saved.
+Next comes back as a Next even if `--machine` says otherwise. You do not have
+to remember what you saved. A `.sna`, `.szx` or `.z80` does the same: it runs on
+the machine it was saved on (see below), even over `--machine`.
+
+## Loading another emulator's snapshot
+
+A `.sna`, `.szx` or `.z80` says which machine it holds, and JNEXT switches to
+it, as it does for a `.jns`. The machine stays selected afterwards, so a later
+reset starts it again; **Machine ▸ Machine Type** shows it. With `--machine` on
+the command line, JNEXT warns that the snapshot's machine won.
+
+| The file says | JNEXT runs |
+|---|---|
+| `.sna` of 49179 bytes | 48K |
+| any longer `.sna` (the 128K form) | 128K |
+| `.szx` 16K, 48K, NTSC 48K | 48K (NTSC at 60 Hz) |
+| `.szx` 128K, +2, 128Ke | 128K |
+| `.szx` +2A, +3, +3e | +3 |
+| `.szx` Pentagon 128 | Pentagon |
+| `.z80` v1, hardware 48K, 16K, Interface 1, SamRam, MGT | 48K |
+| `.z80` hardware 128K, +2, 128K with Interface 1 or MGT | 128K |
+| `.z80` hardware +3, +2A | +3 |
+| `.z80` hardware Pentagon 128 | Pentagon |
+
+The 128K, +3 and Pentagon snapshots bring the AY registers back, and a +3 its
+ROM and paging. Anything else is refused, with the reason in the log and a
+message in the GUI, and the machine you were running is left alone (started
+with `--load`, JNEXT exits with an error): a Timex TC2048, TC2068 or TS2068, a
+Scorpion, a ZX Spectrum SE, a Didaktik Kompakt, a Pentagon 512 or 1024, a
+`.z80` of an unknown hardware mode or header length, and any snapshot taken
+with the TR-DOS, Interface 1, MGT DISCiPLE or Multiface ROM paged in — JNEXT
+emulates none of those ROMs, so the program would run against the wrong one.
 
 ## What travels, and what does not
 

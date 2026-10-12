@@ -62,9 +62,22 @@ bool Z80Loader::apply(Emulator& emu) const
     }
 
     if (header_.is_128k) {
+        // The +3 class (7, 8 and 13 in v2/v3): 0x1FFD first, for the 0x7FFD
+        // lock bit (bit 5) closes the 0x1FFD register once written
+        // (zxnext.vhd:3718; GH #323).
+        // The +3 class here restates snapshot_machine.cpp (7, 8, 13): keep them in step.
+        const uint8_t hw = header_.hardware_mode;
+        if (header_.has_port_1ffd && (hw == 7 || hw == 8 || hw == 13)) {
+            emu.port().out(0x1FFD, header_.port_1ffd);
+            Log::emulator()->debug("Z80: +3 paging 1FFD set to {:#04x}", header_.port_1ffd);
+        }
         emu.port().out(0x7FFD, header_.port_7ffd);
         Log::emulator()->debug("Z80: 128K paging set to {:#04x}", header_.port_7ffd);
     }
+
+    // The sound chip (bytes 38-54): a 48K .z80 has none to restore.
+    if (header_.is_128k && header_.has_ay)
+        emu.restore_ay_registers(header_.ay_regs, header_.ay_selected);
 
     Z80Registers regs{};
     regs.AF   = static_cast<uint16_t>((header_.A << 8) | header_.F);

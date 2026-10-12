@@ -55,15 +55,20 @@
 #include <QDialogButtonBox>
 #include <QLineEdit>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QStatusBar>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSlider>
+#include <QSpinBox>
 
+#include <chrono>
 #include <cstdio>
+#include <filesystem>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -102,6 +107,7 @@ const char* type_name(MachineType t)
     case MachineType::ZX48K:      return "48K";
     case MachineType::ZX128K:     return "128K";
     case MachineType::ZX_PLUS3:   return "+3";
+    case MachineType::PENTAGON:   return "Pentagon";
     }
     return "?";
 }
@@ -124,10 +130,16 @@ struct Fixture {
     /// callbacks, so neither one alone can observe it.
     std::vector<std::string> order;
 
-    explicit Fixture(MachineType type = MachineType::ZX48K)
+    /// `keep_cli` >= 0 stands for `--quick-snapshot-keep` given on the command
+    /// line with that value (0 = unlimited); -1 = flag absent (GH #321).
+    explicit Fixture(MachineType type = MachineType::ZX48K, int keep_cli = -1)
     {
         EmulatorConfig cfg;
         cfg.type = type;
+        if (keep_cli >= 0) {
+            cfg.quick_snapshot_keep     = keep_cli;
+            cfg.quick_snapshot_keep_cli = true;
+        }
         emu.init(cfg);
         backend = std::make_unique<jnext::dbg::Debugger>(emu);
         win.set_debugger(backend.get());
@@ -488,6 +500,35 @@ void test_esp_preference_controls()
               std::to_string(passthrough.esp_allowed_hosts.size()));
 }
 
+/// PENT-28 — GH #324: the machine combo lists the Pentagon, and an untouched
+/// dialog on a Pentagon config hands the Pentagon back. Without the item,
+/// findData() is -1, currentData() is an invalid variant (0 = the Next) and
+/// pressing OK would silently switch a Pentagon user to a Next.
+void test_pentagon_preference()
+{
+    AppConfigData initial;
+    initial.machine_type = MachineType::PENTAGON;
+    PreferencesDialog dlg(initial);
+    bool listed = false;
+    for (auto* combo : dlg.findChildren<QComboBox*>())
+        for (int i = 0; i < combo->count(); ++i)
+            if (combo->itemText(i) == QStringLiteral("Pentagon") &&
+                combo->itemData(i).toInt() == static_cast<int>(MachineType::PENTAGON))
+                listed = true;
+    AppConfigData got;
+    bool emitted = false;
+    QObject::connect(&dlg, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) { emitted = true; got = cfg; });
+    auto* buttons = dlg.findChild<QDialogButtonBox*>();
+    if (buttons && buttons->button(QDialogButtonBox::Apply))
+        buttons->button(QDialogButtonBox::Apply)->click();
+    check("PENT-28", "the Preferences machine combo lists Pentagon, and an untouched dialog "
+                     "on a Pentagon config gives the Pentagon back (not the Next)",
+          listed && emitted && got.machine_type == MachineType::PENTAGON,
+          "listed=" + std::to_string(listed) + " emitted=" + std::to_string(emitted) +
+              " type=" + std::to_string(static_cast<int>(got.machine_type)));
+}
+
 /// PA-20 — the NextPi tab: one control per [nextpi] field, starting from the
 /// saved values, the rest disabled while the enable tick is off, and — the
 /// regression row, as PA-12e is for the ESP — an untouched dialog hands every
@@ -832,6 +873,267 @@ void test_quick_screenshot_writes_a_file()
     qunsetenv("JNEXT_CONFIG_DIR");
 }
 
+/// PA-22 — GH #321: File > Quick Save / Quick Load Snapshot are wired to the
+/// real machine and the real folder (<JNEXT_CONFIG_DIR>/snapshots).
+///
+/// Oracles: the issue text and the owner decisions (no dialog, timestamped name
+/// that never overwrites, Quick Load = the NEWEST .jns through the File > Load
+/// route, nothing touched when there is nothing to load or the file is bad).
+/// The pieces are pinned in emulator_boot_test (QS-*); what only this covers is
+/// MainWindow::on_quick_save / on_quick_load.
+void test_quick_snapshot_actions()
+{
+    QTemporaryDir home;
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+    const QDir snaps(home.path() + QStringLiteral("/snapshots"));
+    static const QRegularExpression shape(
+        QStringLiteral("^jnext-\\d{8}-\\d{6}(-\\d{2})?\\.jns$"));
+
+    Fixture f;
+    f.win.set_unattended(true);   // a refusal logs instead of blocking on a dialog
+    auto find = [&f](const char* text) {
+        for (QAction* a : f.win.findChildren<QAction*>())
+            if (a->text() == QString::fromLatin1(text)) return a;
+        return static_cast<QAction*>(nullptr);
+    };
+    QAction* save = find("Quick Save Snapshot");
+    QAction* load = find("Quick Load Snapshot");
+    std::vector<std::string> loaded;
+    f.win.set_load_file_callback([&loaded](const std::string& p, bool) { loaded.push_back(p); });
+
+    // (d) first: nothing saved yet, the folder does not exist.
+    if (load) { load->trigger(); QApplication::processEvents(); }
+    check("PA-22d", "Quick Load with no snapshot loads nothing and says so in the status bar",
+          load != nullptr && loaded.empty() &&
+              f.win.statusBar()->currentMessage().contains(QStringLiteral("no snapshot")),
+          f.win.statusBar()->currentMessage().toStdString());
+
+    if (save) { save->trigger(); QApplication::processEvents(); }
+    const QStringList one = snaps.entryList(QDir::Files);
+    const bool named = one.size() == 1 && shape.match(one.first()).hasMatch();
+    check("PA-22a", "Quick Save writes one timestamped non-empty .jns into <config>/snapshots",
+          save != nullptr && named && QFileInfo(snaps.filePath(one.first())).size() > 0,
+          one.join(QLatin1Char(',')).toStdString());
+
+    if (save) { save->trigger(); QApplication::processEvents(); }
+    const QStringList two = snaps.entryList(QDir::Files, QDir::Name);
+    check("PA-22b", "a second Quick Save writes a second file and overwrites nothing",
+          two.size() == 2 && two[0] != two[1],
+          two.join(QLatin1Char(',')).toStdString());
+
+    // (c) make the lexically FIRST file the newer one, so name order and mtime
+    // order disagree.
+    std::filesystem::last_write_time(
+        snaps.filePath(two[0]).toStdString(),
+        std::filesystem::file_time_type::clock::now() + std::chrono::hours(1));
+    if (load) { load->trigger(); QApplication::processEvents(); }
+    check("PA-22c", "Quick Load hands the newest file to the File > Load route, exactly once",
+          loaded.size() == 1 && loaded[0] == snaps.filePath(two[0]).toStdString(),
+          loaded.empty() ? std::string("no load") : loaded[0]);
+
+    // (e) a garbage newest file is refused before any load is requested.
+    {
+        QFile junk(snaps.filePath(QStringLiteral("junk.jns")));
+        if (junk.open(QIODevice::WriteOnly)) junk.write("not a snapshot");
+        junk.close();
+        std::filesystem::last_write_time(
+            junk.fileName().toStdString(),
+            std::filesystem::file_time_type::clock::now() + std::chrono::hours(2));
+    }
+    loaded.clear();
+    if (load) { load->trigger(); QApplication::processEvents(); }
+    // The wording is Quick Load's own ("Quick Load: refused"), not File > Load's
+    // dialog text ("Cannot load"): Quick Load asks for no dialog.
+    check("PA-22e", "Quick Load of an unreadable newest .jns requests no load and says so in the "
+                    "status bar, no dialog (the session is kept)",
+          load != nullptr && loaded.empty() &&
+              f.win.statusBar()->currentMessage().startsWith(QStringLiteral("Quick Load: refused")),
+          f.win.statusBar()->currentMessage().toStdString());
+
+    // (f) the same refusal on File > Load's own route: handle_load_path() is
+    // what the menu picker calls, and the cold boot it requests would throw the
+    // session away before load_jns_file() refused the file.
+    loaded.clear();
+    f.win.handle_load_path(snaps.filePath(QStringLiteral("junk.jns")));
+    check("PA-22f", "File > Load of an unreadable .jns requests no cold boot (the session is kept)",
+          loaded.empty(), loaded.empty() ? std::string("none") : loaded[0]);
+
+    qunsetenv("JNEXT_CONFIG_DIR");
+}
+
+/// PA-24 — GH #323: File > Load of a .sna/.szx/.z80 runs it on the machine it was
+/// saved on, so a snapshot jnext cannot run is refused BEFORE the cold boot (the
+/// session is kept), exactly as PA-22f does for a .jns. Oracle: the file's own
+/// header (libspectrum z80.c:536-560: hardware mode 128 is a Timex TS2068; sna.c:
+/// a .sna is at least 49179 bytes); the positive control is a valid 128K .sna.
+void test_snapshot_load_refusal()
+{
+    QTemporaryDir home;
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+    Fixture f;
+    f.win.set_unattended(true);
+    std::vector<std::string> loaded;
+    f.win.set_load_file_callback([&loaded](const std::string& p, bool) { loaded.push_back(p); });
+    auto write = [&](const char* name, const std::vector<uint8_t>& b) {
+        const QString p = home.path() + QLatin1Char('/') + QLatin1String(name);
+        QFile out(p);
+        if (out.open(QIODevice::WriteOnly))
+            out.write(reinterpret_cast<const char*>(b.data()), static_cast<qint64>(b.size()));
+        return p;
+    };
+
+    std::vector<uint8_t> ts2068(32 + 54, 0);          // a v3 .z80, hardware mode 128 (TS2068)
+    ts2068[30] = 54; ts2068[34] = 128;
+    f.win.handle_load_path(write("ts2068.z80", ts2068));
+    check("PA-24a", "File > Load of a TS2068 .z80 requests no cold boot (the session is kept)",
+          loaded.empty(), loaded.empty() ? std::string("none") : loaded[0]);
+
+    loaded.clear();
+    f.win.handle_load_path(write("short.sna", std::vector<uint8_t>(100, 0)));
+    check("PA-24b", "File > Load of a truncated .sna requests no cold boot",
+          loaded.empty(), loaded.empty() ? std::string("none") : loaded[0]);
+
+    loaded.clear();
+    const QString good = write("good128.sna", std::vector<uint8_t>(131103, 0));
+    f.win.handle_load_path(good);
+    check("PA-24c", "control: File > Load of a valid 128K .sna IS requested",
+          loaded.size() == 1 && loaded[0] == good.toStdString(),
+          loaded.empty() ? std::string("none") : loaded[0]);
+
+
+    // PA-24d: a file the TABLE accepts (.szx ID 1) that its own loader's PARSE rejects (a 3-byte AY
+    // chunk; libspectrum szx.c:471-497 wants exactly 18): refused before the cold boot too.
+    std::vector<uint8_t> bad = {'Z', 'X', 'S', 'T', 1, 4, 1, 0};
+    std::vector<uint8_t> z80r(37, 0);
+    auto chunk = [&bad](const char* id, const std::vector<uint8_t>& d) {
+        bad.insert(bad.end(), id, id + 4);
+        for (int k = 0; k < 4; ++k) bad.push_back(static_cast<uint8_t>(d.size() >> (8 * k)));
+        bad.insert(bad.end(), d.begin(), d.end());
+    };
+    chunk("Z80R", z80r);
+    chunk("AY\0\0", {0, 0, 0});
+    loaded.clear();
+    f.win.handle_load_path(write("badscld.szx", bad));
+    check("PA-24d", "File > Load of a .szx the table accepts but the loader cannot parse requests no cold boot",
+          loaded.empty(), loaded.empty() ? std::string("none") : loaded[0]);
+
+    qunsetenv("JNEXT_CONFIG_DIR");
+}
+
+/// PA-22g..j — GH #321: Quick Save prunes the oldest quick snapshots beyond the
+/// retention count, from the setting or, when given, the CLI flag.
+///
+/// Oracle: the owner decision (default 20; the setting in jnext.conf
+/// [snapshot] quick_keep; `--quick-snapshot-keep` overrides it; only jnext's own
+/// quick-snapshot names are ever deleted). The files that exist before the save
+/// are made old by an explicit mtime, so "oldest" is not the new one.
+void test_quick_save_prunes()
+{
+    static const QRegularExpression pattern(
+        QStringLiteral("^jnext-\\d{8}-\\d{6}(-\\d{2})?\\.jns$"));
+    auto run = [](const char* conf_value, int keep_cli, int precreated, bool foreign,
+                  QStringList& left, bool& new_kept, bool& foreign_kept) {
+        QTemporaryDir home;
+        if (conf_value) {
+            QSettings raw(home.path() + QStringLiteral("/jnext.conf"), QSettings::IniFormat);
+            raw.beginGroup("snapshot");
+            raw.setValue("quick_keep", conf_value);
+            raw.endGroup();
+            raw.sync();
+        }
+        qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+        const QDir snaps(home.path() + QStringLiteral("/snapshots"));
+        QDir().mkpath(snaps.path());
+        const auto old = std::filesystem::file_time_type::clock::now() - std::chrono::hours(48);
+        for (int i = 0; i < precreated; ++i) {
+            const QString name = QStringLiteral("jnext-20200101-%1.jns")
+                                     .arg(i, 6, 10, QLatin1Char('0'));
+            QFile f(snaps.filePath(name));
+            if (f.open(QIODevice::WriteOnly)) f.write("x");
+            f.close();
+            std::filesystem::last_write_time(f.fileName().toStdString(),
+                                             old + std::chrono::seconds(i));
+        }
+        if (foreign) {
+            QFile f(snaps.filePath(QStringLiteral("mine.jns")));
+            if (f.open(QIODevice::WriteOnly)) f.write("x");
+            f.close();
+            std::filesystem::last_write_time(f.fileName().toStdString(), old - std::chrono::hours(9));
+        }
+        {
+            Fixture f(MachineType::ZX48K, keep_cli);
+            f.win.set_unattended(true);
+            QAction* save = nullptr;
+            for (QAction* a : f.win.findChildren<QAction*>())
+                if (a->text() == QStringLiteral("Quick Save Snapshot")) save = a;
+            if (save) { save->trigger(); QApplication::processEvents(); }
+        }
+        left.clear();
+        new_kept = false;
+        for (const QString& n : snaps.entryList(QDir::Files, QDir::Name)) {
+            left << n;
+            if (!n.startsWith(QStringLiteral("jnext-2020")) && pattern.match(n).hasMatch())
+                new_kept = true;
+        }
+        foreign_kept = left.contains(QStringLiteral("mine.jns"));
+        qunsetenv("JNEXT_CONFIG_DIR");
+    };
+
+    QStringList left; bool nk = false, fk = false;
+    auto quick = [&]() { int c = 0; for (const QString& n : left) if (pattern.match(n).hasMatch()) ++c; return c; };
+
+    run("2", -1, 5, true, left, nk, fk);
+    check("PA-22g", "with quick_keep=2 in jnext.conf a Quick Save leaves the new snapshot and one "
+                    "older, and does not touch a file that is not jnext's",
+          quick() == 2 && nk && fk, left.join(QLatin1Char(',')).toStdString());
+
+    run("5", 1, 3, false, left, nk, fk);
+    check("PA-22h", "--quick-snapshot-keep 1 overrides quick_keep=5 from jnext.conf",
+          quick() == 1 && nk, left.join(QLatin1Char(',')).toStdString());
+
+    run("unlimited", -1, 25, false, left, nk, fk);
+    check("PA-22i", "quick_keep=unlimited deletes nothing (25 old + 1 new)",
+          quick() == 26 && nk, std::to_string(quick()));
+
+    run(nullptr, -1, 25, false, left, nk, fk);
+    check("PA-22j", "with no setting and no flag the default of 20 applies (25 old + 1 new -> 20)",
+          quick() == 20 && nk, std::to_string(quick()));
+}
+
+/// PA-23 — GH #321: Preferences has a control for the retention count, carries
+/// it through Apply, and an untouched dialog does not reset it (collect()
+/// rebuilds the whole struct, so a field without a control is silently reset).
+void test_quick_keep_control()
+{
+    AppConfigData initial;
+    initial.quick_snapshot_keep = 7;
+    PreferencesDialog dlg(initial);
+    auto* spin = dlg.findChild<QSpinBox*>(QStringLiteral("quickKeepSpin"));
+    check("PA-23a", "Preferences exposes the quick-snapshot retention control, starting from the "
+                    "persisted value, with 0 shown as Unlimited",
+          spin != nullptr && spin->value() == 7 &&
+              spin->specialValueText() == QStringLiteral("Unlimited") && spin->minimum() == 0,
+          spin ? std::to_string(spin->value()) : "no control");
+    if (!spin) return;
+
+    AppConfigData collected;
+    bool emitted = false;
+    QObject::connect(&dlg, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) { emitted = true; collected = cfg; });
+    auto* buttons = dlg.findChild<QDialogButtonBox*>();
+    if (buttons && buttons->button(QDialogButtonBox::Apply))
+        buttons->button(QDialogButtonBox::Apply)->click();
+    const bool untouched = emitted && collected.quick_snapshot_keep == 7;
+    emitted = false;
+    spin->setValue(0);
+    if (buttons && buttons->button(QDialogButtonBox::Apply))
+        buttons->button(QDialogButtonBox::Apply)->click();
+    check("PA-23b", "Apply returns the edited retention count (0 = unlimited)",
+          emitted && collected.quick_snapshot_keep == 0, std::to_string(collected.quick_snapshot_keep));
+    check("PA-23c", "an untouched dialog does NOT reset the persisted retention count",
+          untouched, std::to_string(collected.quick_snapshot_keep));
+}
+
 /// PA-16 — issue #35: the policy lives in the frontend's frame sequencer, not
 /// in the emulator, so Apply must forward it. It applies live in every
 /// outcome, including the one where the user declined a machine-type restart.
@@ -944,6 +1246,7 @@ int main(int argc, char** argv)
     test_confirm_asked_once();
     test_audio_gain_preference_control();
     test_esp_preference_controls();
+    test_pentagon_preference();
     test_nextpi_preference_controls();
     test_esp_settings_reach_the_frontend();
     test_esp_forward_precedes_the_reboot();
@@ -951,6 +1254,10 @@ int main(int argc, char** argv)
     test_when_slow_prefer_reaches_the_frontend();
     test_quick_screenshot_controls();
     test_quick_screenshot_writes_a_file();
+    test_quick_snapshot_actions();
+    test_snapshot_load_refusal();
+    test_quick_save_prunes();
+    test_quick_keep_control();
     test_debug_keymap_passthrough();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

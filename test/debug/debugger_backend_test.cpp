@@ -5288,6 +5288,7 @@ static void dzrp_d_rows() {
         Emulator emu; build(emu, MachineType::ZX48K);
         Debugger dbg(emu);
         const int a = sel(dbg);
+        dbg.nextreg_write(1, 0x82, 0xC2);  // GH #325: 0x7FFD is off on a 48K until NR 0x82 b1 enables it
         dbg.port_out(1, 0x7FFD, 0x10);
         const int b = sel(dbg);
         dbg.nextreg_write(1, 0x8C, 0x30);
@@ -5303,6 +5304,7 @@ static void dzrp_d_rows() {
         const int a = sel(dbg);
         dbg.port_out(1, 0x7FFD, 0x10);
         const int b = sel(dbg);
+        dbg.nextreg_write(1, 0x82, 0xCA);  // GH #325: 0x1FFD is off on a 128K until NR 0x82 b3 enables it
         dbg.port_out(1, 0x1FFD, 0x04);
         const int c = sel(dbg);
         check("INS-03-11", "rom_select() on a 128K follows 0x7FFD bit 4 alone: image 0, then 1, "

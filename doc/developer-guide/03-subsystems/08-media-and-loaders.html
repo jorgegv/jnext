@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1077,6 +1077,17 @@
     <span class="md-ellipsis">
       
         What jnext can read and write
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-machine-a-snapshot-loads-as" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which machine a snapshot loads as
       
     </span>
   </a>
@@ -2479,6 +2490,48 @@ behind NR <code>0xC0</code> bits 2:1 is fed only by the ones the CPU decodes
 (<code>im2_control.vhd:218-229</code>). So <code>Emulator::load_sna()</code>/<code>load_z80()</code>/<code>load_szx()</code>
 and <code>NexLoader::apply()</code> seed it with <code>Im2Controller::set_im_mode()</code> from the
 restored CPU.</p>
+<h2 id="which-machine-a-snapshot-loads-as">Which machine a snapshot loads as<a class="headerlink" href="#which-machine-a-snapshot-loads-as" title="Permanent link">&para;</a></h2>
+<p>A <code>.sna</code>, <code>.szx</code> or <code>.z80</code> loads on the machine it was <strong>saved</strong> on (GH #323),
+as a <code>.jns</code> always has. There is ONE table that maps a snapshot to a machine,
+<code>snapshot_machine()</code> (declared in <code>src/core/snapshot_machine.h</code>, defined in <code>src/core/snapshot_machine.cpp</code>): a <code>.sna</code> by
+size (49179 = 48K, longer = the 128K form, which libspectrum calls a Pentagon
+but jnext's own saver writes from the 128K and +3), an <code>.szx</code> by machine ID, a
+<code>.z80</code> by version and hardware mode. Each entry cites libspectrum 1.5.0 in the
+source. It also returns the <strong>refusals</strong>: a machine jnext does not emulate
+(Timex, Scorpion, SE, Didaktik, Pentagon 512/1024), an unknown <code>.z80</code> header
+length (not 23, 54 or 55) or hardware mode, and a snapshot taken with the TR-DOS,
+Interface 1, MGT or Multiface ROM paged in, each with a distinct reason naming
+the machine. <code>rzx::recorded_machine()</code> (for an RZX's embedded snapshot),
+<code>emulator_boot_machine()</code> and the three loaders all read this table;
+<code>rzx::snapshot_machine()</code> is only a thin view of it.</p>
+<p>The switch has two layers, and both are needed:</p>
+<ol>
+<li><strong>Frontend cold boot</strong> (File &gt; Load, <code>--load</code>, Quick Load).
+   <code>emulator_boot_machine()</code> returns the snapshot's machine, the cold boot builds
+   it, and <code>ColdBootHooks::keep_machine</code> records it, so a later reset boots that
+   machine. <code>emulator_startup_machine()</code> lets a snapshot beat an explicit
+   <code>--machine</code> (<code>main.cpp</code> warns). Qt's <code>handle_load_path()</code> asks
+   <code>snapshot_file_loadable()</code> before the cold boot, so a refused file costs no
+   session.</li>
+<li><strong>Core, in place</strong> (every route, including debugger loads, which never
+   reconstruct). <code>Emulator::load_sna/szx/z80</code> parse the file, ask the table
+   (<code>switch_to_snapshot_machine_()</code>; a refusal returns false BEFORE the machine is
+   touched), then <code>switch_machine_for_load_()</code> ends a running RZX recording (its
+   file would name the wrong machine) and sets <code>config_.type</code>, and the usual
+   in-place <code>init(config_)</code> builds it. <code>load_jns</code> uses the same helper. The
+   frontends follow through <code>emulator_apply_load_keeping()</code>, whose <code>keep</code> callback
+   stores the running machine as the frontend's own. <code>load_snapshot_from_memory()</code>
+   (an RZX's embedded snapshot) does NOT switch: RZX has its own policy (the
+   frontend boots the recorded machine and an explicit <code>--machine</code> wins).</li>
+</ol>
+<p>What the loaders restore on the switched-to machine: the <code>.z80</code> +3 port <code>0x1FFD</code>
+(byte 86; written BEFORE <code>0x7FFD</code>, because the <code>0x7FFD</code> lock bit closes <code>0x1FFD</code>,
+<code>zxnext.vhd:3718</code>, and the <code>.szx</code> does the same), the AY registers of the 128K,
++3 and Pentagon (<code>.z80</code> bytes 38-54, the <code>.szx</code> <code>AY</code> chunk, through the AY
+ports, <code>Emulator::restore_ay_registers()</code>), and NTSC 48K (<code>.szx</code> ID 15) as the 48K with NR <code>0x05</code> bit 2 (60 Hz).
+The <code>.szx</code> <code>SCLD</code> chunk (Timex port <code>0xFF</code>) is deliberately ignored: libspectrum writes it only for Timex/SE machines (<code>szx.c:2782-2785</code>) and the machine table refuses all of those, so it never arrives on a machine jnext loads. The tests are
+<code>snapshot_machine_test</code> (SNM-01..33, SNM-29 withdrawn), the QS-25..27/SNM-40..41 rows of
+<code>emulator_boot_test</code>, PA-24 and the <code>snapshot-machine-func</code> regression row.</p>
 <h2 id="tapes-two-completely-different-mechanisms">Tapes: two completely different mechanisms<a class="headerlink" href="#tapes-two-completely-different-mechanisms" title="Permanent link">&para;</a></h2>
 <p>Loading from tape is the one place where the emulator offers you a choice
 between fidelity and speed, so it is worth being clear about what the choice
@@ -3146,8 +3199,8 @@ The recorder names it in the RZX creator block's custom data
 the snapshot cannot always: a pre-GH #274 Next recording embeds a 48K SNA, which
 names no machine. <code>rzx::recorded_machine()</code>
 reads that marker first and otherwise judges a recording by its snapshot
-(<code>rzx::snapshot_machine()</code>: SNA size, SZX machine ID, <code>.z80</code> version and
-hardware mode); a pre-marker jnext recording with an SNA names no machine.
+(<code>snapshot_machine()</code>, the same single table the snapshot loaders use: SNA size,
+SZX machine ID, <code>.z80</code> version and hardware mode); a pre-marker jnext recording with an SNA names no machine.
 <code>emulator_boot_machine()</code> turns that into the machine a boot builds, and every
 boot that plays a recording asks it: <code>main.cpp</code> for the command line (unless
 <code>--machine</code> was given explicitly — <code>load_rzx()</code> then warns on a mismatch) and
@@ -3236,6 +3289,35 @@ the name is taken. Its directory and format are separate config fields from the
 Save-Screenshot dialog's remembered directory, deliberately — that one follows
 the dialog around, and a no-dialog capture whose destination moves is
 unfindable.</p>
+<p><strong>Quick Save / Quick Load</strong> (File ▸ Quick Save Snapshot Alt+Shift+F5, Quick Load
+Snapshot Alt+Shift+F9; the same two chords in the SDL-only build) follow the same
+shape for <code>.jns</code>. <code>src/core/quick_snapshot.*</code> holds the folder
+(<code>default_quick_snapshot_dir()</code> = <code>sdcard::default_state_dir()</code> + <code>/snapshots</code>,
+so <code>$JNEXT_CONFIG_DIR</code> and the SD image's own state-dir resolution apply — on
+Windows it inherits the HOME → USERPROFILE fix tracked in GH #316, and until
+then a missing HOME puts it beside the SD image under <code>./.jnext</code>), the name
+(<code>auto_timestamped_path()</code>, the one function <code>auto_screenshot_path()</code> also
+uses) and the choice of file (<code>latest_quick_snapshot()</code>: greatest modification
+time among <code>*.jns</code> regular files directly in the folder, ties to the greater
+name stem so <code>…-02</code> beats the bare name; local-time names are not ordered across
+a DST change, which is why the name is not the key). Quick Load goes through
+<code>MainWindow::handle_load_path()</code> / <code>SdlApp::cold_boot()</code>, i.e. a full cold boot
+and then <code>load_jns_file()</code>, never an in-place load. Two things make that route
+safe for a <code>.jns</code>: <code>Emulator::probe_jns_file()</code> runs the pre-touch half of
+<code>load_jns</code> (<code>check_jns()</code>) BEFORE the cold boot, so a file that will be refused
+costs no session; and <code>emulator_boot_machine()</code> reads the <code>.jns</code> manifest's
+machine the way it reads an RZX's, so the cold boot builds the snapshot's
+machine and the frontend's <code>keep_machine</code> hook records it (otherwise a later
+reset would boot the old machine); the command-line startup does the same through <code>emulator_startup_machine()</code>, where a <code>.jns</code> wins even over an explicit <code>--machine</code>. After ANY snapshot load the frontends' <code>emulator_apply_load()</code> calls <code>Keyboard::release_all_keys()</code>: the membrane matrix in a <code>.jns</code> records the keys the host held at save time (the Shift of the Alt+Shift+F5 chord), whose release would never arrive, so the guest starts with no key down (the matrix, the extended-key register that the arrows use, and the shift scan history; the core load keeps them, the round-trip contract: QS-28..30). Debugger-initiated loads (DZRP, ZRCP, GDB) go through <code>emulator_apply_load()</code> too, so they release held keys as well. <code>prune_quick_snapshots()</code> never deletes a symbolic link. Quick Load failures (no snapshot, unreadable newest file) are a status-bar line in Qt and a log line in SDL, never a dialog; both actions act once per key press (<code>QuickChordTracker</code>, <code>setAutoRepeat(false)</code>). <code>.sna</code>, <code>.szx</code> and <code>.z80</code> switch
+machine the same way (GH #323; see "Which machine a snapshot loads as" below), and
+QS-25..27 pin that route. Retention: <code>prune_quick_snapshots()</code> runs after
+each Quick Save and deletes only names matching <code>is_quick_snapshot_name()</code>;
+the count is <code>EmulatorConfig::quick_snapshot_keep</code> (CLI) or
+<code>AppConfigData::quick_snapshot_keep</code> (<code>[snapshot] quick_keep</code>, Preferences),
+the CLI winning (<code>quick_snapshot_keep_cli</code>). The debugger keymap refuses
+Alt+Shift+F5/F9 by name (<code>validate_combo</code>).
+The SDL chord predicate is <code>platform/quick_snapshot_chord.h</code>; the Qt chords are
+the two QAction shortcuts in <code>main_window.cpp</code>.</p>
 <p>Video recording needs <strong>FFmpeg on the host</strong>. jnext writes raw ARGB frames and
 raw stereo PCM to temporary files during the run, so the hot loop pays no
 encoding cost, and shells out once at stop, trying <code>libx264</code>, <code>mpeg4</code> and

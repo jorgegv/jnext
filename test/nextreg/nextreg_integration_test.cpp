@@ -6574,6 +6574,12 @@ static void test_v16_nmp_02_expbus_and_mask(Emulator& emu) {
                   " port_contend(7FFD)=" + std::to_string(contend) +
                   " port_ulap_io_en=" + std::to_string(ulap) +
                   " (want 1 88 FD 8E 0 0 0 0)");
+        // Fixture isolation (GH #323): the 48K .sna just loaded switched this SHARED
+        // emulator to a 48K (a snapshot runs on the machine it was saved on). Put it back
+        // on the Next the later rows expect; no assertion or expected value changes.
+        EmulatorConfig next = emu.config();
+        next.type = MachineType::ZXN_ISSUE2;
+        emulator_frontend_cold_boot(emu, next, std::string(), ColdBootHooks{});
     }
 
     // Restore baseline: NR 0x80=0, NR 0x82-0x89 = power-on defaults.
@@ -7990,6 +7996,407 @@ static void test_nr_mmu_arbitration(Emulator& emu) {
     hard_reset(emu);
 }
 
+// ── GH #324 — the Next's Pentagon 128 personality (`--machine pentagon`) ──
+//
+// Oracle: tbblue.fw boot.c for mode 3 (menu.def "Pentagon 128K,3,8,128.rom"),
+// observed by booting the real firmware with config.ini default=14: it writes
+// NR 0x82 = 0xC6 (`case 3: hwenables[0] = 0xc6`), NR 0x84 = 0xFB (Soundrive 2
+// DAC disabled), NR 0x85 = 0x01 (bit 31 = 0) and NR 0x03 = 0xC4
+// (0x80 | (3+1)<<4 | (3+1)), and never writes NR 0x8F.
+static void test_gh324_pentagon_personality() {
+    set_group("PENT-PERSONALITY");
+
+    auto boot_pentagon = [](Emulator& e) {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::PENTAGON;
+        cfg.rewind_buffer_frames = 0;
+        e.init(cfg);
+    };
+
+    {
+        Emulator emu;
+        boot_pentagon(emu);
+        const uint8_t got = nr_read(emu, 0x03);
+        check("PENT-01",
+              "--machine pentagon: NR 0x03 reads 0x44 (typ_sel 100, tim_sel 100) "
+              "[boot.c 0x80|(3+1)<<4|(3+1); zxnext.vhd:5894]",
+              got == 0x44, detail_eq(got, 0x44));
+    }
+    {
+        Emulator emu;
+        boot_pentagon(emu);
+        const uint8_t r82 = nr_read(emu, 0x82);
+        const uint8_t r84 = nr_read(emu, 0x84);
+        const uint8_t r85 = nr_read(emu, 0x85);
+        check("PENT-02",
+              "cold boot writes the firmware's mode-3 port enables: NR 0x82 = 0xC6, "
+              "NR 0x84 = 0xFB (Soundrive 2 off), NR 0x85 bit 7 = 0 "
+              "[boot.c case 3; hwenables[2] &= 0xfb; bit 31 = 0]",
+              r82 == 0xC6 && r84 == 0xFB && (r85 & 0x80) == 0,
+              fmt("82=%02x 84=%02x 85=%02x", r82, r84, r85));
+    }
+    {
+        Emulator emu;
+        boot_pentagon(emu);
+        guest_soft_reset(emu);
+        const uint8_t a82 = nr_read(emu, 0x82);
+        const uint8_t a84 = nr_read(emu, 0x84);
+        // A guest that changed the enables keeps ITS value across the reset
+        // (reset_type = 0), so the cold-boot values are not re-applied from cfg.
+        nr_write(emu, 0x82, 0xCE);
+        guest_soft_reset(emu);
+        const uint8_t g82 = nr_read(emu, 0x82);
+        check("PENT-03",
+              "NR 0x85 bit 7 = 0: a soft reset keeps NR 0x82/0x84 (0xC6/0xFB) and a "
+              "guest-modified NR 0x82 (0xCE) rather than reloading them "
+              "[zxnext.vhd:5052-5067]",
+              a82 == 0xC6 && a84 == 0xFB && g82 == 0xCE,
+              fmt("after reset 82=%02x 84=%02x; guest-set 0xCE then reset: 82=%02x",
+                  a82, a84, g82));
+    }
+    {
+        // The other side of the reset_type condition: with NR 0x85 bit 7 = 1 the
+        // soft reset reloads NR 0x82-0x85 to all ones; the personality must NOT be
+        // re-applied on top of that.
+        Emulator emu;
+        boot_pentagon(emu);
+        nr_write(emu, 0x85, 0x8F);
+        guest_soft_reset(emu);
+        const uint8_t r82 = nr_read(emu, 0x82);
+        const uint8_t r84 = nr_read(emu, 0x84);
+        const uint8_t r85 = nr_read(emu, 0x85);
+        check("PENT-27",
+              "guest NR 0x85 bit 7 = 1 on the Pentagon, then a soft reset: NR 0x82/0x84/0x85 "
+              "reload to FF/FF/8F, the personality is not re-applied [zxnext.vhd:5052-5057]",
+              r82 == 0xFF && r84 == 0xFF && r85 == 0x8F,
+              fmt("82=%02x 84=%02x 85=%02x", r82, r84, r85));
+    }
+    {
+        Emulator emu;
+        boot_pentagon(emu);
+        nr_write(emu, 0x05, 0x85);
+        const uint8_t got = nr_read(emu, 0x05);
+        check("PENT-04",
+              "Pentagon timing forces 50 Hz: NR 0x05 write 0x85 reads back with bit 2 = 0 "
+              "[zxnext.vhd:5835-5836]",
+              (got & 0x04) == 0, detail_eq(got, 0x81));
+    }
+    {
+        Emulator emu;
+        boot_pentagon(emu);
+        const uint8_t got = nr_read(emu, 0x8F);
+        check("PENT-05",
+              "Pentagon 128 cold boot leaves NR 0x8F = 0x00 (standard mapping; the "
+              "firmware never writes it, and the VHDL has no reset clause) [zxnext.vhd:888]",
+              got == 0x00, detail_eq(got, 0x00));
+    }
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0x03, 0x07);        // re-enter config mode (:5147-5151)
+        nr_write(emu, 0x03, 0xC4);        // the firmware's Pentagon commit
+        check("PENT-06",
+              "a Next committing typ_sel 100 through NR 0x03 ends in MachineType::PENTAGON "
+              "(machine_type_128 family, same as --machine pentagon) [zxnext.vhd:5139-5142, :5751]",
+              emu.mmu().machine_type() == MachineType::PENTAGON,
+              fmt("machine_type=%d", static_cast<int>(emu.mmu().machine_type())));
+    }
+    {
+        Emulator emu;
+        boot_pentagon(emu);
+        const uint8_t r08 = nr_read(emu, 0x08);
+        emu.port().out(0x00FB, 0xF0);
+        const uint16_t left  = emu.dac().pcm_left();    // A + B
+        const uint16_t right = emu.dac().pcm_right();   // C + D
+        check("PENT-22",
+              "Pentagon Covox: NR 0x08 bit 3 (DAC) set and OUT 0xFB reaches DAC channels A "
+              "and D (NR 0x84 bit 5 mono_AD_fb, bit 2 clear) [zxnext.vhd:2433, :2661-2664]",
+              (r08 & 0x08) != 0 && left == 0xF0 + 0x80 && right == 0x80 + 0xF0,
+              fmt("nr08=%02x left=%04x right=%04x", r08, left, right));
+    }
+}
+
+
+// ── GH #325 — the 48K, 128K and +3 personalities (and the Pentagon's corrected
+// bits) start with the Next firmware's port enables ──
+//
+// Oracle: tbblue.fw boot.c init_registers() (:325-406), observed by booting the
+// real firmware with config.ini default=2/3/5 (menu.def 48K/128K/+3) and
+// reading NR 0x82-0x85 back at frame 700: 48K C0/3D/FE/01, 128K C2/3D/FF/01,
+// +3 DA/3D/FF/01. The config-dependent bits (NR 0x83 b5:0, NR 0x84 b7:3/b1,
+// NR 0x85 b1:0) are kept on by jnext; the config-invariant ones are asserted:
+// NR 0x83 b7:6 = 0 and NR 0x85 b7/b3/b2 = 0 (never set by boot.c in any mode).
+static bool boot_standalone(Emulator& e, MachineType t) {
+    EmulatorConfig cfg;
+    cfg.type = t;
+    cfg.rewind_buffer_frames = 0;
+    return e.init(cfg);
+}
+
+static std::string enables_str(Emulator& e) {
+    return fmt("82=%02x 83=%02x 84=%02x 85=%02x", nr_read(e, 0x82), nr_read(e, 0x83),
+               nr_read(e, 0x84), nr_read(e, 0x85));
+}
+
+static bool enables_are(Emulator& e, uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
+    return nr_read(e, 0x82) == a && nr_read(e, 0x83) == b &&
+           nr_read(e, 0x84) == c && nr_read(e, 0x85) == d;
+}
+
+// Program an auto-restart A->B mem/inc block through I/O port `port`
+// (as dma_test.cpp g1_program_restart), then LOAD + ENABLE.
+static void gh325_dma_program(Emulator& emu, uint16_t port) {
+    const uint8_t prog[] = {
+        0xA2, 0x7D, 0x00, 0x80, 0x02, 0x00, 0x14, 0x10, 0xAD, 0x00, 0x90, 0xCF, 0x87,
+    };
+    for (uint8_t b : prog) emu.port().out(port, b);
+}
+
+static void test_gh325_personality_port_enables() {
+    set_group("PERS-PORT-ENABLES");
+
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX48K);
+        check("PERS-01",
+              "48k cold boot: NR 0x82-0x85 = C0/3F/FE/03 (boot.c case 0, ay48=0 AY off; "
+              "NR 0x83 b7:6 and NR 0x85 b7/b3/b2 never set) [tbblue.fw boot.c:325-406]",
+              enables_are(e, 0xC0, 0x3F, 0xFE, 0x03), enables_str(e));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX128K);
+        check("PERS-02",
+              "128k cold boot: NR 0x82-0x85 = C2/3F/FF/03 (boot.c case 1) [tbblue.fw boot.c:325-406]",
+              enables_are(e, 0xC2, 0x3F, 0xFF, 0x03), enables_str(e));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX_PLUS3);
+        check("PERS-03",
+              "plus3 cold boot: NR 0x82-0x85 = DA/3F/FF/03 (boot.c case 2) [tbblue.fw boot.c:325-406]",
+              enables_are(e, 0xDA, 0x3F, 0xFF, 0x03), enables_str(e));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::PENTAGON);
+        check("PERS-04",
+              "pentagon cold boot: NR 0x82-0x85 = C6/3F/FB/03 (boot.c case 3; NR 0x83 b7:6 and "
+              "NR 0x85 b3:2 corrected from GH #324) [tbblue.fw boot.c:325-406]",
+              enables_are(e, 0xC6, 0x3F, 0xFB, 0x03), enables_str(e));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX48K);
+        nr_write(e, 0x82, 0xC2);
+        guest_soft_reset(e);
+        check("PERS-05",
+              "48k: NR 0x85 bit 7 = 0, so a soft reset keeps the enables, incl. a guest-set "
+              "NR 0x82 = 0xC2 [zxnext.vhd:5052-5059]",
+              enables_are(e, 0xC2, 0x3F, 0xFE, 0x03), enables_str(e));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX128K);
+        nr_write(e, 0x82, 0xC6);
+        guest_soft_reset(e);
+        check("PERS-06",
+              "128k: a soft reset keeps the enables, incl. a guest-set NR 0x82 = 0xC6 "
+              "[zxnext.vhd:5052-5059]",
+              enables_are(e, 0xC6, 0x3F, 0xFF, 0x03), enables_str(e));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX_PLUS3);
+        nr_write(e, 0x82, 0xDE);
+        guest_soft_reset(e);
+        check("PERS-07",
+              "plus3: a soft reset keeps the enables, incl. a guest-set NR 0x82 = 0xDE "
+              "[zxnext.vhd:5052-5059]",
+              enables_are(e, 0xDE, 0x3F, 0xFF, 0x03), enables_str(e));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::ZXN_ISSUE2);
+        check("PERS-08",
+              "the Next itself gets no personality: NR 0x82-0x85 = FF/FF/FF/8F at init (its "
+              "firmware and NextZXOS write them) [NextZXOS writes FF x4, fw-default0 log]",
+              enables_are(e, 0xFF, 0xFF, 0xFF, 0x8F), enables_str(e));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX48K);
+        nr_write(e, 0x85, 0x8F);
+        guest_soft_reset(e);
+        check("PERS-09",
+              "48k, guest NR 0x85 = 0x8F (reset_type 1), soft reset: all four reload to "
+              "FF/FF/FF/8F, the personality is not re-applied [zxnext.vhd:5052-5059]",
+              enables_are(e, 0xFF, 0xFF, 0xFF, 0x8F), enables_str(e));
+    }
+
+    // ── Port behaviour (the VHDL port decodes are the oracle) ──
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX48K);
+        const uint8_t before = e.mmu().get_page(6);
+        e.port().out(0x7FFD, 0x03);
+        const uint8_t off = e.mmu().get_page(6);
+        nr_write(e, 0x82, static_cast<uint8_t>(nr_read(e, 0x82) | 0x02));
+        e.port().out(0x7FFD, 0x03);
+        const uint8_t on = e.mmu().get_page(6);
+        check("PERS-P01",
+              "48k: OUT 0x7FFD is ignored (slot 6 page unchanged); after NR 0x82 |= 0x02 the "
+              "same OUT pages bank 3 (slot 6 = page 6) [zxnext.vhd:2399,2593,3650]",
+              off == before && on == 6, fmt("before=%u off=%u on=%u", before, off, on));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX128K);
+        e.port().out(0xDFFD, 0x01);
+        const uint8_t off = e.mmu().get_page(6);
+        nr_write(e, 0x82, static_cast<uint8_t>(nr_read(e, 0x82) | 0x04));
+        e.port().out(0xDFFD, 0x01);
+        const uint8_t on = e.mmu().get_page(6);
+        check("PERS-P02",
+              "128k: OUT 0xDFFD is ignored (slot 6 stays page 0); after NR 0x82 |= 0x04 it "
+              "selects bank 8 (page 16) [zxnext.vhd:2400,2596,3763-3766]",
+              off == 0 && on == 16, fmt("off=%u on=%u", off, on));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX128K);
+        e.port().out(0xFFFD, 7); e.port().out(0xBFFD, 0x3F);
+        e.port().out(0xFFFD, 0);          // select reg 0
+        e.port().out(0xDFFD, 7);          // DFFD disabled: an AY register select
+        const uint8_t got = e.port().in(0xFFFD);
+        check("PERS-P03",
+              "128k (0xDFFD disabled): OUT 0xDFFD,7 selects AY register 7, so IN 0xFFFD "
+              "returns reg 7 = 0x3F [zxnext.vhd:2596,2647,2773]",
+              got == 0x3F, detail_eq(got, 0x3F));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::PENTAGON);
+        e.port().out(0xFFFD, 7); e.port().out(0xBFFD, 0x3F);
+        e.port().out(0xFFFD, 0);
+        e.port().out(0xDFFD, 7);          // DFFD enabled: not an AY select
+        const uint8_t got = e.port().in(0xFFFD);
+        check("PERS-P04",
+              "pentagon (0xDFFD enabled): OUT 0xDFFD,7 does not select an AY register, so IN "
+              "0xFFFD still returns reg 0 = 0x00 [zxnext.vhd:2773 `and not port_dffd`]",
+              got == 0x00, detail_eq(got, 0x00));
+    }
+    {
+        Emulator a; boot_standalone(a, MachineType::ZX48K);
+        const uint8_t r7 = a.turbosound().ay(0).read_register(7);
+        a.port().out(0xFFFD, 7); a.port().out(0xBFFD, 0x15);
+        const uint8_t r7a = a.turbosound().ay(0).read_register(7);
+        const uint8_t in_a = a.port().in(0xFFFD);
+        Emulator b; boot_standalone(b, MachineType::ZX128K);
+        b.port().out(0xFFFD, 7); b.port().out(0xBFFD, 0x15);
+        const uint8_t r7b = b.turbosound().ay(0).read_register(7);
+        check("PERS-P05",
+              "48k (AY off): OUT 0xFFFD/0xBFFD leave AY reg 7 at its reset value and IN 0xFFFD "
+              "= 0xFF; the 128k control takes 0x15 [zxnext.vhd:2428,2647-2648]",
+              r7a == r7 && in_a == 0xFF && r7b == 0x15,
+              fmt("48k r7 %02x->%02x in=%02x; 128k r7=%02x", r7, r7a, in_a, r7b));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX48K);
+        nr_write(e, 0x08, 0x14);          // NR 0x08 bit 2: Timex read-back arm
+        e.port().out(0x00FF, 0x02);
+        const uint8_t off = e.port().in(0x00FF);
+        nr_write(e, 0x82, static_cast<uint8_t>(nr_read(e, 0x82) | 0x01));
+        e.port().out(0x00FF, 0x02);
+        const uint8_t on = e.port().in(0x00FF);
+        check("PERS-P06",
+              "48k, NR 0x08 b2=1: OUT 0xFF is ignored, IN 0xFF takes the ULA arm (0xFF in the "
+              "border); after NR 0x82 |= 0x01 it reads back the Timex register 0x02 "
+              "[zxnext.vhd:2397,2714,2813]",
+              off == 0xFF && on == 0x02, fmt("off=%02x on=%02x", off, on));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX48K);
+        nr_write(e, 0x03, 0xB1);          // tim_sel +3, typ_sel 48K (FB-D3F-01's setup)
+        e.run_frame();
+        e.mmu().set_p3_floating_bus_dat(0xA4);
+        const uint8_t off = e.port().in(0x0FFD);
+        nr_write(e, 0x82, static_cast<uint8_t>(nr_read(e, 0x82) | 0x10));
+        const uint8_t on = e.port().in(0x0FFD);
+        check("PERS-P07",
+              "48k + NR 0x03 = 0xB1: IN 0x0FFD = 0xFF (+3 floating bus off); after NR 0x82 |= "
+              "0x10 it returns the p3 latch 0xA4 [zxnext.vhd:2403,2589]",
+              off == 0xFF && on == 0xA4, fmt("off=%02x on=%02x", off, on));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX48K);
+        for (int i = 0; i <= 2; ++i) e.mmu().write(static_cast<uint16_t>(0x8000 + i), 0x51);
+        const uint8_t rd = e.port().in(0x006B);
+        gh325_dma_program(e, 0x006B);
+        const int n_6b = e.dma().execute_burst(3);
+        Emulator c; boot_standalone(c, MachineType::ZX48K);
+        for (int i = 0; i <= 2; ++i) c.mmu().write(static_cast<uint16_t>(0x8000 + i), 0x51);
+        gh325_dma_program(c, 0x000B);
+        const int n_0b = c.dma().execute_burst(3);
+        check("PERS-P08",
+              "48k: IN 0x6B = 0xFF and a program sent to 0x6B does not run; the same program "
+              "through 0x0B (NR 0x85 b1 kept) does [zxnext.vhd:2405,2441,2643]",
+              rd == 0xFF && n_6b == 0 && n_0b > 0,
+              fmt("in6b=%02x burst6b=%d burst0b=%d", rd, n_6b, n_0b));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX128K);
+        e.port().out(0x123B, 0x02);
+        const uint8_t off = nr_read(e, 0x69);
+        const uint8_t rd = e.port().in(0x123B);
+        nr_write(e, 0x83, static_cast<uint8_t>(nr_read(e, 0x83) | 0x80));
+        e.port().out(0x123B, 0x02);
+        const uint8_t on = nr_read(e, 0x69);
+        check("PERS-P09",
+              "128k: OUT 0x123B,2 leaves NR 0x69 b7 = 0 and IN 0x123B = 0xFF; after NR 0x83 |= "
+              "0x80 the same OUT enables Layer 2 [zxnext.vhd:2424,2635]",
+              (off & 0x80) == 0 && rd == 0xFF && (on & 0x80) != 0,
+              fmt("off=%02x in=%02x on=%02x", off, rd, on));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX128K);
+        const uint8_t rd = e.port().in(0x303B);
+        e.port().out(0x303B, 5); e.port().out(0x0057, 0xAB);
+        const uint8_t off = e.sprites().read_attr_byte(5, 0);
+        nr_write(e, 0x83, static_cast<uint8_t>(nr_read(e, 0x83) | 0x40));
+        e.port().out(0x303B, 5); e.port().out(0x0057, 0xAB);
+        const uint8_t on = e.sprites().read_attr_byte(5, 0);
+        check("PERS-P10",
+              "128k: IN 0x303B = 0xFF and OUT 0x303B,5 + OUT 0x57 leave sprite 5's attribute "
+              "unchanged; after NR 0x83 |= 0x40 the attribute is written [zxnext.vhd:2423,2679-2681]",
+              rd == 0xFF && off == 0x00 && on == 0xAB, fmt("in=%02x off=%02x on=%02x", rd, off, on));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX48K);
+        const uint8_t rd = e.port().in(0x183B);
+        e.port().out(0x183B, 0x85); e.port().out(0x183B, 0x80);
+        const bool off = e.ctc().channel(0).int_enabled();
+        nr_write(e, 0x85, static_cast<uint8_t>(nr_read(e, 0x85) | 0x08));
+        e.port().out(0x183B, 0x85); e.port().out(0x183B, 0x80);
+        const bool on = e.ctc().channel(0).int_enabled();
+        check("PERS-P11",
+              "48k: IN 0x183B = 0xFF and a CTC control word to 0x183B leaves channel 0 "
+              "unprogrammed; after NR 0x85 |= 0x08 it programs it [zxnext.vhd:2442,2690]",
+              rd == 0xFF && !off && on, fmt("in=%02x off=%d on=%d", rd, off, on));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::PENTAGON);
+        nr_write(e, 0x8F, 0x03);
+        e.port().out(0xEFF7, 0x04);
+        const bool off = e.mmu().port_eff7_disable_p1024();
+        Emulator c; boot_standalone(c, MachineType::PENTAGON);
+        nr_write(c, 0x8F, 0x03);
+        nr_write(c, 0x85, static_cast<uint8_t>(nr_read(c, 0x85) | 0x04));
+        c.port().out(0xEFF7, 0x04);
+        const bool on = c.mmu().port_eff7_disable_p1024();
+        check("PERS-P12",
+              "pentagon, NR 0x8F = 3: OUT 0xEFF7,4 is ignored (Pentagon-1024 stays enabled); "
+              "after NR 0x85 |= 0x04 it disables it [zxnext.vhd:2440,2604,3769]",
+              !off && on, fmt("off=%d on=%d", off, on));
+    }
+    {
+        Emulator e; boot_standalone(e, MachineType::ZX128K);
+        e.port().out(0x1FFD, 0x13);
+        const uint8_t bank_page = e.mmu().get_page(6);
+        check("PERS-P13",
+              "128k (0x1FFD disabled): OUT 0x1FFD,0x13 is a 0x7FFD write, so 0xC000 = bank 3 "
+              "(page 6) [zxnext.vhd:2593,2599]",
+              bank_page == 6, fmt("page=%u", bank_page));
+    }
+}
+
 int main() {
     std::printf("NextREG Integration Tests (full-machine reset defaults)\n");
     std::printf("====================================\n\n");
@@ -8134,6 +8541,12 @@ int main() {
 
     test_nr_mmu_arbitration(emu);
     std::printf("  Group: NR-MMU-Arbitration — done\n");
+
+    test_gh324_pentagon_personality();
+    std::printf("  Group: PENT-PERSONALITY — done\n");
+
+    test_gh325_personality_port_enables();
+    std::printf("  Group: PERS-PORT-ENABLES — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

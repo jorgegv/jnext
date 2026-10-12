@@ -28,11 +28,16 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      `SEND OK` / `> ` / `+IPD,` response frames); the other is 16 KB, i.e. 16
 #      payload packets, so a single dropped or duplicated packet fails it.
 #
-# WHY IT CANNOT FLAKE. No screenshot, no pixel compare, no wall-clock threshold:
+# WHY IT DOES NOT FLAKE. No screenshot, no pixel compare, no wall-clock threshold:
 # the verdict is a pair of hashes. The frame budget is EMULATED time, and CPU
 # contention pushes it the safe way — a loaded box runs fewer frames per second,
 # so the same budget buys MORE wall time for the transfer, never less. The only
 # wall-clock number here is the `timeout`, a crash guard set ~10x over measured.
+# It DID flake under wine until GH #327: the ESP worker's lock hold (a Winsock call,
+# 1-25 ms) used to stop committed reply bytes mid-message, and NextSync 1.2 drops a
+# packet whose `+IPD,<n>:` header has a gap of ~1 750 cycles. Committed bytes now
+# leave on their own lock. Still exposed to host time: a reply that STARTS later than
+# NextSync's own windows (~1.2 s emulated per hunt), which a real ESP shares.
 #
 # NO mtools, NO new dependency: `sdfile_tool` injects the dot command and the
 # config into this run's private SD clone through the in-tree FAT32 writer
@@ -47,7 +52,7 @@ if want nextsync-func; then
 
     peer_py="$SCRIPT_DIR/nextsync-peer.py"
     dot_src="$SCRIPT_DIR/nextsync/dot/sync"
-    sdfile="$PROJECT_DIR/build/test/sdfile_tool"
+    sdfile="$TEST_BIN_DIR/sdfile_tool"
     sd_image="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
 
     syncroot="$TMP_DIR/nextsync-root"
@@ -64,6 +69,53 @@ if want nextsync-func; then
     peer_pid=""
     verdict=""
 
+    # On a failure, print the exchange around the FIRST Retry/Restart, from both
+    # sides (GH #319): the peer's timestamped RX/TX events, and jnext's own esp01
+    # debug lines (+IPD framing, flushes) within 400 ms of it, by wall clock. The
+    # next failure then names its own cause: a reply that never arrived intact
+    # (the peer's TX with no matching +IPD) reads differently from a late one.
+    nextsync_exchange() {
+        local first t t2 n_over art
+        # Keep the two full logs where the CI job can upload them (build/ is the
+        # workspace's, so it survives the row's $TMP_DIR; ci.yml uploads
+        # build/regression-artifacts on a red run), and print the peer's WHOLE
+        # exchange below -- it is ~100 lines -- so the job log alone names the cause.
+        art="$PROJECT_DIR/build/regression-artifacts"
+        mkdir -p "$art" 2>/dev/null \
+            && cp "$peer_log" "$art/nextsync-peer-$$.log" 2>/dev/null \
+            && cp "$run_log" "$art/nextsync-jnext-$$.log" 2>/dev/null \
+            && echo "        --- full logs kept in build/regression-artifacts/nextsync-{peer,jnext}-$$.log ---" || true
+        echo "        --- WHERE IT WENT WRONG: byte digests per hop, then the exact counts when the guest sent its Restart/Retry ---"
+        python3 -I "$SCRIPT_DIR/nextsync-digest.py" "$peer_log" "$run_log" 2>&1 | sed 's/^/        |/' || true
+        echo "        --- the peer's whole exchange (RX = what the guest sent, TX = the reply; times are the peer's wall clock) ---"
+        head -n 400 "$peer_log" | sed 's/^/        | /'
+        # The guest-visible side: the UART logs every byte it had to DROP (RX FIFO
+        # full) at debug level. A dropped reply byte is a corrupt packet to the guest.
+        n_over=$(grep -ac "RX FIFO overflow" "$run_log" || true)
+        echo "        --- UART RX FIFO overflow lines in jnext's log: ${n_over:-0}; first 3: ---"
+        grep -a "RX FIFO overflow" "$run_log" | head -n 3 | sed 's/^/        | /' || true
+        first=$(grep -an "RX b'Re" "$peer_log" | head -1 | cut -d: -f1 || true)
+        if [[ -z "$first" ]]; then
+            echo "        --- no Retry/Restart in the peer log; its last 12 lines ---"
+            tail -n 12 "$peer_log" | sed 's/^/        | /'
+            return 0
+        fi
+        echo "        --- peer log around its first Retry/Restart (line $first) ---"
+        sed -n "$(( first > 8 ? first - 8 : 1 )),$(( first + 8 ))p" "$peer_log" | sed 's/^/        | /'
+        # The window starts at the peer's last event BEFORE the Restart (the reply the
+        # guest then failed to act on) and ends 300 ms after the Restart; the UART's
+        # per-byte TX lines are left out, they bury the rest.
+        t=$(sed -n "$(( first > 1 ? first - 1 : 1 ))p" "$peer_log" | awk '{print $2}')
+        echo "        --- jnext esp01/uart lines from $t (the peer's last event before the Restart) to its Restart + 300 ms ---"
+        t2=$(sed -n "${first}p" "$peer_log" | awk '{print $2}')
+        awk -v t="$t" -v t2="$t2" 'function ms(x,  a){ split(x, a, /[:.]/); return ((a[1]*60 + a[2])*60 + a[3])*1000 + a[4] }
+            BEGIN { c = ms(t) - 30; e = ms(t2) + 300 }
+            match($0, /\[[0-9][0-9]:[0-9][0-9]:[0-9][0-9]\.[0-9][0-9][0-9]\]/) {
+                d = ms(substr($0, RSTART + 1, RLENGTH - 2))
+                if (d > c && d < e) print
+            }' "$run_log" | grep -aE "esp|uart" | grep -av "TX write" | head -n 80 | sed 's/^/        | /' || true
+    }
+
     # Preconditions. A missing SD clone is a SKIP (the provision row will have
     # said why); a missing sdfile_tool is a FAILURE, because `make regression`
     # depends on unit-test-build and its absence means the build is broken —
@@ -75,7 +127,7 @@ if want nextsync-func; then
         skip_row " (no SD-card image clone for this run)"
         verdict=settled
     elif [[ ! -x "$sdfile" ]]; then
-        fail_row " (build/test/sdfile_tool missing — run 'make unit-test-build')"
+        fail_row " ($TEST_BIN_DIR/sdfile_tool missing — run 'make unit-test-build')"
         verdict=settled
     fi
 
@@ -146,6 +198,7 @@ if want nextsync-func; then
             --delayed-keypress-frames 605 n \
             --delayed-keypress-frames 620 c \
             --delayed-keypress-frames 635 enter \
+            --log-level info,esp01=debug,uart=debug \
             --delayed-automatic-exit-frames 4000 \
             >"$run_log" 2>&1 || true
 
@@ -178,10 +231,18 @@ if want nextsync-func; then
                 || fails+=("$sd_path is CORRUPT: sha256 $got_hash, expected $want_hash")
         done <"$manifest"
 
+        # The byte-digest instrumentation is part of the row (GH #319): on every run each hop's
+        # digests must agree with its neighbour's, with a checkpoint count above zero on all four
+        # hops, so a drifted twin (C++ vs Python) or a moved/deleted hook fails HERE and not as a
+        # lying verdict in some later dump. It is also an assertion that no hop changed a byte.
+        digest_bad=$(python3 -I "$SCRIPT_DIR/nextsync-digest.py" --check "$peer_log" "$run_log" 2>&1) \
+            || fails+=("byte-digest check failed: ${digest_bad//$'\n'/;}")
+
         if [[ ${#fails[@]} -eq 0 ]]; then
             pass_row " (NextSync 1.2 synced 2 files from $peer_ip, byte-identical, no retries)"
         else
             fail_row " (${fails[*]})"
+            nextsync_exchange
         fi
     fi
 

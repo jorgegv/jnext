@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3514,9 +3514,10 @@
 
 
 <h1 id="51-choosing-a-machine">5.1 Choosing a machine<a class="headerlink" href="#51-choosing-a-machine" title="Permanent link">&para;</a></h1>
-<p>JNEXT emulates four machines. Pick one with <code>--machine</code>, or from <strong>Machine &gt;
+<p>JNEXT emulates five machines. Pick one with <code>--machine</code>, or from <strong>Machine &gt;
 Machine Type</strong> while running — switching restarts the machine, so load your
-program afterwards.</p>
+program afterwards. (A <code>.jns</code>, <code>.sna</code>, <code>.szx</code> or <code>.z80</code> picks its own machine:
+the one it was saved on.)</p>
 <table>
 <thead>
 <tr>
@@ -3542,6 +3543,11 @@ program afterwards.</p>
 <td>128K plus the +3's extended paging model</td>
 </tr>
 <tr>
+<td><code>pentagon</code></td>
+<td>Pentagon 128</td>
+<td>The Next's Pentagon personality: the 128K ROM and paging, no contention, Pentagon's 448 x 320 frame at 50 Hz, a Covox on port 0xFB, and 512K/1024K paging through NextREG 0x8F</td>
+</tr>
+<tr>
 <td><code>next</code></td>
 <td>ZX Spectrum Next</td>
 <td>Everything: Layer 2, sprites, tilemap, 3 AY chips, DMA, the copper, up to 28 MHz (<strong>default</strong>)</td>
@@ -3552,7 +3558,11 @@ program afterwards.</p>
 <ul>
 <li><strong>Available hardware.</strong> A 48K has no AY chip and no memory paging; a Next
   has extra video layers and a much faster CPU. Software written for one
-  generally will not run on an earlier one.</li>
+  generally will not run on an earlier one. Like the Next firmware's own 48K,
+  128K, +3 and Pentagon personalities, the four non-Next machines start with
+  the Next-only ports off (Timex port 0xFF, the DMA's port 0x6B, Layer 2 and
+  sprites, the CTC, and 0xDFFD except on the Pentagon); software can turn them
+  on through NextREG 0x82-0x85, as on the hardware.</li>
 <li><strong>Timing.</strong> Each machine has its own frame length and screen timing, which
   is what makes music and raster effects run at the right speed.</li>
 <li><strong>Contention.</strong> On real 48K/128K/+3 hardware the video circuitry steals
@@ -3570,9 +3580,9 @@ JNEXT reads the BASIC ROMs from, exactly as real Next hardware does. See
 <p><img alt="48K" src="../img/machine-48k.png" /> <img alt="Next" src="../img/machine-next.png" /></p>
 <p><em>A 48K start-up screen, and the Next booting NextZXOS.</em></p>
 <blockquote>
-<p>There is no Pentagon machine option. Pentagon <em>timing</em> exists only as
-something a program can ask for from inside the emulated machine, and it
-turns memory contention off.</p>
+<p>The Pentagon is the Next's own Pentagon 128 personality, the one the Next
+firmware's machine menu starts: it uses the 128K ROM (<code>128.rom</code> on the SD
+card). It is not a model of the original Russian clone's hardware.</p>
 </blockquote>
 <hr />
 

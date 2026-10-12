@@ -191,7 +191,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
-       kloc-count regression regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
+       kloc-count regression regression-win regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-diagrams read-devguide \
@@ -377,7 +377,9 @@ win-release:
 	@# Bundle the Qt6/SDL3 runtime DLLs + Qt plugins next to the exe so it runs
 	@# in place (jnext.exe alone can't start — missing Qt6Core.dll and, even with
 	@# the DLLs, the platforms/qwindows.dll plugin).
-	bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_RELEASE)/jnext.exe $(BUILD_DIR_WIN_RELEASE)
+	@# WIN_EXTRA_QT_PLUGINS is empty for every shipped package; `make regression-win`
+	@# sets platforms/qoffscreen.dll on the non-PGO test tree only (GH #319).
+	BUNDLE_EXTRA_QT_PLUGINS="$(WIN_EXTRA_QT_PLUGINS)" bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_RELEASE)/jnext.exe $(BUILD_DIR_WIN_RELEASE)
 	@printf "$(BOLD)Windows executable (+ bundled DLLs):$(RESET) $(BUILD_DIR_WIN_RELEASE)/jnext.exe\n"
 
 # Cross-compile the Windows jnext.exe WITHOUT PGO into build/win-release-non-pgo (no wine needed)
@@ -506,6 +508,34 @@ gui-clean: gui-debug-clean gui-release-clean
 # Remove all build directories (sdl/gui + unit-test; build/ takes the rest with it)
 clean: sdl-debug-clean sdl-release-clean gui-clean unit-test-clean
 
+# Run the regression suite's Windows rows and screenshots: MinGW exes under wine (GH #319)
+regression-win: unit-test-sdl-build unit-test-win-build win-sdl-release z88dk-gdb sdcard-image
+	@# `regression.sh --platform` against the Windows binaries: the Qt exe is the
+	@# shipped build minus PGO (Release + LTO, `win-release-non-pgo`) with Qt's
+	@# offscreen platform plugin bundled into THIS test tree only (never into a
+	@# package), the SDL-only exe is `win-sdl-release`, and the native helper tools
+	@# (rewind_test, sdfile_tool, the probes) come from the SDL unit-test tree. The one
+	@# exception is nextpi-link-func's stand-in QEMU, which must be a PE: it comes from
+	@# the Windows unit-test tree (unit-test-win-build, GH #316).
+	@# Rows that cannot exist on Windows are declared absent with `os=` in
+	@# functional_tests.conf and printed by name, never skipped. A full run takes
+	@# the host lock like `make regression`; ROWS="a-func b-func" runs named rows.
+	@# It is not stamped: the stamp is the Linux run's.
+	@$(MAKE) --no-print-directory win-release-non-pgo WIN_EXTRA_QT_PLUGINS=platforms/qoffscreen.dll
+	JNEXT_TARGET_BUILD=build/win-release-non-pgo JNEXT_TARGET_SDL_BUILD=$(BUILD_DIR_WIN_SDL_RELEASE) \
+		TEST_BIN_DIR=$(BUILD_DIR_SDL_UNIT_TEST)/test bash test/00regression/regression.sh --platform $(ROWS)
+
+# Run the regression suite's rows and screenshots against the macOS binaries (Darwin only; CI macos-regression)
+regression-macos: unit-test-sdl-build gui-release-non-pgo sdl-release z88dk-gdb sdcard-image
+	@# GH #319. Needs Homebrew's bash, coreutils and grep first on PATH, like
+	@# `unit-test-sdl` (UNIT_TEST_PATH). The Qt binary is gui-release-non-pgo (the
+	@# shipped macOS build is PGO'd, which would train on every CI run); the SDL-only
+	@# one is sdl-release (Release: the speed rows measure real time, which the unit-test
+	@# tree's unoptimised jnext cannot meet); the native helpers are the SDL unit-test tree's.
+	@[ "$$(uname -s)" = Darwin ] || { printf "$(BADGE_FAIL) FAIL $(RESET) regression-macos runs on macOS only\n"; exit 2; }
+	PATH="$(UNIT_TEST_PATH)" JNEXT_TARGET_BUILD=$(BUILD_DIR_GUI_RELEASE_NON_PGO) JNEXT_TARGET_SDL_BUILD=$(BUILD_DIR_SDL_RELEASE) \
+		TEST_BIN_DIR=$(BUILD_DIR_SDL_UNIT_TEST)/test bash test/00regression/regression.sh --platform $(ROWS)
+
 # Provide z88dk-gdb for gdb-z88dk-func: the one on PATH, or z88dk v2.4's built into the user cache
 z88dk-gdb:
 	@# gdb-z88dk-func drives the real z88dk-gdb client, which Fedora does not
@@ -515,7 +545,7 @@ z88dk-gdb:
 	bash test/provision-z88dk-gdb.sh
 
 # Run the full regression test suite (screenshot + functional tests)
-regression: lint-makefile-help regression-doc-check unit-test-build gui-release fuse-pgo sdl-release docs-check cli-check z88dk-gdb
+regression: lint-makefile-help lint-thread-detach regression-doc-check unit-test-build gui-release fuse-pgo sdl-release docs-check cli-check z88dk-gdb
 	@# Depends on unit-test-build: regression.sh runs build/test/rewind_test, and a
 	@# `make clean` deletes it. It used to vanish from the suite with no row printed.
 	@# gui-release is a REAL prerequisite, not a convenience: regression.sh runs
@@ -724,7 +754,7 @@ traceability-dup-check:
 	@perl test/traceability-dup-ids.pl
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions lint-makefile-help traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test
+unit-test: lint-assertions lint-makefile-help lint-thread-detach traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —
@@ -917,6 +947,15 @@ lint-makefile-help:
 	@# documented rule — one `# ` line above a target, rationale inside the recipe
 	@# as `@#` lines — structurally, on discarded content rather than on prose.
 	@bash test/lint-makefile-help.sh
+
+# Fail if a thread is detached anywhere but the POSIX twin of start_detached (GH #328)
+lint-thread-detach:
+	@# MinGW winpthreads can lose the thread created after a detached one that
+	@# ended early, so detached workers go through esp::net::start_detached (a
+	@# Win32 thread on Windows). A stray .detach() reopens that for whichever
+	@# thread comes next, and no unit row can force the window; the rule is
+	@# structural. Cheap (ripgrep over src/ and test/), so it runs before the build.
+	@bash test/lint-thread-detach.sh
 
 # Fail if a NEW tautological assertion appeared in test/ (baseline-relative)
 lint-assertions:

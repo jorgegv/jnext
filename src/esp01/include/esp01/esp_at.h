@@ -11,6 +11,7 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -57,7 +58,7 @@
 ///     overturned. nextsync never sends `AT+CIPMUX` at all — it relies on the
 ///     power-on default being 0 — and its `+IPD` reader silently CORRUPTS the
 ///     multiplexed `+IPD,<id>,<len>:` form rather than rejecting it (see
-///     `queue_ipd_header` for the exact mechanism). Since no command can
+///     `format_ipd_header` for the exact mechanism). Since no command can
 ///     correct a wrong default at runtime, THE DEFAULT STAYS 0: accepting the
 ///     command is not the same as changing the default, and the default is the
 ///     part nextsync depends on. The multiplexed form reaches only a connection
@@ -721,8 +722,8 @@ public:
     ///
     /// WHY THE PACER LIVES IN THE CORE and not in the host's adapter, which
     /// was a real choice with a real alternative. It is here because it is
-    /// INSEPARABLE from `+IPD` coalescing: a chunk is cut only when `out_` has
-    /// drained (`wire_is_quiet`), so a host that drained `out_` at its own rate
+    /// INSEPARABLE from `+IPD` coalescing: a chunk is cut only when the wire has
+    /// drained (`wire_is_quiet`), so a host that drained the wire at its own rate
     /// would see the engine cut a chunk on every poll — tiny chunks under load,
     /// which is exactly the pressure on nextsync's 5-chunks-per-packet budget
     /// that simplification 7 describes. Moving the pacer out would have meant
@@ -733,6 +734,21 @@ public:
     /// the core still owns no notion of time. And a consumer that wants no
     /// pacing at all passes `(1, 1)`.
     void tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte) override;
+
+    /// The release half of `tick()` (GH #327): pace committed guest-bound bytes
+    /// onto the sink, nothing else. Touches ONLY the guest-bound wire (its own
+    /// short lock) and `out_sink_`, so it is the one method safe to call
+    /// WITHOUT the engine's external lock, from a single consumer thread, while
+    /// another thread runs the rest of the engine. Committed bytes must leave at
+    /// the baud rate and never idle mid-message, which they would if their
+    /// release waited on the engine lock. Returns true when this call emptied
+    /// the wire. Like `tick()`, it banks nothing while the wire is empty.
+    bool release_to_guest(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte);
+
+    /// The framing half of `tick()`: if the wire is empty, cut the next `+IPD`
+    /// (or `CLOSED`), then refresh the tick gate. Engine state: needs the
+    /// engine's external lock.
+    void service_wire();
 
     /// True while there is anything queued for the guest or anything waiting
     /// to be framed into a `+IPD`.
@@ -759,7 +775,10 @@ public:
     Protocol    protocol() const { return conn_[SINGLE_CID].protocol; }
     bool        awaiting_connect() const { return conn_[SINGLE_CID].connecting; }
     /// Bytes queued toward the guest, not yet released by the pacer.
-    std::size_t pending_to_guest() const { return out_.size(); }
+    std::size_t pending_to_guest() const { return wire_.size(); }
+    /// How many whole messages have been committed to the guest-bound wire
+    /// (GH #327): one per `queue`/`queue_raw`/`+IPD` frame. Introspection.
+    std::uint64_t wire_commits() const { return wire_.commits(); }
     /// Bytes read from the socket, not yet framed into a `+IPD`. On a UDP
     /// connection this is the total across the queued datagrams — the number a
     /// caller wants either way is "how much is waiting", not how it is boxed.
@@ -1038,7 +1057,7 @@ private:
     /// `[<id>,]CLOSED` + `OK`, and return the slot to the pool. Shared by both
     /// spellings of `AT+CIPCLOSE` for one reason — the framing decision
     /// (prefixed or not) must be made in ONE place, exactly as
-    /// `queue_ipd_header` is, or the two spellings drift apart on the wire.
+    /// `format_ipd_header` is, or the two spellings drift apart on the wire.
     /// The caller has already established that the connection is there;
     /// deciding WHICH `ERROR` a missing one deserves is the caller's job,
     /// because the two spellings answer to different guests.
@@ -1068,7 +1087,8 @@ private:
     /// clean bail would at least be diagnosable; this is silent corruption,
     /// which is exactly why the decision is centralised in one function rather
     /// than left to whoever adds CIPMUX support.
-    void queue_ipd_header(std::size_t cid, bool multiplexed, std::size_t len);
+    static std::size_t format_ipd_header(char* out, std::size_t cap, std::size_t cid,
+                                         bool multiplexed, std::size_t len);
 
     // Socket-side helpers, all per-slot.
     void resolve_connect(std::size_t cid);
@@ -1113,13 +1133,11 @@ private:
 
     void refresh_tick_gate();
 
-    /// Push one byte toward the guest. A no-op with no sink installed, which
-    /// is the correct behaviour for a detached module: the byte is discarded
-    /// at the wire, exactly as it would be with nothing plugged into the UART.
-    void send_to_guest(std::uint8_t byte) const {
-        if (out_sink_) out_sink_(byte);
-    }
-
+    /// The guest-bound sink; a no-op when none is installed, which is the
+    /// correct behaviour for a detached module: the byte is discarded at the
+    /// wire, exactly as it would be with nothing plugged into the UART. Read by
+    /// `release_to_guest` WITHOUT the engine lock; written only by `set_output`
+    /// (a host installs it before the engine goes live).
     ByteSink out_sink_;
     /// Mirrors `wants_tick()`. A plain bool, not a virtual computation: the
     /// caller may test it once per emulated instruction, so it must be a load.
@@ -1258,14 +1276,42 @@ private:
     /// busy-waits for the reply so this stays empty in practice, but a guest
     /// that types ahead must not lose bytes.
     std::deque<std::uint8_t> deferred_;
-    /// Framed and ready for the guest, released one byte per `ticks_per_byte`.
-    /// Module-wide, not per-connection: one UART, one wire.
-    std::deque<std::uint8_t> out_;
+    /// The guest-bound wire (GH #327): framed bytes ready for the guest, released
+    /// one per `ticks_per_byte`. Module-wide, not per-connection: one UART, one
+    /// wire. It has its OWN short lock, held only for a deque push/pop and never
+    /// across a transport or sink call, so the emulation thread can keep
+    /// releasing already-committed bytes while another thread holds the engine
+    /// lock inside a socket call. A real ESP-01 clocks a framed message out of
+    /// its UART back to back; it never idles the wire mid-message, and a guest
+    /// like NextSync (20 status polls between header bytes) gives up if it does.
+    ///
+    /// Each message is pushed as ONE unit (`push`), so a producer preempted
+    /// between header and payload cannot leave a gap.
+    class GuestWire {
+    public:
+        void push(const std::uint8_t* data, std::size_t len);
+        /// Pace `elapsed` caller-unit ticks onto `sink` (called OUTSIDE the lock).
+        /// Single consumer. Returns true when this call emptied the wire.
+        bool release(std::uint32_t elapsed, std::uint32_t ticks_per_byte, const ByteSink& sink);
+        bool          empty() const;
+        std::size_t   size() const;
+        std::uint64_t commits() const;
+        /// Run `f(size)` under the lock (digest record of the queue depth).
+        template <class F> void with_size(F&& f) const {
+            std::lock_guard<std::mutex> lock(m_);
+            f(q_.size());
+        }
 
-    /// Caller-unit ticks banked toward the next guest-bound byte. Reset to 0
-    /// whenever `out_` empties so an idle period cannot bank credit and then
-    /// dump a burst at full speed the moment data appears.
-    std::uint32_t pace_accum_ = 0;
+    private:
+        mutable std::mutex       m_;
+        std::deque<std::uint8_t> q_;
+        /// Caller-unit ticks banked toward the next guest-bound byte. Reset to 0
+        /// whenever the queue empties so an idle period cannot bank credit and
+        /// then dump a burst at full speed the moment data appears.
+        std::uint32_t            accum_   = 0;
+        std::uint64_t            commits_ = 0;
+    };
+    GuestWire wire_;
 };
 
 }  // namespace esp

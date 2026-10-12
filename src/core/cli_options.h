@@ -67,6 +67,7 @@ enum class OptId {
     DelayedSnapshotFrames,
     SnapshotCompression,
     SnapshotMode,
+    QuickSnapshotKeep,
     Machine,
     Headless,
     Benchmark,
@@ -218,7 +219,7 @@ inline constexpr Option OPTIONS[] = {
     // Machine and program
     { "--machine", 1, Doc::Documented, OptId::Machine,
       "TYPE",
-      "Machine type: 48k, 128k, plus3, next (default)" },
+      "Machine type: 48k, 128k, plus3, pentagon, next (default)" },
     { "--load", 1, Doc::Documented, OptId::Load,
       "FILE",
       "Load a program file (auto-detect format by extension)\n"
@@ -363,7 +364,7 @@ inline constexpr Option OPTIONS[] = {
       "Start NextPi under QEMU (qemu-system-arm,\n"
       "raspi0), connected to UART 1, the Pi GPIO header's UART.\n"
       "The first run offers to download NextPi (about 6 GB) into\n"
-      "~/.jnext/nextpi. Needs QEMU installed. POSIX-only" },
+      "~/.jnext/nextpi. Needs QEMU installed" },
     { "--no-nextpi", 0, Doc::Documented, OptId::NoNextpi,
       "",
       "Do not start NextPi this run, overriding a saved\n"
@@ -620,6 +621,11 @@ inline constexpr Option OPTIONS[] = {
       "STATE",
       "Deflate .jns members: on (default) or off. off stores\n"
       "them instead: readable with unzip -p, ~5x larger" },
+    { "--quick-snapshot-keep", 1, Doc::Documented, OptId::QuickSnapshotKeep,
+      "N|unlimited",
+      "Quick Save keeps the newest N quick snapshots and\n"
+      "deletes older ones it made (default 20); unlimited\n"
+      "keeps all. Overrides the [snapshot] quick_keep setting" },
     { "--snapshot-mode", 1, Doc::Documented, OptId::SnapshotMode,
       "MODE",
       "Loading a .jns, how much to refuse: normal (default),\n"
@@ -873,6 +879,20 @@ inline bool parse_snapshot_compression(const char* state, bool& uncompressed) {
     if (std::strcmp(state, "on")  == 0) { uncompressed = false; return true; }
     if (std::strcmp(state, "off") == 0) { uncompressed = true;  return true; }
     return false;
+}
+
+/// `--quick-snapshot-keep N|unlimited` -> the retention count (0 = unlimited).
+/// N is 1..1000000; anything else returns false and leaves `out` UNTOUCHED.
+inline bool parse_quick_snapshot_keep(const char* s, int& out) {
+    if (s == nullptr) return false;
+    if (std::strcmp(s, "unlimited") == 0) { out = 0; return true; }
+    char* end = nullptr;
+    errno = 0;
+    const long n = std::strtol(s, &end, 10);
+    if (s[0] < '0' || s[0] > '9') return false;   // no sign, no leading space
+    if (errno != 0 || end == s || *end != '\0' || n < 1 || n > 1000000) return false;
+    out = static_cast<int>(n);
+    return true;
 }
 
 /// A whole decimal number, ALL of `s`, in [lo, hi] (GH #317). Returns false and

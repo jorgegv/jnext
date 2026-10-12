@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1606,10 +1606,32 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#quick-save-and-quick-load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick save and quick load
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#loading" class="md-nav__link">
     <span class="md-ellipsis">
       
         Loading
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#loading-another-emulators-snapshot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loading another emulator's snapshot
       
     </span>
   </a>
@@ -3665,7 +3687,7 @@
 <tr>
 <td><code>.sna</code></td>
 <td>The classic 48K/128K snapshot every Spectrum emulator reads.</td>
-<td>You are on a 48K, 128K or +3 and want to hand the file to another emulator.</td>
+<td>You are on a 48K, 128K, Pentagon or +3 and want to hand the file to another emulator.</td>
 </tr>
 <tr>
 <td><code>.szx</code></td>
@@ -3706,6 +3728,12 @@ that quietly misrepresents your machine.</p>
 <td>yes</td>
 </tr>
 <tr>
+<td>Pentagon</td>
+<td>128K form</td>
+<td>yes, as a Pentagon 128</td>
+<td>yes</td>
+</tr>
+<tr>
 <td>+3, ordinary paging</td>
 <td>128K form</td>
 <td>yes</td>
@@ -3718,9 +3746,9 @@ that quietly misrepresents your machine.</p>
 <td>yes</td>
 </tr>
 <tr>
-<td>any machine using extended paging (port 0xDFFD)</td>
+<td>any machine using extended paging (port 0xDFFD, or NextREG 0x8F's 512K/1024K modes)</td>
 <td><strong>refused</strong> — use <code>.jns</code></td>
-<td>—</td>
+<td><strong>refused</strong> — use <code>.jns</code></td>
 <td>yes</td>
 </tr>
 <tr>
@@ -3742,8 +3770,8 @@ a field for that register, so it can hold both. An ordinary +3 — which is most
 of the time — saves as a 128K SNA.</p>
 <p>The extended-paging row is the one that can surprise you. A <code>.sna</code> records which
 16 KB bank is at 0xC000 in a single byte that can only name banks 0-7. Port
-0xDFFD — which works on any machine JNEXT emulates, not just a Next — can put a
-bank <em>above</em> 7 there. The snapshot would then come back with a different bank
+0xDFFD — on by default on a Next and a Pentagon, and on the other machines
+once software enables it in NextREG 0x82 — can put a bank <em>above</em> 7 there. The snapshot would then come back with a different bank
 mapped and that bank's contents missing altogether, so JNEXT refuses instead.
 <code>.szx</code> has no field for that register either; <code>.jns</code> is the format that carries
 it.</p>
@@ -3757,7 +3785,7 @@ SNA as a <em>Pentagon</em> 128 — the right RAM and paging, a different timing 
       --delayed-snapshot state.jns --delayed-snapshot-frames 600
 </code></pre>
 <p>On a Next the file dialog offers <code>.jns</code> first and adds <code>.jns</code> if you type a
-name with no extension; on a 48K, 128K or +3 it offers <code>.sna</code> first and adds
+name with no extension; on a 48K, 128K, Pentagon or +3 it offers <code>.sna</code> first and adds
 that. Type any of the four extensions and you get that format, unless the table
 above says it is refused: the dialog then says why, and headless says why and
 exits non-zero rather than leaving you a file you would have trusted.</p>
@@ -3769,14 +3797,108 @@ the save and never greys the menu item out — the only refusal is the format on
 above; the consequence is that the restored machine is up to one frame (20 ms)
 past where you stopped. If you need the precise instant, that
 is what the rewind buffer is for.</p>
+<h2 id="quick-save-and-quick-load">Quick save and quick load<a class="headerlink" href="#quick-save-and-quick-load" title="Permanent link">&para;</a></h2>
+<p><strong>File ▸ Quick Save Snapshot</strong> (<strong>Alt+Shift+F5</strong>) and <strong>File ▸ Quick Load Snapshot</strong>
+(<strong>Alt+Shift+F9</strong>) ask nothing. Quick Save writes a <code>.jns</code>, on every machine type,
+to <code>~/.jnext/snapshots/</code> (or <code>$JNEXT_CONFIG_DIR/snapshots</code> when that variable is
+set), named <code>jnext-YYYYMMDD-HHMMSS.jns</code>, and shows the path in the status bar.
+Two saves in the same second get a <code>-02</code>, <code>-03</code> suffix, so nothing is
+overwritten. Quick Load restores the <strong>newest</strong> <code>.jns</code> in that folder, judged by
+modification time, the same way <strong>File ▸ Load NEX File…</strong> does: a full cold
+boot, then the load. A <code>.jns</code> you save into that folder yourself counts too.</p>
+<ul>
+<li>An empty or missing folder only says "no snapshot" in the status bar; the
+  machine is not touched.</li>
+<li>A newest file that cannot be loaded (damaged, or taken with a different SD
+  card) is refused <strong>before</strong> anything is reset, so you keep your session.</li>
+<li>Quick Save keeps the <strong>newest 20</strong> of its own files and deletes older ones
+  after each save. Change that with <code>--quick-snapshot-keep N</code> (or
+  <code>unlimited</code>), with <strong>Settings ▸ Preferences ▸ Paths ▸ Quick snapshots to
+  keep</strong>, or <code>quick_keep</code> under <code>[snapshot]</code> in <code>jnext.conf</code>; the command-line
+  option wins for the run. Only files named exactly like Quick Save's own
+  (<code>jnext-YYYYMMDD-HHMMSS.jns</code>, optional <code>-NN</code>) are ever deleted: a <code>.jns</code> you
+  saved into the folder under another name is never touched. Older quick saves
+  that are still there load through the ordinary load dialog.</li>
+<li>The SDL-only build has the same two keys, the same folder and the same
+  <code>--quick-snapshot-keep</code> option (it reads no <code>jnext.conf</code>), and reports in the
+  log instead of the status bar.</li>
+<li>Plain F5 and F9, and Alt+F5 and Alt+F9 on their own, are unchanged. Shift is
+  the Spectrum's Caps Shift, so it is held down for the program while you press
+  the chord.</li>
+<li>Only <code>.jns</code> is used: it is the one format that can hold a whole machine.</li>
+</ul>
 <h2 id="loading">Loading<a class="headerlink" href="#loading" title="Permanent link">&para;</a></h2>
 <p>Drop the file on the command line, or <strong>File ▸ Load NEX File…</strong> (Alt+O) — the
 dialog lists <code>.jns</code> alongside everything else.</p>
 <pre><code>jnext state.jns
 </code></pre>
 <p>A <code>.jns</code> restores the machine <strong>type</strong> as well as its contents: one taken on a
-Next comes back as a Next even if <code>--machine</code> says otherwise, the same way a
-<code>.sna</code> or <code>.szx</code> already behaves. You do not have to remember what you saved.</p>
+Next comes back as a Next even if <code>--machine</code> says otherwise. You do not have
+to remember what you saved. A <code>.sna</code>, <code>.szx</code> or <code>.z80</code> does the same: it runs on
+the machine it was saved on (see below), even over <code>--machine</code>.</p>
+<h2 id="loading-another-emulators-snapshot">Loading another emulator's snapshot<a class="headerlink" href="#loading-another-emulators-snapshot" title="Permanent link">&para;</a></h2>
+<p>A <code>.sna</code>, <code>.szx</code> or <code>.z80</code> says which machine it holds, and JNEXT switches to
+it, as it does for a <code>.jns</code>. The machine stays selected afterwards, so a later
+reset starts it again; <strong>Machine ▸ Machine Type</strong> shows it. With <code>--machine</code> on
+the command line, JNEXT warns that the snapshot's machine won.</p>
+<table>
+<thead>
+<tr>
+<th>The file says</th>
+<th>JNEXT runs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>.sna</code> of 49179 bytes</td>
+<td>48K</td>
+</tr>
+<tr>
+<td>any longer <code>.sna</code> (the 128K form)</td>
+<td>128K</td>
+</tr>
+<tr>
+<td><code>.szx</code> 16K, 48K, NTSC 48K</td>
+<td>48K (NTSC at 60 Hz)</td>
+</tr>
+<tr>
+<td><code>.szx</code> 128K, +2, 128Ke</td>
+<td>128K</td>
+</tr>
+<tr>
+<td><code>.szx</code> +2A, +3, +3e</td>
+<td>+3</td>
+</tr>
+<tr>
+<td><code>.szx</code> Pentagon 128</td>
+<td>Pentagon</td>
+</tr>
+<tr>
+<td><code>.z80</code> v1, hardware 48K, 16K, Interface 1, SamRam, MGT</td>
+<td>48K</td>
+</tr>
+<tr>
+<td><code>.z80</code> hardware 128K, +2, 128K with Interface 1 or MGT</td>
+<td>128K</td>
+</tr>
+<tr>
+<td><code>.z80</code> hardware +3, +2A</td>
+<td>+3</td>
+</tr>
+<tr>
+<td><code>.z80</code> hardware Pentagon 128</td>
+<td>Pentagon</td>
+</tr>
+</tbody>
+</table>
+<p>The 128K, +3 and Pentagon snapshots bring the AY registers back, and a +3 its
+ROM and paging. Anything else is refused, with the reason in the log and a
+message in the GUI, and the machine you were running is left alone (started
+with <code>--load</code>, JNEXT exits with an error): a Timex TC2048, TC2068 or TS2068, a
+Scorpion, a ZX Spectrum SE, a Didaktik Kompakt, a Pentagon 512 or 1024, a
+<code>.z80</code> of an unknown hardware mode or header length, and any snapshot taken
+with the TR-DOS, Interface 1, MGT DISCiPLE or Multiface ROM paged in — JNEXT
+emulates none of those ROMs, so the program would run against the wrong one.</p>
 <h2 id="what-travels-and-what-does-not">What travels, and what does not<a class="headerlink" href="#what-travels-and-what-does-not" title="Permanent link">&para;</a></h2>
 <p>Everything the emulated machine is: CPU, all of RAM, the MMU, every NextREG,
 the video layers and their palettes, the Copper, the audio chips mid-envelope,

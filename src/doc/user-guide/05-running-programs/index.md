@@ -10,7 +10,8 @@ jnext game.sna
 
 The format is recognised from the extension — `.nex`, `.jns`, `.sna`, `.szx`,
 `.z80`, `.tap`, `.tzx`, `.wav` and `.rzx` are all understood. (`.jns` is
-JNEXT's own whole-machine snapshot; see [5.9 Snapshots](09-snapshots.md).) A bare filename is
+JNEXT's own whole-machine snapshot; see [5.9 Snapshots](09-snapshots.md), which also says
+which machine each snapshot format loads as.) A bare filename is
 exactly the same as `--load FILE`; you cannot use both at once.
 
 A NEX **V1.3** file can declare a buffer for an argument line, and `--nex-args`
@@ -53,10 +54,10 @@ The status bar along the bottom tracks the session: frame rate, the emulated
 CPU clock, the emulator speed, tape state, and the current machine.
 
 **Pausing.** To freeze the machine where it is, press the Pause button on the
-toolbar, choose **Machine > Pause**, or press **Alt+U**; press it again to
+toolbar, choose **Machine > Pause**, press the **Pause** key, or press **Alt+U** (for keyboards without a Pause key, such as most Mac keyboards); press it again to
 carry on. The button stays pressed and a **Paused** cell appears in the status
 bar while the machine is stopped. Sound goes quiet without a click, and the
-debugger window does not open. Alt+U also works in fullscreen, where the menu
+debugger window does not open. The Pause key and Alt+U also work in fullscreen, where the menu
 and toolbar are hidden. If you open the debugger while paused it shows the same
 pause, and closing it resumes the machine, as it always does.
 

@@ -19,7 +19,7 @@ bool DacTraceRecorder::start(const std::string& path)
     failed_ = false;
     have_tstate_ = false;
     segment_ = 0;
-    file_ = std::fopen(path.c_str(), "w");
+    file_ = std::fopen(path.c_str(), "wb");   // binary: "\n" lines on every host (GH #319)
     if (!file_) {
         set_error("cannot open '" + path + "': " + std::strerror(errno));
         return false;

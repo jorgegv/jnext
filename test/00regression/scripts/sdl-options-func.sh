@@ -25,7 +25,7 @@ if want sdl-options-func; then
 
     so_dir="$TMP_DIR/sdl-options"
     rm -rf "$so_dir"; mkdir -p "$so_dir"
-    so_sdl="$PROJECT_DIR/build/sdl-release/jnext"
+    so_sdl="$JNEXT_SDL"
     so_faults=()
 
     # so_sdl_run <log> <jnext args...>: one SDL-only 48K run; prints the status.

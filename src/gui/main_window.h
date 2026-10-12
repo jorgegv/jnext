@@ -397,6 +397,17 @@ private:
     // Snapshot save slot (G35: wires SnaSaver to File menu).
     void on_save_snapshot();
 
+    /// GH #321 — File > Quick Save Snapshot (Alt+Shift+F5) / Quick Load
+    /// Snapshot (Alt+Shift+F9): no dialog, `<state dir>/snapshots/`, newest `.jns` on load.
+    void on_quick_save();
+    void on_quick_load();
+    /// The `.jns` write path shared by Save Snapshot and Quick Save.
+    bool save_jns_with_feedback(const QString& path, const QString& ok_msg, int ok_ms);
+    /// A `.jns` (or, GH #323, a `.sna`/`.szx`/`.z80`) the pre-boot probe
+    /// refused: status line, log, and (unless unattended) the "Load Failed"
+    /// dialog.
+    void refuse_jns(const QString& path, const QString& why);
+
     /// GH #18/#19 — the single write path behind both screenshot menu
     /// entries. Picks PNG or .SCR from `path`'s extension, reports the file
     /// it wrote in the status bar, and raises a dialog when it could not.
@@ -553,6 +564,8 @@ private:
     // Screenshot actions
     QAction* screenshot_action_ = nullptr;
     QAction* quick_screenshot_action_ = nullptr;   // GH #19
+    QAction* quick_save_action_ = nullptr;   // GH #321
+    QAction* quick_load_action_ = nullptr;   // GH #321
 
     // Task 66 — persisted GUI preferences (~/.jnext/jnext.conf).
     // Loaded in the constructor; saved whenever the Preferences dialog is

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2467,11 +2467,13 @@ with a pixel counter under-charged five of the six contended phases and
 displaced contention-locked engines such as BIFROST by about 22 T-states per
 line — which is what the distinction costs when you get it wrong.</p>
 <p>Two axes stay separate throughout, following the VHDL. <code>MachineType</code>
-(<code>ZXN_ISSUE2</code>, <code>ZX48K</code>, <code>ZX128K</code>, <code>ZX_PLUS3</code>) is the <code>typ_sel</code> axis and comes
+(<code>ZXN_ISSUE2</code>, <code>ZX48K</code>, <code>ZX128K</code>, <code>ZX_PLUS3</code>, <code>PENTAGON</code>) is the <code>typ_sel</code> axis and comes
 from <code>--machine</code>. <code>MachineTimingMode</code> (<code>Timing48</code>, <code>Timing128</code>, <code>TimingPlus3</code>,
 <code>TimingPentagon</code>) is the <code>tim_sel</code> axis, switchable at runtime through NR 0x03.
-<strong>Pentagon is a timing mode only</strong> — there is no Pentagon <code>MachineType</code> and no
-<code>--machine pentagon</code>; guest software reaches it by writing NR 0x03.</p>
+<code>PENTAGON</code> is both: <code>typ_sel</code> 100 is the 128K family (<code>Mmu</code> has
+the same arm for it as for <code>ZX128K</code>), and its default timing is
+<code>TimingPentagon</code>. Guest software can still reach Pentagon <em>timing</em> on any
+machine by writing NR 0x03.</p>
 <p><code>AttributeMux</code> replays, at beam time, every byte the ULA fetches from VRAM: the
 pixel planes and the attribute plane of bank 5 (pages 0x0A and 0x0B, the second
 holding the Timex alt screen and second plane) and of the bank-7 shadow screen

@@ -56,6 +56,7 @@ inline const char* machine_type_str(MachineType t) {
         case MachineType::ZX48K:      return "48K";
         case MachineType::ZX128K:     return "128K";
         case MachineType::ZX_PLUS3:   return "+3";
+        case MachineType::PENTAGON:   return "Pentagon";
     }
     return "unknown";
 }
@@ -67,8 +68,23 @@ inline bool parse_machine_type(const std::string& s, MachineType& out) {
     if (lower == "48k" || lower == "48")         { out = MachineType::ZX48K;      return true; }
     if (lower == "128k" || lower == "128")       { out = MachineType::ZX128K;     return true; }
     if (lower == "+3" || lower == "plus3" || lower == "p3") { out = MachineType::ZX_PLUS3; return true; }
+    if (lower == "pentagon" || lower == "pent")   { out = MachineType::PENTAGON;   return true; }
     if (lower == "next" || lower == "zxn")        { out = MachineType::ZXN_ISSUE2; return true; }
     return false;
+}
+
+/// Canonical key of a MachineType: the spelling `parse_machine_type`
+/// accepts, shared by the RZX marker, the .jns manifest and the GUI
+/// settings file (one table, GH #324).
+inline const char* machine_type_key(MachineType t) {
+    switch (t) {
+        case MachineType::ZXN_ISSUE2: return "next";
+        case MachineType::ZX48K:      return "48k";
+        case MachineType::ZX128K:     return "128k";
+        case MachineType::ZX_PLUS3:   return "plus3";
+        case MachineType::PENTAGON:   return "pentagon";
+    }
+    return "next";
 }
 
 /// Task 28 — parse a `--rtc` datetime of the form "YYYY-MM-DD HH:MM:SS"
@@ -292,6 +308,12 @@ struct EmulatorConfig {
     bool jns_strict       = false;   ///< --snapshot-mode strict
     bool jns_force_sdcard = false;   ///< --snapshot-mode force
 
+    /// GH #321 — Quick Save retention: keep the newest N (0 = unlimited).
+    /// `quick_snapshot_keep_cli` says --quick-snapshot-keep was given, which
+    /// then overrides the Preferences / jnext.conf setting for the whole run.
+    int  quick_snapshot_keep     = 20;
+    bool quick_snapshot_keep_cli = false;
+
     // Magic port: debug output port that logs bytes to stderr
     bool     magic_port_enabled = false;
     uint16_t magic_port_address = 0x0000;  // 16-bit port address (default disabled)
@@ -473,6 +495,11 @@ struct EmulatorConfig {
     // ends of QEMU's `pipe` chardev. Both empty means no Pi.
     std::string              pi_uart_fifo_rx;
     std::string              pi_uart_fifo_tx;
+    // Or, instead of the FIFOs (GH #316; Windows, where QEMU's `pipe` chardev
+    // is a blocking single-client named-pipe server): the loopback TCP port
+    // QEMU's `socket` chardev listens on. jnext connects to 127.0.0.1:<port>.
+    // The FIFOs win when both are set (a hand-built config only); 0 with no FIFOs means no Pi.
+    uint16_t                 pi_uart_tcp_port = 0;
     // The Pi's SOUND, when it goes to the Next's mixer (the default): QEMU's
     // audio stream, read by PiQemu's PiAudio, which the emulator pops one frame
     // per mixer sample into I2s — so NR 0xA2 gates it and --record captures it.
@@ -519,6 +546,10 @@ inline constexpr MachineTiming machine_timing(MachineType type)
         case MachineType::ZX_PLUS3:
             // 128K/+3 PAL: c_max_hc=455 (456 pixels), c_max_vc=310 (311 lines)
             return {456, 311, 228, 228*311, 1824, 1824ULL*311};
+        case MachineType::PENTAGON:
+            // Pentagon: c_max_hc=447 (448 pixels), c_max_vc=319 (320 lines)
+            // (zxula_timing.vhd:160,168)
+            return {448, 320, 224, 224*320, 1792, 1792ULL*320};
         case MachineType::ZXN_ISSUE2:
         default:
             // ZX Next defaults to 128K timing

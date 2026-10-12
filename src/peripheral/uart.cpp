@@ -1,8 +1,11 @@
 #include "peripheral/uart.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "esp01/stream_digest.h"
 #include "save/state_desc.h"
 #include "save/state_desc_bin.h"
+
+#include <map>
 
 namespace {
 
@@ -258,6 +261,44 @@ void UartChannel::tick(uint32_t master_cycles) {
     }
 }
 
+namespace {
+
+// GH #319: byte-stream digests of what entered a channel's RX FIFO and of what
+// the guest read out of it (esp01/stream_digest.h), logged at debug level only.
+// Static and keyed by channel because UartChannel's layout is saved state's
+// neighbour and this is diagnosis, not state. Emulator thread only.
+struct RxDigests {
+    esp::StreamDigest in, read;
+    int ordinal = 0;
+    std::uint64_t last_exact_in = 0, last_exact_read = 0;
+    /// Edge (span_base_) of the guest read that last left the RX FIFO empty.
+    std::uint64_t drained_edge = 0;
+};
+RxDigests& rx_digests(const UartChannel* c) {
+    static std::map<const UartChannel*, RxDigests> m;
+    const std::size_t before = m.size();
+    RxDigests& d = m[c];
+    if (m.size() != before) d.ordinal = static_cast<int>(before);
+    return d;
+}
+
+// EXACT offsets (the checkpoints stop at multiples of 256), logged when the guest
+// starts speaking: what the RX FIFO took in and what the guest had read by then.
+void log_rx_exact(const UartChannel* c, std::uint64_t edge) {
+    RxDigests& d = rx_digests(c);
+    if (d.in.offset() == d.last_exact_in && d.read.offset() == d.last_exact_read) return;
+    d.last_exact_in = d.in.offset();
+    d.last_exact_read = d.read.offset();
+    // GH #327: `edge` is the emulated 28 MHz cycle the guest started its command
+    // at, and `drained_edge` the cycle of the read that last left the FIFO
+    // empty: how long the guest had been waiting on an empty FIFO when it gave
+    // up, in emulated time (the digest cannot see inter-byte timing).
+    uart_log()->debug("digest-exact uart{}-fifo-in off={} fnv={} edge={}", d.ordinal, d.in.offset(), d.in.hash_hex(), edge);
+    uart_log()->debug("digest-exact uart{}-guest-read off={} fnv={} edge={} drained_edge={}", d.ordinal, d.read.offset(), d.read.hash_hex(), edge, d.drained_edge);
+}
+
+}  // namespace
+
 void UartChannel::write_tx(uint8_t val) {
     // Every log call on the per-byte and per-port-read paths in this file is
     // guarded, for the should_log() reason given in PortDispatch::read
@@ -268,10 +309,12 @@ void UartChannel::write_tx(uint8_t val) {
             uart_log()->debug("TX FIFO full, byte {:#04x} dropped", val);
         return;
     }
+    if (tx_fifo_.empty() && uart_log()->should_log(spdlog::level::debug)) log_rx_exact(this, span_base_);
     tx_fifo_.push(val);
     if (uart_log()->should_log(spdlog::level::trace))
         uart_log()->trace("TX write {:#04x}, FIFO size={}", val, tx_fifo_.size());
 }
+
 
 uint8_t UartChannel::read_rx() {
     if (rx_fifo_.empty()) {
@@ -280,6 +323,12 @@ uint8_t UartChannel::read_rx() {
     }
     uint16_t entry = rx_fifo_.pop();
     uint8_t val = static_cast<uint8_t>(entry & 0xFF);
+    if (uart_log()->should_log(spdlog::level::debug)) {
+        RxDigests& d = rx_digests(this);
+        if (d.read.feed(val))
+            uart_log()->debug("digest uart{}-guest-read off={} fnv={}", d.ordinal, d.read.offset(), d.read.hash_hex());
+        if (rx_fifo_.empty()) d.drained_edge = span_base_;
+    }
     if (uart_log()->should_log(spdlog::level::trace))
         uart_log()->trace("RX read {:#04x}, FIFO size={}", val, rx_fifo_.size());
     return val;
@@ -381,6 +430,11 @@ void UartChannel::push_rx_with_flag(uint8_t byte, bool err_bit) {
     }
     uint16_t entry = static_cast<uint16_t>(byte) | (err_bit ? 0x0100u : 0u);
     rx_fifo_.push(entry);
+    if (uart_log()->should_log(spdlog::level::debug)) {
+        RxDigests& d = rx_digests(this);
+        if (d.in.feed(byte))
+            uart_log()->debug("digest uart{}-fifo-in off={} fnv={}", d.ordinal, d.in.offset(), d.in.hash_hex());
+    }
     if (uart_log()->should_log(spdlog::level::trace))
         uart_log()->trace("RX inject {:#04x} (err={}), FIFO size={}",
                           byte, err_bit ? 1 : 0, rx_fifo_.size());

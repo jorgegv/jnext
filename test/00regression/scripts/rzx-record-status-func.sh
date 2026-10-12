@@ -33,8 +33,9 @@ if want rzx-record-status-func; then
 
     rs_dir="$TMP_DIR/rzx-record-status"
     rm -rf "$rs_dir"; mkdir -p "$rs_dir"
-    rs_sdl="$PROJECT_DIR/build/sdl-release/jnext"
+    rs_sdl="$JNEXT_SDL"
     rs_faults=()
+    rs_wrap=()   # a command prefix for rs_run: set only around the "full" run
 
     # rs_run <frontend> <log> <timeout> <jnext args...>: one 48K run of that
     # frontend, combined output to <log>; prints the exit status.
@@ -42,15 +43,15 @@ if want rzx-record-status-func; then
         local fe=$1 log=$2 to=$3 rc=0; shift 3
         case $fe in
             headless)
-                timeout --foreground --kill-after=5s "$to" "$JNEXT" --headless \
+                timeout --foreground --kill-after=5s "$to" ${rs_wrap[@]+"${rs_wrap[@]}"} "$JNEXT" --headless \
                     "${SD_CARD_ARGS[@]}" --machine 48k "$@" >"$log" 2>&1 || rc=$? ;;
             qt)
                 env QT_QPA_PLATFORM=offscreen \
-                timeout --foreground --kill-after=5s "$to" "$JNEXT" --silent \
+                timeout --foreground --kill-after=5s "$to" ${rs_wrap[@]+"${rs_wrap[@]}"} "$JNEXT" --silent \
                     "${SD_CARD_ARGS[@]}" --machine 48k "$@" >"$log" 2>&1 || rc=$? ;;
             sdl)
                 env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
-                timeout --foreground --kill-after=5s "$to" "$rs_sdl" --silent \
+                timeout --foreground --kill-after=5s "$to" ${rs_wrap[@]+"${rs_wrap[@]}"} "$rs_sdl" --silent \
                     "${SD_CARD_ARGS[@]}" --machine 48k "$@" >"$log" 2>&1 || rc=$? ;;
         esac
         echo "$rc"
@@ -74,10 +75,15 @@ if want rzx-record-status-func; then
 
             # full: the write fails when the file is saved.
             log="$rs_dir/$fe-full.log"
-            rc=$(rs_run "$fe" "$log" 120s --rzx-record /dev/full \
+            # GH #319: /dev/full where the host has one; else (macOS) a file whose
+            # writes fail, through full-disk.sh.
+            rs_full=/dev/full
+            if [[ ! -e /dev/full ]]; then rs_full="$rs_dir/$fe-full.rzx"; rs_wrap=(bash "$SCRIPT_DIR/full-disk.sh"); fi
+            rc=$(rs_run "$fe" "$log" 120s --rzx-record "$rs_full" \
                     --delayed-automatic-exit-frames 10)
-            if [[ "$rc" != 1 ]] || ! grep -qF "RZX: failed to write '/dev/full'" "$log"; then
-                rs_faults+=("$fe /dev/full: rc=$rc (want 1 — not 0, not a timeout or kill — + 'RZX: failed to write')")
+            rs_wrap=()
+            if [[ "$rc" != 1 ]] || ! grep -qF "RZX: failed to write '$rs_full'" "$log"; then
+                rs_faults+=("$fe $rs_full: rc=$rc (want 1 — not 0, not a timeout or kill — + 'RZX: failed to write')")
             fi
 
             # control: a writable path.

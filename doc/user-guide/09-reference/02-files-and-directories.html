@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3538,6 +3538,10 @@
 <tr>
 <td><code>~/.jnext/warm-start/</code></td>
 <td>The recorded NextZXOS machine a <code>.nex</code> load starts from (<a href="../05-running-programs/index.html">5. Running programs</a>). One file per machine type, about 100 KB. Deleting it costs one cold boot.</td>
+</tr>
+<tr>
+<td><code>~/.jnext/snapshots/</code></td>
+<td>Where <strong>File ▸ Quick Save Snapshot</strong> writes and <strong>Quick Load Snapshot</strong> reads the newest <code>.jns</code> (<a href="../05-running-programs/09-snapshots.html#quick-save-and-quick-load">5.9 Snapshots</a>). Created on the first save. Quick Save keeps the newest 20 files it made (<code>--quick-snapshot-keep</code>).</td>
 </tr>
 <tr>
 <td><code>~/.jnext/screenshots/</code></td>

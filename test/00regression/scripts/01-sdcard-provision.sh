@@ -104,8 +104,11 @@ sd_rederive() {
     # provisioner honours it (src/core/sdcard_provisioner.cpp) — without the
     # override, the repair would build a fresh image inside the run directory
     # and delete it again on exit, leaving the master broken forever.
+    # JNEXT_NATIVE (GH #319): a platform run for Windows derives the image with a
+    # jnext of the HOST (the download is a network job, not worth running through
+    # wine); unset, the binary under test does it, as before.
     JNEXT_CONFIG_DIR="$HOME/.jnext" \
-        "$JNEXT" --headless --sdcard-download-confirm --delayed-automatic-exit 2 >/dev/null 2>&1 || true
+        "${JNEXT_NATIVE:-$JNEXT}" --headless --sdcard-download-confirm --delayed-automatic-exit 2 >/dev/null 2>&1 || true
     [[ -f "$FALLBACK_SD_IMAGE" ]] || return 1
     # No witness for an image of the wrong recipe: the next run re-derives it
     # instead of adopting it.

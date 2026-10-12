@@ -254,7 +254,7 @@ static void init_map() {
 
     // EDIT / GRAPH / CAPS LOCK on Alt+E / Alt+G / Alt+C — the only three
     // Alt+<letter> chords the guest gets, because since issue #115 Alt is the
-    // HOST namespace: the Qt main window consumes Alt+Q/O/S/K/R/T/D/P/U (QAction
+    // HOST namespace: the Qt main window consumes Alt+Q/O/S/K/R/T/D/P/U and Alt+Shift+F5/F9 (QAction
     // shortcuts) and Alt+F/M/I/A/B/V/N/H (menubar mnemonics) before any key
     // event reaches the emulator. E, G and C are what is left over, and
     // host_hotkey_test pins them free. Adding a menu or shortcut on E, G or C
@@ -303,6 +303,13 @@ static void init_map() {
 // ---------------------------------------------------------------------------
 // Public methods
 // ---------------------------------------------------------------------------
+
+void Keyboard::release_all_keys() {
+    std::memset(matrix_, 0xFF, sizeof(matrix_));
+    ex_matrix_     = 0x0000;
+    shift_hist_[0] = 0xFF;
+    shift_hist_[1] = 0xFF;
+}
 
 void Keyboard::reset() {
     init_map();

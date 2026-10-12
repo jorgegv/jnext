@@ -74,8 +74,8 @@ struct JnsLoadReport {
     std::vector<std::string> ignored_keys;
 
     /// Non-empty when the file's machine differs from the running one and the
-    /// reader reconfigured rather than refusing (§7.3) — the same courtesy
-    /// `.sna`/`.szx`/`.z80` already get. The user must not have to get
+    /// reader reconfigured rather than refusing (§7.3), as
+    /// `.sna`/`.szx`/`.z80` do (GH #323). The user must not have to get
     /// `--machine` right to reload their own save.
     std::string reconfigured_to;
 

@@ -1,8 +1,10 @@
 #include "core/pi_qemu.h"
 
 #include "audio/pi_audio.h"
-
+#include "core/emulator_config.h"
 #include "core/log.h"
+#include "esp01/esp_socket.h"
+#include "esp01/esp_socket_platform.h"
 
 #include <chrono>
 #include <filesystem>
@@ -49,15 +51,22 @@ std::string qemu_escape(const std::string& s) {
 
 } // namespace
 
+bool PiQemu::uses_mixer(const Spec& spec) {
+    return mixer_audio_supported() && spec.audio.empty();
+}
+
 std::string PiQemu::audiodev_arg(const std::string& audio) {
     if (audio.rfind("wav:", 0) == 0)
         return "wav,id=snd0,path=" + qemu_escape(audio.substr(4));
     // "host" is not a QEMU driver name; it stands for this platform's default
-    // host output, so it is safe to reserve.
+    // host output, so it is safe to reserve. So is "": where there is no mixer
+    // path (Windows, until GH #331) an empty setting means the host output too.
     std::string driver = audio;
-    if (driver == "host") {
+    if (driver == "host" || driver.empty()) {
 #ifdef __APPLE__
         driver = "coreaudio";
+#elif defined(_WIN32)
+        driver = "dsound";     // QEMU's Windows back-end; there is no PulseAudio
 #else
         driver = "pa";
 #endif
@@ -77,6 +86,19 @@ std::string PiQemu::mixer_audiodev_arg(const std::string& pipe_base) {
 }
 
 std::vector<std::string> PiQemu::build_args(const Spec& spec, const std::string& pipe_base) {
+    return build_args_with_chardev(spec, "pipe,id=pi,path=" + qemu_escape(pipe_base), pipe_base);
+}
+
+std::vector<std::string> PiQemu::build_args(const Spec& spec, std::uint16_t port,
+                                            const std::string& audio_base) {
+    return build_args_with_chardev(
+        spec, "socket,id=pi,host=127.0.0.1,port=" + std::to_string(port) +
+                  ",server=on,wait=off,nodelay=on", audio_base);
+}
+
+std::vector<std::string> PiQemu::build_args_with_chardev(const Spec& spec,
+                                                         const std::string& chardev,
+                                                         const std::string& audio_base) {
     const fs::path dir(spec.dir);
     return {
         "-M", "raspi0",
@@ -84,11 +106,15 @@ std::vector<std::string> PiQemu::build_args(const Spec& spec, const std::string&
         "-dtb", (dir / "boot" / "bcm2708-rpi-zero.dtb").string(),
         "-drive", "file=" + qemu_escape((dir / "overlay.qcow2").string()) + ",if=sd,format=qcow2",
         "-append", KERNEL_APPEND,
-        "-audiodev", spec.audio.empty() ? mixer_audiodev_arg(pipe_base) : audiodev_arg(spec.audio),
+        "-audiodev", uses_mixer(spec) ? mixer_audiodev_arg(audio_base) : audiodev_arg(spec.audio),
         "-device", "usb-audio,audiodev=snd0,buffer=16384",
-        "-chardev", "pipe,id=pi,path=" + qemu_escape(pipe_base),
+        "-chardev", chardev,
         "-serial", "chardev:pi",
+#ifdef _WIN32
+        "-monitor", "stdio",   // `quit` on stdin is the graceful stop
+#else
         "-monitor", "none",
+#endif
         "-display", "none",
     };
 }
@@ -118,27 +144,37 @@ std::vector<std::string> PiQemu::child_environment(const char* const* env) {
     return out;
 }
 
+void PiQemu::link_config(EmulatorConfig& cfg) const {
+    cfg.pi_uart_fifo_rx  = rx_path_;
+    cfg.pi_uart_fifo_tx  = tx_path_;
+    cfg.pi_uart_tcp_port = tcp_port_;
+    cfg.pi_audio         = audio_.get();
+}
+
+std::uint16_t PiQemu::free_loopback_port(std::string& error) {
+    std::string err, warning;
+    if (!esp::net::init(err)) {
+        error = "network init: " + err;
+        return 0;
+    }
+    std::uint16_t port = 0;
+    const esp::net::NativeSocket s =
+        esp::net::open_listener(esp::ipv4(127, 0, 0, 1), 0, port, warning, err);
+    if (s == esp::net::kInvalidSocket) {
+        error = "no free loopback TCP port: " + err;
+        return 0;
+    }
+    esp::net::close(s);
+    return port;
+}
+
 long PiQemu::fd_walk_limit(long open_max) {
     constexpr long kCap = 65536;
     return (open_max <= 0 || open_max > kCap) ? kCap : open_max;
 }
 
-#ifdef _WIN32
+#ifndef _WIN32   // POSIX; the Windows twin is pi_qemu_win.cpp
 
-PiQemu::~PiQemu() = default;
-
-std::string PiQemu::mark_close_on_exec_except(int, const std::vector<std::string>&) { return {}; }
-
-bool PiQemu::open_descriptors(const std::string&, std::vector<int>&) { return false; }
-
-bool PiQemu::start(const Spec&, std::string& error) {
-    error = "launching NextPi under QEMU is not supported on Windows";
-    return false;
-}
-
-void PiQemu::stop() {}
-
-#else   // POSIX
 
 namespace {
 
@@ -340,21 +376,37 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
                         describe_status(status) + "); see " + log_path);
     }
 
-    // The FIFOs live in a private directory of their own: QEMU's `pipe` chardev
-    // opens `<base>.in` (it reads: Next → Pi) and `<base>.out` (it writes).
+    // The console UART's host side. FIFO transport: the FIFOs live in a private
+    // directory of their own — QEMU's `pipe` chardev opens `<base>.in` (it
+    // reads: Next → Pi) and `<base>.out` (it writes). Socket transport (GH
+    // #316): a loopback port for QEMU's `socket` chardev to listen on; nothing
+    // on disk.
     // The error_code overload: with $TMPDIR naming no directory the other
     // one throws, and nothing above main() would catch it.
-    const fs::path tmp = fs::temp_directory_path(ec);
-    if (ec) return fail("no temporary directory for the NextPi FIFOs: " + ec.message() +
-                        " (check $TMPDIR)");
-    std::string tmpl = (tmp / "jnext-pi-XXXXXX").string();
-    if (::mkdtemp(tmpl.data()) == nullptr) return fail(std::string("mkdtemp: ") + std::strerror(errno));
-    runtime_dir_ = tmpl;
-    const std::string base = (fs::path(runtime_dir_) / "uart").string();
-    tx_path_ = base + ".in";
-    rx_path_ = base + ".out";
-    if (::mkfifo(tx_path_.c_str(), 0600) != 0 || ::mkfifo(rx_path_.c_str(), 0600) != 0)
-        return fail(std::string("mkfifo: ") + std::strerror(errno));
+    // The Pi's audio FIFO (the Next's mixer) needs the directory too, so the
+    // socket transport makes it when the sound goes to the mixer.
+    std::string base;
+    tcp_port_ = 0;
+    if (spec.transport == Transport::Socket) {
+        std::string port_error;
+        tcp_port_ = free_loopback_port(port_error);
+        if (tcp_port_ == 0) return fail(port_error);
+    }
+    if (spec.transport == Transport::Fifo || uses_mixer(spec)) {
+        const fs::path tmp = fs::temp_directory_path(ec);
+        if (ec) return fail("no temporary directory for the NextPi FIFOs: " + ec.message() +
+                            " (check $TMPDIR)");
+        std::string tmpl = (tmp / "jnext-pi-XXXXXX").string();
+        if (::mkdtemp(tmpl.data()) == nullptr) return fail(std::string("mkdtemp: ") + std::strerror(errno));
+        runtime_dir_ = tmpl;
+        base = (fs::path(runtime_dir_) / "uart").string();
+    }
+    if (spec.transport == Transport::Fifo) {
+        tx_path_ = base + ".in";
+        rx_path_ = base + ".out";
+        if (::mkfifo(tx_path_.c_str(), 0600) != 0 || ::mkfifo(rx_path_.c_str(), 0600) != 0)
+            return fail(std::string("mkfifo: ") + std::strerror(errno));
+    }
 
     // The watchdog pipe. Both ends close-on-exec in jnext, so no other child
     // (ffmpeg, a second QEMU) can hold the write end open and defeat it; the
@@ -377,14 +429,15 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
     // The Pi's sound into the Next's mixer (the default): open the reader of
     // QEMU's audio FIFO now, before QEMU, whose open of its end blocks until a
     // reader exists.
-    if (spec.audio.empty()) {
+    if (uses_mixer(spec)) {
         audio_ = std::make_unique<PiAudio>();
         std::string audio_error;
         if (!audio_->open(base + ".audio", audio_error)) return fail(audio_error);
     }
 
     std::vector<std::string> sh_args{"-c", kWatchdog, "jnext-nextpi", qemu};
-    const std::vector<std::string> qemu_args = build_args(spec, base);
+    const std::vector<std::string> qemu_args =
+        spec.transport == Transport::Socket ? build_args(spec, tcp_port_, base) : build_args(spec, base);
     sh_args.insert(sh_args.end(), qemu_args.begin(), qemu_args.end());
     std::string spawn_error;
     pid_ = spawn("/bin/sh", sh_args, log_path, rd, true, spawn_error);

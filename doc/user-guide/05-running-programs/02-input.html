@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3703,7 +3703,9 @@ symbols were thrown away before the Spectrum saw them.</p>
   combinations above are used, because the menu bar and the menu shortcuts
   claim the rest — and <strong>Alt+1 to Alt+8</strong> are the
   <a href="../06-debugger/functions/13-debugger-scripts.html#host-keys-alt1-to-alt8">script host keys</a>:
-  they do not type their digit (Alt+9 and Alt+0 still do).</li>
+  they do not type their digit (Alt+9 and Alt+0 still do). <strong>Alt+Shift+F5</strong>
+  and <strong>Alt+Shift+F9</strong> are Quick Save and Quick Load
+  (<a href="09-snapshots.html#quick-save-and-quick-load">5.9 Snapshots</a>).</li>
 </ul>
 <p><strong>Ctrl belongs to the program you are running.</strong> No Ctrl+letter chord of any
 kind is a JNEXT shortcut, so the Symbol Shift sequences NextBASIC leans on —
@@ -3731,7 +3733,9 @@ Input, Tape, Debug, View, Settings and Help, and the arrow keys work inside
 them as usual. Only the tap-Alt-then-arrow route is gone.</p>
 <p>The machine's own front-panel keys are on function keys: <strong>F1</strong> hard reset,
 <strong>F4</strong> soft reset, <strong>F9</strong> Multiface NMI, <strong>F10</strong> DivMMC. (With the debugger
-open, F9 belongs to the debugger.) The two resets are also in the <strong>Machine</strong>
+open, F9 belongs to the debugger.) With Alt and Shift held, F5 and F9 are the quick
+snapshot keys instead and reach neither the Multiface nor the guest. The <strong>Pause</strong> key pauses and resumes the
+machine (<strong>Machine &gt; Pause</strong>, also <strong>Alt+U</strong>). The two resets are also in the <strong>Machine</strong>
 menu and on the toolbar: <strong>Power Reset</strong> (Alt+R, same as F1) is a power
 off/on cold boot that re-runs the whole boot chain; <strong>Soft Reset</strong> (same as
 F4) is the front-panel reset button — it returns to NextZXOS without

@@ -1202,3 +1202,9 @@ Pentagon, derived from the VHDL `wait_s × pattern` LUT.
 Plan numbering: §4–§14 land green; §16 + post-§14 G-rows are the open
 backlog. The CON-* rows from `test/mmu/mmu_test.cpp` were C2-moved
 into this suite as part of the 2026-04-26 closure.
+
+## GH #324: Pentagon machine type
+
+`PENT-07` (`contention_test`, group `CT-PENT-MACHINE`): `--machine pentagon`
+runs with no contention (`machine_timing_pentagon` gates `i_contention_en`,
+`zxnext.vhd:4481`), where the same bank-5 access on a `ZX128K` is contended.

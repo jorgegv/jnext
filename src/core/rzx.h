@@ -9,6 +9,7 @@
 #include <zlib.h>
 
 #include "core/emulator_config.h"   // MachineType, parse_machine_type
+#include "core/snapshot_machine.h"  // ::snapshot_machine, the single machine table
 
 /// A single frame of RZX input recording.
 struct RzxFrame {
@@ -289,57 +290,21 @@ inline bool playable(const std::string& path, std::string& why) {
 static constexpr const char JNEXT_CREATOR[] = "JNEXT";
 static constexpr const char MACHINE_KEY[]   = "machine=";
 
-/// Name `t` as --machine spells it (parse_machine_type() reads it back).
-inline const char* machine_marker_name(MachineType t) {
-    switch (t) {
-        case MachineType::ZX48K:      return "48k";
-        case MachineType::ZX128K:     return "128k";
-        case MachineType::ZX_PLUS3:   return "plus3";
-        case MachineType::ZXN_ISSUE2: return "next";
-    }
-    return "next";
-}
-
 /// Record in `rec` that it is made on machine `t` (the creator's custom data).
 inline void set_recorded_machine(RzxRecording& rec, MachineType t) {
-    const std::string s = std::string(MACHINE_KEY) + machine_marker_name(t);
+    const std::string s = std::string(MACHINE_KEY) + machine_type_key(t);
     rec.creator_data.assign(s.begin(), s.end());
 }
 
-/// The machine an embedded snapshot says it holds, from its own header: an SNA
-/// by its size (48K, or 128K when longer), an SZX by its machine ID, a .z80 by
-/// its version and hardware mode. False when it names none jnext emulates
-/// (Pentagon, Timex...) or cannot be read.
+/// The machine an embedded snapshot says it holds (false when it names none
+/// jnext runs). A thin view of the ONE table, ::snapshot_machine()
+/// (core/snapshot_machine.h), which the snapshot loaders and the frontends'
+/// boot-machine choice read too (GH #323).
 inline bool snapshot_machine(const std::vector<uint8_t>& snap, const std::string& ext,
                              MachineType& out) {
-    const size_t n = snap.size();
-    if (ext == "sna") {
-        if (n < 49179) return false;
-        out = n > 49179 ? MachineType::ZX128K : MachineType::ZX48K;
-        return true;
-    }
-    if (ext == "szx") {
-        if (n < 8 || std::memcmp(snap.data(), "ZXST", 4) != 0) return false;
-        switch (snap[6]) {   // ZXSTMID_*
-            case 0: case 1: case 15: out = MachineType::ZX48K;    return true;  // 16K 48K NTSC48K
-            case 2: case 3: case 16: out = MachineType::ZX128K;   return true;  // 128K +2 128Ke
-            case 4: case 5: case 6:  out = MachineType::ZX_PLUS3; return true;  // +2A +3 +3e
-            default:                 return false;
-        }
-    }
-    if (ext == "z80") {
-        if (n < 30) return false;
-        if (read_u16(snap.data() + 6) != 0) { out = MachineType::ZX48K; return true; }  // v1
-        if (n < 35) return false;
-        const bool    v2 = read_u16(snap.data() + 30) == 23;
-        const uint8_t hw = snap[34];
-        if (hw <= 2 || (hw == 3 && !v2))           { out = MachineType::ZX48K;    return true; }
-        if (hw == 3 || hw == 4 || (hw <= 6 && !v2) || hw == 12)
-                                                   { out = MachineType::ZX128K;   return true; }
-        if (hw == 7 || hw == 8 || hw == 13)        { out = MachineType::ZX_PLUS3; return true; }
-        return false;
-    }
-    return false;
+    const SnapshotMachine m = ::snapshot_machine(snap, ext);
+    if (m.ok) out = m.machine;
+    return m.ok;
 }
 
 /// The machine `rec` was made on. A jnext recording names it in its creator

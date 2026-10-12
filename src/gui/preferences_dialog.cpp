@@ -98,6 +98,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     quick_screenshot_fmt_combo_->setCurrentIndex(
         quick_screenshot_fmt_combo_->findData(
             static_cast<int>(current.quick_screenshot_format)));
+    quick_keep_spin_->setValue(current.quick_snapshot_keep);
 
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Apply, this);
@@ -123,6 +124,7 @@ QWidget* PreferencesDialog::build_startup_tab() {
     machine_combo_->addItem(tr("48K"),  static_cast<int>(MachineType::ZX48K));
     machine_combo_->addItem(tr("128K"), static_cast<int>(MachineType::ZX128K));
     machine_combo_->addItem(tr("+3"),   static_cast<int>(MachineType::ZX_PLUS3));
+    machine_combo_->addItem(tr("Pentagon"), static_cast<int>(MachineType::PENTAGON));
     machine_combo_->addItem(tr("Next"), static_cast<int>(MachineType::ZXN_ISSUE2));
     form->addRow(tr("Machine type:"), machine_combo_);
 
@@ -414,12 +416,18 @@ QWidget* PreferencesDialog::build_nextpi_tab() {
     nextpi_audio_combo_->addItems({QString(), QStringLiteral("host"), QStringLiteral("none"),
                                    QStringLiteral("coreaudio"),
                                    QStringLiteral("pa"), QStringLiteral("pipewire"),
-                                   QStringLiteral("alsa"), QStringLiteral("sdl")});
+                                   QStringLiteral("alsa"), QStringLiteral("sdl"),
+                                   QStringLiteral("dsound")});
     nextpi_audio_combo_->lineEdit()->setPlaceholderText(
+#ifdef _WIN32
+        tr("this computer's default output (dsound)"));   // no mixer path here yet (GH #331)
+#else
         tr("the Next's mixer (default); \"host\": this computer's default output"));
+#endif
     nextpi_audio_combo_->setToolTip(
         tr("Where the Pi's sound goes. Empty: into the Next's mixer, as on the "
-           "real machine — NextREG 0xA2 controls it, and recordings include it. "
+           "real machine — NextREG 0xA2 controls it, and recordings include it "
+           "(on Windows, empty plays it on this computer's default output instead). "
            "\"host\": straight to this computer's default output. "
            "Or a QEMU audio driver to play it straight to this computer, "
            "\"none\" to mute it, or wav:FILE to record it on its own."));
@@ -489,6 +497,16 @@ QWidget* PreferencesDialog::build_paths_tab() {
     quick_screenshot_fmt_combo_->addItem(tr("SCR (ULA screen memory)"),
                                          static_cast<int>(ScreenshotFormat::Scr));
     form->addRow(tr("Quick screenshot format:"), quick_screenshot_fmt_combo_);
+
+    // GH #321 — how many Quick Save snapshots to keep in ~/.jnext/snapshots.
+    quick_keep_spin_ = new QSpinBox(tab);
+    quick_keep_spin_->setObjectName(QStringLiteral("quickKeepSpin"));
+    quick_keep_spin_->setRange(0, 1000000);
+    quick_keep_spin_->setSpecialValueText(tr("Unlimited"));
+    quick_keep_spin_->setToolTip(tr("Quick Save deletes the oldest quick snapshots (files named "
+                                    "jnext-<date>-<time>.jns) beyond this many. Other files in the "
+                                    "folder are never touched. --quick-snapshot-keep overrides this."));
+    form->addRow(tr("Quick snapshots to keep:"), quick_keep_spin_);
 
     auto* quick_note = new QLabel(
         tr("Quick Screenshot (Alt+K) writes jnext-<date>-<time> into that "
@@ -575,6 +593,7 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.quick_screenshot_dir = quick_screenshot_dir_edit_->text();
     cfg.quick_screenshot_format = static_cast<ScreenshotFormat>(
         quick_screenshot_fmt_combo_->currentData().toInt());
+    cfg.quick_snapshot_keep = quick_keep_spin_->value();
     return cfg;
 }
 

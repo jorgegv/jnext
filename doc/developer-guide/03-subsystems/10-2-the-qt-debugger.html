@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.28</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2384,7 +2384,7 @@ master switch is the backend's (<code>set_master_enabled()</code>).</p>
 <p><strong>The emulator window's Pause client</strong> is a third Qt client, owned by
 <code>MainWindow</code> rather than the adapter, so it exists in a Qt build with no
 debugger too. It is a non-arming observer, attached lazily on the first press of
-Machine &gt; Pause (Alt+U) and detached with the window. With the debugger window
+Machine &gt; Pause (Alt+U or the Pause key) and detached with the window. With the debugger window
 shut, the action pauses and resumes through this client; with it open, the action
 calls the adapter's <code>on_pause()</code> / <code>on_run()</code>, the same verbs as the forwarded F9
 and F5 keys. In a build with no debugger it is also the only way, from the GUI, to resume a

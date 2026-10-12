@@ -9,18 +9,10 @@
 
 namespace {
 
-// Short machine-type codes accepted by core/emulator_config.h's
-// parse_machine_type() (48k/128k/+3/next) — distinct from machine_type_str()'s
-// display strings ("ZX Next" etc.), which parse_machine_type() does not accept
-// back. Keeping the round-trip local to this file avoids coupling the on-disk
-// format to display text that may change.
+// On-disk machine type: core/emulator_config.h's machine_type_key(), the
+// spelling parse_machine_type() reads back (older files wrote "+3"; both parse).
 QString machine_type_to_key(MachineType t) {
-    switch (t) {
-        case MachineType::ZX48K:      return QStringLiteral("48k");
-        case MachineType::ZX128K:     return QStringLiteral("128k");
-        case MachineType::ZX_PLUS3:   return QStringLiteral("+3");
-        case MachineType::ZXN_ISSUE2: default: return QStringLiteral("next");
-    }
+    return QString::fromLatin1(machine_type_key(t));
 }
 
 // Issue #35 — on-disk spelling of the degradation policy. Deliberately the
@@ -206,6 +198,19 @@ void AppConfig::load() {
     }
     settings_.endGroup();
 
+    // GH #321 — Quick Save retention. A number >= 1 or the word `unlimited`;
+    // anything else keeps the default, so a typo cannot silently turn pruning
+    // off (or delete more than the user asked).
+    settings_.beginGroup("snapshot");
+    {
+        const QString v = settings_.value("quick_keep").toString().trimmed().toLower();
+        bool ok = false;
+        const int n = v.toInt(&ok);
+        if (v == QLatin1String("unlimited"))     data_.quick_snapshot_keep = 0;
+        else if (ok && n >= 1 && n <= 1000000)   data_.quick_snapshot_keep = n;
+    }
+    settings_.endGroup();
+
     // Task 79 — per-connector input source. Unknown/malformed values keep the
     // default (Sdl). The one-cursor rule is enforced by the UI and by the
     // Emulator coordinator, so a hand-edited both-"keys" file resolves cleanly
@@ -313,6 +318,11 @@ void AppConfig::save() const {
     settings_.setValue("quick_dir", data_.quick_screenshot_dir);
     settings_.setValue("quick_format",
                        quick_screenshot_format_to_key(data_.quick_screenshot_format));
+    settings_.endGroup();
+
+    settings_.beginGroup("snapshot");   // GH #321
+    if (data_.quick_snapshot_keep <= 0) settings_.setValue("quick_keep", "unlimited");
+    else settings_.setValue("quick_keep", data_.quick_snapshot_keep);
     settings_.endGroup();
 
     settings_.beginGroup("input");   // Task 79

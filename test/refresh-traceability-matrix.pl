@@ -360,6 +360,10 @@ my @SUBSYS = (
     # suite (FIFO/pty cables, the NextPi link, QEMU; GH #214).
     ['### Companion POSIX-only suite — `test/uart/uart_posix_test.cpp`',
      'uart_posix_test'],
+    # The portable half of the NextPi launcher: the socket transport and the
+    # Windows launch (GH #316), `# os: all`.
+    ['### Companion suite — `test/uart/nextpi_test.cpp`',
+     'nextpi_test'],
 );
 
 # Per-suite plan doc, consulted as the last citation source when the test
@@ -386,6 +390,7 @@ my %PLAN_DOC = (
     'uart_test'                   => 'UART-I2C',
     'uart_integration_test'       => 'UART-I2C',
     'uart_posix_test'             => 'UART-I2C',
+    'nextpi_test'                 => 'UART-I2C',
     'nextreg_test'                => 'NEXTREG',
     'nextreg_integration_test'    => 'NEXTREG',
     'port_test'                   => 'IO-PORT-DISPATCH',
@@ -960,6 +965,7 @@ my %NO_MATRIX_SECTION = (
     'tzx_loader_test'         => 'TZX container format: libspectrum TZX reader + the TZX specification as oracles (host loader), no core counterpart',
     'tape_save_test'          => 'TZX / WAV writer (GH #89): the TZX 1.20 and RIFF/WAVE layouts, with FUSE/libspectrum as the foreign reader (host saver); its hardware rows, the tape-out signal (TSAVE-30, TSAVE-43), cite zxnext.vhd:6503 in their own source',
     'snapshot_im_test'        => 'snapshot loaders seeding the NR 0xC0 IM latch (host loaders; nextreg.txt NR 0xC0)',
+    'snapshot_machine_test'   => 'which machine a .sna/.szx/.z80 loads as (libspectrum header tables, GH #323; host loaders) and the +3 / AY / NTSC state they restore; its hardware rows (SNM-27, 30, 31, 33) cite zxnext.vhd, zxula_timing.vhd and ports.txt in their own source',
     'sd_rom_extractor_test'   => 'FAT32 + TBBlue SD path layout (host ROM extraction)',
     'sdcard_file_add_test'    => 'FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces',
     'sdcard_file_add_posix_test' => 'rows moved out of sdcard_file_add_test (symlink, FIFO, device, chmod-0 fixtures; POSIX-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces',
@@ -1008,6 +1014,7 @@ my %NO_MATRIX_SECTION = (
     'tick_stats_test'      => 'host tick accounting for the status bar',
     'speed_report_test'    => 'host speed-percentage reporting',
     'emulator_boot_test'   => 'host cold-boot choreography (GH #40 contract, no VHDL oracle)',
+    'quick_snapshot_posix_test' => 'GH #321 prune never deletes a symlink (POSIX-only); host feature, no VHDL oracle',
 
     # ── Host policy around the emulated ESP-01 ───────────────────────
     # `## ESP-01 socket transport` / `AT engine` / `jnext UART adapter` trace
@@ -1054,7 +1061,7 @@ my %NO_MATRIX_SECTION = (
     'esc_break_test'      => 'host ESC->BREAK binding; guest matrix is `## Input`',
     'host_hotkey_test'    => 'host hotkey bindings (Alt vs the guest Symbol Shift)',
     'main_window_accel_test' => 'main-window menu mnemonics (host GUI)',
-    'main_window_pause_test' => 'main-window Pause: Machine > Pause, Alt+U (host GUI)',
+    'main_window_pause_test' => 'main-window Pause: Machine > Pause, Alt+U, Pause key (host GUI)',
     'joystick_menu_test' => 'joystick controller picker: Input menu, Preferences (host GUI)',
     'shifted_keys_test'   => 'host shifted-scancode translation; guest matrix is `## Input`',
     'window_scale_test'   => 'main-window scale/fullscreen geometry (host GUI)',

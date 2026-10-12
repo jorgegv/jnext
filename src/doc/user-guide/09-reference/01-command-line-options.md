@@ -38,7 +38,10 @@ with status 1.
 ## Machine and program
 
 **--machine** *TYPE*
-:   Machine type: `48k`, `128k`, `plus3`, `next` (default).
+:   Machine type: `48k`, `128k`, `plus3`, `pentagon`, `next` (default).
+    A snapshot given to **--load** (`.jns`, `.sna`, `.szx`, `.z80`) runs
+    on the machine it was saved on instead, and **jnext** warns when
+    that is not the one given here.
 
 **--load** *FILE*
 
@@ -50,7 +53,17 @@ with status 1.
     Snapshots](../05-running-programs/09-snapshots.md)). Loading one
     restores the machine it was taken on, including the machine *type*:
     a `.jns` taken on a Next loads as a Next even if **--machine** says
-    otherwise, the same way a `.sna`, `.szx` or `.z80` already does.
+    otherwise. A `.sna`, `.szx` or `.z80` does the same: it runs on the
+    machine it was saved on (the file says which: a `.sna` by its size,
+    an `.szx` by its machine ID, a `.z80` by its hardware mode), even
+    over **--machine**, which is then warned about. The machine stays
+    selected, in the GUI’s **Machine \> Machine Type** too. A snapshot
+    from a machine **jnext** does not emulate (a Timex, a Scorpion, a
+    Pentagon 512 or 1024), or taken with the TR-DOS, Interface 1, MGT or
+    Multiface ROM paged in, is refused, with the reason in the log,
+    before anything is changed; at startup **jnext** then exits
+    non-zero. A 16K, +2, +2A or +3e snapshot runs as the 48K, 128K, +3
+    or +3, and an NTSC 48K `.szx` as a 48K at 60 Hz.
 
     A NEX file with bytes after the banks its header declares is an
     *extended* NEX. If its header asks for the file to be kept open (any
@@ -319,14 +332,14 @@ with status 1.
     `~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and the Next’s
     mixer.
 
-    The Pi’s sound reaches the Next’s mixer over I2S, as on the real
-    machine: it is mixed with the beeper, the AY chips and the DAC, so
-    **--record** and **--wav-record** include it, and NR 0xA2 enables
-    and mutes it (NextPi’s tools enable it themselves). It is 10-bit, as
-    the hardware’s input is, and arrives about 100 ms late. Rewinds and
-    RZX playback hold it silent. With NR 0xA2 bit 0 set it goes to the
-    EAR input instead (port 0xFE bit 6), as a tape signal: how a Next
-    loads a tape the Pi plays to it.
+    On Linux and macOS the Pi’s sound reaches the Next’s mixer over I2S,
+    as on the real machine: it is mixed with the beeper, the AY chips
+    and the DAC, so **--record** and **--wav-record** include it, and NR
+    0xA2 enables and mutes it (NextPi’s tools enable it themselves). It
+    is 10-bit, as the hardware’s input is, and arrives about 100 ms
+    late. Rewinds and RZX playback hold it silent. With NR 0xA2 bit 0
+    set it goes to the EAR input instead (port 0xFE bit 6), as a tape
+    signal: how a Next loads a tape the Pi plays to it.
 
     The guest reaches the Pi only while NR 0xA0 bits 5:4 are `11` — UART
     1 on GPIO 14/15, wired for a Pi — which NextPi’s tools set before
@@ -338,7 +351,13 @@ with status 1.
     inert, and nothing about it is saved in a snapshot. A soft or hard
     reset leaves the Pi running. A Pi asked for with this option that
     cannot start (no QEMU, a failed download) is an error; declining the
-    download is not — jnext then starts without the Pi. POSIX only.
+    download is not — jnext then starts without the Pi. On Linux and
+    macOS the link is a pair of FIFOs; on Windows (QEMU for Windows, its
+    folder on `PATH` or set in Preferences) it is a loopback TCP socket
+    QEMU listens on. On Windows an empty Pi audio setting plays the Pi’s
+    sound on the host speakers (QEMU’s `dsound`, the same as `host`);
+    sending it through the Next’s mixer (NR 0xA2, the volume controls)
+    is not there yet.
 
 **--no-nextpi**
 :   Do not start NextPi this run, overriding a saved preference that
@@ -593,22 +612,22 @@ with status 1.
     the GUI, the SDL-only build and under **--headless**. While
     recording, a tape loads in real time: a fast load skips the ROM
     loader, which a recording cannot replay. The snapshot is an SZX on
-    the 128K and +3 and a 48K SNA on the 48K. The file names the machine
-    it was recorded on, which **--rzx-play** then uses.
+    the 128K, Pentagon and +3 and a 48K SNA on the 48K. The file names
+    the machine it was recorded on, which **--rzx-play** then uses.
 
     **Recording is not available on a ZX Spectrum Next, which is jnext’s
-    default machine, so this needs an explicit --machine 48k, 128k or
-    plus3.** An RZX carries a snapshot of the machine it starts from
-    plus a log of the values the program read from ports — and the log
-    records the values without the ports they came from. So no snapshot
-    an RZX can carry both describes a Next (none of SNA, SZX or Z80
-    holds its extra RAM, NextREGs, Layer 2, tilemap, sprites or Copper)
-    and keeps the value log aligned with what the restored machine goes
-    on to read. jnext refuses rather than write a file that looks fine
-    and replays wrong. **--rzx-play** still plays a Next recording made
-    by an earlier jnext, with a warning that it may not replay
-    faithfully. A *FILE* that cannot be written is refused before the
-    machine starts, and a recording that cannot be saved when it is
+    default machine, so this needs an explicit --machine 48k, 128k,
+    pentagon or plus3.** An RZX carries a snapshot of the machine it
+    starts from plus a log of the values the program read from ports —
+    and the log records the values without the ports they came from. So
+    no snapshot an RZX can carry both describes a Next (none of SNA, SZX
+    or Z80 holds its extra RAM, NextREGs, Layer 2, tilemap, sprites or
+    Copper) and keeps the value log aligned with what the restored
+    machine goes on to read. jnext refuses rather than write a file that
+    looks fine and replays wrong. **--rzx-play** still plays a Next
+    recording made by an earlier jnext, with a warning that it may not
+    replay faithfully. A *FILE* that cannot be written is refused before
+    the machine starts, and a recording that cannot be saved when it is
     written is logged; either way **jnext** exits non-zero. A reset ends
     the recording: a hard reset (the Reset button, F1, or the program’s
     own), loading another program from the GUI, changing the machine
@@ -708,6 +727,16 @@ with status 1.
     readable with `unzip -p` and a hex editor at roughly five times the
     size. A debugging aid; it changes nothing about what the file
     contains, and jnext reads both forms. Any other *STATE* is an error.
+
+**--quick-snapshot-keep** *N*\|`unlimited`
+:   How many quick snapshots **File \> Quick Save Snapshot** keeps in
+    `~/.jnext/snapshots/`: after each save the oldest beyond *N* are
+    deleted (default 20; *N* is 1 to 1000000). Only files named exactly
+    like Quick Save’s own (`jnext-YYYYMMDD-HHMMSS.jns`, optional `-NN`)
+    are ever deleted; anything else in the folder is left alone.
+    `unlimited` keeps everything. Overrides the `[snapshot] quick_keep`
+    setting for the run; the SDL-only build, which reads no
+    configuration file, takes only this option.
 
 **--snapshot-mode** *MODE*
 

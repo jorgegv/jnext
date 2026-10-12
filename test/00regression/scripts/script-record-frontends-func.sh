@@ -12,7 +12,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # and writes the script when it exits at the --delayed-automatic-exit bound.
 if want script-record-frontends-func; then
     begin_func script-record-frontends-func
-    sdl_bin="$PROJECT_DIR/build/sdl-release/jnext"
+    sdl_bin="$JNEXT_SDL"
     fails=()
     check_rec() {   # $1 = what, $2 = file, $3 = run output
         if [[ ! -s "$2" ]]; then

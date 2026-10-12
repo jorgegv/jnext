@@ -415,8 +415,8 @@ std::thread::id main_thread_id;
 /// than to the name the guest typed. Caps its own wait so a forgotten gate
 /// cannot wedge the suite.
 bool gated(const std::string&, std::vector<IpAddress>& out, std::string& err) {
-    entered.fetch_add(1);
     if (std::this_thread::get_id() != main_thread_id) off_thread.store(true);
+    entered.fetch_add(1);
     const bool opened = wait_until([] { return gate.load(); }, 5000);
     if (!opened) {
         err = "the gate was never opened";
@@ -1423,8 +1423,76 @@ int main() {
             check("ESP-RST-02",
                   "a peer that RSTs having served nothing is still an error",
                   aborted && has_level(unserved, LogLevel::Error));
+
+            // (c) THE REPEAT (GH #326). Oracle: Microsoft's recv reference ("If
+            //     the connection has been reset, a recv will fail with the error
+            //     WSAECONNRESET") and, on POSIX, tcp_recvmsg reporting sk_err.
+            //     Every abortive close must be a reset, none an orderly close.
+            //     On Linux/macOS this pins the deterministic path. Under wine
+            //     it is a STATISTICAL guard: wine 11.0 sometimes returns the
+            //     reset as a 0-byte read first (per-close rate measured 0.2%
+            //     idle, 0.6% loaded), so without the shim's MSG_PEEK confirm one
+            //     run catches it with probability ~63% (idle) to ~95% (loaded).
+            //     The fix itself is deterministic.
+            int setup_bad = 0, wrong = 0, first_bad = -1;
+            std::string first_bad_text, unserved_ref;
+            (void)capture_log(LogLevel::Info, [&] {
+                for (int i = 0; i < 500; ++i) {
+                    auto t = make_socket_transport(loopback_ok());
+                    t->begin_connect("127.0.0.1", l.port());
+                    if (!pump_until(*t, TransportState::Connected)) { ++setup_bad; continue; }
+                    const int srv = l.accept_one(1000);
+                    if (srv < 0) { ++setup_bad; continue; }
+                    const bool served = (i % 2 == 0);
+                    if (served) {
+                        const char* pl = "PAY";
+                        const ssize_t w = ::send(srv, pl, 3, 0);
+                        (void)w;
+                        std::uint8_t rx[16];
+                        std::size_t  got = 0;
+                        for (int waited = 0; waited < 2000 && got < 3; waited += 2) {
+                            const std::size_t n = t->recv(rx, sizeof(rx));
+                            got += n;
+                            if (n == 0) sleep_ms(2);
+                        }
+                    }
+                    close_with_reset(srv);
+                    const bool ended = pump_recv_until_not_connected(*t);
+                    const bool failed = ended && t->state() == TransportState::Failed;
+                    // Served: the text is note_peer_reset's. Unserved: it is
+                    // "recv failed: " + the shim's reason, so it must carry a
+                    // reason and be the same on every such try (a raced reset
+                    // that lost its reason would differ or be empty).
+                    bool text_ok = true;
+                    if (served) {
+                        text_ok = t->last_error().find("reset by the peer") != std::string::npos;
+                    } else {
+                        const std::string le = t->last_error();
+                        const std::string pre = "recv failed: ";
+                        if (unserved_ref.empty()) unserved_ref = le;
+                        text_ok = le.compare(0, pre.size(), pre) == 0 &&
+                                  le.size() > pre.size() && le == unserved_ref;
+                    }
+                    if (!failed || !text_ok) {
+                        if (++wrong == 1) {
+                            first_bad = i;
+                            first_bad_text = "state=" +
+                                std::to_string(static_cast<int>(t->state())) +
+                                " last_error=" + t->last_error();
+                        }
+                    }
+                }
+            });
+            check("ESP-RST-03",
+                  "across 500 abortive closes a peer RST is reported as a reset "
+                  "every time, never as an orderly close",
+                  setup_bad == 0 && wrong == 0,
+                  "setup_failures=" + std::to_string(setup_bad) +
+                      " wrong_outcomes=" + std::to_string(wrong) +
+                      " first_bad=" + std::to_string(first_bad) + " " + first_bad_text +
+                      " unserved_ref='" + unserved_ref + "'");
         } else {
-            for (const char* id : {"ESP-RST-01", "ESP-RST-02"}) {
+            for (const char* id : {"ESP-RST-01", "ESP-RST-02", "ESP-RST-03"}) {
                 report_row_id(id);
                 ++g_total; ++g_skip;
                 std::printf("  SKIP %s: could not bind a loopback listener\n", id);
@@ -2041,6 +2109,47 @@ int main() {
                   "lookup, not a success with nothing in it",
                   settled && r->state() == ResolveState::Failed); }
 
+        {   // GH #328. A worker started right after another one finished must
+            // still run. The pattern that lost threads on Windows: an
+            // instantly finishing resolver, then the next lookup begun as soon
+            // as the previous one has settled. `entered` proves each worker
+            // really ran the resolver, not merely that a state changed.
+            const int entered0 = fake_dns::entered.load();
+            int       settled_n = 0, failed_n = 0, stuck_at = -1;
+            for (int i = 0; i < 200; ++i) {
+                auto r = make_socket_resolver(loopback_ok(), fake_dns::empty_but_ok);
+                r->begin("instant.test");
+                if (!wait_until([&] { r->poll(); return r->state() != ResolveState::Resolving; },
+                                4000)) { stuck_at = i; break; }
+                ++settled_n;
+                if (r->state() == ResolveState::Failed) ++failed_n;
+            }
+            check("RSLV-13",
+                  "200 back-to-back lookups through an instant resolver all reach a verdict: "
+                  "a worker started right after another finished is never lost (GH #328)",
+                  settled_n == 200 && failed_n == 200 &&
+                      fake_dns::entered.load() - entered0 == 200,
+                  "settled=" + std::to_string(settled_n) + " failed=" + std::to_string(failed_n) +
+                      " stuck_at=" + std::to_string(stuck_at) + " entered=" +
+                      std::to_string(fake_dns::entered.load() - entered0)); }
+
+        {   // GH #328 (review F1): the Windows worker owns its body by hand
+            // (new std::function, freed by the trampoline). A finished worker
+            // must have released everything it captured, or every lookup leaks.
+            auto sentinel = std::make_shared<int>(0);
+            {
+                ResolveFn fn = [sentinel](const std::string&, std::vector<IpAddress>&,
+                                          std::string&) { return true; };
+                auto r = make_socket_resolver(loopback_ok(), fn);
+                r->begin("x.test");
+                wait_until([&] { r->poll(); return r->state() != ResolveState::Resolving; },
+                           4000);
+            }
+            check("RSLV-14",
+                  "a finished lookup worker has released what it captured (GH #328)",
+                  wait_until([&] { return sentinel.use_count() == 1; }, 2000),
+                  "use_count=" + std::to_string(sentinel.use_count())); }
+
         {   // THE LIFETIME PROPERTY, from this side. The gate is held SHUT, so
             // a lookup is provably parked in the resolver function when the
             // object is destroyed; destruction must not wait for it.
@@ -2179,6 +2288,24 @@ int main() {
                   settled && p->state() == PingState::Failed &&
                       p->last_error().find("IPv4") != std::string::npos);
         }
+        {
+            // GH #328: the same pattern as RSLV-13 for the ping worker. A
+            // denied literal needs no network and its worker finishes at once.
+            int ok_n = 0, stuck_at = -1;
+            for (int i = 0; i < 100; ++i) {
+                auto p = make_icmp_pinger(kDefault);
+                p->begin("127.0.0.1");
+                if (!wait_until([&] { p->poll(); return p->state() != PingState::Pinging; },
+                                4000)) { stuck_at = i; break; }
+                if (p->state() == PingState::Failed &&
+                    p->last_error().find("policy") != std::string::npos) ++ok_n;
+            }
+            check("PICMP-06",
+                  "100 back-to-back pings of a denied literal all FAIL on the policy: no "
+                  "worker is lost (GH #328)",
+                  ok_n == 100,
+                  "ok=" + std::to_string(ok_n) + " stuck_at=" + std::to_string(stuck_at));
+        }
     
     }
 
@@ -2211,6 +2338,23 @@ int main() {
         auto c = make_udp_sntp_client(kDefault);
         check("SNTPR-02", "an implausible server name is refused outright",
               !c->begin("a;rm -rf b") && !c->begin("") && c->state() == SntpState::Idle);
+    }
+    {
+        // GH #328: the same pattern as RSLV-13 for the SNTP worker.
+        int ok_n = 0, stuck_at = -1;
+        for (int i = 0; i < 100; ++i) {
+            auto c = make_udp_sntp_client(kDefault);
+            c->begin("127.0.0.1");
+            if (!wait_until([&] { c->poll(); return c->state() != SntpState::Querying; },
+                            4000)) { stuck_at = i; break; }
+            if (c->state() == SntpState::Failed &&
+                c->last_error().find("policy") != std::string::npos) ++ok_n;
+        }
+        check("SNTPR-03",
+              "100 back-to-back SNTP queries of a denied literal all FAIL on the policy: no "
+              "worker is lost (GH #328)",
+              ok_n == 100,
+              "ok=" + std::to_string(ok_n) + " stuck_at=" + std::to_string(stuck_at));
     }
 
     // ══ SNTP's two pure pieces (GH #154, owner Q7) ══════════════════════

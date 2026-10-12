@@ -1,21 +1,27 @@
 # 5.1 Choosing a machine
 
-JNEXT emulates four machines. Pick one with `--machine`, or from **Machine >
+JNEXT emulates five machines. Pick one with `--machine`, or from **Machine >
 Machine Type** while running — switching restarts the machine, so load your
-program afterwards.
+program afterwards. (A `.jns`, `.sna`, `.szx` or `.z80` picks its own machine:
+the one it was saved on.)
 
 | `--machine` | Machine | What you get |
 |---|---|---|
 | `48k` | ZX Spectrum 48K | 48K RAM, beeper only, original timing and contention |
 | `128k` | ZX Spectrum 128K | Bank switching, AY sound chip, 128K timing |
 | `plus3` | ZX Spectrum +2A/+3 | 128K plus the +3's extended paging model |
+| `pentagon` | Pentagon 128 | The Next's Pentagon personality: the 128K ROM and paging, no contention, Pentagon's 448 x 320 frame at 50 Hz, a Covox on port 0xFB, and 512K/1024K paging through NextREG 0x8F |
 | `next` | ZX Spectrum Next | Everything: Layer 2, sprites, tilemap, 3 AY chips, DMA, the copper, up to 28 MHz (**default**) |
 
 Three things actually change with the machine type:
 
 - **Available hardware.** A 48K has no AY chip and no memory paging; a Next
   has extra video layers and a much faster CPU. Software written for one
-  generally will not run on an earlier one.
+  generally will not run on an earlier one. Like the Next firmware's own 48K,
+  128K, +3 and Pentagon personalities, the four non-Next machines start with
+  the Next-only ports off (Timex port 0xFF, the DMA's port 0x6B, Layer 2 and
+  sprites, the CTC, and 0xDFFD except on the Pentagon); software can turn them
+  on through NextREG 0x82-0x85, as on the hardware.
 - **Timing.** Each machine has its own frame length and screen timing, which
   is what makes music and raster effects run at the right speed.
 - **Contention.** On real 48K/128K/+3 hardware the video circuitry steals
@@ -36,8 +42,8 @@ JNEXT reads the BASIC ROMs from, exactly as real Next hardware does. See
 
 *A 48K start-up screen, and the Next booting NextZXOS.*
 
-> There is no Pentagon machine option. Pentagon *timing* exists only as
-> something a program can ask for from inside the emulated machine, and it
-> turns memory contention off.
+> The Pentagon is the Next's own Pentagon 128 personality, the one the Next
+> firmware's machine menu starts: it uses the 128K ROM (`128.rom` on the SD
+> card). It is not a model of the original Russian clone's hardware.
 
 ---

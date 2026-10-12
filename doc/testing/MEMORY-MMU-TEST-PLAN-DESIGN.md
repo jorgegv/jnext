@@ -1303,3 +1303,17 @@ snapshot save round-trips (`SNAPSAVE-*`).
 The `SNAPSAVE-*` and `G156-HOLD-*` rows read `—` in the VHDL column and always
 will: a .szx/.nex round-trip is a file-format contract and the boot hold is a
 jnext-internal host-side delay, neither of which the FPGA core contains.
+
+## GH #324: Pentagon machine type, 0x1FFD/0x3FFD aliasing, SZX refusal
+
+`mmu_integration_test`: `PENT-09`..`PENT-12` (group `PENT-PAGING`): typ_sel 100
+is the 128K family on the ROM axis (`zxnext.vhd:5751`, `:2997-3007`), and NR
+0x8F selects the standard, 512 and 1024 mappings (`:3764-3801`).
+`PENT-F1-01`..`PENT-F1-04`: port 0x1FFD is a 0x7FFD write when
+`port_1ffd_io_en` (NR 0x82 bit 3) is off (`:2593`, `:2599`), 0x3FFD decodes in
+parallel with 0x7FFD (`:2601`), and +3 timing still needs A14 = 1. `PENT-14`..
+`PENT-16` (group `PENT-SAVERS`): an `.szx` of the Pentagon is chMachineId 7
+(libspectrum `szx.c:41-57`), an SNA is the 128K form, and
+`rzx::snapshot_machine` maps SZX 7 / `.z80` hardware 9 to PENTAGON.
+`SZXW-EXT-01`/`02`: a map moved by 0xDFFD or NR 0x8F (`:3763-3766`) is refused
+as `.szx`, like the SNA saver.

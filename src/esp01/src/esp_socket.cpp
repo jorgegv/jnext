@@ -31,7 +31,6 @@
 #include <exception>
 #include <memory>
 #include <system_error>
-#include <thread>
 #include <utility>
 
 namespace esp {
@@ -71,9 +70,9 @@ std::shared_ptr<ResolveJob> launch_resolve(const std::string& host, ResolveFn fn
     auto job     = std::make_shared<ResolveJob>();
     job->started = std::chrono::steady_clock::now();
     try {
-        std::thread([job, host, fn]() {
+        net::start_detached([job, host, fn]() {
             // NOTHING MAY ESCAPE THIS LAMBDA. An exception that leaves a
-            // `std::thread`'s entry point does not propagate anywhere — it
+            // worker's entry point does not propagate anywhere — it
             // goes straight to `std::terminate`, killing the whole process.
             // `resolver` is a PUBLIC seam documented for consumers who
             // already own a resolver, and reporting failure by exception is
@@ -120,7 +119,7 @@ std::shared_ptr<ResolveJob> launch_resolve(const std::string& host, ResolveFn fn
             // Publish LAST. Everything above happens-before any acquire of
             // this flag, and nothing is written after it.
             job->done.store(true, std::memory_order_release);
-        }).detach();
+        });
     } catch (const std::system_error& e) {
         // Thread exhaustion is a real failure mode, not an impossibility,
         // and silently parking in Resolving forever would be the worst
@@ -342,7 +341,8 @@ private:
     ///
     /// The count is meaningful because of an ordering guarantee, not by luck:
     /// the OS hands back everything already queued and reports the reset only
-    /// once that queue is empty (see the note in `esp_socket_posix.cpp`), so
+    /// once that queue is empty (Linux and macOS; Windows documents no such
+    /// order — see `esp_socket_win.cpp`; see also `esp_socket_posix.cpp`), so
     /// `received_` is the whole of what the peer's TCP managed to deliver.
     void note_peer_reset() {
         log_warn("connection to {}:{} was RESET by the peer after {} byte(s) received "

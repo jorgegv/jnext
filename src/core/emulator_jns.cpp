@@ -214,18 +214,10 @@ void Emulator::describe_jns_exceptions(jnext::save::StateDesc& d)
 namespace {
 
 /// The manifest's `model.machine`, in the vocabulary the container's
-/// `constructible_machines` set and `parse_machine_type` both use. NOT
-/// `machine_type_str`, which returns display strings ("ZX Next", "+3") a
-/// reader would have to special-case back.
-const char* manifest_machine_name(MachineType t) {
-    switch (t) {
-        case MachineType::ZX48K:      return "48k";
-        case MachineType::ZX128K:     return "128k";
-        case MachineType::ZX_PLUS3:   return "plus3";
-        case MachineType::ZXN_ISSUE2: return "next";
-    }
-    return "next";
-}
+/// `constructible_machines` set and `parse_machine_type` both use:
+/// `machine_type_key`. NOT `machine_type_str`, which returns display strings
+/// ("ZX Next", "+3") a reader would have to special-case back.
+inline const char* manifest_machine_name(MachineType t) { return machine_type_key(t); }
 
 /// The write visitor. One member per subsystem, plus every blob that
 /// subsystem's declaration says it owns.
@@ -601,11 +593,11 @@ struct LoadVisitor {
 
 }  // namespace
 
-bool Emulator::load_jns(const uint8_t* data, std::size_t len,
+bool Emulator::check_jns(const uint8_t* data, std::size_t len,
                         const jnext::JnsLoadOptions& opt,
-                        jnext::JnsLoadReport& report, std::string& why)
+                        jnext::zip::Reader& zip, jnext::jns::Manifest& m,
+                        jnext::jns::Verdict& v)
 {
-    why.clear();
 
     // ── Everything checkable is checked BEFORE the machine is touched ────
     //
@@ -658,10 +650,6 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
                                      embedded_nextboot_rom_size()));
     }
 
-    jnext::zip::Reader   zip;
-    jnext::jns::Manifest m;
-    jnext::jns::Verdict  v;
-
     // §10.2 P4 — the container asks whether the tape can be reopened; it does
     // no filesystem I/O itself, which is what keeps its rows cheap.
     {
@@ -679,7 +667,42 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
         }
     }
 
-    if (!jnext::jns::open_snapshot(data, len, env, zip, m, v)) {
+    return jnext::jns::open_snapshot(data, len, env, zip, m, v);
+}
+
+bool Emulator::probe_jns_file(const std::string& path, std::string& why)
+{
+    why.clear();
+    std::ifstream f(path, std::ios::binary);
+    if (!f) { why = "cannot open '" + path + "'"; return false; }
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
+                               std::istreambuf_iterator<char>());
+    if (bytes.empty()) { why = "'" + path + "' is empty"; return false; }
+    jnext::JnsLoadOptions opt;
+    opt.strict       = config_.jns_strict;
+    opt.force_sdcard = config_.jns_force_sdcard;
+    jnext::zip::Reader   zip;
+    jnext::jns::Manifest m;
+    jnext::jns::Verdict  v;
+    if (!check_jns(bytes.data(), bytes.size(), opt, zip, m, v)) {
+        why = v.refusal;
+        return false;
+    }
+    return true;
+}
+
+bool Emulator::load_jns(const uint8_t* data, std::size_t len,
+                        const jnext::JnsLoadOptions& opt,
+                        jnext::JnsLoadReport& report, std::string& why)
+{
+    why.clear();
+
+    // Everything checkable is checked BEFORE the machine is touched; the
+    // same checks run in probe_jns_file (GH #321).
+    jnext::zip::Reader   zip;
+    jnext::jns::Manifest m;
+    jnext::jns::Verdict  v;
+    if (!check_jns(data, len, opt, zip, m, v)) {
         why = v.refusal;
         return false;
     }
@@ -688,17 +711,13 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
     report.ignored_members = v.ignored_members;
     report.reconfigured_to = v.reconfigure_to;
 
-    // §7.3 — the file's machine wins, the same courtesy `.sna`/`.szx`/`.z80`
-    // already get: the user must not have to get `--machine` right to reload
-    // their own save.
+    // §7.3 — the file's machine wins: the user must not have to get
+    // `--machine` right to reload their own save. The same rule the
+    // `.sna`/`.szx`/`.z80` loaders follow (GH #323), through the same helper.
     if (!v.reconfigure_to.empty()) {
         MachineType want = config_.type;
         if (parse_machine_type(v.reconfigure_to, want) && want != config_.type) {
-            // `init(config_)` is what `load_snapshot_from_memory` already does
-            // for a `.sna`/`.szx`/`.z80` whose machine differs — same
-            // mechanism, so a `.jns` gets no special reconfiguration path of
-            // its own to keep correct.
-            config_.type = want;
+            switch_machine_for_load_(want, "the .jns");
             init(config_);
         }
     }

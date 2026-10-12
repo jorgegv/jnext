@@ -31,7 +31,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 if want sdl-host-probe-func; then
     begin_func sdl-host-probe-func
 
-    sdl_bin="$PROJECT_DIR/build/sdl-release/jnext"
+    sdl_bin="$JNEXT_SDL"
     log="$TMP_DIR/sdl-host-probe.log"
     rm -f "$log"
 

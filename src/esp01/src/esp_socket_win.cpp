@@ -15,10 +15,11 @@
 // _WIN32_WINNT=0x0601 is satisfied with room to spare. No new dependency: the
 // same posture as WinHTTP/BCrypt in the SD-card provisioner.
 //
-// HONEST LIMITATION: this file cannot be exercised on the maintainer's Linux
-// host. The Windows targets all build with -DENABLE_TESTS=OFF (Makefile:187,
-// 215, 236, 251), so esp_socket_test never runs here. It is kept to syscall
-// shims precisely so that the untestable surface is as small as possible.
+// HONEST LIMITATION: this file is exercised by esp_socket_test under wine
+// (`make unit-test-win`, GH #214), and wine implements Winsock itself. So
+// behaviour that exists only on real Windows is still untested, and wine has
+// behaviour of its own (see KNOWN WINE DIVERGENCE in recv, GH #326). It is
+// kept to syscall shims so that the unverifiable surface is as small as possible.
 #ifdef _WIN32
 
 #include "esp01/esp_socket_platform.h"
@@ -29,7 +30,14 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 
+#include <process.h>
+
+#include <cerrno>
 #include <cstring>
+#include <exception>
+#include <functional>
+#include <memory>
+#include <system_error>
 
 namespace esp {
 namespace net {
@@ -315,6 +323,29 @@ std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool stream
         ::recv(static_cast<SOCKET>(s), reinterpret_cast<char*>(buf), clamp_len(cap), 0);
     if (n > 0) return static_cast<std::size_t>(n);
     if (n == 0) {
+        if (stream) {
+            // KNOWN WINE DIVERGENCE (GH #326). Wine's server reads SO_ERROR as
+            // soon as it sees EPOLLERR, while the client recv()s the fd
+            // directly, so a peer RST can surface as a 0-byte read and only the
+            // NEXT recv() gives WSAECONNRESET (wine 11.0 server/sock.c
+            // sock_error / recv_socket). Microsoft documents that a reset fails
+            // recv() with WSAECONNRESET, so on real Windows this peek finds the
+            // same orderly close (one syscall at connection end). A peek cannot
+            // consume data, and none can follow a FIN. FIN then RST (our send
+            // hits the closed peer) is reported as a reset, which is true.
+            // MSG_PEEK recv and not getsockopt(SO_ERROR): under wine SO_ERROR
+            // goes to the server's sock_error(), which for a reset sets its
+            // own flag and returns 0, so it cannot see it. The POSIX twin has
+            // no second reader of the pending error and stays unchanged.
+            char probe;
+            if (::recv(static_cast<SOCKET>(s), &probe, 1, MSG_PEEK) == SOCKET_ERROR &&
+                ::WSAGetLastError() == WSAECONNRESET) {
+                failed = true;
+                reset  = true;
+                err    = wsa_text(WSAECONNRESET);
+                return 0;
+            }
+        }
         // TCP: orderly peer close. UDP: a legal zero-length datagram and not
         // the end of anything — see the POSIX twin and GH #198.
         eof = stream;
@@ -455,6 +486,39 @@ NativeSocket accept_nonblocking(NativeSocket listener, IpAddress& peer,
 
 void close(NativeSocket s) {
     if (s != kInvalidSocket) ::closesocket(static_cast<SOCKET>(s));
+}
+
+// GH #328: NOT std::thread(...).detach(). MinGW winpthreads recycles the
+// descriptor of a thread that ended before pthread_detach ran, while that
+// thread's DLL_THREAD_DETACH can still reach it and wipe the NEXT thread's
+// copy: the new thread never runs its body (exit code 128) or calls a null
+// function. A Win32 thread never touches that bookkeeping. See the developer
+// guide, esp01 section.
+namespace {
+unsigned __stdcall detached_entry(void* arg) {
+    std::unique_ptr<std::function<void()>> body(static_cast<std::function<void()>*>(arg));
+    try {
+        (*body)();
+    } catch (...) {
+        std::terminate();  // std::thread's contract, made explicit
+    }
+    return 0;
+}
+}  // namespace
+
+void start_detached(std::function<void()> body) {
+    auto* p = new std::function<void()>(std::move(body));
+    const std::uintptr_t h = ::_beginthreadex(nullptr, 0, &detached_entry, p, 0, nullptr);
+    // Untestable under wine, by design: neither this failure arm (a Win32
+    // thread cannot be made to fail creation) nor the CloseHandle below (a
+    // leaked handle is only visible through ProcessHandleCount, which wine
+    // stubs to return 0: dlls/ntdll/unix/process.c) has an oracle here.
+    if (h == 0) {
+        const int e = errno;
+        delete p;
+        throw std::system_error(e, std::generic_category(), "_beginthreadex");
+    }
+    ::CloseHandle(reinterpret_cast<HANDLE>(h));
 }
 
 }  // namespace net

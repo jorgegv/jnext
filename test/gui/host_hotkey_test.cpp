@@ -653,6 +653,101 @@ void test_quick_screenshot_chord(MainWindow& w) {
 }
 
 // ---------------------------------------------------------------------------
+// Group 3e — GH #321: File > Quick Save / Quick Load Snapshot are host chords
+// ---------------------------------------------------------------------------
+//
+// Owner decision: Alt+Shift+F5 saves, Alt+Shift+F9 loads. Both are QAction shortcuts, which
+// Qt matches before keyPressEvent, so the F5/F9 press never reaches the
+// EmuFnKeys / Multiface-NMI cases or the guest. Modelled on H115-36/37.
+
+const char* const QUICK_SAVE_TEXT = "Quick Save Snapshot";
+const char* const QUICK_LOAD_TEXT = "Quick Load Snapshot";
+
+void quick_snapshot_chord_rows(MainWindow& w, const char* text, const char* seq,
+                               Qt::Key key, SDL_Scancode sc,
+                               const char* id_bound, const char* id_fires,
+                               bool menubar_hidden = false, bool with_shift = true)
+{
+    QAction* a = find_action(w, text);
+    if (id_bound)
+        check(id_bound, (std::string("action \"") + text + "\" is bound to " + seq).c_str(),
+              a != nullptr && seq_of(a) == QString::fromLatin1(seq),
+              a ? ("got='" + seq_of(a) + "'").toStdString() : "action not found");
+    // Fullscreen hides the menu bar, and a shortcut of an action that lives
+    // only in a hidden menu never matches: the window must carry the action.
+    if (menubar_hidden) w.menuBar()->hide();
+
+    bool fired = false;
+    if (a) QObject::connect(a, &QAction::triggered, [&fired]() { fired = true; });
+    bool key_in_guest = false;
+    w.set_key_callback([&key_in_guest, sc](SDL_Scancode got, bool pressed) {
+        if (got == sc && pressed) key_in_guest = true;
+    });
+
+    const Qt::KeyboardModifiers mods =
+        with_shift ? (Qt::AltModifier | Qt::ShiftModifier) : Qt::AltModifier;
+    send(w, Qt::Key_Alt, Qt::NoModifier,  true);
+    if (with_shift) send(w, Qt::Key_Shift, Qt::AltModifier, true);
+    send(w, key,         mods, true);
+    QApplication::processEvents();
+    send(w, key,         mods, false);
+    if (with_shift) send(w, Qt::Key_Shift, Qt::AltModifier, false);
+    send(w, Qt::Key_Alt, Qt::NoModifier,  false);
+
+    check(id_fires,
+          (std::string(seq) + " activates " + text + " and delivers no key to the guest").c_str(),
+          a != nullptr && fired && !key_in_guest,
+          std::string("fired=") + (fired ? "1" : "0") +
+          " key_in_guest=" + (key_in_guest ? "1" : "0"));
+
+    if (a) QObject::disconnect(a, nullptr, nullptr, nullptr);
+    w.set_key_callback(nullptr);
+    if (menubar_hidden) w.menuBar()->show();
+}
+
+void test_quick_snapshot_chords(MainWindow& w) {
+    quick_snapshot_chord_rows(w, QUICK_SAVE_TEXT, "Alt+Shift+F5", Qt::Key_F5, SDL_SCANCODE_F5,
+                              "H115-38", "H115-39");
+    quick_snapshot_chord_rows(w, QUICK_LOAD_TEXT, "Alt+Shift+F9", Qt::Key_F9, SDL_SCANCODE_F9,
+                              "H115-40", "H115-41");
+    // The same chords with the menu bar hidden, as in fullscreen (the Alt+K
+    // Quick Screenshot had the identical gap).
+    quick_snapshot_chord_rows(w, QUICK_SAVE_TEXT, "Alt+Shift+F5", Qt::Key_F5, SDL_SCANCODE_F5,
+                              nullptr, "H115-42", true);
+    quick_snapshot_chord_rows(w, QUICK_LOAD_TEXT, "Alt+Shift+F9", Qt::Key_F9, SDL_SCANCODE_F9,
+                              nullptr, "H115-43", true);
+    quick_snapshot_chord_rows(w, QUICK_SHOT_TEXT, "Alt+K", Qt::Key_K, SDL_SCANCODE_K,
+                              nullptr, "H115-44", true, false);
+    // Plain Alt+F5 / Alt+F9 (no Shift) are NOT claimed: they trigger neither action.
+    {
+        QAction* sv = find_action(w, QUICK_SAVE_TEXT);
+        QAction* ld = find_action(w, QUICK_LOAD_TEXT);
+        bool fired = false;
+        if (sv) QObject::connect(sv, &QAction::triggered, [&fired]() { fired = true; });
+        if (ld) QObject::connect(ld, &QAction::triggered, [&fired]() { fired = true; });
+        for (Qt::Key k : {Qt::Key_F5, Qt::Key_F9}) {
+            send(w, Qt::Key_Alt, Qt::NoModifier, true);
+            send(w, k, Qt::AltModifier, true);
+            QApplication::processEvents();
+            send(w, k, Qt::AltModifier, false);
+            send(w, Qt::Key_Alt, Qt::NoModifier, false);
+        }
+        check("H115-46", "plain Alt+F5 and Alt+F9 trigger neither quick snapshot action",
+              sv && ld && !fired, "");
+        if (sv) QObject::disconnect(sv, nullptr, nullptr, nullptr);
+        if (ld) QObject::disconnect(ld, nullptr, nullptr, nullptr);
+    }
+    // One action per press: Qt re-fires a held shortcut unless autoRepeat is off.
+    {
+        QAction* sv = find_action(w, QUICK_SAVE_TEXT);
+        QAction* ld = find_action(w, QUICK_LOAD_TEXT);
+        QAction* sh = find_action(w, QUICK_SHOT_TEXT);
+        check("H115-45", "Quick Save, Quick Load and Quick Screenshot do not auto-repeat",
+              sv && ld && sh && !sv->autoRepeat() && !ld->autoRepeat() && !sh->autoRepeat(), "");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Group 4 — the Alt namespace has no ambiguous binding
 // ---------------------------------------------------------------------------
 
@@ -1191,6 +1286,7 @@ int main(int argc, char** argv) {
     test_snapshot_chord(w);
     test_preferences_chord(w);
     test_quick_screenshot_chord(w);
+    test_quick_snapshot_chords(w);
     test_alt_namespace(w);
     test_menu_focus(w);
     test_stranded_alt();

@@ -11,6 +11,8 @@
 #include "core/sdcard_provisioner.h"
 #include "core/warm_start_cache.h"
 #include "core/sna_saver.h"
+#include "core/snapshot_machine.h"
+#include "core/sna_loader.h"
 #include "core/szx_saver.h"
 #include "core/saveable.h"
 #include "esp01/esp_threaded.h"
@@ -388,6 +390,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // restore the power-on default 0x10 (b4=1 = internal_speaker_en).
     if (!preserve_memory) {
         nr_08_stored_low_ = 0x10;
+        // GH #324: the firmware's Pentagon personality runs with the
+        // distribution default dac=1 (boot.c PERIPH3 bit 3) and disables
+        // Soundrive 2 (NR 0x84 bit 2, below), which makes port 0xFB the
+        // Pentagon/ATM Covox (zxnext.vhd:2433). Without NR 0x08 b3 that
+        // Covox is silent.
+        if (cfg.type == MachineType::PENTAGON) nr_08_stored_low_ |= 0x08;
     }
     // Note: `dac_enabled_` was unconditionally set false above. That is also
     // a same-shape divergence (nr_08_dac_en survives reset). Restore it from
@@ -602,6 +610,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             case MachineType::ZX48K:      typ_sel = 0x01; break;
             case MachineType::ZX128K:     typ_sel = 0x02; break;
             case MachineType::ZX_PLUS3:   typ_sel = 0x03; break;
+            case MachineType::PENTAGON:   typ_sel = 0x04; break;  // boot.c mode 3: 0x80|(3+1)<<4|(3+1) = 0xC4
             case MachineType::ZXN_ISSUE2: typ_sel = 0x03; break;  // +3 per VHDL power-on default
         }
         nextreg_.set_nr_03_machine_type(typ_sel);
@@ -622,6 +631,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             case MachineType::ZX48K:      tim_sel = 0x01; break;
             case MachineType::ZX128K:     tim_sel = 0x02; break;
             case MachineType::ZX_PLUS3:   tim_sel = 0x03; break;
+            case MachineType::PENTAGON:   tim_sel = 0x04; break;  // machine_timing_pentagon (zxnext.vhd:5769)
             case MachineType::ZXN_ISSUE2: tim_sel = 0x03; break;  // Next → +3 timing (VHDL default)
         }
         nextreg_.set_nr_03_machine_timing(tim_sel);
@@ -3740,10 +3750,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                            // Pentagon: VHDL :5751 maps typ_sel=$04 to
                            // machine_type_128, which falls into the same
                            // sram_rom 1-bit "else" branch as ZXN
-                           // (VHDL :2997-3007). Our MachineType enum
-                           // models that family as ZXN_ISSUE2 — Pentagon
-                           // and Next share current_sram_rom() behavior.
-                           new_mt = MachineType::ZXN_ISSUE2;  commit = true; break;
+                           // (VHDL :2997-3007). Mmu treats PENTAGON as
+                           // the 128K family, so a Next running the
+                           // firmware's Pentagon personality and
+                           // `--machine pentagon` end in the same state.
+                           new_mt = MachineType::PENTAGON;    commit = true; break;
                 default: /* VHDL :5143 others => null (no change) */ break;
             }
             if (commit && new_mt != mmu_.machine_type()) {
@@ -4725,6 +4736,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     nr_d9_iotrap_write_ = v;
                 }
             }
+            // The port_3ffd and port_7ffd decodes run in PARALLEL
+            // (zxnext.vhd:2593, :2601): 7FFD only excludes port_1ffd, so a
+            // 0x3FFD write also pages unless +3 timing needs A14=1. Decline,
+            // so the 0x7FFD handler (which owns that gate) sees it (GH #324, F1).
+            port_.decline_write();
         });
 
     // +3 paging — port 0x1FFD.
@@ -4734,7 +4750,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nullptr,
         [this](uint16_t, uint8_t v) {
             // VHDL zxnext.vhd:2599: gated by port_1ffd_io_en (NR 0x82 bit 3).
-            if ((effective_internal_port_enable(0x82) & 0x08) == 0) return;
+            // With the gate off port_1ffd is 0, so the 0x7FFD decode
+            // (:2593, `... and port_1ffd=0`) fires for this address instead:
+            // decline, and the 0x7FFD handler (which keeps its own
+            // p3-timing / A14 gate) takes the write (GH #324, F1; the
+            // Pentagon personality runs with NR 0x82 bit 3 = 0).
+            if ((effective_internal_port_enable(0x82) & 0x08) == 0) {
+                port_.decline_write();
+                return;
+            }
             mmu_.map_plus3_bank(v);
             // Push the new ROM3 state to DivMmc (Task 7 Branch B).
             // Verify7-memory class-(a) fix: use `sram_rom3()` per VHDL
@@ -5141,7 +5165,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0xF003, 0xD001,
         nullptr,
         [this](uint16_t, uint8_t v) {
-            if ((effective_internal_port_enable(0x82) & 0x04) == 0) return;  // NR 0x82 b2 gate
+            // With the gate off port_dffd is 0, so `port_fffd_wr <= ... and
+            // not port_dffd` (:2773) fires for 0xDFFD: it is an AY register
+            // select. Decline, so the AY select handler sees it (GH #325, F1).
+            if ((effective_internal_port_enable(0x82) & 0x04) == 0) {
+                port_.decline_write();
+                return;
+            }
             mmu_.write_port_dffd(v);
         });
 
@@ -5186,10 +5216,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         },
         [this](uint16_t port, uint8_t val) {
             if ((effective_internal_port_enable(0x84) & 0x01) == 0) return;  // gated off
-            // VHDL 2772: NOT port_dffd gate is handled by exclusive dispatch —
-            // Pentagon handler (mask 0xF003, 6 bits) is more specific than
-            // this AY handler (mask 0xC007, 5 bits), so Pentagon wins for
-            // 0xDFFD writes and this handler is never called.
+            // VHDL 2773: NOT port_dffd gate is handled by exclusive dispatch —
+            // the 0xDFFD handler (mask 0xF003, more specific than this
+            // 0xC007) wins while NR 0x82 b2 = 1 and never declines; with b2 = 0
+            // port_dffd is 0 and it declines, so the write lands here (GH #325).
             turbosound_.reg_addr(val);
         });
 
@@ -6838,6 +6868,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 load_machine_rom("/MACHINES/NEXT/plus3.rom", 4, 0x10000, "+3 BASIC");
                 break;
 
+            case MachineType::PENTAGON:
+                // The TBBlue firmware's own Pentagon personality loads
+                // 128.rom (menu.def "Pentagon 128K,3,8,128.rom"; boot.c
+                // load_roms() default arm: "128K, Pentagon").
+                load_machine_rom("/MACHINES/NEXT/128.rom", 2, 0x8000,
+                                 "Pentagon 128K (128.rom, as the TBBlue firmware's Pentagon personality)");
+                break;
+
             case MachineType::ZXN_ISSUE2:
             default:
                 load_machine_rom("/MACHINES/NEXT/48.rom", 1, 0x4000, "Next 48K fallback");
@@ -7218,6 +7256,47 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // through their handlers after init(), which re-propagates; the
     // snapshot/NEX loaders' in-place init() writes nothing back (GH #239,
     // V16-NMP-02-LOAD-REINIT).
+    // GH #325 (corrects the Pentagon-only GH #324 block): the standalone
+    // personalities' cold-boot port enables, as tbblue.fw boot.c
+    // init_registers() writes them for the menu entry's mode (:325-406).
+    // Rule: every bit boot.c writes identically whatever config.ini says takes
+    // the firmware value; a config-dependent bit stays on (the firmware's
+    // result with the option enabled), except the 48K AY (ay48 = 0 default).
+    //   NR 0x82 (hwenables[0], a constant per mode):
+    //     48K  C0 = 0xFF, 7FFD, DFFD, 1FFD, +3 floating bus, 6B off
+    //     128K C2 = as 48K, 7FFD on
+    //     +3   DA = 0xFF, DFFD, 6B off
+    //     Pent C6 = 0xFF, 1FFD, +3 floating bus, 6B off (GH #324)
+    //   NR 0x83 b7:6 (Layer 2 0x123B; sprites 0x57/0x5B/0x303B): never set.
+    //   NR 0x84: 48K clears b0 (AY, ay48 = 0); Pentagon clears b2 (Soundrive 2).
+    //   NR 0x85 b7 (reset type, "won't be reinitialised on a soft reset"),
+    //     b3 (CTC) and b2 (EFF7): never set.
+    // Cold boot only: a soft reset keeps them, which NR 0x85 b7 = 0 does on
+    // hardware too (zxnext.vhd:5052-5059). The Next (ZXN_ISSUE2) is untouched:
+    // its firmware and NextZXOS write the enables themselves. Written through
+    // the NextReg handlers so they propagate. No default: arm, so a new
+    // machine type fails -Werror=switch.
+    if (!preserve_memory) {
+        uint8_t nr82 = 0, nr84_and = 0xFF;
+        bool standalone = true;
+        switch (cfg.type) {
+        case MachineType::ZX48K:    nr82 = 0xC0; nr84_and = static_cast<uint8_t>(~0x01); break;
+        case MachineType::ZX128K:   nr82 = 0xC2; break;
+        case MachineType::ZX_PLUS3: nr82 = 0xDA; break;
+        case MachineType::PENTAGON: nr82 = 0xC6; nr84_and = static_cast<uint8_t>(~0x04); break;
+        case MachineType::ZXN_ISSUE2: standalone = false; break;
+        }
+        if (standalone) {
+            nextreg_.write(0x82, nr82);
+            // From the power-on values (NextReg: 0x83/0x84 all ones, 0x85 = 0x8F), not
+            // from cached(): an in-place init (a snapshot load that switches machine,
+            // GH #323) would otherwise inherit the previous personality's cleared
+            // bits, e.g. the 48K's AY-off in a 128K.
+            nextreg_.write(0x83, 0xFF & 0x3F);
+            nextreg_.write(0x84, nr84_and);
+            nextreg_.write(0x85, 0x8F & 0x03);
+        }
+    }
     propagate_effective_port_enables();
 
     // Wire palette manager and RAM into ULA for enhanced palette and
@@ -8086,10 +8165,42 @@ void Emulator::restore_esxdos_stub_state(EsxdosStubState state)
     esxdos_stub_file_write_ = false;
 }
 
+void Emulator::restore_ay_registers(const uint8_t regs[16], uint8_t selected)
+{
+    for (int r = 0; r < 16; ++r) {
+        port_.out(0xFFFD, static_cast<uint8_t>(r));
+        port_.out(0xBFFD, regs[r]);
+    }
+    // 4 bits only: values with the top bits set select a TurboSound chip.
+    port_.out(0xFFFD, static_cast<uint8_t>(selected & 0x0F));
+}
+
+void Emulator::switch_machine_for_load_(MachineType want, const std::string& what)
+{
+    if (want == config_.type) return;
+    const std::string why = "loading " + what + ", saved on the " + machine_type_str(want);
+    end_rzx_at_reset(why.c_str());
+    Log::emulator()->info("{}: saved on the {}; switching from the {}", what,
+                          machine_type_str(want), machine_type_str(config_.type));
+    config_.type = want;
+}
+
+bool Emulator::switch_to_snapshot_machine_(const std::string& path, const char* ext)
+{
+    const SnapshotMachine m = snapshot_file_machine(path, ext);
+    if (!m.ok) {
+        Log::emulator()->error("cannot load '{}': {}", path, m.why);
+        return false;
+    }
+    switch_machine_for_load_(m.machine, "'" + path + "'");
+    return true;
+}
+
 bool Emulator::load_sna(const std::string& path)
 {
     SnaLoader loader;
     if (!loader.load(path)) return false;
+    if (!switch_to_snapshot_machine_(path, "sna")) return false;   // GH #323: before the machine is touched
     init(config_);   // re-initialise in place first (see init(), GH #239)
     if (!loader.apply(*this)) return false;
     // A snapshot puts the CPU in its interrupt mode without executing an IM
@@ -8291,6 +8402,7 @@ bool Emulator::load_szx(const std::string& path)
 {
     SzxLoader loader;
     if (!loader.load(path)) return false;
+    if (!switch_to_snapshot_machine_(path, "szx")) return false;   // GH #323: before the machine is touched
     init(config_);   // re-initialise in place first (see init(), GH #239)
     if (!loader.apply(*this)) return false;
     im2_.set_im_mode(cpu_.get_registers().IM);   // see load_sna()
@@ -8301,6 +8413,7 @@ bool Emulator::load_z80(const std::string& path)
 {
     Z80Loader loader;
     if (!loader.load(path)) return false;
+    if (!switch_to_snapshot_machine_(path, "z80")) return false;   // GH #323: before the machine is touched
     init(config_);   // re-initialise in place first (see init(), GH #239)
     if (!loader.apply(*this)) return false;
     im2_.set_im_mode(cpu_.get_registers().IM);   // see load_sna()
@@ -8350,13 +8463,17 @@ bool Emulator::load_snapshot_from_memory(const std::vector<uint8_t>& data,
         SnaLoader loader;
         if (!loader.load_from_buffer(data, name)) return false;
         init(config_);
-        return loader.apply(*this);
+        if (!loader.apply(*this)) return false;
+        im2_.set_im_mode(cpu_.get_registers().IM);   // see load_sna()
+        return true;
     }
     if (ext == "szx") {
         SzxLoader loader;
         if (!loader.load_from_buffer(data, name)) return false;
         init(config_);
-        return loader.apply(*this);
+        if (!loader.apply(*this)) return false;
+        im2_.set_im_mode(cpu_.get_registers().IM);   // see load_sna()
+        return true;
     }
     if (ext == "z80") {
         Z80Loader loader;
@@ -8365,7 +8482,9 @@ bool Emulator::load_snapshot_from_memory(const std::vector<uint8_t>& data,
             return false;
         }
         init(config_);
-        return loader.apply(*this);
+        if (!loader.apply(*this)) return false;
+        im2_.set_im_mode(cpu_.get_registers().IM);   // see load_sna()
+        return true;
     }
     // Refused rather than skipped: playing a recording's input against a
     // machine it was not recorded on reproduces nothing, so "skip the
@@ -8400,8 +8519,10 @@ bool Emulator::load_rzx(const std::string& path)
     // it differ, and then the input is played against the wrong machine.
     MachineType recorded = config_.type;
     if (!rzx::recorded_machine(rec, recorded)) {
-        Log::emulator()->info("RZX: '{}' does not say which machine it was recorded on; "
-                              "playing it on the {}", path, machine_type_str(config_.type));
+        const SnapshotMachine why = ::snapshot_machine(rec.snapshot_data, rec.snapshot_ext);
+        Log::emulator()->info("RZX: '{}' does not say which machine it was recorded on{}{}; "
+                              "playing it on the {}", path, why.why.empty() ? "" : " (",
+                              why.why.empty() ? std::string() : why.why + ")", machine_type_str(config_.type));
     } else if (recorded != config_.type) {
         Log::emulator()->warn("RZX: '{}' was recorded on the {} but plays on the {} "
                               "(--machine); it will probably go out of step",
@@ -8490,7 +8611,8 @@ bool Emulator::start_rzx_recording(const std::string& path)
     // rzx_refused_by_machine().
     std::vector<uint8_t> snap;
     std::string          snap_ext;
-    if (config_.type == MachineType::ZX128K || config_.type == MachineType::ZX_PLUS3) {
+    if (config_.type == MachineType::ZX128K || config_.type == MachineType::ZX_PLUS3 ||
+        config_.type == MachineType::PENTAGON) {
         SzxSaver::SaveResult szx = SzxSaver::save(*this);
         if (szx.ok) {
             snap     = std::move(szx.data);
@@ -9456,18 +9578,21 @@ void Emulator::service_joy_uart_link_frame()
 
 void Emulator::setup_pi_uart()
 {
-    if (config_.pi_uart_fifo_rx.empty()) return;  // no Pi
+    if (config_.pi_uart_fifo_rx.empty() && config_.pi_uart_tcp_port == 0) return;  // no Pi
     // A SOFT reset must not unplug it: the Pi on the far end never sees a
     // Next-side reset, and re-opening the endpoint would drop what it holds.
     if (pi_uart_) return;
 
     std::string error;
     std::unique_ptr<JoyUartEndpoint> endpoint =
-        JoyUartEndpoint::open_fifo_paths(config_.pi_uart_fifo_rx, config_.pi_uart_fifo_tx, error);
+        !config_.pi_uart_fifo_rx.empty()
+            ? JoyUartEndpoint::open_fifo_paths(config_.pi_uart_fifo_rx, config_.pi_uart_fifo_tx, error)
+            : JoyUartEndpoint::open_tcp_client("127.0.0.1", config_.pi_uart_tcp_port, error);
     if (!endpoint) {
-        // Unreachable from main.cpp, which creates both FIFOs before the machine
-        // boots; a hand-built EmulatorConfig gets NO link rather than a
-        // silently dead one, and UART 1 keeps its unattached loopback.
+        // Unreachable from main.cpp, which creates both FIFOs (or chooses the
+        // port) before the machine boots; a hand-built EmulatorConfig gets NO
+        // link rather than a silently dead one, and UART 1 keeps its
+        // unattached loopback.
         Log::uart()->error("Raspberry Pi serial link: {} — not attached", error);
         return;
     }
@@ -14198,6 +14323,7 @@ EmulatorConfig Emulator::warm_start_boot_config(const EmulatorConfig& live)
     boot_cfg.joy_uart_pty         = false;
     boot_cfg.pi_uart_fifo_rx.clear();
     boot_cfg.pi_uart_fifo_tx.clear();
+    boot_cfg.pi_uart_tcp_port     = 0;
     boot_cfg.pi_audio = nullptr;   // one consumer of the Pi's sound
     return boot_cfg;
 }

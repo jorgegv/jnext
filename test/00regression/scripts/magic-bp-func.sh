@@ -9,7 +9,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # Magic breakpoint test: verify ED FF is detected and logged
 if want magic-bp-func; then
     begin_func magic-bp-func
-    bp_output=$(timeout --foreground --kill-after=5s 10s "$JNEXT" --headless --magic-breakpoint \
+    # 60 s is a crash guard, not a measurement. Under wine this command is a cold wine start plus the run:
+    # 2.6-4.5 s solo, and it flaked at 10 s (GH #319) when it started beside ~11 other cold wine starts in the
+    # parallel phase. The assertion (a 'Magic breakpoint hit' line) is unchanged.
+    bp_output=$(timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --magic-breakpoint \
         "${SD_CARD_ARGS[@]}" \
         --load "$PROJECT_DIR/test/00regression/nex/magic_bp_demo.nex" \
         --delayed-automatic-exit 3 2>&1) || true

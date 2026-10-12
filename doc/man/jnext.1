@@ -37,7 +37,11 @@ message naming the option and the value, and exits with status 1.
 .TP
 \f[B]\-\-machine\f[R] \f[I]TYPE\f[R]
 Machine type: \f[CR]48k\f[R], \f[CR]128k\f[R], \f[CR]plus3\f[R],
-\f[CR]next\f[R] (default).
+\f[CR]pentagon\f[R], \f[CR]next\f[R] (default).
+A snapshot given to \f[B]\-\-load\f[R] (\f[CR].jns\f[R],
+\f[CR].sna\f[R], \f[CR].szx\f[R], \f[CR].z80\f[R]) runs on the machine
+it was saved on instead, and \f[B]jnext\f[R] warns when that is not the
+one given here.
 .TP
 \f[B]\-\-load\f[R] \f[I]FILE\f[R]
 Load a program.
@@ -52,8 +56,21 @@ The format is detected from the extension: \f[CR].nex\f[R],
 \f[B]JNEXT SNAPSHOTS\f[R] below).
 Loading one restores the machine it was taken on, including the machine
 \f[I]type\f[R]: a \f[CR].jns\f[R] taken on a Next loads as a Next even
-if \f[B]\-\-machine\f[R] says otherwise, the same way a \f[CR].sna\f[R],
-\f[CR].szx\f[R] or \f[CR].z80\f[R] already does.
+if \f[B]\-\-machine\f[R] says otherwise.
+A \f[CR].sna\f[R], \f[CR].szx\f[R] or \f[CR].z80\f[R] does the same: it
+runs on the machine it was saved on (the file says which: a
+\f[CR].sna\f[R] by its size, an \f[CR].szx\f[R] by its machine ID, a
+\f[CR].z80\f[R] by its hardware mode), even over \f[B]\-\-machine\f[R],
+which is then warned about.
+The machine stays selected, in the GUI\(cqs \f[B]Machine > Machine
+Type\f[R] too.
+A snapshot from a machine \f[B]jnext\f[R] does not emulate (a Timex, a
+Scorpion, a Pentagon 512 or 1024), or taken with the TR\-DOS, Interface
+1, MGT or Multiface ROM paged in, is refused, with the reason in the
+log, before anything is changed; at startup \f[B]jnext\f[R] then exits
+non\-zero.
+A 16K, +2, +2A or +3e snapshot runs as the 48K, 128K, +3 or +3, and an
+NTSC 48K \f[CR].szx\f[R] as a 48K at 60 Hz.
 .PP
 A NEX file with bytes after the banks its header declares is an
 \f[I]extended\f[R] NEX.
@@ -364,10 +381,11 @@ defaults are release \f[CR]1_93D\f[R], \f[CR]\(ti/.jnext/nextpi\f[R],
 \f[CR]qemu\-system\-arm\f[R] on \f[CR]PATH\f[R], and the Next\(cqs
 mixer.
 .PP
-The Pi\(cqs sound reaches the Next\(cqs mixer over I2S, as on the real
-machine: it is mixed with the beeper, the AY chips and the DAC, so
-\f[B]\-\-record\f[R] and \f[B]\-\-wav\-record\f[R] include it, and NR
-0xA2 enables and mutes it (NextPi\(cqs tools enable it themselves).
+On Linux and macOS the Pi\(cqs sound reaches the Next\(cqs mixer over
+I2S, as on the real machine: it is mixed with the beeper, the AY chips
+and the DAC, so \f[B]\-\-record\f[R] and \f[B]\-\-wav\-record\f[R]
+include it, and NR 0xA2 enables and mutes it (NextPi\(cqs tools enable
+it themselves).
 It is 10\-bit, as the hardware\(cqs input is, and arrives about 100 ms
 late.
 Rewinds and RZX playback hold it silent.
@@ -389,7 +407,13 @@ A soft or hard reset leaves the Pi running.
 A Pi asked for with this option that cannot start (no QEMU, a failed
 download) is an error; declining the download is not \(em jnext then
 starts without the Pi.
-POSIX only.
+On Linux and macOS the link is a pair of FIFOs; on Windows (QEMU for
+Windows, its folder on \f[CR]PATH\f[R] or set in Preferences) it is a
+loopback TCP socket QEMU listens on.
+On Windows an empty Pi audio setting plays the Pi\(cqs sound on the host
+speakers (QEMU\(cqs \f[CR]dsound\f[R], the same as \f[CR]host\f[R]);
+sending it through the Next\(cqs mixer (NR 0xA2, the volume controls) is
+not there yet.
 .RE
 .TP
 \f[B]\-\-no\-nextpi\f[R]
@@ -672,16 +696,17 @@ Works the same in the GUI, the SDL\-only build and under
 \f[B]\-\-headless\f[R].
 While recording, a tape loads in real time: a fast load skips the ROM
 loader, which a recording cannot replay.
-The snapshot is an SZX on the 128K and +3 and a 48K SNA on the 48K.
+The snapshot is an SZX on the 128K, Pentagon and +3 and a 48K SNA on the
+48K.
 The file names the machine it was recorded on, which
 \f[B]\-\-rzx\-play\f[R] then uses.
 .RS
 .PP
 \f[B]Recording is not available on a ZX Spectrum Next, which is
 jnext\(cqs default machine, so this needs an explicit \-\-machine 48k,
-128k or plus3.\f[R] An RZX carries a snapshot of the machine it starts
-from plus a log of the values the program read from ports \(em and the
-log records the values without the ports they came from.
+128k, pentagon or plus3.\f[R] An RZX carries a snapshot of the machine
+it starts from plus a log of the values the program read from ports \(em
+and the log records the values without the ports they came from.
 So no snapshot an RZX can carry both describes a Next (none of SNA, SZX
 or Z80 holds its extra RAM, NextREGs, Layer 2, tilemap, sprites or
 Copper) and keeps the value log aligned with what the restored machine
@@ -807,6 +832,18 @@ hex editor at roughly five times the size.
 A debugging aid; it changes nothing about what the file contains, and
 jnext reads both forms.
 Any other \f[I]STATE\f[R] is an error.
+.TP
+\f[B]\-\-quick\-snapshot\-keep\f[R] \f[I]N\f[R]|\f[CR]unlimited\f[R]
+How many quick snapshots \f[B]File > Quick Save Snapshot\f[R] keeps in
+\f[CR]\(ti/.jnext/snapshots/\f[R]: after each save the oldest beyond
+\f[I]N\f[R] are deleted (default 20; \f[I]N\f[R] is 1 to 1000000).
+Only files named exactly like Quick Save\(cqs own
+(\f[CR]jnext\-YYYYMMDD\-HHMMSS.jns\f[R], optional \f[CR]\-NN\f[R]) are
+ever deleted; anything else in the folder is left alone.
+\f[CR]unlimited\f[R] keeps everything.
+Overrides the \f[CR][snapshot] quick_keep\f[R] setting for the run; the
+SDL\-only build, which reads no configuration file, takes only this
+option.
 .TP
 \f[B]\-\-snapshot\-mode\f[R] \f[I]MODE\f[R]
 How much a \f[CR].jns\f[R] load refuses.
@@ -1047,8 +1084,24 @@ ZX Spectrum 128K \- AY sound and memory paging.
 \f[CR]plus3\f[R]
 ZX Spectrum +2A/+3 \- extended paging.
 .TP
+\f[CR]pentagon\f[R]
+The Next\(cqs Pentagon 128 personality, as the TBBlue firmware\(cqs own
+Pentagon entry runs it: the 128K ROM (\f[CR]128.rom\f[R]) and paging,
+Pentagon timing (no contention, a 448 x 320 frame, always 50 Hz), the
+Covox on port 0xFB, and Pentagon\-512/1024 paging through NextREG 0x8F.
+Not the original Russian clone\(cqs own hardware.
+.TP
 \f[CR]next\f[R]
 ZX Spectrum Next (Issue 2) \- full Next hardware and extended features.
+.PP
+Like the Next firmware\(cqs own 48K, 128K, +3 and Pentagon
+personalities, the four standalone machines start with the Next\-only
+ports off: Timex port 0xFF, the zxnDMA\(cqs port 0x6B, the Layer 2 and
+sprite ports, the CTC and 0xEFF7 (and 0xDFFD, except on the Pentagon).
+The 48K also has 0x7FFD paging and the AY off; 0x1FFD and the +3
+floating bus are on only on the +3.
+Software turns any of them back on through NextREG 0x82\-0x85, as on the
+hardware.
 .PP
 The machine type can also be switched at runtime from the GUI
 (\f[B]Machine > Machine Type\f[R]); switching resets the machine.
@@ -1065,9 +1118,9 @@ machine.
 \f[B]The ROMs jnext loads itself\f[R] \- 48K / 128K / +3 BASIC, DivMMC
 firmware, Multiface firmware and the Alt ROM \- are read from the
 SD\-card image at the canonical TBBlue paths under
-\f[CR]/MACHINES/NEXT/\f[R] (\f[CR]48.rom\f[R], \f[CR]128.rom\f[R],
-\f[CR]plus3.rom\f[R], \f[CR]enNxtmmc.rom\f[R], \f[CR]enNextMf.rom\f[R],
-\f[CR]enAltZX.rom\f[R]).
+\f[CR]/MACHINES/NEXT/\f[R] (\f[CR]48.rom\f[R], \f[CR]128.rom\f[R] (also
+the Pentagon\(cqs), \f[CR]plus3.rom\f[R], \f[CR]enNxtmmc.rom\f[R],
+\f[CR]enNextMf.rom\f[R], \f[CR]enAltZX.rom\f[R]).
 That is the whole list of files jnext reads from the card itself.
 .IP \(bu 2
 \f[B]NextZXOS is not one of them.\f[R] It is loaded by the firmware, not
@@ -1243,12 +1296,18 @@ see \f[B]JNEXT SNAPSHOTS\f[R].
 .TP
 \f[CR].sna\f[R]
 48K and 128K snapshots.
+Runs as the 48K (49179 bytes) or the 128K (longer).
 .TP
 \f[CR].szx\f[R]
 Chunked snapshots, zlib\-compressed pages.
+Runs on the machine its header names: 48K, 128K, +3 or Pentagon 128.
+Restores the AY registers.
 .TP
 \f[CR].z80\f[R]
 v1/v2/v3, 48K and 128K, RLE\-compressed or raw pages.
+Runs on the machine its hardware mode names (48K, 128K, +3 or Pentagon
+128).
+Restores the AY registers and, for a +3, port 0x1FFD.
 .TP
 \f[CR].tap\f[R]
 Fast load via a ROM trap; \f[CR]LOAD \(dq\(dq\f[R] is auto\-typed.
@@ -1412,8 +1471,9 @@ NextZXOS\(cqs file commands stop working.
 .SH JNEXT SNAPSHOTS
 A \f[CR].jns\f[R] file is jnext\(cqs own whole\-machine snapshot, and
 the only format that can represent a ZX Spectrum Next: \f[CR].sna\f[R]
-and \f[CR].szx\f[R] describe a 48K/128K/+3 machine, which a Next is not,
-so asking for either on a Next is refused rather than written lossily.
+and \f[CR].szx\f[R] describe a 48K/128K/Pentagon/+3 machine, which a
+Next is not, so asking for either on a Next is refused rather than
+written lossily.
 .PP
 The other formats are written for the machines they can describe, and
 refused for the states they cannot.
@@ -1424,12 +1484,15 @@ An SNA has no byte for the +3\(cqs second paging register, so a +3 in
 \f[I]special paging\f[R], or with ROM 2 or ROM 3 paged, is refused with
 \f[CR].szx\f[R] named as the format that can hold it.
 An SNA names the bank at 0xC000 in a field that reaches only banks 0\-7,
-so a machine using \f[B]extended paging\f[R] (port 0xDFFD, which works
-on every machine type, not only a Next) is refused too, pointing at
+so a machine using \f[B]extended paging\f[R] (port 0xDFFD, which is on
+by default on a Next and a Pentagon and reachable on the other machines
+once software enables it in NextREG 0x82) is refused too, pointing at
 \f[CR].jns\f[R] \(em \f[CR].szx\f[R] has no field for that register
 either.
 An SNA also carries no machine identifier, so FUSE reads a 128K one as a
 Pentagon 128 \(em the right RAM and paging, a different timing model.
+On \f[B]\-\-machine\f[R] \f[CR]pentagon\f[R] jnext writes that same 128K
+form, and an \f[CR].szx\f[R] as a Pentagon 128 (machine ID 7).
 .PP
 Write one with \f[B]File > Save Snapshot\&...\f[R] (Alt+Shift+S), or
 headless with \f[B]\-\-delayed\-snapshot\f[R] naming a \f[CR].jns\f[R]
@@ -1438,8 +1501,36 @@ Read one back with \f[B]\-\-load\f[R], a bare file name, or \f[B]File >
 Load NEX File\&...\f[R], which lists \f[CR].jns\f[R] alongside every
 other format.
 On a Next the save dialog offers \f[CR].jns\f[R] first and appends it to
-a name typed without an extension; on a 48K, 128K or +3 it offers
-\f[CR].sna\f[R] first and appends that instead.
+a name typed without an extension; on a 48K, 128K, Pentagon or +3 it
+offers \f[CR].sna\f[R] first and appends that instead.
+.PP
+\f[B]File > Quick Save Snapshot\f[R] (Alt+Shift+F5) and \f[B]Quick Load
+Snapshot\f[R] (Alt+Shift+F9) need no dialog.
+Quick Save writes a \f[CR].jns\f[R] named
+\f[CR]jnext\-YYYYMMDD\-HHMMSS.jns\f[R] (a \f[CR]\-02\f[R],
+\f[CR]\-03\f[R] suffix if the name is taken, so nothing is overwritten)
+into \f[CR]\(ti/.jnext/snapshots/\f[R] on every machine type, and names
+the file in the status bar.
+Quick Load restores the \f[I]newest\f[R] \f[CR].jns\f[R] in that folder
+by modification time, by the same route as \f[B]File > Load NEX
+File\&...\f[R]: a full cold boot, then the load.
+An empty or missing folder only reports that there is no snapshot, and a
+newest file that cannot be loaded is refused before anything is reset,
+so the running session is kept.
+Older quick saves, and any \f[CR].jns\f[R] you put in the folder
+yourself, are loaded through the ordinary load dialog; nothing is ever
+deleted by hand\-picking: Quick Save itself keeps only the newest 20 of
+its own files (\f[B]\-\-quick\-snapshot\-keep\f[R]
+\f[I]N\f[R]|\f[CR]unlimited\f[R], or \f[B]Settings > Preferences >
+Paths\f[R], or \f[CR][snapshot] quick_keep\f[R]) and deletes only files
+named exactly \f[CR]jnext\-YYYYMMDD\-HHMMSS.jns\f[R] (with an optional
+\f[CR]\-NN\f[R]); anything else in the folder is never touched.
+The folder is \f[CR]$JNEXT_CONFIG_DIR/snapshots\f[R] when that variable
+is set.
+The SDL\-only build has the same two keys, the same folder and the same
+option (it reads no configuration file), and reports in the log instead
+of the status bar.
+Plain F5/F9 and Alt+F5/F9 are unchanged.
 .PP
 Loading a \f[CR].jns\f[R] restores the machine \f[I]type\f[R] as well as
 its contents, so one taken on a Next comes back as a Next whatever
@@ -1944,7 +2035,9 @@ Load a program (Alt+O \- NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Insert SD
 Card Image / Eject SD Card (see \f[B]CHANGING THE CARD WHILE
 RUNNING\f[R]), Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX /
 Record RZX / Stop RZX, Save Screenshot (Alt+S), Quick Screenshot
-(Alt+K), Save Snapshot (Alt+Shift+S), Quit (Alt+Q).
+(Alt+K), Save Snapshot (Alt+Shift+S), Quick Save Snapshot
+(Alt+Shift+F5), Quick Load Snapshot (Alt+Shift+F9) (see \f[B]JNEXT
+SNAPSHOTS\f[R] above), Quit (Alt+Q).
 .RS
 .PP
 \f[B]Save Screenshot\&...\f[R] asks for a name; the extension chooses
@@ -1967,13 +2060,13 @@ re\-running the boot chain; does nothing while the firmware still holds
 config mode.
 After a direct \f[B]\-\-load\f[R] it resets into 48K BASIC and discards
 the loaded program, because that boot never ran the firmware and so has
-no NextZXOS to return to \- use Power Reset there), Pause (Alt+U \-
-freeze or resume the machine where it is, without opening the debugger;
-the sound goes quiet, a \f[B]Paused\f[R] cell appears in the status bar,
-and a Power Reset or a load made while paused stays paused), Machine
-Type (48K / 128K / +3 / Next), CPU Speed (3.5 / 7 / 14 / 28 MHz \- the
-Next\(cqs own clock), Emulator Speed (0.5x / 1x / 2x / 4x / custom % \-
-the host\-side throttle).
+no NextZXOS to return to \- use Power Reset there), Pause (Alt+U or the
+Pause key \- freeze or resume the machine where it is, without opening
+the debugger; the sound goes quiet, a \f[B]Paused\f[R] cell appears in
+the status bar, and a Power Reset or a load made while paused stays
+paused), Machine Type (48K / 128K / +3 / Next), CPU Speed (3.5 / 7 / 14
+/ 28 MHz \- the Next\(cqs own clock), Emulator Speed (0.5x / 1x / 2x /
+4x / custom % \- the host\-side throttle).
 .TP
 \f[B]Input\f[R]
 Joy 1 Source (port 0x1F) and Joy 2 Source (port 0x37), each selecting
@@ -2172,6 +2265,18 @@ Multiface NMI, F10 fires the DivMMC NMI, F2 cycles the window scale and
 F11 toggles fullscreen.
 With the debugger open F9 belongs to the debugger (Pause / Break)
 instead.
+With Alt and Shift held, F5 and F9 are the quick snapshot keys
+(Alt+Shift+F5 saves, Alt+Shift+F9 loads) and reach neither the Multiface
+nor the guest; Alt+F5 and Alt+F9 on their own are not claimed.
+Shift is the guest\(cqs Caps Shift, so it is held down for the guest
+while you press the chord.
+.PP
+The Pause key (Pause/Break) pauses and resumes the machine in the GUI,
+the same as Machine > Pause; keyboards without one, such as most Mac
+keyboards, use Alt+U.
+On a real Next that key only resets the PS/2 keyboard interface, so no
+Spectrum key is lost.
+The SDL\-only build has no pause.
 .PP
 Ctrl is left alone for the guest.
 No Ctrl+letter chord of any kind is a jnext shortcut, so the Symbol
@@ -2187,10 +2292,11 @@ and stop video recording), and function keys have no Spectrum meaning to
 lose.
 .PP
 Alt is the opposite: it is a host modifier, never a Spectrum key.
-jnext claims Alt + Q/O/S/K/R/T/D/P/U and Alt+Shift+S (menu shortcuts),
-Alt + F/M/I/A/B/V/N/H (menu bar) and Alt + 1 to Alt + 8 (the script host
-keys), which leaves the guest only Alt + E/G/C (EDIT, GRAPH, CAPS LOCK)
-and Alt + the key left of \f[CR]1\f[R] (INV VIDEO).
+jnext claims Alt + Q/O/S/K/R/T/D/P/U, Alt+Shift+S, Alt+Shift+F5 and
+Alt+Shift+F9 (menu shortcuts), Alt + F/M/I/A/B/V/N/H (menu bar) and Alt
++ 1 to Alt + 8 (the script host keys), which leaves the guest only Alt +
+E/G/C (EDIT, GRAPH, CAPS LOCK) and Alt + the key left of \f[CR]1\f[R]
+(INV VIDEO).
 Alt + 1 to Alt + 8 no longer type their digit into the program (earlier
 releases let them through as plain 1\-8); Alt + 9 and Alt + 0 still do.
 Real Next hardware instead maps Left Alt to EXTEND MODE and Right Alt to
@@ -2851,12 +2957,15 @@ run), \f[CR]dir\f[R] (the NextPi directory; empty means
 name on the mirror, or \f[CR]latest\f[R] for the newest one listed
 there; empty means \f[CR]1_93D\f[R]), \f[CR]qemu_binary\f[R] (empty
 means \f[CR]qemu\-system\-arm\f[R] on \f[CR]PATH\f[R]) and
-\f[CR]audio\f[R] (empty means the Next\(cqs mixer; \f[CR]host\f[R] plays
-it on this computer\(cqs default output, \f[CR]pa\f[R] on Linux and
-\f[CR]coreaudio\f[R] on macOS; otherwise a QEMU \f[CR]\-audiodev\f[R]
-driver such as \f[CR]coreaudio\f[R], \f[CR]pa\f[R] or \f[CR]none\f[R] to
-play it straight to the host instead, or \f[CR]wav:\f[R]\f[I]FILE\f[R]
-to record it on its own).
+\f[CR]audio\f[R] (empty means the Next\(cqs mixer, so NextREG 0xA2
+controls it and \f[CR]\-\-record\f[R] captures it; on Windows, which has
+no mixer path yet, empty means the host output instead.
+\f[CR]host\f[R] plays it on this computer\(cqs default output,
+\f[CR]coreaudio\f[R] on macOS, \f[CR]dsound\f[R] on Windows and
+\f[CR]pa\f[R] elsewhere; otherwise a QEMU \f[CR]\-audiodev\f[R] driver
+such as \f[CR]coreaudio\f[R], \f[CR]pa\f[R] or \f[CR]none\f[R] to play
+it straight to the host, or \f[CR]wav:\f[R]\f[I]FILE\f[R] to record it
+on its own).
 Changing the release makes the next start offer to download it,
 replacing the installed one.
 The joystick ports are stored under \f[CR][input]\f[R]:
@@ -2874,6 +2983,11 @@ The quick screenshot is stored under \f[CR][screenshot]\f[R] as
 and \f[CR]quick_format\f[R] (\f[CR]png\f[R] or \f[CR]scr\f[R]), edited
 under \f[B]Settings > Preferences > Paths\f[R]; an unrecognised format
 keeps the default.
+The Quick Save retention is stored under \f[CR][snapshot]\f[R] as
+\f[CR]quick_keep\f[R] (a number from 1, or \f[CR]unlimited\f[R]; default
+20), edited under \f[B]Settings > Preferences > Paths\f[R];
+\f[B]\-\-quick\-snapshot\-keep\f[R] overrides it for one run, and an
+unrecognised value keeps the default.
 The debugger window\(cqs layout is stored under \f[CR][debugger]\f[R]:
 \f[CR]size\f[R] (\f[CR]W, H\f[R]), \f[CR]position\f[R] (\f[CR]X, Y\f[R],
 written only while the window is detached) and \f[CR]attached\f[R]
@@ -2888,6 +3002,13 @@ never read it.
 Where \f[B]File > Quick Screenshot\f[R] writes, unless
 \f[CR][screenshot] quick_dir\f[R] says otherwise.
 Created on the first capture.
+.TP
+\f[CR]\(ti/.jnext/snapshots/\f[R]
+Where \f[B]File > Quick Save Snapshot\f[R] writes and \f[B]Quick Load
+Snapshot\f[R] reads (the newest \f[CR].jns\f[R] in it).
+Created on the first save.
+Quick Save keeps the newest 20 files it made (see
+\f[B]\-\-quick\-snapshot\-keep\f[R]).
 .TP
 \f[CR]\(ti/.jnext/warm\-start/\f[R]
 The recorded NextZXOS\-resident machine a \f[B]\-\-load\f[R] of a

@@ -39,6 +39,7 @@ void PhantomTypist::arm(MachineType machine, bool needs_code)
             break;
         case MachineType::ZX128K:
         case MachineType::ZX_PLUS3:
+        case MachineType::PENTAGON:   // the 128 ROM menu
             mode_ = Mode::ENTER;
             break;
         case MachineType::ZXN_ISSUE2:
