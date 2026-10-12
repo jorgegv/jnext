@@ -52,6 +52,51 @@ behind NR `0xC0` bits 2:1 is fed only by the ones the CPU decodes
 and `NexLoader::apply()` seed it with `Im2Controller::set_im_mode()` from the
 restored CPU.
 
+## Which machine a snapshot loads as
+
+A `.sna`, `.szx` or `.z80` loads on the machine it was **saved** on (GH #323),
+as a `.jns` always has. There is ONE table that maps a snapshot to a machine,
+`snapshot_machine()` in `src/core/snapshot_machine.h` (header-only): a `.sna` by
+size (49179 = 48K, longer = the 128K form, which libspectrum calls a Pentagon
+but jnext's own saver writes from the 128K and +3), an `.szx` by machine ID, a
+`.z80` by version and hardware mode. Each entry cites libspectrum 1.5.0 in the
+source. It also returns the **refusals**: a machine jnext does not emulate
+(Timex, Scorpion, SE, Didaktik, Pentagon 512/1024), an unknown `.z80` header
+length (not 23, 54 or 55) or hardware mode, and a snapshot taken with the TR-DOS,
+Interface 1, MGT or Multiface ROM paged in, each with a distinct reason naming
+the machine. `rzx::recorded_machine()` (for an RZX's embedded snapshot),
+`emulator_boot_machine()` and the three loaders all read this table;
+`rzx::snapshot_machine()` is only a thin view of it.
+
+The switch has two layers, and both are needed:
+
+1. **Frontend cold boot** (File > Load, `--load`, Quick Load).
+   `emulator_boot_machine()` returns the snapshot's machine, the cold boot builds
+   it, and `ColdBootHooks::keep_machine` records it, so a later reset boots that
+   machine. `emulator_startup_machine()` lets a snapshot beat an explicit
+   `--machine` (`main.cpp` warns). Qt's `handle_load_path()` asks
+   `snapshot_file_loadable()` before the cold boot, so a refused file costs no
+   session.
+2. **Core, in place** (every route, including debugger loads, which never
+   reconstruct). `Emulator::load_sna/szx/z80` parse the file, ask the table
+   (`switch_to_snapshot_machine_()`; a refusal returns false BEFORE the machine is
+   touched), then `switch_machine_for_load_()` ends a running RZX recording (its
+   file would name the wrong machine) and sets `config_.type`, and the usual
+   in-place `init(config_)` builds it. `load_jns` uses the same helper. The
+   frontends follow through `emulator_apply_load_keeping()`, whose `keep` callback
+   stores the running machine as the frontend's own. `load_snapshot_from_memory()`
+   (an RZX's embedded snapshot) does NOT switch: RZX has its own policy (the
+   frontend boots the recorded machine and an explicit `--machine` wins).
+
+What the loaders restore on the switched-to machine: the `.z80` +3 port `0x1FFD`
+(byte 86; written BEFORE `0x7FFD`, because the `0x7FFD` lock bit closes `0x1FFD`,
+`zxnext.vhd:3718`, and the `.szx` does the same), the AY registers of the 128K,
++3 and Pentagon (`.z80` bytes 38-54, the `.szx` `AY` chunk, through the AY
+ports, `Emulator::restore_ay_registers()`), the `.szx` `SCLD` chunk's port `0xFF`,
+and NTSC 48K (`.szx` ID 15) as the 48K with NR `0x05` bit 2 (60 Hz). The tests are
+`snapshot_machine_test` (SNM-01..33), the QS-25..27/SNM-40..41 rows of
+`emulator_boot_test`, PA-24 and the `snapshot-machine-func` regression row.
+
 ## Tapes: two completely different mechanisms
 
 Loading from tape is the one place where the emulator offers you a choice
@@ -725,8 +770,8 @@ The recorder names it in the RZX creator block's custom data
 the snapshot cannot always: a pre-GH #274 Next recording embeds a 48K SNA, which
 names no machine. `rzx::recorded_machine()`
 reads that marker first and otherwise judges a recording by its snapshot
-(`rzx::snapshot_machine()`: SNA size, SZX machine ID, `.z80` version and
-hardware mode); a pre-marker jnext recording with an SNA names no machine.
+(`snapshot_machine()`, the same single table the snapshot loaders use: SNA size,
+SZX machine ID, `.z80` version and hardware mode); a pre-marker jnext recording with an SNA names no machine.
 `emulator_boot_machine()` turns that into the machine a boot builds, and every
 boot that plays a recording asks it: `main.cpp` for the command line (unless
 `--machine` was given explicitly — `load_rzx()` then warns on a mismatch) and
@@ -819,11 +864,9 @@ safe for a `.jns`: `Emulator::probe_jns_file()` runs the pre-touch half of
 costs no session; and `emulator_boot_machine()` reads the `.jns` manifest's
 machine the way it reads an RZX's, so the cold boot builds the snapshot's
 machine and the frontend's `keep_machine` hook records it (otherwise a later
-reset would boot the old machine); the command-line startup does the same through `emulator_startup_machine()`, where a `.jns` wins even over an explicit `--machine`. After ANY snapshot load the frontends' `emulator_apply_load()` calls `Keyboard::release_all_keys()`: the membrane matrix in a `.jns` records the keys the host held at save time (the Shift of the Alt+Shift+F5 chord), whose release would never arrive, so the guest starts with no key down (the matrix, the extended-key register that the arrows use, and the shift scan history; the core load keeps them, the round-trip contract: QS-28..30). Debugger-initiated loads (DZRP, ZRCP, GDB) go through `emulator_apply_load()` too, so they release held keys as well. `prune_quick_snapshots()` never deletes a symbolic link. Quick Load failures (no snapshot, unreadable newest file) are a status-bar line in Qt and a log line in SDL, never a dialog; both actions act once per key press (`QuickChordTracker`, `setAutoRepeat(false)`). `.sna`, `.szx` and `.z80` do NOT
-reconfigure the machine at all (their loaders apply the file onto the running
-one), so no stale-frontend symptom exists for them; QS-25..27 pin that, and
-if a loader ever starts switching machines `emulator_boot_machine()` must learn
-that format as it did `.jns`. Retention: `prune_quick_snapshots()` runs after
+reset would boot the old machine); the command-line startup does the same through `emulator_startup_machine()`, where a `.jns` wins even over an explicit `--machine`. After ANY snapshot load the frontends' `emulator_apply_load()` calls `Keyboard::release_all_keys()`: the membrane matrix in a `.jns` records the keys the host held at save time (the Shift of the Alt+Shift+F5 chord), whose release would never arrive, so the guest starts with no key down (the matrix, the extended-key register that the arrows use, and the shift scan history; the core load keeps them, the round-trip contract: QS-28..30). Debugger-initiated loads (DZRP, ZRCP, GDB) go through `emulator_apply_load()` too, so they release held keys as well. `prune_quick_snapshots()` never deletes a symbolic link. Quick Load failures (no snapshot, unreadable newest file) are a status-bar line in Qt and a log line in SDL, never a dialog; both actions act once per key press (`QuickChordTracker`, `setAutoRepeat(false)`). `.sna`, `.szx` and `.z80` switch
+machine the same way (GH #323; see "Which machine a snapshot loads as" below), and
+QS-25..27 pin that route. Retention: `prune_quick_snapshots()` runs after
 each Quick Save and deletes only names matching `is_quick_snapshot_name()`;
 the count is `EmulatorConfig::quick_snapshot_keep` (CLI) or
 `AppConfigData::quick_snapshot_keep` (`[snapshot] quick_keep`, Preferences),

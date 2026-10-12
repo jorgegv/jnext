@@ -2,7 +2,8 @@
 
 JNEXT emulates five machines. Pick one with `--machine`, or from **Machine >
 Machine Type** while running — switching restarts the machine, so load your
-program afterwards.
+program afterwards. (A `.jns`, `.sna`, `.szx` or `.z80` picks its own machine:
+the one it was saved on.)
 
 | `--machine` | Machine | What you get |
 |---|---|---|

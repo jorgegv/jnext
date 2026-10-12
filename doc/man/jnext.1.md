@@ -51,7 +51,10 @@ naming the option and the value, and exits with status 1.
 ## Machine and program
 
 **\--machine** *TYPE*
-:   Machine type: `48k`, `128k`, `plus3`, `pentagon`, `next` (default).
+:   Machine type: `48k`, `128k`, `plus3`, `pentagon`, `next` (default). A
+    snapshot given to **\--load** (`.jns`, `.sna`, `.szx`, `.z80`) runs on the
+    machine it was saved on instead, and **jnext** warns when that is not the
+    one given here.
 
 **\--load** *FILE*
 :   Load a program. The format is detected from the extension: `.nex`, `.jns`,
@@ -61,9 +64,16 @@ naming the option and the value, and exits with status 1.
     `.jns` is jnext's own whole-machine snapshot (see **JNEXT SNAPSHOTS**
     below). Loading one restores the machine it was taken on, including the
     machine *type*: a `.jns` taken on a Next loads as a Next even if
-    **\--machine** says otherwise. A `.sna`, `.szx` or `.z80` is different: it
-    is loaded onto the machine that is running (**\--machine**, or the
-    saved choice), whatever machine it was made on.
+    **\--machine** says otherwise. A `.sna`, `.szx` or `.z80` does the same: it
+    runs on the machine it was saved on (the file says which: a `.sna` by its
+    size, an `.szx` by its machine ID, a `.z80` by its hardware mode), even over
+    **\--machine**, which is then warned about. The machine stays selected,
+    in the GUI's **Machine > Machine Type** too. A snapshot from a machine
+    **jnext** does not emulate (a Timex, a Scorpion, a Pentagon 512 or 1024), or
+    taken with the TR-DOS, Interface 1, MGT or Multiface ROM paged in, is
+    refused, with the reason in the log, before anything is changed; at startup
+    **jnext** then exits non-zero. A 16K, +2, +2A or +3e snapshot runs as the
+    48K, 128K, +3 or +3, and an NTSC 48K `.szx` as a 48K at 60 Hz.
 
     A NEX file with bytes after the banks its header declares is an *extended*
     NEX. If its header asks for the file to be kept open (any non-zero
@@ -1033,13 +1043,17 @@ format is detected from the extension:
     **JNEXT SNAPSHOTS**.
 
 `.sna`
-:   48K and 128K snapshots.
+:   48K and 128K snapshots. Runs as the 48K (49179 bytes) or the 128K (longer).
 
 `.szx`
-:   Chunked snapshots, zlib-compressed pages.
+:   Chunked snapshots, zlib-compressed pages. Runs on the machine its header
+    names: 48K, 128K, +3 or Pentagon 128. Restores the AY registers and the
+    Timex port 0xFF.
 
 `.z80`
-:   v1/v2/v3, 48K and 128K, RLE-compressed or raw pages.
+:   v1/v2/v3, 48K and 128K, RLE-compressed or raw pages. Runs on the machine its
+    hardware mode names (48K, 128K, +3 or Pentagon 128). Restores the AY
+    registers and, for a +3, port 0x1FFD.
 
 `.tap`
 :   Fast load via a ROM trap; `LOAD ""` is auto-typed.
