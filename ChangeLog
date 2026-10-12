@@ -28,13 +28,14 @@
 - With port 0xDFFD disabled, writes to it select an AY register, as on the Next
 - Windows: ESP-01 DNS lookups, AT+PING and AT+CIPSNTPTIME no longer fail sporadically or crash jnext (a MinGW thread-library race)
 - fix-sdcard-image.sh verifies the extracted card before re-formatting, so an mtools that mis-names files (macOS) cannot damage it
+- Rewinding restores the debugger's call stack; loading a state or resetting clears it
 
 ### Internal JNEXT Development
 - Unit test suites now also run on macOS and on Windows (under wine) in CI, blocking
 - Regression screenshots and functional rows now also run on macOS and on Windows (under wine) in CI, blocking
 
 ### Contributors in this release
-- @janko-jj, @vmorilla, @pavero01
+- @janko-jj, @vmorilla, @pavero01, @jattree
 
 ## v1.1.23 (2026-10-10)
 
