@@ -54,7 +54,12 @@ public:
     }
 
     bool enabled() const { return enabled_; }
-    void set_enabled(bool e) { enabled_ = e; }
+    /// A change of state empties the tracker: while it is off the hooks do not
+    /// run, so the frames it holds describe a history it stopped observing.
+    void set_enabled(bool e) {
+        if (e != enabled_) clear();
+        enabled_ = e;
+    }
 
     static constexpr size_t MAX_DEPTH = 256;
 

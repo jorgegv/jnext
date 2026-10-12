@@ -218,7 +218,73 @@ int main() {
               "recorded ones", replaced);
     }
 
-    std::printf("\nTotal: %d  Passed: %d  Failed: %d  Skipped: 0\n",
-                g_total, g_pass, g_fail);
+    // ── the replay itself re-runs the tracker's hooks ────────────────────
+    //    The restored slot is at depth 1 (frame 2, inside the loop) and the
+    //    target is the instruction AFTER the RET: the replay must pop.
+    {
+        Emulator emu;
+        build(emu);
+        for (int i = 0; i < 3; ++i) emu.run_frame();   // parked at JR $
+        const auto& trace = emu.trace_log();
+        size_t back = 0;
+        for (size_t i = trace.size(); i > 0; --i) {
+            if (trace.at(i - 1).pc == SUB + 8) { back = trace.size() - (i - 1); break; }
+        }
+        const bool ok = back > 1 && emu.step_back(static_cast<int>(back) - 1);
+        check("RWCS-16", "step_back() to the instruction after the RET, replaying "
+              "across the RET, leaves the CALL closed",
+              ok && emu.cpu().get_registers().PC == PARK &&
+                  emu.call_stack().frames().empty(), depth_text(emu));
+    }
+    //    Sibling: the slot is at depth 0 (frame 0, before the CALL) and the
+    //    target is the first instruction of SUB: the replay must push.
+    {
+        Emulator emu;
+        build(emu);
+        emu.trace_log().resize(200000);                // keep frame 0's CALL in the trace
+        for (int i = 0; i < 3; ++i) emu.run_frame();
+        const auto& trace = emu.trace_log();
+        size_t back = 0;
+        for (size_t i = 1; i < trace.size(); ++i) {
+            if (trace.at(i - 1).pc == PROG && trace.at(i).pc == SUB) {
+                back = trace.size() - i; break;
+            }
+        }
+        const bool ok = back > 0 && emu.step_back(static_cast<int>(back));
+        const auto& frames = emu.call_stack().frames();
+        check("RWCS-17", "step_back() to the first instruction of SUB, replaying "
+              "across the CALL, opens the CALL",
+              ok && emu.cpu().get_registers().PC == SUB && frames.size() == 1 &&
+                  frames[0].caller_pc == PROG && frames[0].target_pc == SUB,
+              depth_text(emu));
+    }
+
+    // ── a tracker that was off did not observe the history ────────────────
+    {
+        Emulator emu;
+        build(emu);
+        emu.run_frame();                                 // into SUB, depth 1
+        const bool inside = emu.call_stack().frames().size() == 1;
+        emu.call_stack().set_enabled(false);
+        for (int i = 0; i < 2; ++i) emu.run_frame();     // SUB returns, tracker blind
+        emu.call_stack().set_enabled(true);
+        check("RWCS-18", "re-enabling the tracker after a gap starts empty, not "
+              "with the frames it froze at",
+              inside && emu.call_stack().frames().empty(), depth_text(emu));
+    }
+    {
+        Emulator emu;
+        build(emu);
+        emu.run_frame();                                 // into SUB, depth 1
+        emu.call_stack().set_enabled(false);
+        emu.run_frame();                                 // slot taken while off
+        emu.call_stack().set_enabled(true);
+        const bool ok = emu.rewind_to_frame(1);
+        check("RWCS-19", "a slot taken while the tracker was off restores no frames",
+              ok && emu.call_stack().frames().empty(), depth_text(emu));
+    }
+
+    std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
+                g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;
 }
