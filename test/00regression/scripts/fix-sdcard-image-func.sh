@@ -194,8 +194,11 @@ if want fix-sdcard-image-func; then
             # F — CONTROL: no defect, the card is re-clustered and the tree
             #     survives (also the first coverage of the re-cluster path).
             run_fix F "$W/f.img" "$W/f-fixed.img"
-            [[ "$(big_listing "$W/f-fixed.img")" == "$big_want" ]] \
-                || faults+=("F: the re-clustered card lists a different tree: $(diff <(printf '%s\n' "$big_want") <(big_listing "$W/f-fixed.img") | head -6 | tr '\n' ';')")
+            f_got=$(big_listing "$W/f-fixed.img") || f_got=""
+            if [[ "$f_got" != "$big_want" ]]; then
+                f_diff=$(diff <(printf '%s\n' "$big_want") <(printf '%s\n' "$f_got") | head -6 | tr '\n' ';') || true
+                faults+=("F: the re-clustered card lists a different tree: $f_diff")
+            fi
             for rel in "${big_files[@]}"; do
                 rm -f "$W/f.out"
                 LANG=C mcopy -n -i "$W/f-fixed.img@@$OFF" "::/${rel//\[/\\[}" "$W/f.out" </dev/null 2>/dev/null \
