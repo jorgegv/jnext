@@ -319,6 +319,14 @@ screenshots + the admitted rows (no lints, no stamp).
    filters' pipes and never lets them see EOF, so rows hang. The driver starts
    one with stdio on `/dev/null` before any row (`wine-run.sh --serve`) and
    `regression_cleanup` stops it (`wineserver -k`).
+   The desktop process (`explorer.exe /desktop`) is the same hazard: wine
+   starts it from whichever client first needs the desktop, on that client's
+   stderr (a row's filter pipe), and it lives while any other wine process uses
+   the desktop, so a 0.1 s step could be held to its 120 s bound by another row
+   (GH #329). `--serve` therefore also starts a keeper (`wine start /wait cmd /c
+   pause`, stdio on `/dev/null`), verifies exactly one stable `explorer.exe` of
+   the prefix on `/dev/null` and prints its pid; the driver records it and
+   raises a harness fault if that process is not the same one at the end of the run.
 4. The filter must be unbuffered: the rows' "listening on" polls time out on
    block-buffered output.
 5. A background job has stdin on `/dev/null`; the runner passes stdin on

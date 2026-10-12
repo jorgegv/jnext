@@ -539,8 +539,9 @@ if $PLATFORM_MODE; then
             || harness_fault "cannot initialise the wine prefix $WINEPREFIX"
         # Persistent wineserver, before any row (wine-run.sh header); stopped by regression_cleanup.
         REG_WINE_PREFIX=$WINEPREFIX
-        bash "$PROJECT_DIR/test/wine-run.sh" --serve "$plat_qt_abs" \
-            || harness_fault "cannot start a persistent wineserver"
+        # It also starts the desktop keeper and prints explorer.exe's pid (GH #329).
+        REG_WINE_EXPLORER=$(bash "$PROJECT_DIR/test/wine-run.sh" --serve "$plat_qt_abs") \
+            || harness_fault "cannot start a persistent wineserver and wine desktop"
         mkdir -p "$TMP_DIR/platform"
         for plat_pair in "jnext:$plat_qt_abs" "jnext-sdl:$plat_sdl_abs"; do
             printf '#!/bin/bash\nexport WINEPREFIX=%q\nexec /bin/bash %q --jnext %q "$@"\n' \
@@ -638,6 +639,12 @@ if $PLATFORM_MODE && [[ ${#QUIET_ROWS[@]} -gt 0 ]]; then wait_for_quiet_host; fi
 run_func_phase "quiet (timing-sensitive)" "$QUIET_LANES" "${QUIET_ROWS[@]+"${QUIET_ROWS[@]}"}"
 run_func_phase "serial tail" 1 "${SERIAL_ROWS[@]+"${SERIAL_ROWS[@]}"}"
 func_phases_end
+# The desktop process must be the one --serve started: a restart means a row's
+# jnext.exe spawned it on its own output pipe and may have been held to its bound.
+if [[ -n "${REG_WINE_EXPLORER:-}" && "$(cat "/proc/$REG_WINE_EXPLORER/comm" 2>/dev/null)" != explorer.exe ]]; then
+    harness_fault "the wine desktop process (pid $REG_WINE_EXPLORER) was restarted during the run" \
+                  "A row's jnext.exe may have started it on its own output pipe and been held to its bound (GH #329)."
+fi
 
 echo ""
 echo -e "${BOLD}=== Results ===${RESET}"

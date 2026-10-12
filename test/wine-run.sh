@@ -113,6 +113,48 @@ if [[ "${1:-}" == --serve ]]; then
     # no services running; a cmd.exe client does.
     timeout --kill-after=5s 300s ${PRIV[@]+"${PRIV[@]}"} /usr/bin/wine cmd /c exit </dev/null >/dev/null 2>&1 \
         || { echo "wine-run: the services warm-up after wineserver -p failed" >&2; exit 2; }
+    # Desktop keeper (GH #329). wine's desktop process, `explorer.exe /desktop`, is
+    # started by whichever wine client first needs the desktop and inherits THAT
+    # client's stderr -- a row's CRLF filter pipe -- and lives while any other wine
+    # process uses the desktop (+ ~1 s): the row's wrapper then waits for the filter
+    # to reach EOF, for as long as other rows keep wine busy (measured: a 0.1 s
+    # step held to its 120 s bound). So start the desktop ONCE, on /dev/null, and
+    # keep it alive: `start /wait cmd /c pause` holds the desktop indefinitely
+    # (measured); `timeout`, `cmd /c ping` and `notepad` do not (ping also needs
+    # ICMP, which a CI container may lack). Its pid is the only stdout output; the
+    # driver faults if that pid is not the one running at the end of the run.
+    setsid ${PRIV[@]+"${PRIV[@]}"} /usr/bin/wine start /wait cmd /c pause </dev/null >/dev/null 2>&1 &
+    # Exactly one explorer.exe of this prefix, all of fds 0-2 on /dev/null. Scans
+    # /proc, not pgrep: the CI container has no procps-ng (GH #295, 716cff6a9).
+    find_explorer() {
+        local d p c env_txt n=0 found=
+        for d in /proc/[0-9]*; do
+            p=${d#/proc/}
+            { read -r c < "$d/comm"; } 2>/dev/null || continue
+            [[ $c == explorer.exe ]] || continue
+            env_txt=$({ tr '\0' '\n' < "$d/environ"; } 2>/dev/null || true)
+            grep -qxF "WINEPREFIX=$WINEPREFIX" <<<"$env_txt" || continue
+            n=$((n + 1))
+            [[ "$(readlink "$d/fd/0" 2>/dev/null)" == /dev/null \
+               && "$(readlink "$d/fd/1" 2>/dev/null)" == /dev/null \
+               && "$(readlink "$d/fd/2" 2>/dev/null)" == /dev/null ]] && found=$p
+        done
+        [[ $n -eq 1 && -n $found ]] && echo "$found"
+        return 0
+    }
+    # Poll (at most 150 polls of 0.2 s plus a /proc scan each: 30 s or more under load) until ONE pid has stayed the same for 3 s (15 polls of 0.2 s,
+    # longer than the ~1 s close timeout of the warm-up explorer on its way out); a
+    # change of pid restarts the count, so a slow keeper attach is not a fault.
+    kpid=; cur=; stable=0
+    for ((i = 0; i < 150; i++)); do
+        cur=$(find_explorer)
+        if [[ -n $cur && $cur == "${last:-}" ]]; then stable=$((stable + 1)); else stable=0; fi
+        last=$cur
+        [[ $stable -ge 15 ]] && { kpid=$cur; break; }
+        /usr/bin/sleep 0.2
+    done
+    [[ -n $kpid ]] || { echo "wine-run: no persistent explorer.exe on /dev/null for $WINEPREFIX (GH #329)" >&2; exit 2; }
+    echo "$kpid"
     exit 0
 fi
 
