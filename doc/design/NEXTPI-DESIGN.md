@@ -494,19 +494,23 @@ platform) whose preference enables NextPi, still with no QEMU, `--no-nextpi`
 keeps it from even being tried, and without the flag the failure is logged and
 jnext runs to its automatic exit (0) — the Preferences-only path. On the
 offscreen platform the warning dialog is not shown, since nobody could dismiss
-it; the log line before it carries the message. Its fifth fact is the sound end
-to end: a stand-in QEMU on the `PATH` plays a square wave into the wav FIFO, a
-6-byte program opens NR 0xA2, and `--wav-record` must carry the tone with each
-channel at its own level. That is the one place `main()` handing PiQemu's reader
-to the emulator (`cfg.pi_audio`) is tested; setting it to null fails the row.
-Its sixth fact is the saved audio preference: a GUI session with `[nextpi]
-audio=none` must start the stand-in QEMU with `-audiodev none`, not the mixer's
-wav FIFO, which is the one test of `main()` copying that preference into the
-start (`spec.audio = saved.nextpi_audio`); dropping that line fails the row.
-Its seventh is NR 0xA2 bit 0 end to end: on a 48K machine an injected program
-sets NR 0xA2 = 0xC3 and counts changes of port 0xFE bit 6 over 60000 reads,
-reporting the count on the magic port; with the stand-in looping a square wave
-in both channels it must see at least 20, and with the EAR path off it sees 0.
+it; the log line before it carries the message.
+
+The sound has its own row, **nextpi-audio-func** (`os=linux,macos`: it needs a
+`/bin/sh` stand-in QEMU and the audio FIFO, which Windows lacks until GH #331).
+Its first fact is the sound end to end: a stand-in QEMU on the `PATH` plays a
+square wave into the wav FIFO, a 6-byte program opens NR 0xA2, and
+`--wav-record` must carry the tone with each channel at its own level. That is
+the one place `main()` handing PiQemu's reader to the emulator (`cfg.pi_audio`)
+is tested; setting it to null fails the row. Its second is the saved audio
+preference: a GUI session with `[nextpi] audio=none` must start the stand-in
+QEMU with `-audiodev none`, not the mixer's wav FIFO, which is the one test of
+`main()` copying that preference into the start (`spec.audio =
+saved.nextpi_audio`); dropping that line fails the row. Its third is NR 0xA2
+bit 0 end to end: on a 48K machine an injected program sets NR 0xA2 = 0xC3 and
+counts changes of port 0xFE bit 6 over 60000 reads, reporting the count on the
+magic port; with the stand-in looping a square wave in both channels it must
+see at least 20, and with the EAR path off it sees 0.
 
 Settings: `test/gui/app_config_test.cpp` AC-71..74 (`[nextpi]` defaults and
 round-trip) and `test/gui/preferences_apply_test.cpp` PA-20a..e (the tab's
