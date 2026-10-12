@@ -37,7 +37,7 @@
 // `-monitor stdio` was given (Windows).
 //
 // JNEXT_NEXTPI_STUB_MODE: (unset) normal; `fails` exit 3 at once; `exit7` exit 7
-// after one second; `stubborn` ignores the orderly stop. Every mode is bounded:
+// after three seconds; `stubborn` ignores the orderly stop. Every mode is bounded:
 // whatever happens, the process ends by itself after two minutes.
 
 #include "esp01/esp_socket.h"
@@ -349,7 +349,11 @@ int qemu_main(int argc, char** argv) {
 
     if (mode == "exit7") {
         write_pid();
-        sleep_ms(1000);
+        // Longer than PiQemu::start()'s startup window (1 s on Windows, 300 ms on
+        // POSIX): a poll that runs late past the window must still find this
+        // process alive, or start() reports "exited at once" and PIT-12 fails
+        // before it reaches the exit status (seen once in 66 wine runs, GH #355).
+        sleep_ms(3000);
         return 7;
     }
 

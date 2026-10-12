@@ -105,6 +105,15 @@ std::string bytes_hex(const std::vector<uint8_t>& v) {
 
 void sleep_ms(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 
+// PiQemu::Spec::poll_sleep for PIT-24/25: every sleep the launcher asks for takes
+// five times as long (a host that stretches short sleeps), and is counted, so a
+// row can tell that the launcher's waits really went through it.
+std::atomic<int> g_stretched_sleeps{0};
+void stretched_sleep(int ms) {
+    ++g_stretched_sleeps;
+    sleep_ms(ms * 5);
+}
+
 long ms_since(std::chrono::steady_clock::time_point t0) {
     return static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(
                                  std::chrono::steady_clock::now() - t0).count());
@@ -1917,6 +1926,95 @@ int main(int argc, char** argv) {
               started && per_os && dir_ok && cwd_clean && gone,
               fmt("started=%d (%s) audiodev='%s' dir_ok=%d cwd_clean=%d gone=%d", started ? 1 : 0,
                   error.c_str(), dev.c_str(), dir_ok ? 1 : 0, cwd_clean ? 1 : 0, gone ? 1 : 0));
+    }
+
+    // ── PIT-24 — THE GRACE IS A TIME, NOT A COUNT OF SLEEPS (GH #355): on a host
+    // that stretches short sleeps (macOS timer coalescing) the grace must still end
+    // on the clock. The launcher's poll sleeps are replaced by one that takes 50 ms
+    // per 10 ms asked, five times over; a grace counted in sleeps (30 of them) then
+    // runs ~1500 ms, a grace measured on steady_clock ends at ~300 ms.
+    {
+        Fixture fx("stubborn");
+        EnvVar mode("JNEXT_NEXTPI_STUB_MODE", "stubborn");
+        PiQemu::Spec spec;
+        spec.dir           = fx.dir();
+        spec.qemu_binary   = fx.bin("qemu-system-arm");
+        spec.audio         = "none";
+        spec.transport     = PiQemu::Transport::Socket;
+        spec.stop_grace_ms = 300;
+        spec.poll_sleep    = stretched_sleep;
+        auto qemu = std::make_unique<PiQemu>();
+        std::string error;
+        const bool started = fx.ok() && qemu->start(spec, error);
+        const unsigned long pid = started ? fx.child_pid() : 0;
+        const int sleeps0 = g_stretched_sleeps;
+        const auto t0 = std::chrono::steady_clock::now();
+        std::atomic<bool> stopped_flag{false};
+        std::thread stopper([&] { qemu.reset(); stopped_flag = true; });
+        const bool returned_in_time = [&] {
+            while (ms_since(t0) < 8000) {
+                if (stopped_flag) return true;
+                sleep_ms(10);
+            }
+            return false;
+        }();
+        const long ms = ms_since(t0);
+        if (!returned_in_time && pid != 0) nxs::kill_hard(pid);
+        if (stopper.joinable()) stopper.join();
+        const int sleeps = g_stretched_sleeps - sleeps0;
+        const bool killed = pid != 0 && nxs::gone_within(pid, 1500);
+        if (!killed && pid != 0) nxs::kill_hard(pid);
+        check("PIT-24",
+              "the stop grace period is measured on the clock, not counted in sleeps: with every launcher "
+              "poll sleep stretched five-fold (and seen to be, during stop()), a stubborn QEMU is still "
+              "killed at the grace, not after it (jnext-only, no VHDL counterpart)",
+              started && returned_in_time && killed && sleeps >= 1 && ms >= 300 && ms < 600,
+              fmt("started=%d (%s) returned=%d killed=%d stretched sleeps in stop()=%d (want >=1) stop took "
+                  "%ld ms (want 300..600)", started ? 1 : 0, error.c_str(), returned_in_time ? 1 : 0,
+                  killed ? 1 : 0, sleeps, ms));
+    }
+
+    // ── PIT-25 — THE STARTUP WINDOW IS A TIME TOO (GH #355): start() watches for a
+    // QEMU that dies at once for 300 ms (POSIX) / 1 s (Windows), in 50 ms polls. With
+    // every sleep stretched five-fold, a window counted in polls would take 1.5 s /
+    // 5 s; measured on the clock it takes about 0.5 s / 1.25 s (it ends at the first
+    // poll past the deadline). The healthy stand-in runs the whole window.
+    {
+        Fixture fx("startwin");
+        PiQemu::Spec spec;
+        spec.dir         = fx.dir();
+        spec.qemu_binary = fx.bin("qemu-system-arm");
+        spec.audio       = "none";
+        spec.transport   = PiQemu::Transport::Socket;
+        spec.poll_sleep  = stretched_sleep;
+#ifdef _WIN32
+        const long min_ms = 1000, max_ms = 2500;
+        // The 1000 ms window is exactly four stretched 250 ms polls, so a fifth
+        // (a poll that returns a little short on the clock) is not a fault: one
+        // honest wine run under load made 5 (1522 ms). Unverified guess: a sleep
+        // can return slightly short under MinGW/wine. The doubled window (8) and
+        // the counted loop (20) are still far outside.
+        const int  max_sleeps = 5;
+#else
+        const long min_ms = 300, max_ms = 1000;
+        const int  max_sleeps = 2;   // polls at 0, 250 ms stretched
+#endif
+        std::string error;
+        const int sleeps0 = g_stretched_sleeps;
+        const auto t0     = std::chrono::steady_clock::now();
+        auto qemu         = std::make_unique<PiQemu>();
+        const bool started = fx.ok() && qemu->start(spec, error);
+        const long ms      = ms_since(t0);
+        const int sleeps   = g_stretched_sleeps - sleeps0;
+        qemu.reset();
+        check("PIT-25",
+              "the startup window for a QEMU that dies at once is measured on the clock, not counted in "
+              "polls: with every launcher poll sleep stretched five-fold (and seen to be, during start()), "
+              "start() of a healthy QEMU returns in about a window, not five times that (jnext-only, no "
+              "VHDL counterpart)",
+              started && sleeps >= 1 && sleeps <= max_sleeps && ms >= min_ms && ms < max_ms,
+              fmt("started=%d (%s) stretched sleeps in start()=%d (want 1..%d) start took %ld ms (want %ld..%ld)",
+                  started ? 1 : 0, error.c_str(), sleeps, max_sleeps, ms, min_ms, max_ms));
     }
 
     // ── PIT-18 — THE FEATURE ON EVERY OS: the Pi's sound reaches the Next's mixer

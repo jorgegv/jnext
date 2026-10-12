@@ -100,6 +100,11 @@ public:
         /// How long `stop()` waits after asking QEMU to stop before it
         /// SIGKILLs it. A test seam; production uses the default.
         int stop_grace_ms = 3000;
+        /// Test seam: replaces the launcher's poll sleeps (null: a real
+        /// sleep). A row passes a sleep that overshoots, as a loaded or
+        /// timer-coalescing host does, to prove the grace and the startup
+        /// window are measured against the clock, not counted in sleeps.
+        void (*poll_sleep)(int ms) = nullptr;
     };
 
     PiQemu() = default;
@@ -243,4 +248,11 @@ private:
     int               watchdog_fd_ = -1;   ///< write end of the watchdog pipe
     std::unique_ptr<PiAudio> audio_;       ///< the Pi's audio, when it goes to the mixer
     int               stop_grace_ms_ = 3000;
+    void            (*poll_sleep_)(int ms) = nullptr;
+
+    /// Wait up to `ms` of wall-clock time (steady_clock) for QEMU to exit,
+    /// polling every `step_ms`. Returns exited_. The bound is elapsed time,
+    /// never a count of sleeps: a host that stretches short sleeps (macOS
+    /// timer coalescing, GH #355) must not stretch the bound with them.
+    bool wait_exited(int ms, int step_ms);
 };
