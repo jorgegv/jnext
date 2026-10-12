@@ -68,7 +68,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |    17 |   17 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  5776 | 5776 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5776**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5363**. Rows the 144 suites declared in `test/unit-tests.conf` run live: **12837**.
+Rows the sections above carry: **5776**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5363**. Rows the 145 suites declared in `test/unit-tests.conf` run live: **12857**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,12 +80,13 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 97 suites (7558 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 98 suites (7578 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
 | `fuse_z80_test` | 1356 | data-driven FUSE runner, no per-row IDs |
 | `z80n_test` | 85 | data-driven FUSE-style runner, opcode names not row IDs |
+| `rewind_call_stack_test` | 20 | debugger call-stack tracker restored by rewind, emptied by a state load or reset (jnext-internal); the T80N core has no debugger |
 | `esxdos_stub_test` | 185 | esxDOS API surface + jnext trap policy, not core logic |
 | `esxdos_symlink_test` | 6 | esxDOS host-FS symlink-refusal rows moved out of esxdos_stub_test (POSIX-only, GH #214); same oracle, not core logic |
 | `quick_snapshot_posix_test` | 2 | GH #321 prune never deletes a symlink (POSIX-only); host feature, no VHDL oracle |
@@ -2729,7 +2730,7 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PIT-14 | QEMU inherits none of jnext's other handles: an inheritable pipe holding a magic string that jnext has open cannot be read in the child | — | pass | test/uart/nextpi_test.cpp:954 |
 | PIT-15 | QEMU runs with LANG=C and LC_ALL=C, each exactly once whatever the case of the parent's variable names, and jnext's own environment is left alone | — | pass | test/uart/nextpi_test.cpp:998 |
 | PIT-16 | an empty Pi audio setting is the Next's mixer (the wav FIFO) on Linux and macOS and the host output (dsound) on Windows, where there is no mixer path yet; `host` is the host output on every OS (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1035 |
-| PIT-17 | starting NextPi with the audio setting empty gives QEMU the mixer's wav FIFO and makes the audio reader on Linux and macOS (also on the socket transport), and gives QEMU dsound with no reader on Windows; link_config carries the reader (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1070 |
+| PIT-17 | starting NextPi with the audio setting empty gives QEMU the mixer's wav FIFO and makes the audio reader on Linux and macOS (also on the socket transport, in a runtime directory of its own that stop() removes, never in the current directory), and gives QEMU dsound with no reader on Windows; link_config carries the reader (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1091 |
 | I2C-P05a | DS1307 - restart + read address 0xD1 returns ACK=0 | — | pass | test/uart/uart_test.cpp:1776 |
 | I2C-P05b | DS1307 - seconds register is valid BCD (upper<=5, lower<=9) | — | pass | test/uart/uart_test.cpp:1780 |
 | RTC-23 | GH #317 parse_rtc_datetime — an overflowing, signed or space-padded field and a wrong separator are rejected; unpadded digit fields still parse | — | pass | test/uart/uart_test.cpp:2341 |
@@ -6281,5 +6282,5 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PIT-14 | QEMU inherits none of jnext's other handles: an inheritable pipe holding a magic string that jnext has open cannot be read in the child | — | pass | test/uart/nextpi_test.cpp:954 |
 | PIT-15 | QEMU runs with LANG=C and LC_ALL=C, each exactly once whatever the case of the parent's variable names, and jnext's own environment is left alone | — | pass | test/uart/nextpi_test.cpp:998 |
 | PIT-16 | an empty Pi audio setting is the Next's mixer (the wav FIFO) on Linux and macOS and the host output (dsound) on Windows, where there is no mixer path yet; `host` is the host output on every OS (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1035 |
-| PIT-17 | starting NextPi with the audio setting empty gives QEMU the mixer's wav FIFO and makes the audio reader on Linux and macOS (also on the socket transport), and gives QEMU dsound with no reader on Windows; link_config carries the reader (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1070 |
+| PIT-17 | starting NextPi with the audio setting empty gives QEMU the mixer's wav FIFO and makes the audio reader on Linux and macOS (also on the socket transport, in a runtime directory of its own that stop() removes, never in the current directory), and gives QEMU dsound with no reader on Windows; link_config carries the reader (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1091 |
 

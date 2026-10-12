@@ -76,6 +76,7 @@ BEGIN {
     M["cpu_int_pulse_test"]            = "CPU INT pulse"
     M["cpu_z80n_im2_regressions_test"] = "CPU/Z80N IM2 regr."
     M["rewind_test"]                   = "Rewind"
+    M["rewind_call_stack_test"]        = "Rewind call stack"
     M["copper_test"]                   = "Copper"
     M["copper_integration_test"]       = "Copper (integration)"
     M["mmu_test"]                      = "Memory/MMU"
