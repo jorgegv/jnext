@@ -52,17 +52,20 @@ std::string qemu_escape(const std::string& s) {
 } // namespace
 
 bool PiQemu::uses_mixer(const Spec& spec) {
-    return mixer_audio_supported() && spec.audio.empty();
+    return spec.audio.empty();
+}
+
+std::string PiQemu::audio_pipe_base(unsigned long pid, unsigned n) {
+    return "\\\\.\\pipe\\jnext-pi-" + std::to_string(pid) + "-" + std::to_string(n);
 }
 
 std::string PiQemu::audiodev_arg(const std::string& audio) {
     if (audio.rfind("wav:", 0) == 0)
         return "wav,id=snd0,path=" + qemu_escape(audio.substr(4));
     // "host" is not a QEMU driver name; it stands for this platform's default
-    // host output, so it is safe to reserve. So is "": where there is no mixer
-    // path (Windows, until GH #331) an empty setting means the host output too.
+    // host output, so it is safe to reserve.
     std::string driver = audio;
-    if (driver == "host" || driver.empty()) {
+    if (driver == "host") {
 #ifdef __APPLE__
         driver = "coreaudio";
 #elif defined(_WIN32)

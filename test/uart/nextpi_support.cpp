@@ -243,4 +243,22 @@ bool gone_within(unsigned long pid, int ms) {
 
 Child::~Child() { kill(); }
 
+PipeSquat::PipeSquat(const std::vector<std::string>& names) {
+#ifdef _WIN32
+    for (const std::string& n : names) {
+        HANDLE h = CreateNamedPipeA(n.c_str(), PIPE_ACCESS_DUPLEX, PIPE_TYPE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0,
+                                    nullptr);
+        if (h != INVALID_HANDLE_VALUE) handles_.push_back(h);
+    }
+#else
+    (void)names;
+#endif
+}
+
+PipeSquat::~PipeSquat() {
+#ifdef _WIN32
+    for (void* h : handles_) CloseHandle(static_cast<HANDLE>(h));
+#endif
+}
+
 } // namespace nxs

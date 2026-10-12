@@ -42,6 +42,21 @@ private:
     void*         process_  = nullptr;  // Windows process HANDLE
 };
 
+/// One-instance named-pipe servers held on `names` (Windows only; on POSIX it
+/// holds nothing). A launcher that then tries to serve the same names is refused,
+/// which is how a row makes the Pi's audio pipe uncreatable.
+class PipeSquat {
+public:
+    explicit PipeSquat(const std::vector<std::string>& names);
+    ~PipeSquat();
+    PipeSquat(const PipeSquat&)            = delete;
+    PipeSquat& operator=(const PipeSquat&) = delete;
+    std::size_t held() const { return handles_.size(); }
+
+private:
+    std::vector<void*> handles_;
+};
+
 /// An INHERITABLE pipe that already holds the eight bytes JNEXTMAG; `number()`
 /// is its read end (a file descriptor >= 10, or a HANDLE value). A child that
 /// inherited it can read the magic; one that did not, cannot.

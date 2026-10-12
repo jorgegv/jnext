@@ -67,6 +67,9 @@ struct EmulatorConfig;
 /// jnext goes, however it goes), and a graceful stop by `quit` on QEMU's stdin
 /// (`-monitor stdio`) before the job is terminated. The environment is built
 /// explicitly with `LANG=C` / `LC_ALL=C`, matched case-insensitively.
+/// The Pi's sound reaches the mixer over a named pipe jnext serves (`PiAudio`,
+/// pi_audio_win.cpp), created before QEMU is spawned: QEMU's `wav` back-end opens
+/// its path at startup and fails when no server exists.
 class PiQemu {
 public:
     enum class Transport { Fifo, Socket };
@@ -87,9 +90,8 @@ public:
         /// with `.exe`).
         std::string qemu_binary = "qemu-system-arm";
         /// Pi audio: "" for the Next's mixer (the default — QEMU writes it to
-        /// a FIFO that `audio()` reads, and the emulator mixes it over I2S;
-        /// `mixer_audio_supported()`) — or, on Windows, where that path does
-        /// not exist yet (GH #331), the host output; "host" for this
+        /// a FIFO, or on Windows a named pipe, that `audio()` reads, and the
+        /// emulator mixes it over I2S); "host" for this
         /// platform's default host output (coreaudio on macOS, dsound on
         /// Windows, pa elsewhere); a QEMU -audiodev driver name to play it
         /// straight to the host ("none" mutes it); or "wav:FILE" to record it.
@@ -156,32 +158,28 @@ public:
     /// `wait=off` (a listening chardev otherwise blocks QEMU's startup until
     /// a client connects). The monitor is `stdio` on Windows (where `quit`
     /// on stdin is the graceful stop) and `none` elsewhere.
-    /// `audio_base` is the path whose `.audio` FIFO carries the Pi's sound
-    /// when it goes to the mixer (`uses_mixer`); unused otherwise.
+    /// `audio_base` is the path whose `.audio` FIFO (Windows: named pipe)
+    /// carries the Pi's sound when it goes to the mixer (`uses_mixer`); unused
+    /// otherwise.
     static std::vector<std::string> build_args(const Spec& spec, std::uint16_t port,
                                                const std::string& audio_base = {});
 
-    /// Whether the Pi's sound can go to the Next's mixer on this platform: it
-    /// travels over a FIFO, which Windows lacks (GH #331 will add a socket).
-    static constexpr bool mixer_audio_supported() {
-#ifdef _WIN32
-        return false;
-#else
-        return true;
-#endif
-    }
-
     /// True when `spec.audio` sends the Pi's sound to the Next's mixer: empty,
-    /// on a platform that has the path. Empty elsewhere means the host output.
+    /// on every OS.
     static bool uses_mixer(const Spec& spec);
+
+    /// The base of the Windows named pipe that carries the Pi's sound to the
+    /// mixer: `\\.\pipe\jnext-pi-<pid>-<n>` (`mixer_audiodev_arg` adds
+    /// `.audio`). Unique per process and per start. Pure.
+    static std::string audio_pipe_base(unsigned long pid, unsigned n);
 
     /// The `-audiodev` value for a driver name or "wav:FILE"; "host" is the
     /// platform default driver (coreaudio on macOS, dsound on Windows, pa
-    /// elsewhere), and so is "" (what an empty setting means on Windows).
+    /// elsewhere). Not for "", which is the mixer (`uses_mixer`).
     static std::string audiodev_arg(const std::string& audio);
 
     /// The `-audiodev` value that sends the Pi's sound to the Next's mixer:
-    /// QEMU's `wav` back-end into the FIFO `<pipe_base>.audio`, 44.1 kHz s16
+    /// QEMU's `wav` back-end into the FIFO (or Windows pipe) `<pipe_base>.audio`, 44.1 kHz s16
     /// stereo (PiAudio's format).
     static std::string mixer_audiodev_arg(const std::string& pipe_base);
 
