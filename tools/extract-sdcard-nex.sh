@@ -116,14 +116,14 @@ for src in "${NEX_FILES[@]}"; do
             mcopy -i "$DRIVE" -s -m -p -Q -n "::/$(mt_escape "$sib_dir")" "$scratch/" </dev/null 2>/dev/null
         fi
         while IFS= read -r -d '' p; do
-            mdir -b -i "$DRIVE" "::/$(mt_escape "$sib_prefix${p#./}")" </dev/null >/dev/null 2>&1 \
+            mdir -a -b -i "$DRIVE" "::/$(mt_escape "$sib_prefix${p#./}")" </dev/null >/dev/null 2>&1 \
                 || { rm -rf "$scratch"; die "mtools extracted '${p#./}' under a name that is not on the card (GH #330: this mtools build mis-names host files)"; }
         done < <(cd "$scratch" && find . -mindepth 1 -print0)
         nex_in=$(dirname "$scratch/${rel#"$sib_prefix"}")
         [[ -n "$(find "$nex_in" -maxdepth 1 -iname "$(mt_escape "$(basename "$rel")")" -print -quit 2>/dev/null)" ]] \
             || { rm -rf "$scratch"; die "mtools did not extract '$rel' (GH #330: this mtools build mis-names host files)"; }
         mkdir -p "$OUT_DIR/$sib_prefix"
-        cp -R "$scratch/." "$OUT_DIR/$sib_prefix"
+        cp -pR "$scratch/." "$OUT_DIR/$sib_prefix"
         rm -rf "$scratch"
     else
         mcopy -i "$DRIVE" -m -p -Q -n "::/$(mt_escape "$rel")" "$OUT_DIR/$rel" </dev/null 2>/dev/null

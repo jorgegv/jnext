@@ -270,20 +270,32 @@ WRAP
         #     writes into a DIRECTORY target.
         XN="$RUN_DIR/private/fix-sdcard-image/xn"
         mkdir -p "$XN/wrapbin"
-        nexcard() {   # nexcard <dest-card-path> — copy the 48.rom bytes there
-            LANG=C mcopy -i "$XN/c.img@@$OFF" "$W/48.rom" "$1" </dev/null >/dev/null 2>&1
+        # The payload has an old, fixed mtime (2 s FAT resolution) that mcopy -m
+        # stores on the card: the extracted siblings must keep it.
+        cp "$W/48.rom" "$XN/src.rom"; touch -d '2021-03-04 10:00:00' "$XN/src.rom"
+        nexcard() {   # nexcard <dest-card-path> — copy the payload there
+            LANG=C mcopy -m -i "$XN/c.img@@$OFF" "$XN/src.rom" "$(d=${1%/*}; printf '%s/%s' "${d//\[/\\[}" "${1##*/}")" </dev/null >/dev/null 2>&1
         }
         if mkimg "$XN/c.img" && LANG=C mmd -i "$XN/c.img@@$OFF" ::/GAMES </dev/null >/dev/null 2>&1 \
            && nexcard ::/b.nex && nexcard ::/readme.txt && nexcard ::/GAMES/a.nex \
-           && nexcard "::/GAMES/Foo [48].nex" && nexcard ::/GAMES/data.bin; then
+           && nexcard "::/GAMES/Foo [48].nex" && nexcard ::/GAMES/data.bin \
+           && nexcard ::/GAMES/hid.dat && nexcard ::/GAMES/sys.dat \
+           && LANG=C mattrib -i "$XN/c.img@@$OFF" +h ::/GAMES/hid.dat </dev/null >/dev/null 2>&1 \
+           && LANG=C mattrib -i "$XN/c.img@@$OFF" +s ::/GAMES/sys.dat </dev/null >/dev/null 2>&1 \
+           && LANG=C mmd -i "$XN/c.img@@$OFF" ::/apps "::/apps/demo [1]" </dev/null >/dev/null 2>&1 \
+           && nexcard "::/apps/demo [1]/c.nex" && nexcard "::/apps/demo [1]/d.dat"; then
             cat > "$XN/wrapbin/mcopy" <<WRAP
 #!/bin/sh
 "$real_mcopy" "\$@" || exit \$?
 for last; do :; done
 case "\$last" in
   :*) exit 0 ;;
-  */) f=\$(find "\$last" -type f | LC_ALL=C sort | tail -n 1)
-      [ -z "\$f" ] || mv "\$f" "\${f}_file" ;;
+  */) if [ "\$GH330_WRAP" = drop ]; then
+        find "\$last" -type f -name b.nex -exec rm -f {} +
+      else
+        f=\$(find "\$last" -type f | LC_ALL=C sort | tail -n 1)
+        [ -z "\$f" ] || mv "\$f" "\${f}_file"
+      fi ;;
 esac
 WRAP
             chmod +x "$XN/wrapbin/mcopy"
@@ -300,16 +312,24 @@ WRAP
                 opt=(); [[ $mode == sib ]] && opt=(-s)
                 rc=$(nex_run "H-$mode" 0 "$XN/out-$mode" "${opt[@]}")
                 [[ $rc == 0 ]] || faults+=("H-$mode: extract-sdcard-nex.sh exited $rc: $(tail -n1 "$XN/H-$mode.log")")
-                want=(b.nex GAMES/a.nex "GAMES/Foo [48].nex")
-                [[ $mode != sib ]] || want+=(readme.txt GAMES/data.bin)
+                want=(b.nex GAMES/a.nex "GAMES/Foo [48].nex" "apps/demo [1]/c.nex")
+                [[ $mode != sib ]] || want+=(readme.txt GAMES/data.bin GAMES/hid.dat GAMES/sys.dat "apps/demo [1]/d.dat")
                 for f in "${want[@]}"; do
                     [[ -f "$XN/out-$mode/$f" ]] || faults+=("H-$mode: '$f' was not extracted into the output directory")
                 done
+                if [[ $mode == sib && -f "$XN/out-sib/GAMES/data.bin" ]]; then
+                    [[ "$(stat -c %Y "$XN/out-sib/GAMES/data.bin")" == "$(stat -c %Y "$XN/src.rom")" ]] \
+                        || faults+=("H-sib: an extracted sibling lost the card's file time")
+                fi
                 [[ ! -e "$XN/GAMES" && ! -e "$XN/b.nex" && ! -e "$XN/readme.txt" ]] \
                     || faults+=("H-$mode: files were written to the PARENT of the output directory")
                 # the defect-mimicking mcopy
                 rc=$(nex_run "H-$mode-wrap" 1 "$XN/outw-$mode" "${opt[@]}")
                 if [[ $mode == sib ]]; then
+                    # a NEX that vanished from the extraction is refused too
+                    drc=$(GH330_WRAP=drop nex_run "H-sib-drop" 1 "$XN/outd-sib" -s)
+                    [[ $drc != 0 ]] && grep -q "did not extract" "$XN/H-sib-drop.log" \
+                        || faults+=("H-sib-drop: an extraction missing the NEX was not refused (exit $drc)")
                     [[ $rc != 0 ]] && grep -q "GH #330" "$XN/H-$mode-wrap.log" \
                         || faults+=("H-sib-wrap: a mis-named sibling was not refused with a GH #330 message (exit $rc)")
                 else
