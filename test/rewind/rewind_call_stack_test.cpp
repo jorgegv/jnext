@@ -174,6 +174,50 @@ int main() {
               inside && emu.call_stack().frames().empty(), depth_text(emu));
     }
 
+    // ── a half-observed instruction belongs to the history being left ─────
+    //    on_instruction_pre() without its post (the machine was replaced in
+    //    between) must not be completed by the next post. Driven on the
+    //    tracker directly: no emulator path interleaves the two hooks.
+    //    CALL $9000 at $8000, SP $FF00 -> $FEFE.
+    {
+        CallStack cs;
+        cs.set_enabled(true);
+        cs.on_instruction_pre(PROG, 0xFF00, 0xCD, 0x00, 0x90);
+        cs.on_instruction_post(0xFEFE, SUB);
+        check("RWCS-12", "control: a pre/post pair of a taken CALL pushes its frame",
+              cs.frames().size() == 1 && cs.frames()[0].target_pc == SUB);
+    }
+    {
+        CallStack cs;
+        cs.set_enabled(true);
+        cs.on_instruction_pre(PROG, 0xFF00, 0xCD, 0x00, 0x90);
+        cs.clear();
+        cs.on_instruction_post(0xFEFE, SUB);
+        check("RWCS-13", "clear() drops a pre-hook capture whose post never came",
+              cs.frames().empty(), "depth " + std::to_string(cs.frames().size()));
+    }
+    {
+        CallStack cs;
+        cs.set_enabled(true);
+        cs.on_instruction_pre(PROG, 0xFF00, 0xCD, 0x00, 0x90);
+        cs.restore_frames({});
+        cs.on_instruction_post(0xFEFE, SUB);
+        check("RWCS-14", "restore_frames() drops a pre-hook capture whose post "
+              "never came", cs.frames().empty(),
+              "depth " + std::to_string(cs.frames().size()));
+    }
+    {
+        CallStack cs;
+        cs.set_enabled(true);
+        const std::vector<CallFrame> saved = { { 0x1234, 0x5678, 0xFD00, CallType::CALL } };
+        cs.restore_frames(saved);
+        const bool replaced = cs.frames().size() == 1 && cs.frames()[0].caller_pc == 0x1234 &&
+                              cs.frames()[0].target_pc == 0x5678 &&
+                              cs.frames()[0].sp_at_call == 0xFD00;
+        check("RWCS-15", "restore_frames() replaces the frames with exactly the "
+              "recorded ones", replaced);
+    }
+
     std::printf("\nTotal: %d  Passed: %d  Failed: %d  Skipped: 0\n",
                 g_total, g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
