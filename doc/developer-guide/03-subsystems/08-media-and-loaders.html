@@ -2528,9 +2528,9 @@ the machine. <code>rzx::recorded_machine()</code> (for an RZX's embedded snapsho
 (byte 86; written BEFORE <code>0x7FFD</code>, because the <code>0x7FFD</code> lock bit closes <code>0x1FFD</code>,
 <code>zxnext.vhd:3718</code>, and the <code>.szx</code> does the same), the AY registers of the 128K,
 +3 and Pentagon (<code>.z80</code> bytes 38-54, the <code>.szx</code> <code>AY</code> chunk, through the AY
-ports, <code>Emulator::restore_ay_registers()</code>), the <code>.szx</code> <code>SCLD</code> chunk's port <code>0xFF</code>,
-and NTSC 48K (<code>.szx</code> ID 15) as the 48K with NR <code>0x05</code> bit 2 (60 Hz). The tests are
-<code>snapshot_machine_test</code> (SNM-01..33), the QS-25..27/SNM-40..41 rows of
+ports, <code>Emulator::restore_ay_registers()</code>), and NTSC 48K (<code>.szx</code> ID 15) as the 48K with NR <code>0x05</code> bit 2 (60 Hz).
+The <code>.szx</code> <code>SCLD</code> chunk (Timex port <code>0xFF</code>) is deliberately ignored: every machine a snapshot switches to boots with port <code>0xFF</code> off (<code>zxnext.vhd:2714</code>), so that state cannot exist there. The tests are
+<code>snapshot_machine_test</code> (SNM-01..33, SNM-29 withdrawn), the QS-25..27/SNM-40..41 rows of
 <code>emulator_boot_test</code>, PA-24 and the <code>snapshot-machine-func</code> regression row.</p>
 <h2 id="tapes-two-completely-different-mechanisms">Tapes: two completely different mechanisms<a class="headerlink" href="#tapes-two-completely-different-mechanisms" title="Permanent link">&para;</a></h2>
 <p>Loading from tape is the one place where the emulator offers you a choice

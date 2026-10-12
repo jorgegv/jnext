@@ -719,7 +719,7 @@ target_include_directories(snapshot_im_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME snapshot_im_tests COMMAND snapshot_im_test)
 
 # GH #323 — a .sna/.szx/.z80 loads on the machine it was saved on: the single
-# machine table, the loaders' in-place switch, and the +3 / AY / SCLD / NTSC
+# machine table, the loaders' in-place switch, and the +3 / AY / NTSC
 # state they restore.
 add_executable(snapshot_machine_test core/snapshot_machine_test.cpp)
 target_link_libraries(snapshot_machine_test PRIVATE
