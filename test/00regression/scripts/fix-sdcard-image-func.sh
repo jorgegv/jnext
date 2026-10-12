@@ -283,7 +283,8 @@ WRAP
            && LANG=C mattrib -i "$XN/c.img@@$OFF" +h ::/GAMES/hid.dat </dev/null >/dev/null 2>&1 \
            && LANG=C mattrib -i "$XN/c.img@@$OFF" +s ::/GAMES/sys.dat </dev/null >/dev/null 2>&1 \
            && LANG=C mmd -i "$XN/c.img@@$OFF" ::/apps "::/apps/demo [1]" </dev/null >/dev/null 2>&1 \
-           && nexcard "::/apps/demo [1]/c.nex" && nexcard "::/apps/demo [1]/d.dat"; then
+           && nexcard "::/apps/demo [1]/c.nex" && nexcard "::/apps/demo [1]/d.dat" \
+           && LANG=C mmd -i "$XN/c.img@@$OFF" ::/MISC </dev/null >/dev/null 2>&1 && nexcard ::/MISC/other.bin; then
             cat > "$XN/wrapbin/mcopy" <<WRAP
 #!/bin/sh
 "$real_mcopy" "\$@" || exit \$?
@@ -317,6 +318,10 @@ WRAP
                 for f in "${want[@]}"; do
                     [[ -f "$XN/out-$mode/$f" ]] || faults+=("H-$mode: '$f' was not extracted into the output directory")
                 done
+                # MISC holds no NEX: a root NEX's siblings are the root's files,
+                # not the whole card.
+                [[ ! -e "$XN/out-$mode/MISC" ]] \
+                    || faults+=("H-$mode: a directory with no NEX was extracted (the whole card was copied)")
                 if [[ $mode == sib && -f "$XN/out-sib/GAMES/data.bin" ]]; then
                     [[ "$(stat -c %Y "$XN/out-sib/GAMES/data.bin")" == "$(stat -c %Y "$XN/src.rom")" ]] \
                         || faults+=("H-sib: an extracted sibling lost the card's file time")
