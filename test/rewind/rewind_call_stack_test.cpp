@@ -268,8 +268,8 @@ int main() {
         emu.call_stack().set_enabled(false);
         for (int i = 0; i < 2; ++i) emu.run_frame();     // SUB returns, tracker blind
         emu.call_stack().set_enabled(true);
-        check("RWCS-18", "re-enabling the tracker after a gap starts empty, not "
-              "with the frames it froze at",
+        check("RWCS-18", "after a disabled gap the tracker is empty (the disable "
+              "edge of the clear), not holding the frames it froze at",
               inside && emu.call_stack().frames().empty(), depth_text(emu));
     }
     {
@@ -282,6 +282,26 @@ int main() {
         const bool ok = emu.rewind_to_frame(1);
         check("RWCS-19", "a slot taken while the tracker was off restores no frames",
               ok && emu.call_stack().frames().empty(), depth_text(emu));
+    }
+
+    {
+        // A rewind with the tracker off restores the slot's frames into it;
+        // enabling afterwards must still start empty (the enable edge).
+        Emulator emu;
+        build(emu);
+        for (int i = 0; i < 3; ++i) emu.run_frame();   // parked; slot 2 holds depth 1
+        const auto& trace = emu.trace_log();
+        size_t back = 0;
+        for (size_t i = trace.size(); i > 0; --i) {
+            if (trace.at(i - 1).pc == SUB + 8) { back = trace.size() - (i - 1); break; }
+        }
+        emu.call_stack().set_enabled(false);
+        const bool ok = back > 1 && emu.step_back(static_cast<int>(back) - 1);
+        emu.call_stack().set_enabled(true);
+        check("RWCS-20", "enabling after a rewind made with the tracker off starts "
+              "empty (the enable edge of the clear)",
+              ok && emu.cpu().get_registers().PC == PARK &&
+                  emu.call_stack().frames().empty(), depth_text(emu));
     }
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
