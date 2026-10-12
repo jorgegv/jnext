@@ -58,7 +58,9 @@ bool HeadlessApp::init(int argc, char* argv[]) {
         return true;
     };
     driver.load = [this](const std::string& path) {
-        return emulator_apply_load(emulator_, path, tape_realtime_);
+        // GH #323: follow an in-place machine switch (see emulator_apply_load_keeping()).
+        return emulator_apply_load_keeping(emulator_, path, tape_realtime_,
+                                           [this](MachineType t) { config_.type = t; });
     };
     debugger_->set_loop_driver(driver);
     host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
@@ -610,7 +612,9 @@ void HeadlessApp::run() {
         // Apply pending load (shared format dispatch, incl. .rzx — see
         // platform/emulator_boot.h).
         if (load_countdown_ == 0) {
-            const bool ok = emulator_apply_load(emulator_, load_file_, tape_realtime_);
+            const bool ok = emulator_apply_load_keeping(
+                emulator_, load_file_, tape_realtime_,
+                [this](MachineType t) { config_.type = t; });
             if (!ok) {
                 // A failed load exits non-zero, whatever the format, so a
                 // script can tell "loaded fine" from "failed to load, ran

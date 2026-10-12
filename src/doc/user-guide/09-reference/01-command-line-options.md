@@ -39,6 +39,9 @@ with status 1.
 
 **--machine** *TYPE*
 :   Machine type: `48k`, `128k`, `plus3`, `pentagon`, `next` (default).
+    A snapshot given to **--load** (`.jns`, `.sna`, `.szx`, `.z80`) runs
+    on the machine it was saved on instead, and **jnext** warns when
+    that is not the one given here.
 
 **--load** *FILE*
 
@@ -50,9 +53,17 @@ with status 1.
     Snapshots](../05-running-programs/09-snapshots.md)). Loading one
     restores the machine it was taken on, including the machine *type*:
     a `.jns` taken on a Next loads as a Next even if **--machine** says
-    otherwise. A `.sna`, `.szx` or `.z80` is different: it is loaded
-    onto the machine that is running (**--machine**, or the saved
-    choice), whatever machine it was made on.
+    otherwise. A `.sna`, `.szx` or `.z80` does the same: it runs on the
+    machine it was saved on (the file says which: a `.sna` by its size,
+    an `.szx` by its machine ID, a `.z80` by its hardware mode), even
+    over **--machine**, which is then warned about. The machine stays
+    selected, in the GUI’s **Machine \> Machine Type** too. A snapshot
+    from a machine **jnext** does not emulate (a Timex, a Scorpion, a
+    Pentagon 512 or 1024), or taken with the TR-DOS, Interface 1, MGT or
+    Multiface ROM paged in, is refused, with the reason in the log,
+    before anything is changed; at startup **jnext** then exits
+    non-zero. A 16K, +2, +2A or +3e snapshot runs as the 48K, 128K, +3
+    or +3, and an NTSC 48K `.szx` as a 48K at 60 Hz.
 
     A NEX file with bytes after the banks its header declares is an
     *extended* NEX. If its header asks for the file to be kept open (any

@@ -36,7 +36,9 @@
 /// ---------------------------------------------------------------------------
 ///   receive()        caller thread -> inbound queue -> WORKER feeds the core
 ///   poll()           WORKER, continuously: sockets, connect timeouts
-///   tick()           CALLER thread, directly on the core (try-lock)
+///   tick()           CALLER thread: releases committed bytes with NO core lock
+///                    (the guest-bound wire has its own); try-locks the core
+///                    only to frame the next message
 ///   the ByteSink     CALLER thread, from inside tick(), never the worker
 ///
 /// So the guest-bound byte path never leaves the caller's thread, which is
@@ -74,21 +76,33 @@
 /// throughout, which is silence on a wire whose receivers have no retry.
 ///
 /// ---------------------------------------------------------------------------
-/// THE TRY-LOCK, which is the one subtle thing left
+/// THE GUEST-BOUND WIRE HAS ITS OWN LOCK (GH #327)
 /// ---------------------------------------------------------------------------
-/// Even with the transport poll unlocked, `tick()` and the worker still
-/// contend for engine state, and a transport that violates its non-blocking
-/// contract in `send`/`recv` (esp_socket.h) would stall inside the LOCKED
-/// half. So `tick()` uses `try_lock` and, when it loses, RETURNS HAVING DONE
-/// NOTHING — the elapsed ticks are dropped, not banked.
+/// `tick()` used to try-lock the core and, on losing, drop the elapsed ticks
+/// ("microseconds, bounded by the non-blocking contract"). Measured under wine
+/// that was wrong: the worker holds the core lock across Winsock `send`/`recv`,
+/// which are wineserver round trips of 1-25 ms, and the emulated time dropped
+/// during one hold reached 382 018 cycles at 28 MHz. A reply that was already
+/// framed and queued stopped mid-message while the guest kept running, and
+/// NextSync 1.2 (20 status polls, about 1 750 cycles, between the bytes of a
+/// `+IPD,<n>:` header) abandoned the packet and retried or restarted. A real
+/// ESP-01 clocks a framed message out of its UART back to back; it never idles
+/// the wire mid-message.
 ///
-/// Dropping rather than banking is deliberate: banking would accumulate credit
-/// during a stall and then release a burst at unbounded speed the moment the
-/// lock came free, which is exactly the RX FIFO overrun the pacing exists to
-/// prevent (`AtEngine::tick`'s idle branch makes the same choice for the same
-/// reason). What is lost now is the duration of one engine service pass —
-/// microseconds, bounded by the non-blocking contract — rather than the
-/// duration of a name lookup.
+/// So the release of committed bytes no longer depends on the core lock at
+/// all: `AtEngine` keeps them in a wire with a short lock of its own, held only
+/// for a deque push or pop, never across a transport or sink call, and `tick()`
+/// paces from it directly (`AtEngine::release_to_guest`). What the core lock
+/// still gates is the START of the next message — framing a `+IPD` reads engine
+/// state — so `tick()` try-locks the core for that alone, and only once the wire
+/// has drained. A lost try-lock delays when the next message begins (firmware
+/// and network latency, which nothing on the Next can observe) and nothing
+/// else; `wants_tick()` stays raised and the next tick retries.
+///
+/// Nothing is banked while the wire is empty, as before: banking would release
+/// a burst at unbounded speed, the RX FIFO overrun the pacing exists to prevent.
+/// Lock order: worker takes `core_mutex_` then the wire lock (a push);
+/// `tick()` takes the wire lock, drops it, then only try-locks `core_mutex_`.
 ///
 /// ---------------------------------------------------------------------------
 /// LIFETIME CONTRACT — read this before constructing one
@@ -195,14 +209,18 @@ public:
     /// that calls `poll()` per frame works whether or not the thread is up.
     void poll() override;
 
-    /// Paces guest-bound bytes on the CALLER's thread. Skips (dropping the
-    /// elapsed ticks) if the worker holds the core — see the try-lock note.
+    /// Paces guest-bound bytes on the CALLER's thread, without the core lock.
+    /// Only the framing of the NEXT message try-locks the core — see the
+    /// guest-bound-wire note above.
     void tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte) override;
 
     /// Reads a snapshot taken by whichever thread last touched the core. It can
-    /// go stale between the read and the caller acting on it — harmless in both
-    /// directions: a stale `true` costs one wasted `tick()`, and a stale
-    /// `false` costs at most one host service interval of delivery latency.
+    /// go stale between the read and the caller acting on it. A stale `true`
+    /// costs one wasted `tick()`. A stale `false` delays the start of a message
+    /// the worker produced: the host re-mirrors it from `poll()` (once per
+    /// emulated frame) and after a guest byte, so that start can wait up to one
+    /// frame (measured: replies begin about 20 ms emulated after the command).
+    /// Between messages only; bytes already on the wire are never affected.
     bool wants_tick() const override { return wants_tick_.load(std::memory_order_acquire); }
 
     // ── Host-owned module state ───────────────────────────────────────────
@@ -261,9 +279,10 @@ private:
     /// Guards `core_`'s ENGINE state. Explicitly NOT held across
     /// `AtEngine::advance_transports()` — see the worker loop — so its hold
     /// time is bounded by the non-blocking transport contract rather than by
-    /// however long a socket operation takes. `tick()` still only try-locks
-    /// it, because a contract-violating transport can still stall the locked
-    /// half through `send`/`recv`.
+    /// however long a socket operation takes. `tick()` only try-locks it, to
+    /// frame the next message: the locked half can still stall in `send`/`recv`
+    /// (under wine for milliseconds), and the guest-bound wire is what keeps
+    /// that from reaching the guest.
     mutable std::mutex core_mutex_;
 
     /// Guards `user_sink_` and NOTHING else. Separate from `core_mutex_` so
@@ -294,8 +313,8 @@ private:
     /// Service passes lost to a throwing transport. See `pass_exceptions()`.
     std::atomic<std::uint64_t> pass_exceptions_{0};
     /// GH #319, DIAGNOSIS ONLY (debug log): how long the worker holds `core_mutex_`
-    /// for the locked half of a service pass, and for how long `tick()` ran into a
-    /// held lock (and how many ticks it dropped). Written by `tick()`'s thread alone.
+    /// for the locked half of a service pass, and for how long `tick()` could not
+    /// frame the next message because of a held lock (and how many ticks passed). Written by `tick()`'s thread alone.
     bool                                  tick_skipping_ = false;
     std::chrono::steady_clock::time_point tick_skip_since_{};
     std::uint64_t                         tick_skip_ticks_ = 0;

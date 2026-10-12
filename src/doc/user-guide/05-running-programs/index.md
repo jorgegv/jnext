@@ -10,7 +10,8 @@ jnext game.sna
 
 The format is recognised from the extension — `.nex`, `.jns`, `.sna`, `.szx`,
 `.z80`, `.tap`, `.tzx`, `.wav` and `.rzx` are all understood. (`.jns` is
-JNEXT's own whole-machine snapshot; see [5.9 Snapshots](09-snapshots.md).) A bare filename is
+JNEXT's own whole-machine snapshot; see [5.9 Snapshots](09-snapshots.md), which also says
+which machine each snapshot format loads as.) A bare filename is
 exactly the same as `--load FILE`; you cannot use both at once.
 
 A NEX **V1.3** file can declare a buffer for an argument line, and `--nex-args`

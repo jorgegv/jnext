@@ -1467,6 +1467,17 @@ void MainWindow::handle_load_path(const QString& path) {
         }
     }
 
+    // GH #323 — likewise a .sna/.szx/.z80: it runs on the machine it was saved
+    // on, so one that machine cannot be built for (a Timex, a Scorpion...) or
+    // that is damaged is refused before the cold boot, session untouched.
+    if (emulator_load_routes_to_snapshot(file)) {
+        std::string why;
+        if (!snapshot_file_loadable(file, why)) {
+            refuse_jns(path, QString::fromStdString(why));   // status bar, and a dialog unless unattended
+            return;
+        }
+    }
+
     bool allow_experimental_nex_v13 = false;
     if (emulator_load_routes_to_nex(file)) {
         uint8_t ver_bcd = 0;

@@ -312,7 +312,13 @@ bool QtApp::init(int argc, char* argv[]) {
             return true;   // emulator_frontend_cold_boot() returns void (SES-07)
         };
         driver.load = [this](const std::string& path) {
-            return emulator_apply_load(emulator_, path, tape_realtime_);
+            // GH #323: a snapshot saved on another machine switches it in
+            // place; the frontend must follow, or its next reset boots the old one.
+            return emulator_apply_load_keeping(emulator_, path, tape_realtime_,
+                [this](MachineType t) {
+                    config_.type = t;
+                    if (main_window_) main_window_->sync_machine_type_display();
+                });
         };
         debugger_->set_loop_driver(driver);
     }
@@ -636,7 +642,11 @@ bool QtApp::TickEffects::pre_frames() {
     // Apply pending load when countdown reaches zero (auto-detect format).
     if (a.load_countdown_ == 0) {
         // Shared format dispatch (incl. .rzx) — see platform/emulator_boot.h.
-        const bool loaded = emulator_apply_load(a.emulator_, a.load_file_, a.tape_realtime_);
+        const bool loaded = emulator_apply_load_keeping(
+            a.emulator_, a.load_file_, a.tape_realtime_, [&a](MachineType t) {
+                a.config_.type = t;
+                if (a.main_window_) a.main_window_->sync_machine_type_display();
+            });
         if (!loaded) {
             Log::platform()->error("load: failed to load '{}'", a.load_file_);
             a.exit_code_ = 1;   // a failed load exits non-zero (as headless)

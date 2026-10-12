@@ -119,8 +119,37 @@ jnext state.jns
 
 A `.jns` restores the machine **type** as well as its contents: one taken on a
 Next comes back as a Next even if `--machine` says otherwise. You do not have
-to remember what you saved. (A `.sna`, `.szx` or `.z80` is different: it is
-loaded onto the machine that is running, whatever machine it was made on.)
+to remember what you saved. A `.sna`, `.szx` or `.z80` does the same: it runs on
+the machine it was saved on (see below), even over `--machine`.
+
+## Loading another emulator's snapshot
+
+A `.sna`, `.szx` or `.z80` says which machine it holds, and JNEXT switches to
+it, as it does for a `.jns`. The machine stays selected afterwards, so a later
+reset starts it again; **Machine ▸ Machine Type** shows it. With `--machine` on
+the command line, JNEXT warns that the snapshot's machine won.
+
+| The file says | JNEXT runs |
+|---|---|
+| `.sna` of 49179 bytes | 48K |
+| any longer `.sna` (the 128K form) | 128K |
+| `.szx` 16K, 48K, NTSC 48K | 48K (NTSC at 60 Hz) |
+| `.szx` 128K, +2, 128Ke | 128K |
+| `.szx` +2A, +3, +3e | +3 |
+| `.szx` Pentagon 128 | Pentagon |
+| `.z80` v1, hardware 48K, 16K, Interface 1, SamRam, MGT | 48K |
+| `.z80` hardware 128K, +2, 128K with Interface 1 or MGT | 128K |
+| `.z80` hardware +3, +2A | +3 |
+| `.z80` hardware Pentagon 128 | Pentagon |
+
+The 128K, +3 and Pentagon snapshots bring the AY registers back, and a +3 its
+ROM and paging. Anything else is refused, with the reason in the log and a
+message in the GUI, and the machine you were running is left alone (started
+with `--load`, JNEXT exits with an error): a Timex TC2048, TC2068 or TS2068, a
+Scorpion, a ZX Spectrum SE, a Didaktik Kompakt, a Pentagon 512 or 1024, a
+`.z80` of an unknown hardware mode or header length, and any snapshot taken
+with the TR-DOS, Interface 1, MGT DISCiPLE or Multiface ROM paged in — JNEXT
+emulates none of those ROMs, so the program would run against the wrong one.
 
 ## What travels, and what does not
 

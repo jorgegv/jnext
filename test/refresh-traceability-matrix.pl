@@ -964,6 +964,7 @@ my %NO_MATRIX_SECTION = (
     'tzx_loader_test'         => 'TZX container format: libspectrum TZX reader + the TZX specification as oracles (host loader), no core counterpart',
     'tape_save_test'          => 'TZX / WAV writer (GH #89): the TZX 1.20 and RIFF/WAVE layouts, with FUSE/libspectrum as the foreign reader (host saver); its hardware rows, the tape-out signal (TSAVE-30, TSAVE-43), cite zxnext.vhd:6503 in their own source',
     'snapshot_im_test'        => 'snapshot loaders seeding the NR 0xC0 IM latch (host loaders; nextreg.txt NR 0xC0)',
+    'snapshot_machine_test'   => 'which machine a .sna/.szx/.z80 loads as (libspectrum header tables, GH #323; host loaders) and the +3 / AY / NTSC state they restore; its hardware rows (SNM-27, 30, 31, 33) cite zxnext.vhd, zxula_timing.vhd and ports.txt in their own source',
     'sd_rom_extractor_test'   => 'FAT32 + TBBlue SD path layout (host ROM extraction)',
     'sdcard_file_add_test'    => 'FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces',
     'sdcard_file_add_posix_test' => 'rows moved out of sdcard_file_add_test (symlink, FIFO, device, chmod-0 fixtures; POSIX-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces',
