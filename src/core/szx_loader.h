@@ -48,6 +48,11 @@ public:
         uint8_t port_1ffd;
         uint8_t port_fe;
     };
+    /// SCLD chunk (Timex port 0xFF "DEC"), GH #323.
+    bool have_scld() const { return have_scld_; }
+    uint8_t scld_dec() const { return scld_dec_; }
+    /// AY chunk (selected register + the 16 registers), GH #323.
+    bool have_ay() const { return have_ay_; }
     bool loaded() const { return loaded_; }
     bool have_z80r() const { return have_z80r_; }
     bool have_spcr() const { return have_spcr_; }
@@ -71,13 +76,28 @@ private:
     SpcrState spcr_{};
     bool have_spcr_ = false;
 
+    // SCLD — Timex port 0xFF (chF4 = HSR is ignored: the Next has no horizontal MMU)
+    bool    have_scld_ = false;
+    uint8_t scld_dec_  = 0;
+
+    // AY — sound chip: selected register and registers 0-15
+    bool    have_ay_      = false;
+    uint8_t ay_selected_  = 0;
+    uint8_t ay_regs_[16]  = {};
+
     // RAMP — RAM pages (page number → 16384 bytes)
     std::map<uint8_t, std::vector<uint8_t>> ram_pages_;
 
     bool loaded_ = false;
 
+    /// The 128K-class machine IDs (128K, +2, +2A, +3, +3e, Pentagon 128, 128Ke):
+    /// the ones with port 0x7FFD paging and an AY. Not 0/1/15 (16K, 48K, NTSC 48K).
+    bool has_128k_paging() const { return (machine_id_ >= 2 && machine_id_ <= 7) || machine_id_ == 16; }
+
     // Chunk handlers
     bool parse_z80r(const uint8_t* data, uint32_t size);
     bool parse_spcr(const uint8_t* data, uint32_t size);
     bool parse_ramp(const uint8_t* data, uint32_t size);
+    bool parse_scld(const uint8_t* data, uint32_t size);
+    bool parse_ay(const uint8_t* data, uint32_t size);
 };

@@ -711,17 +711,13 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
     report.ignored_members = v.ignored_members;
     report.reconfigured_to = v.reconfigure_to;
 
-    // §7.3 — the file's machine wins (unlike `.sna`/`.szx`/`.z80`, whose
-    // loaders apply onto the running machine): the user must not have to get
-    // `--machine` right to reload their own save.
+    // §7.3 — the file's machine wins: the user must not have to get
+    // `--machine` right to reload their own save. The same rule the
+    // `.sna`/`.szx`/`.z80` loaders follow (GH #323), through the same helper.
     if (!v.reconfigure_to.empty()) {
         MachineType want = config_.type;
         if (parse_machine_type(v.reconfigure_to, want) && want != config_.type) {
-            // `init(config_)` is what `load_snapshot_from_memory` already does
-            // for a `.sna`/`.szx`/`.z80` whose machine differs — same
-            // mechanism, so a `.jns` gets no special reconfiguration path of
-            // its own to keep correct.
-            config_.type = want;
+            switch_machine_for_load_(want, "the .jns");
             init(config_);
         }
     }

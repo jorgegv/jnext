@@ -119,6 +119,32 @@ bool SzxLoader::parse_spcr(const uint8_t* data, uint32_t size)
     return true;
 }
 
+bool SzxLoader::parse_scld(const uint8_t* data, uint32_t size)
+{
+    // libspectrum szx.c:1347-1362: exactly 2 bytes, chF4 (HSR) then chFF (DEC).
+    if (size != 2) {
+        Log::emulator()->error("SZX: SCLD chunk has {} bytes (expected 2)", size);
+        return false;
+    }
+    scld_dec_  = data[1];
+    have_scld_ = true;
+    return true;
+}
+
+bool SzxLoader::parse_ay(const uint8_t* data, uint32_t size)
+{
+    // libspectrum szx.c:471-497: exactly 18 bytes - flags, the selected
+    // register, registers 0-15.
+    if (size != 18) {
+        Log::emulator()->error("SZX: AY chunk has {} bytes (expected 18)", size);
+        return false;
+    }
+    ay_selected_ = data[1];
+    for (int i = 0; i < 16; ++i) ay_regs_[i] = data[2 + i];
+    have_ay_ = true;
+    return true;
+}
+
 bool SzxLoader::parse_ramp(const uint8_t* data, uint32_t size)
 {
     if (size < 3) {
@@ -194,6 +220,8 @@ bool SzxLoader::load_from_buffer(const std::vector<uint8_t>& buf, const std::str
     loaded_ = false;
     have_z80r_ = false;
     have_spcr_ = false;
+    have_scld_ = false;
+    have_ay_   = false;
     ram_pages_.clear();
 
     const size_t file_size = buf.size();
@@ -238,6 +266,10 @@ bool SzxLoader::load_from_buffer(const std::vector<uint8_t>& buf, const std::str
             if (!parse_spcr(chunk_data, chunk_size)) return false;
         } else if (std::memcmp(chunk_id, "RAMP", 4) == 0) {
             if (!parse_ramp(chunk_data, chunk_size)) return false;
+        } else if (std::memcmp(chunk_id, "SCLD", 4) == 0) {
+            if (!parse_scld(chunk_data, chunk_size)) return false;
+        } else if (std::memcmp(chunk_id, "AY\0\0", 4) == 0) {
+            if (!parse_ay(chunk_data, chunk_size)) return false;
         } else {
             Log::emulator()->debug("SZX: skipping unknown chunk '{}' ({} bytes)", chunk_id, chunk_size);
         }
@@ -293,17 +325,37 @@ bool SzxLoader::apply(Emulator& emu) const
         emu.port().out(0x00FE, spcr_.port_fe);
         Log::emulator()->debug("SZX: border colour set to {}", spcr_.border & 0x07);
 
-        // 128K paging
-        if (machine_id_ >= 2) {
-            emu.port().out(0x7FFD, spcr_.port_7ffd);
-            Log::emulator()->debug("SZX: port 7FFD = {:#04x}", spcr_.port_7ffd);
-        }
-
-        // +2A/+3 paging
+        // The +2A/+3 (IDs 4-6): port 0x1FFD FIRST. A 0x7FFD with the lock
+        // bit (5) set closes the 0x1FFD register (zxnext.vhd:3718), so
+        // writing it second dropped the +3 ROM/special paging of every
+        // locked snapshot (GH #323).
         if (machine_id_ >= 4 && machine_id_ <= 6) {
             emu.port().out(0x1FFD, spcr_.port_1ffd);
             Log::emulator()->debug("SZX: port 1FFD = {:#04x}", spcr_.port_1ffd);
         }
+
+        // 128K paging: the 128K-class machines (IDs 2-7, 16). NOT 15 (NTSC 48K).
+        if (has_128k_paging()) {
+            emu.port().out(0x7FFD, spcr_.port_7ffd);
+            Log::emulator()->debug("SZX: port 7FFD = {:#04x}", spcr_.port_7ffd);
+        }
+    }
+
+    // Timex port 0xFF (the SCLD chunk); chF4 (HSR) is not modelled by the Next.
+    if (have_scld_) {
+        emu.port().out(0x00FF, scld_dec_);
+        Log::emulator()->debug("SZX: port FF = {:#04x}", scld_dec_);
+    }
+
+    // The sound chip, on the 128K-class machines.
+    if (have_ay_ && has_128k_paging())
+        emu.restore_ay_registers(ay_regs_, ay_selected_);
+
+    // NTSC 48K (ID 15): the 48K at 60 Hz. The 48K timing at 60 Hz is the
+    // 224 T x 264 line NTSC frame (zxula_timing.vhd:282-298).
+    if (machine_id_ == 15) {
+        emu.nextreg().write(0x05, static_cast<uint8_t>(emu.nextreg().cached(0x05) | 0x04));
+        Log::emulator()->debug("SZX: NTSC 48K, 60 Hz");
     }
 
     // ---------------------------------------------------------------

@@ -1706,8 +1706,18 @@ int main(int argc, char* argv[]) {
         // playback boots that machine (emulator_boot_machine()) — the same
         // rule every cold boot applies. An explicit --machine wins, and
         // Emulator::load_rzx() warns when it disagrees with the recording.
-        // A `.jns` names its machine too and wins even over --machine (GH #321).
-        cfg.type = emulator_startup_machine(cfg.load_file, cfg.type, machine_type_set);
+        // A `.jns` (GH #321) and a `.sna`/`.szx`/`.z80` (GH #323) name their
+        // machine too and win even over --machine.
+        {
+            const MachineType given = cfg.type;
+            cfg.type = emulator_startup_machine(cfg.load_file, cfg.type, machine_type_set);
+            // GH #323: a snapshot runs on the machine it was saved on, even
+            // over an explicit --machine; say so rather than do it silently.
+            if (machine_type_set && cfg.type != given)
+                Log::emulator()->warn("--machine {}: '{}' was saved on the {}; running the {}",
+                                      machine_type_key(given), cfg.load_file,
+                                      machine_type_str(cfg.type), machine_type_str(cfg.type));
+        }
 
         // An allowlist with nothing to restrict is a user error worth naming:
         // it reads as "I have restricted the ESP" when in fact the ESP is off.
