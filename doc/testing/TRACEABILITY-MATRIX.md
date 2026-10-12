@@ -34,7 +34,7 @@ mentions them, so a test can no longer be absent from this document.
 | DivMMC+SPI                                 |   162 |  162 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    57 |   57 |    0 |    0 |       0 |          0 |
 | CTC+Interrupts                             |   203 |  203 |    0 |    0 |       0 |          0 |
-| UART+I2C/RTC                               |   204 |  204 |    0 |    0 |       0 |          0 |
+| UART+I2C/RTC                               |   205 |  205 |    0 |    0 |       0 |          0 |
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
 | Input                                      |   401 |  401 |    0 |    0 |       0 |          0 |
@@ -65,10 +65,10 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: input_integration_test          |    43 |   43 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    72 |   72 |    0 |    0 |       0 |          0 |
-| Companion: nextpi_test                     |    17 |   17 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5777 | 5777 |    0 |    0 |       0 |          0 |
+| Companion: nextpi_test                     |    18 |   18 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5779 | 5779 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5777**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5364**. Rows the 145 suites declared in `test/unit-tests.conf` run live: **12858**.
+Rows the sections above carry: **5779**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5365**. Rows the 145 suites declared in `test/unit-tests.conf` run live: **12859**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -2732,6 +2732,7 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PIT-15 | QEMU runs with LANG=C and LC_ALL=C, each exactly once whatever the case of the parent's variable names, and jnext's own environment is left alone | — | pass | test/uart/nextpi_test.cpp:998 |
 | PIT-16 | an empty Pi audio setting is the Next's mixer (the wav FIFO) on Linux and macOS and the host output (dsound) on Windows, where there is no mixer path yet; `host` is the host output on every OS (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1035 |
 | PIT-17 | starting NextPi with the audio setting empty gives QEMU the mixer's wav FIFO and makes the audio reader on Linux and macOS (also on the socket transport, in a runtime directory of its own that stop() removes, never in the current directory), and gives QEMU dsound with no reader on Windows; link_config carries the reader (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1091 |
+| PIT-18 | the stop grace period is measured on the clock, not counted in sleeps: with every launcher poll sleep stretched five-fold, a stubborn QEMU is still killed at the grace, not after it (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1136 |
 | I2C-P05a | DS1307 - restart + read address 0xD1 returns ACK=0 | — | pass | test/uart/uart_test.cpp:1776 |
 | I2C-P05b | DS1307 - seconds register is valid BCD (upper<=5, lower<=9) | — | pass | test/uart/uart_test.cpp:1780 |
 | RTC-23 | GH #317 parse_rtc_datetime — an overflowing, signed or space-padded field and a wrong separator are rejected; unpadded digit fields still parse | — | pass | test/uart/uart_test.cpp:2341 |
@@ -6284,4 +6285,5 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PIT-15 | QEMU runs with LANG=C and LC_ALL=C, each exactly once whatever the case of the parent's variable names, and jnext's own environment is left alone | — | pass | test/uart/nextpi_test.cpp:998 |
 | PIT-16 | an empty Pi audio setting is the Next's mixer (the wav FIFO) on Linux and macOS and the host output (dsound) on Windows, where there is no mixer path yet; `host` is the host output on every OS (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1035 |
 | PIT-17 | starting NextPi with the audio setting empty gives QEMU the mixer's wav FIFO and makes the audio reader on Linux and macOS (also on the socket transport, in a runtime directory of its own that stop() removes, never in the current directory), and gives QEMU dsound with no reader on Windows; link_config carries the reader (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1091 |
+| PIT-18 | the stop grace period is measured on the clock, not counted in sleeps: with every launcher poll sleep stretched five-fold, a stubborn QEMU is still killed at the grace, not after it (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1136 |
 
