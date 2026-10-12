@@ -257,6 +257,8 @@ reads a z88dk map (`MapFormat::Z88dk`) or a plain `SYMBOL = $ADDR` list
 shows in every other. A z88dk map's `; const` lines go into a separate
 name-only table: `lookup_name()` resolves them, and `lookup(addr)` never names an
 address after a constant.
+The `-debug` records (names starting `__C_LINE_`, `__ASM_LINE_` or `__CDBINFO__`)
+are dropped by the loader, so they never name an address or resolve by name.
 
 ### Coverage and the trace
 

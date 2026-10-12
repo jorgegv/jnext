@@ -3524,7 +3524,10 @@
   are kept by name only, so a script's <code>@__data_crt_head</code> resolves, but they
   never name an address in the views below. A name the file defines twice
   takes its first definition; a name that is both an address and a constant
-  is the address.</li>
+  is the address.
+  A map built with <code>zcc -debug</code> is accepted: its per-line markers
+  (<code>__C_LINE_…</code>, <code>__ASM_LINE_…</code>) and C debug records (<code>__CDBINFO__…</code>) are
+  not symbols and are ignored, so the function labels keep their addresses.</li>
 <li><strong>Simple Format (48K ROM)…</strong> — plain <code>NAME = $ADDR</code> lines, one per line,
   <code>;</code> for comments.</li>
 </ul>

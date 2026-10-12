@@ -57,6 +57,14 @@ int SymbolTable::load_z88dk_map(const std::string& path)
         std::string name = name_part.substr(start, end - start + 1);
         if (name.empty())
             continue;
+        // z88dk `-debug` debug records (GH #352): a per-line marker at the
+        // address of the function label, and the C debug info. Reserved
+        // prefixes (z80asm preproc.cpp / directives.c, sccz80 cdbfile.c); the
+        // map is sorted by name, so a marker would otherwise win the address.
+        if (name.compare(0, 9, "__C_LINE_") == 0 ||
+            name.compare(0, 11, "__ASM_LINE_") == 0 ||
+            name.compare(0, 11, "__CDBINFO__") == 0)
+            continue;
 
         // Extract hex value after '=' — look for '$' prefix
         std::string val_part = def_part.substr(eq + 1);
