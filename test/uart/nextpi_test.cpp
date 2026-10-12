@@ -1099,7 +1099,7 @@ int main(int argc, char** argv) {
                   error.c_str(), dev.c_str(), dir_ok ? 1 : 0, cwd_clean ? 1 : 0, gone ? 1 : 0));
     }
 
-    // ── PIT-18 — THE GRACE IS A TIME, NOT A COUNT OF SLEEPS (GH #355): on a host
+    // ── PIT-24 — THE GRACE IS A TIME, NOT A COUNT OF SLEEPS (GH #355): on a host
     // that stretches short sleeps (macOS timer coalescing) the grace must still end
     // on the clock. The launcher's poll sleeps are replaced by one that takes 50 ms
     // per 10 ms asked, five times over; a grace counted in sleeps (30 of them) then
@@ -1133,7 +1133,7 @@ int main(int argc, char** argv) {
         if (stopper.joinable()) stopper.join();
         const bool killed = pid != 0 && nxs::gone_within(pid, 1500);
         if (!killed && pid != 0) nxs::kill_hard(pid);
-        check("PIT-18",
+        check("PIT-24",
               "the stop grace period is measured on the clock, not counted in sleeps: with every launcher "
               "poll sleep stretched five-fold, a stubborn QEMU is still killed at the grace, not after it "
               "(jnext-only, no VHDL counterpart)",
