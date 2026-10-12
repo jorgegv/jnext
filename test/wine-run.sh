@@ -142,7 +142,7 @@ if [[ "${1:-}" == --serve ]]; then
         [[ $n -eq 1 && -n $found ]] && echo "$found"
         return 0
     }
-    # Poll (30 s bound) until ONE pid has stayed the same for 3 s (15 polls of 0.2 s,
+    # Poll (at most 150 polls of 0.2 s plus a /proc scan each: 30 s or more under load) until ONE pid has stayed the same for 3 s (15 polls of 0.2 s,
     # longer than the ~1 s close timeout of the warm-up explorer on its way out); a
     # change of pid restarts the count, so a slow keeper attach is not a fault.
     kpid=; cur=; stable=0
