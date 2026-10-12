@@ -303,11 +303,16 @@ under QEMU is one, so:
   header and reassembles frames split across reads. A header is found two ways:
   after the EOF a departing writer leaves, and in-stream, at a frame boundary,
   by `RIFF`...`WAVE`, for a writer that follows the last with no read in
-  between (bytes that may still be a header wait for the next read). On POSIX it
-  polls for 100 ms at a time with a writer connected and 20 ms without one: a
-  `poll()` that began before a new writer connected is not always woken by its
-  data on macOS, and the short timeout bounds a reconnect's delay. The stream
-  parser (`consume` / `writer_gone`) is shared by both transports.
+  between (bytes that may still be a header wait for the next read). It polls
+  for 100 ms at a time with a writer connected and 20 ms without one; the short
+  timeout bounds a reconnect's delay. Linux's `poll()` reports a gone writer
+  at once (POLLHUP), so there a read that finds no writer is followed by a
+  20 ms pause, or the thread would spin a core; macOS's never reports it
+  (XNU's FIFO read filter fires only when data is queued), so there the
+  timeout already paced the loop and the pause is taken only after a `poll()`
+  that returned at once. A pause after a timeout was a second wait on the one
+  timer macOS may stretch by tens of ms (GH #354).
+  The stream parser (`consume` / `writer_gone`) is shared by both transports.
 - **Windows: a named pipe jnext serves** (`audio/pi_audio_win.cpp`). QEMU 10.2 has
   no audio back-end that writes to a socket; its stream-out back-ends are `wav`
   (which `fopen`s a path, `audio/wavaudio.c:116`) and the host drivers. So the
@@ -319,7 +324,9 @@ under QEMU is one, so:
   after QEMU is gone. The reader never polls: it waits on the I/O event and a
   stop event, so it wakes at once for data, a departing writer and `close()` (a
   pending `ConnectNamedPipe`/`ReadFile` is cancelled with `CancelIoEx`), and with
-  no writer it sleeps. After a writer leaves, the pipe is disconnected and
+  no writer it sleeps (so the POSIX no-writer pause of GH #354, which exists only
+  because Linux's `poll()` reports a gone writer at once, has no counterpart here:
+  nothing returns early to be paced, and `no_writer_pauses()` stays 0). After a writer leaves, the pipe is disconnected and
   listens again. QEMU opens the wav file once per run (the usb-audio voice is
   opened at realize, `hw/usb/dev-audio.c:960`, and `wav_init_out` runs once,
   `audio/audio_template.h:520-545`), so the re-listen is a robustness path. The
@@ -581,7 +588,7 @@ the `WAVE` check fails MX-52; polling for the wrong event fails MX-44 on Linux (
 on macOS (a spinning core); a 1000 ms poll timeout fails MX-45 (`close()`
 waits); a 200 ms no-writer pause fails MX-46 (reconnect latency); a FIFO
 made 0666, or a regular file accepted, fails MX-35; no pause after a read that
-finds no writer fails MX-37 on Linux (macOS's `poll()` waits anyway); treating
+finds no writer fails MX-37 on Linux; a pause after a `poll()` that timed out fails MX-53; treating
 EAGAIN as the writer's end fails MX-38; no close-on-exec, a leaked descriptor
 on re-open or close, or a stale one after `close()`, fails MX-39; giving up on a
 `poll()` error (a signal's EINTR) fails MX-40; not escaping the FIFO path for

@@ -514,9 +514,9 @@ static void g_pi_audio() {
         }
 
         // MX-46 — a reconnect is prompt: once the reader has seen a writer go
-        // (an EOF read, which starts its no-writer pause), a new writer's frame
-        // must be available within 100 ms (~20 ms with the 20 ms pause;
-        // ~200 ms with a 200 ms one).
+        // (an EOF read; on Linux it then pauses 20 ms, on macOS it is back in
+        // its 20 ms poll()), a new writer's frame must be available within
+        // 100 ms (~20 ms with the 20 ms pause; ~200 ms with a 200 ms one).
         {
             const std::string fifo = (dir / "mx46.fifo").string();
             PiAudio a;
@@ -532,8 +532,8 @@ static void g_pi_audio() {
             for (int i = 0; i < 2000 && a.eof_reads() == eofs; ++i) ::usleep(500);
             const bool saw_eof = a.eof_reads() > eofs;         // the pause has just begun
             // Wait the pause out, so the reader is already in poll() with no
-            // writer when the new one connects: the case a poll() that is not
-            // woken by the new writer's data would turn into a full timeout.
+            // writer when the new one connects: the data must wake that poll()
+            // at once, not leave the frame waiting for its timeout.
             ::usleep(30000);
             const int wb = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
             const std::string second = header() + frames_bytes(1, 1);
@@ -700,10 +700,11 @@ static void g_pi_audio() {
         // once, so without the pause the thread would spin a core after every
         // QEMU exit; the upper bound is 60 wakeups in 600 ms, which the Linux
         // run discriminates. Where poll() does not report the gone writer
-        // (macOS) it times out instead, after the 20 ms it uses with no writer:
-        // 15 wakeups, and 5 if that timeout were the 100 ms a connected writer
-        // gets, which would leave a reconnecting writer waiting; the lower
-        // bound is 8. jnext-only, no VHDL counterpart.
+        // (macOS) it times out instead, after the 20 ms it uses with no writer,
+        // and the reader takes no further pause: 30 wakeups on both OSes, and
+        // about 6 if that timeout were the 100 ms a connected writer gets,
+        // which would leave a reconnecting writer waiting; the lower bound is
+        // 8. jnext-only, no VHDL counterpart.
         {
             const std::string fifo = (dir / "mx37.fifo").string();
             PiAudio a;
@@ -727,6 +728,33 @@ static void g_pi_audio() {
                   fmt("opened=%d wrote=%d available=%u wakeups in 600 ms=%llu (want 8..60)",
                       opened ? 1 : 0, wrote ? 1 : 0, a.available(),
                       static_cast<unsigned long long>(wakeups)));
+        }
+
+        // MX-53 — NO PAUSE AFTER A POLL THAT ALREADY WAITED: on a FIFO that
+        // has never had a writer, poll() times out (20 ms) and the read then
+        // finds no writer. That timeout already paced the loop, so the reader
+        // takes no further 20 ms pause. Oracles: Linux fs/pipe.c pipe_poll
+        // reports EPOLLHUP only once a writer has come and gone since this
+        // open; XNU bsd/vfs/vfs_vnops.c filt_vnode_common makes a FIFO
+        // readable only when FIONREAD != 0 (so macOS never reports a gone
+        // writer either). A second wait there would be on the timer macOS may
+        // stretch by tens of ms (GH #354). Counts a mechanism, not wall-clock
+        // time. jnext-only, no VHDL counterpart.
+        {
+            const std::string fifo = (dir / "mx53.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            for (int i = 0; opened && i < 200 && a.eof_reads() < 5; ++i) ::usleep(10000);
+            const uint64_t eofs = a.eof_reads();
+            const uint64_t pauses = a.no_writer_pauses();
+            check("MX-53", "with no writer ever connected, poll() times out and the reads that "
+                  "find no writer take no pause: the timeout already waited (jnext-only, no VHDL "
+                  "counterpart)",
+                  opened && eofs >= 5 && pauses == 0,
+                  fmt("opened=%d eof reads=%llu (want >= 5) pauses=%llu (want 0)",
+                      opened ? 1 : 0, static_cast<unsigned long long>(eofs),
+                      static_cast<unsigned long long>(pauses)));
         }
 
         // MX-38 — A LIVE WRITER'S PAUSE IS NOT AN END: QEMU writes nothing while
