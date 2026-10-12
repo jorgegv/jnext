@@ -10,7 +10,10 @@ The peer and jnext both log, for the bytes they handle, `digest <stream> off=<n>
 and nextsync-peer.py hold the twin implementations) and `digest-exact <stream> off=<n>
 fnv=<h> [queued=<q>]` at moments that matter: the end of each frame, when the ESP's
 output queue drains, and when the guest starts a command (`esp-out-at-cmd` also says how
-many bytes the engine still held for the guest, `queued`).
+many bytes the engine still held for the guest, `queued`). jnext's `uart<n>-guest-read` exact
+record also carries `edge=<c>` (the emulated 28 MHz cycle the guest started the command) and
+`drained_edge=<c>` (the cycle of the read that last left the RX FIFO empty), so a verdict can say
+how long the guest had been waiting on an empty FIFO (GH #327).
 
 THE HOPS, in the order the bytes travel (checkpoints compared where both sides have one):
   1 network     peer-sent       -> sock-in          (the socket)
@@ -29,6 +32,8 @@ import sys
 
 DIG = re.compile(r"digest (\S+) off=(\d+) fnv=([0-9a-f]{8})")
 EXACT = re.compile(r"digest-exact (\S+) off=(\d+) fnv=([0-9a-f]{8})(?: queued=(\d+))?")
+EDGE = re.compile(r"digest-exact (\S+) off=\d+ fnv=[0-9a-f]{8}(?: queued=\d+)? edge=(\d+)(?: drained_edge=(\d+))?")
+CYCLES_PER_MS = 28000   # 28 MHz emulated cycles
 TS = re.compile(r"\[(\d\d):(\d\d):(\d\d)\.(\d\d\d)\]")
 PEER_TS = re.compile(r"^(?:ev|digest\S*)? ?(\d\d):(\d\d):(\d\d)\.(\d\d\d)")
 HOPS = [("1 network (peer-sent -> sock-in)", "peer-sent", "sock-in"),
@@ -94,6 +99,18 @@ def hop_table(cps):
     return rows, first_bad
 
 
+def drained_edges(path):
+    """[(ts_ms, stream, edge, drained_edge)] from the `uart<n>-guest-read` exact records that carry them."""
+    out = []
+    with open(path, errors="replace") as f:
+        for line in f:
+            m = EDGE.search(line)
+            if m and m.group(3) is not None:
+                ts = TS.search(line)
+                out.append((ms_of(ts) if ts else None, m.group(1), int(m.group(2)), int(m.group(3))))
+    return out
+
+
 def check(peer_path, jnext_path):
     pc, _, _ = load(peer_path)
     jc, _, _ = load(jnext_path)
@@ -107,6 +124,8 @@ def check(peer_path, jnext_path):
         elif diff is not None:
             bad.append("hop %s: the digests DIFFER at offset %d: a hop changed a byte on a run that otherwise passed"
                        % (name, diff))
+    if not drained_edges(jnext_path):
+        bad.append("no `uart<n>-guest-read ... drained_edge=` record in jnext's log: the guest-read timing hook is missing or moved")
     return bad
 
 
@@ -168,9 +187,9 @@ def verdict(peer_path, jnext_path):
                    "before the guest gave up." % (
                        first[4], fmt(first[0]), first[0] - t_reply,
                        ("; the queue drained at %s, %d ms later" % (fmt(drained[0][0]), drained[0][0] - first[0])) if drained else ""))
-        lock_lines = [text for t, text in jlines if re.search(r"held the core lock|ran into the worker's lock", text)]
+        lock_lines = [text for t, text in jlines if re.search(r"held the core lock|could not frame the next message", text)]
         out.append("  ESP worker/lock evidence in jnext's log (debug lines when the worker held the core lock >= 20 ms, or "
-                   "tick() lost >= 20 ms to it): %s" % (("%d line(s), first: %s" % (len(lock_lines), lock_lines[0])) if lock_lines else "none"))
+                   "tick() could not frame the next message for >= 20 ms; NOT stalled bytes since GH #327): %s" % (("%d line(s), first: %s" % (len(lock_lines), lock_lines[0])) if lock_lines else "none"))
         return "\n".join(out)
 
     def last_exact(stream, before):
@@ -208,19 +227,30 @@ def verdict(peer_path, jnext_path):
                    "everything on cannot be said (and the guest is NOT blamed)." % ", ".join(unknown))
     else:
         silent = t_c - t_reply if t_reply is not None else None
+        de = [e for e in drained_edges(jnext_path) if e[0] is not None and e[0] <= t_c]
+        waited = ("; the guest last emptied the RX FIFO %.1f ms (emulated) before it started the command"
+                  % ((de[-1][2] - de[-1][3]) / CYCLES_PER_MS)) if de else ""
         out.append("  VERDICT: no byte was changed and every stage had passed on everything the peer had sent (%d bytes: ESP "
-                   "queue empty, FIFO fully read): the guest HAD every byte that existed and still sent its Restart. Nothing "
-                   "in the transport was short%s; look at the guest's handling or at the peer's own timing."
-                   % (peer_sent[2], (" -- the peer's last reply was %d ms before the guest's command" % silent) if silent is not None else ""))
-    lock_lines = [text for t, text in jlines if re.search(r"held the core lock|ran into the worker's lock", text)]
+                   "queue empty, FIFO fully read): the guest HAD every byte that existed and still sent its Restart. The byte "
+                   "COUNTS at every stage were complete%s%s; counts say nothing about inter-byte timing (a pause inside a "
+                   "message is what makes NextSync drop a packet), so look at the guest's handling, the peer's own timing, or "
+                   "the delivery gaps."
+                   % (peer_sent[2], (" -- the peer's last reply was %d ms before the guest's command" % silent) if silent is not None else "", waited))
+    lock_lines = [text for t, text in jlines if re.search(r"held the core lock|could not frame the next message", text)]
     out.append("  ESP worker/lock evidence in jnext's log (debug lines when the worker held the core lock >= 20 ms, or "
-               "tick() lost >= 20 ms to it): %s" % (("%d line(s), first: %s" % (len(lock_lines), lock_lines[0])) if lock_lines else "none"))
+               "tick() could not frame the next message for >= 20 ms; NOT stalled bytes since GH #327): %s" % (("%d line(s), first: %s" % (len(lock_lines), lock_lines[0])) if lock_lines else "none"))
     return "\n".join(out)
 
 
 def selftest():
     # The FNV-1a/32 test vectors (isthe.com/chongo/tech/comp/fnv): "" = 811c9dc5, "a" = e40c292c, "foobar" = bf9cf968.
     ok = (fnv(b"") == "811c9dc5" and fnv(b"a") == "e40c292c" and fnv(b"foobar") == "bf9cf968")
+    # GH #327: the guest-read exact record parses with and without the edge fields.
+    line = "[00:00:01.000] digest-exact uart0-guest-read off=10 fnv=811c9dc5 edge=1000 drained_edge=400"
+    m = EDGE.search(line)
+    ok = ok and bool(m) and (m.group(1), m.group(2), m.group(3)) == ("uart0-guest-read", "1000", "400")
+    ok = ok and EXACT.search(line).group(2) == "10"
+    ok = ok and EDGE.search("digest-exact uart0-fifo-in off=1 fnv=811c9dc5 edge=5").group(3) is None
     print("selftest: %s" % ("ok" if ok else "FAILED"))
     return 0 if ok else 1
 
