@@ -6574,6 +6574,12 @@ static void test_v16_nmp_02_expbus_and_mask(Emulator& emu) {
                   " port_contend(7FFD)=" + std::to_string(contend) +
                   " port_ulap_io_en=" + std::to_string(ulap) +
                   " (want 1 88 FD 8E 0 0 0 0)");
+        // Fixture isolation (GH #323): the 48K .sna just loaded switched this SHARED
+        // emulator to a 48K (a snapshot runs on the machine it was saved on). Put it back
+        // on the Next the later rows expect; no assertion or expected value changes.
+        EmulatorConfig next = emu.config();
+        next.type = MachineType::ZXN_ISSUE2;
+        emulator_frontend_cold_boot(emu, next, std::string(), ColdBootHooks{});
     }
 
     // Restore baseline: NR 0x80=0, NR 0x82-0x89 = power-on defaults.
