@@ -67,7 +67,9 @@ Three details are worth knowing before adding a handler:
   cleared `internal_port_enable` bit simply drops out of the equation set, and
   an overlapping decode fires instead. So with NR `0x84` bit 2 clear,
   `OUT (0x7FF1),A` stops being a Soundrive write and becomes a plain `0x7FFD`
-  paging write.
+  paging write. Likewise with NR `0x82` bit 2 clear, `OUT (0xDFFD),A` stops
+  being an extended-paging write and becomes an AY register select (`port_fffd_wr
+  = ... and not port_dffd`, `zxnext.vhd:2773`).
 - **Observers run before dispatch, unconditionally.** `add_io_observer()`
   installs a side-effect-only callback invoked on every `IN` and `OUT`
   regardless of what matches. The Multiface needs this: its enable and disable

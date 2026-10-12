@@ -364,7 +364,7 @@ inline constexpr Option OPTIONS[] = {
       "Start NextPi under QEMU (qemu-system-arm,\n"
       "raspi0), connected to UART 1, the Pi GPIO header's UART.\n"
       "The first run offers to download NextPi (about 6 GB) into\n"
-      "~/.jnext/nextpi. Needs QEMU installed. POSIX-only" },
+      "~/.jnext/nextpi. Needs QEMU installed" },
     { "--no-nextpi", 0, Doc::Documented, OptId::NoNextpi,
       "",
       "Do not start NextPi this run, overriding a saved\n"

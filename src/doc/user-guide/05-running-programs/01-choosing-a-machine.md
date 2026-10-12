@@ -17,7 +17,11 @@ Three things actually change with the machine type:
 
 - **Available hardware.** A 48K has no AY chip and no memory paging; a Next
   has extra video layers and a much faster CPU. Software written for one
-  generally will not run on an earlier one.
+  generally will not run on an earlier one. Like the Next firmware's own 48K,
+  128K, +3 and Pentagon personalities, the four non-Next machines start with
+  the Next-only ports off (Timex port 0xFF, the DMA's port 0x6B, Layer 2 and
+  sprites, the CTC, and 0xDFFD except on the Pentagon); software can turn them
+  on through NextREG 0x82-0x85, as on the hardware.
 - **Timing.** Each machine has its own frame length and screen timing, which
   is what makes music and raster effects run at the right speed.
 - **Contention.** On real 48K/128K/+3 hardware the video circuitry steals

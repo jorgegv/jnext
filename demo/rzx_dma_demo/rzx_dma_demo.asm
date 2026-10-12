@@ -10,9 +10,11 @@
 ; port, and a playback answers those reads from the recording. The DMA's port
 ; reads used to bypass both, so a replay of a DMA-driven program read the live
 ; hardware instead of the recording and went out of step. It runs on a 48K
-; because RZX recording is refused on a Next (GH #274); the zxnDMA is there on
-; every machine type (zxnext.vhd:2405, :2440, :2643 — the port decode is gated
-; by NR 0x82 bit 5 and NR 0x85 bit 1, never by the machine type).
+; because RZX recording is refused on a Next (GH #274). The 48K personality
+; starts with port $6B off, as the Next firmware's 48K mode does (tbblue.fw
+; boot.c case 0: NR 0x82 = $C0), so the program first turns it on through
+; NextREG, as software on a Next personality must (zxnext.vhd:2405, :2440,
+; :2643 — the decode is gated by NR 0x82 bit 5 and NR 0x85 bit 1) (GH #325).
 ;
 ; WHAT IT DOES, once per frame (HALT on an IM 2 interrupt):
 ;   1. The CPU reads the A-G keyboard half-row (IN from $FDFE).
@@ -45,6 +47,7 @@ DMA_PORT    equ $6B             ; zxnDMA (ZXN mode)
 
 start:
         di
+        db   $ED, $91, $82, $E0 ; NEXTREG $82,$E0: 48K personality $C0 | $20 = port $6B on
         ld   sp, STACK
         xor  a
         out  ($FE), a           ; black border

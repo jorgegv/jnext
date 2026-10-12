@@ -1630,10 +1630,7 @@ int main(int argc, char* argv[]) {
         cfg.joy_uart_rx_delay_frames = static_cast<uint32_t>(joy_uart_rx_delay_frames);
         cfg.joy_uart_fifo            = joy_uart_fifo;
         cfg.joy_uart_pty             = joy_uart_pty;
-        if (pi_qemu) {                 // NextPi, started before the app below
-            cfg.pi_uart_fifo_rx      = pi_qemu->rx_path();
-            cfg.pi_uart_fifo_tx      = pi_qemu->tx_path();
-        }
+        if (pi_qemu) pi_qemu->link_config(cfg);   // NextPi, started before the app below
 
         // Task 66 — saved GUI preferences fill in fields the CLI left at
         // their default; merge_cli_precedence() (src/gui/app_config.h) always

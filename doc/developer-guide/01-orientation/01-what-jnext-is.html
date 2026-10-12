@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.36</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.38</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.36</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.38</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2336,8 +2336,14 @@ by writing NR 0x03, and the commit lands on <code>MachineType::PENTAGON</code> t
 axes stay separate types because they are independent once the emulator is
 running. <code>Emulator::init</code> builds the whole personality for a plain
 <code>--machine pentagon</code>: the 128K ROM, NR 0x03 = 0x44, the firmware's mode-3 port
-enables (NR 0x82 = 0xC6, NR 0x84 bit 2 clear, NR 0x85 bit 7 clear so a soft
-reset keeps them) and the Covox DAC.</p>
+enables and the Covox DAC. Every standalone personality (48K, 128K, +3,
+Pentagon) gets the port enables <code>tbblue.fw</code> <code>boot.c</code> writes for its mode, on a
+cold boot only (GH #325): NR 0x82 = 0xC0 / 0xC2 / 0xDA / 0xC6, NR 0x83 bits 7:6
+clear (Layer 2, sprites), NR 0x85 bits 7, 3 and 2 clear (so a soft reset keeps
+them; no CTC, no 0xEFF7), NR 0x84 bit 0 clear on the 48K (AY) and bit 2 on the
+Pentagon. The rule: a bit <code>boot.c</code> writes the same whatever <code>config.ini</code> says
+takes the firmware's value; a config-dependent bit stays on, except the 48K AY.
+The Next itself is untouched.</p>
 <p>Per-machine geometry lives in <code>MachineTiming</code> (<code>src/core/emulator_config.h:259</code>)
 and is derived from <code>zxula_timing.vhd</code>: a 48K frame is 448 pixels × 312 lines,
 while 128K, +3 and Next frames are 456 × 311. Underneath all of it, everything

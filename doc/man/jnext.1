@@ -396,7 +396,12 @@ A soft or hard reset leaves the Pi running.
 A Pi asked for with this option that cannot start (no QEMU, a failed
 download) is an error; declining the download is not \(em jnext then
 starts without the Pi.
-POSIX only.
+On Linux and macOS the link is a pair of FIFOs; on Windows (QEMU for
+Windows, its folder on \f[CR]PATH\f[R] or set in Preferences) it is a
+loopback TCP socket QEMU listens on.
+On Windows the Pi\(cqs sound plays on the host speakers (QEMU\(cqs
+\f[CR]dsound\f[R]); sending it through the Next\(cqs mixer (NR 0xA2, the
+volume controls) is not there yet.
 .RE
 .TP
 \f[B]\-\-no\-nextpi\f[R]
@@ -1077,6 +1082,15 @@ Not the original Russian clone\(cqs own hardware.
 \f[CR]next\f[R]
 ZX Spectrum Next (Issue 2) \- full Next hardware and extended features.
 .PP
+Like the Next firmware\(cqs own 48K, 128K, +3 and Pentagon
+personalities, the four standalone machines start with the Next\-only
+ports off: Timex port 0xFF, the zxnDMA\(cqs port 0x6B, the Layer 2 and
+sprite ports, the CTC and 0xEFF7 (and 0xDFFD, except on the Pentagon).
+The 48K also has 0x7FFD paging and the AY off; 0x1FFD and the +3
+floating bus are on only on the +3.
+Software turns any of them back on through NextREG 0x82\-0x85, as on the
+hardware.
+.PP
 The machine type can also be switched at runtime from the GUI
 (\f[B]Machine > Machine Type\f[R]); switching resets the machine.
 .SH SD CARD AND ROMS
@@ -1458,8 +1472,9 @@ An SNA has no byte for the +3\(cqs second paging register, so a +3 in
 \f[I]special paging\f[R], or with ROM 2 or ROM 3 paged, is refused with
 \f[CR].szx\f[R] named as the format that can hold it.
 An SNA names the bank at 0xC000 in a field that reaches only banks 0\-7,
-so a machine using \f[B]extended paging\f[R] (port 0xDFFD, which works
-on every machine type, not only a Next) is refused too, pointing at
+so a machine using \f[B]extended paging\f[R] (port 0xDFFD, which is on
+by default on a Next and a Pentagon and reachable on the other machines
+once software enables it in NextREG 0x82) is refused too, pointing at
 \f[CR].jns\f[R] \(em \f[CR].szx\f[R] has no field for that register
 either.
 An SNA also carries no machine identifier, so FUSE reads a 128K one as a
@@ -2932,8 +2947,8 @@ there; empty means \f[CR]1_93D\f[R]), \f[CR]qemu_binary\f[R] (empty
 means \f[CR]qemu\-system\-arm\f[R] on \f[CR]PATH\f[R]) and
 \f[CR]audio\f[R] (a QEMU \f[CR]\-audiodev\f[R] driver such as
 \f[CR]coreaudio\f[R], \f[CR]pa\f[R] or \f[CR]none\f[R], or
-\f[CR]wav:\f[R]\f[I]FILE\f[R]; empty means \f[CR]coreaudio\f[R] on macOS
-and \f[CR]pa\f[R] elsewhere).
+\f[CR]wav:\f[R]\f[I]FILE\f[R]; empty means \f[CR]coreaudio\f[R] on
+macOS, \f[CR]dsound\f[R] on Windows and \f[CR]pa\f[R] elsewhere).
 Changing the release makes the next start offer to download it,
 replacing the installed one.
 The joystick ports are stored under \f[CR][input]\f[R]:

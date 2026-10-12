@@ -14,7 +14,11 @@ the genuine article.
 
 You need **QEMU** installed — on macOS `brew install qemu`; on Fedora
 `sudo dnf install qemu-system-arm qemu-img`; on Debian or Ubuntu
-`sudo apt install qemu-system-arm qemu-utils`. Then either tick **Start
+`sudo apt install qemu-system-arm qemu-utils`; on Windows install QEMU for
+Windows and either add its folder to your `PATH` or set the QEMU binary under
+**Settings ▸ Preferences ▸ NextPi**. On Windows the Pi is reached over a local
+(loopback) socket, which may raise a firewall prompt the first time; the Pi's sound plays on your speakers
+(QEMU's `dsound`). Then either tick **Start
 NextPi** under **Settings ▸ Preferences ▸ NextPi** and restart JNEXT, or start
 it for one run with:
 

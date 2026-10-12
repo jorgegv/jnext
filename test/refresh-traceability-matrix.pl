@@ -360,6 +360,10 @@ my @SUBSYS = (
     # suite (FIFO/pty cables, the NextPi link, QEMU; GH #214).
     ['### Companion POSIX-only suite — `test/uart/uart_posix_test.cpp`',
      'uart_posix_test'],
+    # The portable half of the NextPi launcher: the socket transport and the
+    # Windows launch (GH #316), `# os: all`.
+    ['### Companion suite — `test/uart/nextpi_test.cpp`',
+     'nextpi_test'],
 );
 
 # Per-suite plan doc, consulted as the last citation source when the test
@@ -385,6 +389,7 @@ my %PLAN_DOC = (
     'uart_test'                   => 'UART-I2C',
     'uart_integration_test'       => 'UART-I2C',
     'uart_posix_test'             => 'UART-I2C',
+    'nextpi_test'                 => 'UART-I2C',
     'nextreg_test'                => 'NEXTREG',
     'nextreg_integration_test'    => 'NEXTREG',
     'port_test'                   => 'IO-PORT-DISPATCH',

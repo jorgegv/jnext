@@ -34,7 +34,7 @@ mentions them, so a test can no longer be absent from this document.
 | DivMMC+SPI                                 |   162 |  162 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    57 |   57 |    0 |    0 |       0 |          0 |
 | CTC+Interrupts                             |   203 |  203 |    0 |    0 |       0 |          0 |
-| UART+I2C/RTC                               |   170 |  170 |    0 |    0 |       0 |          0 |
+| UART+I2C/RTC                               |   185 |  185 |    0 |    0 |       0 |          0 |
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
 | Input                                      |   401 |  401 |    0 |    0 |       0 |          0 |
@@ -60,14 +60,15 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
 | Companion: divmmc_integration_test         |     6 |    6 |    0 |    0 |       0 |          0 |
 | Companion: ctc_interrupts_test             |    88 |   88 |    0 |    0 |       0 |          0 |
-| Companion: nextreg_integration_test        |   357 |  357 |    0 |    0 |       0 |          0 |
+| Companion: nextreg_integration_test        |   379 |  379 |    0 |    0 |       0 |          0 |
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    43 |   43 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    55 |   55 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5654 | 5654 |    0 |    0 |       0 |          0 |
+| Companion: nextpi_test                     |    15 |   15 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5706 | 5706 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5654**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5275**. Rows the 142 suites declared in `test/unit-tests.conf` run live: **12742**.
+Rows the sections above carry: **5706**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5312**. Rows the 142 suites declared in `test/unit-tests.conf` run live: **12749**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -79,7 +80,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 97 suites (7551 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 96 suites (7521 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -95,7 +96,7 @@ These 97 suites (7551 live rows) have no VHDL-derived plan row to map, so they h
 | `sdcard_file_add_posix_test` | 13 | rows moved out of sdcard_file_add_test (symlink, FIFO, device, chmod-0 fixtures; POSIX-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
 | `sdcard_file_add_linux_test` | 1 | SDFA-T26 moved out of sdcard_file_add_test (needs a case-sensitive host filesystem; Linux-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
 | `fat32_image_test` | 16 | FAT32 on-disk format (host image reader) |
-| `sdcard_provisioner_test` | 82 | jnext SD-image download/patch policy (host side) |
+| `sdcard_provisioner_test` | 85 | jnext SD-image download/patch policy (host side) |
 | `warm_start_test` | 43 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
 | `snapshot_test` | 299 | the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file |
 | `sd_identity_test` | 37 | the .jns snapshot SD-card MEDIA IDENTITY (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3): the two-tier identity read off a REAL image -- MBR partition table, FAT32 BS_VolID, whole-image digest -- and the refusal/warning matrix it feeds. The oracle is that design section plus the FAT32 on-disk format; the FPGA core never sees a filesystem, only SPI blocks, which `## SD Card` traces |
@@ -107,7 +108,7 @@ These 97 suites (7551 live rows) have no VHDL-derived plan row to map, so they h
 | `present_cadence_test` | 34 | host present cadence policy (wall-clock, not core timing) |
 | `render_policy_test` | 10 | host render/skip policy (wall-clock, not core timing) |
 | `screenshot_test` | 24 | host screenshot file formats and auto-naming, no core counterpart |
-| `emulator_boot_test` | 117 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
+| `emulator_boot_test` | 115 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
 | `preferences_apply_policy_test` | 20 | Preferences apply/revert policy (host GUI) |
 | `window_attach_test` | 32 | host window-attach geometry (GH #39 contract, no VHDL oracle) |
 | `pointer_capture_test` | 64 | host mouse-capture policy (window-manager behaviour) |
@@ -128,7 +129,6 @@ These 97 suites (7551 live rows) have no VHDL-derived plan row to map, so they h
 | `tzx_loader_test` | 91 | TZX container format: libspectrum TZX reader + the TZX specification as oracles (host loader), no core counterpart |
 | `tape_save_test` | 59 | TZX / WAV writer (GH #89): the TZX 1.20 and RIFF/WAVE layouts, with FUSE/libspectrum as the foreign reader (host saver); its hardware rows, the tape-out signal (TSAVE-30, TSAVE-43), cite zxnext.vhd:6503 in their own source |
 | `snapshot_im_test` | 4 | snapshot loaders seeding the NR 0xC0 IM latch (host loaders; nextreg.txt NR 0xC0) |
-| `snapshot_machine_test` | 27 | which machine a .sna/.szx/.z80 loads as (libspectrum header tables, GH #323; host loaders) and the +3 / AY / SCLD / NTSC state they restore; its hardware rows (SNM-27, 29, 30, 31, 33) cite zxnext.vhd, zxula_timing.vhd and ports.txt in their own source |
 | `atic_atac_nmi_test` | 4 | narrative section, hand-maintained (feeds protected NR-C0-02) |
 | `inject_test` | 17 | jnext --inject entry state (host debugging aid), no core counterpart |
 | `profiler_test` | 32 | jnext profiler output format (a developer tool) |
@@ -166,7 +166,7 @@ These 97 suites (7551 live rows) have no VHDL-derived plan row to map, so they h
 | `window_scale_test` | 10 | main-window scale/fullscreen geometry (host GUI) |
 | `window_title_test` | 6 | main-window title carries the version (host GUI) |
 | `quit_cleanup_test` | 8 | host shutdown ordering (GUI lifecycle) |
-| `preferences_apply_test` | 79 | Preferences dialog wiring (host GUI) |
+| `preferences_apply_test` | 75 | Preferences dialog wiring (host GUI) |
 | `debugger_video_panel_test` | 116 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 17 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 8 | debugger quit gating (host GUI lifecycle) |
@@ -400,13 +400,13 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | BANK5-02 | config-mode NR $04=$05 window writes SRAM page 0x0A without touching the bank-5 VRAM (the NextZXOS mid-boot-garbage killer) — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6506 |
 | BANK5-03 | standalone-machine (rom_in_sram=false) bank-5 writes land in flat RAM pages 0x0A/0x0B, NOT the Next-only VRAM buffer | — | pass | test/mmu/mmu_test.cpp:6526 |
 | BANK5-04 | CPU L2 window with bank 5 writes SRAM page 0x2A (unconditional layer2_A21_A13 formula), not page 0x0A and not the VRAM — VHDL zxnext.vhd:2966-2971 + 3100-3107 | zxnext.vhd:2966-2971 | pass | test/mmu/mmu_test.cpp:6551 |
-| G12-TAG-06 | a CPU attribute write at 7 MHz straddling a line start is tagged with the master-clock line it landed on (the 3.5 MHz formula puts it elsewhere) | — | pass | test/mmu/mmu_integration_test.cpp:2704 |
-| G12-TAG-07 | a CPU attribute write at 14 MHz straddling a line start is tagged with the master-clock line it landed on | — | pass | test/mmu/mmu_integration_test.cpp:2720 |
-| G12-TAG-08 | a CPU attribute write at 28 MHz straddling a line start is tagged with the master-clock line it landed on | — | pass | test/mmu/mmu_integration_test.cpp:2736 |
-| G12-TAG-09 | a CPU attribute write late in a line at 28 MHz keeps its own column: column 0, already fetched on that line, shows it from the next line | — | pass | test/mmu/mmu_integration_test.cpp:2756 |
-| G12-TAG-10 | after a 3.5 -> 28 MHz switch mid-frame the CPU attribute write tag follows the new unit at once | — | pass | test/mmu/mmu_integration_test.cpp:2784 |
-| G12-TAG-11 | after a state load at 28 MHz the CPU attribute write tag follows the restored CPU speed | — | pass | test/mmu/mmu_integration_test.cpp:2820 |
-| G12-TAG-12 | after a soft reset at 28 MHz mid-frame the FUSE counter is re-derived for 3.5 MHz (counter x divisor = clock - frame start, to a whole T-state) and the write tag follows | zxnext.vhd:5800, zxula_timing.vhd | pass | test/mmu/mmu_integration_test.cpp:2856 |
+| G12-TAG-06 | a CPU attribute write at 7 MHz straddling a line start is tagged with the master-clock line it landed on (the 3.5 MHz formula puts it elsewhere) | — | pass | test/mmu/mmu_integration_test.cpp:2707 |
+| G12-TAG-07 | a CPU attribute write at 14 MHz straddling a line start is tagged with the master-clock line it landed on | — | pass | test/mmu/mmu_integration_test.cpp:2723 |
+| G12-TAG-08 | a CPU attribute write at 28 MHz straddling a line start is tagged with the master-clock line it landed on | — | pass | test/mmu/mmu_integration_test.cpp:2739 |
+| G12-TAG-09 | a CPU attribute write late in a line at 28 MHz keeps its own column: column 0, already fetched on that line, shows it from the next line | — | pass | test/mmu/mmu_integration_test.cpp:2759 |
+| G12-TAG-10 | after a 3.5 -> 28 MHz switch mid-frame the CPU attribute write tag follows the new unit at once | — | pass | test/mmu/mmu_integration_test.cpp:2787 |
+| G12-TAG-11 | after a state load at 28 MHz the CPU attribute write tag follows the restored CPU speed | — | pass | test/mmu/mmu_integration_test.cpp:2823 |
+| G12-TAG-12 | after a soft reset at 28 MHz mid-frame the FUSE counter is re-derived for 3.5 MHz (counter x divisor = clock - frame start, to a whole T-state) and the write tag follows | zxnext.vhd:5800, zxula_timing.vhd | pass | test/mmu/mmu_integration_test.cpp:2859 |
 | G12-MUX-12 | a pixel-plane byte read at an instant earlier than the previous read of it returns the value as of that earlier instant (baseline 0x11, 0x22 @100, 0x33 @200 on line 40) | zxula.vhd:276-286 | pass | test/mmu/mmu_test.cpp:2414 |
 | G12-MUX-13 | rewind_to_baseline() restarts every cursor: a second pass over the recorded log sees 0x22 at (40,150) again and the baseline 0x11 on the previous line; a write made after the rewind is seen by the next read (0x44 @250 on line 40) | — | pass | test/mmu/mmu_test.cpp:2434 |
 | G12-MUX-14 | a pass that exhausted an offset's cursor, then a further write before the same instant: the next read at that instant sees it, with and without a rewind | — | pass | test/mmu/mmu_test.cpp:2472 |
@@ -1871,191 +1871,191 @@ Notes and rationale: [DMA-TEST-PLAN-DESIGN.md](DMA-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| 1.1 | Write 0x6B latches ZXN mode: counter=0 on LOAD | dma.vhd:664-665 | pass | test/dma/dma_test.cpp:244 |
-| 1.2 | Write 0x0B latches Z80 mode: counter=0xFFFF on LOAD | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:254 |
-| 1.3 | Emulator::init failed (48K) | zxnext.vhd:1816-1817, dma.vhd:482-483 | pass | test/dma/dma_test.cpp:274 |
-| 1.4 | Emulator::init failed (48K) | zxnext.vhd:1816-1817, dma.vhd:484-485 | pass | test/dma/dma_test.cpp:292 |
-| 1.6 | Mode re-latched on each port access | dma.vhd:664-668 | pass | test/dma/dma_test.cpp:320 |
-| 2.1 | R0 bit2=1 dir A->B: src=portA, dst=portB | dma.vhd:656-658 | pass | test/dma/dma_test.cpp:348 |
-| 2.2 | R0 bit2=0 dir B->A: src=portB, dst=portA | dma.vhd:659-662 | pass | test/dma/dma_test.cpp:364 |
-| 2.3 | R0 addr LO sub-byte only | dma.vhd:739 | pass | test/dma/dma_test.cpp:377 |
-| 2.4 | R0 addr HI sub-byte | dma.vhd:752 | pass | test/dma/dma_test.cpp:390 |
-| 2.5 | R0 full 16-bit port A address | dma.vhd:739,752 | pass | test/dma/dma_test.cpp:404 |
-| 2.6 | R0 block length LO sub-byte | dma.vhd:763 | pass | test/dma/dma_test.cpp:416 |
-| 2.7 | R0 block length HI sub-byte | dma.vhd:772 | pass | test/dma/dma_test.cpp:429 |
-| 2.8 | R0 selective re-program: only addr LO updated | dma.vhd:518-538 | pass | test/dma/dma_test.cpp:445 |
-| 3.1 | R1 bit3=0: portA reads memory | dma.vhd:542 | pass | test/dma/dma_test.cpp:474 |
-| 3.2 | R1 bit3=1: portA reads I/O | dma.vhd:542 | pass | test/dma/dma_test.cpp:493 |
-| 3.3 | R1 addr mode 01 = increment | dma.vhd:543 | pass | test/dma/dma_test.cpp:503 |
-| 3.4 | R1 addr mode 00 = decrement | dma.vhd:543 | pass | test/dma/dma_test.cpp:512 |
-| 3.5 | R1 addr mode 10 = fixed | dma.vhd:543 | pass | test/dma/dma_test.cpp:521 |
-| 3.6 | R1 timing byte stored (00/01/10/11) | dma.vhd:776 | pass | test/dma/dma_test.cpp:534 |
-| 4.1 | R2 bit3=0: portB writes memory | dma.vhd:559 | pass | test/dma/dma_test.cpp:559 |
-| 4.2 | R2 bit3=1: portB writes I/O | dma.vhd:559 | pass | test/dma/dma_test.cpp:578 |
-| 4.3 | R2 addr mode 01 = increment | dma.vhd:560 | pass | test/dma/dma_test.cpp:588 |
-| 4.4 | R2 addr mode 00 = decrement | dma.vhd:560 | pass | test/dma/dma_test.cpp:597 |
-| 4.5 | R2 addr mode 10 = fixed | dma.vhd:560 | pass | test/dma/dma_test.cpp:606 |
-| 4.6 | R2 timing byte stored (00/01/10/11) | dma.vhd:790 | pass | test/dma/dma_test.cpp:619 |
-| 4.7 | R2 prescaler sub-byte consumed; sequencer returns to IDLE | dma.vhd:799 | pass | test/dma/dma_test.cpp:641 |
-| 4.8 | Prescaler=0 default: full block in one burst (no wait) | dma.vhd:424 | pass | test/dma/dma_test.cpp:655 |
-| 5.1 | R3 bit6=1 -> TRANSFERRING | dma.vhd:576-579 | pass | test/dma/dma_test.cpp:677 |
-| 5.2 | R3 bit6=0 -> IDLE | dma.vhd:576 | pass | test/dma/dma_test.cpp:686 |
-| 5.3 | R3 mask sub-byte consumed; subsequent R0 still parsed | dma.vhd:576-582 | pass | test/dma/dma_test.cpp:700 |
-| 5.4 | R3 match sub-byte consumed; subsequent R0 still parsed | dma.vhd:576-582 | pass | test/dma/dma_test.cpp:715 |
-| 6.1 | R4 mode 00 = byte | dma.vhd:601 | pass | test/dma/dma_test.cpp:738 |
-| 6.2 | R4 mode 01 = continuous | dma.vhd:601 | pass | test/dma/dma_test.cpp:747 |
-| 6.3 | R4 mode 10 = burst | dma.vhd:601 | pass | test/dma/dma_test.cpp:756 |
-| 6.4 | Reset default R4 mode = continuous | dma.vhd:236 | pass | test/dma/dma_test.cpp:765 |
-| 6.5 | R4 portB addr LO sub-byte | dma.vhd:816 | pass | test/dma/dma_test.cpp:780 |
-| 6.6 | R4 portB addr HI sub-byte | dma.vhd:827 | pass | test/dma/dma_test.cpp:796 |
-| 6.7 | R4 full 16-bit port B address | dma.vhd:816,827 | pass | test/dma/dma_test.cpp:810 |
-| 6.8 | R4 mode 11 stored as raw value 3 (no VHDL special case) | dma.vhd:601 | pass | test/dma/dma_test.cpp:826 |
-| 7.1 | R5 auto-restart: state=TRANSFERRING and addrs reloaded | dma.vhd:473-491 | pass | test/dma/dma_test.cpp:854 |
-| 7.2 | R5 auto-restart off (default): state=IDLE after block | dma.vhd:238,494 | pass | test/dma/dma_test.cpp:868 |
-| 8.1 | 0xC3 RESET: state=IDLE | dma.vhd:638 | pass | test/dma/dma_test.cpp:907 |
-| 8.2 | 0xC7 resets port A timing to 01 | dma.vhd:648 | pass | test/dma/dma_test.cpp:917 |
-| 8.3 | 0xCB resets port B timing to 01 | dma.vhd:651 | pass | test/dma/dma_test.cpp:928 |
-| 8.4 | LOAD clears status_endofblock_n (bit5=1) | dma.vhd:654 | pass | test/dma/dma_test.cpp:943 |
-| 8.5 | LOAD A->B: src=0x1234, dst=0x5678 | dma.vhd:656-658 | pass | test/dma/dma_test.cpp:957 |
-| 8.6 | LOAD B->A: src=0x5678, dst=0x1234 | dma.vhd:660-662 | pass | test/dma/dma_test.cpp:972 |
-| 8.7 | LOAD ZXN: counter=0 | dma.vhd:664-665 | pass | test/dma/dma_test.cpp:983 |
-| 8.8 | LOAD Z80: counter=0xFFFF | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:993 |
-| 8.9 | CONTINUE: counter reset, addrs preserved | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:1007 |
-| 8.10 | CONTINUE ZXN: counter=0 | dma.vhd:673-674 | pass | test/dma/dma_test.cpp:1019 |
-| 8.11 | CONTINUE Z80: counter=0xFFFF | dma.vhd:675-676 | pass | test/dma/dma_test.cpp:1029 |
-| 8.12 | ENABLE -> TRANSFERRING | dma.vhd:725 | pass | test/dma/dma_test.cpp:1038 |
-| 8.13 | DISABLE -> IDLE | dma.vhd:728 | pass | test/dma/dma_test.cpp:1048 |
-| 8.14 | 0x8B status reinit: byte = 0x3A | dma.vhd:691-692,902 | pass | test/dma/dma_test.cpp:1065 |
-| 8.15 | 0xBB mask=0x01: read sequence locked to status | dma.vhd:731,859-860 | pass | test/dma/dma_test.cpp:1081 |
-| 8.16 | 0xBF forces next read = status byte | dma.vhd:696-699 | pass | test/dma/dma_test.cpp:1097 |
-| 9.1 | A->B inc both, 4 bytes copied in order | dma.vhd:379-391 | pass | test/dma/dma_test.cpp:1120 |
-| 9.2 | B->A inc both, 4 bytes copied portB->portA | dma.vhd:660-662,389-391 | pass | test/dma/dma_test.cpp:1140 |
-| 9.3 | A->B src decrement: reads walk backwards | dma.vhd:384-387 | pass | test/dma/dma_test.cpp:1161 |
-| 9.4 | A->B fixed src: identical bytes written N times | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1182 |
-| 9.5 | A->B fixed dst: last byte remains in single slot | dma.vhd:389-396 | pass | test/dma/dma_test.cpp:1201 |
-| 9.6 | Block length = 1 transfers 1 byte (ZXN) | dma.vhd:426 | pass | test/dma/dma_test.cpp:1215 |
-| 9.7 | Block length = 256 transfers 256 bytes | dma.vhd:426 | pass | test/dma/dma_test.cpp:1229 |
-| 9.8 | Block length = 0 transfers 1 byte (ZXN) | dma.vhd:361,426 | pass | test/dma/dma_test.cpp:1246 |
-| 10.1 | Mem->IO A inc, B fixed: last byte at fixed IO port | dma.vhd:559 | pass | test/dma/dma_test.cpp:1277 |
-| 10.2 | Mem->IO A inc, B inc: 3 consecutive IO ports written | dma.vhd:559,389-391 | pass | test/dma/dma_test.cpp:1296 |
-| 10.3 | Mem->IO: read phase asserts MREQ (mem callback), write phase asserts IORQ (io callback) | dma.vhd:186-190,290-296 | pass | test/dma/dma_test.cpp:1327 |
-| 10.4 | IO->Mem: byte arrives from IO to memory | dma.vhd:542 | pass | test/dma/dma_test.cpp:1350 |
-| 10.5 | IO->IO: single byte arrives at destination IO port | dma.vhd:542,559 | pass | test/dma/dma_test.cpp:1369 |
-| 10.6 | IO port B delivered with full 16-bit address | dma.vhd:36 | pass | test/dma/dma_test.cpp:1389 |
-| 11.1 | Both inc A->B: src=0x8004 dst=0x9004 after 4 bytes | dma.vhd:379-391 | pass | test/dma/dma_test.cpp:1411 |
-| 11.2 | Both dec A->B: src=0x7FFF dst=0x8FFF after 4 bytes | dma.vhd:384-396 | pass | test/dma/dma_test.cpp:1430 |
-| 11.3 | Src inc, dst dec: dst walks backwards while src ascends | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1449 |
-| 11.4 | Src dec, dst fixed: dst=0x9000 holds last source byte (0x20) | dma.vhd:384-396 | pass | test/dma/dma_test.cpp:1469 |
-| 11.5 | Both fixed: addresses unchanged after transfer | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1489 |
-| 11.6 | Src wraps 0xFFFF -> 0x0000 (16-bit address) | dma.vhd:36,381 | pass | test/dma/dma_test.cpp:1510 |
-| 12.1 | Continuous: whole block in one execute_burst | dma.vhd:426-430,601 | pass | test/dma/dma_test.cpp:1536 |
-| 12.2 | Burst prescaler=0: 1 byte per execute_burst | dma.vhd:424 | pass | test/dma/dma_test.cpp:1559 |
-| 12.3 | Burst prescaler>0: is_active() false during wait | dma.vhd:424-425 | pass | test/dma/dma_test.cpp:1581 |
-| 12.4 | Burst WAITING_CYCLES: cpu_busreq_n deasserted (bus released) | dma.vhd:445 | pass | test/dma/dma_test.cpp:1604 |
-| 12.5 | After prescaler expires: cpu_busreq_n re-asserted | dma.vhd:451-460 | pass | test/dma/dma_test.cpp:1629 |
-| 12.6 | R4 mode=00 transfers full block_len bytes (VHDL dma.vhd:426 block-length check is mode-agnostic) | dma.vhd:426 | pass | test/dma/dma_test.cpp:1656 |
-| 12.7 | Continuous+prescaler: one byte then wait (TRANSFERRING) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1688 |
-| 12.8 | Prescaler vs timer scales with turbo_i (8x clocks at 28MHz) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1707 |
-| 13.1 | Prescaler=0: no WAITING_CYCLES (runs to IDLE) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1779 |
-| 13.2 | turbo=00 (3.5MHz): timer += 8 per clock | dma.vhd:251 | pass | test/dma/dma_test.cpp:1791 |
-| 13.3 | turbo=01 (7MHz): timer += 4 per clock | dma.vhd:252 | pass | test/dma/dma_test.cpp:1802 |
-| 13.4 | turbo=10 (14MHz): timer += 2 per clock | dma.vhd:253 | pass | test/dma/dma_test.cpp:1813 |
-| 13.5 | turbo=11 (28MHz): timer += 1 per clock | dma.vhd:254 | pass | test/dma/dma_test.cpp:1824 |
-| 13.6 | Prescaler comparison uses timer bits(13:5) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1838 |
-| 13.9 | Burst+prescaler: the last byte is followed by a wait; end of block only after it | dma.vhd:423-436,458-464,471 | pass | test/dma/dma_test.cpp:1864 |
-| 13.10 | Auto-restart: no byte of the next pass before a prescaler wait | dma.vhd:423-436,458-464,473-488 | pass | test/dma/dma_test.cpp:1891 |
-| 13.11 | Last byte's wait ends with the bus still released, into FINISH_DMA | dma.vhd:454-464,493-494,262 | pass | test/dma/dma_test.cpp:1914 |
-| 13.12 | 3.5 MHz: burst prescaler 104 spaces bytes 3328 master cycles | zxnext.vhd:1776-1777, dma.vhd:250-254,451 | pass | test/dma/dma_test.cpp:1933 |
-| 13.13 | 7 MHz: burst prescaler 104 spaces bytes 3328 master cycles | zxnext.vhd:1776-1777, dma.vhd:250-254,451 | pass | test/dma/dma_test.cpp:1940 |
-| 13.14 | 14 MHz: burst prescaler 104 spaces bytes 3328 master cycles | zxnext.vhd:1776-1777, dma.vhd:250-254,451 | pass | test/dma/dma_test.cpp:1947 |
-| 13.15 | 28 MHz: burst prescaler 104 spaces bytes 3328 master cycles | zxnext.vhd:1776-1777, dma.vhd:250-254,451 | pass | test/dma/dma_test.cpp:1954 |
-| 14.1 | ZXN LOAD: counter=0 | dma.vhd:664-665 | pass | test/dma/dma_test.cpp:2012 |
-| 14.2 | Z80 LOAD: counter=0xFFFF | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:2021 |
-| 14.3 | ZXN: counter=N after N-byte block | dma.vhd:361 | pass | test/dma/dma_test.cpp:2033 |
-| 14.4 | ZXN block_len=5: 5 bytes transferred | dma.vhd:426 | pass | test/dma/dma_test.cpp:2045 |
-| 14.5 | Z80 block_len=5: 6 bytes (block_len+1) | dma.vhd:426,666-667 | pass | test/dma/dma_test.cpp:2060 |
-| 14.6 | ZXN block_len=0: 1 byte transferred | dma.vhd:361,426 | pass | test/dma/dma_test.cpp:2075 |
-| 14.7 | Z80 block_len=0: 1 byte transferred | dma.vhd:361,426,667 | pass | test/dma/dma_test.cpp:2087 |
-| 14.8 | Counter readback = 5 after 5-byte block | dma.vhd:933-947 | pass | test/dma/dma_test.cpp:2105 |
-| 15.1 | TRANSFER: cpu_busreq_n asserted (false) | dma.vhd:278 | pass | test/dma/dma_test.cpp:2128 |
-| 15.2 | WAITING_ACK gates transfer on cpu_bai_n | dma.vhd:296 | pass | test/dma/dma_test.cpp:2144 |
-| 15.3 | IDLE: cpu_busreq_n deasserted (true) | dma.vhd:225,262 | pass | test/dma/dma_test.cpp:2153 |
-| 15.4 | bus_busreq_n=0 at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:2167 |
-| 15.5 | daisy_busy=true at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:2181 |
-| 15.6 | dma_delay=1 at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:2194 |
-| 15.7 | dma_holds_bus=true while transferring | zxnext.vhd | pass | test/dma/dma_test.cpp:2207 |
-| 16.1 | Auto-restart: src/dst reloaded to 0x8000/0x9000 | dma.vhd:473-481 | pass | test/dma/dma_test.cpp:2236 |
-| 16.2 | Auto-restart ZXN: counter reloaded to 0 | dma.vhd:482-486 | pass | test/dma/dma_test.cpp:2249 |
-| 16.3 | Auto-restart A->B reload uses R0 as src, R4 as dst | dma.vhd:474-476 | pass | test/dma/dma_test.cpp:2262 |
-| 16.4 | Auto-restart B->A reload: src=portB, dst=portA | dma.vhd:478-479 | pass | test/dma/dma_test.cpp:2281 |
-| 16.5 | CONTINUE preserves src/dst | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:2295 |
-| 16.6 | LOAD restores start addrs; CONTINUE keeps current addrs | dma.vhd:656-662 | pass | test/dma/dma_test.cpp:2315 |
-| 16.7 | Auto-restart: status keeps end-of-block (0x1B) across passes | dma.vhd:471,473-488,412 | pass | test/dma/dma_test.cpp:2336 |
-| 17.1 | Status bits [4:1] = 1101 | dma.vhd:902 | pass | test/dma/dma_test.cpp:2364 |
-| 17.2 | Initial endofblock_n = 1 (bit5 set) | dma.vhd:242 | pass | test/dma/dma_test.cpp:2375 |
-| 17.3 | After block: endofblock_n = 0 (bit5 clear) | dma.vhd:471 | pass | test/dma/dma_test.cpp:2388 |
-| 17.4 | Mid-block, after the first byte: atleastone = 1 (0x3B) | dma.vhd:412,423-425 | pass | test/dma/dma_test.cpp:2404 |
-| 17.5 | 0x8B reinit: status = 0x3A | dma.vhd:691-692 | pass | test/dma/dma_test.cpp:2418 |
-| 17.6 | 0xC3 reset: status = 0x3A | dma.vhd:638-641 | pass | test/dma/dma_test.cpp:2432 |
-| 17.7 | Default mask 0x7F: 7-field cycle then wrap | dma.vhd:239 | pass | test/dma/dma_test.cpp:2456 |
-| 17.8 | Read sequence advances mask bits 0..6 in order | dma.vhd:902-922 | pass | test/dma/dma_test.cpp:2475 |
-| 17.9 | Mask 0x07: 3 fields (status, cnt LO/HI) then wrap | dma.vhd:696-717 | pass | test/dma/dma_test.cpp:2493 |
-| 17.10 | Mask with two bits: wraps after last enabled field | dma.vhd:919-922 | pass | test/dma/dma_test.cpp:2514 |
-| 17.11 | After a completed block (IDLE): status = 0x1A | dma.vhd:471,493-494,265 | pass | test/dma/dma_test.cpp:2530 |
-| 17.12 | DISABLE mid-block: IDLE clears atleastone (0x3B -> 0x3A) | dma.vhd:727-728,265 | pass | test/dma/dma_test.cpp:2546 |
-| 17.13 | ENABLE (0x87) mid-block keeps atleastone (0x3B -> 0x3B) | dma.vhd:724-725,265 | pass | test/dma/dma_test.cpp:2564 |
-| 17.14 | R3 enable mid-block keeps atleastone (0x3B -> 0x3B) | dma.vhd:578-580,265 | pass | test/dma/dma_test.cpp:2579 |
-| 18.1 | Read field: status byte | dma.vhd:902 | pass | test/dma/dma_test.cpp:2617 |
-| 18.2 | Read field: counter LO = 0x00 (ZXN just LOADed) | dma.vhd:933 | pass | test/dma/dma_test.cpp:2627 |
-| 18.3 | Read field: counter HI = 0x00 (ZXN just LOADed) | dma.vhd:935 | pass | test/dma/dma_test.cpp:2637 |
-| 18.4 | Read field: portA LO = src LO (0x34) under A->B | dma.vhd:910-912 | pass | test/dma/dma_test.cpp:2648 |
-| 18.5 | Read field: portA HI = src HI (0x12) under A->B | dma.vhd:913-915 | pass | test/dma/dma_test.cpp:2658 |
-| 18.6 | Read field: portB LO = dst LO (0x78) under A->B | dma.vhd:916-918 | pass | test/dma/dma_test.cpp:2668 |
-| 18.7 | Read field: portB HI = dst HI (0x56) under A->B | dma.vhd:919-921 | pass | test/dma/dma_test.cpp:2678 |
-| 18.8 | B->A: portA reads dst, portB reads src | dma.vhd:910-921 | pass | test/dma/dma_test.cpp:2693 |
-| 19.1 | Hardware reset defaults | dma.vhd:213-242 | pass | test/dma/dma_test.cpp:2721 |
-| 19.2 | 0xC3 soft reset: state=IDLE and status=0x3A | dma.vhd:638-641 | pass | test/dma/dma_test.cpp:2739 |
-| 19.3 | 0xC3 preserves R0 and R4 start addresses | dma.vhd:638-645 | pass | test/dma/dma_test.cpp:2757 |
-| 19.4 | 0xC3 resets both port timings to 01 | dma.vhd:641-642 | pass | test/dma/dma_test.cpp:2769 |
-| 19.5 | 0xC3 resets prescaler: transfer runs to IDLE in one burst | dma.vhd:643 | pass | test/dma/dma_test.cpp:2786 |
-| 19.6 | 0xC3 clears auto-restart: transfer ends at IDLE | dma.vhd:645 | pass | test/dma/dma_test.cpp:2800 |
-| 20.1 | dma_delay=1 blocks START_DMA; deasserting proceeds | dma.vhd:269 | pass | test/dma/dma_test.cpp:2826 |
-| 20.2 | dma_delay mid-transfer: cpu_busreq_n released | dma.vhd:427-428 | pass | test/dma/dma_test.cpp:2842 |
-| 20.5 | Prescaler wait is tested before dma_delay: the bus is kept and the next byte moves | dma.vhd:424-428,441-449 | pass | test/dma/dma_test.cpp:2877 |
-| 21.1 | Timing 00 -> 4 cycles | dma.vhd:313 | pass | test/dma/dma_test.cpp:2913 |
-| 21.2 | Timing 01 -> 3 cycles | dma.vhd:314 | pass | test/dma/dma_test.cpp:2921 |
-| 21.3 | Timing 10 -> 2 cycles | dma.vhd:315 | pass | test/dma/dma_test.cpp:2929 |
-| 21.4 | Timing 11 -> 4 cycles (when others) | dma.vhd:316 | pass | test/dma/dma_test.cpp:2937 |
-| 21.5 | Read timing selects R1 (A->B) vs R2 (B->A) | dma.vhd:311 | pass | test/dma/dma_test.cpp:2953 |
-| 21.6 | Write timing selects R2 (A->B) vs R1 (B->A) | dma.vhd:371 | pass | test/dma/dma_test.cpp:2967 |
-| 22.1 | DISABLE mid-transfer -> IDLE | dma.vhd:728 | pass | test/dma/dma_test.cpp:2989 |
-| 22.2 | ENABLE without LOAD: state=TRANSFERRING | dma.vhd:725 | pass | test/dma/dma_test.cpp:3000 |
-| 22.3 | Multiple LOADs: last values used | dma.vhd:656-668 | pass | test/dma/dma_test.cpp:3019 |
-| 22.4 | CONTINUE during auto-restart: counter reset, addrs kept | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:3037 |
-| 22.5 | R1 base byte does not update R0 direction | dma.vhd:542 | pass | test/dma/dma_test.cpp:3055 |
-| 22.6 | 0x00 matches R2 (dec), not R0 | dma.vhd:518-520,559 | pass | test/dma/dma_test.cpp:3068 |
-| 23.1 | Emulator::init failed (Next machine) | zxnext.vhd:1828-1835,1839,1844 | pass | test/dma/dma_test.cpp:3158 |
-| 23.2 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/dma/dma_test.cpp:3190 |
-| 23.3 | Emulator::init failed (Next machine) | zxnext.vhd | pass | test/dma/dma_test.cpp:3224 |
-| 23.4 | Wait hook: one call per source memory READ at the stepped source address; accumulator = 8 for an 8-byte mem->mem block — writes never wait (zxnext.vhd:3175 cpu_rd_n='0') | zxnext.vhd:3175, zxnext.vhd:3171-3181 | pass | test/dma/dma_test.cpp:3250 |
-| 23.5 | I/O-source block: the wait hook is never consulted — I/O reads assert IORQ, not MREQ; sram_memcycle needs cpu_mreq_n='0' (zxnext.vhd:3144) | zxnext.vhd:3144 | pass | test/dma/dma_test.cpp:3281 |
-| 23.6 | mem->I/O block: all 8 source memory reads wait; the I/O destination write is irrelevant to the read-side wait (zxnext.vhd:3144,3175) | zxnext.vhd:3144,3175 | pass | test/dma/dma_test.cpp:3313 |
-| 23.7 | Emulator::init failed (Next machine) | dma.vhd:267-269, zxnext.vhd:2001-2010 | pass | test/dma/dma_test.cpp:3372 |
-| GH283-01 | Emulator::init failed (48K) | zxnext.vhd:2405,2643 | pass | test/dma/dma_test.cpp:3629 |
-| GH283-02 | under RZX recording every DMA port read is captured, in order, with the value the DMA delivered | — | pass | test/dma/dma_test.cpp:3635 |
-| GH283-03 | a recorded DMA port read keeps the DMA's timing: 4-byte burst = 8 T, and the T-state counter moves by those 8 T only | — | pass | test/dma/dma_test.cpp:3644 |
-| GH283-04 | Emulator::init failed (48K) | — | pass | test/dma/dma_test.cpp:3658 |
-| GH283-05 | and the live port is not read: a replay never consults the hardware the recording was made against | — | pass | test/dma/dma_test.cpp:3683 |
-| GH283-06 | Emulator::init failed (48K) | — | pass | test/dma/dma_test.cpp:3697 |
-| GH283-07 | Emulator::init failed (48K) | — | pass | test/dma/dma_test.cpp:3714 |
-| GH283-08 | RZX playback: an IO_READ watchpoint stops the machine on the DMA's replayed read of the watched port | — | pass | test/dma/dma_test.cpp:3790 |
-| GH283-09 | RZX playback: an IO_READ watchpoint stops the machine after the CPU's replayed IN of the watched port | — | pass | test/dma/dma_test.cpp:3808 |
-| GH283-10 | and a watchpoint on another port does not stop either replayed read | — | pass | test/dma/dma_test.cpp:3826 |
-| GH283-11 | RZX playback: a Port subscription sees the DMA's read and then the CPU's, each carrying the REPLAYED value, not the live one | — | pass | test/dma/dma_test.cpp:3860 |
-| GH283-12 | and a subscription on another port sees neither | — | pass | test/dma/dma_test.cpp:3872 |
-| GH230-08 | write_io still alive when Emulator::init() would reassign it mid-burst | — | pass | test/dma/dma_test.cpp:3539 |
-| GH230-09 | executing write_io reads its own capture after the reassignment | — | pass | test/dma/dma_test.cpp:3546 |
-| GH230-10 | the burst still delivered the byte to the I/O destination | — | pass | test/dma/dma_test.cpp:3551 |
+| 1.1 | Write 0x6B latches ZXN mode: counter=0 on LOAD | dma.vhd:664-665 | pass | test/dma/dma_test.cpp:248 |
+| 1.2 | Write 0x0B latches Z80 mode: counter=0xFFFF on LOAD | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:258 |
+| 1.3 | Emulator::init failed (48K) | zxnext.vhd:1816-1817, dma.vhd:482-483 | pass | test/dma/dma_test.cpp:278 |
+| 1.4 | Emulator::init failed (48K) | zxnext.vhd:1816-1817, dma.vhd:484-485 | pass | test/dma/dma_test.cpp:296 |
+| 1.6 | Mode re-latched on each port access | dma.vhd:664-668 | pass | test/dma/dma_test.cpp:324 |
+| 2.1 | R0 bit2=1 dir A->B: src=portA, dst=portB | dma.vhd:656-658 | pass | test/dma/dma_test.cpp:352 |
+| 2.2 | R0 bit2=0 dir B->A: src=portB, dst=portA | dma.vhd:659-662 | pass | test/dma/dma_test.cpp:368 |
+| 2.3 | R0 addr LO sub-byte only | dma.vhd:739 | pass | test/dma/dma_test.cpp:381 |
+| 2.4 | R0 addr HI sub-byte | dma.vhd:752 | pass | test/dma/dma_test.cpp:394 |
+| 2.5 | R0 full 16-bit port A address | dma.vhd:739,752 | pass | test/dma/dma_test.cpp:408 |
+| 2.6 | R0 block length LO sub-byte | dma.vhd:763 | pass | test/dma/dma_test.cpp:420 |
+| 2.7 | R0 block length HI sub-byte | dma.vhd:772 | pass | test/dma/dma_test.cpp:433 |
+| 2.8 | R0 selective re-program: only addr LO updated | dma.vhd:518-538 | pass | test/dma/dma_test.cpp:449 |
+| 3.1 | R1 bit3=0: portA reads memory | dma.vhd:542 | pass | test/dma/dma_test.cpp:478 |
+| 3.2 | R1 bit3=1: portA reads I/O | dma.vhd:542 | pass | test/dma/dma_test.cpp:497 |
+| 3.3 | R1 addr mode 01 = increment | dma.vhd:543 | pass | test/dma/dma_test.cpp:507 |
+| 3.4 | R1 addr mode 00 = decrement | dma.vhd:543 | pass | test/dma/dma_test.cpp:516 |
+| 3.5 | R1 addr mode 10 = fixed | dma.vhd:543 | pass | test/dma/dma_test.cpp:525 |
+| 3.6 | R1 timing byte stored (00/01/10/11) | dma.vhd:776 | pass | test/dma/dma_test.cpp:538 |
+| 4.1 | R2 bit3=0: portB writes memory | dma.vhd:559 | pass | test/dma/dma_test.cpp:563 |
+| 4.2 | R2 bit3=1: portB writes I/O | dma.vhd:559 | pass | test/dma/dma_test.cpp:582 |
+| 4.3 | R2 addr mode 01 = increment | dma.vhd:560 | pass | test/dma/dma_test.cpp:592 |
+| 4.4 | R2 addr mode 00 = decrement | dma.vhd:560 | pass | test/dma/dma_test.cpp:601 |
+| 4.5 | R2 addr mode 10 = fixed | dma.vhd:560 | pass | test/dma/dma_test.cpp:610 |
+| 4.6 | R2 timing byte stored (00/01/10/11) | dma.vhd:790 | pass | test/dma/dma_test.cpp:623 |
+| 4.7 | R2 prescaler sub-byte consumed; sequencer returns to IDLE | dma.vhd:799 | pass | test/dma/dma_test.cpp:645 |
+| 4.8 | Prescaler=0 default: full block in one burst (no wait) | dma.vhd:424 | pass | test/dma/dma_test.cpp:659 |
+| 5.1 | R3 bit6=1 -> TRANSFERRING | dma.vhd:576-579 | pass | test/dma/dma_test.cpp:681 |
+| 5.2 | R3 bit6=0 -> IDLE | dma.vhd:576 | pass | test/dma/dma_test.cpp:690 |
+| 5.3 | R3 mask sub-byte consumed; subsequent R0 still parsed | dma.vhd:576-582 | pass | test/dma/dma_test.cpp:704 |
+| 5.4 | R3 match sub-byte consumed; subsequent R0 still parsed | dma.vhd:576-582 | pass | test/dma/dma_test.cpp:719 |
+| 6.1 | R4 mode 00 = byte | dma.vhd:601 | pass | test/dma/dma_test.cpp:742 |
+| 6.2 | R4 mode 01 = continuous | dma.vhd:601 | pass | test/dma/dma_test.cpp:751 |
+| 6.3 | R4 mode 10 = burst | dma.vhd:601 | pass | test/dma/dma_test.cpp:760 |
+| 6.4 | Reset default R4 mode = continuous | dma.vhd:236 | pass | test/dma/dma_test.cpp:769 |
+| 6.5 | R4 portB addr LO sub-byte | dma.vhd:816 | pass | test/dma/dma_test.cpp:784 |
+| 6.6 | R4 portB addr HI sub-byte | dma.vhd:827 | pass | test/dma/dma_test.cpp:800 |
+| 6.7 | R4 full 16-bit port B address | dma.vhd:816,827 | pass | test/dma/dma_test.cpp:814 |
+| 6.8 | R4 mode 11 stored as raw value 3 (no VHDL special case) | dma.vhd:601 | pass | test/dma/dma_test.cpp:830 |
+| 7.1 | R5 auto-restart: state=TRANSFERRING and addrs reloaded | dma.vhd:473-491 | pass | test/dma/dma_test.cpp:858 |
+| 7.2 | R5 auto-restart off (default): state=IDLE after block | dma.vhd:238,494 | pass | test/dma/dma_test.cpp:872 |
+| 8.1 | 0xC3 RESET: state=IDLE | dma.vhd:638 | pass | test/dma/dma_test.cpp:911 |
+| 8.2 | 0xC7 resets port A timing to 01 | dma.vhd:648 | pass | test/dma/dma_test.cpp:921 |
+| 8.3 | 0xCB resets port B timing to 01 | dma.vhd:651 | pass | test/dma/dma_test.cpp:932 |
+| 8.4 | LOAD clears status_endofblock_n (bit5=1) | dma.vhd:654 | pass | test/dma/dma_test.cpp:947 |
+| 8.5 | LOAD A->B: src=0x1234, dst=0x5678 | dma.vhd:656-658 | pass | test/dma/dma_test.cpp:961 |
+| 8.6 | LOAD B->A: src=0x5678, dst=0x1234 | dma.vhd:660-662 | pass | test/dma/dma_test.cpp:976 |
+| 8.7 | LOAD ZXN: counter=0 | dma.vhd:664-665 | pass | test/dma/dma_test.cpp:987 |
+| 8.8 | LOAD Z80: counter=0xFFFF | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:997 |
+| 8.9 | CONTINUE: counter reset, addrs preserved | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:1011 |
+| 8.10 | CONTINUE ZXN: counter=0 | dma.vhd:673-674 | pass | test/dma/dma_test.cpp:1023 |
+| 8.11 | CONTINUE Z80: counter=0xFFFF | dma.vhd:675-676 | pass | test/dma/dma_test.cpp:1033 |
+| 8.12 | ENABLE -> TRANSFERRING | dma.vhd:725 | pass | test/dma/dma_test.cpp:1042 |
+| 8.13 | DISABLE -> IDLE | dma.vhd:728 | pass | test/dma/dma_test.cpp:1052 |
+| 8.14 | 0x8B status reinit: byte = 0x3A | dma.vhd:691-692,902 | pass | test/dma/dma_test.cpp:1069 |
+| 8.15 | 0xBB mask=0x01: read sequence locked to status | dma.vhd:731,859-860 | pass | test/dma/dma_test.cpp:1085 |
+| 8.16 | 0xBF forces next read = status byte | dma.vhd:696-699 | pass | test/dma/dma_test.cpp:1101 |
+| 9.1 | A->B inc both, 4 bytes copied in order | dma.vhd:379-391 | pass | test/dma/dma_test.cpp:1124 |
+| 9.2 | B->A inc both, 4 bytes copied portB->portA | dma.vhd:660-662,389-391 | pass | test/dma/dma_test.cpp:1144 |
+| 9.3 | A->B src decrement: reads walk backwards | dma.vhd:384-387 | pass | test/dma/dma_test.cpp:1165 |
+| 9.4 | A->B fixed src: identical bytes written N times | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1186 |
+| 9.5 | A->B fixed dst: last byte remains in single slot | dma.vhd:389-396 | pass | test/dma/dma_test.cpp:1205 |
+| 9.6 | Block length = 1 transfers 1 byte (ZXN) | dma.vhd:426 | pass | test/dma/dma_test.cpp:1219 |
+| 9.7 | Block length = 256 transfers 256 bytes | dma.vhd:426 | pass | test/dma/dma_test.cpp:1233 |
+| 9.8 | Block length = 0 transfers 1 byte (ZXN) | dma.vhd:361,426 | pass | test/dma/dma_test.cpp:1250 |
+| 10.1 | Mem->IO A inc, B fixed: last byte at fixed IO port | dma.vhd:559 | pass | test/dma/dma_test.cpp:1281 |
+| 10.2 | Mem->IO A inc, B inc: 3 consecutive IO ports written | dma.vhd:559,389-391 | pass | test/dma/dma_test.cpp:1300 |
+| 10.3 | Mem->IO: read phase asserts MREQ (mem callback), write phase asserts IORQ (io callback) | dma.vhd:186-190,290-296 | pass | test/dma/dma_test.cpp:1331 |
+| 10.4 | IO->Mem: byte arrives from IO to memory | dma.vhd:542 | pass | test/dma/dma_test.cpp:1354 |
+| 10.5 | IO->IO: single byte arrives at destination IO port | dma.vhd:542,559 | pass | test/dma/dma_test.cpp:1373 |
+| 10.6 | IO port B delivered with full 16-bit address | dma.vhd:36 | pass | test/dma/dma_test.cpp:1393 |
+| 11.1 | Both inc A->B: src=0x8004 dst=0x9004 after 4 bytes | dma.vhd:379-391 | pass | test/dma/dma_test.cpp:1415 |
+| 11.2 | Both dec A->B: src=0x7FFF dst=0x8FFF after 4 bytes | dma.vhd:384-396 | pass | test/dma/dma_test.cpp:1434 |
+| 11.3 | Src inc, dst dec: dst walks backwards while src ascends | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1453 |
+| 11.4 | Src dec, dst fixed: dst=0x9000 holds last source byte (0x20) | dma.vhd:384-396 | pass | test/dma/dma_test.cpp:1473 |
+| 11.5 | Both fixed: addresses unchanged after transfer | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1493 |
+| 11.6 | Src wraps 0xFFFF -> 0x0000 (16-bit address) | dma.vhd:36,381 | pass | test/dma/dma_test.cpp:1514 |
+| 12.1 | Continuous: whole block in one execute_burst | dma.vhd:426-430,601 | pass | test/dma/dma_test.cpp:1540 |
+| 12.2 | Burst prescaler=0: 1 byte per execute_burst | dma.vhd:424 | pass | test/dma/dma_test.cpp:1563 |
+| 12.3 | Burst prescaler>0: is_active() false during wait | dma.vhd:424-425 | pass | test/dma/dma_test.cpp:1585 |
+| 12.4 | Burst WAITING_CYCLES: cpu_busreq_n deasserted (bus released) | dma.vhd:445 | pass | test/dma/dma_test.cpp:1608 |
+| 12.5 | After prescaler expires: cpu_busreq_n re-asserted | dma.vhd:451-460 | pass | test/dma/dma_test.cpp:1633 |
+| 12.6 | R4 mode=00 transfers full block_len bytes (VHDL dma.vhd:426 block-length check is mode-agnostic) | dma.vhd:426 | pass | test/dma/dma_test.cpp:1660 |
+| 12.7 | Continuous+prescaler: one byte then wait (TRANSFERRING) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1692 |
+| 12.8 | Prescaler vs timer scales with turbo_i (8x clocks at 28MHz) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1711 |
+| 13.1 | Prescaler=0: no WAITING_CYCLES (runs to IDLE) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1783 |
+| 13.2 | turbo=00 (3.5MHz): timer += 8 per clock | dma.vhd:251 | pass | test/dma/dma_test.cpp:1795 |
+| 13.3 | turbo=01 (7MHz): timer += 4 per clock | dma.vhd:252 | pass | test/dma/dma_test.cpp:1806 |
+| 13.4 | turbo=10 (14MHz): timer += 2 per clock | dma.vhd:253 | pass | test/dma/dma_test.cpp:1817 |
+| 13.5 | turbo=11 (28MHz): timer += 1 per clock | dma.vhd:254 | pass | test/dma/dma_test.cpp:1828 |
+| 13.6 | Prescaler comparison uses timer bits(13:5) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1842 |
+| 13.9 | Burst+prescaler: the last byte is followed by a wait; end of block only after it | dma.vhd:423-436,458-464,471 | pass | test/dma/dma_test.cpp:1868 |
+| 13.10 | Auto-restart: no byte of the next pass before a prescaler wait | dma.vhd:423-436,458-464,473-488 | pass | test/dma/dma_test.cpp:1895 |
+| 13.11 | Last byte's wait ends with the bus still released, into FINISH_DMA | dma.vhd:454-464,493-494,262 | pass | test/dma/dma_test.cpp:1918 |
+| 13.12 | 3.5 MHz: burst prescaler 104 spaces bytes 3328 master cycles | zxnext.vhd:1776-1777, dma.vhd:250-254,451 | pass | test/dma/dma_test.cpp:1937 |
+| 13.13 | 7 MHz: burst prescaler 104 spaces bytes 3328 master cycles | zxnext.vhd:1776-1777, dma.vhd:250-254,451 | pass | test/dma/dma_test.cpp:1944 |
+| 13.14 | 14 MHz: burst prescaler 104 spaces bytes 3328 master cycles | zxnext.vhd:1776-1777, dma.vhd:250-254,451 | pass | test/dma/dma_test.cpp:1951 |
+| 13.15 | 28 MHz: burst prescaler 104 spaces bytes 3328 master cycles | zxnext.vhd:1776-1777, dma.vhd:250-254,451 | pass | test/dma/dma_test.cpp:1958 |
+| 14.1 | ZXN LOAD: counter=0 | dma.vhd:664-665 | pass | test/dma/dma_test.cpp:2016 |
+| 14.2 | Z80 LOAD: counter=0xFFFF | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:2025 |
+| 14.3 | ZXN: counter=N after N-byte block | dma.vhd:361 | pass | test/dma/dma_test.cpp:2037 |
+| 14.4 | ZXN block_len=5: 5 bytes transferred | dma.vhd:426 | pass | test/dma/dma_test.cpp:2049 |
+| 14.5 | Z80 block_len=5: 6 bytes (block_len+1) | dma.vhd:426,666-667 | pass | test/dma/dma_test.cpp:2064 |
+| 14.6 | ZXN block_len=0: 1 byte transferred | dma.vhd:361,426 | pass | test/dma/dma_test.cpp:2079 |
+| 14.7 | Z80 block_len=0: 1 byte transferred | dma.vhd:361,426,667 | pass | test/dma/dma_test.cpp:2091 |
+| 14.8 | Counter readback = 5 after 5-byte block | dma.vhd:933-947 | pass | test/dma/dma_test.cpp:2109 |
+| 15.1 | TRANSFER: cpu_busreq_n asserted (false) | dma.vhd:278 | pass | test/dma/dma_test.cpp:2132 |
+| 15.2 | WAITING_ACK gates transfer on cpu_bai_n | dma.vhd:296 | pass | test/dma/dma_test.cpp:2148 |
+| 15.3 | IDLE: cpu_busreq_n deasserted (true) | dma.vhd:225,262 | pass | test/dma/dma_test.cpp:2157 |
+| 15.4 | bus_busreq_n=0 at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:2171 |
+| 15.5 | daisy_busy=true at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:2185 |
+| 15.6 | dma_delay=1 at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:2198 |
+| 15.7 | dma_holds_bus=true while transferring | zxnext.vhd | pass | test/dma/dma_test.cpp:2211 |
+| 16.1 | Auto-restart: src/dst reloaded to 0x8000/0x9000 | dma.vhd:473-481 | pass | test/dma/dma_test.cpp:2240 |
+| 16.2 | Auto-restart ZXN: counter reloaded to 0 | dma.vhd:482-486 | pass | test/dma/dma_test.cpp:2253 |
+| 16.3 | Auto-restart A->B reload uses R0 as src, R4 as dst | dma.vhd:474-476 | pass | test/dma/dma_test.cpp:2266 |
+| 16.4 | Auto-restart B->A reload: src=portB, dst=portA | dma.vhd:478-479 | pass | test/dma/dma_test.cpp:2285 |
+| 16.5 | CONTINUE preserves src/dst | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:2299 |
+| 16.6 | LOAD restores start addrs; CONTINUE keeps current addrs | dma.vhd:656-662 | pass | test/dma/dma_test.cpp:2319 |
+| 16.7 | Auto-restart: status keeps end-of-block (0x1B) across passes | dma.vhd:471,473-488,412 | pass | test/dma/dma_test.cpp:2340 |
+| 17.1 | Status bits [4:1] = 1101 | dma.vhd:902 | pass | test/dma/dma_test.cpp:2368 |
+| 17.2 | Initial endofblock_n = 1 (bit5 set) | dma.vhd:242 | pass | test/dma/dma_test.cpp:2379 |
+| 17.3 | After block: endofblock_n = 0 (bit5 clear) | dma.vhd:471 | pass | test/dma/dma_test.cpp:2392 |
+| 17.4 | Mid-block, after the first byte: atleastone = 1 (0x3B) | dma.vhd:412,423-425 | pass | test/dma/dma_test.cpp:2408 |
+| 17.5 | 0x8B reinit: status = 0x3A | dma.vhd:691-692 | pass | test/dma/dma_test.cpp:2422 |
+| 17.6 | 0xC3 reset: status = 0x3A | dma.vhd:638-641 | pass | test/dma/dma_test.cpp:2436 |
+| 17.7 | Default mask 0x7F: 7-field cycle then wrap | dma.vhd:239 | pass | test/dma/dma_test.cpp:2460 |
+| 17.8 | Read sequence advances mask bits 0..6 in order | dma.vhd:902-922 | pass | test/dma/dma_test.cpp:2479 |
+| 17.9 | Mask 0x07: 3 fields (status, cnt LO/HI) then wrap | dma.vhd:696-717 | pass | test/dma/dma_test.cpp:2497 |
+| 17.10 | Mask with two bits: wraps after last enabled field | dma.vhd:919-922 | pass | test/dma/dma_test.cpp:2518 |
+| 17.11 | After a completed block (IDLE): status = 0x1A | dma.vhd:471,493-494,265 | pass | test/dma/dma_test.cpp:2534 |
+| 17.12 | DISABLE mid-block: IDLE clears atleastone (0x3B -> 0x3A) | dma.vhd:727-728,265 | pass | test/dma/dma_test.cpp:2550 |
+| 17.13 | ENABLE (0x87) mid-block keeps atleastone (0x3B -> 0x3B) | dma.vhd:724-725,265 | pass | test/dma/dma_test.cpp:2568 |
+| 17.14 | R3 enable mid-block keeps atleastone (0x3B -> 0x3B) | dma.vhd:578-580,265 | pass | test/dma/dma_test.cpp:2583 |
+| 18.1 | Read field: status byte | dma.vhd:902 | pass | test/dma/dma_test.cpp:2621 |
+| 18.2 | Read field: counter LO = 0x00 (ZXN just LOADed) | dma.vhd:933 | pass | test/dma/dma_test.cpp:2631 |
+| 18.3 | Read field: counter HI = 0x00 (ZXN just LOADed) | dma.vhd:935 | pass | test/dma/dma_test.cpp:2641 |
+| 18.4 | Read field: portA LO = src LO (0x34) under A->B | dma.vhd:910-912 | pass | test/dma/dma_test.cpp:2652 |
+| 18.5 | Read field: portA HI = src HI (0x12) under A->B | dma.vhd:913-915 | pass | test/dma/dma_test.cpp:2662 |
+| 18.6 | Read field: portB LO = dst LO (0x78) under A->B | dma.vhd:916-918 | pass | test/dma/dma_test.cpp:2672 |
+| 18.7 | Read field: portB HI = dst HI (0x56) under A->B | dma.vhd:919-921 | pass | test/dma/dma_test.cpp:2682 |
+| 18.8 | B->A: portA reads dst, portB reads src | dma.vhd:910-921 | pass | test/dma/dma_test.cpp:2697 |
+| 19.1 | Hardware reset defaults | dma.vhd:213-242 | pass | test/dma/dma_test.cpp:2725 |
+| 19.2 | 0xC3 soft reset: state=IDLE and status=0x3A | dma.vhd:638-641 | pass | test/dma/dma_test.cpp:2743 |
+| 19.3 | 0xC3 preserves R0 and R4 start addresses | dma.vhd:638-645 | pass | test/dma/dma_test.cpp:2761 |
+| 19.4 | 0xC3 resets both port timings to 01 | dma.vhd:641-642 | pass | test/dma/dma_test.cpp:2773 |
+| 19.5 | 0xC3 resets prescaler: transfer runs to IDLE in one burst | dma.vhd:643 | pass | test/dma/dma_test.cpp:2790 |
+| 19.6 | 0xC3 clears auto-restart: transfer ends at IDLE | dma.vhd:645 | pass | test/dma/dma_test.cpp:2804 |
+| 20.1 | dma_delay=1 blocks START_DMA; deasserting proceeds | dma.vhd:269 | pass | test/dma/dma_test.cpp:2830 |
+| 20.2 | dma_delay mid-transfer: cpu_busreq_n released | dma.vhd:427-428 | pass | test/dma/dma_test.cpp:2846 |
+| 20.5 | Prescaler wait is tested before dma_delay: the bus is kept and the next byte moves | dma.vhd:424-428,441-449 | pass | test/dma/dma_test.cpp:2881 |
+| 21.1 | Timing 00 -> 4 cycles | dma.vhd:313 | pass | test/dma/dma_test.cpp:2917 |
+| 21.2 | Timing 01 -> 3 cycles | dma.vhd:314 | pass | test/dma/dma_test.cpp:2925 |
+| 21.3 | Timing 10 -> 2 cycles | dma.vhd:315 | pass | test/dma/dma_test.cpp:2933 |
+| 21.4 | Timing 11 -> 4 cycles (when others) | dma.vhd:316 | pass | test/dma/dma_test.cpp:2941 |
+| 21.5 | Read timing selects R1 (A->B) vs R2 (B->A) | dma.vhd:311 | pass | test/dma/dma_test.cpp:2957 |
+| 21.6 | Write timing selects R2 (A->B) vs R1 (B->A) | dma.vhd:371 | pass | test/dma/dma_test.cpp:2971 |
+| 22.1 | DISABLE mid-transfer -> IDLE | dma.vhd:728 | pass | test/dma/dma_test.cpp:2993 |
+| 22.2 | ENABLE without LOAD: state=TRANSFERRING | dma.vhd:725 | pass | test/dma/dma_test.cpp:3004 |
+| 22.3 | Multiple LOADs: last values used | dma.vhd:656-668 | pass | test/dma/dma_test.cpp:3023 |
+| 22.4 | CONTINUE during auto-restart: counter reset, addrs kept | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:3041 |
+| 22.5 | R1 base byte does not update R0 direction | dma.vhd:542 | pass | test/dma/dma_test.cpp:3059 |
+| 22.6 | 0x00 matches R2 (dec), not R0 | dma.vhd:518-520,559 | pass | test/dma/dma_test.cpp:3072 |
+| 23.1 | Emulator::init failed (Next machine) | zxnext.vhd:1828-1835,1839,1844 | pass | test/dma/dma_test.cpp:3162 |
+| 23.2 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/dma/dma_test.cpp:3194 |
+| 23.3 | Emulator::init failed (Next machine) | zxnext.vhd | pass | test/dma/dma_test.cpp:3228 |
+| 23.4 | Wait hook: one call per source memory READ at the stepped source address; accumulator = 8 for an 8-byte mem->mem block — writes never wait (zxnext.vhd:3175 cpu_rd_n='0') | zxnext.vhd:3175, zxnext.vhd:3171-3181 | pass | test/dma/dma_test.cpp:3254 |
+| 23.5 | I/O-source block: the wait hook is never consulted — I/O reads assert IORQ, not MREQ; sram_memcycle needs cpu_mreq_n='0' (zxnext.vhd:3144) | zxnext.vhd:3144 | pass | test/dma/dma_test.cpp:3285 |
+| 23.6 | mem->I/O block: all 8 source memory reads wait; the I/O destination write is irrelevant to the read-side wait (zxnext.vhd:3144,3175) | zxnext.vhd:3144,3175 | pass | test/dma/dma_test.cpp:3317 |
+| 23.7 | Emulator::init failed (Next machine) | dma.vhd:267-269, zxnext.vhd:2001-2010 | pass | test/dma/dma_test.cpp:3376 |
+| GH283-01 | Emulator::init failed (48K) | zxnext.vhd:2405,2643 | pass | test/dma/dma_test.cpp:3637 |
+| GH283-02 | under RZX recording every DMA port read is captured, in order, with the value the DMA delivered | — | pass | test/dma/dma_test.cpp:3643 |
+| GH283-03 | a recorded DMA port read keeps the DMA's timing: 4-byte burst = 8 T, and the T-state counter moves by those 8 T only | — | pass | test/dma/dma_test.cpp:3652 |
+| GH283-04 | Emulator::init failed (48K) | — | pass | test/dma/dma_test.cpp:3666 |
+| GH283-05 | and the live port is not read: a replay never consults the hardware the recording was made against | — | pass | test/dma/dma_test.cpp:3691 |
+| GH283-06 | Emulator::init failed (48K) | — | pass | test/dma/dma_test.cpp:3705 |
+| GH283-07 | Emulator::init failed (48K) | — | pass | test/dma/dma_test.cpp:3722 |
+| GH283-08 | RZX playback: an IO_READ watchpoint stops the machine on the DMA's replayed read of the watched port | — | pass | test/dma/dma_test.cpp:3798 |
+| GH283-09 | RZX playback: an IO_READ watchpoint stops the machine after the CPU's replayed IN of the watched port | — | pass | test/dma/dma_test.cpp:3816 |
+| GH283-10 | and a watchpoint on another port does not stop either replayed read | — | pass | test/dma/dma_test.cpp:3834 |
+| GH283-11 | RZX playback: a Port subscription sees the DMA's read and then the CPU's, each carrying the REPLAYED value, not the live one | — | pass | test/dma/dma_test.cpp:3868 |
+| GH283-12 | and a subscription on another port sees neither | — | pass | test/dma/dma_test.cpp:3880 |
+| GH230-08 | write_io still alive when Emulator::init() would reassign it mid-burst | — | pass | test/dma/dma_test.cpp:3543 |
+| GH230-09 | executing write_io reads its own capture after the reassignment | — | pass | test/dma/dma_test.cpp:3550 |
+| GH230-10 | the burst still delivered the byte to the I/O destination | — | pass | test/dma/dma_test.cpp:3555 |
 
 ## DivMMC+SPI — `test/divmmc/divmmc_test.cpp`
 
@@ -2494,9 +2494,9 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | ISC-GH265-06 | NR 0xC5 enable commits on its edge: a ZC/TO before it is not latched, one on it is (im2_peripheral.vhd:167-178; zxnext.vhd:1949,4747-4777) | im2_peripheral.vhd:167-178, zxnext.vhd:1949,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3494 |
 | ISC-GH265-07 | NR 0xC8 bit 1 sees the line interrupt from its registered int_line, one pixel after the hc_ula = 255 compare (zxula_timing.vhd:423-436,455-472,566-583; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882) | zxula_timing.vhd:423-436,455-472,566-583, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3522 |
 | ISC-GH265-08 | a request reaching the pulse fabric before pulse_int_n has returned to '1' is lost; one after it starts a new pulse (zxnext.vhd:2017-2044,5991-5992) | zxnext.vhd:2017-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3555 |
-| CTC-RD-GH265-01 | CTC programmed and read by OUT/IN: written on its commit edge, read at the port_ctc_dat reload (zxnext.vhd:4095-4100; ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150,214-222) | zxnext.vhd:4095-4100, ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150,214-222 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3597 |
-| CTC-RD-GH265-02 | IN of a CTC port latches t_count as of the edge before the port_ctc_dat reload 83 cycles in (zxnext.vhd:4095-4100) | zxnext.vhd:4095-4100 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3627 |
-| CTC-WR-GH265-01 | a CTC constant written by OUT is taken on its commit edge: its first count 17 edges on, its ZC/TO 16 per count after (ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150; im2_peripheral.vhd:154-162) | ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3664 |
+| CTC-RD-GH265-01 | CTC programmed and read by OUT/IN: written on its commit edge, read at the port_ctc_dat reload (zxnext.vhd:4095-4100; ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150,214-222) | zxnext.vhd:4095-4100, ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150,214-222 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3598 |
+| CTC-RD-GH265-02 | IN of a CTC port latches t_count as of the edge before the port_ctc_dat reload 83 cycles in (zxnext.vhd:4095-4100) | zxnext.vhd:4095-4100 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3629 |
+| CTC-WR-GH265-01 | a CTC constant written by OUT is taken on its commit edge: its first count 17 edges on, its ZC/TO 16 per count after (ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150; im2_peripheral.vhd:154-162) | ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3667 |
 | CTC-CH-GH265-01 | ctc_chan.vhd:115-127,173-182 rising-edge trigger counts one edge after the ZC/TO | ctc_chan.vhd:115-127,173-182 | pass | test/ctc/ctc_test.cpp:789 |
 | CTC-CH-GH265-02 | ctc_chan.vhd:115-127,173-182 a ZC/TO in flight reaches the next channel after its source stops | ctc_chan.vhd:115-127,173-182 | pass | test/ctc/ctc_test.cpp:813 |
 
@@ -2673,6 +2673,21 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PI-45 | the fallback's last resort, the number walk, marks the same descriptors, fd 3 and its last number included; it goes up to sysconf's limit capped at 65536, and to 65536 when the limit is indeterminate (-1) or 0 | — | pass | test/uart/uart_posix_test.cpp:1918 |
 | PI-46 | the close-on-exec fallback reads /proc/self/fd where it exists, else /dev/fd, falls back to /dev/fd when the first list cannot be read, and walks the numbers only with no list; each marks fd 57 | — | pass | test/uart/uart_posix_test.cpp:1961 |
 | PI-47 | the open-descriptor list read from /dev/fd (and /proc/self/fd where it exists) names the open descriptors (fd 57) but not the directory's own, which is closed again: no descriptor is left open by reading the list or by the walk that marks from it | — | pass | test/uart/uart_posix_test.cpp:2011 |
+| PIT-01 | nextpi::md5_file returns the RFC 1321 digest of a file (empty, short, and one crossing the 1 MiB read buffer) and "" for a file that does not exist | — | pass | test/uart/nextpi_test.cpp:371 |
+| PIT-02 | the socket transport's QEMU command line puts the console UART on a loopback-only, non-waiting listening socket chardev (host=127.0.0.1, server=on, wait=off) with no pipe chardev, the monitor on stdio on Windows and off elsewhere, and the rest of the raspi0 command line unchanged | — | pass | test/uart/nextpi_test.cpp:410 |
+| PIT-03 | the default Pi audio back-end is the host's own: dsound on Windows, coreaudio on macOS, pa elsewhere | — | pass | test/uart/nextpi_test.cpp:429 |
+| PIT-04 | the TCP endpoint carries both directions over UART 1 while NR 0xA0 = 0x30 connects it to the Pi GPIO pins (zxnext.vhd:2278-2281): the host's bytes reach port 0x143B, the guest's reach the host, UART 0 hears nothing, and the link is described as TCP 127.0.0.1:<port> | zxnext.vhd:2278-2281 | pass | test/uart/nextpi_test.cpp:471 |
+| PIT-05 | a TCP cable with no listener is not a fault: for over two seconds nothing is heard, nothing is faulted or discarded; once a listener appears the link connects by itself, both directions flow and the byte sent in the meantime arrives | — | pass | test/uart/nextpi_test.cpp:524 |
+| PIT-06 | when a TCP peer goes away its conversation is discarded, not handed to the next one: the byte it had sent and the byte that could not be delivered are dropped (the latter counted in unsent()) without a fault, and a new peer on the same listener gets traffic again and receives only what was sent after the loss, including a second byte sent straight after it; an orderly close and a reset seen by a read are reconnected too without a fault | — | pass | test/uart/nextpi_test.cpp:615 |
+| PIT-07 | link_config turns the launcher's transport into Emulator configuration (the port for the socket transport, the two FIFO paths for the FIFO one, never both: stale values of the other are cleared, and with both set the FIFO pair wins) and the warm-start recording machine gets neither while the machine itself is kept | — | pass | test/uart/nextpi_test.cpp:684 |
+| PIT-08 | NextPi end to end over the socket transport: with a space and a comma in the directory name and QEMU found on PATH, jnext creates the overlay and starts QEMU with exactly the documented arguments, the guest reads the Pi's SUP> on UART 1 and the Pi receives the guest's byte; destroying the launcher stops QEMU the orderly way, not by force | — | pass | test/uart/nextpi_test.cpp:734 |
+| PIT-09 | a rebuilt Emulator (a hard reset) reconnects to the same running Pi over the socket; the Pi received both machines' bytes in order | — | pass | test/uart/nextpi_test.cpp:774 |
+| PIT-10 | starting NextPi is refused, leaving nothing running, when QEMU is not on PATH, when the only match on PATH is a directory, and when QEMU exits at once; a QEMU path given without its .exe is completed | — | pass | test/uart/nextpi_test.cpp:830 |
+| PIT-11 | a QEMU that ignores the orderly stop is killed once the stop grace period is over, and stop() returns | — | pass | test/uart/nextpi_test.cpp:872 |
+| PIT-12 | the exit status of a QEMU that ends on its own reaches jnext: exit_status() decodes to the status QEMU exited with | — | pass | test/uart/nextpi_test.cpp:904 |
+| PIT-13 | when the process running NextPi is killed outright, QEMU is stopped with it instead of being left orphaned with the overlay locked | — | pass | test/uart/nextpi_test.cpp:928 |
+| PIT-14 | QEMU inherits none of jnext's other handles: an inheritable pipe holding a magic string that jnext has open cannot be read in the child | — | pass | test/uart/nextpi_test.cpp:954 |
+| PIT-15 | QEMU runs with LANG=C and LC_ALL=C, each exactly once whatever the case of the parent's variable names, and jnext's own environment is left alone | — | pass | test/uart/nextpi_test.cpp:998 |
 | I2C-P05a | DS1307 - restart + read address 0xD1 returns ACK=0 | — | pass | test/uart/uart_test.cpp:1776 |
 | I2C-P05b | DS1307 - seconds register is valid BCD (upper<=5, lower<=9) | — | pass | test/uart/uart_test.cpp:1780 |
 | RTC-23 | GH #317 parse_rtc_datetime — an overflowing, signed or space-padded field and a wrong separator are rejected; unpadded digit fields still parse | — | pass | test/uart/uart_test.cpp:2341 |
@@ -3672,43 +3687,43 @@ Notes and rationale: [FLOATING-BUS-TEST-PLAN-DESIGN.md](FLOATING-BUS-TEST-PLAN-D
 | FB-4C | Next-base active capture → port 0xFF hard-forced 0xFF (zxnext.vhd:4513) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:882 |
 | FB-06 | 48K CPU IN A,(0xFF) at border returns 0xFF via port_dispatch.set_default_read (zxnext.vhd:2713,2813) | zxnext.vhd:2713,2813 | pass | test/floating_bus/floating_bus_test.cpp:912 |
 | FB-5A | 48K CPU IN A,(0xFF) starting at FUSE T 14328+224*36+16 returns the pixel byte of line 36 column 4 (FUSE 1.6 sweep; zxnext.vhd:2713,2813; zxula.vhd:319-340,573) | zxnext.vhd:2713,2813, zxula.vhd:319-340,573 | pass | test/floating_bus/floating_bus_test.cpp:936 |
-| FB-07 | 48K NR 0x08 b2=1 + port 0xFF write 0x02 → read returns 0x02 (Timex arm wins; zxnext.vhd:2813,5180,3630) | zxnext.vhd:2813,5180,3630 | pass | test/floating_bus/floating_bus_test.cpp:973 |
-| FB-6A | 48K reset state NR 0x08 b2=0 → border read returns 0xFF (floating-bus arm wins; zxnext.vhd:1118,2813,5180) | zxnext.vhd:1118,2813,5180 | pass | test/floating_bus/floating_bus_test.cpp:989 |
-| FB-6B | 48K NR 0x08 b2=1 + NR 0x82 b0=0 → Timex arm collapses → 0xFF (zxnext.vhd:2397,2813) | zxnext.vhd:2397,2813 | pass | test/floating_bus/floating_bus_test.cpp:1008 |
-| FB-109-01 | 48K active capture: undecoded port 0x40A7 returns 0xFF, not the ULA floating bus (zxnext.vhd:1877; port_ff scope :2583) | zxnext.vhd:1877 | pass | test/floating_bus/floating_bus_test.cpp:1245 |
-| FB-109-02 | 48K active capture: port 0x40FF (LSB-only port_ff decode) returns the VRAM byte (zxnext.vhd:2571+2583,2813,4513) | zxnext.vhd:2571 | pass | test/floating_bus/floating_bus_test.cpp:1266 |
-| FB-GH265-01 | 48K IN A,(0xFF) starting at FUSE T 14328+224*36+17 reads the attribute byte of column 4, 0x44 — the byte on the bus at the DI_Reg latch (FUSE 1.6; zxula.vhd:573; t80na.vhd:214-222) | zxula.vhd:573, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1416 |
-| FB-GH265-02 | 48K IN A,(C) of 0x00FF starting at FUSE T 14328+224*36+16 reads the attribute of column 4, 0x44 (FUSE 1.6; zxula.vhd:573; t80na.vhd:214-222) | zxula.vhd:573, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1433 |
-| FB-GH265-03 | +3 IN A,(C) of 0x0FFD starting at raw (100, T 72) reads the pixel of column 4 \| 0x01 = 0x43 at its DI_Reg latch (zxula.vhd:319-340,573; zxnext.vhd:4517; t80na.vhd:214-222) | zxula.vhd:319-340,573, zxnext.vhd:4517, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1457 |
-| FB-HC-48 | 48K: floating_bus_r after each hc_ula reload 0..31 follows the 9/B/D/F load, 1 reset schedule (zxula.vhd:319-340,573; zxula_timing.vhd:423-436) | zxula.vhd:319-340,573, zxula_timing.vhd:423-436 | pass | test/floating_bus/floating_bus_test.cpp:1547 |
-| FB-HC-128 | 128K: same schedule, hc_ula 0 at raw hc 125 (zxula.vhd:319-340,573; zxula_timing.vhd:423-436) | — | pass | test/floating_bus/floating_bus_test.cpp:1551 |
-| FB-FUSE-48-PHASE | 48K IN A,(0xFF) at FUSE T 14328+224*36+16+k returns P4 A4 P5 A5 FF FF FF FF, as FUSE 1.6 does (zxula.vhd:573) | zxula.vhd:573 | pass | test/floating_bus/floating_bus_test.cpp:1558 |
-| FB-FUSE-128-PHASE | 128K IN A,(0xFF) at FUSE T 14354+228*36+16+k returns P4 A4 P5 A5 FF FF FF FF, as FUSE 1.6 does (zxula.vhd:573) | — | pass | test/floating_bus/floating_bus_test.cpp:1562 |
-| FB-FUSE-48-EDGES | 48K floating-bus window corners match FUSE 1.6: first byte at T 14328, none at 14327, last at 14328+224*191+123, none past it or on lines -1 / 192 (zxula.vhd:414-416,573) | zxula.vhd:414-416,573 | pass | test/floating_bus/floating_bus_test.cpp:1581 |
-| FB-FUSE-128-EDGES | 128K floating-bus window corners match FUSE 1.6: first byte at T 14354, none at 14353, last at 14354+228*191+123, none past it or on lines -1 / 192 (zxula.vhd:414-416,573) | zxula.vhd:414-416,573 | pass | test/floating_bus/floating_bus_test.cpp:1596 |
-| FB-FUSE-128-CONT | 128K contended IN A,(0xFF) (A=0x40) matches FUSE 1.6 in T-states and byte at columns 32-38 and 47 (zxula.vhd:573,587-595; t80na.vhd:214-222) | zxula.vhd:573,587-595, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1624 |
-| FB-SHD-01 | 128K 0x7FFD b3 (shadow screen): the floating bus returns bank 7's bytes, as FUSE 1.6 does (zxnext.vhd:6649-6656; zxula.vhd:573) | zxnext.vhd:6649-6656, zxula.vhd:573 | pass | test/floating_bus/floating_bus_test.cpp:1658 |
-| FB-SHD-02 | Shadow screen forces the standard layout in either port order: with port 0xFF in hi-colour the attribute capture reads bank 7's attribute of (36,4), 0x93, not the hi-colour address (bank 7 pixel 0x91) (zxula.vhd:191,246-252; zxnext.vhd:6649-6656) | zxula.vhd:191,246-252, zxnext.vhd:6649-6656 | pass | test/floating_bus/floating_bus_test.cpp:1692 |
-| FB-SHD-03 | Port 0xFF = hi-colour, then shadow on, then off: port_ff_reg kept (Timex read-back 0x02 while shadowed) and the hi-colour attribute fetch returns (0x95) (zxula.vhd:191; zxnext.vhd:2813,3610-3624,3630) | zxula.vhd:191, zxnext.vhd:2813,3610-3624,3630 | pass | test/floating_bus/floating_bus_test.cpp:1722 |
-| FB-TMX-01 | Timex mode 1: the pixel fetch (and the floating bus) reads the 0x6000 screen, 0x22 (zxula.vhd:191,236-240) | zxula.vhd:191,236-240 | pass | test/floating_bus/floating_bus_test.cpp:1744 |
-| FB-TMX-02 | Timex hi-colour: the attribute fetch reads 0x2000 + the pixel layout, 0x44, not the 0x5800 attribute (zxula.vhd:246-252) | zxula.vhd:246-252 | pass | test/floating_bus/floating_bus_test.cpp:1757 |
-| FB-TMX-03 | Timex hi-res: the pixel slot reads screen 0 (0x55), the attribute slot screen 1's pixel byte (0x66) (zxula.vhd:236-252) | zxula.vhd:236-252 | pass | test/floating_bus/floating_bus_test.cpp:1773 |
-| FB-SCR-01 | NR 0x26 = 0x10: the column-4 fetch reads column 6, 0x7A (zxula.vhd:199) | zxula.vhd:199 | pass | test/floating_bus/floating_bus_test.cpp:1792 |
-| FB-SCR-02 | NR 0x27 = 8: display line 36 fetches pixel line 44, 0x7B (zxula.vhd:192,201-209) | zxula.vhd:192,201-209 | pass | test/floating_bus/floating_bus_test.cpp:1804 |
-| FB-SCR-03 | NR 0x27 = 20 on display line 180: py_s = 200 folds to pixel line 8, 0x7C (zxula.vhd:201-209) | zxula.vhd:201-209 | pass | test/floating_bus/floating_bus_test.cpp:1816 |
-| FB-SCR-04 | NR 0x27 = 250 on display line 150: py_s = 400, py_s(8:7) = "11", folds to pixel line 16, 0x7D (zxula.vhd:201-203) | zxula.vhd:201-203 | pass | test/floating_bus/floating_bus_test.cpp:1829 |
-| FB-SPD-01 | 28 MHz: IN A,(0xFF) started 500 master cycles into raw line 100 reads the pixel of column 0 at its latch, 0x5E (zxnext.vhd:4513; zxula.vhd:319-340,573; t80na.vhd:214-222) | zxnext.vhd:4513, zxula.vhd:319-340,573, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1854 |
-| FB-SPD-02 | 28 MHz: an IN A,(0xFF) latching in master cycle 4h+1 of the ULA line misses count h's reload (0xFF), one latching in 4h+2 sees it (pixel 0x5E) (zxula.vhd:308-340; t80na.vhd:214-222) | zxula.vhd:308-340, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1890 |
+| FB-07 | 48K NR 0x08 b2=1 + port 0xFF write 0x02 → read returns 0x02 (Timex arm wins; zxnext.vhd:2813,5180,3630) | zxnext.vhd:2813,5180,3630 | pass | test/floating_bus/floating_bus_test.cpp:975 |
+| FB-6A | 48K reset state NR 0x08 b2=0 → border read returns 0xFF (floating-bus arm wins; zxnext.vhd:1118,2813,5180) | zxnext.vhd:1118,2813,5180 | pass | test/floating_bus/floating_bus_test.cpp:991 |
+| FB-6B | 48K NR 0x08 b2=1 + NR 0x82 b0=0 → Timex arm collapses → 0xFF (zxnext.vhd:2397,2813) | zxnext.vhd:2397,2813 | pass | test/floating_bus/floating_bus_test.cpp:1010 |
+| FB-109-01 | 48K active capture: undecoded port 0x40A7 returns 0xFF, not the ULA floating bus (zxnext.vhd:1877; port_ff scope :2583) | zxnext.vhd:1877 | pass | test/floating_bus/floating_bus_test.cpp:1248 |
+| FB-109-02 | 48K active capture: port 0x40FF (LSB-only port_ff decode) returns the VRAM byte (zxnext.vhd:2571+2583,2813,4513) | zxnext.vhd:2571 | pass | test/floating_bus/floating_bus_test.cpp:1269 |
+| FB-GH265-01 | 48K IN A,(0xFF) starting at FUSE T 14328+224*36+17 reads the attribute byte of column 4, 0x44 — the byte on the bus at the DI_Reg latch (FUSE 1.6; zxula.vhd:573; t80na.vhd:214-222) | zxula.vhd:573, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1419 |
+| FB-GH265-02 | 48K IN A,(C) of 0x00FF starting at FUSE T 14328+224*36+16 reads the attribute of column 4, 0x44 (FUSE 1.6; zxula.vhd:573; t80na.vhd:214-222) | zxula.vhd:573, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1436 |
+| FB-GH265-03 | +3 IN A,(C) of 0x0FFD starting at raw (100, T 72) reads the pixel of column 4 \| 0x01 = 0x43 at its DI_Reg latch (zxula.vhd:319-340,573; zxnext.vhd:4517; t80na.vhd:214-222) | zxula.vhd:319-340,573, zxnext.vhd:4517, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1460 |
+| FB-HC-48 | 48K: floating_bus_r after each hc_ula reload 0..31 follows the 9/B/D/F load, 1 reset schedule (zxula.vhd:319-340,573; zxula_timing.vhd:423-436) | zxula.vhd:319-340,573, zxula_timing.vhd:423-436 | pass | test/floating_bus/floating_bus_test.cpp:1550 |
+| FB-HC-128 | 128K: same schedule, hc_ula 0 at raw hc 125 (zxula.vhd:319-340,573; zxula_timing.vhd:423-436) | — | pass | test/floating_bus/floating_bus_test.cpp:1554 |
+| FB-FUSE-48-PHASE | 48K IN A,(0xFF) at FUSE T 14328+224*36+16+k returns P4 A4 P5 A5 FF FF FF FF, as FUSE 1.6 does (zxula.vhd:573) | zxula.vhd:573 | pass | test/floating_bus/floating_bus_test.cpp:1561 |
+| FB-FUSE-128-PHASE | 128K IN A,(0xFF) at FUSE T 14354+228*36+16+k returns P4 A4 P5 A5 FF FF FF FF, as FUSE 1.6 does (zxula.vhd:573) | — | pass | test/floating_bus/floating_bus_test.cpp:1565 |
+| FB-FUSE-48-EDGES | 48K floating-bus window corners match FUSE 1.6: first byte at T 14328, none at 14327, last at 14328+224*191+123, none past it or on lines -1 / 192 (zxula.vhd:414-416,573) | zxula.vhd:414-416,573 | pass | test/floating_bus/floating_bus_test.cpp:1584 |
+| FB-FUSE-128-EDGES | 128K floating-bus window corners match FUSE 1.6: first byte at T 14354, none at 14353, last at 14354+228*191+123, none past it or on lines -1 / 192 (zxula.vhd:414-416,573) | zxula.vhd:414-416,573 | pass | test/floating_bus/floating_bus_test.cpp:1599 |
+| FB-FUSE-128-CONT | 128K contended IN A,(0xFF) (A=0x40) matches FUSE 1.6 in T-states and byte at columns 32-38 and 47 (zxula.vhd:573,587-595; t80na.vhd:214-222) | zxula.vhd:573,587-595, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1627 |
+| FB-SHD-01 | 128K 0x7FFD b3 (shadow screen): the floating bus returns bank 7's bytes, as FUSE 1.6 does (zxnext.vhd:6649-6656; zxula.vhd:573) | zxnext.vhd:6649-6656, zxula.vhd:573 | pass | test/floating_bus/floating_bus_test.cpp:1661 |
+| FB-SHD-02 | Shadow screen forces the standard layout in either port order: with port 0xFF in hi-colour the attribute capture reads bank 7's attribute of (36,4), 0x93, not the hi-colour address (bank 7 pixel 0x91) (zxula.vhd:191,246-252; zxnext.vhd:6649-6656) | zxula.vhd:191,246-252, zxnext.vhd:6649-6656 | pass | test/floating_bus/floating_bus_test.cpp:1695 |
+| FB-SHD-03 | Port 0xFF = hi-colour, then shadow on, then off: port_ff_reg kept (Timex read-back 0x02 while shadowed) and the hi-colour attribute fetch returns (0x95) (zxula.vhd:191; zxnext.vhd:2813,3610-3624,3630) | zxula.vhd:191, zxnext.vhd:2813,3610-3624,3630 | pass | test/floating_bus/floating_bus_test.cpp:1726 |
+| FB-TMX-01 | Timex mode 1: the pixel fetch (and the floating bus) reads the 0x6000 screen, 0x22 (zxula.vhd:191,236-240) | zxula.vhd:191,236-240 | pass | test/floating_bus/floating_bus_test.cpp:1749 |
+| FB-TMX-02 | Timex hi-colour: the attribute fetch reads 0x2000 + the pixel layout, 0x44, not the 0x5800 attribute (zxula.vhd:246-252) | zxula.vhd:246-252 | pass | test/floating_bus/floating_bus_test.cpp:1763 |
+| FB-TMX-03 | Timex hi-res: the pixel slot reads screen 0 (0x55), the attribute slot screen 1's pixel byte (0x66) (zxula.vhd:236-252) | zxula.vhd:236-252 | pass | test/floating_bus/floating_bus_test.cpp:1780 |
+| FB-SCR-01 | NR 0x26 = 0x10: the column-4 fetch reads column 6, 0x7A (zxula.vhd:199) | zxula.vhd:199 | pass | test/floating_bus/floating_bus_test.cpp:1799 |
+| FB-SCR-02 | NR 0x27 = 8: display line 36 fetches pixel line 44, 0x7B (zxula.vhd:192,201-209) | zxula.vhd:192,201-209 | pass | test/floating_bus/floating_bus_test.cpp:1811 |
+| FB-SCR-03 | NR 0x27 = 20 on display line 180: py_s = 200 folds to pixel line 8, 0x7C (zxula.vhd:201-209) | zxula.vhd:201-209 | pass | test/floating_bus/floating_bus_test.cpp:1823 |
+| FB-SCR-04 | NR 0x27 = 250 on display line 150: py_s = 400, py_s(8:7) = "11", folds to pixel line 16, 0x7D (zxula.vhd:201-203) | zxula.vhd:201-203 | pass | test/floating_bus/floating_bus_test.cpp:1836 |
+| FB-SPD-01 | 28 MHz: IN A,(0xFF) started 500 master cycles into raw line 100 reads the pixel of column 0 at its latch, 0x5E (zxnext.vhd:4513; zxula.vhd:319-340,573; t80na.vhd:214-222) | zxnext.vhd:4513, zxula.vhd:319-340,573, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1861 |
+| FB-SPD-02 | 28 MHz: an IN A,(0xFF) latching in master cycle 4h+1 of the ULA line misses count h's reload (0xFF), one latching in 4h+2 sees it (pixel 0x5E) (zxula.vhd:308-340; t80na.vhd:214-222) | zxula.vhd:308-340, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1897 |
 | FIX-FB-EFFLOCK-01 | +3 port 0x0FFD with paging-locked but Pentagon-1024 override drops effective_paging_locked → returns the raw border-arm latch 0x42 (NOT 0xFF) — VHDL zxnext.vhd:3769, 4517 + zxula.vhd:573 second arm; verify8 A4 / GH #112 | zxnext.vhd:3769, zxula.vhd:573 | pass | test/floating_bus/floating_bus_test.cpp:801 |
 | FB-3X | +3 port 0x0FFD dispatches to 0x0FFD handler not 0x7FFD (specificity: mask 0xF003 > 0x8003) → raw border-arm latch 0x42 (zxula.vhd:573 second arm + zxnext.vhd:4478, 4499-4508; port_dispatch.cpp most-specific-match) | zxula.vhd:573, zxnext.vhd:4478,4499-4508 | pass | test/floating_bus/floating_bus_test.cpp:838 |
-| FB-D3F-01 | Port 0x0FFD gate keys on machine_timing_ (tim_sel) per VHDL :2589 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, typ_sel=48) → after run_frame() port 0x0FFD returns the raw border-arm latch 0xA4 (post-fix); pre-D3F-01 returned 0x00 (config_.type != ZX_PLUS3); pre-GH#112 returned 0xA5 | zxula.vhd:573, zxnext.vhd:4478 | pass | test/floating_bus/floating_bus_test.cpp:1099 |
-| FB-D3F-02 | Port 0xBFFD AY-read alias gate keys on machine_timing_ (tim_sel) per VHDL zxnext.vhd:2771 — init 128K + NR 0x03 = 0xB2 (tim_sel=+3, typ_sel=128) → after run_frame() BFFD read aliases to AY reg 0 = 0x5A (post-fix); pre-fix returned 0xFF (config_.type != ZX_PLUS3) | zxnext.vhd:2771 | pass | test/floating_bus/floating_bus_test.cpp:1150 |
-| FB-D3F-03 | Port 0xFF ULA-arm gate keys on machine_timing_ (tim_sel) per VHDL zxnext.vhd:4513 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, typ_sel=48) → after run_frame() port 0xFF returns 0xFF (machine_timing_ neither 48 nor 128); pre-fix returned the VRAM byte 0x42 (config_.type == ZX48K) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:1198 |
-| FB-HARNESS-01 | set_raster_position(100, 50) lands clock at expected master cycle and current_scanline()==100 | — | pass | test/floating_bus/floating_bus_test.cpp:1298 |
-| FB-HARNESS-02 | set_raster_position_hc(64, 144) lands clock at expected master cycle and current_hc()==144 | — | pass | test/floating_bus/floating_bus_test.cpp:1323 |
-| FB-HARNESS-03 | cpu_in_a_FF executes IN A,(0xFF) on 48K at line 0 → A=0xFF (border early-return path) and PC=0x8002 | — | pass | test/floating_bus/floating_bus_test.cpp:1345 |
-| FB-HARNESS-04 | cpu_in_a_0FFD executes IN A,(C) with BC=0x0FFD; helper completes, PC advances 2 bytes, BC preserved | — | pass | test/floating_bus/floating_bus_test.cpp:1363 |
-| FB-HARNESS-05 | read_port_default(0x00FF) on fresh 48K returns 0xFF (border early-return path through port_dispatch default) | — | pass | test/floating_bus/floating_bus_test.cpp:1378 |
+| FB-D3F-01 | Port 0x0FFD gate keys on machine_timing_ (tim_sel) per VHDL :2589 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, typ_sel=48) → after run_frame() port 0x0FFD returns the raw border-arm latch 0xA4 (post-fix); pre-D3F-01 returned 0x00 (config_.type != ZX_PLUS3); pre-GH#112 returned 0xA5 | zxula.vhd:573, zxnext.vhd:4478 | pass | test/floating_bus/floating_bus_test.cpp:1102 |
+| FB-D3F-02 | Port 0xBFFD AY-read alias gate keys on machine_timing_ (tim_sel) per VHDL zxnext.vhd:2771 — init 128K + NR 0x03 = 0xB2 (tim_sel=+3, typ_sel=128) → after run_frame() BFFD read aliases to AY reg 0 = 0x5A (post-fix); pre-fix returned 0xFF (config_.type != ZX_PLUS3) | zxnext.vhd:2771 | pass | test/floating_bus/floating_bus_test.cpp:1153 |
+| FB-D3F-03 | Port 0xFF ULA-arm gate keys on machine_timing_ (tim_sel) per VHDL zxnext.vhd:4513 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, typ_sel=48) → after run_frame() port 0xFF returns 0xFF (machine_timing_ neither 48 nor 128); pre-fix returned the VRAM byte 0x42 (config_.type == ZX48K) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:1201 |
+| FB-HARNESS-01 | set_raster_position(100, 50) lands clock at expected master cycle and current_scanline()==100 | — | pass | test/floating_bus/floating_bus_test.cpp:1301 |
+| FB-HARNESS-02 | set_raster_position_hc(64, 144) lands clock at expected master cycle and current_hc()==144 | — | pass | test/floating_bus/floating_bus_test.cpp:1326 |
+| FB-HARNESS-03 | cpu_in_a_FF executes IN A,(0xFF) on 48K at line 0 → A=0xFF (border early-return path) and PC=0x8002 | — | pass | test/floating_bus/floating_bus_test.cpp:1348 |
+| FB-HARNESS-04 | cpu_in_a_0FFD executes IN A,(C) with BC=0x0FFD; helper completes, PC advances 2 bytes, BC preserved | — | pass | test/floating_bus/floating_bus_test.cpp:1366 |
+| FB-HARNESS-05 | read_port_default(0x00FF) on fresh 48K returns 0xFF (border early-return path through port_dispatch default) | — | pass | test/floating_bus/floating_bus_test.cpp:1381 |
 
 ## VideoTiming — `test/videotiming/videotiming_test.cpp`
 
@@ -5310,51 +5325,51 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | SNAPSAVE-SNA-128K-PAGED-DUP-ROUNDTRIP | and it round-trips: all eight banks byte-exact with bank 5 paged, so the duplicated block is read back consistently | — | pass | test/mmu/mmu_integration_test.cpp:1862 |
 | SNAPSAVE-SNA-PLUS3-NORMAL-FORM | a +3 in normal paging saves the 128K form (131103 bytes) — port 0x1FFD bit 3 is the +3 disk motor (zxnext.vhd:3757), which no SNA of any machine carries | zxnext.vhd:3757 | pass | test/mmu/mmu_integration_test.cpp:1890 |
 | SNAPSAVE-SNA-PLUS3-ROUNDTRIP | and it round-trips on a +3: all eight banks, 0x7FFD, the registers, PC, SP and the border | — | pass | test/mmu/mmu_integration_test.cpp:1907 |
-| SNAPSAVE-SNA-128K-DFFD-REFUSED | a 128K with extended paging active is refused: 0x7FFD alone cannot name the bank at 0xC000, so no file is written at all | — | pass | test/mmu/mmu_integration_test.cpp:1945 |
-| SNAPSAVE-SNA-128K-DFFD-MOVED-WINDOW | and the fixture really did move the window out of 0x7FFD's reach: slot 6 holds bank 8 and 0xC000 reads the byte written after the switch | — | pass | test/mmu/mmu_integration_test.cpp:1955 |
-| SNAPSAVE-SNA-128K-DFFD-NOT-SZX | the refusal does not recommend '.szx', which has no 0xDFFD field and could not carry this state either | — | pass | test/mmu/mmu_integration_test.cpp:1964 |
-| SNAPSAVE-SNA-128K-DFFD-ZERO-SAVES | a 128K with port 0xDFFD explicitly 0 still saves the 128K form and round-trips all eight banks, 0x7FFD and the registers | — | pass | test/mmu/mmu_integration_test.cpp:2000 |
-| SNAPSAVE-SNA-48K-DFFD-REFUSED | a 48K is exposed the same way and refused the same way: port 0xDFFD moves 0xC000 to bank 8, which the 48K form's third block — always reloaded as bank 0 — cannot describe | — | pass | test/mmu/mmu_integration_test.cpp:2024 |
-| SNAPSAVE-SNA-128K-SLOT-REMAP-REFUSED | a 128K whose 0x8000 window an NR 0x50-0x57 write moved off bank 2 is refused: the form's second block can only reload as bank 2 | — | pass | test/mmu/mmu_integration_test.cpp:2047 |
-| SNAPSAVE-SNA-128K-PENTAGON-REFUSED | Pentagon mapping mode composes the bank at 0xC000 from 0x7FFD bits 7:6, which the format's 3-bit field cannot name, and is refused by the same window check — mechanism-independent by construction | — | pass | test/mmu/mmu_integration_test.cpp:2070 |
-| SNAPSAVE-SNA-128K-PENTAGON-CLEAR-SAVES | Pentagon mode with 0x7FFD bits 7:6 clear still saves and round-trips all eight banks — the refusal is the window, not the mapping mode | — | pass | test/mmu/mmu_integration_test.cpp:2105 |
-| SNAPSAVE-SNA-PLUS3-SPECIAL-REFUSED | a +3 in SPECIAL PAGING is refused: the format's three blocks are banks 5, 2 and the paged bank, which is not that layout at all | — | pass | test/mmu/mmu_integration_test.cpp:2120 |
-| SNAPSAVE-SNA-PLUS3-ROMHIGH-REFUSED | a +3 with ROM 2 or 3 paged is refused: the format carries only 0x7FFD bit 4, so it would come back on a different ROM | — | pass | test/mmu/mmu_integration_test.cpp:2134 |
-| SNAPSAVE-NEX-RT-00 | NexSaver::save() returns a non-empty buffer | — | pass | test/mmu/mmu_integration_test.cpp:2170 |
-| SNAPSAVE-NEX-RT-01 | saved .nex bytes written to disk | — | pass | test/mmu/mmu_integration_test.cpp:2175 |
-| SNAPSAVE-NEX-RT-02 | Emulator::load_nex() accepts the saved file | — | pass | test/mmu/mmu_integration_test.cpp:2186 |
-| SNAPSAVE-NEX-RT-PCSP | PC/SP round-trip through save()->file->Emulator::load_nex() (the only two registers NEX's header carries) | — | pass | test/mmu/mmu_integration_test.cpp:2193 |
-| SNAPSAVE-NEX-RT-RAM | bank-20 (pages 40/41) content round-trips byte-for-byte through the .nex bank payload | — | pass | test/mmu/mmu_integration_test.cpp:2206 |
-| SNAPSAVE-NEX-RT-BORDER | border colour round-trips via the .nex header | — | pass | test/mmu/mmu_integration_test.cpp:2212 |
-| SNAPSAVE-NEX-RT-ENTRYBANK | entry_bank re-establishes the CPU-executable mapping at 0xC000-0xFFFF (MMU slots 6/7) in the freshly loaded Emulator | — | pass | test/mmu/mmu_integration_test.cpp:2217 |
-| MMU-G33-TRAP-01 | handle_sa_bytes_trap: A/IX/DE -> hand-computed TAP block on file; exit state PC=popped ret, SP+=2, IX+=DE, DE=0, carry set (mirrors the LD-BYTES trap return mechanics) | — | pass | test/mmu/mmu_integration_test.cpp:2309 |
-| MMU-G33-TRAP-02 | run_frame gate positive: SA-BYTES signature in slot-0 ROM + PC=0x04C2 + armed saver -> trap fires once, block on file, CPU parked at popped return address | — | pass | test/mmu/mmu_integration_test.cpp:2344 |
-| MMU-G33-TRAP-03 | run_frame gate negative: non-48K ROM bytes at 0x04C2 with the saver armed and PC=0x04C2 -> trap does NOT fire (zero blocks, empty file, CPU executes the real ROM code) — the ungated trap corrupted a plain NextZXOS boot (Task 57 review) | — | pass | test/mmu/mmu_integration_test.cpp:2375 |
-| G12-TAG-01 | a DMA write to an attribute, after a CPU write elsewhere in the frame, is tagged with the DMA's own line (visible from row 150, not 21) | — | pass | test/mmu/mmu_integration_test.cpp:2550 |
-| G12-TAG-02 | the debugger's poke(Cpu) to an attribute is tagged with the current line | — | pass | test/mmu/mmu_integration_test.cpp:2566 |
-| G12-TAG-03 | a tape loader's LD-BYTES trap writing an attribute is tagged with the current line | — | pass | test/mmu/mmu_integration_test.cpp:2599 |
-| G12-TAG-04 | a CPU attribute write that straddles a line start is tagged with the line it LANDED on, not the line its instruction began in | — | pass | test/mmu/mmu_integration_test.cpp:2642 |
-| G12-TAG-05 | a CPU attribute write late in a line keeps its own column: column 0, already fetched on that line, shows it from the next line | — | pass | test/mmu/mmu_integration_test.cpp:2685 |
-| G12-TAG-06 | a CPU attribute write at 7 MHz straddling a line start is tagged with the master-clock line it landed on (the 3.5 MHz formula puts it elsewhere) | — | pass | test/mmu/mmu_integration_test.cpp:2704 |
-| G12-TAG-07 | a CPU attribute write at 14 MHz straddling a line start is tagged with the master-clock line it landed on | — | pass | test/mmu/mmu_integration_test.cpp:2720 |
-| G12-TAG-08 | a CPU attribute write at 28 MHz straddling a line start is tagged with the master-clock line it landed on | — | pass | test/mmu/mmu_integration_test.cpp:2736 |
-| G12-TAG-09 | a CPU attribute write late in a line at 28 MHz keeps its own column: column 0, already fetched on that line, shows it from the next line | — | pass | test/mmu/mmu_integration_test.cpp:2756 |
-| G12-TAG-10 | after a 3.5 -> 28 MHz switch mid-frame the CPU attribute write tag follows the new unit at once | — | pass | test/mmu/mmu_integration_test.cpp:2784 |
-| G12-TAG-11 | after a state load at 28 MHz the CPU attribute write tag follows the restored CPU speed | — | pass | test/mmu/mmu_integration_test.cpp:2820 |
-| G12-TAG-12 | after a soft reset at 28 MHz mid-frame the FUSE counter is re-derived for 3.5 MHz (counter x divisor = clock - frame start, to a whole T-state) and the write tag follows | zxnext.vhd:5800, zxula_timing.vhd | pass | test/mmu/mmu_integration_test.cpp:2856 |
-| PENT-09 | Pentagon is the 128K family: OUT 0x7FFD 0x10 selects ROM 1 and sram_rom3 [zxnext.vhd:5751, :2997-3007] | zxnext.vhd:5751,2997-3007 | pass | test/mmu/mmu_integration_test.cpp:2889 |
-| PENT-10 | NR 0x8F = 00 (standard): OUT 0x7FFD 0x43 pages bank 3 at 0xC000 (bits 7:6 ignored) [zxnext.vhd:3764] | zxnext.vhd:3764 | pass | test/mmu/mmu_integration_test.cpp:2900 |
-| PENT-11 | NR 0x8F = 02 (Pentagon 512): OUT 0x7FFD 0x43 pages bank 0b01_011 = 11 (page 22) [zxnext.vhd:3764, :3798] | zxnext.vhd:3764,3798 | pass | test/mmu/mmu_integration_test.cpp:2911 |
-| PENT-12 | NR 0x8F = 03 (Pentagon 1024): OUT 0x7FFD 0x20 pages bank 32 (page 64) and the lock bit does not lock, so a second write pages bank 1 (page 2) [zxnext.vhd:3765, :3769, :3801] | zxnext.vhd:3765,3769,3801 | pass | test/mmu/mmu_integration_test.cpp:2924 |
-| PENT-F1-01 | port_1ffd_io_en = 0 (NR 0x82 bit 3, Pentagon): OUT 0x1FFD 0x13 is a 0x7FFD write, bank 3 at 0xC000 [zxnext.vhd:2593, :2599] | zxnext.vhd:2593,2599 | pass | test/mmu/mmu_integration_test.cpp:2937 |
-| PENT-F1-02 | +3 timing needs A14 = 1 for 0x7FFD: with 0x1FFD disabled, OUT 0x1FFD 0x13 pages nothing [zxnext.vhd:2593 p3_timing_hw_en term] | zxnext.vhd:2593 | pass | test/mmu/mmu_integration_test.cpp:2948 |
-| PENT-F1-03 | port_1ffd_io_en = 1 (+3): OUT 0x1FFD 0x04 selects +3 ROM bank 2 and leaves the 0x7FFD bank alone [zxnext.vhd:2599] | zxnext.vhd:2599 | pass | test/mmu/mmu_integration_test.cpp:2960 |
-| PENT-F1-04 | 128K timing: OUT 0x3FFD 0x13 is both the FDC trap write (NR 0xD9 = 0x13, cause 11) and a 0x7FFD write (bank 3) [zxnext.vhd:2593, :2601] | zxnext.vhd:2593,2601 | pass | test/mmu/mmu_integration_test.cpp:2974 |
-| PENT-14 | SzxSaver on PENTAGON writes chMachineId 7 and RAM pages 0-7 [libspectrum szx.c:41-57, :2645] | — | pass | test/mmu/mmu_integration_test.cpp:2999 |
-| PENT-15 | SnaSaver on PENTAGON writes the 128K form (131103 bytes) with the 0x7FFD byte [SNA 128K layout; FUSE reads it as Pentagon 128] | — | pass | test/mmu/mmu_integration_test.cpp:3012 |
-| PENT-16 | rzx::snapshot_machine identifies SZX id 7 and .z80 v3 hardware 9 as PENTAGON; SZX id 13 (Pentagon 512) stays unrecognised [libspectrum szx.c:41-57, z80.c:81] | — | pass | test/mmu/mmu_integration_test.cpp:3033 |
-| SZXW-EXT-01 | 128K with OUT 0xDFFD 0x01 (bank 8 at 0xC000): SzxSaver refuses, naming .jns [zxnext.vhd:3763-3766] | zxnext.vhd:3763-3766 | pass | test/mmu/mmu_integration_test.cpp:3043 |
-| SZXW-EXT-02 | PENTAGON with NR 0x8F = 02 and 0x7FFD 0x40 (bank 8): SzxSaver refuses; the same machine in the standard mapping with bank 3 saves (control) [zxnext.vhd:3764] | zxnext.vhd:3764 | pass | test/mmu/mmu_integration_test.cpp:3060 |
+| SNAPSAVE-SNA-128K-DFFD-REFUSED | a 128K with extended paging active is refused: 0x7FFD alone cannot name the bank at 0xC000, so no file is written at all | — | pass | test/mmu/mmu_integration_test.cpp:1946 |
+| SNAPSAVE-SNA-128K-DFFD-MOVED-WINDOW | and the fixture really did move the window out of 0x7FFD's reach: slot 6 holds bank 8 and 0xC000 reads the byte written after the switch | — | pass | test/mmu/mmu_integration_test.cpp:1956 |
+| SNAPSAVE-SNA-128K-DFFD-NOT-SZX | the refusal does not recommend '.szx', which has no 0xDFFD field and could not carry this state either | — | pass | test/mmu/mmu_integration_test.cpp:1965 |
+| SNAPSAVE-SNA-128K-DFFD-ZERO-SAVES | a 128K with port 0xDFFD explicitly 0 still saves the 128K form and round-trips all eight banks, 0x7FFD and the registers | — | pass | test/mmu/mmu_integration_test.cpp:2001 |
+| SNAPSAVE-SNA-48K-DFFD-REFUSED | a 48K is exposed the same way and refused the same way: port 0xDFFD moves 0xC000 to bank 8, which the 48K form's third block — always reloaded as bank 0 — cannot describe | — | pass | test/mmu/mmu_integration_test.cpp:2027 |
+| SNAPSAVE-SNA-128K-SLOT-REMAP-REFUSED | a 128K whose 0x8000 window an NR 0x50-0x57 write moved off bank 2 is refused: the form's second block can only reload as bank 2 | — | pass | test/mmu/mmu_integration_test.cpp:2050 |
+| SNAPSAVE-SNA-128K-PENTAGON-REFUSED | Pentagon mapping mode composes the bank at 0xC000 from 0x7FFD bits 7:6, which the format's 3-bit field cannot name, and is refused by the same window check — mechanism-independent by construction | — | pass | test/mmu/mmu_integration_test.cpp:2073 |
+| SNAPSAVE-SNA-128K-PENTAGON-CLEAR-SAVES | Pentagon mode with 0x7FFD bits 7:6 clear still saves and round-trips all eight banks — the refusal is the window, not the mapping mode | — | pass | test/mmu/mmu_integration_test.cpp:2108 |
+| SNAPSAVE-SNA-PLUS3-SPECIAL-REFUSED | a +3 in SPECIAL PAGING is refused: the format's three blocks are banks 5, 2 and the paged bank, which is not that layout at all | — | pass | test/mmu/mmu_integration_test.cpp:2123 |
+| SNAPSAVE-SNA-PLUS3-ROMHIGH-REFUSED | a +3 with ROM 2 or 3 paged is refused: the format carries only 0x7FFD bit 4, so it would come back on a different ROM | — | pass | test/mmu/mmu_integration_test.cpp:2137 |
+| SNAPSAVE-NEX-RT-00 | NexSaver::save() returns a non-empty buffer | — | pass | test/mmu/mmu_integration_test.cpp:2173 |
+| SNAPSAVE-NEX-RT-01 | saved .nex bytes written to disk | — | pass | test/mmu/mmu_integration_test.cpp:2178 |
+| SNAPSAVE-NEX-RT-02 | Emulator::load_nex() accepts the saved file | — | pass | test/mmu/mmu_integration_test.cpp:2189 |
+| SNAPSAVE-NEX-RT-PCSP | PC/SP round-trip through save()->file->Emulator::load_nex() (the only two registers NEX's header carries) | — | pass | test/mmu/mmu_integration_test.cpp:2196 |
+| SNAPSAVE-NEX-RT-RAM | bank-20 (pages 40/41) content round-trips byte-for-byte through the .nex bank payload | — | pass | test/mmu/mmu_integration_test.cpp:2209 |
+| SNAPSAVE-NEX-RT-BORDER | border colour round-trips via the .nex header | — | pass | test/mmu/mmu_integration_test.cpp:2215 |
+| SNAPSAVE-NEX-RT-ENTRYBANK | entry_bank re-establishes the CPU-executable mapping at 0xC000-0xFFFF (MMU slots 6/7) in the freshly loaded Emulator | — | pass | test/mmu/mmu_integration_test.cpp:2220 |
+| MMU-G33-TRAP-01 | handle_sa_bytes_trap: A/IX/DE -> hand-computed TAP block on file; exit state PC=popped ret, SP+=2, IX+=DE, DE=0, carry set (mirrors the LD-BYTES trap return mechanics) | — | pass | test/mmu/mmu_integration_test.cpp:2312 |
+| MMU-G33-TRAP-02 | run_frame gate positive: SA-BYTES signature in slot-0 ROM + PC=0x04C2 + armed saver -> trap fires once, block on file, CPU parked at popped return address | — | pass | test/mmu/mmu_integration_test.cpp:2347 |
+| MMU-G33-TRAP-03 | run_frame gate negative: non-48K ROM bytes at 0x04C2 with the saver armed and PC=0x04C2 -> trap does NOT fire (zero blocks, empty file, CPU executes the real ROM code) — the ungated trap corrupted a plain NextZXOS boot (Task 57 review) | — | pass | test/mmu/mmu_integration_test.cpp:2378 |
+| G12-TAG-01 | a DMA write to an attribute, after a CPU write elsewhere in the frame, is tagged with the DMA's own line (visible from row 150, not 21) | — | pass | test/mmu/mmu_integration_test.cpp:2553 |
+| G12-TAG-02 | the debugger's poke(Cpu) to an attribute is tagged with the current line | — | pass | test/mmu/mmu_integration_test.cpp:2569 |
+| G12-TAG-03 | a tape loader's LD-BYTES trap writing an attribute is tagged with the current line | — | pass | test/mmu/mmu_integration_test.cpp:2602 |
+| G12-TAG-04 | a CPU attribute write that straddles a line start is tagged with the line it LANDED on, not the line its instruction began in | — | pass | test/mmu/mmu_integration_test.cpp:2645 |
+| G12-TAG-05 | a CPU attribute write late in a line keeps its own column: column 0, already fetched on that line, shows it from the next line | — | pass | test/mmu/mmu_integration_test.cpp:2688 |
+| G12-TAG-06 | a CPU attribute write at 7 MHz straddling a line start is tagged with the master-clock line it landed on (the 3.5 MHz formula puts it elsewhere) | — | pass | test/mmu/mmu_integration_test.cpp:2707 |
+| G12-TAG-07 | a CPU attribute write at 14 MHz straddling a line start is tagged with the master-clock line it landed on | — | pass | test/mmu/mmu_integration_test.cpp:2723 |
+| G12-TAG-08 | a CPU attribute write at 28 MHz straddling a line start is tagged with the master-clock line it landed on | — | pass | test/mmu/mmu_integration_test.cpp:2739 |
+| G12-TAG-09 | a CPU attribute write late in a line at 28 MHz keeps its own column: column 0, already fetched on that line, shows it from the next line | — | pass | test/mmu/mmu_integration_test.cpp:2759 |
+| G12-TAG-10 | after a 3.5 -> 28 MHz switch mid-frame the CPU attribute write tag follows the new unit at once | — | pass | test/mmu/mmu_integration_test.cpp:2787 |
+| G12-TAG-11 | after a state load at 28 MHz the CPU attribute write tag follows the restored CPU speed | — | pass | test/mmu/mmu_integration_test.cpp:2823 |
+| G12-TAG-12 | after a soft reset at 28 MHz mid-frame the FUSE counter is re-derived for 3.5 MHz (counter x divisor = clock - frame start, to a whole T-state) and the write tag follows | zxnext.vhd:5800, zxula_timing.vhd | pass | test/mmu/mmu_integration_test.cpp:2859 |
+| PENT-09 | Pentagon is the 128K family: OUT 0x7FFD 0x10 selects ROM 1 and sram_rom3 [zxnext.vhd:5751, :2997-3007] | zxnext.vhd:5751,2997-3007 | pass | test/mmu/mmu_integration_test.cpp:2892 |
+| PENT-10 | NR 0x8F = 00 (standard): OUT 0x7FFD 0x43 pages bank 3 at 0xC000 (bits 7:6 ignored) [zxnext.vhd:3764] | zxnext.vhd:3764 | pass | test/mmu/mmu_integration_test.cpp:2903 |
+| PENT-11 | NR 0x8F = 02 (Pentagon 512): OUT 0x7FFD 0x43 pages bank 0b01_011 = 11 (page 22) [zxnext.vhd:3764, :3798] | zxnext.vhd:3764,3798 | pass | test/mmu/mmu_integration_test.cpp:2914 |
+| PENT-12 | NR 0x8F = 03 (Pentagon 1024): OUT 0x7FFD 0x20 pages bank 32 (page 64) and the lock bit does not lock, so a second write pages bank 1 (page 2) [zxnext.vhd:3765, :3769, :3801] | zxnext.vhd:3765,3769,3801 | pass | test/mmu/mmu_integration_test.cpp:2927 |
+| PENT-F1-01 | port_1ffd_io_en = 0 (NR 0x82 bit 3, Pentagon): OUT 0x1FFD 0x13 is a 0x7FFD write, bank 3 at 0xC000 [zxnext.vhd:2593, :2599] | zxnext.vhd:2593,2599 | pass | test/mmu/mmu_integration_test.cpp:2940 |
+| PENT-F1-02 | +3 timing needs A14 = 1 for 0x7FFD: with 0x1FFD disabled, OUT 0x1FFD 0x13 pages nothing [zxnext.vhd:2593 p3_timing_hw_en term] | zxnext.vhd:2593 | pass | test/mmu/mmu_integration_test.cpp:2951 |
+| PENT-F1-03 | port_1ffd_io_en = 1 (+3): OUT 0x1FFD 0x04 selects +3 ROM bank 2 and leaves the 0x7FFD bank alone [zxnext.vhd:2599] | zxnext.vhd:2599 | pass | test/mmu/mmu_integration_test.cpp:2963 |
+| PENT-F1-04 | 128K timing: OUT 0x3FFD 0x13 is both the FDC trap write (NR 0xD9 = 0x13, cause 11) and a 0x7FFD write (bank 3) [zxnext.vhd:2593, :2601] | zxnext.vhd:2593,2601 | pass | test/mmu/mmu_integration_test.cpp:2977 |
+| PENT-14 | SzxSaver on PENTAGON writes chMachineId 7 and RAM pages 0-7 [libspectrum szx.c:41-57, :2645] | — | pass | test/mmu/mmu_integration_test.cpp:3002 |
+| PENT-15 | SnaSaver on PENTAGON writes the 128K form (131103 bytes) with the 0x7FFD byte [SNA 128K layout; FUSE reads it as Pentagon 128] | — | pass | test/mmu/mmu_integration_test.cpp:3015 |
+| PENT-16 | rzx::snapshot_machine identifies SZX id 7 and .z80 v3 hardware 9 as PENTAGON; SZX id 13 (Pentagon 512) stays unrecognised [libspectrum szx.c:41-57, z80.c:81] | — | pass | test/mmu/mmu_integration_test.cpp:3036 |
+| SZXW-EXT-01 | 128K with OUT 0xDFFD 0x01 (bank 8 at 0xC000): SzxSaver refuses, naming .jns [zxnext.vhd:3763-3766] | zxnext.vhd:3763-3766 | pass | test/mmu/mmu_integration_test.cpp:3047 |
+| SZXW-EXT-02 | PENTAGON with NR 0x8F = 02 and 0x7FFD 0x40 (bank 8): SzxSaver refuses; the same machine in the standard mapping with bank 3 saves (control) [zxnext.vhd:3764] | zxnext.vhd:3764 | pass | test/mmu/mmu_integration_test.cpp:3064 |
 
 ### Companion integration suite — `test/ula/ula_integration_test.cpp`
 
@@ -5607,9 +5622,9 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | ISC-GH265-06 | NR 0xC5 enable commits on its edge: a ZC/TO before it is not latched, one on it is (im2_peripheral.vhd:167-178; zxnext.vhd:1949,4747-4777) | im2_peripheral.vhd:167-178, zxnext.vhd:1949,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3494 |
 | ISC-GH265-07 | NR 0xC8 bit 1 sees the line interrupt from its registered int_line, one pixel after the hc_ula = 255 compare (zxula_timing.vhd:423-436,455-472,566-583; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882) | zxula_timing.vhd:423-436,455-472,566-583, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3522 |
 | ISC-GH265-08 | a request reaching the pulse fabric before pulse_int_n has returned to '1' is lost; one after it starts a new pulse (zxnext.vhd:2017-2044,5991-5992) | zxnext.vhd:2017-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3555 |
-| CTC-RD-GH265-01 | CTC programmed and read by OUT/IN: written on its commit edge, read at the port_ctc_dat reload (zxnext.vhd:4095-4100; ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150,214-222) | zxnext.vhd:4095-4100, ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150,214-222 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3597 |
-| CTC-RD-GH265-02 | IN of a CTC port latches t_count as of the edge before the port_ctc_dat reload 83 cycles in (zxnext.vhd:4095-4100) | zxnext.vhd:4095-4100 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3627 |
-| CTC-WR-GH265-01 | a CTC constant written by OUT is taken on its commit edge: its first count 17 edges on, its ZC/TO 16 per count after (ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150; im2_peripheral.vhd:154-162) | ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3664 |
+| CTC-RD-GH265-01 | CTC programmed and read by OUT/IN: written on its commit edge, read at the port_ctc_dat reload (zxnext.vhd:4095-4100; ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150,214-222) | zxnext.vhd:4095-4100, ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150,214-222 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3598 |
+| CTC-RD-GH265-02 | IN of a CTC port latches t_count as of the edge before the port_ctc_dat reload 83 cycles in (zxnext.vhd:4095-4100) | zxnext.vhd:4095-4100 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3629 |
+| CTC-WR-GH265-01 | a CTC constant written by OUT is taken on its commit edge: its first count 17 edges on, its ZC/TO 16 per count after (ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150; im2_peripheral.vhd:154-162) | ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3667 |
 
 ### Companion integration suite — `test/nextreg/nextreg_integration_test.cpp`
 
@@ -5974,6 +5989,28 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | PENT-05 | Pentagon 128 cold boot leaves NR 0x8F = 0x00 (standard mapping; the firmware never writes it, and the VHDL has no reset clause) [zxnext.vhd:888] | zxnext.vhd:888 | pass | test/nextreg/nextreg_integration_test.cpp:8082 |
 | PENT-06 | a Next committing typ_sel 100 through NR 0x03 ends in MachineType::PENTAGON (machine_type_128 family, same as --machine pentagon) [zxnext.vhd:5139-5142, :5751] | zxnext.vhd:5139-5142,5751 | pass | test/nextreg/nextreg_integration_test.cpp:8092 |
 | PENT-22 | Pentagon Covox: NR 0x08 bit 3 (DAC) set and OUT 0xFB reaches DAC channels A and D (NR 0x84 bit 5 mono_AD_fb, bit 2 clear) [zxnext.vhd:2433, :2661-2664] | zxnext.vhd:2433,2661-2664 | pass | test/nextreg/nextreg_integration_test.cpp:8105 |
+| PERS-01 | 48k cold boot: NR 0x82-0x85 = C0/3F/FE/03 (boot.c case 0, ay48=0 AY off; NR 0x83 b7:6 and NR 0x85 b7/b3/b2 never set) [tbblue.fw boot.c:325-406] | — | pass | test/nextreg/nextreg_integration_test.cpp:8154 |
+| PERS-02 | 128k cold boot: NR 0x82-0x85 = C2/3F/FF/03 (boot.c case 1) [tbblue.fw boot.c:325-406] | — | pass | test/nextreg/nextreg_integration_test.cpp:8161 |
+| PERS-03 | plus3 cold boot: NR 0x82-0x85 = DA/3F/FF/03 (boot.c case 2) [tbblue.fw boot.c:325-406] | — | pass | test/nextreg/nextreg_integration_test.cpp:8167 |
+| PERS-04 | pentagon cold boot: NR 0x82-0x85 = C6/3F/FB/03 (boot.c case 3; NR 0x83 b7:6 and NR 0x85 b3:2 corrected from GH #324) [tbblue.fw boot.c:325-406] | — | pass | test/nextreg/nextreg_integration_test.cpp:8173 |
+| PERS-05 | 48k: NR 0x85 bit 7 = 0, so a soft reset keeps the enables, incl. a guest-set NR 0x82 = 0xC2 [zxnext.vhd:5052-5059] | zxnext.vhd:5052-5059 | pass | test/nextreg/nextreg_integration_test.cpp:8182 |
+| PERS-06 | 128k: a soft reset keeps the enables, incl. a guest-set NR 0x82 = 0xC6 [zxnext.vhd:5052-5059] | zxnext.vhd:5052-5059 | pass | test/nextreg/nextreg_integration_test.cpp:8191 |
+| PERS-07 | plus3: a soft reset keeps the enables, incl. a guest-set NR 0x82 = 0xDE [zxnext.vhd:5052-5059] | zxnext.vhd:5052-5059 | pass | test/nextreg/nextreg_integration_test.cpp:8200 |
+| PERS-08 | the Next itself gets no personality: NR 0x82-0x85 = FF/FF/FF/8F at init (its firmware and NextZXOS write them) [NextZXOS writes FF x4, fw-default0 log] | — | pass | test/nextreg/nextreg_integration_test.cpp:8207 |
+| PERS-09 | 48k, guest NR 0x85 = 0x8F (reset_type 1), soft reset: all four reload to FF/FF/FF/8F, the personality is not re-applied [zxnext.vhd:5052-5059] | zxnext.vhd:5052-5059 | pass | test/nextreg/nextreg_integration_test.cpp:8216 |
+| PERS-P01 | 48k: OUT 0x7FFD is ignored (slot 6 page unchanged); after NR 0x82 \|= 0x02 the same OUT pages bank 3 (slot 6 = page 6) [zxnext.vhd:2399,2593,3650] | zxnext.vhd:2399,2593,3650 | pass | test/nextreg/nextreg_integration_test.cpp:8231 |
+| PERS-P02 | 128k: OUT 0xDFFD is ignored (slot 6 stays page 0); after NR 0x82 \|= 0x04 it selects bank 8 (page 16) [zxnext.vhd:2400,2596,3763-3766] | zxnext.vhd:2400,2596,3763-3766 | pass | test/nextreg/nextreg_integration_test.cpp:8243 |
+| PERS-P03 | 128k (0xDFFD disabled): OUT 0xDFFD,7 selects AY register 7, so IN 0xFFFD returns reg 7 = 0x3F [zxnext.vhd:2596,2647,2773] | zxnext.vhd:2596,2647,2773 | pass | test/nextreg/nextreg_integration_test.cpp:8254 |
+| PERS-P04 | pentagon (0xDFFD enabled): OUT 0xDFFD,7 does not select an AY register, so IN 0xFFFD still returns reg 0 = 0x00 [zxnext.vhd:2773 `and not port_dffd`] | zxnext.vhd:2773 | pass | test/nextreg/nextreg_integration_test.cpp:8265 |
+| PERS-P05 | 48k (AY off): OUT 0xFFFD/0xBFFD leave AY reg 7 at its reset value and IN 0xFFFD = 0xFF; the 128k control takes 0x15 [zxnext.vhd:2428,2647-2648] | zxnext.vhd:2428,2647-2648 | pass | test/nextreg/nextreg_integration_test.cpp:8279 |
+| PERS-P06 | 48k, NR 0x08 b2=1: OUT 0xFF is ignored, IN 0xFF takes the ULA arm (0xFF in the border); after NR 0x82 \|= 0x01 it reads back the Timex register 0x02 [zxnext.vhd:2397,2714,2813] | zxnext.vhd:2397,2714,2813 | pass | test/nextreg/nextreg_integration_test.cpp:8293 |
+| PERS-P07 | 48k + NR 0x03 = 0xB1: IN 0x0FFD = 0xFF (+3 floating bus off); after NR 0x82 \|= 0x10 it returns the p3 latch 0xA4 [zxnext.vhd:2403,2589] | zxnext.vhd:2403,2589 | pass | test/nextreg/nextreg_integration_test.cpp:8307 |
+| PERS-P08 | 48k: IN 0x6B = 0xFF and a program sent to 0x6B does not run; the same program through 0x0B (NR 0x85 b1 kept) does [zxnext.vhd:2405,2441,2643] | zxnext.vhd:2405,2441,2643 | pass | test/nextreg/nextreg_integration_test.cpp:8322 |
+| PERS-P09 | 128k: OUT 0x123B,2 leaves NR 0x69 b7 = 0 and IN 0x123B = 0xFF; after NR 0x83 \|= 0x80 the same OUT enables Layer 2 [zxnext.vhd:2424,2635] | zxnext.vhd:2424,2635 | pass | test/nextreg/nextreg_integration_test.cpp:8336 |
+| PERS-P10 | 128k: IN 0x303B = 0xFF and OUT 0x303B,5 + OUT 0x57 leave sprite 5's attribute unchanged; after NR 0x83 \|= 0x40 the attribute is written [zxnext.vhd:2423,2679-2681] | zxnext.vhd:2423,2679-2681 | pass | test/nextreg/nextreg_integration_test.cpp:8350 |
+| PERS-P11 | 48k: IN 0x183B = 0xFF and a CTC control word to 0x183B leaves channel 0 unprogrammed; after NR 0x85 \|= 0x08 it programs it [zxnext.vhd:2442,2690] | zxnext.vhd:2442,2690 | pass | test/nextreg/nextreg_integration_test.cpp:8363 |
+| PERS-P12 | pentagon, NR 0x8F = 3: OUT 0xEFF7,4 is ignored (Pentagon-1024 stays enabled); after NR 0x85 \|= 0x04 it disables it [zxnext.vhd:2440,2604,3769] | zxnext.vhd:2440,2604,3769 | pass | test/nextreg/nextreg_integration_test.cpp:8378 |
+| PERS-P13 | 128k (0x1FFD disabled): OUT 0x1FFD,0x13 is a 0x7FFD write, so 0xC000 = bank 3 (page 6) [zxnext.vhd:2593,2599] | zxnext.vhd:2593,2599 | pass | test/nextreg/nextreg_integration_test.cpp:8387 |
 
 ### Companion integration suite — `test/nmi/nmi_integration_test.cpp`
 
@@ -6152,4 +6189,26 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PI-46 | the close-on-exec fallback reads /proc/self/fd where it exists, else /dev/fd, falls back to /dev/fd when the first list cannot be read, and walks the numbers only with no list; each marks fd 57 | — | pass | test/uart/uart_posix_test.cpp:1961 |
 | PI-47 | the open-descriptor list read from /dev/fd (and /proc/self/fd where it exists) names the open descriptors (fd 57) but not the directory's own, which is closed again: no descriptor is left open by reading the list or by the walk that marks from it | — | pass | test/uart/uart_posix_test.cpp:2011 |
 | PI-38 | whether NextPi starts: --nextpi and --no-nextpi win, otherwise a GUI session follows the [nextpi] preference and a headless one starts nothing; only --nextpi makes a failure an error | — | pass | test/uart/uart_posix_test.cpp:2035 |
+
+### Companion suite — `test/uart/nextpi_test.cpp`
+
+Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md).
+
+| Test ID | Description | VHDL file:line | Status | Test file:line |
+|---------|-------------|----------------|--------|----------------|
+| PIT-01 | nextpi::md5_file returns the RFC 1321 digest of a file (empty, short, and one crossing the 1 MiB read buffer) and "" for a file that does not exist | — | pass | test/uart/nextpi_test.cpp:371 |
+| PIT-02 | the socket transport's QEMU command line puts the console UART on a loopback-only, non-waiting listening socket chardev (host=127.0.0.1, server=on, wait=off) with no pipe chardev, the monitor on stdio on Windows and off elsewhere, and the rest of the raspi0 command line unchanged | — | pass | test/uart/nextpi_test.cpp:410 |
+| PIT-03 | the default Pi audio back-end is the host's own: dsound on Windows, coreaudio on macOS, pa elsewhere | — | pass | test/uart/nextpi_test.cpp:429 |
+| PIT-04 | the TCP endpoint carries both directions over UART 1 while NR 0xA0 = 0x30 connects it to the Pi GPIO pins (zxnext.vhd:2278-2281): the host's bytes reach port 0x143B, the guest's reach the host, UART 0 hears nothing, and the link is described as TCP 127.0.0.1:<port> | zxnext.vhd:2278-2281 | pass | test/uart/nextpi_test.cpp:471 |
+| PIT-05 | a TCP cable with no listener is not a fault: for over two seconds nothing is heard, nothing is faulted or discarded; once a listener appears the link connects by itself, both directions flow and the byte sent in the meantime arrives | — | pass | test/uart/nextpi_test.cpp:524 |
+| PIT-06 | when a TCP peer goes away its conversation is discarded, not handed to the next one: the byte it had sent and the byte that could not be delivered are dropped (the latter counted in unsent()) without a fault, and a new peer on the same listener gets traffic again and receives only what was sent after the loss, including a second byte sent straight after it; an orderly close and a reset seen by a read are reconnected too without a fault | — | pass | test/uart/nextpi_test.cpp:615 |
+| PIT-07 | link_config turns the launcher's transport into Emulator configuration (the port for the socket transport, the two FIFO paths for the FIFO one, never both: stale values of the other are cleared, and with both set the FIFO pair wins) and the warm-start recording machine gets neither while the machine itself is kept | — | pass | test/uart/nextpi_test.cpp:684 |
+| PIT-08 | NextPi end to end over the socket transport: with a space and a comma in the directory name and QEMU found on PATH, jnext creates the overlay and starts QEMU with exactly the documented arguments, the guest reads the Pi's SUP> on UART 1 and the Pi receives the guest's byte; destroying the launcher stops QEMU the orderly way, not by force | — | pass | test/uart/nextpi_test.cpp:734 |
+| PIT-09 | a rebuilt Emulator (a hard reset) reconnects to the same running Pi over the socket; the Pi received both machines' bytes in order | — | pass | test/uart/nextpi_test.cpp:774 |
+| PIT-10 | starting NextPi is refused, leaving nothing running, when QEMU is not on PATH, when the only match on PATH is a directory, and when QEMU exits at once; a QEMU path given without its .exe is completed | — | pass | test/uart/nextpi_test.cpp:830 |
+| PIT-11 | a QEMU that ignores the orderly stop is killed once the stop grace period is over, and stop() returns | — | pass | test/uart/nextpi_test.cpp:872 |
+| PIT-12 | the exit status of a QEMU that ends on its own reaches jnext: exit_status() decodes to the status QEMU exited with | — | pass | test/uart/nextpi_test.cpp:904 |
+| PIT-13 | when the process running NextPi is killed outright, QEMU is stopped with it instead of being left orphaned with the overlay locked | — | pass | test/uart/nextpi_test.cpp:928 |
+| PIT-14 | QEMU inherits none of jnext's other handles: an inheritable pipe holding a magic string that jnext has open cannot be read in the child | — | pass | test/uart/nextpi_test.cpp:954 |
+| PIT-15 | QEMU runs with LANG=C and LC_ALL=C, each exactly once whatever the case of the parent's variable names, and jnext's own environment is left alone | — | pass | test/uart/nextpi_test.cpp:998 |
 
