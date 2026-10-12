@@ -2154,6 +2154,89 @@ int main() {
               ok_seen);
         esp.stop(); }
 
+    {   // STALL-05 / STALL-06 — GH #327. BYTES THE ESP HAS ALREADY COMMITTED TO
+        //     ITS UART MUST LEAVE AT THE BAUD RATE WHILE THE WORKER HOLDS THE
+        //     ENGINE LOCK. A real ESP-01 clocks a framed message out back to
+        //     back and never idles mid-message; NextSync 1.2's `receive_slow()`
+        //     (nextsync.c:187-201) polls the UART status only 20 times between
+        //     the bytes of a `+IPD,<n>:` header and abandons the packet on a
+        //     longer gap (ESP-AT firmware / NextSync 1.2). Under wine the worker
+        //     holds the lock across Winsock send/recv for 1-25 ms, and tick()
+        //     used to drop the elapsed time then.
+        //
+        //     Here the lock is held by a 400 ms send(); the 8 bytes of the
+        //     AT+CIPSEND prompt were queued BEFORE and not ticked out.
+        SlowSendTransport tr;
+        tr.send_delay = std::chrono::milliseconds(400);
+        ThreadedEsp esp{tr};
+        std::string guest;
+        esp.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+        for (unsigned char c : std::string("AT+CIPSTART=\"TCP\",\"example.test\",80\r\n"))
+            esp.receive(c);
+        esp.poll();                       // inline: settles the connect
+        for (int i = 0; i < 4096 && esp.wants_tick(); ++i) esp.tick(BYTE_TICKS, BYTE_TICKS);
+        guest.clear();
+        for (unsigned char c : std::string("AT+CIPSEND=2\r\n")) esp.receive(c);   // queues "\r\nOK\r\n> ", not ticked
+        esp.start();
+        for (unsigned char c : std::string("hi")) esp.receive(c);   // -> flush_outbound -> send()
+        for (int i = 0; i < 5000 && !tr.in_send.load(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        check("STALL-05a", "the worker is inside a slow send(), holding the engine lock",
+              tr.in_send.load());
+
+        const auto t0 = std::chrono::steady_clock::now();
+        for (int i = 0; i < 64; ++i) esp.tick(BYTE_TICKS, BYTE_TICKS);
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - t0)
+                            .count();
+        const bool still_held = tr.in_send.load();
+        check_eq("STALL-05", "committed bytes reach the guest DURING the worker's lock hold",
+                 guest, "\r\nOK\r\n> ");
+        check("STALL-05b", "...and they were delivered while the lock was still held", still_held);
+        check("STALL-06", "tick() never blocks on the engine lock (64 ticks well inside the 400 ms hold)",
+              ms < 150);
+        esp.stop(); }
+
+    {   // GWIRE-01 — GH #327. A +IPD message (header AND payload) is committed
+        //     to the guest-bound wire as ONE unit. With a concurrent consumer a
+        //     producer preempted between header and payload would leave the
+        //     wire idle mid-message, the gap NextSync cannot tolerate.
+        Rig r;
+        r.connect();
+        const std::uint64_t before = r.eng.wire_commits();
+        r.tr.queue_from_peer(std::string(300, 'x'));
+        r.eng.poll();
+        check("GWIRE-01", "one 300-byte +IPD is one wire commit of header + payload",
+              r.eng.wire_commits() == before + 1 &&
+                  r.eng.pending_to_guest() == std::string("\r\n+IPD,300:").size() + 300); }
+
+    {   // GWIRE-02 — GH #327. The NEXT chunk is cut by tick() the moment the
+        //     wire drains, not by the worker's next pass: with the worker
+        //     asleep for 2 s, 2 100 bytes (> MAX_IPD_CHUNK 2048) must still
+        //     reach the guest as two frames inside 200 ms.
+        FakeTransport tr;
+        ThreadedEsp esp{tr, nullptr, nullptr, nullptr, nullptr, std::chrono::milliseconds(2000)};
+        std::string guest;
+        esp.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+        for (unsigned char c : std::string("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n"))
+            esp.receive(c);
+        esp.poll();
+        for (int i = 0; i < 4096 && esp.wants_tick(); ++i) esp.tick(BYTE_TICKS, BYTE_TICKS);
+        guest.clear();
+        const std::string payload(2100, 'z');
+        tr.queue_from_peer(payload);
+        esp.start();
+        esp.wait_idle(1000);              // the worker's first pass has run; it now sleeps 2 s
+        const std::string want = "\r\n+IPD,2048:" + payload.substr(0, 2048) +
+                                 "\r\n+IPD,52:" + payload.substr(2048);
+        const auto t0 = std::chrono::steady_clock::now();
+        while (guest.size() < want.size() &&
+               std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(200))
+            esp.tick(BYTE_TICKS, BYTE_TICKS);
+        check("GWIRE-02", "the second chunk is cut by tick() when the first drains, not by the worker",
+              guest == want);
+        esp.stop(); }
+
     // ══ Group K — multiplexing and server mode (GH #210) ═══════════════
     //
     // THE FIRST FOUR ROWS ARE THE ONES THAT MATTER, and they are first for that

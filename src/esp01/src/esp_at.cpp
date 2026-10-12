@@ -216,7 +216,7 @@ void AtEngine::receive(std::uint8_t byte) {
     // GH #319: the guest is starting a command. What the engine has released so
     // far, EXACTLY, and how many bytes it still holds for the guest: if the guest
     // timed out waiting for a reply, `queued` says whether the reply was all out.
-    if (mode_ == Mode::Command && line_.empty() && (byte == 'A' || byte == 'a')) digest_exact(g_dg_esp_out, "esp-out-at-cmd", static_cast<long>(out_.size()));
+    if (mode_ == Mode::Command && line_.empty() && (byte == 'A' || byte == 'a')) wire_.with_size([](std::size_t n) { digest_exact(g_dg_esp_out, "esp-out-at-cmd", static_cast<long>(n)); });
     if (conn_[SINGLE_CID].connecting || domain_pending_ || ping_pending_ || sntp_pending_) {
         // A connect is in flight and its OK/ERROR has not been decided yet.
         // Real firmware answers `busy p...`, which is on the never-emit list,
@@ -735,7 +735,7 @@ void AtEngine::cmd_cipmux(const std::string& args) {
     // disconnected" (ESP-AT AT+CIPMUX). The hazard is concrete rather than
     // bureaucratic — the peer of a live connection was promised one `+IPD`
     // framing and has no way to renegotiate, and nextsync's reader would not
-    // even fail cleanly on the other one (see `queue_ipd_header`).
+    // even fail cleanly on the other one (see `format_ipd_header`).
     for (std::size_t cid = 0; cid < MAX_CONNECTIONS; ++cid) {
         if (!conn_[cid].open && !conn_[cid].connecting) continue;
         log_debug("AT+CIPMUX={} while cid {} is live — answering ERROR", args, cid);
@@ -1615,18 +1615,89 @@ void AtEngine::queue(const std::string& text) {
 void AtEngine::queue_raw(const std::uint8_t* data, std::size_t len) {
     if (len == 0) return;
     log_debug("AT -> \"{}\"", escape(data, len));
-    for (std::size_t i = 0; i < len; ++i) out_.push_back(data[i]);
+    wire_.push(data, len);
     refresh_tick_gate();
 }
 
-void AtEngine::queue_ipd_header(std::size_t cid, bool multiplexed, std::size_t len) {
-    char hdr[32];
+std::size_t AtEngine::format_ipd_header(char* out, std::size_t cap, std::size_t cid,
+                                        bool multiplexed, std::size_t len) {
     const int n = multiplexed
-                      ? std::snprintf(hdr, sizeof(hdr), "\r\n+IPD,%u,%u:",
+                      ? std::snprintf(out, cap, "\r\n+IPD,%u,%u:",
                                       static_cast<unsigned>(cid), static_cast<unsigned>(len))
-                      : std::snprintf(hdr, sizeof(hdr), "\r\n+IPD,%u:",
+                      : std::snprintf(out, cap, "\r\n+IPD,%u:",
                                       static_cast<unsigned>(len));
-    queue_raw(reinterpret_cast<const std::uint8_t*>(hdr), static_cast<std::size_t>(n));
+    return static_cast<std::size_t>(n);
+}
+
+void AtEngine::GuestWire::push(const std::uint8_t* data, std::size_t len) {
+    if (len == 0) return;
+    std::lock_guard<std::mutex> lock(m_);
+    q_.insert(q_.end(), data, data + len);
+    ++commits_;
+}
+
+bool AtEngine::GuestWire::empty() const {
+    std::lock_guard<std::mutex> lock(m_);
+    return q_.empty();
+}
+
+std::size_t AtEngine::GuestWire::size() const {
+    std::lock_guard<std::mutex> lock(m_);
+    return q_.size();
+}
+
+std::uint64_t AtEngine::GuestWire::commits() const {
+    std::lock_guard<std::mutex> lock(m_);
+    return commits_;
+}
+
+bool AtEngine::GuestWire::release(std::uint32_t elapsed, std::uint32_t ticks_per_byte,
+                                  const ByteSink& sink) {
+    std::uint8_t chunk[64];
+    bool         drained = false;
+    bool         first   = true;
+    std::size_t  released = 0;
+    for (;;) {
+        std::size_t n = 0;
+        bool        emptied = false;
+        {
+            std::lock_guard<std::mutex> lock(m_);
+            if (first) {
+                // Idle: return WITHOUT banking. Ticks are added only here, and
+                // only while there is something to send, which is what stops a
+                // long quiet period from accumulating credit and then releasing
+                // a burst at unbounded speed the instant data appears — the FIFO
+                // overrun this pacing exists to prevent.
+                if (q_.empty()) return false;
+                accum_ += elapsed;
+                first = false;
+            }
+            while (n < sizeof(chunk) && !q_.empty() && accum_ >= ticks_per_byte) {
+                accum_ -= ticks_per_byte;
+                digest_feed(g_dg_esp_out, "esp-out", q_.front());
+                chunk[n++] = q_.front();
+                q_.pop_front();
+            }
+            if (q_.empty()) {
+                // THE reset that matters: without it the sub-byte remainder
+                // survives into the next burst and the first byte of the next
+                // reply can leave up to a whole byte-time early.
+                accum_ = 0;
+                digest_exact(g_dg_esp_out, "esp-out-drained", 0);
+                emptied = true;
+            }
+        }
+        // OUTSIDE the wire lock: the sink is the host's code (it writes the RX
+        // FIFO), and the producer must never wait for it.
+        if (sink) for (std::size_t i = 0; i < n; ++i) sink(chunk[i]);
+        released += n;
+        if (emptied) { drained = true; break; }
+        if (n < sizeof(chunk)) break;   // out of credit
+    }
+    if (released != 0) {
+        log_trace("paced {} byte(s) to the guest at {} ticks/byte", released, ticks_per_byte);
+    }
+    return drained;
 }
 
 // ─── Wall-clock half ──────────────────────────────────────────────────
@@ -2017,7 +2088,7 @@ bool AtEngine::command_line_in_flight() const {
 }
 
 bool AtEngine::wire_is_quiet() const {
-    return out_.empty() && mode_ == Mode::Command && !conn_[SINGLE_CID].connecting &&
+    return wire_.empty() && mode_ == Mode::Command && !conn_[SINGLE_CID].connecting &&
            !command_line_in_flight();
 }
 
@@ -2038,8 +2109,11 @@ void AtEngine::frame_ipd() {
             c.rx_datagrams.pop_front();
             log_debug("+IPD framing a {}-byte datagram on cid {}, {} datagram(s) left "
                       "buffered", dg.size(), cid, c.rx_datagrams.size());
-            queue_ipd_header(cid, c.multiplexed, dg.size());
-            for (std::uint8_t b : dg) out_.push_back(b);
+            std::vector<std::uint8_t> msg(32);
+            msg.resize(format_ipd_header(reinterpret_cast<char*>(msg.data()), msg.size(), cid,
+                                         c.multiplexed, dg.size()));
+            msg.insert(msg.end(), dg.begin(), dg.end());
+            wire_.push(msg.data(), msg.size());   // ONE commit: header + payload
             refresh_tick_gate();
             return;
         }
@@ -2054,12 +2128,16 @@ void AtEngine::frame_ipd() {
         // small ones, which is what keeps nextsync inside its
         // 5-chunks-per-packet budget.
         log_debug("+IPD framing {} byte(s) on cid {}, {} left buffered", n, cid, c.rx.size() - n);
-        queue_ipd_header(cid, c.multiplexed, n);
+        std::vector<std::uint8_t> msg(32);
+        msg.resize(format_ipd_header(reinterpret_cast<char*>(msg.data()), msg.size(), cid,
+                                     c.multiplexed, n));
+        msg.reserve(msg.size() + n);
         for (std::size_t i = 0; i < n; ++i) {
             digest_feed(g_dg_ipd_framed, "ipd-framed", c.rx.front());
-            out_.push_back(c.rx.front());
+            msg.push_back(c.rx.front());
             c.rx.pop_front();
         }
+        wire_.push(msg.data(), msg.size());   // ONE commit: header + payload
         digest_exact(g_dg_ipd_framed, "ipd-framed");
         refresh_tick_gate();
         return;  // one chunk per quiet moment — the next follows when this drains
@@ -2086,53 +2164,21 @@ void AtEngine::frame_ipd() {
 }
 
 void AtEngine::tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte) {
-    if (ticks_per_byte == 0) ticks_per_byte = 1;  // a zero rate would stall the pacer
-
     // Cut a new +IPD the moment the wire falls quiet, so the pacer never
-    // stalls with data buffered behind it.
-    if (out_.empty()) frame_ipd();
+    // stalls with data buffered behind it; release; and if that emptied the
+    // wire, cut the next one at once. Built from the two halves a threaded host
+    // calls separately (GH #327).
+    service_wire();
+    if (release_to_guest(elapsed_ticks, ticks_per_byte)) service_wire();
+}
 
-    if (out_.empty()) {
-        // Idle: return WITHOUT banking, because `pace_accum_ += elapsed_ticks`
-        // below is the only place ticks are ever added. That is what stops a
-        // long quiet period from accumulating credit and then releasing a
-        // burst at unbounded speed the instant data appears — precisely the
-        // FIFO overrun this pacing exists to prevent.
-        //
-        // There is deliberately no `pace_accum_ = 0` here. It used to be, and
-        // it was unkillable by mutation: `out_` is drained ONLY by the loop
-        // below, which zeroes the accumulator itself when it empties the
-        // queue, so this branch can never be reached with a non-zero
-        // accumulator. If a future change drains `out_` from anywhere else,
-        // that invariant breaks and the reset belongs back here.
-        refresh_tick_gate();
-        return;
-    }
+bool AtEngine::release_to_guest(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte) {
+    if (ticks_per_byte == 0) ticks_per_byte = 1;  // a zero rate would stall the pacer
+    return wire_.release(elapsed_ticks, ticks_per_byte, out_sink_);
+}
 
-    pace_accum_ += elapsed_ticks;
-    std::size_t released = 0;
-    while (!out_.empty() && pace_accum_ >= ticks_per_byte) {
-        pace_accum_ -= ticks_per_byte;
-        digest_feed(g_dg_esp_out, "esp-out", out_.front());
-        send_to_guest(out_.front());
-        out_.pop_front();
-        ++released;
-    }
-
-    if (out_.empty()) {
-        // THE reset that matters. Without it the sub-byte remainder survives
-        // into the next burst, so the first byte of a reply queued directly by
-        // a later command (not via poll()) can leave up to a whole byte-time
-        // early. Bounded, but it is exactly the pacing slip this whole
-        // mechanism exists to prevent.
-        pace_accum_ = 0;
-        digest_exact(g_dg_esp_out, "esp-out-drained", 0);
-        frame_ipd();
-    }
-    if (released != 0) {
-        log_trace("paced {} byte(s) to the guest at {} ticks/byte ({} queued)", released,
-                  ticks_per_byte, out_.size());
-    }
+void AtEngine::service_wire() {
+    if (wire_.empty()) frame_ipd();
     refresh_tick_gate();
 }
 
@@ -2169,7 +2215,7 @@ void AtEngine::refresh_tick_gate() {
     // framed; lowered otherwise, which is what keeps the per-instruction call
     // site free. The per-slot scan is 5 iterations of a deque-empty test and
     // only ever runs from inside the gated path or from `receive`.
-    bool work = !out_.empty();
+    bool work = !wire_.empty();
     for (std::size_t cid = 0; !work && cid < MAX_CONNECTIONS; ++cid) {
         work = conn_[cid].has_peer_data() || conn_[cid].close_pending;
     }
