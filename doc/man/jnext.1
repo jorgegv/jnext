@@ -378,8 +378,19 @@ The release, the directory, the QEMU binary and where the Pi\(cqs sound
 goes are set under \f[B]Settings > Preferences > NextPi\f[R] (the
 \f[CR][nextpi]\f[R] section of \f[CR]\(ti/.jnext/jnext.conf\f[R]); their
 defaults are release \f[CR]1_93D\f[R], \f[CR]\(ti/.jnext/nextpi\f[R],
-\f[CR]qemu\-system\-arm\f[R] on \f[CR]PATH\f[R], and the host\(cqs
-speakers.
+\f[CR]qemu\-system\-arm\f[R] on \f[CR]PATH\f[R], and the Next\(cqs
+mixer.
+.PP
+On Linux and macOS the Pi\(cqs sound reaches the Next\(cqs mixer over
+I2S, as on the real machine: it is mixed with the beeper, the AY chips
+and the DAC, so \f[B]\-\-record\f[R] and \f[B]\-\-wav\-record\f[R]
+include it, and NR 0xA2 enables and mutes it (NextPi\(cqs tools enable
+it themselves).
+It is 10\-bit, as the hardware\(cqs input is, and arrives about 100 ms
+late.
+Rewinds and RZX playback hold it silent.
+With NR 0xA2 bit 0 set it goes to the EAR input instead (port 0xFE bit
+6), as a tape signal: how a Next loads a tape the Pi plays to it.
 .PP
 The guest reaches the Pi only while NR 0xA0 bits 5:4 are \f[CR]11\f[R]
 \(em UART 1 on GPIO 14/15, wired for a Pi \(em which NextPi\(cqs tools
@@ -399,9 +410,10 @@ starts without the Pi.
 On Linux and macOS the link is a pair of FIFOs; on Windows (QEMU for
 Windows, its folder on \f[CR]PATH\f[R] or set in Preferences) it is a
 loopback TCP socket QEMU listens on.
-On Windows the Pi\(cqs sound plays on the host speakers (QEMU\(cqs
-\f[CR]dsound\f[R]); sending it through the Next\(cqs mixer (NR 0xA2, the
-volume controls) is not there yet.
+On Windows an empty Pi audio setting plays the Pi\(cqs sound on the host
+speakers (QEMU\(cqs \f[CR]dsound\f[R], the same as \f[CR]host\f[R]);
+sending it through the Next\(cqs mixer (NR 0xA2, the volume controls) is
+not there yet.
 .RE
 .TP
 \f[B]\-\-no\-nextpi\f[R]
@@ -2945,10 +2957,15 @@ run), \f[CR]dir\f[R] (the NextPi directory; empty means
 name on the mirror, or \f[CR]latest\f[R] for the newest one listed
 there; empty means \f[CR]1_93D\f[R]), \f[CR]qemu_binary\f[R] (empty
 means \f[CR]qemu\-system\-arm\f[R] on \f[CR]PATH\f[R]) and
-\f[CR]audio\f[R] (a QEMU \f[CR]\-audiodev\f[R] driver such as
-\f[CR]coreaudio\f[R], \f[CR]pa\f[R] or \f[CR]none\f[R], or
-\f[CR]wav:\f[R]\f[I]FILE\f[R]; empty means \f[CR]coreaudio\f[R] on
-macOS, \f[CR]dsound\f[R] on Windows and \f[CR]pa\f[R] elsewhere).
+\f[CR]audio\f[R] (empty means the Next\(cqs mixer, so NextREG 0xA2
+controls it and \f[CR]\-\-record\f[R] captures it; on Windows, which has
+no mixer path yet, empty means the host output instead.
+\f[CR]host\f[R] plays it on this computer\(cqs default output,
+\f[CR]coreaudio\f[R] on macOS, \f[CR]dsound\f[R] on Windows and
+\f[CR]pa\f[R] elsewhere; otherwise a QEMU \f[CR]\-audiodev\f[R] driver
+such as \f[CR]coreaudio\f[R], \f[CR]pa\f[R] or \f[CR]none\f[R] to play
+it straight to the host, or \f[CR]wav:\f[R]\f[I]FILE\f[R] to record it
+on its own).
 Changing the release makes the next start offer to download it,
 replacing the installed one.
 The joystick ports are stored under \f[CR][input]\f[R]:

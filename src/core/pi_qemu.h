@@ -1,6 +1,9 @@
 #pragma once
+
+#include "audio/pi_audio.h"
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -83,9 +86,13 @@ public:
         /// PATH-searched unless it has a path separator (Windows: also tried
         /// with `.exe`).
         std::string qemu_binary = "qemu-system-arm";
-        /// Pi audio: "" for the platform default (coreaudio on macOS, dsound
-        /// on Windows, pa elsewhere), a QEMU -audiodev driver name ("none"
-        /// mutes), or "wav:FILE" to record it.
+        /// Pi audio: "" for the Next's mixer (the default — QEMU writes it to
+        /// a FIFO that `audio()` reads, and the emulator mixes it over I2S;
+        /// `mixer_audio_supported()`) — or, on Windows, where that path does
+        /// not exist yet (GH #331), the host output; "host" for this
+        /// platform's default host output (coreaudio on macOS, dsound on
+        /// Windows, pa elsewhere); a QEMU -audiodev driver name to play it
+        /// straight to the host ("none" mutes it); or "wav:FILE" to record it.
         std::string audio;
         Transport   transport = default_transport();
         /// How long `stop()` waits after asking QEMU to stop before it
@@ -120,7 +127,8 @@ public:
     std::uint16_t tcp_port() const { return tcp_port_; }
 
     /// Point `cfg` at this Pi: the FIFO paths for the FIFO transport, the TCP
-    /// port for the socket one (the other fields cleared). The one place the
+    /// port for the socket one (the other fields cleared), and the audio
+    /// reader when the sound goes to the mixer (else null). The one place the
     /// transport turns into Emulator configuration, so `main()` and the rows
     /// run the same code.
     void link_config(EmulatorConfig& cfg) const;
@@ -135,6 +143,10 @@ public:
     const std::string& rx_path() const { return rx_path_; }
     const std::string& tx_path() const { return tx_path_; }
 
+    /// The reader of the Pi's audio when it goes to the Next's mixer (`audio`
+    /// empty), else nullptr. Lives as long as this object.
+    PiAudio* audio() const { return audio_.get(); }
+
     /// The QEMU argument vector, argv[0] excluded. Pure; exposed for tests.
     /// `pipe_base` is the chardev path whose `.in` / `.out` are the FIFOs.
     static std::vector<std::string> build_args(const Spec& spec, const std::string& pipe_base);
@@ -144,10 +156,34 @@ public:
     /// `wait=off` (a listening chardev otherwise blocks QEMU's startup until
     /// a client connects). The monitor is `stdio` on Windows (where `quit`
     /// on stdin is the graceful stop) and `none` elsewhere.
-    static std::vector<std::string> build_args(const Spec& spec, std::uint16_t port);
+    /// `audio_base` is the path whose `.audio` FIFO carries the Pi's sound
+    /// when it goes to the mixer (`uses_mixer`); unused otherwise.
+    static std::vector<std::string> build_args(const Spec& spec, std::uint16_t port,
+                                               const std::string& audio_base = {});
 
-    /// The `-audiodev` value for `audio` as `Spec::audio` describes it.
+    /// Whether the Pi's sound can go to the Next's mixer on this platform: it
+    /// travels over a FIFO, which Windows lacks (GH #331 will add a socket).
+    static constexpr bool mixer_audio_supported() {
+#ifdef _WIN32
+        return false;
+#else
+        return true;
+#endif
+    }
+
+    /// True when `spec.audio` sends the Pi's sound to the Next's mixer: empty,
+    /// on a platform that has the path. Empty elsewhere means the host output.
+    static bool uses_mixer(const Spec& spec);
+
+    /// The `-audiodev` value for a driver name or "wav:FILE"; "host" is the
+    /// platform default driver (coreaudio on macOS, dsound on Windows, pa
+    /// elsewhere), and so is "" (what an empty setting means on Windows).
     static std::string audiodev_arg(const std::string& audio);
+
+    /// The `-audiodev` value that sends the Pi's sound to the Next's mixer:
+    /// QEMU's `wav` back-end into the FIFO `<pipe_base>.audio`, 44.1 kHz s16
+    /// stereo (PiAudio's format).
+    static std::string mixer_audiodev_arg(const std::string& pipe_base);
 
     /// True when `dir` has the files QEMU boots from; otherwise false with
     /// `error` naming the first one missing and how to make it.
@@ -187,7 +223,8 @@ private:
 
     /// `build_args` with the console chardev already rendered.
     static std::vector<std::string> build_args_with_chardev(const Spec& spec,
-                                                            const std::string& chardev);
+                                                            const std::string& chardev,
+                                                            const std::string& audio_base);
 
     int               pid_ = -1;
     std::uint16_t     tcp_port_ = 0;
@@ -204,5 +241,6 @@ private:
     std::atomic<bool> stopping_{false};
     std::atomic<int>  exit_status_{-1};
     int               watchdog_fd_ = -1;   ///< write end of the watchdog pipe
+    std::unique_ptr<PiAudio> audio_;       ///< the Pi's audio, when it goes to the mixer
     int               stop_grace_ms_ = 3000;
 };

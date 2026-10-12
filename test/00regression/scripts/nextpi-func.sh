@@ -16,7 +16,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # network or a NextPi image: the first run has no QEMU on its PATH, the second
 # answers the download prompt with end-of-input.
 #
-# FOUR FACTS:
+# FOUR FACTS (the Pi's sound is in nextpi-audio-func, which needs a POSIX
+# stand-in and the Next's mixer, neither of which Windows has yet, GH #331):
 #   1. --nextpi with a ready NextPi directory and no QEMU installed exits 1 and
 #      says QEMU is not found (the install hint), without booting.
 #   2. --nextpi with nothing installed and the prompt declined (stdin closed)
@@ -106,6 +107,7 @@ if want nextpi-func; then
     fi
 
     if [[ -n "$conf_saved" ]]; then mv "$conf_saved" "$conf"; else rm -f "$conf"; fi
+
     rm -rf "$np"
 
     if [[ ${#fails[@]} -eq 0 ]]; then

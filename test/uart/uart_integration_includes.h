@@ -15,6 +15,7 @@
 #include "core/pi_qemu.h"
 #include "core/nextpi_provisioner.h"
 #include "core/rzx.h"
+#include "core/saveable.h"
 #include "debug/debug_state.h"
 #include "debug/rewind_buffer.h"
 #include "peripheral/joy_uart_link.h"
@@ -24,6 +25,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <climits>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdint>

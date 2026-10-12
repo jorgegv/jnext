@@ -7,13 +7,28 @@ I2s::I2s() { reset(); }
 
 void I2s::reset()
 {
-    // VHDL: signals default to all-zero (silence) at reset.
-    left_       = 0;
-    right_      = 0;
+    // The 10-bit sample rests at 0x200 (offset-binary silence), with or
+    // without a Pi attached: the receiver resets its words to 0
+    // (i2s_receive.vhd:129-130), and i2s.vhd:177-180 inverts the sign bit
+    // on the way out, so the value the mixer sees is 0x200, not 0.
+    left_       = 0x200;
+    right_      = 0x200;
     // VHDL zxnext.vhd:5564 — nr_a2_pi_i2s_ctl resets to 0x00 (no Pi I2S
     // path enabled). With NR 0xA2 = 0, pi_audio_L/R are forced to the
     // 10-bit DC midpoint (0x200) per zxnext.vhd:2358-2359.
     nr_a2_ctl_  = 0;
+    fe_ear_     = false;
+}
+
+void I2s::update_fe_ear()
+{
+    // zxnext.vhd:2361-2373, clocked at 28 MHz on the raw received samples.
+    const bool en  = (nr_a2_ctl_ & 0xC0) != 0;   // pi_i2s_en = enL or enR
+    const bool ear = (nr_a2_ctl_ & 0x01) != 0;   // pi_i2s_ear
+    if (!en || !ear) { fe_ear_ = false; return; }
+    const unsigned t = ((left_ >> 8) | (right_ >> 8)) & 0x3;   // pi_fe_threshold
+    if (fe_ear_ && t == 0x0)      fe_ear_ = false;
+    else if (!fe_ear_ && t == 0x3) fe_ear_ = true;
 }
 
 void I2s::set_sample(uint16_t left_10bit, uint16_t right_10bit)
@@ -22,6 +37,7 @@ void I2s::set_sample(uint16_t left_10bit, uint16_t right_10bit)
     // in audio_mixer.vhd.
     left_  = static_cast<uint16_t>(left_10bit  & 0x3FF);
     right_ = static_cast<uint16_t>(right_10bit & 0x3FF);
+    update_fe_ear();
 }
 
 uint16_t I2s::pi_audio_L() const
@@ -82,4 +98,8 @@ void I2s::save_state(StateWriter& w) const
 void I2s::load_state(StateReader& r)
 {
     jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
+    // pi_fe_ear is not in the stream: a restore starts the comparator from 0
+    // (the Emulator puts the input back at rest when a Pi is attached, and the
+    // hysteresis re-forms on the next sample that reaches a threshold).
+    fe_ear_ = false;
 }

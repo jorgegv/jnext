@@ -1003,6 +1003,102 @@ int main(int argc, char** argv) {
                   env_c ? 1 : 0, seen.size(), parent_kept ? 1 : 0));
     }
 
+    // ── PIT-16 — WHAT AN EMPTY `audio` MEANS, PER OS (owner decision 2026-10-12).
+    // Where the Pi's sound can reach the Next's mixer (the FIFO path: Linux,
+    // macOS) empty means the mixer, and QEMU gets the `wav` back-end; on Windows,
+    // which has no such path until GH #331, empty means the host output
+    // (dsound). `host` is the host output on every OS and never the mixer. Pure.
+    {
+        auto audiodev = [](const std::vector<std::string>& a) {
+            for (std::size_t i = 0; i + 1 < a.size(); ++i)
+                if (a[i] == "-audiodev") return a[i + 1];
+            return std::string();
+        };
+        PiQemu::Spec spec;
+        spec.dir = "n";
+        const std::string empty = audiodev(PiQemu::build_args(spec, std::uint16_t{40123}, "n/uart"));
+        const bool empty_mixer  = PiQemu::uses_mixer(spec);
+        spec.audio = "host";
+        const std::string host  = audiodev(PiQemu::build_args(spec, std::uint16_t{40123}, "n/uart"));
+        const bool host_mixer   = PiQemu::uses_mixer(spec);
+#ifdef _WIN32
+        const bool empty_ok = empty == "dsound,id=snd0" && !empty_mixer;
+        const bool host_ok  = host == "dsound,id=snd0";
+#else
+        const bool empty_ok = empty == PiQemu::mixer_audiodev_arg("n/uart") && empty_mixer;
+#ifdef __APPLE__
+        const bool host_ok  = host.rfind("coreaudio,id=snd0,", 0) == 0;
+#else
+        const bool host_ok  = host == "pa,id=snd0";
+#endif
+#endif
+        check("PIT-16",
+              "an empty Pi audio setting is the Next's mixer (the wav FIFO) on Linux and macOS and the "
+              "host output (dsound) on Windows, where there is no mixer path yet; `host` is the host "
+              "output on every OS (jnext-only, no VHDL counterpart)",
+              empty_ok && host_ok && !host_mixer,
+              fmt("empty='%s' mixer=%d host='%s' host_mixer=%d", empty.c_str(), empty_mixer ? 1 : 0,
+                  host.c_str(), host_mixer ? 1 : 0));
+    }
+
+    // ── PIT-17 — the same through a real start() on the socket transport: the
+    // stand-in gets the per-OS -audiodev, PiQemu makes the audio reader exactly
+    // where the mixer path exists, and link_config hands that reader (or null)
+    // to the Emulator. On POSIX this is the socket transport WITH the mixer: the
+    // audio FIFO needs a runtime directory of its own, so the wav path must be
+    // absolute, inside a fresh `jnext-pi-*` directory that exists while QEMU
+    // runs and is gone once PiQemu is destroyed, and nothing may appear in the
+    // current directory.
+    {
+        Fixture fx("emptyaudio");
+        PiQemu::Spec spec;
+        spec.dir         = fx.dir();
+        spec.qemu_binary = fx.bin("qemu-system-arm");
+        spec.transport   = PiQemu::Transport::Socket;     // spec.audio left empty
+        std::string error, dev, wav_path;
+        bool started = false, per_os = false, cwd_clean = true, dir_ok = true, gone = true;
+        const fs::path cwd_fifo = fs::current_path() / ".audio";
+        {
+            PiQemu qemu;
+            started = fx.ok() && qemu.start(spec, error) && fx.child_pid() != 0;
+            for (const std::string& l : fx.arg_lines())
+                if (l.rfind("wav,id=snd0,path=", 0) == 0 || l.rfind("dsound,id=snd0", 0) == 0) dev = l;
+            EmulatorConfig cfg;
+            qemu.link_config(cfg);
+#ifdef _WIN32
+            per_os = dev == "dsound,id=snd0" && qemu.audio() == nullptr && cfg.pi_audio == nullptr;
+#else
+            per_os = dev.rfind("wav,id=snd0,path=", 0) == 0 &&
+                     dev.find(".audio,out.frequency=44100,out.channels=2,out.format=s16") != std::string::npos &&
+                     qemu.audio() != nullptr && cfg.pi_audio == qemu.audio();
+            if (per_os) {
+                wav_path = dev.substr(std::strlen("wav,id=snd0,path="));
+                wav_path = wav_path.substr(0, wav_path.find(".audio,out.") + 6);
+                const fs::path p(wav_path);
+                dir_ok = p.is_absolute() && p.parent_path().filename().string().rfind("jnext-pi-", 0) == 0 &&
+                         fs::is_directory(p.parent_path()) && fs::exists(p);
+            }
+            std::error_code ec;
+            cwd_clean = !fs::exists(cwd_fifo, ec);
+#endif
+        }
+#ifndef _WIN32
+        std::error_code ec2;
+        gone = !wav_path.empty() && !fs::exists(fs::path(wav_path).parent_path(), ec2) &&
+               !fs::exists(cwd_fifo, ec2);
+        cwd_clean = cwd_clean && !fs::exists(cwd_fifo, ec2);
+#endif
+        check("PIT-17",
+              "starting NextPi with the audio setting empty gives QEMU the mixer's wav FIFO and makes "
+              "the audio reader on Linux and macOS (also on the socket transport, in a runtime "
+              "directory of its own that stop() removes, never in the current directory), and gives "
+              "QEMU dsound with no reader on Windows; link_config carries the reader (jnext-only, no "
+              "VHDL counterpart)",
+              started && per_os && dir_ok && cwd_clean && gone,
+              fmt("started=%d (%s) audiodev='%s' dir_ok=%d cwd_clean=%d gone=%d", started ? 1 : 0,
+                  error.c_str(), dev.c_str(), dir_ok ? 1 : 0, cwd_clean ? 1 : 0, gone ? 1 : 0));
+    }
+
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail ? 1 : 0;

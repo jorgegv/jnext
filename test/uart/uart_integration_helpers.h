@@ -683,6 +683,10 @@ public:
                   "if ( : <&3 ) 2>/dev/null; then echo open; else echo closed; fi > \"$here/fd3\"\n"
                   "for a in \"$@\"; do case \"$a\" in pipe,*path=*) base=\"${a##*path=}\" ;; esac; done\n"
                   "printf '%s\\n' \"$@\" > \"$here/args\"\n"
+                  // Asked to send its sound to the mixer (QEMU's wav back-end on
+                  // a FIFO), the stand-in plays bin/tone.wav into it, if any.
+                  "for a in \"$@\"; do case \"$a\" in wav,*path=*) au=\"${a#*path=}\"; au=\"${au%%,*}\" ;; esac; done\n"
+                  "if [ -n \"$au\" ] && [ -f \"$here/tone.wav\" ]; then cat \"$here/tone.wav\" > \"$au\" & fi\n"
                   "echo $$ > \"$here/pid\"\n"
                   "exec 3<>\"$base.in\" 4<>\"$base.out\"\n"
                   "printf 'SUP> ' >&4\n"

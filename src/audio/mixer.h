@@ -17,7 +17,7 @@ class I2s;
 ///   MIC   → 128 (13-bit)
 ///   AY    → 12-bit, zero-extended to 13-bit
 ///   DAC   → 9-bit left-shifted by 2 (×4) to 13-bit
-///   Pi I2S → 10-bit, zero-extended to 13-bit (stub via set_i2s_source)
+///   Pi I2S → 10-bit, zero-extended to 13-bit (I2s, fed by NextPi's PiAudio)
 ///
 /// The mixer accumulates samples at 44100 Hz into a ring buffer.
 /// The SDL audio bridge pulls samples from this buffer.

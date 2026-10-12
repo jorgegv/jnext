@@ -5,6 +5,7 @@
 ### User Features
 - The Pause key pauses and resumes emulation (alongside Alt+U); holding it no longer toggles repeatedly
 - NextPi (--nextpi) now runs on Windows too, over a loopback socket to QEMU for Windows; the Pi's sound plays on the host speakers, not yet through the Next's mixer
+- NextPi's sound plays through the Next's mixer on Linux and macOS; NextREG 0xA2 controls it, recordings include it
 - `--machine pentagon` and Machine > Machine Type > Pentagon 128K: the Next's Pentagon personality (128K ROM, Pentagon timing, Covox)
 - Quick Save (Alt+Shift+F5) and Quick Load (Alt+Shift+F9) snapshots; Quick Save keeps the newest 20 (--quick-snapshot-keep)
 

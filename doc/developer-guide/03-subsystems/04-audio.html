@@ -2427,10 +2427,19 @@ deliberately tiny — three booleans, being EAR and MIC from port 0xFE bits 4 an
 and no filtering here, because that is the mixer's job.</p>
 <p><strong>Pi I2S</strong> — <code>src/audio/i2s.*</code>. A Next can take digital audio in from a
 Raspberry Pi attached to its interface, and mix it with everything else. jnext
-models the destination but not the journey: a latched 10-bit sample pair plus the
-NR 0xA2 control byte, with no protocol emulation. The module exists because the
-mixer sum includes it, and its <em>idle</em> value (0x200, offset binary) is
-load-bearing.</p>
+models the destination, not the wire: a latched 10-bit sample pair plus the
+NR 0xA2 control byte, with no I2S protocol emulation. Its <em>idle</em> value (0x200,
+offset binary) is load-bearing. The samples come from <strong>NextPi</strong>: QEMU's <code>wav</code>
+audio back-end writes the emulated Pi's sound into a FIFO, <code>src/audio/pi_audio.*</code>
+reads it on a thread into a ring, and the emulator latches one frame per mixer
+output sample into <code>I2s</code> (<code>Emulator::feed_pi_audio</code>), or 0x200 when none is
+ready. <code>PiAudio</code> absorbs the drift between QEMU's host clock and the emulated
+one: it prebuffers 50 ms, plays silence on an underrun and prebuffers again, and
+trims a backlog past 300 ms back to 100 ms. NR 0xA2 bit 0 sends the Pi's audio
+to EAR instead: <code>I2s::fe_ear()</code> is the hardware's comparator with hysteresis
+(<code>zxnext.vhd:2361-2373</code>), and <code>Emulator::audio_ear_in</code> folds it into the port
+0xFE bit 6 read and the MIC output through the board's <code>ear_relax</code>. The chapter
+on peripherals describes how NextPi itself runs.</p>
 <h2 id="the-mixer">The mixer<a class="headerlink" href="#the-mixer" title="Permanent link">&para;</a></h2>
 <p><code>src/audio/mixer.*</code> reproduces <code>audio_mixer.vhd</code>'s 13-bit unsigned sum exactly:
 EAR contributes 512, MIC 128, the AY pair is zero-extended, the DAC pair is

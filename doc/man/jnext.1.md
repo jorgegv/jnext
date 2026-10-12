@@ -312,7 +312,16 @@ naming the option and the value, and exits with status 1.
     are set under **Settings > Preferences > NextPi** (the `[nextpi]` section
     of `~/.jnext/jnext.conf`); their
     defaults are release `1_93D`, `~/.jnext/nextpi`, `qemu-system-arm` on
-    `PATH`, and the host's speakers.
+    `PATH`, and the Next's mixer.
+
+    On Linux and macOS the Pi's sound reaches the Next's mixer over I2S, as on
+    the real machine: it is mixed with the beeper, the AY chips and the DAC, so
+    **\--record** and **\--wav-record** include it, and NR 0xA2 enables and
+    mutes it (NextPi's tools enable it themselves). It is 10-bit, as the
+    hardware's input is, and arrives about 100 ms late. Rewinds and RZX playback
+    hold it silent. With NR 0xA2 bit 0 set it goes to the EAR input instead
+    (port 0xFE bit 6), as a tape signal: how a Next loads a tape the Pi plays to
+    it.
 
     The guest reaches the Pi only while NR 0xA0 bits 5:4 are `11` — UART 1 on
     GPIO 14/15, wired for a Pi — which NextPi's tools set before they talk to
@@ -326,7 +335,9 @@ naming the option and the value, and exits with status 1.
     download is not — jnext then starts without the Pi.
     On Linux and macOS the link is a pair of FIFOs; on Windows (QEMU for
     Windows, its folder on `PATH` or set in Preferences) it is a loopback TCP
-    socket QEMU listens on. On Windows the Pi's sound plays on the host speakers (QEMU's `dsound`); sending it through the Next's mixer (NR 0xA2, the volume controls) is not there yet.
+    socket QEMU listens on. On Windows an empty Pi audio setting plays the Pi's
+    sound on the host speakers (QEMU's `dsound`, the same as `host`); sending it
+    through the Next's mixer (NR 0xA2, the volume controls) is not there yet.
 
 **\--no-nextpi**
 :   Do not start NextPi this run, overriding a saved preference that
@@ -2216,10 +2227,14 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     NextPi directory; empty means `~/.jnext/nextpi`), `release` (a NextPi
     release name on the mirror, or `latest` for the newest one listed there;
     empty means `1_93D`), `qemu_binary` (empty means `qemu-system-arm` on
-    `PATH`) and `audio` (a QEMU `-audiodev` driver such as `coreaudio`, `pa` or
-    `none`, or `wav:`*FILE*; empty means `coreaudio` on macOS, `dsound` on
-    Windows and `pa` elsewhere). Changing the release makes the next start offer to download it,
-    replacing the installed one.
+    `PATH`) and `audio` (empty means the Next's mixer, so NextREG 0xA2
+    controls it and `--record` captures it; on Windows, which has no mixer path
+    yet, empty means the host output instead. `host` plays it on this
+    computer's default output, `coreaudio` on macOS, `dsound` on Windows and
+    `pa` elsewhere; otherwise a QEMU `-audiodev` driver such as `coreaudio`,
+    `pa` or `none` to play it straight to the host, or `wav:`*FILE* to record
+    it on its own). Changing the release makes the next start offer to
+    download it, replacing the installed one.
     The joystick ports are stored under `[input]`: `joy1_source` and
     `joy2_source` (`sdl`, `keys` or `none`), `joy1_device` and `joy2_device`
     (the controller's id: 32 hex digits, optionally `#N`; empty means

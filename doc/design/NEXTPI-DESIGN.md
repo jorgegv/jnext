@@ -59,7 +59,7 @@ Everything else has a default, and lives in the `[nextpi]` section of
 | `dir` | NextPi directory | `~/.jnext/nextpi` (`$JNEXT_CONFIG_DIR/nextpi`) |
 | `release` | NextPi release (editable: a release name, or `latest`) | `1_93D` |
 | `qemu_binary` | QEMU | `qemu-system-arm` on `PATH`; `qemu-img` beside it |
-| `audio` | Pi audio (editable: a QEMU `-audiodev` driver, `none`, `wav:FILE`) | `coreaudio` on macOS, `pa` elsewhere |
+| `audio` | Pi audio (editable: empty, a QEMU `-audiodev` driver, `none`, `wav:FILE`) | the Next's mixer (§3.7; on Windows, until GH #331, the host output instead); `host` is the host output on every OS; a driver plays it straight to the host |
 
 An empty value means the default, so a config file never pins a home directory.
 `--nextpi`/`--no-nextpi` override `enabled` the way `--esp`/`--no-esp` override
@@ -106,7 +106,7 @@ at once. NextPi then takes about a minute to reach `SUP>`, after which:
   `nextpi::start_outcome`, which `main()` applies.
 - **Not in this PR:** a live start/stop from the running GUI, a progress bar for
   the unpack (it is a busy indicator; the download has the bar), and the Pi's sound through the Next's mixer on Windows
-  (§3.7). The earlier manual-wiring flags (`--pi-uart-fifo`,
+  (§3.7, GH #331). The earlier manual-wiring flags (`--pi-uart-fifo`,
   `--pi-uart-pty`) were dropped in review.
 
 ## 3. Design
@@ -282,7 +282,94 @@ prompts to both.
   `$JNEXT_SDCARD_DISTRO_URL` does for the SD image); `file://` URLs work, which
   is how the real release was provisioned offline during development.
 
-### 3.7 Platforms
+### 3.7 The Pi's sound into the Next's mixer (`audio/pi_audio.*`)
+
+Added after #310, by agreement with the owner, in its own PR. On a real Next the
+Pi's audio enters the FPGA over I2S and is summed into the mixer, gated by NR
+0xA2 (`zxnext.vhd:2283-2290`, `:2358-2359`). jnext already modelled that side —
+`I2s` and the mixer's 10-bit term (MX-06/07) — with nothing feeding it, which
+is why MX-30 had been retired ("no Raspberry Pi to be the producer"). NextPi
+under QEMU is one, so:
+
+- **QEMU writes the Pi's sound to a FIFO.** With the default audio setting (on
+  Linux and macOS; Windows has no such path yet, GH #331), `PiQemu` passes `-audiodev wav,...,path=<base>.audio,out.frequency=44100,
+  out.channels=2,out.format=s16`: a 44-byte WAV header, then 16-bit stereo PCM
+  at the mixer's own rate. Measured against real NextPi 1_93D: nothing is
+  written while the Pi is silent, and while it plays the stream arrives in
+  bursts averaging 44 100 frames/s.
+- **`PiAudio` reads it** on a thread of its own into a lock-free single-producer
+  single-consumer ring, so QEMU never blocks on a full pipe — not even while
+  jnext is paused. The reader is opened before QEMU starts, because QEMU's open
+  of its end blocks until a reader exists. It skips each writer's 44-byte WAV
+  header and reassembles frames split across reads. A header is found two ways:
+  after the EOF a departing writer leaves, and in-stream, at a frame boundary,
+  by `RIFF`...`WAVE`, for a writer that follows the last with no read in
+  between (bytes that may still be a header wait for the next read). It polls
+  for 100 ms at a time with a writer connected and 20 ms without one: a
+  `poll()` that began before a new writer connected is not always woken by its
+  data on macOS, and the short timeout bounds a reconnect's delay.
+- **The emulator latches one frame per mixer output sample**
+  (`Emulator::feed_pi_audio`, from `advance_audio` at each sample boundary),
+  converted to the hardware's 10-bit offset binary (`PiAudio::to_i2s`, 0 → 0x200
+  per `i2s.vhd:177-180`). From there the existing model applies unchanged: NR 0xA2
+  enables, mutes and routes it, it is summed with the beeper, AY and DAC, and
+  `--record` / `--wav-record` capture it.
+- **Clock drift.** QEMU runs on the host's clock, the mixer on the emulated
+  one. The consumer prebuffers 50 ms before playing, plays silence (0x200) on an
+  underrun and prebuffers again, and trims a backlog beyond 300 ms back to
+  100 ms by dropping the oldest frames, so latency stays near 100 ms. A pause
+  longer than the ring (about 3 s) overflows it; the producer then drops new
+  frames and flags it, and the consumer's next pop flushes the stale ring and
+  prebuffers fresh audio, rather than replaying a moment from inside the pause.
+- **Replay.** RZX playback does not consume the stream (the Pi's output belongs
+  to the live session) and holds the input silent; a rewind's replay never
+  advances audio at all. What the GUEST can read of the sample, NR 0x2C/0x2E
+  (`zxnext.vhd:6006-6015`), is gated the same way: during a rewind replay or an
+  RZX playback it reads the rest value 0x200, because neither can reproduce a
+  host-timed sample (`Emulator::guest_pi_audio`). An RZX recording is not
+  gated: the recorder stores every `IN` value (`port_dispatch.cpp`), `IN 0x253B`
+  included, so the guest reads the live sample and the playback reproduces it.
+  A restored snapshot puts the latch back at 0x200 when a Pi is attached. A live
+  run still reads the live sample, so a guest that polls it diverges from its
+  own rewind: the same limit the UART link has, and unavoidable for input from
+  outside the machine.
+- **The rest value.** `I2s` resets to 0x200, offset-binary silence, on every
+  machine with or without a Pi: the receiver resets its words to 0
+  (`i2s_receive.vhd:129-130`) and `i2s.vhd:177-180` inverts the sign bit.
+- The other settings keep sending the Pi's sound to the host or a file
+  directly, bypassing the mixer: `host` (the platform's default output, `pa`
+  on Linux, `coreaudio` with its buffer tuning on macOS and `dsound` on
+  Windows), a QEMU driver
+  name (`coreaudio`, `pa`, ..., `none`) or `wav:FILE`.
+
+- **NR 0xA2 bit 0: the Pi's audio as the EAR input.** This is how a Next loads
+  a tape NextPi plays over I2S (its TZX streaming): the program sets bit 0 and
+  the ROM loader, or any loader polling port 0xFE bit 6, sees the Pi's audio as
+  the tape signal. Bit 0 takes the Pi out of the mix (`zxnext.vhd:2358-2359`,
+  already modelled) and drives `pi_fe_ear` (`I2s::fe_ear`,
+  `zxnext.vhd:2361-2373`): a comparator with hysteresis on the raw samples,
+  t = L(9:8) OR R(9:8), rising at 11, falling at 00, holding in between,
+  forced to 0 unless I2S is enabled and bit 0 is set. It reaches port 0xFE bit
+  6 through the board's `ear_relax` (`zxnext_top_issue2.vhd:663-677`): XORed
+  with the EAR jack (a playing tape), and with no tape, a level held for 64
+  ticks of the 512-cycle membrane enable (32768 master cycles, ~1.17 ms)
+  relaxes to the issue-2 MIC level (`Emulator::audio_ear_in`, which the MIC
+  output shares). With a tape playing, the tape's own level is passed through
+  as before. Under a rewind replay or an RZX playback the Pi term is held off,
+  like NR 0x2C/0x2E; the comparator is not in the snapshot and restarts from 0
+  on a restore, where the input is put back at rest. `--silent` skips the mixer
+  but still latches the Pi's samples, so EAR input keeps working.
+  The MIC jack carries the same level (`tape_out_level`, `beep_mic_final`,
+  `zxnext.vhd:6503`), so a tape save records every comparator edge: the recorder
+  is sampled where `pi_fe_ear` changes (`with_pi_ear_tracking`), the only place
+  that sees it move. The relaxation of that level, 1.17 ms after the last edge,
+  is recorded late (§5).
+
+End to end with real QEMU, a headless run typed `nextpi-play_speech` into the
+UART with NR 0xA0 = 0x30 and NR 0xA2 = 0xC0: the `--wav-record` file is silent
+until the command and carries the speech after it.
+
+### 3.8 Platforms
 
 Linux, macOS and Windows (GH #316). POSIX uses a FIFO pair on QEMU's `pipe`
 chardev. Windows uses a loopback TCP socket: QEMU's Windows `pipe` chardev is a
@@ -298,12 +385,16 @@ The MD5 of the archive is CNG on Windows, OpenSSL elsewhere. The socket transpor
 can be selected on POSIX too, so `nextpi_test` exercises it everywhere. The Pi's
 sound plays on the host speakers on Windows too (default back-end `dsound`); the
 path that brings it into the Next's mixer (NR 0xA2, the volume controls) is a
-later stage. Rows PIT-01..15 and
+later stage (GH #331). **The rule for `audio=""`:** it is the Next's mixer
+wherever the FIFO path exists (Linux, macOS: `PiQemu::uses_mixer`), and the host
+output on Windows, where it does not; `host` is the host output on every OS.
+`PiQemu::audiodev_arg("")` is therefore the host driver, which is what an empty
+setting resolves to on Windows. Rows PIT-01..17 and
 `nextpi-link-func` (§4).
 
 ## 4. Testing
 
-`test/uart/uart_integration_test.cpp`, group **PI** (plan:
+`test/uart/uart_posix_test.cpp` (POSIX-only, GH #214), group **PI** (plan:
 `doc/testing/UART-I2C-TEST-PLAN-DESIGN.md`, Group 17). PI-01..05 drive the UART
 link over real FIFOs; PI-06..09 run `PiQemu` against a shell-script stand-in for
 QEMU that answers on the pipe chardev as QEMU does; PI-10..14 run the provisioner
@@ -361,8 +452,41 @@ NextPi image is needed.
 | PI-45 | the fallback's number walk does the same; its limit is `sysconf`'s capped at 65536, and 65536 for -1 or 0 |
 | PI-46 | the fallback reads `/proc/self/fd` where it exists, else `/dev/fd`, and walks the numbers only with no list |
 | PI-47 | the open-descriptor list names open descriptors but not the directory's own, and leaves no descriptor open (reading it, or marking from it) |
-| PIT-01..15 | `nextpi_test` (every OS): `md5_file`, the socket command line, the platform audio default, the TCP endpoint (both directions, lazy connect, peer loss and reconnect), `link_config` and warm start, end to end with a stand-in QEMU, hard reset, refusals, force-kill, exit status, never orphaned, no inherited handles, child locale |
+| PI-48 | the Pi's sound reaches the mixer through QEMU's wav FIFO and `PiAudio`; NR 0xA2 = 0x00 silent, 0xC0 the stand-in's square wave, each channel on its own side at its exact level (left ±1024, right ±512) |
+| PI-49 | neither a rewind replay nor an RZX playback consumes the stream; a replay produces no audio at all, an RZX playback outputs exactly 0 in both channels; the I2S input resets to 0x200 with or without a Pi; live again it is drawn at exactly one frame per mixer output sample |
+| PI-50 | the warm-start recording boot gets no audio reader |
+| PI-51 | when the audio FIFO cannot be created, `start()` fails with that error and starts no QEMU |
+| PI-52 | the mixer's `-audiodev` value escapes a comma in the FIFO path |
+| PI-53 | a QEMU driver setting (`none`) is passed to QEMU, and jnext makes no audio reader or FIFO |
+| PI-54 | `host` gives QEMU the platform's default output; empty still means the mixer |
+| PI-55 | NR 0x2C/0x2E read the live sample in a live run and during an RZX recording, and 0x200 in a rewind replay and an RZX playback; a restored snapshot puts the latch at rest |
+| PI-56 | NR 0xA2 bit 0: port 0xFE bit 6 reads the EAR comparator, toggling with a Pi square wave; 0 with bit 0 clear and during a rewind replay |
+| PI-57 | with a tape playing a steady high level, port 0xFE bit 6 is the tape XOR the comparator |
+| PI-58 | a steady Pi EAR level relaxes to the issue-2 level 64 x 512 master cycles after its edge |
+| PI-59 | under `--silent` the Pi's samples are still latched and the EAR path works |
+| PI-60 | the relaxed level is the issue-2 MIC level: with issue-2 keyboard mode and MIC set, a fallen Pi level reads 0 for the hold and 1 after it |
+| PI-61 | setting NR 0xA2 bit 0 with the sample already at t = 11 is an edge: bit 6 reads 1 at the write and for the hold |
+| PI-62 | a restore taken while the comparator was 1 leaves it 0, and the relaxed MIC level reads at once |
+| PI-63 | under `--silent` a rewind replay does not consume the Pi's sound; a live run does |
+| PI-64 | a tape save made with the Pi on the EAR input records the comparator's edges (the MIC jack carries it) |
+| PIT-01..17 | `nextpi_test` (every OS): `md5_file`, the socket command line, the platform audio default, what an empty audio setting means per OS (PIT-16/17), the TCP endpoint (both directions, lazy connect, peer loss and reconnect), `link_config` and warm start, end to end with a stand-in QEMU, hard reset, refusals, force-kill, exit status, never orphaned, no inherited handles, child locale |
 | `nextpi-link-func` | the real binary attaches the launcher's link to UART 1 over the platform's transport and stops QEMU the orderly way |
+
+`test/audio/audio_posix_test.cpp` (POSIX-only: the rows use a real FIFO) adds **MX-41** (the stream retired MX-30 asked for; MX-30 itself stays retired, its ID not reused) and MX-31..40 and MX-42..47 and MX-50..52 for `PiAudio`
+against a real FIFO: the stream frame for frame (header and frames split across
+writes), the 10-bit mapping, a frame's level in the mix and the received count;
+prebuffer and underrun (2205 frames, 50 ms); the latency trim (to 4410 frames,
+100 ms) and its edge (13230 frames, 300 ms, kept; 13231 trimmed); the ring full
+(131072 frames); a pause longer than the ring, flushed on resume, with the prebuffer
+again; a writer reconnecting with a fresh header, also one split at any read
+boundary; audio that spells `RIFF` without `WAVE`; the open errors and
+the FIFO's 0600 mode; the reader pausing, not spinning, while there is no
+writer; the latency of a write, of `close()` and of a reconnect, and an idle
+reader's CPU; a live writer's pause (EAGAIN) not ending the stream; one descriptor
+on the FIFO, close-on-exec, released by `close()`; and a signal interrupting the
+reader's `poll()` not ending it. The latency
+and capacity rows assert the literal numbers, so changing a constant fails
+them.
 
 `main()` applying that policy is the functional regression row **nextpi-func**
 (`test/00regression/scripts/`): through the real binary, `--nextpi` with no QEMU
@@ -373,6 +497,22 @@ keeps it from even being tried, and without the flag the failure is logged and
 jnext runs to its automatic exit (0) — the Preferences-only path. On the
 offscreen platform the warning dialog is not shown, since nobody could dismiss
 it; the log line before it carries the message.
+
+The sound has its own row, **nextpi-audio-func** (`os=linux,macos`: it needs a
+`/bin/sh` stand-in QEMU and the audio FIFO, which Windows lacks until GH #331).
+Its first fact is the sound end to end: a stand-in QEMU on the `PATH` plays a
+square wave into the wav FIFO, a 6-byte program opens NR 0xA2, and
+`--wav-record` must carry the tone with each channel at its own level. That is
+the one place `main()` handing PiQemu's reader to the emulator (`cfg.pi_audio`)
+is tested; setting it to null fails the row. Its second is the saved audio
+preference: a GUI session with `[nextpi] audio=none` must start the stand-in
+QEMU with `-audiodev none`, not the mixer's wav FIFO, which is the one test of
+`main()` copying that preference into the start (`spec.audio =
+saved.nextpi_audio`); dropping that line fails the row. Its third is NR 0xA2
+bit 0 end to end: on a 48K machine an injected program sets NR 0xA2 = 0xC3 and
+counts changes of port 0xFE bit 6 over 60000 reads, reporting the count on the
+magic port; with the stand-in looping a square wave in both channels it must
+see at least 20, and with the EAR path off it sees 0.
 
 Settings: `test/gui/app_config_test.cpp` AC-71..74 (`[nextpi]` defaults and
 round-trip) and `test/gui/preferences_apply_test.cpp` PA-20a..e (the tab's
@@ -399,13 +539,73 @@ LANG/LC_ALL fails PI-33; the watchdog exiting 0 fails PI-34; an inheritable
 write end fails PI-35; no RZX half in the gate fails PI-36; a fallback that
 marks nothing fails PI-37; `asked_on_cli` true for `--no-nextpi` fails PI-38.
 In **nextpi-func**, `start_outcome(true, …)` in `main()` fails fact 4 (exit 1)
-and ignoring `--no-nextpi` fails fact 3.
+and ignoring `--no-nextpi` fails fact 3. For the sound: not calling `feed_pi_audio`
+fails PI-48/49, and calling it but not latching the frame into `I2s` fails
+PI-48; feeding twice per output sample (the Pi at double speed) fails PI-49;
+consuming during RZX playback fails PI-49, and so does an `I2s` reset value
+other than 0x200; swapping the channels, feeding one from the other, or a one-step error in
+either channel's 10-bit value fails PI-48; a
+wrong rest value in either channel fails PI-49; keeping the reader in the
+warm-start config fails PI-50; ignoring the audio FIFO's open error fails PI-51.
+In `PiAudio`: not skipping the WAV header fails MX-31..34, MX-36, MX-41 and PI-49,
+and skipping one byte too few fails MX-32/34/36/41 and PI-48 (MX-31 never looks at
+sample values); prebuffering at `<=` fails MX-31; no trim fails MX-32; changing
+the prebuffer by one frame fails MX-31, the target MX-32/36, and the maximum
+latency MX-36, and trimming at `>=` fails MX-36; an off-by-one in the ring-full
+check, not counting its drops, or a different capacity fails MX-33; not
+flushing the ring after it overflowed fails MX-42; not resetting the
+header skip or the half-frame carry when the writer goes fails MX-34; not
+recognising a header in-stream, or taking one split at byte 6 for a frame, fails
+MX-43, and ending the skip at the first read of a header split between bytes 12 and
+44 fails MX-51; keeping the playing state through a flush fails MX-50; dropping
+the `WAVE` check fails MX-52; polling for the wrong event fails MX-44 on Linux (latency) and MX-47
+on macOS (a spinning core); a 1000 ms poll timeout fails MX-45 (`close()`
+waits); a 200 ms no-writer pause fails MX-46 (reconnect latency); a FIFO
+made 0666, or a regular file accepted, fails MX-35; no pause after a read that
+finds no writer fails MX-37 on Linux (macOS's `poll()` waits anyway); treating
+EAGAIN as the writer's end fails MX-38; no close-on-exec, a leaked descriptor
+on re-open or close, or a stale one after `close()`, fails MX-39; giving up on a
+`poll()` error (a signal's EINTR) fails MX-40; not escaping the FIFO path for
+QEMU fails PI-52; ignoring a driver setting, or making the reader for one, fails
+PI-53; not mapping `host` to the platform default fails PI-06 and PI-54; reading the
+live sample during a replay or an RZX playback, gating it during an RZX recording, or keeping a
+restored latch, fails PI-55. For NR 0xA2 bit 0: moving either threshold, or
+using one channel, fails MX-48; dropping the enable or the bit-0 gate, or not
+clearing on reset, fails MX-49; OR instead of XOR with the tape fails PI-57;
+no relaxation, or a hold of half or twice 64 x 512 cycles, fails PI-58; no
+replay gate fails PI-56; not latching under `--silent` fails PI-59; not
+recording the comparator's edge time fails PI-56 and PI-59; relaxing to 0 instead
+of the issue-2 MIC level fails PI-60; not stamping the edge a NR 0xA2 write
+makes fails PI-61; a restore that keeps the comparator, or its edge time,
+fails PI-62; latching under `--silent` during a replay fails PI-63; the MIC output
+without the Pi term, or no sample at a comparator edge, fails PI-64.
 
 ## 5. Not done
 
 - **No Pi emulation.** The Pi is real NextPi software under QEMU.
-- **No I2S audio.** NextPi's audio reaches the Next's mixer over I2S (NR 0xA2) on
-  real hardware; under QEMU it plays on the host instead.
+- **No separate gain for the Pi.** Its level is the hardware's share of the mix
+  (a 10-bit input among the 13-bit sum); the master gain raises it with the rest.
 - **No GPIO, I2C1 or SPI0 to the Pi.** Only the UART crosses the wire.
+- **A Pi-fed tape save records the MIC level's relaxation late.** With the Pi on
+  EAR and no tape, `i_AUDIO_EAR` relaxes to the issue-2 MIC level 64 x 512
+  master cycles after the last comparator edge (`zxnext_top_issue2.vhd:663-677`)
+  and the MIC jack follows it (`zxnext.vhd:6503`). The recorder is sampled at
+  comparator edges and at frame end, never at the relaxation instant, so that
+  level change is written up to a frame (about 20 ms) late instead of 1.17 ms
+  after the edge: in practice the trailing pulse after a block. Sampling there
+  needs an event at edge + 32768 cycles; not done.
+- **The comparator is not mixed in.** On the board the mixer's `mic_i` is the same
+  `beep_mic_final` as the MIC jack (`zxnext.vhd:6503`, `:6516`;
+  `audio_mixer.vhd:81`, `:128`), so while bit 0 takes the Pi out of the mix its
+  comparator is faintly audible at the MIC level (128 of the 13-bit sum). jnext's
+  mixer takes only the beeper's MIC bit and a playing tape, so with bit 0 set the
+  Pi is silent there. The tape-out recording does carry it (PI-64). Modelling it
+  means feeding comparator edges, which are latched at mixer-sample boundaries,
+  into the beeper's per-instruction levels; not done.
+- **A rewind re-run does not reproduce the Pi's audio.** Under a replay NR
+  0x2C/0x2E read the rest value and the EAR comparator does not move, so a guest
+  that polls them or loads a tape through the Pi diverges from its own rewind.
+  The UART and ESP links have the same limit: input from outside the machine is
+  host-timed. Owner decision (2026-10-12): accepted.
 - **No live start/stop** from the running GUI; Preferences changes apply at the
   next launch.

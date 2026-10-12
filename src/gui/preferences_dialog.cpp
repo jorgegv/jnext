@@ -413,21 +413,24 @@ QWidget* PreferencesDialog::build_nextpi_tab() {
     nextpi_audio_combo_ = new QComboBox(tab);
     nextpi_audio_combo_->setObjectName(QStringLiteral("nextpiAudioCombo"));
     nextpi_audio_combo_->setEditable(true);
-    nextpi_audio_combo_->addItems({QString(), QStringLiteral("none"), QStringLiteral("coreaudio"),
+    nextpi_audio_combo_->addItems({QString(), QStringLiteral("host"), QStringLiteral("none"),
+                                   QStringLiteral("coreaudio"),
                                    QStringLiteral("pa"), QStringLiteral("pipewire"),
                                    QStringLiteral("alsa"), QStringLiteral("sdl"),
                                    QStringLiteral("dsound")});
     nextpi_audio_combo_->lineEdit()->setPlaceholderText(
-#ifdef __APPLE__
-        tr("coreaudio (default)"));
-#elif defined(_WIN32)
-        tr("dsound (default)"));
+#ifdef _WIN32
+        tr("this computer's default output (dsound)"));   // no mixer path here yet (GH #331)
 #else
-        tr("pa (default)"));
+        tr("the Next's mixer (default); \"host\": this computer's default output"));
 #endif
     nextpi_audio_combo_->setToolTip(
-        tr("Where the Pi's sound goes: a QEMU audio driver, \"none\" to mute "
-           "it, or wav:FILE to record it."));
+        tr("Where the Pi's sound goes. Empty: into the Next's mixer, as on the "
+           "real machine — NextREG 0xA2 controls it, and recordings include it "
+           "(on Windows, empty plays it on this computer's default output instead). "
+           "\"host\": straight to this computer's default output. "
+           "Or a QEMU audio driver to play it straight to this computer, "
+           "\"none\" to mute it, or wav:FILE to record it on its own."));
     form->addRow(tr("Pi audio:"), nextpi_audio_combo_);
 
     // Every other control follows the enable tick, so a disabled Pi does not
