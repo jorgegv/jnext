@@ -39,6 +39,8 @@ if want fix-sdcard-image-func; then
     else
     export MTOOLS_SKIP_CHECK=1
     FIX="$PROJECT_DIR/tools/fix-sdcard-image.sh"
+    real_mcopy=$(command -v mcopy)
+    real_mdir=$(command -v mdir)
     W="$RUN_DIR/private/fix-sdcard-image"
     rm -rf "$W"; mkdir -p "$W"
     OFF=32256   # the script's PART_OFFSET: sector 63
@@ -228,8 +230,13 @@ if want fix-sdcard-image-func; then
             #     renames one host file (G-a) or drops one (G-b: the card has
             #     an entry no host file stands for). The script must refuse
             #     BEFORE it re-formats, with the source and the copy untouched.
-            real_mcopy=$(command -v mcopy)
             mkdir -p "$W/wrapbin"
+            cat > "$W/wrapbin/mdir" <<WRAP
+#!/bin/sh
+case " \$* " in *" -/ "*) [ "\$GH330_MODE" != mdirfail ] || exit 1 ;; esac
+exec "$real_mdir" "\$@"
+WRAP
+            chmod +x "$W/wrapbin/mdir"
             cat > "$W/wrapbin/mcopy" <<WRAP
 #!/bin/sh
 "$real_mcopy" "\$@" || exit \$?
@@ -242,13 +249,15 @@ case "\$GH330_MODE" in
 esac
 WRAP
             chmod +x "$W/wrapbin/mcopy"
-            for mode in rename drop; do
+            for mode in rename drop mdirfail; do
                 rc=0
                 GH330_MODE=$mode PATH="$W/wrapbin:$PATH" LANG=C timeout --kill-after=5s 120s \
                     bash "$FIX" "$W/f.img" "$W/g-$mode.img" > "$W/G-$mode.log" 2>&1 || rc=$?
                 [[ $rc != 0 ]] || faults+=("G-$mode: the script accepted a mis-named extraction (exit 0)")
                 grep -q "GH #330" "$W/G-$mode.log" \
                     || faults+=("G-$mode: no GH #330 refusal in the output: $(tail -n1 "$W/G-$mode.log")")
+                [[ $mode != mdirfail ]] || grep -q "could not list the card" "$W/G-$mode.log" \
+                    || faults+=("G-mdirfail: a failing mdir was not reported as such: $(tail -n1 "$W/G-$mode.log")")
                 [[ $mode != rename ]] || grep -q "top.bin_file" "$W/G-$mode.log" \
                     || faults+=("G-rename: the refusal does not name the bad entry")
                 ! grep -q "Reformatting partition" "$W/G-$mode.log" \
@@ -291,7 +300,13 @@ WRAP
 for last; do :; done
 case "\$last" in
   :*) exit 0 ;;
-  */) if [ "\$GH330_WRAP" = drop ]; then
+  */) if [ "\$GH330_WRAP" = fail ]; then
+        # fail the recursive (directory) extraction only
+        case " \$* " in *" -s "*) exit 1 ;; esac
+      elif [ "\$GH330_WRAP" = failroot ]; then
+        # fail the card-root extraction only
+        case " \$* " in *" ::/* "*) exit 1 ;; esac
+      elif [ "\$GH330_WRAP" = drop ]; then
         find "\$last" -type f -name b.nex -exec rm -f {} +
       else
         f=\$(find "\$last" -type f | LC_ALL=C sort | tail -n 1)
@@ -331,6 +346,17 @@ WRAP
                 # the defect-mimicking mcopy
                 rc=$(nex_run "H-$mode-wrap" 1 "$XN/outw-$mode" "${opt[@]}")
                 if [[ $mode == sib ]]; then
+                    # a failing mcopy is reported and leaves no scratch directory
+                    frc=$(GH330_WRAP=fail nex_run "H-sib-fail" 1 "$XN/outf-sib" -s)
+                    [[ $frc != 0 ]] && grep -q "mcopy failed" "$XN/H-sib-fail.log" \
+                        || faults+=("H-sib-fail: a failing mcopy was not reported (exit $frc)")
+                    frc=$(GH330_WRAP=failroot nex_run "H-sib-failroot" 1 "$XN/outr-sib" -s)
+                    [[ $frc != 0 ]] && grep -q "mcopy failed" "$XN/H-sib-failroot.log" \
+                        || faults+=("H-sib-failroot: a failing root mcopy was not reported (exit $frc)")
+                    [[ -z "$(find "$XN/outr-sib" -maxdepth 1 -name '.siblings.*' 2>/dev/null)" ]] \
+                        || faults+=("H-sib-failroot: a failed root extraction left a .siblings scratch directory")
+                    [[ -z "$(find "$XN/outf-sib" -maxdepth 1 -name '.siblings.*' 2>/dev/null)" ]] \
+                        || faults+=("H-sib-fail: a failed extraction left a .siblings scratch directory")
                     # a NEX that vanished from the extraction is refused too
                     drc=$(GH330_WRAP=drop nex_run "H-sib-drop" 1 "$XN/outd-sib" -s)
                     [[ $drc != 0 ]] && grep -q "did not extract" "$XN/H-sib-drop.log" \
@@ -353,7 +379,7 @@ WRAP
     if [[ ${#faults[@]} -eq 0 ]]; then
         pass_row " (the 24.11 16 KB zx81.rom becomes itself twice; a re-run, another 16 KB file, another size and no file are left alone; an under-clustered card is re-clustered with its tree intact, and a mis-named extraction is refused before the re-format; extract-sdcard-nex.sh keeps its files in the output tree)"
     else
-        fail_row " (${#faults[@]} fault(s) in tools/fix-sdcard-image.sh)"
+        fail_row " (${#faults[@]} fault(s) in tools/fix-sdcard-image.sh or tools/extract-sdcard-nex.sh)"
         printf '      %s\n' "${faults[@]}"
     fi
     fi

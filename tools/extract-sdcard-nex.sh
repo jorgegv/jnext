@@ -109,11 +109,13 @@ for src in "${NEX_FILES[@]}"; do
             # NEX in the card root: its siblings are the root's files (no -s:
             # that would copy the whole card).
             sib_prefix=""
-            mcopy -i "$DRIVE" -m -p -Q -n "::/*" "$scratch/" </dev/null 2>/dev/null
+            mcopy -i "$DRIVE" -m -p -Q -n "::/*" "$scratch/" </dev/null 2>/dev/null \
+                || { rm -rf "$scratch"; die "mcopy failed extracting the card root's files for '$rel'"; }
         else
             # -s recurses: the NEX's directory arrives as $scratch/<its name>.
             sib_prefix="$(dirname "$sib_dir")/"; [[ "$sib_prefix" != ./ ]] || sib_prefix=""
-            mcopy -i "$DRIVE" -s -m -p -Q -n "::/$(mt_escape "$sib_dir")" "$scratch/" </dev/null 2>/dev/null
+            mcopy -i "$DRIVE" -s -m -p -Q -n "::/$(mt_escape "$sib_dir")" "$scratch/" </dev/null 2>/dev/null \
+                || { rm -rf "$scratch"; die "mcopy failed extracting the directory of '$rel'"; }
         fi
         while IFS= read -r -d '' p; do
             mdir -a -b -i "$DRIVE" "::/$(mt_escape "$sib_prefix${p#./}")" </dev/null >/dev/null 2>&1 \
@@ -126,7 +128,8 @@ for src in "${NEX_FILES[@]}"; do
         cp -pR "$scratch/." "$OUT_DIR/$sib_prefix"
         rm -rf "$scratch"
     else
-        mcopy -i "$DRIVE" -m -p -Q -n "::/$(mt_escape "$rel")" "$OUT_DIR/$rel" </dev/null 2>/dev/null
+        mcopy -i "$DRIVE" -m -p -Q -n "::/$(mt_escape "$rel")" "$OUT_DIR/$rel" </dev/null 2>/dev/null \
+            || die "mcopy failed extracting '$rel'"
     fi
     copied=$(( copied + 1 ))
     printf '  [%2d/%2d] %s\n' "$copied" "${#NEX_FILES[@]}" "$rel"

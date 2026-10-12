@@ -229,7 +229,12 @@ if [ "$NEEDS_FAT32_FIX" = "1" ]; then
                 return 1
             fi
         fi
-        n_card=$(mdir -/ -a -b -i "$DRIVE_SPEC" "::/" </dev/null 2>/dev/null | wc -l)
+        local listing
+        if ! listing=$(mdir -/ -a -b -i "$DRIVE_SPEC" "::/" </dev/null 2>/dev/null); then
+            echo "ERROR: mdir could not list the card, so the extraction cannot be verified (GH #330 check); $DST was NOT re-formatted" >&2
+            return 1
+        fi
+        n_card=$(printf '%s\n' "$listing" | wc -l)
         n_card=$(( n_card ))
         if [ "$n_card" -ne "$n_ext" ]; then
             echo "ERROR: mtools extracted ${n_ext} entries but the card lists ${n_card} — this mtools build mis-names host files (GH #330); $DST was NOT re-formatted" >&2
