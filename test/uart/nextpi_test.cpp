@@ -7,6 +7,11 @@
 // POSIX can select too (PiQemu::Spec::transport), so Linux and macOS exercise the
 // same code path the Windows build ships.
 //
+// Since GH #331 it also holds the rows of the provisioner, the archive reader and the
+// pure policy functions (moved from uart_posix_test, unchanged) and the Pi's audio:
+// the stand-in opens the `-audiodev wav` path as QEMU does, and PiAudio serves a FIFO
+// (POSIX) or a named pipe (Windows) that this process's own fopen("wb") writes.
+//
 // The QEMU stand-in is a program (nextpi_qemu_stub.cpp), copied as
 // `qemu-system-arm[.exe]` and `qemu-img[.exe]`, because the Windows launcher uses
 // CreateProcess. It plays the Pi on QEMU's `socket` chardev: listens on the port
