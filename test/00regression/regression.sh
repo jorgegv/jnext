@@ -641,7 +641,10 @@ run_func_phase "serial tail" 1 "${SERIAL_ROWS[@]+"${SERIAL_ROWS[@]}"}"
 func_phases_end
 # The desktop process must be the one --serve started: a restart means a row's
 # jnext.exe spawned it on its own output pipe and may have been held to its bound.
-if [[ -n "${REG_WINE_EXPLORER:-}" && "$(cat "/proc/$REG_WINE_EXPLORER/comm" 2>/dev/null)" != explorer.exe ]]; then
+# A killed process whose parent never reaps it (an orphan under a container's PID 1)
+# stays a zombie: /proc/<pid>/comm still reads explorer.exe, so the state counts too.
+if [[ -n "${REG_WINE_EXPLORER:-}" ]] && ! { [[ "$(cat "/proc/$REG_WINE_EXPLORER/comm" 2>/dev/null)" == explorer.exe ]] \
+        && ! grep -q '^State:[[:space:]]*[ZX]' "/proc/$REG_WINE_EXPLORER/status" 2>/dev/null; }; then
     harness_fault "the wine desktop process (pid $REG_WINE_EXPLORER) was restarted during the run" \
                   "A row's jnext.exe may have started it on its own output pipe and been held to its bound (GH #329)."
 fi
