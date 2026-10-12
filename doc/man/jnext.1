@@ -38,6 +38,10 @@ message naming the option and the value, and exits with status 1.
 \f[B]\-\-machine\f[R] \f[I]TYPE\f[R]
 Machine type: \f[CR]48k\f[R], \f[CR]128k\f[R], \f[CR]plus3\f[R],
 \f[CR]pentagon\f[R], \f[CR]next\f[R] (default).
+A snapshot given to \f[B]\-\-load\f[R] (\f[CR].jns\f[R],
+\f[CR].sna\f[R], \f[CR].szx\f[R], \f[CR].z80\f[R]) runs on the machine
+it was saved on instead, and \f[B]jnext\f[R] warns when that is not the
+one given here.
 .TP
 \f[B]\-\-load\f[R] \f[I]FILE\f[R]
 Load a program.
@@ -53,9 +57,20 @@ The format is detected from the extension: \f[CR].nex\f[R],
 Loading one restores the machine it was taken on, including the machine
 \f[I]type\f[R]: a \f[CR].jns\f[R] taken on a Next loads as a Next even
 if \f[B]\-\-machine\f[R] says otherwise.
-A \f[CR].sna\f[R], \f[CR].szx\f[R] or \f[CR].z80\f[R] is different: it
-is loaded onto the machine that is running (\f[B]\-\-machine\f[R], or
-the saved choice), whatever machine it was made on.
+A \f[CR].sna\f[R], \f[CR].szx\f[R] or \f[CR].z80\f[R] does the same: it
+runs on the machine it was saved on (the file says which: a
+\f[CR].sna\f[R] by its size, an \f[CR].szx\f[R] by its machine ID, a
+\f[CR].z80\f[R] by its hardware mode), even over \f[B]\-\-machine\f[R],
+which is then warned about.
+The machine stays selected, in the GUI\(cqs \f[B]Machine > Machine
+Type\f[R] too.
+A snapshot from a machine \f[B]jnext\f[R] does not emulate (a Timex, a
+Scorpion, a Pentagon 512 or 1024), or taken with the TR\-DOS, Interface
+1, MGT or Multiface ROM paged in, is refused, with the reason in the
+log, before anything is changed; at startup \f[B]jnext\f[R] then exits
+non\-zero.
+A 16K, +2, +2A or +3e snapshot runs as the 48K, 128K, +3 or +3, and an
+NTSC 48K \f[CR].szx\f[R] as a 48K at 60 Hz.
 .PP
 A NEX file with bytes after the banks its header declares is an
 \f[I]extended\f[R] NEX.
@@ -1269,12 +1284,18 @@ see \f[B]JNEXT SNAPSHOTS\f[R].
 .TP
 \f[CR].sna\f[R]
 48K and 128K snapshots.
+Runs as the 48K (49179 bytes) or the 128K (longer).
 .TP
 \f[CR].szx\f[R]
 Chunked snapshots, zlib\-compressed pages.
+Runs on the machine its header names: 48K, 128K, +3 or Pentagon 128.
+Restores the AY registers.
 .TP
 \f[CR].z80\f[R]
 v1/v2/v3, 48K and 128K, RLE\-compressed or raw pages.
+Runs on the machine its hardware mode names (48K, 128K, +3 or Pentagon
+128).
+Restores the AY registers and, for a +3, port 0x1FFD.
 .TP
 \f[CR].tap\f[R]
 Fast load via a ROM trap; \f[CR]LOAD \(dq\(dq\f[R] is auto\-typed.

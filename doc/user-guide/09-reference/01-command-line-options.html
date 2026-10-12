@@ -3648,7 +3648,10 @@ with status 1.</p>
 <h2 id="machine-and-program">Machine and program<a class="headerlink" href="#machine-and-program" title="Permanent link">&para;</a></h2>
 <dl>
 <dt><strong>--machine</strong> <em>TYPE</em></dt>
-<dd>Machine type: <code>48k</code>, <code>128k</code>, <code>plus3</code>, <code>pentagon</code>, <code>next</code> (default).</dd>
+<dd>Machine type: <code>48k</code>, <code>128k</code>, <code>plus3</code>, <code>pentagon</code>, <code>next</code> (default).
+A snapshot given to <strong>--load</strong> (<code>.jns</code>, <code>.sna</code>, <code>.szx</code>, <code>.z80</code>) runs
+on the machine it was saved on instead, and <strong>jnext</strong> warns when
+that is not the one given here.</dd>
 <dt><strong>--load</strong> <em>FILE</em></dt>
 <dd>
 <p>Load a program. The format is detected from the extension: <code>.nex</code>,
@@ -3658,9 +3661,17 @@ with status 1.</p>
 Snapshots</a>). Loading one
 restores the machine it was taken on, including the machine <em>type</em>:
 a <code>.jns</code> taken on a Next loads as a Next even if <strong>--machine</strong> says
-otherwise. A <code>.sna</code>, <code>.szx</code> or <code>.z80</code> is different: it is loaded
-onto the machine that is running (<strong>--machine</strong>, or the saved
-choice), whatever machine it was made on.</p>
+otherwise. A <code>.sna</code>, <code>.szx</code> or <code>.z80</code> does the same: it runs on the
+machine it was saved on (the file says which: a <code>.sna</code> by its size,
+an <code>.szx</code> by its machine ID, a <code>.z80</code> by its hardware mode), even
+over <strong>--machine</strong>, which is then warned about. The machine stays
+selected, in the GUI’s <strong>Machine &gt; Machine Type</strong> too. A snapshot
+from a machine <strong>jnext</strong> does not emulate (a Timex, a Scorpion, a
+Pentagon 512 or 1024), or taken with the TR-DOS, Interface 1, MGT or
+Multiface ROM paged in, is refused, with the reason in the log,
+before anything is changed; at startup <strong>jnext</strong> then exits
+non-zero. A 16K, +2, +2A or +3e snapshot runs as the 48K, 128K, +3
+or +3, and an NTSC 48K <code>.szx</code> as a 48K at 60 Hz.</p>
 <p>A NEX file with bytes after the banks its header declares is an
 <em>extended</em> NEX. If its header asks for the file to be kept open (any
 non-zero <code>file_handle</code>: 1 to 0x3FFF hands the program the handle in

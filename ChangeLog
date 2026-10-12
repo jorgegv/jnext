@@ -12,6 +12,8 @@
 - ESP-01: replies no longer pause mid-message on a busy host, which made NextSync retry or restart (mostly on Windows)
 - Loading an unreadable .jns no longer resets the running machine before refusing it
 - Loading a .jns made on another machine, from the menu or the command line, keeps that machine for later resets
+- Loading a .sna, .szx or .z80 switches to the machine it was saved on; machines jnext lacks are refused
+- +3 .szx and .z80 snapshots restore their paging and ROM; 128K .z80 and .szx restore the AY registers
 - Quick Screenshot (Alt+K) now works in fullscreen
 - A loaded snapshot no longer comes back with a host key (such as Shift) stuck down
 - Seconds-form delays (--delayed-automatic-exit, -screenshot-time, -keypress, -nmi) now count programs running at 60 Hz as 1/60 s per frame

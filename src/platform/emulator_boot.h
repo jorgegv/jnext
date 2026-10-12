@@ -11,6 +11,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/snapshot_machine.h"
 
 #include "save/jns_container.h"
 #include "save/zip_archive.h"
@@ -54,6 +55,20 @@ inline bool emulator_apply_load(Emulator& emu, const std::string& file,
     return emu.load_nex(file);   // .nex + unknown extensions
 }
 
+/// emulator_apply_load(), then tell the frontend which machine is running now
+/// (GH #323). A load can switch the machine in place (a `.sna`, `.szx`, `.z80`
+/// or `.jns` saved on another one), and a frontend that was not told keeps
+/// naming the old machine: its next hard reset would boot that one. `keep`
+/// receives the running machine whether or not the load succeeded or switched.
+/// Every frontend's driver load (debugger/ZRCP/DZRP) and startup load uses it.
+inline bool emulator_apply_load_keeping(Emulator& emu, const std::string& file,
+                                        bool tape_realtime,
+                                        const std::function<void(MachineType)>& keep) {
+    const bool ok = emulator_apply_load(emu, file, tape_realtime);
+    if (keep) keep(emu.config().type);
+    return ok;
+}
+
 /// True when emulator_apply_load() above would route `file` to
 /// Emulator::load_nex() — i.e. the extension is `.nex` or unrecognised (the
 /// fallback). The GH #228 experimental-V1.3 gate applies to exactly that
@@ -86,13 +101,28 @@ inline bool emulator_load_routes_to_rzx(const std::string& file) {
     return ext == ".rzx";
 }
 
-/// The machine a boot that loads `load_file` must build. An RZX recording
-/// replays only on the machine it was made on, so for one that names it
-/// (rzx::recorded_machine()) that machine; otherwise `configured`. Every boot
-/// that plays a recording asks this: the command-line startup (main.cpp, where
-/// an explicit --machine wins) and every cold boot (emulator_cold_boot()), the
-/// route of the GUI's File > Play RZX Recording and File > Load NEX File....
+/// True when emulator_apply_load() routes `file` to Emulator::load_sna() /
+/// load_szx() / load_z80() — the `.sna`, `.szx` and `.z80` extensions. Such a
+/// file runs on the machine it was saved on (GH #323), so the GUI checks it is
+/// loadable before it cold-boots the machine for it.
+inline bool emulator_load_routes_to_snapshot(const std::string& file) {
+    const std::string ext = snapshot_file_ext(file);
+    return ext == "sna" || ext == "szx" || ext == "z80";
+}
+
+/// The machine a boot that loads `load_file` must build. A `.jns`, `.sna`,
+/// `.szx` or `.z80` runs on the machine it was saved on (GH #321, #323), and
+/// an RZX recording replays only on the machine it was made on, so for one that
+/// names it (rzx::recorded_machine()) that machine; otherwise `configured` (a
+/// snapshot jnext cannot run is refused by the load itself). Every boot that
+/// loads one asks this: the command-line startup (main.cpp) and every cold boot
+/// (emulator_cold_boot()), the route of the GUI's File > Load and File > Play
+/// RZX Recording.
 inline MachineType emulator_boot_machine(const std::string& load_file, MachineType configured) {
+    if (emulator_load_routes_to_snapshot(load_file)) {
+        const SnapshotMachine m = snapshot_file_machine(load_file);
+        return m.ok ? m.machine : configured;
+    }
     if (jnext::is_jns_path(load_file)) {
         // GH #321 — a `.jns` names its machine too. Boot that machine, so the
         // frontend's keep_machine hook records it; load_jns would otherwise
@@ -124,12 +154,13 @@ inline MachineType emulator_boot_machine(const std::string& load_file, MachineTy
 
 /// GH #321 — the machine the COMMAND-LINE startup boots. An explicit --machine
 /// wins over an RZX's recorded machine (load_rzx() warns), but never over a
-/// `.jns`'s: load_jns() always reconfigures to the snapshot's machine, so
-/// booting any other would leave the frontend naming a machine that is not
-/// running.
+/// `.jns`'s, `.sna`'s, `.szx`'s or `.z80`'s (GH #323): their loads always
+/// switch to the snapshot's machine, so booting any other would leave the
+/// frontend naming a machine that is not running.
 inline MachineType emulator_startup_machine(const std::string& load_file,
                                             MachineType configured, bool machine_explicit) {
-    if (jnext::is_jns_path(load_file) || !machine_explicit)
+    if (jnext::is_jns_path(load_file) || emulator_load_routes_to_snapshot(load_file) ||
+        !machine_explicit)
         return emulator_boot_machine(load_file, configured);
     return configured;
 }
@@ -331,9 +362,9 @@ struct ColdBootHooks {
 
     /// Store the machine this boot built as the frontend's own, so every later
     /// boot (a hard reset, F1, Machine > Power Reset) builds it too. It differs
-    /// from the frontend's only when the boot played an RZX recording made on
-    /// another machine (emulator_cold_boot()): that machine stays selected, as
-    /// Machine > Machine Type would leave it.
+    /// from the frontend's when the boot loads an RZX recording made on another
+    /// machine or a snapshot saved on one (emulator_cold_boot()): that machine
+    /// stays selected, as Machine > Machine Type would leave it.
     std::function<void(MachineType)> keep_machine;
 };
 

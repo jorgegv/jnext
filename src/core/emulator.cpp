@@ -11,6 +11,8 @@
 #include "core/sdcard_provisioner.h"
 #include "core/warm_start_cache.h"
 #include "core/sna_saver.h"
+#include "core/snapshot_machine.h"
+#include "core/sna_loader.h"
 #include "core/szx_saver.h"
 #include "core/saveable.h"
 #include "esp01/esp_threaded.h"
@@ -7280,9 +7282,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         }
         if (standalone) {
             nextreg_.write(0x82, nr82);
-            nextreg_.write(0x83, static_cast<uint8_t>(nextreg_.cached(0x83) & 0x3F));
-            nextreg_.write(0x84, static_cast<uint8_t>(nextreg_.cached(0x84) & nr84_and));
-            nextreg_.write(0x85, static_cast<uint8_t>(nextreg_.cached(0x85) & 0x03));
+            // From the power-on values (NextReg: 0x83/0x84 all ones, 0x85 = 0x8F), not
+            // from cached(): an in-place init (a snapshot load that switches machine,
+            // GH #323) would otherwise inherit the previous personality's cleared
+            // bits, e.g. the 48K's AY-off in a 128K.
+            nextreg_.write(0x83, 0xFF & 0x3F);
+            nextreg_.write(0x84, nr84_and);
+            nextreg_.write(0x85, 0x8F & 0x03);
         }
     }
     propagate_effective_port_enables();
@@ -8153,10 +8159,42 @@ void Emulator::restore_esxdos_stub_state(EsxdosStubState state)
     esxdos_stub_file_write_ = false;
 }
 
+void Emulator::restore_ay_registers(const uint8_t regs[16], uint8_t selected)
+{
+    for (int r = 0; r < 16; ++r) {
+        port_.out(0xFFFD, static_cast<uint8_t>(r));
+        port_.out(0xBFFD, regs[r]);
+    }
+    // 4 bits only: values with the top bits set select a TurboSound chip.
+    port_.out(0xFFFD, static_cast<uint8_t>(selected & 0x0F));
+}
+
+void Emulator::switch_machine_for_load_(MachineType want, const std::string& what)
+{
+    if (want == config_.type) return;
+    const std::string why = "loading " + what + ", saved on the " + machine_type_str(want);
+    end_rzx_at_reset(why.c_str());
+    Log::emulator()->info("{}: saved on the {}; switching from the {}", what,
+                          machine_type_str(want), machine_type_str(config_.type));
+    config_.type = want;
+}
+
+bool Emulator::switch_to_snapshot_machine_(const std::string& path, const char* ext)
+{
+    const SnapshotMachine m = snapshot_file_machine(path, ext);
+    if (!m.ok) {
+        Log::emulator()->error("cannot load '{}': {}", path, m.why);
+        return false;
+    }
+    switch_machine_for_load_(m.machine, "'" + path + "'");
+    return true;
+}
+
 bool Emulator::load_sna(const std::string& path)
 {
     SnaLoader loader;
     if (!loader.load(path)) return false;
+    if (!switch_to_snapshot_machine_(path, "sna")) return false;   // GH #323: before the machine is touched
     init(config_);   // re-initialise in place first (see init(), GH #239)
     if (!loader.apply(*this)) return false;
     // A snapshot puts the CPU in its interrupt mode without executing an IM
@@ -8358,6 +8396,7 @@ bool Emulator::load_szx(const std::string& path)
 {
     SzxLoader loader;
     if (!loader.load(path)) return false;
+    if (!switch_to_snapshot_machine_(path, "szx")) return false;   // GH #323: before the machine is touched
     init(config_);   // re-initialise in place first (see init(), GH #239)
     if (!loader.apply(*this)) return false;
     im2_.set_im_mode(cpu_.get_registers().IM);   // see load_sna()
@@ -8368,6 +8407,7 @@ bool Emulator::load_z80(const std::string& path)
 {
     Z80Loader loader;
     if (!loader.load(path)) return false;
+    if (!switch_to_snapshot_machine_(path, "z80")) return false;   // GH #323: before the machine is touched
     init(config_);   // re-initialise in place first (see init(), GH #239)
     if (!loader.apply(*this)) return false;
     im2_.set_im_mode(cpu_.get_registers().IM);   // see load_sna()
@@ -8417,13 +8457,17 @@ bool Emulator::load_snapshot_from_memory(const std::vector<uint8_t>& data,
         SnaLoader loader;
         if (!loader.load_from_buffer(data, name)) return false;
         init(config_);
-        return loader.apply(*this);
+        if (!loader.apply(*this)) return false;
+        im2_.set_im_mode(cpu_.get_registers().IM);   // see load_sna()
+        return true;
     }
     if (ext == "szx") {
         SzxLoader loader;
         if (!loader.load_from_buffer(data, name)) return false;
         init(config_);
-        return loader.apply(*this);
+        if (!loader.apply(*this)) return false;
+        im2_.set_im_mode(cpu_.get_registers().IM);   // see load_sna()
+        return true;
     }
     if (ext == "z80") {
         Z80Loader loader;
@@ -8432,7 +8476,9 @@ bool Emulator::load_snapshot_from_memory(const std::vector<uint8_t>& data,
             return false;
         }
         init(config_);
-        return loader.apply(*this);
+        if (!loader.apply(*this)) return false;
+        im2_.set_im_mode(cpu_.get_registers().IM);   // see load_sna()
+        return true;
     }
     // Refused rather than skipped: playing a recording's input against a
     // machine it was not recorded on reproduces nothing, so "skip the
@@ -8467,8 +8513,10 @@ bool Emulator::load_rzx(const std::string& path)
     // it differ, and then the input is played against the wrong machine.
     MachineType recorded = config_.type;
     if (!rzx::recorded_machine(rec, recorded)) {
-        Log::emulator()->info("RZX: '{}' does not say which machine it was recorded on; "
-                              "playing it on the {}", path, machine_type_str(config_.type));
+        const SnapshotMachine why = ::snapshot_machine(rec.snapshot_data, rec.snapshot_ext);
+        Log::emulator()->info("RZX: '{}' does not say which machine it was recorded on{}{}; "
+                              "playing it on the {}", path, why.why.empty() ? "" : " (",
+                              why.why.empty() ? std::string() : why.why + ")", machine_type_str(config_.type));
     } else if (recorded != config_.type) {
         Log::emulator()->warn("RZX: '{}' was recorded on the {} but plays on the {} "
                               "(--machine); it will probably go out of step",

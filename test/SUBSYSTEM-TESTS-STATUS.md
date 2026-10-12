@@ -68,7 +68,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Present cadence       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Render-skip policy    |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Screenshot output (PNG/.SCR) |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Emulator Boot         |      115 |      115 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Emulator Boot         |      117 |      117 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply Policy) |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Attach |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Pointer Capture       |       64 |       64 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -89,6 +89,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | TZX loader (container) |       91 |       91 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tape SAVE TZX/WAV (GH #89) |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot IM latch (NR 0xC0) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
+| snapshot_machine_test |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "snapshot_machine_test" to the label map in refresh-subsystem-status.sh. |
 | DMA                   |      185 |      185 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap               |       88 |       88 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap raster splits |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -134,7 +135,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Window scale + fullscreen geometry |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Main-window title (version) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quit runs closeEvent cleanup |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI Preferences (Apply) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI Preferences (Apply) |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |      116 |      116 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -148,6 +149,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12759**| **12759**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12791**| **12791**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
