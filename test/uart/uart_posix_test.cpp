@@ -2796,6 +2796,47 @@ static void test_nextpi_audio() {
                   "equal, then fewer)", started ? 1 : 0, error.c_str(), before, after_replay,
                   after_live));
     }
+
+    // PI-64 — the MIC jack carries the Pi's EAR comparator (R3-2): the tape-out
+    // level is i_AUDIO_EAR xor ..., and i_AUDIO_EAR includes pi_fe_ear
+    // (zxnext.vhd:6503, :1638; zxnext_top_issue2.vhd:673), so a tape save made
+    // while NR 0xA2 bit 0 sends a Pi square wave to the EAR input records every
+    // comparator edge. The stand-in flips every 20 frames (2205 edges/s) and the
+    // run draws 5 frames' worth of audio (~0.1 s, ~220 edges); nothing but the
+    // comparator moves the MIC level here, so without the Pi term the recording
+    // holds none.
+    {
+        namespace fs = std::filesystem;
+        FakeNextPi fake("audio-ear-tapesave");
+        PiQemu qemu;
+        std::string error;
+        const bool started = start_pi(fake, qemu, 40000, 20, error);
+        const std::string tzx = (fs::path(fake.dir()) / "pi-ear.tzx").string();
+        uint64_t edges = 0;
+        bool armed = false;
+        if (started) {
+            EmulatorConfig cfg = pi_qemu_config(qemu);
+            cfg.pi_audio = qemu.audio();
+            Emulator emu;
+            emu.init(cfg);
+            armed = emu.start_tape_save(tzx);
+            emu.nextreg().write(0xA2, 0xC3);
+            for (int f = 0; f < 5; ++f) {
+                emu.run_frame();
+                emu.nextreg().write(0xA2, 0xC3);          // the ROM owns the register too
+            }
+            edges = emu.tape_recorder().edges_recorded();
+            emu.stop_tape_save();
+        }
+        check("PI-64",
+              "a tape save made while NR 0xA2 bit 0 sends a Pi square wave to the EAR input "
+              "records the comparator's edges: the MIC jack carries i_AUDIO_EAR, which includes "
+              "pi_fe_ear (zxnext.vhd:6503, zxnext_top_issue2.vhd:673)",
+              started && armed && edges >= 150 && edges <= 300,
+              fmt("started=%d (%s) armed=%d edges=%llu (want 150..300)",
+                  started ? 1 : 0, error.c_str(), armed ? 1 : 0,
+                  static_cast<unsigned long long>(edges)));
+    }
 }
 
 int main() {

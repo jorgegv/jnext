@@ -568,6 +568,7 @@ network or a NextPi image.
 | PI-61 | A steady high Pi level latched (t = 11) with NR 0xA2 = 0xC2 (bit 0 clear), the previous stamp aged past the hold, then NR 0xA2 = 0xC3 | bit 6 is 1 at the write and 30000 master cycles later, 0 at 34000: setting bit 0 is an edge (`zxnext.vhd:2361-2373`, `zxnext_top_issue2.vhd:663-677`) |
 | PI-62 | Snapshot saved while `fe_ear()` is 1, then loaded; issue-2 keyboard and MIC set after the load | `fe_ear()` is 0 after the load (it is not in the stream) and bit 6 reads the relaxed MIC level 1 at once. jnext-only: snapshots have no VHDL counterpart |
 | PI-63 | `cfg.silent`, a Pi ring of 8000 frames; two frames in rewind replay, then one live | `available()` unchanged after the replay, lower after the live frame. jnext-only: `--silent` and the replay have no VHDL counterpart |
+| PI-64 | `start_tape_save` to a `.tzx`, a Pi square wave flipping every 20 frames, NR 0xA2 = 0xC3, five frames | the recorder holds 150..300 edges (about 220: one per comparator change): the MIC jack carries `pi_fe_ear` (`zxnext.vhd:6503`, `zxnext_top_issue2.vhd:673`) |
 
 ### Companion suite — `test/uart/nextpi_test.cpp`
 

@@ -356,6 +356,10 @@ under QEMU is one, so:
   like NR 0x2C/0x2E; the comparator is not in the snapshot and restarts from 0
   on a restore, where the input is put back at rest. `--silent` skips the mixer
   but still latches the Pi's samples, so EAR input keeps working.
+  The MIC jack carries the same level (`tape_out_level`, `beep_mic_final`,
+  `zxnext.vhd:6503`), so a tape save records every comparator edge: the recorder
+  is sampled where `pi_fe_ear` changes (`with_pi_ear_tracking`), the only place
+  that sees it move.
 
 End to end with real QEMU, a headless run typed `nextpi-play_speech` into the
 UART with NR 0xA0 = 0x30 and NR 0xA2 = 0xC0: the `--wav-record` file is silent
@@ -460,6 +464,7 @@ NextPi image is needed.
 | PI-61 | setting NR 0xA2 bit 0 with the sample already at t = 11 is an edge: bit 6 reads 1 at the write and for the hold |
 | PI-62 | a restore taken while the comparator was 1 leaves it 0, and the relaxed MIC level reads at once |
 | PI-63 | under `--silent` a rewind replay does not consume the Pi's sound; a live run does |
+| PI-64 | a tape save made with the Pi on the EAR input records the comparator's edges (the MIC jack carries it) |
 | PIT-01..17 | `nextpi_test` (every OS): `md5_file`, the socket command line, the platform audio default, what an empty audio setting means per OS (PIT-16/17), the TCP endpoint (both directions, lazy connect, peer loss and reconnect), `link_config` and warm start, end to end with a stand-in QEMU, hard reset, refusals, force-kill, exit status, never orphaned, no inherited handles, child locale |
 | `nextpi-link-func` | the real binary attaches the launcher's link to UART 1 over the platform's transport and stops QEMU the orderly way |
 
@@ -558,7 +563,11 @@ using one channel, fails MX-48; dropping the enable or the bit-0 gate, or not
 clearing on reset, fails MX-49; OR instead of XOR with the tape fails PI-57;
 no relaxation, or a hold of half or twice 64 x 512 cycles, fails PI-58; no
 replay gate fails PI-56; not latching under `--silent` fails PI-59; not
-recording the comparator's edge time fails PI-56 and PI-59.
+recording the comparator's edge time fails PI-56 and PI-59; relaxing to 0 instead
+of the issue-2 MIC level fails PI-60; not stamping the edge a NR 0xA2 write
+makes fails PI-61; a restore that keeps the comparator, or its edge time,
+fails PI-62; latching under `--silent` during a replay fails PI-63; the MIC output
+without the Pi term, or no sample at a comparator edge, fails PI-64.
 
 ## 5. Not done
 
@@ -566,5 +575,13 @@ recording the comparator's edge time fails PI-56 and PI-59.
 - **No separate gain for the Pi.** Its level is the hardware's share of the mix
   (a 10-bit input among the 13-bit sum); the master gain raises it with the rest.
 - **No GPIO, I2C1 or SPI0 to the Pi.** Only the UART crosses the wire.
+- **The comparator is not mixed in.** On the board the mixer's `mic_i` is the same
+  `beep_mic_final` as the MIC jack (`zxnext.vhd:6503`, `:6516`;
+  `audio_mixer.vhd:81`, `:128`), so while bit 0 takes the Pi out of the mix its
+  comparator is faintly audible at the MIC level (128 of the 13-bit sum). jnext's
+  mixer takes only the beeper's MIC bit and a playing tape, so with bit 0 set the
+  Pi is silent there. The tape-out recording does carry it (PI-64). Modelling it
+  means feeding comparator edges, which are latched at mixer-sample boundaries,
+  into the beeper's per-instruction levels; not done.
 - **No live start/stop** from the running GUI; Preferences changes apply at the
   next launch.

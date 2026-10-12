@@ -1873,11 +1873,16 @@ private:
     uint16_t guest_pi_audio(bool left) const;
 
     /// Run an I2s mutation (a latch, an NR 0xA2 write) and note the master
-    /// cycle if it changed `pi_fe_ear`.
+    /// cycle if it changed `pi_fe_ear`. The comparator is an EAR edge, which
+    /// the MIC jack carries (`beep_mic_final`, zxnext.vhd:6503), so a tape
+    /// save samples it here: nothing else samples where it changes.
     template <typename F> void with_pi_ear_tracking(F&& mutate) {
         const bool before = i2s_.fe_ear();
         mutate();
-        if (i2s_.fe_ear() != before) pi_ear_edge_master_ = clock_.get();
+        if (i2s_.fe_ear() != before) {
+            pi_ear_edge_master_ = clock_.get();
+            if (tape_capture_live_) tape_recorder_.sample(tape_out_level(), clock_.get());
+        }
     }
 
     /// `i_AUDIO_EAR` at master cycle `now`, for the port 0xFE read and the
