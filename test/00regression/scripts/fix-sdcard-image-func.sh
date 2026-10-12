@@ -245,6 +245,30 @@ WRAP
             done
         fi
         rm -f "$W/f.img" "$W/f-fixed.img"
+
+        # H — tools/extract-sdcard-nex.sh --with-siblings (same exposure, GH
+        #     #330): a NEX in the card ROOT used to copy the whole card into
+        #     the PARENT of the output directory. Only its siblings, in the
+        #     output directory, are right.
+        XN="$RUN_DIR/private/fix-sdcard-image/xn"
+        mkdir -p "$XN"
+        if mkimg "$XN/c.img" && LANG=C mmd -i "$XN/c.img@@$OFF" ::/GAMES </dev/null >/dev/null 2>&1 \
+           && LANG=C mcopy -i "$XN/c.img@@$OFF" "$W/48.rom" ::/b.nex </dev/null \
+           && LANG=C mcopy -i "$XN/c.img@@$OFF" "$W/48.rom" ::/readme.txt </dev/null \
+           && LANG=C mcopy -i "$XN/c.img@@$OFF" "$W/48.rom" ::/GAMES/a.nex </dev/null \
+           && LANG=C mcopy -i "$XN/c.img@@$OFF" "$W/48.rom" ::/GAMES/data.bin </dev/null; then
+            LANG=C timeout --kill-after=5s 120s bash "$PROJECT_DIR/tools/extract-sdcard-nex.sh" \
+                "$XN/out" -s -i "$XN/c.img" > "$XN/H.log" 2>&1 \
+                || faults+=("H: extract-sdcard-nex.sh --with-siblings exited non-zero: $(tail -n1 "$XN/H.log")")
+            for f in b.nex readme.txt GAMES/a.nex GAMES/data.bin; do
+                [[ -f "$XN/out/$f" ]] || faults+=("H: '$f' was not extracted into the output directory")
+            done
+            [[ ! -e "$XN/GAMES" && ! -e "$XN/b.nex" && ! -e "$XN/readme.txt" ]] \
+                || faults+=("H: files were written to the PARENT of the output directory")
+        else
+            faults+=("harness: could not build the extract-sdcard-nex scratch card")
+        fi
+        rm -rf "$XN"
     fi
 
     rm -rf "$W"

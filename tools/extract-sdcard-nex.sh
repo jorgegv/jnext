@@ -94,7 +94,14 @@ for src in "${NEX_FILES[@]}"; do
     # --with-siblings bulk copy cannot be named, so its result is checked.
     if (( WITH_SIBLINGS )); then
         # -s recurses, so point it at the NEX's directory and take everything.
-        mcopy -i "$DRIVE" -s -m -p -Q -n "::/$(dirname "$rel")" "$dest_dir/.." </dev/null 2>/dev/null
+        if [[ "$(dirname "$rel")" == . ]]; then
+            # NEX in the card root: its siblings are the root's files (no -s:
+            # that would copy the whole card, and "dest/.." is the PARENT of
+            # the output directory).
+            mcopy -i "$DRIVE" -m -p -Q -n "::/*" "$dest_dir/" </dev/null 2>/dev/null
+        else
+            mcopy -i "$DRIVE" -s -m -p -Q -n "::/$(dirname "$rel")" "$dest_dir/.." </dev/null 2>/dev/null
+        fi
         [[ -n "$(find "$dest_dir" -maxdepth 1 -iname "$(basename "$rel")" -print -quit)" ]] \
             || die "mtools did not extract '$rel' under its own name (GH #330: this mtools build mis-names host files)"
     else
