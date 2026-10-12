@@ -102,7 +102,7 @@ PY
                          --sdcard-file-dest /NEXTZXOS/DRV-A.DSK \
                 > "$W/add-$name.log" 2>&1 || rc=$?
             [[ $rc -eq 0 ]] \
-                || faults+=("$name: --sdcard-file-add exited $rc")
+                || faults+=("$name: --sdcard-file-add exited $rc (log: $(tail -n 2 "$W/add-$name.log" 2>/dev/null | tr '\n' ' '))")
         fi
         rc=0
         # Frame-based throughout, so the capture point does not move with host
@@ -117,7 +117,7 @@ PY
                      --delayed-screenshot-frames 600 \
                      --delayed-automatic-exit-frames 620 \
             > "$W/boot-$name.log" 2>&1 || rc=$?
-        [[ $rc -eq 0 ]] || faults+=("$name: the NextZXOS boot exited $rc")
+        [[ $rc -eq 0 ]] || faults+=("$name: the NextZXOS boot exited $rc (log: $(tail -n 2 "$W/boot-$name.log" 2>/dev/null | tr '\n' ' '))")
         [[ -f "$W/$name.png" ]] || faults+=("$name: no screenshot was produced")
     }
 

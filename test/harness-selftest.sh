@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=197  # HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=200  # HS-95f..h (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -2473,6 +2473,42 @@ cp "$T/adm-b.good" "$PLT/scripts/adm-b-func.sh"
 printf '# expect: 3\n# expect-macos: 2\n# expect-windows: 2\nadm-a-func\nadm-b-func os=linux,macos\nabs-c-func os=linux os=windows\n' > "$PLT/functional_tests.conf"
 out=$(pl_run --platform --preflight-only); rc=$?
 check "HS-95e" "two os= tags on one row are a refusal that says so" 2 $rc "$out" "HARNESS FAULT" "carries two"
+
+# GH #329: the wine desktop process --serve records must be the one running at the
+# end of the run. A stub wine-run.sh (--serve prints the pid of a stand-in
+# "explorer.exe", a copy of sleep) and stub wine / wineserver on PATH; no wine needed.
+cp "$(command -v sleep)" "$T/explorer.exe"
+mkdir -p "$T/plwin-bin" "$PL/bw" "$PL/bsw"
+printf '#!/bin/sh\nexit 0\n' > "$T/plwin-bin/wine"; cp "$T/plwin-bin/wine" "$T/plwin-bin/wineserver"; chmod +x "$T/plwin-bin/"*
+for pl_d in bw bsw; do
+    printf 'JNEXT_TARGET_OS:INTERNAL=windows\n' > "$PL/$pl_d/CMakeCache.txt"
+    printf '#!/bin/sh\nexit 0\n' > "$PL/$pl_d/jnext.exe"; chmod +x "$PL/$pl_d/jnext.exe"
+done
+printf '#!/bin/sh\nexit 0\n' > "$PL/jnext"; chmod +x "$PL/jnext"
+printf '# expect: 3\n# expect-macos: 2\n# expect-windows: 2\nadm-a-func\n# os: stub\nadm-b-func os=linux,macos\n# os: stub\nabs-c-func os=linux,windows\n' > "$PLT/functional_tests.conf"
+plw_serve() {   # plw_serve <serve behaviour>: write the stub runner
+    printf '#!/bin/bash\ncase "$1" in\n--init) exit 0 ;;\n--serve) %s ;;\nesac\n' "$1" > "$PL/test/wine-run.sh"
+}
+plw_run() {
+    rm -f "$PLM/lint-ran" "$PLM/ran-abs-c"
+    ( cd "$PL" && PATH="$T/plwin-bin:$PATH" HOME="$T/plfix" JNEXT=/bin/true JNEXT_TARGET_BUILD="$PL/bw" JNEXT_TARGET_SDL_BUILD="$PL/bsw" TEST_BIN_DIR="$PL/helpers" \
+      JNEXT_REGRESSION_LOCK_FILE="$T/pl.lock" JNEXT_REGRESSION_LOCK_WAIT=6 \
+      JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg-idle" JNEXT_REGRESSION_NPROC=12 JNEXT_REGRESSION_HEARTBEAT=0 \
+      JNEXT_TEST_JOBS=1 timeout --kill-after=5s 120s bash "$PLT/regression.sh" --platform "$@" 2>&1 )
+}
+plw_serve "\"$T/explorer.exe\" 600 </dev/null >/dev/null 2>&1 & echo \$! | tee \"$T/expl.pid\""
+out=$(plw_run); rc=$?
+kill "$(cat "$T/expl.pid")" 2>/dev/null || true
+check "HS-95f" "a windows platform run whose recorded wine desktop process survives the run passes" 0 $rc "$out" "[abs-c-func]"
+cp "$PLT/scripts/adm-a-func.sh" "$T/adm-a.good"
+printf 'if want adm-a-func; then begin_func adm-a-func; kill "$(cat "%s/expl.pid")"; sleep 0.3; pass_row; fi\n' "$T" > "$PLT/scripts/adm-a-func.sh"
+plw_serve "\"$T/explorer.exe\" 600 </dev/null >/dev/null 2>&1 & echo \$! | tee \"$T/expl.pid\""
+out=$(plw_run); rc=$?
+check "HS-95g" "a wine desktop process that is gone at the end of the run is a harness fault naming its pid (GH #329)" 2 $rc "$out" "HARNESS FAULT" "wine desktop process" "was restarted during the run"
+cp "$T/adm-a.good" "$PLT/scripts/adm-a-func.sh"
+plw_serve 'exit 2'
+out=$(plw_run); rc=$?
+check "HS-95h" "a --serve that cannot provide the desktop keeper is a harness fault" 2 $rc "$out" "HARNESS FAULT" "persistent wineserver and wine desktop"
 
 echo ""
 echo "====================================="
