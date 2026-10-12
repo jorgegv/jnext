@@ -269,6 +269,20 @@ WRAP
         fi
         rm -f "$W/f.img" "$W/f-fixed.img"
 
+        # F0 — an EMPTY under-clustered card is re-clustered too (nothing to
+        #      extract, nothing to refuse).
+        sz=$((600 * 1024 * 1024)); rm -f "$W/e0.img"; truncate -s "$sz" "$W/e0.img"
+        if LANG=C mformat -i "$W/e0.img@@$OFF" -F -T $(( (sz - OFF) / 512 )) -h 255 -s 63 -c 64 :: \
+               </dev/null >/dev/null 2>&1; then
+            run_fix F0 "$W/e0.img" "$W/e0-fixed.img"
+            e0_cs=$(LANG=C minfo -i "$W/e0-fixed.img@@$OFF" :: </dev/null 2>/dev/null \
+                    | sed -n 's/.*-c \([0-9][0-9]*\).*/\1/p' | head -1)
+            [[ "$e0_cs" == 16 ]] || faults+=("F0: the empty card was not re-clustered (-c '$e0_cs')")
+        else
+            faults+=("harness: could not build the empty under-clustered card")
+        fi
+        rm -f "$W/e0.img" "$W/e0-fixed.img"
+
         # H — tools/extract-sdcard-nex.sh (same exposure, GH #330). A NEX in the
         #     card ROOT used to copy the whole card into the PARENT of the
         #     output directory; a name with glob characters ("Foo [48].nex")
@@ -312,6 +326,7 @@ case "\$last" in
         f=\$(find "\$last" -type f | LC_ALL=C sort | tail -n 1)
         [ -z "\$f" ] || mv "\$f" "\${f}_file"
       fi ;;
+  *) [ "\$GH330_WRAP" != failsingle ] || exit 1 ;;
 esac
 WRAP
             chmod +x "$XN/wrapbin/mcopy"
@@ -345,6 +360,12 @@ WRAP
                     || faults+=("H-$mode: files were written to the PARENT of the output directory")
                 # the defect-mimicking mcopy
                 rc=$(nex_run "H-$mode-wrap" 1 "$XN/outw-$mode" "${opt[@]}")
+                if [[ $mode == single ]]; then
+                    # a failing single-file mcopy is reported, not a silent exit
+                    src_rc=$(GH330_WRAP=failsingle nex_run "H-single-fail" 1 "$XN/outf-single")
+                    [[ $src_rc != 0 ]] && grep -q "mcopy failed" "$XN/H-single-fail.log" \
+                        || faults+=("H-single-fail: a failing single-file mcopy was not reported (exit $src_rc)")
+                fi
                 if [[ $mode == sib ]]; then
                     # a failing mcopy is reported and leaves no scratch directory
                     frc=$(GH330_WRAP=fail nex_run "H-sib-fail" 1 "$XN/outf-sib" -s)

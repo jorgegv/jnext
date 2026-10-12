@@ -234,8 +234,13 @@ if [ "$NEEDS_FAT32_FIX" = "1" ]; then
             echo "ERROR: mdir could not list the card, so the extraction cannot be verified (GH #330 check); $DST was NOT re-formatted" >&2
             return 1
         fi
-        n_card=$(printf '%s\n' "$listing" | wc -l)
-        n_card=$(( n_card ))
+        # an empty card lists nothing (wc -l of an empty line would say 1)
+        if [ -z "$listing" ]; then
+            n_card=0
+        else
+            n_card=$(printf '%s\n' "$listing" | wc -l)
+            n_card=$(( n_card ))
+        fi
         if [ "$n_card" -ne "$n_ext" ]; then
             echo "ERROR: mtools extracted ${n_ext} entries but the card lists ${n_card} — this mtools build mis-names host files (GH #330); $DST was NOT re-formatted" >&2
             return 1
