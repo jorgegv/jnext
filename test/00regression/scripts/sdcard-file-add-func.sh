@@ -181,8 +181,21 @@ if want sdcard-file-add-func; then
 
     # --- 4b. a whole directory tree (GH #292) ---------------------------------
     # Nested directories, an EMPTY one, long names, a dot-file, a multi-cluster
-    # file. mcopy -s reads the whole tree back with mtools' own FAT driver, and
-    # diff -r compares it with the source — names, nesting and bytes at once.
+    # file. Names and bytes are read back by two different mtools operations,
+    # because mtools' bulk extraction (mcopy -s) cannot be trusted to NAME the
+    # host files (GH #319, GH #330): mtools 4.0.49 (the newest release; Fedora and
+    # Homebrew ship it) has an inverted errno test in safe_iconv()
+    # (charsetConv.c:204, then in_len -= sizeof(wchar_t) at :215 wraps past the
+    # terminating NUL), and every host-side name it derives goes through that
+    # function (mainloop.c:595 mpGetBasename -> mcopy.c:94 buildUnixFilename).
+    # Where the system iconv leaves a stale EILSEQ in errno (macOS) a name gets a
+    # "_" and the tail of the previous name in its buffer: ".dotfile_", and
+    # intermittently "sub_file" for "sub". So:
+    #   - names, nesting, file/dir type and the empty dir come from ONE exact
+    #     `mdir -/ -b` listing of the card, compared with the source tree;
+    #   - bytes come from one `mcopy -n` per file to an EXPLICIT host name (never
+    #     derived by mtools) and cmp. The card-side lookup matches in wide
+    #     characters and never goes through safe_iconv.
     T="$W/tree"
     mkdir -p "$T/sub/nested" "$T/sub/empty"
     head -c 70000 /dev/urandom > "$T/sub/nested/A Long Nested Name.bin"
@@ -193,22 +206,43 @@ if want sdcard-file-add-func; then
     run_add 0 "add-tree" --sdcard-file-add "$T" --sdcard-file-dest /JNEXTGH292
     grep -qF "Copied directory '$T' to '/JNEXTGH292'" <<< "$ADD_OUT" \
         || faults+=("the tree copy did not report what it copied where")
-    rm -rf "$W/back-tree"
-    mcopy -s -n -i "$CARD@@$OFF" ::/JNEXTGH292 "$W/back-tree" 2>/dev/null \
-        || faults+=("mcopy -s could not read the copied tree back")
-    # GH #319: Homebrew's mtools names a leading-dot file ".dotfile_" when it
-    # extracts to the host (Fedora's keeps ".dotfile"). That is the extractor's
-    # local naming, not what is on the card, so where it happens the card's own
-    # name is asserted from the directory listing (mdir prints on-card names as
-    # stored) and the extracted copy is renamed back for the content diff.
-    if [[ -e "$W/back-tree/.dotfile_" && ! -e "$W/back-tree/.dotfile" ]]; then
-        dot_listing=$(mdir -b -i "$CARD@@$OFF" ::/JNEXTGH292 2>/dev/null || true)
-        grep -qxF "::/JNEXTGH292/.dotfile" <<< "$dot_listing" \
-            || faults+=("the card does not list /JNEXTGH292/.dotfile (mdir -b): ${dot_listing//$'\n'/;}")
-        mv "$W/back-tree/.dotfile_" "$W/back-tree/.dotfile"
+    # Expected listing, built from the source tree. A "_" in any expected path
+    # would make the exact match below prove nothing (the defect only APPENDS
+    # text that starts with "_"), so a fixture name with one is a harness fault.
+    tree_want=""
+    tree_files=()
+    while IFS= read -r -d '' p; do
+        rel=${p#"$T"/}
+        if [[ -d "$p" ]]; then
+            tree_want+="::/JNEXTGH292/$rel/"$'\n'
+        else
+            tree_want+="::/JNEXTGH292/$rel"$'\n'
+            tree_files+=("$rel")
+        fi
+        [[ "$rel" != *_* ]] \
+            || faults+=("harness: fixture name '$rel' contains '_' — the exact-listing check can no longer tell mtools' GH #330 suffix from a card fault")
+    done < <(find "$T" -mindepth 1 \( -type d -o -type f \) -print0)
+    tree_want=$(printf '%s' "$tree_want" | LC_ALL=C sort)
+    tree_got=$(mdir -/ -b -i "$CARD@@$OFF" ::/JNEXTGH292 2> "$W/tree-mdir.err" \
+                   | LC_ALL=C sort) || tree_got=""
+    if [[ "$tree_got" != "$tree_want" ]]; then
+        tree_hint=""
+        # a listed line with a "_" that no expected line has
+        if grep -q '_' <<< "$tree_got" && ! grep -q '_' <<< "$tree_want"; then
+            tree_hint=" (a '_'-suffixed name is the signature of the mtools 4.0.49 safe_iconv defect, GH #330, not necessarily a card fault)"
+        fi
+        diff <(printf '%s\n' "$tree_want") <(printf '%s\n' "$tree_got") > "$W/tree-diff.txt" 2>&1 || true
+        faults+=("mdir -/ -b lists a DIFFERENT tree on the card (< expected, > card): $(head -6 "$W/tree-diff.txt" | tr '\n' ';') mdir stderr: $(head -3 "$W/tree-mdir.err" | tr '\n' ';')$tree_hint")
     fi
-    diff -r "$T" "$W/back-tree" > "$W/tree-diff.txt" 2>&1 \
-        || faults+=("mtools reads back a DIFFERENT tree: $(head -4 "$W/tree-diff.txt" | tr '\n' ';') card: $(mdir -/ -b -i "$CARD@@$OFF" ::/JNEXTGH292 2>&1 | tr '\n' ';') extracted: $(cd "$W/back-tree" && find . | LC_ALL=C sort | tr '\n' ';')")
+    rm -rf "$W/back-tree"
+    for rel in "${tree_files[@]}"; do
+        mkdir -p "$(dirname "$W/back-tree/$rel")"
+        if ! mcopy -n -i "$CARD@@$OFF" "::/JNEXTGH292/$rel" "$W/back-tree/$rel" 2> "$W/tree-mcopy.err"; then
+            faults+=("mcopy could not read '$rel' back from the copied tree: $(tail -n1 "$W/tree-mcopy.err")")
+        elif ! cmp -s "$T/$rel" "$W/back-tree/$rel"; then
+            faults+=("mcopy read back DIFFERENT bytes from the copied tree's '$rel'")
+        fi
+    done
     # A refusal inside a tree leaves nothing behind: the FIFO is found before
     # anything is written, so the good file sorted ahead of it is not on the
     # card either.
