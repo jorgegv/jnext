@@ -9616,7 +9616,7 @@ static_assert(PiAudio::kRate == Mixer::SAMPLE_RATE,
 
 uint16_t Emulator::guest_pi_audio(bool left) const
 {
-    if (replay_mode_ || rzx_player_.is_playing() || rzx_recorder_.is_recording())
+    if (replay_mode_ || rzx_player_.is_playing())
         return 0x200;
     return left ? i2s_.pi_audio_L() : i2s_.pi_audio_R();
 }

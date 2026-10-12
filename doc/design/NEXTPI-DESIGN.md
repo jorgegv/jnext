@@ -324,10 +324,12 @@ under QEMU is one, so:
 - **Replay.** RZX playback does not consume the stream (the Pi's output belongs
   to the live session) and holds the input silent; a rewind's replay never
   advances audio at all. What the GUEST can read of the sample, NR 0x2C/0x2E
-  (`zxnext.vhd:6006-6015`), is gated the same way: during a rewind replay, an
-  RZX playback or an RZX recording it reads the rest value 0x200, because none
-  of them can reproduce a host-timed sample (`Emulator::guest_pi_audio`). A
-  restored snapshot puts the latch back at 0x200 when a Pi is attached. A live
+  (`zxnext.vhd:6006-6015`), is gated the same way: during a rewind replay or an
+  RZX playback it reads the rest value 0x200, because neither can reproduce a
+  host-timed sample (`Emulator::guest_pi_audio`). An RZX recording is not
+  gated: the recorder stores every `IN` value (`port_dispatch.cpp`), `IN 0x253B`
+  included, so the guest reads the live sample and the playback reproduces it.
+  A restored snapshot puts the latch back at 0x200 when a Pi is attached. A live
   run still reads the live sample, so a guest that polls it diverges from its
   own rewind: the same limit the UART link has, and unavoidable for input from
   outside the machine.
@@ -455,7 +457,7 @@ NextPi image is needed.
 | PI-52 | the mixer's `-audiodev` value escapes a comma in the FIFO path |
 | PI-53 | a QEMU driver setting (`none`) is passed to QEMU, and jnext makes no audio reader or FIFO |
 | PI-54 | `host` gives QEMU the platform's default output; empty still means the mixer |
-| PI-55 | NR 0x2C/0x2E read the live sample in a live run, and 0x200 in a rewind replay, an RZX playback and an RZX recording; a restored snapshot puts the latch at rest |
+| PI-55 | NR 0x2C/0x2E read the live sample in a live run and during an RZX recording, and 0x200 in a rewind replay and an RZX playback; a restored snapshot puts the latch at rest |
 | PI-56 | NR 0xA2 bit 0: port 0xFE bit 6 reads the EAR comparator, toggling with a Pi square wave; 0 with bit 0 clear and during a rewind replay |
 | PI-57 | with a tape playing a steady high level, port 0xFE bit 6 is the tape XOR the comparator |
 | PI-58 | a steady Pi EAR level relaxes to the issue-2 level 64 x 512 master cycles after its edge |
@@ -560,7 +562,7 @@ on re-open or close, or a stale one after `close()`, fails MX-39; giving up on a
 `poll()` error (a signal's EINTR) fails MX-40; not escaping the FIFO path for
 QEMU fails PI-52; ignoring a driver setting, or making the reader for one, fails
 PI-53; not mapping `host` to the platform default fails PI-06 and PI-54; reading the
-live sample during a replay, an RZX playback or an RZX recording, or keeping a
+live sample during a replay or an RZX playback, gating it during an RZX recording, or keeping a
 restored latch, fails PI-55. For NR 0xA2 bit 0: moving either threshold, or
 using one channel, fails MX-48; dropping the enable or the bit-0 gate, or not
 clearing on reset, fails MX-49; OR instead of XOR with the tape fails PI-57;
@@ -586,5 +588,10 @@ without the Pi term, or no sample at a comparator edge, fails PI-64.
   Pi is silent there. The tape-out recording does carry it (PI-64). Modelling it
   means feeding comparator edges, which are latched at mixer-sample boundaries,
   into the beeper's per-instruction levels; not done.
+- **A rewind re-run does not reproduce the Pi's audio.** Under a replay NR
+  0x2C/0x2E read the rest value and the EAR comparator does not move, so a guest
+  that polls them or loads a tape through the Pi diverges from its own rewind.
+  The UART and ESP links have the same limit: input from outside the machine is
+  host-timed. Owner decision (2026-10-12): accepted.
 - **No live start/stop** from the running GUI; Preferences changes apply at the
   next launch.

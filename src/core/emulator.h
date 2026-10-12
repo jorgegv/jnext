@@ -1865,11 +1865,13 @@ private:
     void feed_pi_audio();
 
     /// The Pi's gated 10-bit sample as the GUEST reads it (NR 0x2C/0x2E):
-    /// `I2s::pi_audio_L/R`, except while a run must be reproducible — a rewind
-    /// replay, or an RZX playback or recording — when it is the rest value
-    /// 0x200. The live sample is host-timed (it follows QEMU's clock), so
-    /// letting a replay or a recording see it would make the run diverge from
-    /// the one it reproduces; the same gate as the UART link's.
+    /// `I2s::pi_audio_L/R`, except during a rewind replay or an RZX playback,
+    /// when it is the rest value 0x200. The live sample is host-timed (it
+    /// follows QEMU's clock), so letting a replay see it would make the run
+    /// diverge from the one it reproduces; the same gate as the UART link's.
+    /// An RZX RECORDING is not gated: the recorder stores every IN value
+    /// (port_dispatch.cpp), IN 0x253B included, so the playback reproduces
+    /// the live sample the guest read.
     uint16_t guest_pi_audio(bool left) const;
 
     /// Run an I2s mutation (a latch, an NR 0xA2 write) and note the master

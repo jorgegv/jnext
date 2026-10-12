@@ -2410,7 +2410,8 @@ static void test_nextpi_audio() {
             rzx_play = read();
             emu.rzx_player().stop();
             // The recorder itself: Emulator::start_rzx_recording() refuses on
-            // a Next (GH #274), and the gate reads only is_recording().
+            // a Next (GH #274). A recording is NOT gated (R3-4): the recorder
+            // stores every IN value, so the guest reads the live sample.
             if (emu.rzx_recorder().start(rzx_path)) {
                 rzx_rec = read();
                 emu.rzx_recorder().stop();
@@ -2428,14 +2429,17 @@ static void test_nextpi_audio() {
         fs::remove(rzx_path, ec);
         auto is_rest = [](const Read& v) { return v.l == 0x80 && v.d == 0x00 && v.r == 0x80; };
         const bool live_ok = (live.l == 0xC0 || live.l == 0x40) && (live.r == 0xA0 || live.r == 0x60);
+        const bool rec_live = rzx_rec.l == live.l && rzx_rec.d == live.d && rzx_rec.r == live.r;
         check("PI-55",
-              "the guest reads the Pi's live sample on NR 0x2C/0x2E in a live run, and the rest "
-              "value 0x200 (0x80, NR 0x2D 0) in a rewind replay, an RZX playback and an RZX "
-              "recording; a restored snapshot puts the latch at rest (zxnext.vhd:6006-6015)",
-              started && live_ok && is_rest(replay) && is_rest(rzx_play) && is_rest(rzx_rec) &&
+              "the guest reads the Pi's live sample on NR 0x2C/0x2E in a live run and during an RZX "
+              "recording (the recorder stores IN values), and the rest value 0x200 (0x80, NR 0x2D 0) "
+              "in a rewind replay and an RZX playback; a restored snapshot puts the latch at rest "
+              "(zxnext.vhd:6006-6015)",
+              started && live_ok && is_rest(replay) && is_rest(rzx_play) && rec_live &&
                   rest_after_load,
               fmt("started=%d (%s) live 2C=%02X 2E=%02X; replay %02X/%02X/%02X; rzx play "
-                  "%02X/%02X/%02X; rzx rec %02X/%02X/%02X (want 80/00/80); rest after load=%d",
+                  "%02X/%02X/%02X (want 80/00/80); rzx rec %02X/%02X/%02X (want the live ones); "
+                  "rest after load=%d",
                   started ? 1 : 0, error.c_str(), live.l, live.r, replay.l, replay.d, replay.r,
                   rzx_play.l, rzx_play.d, rzx_play.r, rzx_rec.l, rzx_rec.d, rzx_rec.r,
                   rest_after_load ? 1 : 0));
