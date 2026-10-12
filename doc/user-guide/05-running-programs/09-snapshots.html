@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.39</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.40</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.39</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.40</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1621,6 +1621,17 @@
     <span class="md-ellipsis">
       
         Loading
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#loading-another-emulators-snapshot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loading another emulator's snapshot
       
     </span>
   </a>
@@ -3823,8 +3834,71 @@ dialog lists <code>.jns</code> alongside everything else.</p>
 </code></pre>
 <p>A <code>.jns</code> restores the machine <strong>type</strong> as well as its contents: one taken on a
 Next comes back as a Next even if <code>--machine</code> says otherwise. You do not have
-to remember what you saved. (A <code>.sna</code>, <code>.szx</code> or <code>.z80</code> is different: it is
-loaded onto the machine that is running, whatever machine it was made on.)</p>
+to remember what you saved. A <code>.sna</code>, <code>.szx</code> or <code>.z80</code> does the same: it runs on
+the machine it was saved on (see below), even over <code>--machine</code>.</p>
+<h2 id="loading-another-emulators-snapshot">Loading another emulator's snapshot<a class="headerlink" href="#loading-another-emulators-snapshot" title="Permanent link">&para;</a></h2>
+<p>A <code>.sna</code>, <code>.szx</code> or <code>.z80</code> says which machine it holds, and JNEXT switches to
+it, as it does for a <code>.jns</code>. The machine stays selected afterwards, so a later
+reset starts it again; <strong>Machine ▸ Machine Type</strong> shows it. With <code>--machine</code> on
+the command line, JNEXT warns that the snapshot's machine won.</p>
+<table>
+<thead>
+<tr>
+<th>The file says</th>
+<th>JNEXT runs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>.sna</code> of 49179 bytes</td>
+<td>48K</td>
+</tr>
+<tr>
+<td>any longer <code>.sna</code> (the 128K form)</td>
+<td>128K</td>
+</tr>
+<tr>
+<td><code>.szx</code> 16K, 48K, NTSC 48K</td>
+<td>48K (NTSC at 60 Hz)</td>
+</tr>
+<tr>
+<td><code>.szx</code> 128K, +2, 128Ke</td>
+<td>128K</td>
+</tr>
+<tr>
+<td><code>.szx</code> +2A, +3, +3e</td>
+<td>+3</td>
+</tr>
+<tr>
+<td><code>.szx</code> Pentagon 128</td>
+<td>Pentagon</td>
+</tr>
+<tr>
+<td><code>.z80</code> v1, hardware 48K, 16K, Interface 1, SamRam, MGT</td>
+<td>48K</td>
+</tr>
+<tr>
+<td><code>.z80</code> hardware 128K, +2, 128K with Interface 1 or MGT</td>
+<td>128K</td>
+</tr>
+<tr>
+<td><code>.z80</code> hardware +3, +2A</td>
+<td>+3</td>
+</tr>
+<tr>
+<td><code>.z80</code> hardware Pentagon 128</td>
+<td>Pentagon</td>
+</tr>
+</tbody>
+</table>
+<p>The 128K, +3 and Pentagon snapshots bring the AY registers back, and a +3 its
+ROM and paging. Anything else is refused, with the reason in the log and a
+message in the GUI, and the machine you were running is left alone (started
+with <code>--load</code>, JNEXT exits with an error): a Timex TC2048, TC2068 or TS2068, a
+Scorpion, a ZX Spectrum SE, a Didaktik Kompakt, a Pentagon 512 or 1024, a
+<code>.z80</code> of an unknown hardware mode or header length, and any snapshot taken
+with the TR-DOS, Interface 1, MGT DISCiPLE or Multiface ROM paged in — JNEXT
+emulates none of those ROMs, so the program would run against the wrong one.</p>
 <h2 id="what-travels-and-what-does-not">What travels, and what does not<a class="headerlink" href="#what-travels-and-what-does-not" title="Permanent link">&para;</a></h2>
 <p>Everything the emulated machine is: CPU, all of RAM, the MMU, every NextREG,
 the video layers and their palettes, the Copper, the audio chips mid-envelope,

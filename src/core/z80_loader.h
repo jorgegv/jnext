@@ -32,6 +32,15 @@ struct Z80Header {
     uint8_t  hardware_mode = 0;     // raw byte 34; only meaningful for v2/v3
     uint8_t  port_7ffd = 0;         // raw byte 35 (offset 0x23); only valid when is_128k
     bool     is_128k = false;
+    // v3 with a 55-byte extra header only: byte 86, the last OUT to port
+    // 0x1FFD (the +3 / +2A ROM and special paging). GH #323.
+    bool     has_port_1ffd = false;
+    uint8_t  port_1ffd = 0;
+    // v2/v3: byte 38 (the last OUT to 0xFFFD, the selected AY register) and
+    // bytes 39-54 (AY registers 0-15). Restored on 128K-class machines only.
+    bool     has_ay = false;
+    uint8_t  ay_selected = 0;
+    uint8_t  ay_regs[16] = {};
 };
 
 /// `.z80` snapshot file loader for the ZX Spectrum emulator (G34).
@@ -69,7 +78,8 @@ public:
     bool is_loaded() const { return loaded_; }
 
     /// Apply the loaded snapshot to the emulator: RAM, CPU registers,
-    /// border colour, and 128K paging (port 0x7FFD).
+    /// border colour, 128K paging (port 0x7FFD; +3 class: 0x1FFD first) and
+    /// the AY registers (128K-class machines).
     bool apply(Emulator& emu) const;
 
     /// RAM-only application, usable without an Emulator instance (unit
@@ -318,6 +328,15 @@ inline bool Z80Loader::load_from_buffer(const std::vector<uint8_t>& buf)
     // (libspectrum's Z80_MACHINE_128_V2 / Z80_MACHINE_48_MGT). Read as 48K
     // in v2 too, a v2 128K snapshot had its banks 1/2 loaded at 8000/C000.
     header_.is_128k = header_.hardware_mode >= (header_.version == 2 ? 3 : 4);
+    if (add_len >= 23) {   // bytes 38..54 are within the 23-byte v2 block (32 + 23 = 55)
+        header_.has_ay      = true;
+        header_.ay_selected = raw[38];
+        for (int i = 0; i < 16; ++i) header_.ay_regs[i] = raw[39 + i];
+    }
+    if (add_len == 55) {   // byte 86 = 32 + 54
+        header_.has_port_1ffd = true;
+        header_.port_1ffd     = raw[86];
+    }
 
     const size_t body_offset = 32 + add_len;
     if (!parse_pages(raw + body_offset, buf.size() - body_offset))

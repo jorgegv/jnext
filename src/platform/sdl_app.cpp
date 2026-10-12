@@ -219,7 +219,9 @@ bool SdlApp::init(int argc, char* argv[]) {
         return true;   // emulator_frontend_cold_boot() returns void (SES-07)
     };
     driver.load = [this](const std::string& path) {
-        return emulator_apply_load(emulator_, path, tape_realtime_);
+        // GH #323: follow an in-place machine switch (see emulator_apply_load_keeping()).
+        return emulator_apply_load_keeping(emulator_, path, tape_realtime_,
+                                           [this](MachineType t) { config_.type = t; });
     };
     debugger_->set_loop_driver(driver);
     host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
@@ -432,7 +434,8 @@ void SdlApp::run() {
         // Apply pending load when countdown reaches zero.
         if (load_countdown_ == 0) {
             // Shared format dispatch (incl. .rzx) — see platform/emulator_boot.h.
-            if (!emulator_apply_load(emulator_, load_file_, tape_realtime_)) {
+            if (!emulator_apply_load_keeping(emulator_, load_file_, tape_realtime_,
+                                             [this](MachineType t) { config_.type = t; })) {
                 Log::platform()->error("load: failed to load '{}'", load_file_);
                 exit_code_ = 1;   // a failed load exits non-zero (as headless)
             }

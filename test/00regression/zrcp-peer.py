@@ -317,6 +317,21 @@ def sc_smoke(port):
     return "welcome, enter-cpu-step, cpu-step to 8001, exit-cpu-step, quit"
 
 
+def sc_snm(port, szx):
+    """GH #323: smartload of a snapshot saved on another machine switches the
+    machine in place (the core loader behind driver.load), and a hard reset
+    afterwards boots that machine, not the one jnext started as."""
+    z = Zrcp(port)
+    check(z.reply() == WELCOME, "the welcome is not ZEsarUX's, byte for byte")
+    check(z.cmd("enter-cpu-step") == b"\n" + PROMPT_STEP, "enter-cpu-step")
+    check(z.cmd('smartload "%s"' % szx) == b"\n" + PROMPT_STEP, "smartload of the .szx")
+    check(z.cmd("hard-reset-cpu") == b"\n" + PROMPT_STEP, "hard-reset-cpu")
+    z.s.sendall(b"quit\n")
+    check(z.goodbye() == b"Sayonara baby\n", "quit did not say goodbye")
+    z.close()
+    return "smartload of a snapshot of another machine, then hard-reset-cpu"
+
+
 def put(z, addr, hexbytes):
     check(z.cmd("write-memory-raw %d %s" % (addr, hexbytes)) == b"\n" + PROMPT_STEP,
           "write-memory-raw %04x did not answer empty" % addr)
@@ -581,6 +596,7 @@ SCENARIOS = {
     "m3": sc_m3,
     "m2": sc_m2,
     "smoke": sc_smoke,
+    "snm": sc_snm,
 }
 
 
