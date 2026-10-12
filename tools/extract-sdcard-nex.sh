@@ -88,11 +88,17 @@ for src in "${NEX_FILES[@]}"; do
     rel="${src#::/}"                 # strip the mtools drive prefix
     dest_dir="$OUT_DIR/$(dirname "$rel")"
     mkdir -p "$dest_dir"
+    # GH #330: mtools 4.0.49 can name a host file it extracts into a DIRECTORY
+    # wrongly (a "_" and the tail of the previous name; macOS). A single file
+    # therefore goes to an EXPLICIT host name, which mtools uses verbatim. The
+    # --with-siblings bulk copy cannot be named, so its result is checked.
     if (( WITH_SIBLINGS )); then
         # -s recurses, so point it at the NEX's directory and take everything.
         mcopy -i "$DRIVE" -s -m -p -Q -n "::/$(dirname "$rel")" "$dest_dir/.." </dev/null 2>/dev/null
+        [[ -n "$(find "$dest_dir" -maxdepth 1 -iname "$(basename "$rel")" -print -quit)" ]] \
+            || die "mtools did not extract '$rel' under its own name (GH #330: this mtools build mis-names host files)"
     else
-        mcopy -i "$DRIVE" -m -p -Q -n "::/$rel" "$dest_dir/" </dev/null 2>/dev/null
+        mcopy -i "$DRIVE" -m -p -Q -n "::/$rel" "$OUT_DIR/$rel" </dev/null 2>/dev/null
     fi
     copied=$(( copied + 1 ))
     printf '  [%2d/%2d] %s\n' "$copied" "${#NEX_FILES[@]}" "$rel"
