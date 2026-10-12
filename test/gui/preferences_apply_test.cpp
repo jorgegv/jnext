@@ -1000,6 +1000,23 @@ void test_snapshot_load_refusal()
           loaded.size() == 1 && loaded[0] == good.toStdString(),
           loaded.empty() ? std::string("none") : loaded[0]);
 
+
+    // PA-24d: a file the TABLE accepts (.szx ID 1) that its own loader's PARSE rejects (a 3-byte SCLD
+    // chunk; libspectrum szx.c:1347-1362 wants exactly 2): refused before the cold boot too.
+    std::vector<uint8_t> bad = {'Z', 'X', 'S', 'T', 1, 4, 1, 0};
+    std::vector<uint8_t> z80r(37, 0);
+    auto chunk = [&bad](const char* id, const std::vector<uint8_t>& d) {
+        bad.insert(bad.end(), id, id + 4);
+        for (int k = 0; k < 4; ++k) bad.push_back(static_cast<uint8_t>(d.size() >> (8 * k)));
+        bad.insert(bad.end(), d.begin(), d.end());
+    };
+    chunk("Z80R", z80r);
+    chunk("SCLD", {0, 0, 0});
+    loaded.clear();
+    f.win.handle_load_path(write("badscld.szx", bad));
+    check("PA-24d", "File > Load of a .szx the table accepts but the loader cannot parse requests no cold boot",
+          loaded.empty(), loaded.empty() ? std::string("none") : loaded[0]);
+
     qunsetenv("JNEXT_CONFIG_DIR");
 }
 

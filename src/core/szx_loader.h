@@ -91,7 +91,7 @@ private:
     bool loaded_ = false;
 
     /// The 128K-class machine IDs (128K, +2, +2A, +3, +3e, Pentagon 128, 128Ke):
-    /// the ones with port 0x7FFD paging and an AY. Not 0/1/15 (16K, 48K, NTSC 48K).
+    /// the ones with port 0x7FFD paging and an AY (restates snapshot_machine.cpp: keep in step). Not 0/1/15 (16K, 48K, NTSC 48K).
     bool has_128k_paging() const { return (machine_id_ >= 2 && machine_id_ <= 7) || machine_id_ == 16; }
 
     // Chunk handlers

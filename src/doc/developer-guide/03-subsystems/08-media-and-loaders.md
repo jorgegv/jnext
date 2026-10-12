@@ -56,7 +56,7 @@ restored CPU.
 
 A `.sna`, `.szx` or `.z80` loads on the machine it was **saved** on (GH #323),
 as a `.jns` always has. There is ONE table that maps a snapshot to a machine,
-`snapshot_machine()` in `src/core/snapshot_machine.h` (header-only): a `.sna` by
+`snapshot_machine()` (declared in `src/core/snapshot_machine.h`, defined in `src/core/snapshot_machine.cpp`): a `.sna` by
 size (49179 = 48K, longer = the 128K form, which libspectrum calls a Pentagon
 but jnext's own saver writes from the 128K and +3), an `.szx` by machine ID, a
 `.z80` by version and hardware mode. Each entry cites libspectrum 1.5.0 in the

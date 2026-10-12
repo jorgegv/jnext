@@ -2493,7 +2493,7 @@ restored CPU.</p>
 <h2 id="which-machine-a-snapshot-loads-as">Which machine a snapshot loads as<a class="headerlink" href="#which-machine-a-snapshot-loads-as" title="Permanent link">&para;</a></h2>
 <p>A <code>.sna</code>, <code>.szx</code> or <code>.z80</code> loads on the machine it was <strong>saved</strong> on (GH #323),
 as a <code>.jns</code> always has. There is ONE table that maps a snapshot to a machine,
-<code>snapshot_machine()</code> in <code>src/core/snapshot_machine.h</code> (header-only): a <code>.sna</code> by
+<code>snapshot_machine()</code> (declared in <code>src/core/snapshot_machine.h</code>, defined in <code>src/core/snapshot_machine.cpp</code>): a <code>.sna</code> by
 size (49179 = 48K, longer = the 128K form, which libspectrum calls a Pentagon
 but jnext's own saver writes from the 128K and +3), an <code>.szx</code> by machine ID, a
 <code>.z80</code> by version and hardware mode. Each entry cites libspectrum 1.5.0 in the

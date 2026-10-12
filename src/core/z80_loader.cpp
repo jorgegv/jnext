@@ -65,6 +65,7 @@ bool Z80Loader::apply(Emulator& emu) const
         // The +3 class (7, 8 and 13 in v2/v3): 0x1FFD first, for the 0x7FFD
         // lock bit (bit 5) closes the 0x1FFD register once written
         // (zxnext.vhd:3718; GH #323).
+        // The +3 class here restates snapshot_machine.cpp (7, 8, 13): keep them in step.
         const uint8_t hw = header_.hardware_mode;
         if (header_.has_port_1ffd && (hw == 7 || hw == 8 || hw == 13)) {
             emu.port().out(0x1FFD, header_.port_1ffd);

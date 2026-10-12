@@ -8479,8 +8479,10 @@ bool Emulator::load_rzx(const std::string& path)
     // it differ, and then the input is played against the wrong machine.
     MachineType recorded = config_.type;
     if (!rzx::recorded_machine(rec, recorded)) {
-        Log::emulator()->info("RZX: '{}' does not say which machine it was recorded on; "
-                              "playing it on the {}", path, machine_type_str(config_.type));
+        const SnapshotMachine why = ::snapshot_machine(rec.snapshot_data, rec.snapshot_ext);
+        Log::emulator()->info("RZX: '{}' does not say which machine it was recorded on{}{}; "
+                              "playing it on the {}", path, why.why.empty() ? "" : " (",
+                              why.why.empty() ? std::string() : why.why + ")", machine_type_str(config_.type));
     } else if (recorded != config_.type) {
         Log::emulator()->warn("RZX: '{}' was recorded on the {} but plays on the {} "
                               "(--machine); it will probably go out of step",

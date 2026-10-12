@@ -537,8 +537,15 @@ int main() {
         e2->port().out(0x1FFD, 0x04);
         const bool b = e2->load_z80(write_file("p3-54.z80", f54));
         const bool b_ok = b && e2->mmu().port_1ffd() == 0x00 && e2->mmu().port_7ffd() == 0x30;
+        // A 128K (hardware 4) file with a 55-byte header and byte 86 != 0: that byte is
+        // not a +3 port 0x1FFD, so nothing may be written to it.
+        Bytes f128 = z80_bytes(55, 4); f128[86] = 0x01;
+        auto e3 = make_emu(MachineType::ZX48K);
+        const bool c = e3->load_z80(write_file("p128-55.z80", f128));
+        const bool c_ok = c && e3->config().type == MachineType::ZX128K && e3->mmu().port_1ffd() == 0x00;
         check("SNM-28", ".z80 +3, header 55: byte 86 reaches port 0x1FFD before the 0x7FFD lock; with "
-                        "header 54 there is no 1FFD in the file and it stays 0", a_ok && b_ok);
+                        "header 54 there is no 1FFD in the file and it stays 0; a 128K file's byte 86 is "
+                        "not written to 0x1FFD", a_ok && b_ok && c_ok);
     }
 
     {   // SNM-29
@@ -565,9 +572,15 @@ int main() {
         const bool bit2 = (e2->nextreg().cached(0x05) & 0x04) != 0;
         e2->run_frame(); e2->run_frame();
         const bool pal = !e2->video_timing().refresh_60hz() && e2->video_timing().vc_max() == 311;
+        // A 48K has no 0x7FFD paging: an NTSC file's SPCR 7FFD byte (here 7) must not repage 0xC000.
+        SzxOpts n7; n7.p7ffd = 0x07; n7.pages = {0, 7};
+        auto e3 = make_emu(MachineType::ZX128K);
+        const bool c = e3->load_szx(write_file("ntsc7.szx", szx_bytes(15, n7)));
+        const bool c_ok = c && e3->mmu().port_7ffd() == 0x00 && e3->mmu().read(0xC000) == 0x40 + 0;
         check("SNM-30", ".szx NTSC 48K (ID 15) is a 48K at 60 Hz: NR 0x05 bit 2 set and the frame is 448 x "
-                        "264 (zxula_timing.vhd:282-298); ID 1 is the 50 Hz 48K",
-              a && b && bit && ntsc && !bit2 && pal);
+                        "264 (zxula_timing.vhd:282-298); ID 1 is the 50 Hz 48K; a 48K file does not write "
+                        "port 0x7FFD",
+              a && b && bit && ntsc && !bit2 && pal && c_ok);
     }
 
     {   // SNM-31
@@ -603,8 +616,24 @@ int main() {
         const bool l48 = e3->load_z80(write_file("ay48.z80", z48));
         e3->port().out(0xFFFD, 7);
         const bool none = l48 && e3->port().in(0xFFFD) != regs[7];
-        check("SNM-31", "the AY registers and the selected register are restored from a 128K .z80 (bytes "
-                        "38-54) and an .szx AY chunk; a 48K .z80 restores none", z_ok && s_ok && none);
+        // A v2 (header 23) 128K .z80 carries the same AY bytes.
+        bool v2_ok = true;
+        Bytes z2 = z80_bytes(23, 4);
+        z2[38] = 7;
+        for (int r = 0; r < 16; ++r) z2[39 + r] = regs[r];
+        auto e4 = make_emu(MachineType::ZX48K);
+        v2_ok = v2_ok && e4->load_z80(write_file("ay-v2.z80", z2));
+        readback(*e4, v2_ok);
+
+        // Straddle: a 48K .szx (ID 1) with an AY chunk has no sound chip to restore.
+        SzxOpts o48; o48.ay = true; o48.ay_sel = 7; std::copy(regs, regs + 16, o48.ay_regs);
+        auto e5 = make_emu(MachineType::ZX128K);
+        const bool l48s = e5->load_szx(write_file("ay48.szx", szx_bytes(1, o48)));
+        e5->port().out(0xFFFD, 7);
+        const bool none_s = l48s && e5->port().in(0xFFFD) != regs[7];
+        check("SNM-31", "the AY registers and the selected register are restored from a 128K .z80 (v2 and "
+                        "v3, bytes 38-54) and an .szx AY chunk; a 48K .z80 and a 48K .szx restore none",
+              z_ok && s_ok && none && v2_ok && none_s);
     }
 
     {   // SNM-32
@@ -630,9 +659,18 @@ int main() {
         auto e2 = make_emu(MachineType::ZX48K);
         const bool b = e2->load_snapshot_from_memory(sna48(2), "sna", "mem");
         const uint8_t im_b = static_cast<uint8_t>((e2->nextreg().read(0xC0) >> 1) & 3);
-        check("SNM-33", "a snapshot that switches machine, and one loaded from memory (RZX), leaves NR 0xC0 "
-                        "bits 2:1 at the snapshot's IM (zxnext.vhd:6230)",
-              a && b && im_a == 2 && im_b == 2 &&
+        // The other two arms of the RZX in-memory path: .szx (Z80R chIM at file offset 44) and .z80 (byte 29).
+        Bytes sz = szx_bytes(1); sz[44] = 2;
+        Bytes z1 = z80_v1(); z1[29] = 2;
+        auto e3 = make_emu(MachineType::ZX48K);
+        const bool c = e3->load_snapshot_from_memory(sz, "szx", "mem");
+        const uint8_t im_c = static_cast<uint8_t>((e3->nextreg().read(0xC0) >> 1) & 3);
+        auto e4 = make_emu(MachineType::ZX48K);
+        const bool d = e4->load_snapshot_from_memory(z1, "z80", "mem");
+        const uint8_t im_d = static_cast<uint8_t>((e4->nextreg().read(0xC0) >> 1) & 3);
+        check("SNM-33", "a snapshot that switches machine, and one loaded from memory (RZX; .sna, .szx and "
+                        ".z80), leaves NR 0xC0 bits 2:1 at the snapshot's IM (zxnext.vhd:6230)",
+              a && b && c && d && im_a == 2 && im_b == 2 && im_c == 2 && im_d == 2 &&
               e->config().type == MachineType::ZX128K,
               "im_a=" + std::to_string(im_a) + " im_b=" + std::to_string(im_b));
     }
