@@ -1059,6 +1059,9 @@ target_link_libraries(debugger_backend_test PRIVATE
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(debugger_backend_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# SYM-14..18 (GH #352) load the committed z88dk -debug map fixtures.
+target_compile_definitions(debugger_backend_test PRIVATE
+    JNEXT_ZDEBUGMAP_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zdebugmap")
 add_test(NAME debugger_backend_tests COMMAND debugger_backend_test)
 
 # GH #219 — --persistent-breakpoints: the armed()/active() split in DebugState

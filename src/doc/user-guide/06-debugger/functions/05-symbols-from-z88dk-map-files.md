@@ -9,6 +9,9 @@ Load a symbol table with **Map ▸ Load MAP File**, which offers two formats:
   never name an address in the views below. A name the file defines twice
   takes its first definition; a name that is both an address and a constant
   is the address.
+  A map built with `zcc -debug` is accepted: its per-line markers
+  (`__C_LINE_…`, `__ASM_LINE_…`) and C debug records (`__CDBINFO__…`) are
+  not symbols and are ignored, so the function labels keep their addresses.
 - **Simple Format (48K ROM)…** — plain `NAME = $ADDR` lines, one per line,
   `;` for comments.
 

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.45</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.45</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2510,7 +2510,9 @@ bounds such as <code>__data_crt_head</code>) are kept in a separate name-only ta
 <code>@__data_crt_head</code> resolves while the disassembler and <code>lookup(addr)</code> never
 name an address after a constant (<code>SymbolTable::lookup_name()</code>). A name defined
 twice resolves to its first definition, a constant as an address; a name that
-is both is the address (row SYM-13).</p>
+is both is the address (row SYM-13).
+The <code>-debug</code> records of a map (names starting <code>__C_LINE_</code>, <code>__ASM_LINE_</code> or
+<code>__CDBINFO__</code>) are not symbols: the loader drops them (rows SYM-14 to SYM-18).</p>
 <h2 id="values-state-and-the-snapshot-stacks">Values, state and the snapshot stacks<a class="headerlink" href="#values-state-and-the-snapshot-stacks" title="Permanent link">&para;</a></h2>
 <p>Integers are 32-bit signed and wrap. Comparisons, <code>and</code>, <code>or</code> and <code>not</code> yield
 1 or 0, and <code>and</code>/<code>or</code> short-circuit.</p>

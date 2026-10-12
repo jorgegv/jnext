@@ -16,6 +16,9 @@ public:
     /// `@__data_crt_head` in a script, a ZRCP or GDB name — but `lookup()`,
     /// `symbols()` and therefore the disassembler never see them, so a value
     /// that is a size or a section bound never names an address.
+    /// The `-debug` records (names starting `__C_LINE_`, `__ASM_LINE_` or
+    /// `__CDBINFO__`) are skipped entirely: they are not symbols, and would
+    /// otherwise name the function labels' addresses (GH #352).
     /// Returns the number of "; addr" symbols loaded, or -1 on error.
     int load_z88dk_map(const std::string& path);
 
