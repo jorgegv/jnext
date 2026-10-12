@@ -961,7 +961,8 @@ static void test_section6_nr08_override(void) {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
         emu.nextreg().write(0x82, static_cast<uint8_t>(emu.nextreg().cached(0x82) | 0x01));  // GH #325: port 0xFF is off on a 48K until enabled
-        // NR 0x82 default 0xFF (bit 0 set → port_ff_io_en=1). Set NR 0x08
+        // The 48K personality starts with NR 0x82 = 0xC0; the line above sets
+        // bit 0 → port_ff_io_en=1. Set NR 0x08
         // bit 2 to enable the Timex arm, then write port 0xFF = 0x02
         // (mode 010 = HI_COLOUR; canonical so no unknown-mode warn).
         emu.nextreg().write(0x08, 0x14);            // bit 4 (default) + bit 2

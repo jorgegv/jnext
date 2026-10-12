@@ -64,9 +64,10 @@ int main(void) {
 
     /* Delay to get into active display area.
      * The HALT returns at the frame interrupt, which fires just before the
-     * frame's end (VC_ULA ~ 248).  The loop is ~4 T per iteration (measured
-     * with a jds `on io_read 0xFF` trace), so ~7500 iterations put the 32
-     * reads (59 T apart, ~8 lines in all) at VC_ULA ~ 80, well inside the
+     * frame's end (VC_ULA ~ 248).  The program runs at 28 MHz (the NEX
+     * loader sets NR 0x07 = 0x33), so the loop is ~4 ULA (3.5 MHz) T-states
+     * per iteration, measured with a jds `on io_read 0xFF` trace; so ~7500 iterations put the 32
+     * reads (59 ULA T apart, ~8 lines in all) at VC_ULA ~ 80, well inside the
      * 0..191 active display, where the ULA is fetching screen bytes. */
     for (i = 0; i < 7500; i++) {
         __asm nop __endasm;

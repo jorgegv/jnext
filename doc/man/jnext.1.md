@@ -1181,7 +1181,8 @@ banks and the 0xC000 paging register). An SNA has no byte for the +3's second
 paging register, so a +3 in *special paging*, or with ROM 2 or ROM 3 paged, is
 refused with `.szx` named as the format that can hold it. An SNA names the bank
 at 0xC000 in a field that reaches only banks 0-7, so a machine using **extended
-paging** (port 0xDFFD, which is on by default on a Next and a Pentagon and reachable on the other machines once software enables it in NextREG 0x82) is
+paging** (port 0xDFFD, which is on by default on a Next and a Pentagon and
+reachable on the other machines once software enables it in NextREG 0x82) is
 refused too, pointing at `.jns` — `.szx` has no field for that register either.
 An SNA also carries no machine identifier, so FUSE reads a 128K one as a
 Pentagon 128 — the right RAM and paging, a different timing model. On
