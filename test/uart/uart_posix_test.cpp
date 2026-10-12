@@ -2044,59 +2044,6 @@ static void test_nextpi_review2_rows() {
 // NextPi's sound into the Next's mixer (PiAudio → I2s), end to end
 // ══════════════════════════════════════════════════════════════════════
 
-namespace {
-
-/// A WAV file as QEMU's wav back-end writes it (44-byte header, s16 stereo,
-/// 44.1 kHz) holding `frames` frames of a square wave flipping every `half`
-/// frames: left +amp/-amp and right -r_amp/+r_amp. A right amplitude different
-/// from the left one lets a row tell the two channels apart.
-void write_tone(const std::string& path, int frames, int16_t amp, int half, int16_t r_amp) {
-    std::ofstream f(path, std::ios::binary);
-    auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) f.put(static_cast<char>(v >> (8 * i))); };
-    auto u16 = [&](uint16_t v) { f.put(static_cast<char>(v)); f.put(static_cast<char>(v >> 8)); };
-    f.write("RIFF", 4); u32(0); f.write("WAVEfmt ", 8); u32(16); u16(1); u16(2);
-    u32(44100); u32(44100 * 4); u16(4); u16(16); f.write("data", 4); u32(0);
-    for (int i = 0; i < frames; ++i) {
-        const bool low = (i / half) % 2;
-        u16(static_cast<uint16_t>(low ? static_cast<int16_t>(-amp) : amp));
-        u16(static_cast<uint16_t>(low ? r_amp : static_cast<int16_t>(-r_amp)));
-    }
-}
-
-/// The mixer's output over some frames: how many samples, and each channel's
-/// lowest and highest value.
-struct MixerLevels {
-    int n = 0;
-    int lo_l = 32767, hi_l = -32768, lo_r = 32767, hi_r = -32768;
-};
-
-/// Run `frames` frames with NR 0xA2 held at `a2` and return the levels of the
-/// mixer's output over them.
-MixerLevels mixer_levels(Emulator& emu, uint8_t a2, int frames) {
-    MixerLevels m;
-    std::vector<int16_t> buf(2 * 4096);
-    for (int f = 0; f < frames; ++f) {
-        emu.nextreg().write(0xA2, a2);
-        emu.run_frame();
-        int n;
-        while ((n = emu.mixer().read_samples(buf.data(), 4096)) > 0) {
-            m.n += n;
-            for (int i = 0; i < n; ++i) {
-                m.lo_l = std::min<int>(m.lo_l, buf[2 * i]);     m.hi_l = std::max<int>(m.hi_l, buf[2 * i]);
-                m.lo_r = std::min<int>(m.lo_r, buf[2 * i + 1]); m.hi_r = std::max<int>(m.hi_r, buf[2 * i + 1]);
-            }
-        }
-    }
-    return m;
-}
-
-/// The left and right peak-to-peak of the mixer's output (see mixer_levels).
-std::pair<int, int> mixer_swing(Emulator& emu, uint8_t a2, int frames) {
-    const MixerLevels m = mixer_levels(emu, a2, frames);
-    return {m.hi_l - m.lo_l, m.hi_r - m.lo_r};
-}
-
-} // namespace
 
 static void test_nextpi_audio() {
     set_group("PI");
