@@ -309,7 +309,9 @@ UART 1, the Pi GPIO header's UART. Three pieces:
 
 * **`audio/pi_audio.{h,cpp}`** carries the Pi's sound into the mixer, the way
   a real Next takes it over I2S. QEMU's `wav` audio back-end writes 44.1 kHz s16
-  stereo into a FIFO; `PiAudio`'s reader thread drains it into a lock-free ring
+  stereo into a FIFO (on Windows a named pipe `\\.\pipe\jnext-pi-<pid>-<n>.audio`
+  that `pi_audio_win.cpp` serves, created before QEMU is spawned because QEMU
+  `fopen`s the path at startup); `PiAudio`'s reader thread drains it into a lock-free ring
   (so QEMU never blocks), and `Emulator::feed_pi_audio` pops one frame at each
   mixer output sample into `I2s`, whose NR 0xA2 gating and mixer sum already
   modelled the hardware. The ring prebuffers 50 ms, plays silence on an

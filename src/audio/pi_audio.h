@@ -32,7 +32,10 @@
 /// pop flushes it and playback restarts on fresh audio.
 ///
 /// Single producer (the thread), single consumer (the emulator thread).
-/// POSIX only, like the rest of NextPi.
+///
+/// The pipe is a FIFO on POSIX and a named pipe jnext serves on Windows
+/// (pi_audio_win.cpp: QEMU's wav back-end opens the path with fopen("wb"), and
+/// the pipe must exist before QEMU starts). The stream parser is shared.
 class PiAudio {
 public:
     static constexpr int      kRate        = 44100;      ///< what QEMU is asked for, and Mixer::SAMPLE_RATE
@@ -49,6 +52,8 @@ public:
 
     /// Create (if missing) and open the FIFO for reading — non-blocking, so it
     /// succeeds before QEMU, the writer, exists — and start the reader thread.
+    /// On Windows `fifo_path` is a pipe name (`\\.\pipe\...`) and the pipe is
+    /// created here, as a server that waits for the writer.
     bool open(const std::string& fifo_path, std::string& error);
 
     /// Stop the thread and close the FIFO. Idempotent; the destructor calls it.
@@ -68,7 +73,8 @@ public:
     /// Reads that found no writer (QEMU not started yet, or gone). Each came
     /// after a poll() that either timed out (20 ms) or, on Linux for a gone
     /// writer, returned at once and was followed by a 20 ms pause, so this
-    /// grows by at most ~50 a second (every pass blocks at least 20 ms).
+    /// grows by at most ~50 a second (every pass blocks at least 20 ms). On Windows it
+    /// counts writers that left (the reader waits, it does not poll).
     uint64_t eof_reads()       const { return eof_reads_.load(); }
     /// The 20 ms pauses taken after a no-writer read whose poll() had returned
     /// at once (Linux POLLHUP; without it the reader would spin a core). Zero
@@ -77,16 +83,30 @@ public:
     /// Reads that found a writer but no data (EAGAIN): the reader's wakeups
     /// while a connected writer is silent, one per 100 ms poll timeout.
     /// Exposed so a row can pin that it does not keep the shorter no-writer
-    /// timeout once a writer is there.
+    /// timeout once a writer is there. On Windows: the reader's wakeups (returns of its
+    /// one wait, which has no timeout), so a poll added to it shows here.
     uint64_t idle_reads()      const { return idle_reads_.load(); }
     /// Frames buffered and not yet popped.
     uint32_t available() const { return head_.load() - tail_.load(); }
 
 private:
+    static constexpr std::size_t kHeader = 44;   ///< QEMU's WAV header
+
+    /// Where a stream is: header bytes still to skip, and a partial frame.
+    struct Stream {
+        std::size_t          header_left = kHeader;
+        std::vector<uint8_t> carry;
+    };
+
     void run();
+    void consume(const uint8_t* data, std::size_t got, Stream& st);   ///< bytes read -> frames
+    void writer_gone(Stream& st);                                     ///< the next stream starts afresh
     void push(int16_t left, int16_t right);
 
-    int                     fd_ = -1;
+    int                     fd_ = -1;            ///< POSIX: the FIFO
+    void*                   pipe_ = nullptr;     ///< Windows: the named pipe server (HANDLE)
+    void*                   stop_event_ = nullptr;   ///< Windows: close() signals the reader
+    void*                   io_event_ = nullptr;     ///< Windows: the overlapped I/O's event
     std::thread             thread_;
     std::atomic<bool>       stop_{false};
     std::vector<int16_t>    ring_ = std::vector<int16_t>(2 * kCapacity);

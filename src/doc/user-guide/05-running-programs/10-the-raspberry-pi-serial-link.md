@@ -17,8 +17,7 @@ You need **QEMU** installed — on macOS `brew install qemu`; on Fedora
 `sudo apt install qemu-system-arm qemu-utils`; on Windows install QEMU for
 Windows and either add its folder to your `PATH` or set the QEMU binary under
 **Settings ▸ Preferences ▸ NextPi**. On Windows the Pi is reached over a local
-(loopback) socket, which may raise a firewall prompt the first time; with the Pi audio setting empty, the Pi's
-sound plays on your speakers (QEMU's `dsound`). Then either tick **Start
+(loopback) socket, which may raise a firewall prompt the first time. Then either tick **Start
 NextPi** under **Settings ▸ Preferences ▸ NextPi** and restart JNEXT, or start
 it for one run with:
 
@@ -48,10 +47,6 @@ Next's input. With bit 0 of NextREG `0xA2` set, the Pi's sound goes to the EAR
 input instead, the tape signal port `0xFE` bit 6 reads, which is how a Next loads
 a tape the Pi plays to it.
 
-On Windows the sound does not go through the mixer yet: with the Pi audio
-setting empty it plays on your speakers, so NextREG `0xA2` does not control it
-and recordings do not include it.
-
 QEMU runs in the background for as long as JNEXT does, and stops with it. A
 soft or hard reset of the Next leaves the Pi running, as it would on the real
 machine. `--no-nextpi` leaves the Pi off for one run even when the preference
@@ -67,7 +62,7 @@ the Preferences tab means that default:
 | NextPi directory | `~/.jnext/nextpi` | where the download goes and NextPi runs from |
 | NextPi release | `1_93D` | a release name on the NextPi mirror, or `latest` for the newest one there |
 | QEMU | `qemu-system-arm` on your `PATH` | the QEMU to run; `qemu-img` is expected beside it |
-| Pi audio | the Next's mixer (on Windows: your computer's default output, until the mixer path arrives there) | or `host` to play it on your computer's default output (`pa` on Linux, `coreaudio` on macOS, `dsound` on Windows), a QEMU audio driver to play it straight to your computer, `none` to mute it, or `wav:FILE` to record it on its own |
+| Pi audio | the Next's mixer | or `host` to play it on your computer's default output (`pa` on Linux, `coreaudio` on macOS, `dsound` on Windows), a QEMU audio driver to play it straight to your computer, `none` to mute it, or `wav:FILE` to record it on its own |
 
 Changes take effect the next time JNEXT starts. Changing the release makes the
 next start offer to download that one in place of the installed one. With
@@ -96,4 +91,3 @@ joystick port ([5.7](07-the-joystick-port-serial-cable.md)).
 - It is not saved in snapshots. Rewinding and RZX playback do not resend
   anything to the Pi, and the Pi is not rewound either.
 - Only the serial link and the sound cross over, not the Pi's other GPIO pins.
-  On Windows the sound goes to your speakers, not into the Next's mixer.

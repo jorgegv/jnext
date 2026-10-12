@@ -7,6 +7,11 @@
 // POSIX can select too (PiQemu::Spec::transport), so Linux and macOS exercise the
 // same code path the Windows build ships.
 //
+// Since GH #331 it also holds the rows of the provisioner, the archive reader and the
+// pure policy functions (moved from uart_posix_test, unchanged) and the Pi's audio:
+// the stand-in opens the `-audiodev wav` path as QEMU does, and PiAudio serves a FIFO
+// (POSIX) or a named pipe (Windows) that this process's own fopen("wb") writes.
+//
 // The QEMU stand-in is a program (nextpi_qemu_stub.cpp), copied as
 // `qemu-system-arm[.exe]` and `qemu-img[.exe]`, because the Windows launcher uses
 // CreateProcess. It plays the Pi on QEMU's `socket` chardev: listens on the port
@@ -23,12 +28,14 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/nextpi_provisioner.h"
+#include "audio/pi_audio.h"
 #include "core/pi_qemu.h"
 #include "esp01/esp_socket.h"
 #include "esp01/esp_socket_platform.h"
 #include "peripheral/joy_uart_link.h"
 #include "peripheral/pi_uart_device.h"
 
+#include "nextpi_fixtures.h"
 #include "nextpi_support.h"
 
 #include <algorithm>
@@ -41,6 +48,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <set>
 #include <string>
@@ -49,6 +57,8 @@
 #include <vector>
 
 #ifndef _WIN32
+#include <climits>
+#include <csignal>
 #include <sys/wait.h>
 #endif
 
@@ -345,6 +355,804 @@ int holder_main(int argc, char** argv) {
 
 } // namespace
 
+static void test_nextpi_provisioner() {
+    namespace fs = std::filesystem;
+    const std::vector<uint8_t> disk_a = fake_nextpi_disk("kernel image a", "device tree a");
+    const std::vector<uint8_t> disk_b = fake_nextpi_disk("kernel image b", "device tree b");
+
+    // ── PI-10 — releases: the mirror listing yields each NextPi-<name>.tar.gz
+    // once (not its .md5), and names compare as `sort -V` does, so "latest"
+    // picks 1_100 over 1_93D and 1_93D over 1_93C.
+    {
+        const std::vector<std::string> names = nextpi::parse_release_listing(
+            "<a href=\"NextPi-1_93C.tar.gz\">x</a> <a href=\"NextPi-1_93C.tar.gz.md5\">m</a>"
+            "<a href=\"NextPi-1_93D.tar.gz\">NextPi-1_93D.tar.gz</a> <a href=\"NextPi-1_100.tar.gz\">");
+        const bool listing = names == std::vector<std::string>({"1_93C", "1_93D", "1_100"});
+        const bool order = nextpi::compare_release("1_100", "1_93D") > 0
+                        && nextpi::compare_release("1_93D", "1_93C") > 0
+                        && nextpi::compare_release("1_93D", "1_93D") == 0
+                        && nextpi::compare_release("1_9", "1_10") < 0;
+        std::string joined;
+        for (const std::string& n : names) joined += n + " ";
+        check("PI-10",
+              "NextPi's release list is read from the mirror's NextPi-<name>.tar.gz "
+              "links, once each, and release names order numerically (1_100 after 1_93D)",
+              listing && order, fmt("listed [%s] order=%d", joined.c_str(), order ? 1 : 0));
+    }
+
+    // ── PI-11 — the tar stream: the image entry is found by suffix through a pax
+    // path record, its size read from a GNU base-256 field, and written out
+    // byte for byte; an archive without such an entry is an error.
+    {
+        FakeMirror mirror("tar");
+        const fs::path archive = mirror.dir / "a.tar.gz";
+        const fs::path out = mirror.dir / "out.img";
+        std::string err, err_missing;
+        const bool wrote = write_fake_release(archive.string(), "T", disk_a);
+        const bool ok = wrote && nextpi::extract_tar_gz_entry(archive.string(), ".img", out.string(), {}, err);
+        const bool same = ok && slurp(out) == std::string(disk_a.begin(), disk_a.end());
+        const bool missing = !nextpi::extract_tar_gz_entry(archive.string(), ".iso", out.string(), {}, err_missing)
+                           && err_missing.find(".iso") != std::string::npos;
+        check("PI-11",
+              "the NextPi archive reader finds the image through a pax path record, "
+              "reads its GNU base-256 size, and writes it byte for byte; a missing "
+              "entry is an error",
+              ok && same && missing,
+              fmt("ok=%d (%s) same=%d missing='%s'", ok ? 1 : 0, err.c_str(), same ? 1 : 0,
+                  err_missing.c_str()));
+    }
+
+    // ── PI-12 — FIRST USE: asked once, the checksum and archive fetched, the
+    // image and both boot files installed, the release recorded, the archive
+    // deleted. The next run finds it ready: no question, no network.
+    {
+        FakeMirror mirror("first");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "nextpi";
+        int confirms = 0;
+        const nextpi::ProvisionResult r1 = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
+        const bool installed = r1.status == sdcard::ProvisionStatus::Ok && r1.release == "1_93D"
+            && slurp(dir / "nextpi.img") == std::string(disk_a.begin(), disk_a.end())
+            && slurp(dir / "boot" / "kernel.img") == "kernel image a"
+            && slurp(dir / "boot" / "bcm2708-rpi-zero.dtb") == "device tree a"
+            && nextpi::prepared_release(dir.string()) == "1_93D"
+            && !fs::exists(dir / "NextPi-1_93D.tar.gz");
+        const std::size_t fetched_first = mirror.fetched.size();
+        const nextpi::ProvisionResult r2 = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
+        const bool second_quiet = r2.status == sdcard::ProvisionStatus::Ok && confirms == 1
+                                && mirror.fetched.size() == fetched_first;
+        check("PI-12",
+              "first use of NextPi asks once, downloads the default release with "
+              "its MD5, installs the image and the two boot files from its FAT32 "
+              "partition and deletes the archive; the next run asks nothing and "
+              "fetches nothing",
+              fixture && installed && fetched_first == 2 && second_quiet,
+              fmt("fixture=%d installed=%d (%s) fetched=%zu (want 2) second_quiet=%d confirms=%d",
+                  fixture ? 1 : 0, installed ? 1 : 0, r1.error.c_str(), fetched_first,
+                  second_quiet ? 1 : 0, confirms));
+    }
+
+    // ── PI-13 — the refusals: declining downloads nothing and installs nothing;
+    // an archive whose MD5 does not match is deleted and nothing is installed.
+    {
+        FakeMirror mirror("refuse");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir_no = mirror.dir / "declined";
+        int confirms = 0;
+        const nextpi::ProvisionResult declined =
+            nextpi::provision(nextpi_options(mirror, dir_no.string(), "", confirms, false));
+        const bool declined_ok = declined.status == sdcard::ProvisionStatus::Declined
+                               && mirror.fetched.empty() && nextpi::prepared_release(dir_no.string()).empty();
+
+        std::ofstream(mirror.dir / "NextPi-1_93D.tar.gz.md5") << "00000000000000000000000000000000\n";
+        const fs::path dir_bad = mirror.dir / "corrupt";
+        const nextpi::ProvisionResult corrupt =
+            nextpi::provision(nextpi_options(mirror, dir_bad.string(), "", confirms));
+        const bool corrupt_ok = corrupt.status == sdcard::ProvisionStatus::Failed
+                              && corrupt.error.find("MD5") != std::string::npos
+                              && !fs::exists(dir_bad / "NextPi-1_93D.tar.gz")
+                              && nextpi::prepared_release(dir_bad.string()).empty();
+        check("PI-13",
+              "declining the NextPi download fetches and installs nothing; a download "
+              "whose MD5 does not match is deleted and nothing is installed",
+              fixture && declined_ok && corrupt_ok,
+              fmt("fixture=%d declined=%d corrupt=%d ('%s')", fixture ? 1 : 0,
+                  declined_ok ? 1 : 0, corrupt_ok ? 1 : 0, corrupt.error.c_str()));
+    }
+
+    // ── PI-14 — CHANGING RELEASE, and "latest". A directory holding another
+    // release is replaced after asking, and its overlay (made over the old
+    // image) discarded. "latest" picks the newest listed release; with the
+    // mirror unreachable it keeps the installed one, with a warning, asking
+    // nothing.
+    {
+        FakeMirror mirror("change");
+        const bool fixture = mirror.add_release("1_93D", disk_a) && mirror.add_release("1_100", disk_b);
+        const fs::path dir = mirror.dir / "nextpi";
+        int confirms = 0;
+        const nextpi::ProvisionResult r1 = nextpi::provision(nextpi_options(mirror, dir.string(), "1_93D", confirms));
+        std::ofstream(dir / "overlay.qcow2") << "old overlay";
+        const nextpi::ProvisionResult r2 = nextpi::provision(nextpi_options(mirror, dir.string(), "latest", confirms));
+        const bool upgraded = r1.status == sdcard::ProvisionStatus::Ok
+            && r2.status == sdcard::ProvisionStatus::Ok && r2.release == "1_100" && confirms == 2
+            && slurp(dir / "boot" / "kernel.img") == "kernel image b" && !fs::exists(dir / "overlay.qcow2");
+        mirror.offline = true;
+        const nextpi::ProvisionResult r3 = nextpi::provision(nextpi_options(mirror, dir.string(), "latest", confirms));
+        const bool offline_kept = r3.status == sdcard::ProvisionStatus::Ok && r3.release == "1_100"
+                                && !r3.warning.empty() && confirms == 2;
+        check("PI-14",
+              "the NextPi provisioner replaces a directory holding another release after asking, "
+              "discarding its overlay; \"latest\" installs the newest listed release, and "
+              "with the mirror unreachable keeps the installed one with a warning",
+              fixture && upgraded && offline_kept,
+              fmt("fixture=%d upgraded=%d (%s / %s, confirms=%d) offline_kept=%d ('%s')",
+                  fixture ? 1 : 0, upgraded ? 1 : 0, r1.error.c_str(), r2.release.c_str(),
+                  confirms, offline_kept ? 1 : 0, r3.warning.c_str()));
+    }
+}
+
+static void test_nextpi_review_rows() {
+    namespace fs = std::filesystem;
+
+    // ── PI-16 — the warm-start recording machine (Emulator::warm_start_boot_config)
+    // must not open the NextPi FIFOs: a second reader would steal the Pi's bytes.
+    {
+        EmulatorConfig live;
+        live.type            = MachineType::ZXN_ISSUE2;
+        live.sd_card_image   = "card.img";
+        live.pi_uart_fifo_rx = "/tmp/x/uart.out";
+        live.pi_uart_fifo_tx = "/tmp/x/uart.in";
+        const EmulatorConfig b = Emulator::warm_start_boot_config(live);
+        check("PI-16",
+              "the warm-start recording boot gets no NextPi link (both FIFO paths cleared); the "
+              "machine itself is kept",
+              b.pi_uart_fifo_rx.empty() && b.pi_uart_fifo_tx.empty() && b.sd_card_image == "card.img",
+              fmt("rx='%s' tx='%s'", b.pi_uart_fifo_rx.c_str(), b.pi_uart_fifo_tx.c_str()));
+    }
+
+    // ── PI-21 — the free-space check: with less free space than unpacking needs,
+    // the download is refused before anything is fetched.
+    {
+        FakeMirror mirror("space");
+        const bool fixture = mirror.add_release("1_93D", fake_nextpi_disk("k", "d"));
+        int confirms = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, (mirror.dir / "np").string(), "", confirms);
+        o.space_needed = std::numeric_limits<uint64_t>::max();
+        const nextpi::ProvisionResult r = nextpi::provision(o);
+        check("PI-21",
+              "NextPi is not downloaded when the directory lacks the free space unpacking needs: "
+              "refused with the amounts, nothing fetched",
+              fixture && r.status == sdcard::ProvisionStatus::Failed &&
+                  r.error.find("free") != std::string::npos && mirror.fetched.empty(),
+              fmt("status=%d error='%s' fetched=%zu", static_cast<int>(r.status), r.error.c_str(),
+                  mirror.fetched.size()));
+    }
+
+    // ── PI-22 — long names: a GNU 'L' record, and a POSIX ustar prefix, each
+    // supply the directory part a suffix match needs (neither short name has it).
+    {
+        FakeMirror mirror("names");
+        const std::string data = "image bytes";
+        std::string gnu = tar_entry("././@LongLink", "NextPi-T/very/deep/name.img", 'L');
+        gnu += tar_entry("short-name", data);
+        std::string ustar_hdr = tar_header("x.img", data.size(), '0');
+        std::memcpy(&ustar_hdr[257], "ustar\0" "00", 8);           // POSIX, not GNU
+        std::memcpy(&ustar_hdr[345], "NextPi-T/dir", 12);         // the prefix field
+        std::memset(&ustar_hdr[148], ' ', 8);
+        unsigned sum = 0;
+        for (unsigned char c : ustar_hdr) sum += c;
+        std::snprintf(&ustar_hdr[148], 8, "%06o", sum);
+        std::string ustar = ustar_hdr + data;
+        ustar.resize((ustar.size() + 511) / 512 * 512, '\0');
+        const fs::path a_gnu = mirror.dir / "gnu.tar.gz", a_ustar = mirror.dir / "ustar.tar.gz";
+        const fs::path out = mirror.dir / "out";
+        std::string e1, e2;
+        const bool ok_gnu = write_tar_gz(a_gnu.string(), gnu) &&
+            nextpi::extract_tar_gz_entry(a_gnu.string(), "deep/name.img", out.string(), {}, e1) &&
+            slurp(out) == data;
+        const bool ok_ustar = write_tar_gz(a_ustar.string(), ustar) &&
+            nextpi::extract_tar_gz_entry(a_ustar.string(), "dir/x.img", out.string(), {}, e2) &&
+            slurp(out) == data;
+        check("PI-22",
+              "the NextPi archive reader takes an entry's full name from a GNU long-name record "
+              "and from a POSIX ustar prefix",
+              ok_gnu && ok_ustar, fmt("gnu=%d (%s) ustar=%d (%s)", ok_gnu ? 1 : 0, e1.c_str(),
+                                      ok_ustar ? 1 : 0, e2.c_str()));
+    }
+
+    // ── PI-23 — A MALFORMED ARCHIVE IS AN ERROR, NOT A CRASH. Each bound has
+    // its own case, and each case must fail with THAT bound's message: a
+    // long-name record claiming ~2^64 bytes and an entry of 2^40+1 hit the
+    // entry-size bound, an `x` header of 2^40 the metadata bound, and a pax
+    // `size=` record of 2^40+1 the pax size bound. No exception escapes. (The
+    // fixture's tag must not contain any of the words searched for: it is in
+    // every archive path, so in every message.)
+    {
+        FakeMirror mirror("bounds");
+        const fs::path out = mirror.dir / "out";
+        auto try_one = [&](const char* name, const std::string& body, const char* want,
+                           std::string& why) {
+            const fs::path a = mirror.dir / name;
+            if (!write_tar_gz(a.string(), body)) { why = "fixture"; return false; }
+            try {
+                return !nextpi::extract_tar_gz_entry(a.string(), ".img", out.string(), {}, why) &&
+                       why.find(want) != std::string::npos;
+            } catch (const std::exception& ex) {
+                why = std::string("threw ") + ex.what();
+                return false;
+            }
+        };
+        std::string huge_l = tar_header("././@LongLink", 0, 'L');
+        huge_l[124] = static_cast<char>(0x80);
+        for (int i = 125; i < 136; ++i) huge_l[i] = static_cast<char>(0xFF);
+        huge_l[135] = static_cast<char>(0x00);
+        std::string big_x = tar_header("PaxHeaders/x", 1ull << 40, 'x', true);
+        std::string big_file = tar_header("big.img", (1ull << 40) + 1, '0', true);
+        std::string pax_size = tar_entry("PaxHeaders/big.img", pax_record("size", "1099511627777"), 'x') +
+                               tar_entry("big.img", "");
+        std::string w1, w2, w3, w4;
+        const bool l_ok = try_one("l.tar.gz", huge_l, "an entry claims", w1);
+        const bool x_ok = try_one("x.tar.gz", big_x, "name/metadata record", w2);
+        const bool f_ok = try_one("f.tar.gz", big_file, "an entry claims", w3);
+        const bool p_ok = try_one("p.tar.gz", pax_size, "a pax size of", w4);
+        check("PI-23",
+              "a NextPi archive with an absurd long-name, pax header, entry or pax size= record "
+              "fails with that bound's \"malformed\" message instead of throwing (no crash after a "
+              "6 GB download)",
+              l_ok && x_ok && f_ok && p_ok,
+              fmt("L: %d (%s) x: %d (%s) entry: %d (%s) pax size: %d (%s)", l_ok ? 1 : 0, w1.c_str(),
+                  x_ok ? 1 : 0, w2.c_str(), f_ok ? 1 : 0, w3.c_str(), p_ok ? 1 : 0, w4.c_str()));
+    }
+
+    // ── PI-24 — a FAILED UPGRADE KEEPS THE OLD RELEASE. 1_93D is installed;
+    // "latest" finds 1_100 whose archive (with a valid MD5) has no image: the
+    // upgrade fails, and 1_93D is still prepared, marker and files intact.
+    {
+        FakeMirror mirror("keep");
+        const bool fixture = mirror.add_release("1_93D", fake_nextpi_disk("kernel old", "dtb old"));
+        const fs::path broken = mirror.dir / "NextPi-1_100.tar.gz";
+        const bool broken_ok = write_tar_gz(broken.string(), tar_entry("NextPi-1_100/readme.txt", "no image"));
+        std::ofstream(broken.string() + ".md5") << nextpi::md5_file(broken.string()) << "\n";
+        mirror.listing += "<a href=\"NextPi-1_100.tar.gz\">x</a>\n";
+        const fs::path dir = mirror.dir / "np";
+        int confirms = 0;
+        const nextpi::ProvisionResult r1 = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
+        const nextpi::ProvisionResult r2 = nextpi::provision(nextpi_options(mirror, dir.string(), "latest", confirms));
+        const bool kept = r1.status == sdcard::ProvisionStatus::Ok && r2.status == sdcard::ProvisionStatus::Failed &&
+                          nextpi::prepared_release(dir.string()) == "1_93D" &&
+                          slurp(dir / "boot" / "kernel.img") == "kernel old" &&
+                          !fs::exists(dir / "nextpi.img.part") && !fs::exists(dir / "boot.part");
+        check("PI-24",
+              "a NextPi upgrade that fails while unpacking leaves the installed release prepared "
+              "and intact, with no partial files",
+              fixture && broken_ok && kept,
+              fmt("fixture=%d r1=%d r2=%d ('%s') prepared='%s'", fixture && broken_ok ? 1 : 0,
+                  static_cast<int>(r1.status), static_cast<int>(r2.status), r2.error.c_str(),
+                  nextpi::prepared_release(dir.string()).c_str()));
+    }
+
+    // ── PI-25 — the release name from Preferences goes into a file name and a
+    // URL, so anything but a mirror-style name is refused before either.
+    {
+        FakeMirror mirror("names-check");
+        int confirms = 0;
+        bool all_refused = true;
+        std::string detail;
+        for (const char* bad : {"../escape", "a/b", "a b", ".hidden", "x?y=1"}) {
+            const nextpi::ProvisionResult r =
+                nextpi::provision(nextpi_options(mirror, (mirror.dir / "np").string(), bad, confirms));
+            if (r.status != sdcard::ProvisionStatus::Failed || r.error.find("release name") == std::string::npos)
+                all_refused = false;
+            detail += std::string(bad) + "->" + std::to_string(static_cast<int>(r.status)) + " ";
+        }
+        const bool good = nextpi::valid_release_name("1_93D") && nextpi::valid_release_name("2.0-beta");
+        check("PI-25",
+              "a NextPi release name with a path separator, space, leading dot or URL syntax is "
+              "refused before anything is asked or fetched; real names pass",
+              all_refused && good && confirms == 0 && mirror.fetched.empty(),
+              fmt("%sconfirms=%d fetched=%zu good=%d", detail.c_str(), confirms, mirror.fetched.size(),
+                  good ? 1 : 0));
+    }
+
+    // ── PI-27 — THE START POLICY (main.cpp, through nextpi::start_outcome):
+    // running is running; declining starts jnext without NextPi either way; a
+    // failure is an error only when --nextpi asked for it, and from Preferences
+    // a warning that lets jnext start.
+    {
+        using nextpi::StartOutcome;
+        const auto Ok = sdcard::ProvisionStatus::Ok, No = sdcard::ProvisionStatus::Declined,
+                   Bad = sdcard::ProvisionStatus::Failed;
+        const bool table =
+            nextpi::start_outcome(true, Ok, true) == StartOutcome::Started &&
+            nextpi::start_outcome(false, Ok, true) == StartOutcome::Started &&
+            nextpi::start_outcome(true, No, false) == StartOutcome::Declined &&
+            nextpi::start_outcome(false, No, false) == StartOutcome::Declined &&
+            nextpi::start_outcome(true, Bad, false) == StartOutcome::Exit &&
+            nextpi::start_outcome(true, Ok, false) == StartOutcome::Exit &&
+            nextpi::start_outcome(false, Bad, false) == StartOutcome::WarnAndContinue &&
+            nextpi::start_outcome(false, Ok, false) == StartOutcome::WarnAndContinue;
+        check("PI-27",
+              "NextPi's start policy: a failure exits only when --nextpi asked for it (from "
+              "Preferences it warns and continues); declining continues either way",
+              table, "");
+    }
+}
+
+static void test_nextpi_review2_rows() {
+    namespace fs = std::filesystem;
+
+    // ── PI-28 — THE INSTALL IS CRASH-SAFE (R2-3). The `release` marker is what
+    // makes a directory "prepared", so it is removed BEFORE anything is
+    // replaced and written LAST, through release.part and a rename. Two
+    // installs are made to fail part-way, with obstacles that stop root too:
+    //   a. the image cannot be put in place (a directory holds its name): the
+    //      old marker must already be gone;
+    //   b. the marker cannot be written (a directory holds release.part): the
+    //      new release is in place, but the directory must not claim it.
+    // Either way the next start re-provisions instead of booting a mixture.
+    {
+        FakeMirror mirror("swap");
+        const bool fixture = mirror.add_release("1_93D", fake_nextpi_disk("k", "d"));
+        int confirms = 0;
+
+        const fs::path dir_a = mirror.dir / "a";
+        std::error_code ec;
+        fs::create_directories(dir_a / "nextpi.img" / "in-the-way", ec);
+        std::ofstream(dir_a / "release") << "1_92\n";
+        const nextpi::ProvisionResult ra = nextpi::provision(nextpi_options(mirror, dir_a.string(), "", confirms));
+        const bool a_ok = ra.status == sdcard::ProvisionStatus::Failed &&
+                          ra.error.find("cannot install") != std::string::npos &&
+                          !fs::exists(dir_a / "release");
+
+        const fs::path dir_b = mirror.dir / "b";
+        fs::create_directories(dir_b / "release.part" / "in-the-way", ec);
+        const nextpi::ProvisionResult rb = nextpi::provision(nextpi_options(mirror, dir_b.string(), "", confirms));
+        const bool b_ok = rb.status == sdcard::ProvisionStatus::Failed &&
+                          fs::is_regular_file(dir_b / "nextpi.img") && !fs::exists(dir_b / "release") &&
+                          nextpi::prepared_release(dir_b.string()).empty();
+        check("PI-28",
+              "a NextPi install that fails part-way leaves no release marker: it is removed before "
+              "the image is replaced and written last through release.part, so the directory is "
+              "never taken as prepared",
+              fixture && a_ok && b_ok,
+              fmt("fixture=%d a=%d ('%s', marker %s) b=%d ('%s', marker %s)", fixture ? 1 : 0,
+                  a_ok ? 1 : 0, ra.error.c_str(), fs::exists(dir_a / "release") ? "kept" : "gone",
+                  b_ok ? 1 : 0, rb.error.c_str(), fs::exists(dir_b / "release") ? "written" : "absent"));
+    }
+
+    // ── PI-29 — NAMES FROM THE MIRROR ARE CHECKED (R2-4). For "latest" the
+    // release name comes from the mirror's listing, not from the user, and the
+    // listing is the only place it is checked: a leading dot or dash, or more
+    // than 64 characters, is not a release. The 65-digit name would win
+    // "latest" numerically, so the provisioner must never fetch it.
+    {
+        const std::string long_name(65, '9');
+        const std::string html = "<a href=\"NextPi-.hidden.tar.gz\">x</a> <a href=\"NextPi--rf.tar.gz\">x</a> "
+                                 "<a href=\"NextPi-" + long_name + ".tar.gz\">x</a> "
+                                 "<a href=\"NextPi-1_93D.tar.gz\">x</a>";
+        const std::vector<std::string> names = nextpi::parse_release_listing(html);
+        const bool listed_ok = names == std::vector<std::string>({"1_93D"});
+
+        FakeMirror mirror("listing");
+        const bool fixture = mirror.add_release("1_93D", fake_nextpi_disk("k", "d"));
+        mirror.listing += "<a href=\"NextPi-" + long_name + ".tar.gz\">x</a>\n";
+        int confirms = 0;
+        const fs::path dir = mirror.dir / "np";
+        const nextpi::ProvisionResult r = nextpi::provision(nextpi_options(mirror, dir.string(), "latest", confirms));
+        bool fetched_bad = false;
+        for (const std::string& u : mirror.fetched)
+            if (u.find(long_name) != std::string::npos) fetched_bad = true;
+        std::string joined;
+        for (const std::string& n : names) joined += n + " ";
+        check("PI-29",
+              "release names from the mirror's listing are checked like typed ones: a leading dot "
+              "or dash or a 65-character name is not listed, and \"latest\" never fetches one",
+              fixture && listed_ok && r.status == sdcard::ProvisionStatus::Ok && r.release == "1_93D" &&
+                  !fetched_bad,
+              fmt("listed [%s] (want 1_93D) latest=%s status=%d fetched_bad=%d", joined.c_str(),
+                  r.release.c_str(), static_cast<int>(r.status), fetched_bad ? 1 : 0));
+    }
+
+    // ── PI-31 — A PAX RECORD CANNOT REACH OUTSIDE ITS HEADER (R2-8). Its length
+    // is checked against what is left; 2^64-1 used to wrap `pos + len` and be
+    // taken. Such a header is malformed, whatever the records after it say.
+    {
+        FakeMirror mirror("paxlen");
+        const fs::path a = mirror.dir / "wrap.tar.gz", out = mirror.dir / "out";
+        const std::string body = tar_entry("PaxHeaders/x", "18446744073709551615 path=EVIL.img\n", 'x') +
+                                 tar_entry("data.bin", "payload");
+        std::string why;
+        bool refused = false;
+        try {
+            refused = write_tar_gz(a.string(), body) &&
+                      !nextpi::extract_tar_gz_entry(a.string(), ".img", out.string(), {}, why) &&
+                      why.find("pax record overruns") != std::string::npos;
+        } catch (const std::exception& ex) {
+            why = std::string("threw ") + ex.what();
+        }
+        check("PI-31",
+              "a pax record whose length runs past its header (18446744073709551615) makes the "
+              "archive malformed instead of wrapping and renaming the next entry",
+              refused, fmt("error='%s'", why.c_str()));
+    }
+
+    // ── PI-39..42 — EACH WELL-FORMEDNESS CHECK OF THE PAX PARSER (R3-2). A pax
+    // record is "<len> <key>=<value>\n", <len> counting the whole record. Each
+    // archive below breaks exactly one rule, after a valid first record, and
+    // must be refused as malformed; with that one check gone it would be read.
+    {
+        FakeMirror mirror("paxshape");
+        const fs::path out = mirror.dir / "out";
+        // `pad_newline_at` puts a '\n' at that offset of the header's data
+        // block, in the zero padding past its end.
+        auto refused = [&](const char* name, const std::string& records, std::string& why,
+                           std::size_t pad_newline_at = 0) {
+            const fs::path a = mirror.dir / name;
+            std::string x = tar_entry("PaxHeaders/x", records, 'x');
+            if (pad_newline_at) x[512 + pad_newline_at] = '\n';
+            const std::string body = x + tar_entry("data.bin", "payload");
+            try {
+                return write_tar_gz(a.string(), body) &&
+                       !nextpi::extract_tar_gz_entry(a.string(), ".img", out.string(), {}, why) &&
+                       why.find("pax record overruns") != std::string::npos;
+            } catch (const std::exception& ex) {
+                why = std::string("threw ") + ex.what();
+                return false;
+            }
+        };
+        const std::string valid = pax_record("comment", "ok");
+
+        // PI-39 — a record claiming more than what is left of the header: 99
+        // bytes, and 2^64-1 (which wrapped `pos + len` in the original code).
+        // The wrapped case is also refused by the space rule: a wrapped end
+        // lies before `pos`, and so before the record's own space. And one
+        // claiming 30 whose 30th byte, in the padding past the header, is a
+        // '\n': only the length check stands between it and being read.
+        std::string w1, w2, w6;
+        const bool short_ok = refused("long.tar.gz", valid + "99 path=EVIL.img\n", w1);
+        const bool wrap_ok  = refused("wrap.tar.gz", valid + "18446744073709551615 path=EVIL.img\n", w2);
+        const bool pad_ok   = refused("pad.tar.gz", valid + "30 path=EVIL.img\n", w6, valid.size() + 29);
+        check("PI-39",
+              "a pax record after a valid one that claims more than is left of the header (99, "
+              "2^64-1, or 30 with a '\\n' in the padding where it would end) makes the archive "
+              "malformed",
+              short_ok && wrap_ok && pad_ok,
+              fmt("99: %d (%s) 2^64-1: %d (%s) padded: %d (%s)", short_ok ? 1 : 0, w1.c_str(),
+                  wrap_ok ? 1 : 0, w2.c_str(), pad_ok ? 1 : 0, w6.c_str()));
+
+        // PI-40 — the right length, but the record does not end on '\n'.
+        std::string w3;
+        const bool nl_ok = refused("nl.tar.gz", valid + "19 path=NextPi.imgX", w3);
+        check("PI-40", "a pax record that does not end on '\\n' makes the archive malformed", nl_ok,
+              fmt("error='%s'", w3.c_str()));
+
+        // PI-41 — the length ends before the record's first space: "3\n\n" is
+        // three bytes ending on '\n', and the space found is the next record's.
+        std::string w4;
+        const bool sp_ok = refused("space.tar.gz", valid + "3\n\n" + pax_record("path", "x.img"), w4);
+        check("PI-41",
+              "a pax record whose length ends before its first space (the space found belongs to the "
+              "next record) makes the archive malformed",
+              sp_ok, fmt("error='%s'", w4.c_str()));
+
+        // PI-42 — no space at all in what is left.
+        std::string w5;
+        const bool nosp_ok = refused("nospace.tar.gz", valid + "4ab\n", w5);
+        check("PI-42", "a pax record with no space after its length makes the archive malformed", nosp_ok,
+              fmt("error='%s'", w5.c_str()));
+    }
+
+    // ── PI-43 — THE MARKER CANNOT BE REMOVED (R3-4). Removing `release` is the
+    // install's first step; when it fails (here a non-empty directory holds
+    // the name) the install stops there, before the image is put in place.
+    {
+        FakeMirror mirror("marker");
+        const bool fixture = mirror.add_release("1_93D", fake_nextpi_disk("k", "d"));
+        const fs::path dir = mirror.dir / "np";
+        std::error_code ec;
+        fs::create_directories(dir / "release" / "in-the-way", ec);
+        int confirms = 0;
+        const nextpi::ProvisionResult r = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
+        check("PI-43",
+              "a NextPi install whose release marker cannot be removed fails at once, before the "
+              "image is put in place",
+              fixture && r.status == sdcard::ProvisionStatus::Failed &&
+                  r.error.find("cannot install") != std::string::npos && !fs::exists(dir / "nextpi.img"),
+              fmt("status=%d error='%s' image %s", static_cast<int>(r.status), r.error.c_str(),
+                  fs::exists(dir / "nextpi.img") ? "installed" : "absent"));
+    }
+
+    // ── PI-44 — THE NAME LENGTH LIMIT, AT ITS BOUNDARY (R3-5): a release name
+    // of 64 characters is accepted, one of 65 refused.
+    {
+        const bool at_64 = nextpi::valid_release_name(std::string(64, 'a'));
+        const bool at_65 = nextpi::valid_release_name(std::string(65, 'a'));
+        check("PI-44", "a NextPi release name of 64 characters is valid and one of 65 is not",
+              at_64 && !at_65, fmt("64: %d 65: %d", at_64 ? 1 : 0, at_65 ? 1 : 0));
+    }
+
+    // ── PI-33 — THE CHILD ENVIRONMENT ITSELF (R2-10). PiQemu::child_environment
+    // drops every LANG and LC_ALL entry before adding its own, so the child
+    // gets each exactly once. (A shell in between, as PI-18 sees it, would
+    // hide a duplicate; qemu-img is spawned directly and would not.)
+    {
+        const char* env[] = {"PATH=/bin", "LANG=es_ES.UTF-8", "LC_ALL=es_ES.UTF-8", "LANGUAGE=es",
+                             "LC_ALL=fr_FR", nullptr};
+        const std::vector<std::string> got = PiQemu::child_environment(env);
+        const std::vector<std::string> want = {"PATH=/bin", "LANGUAGE=es", "LANG=C", "LC_ALL=C"};
+        std::string joined;
+        for (const std::string& v : got) joined += v + " ";
+        check("PI-33",
+              "a spawned NextPi child's environment is the parent's without any LANG or LC_ALL "
+              "entry, then LANG=C and LC_ALL=C, each exactly once (LANGUAGE is not LANG)",
+              got == want, fmt("got [%s]", joined.c_str()));
+    }
+
+    // ── PI-38 — WHETHER TO START NEXTPI (R2-5), main.cpp's decision through
+    // nextpi::start_request. The command line wins either way; without it a
+    // GUI session follows Preferences and a headless one starts nothing.
+    // Only --nextpi makes a failure an error (asked_on_cli; PI-27).
+    {
+        using nextpi::start_request;
+        auto is = [](nextpi::StartRequest r, bool wanted, bool asked) {
+            return r.wanted == wanted && r.asked_on_cli == asked;
+        };
+        const bool table =
+            is(start_request(true, true, true, false), true, true) &&     // GUI --nextpi, pref off
+            is(start_request(true, true, false, true), false, false) &&   // GUI --no-nextpi, pref on
+            is(start_request(true, false, false, true), true, false) &&   // GUI, pref on
+            is(start_request(true, false, false, false), false, false) && // GUI, pref off
+            is(start_request(false, true, true, false), true, true) &&    // headless --nextpi
+            is(start_request(false, false, false, true), false, false) && // headless: no Preferences
+            is(start_request(false, true, false, true), false, false);    // headless --no-nextpi
+        check("PI-38",
+              "whether NextPi starts: --nextpi and --no-nextpi win, otherwise a GUI session follows "
+              "the [nextpi] preference and a headless one starts nothing; only --nextpi makes a "
+              "failure an error",
+              table, "");
+    }
+}
+
+// ── PiAudio over its pipe: a FIFO on POSIX, a named pipe on Windows (GH #331) ──
+//
+// The writer is this process's own fopen("wb") on the path, the call QEMU's wav
+// back-end makes (audio/wavaudio.c:116), unbuffered so each fwrite reaches the
+// pipe. jnext-only rows: no VHDL counterpart; the stream format is QEMU's
+// (wavaudio.c:78-90: a 44-byte header, then s16 stereo at 44.1 kHz).
+
+namespace {
+
+/// The path a row's PiAudio serves: a FIFO in a directory of its own on POSIX,
+/// a pipe name unique to this process and row on Windows.
+struct AudioPath {
+    std::string path, dir;
+    explicit AudioPath(int k) {
+#ifdef _WIN32
+        path = "\\\\.\\pipe\\jnext-pit-" + std::to_string(nxs::self_pid()) + "-" + std::to_string(k) + ".audio";
+#else
+        dir  = jtp::make_temp_dir("jnext-pit-au" + std::to_string(k) + "-");
+        path = dir + "/audio.fifo";
+#endif
+    }
+    ~AudioPath() {
+        if (!dir.empty()) { std::error_code ec; fs::remove_all(dir, ec); }
+    }
+};
+
+std::string wav_header() {
+    std::string h;
+    auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) h.push_back(static_cast<char>(v >> (8 * i))); };
+    auto u16 = [&](uint16_t v) { h.push_back(static_cast<char>(v)); h.push_back(static_cast<char>(v >> 8)); };
+    h += "RIFF"; u32(0); h += "WAVEfmt "; u32(16); u16(1); u16(2);
+    u32(44100); u32(44100 * 4); u16(4); u16(16); h += "data"; u32(0);
+    return h;
+}
+
+void put_frame(std::string& s, int16_t l, int16_t r) {
+    s.push_back(static_cast<char>(l)); s.push_back(static_cast<char>(l >> 8));
+    s.push_back(static_cast<char>(r)); s.push_back(static_cast<char>(r >> 8));
+}
+
+/// fopen(path, "wb") as QEMU does, retried for up to `ms` (a Windows pipe that
+/// has just lost its writer is busy for a moment); unbuffered.
+std::FILE* open_writer(const std::string& path, int ms) {
+    for (int waited = 0;; waited += 5) {
+        if (std::FILE* f = std::fopen(path.c_str(), "wb")) {
+            std::setvbuf(f, nullptr, _IONBF, 0);
+            return f;
+        }
+        if (waited >= ms) return nullptr;
+        sleep_ms(5);
+    }
+}
+
+template <class Pred>
+bool wait_for(Pred p, int ms) {
+    for (int waited = 0; waited <= ms; waited += 5) {
+        if (p()) return true;
+        sleep_ms(5);
+    }
+    return p();
+}
+
+} // namespace
+
+static void test_pi_audio_pipe() {
+#ifndef _WIN32
+    std::signal(SIGPIPE, SIG_IGN);   // a reader closed under a writer is a write error, not a kill
+#endif
+
+    // ── PIT-19 — A WRITER THAT LEAVES, AND THE NEXT ONE (MX-34 on every OS). The
+    // first stream ends with half a frame; the second starts with a header of its
+    // own. Nothing of the first may leak into the second: the header is skipped
+    // again and the stray bytes are not glued to its first frame. Oracle: QEMU's
+    // wav stream (wavaudio.c:78-90); kPrebuffer = 2205 frames before playback.
+    {
+        AudioPath ap(19);
+        PiAudio au;
+        std::string err;
+        const bool opened = au.open(ap.path, err);
+        bool a_ok = false, got_a = false, left = false, b_ok = false, got_b = false;
+        std::FILE* a = opened ? open_writer(ap.path, 2000) : nullptr;
+        if (a) {
+            std::string s = wav_header();
+            put_frame(s, 500, -500);
+            s += "xy";
+            a_ok = std::fwrite(s.data(), 1, s.size(), a) == s.size();
+            got_a = wait_for([&] { return au.frames_received() >= 1; }, 2000);
+            const uint64_t eof0 = au.eof_reads();
+            std::fclose(a);
+            left = wait_for([&] { return au.eof_reads() > eof0; }, 2000);
+        }
+        std::FILE* b = (opened && left) ? open_writer(ap.path, 2000) : nullptr;
+        if (b) {
+            std::string s = wav_header();
+            for (int i = 0; i < 2205; ++i)
+                put_frame(s, static_cast<int16_t>(1000 + i), static_cast<int16_t>(-(1000 + i)));
+            b_ok = std::fwrite(s.data(), 1, s.size(), b) == s.size();
+            got_b = wait_for([&] { return au.frames_received() >= 2206; }, 2000);
+            std::fclose(b);
+        }
+        const uint32_t avail = au.available();
+        bool exact = avail == 2206;
+        int16_t l = 0, r = 0;
+        exact = exact && au.pop(l, r) && l == 500 && r == -500;
+        for (int i = 0; exact && i < 2205; ++i)
+            exact = au.pop(l, r) && l == 1000 + i && r == -(1000 + i);
+        check("PIT-19",
+              "a writer that leaves and the next one that connects: the second stream's header is "
+              "skipped and the first's half frame is not glued to it (jnext-only, no VHDL counterpart)",
+              opened && a && a_ok && got_a && left && b && b_ok && got_b && exact,
+              fmt("opened=%d (%s) a=%d got_a=%d left=%d b=%d got_b=%d avail=%u (want 2206) exact=%d",
+                  opened ? 1 : 0, err.c_str(), a ? 1 : 0, got_a ? 1 : 0, left ? 1 : 0, b ? 1 : 0,
+                  got_b ? 1 : 0, avail, exact ? 1 : 0));
+    }
+
+    // ── PIT-20 — A WRITER IS NEVER BLOCKED BY A FULL RING (MX-33 + MX-42 on every
+    // OS). Nothing pops while 200 000 frames are written: the reader keeps
+    // draining, the ring keeps its capacity (131 072 frames), the rest is
+    // counted as dropped, and the next pop flushes what is stale.
+    {
+        AudioPath ap(20);
+        PiAudio au;
+        std::string err;
+        const bool opened = au.open(ap.path, err);
+        std::FILE* w = opened ? open_writer(ap.path, 2000) : nullptr;
+        std::atomic<bool> done{false};
+        std::thread t;
+        if (w) {
+            t = std::thread([&] {
+                std::string s = wav_header();
+                std::fwrite(s.data(), 1, s.size(), w);
+                for (int sent = 0; sent < 200000;) {
+                    std::string chunk;
+                    for (int i = 0; i < 4096 && sent < 200000; ++i, ++sent)
+                        put_frame(chunk, static_cast<int16_t>(sent), static_cast<int16_t>(-sent));
+                    if (std::fwrite(chunk.data(), 1, chunk.size(), w) != chunk.size()) break;
+                }
+                done = true;
+            });
+        }
+        const bool finished = w && wait_for([&] { return done.load(); }, 5000);
+        const bool counted  = finished && wait_for([&] {
+            return au.frames_received() + au.frames_dropped() == 200000; }, 2000);
+        const uint64_t recv = au.frames_received(), drop = au.frames_dropped();
+        int16_t l = 0, r = 0;
+        const bool flushed = counted && !au.pop(l, r) && au.frames_dropped() == 200000;
+        if (!finished) au.close();            // breaks the pipe so the writer cannot hang the row
+        if (t.joinable()) t.join();
+        if (w) std::fclose(w);
+        check("PIT-20",
+              "a writer sending far more than the ring holds is never blocked: the ring keeps its "
+              "131072 frames, the rest is counted as dropped, and the next pop flushes it "
+              "(jnext-only, no VHDL counterpart)",
+              opened && w && finished && counted && recv == PiAudio::kCapacity && drop == 200000 - PiAudio::kCapacity &&
+                  flushed,
+              fmt("opened=%d (%s) finished=%d counted=%d received=%llu dropped=%llu flushed=%d",
+                  opened ? 1 : 0, err.c_str(), finished ? 1 : 0, counted ? 1 : 0,
+                  static_cast<unsigned long long>(recv), static_cast<unsigned long long>(drop),
+                  flushed ? 1 : 0));
+    }
+
+    // ── PIT-21 — close() IS PROMPT AND RELEASES THE NAME, with no writer ever
+    // connected and with one connected but silent. A reader that waited for data
+    // would hang here; one that leaked its handle would leave the name taken (on
+    // Windows a second server on a 1-instance name is refused, ERROR_PIPE_BUSY).
+    {
+        AudioPath ap(21);
+        std::string err1, err2, err3;
+        long ms_a = -1, ms_b = -1;
+        bool reopened_a = false, reopened_b = false;
+        {
+            PiAudio au;
+            const bool o = au.open(ap.path, err1);
+            const auto t0 = std::chrono::steady_clock::now();
+            au.close();
+            ms_a = o ? ms_since(t0) : -1;
+        }
+        {
+            PiAudio au;
+            reopened_a = au.open(ap.path, err2);
+            std::FILE* w = reopened_a ? open_writer(ap.path, 2000) : nullptr;
+            if (w) {
+                const std::string h = wav_header();
+                std::fwrite(h.data(), 1, h.size(), w);
+                sleep_ms(50);
+                const auto t0 = std::chrono::steady_clock::now();
+                au.close();
+                ms_b = ms_since(t0);
+                std::fclose(w);
+            }
+        }
+        {
+            PiAudio au;
+            reopened_b = au.open(ap.path, err3);
+        }
+        check("PIT-21",
+              "closing the Pi audio reader returns within a second whether or not a writer ever "
+              "connected, and the name can be served again afterwards (jnext-only, no VHDL counterpart)",
+              ms_a >= 0 && ms_a < 1000 && reopened_a && ms_b >= 0 && ms_b < 1000 && reopened_b,
+              fmt("close without writer=%ld ms, with silent writer=%ld ms, reopen=%d/%d (%s / %s)", ms_a,
+                  ms_b, reopened_a ? 1 : 0, reopened_b ? 1 : 0, err2.c_str(), err3.c_str()));
+    }
+
+    // ── PIT-22 — NO SPINNING WITHOUT A WRITER. After the writer has left, a
+    // second of waiting costs under 100 ms of CPU (every OS), and at most 60
+    // writer-gone reads (POSIX: bounds the poll rate, a 20 ms pause after each,
+    // about 50; Windows: counts departures, 1) and at most 60 wakeups (Windows: each
+    // return of the reader's one wait, so a timed poll in it shows; POSIX: none while
+    // there is no writer). A poll built elsewhere than in that wait is not seen.
+    {
+        AudioPath ap(22);
+        PiAudio au;
+        std::string err;
+        const bool opened = au.open(ap.path, err);
+        std::FILE* w = opened ? open_writer(ap.path, 2000) : nullptr;
+        bool got = false;
+        if (w) {
+            std::string s = wav_header();
+            put_frame(s, 1, -1);
+            std::fwrite(s.data(), 1, s.size(), w);
+            got = wait_for([&] { return au.frames_received() >= 1; }, 2000);
+            std::fclose(w);
+        }
+        sleep_ms(200);
+        const long cpu0 = nxs::process_cpu_ms();
+        const uint64_t eof0 = au.eof_reads(), idle0 = au.idle_reads();
+        sleep_ms(1000);
+        const long cpu = nxs::process_cpu_ms() - cpu0;
+        const uint64_t eofs = au.eof_reads() - eof0, idles = au.idle_reads() - idle0;
+        check("PIT-22",
+              "with no writer connected the Pi audio reader neither spins nor polls fast: under 100 ms of "
+              "CPU, at most 60 writer-gone reads and at most 60 wakeups in a second (jnext-only, no VHDL "
+              "counterpart)",
+              opened && w && got && cpu >= 0 && cpu < 100 && eofs <= 60 && idles <= 60,
+              fmt("opened=%d (%s) got=%d cpu=%ld ms (want <100) eof_reads=%llu idle_reads=%llu (want <=60)",
+                  opened ? 1 : 0, err.c_str(), got ? 1 : 0, cpu, static_cast<unsigned long long>(eofs),
+                  static_cast<unsigned long long>(idles)));
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc >= 2 && std::strcmp(argv[1], "--holder") == 0) return holder_main(argc, argv);
     const std::string self = fs::absolute(argv[0]).string();
@@ -415,10 +1223,10 @@ int main(int argc, char** argv) {
               shape && no_pipe, fmt("shape=%d no_pipe=%d", shape ? 1 : 0, no_pipe ? 1 : 0));
     }
 
-    // ── PIT-03 — the audio default is the host's own back-end: qemu(1) lists
-    // dsound as the Windows one, coreaudio on macOS, pa elsewhere.
+    // ── PIT-03 — the host back-end per OS ("host" is the platform's own): qemu(1)
+    // lists dsound as the Windows one, coreaudio on macOS, pa elsewhere.
     {
-        const std::string dflt = PiQemu::audiodev_arg("");
+        const std::string dflt = PiQemu::audiodev_arg("host");
 #ifdef _WIN32
         const bool ok = dflt == "dsound,id=snd0";
 #elif defined(__APPLE__)
@@ -427,8 +1235,7 @@ int main(int argc, char** argv) {
         const bool ok = dflt == "pa,id=snd0";
 #endif
         check("PIT-03",
-              "the default Pi audio back-end is the host's own: dsound on Windows, coreaudio on "
-              "macOS, pa elsewhere",
+              "the host back-end per OS: dsound on Windows, coreaudio on macOS, pa elsewhere",
               ok, "default=" + dflt);
     }
 
@@ -1003,11 +1810,10 @@ int main(int argc, char** argv) {
                   env_c ? 1 : 0, seen.size(), parent_kept ? 1 : 0));
     }
 
-    // ── PIT-16 — WHAT AN EMPTY `audio` MEANS, PER OS (owner decision 2026-10-12).
-    // Where the Pi's sound can reach the Next's mixer (the FIFO path: Linux,
-    // macOS) empty means the mixer, and QEMU gets the `wav` back-end; on Windows,
-    // which has no such path until GH #331, empty means the host output
-    // (dsound). `host` is the host output on every OS and never the mixer. Pure.
+    // ── PIT-16 — WHAT AN EMPTY `audio` MEANS (owner decision 2026-10-12, completed
+    // by GH #331). Empty means the Next's mixer on every OS, and QEMU gets the
+    // `wav` back-end; `host` is the host output (dsound on Windows, coreaudio on
+    // macOS, pa elsewhere) and never the mixer. Pure.
     {
         auto audiodev = [](const std::vector<std::string>& a) {
             for (std::size_t i = 0; i + 1 < a.size(); ++i)
@@ -1021,34 +1827,33 @@ int main(int argc, char** argv) {
         spec.audio = "host";
         const std::string host  = audiodev(PiQemu::build_args(spec, std::uint16_t{40123}, "n/uart"));
         const bool host_mixer   = PiQemu::uses_mixer(spec);
-#ifdef _WIN32
-        const bool empty_ok = empty == "dsound,id=snd0" && !empty_mixer;
-        const bool host_ok  = host == "dsound,id=snd0";
-#else
         const bool empty_ok = empty == PiQemu::mixer_audiodev_arg("n/uart") && empty_mixer;
-#ifdef __APPLE__
+#ifdef _WIN32
+        const bool host_ok  = host == "dsound,id=snd0";
+#elif defined(__APPLE__)
         const bool host_ok  = host.rfind("coreaudio,id=snd0,", 0) == 0;
 #else
         const bool host_ok  = host == "pa,id=snd0";
 #endif
-#endif
         check("PIT-16",
-              "an empty Pi audio setting is the Next's mixer (the wav FIFO) on Linux and macOS and the "
-              "host output (dsound) on Windows, where there is no mixer path yet; `host` is the host "
-              "output on every OS (jnext-only, no VHDL counterpart)",
+              "an empty Pi audio setting is the Next's mixer (QEMU's wav back-end into the audio "
+              "FIFO, or the named pipe on Windows) on every OS; `host` is the host output "
+              "(dsound, coreaudio, pa) and never the mixer (jnext-only, no VHDL counterpart)",
               empty_ok && host_ok && !host_mixer,
               fmt("empty='%s' mixer=%d host='%s' host_mixer=%d", empty.c_str(), empty_mixer ? 1 : 0,
                   host.c_str(), host_mixer ? 1 : 0));
     }
 
     // ── PIT-17 — the same through a real start() on the socket transport: the
-    // stand-in gets the per-OS -audiodev, PiQemu makes the audio reader exactly
-    // where the mixer path exists, and link_config hands that reader (or null)
-    // to the Emulator. On POSIX this is the socket transport WITH the mixer: the
-    // audio FIFO needs a runtime directory of its own, so the wav path must be
-    // absolute, inside a fresh `jnext-pi-*` directory that exists while QEMU
-    // runs and is gone once PiQemu is destroyed, and nothing may appear in the
-    // current directory.
+    // stand-in gets the mixer's -audiodev, PiQemu makes the audio reader, and
+    // link_config hands it to the Emulator. On POSIX this is the socket transport
+    // WITH the mixer: the audio FIFO needs a runtime directory of its own, so the
+    // wav path must be absolute, inside a fresh `jnext-pi-*` directory that
+    // exists while QEMU runs and is gone once PiQemu is destroyed, and nothing
+    // may appear in the current directory. On Windows the path is the named pipe
+    // `\\.\pipe\jnext-pi-<this pid>-<n>.audio`, which must exist when "QEMU"
+    // starts (the stand-in records `opened` or `failed <errno>` for its fopen,
+    // as QEMU's wav back-end does) and is gone once stop() has returned.
     {
         Fixture fx("emptyaudio");
         PiQemu::Spec spec;
@@ -1066,7 +1871,22 @@ int main(int argc, char** argv) {
             EmulatorConfig cfg;
             qemu.link_config(cfg);
 #ifdef _WIN32
-            per_os = dev == "dsound,id=snd0" && qemu.audio() == nullptr && cfg.pi_audio == nullptr;
+            per_os = dev.rfind("wav,id=snd0,path=", 0) == 0 && qemu.audio() != nullptr &&
+                     cfg.pi_audio == qemu.audio();
+            if (per_os) {
+                bool named = false;
+                for (unsigned n = 0; n < 4096 && !named; ++n)
+                    named = dev == PiQemu::mixer_audiodev_arg(PiQemu::audio_pipe_base(nxs::self_pid(), n));
+                wav_path = dev.substr(std::strlen("wav,id=snd0,path="));
+                wav_path = wav_path.substr(0, wav_path.find(".audio,out.") + 6);
+                dir_ok = named && fx.file("audio") == "opened\n";
+                qemu.stop();     // the pipe must be gone once stop() returns
+                if (std::FILE* leaked = std::fopen(wav_path.c_str(), "wb")) {
+                    std::fclose(leaked);
+                    gone = false;
+                }
+                gone = gone && !wav_path.empty();
+            }
 #else
             per_os = dev.rfind("wav,id=snd0,path=", 0) == 0 &&
                      dev.find(".audio,out.frequency=44100,out.channels=2,out.format=s16") != std::string::npos &&
@@ -1090,14 +1910,124 @@ int main(int argc, char** argv) {
 #endif
         check("PIT-17",
               "starting NextPi with the audio setting empty gives QEMU the mixer's wav FIFO and makes "
-              "the audio reader on Linux and macOS (also on the socket transport, in a runtime "
-              "directory of its own that stop() removes, never in the current directory), and gives "
-              "QEMU dsound with no reader on Windows; link_config carries the reader (jnext-only, no "
-              "VHDL counterpart)",
+              "the audio reader (also on the socket transport, in a runtime directory of its own "
+              "that stop() removes, never in the current directory); on Windows the FIFO is a named "
+              "pipe that exists when QEMU starts and is gone after stop(); link_config carries the "
+              "reader (jnext-only, no VHDL counterpart)",
               started && per_os && dir_ok && cwd_clean && gone,
               fmt("started=%d (%s) audiodev='%s' dir_ok=%d cwd_clean=%d gone=%d", started ? 1 : 0,
                   error.c_str(), dev.c_str(), dir_ok ? 1 : 0, cwd_clean ? 1 : 0, gone ? 1 : 0));
     }
+
+    // ── PIT-18 — THE FEATURE ON EVERY OS: the Pi's sound reaches the Next's mixer
+    // end to end (PI-48 for the socket transport; on Windows the named pipe,
+    // written by another process's fopen). The stand-in opens the audio path as
+    // QEMU's wav back-end does and writes a tone. NR 0xA2 gates it exactly as on
+    // the board (zxnext.vhd:2358-2359): 0x00 silent, 0xC0 both channels. The
+    // levels are exact: left +-16384 is to_i2s 768/256, +-256 from the 0x200 rest,
+    // which the mixer outputs as +1024/-1024 (MX-06/07's x4); right +-8192 gives
+    // +512/-512 (i2s.vhd:177-180).
+    {
+        Fixture fx("tone");
+        write_tone((fs::path(fx.bin_dir()) / "tone.wav").string(), 11025, 16384, 50, 8192);   // 250 ms
+        PiQemu::Spec spec;
+        spec.dir         = fx.dir();
+        spec.qemu_binary = fx.bin("qemu-system-arm");
+        spec.transport   = PiQemu::Transport::Socket;
+        PiQemu qemu;
+        std::string error;
+        const bool started = fx.ok() && qemu.start(spec, error) && qemu.audio() != nullptr;
+        bool arrived = false;
+        for (int i = 0; i < 500 && started && !arrived; ++i) {
+            arrived = qemu.audio()->available() >= 11025;
+            if (!arrived) sleep_ms(10);
+        }
+        const std::vector<std::string> args = fx.arg_lines();
+        const std::string audio_rec = fx.file("audio");
+        bool argv_ok = false;
+        for (const std::string& a : args) argv_ok = argv_ok || a.rfind("wav,id=snd0,path=", 0) == 0;
+        std::pair<int, int> closed{-1, -1};
+        MixerLevels open;
+        if (started && arrived) {
+            Emulator emu;
+            emu.init(launcher_config(qemu));
+            closed = mixer_swing(emu, 0x00, 3);
+            open   = mixer_levels(emu, 0xC0, 5);
+        }
+        check("PIT-18",
+              "NextPi's sound reaches the Next's mixer over I2S on every OS: QEMU's wav back-end writes "
+              "it to the FIFO (a named pipe on Windows) PiQemu serves, and NR 0xA2 gates it (0x00 "
+              "silent, 0xC0 the square wave, left +-1024 and right +-512) (i2s.vhd:177-180, "
+              "zxnext.vhd:2358-2359)",
+              started && arrived && argv_ok && audio_rec == "opened\n" && closed.first <= 16 &&
+                  closed.second <= 16 && open.n > 0 && open.lo_l == -1024 && open.hi_l == 1024 &&
+                  open.lo_r == -512 && open.hi_r == 512,
+              fmt("started=%d (%s) arrived=%d argv=%d audio='%s' closed L=%d R=%d (want <=16) open n=%d "
+                  "L %d..%d R %d..%d", started ? 1 : 0, error.c_str(), arrived ? 1 : 0, argv_ok ? 1 : 0,
+                  audio_rec.c_str(), closed.first, closed.second, open.n, open.lo_l, open.hi_l, open.lo_r,
+                  open.hi_r));
+    }
+
+    // ── PIT-23 — AN AUDIO PIPE THAT CANNOT BE MADE FAILS THE START (PI-51 for the
+    // portable launcher): no QEMU is spawned and the error says which pipe.
+    // Windows: the row holds the one-instance servers on every name the launcher
+    // could pick, so its own CreateNamedPipe is refused. POSIX: the runtime
+    // directory sits so deep in $TMPDIR that "<base>.audio" is one byte past
+    // PATH_MAX, as PI-51 builds it.
+    {
+        Fixture fx("noaudio");
+        PiQemu::Spec spec;
+        spec.dir         = fx.dir();
+        spec.qemu_binary = fx.bin("qemu-system-arm");
+        spec.transport   = PiQemu::Transport::Socket;
+        bool refused = false, setup = true;
+        std::string error, want_text;
+#ifdef _WIN32
+        std::vector<std::string> names;
+        for (unsigned n = 0; n < 256; ++n) names.push_back(PiQemu::audio_pipe_base(nxs::self_pid(), n) + ".audio");
+        nxs::PipeSquat squat(names);
+        setup = squat.held() == names.size();
+        want_text = "jnext-pi-" + std::to_string(nxs::self_pid()) + "-";
+        {
+            PiQemu q;
+            refused = !q.start(spec, error) && !q.running() && q.audio() == nullptr;
+        }
+#else
+        std::error_code ec;
+        const fs::path deep_root = fs::canonical(fs::temp_directory_path(), ec) /
+                                   ("jnext-pit23-" + std::to_string(nxs::self_pid()));
+        // strlen(<tmp>/jnext-pi-XXXXXX/uart) + ".audio" == PATH_MAX + 1.
+        const std::size_t want = static_cast<std::size_t>(PATH_MAX) + 1 - std::strlen(".audio") -
+                                 std::strlen("/jnext-pi-XXXXXX/uart");
+        std::string deep = deep_root.string();
+        while (deep.size() + 1 < want) {               // each step adds "/" + a name
+            const std::size_t rest = want - deep.size() - 1;
+            const std::size_t take = rest <= 200 ? rest : (rest == 201 ? 199 : 200);
+            deep += "/" + std::string(take, 'd');
+        }
+        fs::create_directories(deep, ec);
+        setup = !ec && deep.size() == want;
+        want_text = "uart.audio";
+        {
+            EnvVar tmp("TMPDIR", deep);
+            PiQemu q;
+            refused = !q.start(spec, error) && !q.running() && q.audio() == nullptr;
+        }
+        fs::remove_all(deep_root, ec);
+#endif
+        const bool spawned = fs::exists(fs::path(fx.bin_dir()) / "pid");
+        check("PIT-23",
+              "when the Pi's audio pipe cannot be made, starting NextPi fails with that error and "
+              "starts no QEMU (PI-51 for the portable launcher; jnext-only, no VHDL counterpart)",
+              fx.ok() && setup && refused && !spawned && error.find(want_text) != std::string::npos,
+              fmt("setup=%d refused=%d spawned=%d error='%s' (want '%s')", setup ? 1 : 0, refused ? 1 : 0,
+                  spawned ? 1 : 0, error.c_str(), want_text.c_str()));
+    }
+
+    test_nextpi_provisioner();
+    test_nextpi_review_rows();
+    test_nextpi_review2_rows();
+    test_pi_audio_pipe();
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

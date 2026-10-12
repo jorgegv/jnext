@@ -304,10 +304,22 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
     if (!SetInformationJobObject(job_, JobObjectExtendedLimitInformation, &limits, sizeof(limits)))
         return fail("SetInformationJobObject: " + win_error(GetLastError()));
 
+    // The Pi's sound reaches the mixer over a named pipe jnext serves. The pipe
+    // must exist BEFORE QEMU is spawned: its wav back-end fopen()s the path at
+    // startup and fails with ENOENT when there is no server.
+    std::string audio_base;
+    if (uses_mixer(spec)) {
+        static std::atomic<unsigned> pipe_counter{0};
+        audio_base = audio_pipe_base(GetCurrentProcessId(), pipe_counter++);
+        audio_ = std::make_unique<PiAudio>();
+        std::string audio_error;
+        if (!audio_->open(audio_base + ".audio", audio_error)) return fail(audio_error);
+    }
+
     Child child;
     std::string spawn_error;
     HANDLE in_write = nullptr;
-    if (!spawn_child(qemu, build_args(spec, tcp_port_), log_path, job_, &in_write, child, spawn_error))
+    if (!spawn_child(qemu, build_args(spec, tcp_port_, audio_base), log_path, job_, &in_write, child, spawn_error))
         return fail(spawn_error);
     process_     = child.process;
     stdin_write_ = in_write;
@@ -367,6 +379,10 @@ void PiQemu::stop() {
     if (stdin_write_) {
         CloseHandle(stdin_write_);
         stdin_write_ = nullptr;
+    }
+    if (audio_) {   // QEMU is gone, so no writer is left on the pipe
+        audio_->close();
+        audio_.reset();
     }
     if (job_) {     // last: closing it kills anything still in it
         CloseHandle(job_);

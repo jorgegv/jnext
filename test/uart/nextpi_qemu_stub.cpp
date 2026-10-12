@@ -19,12 +19,20 @@
 //             and the console chardev is already listening
 //   received  every byte the Next sent to the Pi, appended as it arrives
 //   graceful  written when it was asked to stop the orderly way
+//   audio     `opened` or `failed <errno>`: whether it could fopen("wb") the path of
+//             `-audiodev wav,...,path=P` (what QEMU's wav back-end does at startup,
+//             wavaudio.c:116, before anything else), written before `pid`
 // and then plays the Pi on the console chardev QEMU was given, as QEMU does:
 //   socket,host=H,port=P,server=on,...  listens, sends `SUP> ` to each client
 //                                       that connects, and accepts again after
 //                                       one disconnects (char-socket.c:467-470)
 //   pipe,path=B  (POSIX)                opens B.in / B.out read-write, so neither
 //                                       side ever sees EOF, and sends `SUP> `
+// With a wav audiodev it then plays the Pi's sound into that file (GH #331): if
+// `tone.wav` exists in its directory it writes it whole and closes the file; if
+// `tone.loop` exists it writes its 44-byte header and then loops the rest at
+// 44.1 kHz until it is stopped (the audio functional row's Pi); otherwise it
+// holds the file open and silent (QEMU with a quiet Pi).
 // The orderly stop is SIGTERM on POSIX and a `quit` line on stdin when
 // `-monitor stdio` was given (Windows).
 //
@@ -35,7 +43,9 @@
 #include "esp01/esp_socket.h"
 #include "esp01/esp_socket_platform.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <cctype>
 #include <chrono>
 #include <cstdint>
@@ -156,6 +166,61 @@ void write_pid() {
     write_text("pid", std::to_string(pid) + "\n");
 }
 
+std::FILE* g_audio = nullptr;
+
+/// The `path=` of `-audiodev wav,...`, unescaped as QEMU's keyval does: `,,` is
+/// a literal comma and a single comma ends the option (util/keyval.c:281-292).
+std::string wav_audio_path(int argc, char** argv) {
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (std::strcmp(argv[i], "-audiodev") != 0) continue;
+        const std::string v = argv[i + 1];
+        if (v.rfind("wav,", 0) != 0) return {};
+        std::string tok;
+        for (std::size_t k = 4; k <= v.size(); ++k) {
+            if (k < v.size() && v[k] == ',' && k + 1 < v.size() && v[k + 1] == ',') { tok += ','; ++k; continue; }
+            if (k == v.size() || v[k] == ',') {
+                if (tok.rfind("path=", 0) == 0) return tok.substr(5);
+                tok.clear();
+                continue;
+            }
+            tok += v[k];
+        }
+        return {};
+    }
+    return {};
+}
+
+std::string read_whole(const char* name) {
+    std::string out;
+    if (std::FILE* f = std::fopen(join(g_dir, name).c_str(), "rb")) {
+        char buf[4096];
+        std::size_t n;
+        while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) out.append(buf, n);
+        std::fclose(f);
+    }
+    return out;
+}
+
+void play_audio() {
+    const std::string tone = read_whole("tone.wav");
+    const std::string loop = read_whole("tone.loop");
+    if (!tone.empty()) {
+        std::fwrite(tone.data(), 1, tone.size(), g_audio);
+        std::fclose(g_audio);
+        g_audio = nullptr;
+    } else if (loop.size() > 44) {
+        std::fwrite(loop.data(), 1, 44, g_audio);
+        std::size_t at = 44;
+        while (!g_stop) {
+            const std::size_t n = std::min<std::size_t>(1764, loop.size() - at);   // 10 ms of 44.1 kHz s16 stereo
+            if (std::fwrite(loop.data() + at, 1, n, g_audio) != n) break;
+            at += n;
+            if (at >= loop.size()) at = 44;
+            sleep_ms(10);
+        }
+    }
+}
+
 void orderly_stop() {
     if (g_stubborn) return;
     write_text("graceful", "1\n");
@@ -263,6 +328,16 @@ int qemu_main(int argc, char** argv) {
         if (std::strcmp(argv[i], "-chardev") == 0) chardev = argv[i + 1];
         if (std::strcmp(argv[i], "-monitor") == 0 && std::strcmp(argv[i + 1], "stdio") == 0)
             monitor_stdio = true;
+    }
+
+    const std::string wav_path = wav_audio_path(argc, argv);
+    if (!wav_path.empty()) {
+        g_audio = std::fopen(wav_path.c_str(), "wb");
+        write_text("audio", g_audio ? std::string("opened\n") : "failed " + std::to_string(errno) + "\n");
+        if (g_audio) {
+            std::setvbuf(g_audio, nullptr, _IONBF, 0);
+            esp::net::start_detached(play_audio);
+        }
     }
 
     // Bounded whatever a row does or fails to do.
