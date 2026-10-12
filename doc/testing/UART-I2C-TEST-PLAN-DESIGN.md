@@ -494,7 +494,10 @@ The wire on the Pi GPIO header handed to the host as a `UartDevice` on UART 1
 through the NR 0xA0 GPIO mux (`zxnext.vhd:2278-2281`): bits 5 and 4 together
 put UART 1 on GPIO 14/15 wired for a Pi, the value NextPi's `.pisend` writes
 (0x30). Rows live in `test/uart/uart_posix_test.cpp` (group PI), POSIX-only
-since GH #214.
+since GH #214, except PI-10..14, 16, 21..25, 27..29, 31, 33 and 38..44 (the
+provisioner, the archive reader and pure policy functions), which run on every OS
+in `test/uart/nextpi_test.cpp` since GH #331 (rows, IDs and assertions unchanged;
+their fixtures are shared through `test/uart/nextpi_fixtures.h`).
 PI-01..05 drive the link over real FIFOs, like the JOY rows; each fails (does
 not crash) when no link is attached, so removing `setup_pi_uart()` from `init()`
 turns all five red, and removing the NR 0xA0 probe turns PI-02 red. PI-06..09
@@ -578,8 +581,8 @@ wine. The QEMU stand-in is a program (`nextpi_qemu_stub.cpp`) copied as
 `qemu-system-arm[.exe]` / `qemu-img[.exe]`. Oracles: RFC 1321; qemu(1) 10.2
 `-chardev socket` and QEMU's `char-socket.c` (host defaults to 0.0.0.0, a listener
 waits for a client unless `wait=off`, the listener re-arms after a disconnect);
-`zxnext.vhd:2278-2281`; the `JoyUartLink` contract. The moved provisioner rows and
-the Windows audio path are a later stage (a separate issue).
+`zxnext.vhd:2278-2281`; the `JoyUartLink` contract. The provisioner rows
+listed in Group 17 moved here in GH #331; the Windows audio path follows in the same issue.
 
 | ID | Stimulus | Expected |
 |----|----------|----------|
