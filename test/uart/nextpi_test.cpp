@@ -1988,9 +1988,11 @@ int main(int argc, char** argv) {
         spec.transport   = PiQemu::Transport::Socket;
         spec.poll_sleep  = stretched_sleep;
 #ifdef _WIN32
-        const long max_ms = 2500;
+        const long min_ms = 1000, max_ms = 2500;
+        const int  max_sleeps = 4;   // polls at 0, 250, 500, 750 ms stretched
 #else
-        const long max_ms = 1000;
+        const long min_ms = 300, max_ms = 1000;
+        const int  max_sleeps = 2;   // polls at 0, 250 ms stretched
 #endif
         std::string error;
         const int sleeps0 = g_stretched_sleeps;
@@ -2005,9 +2007,9 @@ int main(int argc, char** argv) {
               "polls: with every launcher poll sleep stretched five-fold (and seen to be, during start()), "
               "start() of a healthy QEMU returns in about a window, not five times that (jnext-only, no "
               "VHDL counterpart)",
-              started && sleeps >= 1 && ms < max_ms,
-              fmt("started=%d (%s) stretched sleeps in start()=%d (want >=1) start took %ld ms (want <%ld)",
-                  started ? 1 : 0, error.c_str(), sleeps, ms, max_ms));
+              started && sleeps >= 1 && sleeps <= max_sleeps && ms >= min_ms && ms < max_ms,
+              fmt("started=%d (%s) stretched sleeps in start()=%d (want 1..%d) start took %ld ms (want %ld..%ld)",
+                  started ? 1 : 0, error.c_str(), sleeps, max_sleeps, ms, min_ms, max_ms));
     }
 
     // ── PIT-18 — THE FEATURE ON EVERY OS: the Pi's sound reaches the Next's mixer
