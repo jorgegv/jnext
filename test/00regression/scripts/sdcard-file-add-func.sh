@@ -189,8 +189,9 @@ if want sdcard-file-add-func; then
     # terminating NUL), and every host-side name it derives goes through that
     # function (mainloop.c:595 mpGetBasename -> mcopy.c:94 buildUnixFilename).
     # Where the system iconv leaves a stale EILSEQ in errno (macOS) a name gets a
-    # "_" and the tail of the previous name in its buffer: ".dotfile_", and
-    # intermittently "sub_file" for "sub". So:
+    # "_" and the tail of the previous name in its buffer: a leading-dot file
+    # gets a trailing "_", and intermittently "sub_file" is written for "sub".
+    # So:
     #   - names, nesting, file/dir type and the empty dir come from ONE exact
     #     `mdir -/ -b` listing of the card, compared with the source tree;
     #   - bytes come from one `mcopy -n` per file to an EXPLICIT host name (never
