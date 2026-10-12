@@ -24,6 +24,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # (sector 63), formatted with 512-byte clusters so the script takes its
 # no-reformat path: the zx81 step runs the same after either path. They live
 # under $RUN_DIR, which the harness's own trap removes (no trap here, GH #153).
+# Rows F and G (GH #330) cover the re-cluster path, see below.
 if want fix-sdcard-image-func; then
     begin_func fix-sdcard-image-func
 
@@ -138,12 +139,115 @@ if want fix-sdcard-image-func; then
         mkimg "$W/e.img" && run_fix E "$W/e.img" "$W/e-fixed.img"
         ! zx81_of "$W/e-fixed.img" "$W/e.out" \
             || faults+=("E: a zx81.rom was created on an image that had none")
+
+        # --- F, G: the RE-CLUSTER path (GH #330) ------------------------------
+        # A, B..E take the no-reformat path. A real under-clustered card is
+        # re-formatted: the whole tree is extracted with `mcopy -s`, the
+        # partition is re-formatted with 8 KB clusters and the tree is copied
+        # back. mtools 4.0.49 (charsetConv.c:204 safe_iconv, an inverted errno
+        # test) can name the extracted HOST files wrongly (macOS), and the copy
+        # back would then write those names onto the card. The script therefore
+        # verifies the extraction against the card before it re-formats.
+        #
+        # The image is sparse: 600 MB, partition at sector 63, 32 KB clusters
+        # (-c 64, the shipped under-clustered shape), so CSIZE >= 32 and the
+        # script re-clusters to 8 KB (>= 65525 clusters needs about 520 MB).
+        # BIG: the tree on that image, laid out on the host first so its card
+        # listing can be derived from it. No file name contains "_" (the defect
+        # only appends text that starts with "_").
+        BIG="$W/big-tree"
+        mkdir -p "$BIG/machines/next" "$BIG/sub/nested" "$BIG/empty"
+        head -c 16384 /dev/zero | tr '\0' 'H' > "$BIG/machines/next/48.rom"
+        head -c 21000 /dev/urandom > "$BIG/sub/nested/A Long Nested Name.bin"
+        head -c  4321 /dev/urandom > "$BIG/sub/deep.dat"
+        head -c   999 /dev/urandom > "$BIG/top.bin"
+        head -c    17 /dev/urandom > "$BIG/.dotfile"
+        head -c    33 /dev/urandom > "$BIG/a[1].bin"
+        big_files=(); big_want=""
+        while IFS= read -r -d '' p; do
+            rel=${p#"$BIG"/}
+            [[ "$rel" != *_* ]] || faults+=("harness: fixture name '$rel' contains '_'")
+            if [[ -d "$p" ]]; then big_want+="::/$rel/"$'\n'
+            else big_want+="::/$rel"$'\n'; big_files+=("$rel"); fi
+        done < <(find "$BIG" -mindepth 1 \( -type d -o -type f \) -print0)
+        # what the script itself adds
+        big_want+="::/machines/next/config.ini"$'\n'
+        big_want=$(printf '%s' "$big_want" | LC_ALL=C sort)
+        mkbig() {   # mkbig <img> — under-clustered card holding $BIG
+            local sz=$((600 * 1024 * 1024)) rel d
+            rm -f "$1"; truncate -s "$sz" "$1"
+            LANG=C mformat -i "$1@@$OFF" -F -T $(( (sz - OFF) / 512 )) -h 255 -s 63 -c 64 :: \
+                </dev/null >/dev/null 2>&1 || return 1
+            while IFS= read -r -d '' d; do
+                LANG=C mmd -i "$1@@$OFF" "::/${d#"$BIG"/}" </dev/null >/dev/null 2>&1 || return 1
+            done < <(find "$BIG" -mindepth 1 -type d -print0 | LC_ALL=C sort -z)
+            for rel in "${big_files[@]}"; do
+                LANG=C mcopy -i "$1@@$OFF" "$BIG/$rel" "::/$rel" </dev/null >/dev/null 2>&1 || return 1
+            done
+        }
+        big_listing() {   # big_listing <img> — sorted `mdir -/ -a -b` of the card
+            LANG=C mdir -/ -a -b -i "$1@@$OFF" :: </dev/null 2>/dev/null | LC_ALL=C sort
+        }
+        if ! mkbig "$W/f.img"; then
+            faults+=("harness: could not build the under-clustered scratch card")
+        else
+            # F — CONTROL: no defect, the card is re-clustered and the tree
+            #     survives (also the first coverage of the re-cluster path).
+            run_fix F "$W/f.img" "$W/f-fixed.img"
+            [[ "$(big_listing "$W/f-fixed.img")" == "$big_want" ]] \
+                || faults+=("F: the re-clustered card lists a different tree: $(diff <(printf '%s\n' "$big_want") <(big_listing "$W/f-fixed.img") | head -6 | tr '\n' ';')")
+            for rel in "${big_files[@]}"; do
+                rm -f "$W/f.out"
+                LANG=C mcopy -n -i "$W/f-fixed.img@@$OFF" "::/${rel//\[/\\[}" "$W/f.out" </dev/null 2>/dev/null \
+                    && cmp -s "$W/f.out" "$BIG/$rel" \
+                    || faults+=("F: '$rel' is missing or has different bytes after the re-cluster")
+            done
+            f_cs=$(LANG=C minfo -i "$W/f-fixed.img@@$OFF" :: </dev/null 2>/dev/null \
+                   | sed -n 's/.*-c \([0-9][0-9]*\).*/\1/p' | head -1)
+            [[ "$f_cs" == 16 ]] || faults+=("F: the re-clustered card has -c '$f_cs', not 16 (8 KB clusters)")
+            rm -f "$W/f-fixed.img" "$W/f.out"
+
+            # G — a defect-mimicking mcopy: after the bulk extraction it
+            #     renames one host file (G-a) or drops one (G-b: the card has
+            #     an entry no host file stands for). The script must refuse
+            #     BEFORE it re-formats, with the source and the copy untouched.
+            real_mcopy=$(command -v mcopy)
+            mkdir -p "$W/wrapbin"
+            cat > "$W/wrapbin/mcopy" <<WRAP
+#!/bin/sh
+"$real_mcopy" "\$@" || exit \$?
+case " \$* " in *" -s "*) ;; *) exit 0 ;; esac
+for last; do :; done
+case "\$last" in :*) exit 0 ;; esac
+case "\$GH330_MODE" in
+  rename) mv "\${last}top.bin" "\${last}top.bin_file" ;;
+  drop)   rm -f "\${last}top.bin" ;;
+esac
+WRAP
+            chmod +x "$W/wrapbin/mcopy"
+            for mode in rename drop; do
+                rc=0
+                GH330_MODE=$mode PATH="$W/wrapbin:$PATH" LANG=C timeout --kill-after=5s 120s \
+                    bash "$FIX" "$W/f.img" "$W/g-$mode.img" > "$W/G-$mode.log" 2>&1 || rc=$?
+                [[ $rc != 0 ]] || faults+=("G-$mode: the script accepted a mis-named extraction (exit 0)")
+                grep -q "GH #330" "$W/G-$mode.log" \
+                    || faults+=("G-$mode: no GH #330 refusal in the output: $(tail -n1 "$W/G-$mode.log")")
+                [[ $mode != rename ]] || grep -q "top.bin_file" "$W/G-$mode.log" \
+                    || faults+=("G-rename: the refusal does not name the bad entry")
+                ! grep -q "Reformatting partition" "$W/G-$mode.log" \
+                    || faults+=("G-$mode: the partition was re-formatted before the refusal")
+                cmp -s "$W/f.img" "$W/g-$mode.img" \
+                    || faults+=("G-$mode: the destination image was changed by a refused run")
+                rm -f "$W/g-$mode.img"
+            done
+        fi
+        rm -f "$W/f.img" "$W/f-fixed.img"
     fi
 
     rm -rf "$W"
 
     if [[ ${#faults[@]} -eq 0 ]]; then
-        pass_row " (the 24.11 16 KB zx81.rom becomes itself twice; a re-run, another 16 KB file, another size and no file are left alone)"
+        pass_row " (the 24.11 16 KB zx81.rom becomes itself twice; a re-run, another 16 KB file, another size and no file are left alone; an under-clustered card is re-clustered with its tree intact, and a mis-named extraction is refused before the re-format)"
     else
         fail_row " (${#faults[@]} fault(s) in tools/fix-sdcard-image.sh)"
         printf '      %s\n' "${faults[@]}"
