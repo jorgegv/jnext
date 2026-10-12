@@ -29,12 +29,12 @@ mentions them, so a test can no longer be absent from this document.
 | Tilemap                                    |    98 |   98 |    0 |    0 |       0 |          0 |
 | Copper                                     |   110 |  110 |    0 |    0 |       0 |          0 |
 | Compositor                                 |   294 |  294 |    0 |    0 |       0 |          0 |
-| Audio                                      |   221 |  221 |    0 |    0 |       0 |          0 |
+| Audio                                      |   243 |  243 |    0 |    0 |       0 |          0 |
 | DMA                                        |   185 |  185 |    0 |    0 |       0 |          0 |
 | DivMMC+SPI                                 |   162 |  162 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    57 |   57 |    0 |    0 |       0 |          0 |
 | CTC+Interrupts                             |   203 |  203 |    0 |    0 |       0 |          0 |
-| UART+I2C/RTC                               |   185 |  185 |    0 |    0 |       0 |          0 |
+| UART+I2C/RTC                               |   204 |  204 |    0 |    0 |       0 |          0 |
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
 | Input                                      |   401 |  401 |    0 |    0 |       0 |          0 |
@@ -64,11 +64,11 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    43 |   43 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
-| Companion: uart_posix_test                 |    55 |   55 |    0 |    0 |       0 |          0 |
-| Companion: nextpi_test                     |    15 |   15 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5716 | 5716 |    0 |    0 |       0 |          0 |
+| Companion: uart_posix_test                 |    72 |   72 |    0 |    0 |       0 |          0 |
+| Companion: nextpi_test                     |    17 |   17 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5776 | 5776 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5716**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5322**. Rows the 143 suites declared in `test/unit-tests.conf` run live: **12791**.
+Rows the sections above carry: **5776**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5363**. Rows the 144 suites declared in `test/unit-tests.conf` run live: **12832**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -1805,16 +1805,38 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | MX-05 | DAC L max -> signed = 4064 | audio_mixer.vhd:86-87 | pass | test/audio/audio_test.cpp:2999 |
 | MX-06 | I2S max (1023,1023) sums into L and R (10->13 zero-extend) | audio_mixer.vhd:89-90,99-100 | pass | test/audio/audio_test.cpp:3034 |
 | MX-07 | I2S min (0,0) is a full-NEGATIVE excursion about the 0x200 midpoint, not silence | i2s.vhd:179, zxnext.vhd:2358-2359, audio_mixer.vhd:89-90 | pass | test/audio/audio_test.cpp:3060 |
-| MX-10 | silence: pcm_L = 0 | audio_mixer.vhd:99 | pass | test/audio/audio_test.cpp:3093 |
-| MX-11 | silence: pcm_R = 0 | audio_mixer.vhd:100 | pass | test/audio/audio_test.cpp:3104 |
-| MX-12 | reset empties ring buffer | audio_mixer.vhd:95-97 | pass | test/audio/audio_test.cpp:3141 |
-| MX-13 | EAR+MIC contribute equally to L and R | audio_mixer.vhd:99-100 | pass | test/audio/audio_test.cpp:3154 |
-| MX-14 | EAR+MIC+DAC subset sum: signed = 6624 | audio_mixer.vhd:99 | pass | test/audio/audio_test.cpp:3170 |
-| MX-15 | full-scale mix does not saturate: 512+128+2295+2040+1023 = 5998 arrives intact on both channels | audio_mixer.vhd:63-64,80-89,99-100 | pass | test/audio/audio_test.cpp:3219 |
-| MX-16 | silence with the Pi I2S input wired and idle is digital ZERO, not its 0x200 midpoint | zxnext.vhd:2358-2359, i2s.vhd:179, audio_mixer.vhd:89-90 | pass | test/audio/audio_test.cpp:3128 |
+| MX-31 | the Pi I2S source prebuffers 2205 frames (50 ms) before playing, reports an underrun as silence when it runs dry, and prebuffers again before resuming (jnext-only buffering, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:170 |
+| MX-32 | a Pi I2S backlog beyond the maximum latency is trimmed to 4410 frames (100 ms) by dropping the oldest frames (jnext-only buffering, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:201 |
+| MX-33 | with nothing consuming, the Pi I2S ring keeps exactly its capacity (131072 frames) and drops, counting them, the frames past it (jnext-only buffering, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:234 |
+| MX-42 | after a pause longer than the Pi I2S ring, the stale frames are flushed and playback resumes on fresh audio after the prebuffer (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:275 |
+| MX-43 | two Pi audio streams back to back with no EOF between them: the second WAV header is recognised in-stream and skipped, and all 6000 frames arrive exact (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:324 |
+| MX-44 | a frame written to the Pi's audio FIFO is poppable at once: the median of ten write-to-available times is under 25 ms (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:488 |
+| MX-45 | closing the Pi audio reader while its writer is connected but silent returns within 250 ms (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:509 |
+| MX-46 | after a writer goes, a new writer's frame reaches the Pi audio reader within 100 ms (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:546 |
+| MX-47 | an idle Pi audio reader, its writer connected but silent, uses under 30 ms of CPU in 300 ms and wakes at most 6 times: it sleeps in poll() for 100 ms at a time (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:577 |
+| MX-34 | when QEMU reopens the Pi's audio FIFO, the new stream's WAV header is skipped and a half frame left by the old writer is discarded, so every frame arrives exact (jnext-only buffering, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:617 |
+| MX-35 | the Pi's audio FIFO: a path that exists and is not a FIFO is refused, a FIFO that cannot be made reports mkfifo's error, and a new one is created 0600 (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:648 |
+| MX-36 | a Pi I2S backlog of exactly 13230 frames (300 ms) is not trimmed; 13231 frames are trimmed to 4410 (jnext-only buffering, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:686 |
+| MX-37 | with no writer on the Pi's audio FIFO, the reader pauses after each read that finds none, and polls for 20 ms at a time: 8 to 60 wakeups in 600 ms, so it neither spins nor leaves a new writer waiting (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:722 |
+| MX-38 | a pause by a live writer of the Pi's audio FIFO (EAGAIN) does not end the stream: a frame split across a 250 ms pause is reassembled and every frame arrives exact (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:763 |
+| MX-39 | the Pi audio reader holds one close-on-exec descriptor on its FIFO, a second open does not leak the first, and close() releases it and forgets it, so closing again cannot close a descriptor that reused its number (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:808 |
+| MX-40 | a signal interrupting the Pi audio reader's poll() (EINTR) does not end the reader: a stream written afterwards still arrives (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:855 |
+| MX-41 | the Pi I2S source delivers a continuous stream: PiAudio reads QEMU's WAV stream from a FIFO frame for frame (header and frames split across writes), to_i2s maps it to 10-bit offset binary, and a Pi frame reaches the mix; all 3000 frames are counted received and none dropped (i2s.vhd:177-180) | i2s.vhd:177-180 | pass | test/audio/audio_posix_test.cpp:131 |
+| MX-48 | NR 0xA2 bit 0's EAR comparator rises at L(9:8) OR R(9:8) = 11, falls at 00 and holds in between, on the raw samples, either channel driving it (zxnext.vhd:2361-2373) | zxnext.vhd:2361-2373 | pass | test/audio/audio_test.cpp:3096 |
+| MX-49 | NR 0xA2 bit 0's EAR comparator is forced to 0 unless I2S is enabled (b7 or b6) and bit 0 is set, re-evaluated on each NR 0xA2 write; with bit 0 set the Pi leaves the mixer (0x200); reset clears it (zxnext.vhd:2358-2373) | zxnext.vhd:2358-2373 | pass | test/audio/audio_test.cpp:3119 |
+| MX-50 | after the ring overflowed during a pause, the flush also ends playback: 100 fresh frames (below the 2205-frame prebuffer) are not played, and the prebuffer's worth is, from its first frame (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:370 |
+| MX-51 | a second stream's WAV header split between its 12th and 44th byte across two reads is still skipped whole: exactly 6000 frames arrive, exact (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:409 |
+| MX-52 | audio frames that spell RIFF at a frame boundary without WAVE at byte 8 are played as audio, not skipped as a header: all 3003 frames arrive, exact (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:444 |
+| MX-10 | silence: pcm_L = 0 | audio_mixer.vhd:99 | pass | test/audio/audio_test.cpp:3154 |
+| MX-11 | silence: pcm_R = 0 | audio_mixer.vhd:100 | pass | test/audio/audio_test.cpp:3165 |
+| MX-12 | reset empties ring buffer | audio_mixer.vhd:95-97 | pass | test/audio/audio_test.cpp:3202 |
+| MX-13 | EAR+MIC contribute equally to L and R | audio_mixer.vhd:99-100 | pass | test/audio/audio_test.cpp:3215 |
+| MX-14 | EAR+MIC+DAC subset sum: signed = 6624 | audio_mixer.vhd:99 | pass | test/audio/audio_test.cpp:3231 |
+| MX-15 | full-scale mix does not saturate: 512+128+2295+2040+1023 = 5998 arrives intact on both channels | audio_mixer.vhd:63-64,80-89,99-100 | pass | test/audio/audio_test.cpp:3280 |
+| MX-16 | silence with the Pi I2S input wired and idle is digital ZERO, not its 0x200 midpoint | zxnext.vhd:2358-2359, i2s.vhd:179, audio_mixer.vhd:89-90 | pass | test/audio/audio_test.cpp:3189 |
 | MX-17 | an assembled power-on machine emits DIGITAL ZERO — silence is 0, so a zero-padded device seam is inaudible [GH #116] | zxnext.vhd:2358-2359, i2s.vhd:179, audio_mixer.vhd:89-90,99-100 | pass | test/audio/audio_nextreg_test.cpp:979 |
 | MX-20 | exc_i silencing path fires for exactly one NR combination (speaker_beep=1 AND speaker_en=1) [zxnext.vhd:6504] | zxnext.vhd:6504 | pass | test/audio/audio_nextreg_test.cpp:856 |
-| MX-21 | exc_i=0 reopens both beeper muxes combinationally: EAR contributes 512, MIC 128, together 640 (x4 into int16) | audio_mixer.vhd:63-64,80-81 | pass | test/audio/audio_test.cpp:3262 |
+| MX-21 | exc_i=0 reopens both beeper muxes combinationally: EAR contributes 512, MIC 128, together 640 (x4 into int16) | audio_mixer.vhd:63-64,80-81 | pass | test/audio/audio_test.cpp:3323 |
 | MX-22 | exc_i depends only on NR 0x06 b6 + NR 0x08 b4 — no AY/DAC/issue2 crosstalk [zxnext.vhd:6504] | zxnext.vhd:6504 | pass | test/audio/audio_nextreg_test.cpp:877 |
 | MX-23 | Mixer gates EAR/MIC when exc_i=1 (audio_mixer.vhd:80-81; exc_i = beep_spkr_excl per zxnext.vhd:6504) | audio_mixer.vhd:80-81, zxnext.vhd:6504 | pass | test/audio/audio_nextreg_test.cpp:931 |
 | AUD-NR-01 | NR 0x06 bits[1:0] handler forwards to TurboSound::ay_mode [zxnext.vhd:5170, :6389] | zxnext.vhd:5170,6389 | pass | test/audio/audio_nextreg_test.cpp:165 |
@@ -1861,10 +1883,10 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | AY-63b | a single shared noise drives all three channel mixers (A == B == C on every tick, with the stream actually moving) | ym2149.vhd:302,470-472 | pass | test/audio/audio_test.cpp:915 |
 | AY-101a | env period 0 -> comp=0 | ym2149.vhd:335 | pass | test/audio/audio_test.cpp:1362 |
 | AY-101b | env period 1 -> comp=0 | ym2149.vhd:335 | pass | test/audio/audio_test.cpp:1366 |
-| MX-BL-01 | emit_sample = time-weighted average of the interval | — | pass | test/audio/audio_test.cpp:3307 |
-| MX-BL-02 | a supersonic beeper averages out instead of aliasing | — | pass | test/audio/audio_test.cpp:3338 |
-| MX-BL-03 | emit with nothing accumulated produces no sample | — | pass | test/audio/audio_test.cpp:3351 |
-| MX-BL-04 | generate_sample == accumulate(1) + emit_sample | — | pass | test/audio/audio_test.cpp:3369 |
+| MX-BL-01 | emit_sample = time-weighted average of the interval | — | pass | test/audio/audio_test.cpp:3368 |
+| MX-BL-02 | a supersonic beeper averages out instead of aliasing | — | pass | test/audio/audio_test.cpp:3399 |
+| MX-BL-03 | emit with nothing accumulated produces no sample | — | pass | test/audio/audio_test.cpp:3412 |
+| MX-BL-04 | generate_sample == accumulate(1) + emit_sample | — | pass | test/audio/audio_test.cpp:3430 |
 
 ## DMA — `test/dma/dma_test.cpp`
 
@@ -2632,7 +2654,7 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PI-03 | with the Pi link attached, a UART 1 transmission goes to the Pi only — UART 1's unattached loopback is off, so the guest does not read its own byte back | — | pass | test/uart/uart_posix_test.cpp:688 |
 | PI-04 | while NR 0x0B routes UART 1 to the joystick connector (zxnext.vhd:3340-3341, :3526-3531) the Pi link is isolated in both directions; with the mux off it carries traffic again | zxnext.vhd:3340-3341,3526-3531 | pass | test/uart/uart_posix_test.cpp:729 |
 | PI-05 | a soft reset keeps the Pi link attached to UART 1 (the Pi does not see a Next-side reset) while NR 0xA0 returns to 0x00 (zxnext.vhd:5080); traffic flows again once it is set | zxnext.vhd:5080 | pass | test/uart/uart_posix_test.cpp:769 |
-| PI-06 | jnext builds a raspi0 command line booting the NextPi directory's kernel, device tree and overlay, with the console UART on the pipe chardev jnext opens; -audiodev is the platform default, a named driver, or wav:FILE | — | pass | test/uart/uart_posix_test.cpp:812 |
+| PI-06 | jnext builds a raspi0 command line booting the NextPi directory's kernel, device tree and overlay, with the console UART on the pipe chardev jnext opens; -audiodev is `host`: the platform's default output, a named driver, or wav:FILE | — | pass | test/uart/uart_posix_test.cpp:812 |
 | PI-07 | starting NextPi is refused before boot, leaving nothing running, when the NextPi directory is incomplete, when QEMU is not installed, and when QEMU exits at once | — | pass | test/uart/uart_posix_test.cpp:851 |
 | PI-08 | NextPi end to end: jnext creates the overlay and the FIFOs, starts QEMU on its pipe chardev, the guest reads the Pi's SUP> on UART 1 and the Pi receives the guest's byte; stopping the launcher ends the process with SIGTERM (not the SIGKILL fallback) and removes the FIFOs | — | pass | test/uart/uart_posix_test.cpp:903 |
 | PI-09 | a rebuilt Emulator (a hard reset) reconnects to the same running Pi through the same FIFOs; the Pi received both machines' bytes in order | — | pass | test/uart/uart_posix_test.cpp:948 |
@@ -2674,6 +2696,23 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PI-45 | the fallback's last resort, the number walk, marks the same descriptors, fd 3 and its last number included; it goes up to sysconf's limit capped at 65536, and to 65536 when the limit is indeterminate (-1) or 0 | — | pass | test/uart/uart_posix_test.cpp:1918 |
 | PI-46 | the close-on-exec fallback reads /proc/self/fd where it exists, else /dev/fd, falls back to /dev/fd when the first list cannot be read, and walks the numbers only with no list; each marks fd 57 | — | pass | test/uart/uart_posix_test.cpp:1961 |
 | PI-47 | the open-descriptor list read from /dev/fd (and /proc/self/fd where it exists) names the open descriptors (fd 57) but not the directory's own, which is closed again: no descriptor is left open by reading the list or by the walk that marks from it | — | pass | test/uart/uart_posix_test.cpp:2011 |
+| PI-48 | NextPi's sound reaches the Next's mixer over I2S: QEMU writes it to a FIFO PiQemu reads, the emulator latches it per sample, and NR 0xA2 gates it (0x00 silent, 0xC0 the Pi's square wave, each channel on its own side at its exact level: left +-1024 and right +-512) (i2s.vhd:177-180, zxnext.vhd:2358-2359) | i2s.vhd:177-180, zxnext.vhd:2358-2359 | pass | test/uart/uart_posix_test.cpp:2145 |
+| PI-49 | neither a rewind replay nor an RZX playback consumes the Pi's sound; a replay produces no audio at all, and an RZX playback leaves the I2S input silent (0x200 in both channels, so every output sample is 0); live again, the emulator draws exactly one Pi frame per mixer output sample; the I2S input resets to 0x200 with or without a Pi (i2s_receive.vhd:129-130, i2s.vhd:177-180) | i2s.vhd:177-180, i2s_receive.vhd:129-130 | pass | test/uart/uart_posix_test.cpp:2215 |
+| PI-50 | the warm-start recording boot gets no NextPi audio reader (one consumer of the Pi's sound; jnext-only, no VHDL counterpart) | — | pass | test/uart/uart_posix_test.cpp:2240 |
+| PI-51 | when the Pi's audio FIFO cannot be created, starting NextPi fails with that error and starts no QEMU (jnext-only, no VHDL counterpart) | — | pass | test/uart/uart_posix_test.cpp:2286 |
+| PI-52 | the -audiodev value that sends the Pi's sound to the mixer escapes a comma in the FIFO path, and asks for 44.1 kHz s16 stereo (jnext-only, no VHDL counterpart) | — | pass | test/uart/uart_posix_test.cpp:2302 |
+| PI-54 | the Pi audio setting `host` gives QEMU the platform's default output (pa; coreaudio on macOS), and the empty setting the mixer's wav FIFO (jnext-only, no VHDL counterpart) | — | pass | test/uart/uart_posix_test.cpp:2327 |
+| PI-53 | with the Pi's audio set to a QEMU driver ("none"), QEMU is given that driver, not the mixer's wav FIFO, and jnext makes no audio reader or FIFO (jnext-only, no VHDL counterpart) | — | pass | test/uart/uart_posix_test.cpp:2356 |
+| PI-55 | the guest reads the Pi's live sample on NR 0x2C/0x2E in a live run and during an RZX recording (the recorder stores IN values), and the rest value 0x200 (0x80, NR 0x2D 0) in a rewind replay and an RZX playback; a restored snapshot puts the latch at rest (zxnext.vhd:6006-6015) | zxnext.vhd:6006-6015 | pass | test/uart/uart_posix_test.cpp:2433 |
+| PI-56 | with NR 0xA2 bit 0 set, port 0xFE bit 6 reads the Pi's EAR comparator, toggling with a Pi square wave; with bit 0 clear, and during a rewind replay, it reads 0 (zxnext.vhd:2361-2373, :3459) | zxnext.vhd:2361-2373 | pass | test/uart/uart_posix_test.cpp:2519 |
+| PI-57 | with NR 0xA2 bit 0 set and a tape playing a steady high level, port 0xFE bit 6 is the tape XOR the Pi's EAR comparator (zxnext_top_issue2.vhd:673) | zxnext_top_issue2.vhd:673 | pass | test/uart/uart_posix_test.cpp:2560 |
+| PI-58 | a steady Pi EAR level reads 1 on port 0xFE bit 6 from its edge, still 1 30000 master cycles later, and relaxed to the issue-2 level (0) 34000 cycles after it (ear_relax, zxnext_top_issue2.vhd:663-677: 64 x 512 cycles) | zxnext_top_issue2.vhd:663-677, symmetric_relaxation.vhd | pass | test/uart/uart_posix_test.cpp:2597 |
+| PI-59 | with --silent the Pi's samples are still latched and NR 0xA2 bit 0's EAR path still toggles port 0xFE bit 6 (jnext-only: --silent has no VHDL counterpart) | — | pass | test/uart/uart_posix_test.cpp:2623 |
+| PI-60 | with issue-2 keyboard mode and MIC set, a Pi EAR level that fell reads 0 on port 0xFE bit 6 at its edge and 30000 master cycles later, and has relaxed to the MIC level (1) 34000 cycles after it (ear_relax i_relax_0/1 = zxn_issue2_fe_mic, zxnext_top_issue2.vhd:675-676) | zxnext_top_issue2.vhd:675-676, symmetric_relaxation.vhd | pass | test/uart/uart_posix_test.cpp:2668 |
+| PI-61 | setting NR 0xA2 bit 0 while the Pi's sample is already at t = 11 raises the EAR comparator at the write: port 0xFE bit 6 reads 1 at once and 30000 master cycles later, and has relaxed 34000 after it (zxnext.vhd:2361-2373, zxnext_top_issue2.vhd:663-677) | zxnext.vhd:2361-2373, zxnext_top_issue2.vhd:663-677 | pass | test/uart/uart_posix_test.cpp:2711 |
+| PI-62 | restoring a snapshot taken while the Pi's EAR comparator was 1 leaves it 0 (it is not in the stream), and port 0xFE bit 6 then reads the relaxed issue-2 MIC level at once (zxnext.vhd:2361-2373; jnext-only: snapshots have no VHDL counterpart) | zxnext.vhd:2361-2373 | pass | test/uart/uart_posix_test.cpp:2755 |
+| PI-63 | under --silent a rewind replay does not consume the Pi's sound, and a live run does (jnext-only: --silent and the rewind replay have no VHDL counterpart) | — | pass | test/uart/uart_posix_test.cpp:2795 |
+| PI-64 | a tape save made while NR 0xA2 bit 0 sends a Pi square wave to the EAR input records the comparator's edges: the MIC jack carries i_AUDIO_EAR, which includes pi_fe_ear (zxnext.vhd:6503, zxnext_top_issue2.vhd:673) | zxnext.vhd:6503, zxnext_top_issue2.vhd:673 | pass | test/uart/uart_posix_test.cpp:2835 |
 | PIT-01 | nextpi::md5_file returns the RFC 1321 digest of a file (empty, short, and one crossing the 1 MiB read buffer) and "" for a file that does not exist | — | pass | test/uart/nextpi_test.cpp:371 |
 | PIT-02 | the socket transport's QEMU command line puts the console UART on a loopback-only, non-waiting listening socket chardev (host=127.0.0.1, server=on, wait=off) with no pipe chardev, the monitor on stdio on Windows and off elsewhere, and the rest of the raspi0 command line unchanged | — | pass | test/uart/nextpi_test.cpp:410 |
 | PIT-03 | the default Pi audio back-end is the host's own: dsound on Windows, coreaudio on macOS, pa elsewhere | — | pass | test/uart/nextpi_test.cpp:429 |
@@ -2689,6 +2728,8 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PIT-13 | when the process running NextPi is killed outright, QEMU is stopped with it instead of being left orphaned with the overlay locked | — | pass | test/uart/nextpi_test.cpp:928 |
 | PIT-14 | QEMU inherits none of jnext's other handles: an inheritable pipe holding a magic string that jnext has open cannot be read in the child | — | pass | test/uart/nextpi_test.cpp:954 |
 | PIT-15 | QEMU runs with LANG=C and LC_ALL=C, each exactly once whatever the case of the parent's variable names, and jnext's own environment is left alone | — | pass | test/uart/nextpi_test.cpp:998 |
+| PIT-16 | an empty Pi audio setting is the Next's mixer (the wav FIFO) on Linux and macOS and the host output (dsound) on Windows, where there is no mixer path yet; `host` is the host output on every OS (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1035 |
+| PIT-17 | starting NextPi with the audio setting empty gives QEMU the mixer's wav FIFO and makes the audio reader on Linux and macOS (also on the socket transport), and gives QEMU dsound with no reader on Windows; link_config carries the reader (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1070 |
 | I2C-P05a | DS1307 - restart + read address 0xD1 returns ACK=0 | — | pass | test/uart/uart_test.cpp:1776 |
 | I2C-P05b | DS1307 - seconds register is valid BCD (upper<=5, lower<=9) | — | pass | test/uart/uart_test.cpp:1780 |
 | RTC-23 | GH #317 parse_rtc_datetime — an overflowing, signed or space-padded field and a wrong separator are rejected; unpadded digit fields still parse | — | pass | test/uart/uart_test.cpp:2341 |
@@ -6158,7 +6199,7 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PI-03 | with the Pi link attached, a UART 1 transmission goes to the Pi only — UART 1's unattached loopback is off, so the guest does not read its own byte back | — | pass | test/uart/uart_posix_test.cpp:688 |
 | PI-04 | while NR 0x0B routes UART 1 to the joystick connector (zxnext.vhd:3340-3341, :3526-3531) the Pi link is isolated in both directions; with the mux off it carries traffic again | zxnext.vhd:3340-3341,3526-3531 | pass | test/uart/uart_posix_test.cpp:729 |
 | PI-05 | a soft reset keeps the Pi link attached to UART 1 (the Pi does not see a Next-side reset) while NR 0xA0 returns to 0x00 (zxnext.vhd:5080); traffic flows again once it is set | zxnext.vhd:5080 | pass | test/uart/uart_posix_test.cpp:769 |
-| PI-06 | jnext builds a raspi0 command line booting the NextPi directory's kernel, device tree and overlay, with the console UART on the pipe chardev jnext opens; -audiodev is the platform default, a named driver, or wav:FILE | — | pass | test/uart/uart_posix_test.cpp:812 |
+| PI-06 | jnext builds a raspi0 command line booting the NextPi directory's kernel, device tree and overlay, with the console UART on the pipe chardev jnext opens; -audiodev is `host`: the platform's default output, a named driver, or wav:FILE | — | pass | test/uart/uart_posix_test.cpp:812 |
 | PI-07 | starting NextPi is refused before boot, leaving nothing running, when the NextPi directory is incomplete, when QEMU is not installed, and when QEMU exits at once | — | pass | test/uart/uart_posix_test.cpp:851 |
 | PI-08 | NextPi end to end: jnext creates the overlay and the FIFOs, starts QEMU on its pipe chardev, the guest reads the Pi's SUP> on UART 1 and the Pi receives the guest's byte; stopping the launcher ends the process with SIGTERM (not the SIGKILL fallback) and removes the FIFOs | — | pass | test/uart/uart_posix_test.cpp:903 |
 | PI-09 | a rebuilt Emulator (a hard reset) reconnects to the same running Pi through the same FIFOs; the Pi received both machines' bytes in order | — | pass | test/uart/uart_posix_test.cpp:948 |
@@ -6200,6 +6241,23 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PI-46 | the close-on-exec fallback reads /proc/self/fd where it exists, else /dev/fd, falls back to /dev/fd when the first list cannot be read, and walks the numbers only with no list; each marks fd 57 | — | pass | test/uart/uart_posix_test.cpp:1961 |
 | PI-47 | the open-descriptor list read from /dev/fd (and /proc/self/fd where it exists) names the open descriptors (fd 57) but not the directory's own, which is closed again: no descriptor is left open by reading the list or by the walk that marks from it | — | pass | test/uart/uart_posix_test.cpp:2011 |
 | PI-38 | whether NextPi starts: --nextpi and --no-nextpi win, otherwise a GUI session follows the [nextpi] preference and a headless one starts nothing; only --nextpi makes a failure an error | — | pass | test/uart/uart_posix_test.cpp:2035 |
+| PI-48 | NextPi's sound reaches the Next's mixer over I2S: QEMU writes it to a FIFO PiQemu reads, the emulator latches it per sample, and NR 0xA2 gates it (0x00 silent, 0xC0 the Pi's square wave, each channel on its own side at its exact level: left +-1024 and right +-512) (i2s.vhd:177-180, zxnext.vhd:2358-2359) | i2s.vhd:177-180, zxnext.vhd:2358-2359 | pass | test/uart/uart_posix_test.cpp:2145 |
+| PI-49 | neither a rewind replay nor an RZX playback consumes the Pi's sound; a replay produces no audio at all, and an RZX playback leaves the I2S input silent (0x200 in both channels, so every output sample is 0); live again, the emulator draws exactly one Pi frame per mixer output sample; the I2S input resets to 0x200 with or without a Pi (i2s_receive.vhd:129-130, i2s.vhd:177-180) | i2s_receive.vhd:129-130, i2s.vhd:177-180 | pass | test/uart/uart_posix_test.cpp:2215 |
+| PI-50 | the warm-start recording boot gets no NextPi audio reader (one consumer of the Pi's sound; jnext-only, no VHDL counterpart) | — | pass | test/uart/uart_posix_test.cpp:2240 |
+| PI-51 | when the Pi's audio FIFO cannot be created, starting NextPi fails with that error and starts no QEMU (jnext-only, no VHDL counterpart) | — | pass | test/uart/uart_posix_test.cpp:2286 |
+| PI-52 | the -audiodev value that sends the Pi's sound to the mixer escapes a comma in the FIFO path, and asks for 44.1 kHz s16 stereo (jnext-only, no VHDL counterpart) | — | pass | test/uart/uart_posix_test.cpp:2302 |
+| PI-54 | the Pi audio setting `host` gives QEMU the platform's default output (pa; coreaudio on macOS), and the empty setting the mixer's wav FIFO (jnext-only, no VHDL counterpart) | — | pass | test/uart/uart_posix_test.cpp:2327 |
+| PI-53 | with the Pi's audio set to a QEMU driver ("none"), QEMU is given that driver, not the mixer's wav FIFO, and jnext makes no audio reader or FIFO (jnext-only, no VHDL counterpart) | — | pass | test/uart/uart_posix_test.cpp:2356 |
+| PI-55 | the guest reads the Pi's live sample on NR 0x2C/0x2E in a live run and during an RZX recording (the recorder stores IN values), and the rest value 0x200 (0x80, NR 0x2D 0) in a rewind replay and an RZX playback; a restored snapshot puts the latch at rest (zxnext.vhd:6006-6015) | zxnext.vhd:6006-6015 | pass | test/uart/uart_posix_test.cpp:2433 |
+| PI-56 | with NR 0xA2 bit 0 set, port 0xFE bit 6 reads the Pi's EAR comparator, toggling with a Pi square wave; with bit 0 clear, and during a rewind replay, it reads 0 (zxnext.vhd:2361-2373, :3459) | zxnext.vhd:2361-2373,3459 | pass | test/uart/uart_posix_test.cpp:2519 |
+| PI-57 | with NR 0xA2 bit 0 set and a tape playing a steady high level, port 0xFE bit 6 is the tape XOR the Pi's EAR comparator (zxnext_top_issue2.vhd:673) | zxnext_top_issue2.vhd:673 | pass | test/uart/uart_posix_test.cpp:2560 |
+| PI-58 | a steady Pi EAR level reads 1 on port 0xFE bit 6 from its edge, still 1 30000 master cycles later, and relaxed to the issue-2 level (0) 34000 cycles after it (ear_relax, zxnext_top_issue2.vhd:663-677: 64 x 512 cycles) | zxnext_top_issue2.vhd:663-677 | pass | test/uart/uart_posix_test.cpp:2597 |
+| PI-59 | with --silent the Pi's samples are still latched and NR 0xA2 bit 0's EAR path still toggles port 0xFE bit 6 (jnext-only: --silent has no VHDL counterpart) | — | pass | test/uart/uart_posix_test.cpp:2623 |
+| PI-60 | with issue-2 keyboard mode and MIC set, a Pi EAR level that fell reads 0 on port 0xFE bit 6 at its edge and 30000 master cycles later, and has relaxed to the MIC level (1) 34000 cycles after it (ear_relax i_relax_0/1 = zxn_issue2_fe_mic, zxnext_top_issue2.vhd:675-676) | zxnext_top_issue2.vhd:675-676 | pass | test/uart/uart_posix_test.cpp:2668 |
+| PI-61 | setting NR 0xA2 bit 0 while the Pi's sample is already at t = 11 raises the EAR comparator at the write: port 0xFE bit 6 reads 1 at once and 30000 master cycles later, and has relaxed 34000 after it (zxnext.vhd:2361-2373, zxnext_top_issue2.vhd:663-677) | zxnext.vhd:2361-2373, zxnext_top_issue2.vhd:663-677 | pass | test/uart/uart_posix_test.cpp:2711 |
+| PI-62 | restoring a snapshot taken while the Pi's EAR comparator was 1 leaves it 0 (it is not in the stream), and port 0xFE bit 6 then reads the relaxed issue-2 MIC level at once (zxnext.vhd:2361-2373; jnext-only: snapshots have no VHDL counterpart) | zxnext.vhd:2361-2373 | pass | test/uart/uart_posix_test.cpp:2755 |
+| PI-63 | under --silent a rewind replay does not consume the Pi's sound, and a live run does (jnext-only: --silent and the rewind replay have no VHDL counterpart) | — | pass | test/uart/uart_posix_test.cpp:2795 |
+| PI-64 | a tape save made while NR 0xA2 bit 0 sends a Pi square wave to the EAR input records the comparator's edges: the MIC jack carries i_AUDIO_EAR, which includes pi_fe_ear (zxnext.vhd:6503, zxnext_top_issue2.vhd:673) | zxnext.vhd:6503, zxnext_top_issue2.vhd:673 | pass | test/uart/uart_posix_test.cpp:2835 |
 
 ### Companion suite — `test/uart/nextpi_test.cpp`
 
@@ -6222,4 +6280,6 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | PIT-13 | when the process running NextPi is killed outright, QEMU is stopped with it instead of being left orphaned with the overlay locked | — | pass | test/uart/nextpi_test.cpp:928 |
 | PIT-14 | QEMU inherits none of jnext's other handles: an inheritable pipe holding a magic string that jnext has open cannot be read in the child | — | pass | test/uart/nextpi_test.cpp:954 |
 | PIT-15 | QEMU runs with LANG=C and LC_ALL=C, each exactly once whatever the case of the parent's variable names, and jnext's own environment is left alone | — | pass | test/uart/nextpi_test.cpp:998 |
+| PIT-16 | an empty Pi audio setting is the Next's mixer (the wav FIFO) on Linux and macOS and the host output (dsound) on Windows, where there is no mixer path yet; `host` is the host output on every OS (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1035 |
+| PIT-17 | starting NextPi with the audio setting empty gives QEMU the mixer's wav FIFO and makes the audio reader on Linux and macOS (also on the socket transport), and gives QEMU dsound with no reader on Windows; link_config carries the reader (jnext-only, no VHDL counterpart) | — | pass | test/uart/nextpi_test.cpp:1070 |
 
