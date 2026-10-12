@@ -4,14 +4,16 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
 /// PRIVATE header — the OS primitives the portable transport is built from.
-/// Included only by esp_socket.cpp and its two platform twins, and by
-/// src/peripheral/joy_uart_link.cpp (GH #316), whose TCP-client endpoint is the
-/// NextPi link on Windows and is built from these non-blocking shims rather
-/// than from a second copy of Winsock/BSD code. Nothing else should include it.
+/// Included only by the esp01 module's own sources (esp_socket.cpp, esp_ping.cpp,
+/// esp_sntp.cpp and the two platform twins), and by src/peripheral/joy_uart_link.cpp
+/// (GH #316), whose TCP-client endpoint is the NextPi link on Windows and is built
+/// from these non-blocking shims rather than from a second copy of Winsock/BSD
+/// code. Nothing else should include it.
 ///
 /// This header deliberately pulls in NO platform headers of its own (no
 /// <sys/socket.h>, no <winsock2.h>): `NativeSocket` is spelled as a plain
@@ -170,6 +172,17 @@ NativeSocket accept_nonblocking(NativeSocket listener, IpAddress& peer,
                                 std::string& err);
 
 void close(NativeSocket s);
+
+/// Run `body` on a new thread nobody joins. Throws std::system_error when no
+/// thread can be started. `body` must not throw: like std::thread, an escaping
+/// exception is std::terminate.
+///
+/// This is a seam, not a convenience: on Windows `std::thread::detach` (MinGW
+/// winpthreads) can lose the NEXT thread created, when the previous detached
+/// one had already finished (GH #328), so the Windows twin uses a Win32
+/// thread. test/lint-thread-detach.sh keeps `.detach()` out of everything but
+/// the POSIX twin.
+void start_detached(std::function<void()> body);
 
 }  // namespace net
 }  // namespace esp

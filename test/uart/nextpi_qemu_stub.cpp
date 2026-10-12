@@ -266,8 +266,8 @@ int qemu_main(int argc, char** argv) {
     }
 
     // Bounded whatever a row does or fails to do.
-    std::thread([] { sleep_ms(120000); std::exit(9); }).detach();
-    if (monitor_stdio) std::thread(watch_stdin).detach();
+    esp::net::start_detached([] { sleep_ms(120000); std::exit(9); });   // not std::thread::detach (GH #328 lint)
+    if (monitor_stdio) esp::net::start_detached(watch_stdin);
 #ifndef _WIN32
     ::signal(SIGTERM, g_stubborn ? SIG_IGN : on_term);
 #endif

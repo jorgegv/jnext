@@ -30,7 +30,14 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 
+#include <process.h>
+
+#include <cerrno>
 #include <cstring>
+#include <exception>
+#include <functional>
+#include <memory>
+#include <system_error>
 
 namespace esp {
 namespace net {
@@ -479,6 +486,39 @@ NativeSocket accept_nonblocking(NativeSocket listener, IpAddress& peer,
 
 void close(NativeSocket s) {
     if (s != kInvalidSocket) ::closesocket(static_cast<SOCKET>(s));
+}
+
+// GH #328: NOT std::thread(...).detach(). MinGW winpthreads recycles the
+// descriptor of a thread that ended before pthread_detach ran, while that
+// thread's DLL_THREAD_DETACH can still reach it and wipe the NEXT thread's
+// copy: the new thread never runs its body (exit code 128) or calls a null
+// function. A Win32 thread never touches that bookkeeping. See the developer
+// guide, esp01 section.
+namespace {
+unsigned __stdcall detached_entry(void* arg) {
+    std::unique_ptr<std::function<void()>> body(static_cast<std::function<void()>*>(arg));
+    try {
+        (*body)();
+    } catch (...) {
+        std::terminate();  // std::thread's contract, made explicit
+    }
+    return 0;
+}
+}  // namespace
+
+void start_detached(std::function<void()> body) {
+    auto* p = new std::function<void()>(std::move(body));
+    const std::uintptr_t h = ::_beginthreadex(nullptr, 0, &detached_entry, p, 0, nullptr);
+    // Untestable under wine, by design: neither this failure arm (a Win32
+    // thread cannot be made to fail creation) nor the CloseHandle below (a
+    // leaked handle is only visible through ProcessHandleCount, which wine
+    // stubs to return 0: dlls/ntdll/unix/process.c) has an oracle here.
+    if (h == 0) {
+        const int e = errno;
+        delete p;
+        throw std::system_error(e, std::generic_category(), "_beginthreadex");
+    }
+    ::CloseHandle(reinterpret_cast<HANDLE>(h));
 }
 
 }  // namespace net

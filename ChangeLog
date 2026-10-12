@@ -16,6 +16,7 @@
 - Writes to ports 0x1FFD/0x3FFD page like 0x7FFD where the Next does (Pentagon and 128K timing)
 - A `.szx` is refused instead of saved with the wrong bank when extended paging (0xDFFD, NR 0x8F) is in use
 - Windows: `--dac-trace` files and the debugger's exported instruction traces no longer get CRLF line endings
+- Windows: ESP-01 DNS lookups, AT+PING and AT+CIPSNTPTIME no longer fail sporadically or crash jnext (a MinGW thread-library race)
 
 ### Internal JNEXT Development
 - Unit test suites now also run on macOS and on Windows (under wine) in CI, blocking
