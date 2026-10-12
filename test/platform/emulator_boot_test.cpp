@@ -732,6 +732,43 @@ void run_rows()
                 "FILE's machine, and the frontend, the boot and the startup machine agree"};
             check(ids[k], what[k], good[k], detail[k]);
         }
+
+        // SNM-40 / SNM-41: GH #323 — a snapshot jnext cannot run, and the
+        // frontends' follow-the-load helper. Oracle: libspectrum szx.c:2613-2680
+        // (ID 12 is a Timex TS2068), the contract in emulator_apply_load_keeping().
+        {
+            std::vector<uint8_t> ts2068 = {'Z', 'X', 'S', 'T', 1, 4, 12, 0};
+            const std::string bad = (d / "ts2068.szx").string();
+            const bool made = write_file(bad, ts2068);
+            const std::string good_file = (d / "b128.szx").string();
+            std::string why_bad, why_good;
+            const bool bad_ok = snapshot_file_loadable(bad, why_bad);
+            const bool good_ok = snapshot_file_loadable(good_file, why_good);
+            check("SNM-40", "a snapshot jnext cannot run (.szx Timex TS2068) boots the configured machine "
+                            "at startup (explicit or not) and is reported unloadable with a reason; a good "
+                            "one is loadable",
+                  made && emulator_boot_machine(bad, MachineType::ZX48K) == MachineType::ZX48K &&
+                  emulator_startup_machine(bad, MachineType::ZX128K, true) == MachineType::ZX128K &&
+                  emulator_startup_machine(bad, MachineType::ZX128K, false) == MachineType::ZX128K &&
+                  !bad_ok && why_bad.find("TS2068") != std::string::npos && good_ok,
+                  "bad_ok=" + std::to_string(bad_ok) + " why='" + why_bad + "' good_ok=" +
+                  std::to_string(good_ok) + " " + why_good);
+
+            std::vector<MachineType> got;
+            auto keep = [&got](MachineType t) { got.push_back(t); };
+            EmulatorConfig c48 = base_config();
+            auto e_up = std::make_unique<Emulator>();
+            e_up->init(c48);
+            const bool r1 = emulator_apply_load_keeping(*e_up, good_file, false, keep);
+            const bool r2 = emulator_apply_load_keeping(*e_up, (d / "b48.szx").string(), false, keep);
+            const bool r3 = emulator_apply_load_keeping(*e_up, bad, false, keep);
+            check("SNM-41", "emulator_apply_load_keeping() tells the frontend the machine now running: "
+                            "128K after a 128K .szx on a 48K, 48K after a 48K one, and the unchanged 48K "
+                            "after a refused file (which returns false)",
+                  r1 && r2 && !r3 && got.size() == 3 && got[0] == MachineType::ZX128K &&
+                  got[1] == MachineType::ZX48K && got[2] == MachineType::ZX48K &&
+                  e_up->config().type == MachineType::ZX48K);
+        }
     }
 
 

@@ -961,6 +961,48 @@ void test_quick_snapshot_actions()
     qunsetenv("JNEXT_CONFIG_DIR");
 }
 
+/// PA-24 — GH #323: File > Load of a .sna/.szx/.z80 runs it on the machine it was
+/// saved on, so a snapshot jnext cannot run is refused BEFORE the cold boot (the
+/// session is kept), exactly as PA-22f does for a .jns. Oracle: the file's own
+/// header (libspectrum z80.c:536-560: hardware mode 128 is a Timex TS2068; sna.c:
+/// a .sna is at least 49179 bytes); the positive control is a valid 128K .sna.
+void test_snapshot_load_refusal()
+{
+    QTemporaryDir home;
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+    Fixture f;
+    f.win.set_unattended(true);
+    std::vector<std::string> loaded;
+    f.win.set_load_file_callback([&loaded](const std::string& p, bool) { loaded.push_back(p); });
+    auto write = [&](const char* name, const std::vector<uint8_t>& b) {
+        const QString p = home.path() + QLatin1Char('/') + QLatin1String(name);
+        QFile out(p);
+        if (out.open(QIODevice::WriteOnly))
+            out.write(reinterpret_cast<const char*>(b.data()), static_cast<qint64>(b.size()));
+        return p;
+    };
+
+    std::vector<uint8_t> ts2068(32 + 54, 0);          // a v3 .z80, hardware mode 128 (TS2068)
+    ts2068[30] = 54; ts2068[34] = 128;
+    f.win.handle_load_path(write("ts2068.z80", ts2068));
+    check("PA-24a", "File > Load of a TS2068 .z80 requests no cold boot (the session is kept)",
+          loaded.empty(), loaded.empty() ? std::string("none") : loaded[0]);
+
+    loaded.clear();
+    f.win.handle_load_path(write("short.sna", std::vector<uint8_t>(100, 0)));
+    check("PA-24b", "File > Load of a truncated .sna requests no cold boot",
+          loaded.empty(), loaded.empty() ? std::string("none") : loaded[0]);
+
+    loaded.clear();
+    const QString good = write("good128.sna", std::vector<uint8_t>(131103, 0));
+    f.win.handle_load_path(good);
+    check("PA-24c", "control: File > Load of a valid 128K .sna IS requested",
+          loaded.size() == 1 && loaded[0] == good.toStdString(),
+          loaded.empty() ? std::string("none") : loaded[0]);
+
+    qunsetenv("JNEXT_CONFIG_DIR");
+}
+
 /// PA-22g..j — GH #321: Quick Save prunes the oldest quick snapshots beyond the
 /// retention count, from the setting or, when given, the CLI flag.
 ///
@@ -1196,6 +1238,7 @@ int main(int argc, char** argv)
     test_quick_screenshot_controls();
     test_quick_screenshot_writes_a_file();
     test_quick_snapshot_actions();
+    test_snapshot_load_refusal();
     test_quick_save_prunes();
     test_quick_keep_control();
     test_debug_keymap_passthrough();
