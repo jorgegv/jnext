@@ -188,6 +188,66 @@ if [ "$NEEDS_FAT32_FIX" = "1" ]; then
     EXTRACTED_BYTES=$(du -sb "$EXTRACT_DIR" | awk '{print $1}')
     echo "Extracted ${EXTRACTED_FILES} files, ${EXTRACTED_BYTES} bytes."
 
+    # GH #330: mtools 4.0.49 (charsetConv.c safe_iconv) can give extracted HOST
+    # files names that are not on the card (an inverted errno test appends "_"
+    # and the tail of the previous name when the system iconv leaves a stale
+    # EILSEQ: macOS). The copy back would write those names onto the card, which
+    # then no longer boots. Card-side lookups never go through that code, so the
+    # extraction is verified BEFORE the partition is re-formatted:
+    #  (a) every extracted path is found on the card (a renamed one is not);
+    #  (b) the entry counts agree (two card names mangled onto one host name).
+    # mtools pattern characters are escaped; -a includes hidden/system entries.
+    # The guard's mtools calls run in the SAME locale as the extraction (no
+    # LANG=C): mtools encodes a host name from the locale's charset, so a
+    # name like "Música.txt" extracted in a UTF-8 locale can only be found again
+    # in that locale. (Parsed child output is not involved: only exit statuses
+    # and a line count are read.)
+    mt_escape() {
+        local e=$1
+        e=${e//\\/\\\\}; e=${e//\*/\\*}; e=${e//\?/\\?}; e=${e//\[/\\[}
+        printf '%s' "$e"
+    }
+    verify_extraction() {
+        local p n_ext n_card
+        n_ext=$(find "$EXTRACT_DIR" -mindepth 1 | wc -l)
+        n_ext=$(( n_ext ))
+        if [ "$n_ext" -gt 0 ]; then
+            if ! { while IFS= read -r -d '' p; do
+                       printf '%s\0' "::/$(mt_escape "${p#./}")"
+                   done < <(cd "$EXTRACT_DIR" && find . -mindepth 1 -print0)
+                 } | xargs -0 -n 64 mdir -a -b -i "$DRIVE_SPEC" >/dev/null 2>&1; then
+                # Name the first few extracted paths the card does not have.
+                local bad=() found=0
+                while IFS= read -r -d '' p; do
+                    if ! mdir -a -b -i "$DRIVE_SPEC" "::/$(mt_escape "${p#./}")" \
+                            </dev/null >/dev/null 2>&1; then
+                        bad+=("${p#./}"); found=$(( found + 1 ))
+                        [ "$found" -ge 5 ] && break
+                    fi
+                done < <(cd "$EXTRACT_DIR" && find . -mindepth 1 -print0)
+                echo "ERROR: mtools extracted names that are not on the card (${bad[*]:-?}) — this mtools build mis-names host files (GH #330); $DST was NOT re-formatted" >&2
+                return 1
+            fi
+        fi
+        local listing
+        if ! listing=$(mdir -/ -a -b -i "$DRIVE_SPEC" "::/" </dev/null 2>/dev/null); then
+            echo "ERROR: mdir could not list the card, so the extraction cannot be verified (GH #330 check); $DST was NOT re-formatted" >&2
+            return 1
+        fi
+        # an empty card lists nothing (wc -l of an empty line would say 1)
+        if [ -z "$listing" ]; then
+            n_card=0
+        else
+            n_card=$(printf '%s\n' "$listing" | wc -l)
+            n_card=$(( n_card ))
+        fi
+        if [ "$n_card" -ne "$n_ext" ]; then
+            echo "ERROR: mtools extracted ${n_ext} entries but the card lists ${n_card} — this mtools build mis-names host files (GH #330); $DST was NOT re-formatted" >&2
+            return 1
+        fi
+    }
+    verify_extraction || exit 1
+
     # -c 16 = 16 sectors/cluster = 8 KB clusters. -F = force FAT32.
     # -T preserves total sectors; -h, -s preserve CHS geometry.
     echo ""
