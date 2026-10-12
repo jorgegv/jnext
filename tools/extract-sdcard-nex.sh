@@ -131,24 +131,10 @@ for src in "${NEX_FILES[@]}"; do
             mcopy -i "$DRIVE" -s -m -p -Q -n "::/$(mt_escape "$sib_dir")" "$scratch/" </dev/null 2>/dev/null \
                 || { rm -rf "$scratch"; die "mcopy failed extracting the directory of '$rel'"; }
         fi
-        # Every extracted path must be one of the card's own long names as
-        # mdir prints them (a per-name lookup would also match 8.3 aliases:
-        # "__.dat" is the short alias of "データ.dat").
-        if [[ "$sib_dir" == . ]]; then
-            card_list=$(mdir -a -b -i "$DRIVE" "::/" </dev/null 2>/dev/null) || card_list=""
-        else
-            card_list=$(mdir -/ -a -b -i "$DRIVE" "::/$(mt_escape "$sib_dir")" </dev/null 2>/dev/null) || card_list=""
-            # the listing holds the directory's contents (as ::/dir/...), not
-            # the directory itself, which is also in the scratch tree
-            card_list+=$'\n'"::/$sib_dir"
-        fi
-        want=$(cd "$scratch" && find . -mindepth 1 | while IFS= read -r q; do printf '%s\n' "$sib_prefix${q#./}"; done | LC_ALL=C tr 'A-Z' 'a-z' | LC_ALL=C sort)
-        got=$(printf '%s\n' "$card_list" | sed -e 's|^::/||' -e 's|/$||' | LC_ALL=C tr 'A-Z' 'a-z' | LC_ALL=C sort)
-        bad=$(LC_ALL=C comm -23 <(printf '%s\n' "$want") <(printf '%s\n' "$got") | head -3 | tr '\n' ' ')
-        if [[ -n "${bad// /}" ]]; then
-            rm -rf "$scratch"
-            die "mtools extracted a name that is not on the card (${bad% }) (GH #330: this mtools build mis-names host files, or the locale cannot represent it)"
-        fi
+        while IFS= read -r -d '' p; do
+            mdir -a -b -i "$DRIVE" "::/$(mt_escape "$sib_prefix${p#./}")" </dev/null >/dev/null 2>&1 \
+                || { rm -rf "$scratch"; die "mtools extracted '${p#./}' under a name that is not on the card (GH #330: this mtools build mis-names host files)"; }
+        done < <(cd "$scratch" && find . -mindepth 1 -print0)
         nex_in=$(dirname "$scratch/${rel#"$sib_prefix"}")
         [[ -n "$(find "$nex_in" -maxdepth 1 -iname "$(mt_escape "$(basename "$rel")")" -print -quit 2>/dev/null)" ]] \
             || { rm -rf "$scratch"; die "mtools did not extract '$rel' (GH #330: this mtools build mis-names host files)"; }
