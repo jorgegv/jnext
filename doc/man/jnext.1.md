@@ -61,8 +61,9 @@ naming the option and the value, and exits with status 1.
     `.jns` is jnext's own whole-machine snapshot (see **JNEXT SNAPSHOTS**
     below). Loading one restores the machine it was taken on, including the
     machine *type*: a `.jns` taken on a Next loads as a Next even if
-    **\--machine** says otherwise, the same way a `.sna`, `.szx` or `.z80`
-    already does.
+    **\--machine** says otherwise. A `.sna`, `.szx` or `.z80` is different: it
+    is loaded onto the machine that is running (**\--machine**, or the
+    saved choice), whatever machine it was made on.
 
     A NEX file with bytes after the banks its header declares is an *extended*
     NEX. If its header asks for the file to be kept open (any non-zero
@@ -659,6 +660,15 @@ naming the option and the value, and exits with status 1.
     aid; it changes nothing about what the file contains, and jnext reads both
     forms. Any other *STATE* is an error.
 
+**\--quick-snapshot-keep** *N*|`unlimited`
+:   How many quick snapshots **File > Quick Save Snapshot** keeps in
+    `~/.jnext/snapshots/`: after each save the oldest beyond *N* are deleted
+    (default 20; *N* is 1 to 1000000). Only files named exactly like Quick
+    Save's own (`jnext-YYYYMMDD-HHMMSS.jns`, optional `-NN`) are ever deleted;
+    anything else in the folder is left alone. `unlimited` keeps everything.
+    Overrides the `[snapshot] quick_keep` setting for the run; the SDL-only
+    build, which reads no configuration file, takes only this option.
+
 **\--snapshot-mode** *MODE*
 :   How much a `.jns` load refuses. One setting with three positions, because
     they are one axis and asking for two of them at once is not a thing to
@@ -1190,6 +1200,26 @@ every other format. On a Next the save dialog offers `.jns` first and appends
 it to a name typed without an extension; on a 48K, 128K, Pentagon or +3 it offers
 `.sna` first and appends that instead.
 
+**File > Quick Save Snapshot** (Alt+Shift+F5) and **Quick Load Snapshot**
+(Alt+Shift+F9)
+need no dialog. Quick Save writes a `.jns` named `jnext-YYYYMMDD-HHMMSS.jns`
+(a `-02`, `-03` suffix if the name is taken, so nothing is overwritten) into
+`~/.jnext/snapshots/` on every machine type, and names the file in the status
+bar. Quick Load restores the *newest* `.jns` in that folder by modification
+time, by the same route as **File > Load NEX File...**: a full cold boot, then
+the load. An empty or missing folder only reports that there is no snapshot, and
+a newest file that cannot be loaded is refused before anything is reset, so the
+running session is kept. Older quick saves, and any `.jns` you put in the
+folder yourself, are loaded through the ordinary load dialog; nothing is ever
+deleted by hand-picking: Quick Save itself keeps only the newest 20 of its own
+files (**\--quick-snapshot-keep** *N*|`unlimited`, or **Settings >
+Preferences > Paths**, or `[snapshot] quick_keep`) and deletes only files named
+exactly `jnext-YYYYMMDD-HHMMSS.jns` (with an optional `-NN`); anything else in
+the folder is never touched. The folder is `$JNEXT_CONFIG_DIR/snapshots` when
+that variable is set. The SDL-only build has the same two keys, the same folder
+and the same option (it reads no configuration file), and reports in the log
+instead of the status bar. Plain F5/F9 and Alt+F5/F9 are unchanged.
+
 Loading a `.jns` restores the machine *type* as well as its contents, so one
 taken on a Next comes back as a Next whatever **\--machine** says. A snapshot
 is only ever taken at a frame boundary: if the debugger has stopped the machine
@@ -1559,7 +1589,8 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
 :   Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Insert SD Card
     Image / Eject SD Card (see **CHANGING THE CARD WHILE RUNNING**), Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX / Stop
     RZX, Save Screenshot (Alt+S), Quick Screenshot (Alt+K), Save Snapshot
-    (Alt+Shift+S), Quit (Alt+Q).
+    (Alt+Shift+S), Quick Save Snapshot (Alt+Shift+F5), Quick Load Snapshot (Alt+Shift+F9)
+    (see **JNEXT SNAPSHOTS** above), Quit (Alt+Q).
 
     **Save Screenshot...** asks for a name; the extension chooses the format
     (**SCREENSHOT FORMATS** above). **Quick Screenshot** asks nothing: it
@@ -1668,7 +1699,11 @@ toggled with F11 only (it used to also be exited with Esc).
 The function keys are host controls, not Spectrum keys. F1 is Power Reset (the
 same as Alt+R), F4 is Soft Reset, F9 fires the Multiface NMI, F10 fires the
 DivMMC NMI, F2 cycles the window scale and F11 toggles fullscreen. With the
-debugger open F9 belongs to the debugger (Pause / Break) instead.
+debugger open F9 belongs to the debugger (Pause / Break) instead. With Alt and
+Shift held, F5 and F9 are the quick snapshot keys (Alt+Shift+F5 saves,
+Alt+Shift+F9 loads) and reach neither the Multiface nor the guest; Alt+F5 and
+Alt+F9 on their own are not claimed. Shift is the guest's Caps Shift, so it is
+held down for the guest while you press the chord.
 
 The Pause key (Pause/Break) pauses and resumes the machine in the GUI, the same
 as Machine > Pause; keyboards without one, such as most Mac keyboards, use
@@ -1685,7 +1720,7 @@ takes are Ctrl+F5 and Ctrl+F6 (start and stop video recording), and function
 keys have no Spectrum meaning to lose.
 
 Alt is the opposite: it is a host modifier, never a Spectrum key. jnext claims
-Alt + Q/O/S/K/R/T/D/P/U and Alt+Shift+S (menu shortcuts), Alt + F/M/I/A/B/V/N/H
+Alt + Q/O/S/K/R/T/D/P/U, Alt+Shift+S, Alt+Shift+F5 and Alt+Shift+F9 (menu shortcuts), Alt + F/M/I/A/B/V/N/H
 (menu bar) and Alt + 1 to Alt + 8 (the script host keys), which leaves the
 guest only Alt + E/G/C (EDIT, GRAPH, CAPS LOCK) and Alt + the key left of `1`
 (INV VIDEO). Alt + 1 to Alt + 8 no longer type their digit into the program
@@ -2175,6 +2210,10 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     means `~/.jnext/screenshots`) and `quick_format` (`png` or `scr`), edited
     under **Settings > Preferences > Paths**; an unrecognised format keeps the
     default.
+    The Quick Save retention is stored under `[snapshot]` as `quick_keep` (a
+    number from 1, or `unlimited`; default 20), edited under **Settings >
+    Preferences > Paths**; **\--quick-snapshot-keep** overrides it for one run,
+    and an unrecognised value keeps the default.
     The debugger window's layout is stored under `[debugger]`: `size` (`W, H`),
     `position` (`X, Y`, written only while the window is detached) and
     `attached` (`true`/`false`). An older `~/.jnext/Debugger.conf` is merged
@@ -2185,6 +2224,11 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 `~/.jnext/screenshots/`
 :   Where **File > Quick Screenshot** writes, unless `[screenshot] quick_dir`
     says otherwise. Created on the first capture.
+
+`~/.jnext/snapshots/`
+:   Where **File > Quick Save Snapshot** writes and **Quick Load Snapshot**
+    reads (the newest `.jns` in it). Created on the first save. Quick Save keeps
+    the newest 20 files it made (see **\--quick-snapshot-keep**).
 
 `~/.jnext/warm-start/`
 :   The recorded NextZXOS-resident machine a **\--load** of a `.nex` starts

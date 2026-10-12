@@ -16,6 +16,8 @@
 #include "core/log.h"
 #include <stdexcept>
 #include "core/screenshot.h"
+#include "core/quick_snapshot.h"
+#include "core/jns_snapshot.h"
 #include "peripheral/esp_host_policy.h"
 #include "input/mouse_dispatcher.h"
 #include "platform/pointer_capture.h"
@@ -719,7 +721,7 @@ void MainWindow::create_menus() {
     // menubar mnemonics ('&' in addMenu). A letter used twice is an AMBIGUOUS
     // Qt shortcut — QAction::event() only prints a warning and does nothing, so
     // BOTH bindings break. host_hotkey_test pins the two sets disjoint.
-    // Reserved today: Alt+Q/O/S/K/R/T/D/P/U (shortcuts) and Alt+F/M/I/A/B/V/N/H
+    // Reserved today: Alt+Q/O/S/K/R/T/D/P/U, Alt+Shift+F5 and Alt+Shift+F9 (shortcuts) and Alt+F/M/I/A/B/V/N/H
     // (mnemonics). Alt+E/G/C/` stay free because the GUEST uses them
     // (keyboard.cpp:163,172-174).
     //
@@ -850,6 +852,10 @@ void MainWindow::create_menus() {
     quick_screenshot_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_K));
     connect(quick_screenshot_action_, &QAction::triggered,
             this, &MainWindow::on_quick_screenshot);
+    // Same two fixes as the quick snapshot actions below (GH #321): reachable
+    // with the menu bar hidden, and one capture per press.
+    quick_screenshot_action_->setAutoRepeat(false);
+    addAction(quick_screenshot_action_);
 
     // Save Snapshot... — wires SnaSaver to the GUI (G35: closes
     // BOOT-SNAPSAVE-01 + BOOT-SNAPSAVE-04). Shift+S keeps the standard
@@ -870,6 +876,24 @@ void MainWindow::create_menus() {
     QAction* save_snapshot = file_menu->addAction(tr("Save S&napshot..."));
     save_snapshot->setShortcut(QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_S));
     connect(save_snapshot, &QAction::triggered, this, &MainWindow::on_save_snapshot);
+
+    // GH #321 — Quick Save / Quick Load: no dialog, fixed folder. No '&'
+    // mnemonic (every letter is taken in some Alt namespace, #217). The chords
+    // live HERE; the SDL frontend's twin is platform/quick_snapshot_chord.h.
+    quick_save_action_ = file_menu->addAction(tr("Quick Save Snapshot"));
+    quick_save_action_->setShortcut(QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_F5));
+    connect(quick_save_action_, &QAction::triggered, this, &MainWindow::on_quick_save);
+    quick_load_action_ = file_menu->addAction(tr("Quick Load Snapshot"));
+    quick_load_action_->setShortcut(QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_F9));
+    connect(quick_load_action_, &QAction::triggered, this, &MainWindow::on_quick_load);
+    // A held chord must act once, not once per autorepeat (35 saves in 2 s).
+    quick_save_action_->setAutoRepeat(false);
+    quick_load_action_->setAutoRepeat(false);
+    // Also on the window itself, as pause_action_ is: with the menu bar hidden
+    // (fullscreen) a menu action's shortcut never matches, the key falls to
+    // keyPressEvent, and Alt+Shift+F9 would fire the Multiface NMI.
+    addAction(quick_save_action_);
+    addAction(quick_load_action_);
 
     file_menu->addSeparator();
 
@@ -1429,6 +1453,16 @@ void MainWindow::handle_load_path(const QString& path) {
         if (!rzx::playable(file, why)) {
             QMessageBox::warning(this, tr("Play RZX Recording"),
                 tr("Cannot play %1: %2.").arg(path, QString::fromStdString(why)));
+            return;
+        }
+    }
+
+    // GH #321 (R1) — likewise a .jns: refused BEFORE the cold boot, with the
+    // running machine untouched.
+    if (emulator_ && jnext::is_jns_path(file)) {
+        std::string why;
+        if (!emulator_->probe_jns_file(file, why)) {
+            refuse_jns(path, QString::fromStdString(why));
             return;
         }
     }
@@ -2153,6 +2187,84 @@ QString MainWindow::save_filter(bool next_machine) {
              "ZX-State snapshot (*.szx);;NEX program (*.nex);;All Files (*)");
 }
 
+// The `.jns` write path behind both File > Save Snapshot... and Quick Save:
+// save_jns_file() (which advances to a frame boundary itself), the warnings,
+// the failure dialog and the success line.
+bool MainWindow::save_jns_with_feedback(const QString& path, const QString& ok_msg,
+                                        int ok_ms) {
+    if (!emulator_->save_jns_file(path.toStdString())) {
+        const QString why = QString::fromStdString(emulator_->last_jns_error());
+        statusBar()->showMessage(tr("Snapshot save failed: %1").arg(why), 5000);
+        if (!unattended_)
+            QMessageBox::warning(this, tr("Save Snapshot"), why);
+        return false;
+    }
+    for (const std::string& w : emulator_->last_jns_report().warnings) {
+        statusBar()->showMessage(QString::fromStdString(w), 8000);
+    }
+    statusBar()->showMessage(ok_msg, ok_ms);
+    Log::platform()->info("status bar: {}", ok_msg.toStdString());
+    return true;
+}
+
+// GH #321 — File > Quick Save Snapshot (Alt+Shift+F5).
+void MainWindow::on_quick_save() {
+    if (!emulator_) return;
+    const std::string dir = default_quick_snapshot_dir();
+    const std::string path = auto_quick_snapshot_path(dir, std::time(nullptr));
+    if (path.empty()) {
+        const QString msg = tr("Could not create a snapshot file in:\n%1")
+                                .arg(QString::fromStdString(dir));
+        statusBar()->showMessage(msg, 5000);
+        if (!unattended_) QMessageBox::warning(this, tr("Quick Save"), msg);
+        return;
+    }
+    const QString qpath = QString::fromStdString(path);
+    if (save_jns_with_feedback(qpath, tr("Quick saved: %1").arg(qpath), 5000)) {
+        // --quick-snapshot-keep overrides the Preferences setting for the run.
+        const EmulatorConfig& ec = emulator_->config();
+        prune_quick_snapshots(dir, ec.quick_snapshot_keep_cli
+                                       ? ec.quick_snapshot_keep
+                                       : app_config_.data().quick_snapshot_keep);
+    }
+}
+
+// GH #321 — File > Quick Load Snapshot (Alt+Shift+F9): the newest .jns in the quick
+// folder, through the same route as File > Load.
+void MainWindow::on_quick_load() {
+    if (!emulator_) return;
+    const std::string dir = default_quick_snapshot_dir();
+    std::string why;
+    const std::string path = latest_quick_snapshot(dir, why);
+    if (path.empty()) {
+        const QString msg = tr("Quick Load: no snapshot in %1")
+                                .arg(QString::fromStdString(dir));
+        statusBar()->showMessage(msg, 5000);
+        Log::platform()->info("status bar: {}", msg.toStdString());
+        return;
+    }
+    // Refuse a bad file BEFORE the cold boot throws the session away. Quick
+    // Load asks for no dialog, so this is a status-bar line (and the log).
+    if (!emulator_->probe_jns_file(path, why)) {
+        const QString msg = tr("Quick Load: refused %1: %2")
+                                .arg(QString::fromStdString(path), QString::fromStdString(why));
+        statusBar()->showMessage(msg, 8000);
+        Log::platform()->error("status bar: {}", msg.toStdString());
+        return;
+    }
+    const QString msg = tr("Quick loading: %1").arg(QString::fromStdString(path));
+    statusBar()->showMessage(msg, 5000);
+    Log::platform()->info("status bar: {}", msg.toStdString());
+    handle_load_path(QString::fromStdString(path));
+}
+
+void MainWindow::refuse_jns(const QString& path, const QString& why) {
+    const QString msg = tr("Cannot load %1: %2.").arg(path, why);
+    statusBar()->showMessage(msg, 5000);
+    Log::platform()->error("status bar: {}", msg.toStdString());
+    if (!unattended_) QMessageBox::warning(this, tr("Load Failed"), msg);
+}
+
 void MainWindow::on_save_snapshot() {
     if (!emulator_) return;
     // GH #27 S8 (§15.2) — `.jns` leads the filter on a Next and `.sna` leads
@@ -2191,15 +2303,7 @@ void MainWindow::on_save_snapshot() {
     // than producing one flat buffer, so it writes its own file — and it is
     // the only arm here that can report a REASON when it fails.
     if (path.endsWith(".jns", Qt::CaseInsensitive)) {
-        if (!emulator_->save_jns_file(path.toStdString())) {
-            QMessageBox::warning(this, tr("Save Snapshot"),
-                QString::fromStdString(emulator_->last_jns_error()));
-            return;
-        }
-        for (const std::string& w : emulator_->last_jns_report().warnings) {
-            statusBar()->showMessage(QString::fromStdString(w), 8000);
-        }
-        statusBar()->showMessage(tr("Snapshot saved: %1").arg(path), 3000);
+        save_jns_with_feedback(path, tr("Snapshot saved: %1").arg(path), 3000);
         return;
     }
 

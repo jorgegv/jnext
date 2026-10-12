@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.35</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.35</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3658,7 +3658,9 @@ with status 1.</p>
 Snapshots</a>). Loading one
 restores the machine it was taken on, including the machine <em>type</em>:
 a <code>.jns</code> taken on a Next loads as a Next even if <strong>--machine</strong> says
-otherwise, the same way a <code>.sna</code>, <code>.szx</code> or <code>.z80</code> already does.</p>
+otherwise. A <code>.sna</code>, <code>.szx</code> or <code>.z80</code> is different: it is loaded
+onto the machine that is running (<strong>--machine</strong>, or the saved
+choice), whatever machine it was made on.</p>
 <p>A NEX file with bytes after the banks its header declares is an
 <em>extended</em> NEX. If its header asks for the file to be kept open (any
 non-zero <code>file_handle</code>: 1 to 0x3FFF hands the program the handle in
@@ -4235,6 +4237,15 @@ deflates every member; <code>off</code> stores them instead, so the file is
 readable with <code>unzip -p</code> and a hex editor at roughly five times the
 size. A debugging aid; it changes nothing about what the file
 contains, and jnext reads both forms. Any other <em>STATE</em> is an error.</dd>
+<dt><strong>--quick-snapshot-keep</strong> <em>N</em>|<code>unlimited</code></dt>
+<dd>How many quick snapshots <strong>File &gt; Quick Save Snapshot</strong> keeps in
+<code>~/.jnext/snapshots/</code>: after each save the oldest beyond <em>N</em> are
+deleted (default 20; <em>N</em> is 1 to 1000000). Only files named exactly
+like Quick Save’s own (<code>jnext-YYYYMMDD-HHMMSS.jns</code>, optional <code>-NN</code>)
+are ever deleted; anything else in the folder is left alone.
+<code>unlimited</code> keeps everything. Overrides the <code>[snapshot] quick_keep</code>
+setting for the run; the SDL-only build, which reads no
+configuration file, takes only this option.</dd>
 <dt><strong>--snapshot-mode</strong> <em>MODE</em></dt>
 <dd>
 <p>How much a <code>.jns</code> load refuses. One setting with three positions,

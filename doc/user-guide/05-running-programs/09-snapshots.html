@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.35</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.35</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.36</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1599,6 +1599,17 @@
     <span class="md-ellipsis">
       
         Saving
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-save-and-quick-load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick save and quick load
       
     </span>
   </a>
@@ -3775,14 +3786,45 @@ the save and never greys the menu item out — the only refusal is the format on
 above; the consequence is that the restored machine is up to one frame (20 ms)
 past where you stopped. If you need the precise instant, that
 is what the rewind buffer is for.</p>
+<h2 id="quick-save-and-quick-load">Quick save and quick load<a class="headerlink" href="#quick-save-and-quick-load" title="Permanent link">&para;</a></h2>
+<p><strong>File ▸ Quick Save Snapshot</strong> (<strong>Alt+Shift+F5</strong>) and <strong>File ▸ Quick Load Snapshot</strong>
+(<strong>Alt+Shift+F9</strong>) ask nothing. Quick Save writes a <code>.jns</code>, on every machine type,
+to <code>~/.jnext/snapshots/</code> (or <code>$JNEXT_CONFIG_DIR/snapshots</code> when that variable is
+set), named <code>jnext-YYYYMMDD-HHMMSS.jns</code>, and shows the path in the status bar.
+Two saves in the same second get a <code>-02</code>, <code>-03</code> suffix, so nothing is
+overwritten. Quick Load restores the <strong>newest</strong> <code>.jns</code> in that folder, judged by
+modification time, the same way <strong>File ▸ Load NEX File…</strong> does: a full cold
+boot, then the load. A <code>.jns</code> you save into that folder yourself counts too.</p>
+<ul>
+<li>An empty or missing folder only says "no snapshot" in the status bar; the
+  machine is not touched.</li>
+<li>A newest file that cannot be loaded (damaged, or taken with a different SD
+  card) is refused <strong>before</strong> anything is reset, so you keep your session.</li>
+<li>Quick Save keeps the <strong>newest 20</strong> of its own files and deletes older ones
+  after each save. Change that with <code>--quick-snapshot-keep N</code> (or
+  <code>unlimited</code>), with <strong>Settings ▸ Preferences ▸ Paths ▸ Quick snapshots to
+  keep</strong>, or <code>quick_keep</code> under <code>[snapshot]</code> in <code>jnext.conf</code>; the command-line
+  option wins for the run. Only files named exactly like Quick Save's own
+  (<code>jnext-YYYYMMDD-HHMMSS.jns</code>, optional <code>-NN</code>) are ever deleted: a <code>.jns</code> you
+  saved into the folder under another name is never touched. Older quick saves
+  that are still there load through the ordinary load dialog.</li>
+<li>The SDL-only build has the same two keys, the same folder and the same
+  <code>--quick-snapshot-keep</code> option (it reads no <code>jnext.conf</code>), and reports in the
+  log instead of the status bar.</li>
+<li>Plain F5 and F9, and Alt+F5 and Alt+F9 on their own, are unchanged. Shift is
+  the Spectrum's Caps Shift, so it is held down for the program while you press
+  the chord.</li>
+<li>Only <code>.jns</code> is used: it is the one format that can hold a whole machine.</li>
+</ul>
 <h2 id="loading">Loading<a class="headerlink" href="#loading" title="Permanent link">&para;</a></h2>
 <p>Drop the file on the command line, or <strong>File ▸ Load NEX File…</strong> (Alt+O) — the
 dialog lists <code>.jns</code> alongside everything else.</p>
 <pre><code>jnext state.jns
 </code></pre>
 <p>A <code>.jns</code> restores the machine <strong>type</strong> as well as its contents: one taken on a
-Next comes back as a Next even if <code>--machine</code> says otherwise, the same way a
-<code>.sna</code> or <code>.szx</code> already behaves. You do not have to remember what you saved.</p>
+Next comes back as a Next even if <code>--machine</code> says otherwise. You do not have
+to remember what you saved. (A <code>.sna</code>, <code>.szx</code> or <code>.z80</code> is different: it is
+loaded onto the machine that is running, whatever machine it was made on.)</p>
 <h2 id="what-travels-and-what-does-not">What travels, and what does not<a class="headerlink" href="#what-travels-and-what-does-not" title="Permanent link">&para;</a></h2>
 <p>Everything the emulated machine is: CPU, all of RAM, the MMU, every NextREG,
 the video layers and their palettes, the Copper, the audio chips mid-envelope,

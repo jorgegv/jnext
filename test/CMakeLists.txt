@@ -151,6 +151,11 @@ add_test(NAME esxdos_stub_tests COMMAND esxdos_stub_test)
 # POSIX-only (GH #214; `# os: posix` in unit-tests.conf): Windows -- and wine --
 # cannot create the symbolic-link fixtures they read.
 if(NOT WIN32)
+    # GH #321 — prune must not delete symlinks.
+    add_executable(quick_snapshot_posix_test core/quick_snapshot_posix_test.cpp)
+    target_link_libraries(quick_snapshot_posix_test PRIVATE jnext_core spdlog::spdlog)
+    target_include_directories(quick_snapshot_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME quick_snapshot_posix_tests COMMAND quick_snapshot_posix_test)
     add_executable(esxdos_symlink_test esxdos_stub/esxdos_symlink_test.cpp)
     target_link_libraries(esxdos_symlink_test PRIVATE jnext_core spdlog::spdlog)
     target_include_directories(esxdos_symlink_test PRIVATE ${CMAKE_SOURCE_DIR}/src)

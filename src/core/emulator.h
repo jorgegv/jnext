@@ -1,6 +1,7 @@
 #pragma once
 
 namespace jnext { namespace save { class StateDesc; } }
+namespace jnext { namespace zip { class Reader; } namespace jns { struct Manifest; struct Verdict; } }
 
 #include <cstdint>
 #include <cstdio>
@@ -1019,6 +1020,12 @@ public:
     bool load_jns_file(const std::string& path);
     bool save_jns_file(const std::string& path);
 
+    /// GH #321 — run ONLY the checks `load_jns` does before it touches the
+    /// machine (container, manifest, media identity) on the file at `path`.
+    /// Touches no machine state. Lets a frontend refuse a bad `.jns` BEFORE
+    /// the cold boot a menu load performs.
+    bool probe_jns_file(const std::string& path, std::string& why);
+
     /// What the last `load_jns_file` / `save_jns_file` had to say. The GUI
     /// shows the warnings; §15.2: "it must be visible, not log-only — a user
     /// who ignores a mismatch should have had to ignore it."
@@ -1681,6 +1688,12 @@ private:
     /// What the last `.jns` file operation reported. Held here so every
     /// frontend reads it the same way instead of each threading its own
     /// out-params through a dispatch table.
+    /// GH #321 — the pre-touch half of `load_jns`, shared with
+    /// `probe_jns_file`: builds the ReaderEnv and opens the snapshot.
+    bool check_jns(const uint8_t* data, std::size_t len,
+                   const jnext::JnsLoadOptions& opt, jnext::zip::Reader& zip,
+                   jnext::jns::Manifest& m, jnext::jns::Verdict& v);
+
     jnext::JnsLoadReport jns_report_;
     std::string          jns_error_;
     Mixer           mixer_;

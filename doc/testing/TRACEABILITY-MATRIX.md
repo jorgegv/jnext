@@ -68,7 +68,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |    15 |   15 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  5684 | 5684 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5684**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5290**. Rows the 141 suites declared in `test/unit-tests.conf` run live: **12653**.
+Rows the sections above carry: **5684**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5290**. Rows the 142 suites declared in `test/unit-tests.conf` run live: **12727**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,7 +80,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 95 suites (7447 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 96 suites (7521 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -88,6 +88,7 @@ These 95 suites (7447 live rows) have no VHDL-derived plan row to map, so they h
 | `z80n_test` | 85 | data-driven FUSE-style runner, opcode names not row IDs |
 | `esxdos_stub_test` | 185 | esxDOS API surface + jnext trap policy, not core logic |
 | `esxdos_symlink_test` | 6 | esxDOS host-FS symlink-refusal rows moved out of esxdos_stub_test (POSIX-only, GH #214); same oracle, not core logic |
+| `quick_snapshot_posix_test` | 2 | GH #321 prune never deletes a symlink (POSIX-only); host feature, no VHDL oracle |
 | `phantom_typist_test` | 23 | jnext auto-typing state machine (host keystroke injection) |
 | `esp_wiring_test` | 127 | jnext host ESP policy/visibility/wiring, no core counterpart |
 | `sd_rom_extractor_test` | 26 | FAT32 + TBBlue SD path layout (host ROM extraction) |
@@ -107,7 +108,7 @@ These 95 suites (7447 live rows) have no VHDL-derived plan row to map, so they h
 | `present_cadence_test` | 34 | host present cadence policy (wall-clock, not core timing) |
 | `render_policy_test` | 10 | host render/skip policy (wall-clock, not core timing) |
 | `screenshot_test` | 24 | host screenshot file formats and auto-naming, no core counterpart |
-| `emulator_boot_test` | 85 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
+| `emulator_boot_test` | 115 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
 | `preferences_apply_policy_test` | 20 | Preferences apply/revert policy (host GUI) |
 | `window_attach_test` | 32 | host window-attach geometry (GH #39 contract, no VHDL oracle) |
 | `pointer_capture_test` | 64 | host mouse-capture policy (window-manager behaviour) |
@@ -115,11 +116,11 @@ These 95 suites (7447 live rows) have no VHDL-derived plan row to map, so they h
 | `frame_sequencer_test` | 116 | host frame sequencer (wall-clock run/present ordering) |
 | `tick_stats_test` | 32 | host tick accounting for the status bar |
 | `speed_report_test` | 36 | host speed-percentage reporting |
-| `host_key_latch_test` | 128 | host key latch/debounce compensation; guest matrix is `## Input` |
+| `host_key_latch_test` | 139 | host key latch/debounce compensation; guest matrix is `## Input` |
 | `sdl_window_title_test` | 3 | SDL window title carries the version (host GUI) |
 | `log_test` | 22 | jnext logging façade (spdlog wiring) |
 | `log_gate_test` | 27 | jnext log-level gating |
-| `cli_options_test` | 42 | CLI flag table vs the man page (see `make cli-check`) |
+| `cli_options_test` | 43 | CLI flag table vs the man page (see `make cli-check`) |
 | `video_recorder_cmd_test` | 33 | FFmpeg command-line construction (host encoder) |
 | `nex_loader_test` | 147 | NEX file-format spec (host loader), no core counterpart |
 | `nex_v13_test` | 79 | NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart |
@@ -147,7 +148,7 @@ These 95 suites (7447 live rows) have no VHDL-derived plan row to map, so they h
 | `script_events_test` | 118 | debugger scripting language engine (GH #26, jnext-internal); the T80N core has no debugger |
 | `script_record_test` | 35 | debugger session recorder (GH #20 / #26 WP6, jnext-internal); the T80N core has no debugger |
 | `zrcp_adapter_test` | 215 | ZRCP remote-debugger adapter (GH #280; ZEsarUX 12.0 transcripts, jnext-internal); the T80N core has no debugger |
-| `app_config_test` | 147 | jnext.conf schema/precedence (host settings file) |
+| `app_config_test` | 155 | jnext.conf schema/precedence (host settings file) |
 | `audio_gain_config_test` | 22 | gain settings persistence (host settings file) |
 | `audio_gain_preferences_test` | 10 | gain controls in the Preferences dialog (host GUI) |
 | `present_count_test` | 21 | host present accounting (wall-clock, not core timing) |
@@ -157,7 +158,7 @@ These 95 suites (7447 live rows) have no VHDL-derived plan row to map, so they h
 | `rzx_menu_test` | 16 | RZX File-menu error dialogs (GUI), no core counterpart |
 | `load_error_test` | 24 | GUI load-failure reporting, the Tape menu, and the file-dialog FILTERS (GUI), no core counterpart |
 | `esc_break_test` | 6 | host ESC->BREAK binding; guest matrix is `## Input` |
-| `host_hotkey_test` | 56 | host hotkey bindings (Alt vs the guest Symbol Shift) |
+| `host_hotkey_test` | 65 | host hotkey bindings (Alt vs the guest Symbol Shift) |
 | `main_window_accel_test` | 5 | main-window menu mnemonics (host GUI) |
 | `main_window_pause_test` | 17 | main-window Pause: Machine > Pause, Alt+U, Pause key (host GUI) |
 | `joystick_menu_test` | 14 | joystick controller picker: Input menu, Preferences (host GUI) |
@@ -165,7 +166,7 @@ These 95 suites (7447 live rows) have no VHDL-derived plan row to map, so they h
 | `window_scale_test` | 10 | main-window scale/fullscreen geometry (host GUI) |
 | `window_title_test` | 6 | main-window title carries the version (host GUI) |
 | `quit_cleanup_test` | 8 | host shutdown ordering (GUI lifecycle) |
-| `preferences_apply_test` | 62 | Preferences dialog wiring (host GUI) |
+| `preferences_apply_test` | 75 | Preferences dialog wiring (host GUI) |
 | `debugger_video_panel_test` | 116 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 17 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 8 | debugger quit gating (host GUI lifecycle) |

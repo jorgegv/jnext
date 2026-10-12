@@ -66,6 +66,9 @@ extern const char* const kFixedImageRecipeSuffix; // ".recipe"
 // 751d0b31).
 extern const char* const kZx81Rom16kSha256;
 
+// The per-user state dir (SD image, NextPi, config, warm start, snapshots):
+// $JNEXT_CONFIG_DIR when set and non-empty, else $HOME/.jnext.
+std::string default_state_dir();
 // <config-dir>/sdcard, where <config-dir> is $JNEXT_CONFIG_DIR when set and
 // non-empty, else $HOME/.jnext. The override matches AppConfig and the
 // debugger window, which resolve the SAME directory the same way; the

@@ -230,8 +230,8 @@ std::string default_quick_screenshot_dir()
     return ".jnext/screenshots";
 }
 
-std::string auto_screenshot_path(const std::string& dir, ScreenshotFormat fmt,
-                                 std::time_t when)
+std::string auto_timestamped_path(const std::string& dir, const std::string& ext,
+                                  std::time_t when)
 {
     if (!make_directory_path(dir)) return {};
 
@@ -252,7 +252,6 @@ std::string auto_screenshot_path(const std::string& dir, ScreenshotFormat fmt,
 
     const std::string base = (base_dir == "/" ? std::string("/")
                                             : base_dir + "/") + "jnext-" + stamp;
-    const std::string ext  = screenshot_format_ext(fmt);
 
     // Bare name first, then -02, -03, ... Bounded rather than unbounded: a
     // loop that cannot terminate is worse than a reported failure, and 100
@@ -265,9 +264,15 @@ std::string auto_screenshot_path(const std::string& dir, ScreenshotFormat fmt,
     }
     if (file_exists(candidate)) {
         Log::platform()->error(
-            "screenshot: no free auto-generated name for '{}{}' (99 taken)",
+            "no free auto-generated name for '{}{}' (99 taken)",
             base, ext);
         return {};
     }
     return candidate;
+}
+
+std::string auto_screenshot_path(const std::string& dir, ScreenshotFormat fmt,
+                                 std::time_t when)
+{
+    return auto_timestamped_path(dir, screenshot_format_ext(fmt), when);
 }

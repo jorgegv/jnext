@@ -593,11 +593,11 @@ struct LoadVisitor {
 
 }  // namespace
 
-bool Emulator::load_jns(const uint8_t* data, std::size_t len,
+bool Emulator::check_jns(const uint8_t* data, std::size_t len,
                         const jnext::JnsLoadOptions& opt,
-                        jnext::JnsLoadReport& report, std::string& why)
+                        jnext::zip::Reader& zip, jnext::jns::Manifest& m,
+                        jnext::jns::Verdict& v)
 {
-    why.clear();
 
     // ── Everything checkable is checked BEFORE the machine is touched ────
     //
@@ -650,10 +650,6 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
                                      embedded_nextboot_rom_size()));
     }
 
-    jnext::zip::Reader   zip;
-    jnext::jns::Manifest m;
-    jnext::jns::Verdict  v;
-
     // §10.2 P4 — the container asks whether the tape can be reopened; it does
     // no filesystem I/O itself, which is what keeps its rows cheap.
     {
@@ -671,7 +667,42 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
         }
     }
 
-    if (!jnext::jns::open_snapshot(data, len, env, zip, m, v)) {
+    return jnext::jns::open_snapshot(data, len, env, zip, m, v);
+}
+
+bool Emulator::probe_jns_file(const std::string& path, std::string& why)
+{
+    why.clear();
+    std::ifstream f(path, std::ios::binary);
+    if (!f) { why = "cannot open '" + path + "'"; return false; }
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
+                               std::istreambuf_iterator<char>());
+    if (bytes.empty()) { why = "'" + path + "' is empty"; return false; }
+    jnext::JnsLoadOptions opt;
+    opt.strict       = config_.jns_strict;
+    opt.force_sdcard = config_.jns_force_sdcard;
+    jnext::zip::Reader   zip;
+    jnext::jns::Manifest m;
+    jnext::jns::Verdict  v;
+    if (!check_jns(bytes.data(), bytes.size(), opt, zip, m, v)) {
+        why = v.refusal;
+        return false;
+    }
+    return true;
+}
+
+bool Emulator::load_jns(const uint8_t* data, std::size_t len,
+                        const jnext::JnsLoadOptions& opt,
+                        jnext::JnsLoadReport& report, std::string& why)
+{
+    why.clear();
+
+    // Everything checkable is checked BEFORE the machine is touched; the
+    // same checks run in probe_jns_file (GH #321).
+    jnext::zip::Reader   zip;
+    jnext::jns::Manifest m;
+    jnext::jns::Verdict  v;
+    if (!check_jns(data, len, opt, zip, m, v)) {
         why = v.refusal;
         return false;
     }
@@ -680,9 +711,9 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
     report.ignored_members = v.ignored_members;
     report.reconfigured_to = v.reconfigure_to;
 
-    // §7.3 — the file's machine wins, the same courtesy `.sna`/`.szx`/`.z80`
-    // already get: the user must not have to get `--machine` right to reload
-    // their own save.
+    // §7.3 — the file's machine wins (unlike `.sna`/`.szx`/`.z80`, whose
+    // loaders apply onto the running machine): the user must not have to get
+    // `--machine` right to reload their own save.
     if (!v.reconfigure_to.empty()) {
         MachineType want = config_.type;
         if (parse_machine_type(v.reconfigure_to, want) && want != config_.type) {
