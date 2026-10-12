@@ -764,12 +764,18 @@ The design that follows:
    work. `poll()` is exactly the two in sequence, which is what an inline consumer wants. The
    worker runs `advance_transports()` with the core lock **released** and takes the lock only for
    the engine work either side of it.
-2. **`tick()` uses `try_lock`, and on failure returns having done nothing** — the elapsed ticks
-   are **dropped, not banked**. Banking would accumulate credit during a stall and then release a
-   burst at unbounded speed the moment the lock came free, which is precisely the RX FIFO overrun
-   the pacing exists to prevent (the engine's own idle branch makes the same choice for the same
-   reason). What is lost is now the duration of one engine service pass — microseconds, bounded by
-   the transport contract — rather than the duration of a name lookup.
+2. **`tick()` try-locks the core only to frame the NEXT message; committed bytes leave without it
+   (GH #327).** The first version try-locked the core for everything and, on failure, **dropped**
+   the elapsed ticks, on the claim that this cost "microseconds". Under wine that is false: the
+   worker holds the lock across Winsock `send`/`recv` (wineserver round trips, 1-25 ms of wall
+   time), and the emulated time dropped in one hold reached **382 018 cycles at 28 MHz**. A reply
+   already framed stopped mid-message while the guest ran on, and NextSync 1.2 (about 1 750 cycles
+   between the bytes of a `+IPD,<n>:` header) abandoned the packet and retried or restarted. A real
+   ESP-01 clocks a framed message out back to back, so the guest-bound bytes now live in a wire
+   with its own short lock (held for a deque push/pop only, never across a transport or sink
+   call); `tick()` paces from it with no core lock, and try-locks the core only once the wire has
+   drained, to frame the next `+IPD`. A lost try-lock delays when the next message starts and
+   nothing else. Nothing is banked while the wire is empty (the RX FIFO overrun argument stands).
 3. **`set_output()` never touches the core lock.** The core holds a permanent trampoline; the user
    sink is swapped behind a separate `sink_mutex_`. An earlier version took the core lock and
    described it as "briefly contends with the worker", which understated it by the same margin.
@@ -1154,8 +1160,10 @@ is what `fix/esp-async-dns` delivers.
 
 **Banking the elapsed ticks when `tick()` loses the try-lock.** Rejected for the same reason the
 engine's idle branch does not bank: accumulated credit released at unbounded speed the moment the
-lock frees is exactly the RX FIFO overrun the pacing exists to prevent (§6.2). Dropping loses one
-engine service pass — microseconds — instead.
+lock frees is exactly the RX FIFO overrun the pacing exists to prevent (§6.2). The original text
+said dropping loses "microseconds"; measured under wine it lost up to 382 018 emulated cycles, and
+banking would not have helped either (the first byte after the stall still arrives after the gap).
+GH #327 removed the stall instead: committed bytes no longer depend on the core lock (§7.2 point 2).
 
 **"The UART wire is synchronous, therefore the ESP cannot be threaded."** This argument was made
 during design and is **wrong**, and the correction matters because the conclusion it was used to

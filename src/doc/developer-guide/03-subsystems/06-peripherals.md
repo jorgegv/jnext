@@ -385,6 +385,15 @@ Four consequences, all deliberate:
   inline by a consumer with its own scheduler. It is always built, so no one
   has to reconfigure to get it, and both modes are exercised by the module's
   suites — an unexercised alternative mode rots.
+- **Guest-bound bytes never wait for the worker.** `AtEngine` keeps the framed
+  bytes for the guest in a wire with its own short lock (held for a push or pop,
+  never across a transport or sink call), and `ThreadedEsp::tick()` paces from it
+  without the core lock; it try-locks the core only to frame the *next* `+IPD`,
+  once the wire has drained. Before GH #327 a lost try-lock dropped the elapsed
+  time, which under wine (worker inside a Winsock call, 1-25 ms) paused a reply
+  mid-message for up to 382 018 emulated cycles, and NextSync's 20-poll window
+  between `+IPD,<n>:` header bytes then abandoned the packet. A real ESP-01
+  clocks a message out back to back; each message is pushed as one unit.
 - **Detached workers go through `net::start_detached`.** The DNS, `AT+PING` and
   `AT+CIPSNTPTIME?` workers are threads nobody joins, started by that one
   function in `esp_socket_platform.h`. On Windows it is a Win32 thread, not

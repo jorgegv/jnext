@@ -155,16 +155,24 @@ instead of `/dev/full` on macOS).
 
 ### nextsync-func under wine: self-diagnosing (GH #319)
 
-`nextsync-func` has failed rarely under wine (about 1 loaded run in 15). It stays in the
-Windows run, and a failure prints its own diagnosis into the job log (and keeps the full logs
+`nextsync-func` failed rarely under wine (about 1 loaded run in 15) until GH #327 found the
+cause: `ThreadedEsp::tick` dropped emulated time while the ESP worker held the core lock (under
+wine across Winsock `send`/`recv`, 1-25 ms of wall time, up to 382 018 emulated 28 MHz cycles), so a
+framed `+IPD` reply paused mid-message and NextSync 1.2 (about 1 750 cycles between header bytes)
+dropped the packet. The guest-bound wire now has its own lock and committed bytes no longer wait for
+the worker (rows STALL-05/06, GWIRE-01/02). What the row is still exposed to is a reply that starts
+later than NextSync's own windows (about 1.2 s emulated per hunt), which a real ESP on a slow
+network shares. The row stays in the Windows run, and a failure prints its own diagnosis into the job log (and keeps the full logs
 in `build/regression-artifacts/`, uploaded by CI): the peer's timestamped exchange, and
 `nextsync-digest.py`'s comparison of byte digests (FNV-1a every 256 bytes, `digest <stream>`
 log lines at debug level) across the hops peer -> socket -> ESP buffer -> ESP output ->
 UART RX FIFO -> guest read, naming the first hop that differs. When none differs it uses the
 EXACT counts logged when the guest started the command that followed (bytes each stage had passed
 on, bytes the ESP output queue still held) to say which stage was short, or that the guest had
-every byte. On a GREEN run the same digests must agree, on all four hops with a non-zero
-checkpoint count, or the row fails (the instrumentation is part of what the row asserts). The
+every byte, and by how long (emulated ms) the guest had last emptied the RX FIFO before it started
+the command (`edge=` / `drained_edge=` on jnext's `uartN-guest-read` exact record). On a GREEN run the same digests must agree, on all four hops with a non-zero
+checkpoint count and at least one `drained_edge=` guest-read record is logged, or the row fails
+(the instrumentation is part of what the row asserts). The
 digest lines cost ~410 jnext log lines (+28 KB) on a green run of that row and nothing when the
 debug level is off; `nextsync-digest.py --selftest` and a unit row pin the FNV-1a/32 vectors.
 
