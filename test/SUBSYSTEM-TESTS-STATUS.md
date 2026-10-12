@@ -29,9 +29,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | UART + I2C/RTC        |      104 |      104 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (POSIX-only rows) |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 socket transport |      237 |      237 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 socket transport |      241 |      241 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket SIGPIPE (POSIX) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 AT command engine |      489 |      489 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 AT command engine |      495 |      495 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext policy + wiring |      127 |      127 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC + SPI          |      154 |      154 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -147,6 +147,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12705**| **12705**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12715**| **12715**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
