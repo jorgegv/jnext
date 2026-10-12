@@ -1045,34 +1045,58 @@ int main(int argc, char** argv) {
     // stand-in gets the per-OS -audiodev, PiQemu makes the audio reader exactly
     // where the mixer path exists, and link_config hands that reader (or null)
     // to the Emulator. On POSIX this is the socket transport WITH the mixer: the
-    // audio FIFO needs its own runtime directory there.
+    // audio FIFO needs a runtime directory of its own, so the wav path must be
+    // absolute, inside a fresh `jnext-pi-*` directory that exists while QEMU
+    // runs and is gone once PiQemu is destroyed, and nothing may appear in the
+    // current directory.
     {
         Fixture fx("emptyaudio");
         PiQemu::Spec spec;
         spec.dir         = fx.dir();
         spec.qemu_binary = fx.bin("qemu-system-arm");
         spec.transport   = PiQemu::Transport::Socket;     // spec.audio left empty
-        PiQemu qemu;
-        std::string error;
-        const bool started = fx.ok() && qemu.start(spec, error) && fx.child_pid() != 0;
-        std::string dev;
-        for (const std::string& l : fx.arg_lines())
-            if (l.rfind("wav,id=snd0,path=", 0) == 0 || l.rfind("dsound,id=snd0", 0) == 0) dev = l;
-        EmulatorConfig cfg;
-        qemu.link_config(cfg);
+        std::string error, dev, wav_path;
+        bool started = false, per_os = false, cwd_clean = true, dir_ok = true, gone = true;
+        const fs::path cwd_fifo = fs::current_path() / ".audio";
+        {
+            PiQemu qemu;
+            started = fx.ok() && qemu.start(spec, error) && fx.child_pid() != 0;
+            for (const std::string& l : fx.arg_lines())
+                if (l.rfind("wav,id=snd0,path=", 0) == 0 || l.rfind("dsound,id=snd0", 0) == 0) dev = l;
+            EmulatorConfig cfg;
+            qemu.link_config(cfg);
 #ifdef _WIN32
-        const bool per_os = dev == "dsound,id=snd0" && qemu.audio() == nullptr && cfg.pi_audio == nullptr;
+            per_os = dev == "dsound,id=snd0" && qemu.audio() == nullptr && cfg.pi_audio == nullptr;
 #else
-        const bool per_os = dev.rfind("wav,id=snd0,path=", 0) == 0 &&
-                            dev.find(".audio,out.frequency=44100,out.channels=2,out.format=s16") != std::string::npos &&
-                            qemu.audio() != nullptr && cfg.pi_audio == qemu.audio();
+            per_os = dev.rfind("wav,id=snd0,path=", 0) == 0 &&
+                     dev.find(".audio,out.frequency=44100,out.channels=2,out.format=s16") != std::string::npos &&
+                     qemu.audio() != nullptr && cfg.pi_audio == qemu.audio();
+            if (per_os) {
+                wav_path = dev.substr(std::strlen("wav,id=snd0,path="));
+                wav_path = wav_path.substr(0, wav_path.find(".audio,out.") + 6);
+                const fs::path p(wav_path);
+                dir_ok = p.is_absolute() && p.parent_path().filename().string().rfind("jnext-pi-", 0) == 0 &&
+                         fs::is_directory(p.parent_path()) && fs::exists(p);
+            }
+            std::error_code ec;
+            cwd_clean = !fs::exists(cwd_fifo, ec);
+#endif
+        }
+#ifndef _WIN32
+        std::error_code ec2;
+        gone = !wav_path.empty() && !fs::exists(fs::path(wav_path).parent_path(), ec2) &&
+               !fs::exists(cwd_fifo, ec2);
+        cwd_clean = cwd_clean && !fs::exists(cwd_fifo, ec2);
 #endif
         check("PIT-17",
               "starting NextPi with the audio setting empty gives QEMU the mixer's wav FIFO and makes "
-              "the audio reader on Linux and macOS (also on the socket transport), and gives QEMU "
-              "dsound with no reader on Windows; link_config carries the reader (jnext-only, no VHDL "
-              "counterpart)",
-              started && per_os, fmt("started=%d (%s) audiodev='%s'", started ? 1 : 0, error.c_str(), dev.c_str()));
+              "the audio reader on Linux and macOS (also on the socket transport, in a runtime "
+              "directory of its own that stop() removes, never in the current directory), and gives "
+              "QEMU dsound with no reader on Windows; link_config carries the reader (jnext-only, no "
+              "VHDL counterpart)",
+              started && per_os && dir_ok && cwd_clean && gone,
+              fmt("started=%d (%s) audiodev='%s' dir_ok=%d cwd_clean=%d gone=%d", started ? 1 : 0,
+                  error.c_str(), dev.c_str(), dir_ok ? 1 : 0, cwd_clean ? 1 : 0, gone ? 1 : 0));
     }
 
     std::printf("\n====================================\n");
