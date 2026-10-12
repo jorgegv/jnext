@@ -166,6 +166,7 @@ if want fix-sdcard-image-func; then
         head -c    17 /dev/urandom > "$BIG/.dotfile"
         head -c    33 /dev/urandom > "$BIG/a[1].bin"
         head -c    21 /dev/urandom > "$BIG/Música.txt"
+        head -c    24 /dev/urandom > "$BIG/日本.txt"
         head -c    22 /dev/urandom > "$BIG/hid.txt"
         head -c    23 /dev/urandom > "$BIG/sys.txt"
         # F runs in a UTF-8 locale, set explicitly like C.UTF-8 and with LC_ALL
@@ -240,6 +241,28 @@ if want fix-sdcard-image-func; then
                 faults+=("FC: the C-locale re-cluster changed the card's names: $fc_diff")
             fi
             rm -f "$W/fc-fixed.img"
+
+            # FN — no UTF-8 locale on the host (a `locale` wrapper that lists
+            #      only C/POSIX, and LC_ALL=C): the script must refuse BEFORE it
+            #      touches anything, not rename "日本.txt" to "__.txt" on the card.
+            mkdir -p "$W/nolocale"
+            cat > "$W/nolocale/locale" <<'NOLOC'
+#!/bin/sh
+case "$1" in
+  -a) printf 'C\nPOSIX\n' ;;
+  charmap) echo ANSI_X3.4-1968 ;;
+  *) exit 1 ;;
+esac
+NOLOC
+            chmod +x "$W/nolocale/locale"
+            rc=0
+            env LANG=C LC_ALL=C PATH="$W/nolocale:$PATH" timeout --kill-after=5s 120s \
+                bash "$FIX" "$W/f.img" "$W/fn-fixed.img" > "$W/FN.log" 2>&1 || rc=$?
+            [[ $rc != 0 ]] || faults+=("FN: the script ran without a UTF-8 locale (exit 0)")
+            grep -q "no UTF-8 locale" "$W/FN.log" \
+                || faults+=("FN: no 'no UTF-8 locale' refusal: $(tail -n1 "$W/FN.log")")
+            [[ ! -e "$W/fn-fixed.img" ]] || faults+=("FN: the destination image was created by a refused run")
+            rm -f "$W/fn-fixed.img"
 
             # G — a defect-mimicking mcopy: after the bulk extraction it
             #     renames one host file (G-a) or drops one (G-b: the card has
@@ -322,7 +345,9 @@ WRAP
            && LANG=C mattrib -i "$XN/c.img@@$OFF" +s ::/GAMES/sys.dat </dev/null >/dev/null 2>&1 \
            && LANG=C mmd -i "$XN/c.img@@$OFF" ::/apps "::/apps/demo [1]" </dev/null >/dev/null 2>&1 \
            && nexcard "::/apps/demo [1]/c.nex" && nexcard "::/apps/demo [1]/d.dat" \
-           && LANG=C mmd -i "$XN/c.img@@$OFF" ::/MISC </dev/null >/dev/null 2>&1 && nexcard ::/MISC/other.bin; then
+           && LANG=C mmd -i "$XN/c.img@@$OFF" ::/MISC </dev/null >/dev/null 2>&1 && nexcard ::/MISC/other.bin \
+           && "${U8[@]}" mcopy -m -i "$XN/c.img@@$OFF" "$XN/src.rom" "::/GAMES/日本.nex" </dev/null >/dev/null 2>&1 \
+           && "${U8[@]}" mcopy -m -i "$XN/c.img@@$OFF" "$XN/src.rom" "::/GAMES/データ.dat" </dev/null >/dev/null 2>&1; then
             cat > "$XN/wrapbin/mcopy" <<WRAP
 #!/bin/sh
 "$real_mcopy" "\$@" || exit \$?
@@ -338,7 +363,7 @@ case "\$last" in
       elif [ "\$GH330_WRAP" = drop ]; then
         find "\$last" -type f -name b.nex -exec rm -f {} +
       else
-        f=\$(find "\$last" -type f | LC_ALL=C sort | tail -n 1)
+        f=\$(find "\$last" -type f ! -name "*.nex" | LC_ALL=C sort | tail -n 1)
         [ -z "\$f" ] || mv "\$f" "\${f}_file"
       fi ;;
   *) [ "\$GH330_WRAP" != failsingle ] || exit 1 ;;
@@ -349,17 +374,24 @@ WRAP
                 local label=$1 wrap=$2 out=$3; shift 3
                 local rc=0 pre=$PATH
                 [[ $wrap == 0 ]] || pre="$XN/wrapbin:$PATH"
-                PATH=$pre LANG=C timeout --kill-after=5s 120s \
+                PATH=$pre LANG=C LC_ALL=C timeout --kill-after=5s 120s \
                     bash "$PROJECT_DIR/tools/extract-sdcard-nex.sh" "$out" -i "$XN/c.img" "$@" \
                     > "$XN/$label.log" 2>&1 || rc=$?
                 echo "$rc"
             }
+            # no UTF-8 locale: refuse before extracting anything
+            nrc=$(PATH="$W/nolocale:$PATH" LANG=C LC_ALL=C timeout --kill-after=5s 120s \
+                  bash "$PROJECT_DIR/tools/extract-sdcard-nex.sh" "$XN/outn" -i "$XN/c.img" -s \
+                  > "$XN/H-nolocale.log" 2>&1; echo $?)
+            [[ $nrc != 0 ]] && grep -q "no UTF-8 locale" "$XN/H-nolocale.log" \
+                || faults+=("H-nolocale: extract-sdcard-nex.sh ran without a UTF-8 locale (exit $nrc)")
+            [[ ! -e "$XN/outn" ]] || faults+=("H-nolocale: a refused run created the output directory")
             for mode in sib single; do
                 opt=(); [[ $mode == sib ]] && opt=(-s)
                 rc=$(nex_run "H-$mode" 0 "$XN/out-$mode" "${opt[@]}")
                 [[ $rc == 0 ]] || faults+=("H-$mode: extract-sdcard-nex.sh exited $rc: $(tail -n1 "$XN/H-$mode.log")")
-                want=(b.nex GAMES/a.nex "GAMES/Foo [48].nex" "apps/demo [1]/c.nex")
-                [[ $mode != sib ]] || want+=(readme.txt GAMES/data.bin GAMES/hid.dat GAMES/sys.dat "apps/demo [1]/d.dat")
+                want=(b.nex GAMES/a.nex "GAMES/Foo [48].nex" "apps/demo [1]/c.nex" "GAMES/日本.nex")
+                [[ $mode != sib ]] || want+=(readme.txt GAMES/data.bin GAMES/hid.dat GAMES/sys.dat "apps/demo [1]/d.dat" "GAMES/データ.dat")
                 for f in "${want[@]}"; do
                     [[ -f "$XN/out-$mode/$f" ]] || faults+=("H-$mode: '$f' was not extracted into the output directory")
                 done

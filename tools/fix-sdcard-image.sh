@@ -93,13 +93,12 @@ done
 # --- Locale (GH #330) ---
 # mtools builds host file names from the locale's charset, and the card's long
 # names are Unicode: in a locale that cannot represent one (C/POSIX in a
-# minimal container) an extracted "Música.txt" becomes "M_sica.txt", and the
-# copy back would rename it ON THE CARD. Everything below (extraction, the
-# verification, the copy back) therefore runs in one UTF-8 locale, which LC_ALL
-# pins whatever the caller's environment says. Only exit statuses and line
-# counts are read from mtools, never its text. With no UTF-8 locale installed
-# the caller's locale is kept and the verification refuses a card whose names
-# do not survive it.
+# minimal container) an extracted "Música.txt" or "日本.txt" becomes "M_sica.txt"
+# or "__.txt", and the copy back would rename it ON THE CARD. Everything below
+# (extraction, verification, copy back) therefore runs in one UTF-8 locale,
+# which LC_ALL pins whatever the caller's environment says. If the host has no
+# UTF-8 locale and the caller's charset is not UTF-8 either, the script refuses
+# BEFORE touching anything.
 LOCALES_AVAILABLE=$(locale -a 2>/dev/null || true)
 for loc in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do
     if grep -qix "$loc" <<< "$LOCALES_AVAILABLE"; then
@@ -107,6 +106,10 @@ for loc in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do
         break
     fi
 done
+if [ "$(locale charmap 2>/dev/null || true)" != UTF-8 ]; then
+    echo "ERROR: no UTF-8 locale is installed; non-ASCII card names would be lost — install C.UTF-8 (or en_US.UTF-8) or run in a UTF-8 locale (GH #330). Nothing was changed." >&2
+    exit 1
+fi
 
 # --- mtools setup ---
 # Partition 1 starts at sector 63 on every shipped CSpect / NextZXOS image
@@ -206,59 +209,34 @@ if [ "$NEEDS_FAT32_FIX" = "1" ]; then
     EXTRACTED_BYTES=$(du -sb "$EXTRACT_DIR" | awk '{print $1}')
     echo "Extracted ${EXTRACTED_FILES} files, ${EXTRACTED_BYTES} bytes."
 
-    # GH #330: mtools 4.0.49 (charsetConv.c safe_iconv) can give extracted HOST
-    # files names that are not on the card (an inverted errno test appends "_"
-    # and the tail of the previous name when the system iconv leaves a stale
-    # EILSEQ: macOS). The copy back would write those names onto the card, which
-    # then no longer boots. Card-side lookups never go through that code, so the
-    # extraction is verified BEFORE the partition is re-formatted:
-    #  (a) every extracted path is found on the card (a renamed one is not);
-    #  (b) the entry counts agree (two card names mangled onto one host name).
-    # mtools pattern characters are escaped; -a includes hidden/system entries.
-    # The guard's mtools calls run in the SAME locale as the extraction (no
-    # LANG=C): mtools encodes a host name from the locale's charset, so a
-    # name like "Música.txt" extracted in a UTF-8 locale can only be found again
-    # in that locale. (Parsed child output is not involved: only exit statuses
-    # and a line count are read.)
-    mt_escape() {
-        local e=$1
-        e=${e//\\/\\\\}; e=${e//\*/\\*}; e=${e//\?/\\?}; e=${e//\[/\\[}
-        printf '%s' "$e"
-    }
+    # GH #330: the extracted HOST names can differ from the card's. mtools 4.0.49
+    # (charsetConv.c safe_iconv, an inverted errno test) appends "_" and the tail
+    # of the previous name when the system iconv leaves a stale EILSEQ (macOS),
+    # and a charset that cannot represent a name turns it into "_" characters
+    # (see the locale pin above). The copy back would write those names onto the
+    # card, which then no longer boots. So the extraction is verified BEFORE the
+    # partition is re-formatted: the set of extracted relative paths must equal
+    # the card's own long names, as `mdir -/ -a -b ::/` prints them (-a includes
+    # hidden/system entries; case is folded because FAT is case-insensitive). A
+    # per-name lookup is NOT enough: it also matches 8.3 short-name aliases, and
+    # a lost name such as "__.txt" is the short alias of the card's "日本.txt".
+    # Only the paths are read, from a fixed UTF-8 locale (the pin above).
+    lines() { [ -z "$1" ] || printf '%s\n' "$1"; }
     verify_extraction() {
-        local p n_ext n_card
-        n_ext=$(find "$EXTRACT_DIR" -mindepth 1 | wc -l)
-        n_ext=$(( n_ext ))
-        if [ "$n_ext" -gt 0 ]; then
-            if ! { while IFS= read -r -d '' p; do
-                       printf '%s\0' "::/$(mt_escape "${p#./}")"
-                   done < <(cd "$EXTRACT_DIR" && find . -mindepth 1 -print0)
-                 } | xargs -0 -n 64 mdir -a -b -i "$DRIVE_SPEC" >/dev/null 2>&1; then
-                # Name the first few extracted paths the card does not have.
-                local bad=() found=0
-                while IFS= read -r -d '' p; do
-                    if ! mdir -a -b -i "$DRIVE_SPEC" "::/$(mt_escape "${p#./}")" \
-                            </dev/null >/dev/null 2>&1; then
-                        bad+=("${p#./}"); found=$(( found + 1 ))
-                        [ "$found" -ge 5 ] && break
-                    fi
-                done < <(cd "$EXTRACT_DIR" && find . -mindepth 1 -print0)
-                echo "ERROR: mtools extracted names that are not on the card (${bad[*]:-?}) — this mtools build mis-names host files, or the locale cannot represent a card name — use a UTF-8 locale (GH #330); $DST was NOT re-formatted" >&2
-                return 1
-            fi
-        fi
-        local listing
+        local listing want got bad n_ext n_card
         if ! listing=$(mdir -/ -a -b -i "$DRIVE_SPEC" "::/" </dev/null 2>/dev/null); then
             echo "ERROR: mdir could not list the card, so the extraction cannot be verified (GH #330 check); $DST was NOT re-formatted" >&2
             return 1
         fi
-        # an empty card lists nothing (wc -l of an empty line would say 1)
-        if [ -z "$listing" ]; then
-            n_card=0
-        else
-            n_card=$(printf '%s\n' "$listing" | wc -l)
-            n_card=$(( n_card ))
+        got=$(lines "$listing" | sed -e 's|^::/||' -e 's|/$||' | LC_ALL=C tr 'A-Z' 'a-z' | LC_ALL=C sort)
+        want=$(cd "$EXTRACT_DIR" && find . -mindepth 1 | sed 's|^\./||' | LC_ALL=C tr 'A-Z' 'a-z' | LC_ALL=C sort)
+        bad=$(LC_ALL=C comm -23 <(lines "$want") <(lines "$got") | head -5 | tr '\n' ' ')
+        if [ -n "$bad" ]; then
+            echo "ERROR: mtools extracted names that are not on the card (${bad% }) — this mtools build mis-names host files, or the locale cannot represent a card name (GH #330); $DST was NOT re-formatted" >&2
+            return 1
         fi
+        n_ext=$(lines "$want" | wc -l); n_ext=$(( n_ext ))
+        n_card=$(lines "$got" | wc -l); n_card=$(( n_card ))
         if [ "$n_card" -ne "$n_ext" ]; then
             echo "ERROR: mtools extracted ${n_ext} entries but the card lists ${n_card} — this mtools build mis-names host files (GH #330); $DST was NOT re-formatted" >&2
             return 1
