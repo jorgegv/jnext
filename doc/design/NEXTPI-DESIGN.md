@@ -305,9 +305,14 @@ under QEMU is one, so:
   after the EOF a departing writer leaves, and in-stream, at a frame boundary,
   by `RIFF`...`WAVE`, for a writer that follows the last with no read in
   between (bytes that may still be a header wait for the next read). It polls
-  for 100 ms at a time with a writer connected and 20 ms without one: a
-  `poll()` that began before a new writer connected is not always woken by its
-  data on macOS, and the short timeout bounds a reconnect's delay.
+  for 100 ms at a time with a writer connected and 20 ms without one; the short
+  timeout bounds a reconnect's delay. Linux's `poll()` reports a gone writer
+  at once (POLLHUP), so there a read that finds no writer is followed by a
+  20 ms pause, or the thread would spin a core; macOS's never reports it
+  (XNU's FIFO read filter fires only when data is queued), so there the
+  timeout already paced the loop and the pause is taken only after a `poll()`
+  that returned at once. A pause after a timeout was a second wait on the one
+  timer macOS may stretch by tens of ms (GH #354).
 - **The emulator latches one frame per mixer output sample**
   (`Emulator::feed_pi_audio`, from `advance_audio` at each sample boundary),
   converted to the hardware's 10-bit offset binary (`PiAudio::to_i2s`, 0 → 0x200
@@ -562,7 +567,7 @@ the `WAVE` check fails MX-52; polling for the wrong event fails MX-44 on Linux (
 on macOS (a spinning core); a 1000 ms poll timeout fails MX-45 (`close()`
 waits); a 200 ms no-writer pause fails MX-46 (reconnect latency); a FIFO
 made 0666, or a regular file accepted, fails MX-35; no pause after a read that
-finds no writer fails MX-37 on Linux (macOS's `poll()` waits anyway); treating
+finds no writer fails MX-37 on Linux; a pause after a `poll()` that timed out fails MX-53; treating
 EAGAIN as the writer's end fails MX-38; no close-on-exec, a leaked descriptor
 on re-open or close, or a stale one after `close()`, fails MX-39; giving up on a
 `poll()` error (a signal's EINTR) fails MX-40; not escaping the FIFO path for

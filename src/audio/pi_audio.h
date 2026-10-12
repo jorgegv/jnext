@@ -65,11 +65,15 @@ public:
     uint64_t frames_received() const { return received_.load(); }  ///< read from QEMU
     uint64_t frames_dropped()  const { return dropped_.load(); }    ///< ring full, or trimmed
     uint64_t underruns()       const { return underruns_.load(); }  ///< ran dry while playing
-    /// Reads that found no writer (QEMU not started yet, or gone). Each is
-    /// followed by a 20 ms pause, so this grows by at most ~50 a second — on
-    /// Linux poll() reports a gone writer at once, and without the pause the
-    /// reader would spin a core. Exposed so a row can pin that.
+    /// Reads that found no writer (QEMU not started yet, or gone). Each came
+    /// after a poll() that either timed out (20 ms) or, on Linux for a gone
+    /// writer, returned at once and was followed by a 20 ms pause, so this
+    /// grows by at most ~50 a second (every pass blocks at least 20 ms).
     uint64_t eof_reads()       const { return eof_reads_.load(); }
+    /// The 20 ms pauses taken after a no-writer read whose poll() had returned
+    /// at once (Linux POLLHUP; without it the reader would spin a core). Zero
+    /// when poll() timed out: it already waited. Exposed so a row can pin that.
+    uint64_t no_writer_pauses() const { return no_writer_pauses_.load(); }
     /// Reads that found a writer but no data (EAGAIN): the reader's wakeups
     /// while a connected writer is silent, one per 100 ms poll timeout.
     /// Exposed so a row can pin that it does not keep the shorter no-writer
@@ -93,6 +97,7 @@ private:
     std::atomic<uint64_t>   dropped_{0};
     std::atomic<uint64_t>   underruns_{0};
     std::atomic<uint64_t>   eof_reads_{0};
+    std::atomic<uint64_t>   no_writer_pauses_{0};
     std::atomic<uint64_t>   idle_reads_{0};
     std::atomic<bool>       overflowed_{false};   ///< producer dropped a frame: flush on next pop
 };

@@ -29,7 +29,7 @@ mentions them, so a test can no longer be absent from this document.
 | Tilemap                                    |    98 |   98 |    0 |    0 |       0 |          0 |
 | Copper                                     |   110 |  110 |    0 |    0 |       0 |          0 |
 | Compositor                                 |   294 |  294 |    0 |    0 |       0 |          0 |
-| Audio                                      |   243 |  243 |    0 |    0 |       0 |          0 |
+| Audio                                      |   244 |  244 |    0 |    0 |       0 |          0 |
 | DMA                                        |   185 |  185 |    0 |    0 |       0 |          0 |
 | DivMMC+SPI                                 |   162 |  162 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    57 |   57 |    0 |    0 |       0 |          0 |
@@ -66,9 +66,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    72 |   72 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    17 |   17 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5776 | 5776 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5777 | 5777 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5776**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5363**. Rows the 145 suites declared in `test/unit-tests.conf` run live: **12857**.
+Rows the sections above carry: **5777**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5364**. Rows the 145 suites declared in `test/unit-tests.conf` run live: **12858**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -1818,16 +1818,17 @@ Notes and rationale: [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md).
 | MX-34 | when QEMU reopens the Pi's audio FIFO, the new stream's WAV header is skipped and a half frame left by the old writer is discarded, so every frame arrives exact (jnext-only buffering, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:617 |
 | MX-35 | the Pi's audio FIFO: a path that exists and is not a FIFO is refused, a FIFO that cannot be made reports mkfifo's error, and a new one is created 0600 (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:648 |
 | MX-36 | a Pi I2S backlog of exactly 13230 frames (300 ms) is not trimmed; 13231 frames are trimmed to 4410 (jnext-only buffering, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:686 |
-| MX-37 | with no writer on the Pi's audio FIFO, the reader pauses after each read that finds none, and polls for 20 ms at a time: 8 to 60 wakeups in 600 ms, so it neither spins nor leaves a new writer waiting (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:722 |
-| MX-38 | a pause by a live writer of the Pi's audio FIFO (EAGAIN) does not end the stream: a frame split across a 250 ms pause is reassembled and every frame arrives exact (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:763 |
-| MX-39 | the Pi audio reader holds one close-on-exec descriptor on its FIFO, a second open does not leak the first, and close() releases it and forgets it, so closing again cannot close a descriptor that reused its number (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:808 |
-| MX-40 | a signal interrupting the Pi audio reader's poll() (EINTR) does not end the reader: a stream written afterwards still arrives (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:855 |
+| MX-37 | with no writer on the Pi's audio FIFO, the reader pauses after each read that finds none, and polls for 20 ms at a time: 8 to 60 wakeups in 600 ms, so it neither spins nor leaves a new writer waiting (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:723 |
+| MX-38 | a pause by a live writer of the Pi's audio FIFO (EAGAIN) does not end the stream: a frame split across a 250 ms pause is reassembled and every frame arrives exact (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:791 |
+| MX-39 | the Pi audio reader holds one close-on-exec descriptor on its FIFO, a second open does not leak the first, and close() releases it and forgets it, so closing again cannot close a descriptor that reused its number (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:836 |
+| MX-40 | a signal interrupting the Pi audio reader's poll() (EINTR) does not end the reader: a stream written afterwards still arrives (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:883 |
 | MX-41 | the Pi I2S source delivers a continuous stream: PiAudio reads QEMU's WAV stream from a FIFO frame for frame (header and frames split across writes), to_i2s maps it to 10-bit offset binary, and a Pi frame reaches the mix; all 3000 frames are counted received and none dropped (i2s.vhd:177-180) | i2s.vhd:177-180 | pass | test/audio/audio_posix_test.cpp:131 |
 | MX-48 | NR 0xA2 bit 0's EAR comparator rises at L(9:8) OR R(9:8) = 11, falls at 00 and holds in between, on the raw samples, either channel driving it (zxnext.vhd:2361-2373) | zxnext.vhd:2361-2373 | pass | test/audio/audio_test.cpp:3096 |
 | MX-49 | NR 0xA2 bit 0's EAR comparator is forced to 0 unless I2S is enabled (b7 or b6) and bit 0 is set, re-evaluated on each NR 0xA2 write; with bit 0 set the Pi leaves the mixer (0x200); reset clears it (zxnext.vhd:2358-2373) | zxnext.vhd:2358-2373 | pass | test/audio/audio_test.cpp:3119 |
 | MX-50 | after the ring overflowed during a pause, the flush also ends playback: 100 fresh frames (below the 2205-frame prebuffer) are not played, and the prebuffer's worth is, from its first frame (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:370 |
 | MX-51 | a second stream's WAV header split between its 12th and 44th byte across two reads is still skipped whole: exactly 6000 frames arrive, exact (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:409 |
 | MX-52 | audio frames that spell RIFF at a frame boundary without WAVE at byte 8 are played as audio, not skipped as a header: all 3003 frames arrive, exact (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:444 |
+| MX-53 | with no writer ever connected, poll() times out and the reads that find no writer take no pause: the timeout already waited (jnext-only, no VHDL counterpart) | — | pass | test/audio/audio_posix_test.cpp:751 |
 | MX-10 | silence: pcm_L = 0 | audio_mixer.vhd:99 | pass | test/audio/audio_test.cpp:3154 |
 | MX-11 | silence: pcm_R = 0 | audio_mixer.vhd:100 | pass | test/audio/audio_test.cpp:3165 |
 | MX-12 | reset empties ring buffer | audio_mixer.vhd:95-97 | pass | test/audio/audio_test.cpp:3202 |
