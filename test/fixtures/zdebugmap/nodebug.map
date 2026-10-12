@@ -1,0 +1,6 @@
+_asm_bump                       = $8D30 ; addr, public, , asmfn_asm, code_user, asmfn.asm:5
+_counter                        = $8F22 ; addr, public, , main_c, bss_compiler, main.c::main::0::2:15
+_main                           = $8C73 ; addr, public, , main_c, code_compiler, main.c::main::0::2:15
+_square                         = $8C5F ; addr, local, , main_c, code_compiler, main.c::square::0::0:10
+_table                          = $8F23 ; addr, local, , main_c, bss_compiler, main.c::main::0::2:15
+_util_twice                     = $8D06 ; addr, public, , util_c, code_compiler, util.c::util_twice::0::0:4

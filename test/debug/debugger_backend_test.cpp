@@ -8331,6 +8331,43 @@ int main() {
                   " " + (b ? std::to_string(*b) : std::string("-")));
         std::remove(map_path.c_str());
     }
+    {
+        // GH #352 — a z88dk map built with `-debug` carries one `__C_LINE_` /
+        // `__ASM_LINE_` marker per source line (at the function label's own
+        // address) and `__CDBINFO__` records; the map is sorted by name, so a
+        // marker used to win the address. The oracle is the fixture: a trimmed
+        // `-debug` map and its non-debug twin, both from the same real zcc
+        // build (test/fixtures/zdebugmap/README.md).
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const auto dbgmap = dbg.load_map(JNEXT_ZDEBUGMAP_DIR "/debug.map", jnext::dbg::MapFormat::Z88dk);
+        auto nm = [&](uint16_t a) { const auto n = dbg.lookup(a); return n ? *n : std::string("-"); };
+        check("SYM-14", "in a z88dk `-debug` map the function labels keep their addresses: "
+                        "lookup($8C92) = _main and lookup($8C78) = _square, not the __C_LINE_ markers at them",
+              dbgmap.status == Result::Ok && nm(0x8C92) == "_main" && nm(0x8C78) == "_square" &&
+                  nm(0x8D35) == "_util_twice",
+              nm(0x8C92) + " " + nm(0x8C78) + " " + nm(0x8D35));
+        const auto& all = dbg.symbols();
+        check("SYM-15", "the C-line markers at address $0000 (the stdint.h and other header lines) name nothing",
+              !dbg.lookup(0x0000) && all.symbols().find(0x0000) == all.symbols().end(), nm(0x0000));
+        check("SYM-16", "debug symbols are not names either: lookup_name() of a __C_LINE_, an __ASM_LINE_ "
+                        "and a __CDBINFO__ symbol of the `-debug` map finds nothing",
+              !dbg.lookup_name("__C_LINE_14_main_2ec_3a_3asquare_3a_3a0_3a_3a1") &&
+                  !dbg.lookup_name("__ASM_LINE_5_asmfn_2easm") &&
+                  !dbg.lookup_name("__CDBINFO__F_3aG_24main_24_30_5f_30_24_31_28_7b_30_7dDF_2cSI_3aS_29_2cC_2c_30_2c_30_2c_30_2c_30_2c_30"));
+        check("SYM-17", "an assembler label keeps its address too: lookup($8D65) = _asm_bump, "
+                        "not __ASM_LINE_5_asmfn_2easm",
+              nm(0x8D65) == "_asm_bump", nm(0x8D65));
+        Debugger plain(emu);
+        const auto plainmap = plain.load_map(JNEXT_ZDEBUGMAP_DIR "/nodebug.map", jnext::dbg::MapFormat::Z88dk);
+        // -debug links three symbols of its own (the frame helpers); every other `; addr` symbol is the same set.
+        check("SYM-18", "the `; addr` symbol count of the `-debug` map equals the non-debug build's plus the "
+                        "three symbols -debug links in (__debug_framepointer, l_debug_push_frame, l_debug_pop_frame)",
+              plainmap.status == Result::Ok && plainmap.value == 6 && dbgmap.value == plainmap.value + 3 &&
+                  dbg.lookup_name("__debug_framepointer") && dbg.lookup_name("l_debug_push_frame") &&
+                  dbg.lookup_name("l_debug_pop_frame"),
+              std::to_string(dbgmap.value) + " vs " + std::to_string(plainmap.value));
+    }
 
     // =======================================================================
     // PEND — the verbs a later sub-package owns refuse, they do not misbehave
