@@ -28,11 +28,16 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      `SEND OK` / `> ` / `+IPD,` response frames); the other is 16 KB, i.e. 16
 #      payload packets, so a single dropped or duplicated packet fails it.
 #
-# WHY IT CANNOT FLAKE. No screenshot, no pixel compare, no wall-clock threshold:
+# WHY IT DOES NOT FLAKE. No screenshot, no pixel compare, no wall-clock threshold:
 # the verdict is a pair of hashes. The frame budget is EMULATED time, and CPU
 # contention pushes it the safe way — a loaded box runs fewer frames per second,
 # so the same budget buys MORE wall time for the transfer, never less. The only
 # wall-clock number here is the `timeout`, a crash guard set ~10x over measured.
+# It DID flake under wine until GH #327: the ESP worker's lock hold (a Winsock call,
+# 1-25 ms) used to stop committed reply bytes mid-message, and NextSync 1.2 drops a
+# packet whose `+IPD,<n>:` header has a gap of ~1 750 cycles. Committed bytes now
+# leave on their own lock. Still exposed to host time: a reply that STARTS later than
+# NextSync's own windows (~1.2 s emulated per hunt), which a real ESP shares.
 #
 # NO mtools, NO new dependency: `sdfile_tool` injects the dot command and the
 # config into this run's private SD clone through the in-tree FAT32 writer
