@@ -243,4 +243,11 @@ private:
     int               watchdog_fd_ = -1;   ///< write end of the watchdog pipe
     std::unique_ptr<PiAudio> audio_;       ///< the Pi's audio, when it goes to the mixer
     int               stop_grace_ms_ = 3000;
+    void            (*poll_sleep_)(int ms) = nullptr;
+
+    /// Wait up to `ms` of wall-clock time (steady_clock) for QEMU to exit,
+    /// polling every `step_ms`. Returns exited_. The bound is elapsed time,
+    /// never a count of sleeps: a host that stretches short sleeps (macOS
+    /// timer coalescing, GH #355) must not stretch the bound with them.
+    bool wait_exited(int ms, int step_ms);
 };

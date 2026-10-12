@@ -600,6 +600,7 @@ the Windows audio path are a later stage (a separate issue).
 | PIT-15 | parent `LANG`/`LC_ALL` (any letter case on Windows) | the child has exactly `LANG=C` and `LC_ALL=C`; parent unchanged |
 | PIT-16 | `build_args` with `Spec::audio` empty and with `host`, `uses_mixer` for each | empty: the mixer's wav FIFO and `uses_mixer` true on Linux/macOS, `dsound,id=snd0` and false on Windows (no mixer path until GH #331); `host`: the host output (pa / coreaudio / dsound), never the mixer. jnext-only, no VHDL counterpart |
 | PIT-17 | `PiQemu::start` on the socket transport with `Spec::audio` empty, the stand-in as QEMU | Linux/macOS: the stand-in's `-audiodev` is the wav FIFO at 44.1 kHz s16 stereo, `audio()` is non-null and `link_config` hands it to the Emulator; Windows: `dsound,id=snd0`, no reader. jnext-only, no VHDL counterpart |
+| PIT-18 | a QEMU ignoring the orderly stop, grace 300 ms, every launcher poll sleep stretched 5x (`Spec::poll_sleep`) | killed, `stop()` returns in 300..900 ms: the grace is elapsed time, not a count of sleeps (GH #355). jnext-only, no VHDL counterpart |
 
 Functional row `nextpi-link-func`: the real binary starts the stand-in QEMU, the
 launcher's link is attached to UART 1 over the platform's transport (the FIFO pair,

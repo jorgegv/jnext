@@ -173,6 +173,15 @@ long PiQemu::fd_walk_limit(long open_max) {
     return (open_max <= 0 || open_max > kCap) ? kCap : open_max;
 }
 
+bool PiQemu::wait_exited(int ms, int step_ms) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+    while (!exited_ && std::chrono::steady_clock::now() < deadline) {
+        if (poll_sleep_) poll_sleep_(step_ms);
+        else std::this_thread::sleep_for(std::chrono::milliseconds(step_ms));
+    }
+    return exited_;
+}
+
 #ifndef _WIN32   // POSIX; the Windows twin is pi_qemu_win.cpp
 
 
@@ -338,6 +347,7 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
         return false;
     }
     stop_grace_ms_ = spec.stop_grace_ms;
+    poll_sleep_    = spec.poll_sleep;
 
     const fs::path dir(spec.dir);
     const std::string log_path = (dir / "qemu.log").string();
@@ -462,8 +472,7 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
 
     // A QEMU that rejects its arguments or the image dies at once; report that
     // here, as a startup failure, rather than as a Pi that never answers.
-    for (int i = 0; i < 6 && !exited_; ++i)
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    wait_exited(300, 50);
     if (exited_) return fail(spec.qemu_binary + " exited at once; see " + log_path);
 
     Log::uart()->info("NextPi: QEMU raspi0 started (pid {}) from {}; log {}", pid_, spec.dir,
@@ -480,8 +489,7 @@ void PiQemu::stop() {
         watchdog_fd_ = -1;
     }
     if (pid_ > 0) {
-        for (int waited = 0; waited < stop_grace_ms_ && !exited_; waited += 10)
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        wait_exited(stop_grace_ms_, 10);
         // A QEMU that ignores SIGTERM: kill its whole process group — QEMU, the
         // watchdog shell and its subshell together.
         if (!exited_) ::kill(-pid_, SIGKILL);

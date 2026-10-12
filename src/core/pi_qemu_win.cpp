@@ -247,6 +247,7 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
         return false;
     }
     stop_grace_ms_ = spec.stop_grace_ms;
+    poll_sleep_    = spec.poll_sleep;
 
     const fs::path dir(spec.dir);
     const std::string log_path = (dir / "qemu.log").string();
@@ -335,8 +336,7 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
     // Starting a process on Windows (and under wine) is slower than a fork, and
     // a QEMU rejecting its arguments dies only once it is loaded, so the window
     // is a second rather than POSIX's 300 ms.
-    for (int i = 0; i < 20 && !exited_; ++i)
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    wait_exited(1000, 50);
     if (exited_) return fail(spec.qemu_binary + " exited at once; see " + log_path);
 
     Log::uart()->info("NextPi: QEMU raspi0 started (pid {}) from {}; log {}", pid_, spec.dir,
@@ -355,8 +355,7 @@ void PiQemu::stop() {
             CloseHandle(stdin_write_);
             stdin_write_ = nullptr;
         }
-        for (int waited = 0; waited < stop_grace_ms_ && !exited_; waited += 10)
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        wait_exited(stop_grace_ms_, 10);
         // A QEMU that ignores it: end everything in the job.
         if (!exited_ && job_) TerminateJobObject(job_, 1);
         if (reaper_.joinable()) reaper_.join();

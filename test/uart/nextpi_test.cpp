@@ -1099,6 +1099,49 @@ int main(int argc, char** argv) {
                   error.c_str(), dev.c_str(), dir_ok ? 1 : 0, cwd_clean ? 1 : 0, gone ? 1 : 0));
     }
 
+    // ── PIT-18 — THE GRACE IS A TIME, NOT A COUNT OF SLEEPS (GH #355): on a host
+    // that stretches short sleeps (macOS timer coalescing) the grace must still end
+    // on the clock. The launcher's poll sleeps are replaced by one that takes 50 ms
+    // per 10 ms asked, five times over; a grace counted in sleeps (30 of them) then
+    // runs ~1500 ms, a grace measured on steady_clock ends at ~300 ms.
+    {
+        Fixture fx("stubborn");
+        EnvVar mode("JNEXT_NEXTPI_STUB_MODE", "stubborn");
+        PiQemu::Spec spec;
+        spec.dir           = fx.dir();
+        spec.qemu_binary   = fx.bin("qemu-system-arm");
+        spec.audio         = "none";
+        spec.transport     = PiQemu::Transport::Socket;
+        spec.stop_grace_ms = 300;
+        spec.poll_sleep    = [](int ms) { sleep_ms(ms * 5); };
+        auto qemu = std::make_unique<PiQemu>();
+        std::string error;
+        const bool started = fx.ok() && qemu->start(spec, error);
+        const unsigned long pid = started ? fx.child_pid() : 0;
+        const auto t0 = std::chrono::steady_clock::now();
+        std::atomic<bool> stopped_flag{false};
+        std::thread stopper([&] { qemu.reset(); stopped_flag = true; });
+        const bool returned_in_time = [&] {
+            while (ms_since(t0) < 8000) {
+                if (stopped_flag) return true;
+                sleep_ms(10);
+            }
+            return false;
+        }();
+        const long ms = ms_since(t0);
+        if (!returned_in_time && pid != 0) nxs::kill_hard(pid);
+        if (stopper.joinable()) stopper.join();
+        const bool killed = pid != 0 && nxs::gone_within(pid, 1500);
+        if (!killed && pid != 0) nxs::kill_hard(pid);
+        check("PIT-18",
+              "the stop grace period is measured on the clock, not counted in sleeps: with every launcher "
+              "poll sleep stretched five-fold, a stubborn QEMU is still killed at the grace, not after it "
+              "(jnext-only, no VHDL counterpart)",
+              started && returned_in_time && killed && ms >= 300 && ms < 900,
+              fmt("started=%d (%s) returned=%d killed=%d stop took %ld ms (want 300..900)", started ? 1 : 0,
+                  error.c_str(), returned_in_time ? 1 : 0, killed ? 1 : 0, ms));
+    }
+
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail ? 1 : 0;
