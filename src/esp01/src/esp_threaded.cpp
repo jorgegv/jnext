@@ -79,7 +79,7 @@ void ThreadedEsp::run() {
         // as long as the transport takes. Measured on the version that held
         // the lock throughout: 11 827 226 `tick()` calls over 400 ms of a
         // 500 ms transport stall delivered ZERO of the 39 bytes that were already
-        // queued in `out_` before the stall began. The emulated CPU does not
+        // queued in the guest-bound wire (then `out_`) before the stall began. The emulated CPU does not
         // stop while the ESP is busy, so those are real T-states of silence on
         // a wire whose receivers have no retry.
         //

@@ -171,7 +171,7 @@ EXACT counts logged when the guest started the command that followed (bytes each
 on, bytes the ESP output queue still held) to say which stage was short, or that the guest had
 every byte, and by how long (emulated ms) the guest had last emptied the RX FIFO before it started
 the command (`edge=` / `drained_edge=` on jnext's `uartN-guest-read` exact record). On a GREEN run the same digests must agree, on all four hops with a non-zero
-checkpoint count and at least one `drained_edge=` guest-read record is logged, or the row fails
+checkpoint count, and at least one `drained_edge=` guest-read record must be logged, or the row fails
 (the instrumentation is part of what the row asserts). The
 digest lines cost ~410 jnext log lines (+28 KB) on a green run of that row and nothing when the
 debug level is off; `nextsync-digest.py --selftest` and a unit row pin the FNV-1a/32 vectors.

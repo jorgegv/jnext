@@ -269,7 +269,7 @@ skips a slot with no transport. The state machine already speaks in connection i
 
 **B. The `+IPD` emitter takes a connection id and a multiplexed flag.** The wire format genuinely
 differs (`+IPD,<len>:` vs `+IPD,<id>,<len>:`), so the choice is made in **one function**
-(`queue_ipd_header`) rather than baked into the call site. v1.0 passes `SINGLE_CID, false` and
+(`format_ipd_header`) rather than baked into the call site. v1.0 passes `SINGLE_CID, false` and
 produces exactly the unmultiplexed bytes the parsers require. Emitting the multiplexed form today
 would break nextsync outright. Its FSM accumulates **then** validates
 (`datalen += r - '0';` runs *before* the `if (r != ':' && (r < '0' || r > '9')) return 0;`, which
@@ -606,7 +606,7 @@ was `z`.)
         │  poll()  — WALL CLOCK, once per frame                  │
         ▼                                                        │
   ┌───────────────┐   frame_ipd()   ┌──────────────┐   tick() — EMULATED TIME
-  │ per-slot rx   │ ──────────────► │ out_ queue   │ ───────────────┘
+  │ per-slot rx   │ ──────────────► │ wire queue   │ ───────────────┘
   │ (unbounded)   │  when quiet     │ (framed)     │  1 byte per
   └───────────────┘                 └──────────────┘  prescaler × frame_bits
 ```
@@ -624,7 +624,7 @@ was `z`.)
   A consumer with no baud to model passes `(1, 1)` and gets one byte per call.
 
   **The pacer lives in the core, deliberately, and not in the host.** It is inseparable from
-  `+IPD` coalescing: a chunk is cut only once `out_` has drained (`wire_is_quiet`), so a host that
+  `+IPD` coalescing: a chunk is cut only once the guest-bound wire has drained (`wire_is_quiet`), so a host that
   drained at its own rate would cut a chunk per poll and destroy the large-chunk property §6.3
   depends on. Keeping it in the core is what makes the module's output correct for *any* host,
   not just for one that happens to drain the way jnext does.
@@ -1192,7 +1192,7 @@ What v1.0 already leaves open, at zero cost today (§3):
 | Extension | What is already in place | What v1.1 adds |
 |---|---|---|
 | ~~`AT+CIPMUX=1`, 5 connections~~ | The `conn_` table, per-slot state, per-slot loops, connection ids throughout the state machine | **DONE (GH #210)**, and §3's prediction held — it was filling in blanks. Two corrections to this row's own wording: the usable ceiling is **4 inbound** connections, because slot 0 stays the guest's outbound transport and accepted ids run 1..4 ([§13.7](#137-what-implementation-decided-that-13-did-not)); and `multiplexed` is **captured per connection when it opens**, not passed globally, which is the part that keeps a `CIPMUX=0` session's framing untouched |
-| ~~Multiplexed `+IPD,<id>,<len>:`~~ | `queue_ipd_header(cid, multiplexed, len)` — the one place the wire format is decided | **DONE (GH #210)** — exactly as predicted, per connection. `MUX-10`..`MUX-13` pin the two wire forms against each other so neither can drift into the other's session |
+| ~~Multiplexed `+IPD,<id>,<len>:`~~ | `format_ipd_header(cid, multiplexed, len)` — the one place the wire format is decided | **DONE (GH #210)** — exactly as predicted, per connection. `MUX-10`..`MUX-13` pin the two wire forms against each other so neither can drift into the other's session |
 | ≈40 further AT commands | `kCommands` table + uniform handler signature | Add rows |
 | ~~UDP~~ / TLS / passthrough | `EspTransport` is an interface | **UDP is done (GH #198)**, and the prediction in this row was WRONG in an instructive way: it did not arrive as a new implementation behind an unchanged seam, because the engine is handed ONE transport per slot at construction and `AT+CIPSTART="UDP"` chooses at run time. It arrived as a `Protocol` argument on `begin_connect` instead. TLS and passthrough would go the same way. |
 | ~~Server / listen~~ | — | **DONE (GH #210)**, [§13](#13-server-mode-gh-210). The security review this row demanded is [§13.4](#134-security-review--the-inbound-surface), and it did re-open the inbound surface deliberately: bind is **127.0.0.1** by default, `--esp-listen-address` is the explicit widening, and a bind failure answers `ERROR` rather than falling back to a wider address. `AT+CIPCLOSE=<id>` followed in GH #211 ([§14](#14-per-connection-close-gh-211)) |
@@ -1457,7 +1457,7 @@ forbids it, so the chosen design could not use it even if it existed. UDP, SSL,
 ### 13.3 THE CONSTRAINT THAT MAKES THIS REAL WORK
 
 v1.0 refused `AT+CIPMUX=1` rather than accepting-and-ignoring it, and the
-reasoning must survive this change intact (`esp_at.h`, `queue_ipd_header`):
+reasoning must survive this change intact (`esp_at.h`, `format_ipd_header`):
 
 > nextsync never sends `AT+CIPMUX` at all — it relies on the power-on default
 > being 0 — and its `+IPD` reader **silently corrupts** the multiplexed
@@ -1576,7 +1576,7 @@ Consequences kept deliberately:
 Two shapes from §3 pay off here and one piece is genuinely new.
 
 **Already in place.** Connections are a table (`conn_`, `MAX_CONNECTIONS = 5`,
-which is ESP-AT's own `CIPMUX=1` ceiling), and `queue_ipd_header(cid,
+which is ESP-AT's own `CIPMUX=1` ceiling), and `format_ipd_header(cid,
 multiplexed, len)` is the single place the wire format is decided. The AT
 dispatch table takes rows. So (1) and (3) of the triad are close to filling in
 blanks, which is what §3 predicted.
@@ -1675,7 +1675,7 @@ then put the module back in service with one command.
 
 Both spellings run the same tear-down (`AtEngine::close_connection`), so the
 choice between the prefixed and unprefixed `CLOSED` is made in exactly one
-place — the rule `queue_ipd_header` already establishes for `+IPD`. The
+place — the rule `format_ipd_header` already establishes for `+IPD`. The
 notification is emitted **immediately** rather than deferred behind buffered
 data, unlike the peer-close path: the guest asked for the close, and anything
 received-but-not-yet-framed dies with the connection, which is what the bare
