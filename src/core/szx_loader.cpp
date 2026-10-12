@@ -255,12 +255,11 @@ bool SzxLoader::load_from_buffer(const std::vector<uint8_t>& buf, const std::str
             if (!parse_ramp(chunk_data, chunk_size)) return false;
         } else if (std::memcmp(chunk_id, "SCLD", 4) == 0) {
             // DELIBERATELY IGNORED (GH #323). The chunk holds the Timex port 0xFF (and 0xF4)
-            // registers. Every machine a snapshot can switch to (48K, 128K, +3, Pentagon) boots
-            // with port 0xFF DISABLED (NR 0x82 bit 0 = 0, tbblue boot.c), and port_ff_reg is
-            // written only through `port_ff_wr <= iowr and port_ff and port_ff_io_en`
-            // (zxnext.vhd:2714, :3615), so on that hardware the state cannot exist or take
-            // effect: restoring it would put the ULA in a mode the machine cannot reach.
-            Log::emulator()->debug("SZX: SCLD chunk ignored (port 0xFF is off on this machine)");
+            // registers, and libspectrum writes it only for Timex/SE machines
+            // (szx.c:2782-2785: TIMEX_MEMORY / SE_MEMORY capability). The machine table
+            // (snapshot_machine.cpp) refuses every one of those, so an SCLD chunk never arrives
+            // on a machine jnext loads and there is nothing to restore.
+            Log::emulator()->debug("SZX: SCLD chunk ignored (Timex/SE snapshots are refused)");
         } else if (std::memcmp(chunk_id, "AY\0\0", 4) == 0) {
             if (!parse_ay(chunk_data, chunk_size)) return false;
         } else {
