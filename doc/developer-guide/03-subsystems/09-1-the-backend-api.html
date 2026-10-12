@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.45</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.44</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.45</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2839,7 +2839,9 @@ reads a z88dk map (<code>MapFormat::Z88dk</code>) or a plain <code>SYMBOL = $ADD
 <code>monitor sym</code> and <code>--map</code> all read this table, so a symbol loaded by one client
 shows in every other. A z88dk map's <code>; const</code> lines go into a separate
 name-only table: <code>lookup_name()</code> resolves them, and <code>lookup(addr)</code> never names an
-address after a constant.</p>
+address after a constant.
+The <code>-debug</code> records (names starting <code>__C_LINE_</code>, <code>__ASM_LINE_</code> or <code>__CDBINFO__</code>)
+are dropped by the loader, so they never name an address or resolve by name.</p>
 <h3 id="coverage-and-the-trace">Coverage and the trace<a class="headerlink" href="#coverage-and-the-trace" title="Permanent link">&para;</a></h3>
 <p>INS-20 coverage is recorded in <code>step_one_instruction()</code>, the one body that
 <code>run_frame()</code>, the debugger's Step and <code>execute_single_instruction()</code> share,
