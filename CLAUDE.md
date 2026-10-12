@@ -92,7 +92,7 @@ The single authoritative protocol for landing any implemented change on `main`:
 
 1. **Dedicated branch + worktree** off current `main` — never edit `main` directly. Each independent feature gets its own branch (so parallel agents don't trash each other). A standalone issue gets its own branch and merges to `main` when done. An **epic** gets an `epic<E>-<slug>` branch; its sub-issues branch off it and merge back into it, never into `main`, and the epic reaches `main` in one merge when finished (owner, 2026-10-06). A multi-stage issue lives on one branch until the whole issue is done and merges once; each stage is still reviewed on that branch (owner, 2026-09-24). Merge `main` into long-lived branches (epic, multi-stage) from time to time, so the final merge is not a cliff. A precedent set by an earlier session is not a decision.
 2. **Full test triplet green on the branch, plus the SDL-only unit run and its Windows twin** before review: `make clean && make gui-release`, then `make unit-test`, **`make unit-test-sdl`**, **`make unit-test-win`**, the FUSE Z80 suite (`./build/test/fuse_z80_test build/test/fuse` → 1356/1356), `make regression`, and **`make regression-win`**. `make gui-release` is the PGO build (GH #297), so `make regression` tests the shipped binary and also runs FUSE against the PGO build's CPU core (`make fuse-pgo`, a prerequisite). No FAIL and no SKIP anywhere.
-   - `make unit-test-sdl` applies to **every** branch, not only GUI-touching ones (owner decision, 2026-09-25). Its 108 suites are the core emulator plus the platform decision-logic both frontends share, minus Qt and the debugger — and they INCLUDE `host_key_latch_test`, which drives the real `SdlInput::poll()` (GH #268) precisely because an SDL-only build is the only place that coverage survives. So an SDL-frontend change needs this run just as much as a core one does; do not read “the non-Qt set” as “no frontends”. Cost on a branch that actually changed code: ~17 s with a warm ccache (a no-op re-run of just the suites is ~9 s). See the two-configuration rule under **Testing**.
+   - `make unit-test-sdl` applies to **every** branch, not only GUI-touching ones (owner decision, 2026-09-25). Its suites are the core emulator plus the platform decision-logic both frontends share, minus Qt and the debugger — and they INCLUDE `host_key_latch_test`, which drives the real `SdlInput::poll()` (GH #268) precisely because an SDL-only build is the only place that coverage survives. So an SDL-frontend change needs this run just as much as a core one does; do not read “the non-Qt set” as “no frontends”. Cost on a branch that actually changed code: ~17 s with a warm ccache (a no-op re-run of just the suites is ~9 s). See the two-configuration rule under **Testing**.
    - `make unit-test-win` applies to **every** code branch too (owner, 2026-10-10, GH #214): the same SDL-only suites cross-built for Windows with the Fedora MinGW toolchain and run under wine (`dnf install mingw64-gcc mingw64-gcc-c++ mingw64-SDL3 mingw64-zlib mingw64-libpng mingw64-winpthreads wine-core wine-common`). It is the only way a branch sees a Windows compile break, a Win32 code path or a path-separator bug before review, and it runs on the development host (~30 s warm, ~3 min with a cold ccache). What wine cannot stand in for (symlink creation, a real console attach, NTFS short names and streams) stays untested; the suites that need it are `# os: posix`.
    - `make regression-win` applies to **every** code branch too (owner, 2026-10-10, GH #319): the regression suite's screenshots and the functional rows Windows can run, against the Release + LTO (non-PGO) Qt `jnext.exe` and the SDL-only `jnext.exe` under wine (extra: `dnf install mingw64-qt6-qtbase`). It is the only way a branch sees a Windows regression before review; ~6 min under the host lock on top of warm builds, 0 FAIL and 0 SKIP, absent rows printed by name (declared by `os=` in `functional_tests.conf`, never skipped), not stamped. macOS runs in CI only (`macos-regression`).
    - Use **`make regression`**, never bare `bash test/00regression/regression.sh`: the suite's `sdl-keypress-func` row needs `build/sdl-release`, which only the make target builds, so the bare script aborts as a harness fault. Two separate agents lost a run to this on 2026-09-25. Targeted rows likewise go through **`make regression-rows ROWS="<row> ..."`**, which builds the same binaries first (the bare script with row names is fine only when they are already built).
@@ -409,25 +409,33 @@ the default one and a suite could stay red in a supported configuration
 indefinitely. That is not hypothetical: `host_hotkey_test` had three rows failing
 in `ENABLE_QT_UI=ON / ENABLE_DEBUGGER=OFF` and nothing noticed.
 
+**Test counts are NOT written here.** The manifests are the only source of truth, and
+the harness enforces them: `test/unit-tests.conf` (`# expect:` total, plus the
+`# gate:` and `# os:` directives that decide which suites each configuration and OS
+owns), `test/00regression/regression_tests.conf` (screenshots) and
+`test/00regression/functional_tests.conf` (`# expect:`, `# expect-macos:`,
+`# expect-windows:`). Read the numbers there, or from a run's summary; a count copied
+into this file would go stale on the next branch that adds a suite.
+
 **Two configurations are worth RUNNING** (owner decision, 2026-09-25):
 
-| target | configuration | build dir | suites |
-|--------|---------------|-----------|--------|
-| `make unit-test`     | Qt + debugger (the shipped one) | `build/`              | 140 |
-| `make unit-test-sdl` | SDL-only, no Qt, no debugger    | `build/sdl-unit-test` | 108 |
+| target | configuration | build dir |
+|--------|---------------|-----------|
+| `make unit-test`     | Qt + debugger (the shipped one) | `build/`              |
+| `make unit-test-sdl` | SDL-only, no Qt, no debugger    | `build/sdl-unit-test` |
 
 **The SDL-only set also runs on other operating systems** (GH #214, owner decisions
 2026-10-10), and the table's rows are per platform:
 
-| target | platform | build dir | suites | where |
-|--------|----------|-----------|--------|-------|
-| `make unit-test-sdl` | Linux (native)                  | `build/sdl-unit-test`     | 108 | local gate, CI `test (unit)` |
-| `make unit-test-sdl` | macOS (native)                  | `build/sdl-unit-test`     | 107 | CI `macos-unit` (Homebrew `bash coreutils grep` required); one fewer than Linux because `sdcard_file_add_linux_test` is `# os: linux` (SDFA-T26 needs a case-sensitive filesystem; APFS is not) |
-| `make unit-test-win` | Windows, MinGW cross under wine | `build/win-sdl-unit-test` | 103 | local gate, CI `test (unit-win)` |
-| `make regression-win` | Windows, MinGW exes under wine | `build/win-release-non-pgo`, `build/win-sdl-release` | 1 + 66 + 128 rows | local gate, CI `test (regression-win)` |
-| `make regression-macos` | macOS (native) | `build/gui-release-non-pgo`, `build/sdl-release` | 1 + 66 + 131 rows | CI `macos-regression` |
+| target | platform | build dir | where |
+|--------|----------|-----------|-------|
+| `make unit-test-sdl` | Linux (native)                  | `build/sdl-unit-test`     | local gate, CI `test (unit)` |
+| `make unit-test-sdl` | macOS (native)                  | `build/sdl-unit-test`     | CI `macos-unit` (Homebrew `bash coreutils grep` required); suites marked `# os: linux` do not run (e.g. `sdcard_file_add_linux_test`: SDFA-T26 needs a case-sensitive filesystem; APFS is not) |
+| `make unit-test-win` | Windows, MinGW cross under wine | `build/win-sdl-unit-test` | local gate, CI `test (unit-win)`; suites marked `# os: posix` or `# os: linux` do not run |
+| `make regression-win` | Windows, MinGW exes under wine | `build/win-release-non-pgo`, `build/win-sdl-release` | local gate, CI `test (regression-win)`; rows pinned by `# expect-windows:` |
+| `make regression-macos` | macOS (native) | `build/gui-release-non-pgo`, `build/sdl-release` | CI `macos-regression`; rows pinned by `# expect-macos:` |
 
-**The regression suite also runs off Linux** (GH #319, owner decisions 2026-10-10): `regression.sh --platform` runs the screenshots and the functional rows an OS can run. A row's line in `functional_tests.conf` opts out with `os=<list>` (a subset of `linux,macos,windows`, `linux` mandatory, no tag = all three) and a `# os:` reason above it; `# expect-macos:` / `# expect-windows:` pin the counts; the absent rows are printed by name, never SKIPs. The 6 lints and the stamp stay Linux-only. The wine runner (`test/wine-run.sh --jnext`) folds CRLF, translates `QT_*`/`SDL_*`, and needs a persistent wineserver; the Qt test exe bundles `qoffscreen.dll`, in the test tree only, never in a package. See the developer guide, section 4.3.
+**The regression suite also runs off Linux** (GH #319, owner decisions 2026-10-10): `regression.sh --platform` runs the screenshots and the functional rows an OS can run. A row's line in `functional_tests.conf` opts out with `os=<list>` (a subset of `linux,macos,windows`, `linux` mandatory, no tag = all three) and a `# os:` reason above it; `# expect-macos:` / `# expect-windows:` pin the counts; the absent rows are printed by name, never SKIPs. The preflight lints and the stamp stay Linux-only. The wine runner (`test/wine-run.sh --jnext`) folds CRLF, translates `QT_*`/`SDL_*`, and needs a persistent wineserver; the Qt test exe bundles `qoffscreen.dll`, in the test tree only, never in a package. See the developer guide, section 4.3.
 
 Both new CI jobs are BLOCKING. The `# os: all | posix | linux` directive in
 `test/unit-tests.conf` declares which target OSes own a suite — read from the build
@@ -459,7 +467,8 @@ run stayed green, which is the same silent shrinking the manifest exists to forb
 **`test/00regression/regression_tests.conf`** (screenshots) + **`functional_tests.conf`**
 (functional). At the end of a full run, `regression.sh` asserts every declared functional
 test reported exactly one row, no undeclared row appeared, and the total equals
-`6 lint + 1 sdcard-provision + screenshots + functional`. Screenshots additionally get an
+the preflight lint rows (`scripts/00-preflight-lint.sh`) + 1 sdcard-provision + screenshots +
+functional. Screenshots additionally get an
 *independent* witness: every checked-in `img/<name>-reference.png` must have a conf entry, so
 truncating the conf cannot silently shrink the suite. Any mismatch is a **harness fault** (exit 2).
 
@@ -506,7 +515,7 @@ a subshell `( trap … )`, or a live `eval`/heredoc head that merely mentions th
 is done on a SYNTAX SKELETON in which every quoted string collapses to one inert token, so a
 live string whose contents look like syntax (`fail_row "… eval … trap …"`) stays clean; an
 earlier whole-line dequote flagged exactly those, which blocks correct rows. Its self-test
-pins 86 cases both ways, and cross-checks its own documented case table against the fixture
+pins its cases both ways, and cross-checks its own documented case table against the fixture
 files so the two cannot drift. Command position is derived from bash's CLOSED set of reserved
 words (`! coproc do elif else if then time until while`), so `if trap …; then` is caught by
 construction rather than by having thought of it.

@@ -48,7 +48,7 @@ mentions them, so a test can no longer be absent from this document.
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
 | CPU/Z80N/IM2 regressions                   |    56 |   56 |    0 |    0 |       0 |          0 |
-| ESP-01 socket transport                    |   239 |  239 |    0 |    0 |       0 |          0 |
+| ESP-01 socket transport                    |   243 |  243 |    0 |    0 |       0 |          0 |
 | Companion: esp_sigpipe_test                |     2 |    2 |    0 |    0 |       0 |          0 |
 | ESP-01 AT engine                           |   489 |  489 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
@@ -65,9 +65,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: input_integration_test          |    43 |   43 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    55 |   55 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5650 | 5650 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5654 | 5654 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5650**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5271**. Rows the 141 suites declared in `test/unit-tests.conf` run live: **12705**.
+Rows the sections above carry: **5654**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5275**. Rows the 140 suites declared in `test/unit-tests.conf` run live: **12635**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -79,7 +79,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 96 suites (7518 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 95 suites (7444 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -87,7 +87,6 @@ These 96 suites (7518 live rows) have no VHDL-derived plan row to map, so they h
 | `z80n_test` | 85 | data-driven FUSE-style runner, opcode names not row IDs |
 | `esxdos_stub_test` | 185 | esxDOS API surface + jnext trap policy, not core logic |
 | `esxdos_symlink_test` | 6 | esxDOS host-FS symlink-refusal rows moved out of esxdos_stub_test (POSIX-only, GH #214); same oracle, not core logic |
-| `quick_snapshot_posix_test` | 2 | GH #321 prune never deletes a symlink (POSIX-only); host feature, no VHDL oracle |
 | `phantom_typist_test` | 23 | jnext auto-typing state machine (host keystroke injection) |
 | `esp_wiring_test` | 127 | jnext host ESP policy/visibility/wiring, no core counterpart |
 | `sd_rom_extractor_test` | 26 | FAT32 + TBBlue SD path layout (host ROM extraction) |
@@ -107,7 +106,7 @@ These 96 suites (7518 live rows) have no VHDL-derived plan row to map, so they h
 | `present_cadence_test` | 34 | host present cadence policy (wall-clock, not core timing) |
 | `render_policy_test` | 10 | host render/skip policy (wall-clock, not core timing) |
 | `screenshot_test` | 24 | host screenshot file formats and auto-naming, no core counterpart |
-| `emulator_boot_test` | 115 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
+| `emulator_boot_test` | 85 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
 | `preferences_apply_policy_test` | 20 | Preferences apply/revert policy (host GUI) |
 | `window_attach_test` | 32 | host window-attach geometry (GH #39 contract, no VHDL oracle) |
 | `pointer_capture_test` | 64 | host mouse-capture policy (window-manager behaviour) |
@@ -115,11 +114,11 @@ These 96 suites (7518 live rows) have no VHDL-derived plan row to map, so they h
 | `frame_sequencer_test` | 116 | host frame sequencer (wall-clock run/present ordering) |
 | `tick_stats_test` | 32 | host tick accounting for the status bar |
 | `speed_report_test` | 36 | host speed-percentage reporting |
-| `host_key_latch_test` | 139 | host key latch/debounce compensation; guest matrix is `## Input` |
+| `host_key_latch_test` | 128 | host key latch/debounce compensation; guest matrix is `## Input` |
 | `sdl_window_title_test` | 3 | SDL window title carries the version (host GUI) |
 | `log_test` | 22 | jnext logging façade (spdlog wiring) |
 | `log_gate_test` | 27 | jnext log-level gating |
-| `cli_options_test` | 43 | CLI flag table vs the man page (see `make cli-check`) |
+| `cli_options_test` | 42 | CLI flag table vs the man page (see `make cli-check`) |
 | `video_recorder_cmd_test` | 33 | FFmpeg command-line construction (host encoder) |
 | `nex_loader_test` | 147 | NEX file-format spec (host loader), no core counterpart |
 | `nex_v13_test` | 79 | NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart |
@@ -147,7 +146,7 @@ These 96 suites (7518 live rows) have no VHDL-derived plan row to map, so they h
 | `script_events_test` | 118 | debugger scripting language engine (GH #26, jnext-internal); the T80N core has no debugger |
 | `script_record_test` | 35 | debugger session recorder (GH #20 / #26 WP6, jnext-internal); the T80N core has no debugger |
 | `zrcp_adapter_test` | 215 | ZRCP remote-debugger adapter (GH #280; ZEsarUX 12.0 transcripts, jnext-internal); the T80N core has no debugger |
-| `app_config_test` | 155 | jnext.conf schema/precedence (host settings file) |
+| `app_config_test` | 147 | jnext.conf schema/precedence (host settings file) |
 | `audio_gain_config_test` | 22 | gain settings persistence (host settings file) |
 | `audio_gain_preferences_test` | 10 | gain controls in the Preferences dialog (host GUI) |
 | `present_count_test` | 21 | host present accounting (wall-clock, not core timing) |
@@ -157,7 +156,7 @@ These 96 suites (7518 live rows) have no VHDL-derived plan row to map, so they h
 | `rzx_menu_test` | 16 | RZX File-menu error dialogs (GUI), no core counterpart |
 | `load_error_test` | 24 | GUI load-failure reporting, the Tape menu, and the file-dialog FILTERS (GUI), no core counterpart |
 | `esc_break_test` | 6 | host ESC->BREAK binding; guest matrix is `## Input` |
-| `host_hotkey_test` | 65 | host hotkey bindings (Alt vs the guest Symbol Shift) |
+| `host_hotkey_test` | 56 | host hotkey bindings (Alt vs the guest Symbol Shift) |
 | `main_window_accel_test` | 5 | main-window menu mnemonics (host GUI) |
 | `main_window_pause_test` | 17 | main-window Pause: Machine > Pause, Alt+U, Pause key (host GUI) |
 | `joystick_menu_test` | 14 | joystick controller picker: Input menu, Preferences (host GUI) |
@@ -165,7 +164,7 @@ These 96 suites (7518 live rows) have no VHDL-derived plan row to map, so they h
 | `window_scale_test` | 10 | main-window scale/fullscreen geometry (host GUI) |
 | `window_title_test` | 6 | main-window title carries the version (host GUI) |
 | `quit_cleanup_test` | 8 | host shutdown ordering (GUI lifecycle) |
-| `preferences_apply_test` | 75 | Preferences dialog wiring (host GUI) |
+| `preferences_apply_test` | 62 | Preferences dialog wiring (host GUI) |
 | `debugger_video_panel_test` | 116 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 17 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 8 | debugger quit gating (host GUI lifecycle) |
@@ -4650,45 +4649,49 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | RSLV-09 | a resolver that throws AFTER appending an address fails the lookup and adopts nothing | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2090 |
 | RSLV-10 | reset() returns it to Idle and drops the result | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2100 |
 | RSLV-12 | a resolver that says SUCCESS but returns no addresses is a FAILED lookup, not a success with nothing in it | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2107 |
-| RSLV-11a | the lookup is genuinely in flight before we destroy it | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2123 |
-| RSLV-11 | destroying a resolver mid-lookup returns immediately — one shared_ptr dropped, no join, nothing to wait for | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2129 |
-| PHOST-01 | an ordinary hostname is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2145 |
-| PHOST-02 | an IPv4 literal is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2147 |
-| PHOST-03 | an IPv6 literal is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2148 |
-| PHOST-04 | underscores and hyphens inside a name are accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2149 |
-| PHOST-05 | an empty host is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2151 |
-| PHOST-06 | a leading '-' is refused — it would be an OPTION, not a host | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2156 |
-| PHOST-07 | ...including a long-form option | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2158 |
-| PHOST-08 | a shell metacharacter is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2161 |
-| PHOST-09 | a command substitution is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2162 |
-| PHOST-10 | a pipe or redirect is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2164 |
-| PHOST-11 | an embedded space is refused — it would split into two argv words | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2166 |
-| PHOST-12 | an embedded NUL truncates nothing, because the whole string is checked and the NUL itself is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2168 |
-| PHOST-13 | a newline is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2171 |
-| PHOST-14 | 255 bytes is the longest accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2172 |
-| PHOST-15 | 256 bytes is the first refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2174 |
-| PICMP-01 | an implausible host is refused before anything is opened | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2197 |
-| PICMP-02 | a literal the address policy denies FAILS without an echo ever being sent | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2209 |
-| PICMP-03 | and so does the cloud-metadata address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2218 |
-| PICMP-04 | reset() returns it to Idle, as EspPinger promises | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2226 |
-| PICMP-05 | an IPv6-only address is refused as having no IPv4 address, not echoed at four bytes of itself | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2244 |
-| SNTPR-01 | a server the address policy denies FAILS *on the policy*, without a datagram being sent — an NTP server is not an exception to the rule the rest of this surface follows | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2271 |
-| SNTPR-02 | an implausible server name is refused outright | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2280 |
-| NTPC-01 | the NTP epoch offset is applied exactly (2 208 988 800 s) | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2297 |
-| NTPC-02 | and it formats to the string the 1.x manual's own example gives | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2299 |
-| NTPC-03 | a ZERO timestamp means 'unsynchronised' and is REFUSED, not turned into 1900 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2304 |
-| NTPC-04 | a pre-1970 timestamp is refused too | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2307 |
-| NTPC-05 | the largest NTP second still converts | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2309 |
-| SNTP-01 | a positive timezone moves the clock forward | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2314 |
-| SNTP-02 | a negative one moves it back, across a day boundary | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2316 |
-| SNTP-03 | +13 crosses into the next day and the weekday follows | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2318 |
-| SNTP-04 | the Unix epoch itself formats as a Thursday | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2324 |
-| SNTP-05 | a leap day is a real day, not the 1st of March | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2326 |
-| SNTP-06 | and the arithmetic survives past the 32-bit time_t wrap | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2328 |
-| SNTP-08 | 2100 is NOT a leap year, so 1 March falls where it should | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2336 |
-| SNTP-09 | ...and February 2100 has 28 days, not 29 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2338 |
-| SNTP-10 | a date after 2100 is not shifted by a phantom leap day | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2347 |
-| SNTP-07 | a negative result is clamped rather than wrapping | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2349 |
+| RSLV-13 | 200 back-to-back lookups through an instant resolver all reach a verdict: a worker started right after another finished is never lost (GH #328) | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2127 |
+| RSLV-14 | a finished lookup worker has released what it captured (GH #328) | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2148 |
+| RSLV-11a | the lookup is genuinely in flight before we destroy it | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2164 |
+| RSLV-11 | destroying a resolver mid-lookup returns immediately — one shared_ptr dropped, no join, nothing to wait for | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2170 |
+| PHOST-01 | an ordinary hostname is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2186 |
+| PHOST-02 | an IPv4 literal is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2188 |
+| PHOST-03 | an IPv6 literal is accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2189 |
+| PHOST-04 | underscores and hyphens inside a name are accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2190 |
+| PHOST-05 | an empty host is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2192 |
+| PHOST-06 | a leading '-' is refused — it would be an OPTION, not a host | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2197 |
+| PHOST-07 | ...including a long-form option | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2199 |
+| PHOST-08 | a shell metacharacter is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2202 |
+| PHOST-09 | a command substitution is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2203 |
+| PHOST-10 | a pipe or redirect is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2205 |
+| PHOST-11 | an embedded space is refused — it would split into two argv words | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2207 |
+| PHOST-12 | an embedded NUL truncates nothing, because the whole string is checked and the NUL itself is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2209 |
+| PHOST-13 | a newline is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2212 |
+| PHOST-14 | 255 bytes is the longest accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2213 |
+| PHOST-15 | 256 bytes is the first refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2215 |
+| PICMP-01 | an implausible host is refused before anything is opened | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2238 |
+| PICMP-02 | a literal the address policy denies FAILS without an echo ever being sent | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2250 |
+| PICMP-03 | and so does the cloud-metadata address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2259 |
+| PICMP-04 | reset() returns it to Idle, as EspPinger promises | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2267 |
+| PICMP-05 | an IPv6-only address is refused as having no IPv4 address, not echoed at four bytes of itself | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2285 |
+| PICMP-06 | 100 back-to-back pings of a denied literal all FAIL on the policy: no worker is lost (GH #328) | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2303 |
+| SNTPR-01 | a server the address policy denies FAILS *on the policy*, without a datagram being sent — an NTP server is not an exception to the rule the rest of this surface follows | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2330 |
+| SNTPR-02 | an implausible server name is refused outright | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2339 |
+| SNTPR-03 | 100 back-to-back SNTP queries of a denied literal all FAIL on the policy: no worker is lost (GH #328) | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2353 |
+| NTPC-01 | the NTP epoch offset is applied exactly (2 208 988 800 s) | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2373 |
+| NTPC-02 | and it formats to the string the 1.x manual's own example gives | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2375 |
+| NTPC-03 | a ZERO timestamp means 'unsynchronised' and is REFUSED, not turned into 1900 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2380 |
+| NTPC-04 | a pre-1970 timestamp is refused too | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2383 |
+| NTPC-05 | the largest NTP second still converts | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2385 |
+| SNTP-01 | a positive timezone moves the clock forward | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2390 |
+| SNTP-02 | a negative one moves it back, across a day boundary | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2392 |
+| SNTP-03 | +13 crosses into the next day and the weekday follows | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2394 |
+| SNTP-04 | the Unix epoch itself formats as a Thursday | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2400 |
+| SNTP-05 | a leap day is a real day, not the 1st of March | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2402 |
+| SNTP-06 | and the arithmetic survives past the 32-bit time_t wrap | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2404 |
+| SNTP-08 | 2100 is NOT a leap year, so 1 March falls where it should | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2412 |
+| SNTP-09 | ...and February 2100 has 28 days, not 29 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2414 |
+| SNTP-10 | a date after 2100 is not shifted by a phantom leap day | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2423 |
+| SNTP-07 | a negative result is clamped rather than wrapping | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:2425 |
 
 ### Companion POSIX-only suite — `src/esp01/test/esp_sigpipe_test.cpp`
 

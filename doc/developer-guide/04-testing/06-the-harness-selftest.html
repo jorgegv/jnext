@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.33</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.35</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.33</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.35</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2464,7 +2464,7 @@ produced <code>regression-doc-check</code>, which wired up a screenshot-document
 checker that had existed, had been correct, and had been invoked by nothing for
 long enough to rot into failing on 18 rows.</p>
 <h2 id="the-lint-self-tests">The lint self-tests<a class="headerlink" href="#the-lint-self-tests" title="Permanent link">&para;</a></h2>
-<p>Four of the lints verify themselves on <strong>every invocation</strong>, before their
+<p>Five of the lints verify themselves on <strong>every invocation</strong>, before their
 verdict on the real tree is trusted at all:</p>
 <ul>
 <li><code>test/lint-assertions.sh</code> writes a fixture containing one instance of each
@@ -2472,6 +2472,11 @@ verdict on the real tree is trusted at all:</p>
   <code>a == b || a != b</code> — and refuses with exit 2 if any of its patterns fails to
   match that fixture. A lint that has silently become a no-op reports success,
   which is worse than not running it.</li>
+<li><code>test/lint-thread-detach.sh</code> writes a fixture with five must-flag lines
+  (<code>.detach()</code>, <code>-&gt;detach()</code>, <code>pthread_detach(</code>, and a spaced form) and a
+  fixture of must-not-flag comment and identifier lines, and refuses with exit 2
+  if either count is off. The harness self-test also runs it against a
+  throwaway tree to prove it fails on a stray <code>.detach()</code> (GH #328).</li>
 <li><code>test/00regression/lint-traps.sh</code> carries <strong>86 pinned cases: 57 that must
   flag and 29 that must not.</strong> There is one fixture file per case,
   deliberately, because a combined fixture still passed when a case was lost,
