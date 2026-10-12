@@ -59,7 +59,7 @@ Everything else has a default, and lives in the `[nextpi]` section of
 | `dir` | NextPi directory | `~/.jnext/nextpi` (`$JNEXT_CONFIG_DIR/nextpi`) |
 | `release` | NextPi release (editable: a release name, or `latest`) | `1_93D` |
 | `qemu_binary` | QEMU | `qemu-system-arm` on `PATH`; `qemu-img` beside it |
-| `audio` | Pi audio (editable: empty, a QEMU `-audiodev` driver, `none`, `wav:FILE`) | the Next's mixer (§3.7); a driver plays it straight to the host |
+| `audio` | Pi audio (editable: empty, a QEMU `-audiodev` driver, `none`, `wav:FILE`) | the Next's mixer (§3.7; on Windows, until GH #331, the host output instead); `host` is the host output on every OS; a driver plays it straight to the host |
 
 An empty value means the default, so a config file never pins a home directory.
 `--nextpi`/`--no-nextpi` override `enabled` the way `--esp`/`--no-esp` override
@@ -377,7 +377,11 @@ The MD5 of the archive is CNG on Windows, OpenSSL elsewhere. The socket transpor
 can be selected on POSIX too, so `nextpi_test` exercises it everywhere. The Pi's
 sound plays on the host speakers on Windows too (default back-end `dsound`); the
 path that brings it into the Next's mixer (NR 0xA2, the volume controls) is a
-later stage. Rows PIT-01..15 and
+later stage (GH #331). **The rule for `audio=""`:** it is the Next's mixer
+wherever the FIFO path exists (Linux, macOS: `PiQemu::uses_mixer`), and the host
+output on Windows, where it does not; `host` is the host output on every OS.
+`PiQemu::audiodev_arg("")` is therefore the host driver, which is what an empty
+setting resolves to on Windows. Rows PIT-01..16 and
 `nextpi-link-func` (§4).
 
 ## 4. Testing
@@ -452,7 +456,7 @@ NextPi image is needed.
 | PI-57 | with a tape playing a steady high level, port 0xFE bit 6 is the tape XOR the comparator |
 | PI-58 | a steady Pi EAR level relaxes to the issue-2 level 64 x 512 master cycles after its edge |
 | PI-59 | under `--silent` the Pi's samples are still latched and the EAR path works |
-| PIT-01..15 | `nextpi_test` (every OS): `md5_file`, the socket command line, the platform audio default, the TCP endpoint (both directions, lazy connect, peer loss and reconnect), `link_config` and warm start, end to end with a stand-in QEMU, hard reset, refusals, force-kill, exit status, never orphaned, no inherited handles, child locale |
+| PIT-01..17 | `nextpi_test` (every OS): `md5_file`, the socket command line, the platform audio default, what an empty audio setting means per OS (PIT-16/17), the TCP endpoint (both directions, lazy connect, peer loss and reconnect), `link_config` and warm start, end to end with a stand-in QEMU, hard reset, refusals, force-kill, exit status, never orphaned, no inherited handles, child locale |
 | `nextpi-link-func` | the real binary attaches the launcher's link to UART 1 over the platform's transport and stops QEMU the orderly way |
 
 `test/audio/audio_posix_test.cpp` (POSIX-only: the rows use a real FIFO) adds **MX-41** (the stream retired MX-30 asked for; MX-30 itself stays retired, its ID not reused) and MX-31..40 for `PiAudio`
