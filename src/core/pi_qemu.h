@@ -98,6 +98,11 @@ public:
         /// How long `stop()` waits after asking QEMU to stop before it
         /// SIGKILLs it. A test seam; production uses the default.
         int stop_grace_ms = 3000;
+        /// Test seam: replaces the launcher's poll sleeps (null: a real
+        /// sleep). A row passes a sleep that overshoots, as a loaded or
+        /// timer-coalescing host does, to prove the grace and the startup
+        /// window are measured against the clock, not counted in sleeps.
+        void (*poll_sleep)(int ms) = nullptr;
     };
 
     PiQemu() = default;
