@@ -637,15 +637,15 @@ void run_rows()
     }
 
 
-    // QS-25..QS-27: GH #321 D12 — R2 for the OTHER snapshot formats. Evidence, not
-    // a fix: .sna/.szx/.z80 loaders never reconfigure the machine (they apply the
-    // file onto the machine that is running; SnaLoader/SzxLoader/Z80Loader touch
-    // no config), so the frontend's idea of the machine cannot go stale. These
-    // rows pin that: through the real frontend cold boot and the real load, for a
-    // file made on one machine and loaded on another, the machine that runs, the
-    // one the frontend keeps, the boot machine and the startup machine all agree
-    // on the CONFIGURED one. If a loader ever starts switching machines, this
-    // fails and emulator_boot_machine() must learn that format (as it did .jns).
+    // QS-25..QS-27: GH #321 D12, FLIPPED by GH #323 (owner decision: "of course,
+    // snapshots should switch to the saved machine"). #321 pinned that a
+    // .sna/.szx/.z80 loads onto the machine that is running; #323 makes it run
+    // on the machine it was SAVED on. Through the real frontend cold boot and
+    // the real load, for a file made on one machine and loaded on another, the
+    // machine that runs, the one the frontend keeps, the boot machine and the
+    // startup machine (with and without an explicit --machine) all agree on the
+    // FILE's machine. Oracle: the file's own header (libspectrum sna.c/szx.c/
+    // z80.c), not the code.
     {
         auto write_file = [&](const fs::path& p, const std::vector<uint8_t>& b) {
             std::ofstream f(p, std::ios::binary);
@@ -678,7 +678,7 @@ void run_rows()
             z128.insert(z128.end(), {0xFF, 0xFF, static_cast<uint8_t>(page)});
             z128.insert(z128.end(), 16384, 0);
         }
-        struct Case { const char* id; const char* what; fs::path file; MachineType run_on; bool ok; };
+        struct Case { const char* id; const char* what; fs::path file; MachineType run_on; bool ok; MachineType made_on; };
         std::vector<Case> cases;
         {
             const auto sna128 = SnaSaver::save(*up128);
@@ -686,16 +686,16 @@ void run_rows()
             const auto szx128 = SzxSaver::save(*up128);
             const auto szx48  = SzxSaver::save(*up48);
             cases.push_back({"QS-25", ".sna: a 128K file on a 48K machine and a 48K file on a 128K one",
-                             d / "a128.sna", MachineType::ZX48K, write_file(d / "a128.sna", sna128)});
-            cases.push_back({"QS-25", "", d / "a48.sna", MachineType::ZX128K, write_file(d / "a48.sna", sna48)});
+                             d / "a128.sna", MachineType::ZX48K, write_file(d / "a128.sna", sna128), MachineType::ZX128K});
+            cases.push_back({"QS-25", "", d / "a48.sna", MachineType::ZX128K, write_file(d / "a48.sna", sna48), MachineType::ZX48K});
             cases.push_back({"QS-26", ".szx: a 128K file on a 48K machine and a 48K file on a 128K one",
                              d / "b128.szx", MachineType::ZX48K,
-                             szx128.ok && write_file(d / "b128.szx", szx128.data)});
+                             szx128.ok && write_file(d / "b128.szx", szx128.data), MachineType::ZX128K});
             cases.push_back({"QS-26", "", d / "b48.szx", MachineType::ZX128K,
-                             szx48.ok && write_file(d / "b48.szx", szx48.data)});
+                             szx48.ok && write_file(d / "b48.szx", szx48.data), MachineType::ZX48K});
             cases.push_back({"QS-27", ".z80: a 128K file on a 48K machine and a 48K file on a 128K one",
-                             d / "c128.z80", MachineType::ZX48K, write_file(d / "c128.z80", z128)});
-            cases.push_back({"QS-27", "", d / "c48.z80", MachineType::ZX128K, write_file(d / "c48.z80", z48)});
+                             d / "c128.z80", MachineType::ZX48K, write_file(d / "c128.z80", z128), MachineType::ZX128K});
+            cases.push_back({"QS-27", "", d / "c48.z80", MachineType::ZX128K, write_file(d / "c48.z80", z48), MachineType::ZX48K});
         }
         std::string detail[3];
         bool good[3] = {true, true, true};
@@ -713,23 +713,23 @@ void run_rows()
             const std::string file = c.file.string();
             emulator_frontend_cold_boot(e, frontend, file, hooks);
             const bool loaded = c.ok && emulator_apply_load(e, file, false);
-            const bool same = kept == c.run_on && e.config().type == c.run_on &&
-                              emulator_boot_machine(file, c.run_on) == c.run_on &&
-                              emulator_startup_machine(file, c.run_on, true) == c.run_on &&
-                              emulator_startup_machine(file, c.run_on, false) == c.run_on;
+            const bool same = kept == c.made_on && e.config().type == c.made_on &&
+                              emulator_boot_machine(file, c.run_on) == c.made_on &&
+                              emulator_startup_machine(file, c.run_on, true) == c.made_on &&
+                              emulator_startup_machine(file, c.run_on, false) == c.made_on;
             if (!(loaded && same)) good[k] = false;
             detail[k] += std::string(c.ok ? "" : "[file not made] ") + (loaded ? "loaded " : "NOT loaded ") +
-                         (same ? "same; " : "machine changed; ");
+                         (same ? "file's machine; " : "not the file's machine; ");
         }
         for (int k = 0; k < 3; ++k) {
             const char* ids[3] = {"QS-25", "QS-26", "QS-27"};
             const char* what[3] = {
-                ".sna: loading a 128K file on a 48K machine and a 48K file on a 128K one leaves the "
-                "machine as configured, so the frontend and the emulator agree",
-                ".szx: loading a 128K file on a 48K machine and a 48K file on a 128K one leaves the "
-                "machine as configured, so the frontend and the emulator agree",
-                ".z80: loading a 128K file on a 48K machine and a 48K file on a 128K one leaves the "
-                "machine as configured, so the frontend and the emulator agree"};
+                ".sna: loading a 128K file on a 48K machine and a 48K file on a 128K one runs the "
+                "FILE's machine, and the frontend, the boot and the startup machine agree",
+                ".szx: loading a 128K file on a 48K machine and a 48K file on a 128K one runs the "
+                "FILE's machine, and the frontend, the boot and the startup machine agree",
+                ".z80: loading a 128K file on a 48K machine and a 48K file on a 128K one runs the "
+                "FILE's machine, and the frontend, the boot and the startup machine agree"};
             check(ids[k], what[k], good[k], detail[k]);
         }
     }
