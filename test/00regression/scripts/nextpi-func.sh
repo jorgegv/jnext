@@ -9,15 +9,15 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # NextPi (--nextpi) — main.cpp's start policy, through the real binary.
 #
 # WHY A FUNCTIONAL ROW. The policy itself is a pure function with its own unit
-# row (uart_integration_test PI-27, nextpi::start_outcome). What only the real
+# row (nextpi_test PI-27, nextpi::start_outcome). What only the real
 # binary can show is that main.cpp applies it: that a --nextpi which cannot
 # start NextPi makes jnext exit non-zero BEFORE the machine boots, and that
 # declining the first-use download is not a failure. Neither needs QEMU, the
 # network or a NextPi image: the first run has no QEMU on its PATH, the second
 # answers the download prompt with end-of-input.
 #
-# FOUR FACTS (the Pi's sound is in nextpi-audio-func, which needs a POSIX
-# stand-in and the Next's mixer, neither of which Windows has yet, GH #331):
+# FOUR FACTS (the Pi's sound is in nextpi-audio-func, which needs a stand-in QEMU
+# playing a tone into the audio pipe):
 #   1. --nextpi with a ready NextPi directory and no QEMU installed exits 1 and
 #      says QEMU is not found (the install hint), without booting.
 #   2. --nextpi with nothing installed and the prompt declined (stdin closed)

@@ -55,6 +55,7 @@ is easy to get wrong and jnext did:
 | NextPi wiki page — what it is, the Supervisor, `.pisend` and the other dot commands | <https://wiki.specnext.dev/Pi:NextPi>              |
 | NextPi release mirror — `NextPi-<release>.tar.gz` + `.md5`, the index `latest` reads (`nextpi::kMirrorUrl`) | <https://zx.xalior.com/NextPi2/> |
 | nextpi-sandbox — the QEMU `raspi0` set-up (kernel command line, USB audio) jnext's launcher follows | <https://github.com/vmorilla/nextpi-sandbox> |
+| Wireshark extcap — the named-pipe server (`CreateNamedPipe`, duplex, byte mode) a child opens with `fopen("wb")` on Windows; the precedent for the Pi audio pipe (GH #331) | <https://gitlab.com/wireshark/wireshark/-/blob/master/extcap.c> |
 | QEMU for Windows — builds `qemu-system-arm.exe` that the Windows NextPi launcher runs (install hint, GH #316) | <https://qemu.weilnetz.de/w64/> |
 
 ## Emulators used as oracles / comparison

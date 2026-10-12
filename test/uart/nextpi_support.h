@@ -19,6 +19,9 @@ void kill_hard(unsigned long pid);
 
 unsigned long self_pid();
 
+/// CPU time (user + kernel) this process has used so far, in milliseconds.
+long process_cpu_ms();
+
 /// A child process started with its stdout captured. `start` returns once the
 /// child has printed a line starting `ready` or `failed` (others are skipped) or `timeout_ms` passed.
 class Child {
@@ -37,6 +40,21 @@ private:
     unsigned long pid_ = 0;
     long          read_end_ = -1;       // fd, or a HANDLE value on Windows
     void*         process_  = nullptr;  // Windows process HANDLE
+};
+
+/// One-instance named-pipe servers held on `names` (Windows only; on POSIX it
+/// holds nothing). A launcher that then tries to serve the same names is refused,
+/// which is how a row makes the Pi's audio pipe uncreatable.
+class PipeSquat {
+public:
+    explicit PipeSquat(const std::vector<std::string>& names);
+    ~PipeSquat();
+    PipeSquat(const PipeSquat&)            = delete;
+    PipeSquat& operator=(const PipeSquat&) = delete;
+    std::size_t held() const { return handles_.size(); }
+
+private:
+    std::vector<void*> handles_;
 };
 
 /// An INHERITABLE pipe that already holds the eight bytes JNEXTMAG; `number()`

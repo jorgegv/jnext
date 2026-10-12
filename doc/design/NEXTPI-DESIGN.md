@@ -59,7 +59,7 @@ Everything else has a default, and lives in the `[nextpi]` section of
 | `dir` | NextPi directory | `~/.jnext/nextpi` (`$JNEXT_CONFIG_DIR/nextpi`) |
 | `release` | NextPi release (editable: a release name, or `latest`) | `1_93D` |
 | `qemu_binary` | QEMU | `qemu-system-arm` on `PATH`; `qemu-img` beside it |
-| `audio` | Pi audio (editable: empty, a QEMU `-audiodev` driver, `none`, `wav:FILE`) | the Next's mixer (§3.7; on Windows, until GH #331, the host output instead); `host` is the host output on every OS; a driver plays it straight to the host |
+| `audio` | Pi audio (editable: empty, a QEMU `-audiodev` driver, `none`, `wav:FILE`) | the Next's mixer (§3.7, on every OS); `host` is the host output; a driver plays it straight to the host |
 
 An empty value means the default, so a config file never pins a home directory.
 `--nextpi`/`--no-nextpi` override `enabled` the way `--esp`/`--no-esp` override
@@ -105,8 +105,7 @@ at once. NextPi then takes about a minute to reach `SUP>`, after which:
   jnext starts without the Pi either way. The policy is one pure function,
   `nextpi::start_outcome`, which `main()` applies.
 - **Not in this PR:** a live start/stop from the running GUI, a progress bar for
-  the unpack (it is a busy indicator; the download has the bar), and the Pi's sound through the Next's mixer on Windows
-  (§3.7, GH #331). The earlier manual-wiring flags (`--pi-uart-fifo`,
+  the unpack (it is a busy indicator; the download has the bar). The earlier manual-wiring flags (`--pi-uart-fifo`,
   `--pi-uart-pty`) were dropped in review.
 
 ## 3. Design
@@ -292,7 +291,7 @@ is why MX-30 had been retired ("no Raspberry Pi to be the producer"). NextPi
 under QEMU is one, so:
 
 - **QEMU writes the Pi's sound to a FIFO.** With the default audio setting (on
-  Linux and macOS; Windows has no such path yet, GH #331), `PiQemu` passes `-audiodev wav,...,path=<base>.audio,out.frequency=44100,
+  every OS; on Windows the "FIFO" is a named pipe, see below), `PiQemu` passes `-audiodev wav,...,path=<base>.audio,out.frequency=44100,
   out.channels=2,out.format=s16`: a 44-byte WAV header, then 16-bit stereo PCM
   at the mixer's own rate. Measured against real NextPi 1_93D: nothing is
   written while the Pi is silent, and while it plays the stream arrives in
@@ -313,6 +312,32 @@ under QEMU is one, so:
   timeout already paced the loop and the pause is taken only after a `poll()`
   that returned at once. A pause after a timeout was a second wait on the one
   timer macOS may stretch by tens of ms (GH #354).
+  The stream parser (`consume` / `writer_gone`) is shared by both transports.
+- **Windows: a named pipe jnext serves** (`audio/pi_audio_win.cpp`). QEMU 10.2 has
+  no audio back-end that writes to a socket; its stream-out back-ends are `wav`
+  (which `fopen`s a path, `audio/wavaudio.c:116`) and the host drivers. So the
+  path is `\\.\pipe\jnext-pi-<pid>-<n>.audio`, `<n>` a per-process counter, and
+  `PiAudio` is the pipe's SERVER: `CreateNamedPipe` duplex, byte mode, one
+  instance, 64 KiB, overlapped, the configuration Wireshark's extcap code
+  creates for a client that opens it with `fopen("wb")`. The pipe is created
+  BEFORE QEMU is spawned (`fopen` of a missing pipe fails with ENOENT) and closed
+  after QEMU is gone. The reader never polls: it waits on the I/O event and a
+  stop event, so it wakes at once for data, a departing writer and `close()` (a
+  pending `ConnectNamedPipe`/`ReadFile` is cancelled with `CancelIoEx`), and with
+  no writer it sleeps (so the POSIX no-writer pause of GH #354, which exists only
+  because Linux's `poll()` reports a gone writer at once, has no counterpart here:
+  nothing returns early to be paced, and `no_writer_pauses()` stays 0). After a writer leaves, the pipe is disconnected and
+  listens again. QEMU opens the wav file once per run (the usb-audio voice is
+  opened at realize, `hw/usb/dev-audio.c:960`, and `wav_init_out` runs once,
+  `audio/audio_template.h:520-545`), so the re-listen is a robustness path. The
+  pipe is local only (`PIPE_REJECT_REMOTE_CLIENTS`; no row can pin the flag under
+  wine, which accepts it either way) and carries the default security descriptor
+  of the creating user: full control for the creator owner, Administrators and
+  SYSTEM, read for Everyone, so QEMU (the same user) can connect and so can other
+  local processes with those rights. Verified
+  under wine with another process's `fopen`; **not verified on real Windows**:
+  QEMU for Windows calls the narrow `fopen` of its own CRT, Wireshark the wide
+  one (see §5).
 - **The emulator latches one frame per mixer output sample**
   (`Emulator::feed_pi_audio`, from `advance_audio` at each sample boundary),
   converted to the hardware's 10-bit offset binary (`PiAudio::to_i2s`, 0 → 0x200
@@ -388,14 +413,10 @@ list, a job object with kill-on-close (never orphaned), `LANG=C`/`LC_ALL=C` in a
 Unicode environment block, and a graceful stop by `quit` on the monitor on stdin.
 The MD5 of the archive is CNG on Windows, OpenSSL elsewhere. The socket transport
 can be selected on POSIX too, so `nextpi_test` exercises it everywhere. The Pi's
-sound plays on the host speakers on Windows too (default back-end `dsound`); the
-path that brings it into the Next's mixer (NR 0xA2, the volume controls) is a
-later stage (GH #331). **The rule for `audio=""`:** it is the Next's mixer
-wherever the FIFO path exists (Linux, macOS: `PiQemu::uses_mixer`), and the host
-output on Windows, where it does not; `host` is the host output on every OS.
-`PiQemu::audiodev_arg("")` is therefore the host driver, which is what an empty
-setting resolves to on Windows. Rows PIT-01..17 and
-`nextpi-link-func` (§4).
+sound reaches the Next's mixer over the named pipe of §3.7 (GH #331), created
+before QEMU is spawned. **The rule for `audio=""`:** it is the Next's mixer on
+every OS (`PiQemu::uses_mixer`); `host` is the host output (`audiodev_arg("host")`:
+dsound, coreaudio, pa). Rows PIT-01..23 and `nextpi-link-func` (§4).
 
 ## 4. Testing
 
@@ -474,7 +495,7 @@ NextPi image is needed.
 | PI-62 | a restore taken while the comparator was 1 leaves it 0, and the relaxed MIC level reads at once |
 | PI-63 | under `--silent` a rewind replay does not consume the Pi's sound; a live run does |
 | PI-64 | a tape save made with the Pi on the EAR input records the comparator's edges (the MIC jack carries it) |
-| PIT-01..17 | `nextpi_test` (every OS): `md5_file`, the socket command line, the platform audio default, what an empty audio setting means per OS (PIT-16/17), the TCP endpoint (both directions, lazy connect, peer loss and reconnect), `link_config` and warm start, end to end with a stand-in QEMU, hard reset, refusals, force-kill, exit status, never orphaned, no inherited handles, child locale |
+| PIT-01..23 | `nextpi_test` (every OS): `md5_file`, the socket command line, the host audio back-end per OS, what an empty audio setting means (the mixer, PIT-16/17/18), the Pi audio pipe (writers coming and going, a full ring, a prompt `close()`, no spinning, an uncreatable pipe: PIT-19..23), the TCP endpoint (both directions, lazy connect, peer loss and reconnect), `link_config` and warm start, end to end with a stand-in QEMU, hard reset, refusals, force-kill, exit status, never orphaned, no inherited handles, child locale |
 | `nextpi-link-func` | the real binary attaches the launcher's link to UART 1 over the platform's transport and stops QEMU the orderly way |
 
 `test/audio/audio_posix_test.cpp` (POSIX-only: the rows use a real FIFO) adds **MX-41** (the stream retired MX-30 asked for; MX-30 itself stays retired, its ID not reused) and MX-31..40 and MX-42..47 and MX-50..52 for `PiAudio`
@@ -503,8 +524,8 @@ jnext runs to its automatic exit (0) — the Preferences-only path. On the
 offscreen platform the warning dialog is not shown, since nobody could dismiss
 it; the log line before it carries the message.
 
-The sound has its own row, **nextpi-audio-func** (`os=linux,macos`: it needs a
-`/bin/sh` stand-in QEMU and the audio FIFO, which Windows lacks until GH #331).
+The sound has its own row, **nextpi-audio-func** (every OS; the C++ stand-in QEMU
+and the named pipe on Windows).
 Its first fact is the sound end to end: a stand-in QEMU on the `PATH` plays a
 square wave into the wav FIFO, a 6-byte program opens NR 0xA2, and
 `--wav-record` must carry the tone with each channel at its own level. That is
@@ -588,6 +609,11 @@ without the Pi term, or no sample at a comparator edge, fails PI-64.
 ## 5. Not done
 
 - **No Pi emulation.** The Pi is real NextPi software under QEMU.
+- **Windows: the audio pipe is untested on a real Windows.** A writer that reopens
+  the pipe inside the re-listen window fails once (QEMU opens it once per run),
+  and the CRT's narrow `fopen("wb")` on a byte-mode pipe is established from
+  Wireshark's use of the wide one, not run. If QEMU logs `Failed to open wave
+  file`, the rollback is the one-line Windows exception in `PiQemu::uses_mixer`.
 - **No separate gain for the Pi.** Its level is the hardware's share of the mix
   (a 10-bit input among the 13-bit sum); the master gain raises it with the rest.
 - **No GPIO, I2C1 or SPI0 to the Pi.** Only the UART crosses the wire.

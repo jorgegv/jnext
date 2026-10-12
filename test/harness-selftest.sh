@@ -2334,7 +2334,7 @@ check "HS-90e" "the control: an explicit full os= list on one row is accepted (c
 plat_tree "$T/pt-ok" windows windows
 out=$(run_plat "$T/pt-ok" "$REG_FUNC"); rc=$?
 check "HS-91a" "a platform preflight names the target and the admitted / absent row counts" 0 $rc "$out" \
-    "platform windows: 134 functional rows run, 22 declared absent"
+    "platform windows: 135 functional rows run, 21 declared absent"
 plat_tree "$T/pt-mac" macos macos
 out=$(run_plat "$T/pt-mac" "$REG_FUNC"); rc=$?
 check "HS-91b" "...macOS runs 137 and declares 19 absent" 0 $rc "$out" "platform macos: 137 functional rows run, 19 declared absent"
@@ -2360,9 +2360,9 @@ out=$(run_plat "$T/pt-ok" "$REG_FUNC" magic-bp-func); rc=$?
 check "HS-92b" "...and a named admitted row is accepted" 0 $rc "$out" "preflight OK"
 
 # per-OS pins, both directions
-sed 's/^# expect-windows: 134$/# expect-windows: 133/' "$REG_FUNC" > "$T/pin-lo.conf"
+sed 's/^# expect-windows: 135$/# expect-windows: 134/' "$REG_FUNC" > "$T/pin-lo.conf"
 out=$(run_preflight "$REG_CONF" "$T/pin-lo.conf"); rc=$?
-check "HS-93a" "a Windows pin one too low is a refusal naming the OS" 2 $rc "$out" "HARNESS FAULT" "windows" "expect-windows: 133"
+check "HS-93a" "a Windows pin one too low is a refusal naming the OS" 2 $rc "$out" "HARNESS FAULT" "windows" "expect-windows: 134"
 sed 's/^# expect-macos: 137$/# expect-macos: 138/' "$REG_FUNC" > "$T/pin-hi.conf"
 out=$(run_preflight "$REG_CONF" "$T/pin-hi.conf"); rc=$?
 check "HS-93b" "a macOS pin one too high is a refusal" 2 $rc "$out" "HARNESS FAULT" "macos" "expect-macos: 138"

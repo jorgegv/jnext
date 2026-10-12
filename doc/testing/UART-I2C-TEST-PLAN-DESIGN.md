@@ -494,7 +494,10 @@ The wire on the Pi GPIO header handed to the host as a `UartDevice` on UART 1
 through the NR 0xA0 GPIO mux (`zxnext.vhd:2278-2281`): bits 5 and 4 together
 put UART 1 on GPIO 14/15 wired for a Pi, the value NextPi's `.pisend` writes
 (0x30). Rows live in `test/uart/uart_posix_test.cpp` (group PI), POSIX-only
-since GH #214.
+since GH #214, except PI-10..14, 16, 21..25, 27..29, 31, 33 and 38..44 (the
+provisioner, the archive reader and pure policy functions), which run on every OS
+in `test/uart/nextpi_test.cpp` since GH #331 (rows, IDs and assertions unchanged;
+their fixtures are shared through `test/uart/nextpi_fixtures.h`).
 PI-01..05 drive the link over real FIFOs, like the JOY rows; each fails (does
 not crash) when no link is attached, so removing `setup_pi_uart()` from `init()`
 turns all five red, and removing the NR 0xA0 probe turns PI-02 red. PI-06..09
@@ -578,14 +581,14 @@ wine. The QEMU stand-in is a program (`nextpi_qemu_stub.cpp`) copied as
 `qemu-system-arm[.exe]` / `qemu-img[.exe]`. Oracles: RFC 1321; qemu(1) 10.2
 `-chardev socket` and QEMU's `char-socket.c` (host defaults to 0.0.0.0, a listener
 waits for a client unless `wait=off`, the listener re-arms after a disconnect);
-`zxnext.vhd:2278-2281`; the `JoyUartLink` contract. The moved provisioner rows and
-the Windows audio path are a later stage (a separate issue).
+`zxnext.vhd:2278-2281`; the `JoyUartLink` contract. The provisioner rows
+listed in Group 17 moved here in GH #331, and PIT-16..23 cover the Pi audio path on every OS.
 
 | ID | Stimulus | Expected |
 |----|----------|----------|
 | PIT-01 | `md5_file` of "", "abc", "message digest", 1 048 577 x 'a', a missing file | d41d8cd98f00b204e9800998ecf8427e, 900150983cd24fb0d6963f7d28e17f72, f96b697d7cb7938d525a2f31aaf161d0, 6f0555ac53cecbf068d354c08863805a, "" |
 | PIT-02 | `build_args(spec, port)` | `-chardev socket,id=pi,host=127.0.0.1,port=N,server=on,wait=off,nodelay=on`, `-serial chardev:pi`, `-monitor stdio` (Windows) / `none`, the raspi0 arguments of PI-06, no `pipe,` |
-| PIT-03 | `audiodev_arg("")` | `dsound,id=snd0` (Windows), `coreaudio,...` (macOS), `pa,id=snd0` |
+| PIT-03 | `audiodev_arg("host")` | the host back-end per OS: `dsound,id=snd0` (Windows), `coreaudio,...` (macOS), `pa,id=snd0` |
 | PIT-04 | Emulator on `pi_uart_tcp_port`; host listener sends `SUP> `; guest sends CR; NR 0xA0 = 0x30 | guest reads `SUP> `, host gets CR, UART 0 quiet, `describe()` is `TCP 127.0.0.1:N` |
 | PIT-05 | no listener for over 2 s, a guest byte sent, then a listener appears | no fault, nothing discarded; then both directions flow and the early byte arrives |
 | PIT-06 | peer closed with unread data (reset) with a byte pending; two guest bytes (`Y`, `V`) sent right after; then `Z`; second, third and fourth peers | the dead peer's byte and the undeliverable `Y` discarded (`unsent()` 1), no fault; the second peer receives exactly `VZ` (the dead socket was dropped, so `V` reconnects); an orderly close seen by a read is reconnected; a reset seen by a read with nothing queued is no fault and reconnects |
@@ -598,8 +601,14 @@ the Windows audio path are a later stage (a separate issue).
 | PIT-13 | the process holding the launcher killed outright | QEMU gone within 3 s (watchdog / job kill-on-close) |
 | PIT-14 | an inheritable pipe holding `JNEXTMAG` open in jnext | the child cannot read it |
 | PIT-15 | parent `LANG`/`LC_ALL` (any letter case on Windows) | the child has exactly `LANG=C` and `LC_ALL=C`; parent unchanged |
-| PIT-16 | `build_args` with `Spec::audio` empty and with `host`, `uses_mixer` for each | empty: the mixer's wav FIFO and `uses_mixer` true on Linux/macOS, `dsound,id=snd0` and false on Windows (no mixer path until GH #331); `host`: the host output (pa / coreaudio / dsound), never the mixer. jnext-only, no VHDL counterpart |
-| PIT-17 | `PiQemu::start` on the socket transport with `Spec::audio` empty, the stand-in as QEMU | Linux/macOS: the stand-in's `-audiodev` is the wav FIFO at 44.1 kHz s16 stereo, `audio()` is non-null and `link_config` hands it to the Emulator; Windows: `dsound,id=snd0`, no reader. jnext-only, no VHDL counterpart |
+| PIT-16 | `build_args` with `Spec::audio` empty and with `host`, `uses_mixer` for each | empty: the mixer's wav back-end (`mixer_audiodev_arg`) and `uses_mixer` true on every OS; `host`: the host output (pa / coreaudio / dsound), never the mixer. jnext-only, no VHDL counterpart |
+| PIT-17 | `PiQemu::start` on the socket transport with `Spec::audio` empty, the stand-in as QEMU | the stand-in's `-audiodev` is the wav FIFO at 44.1 kHz s16 stereo, `audio()` is non-null and `link_config` hands it to the Emulator. Linux/macOS: in a runtime directory that exists while QEMU runs and is removed after, nothing in the cwd; Windows: `\\.\pipe\jnext-pi-<pid>-<n>.audio`, which the stand-in could `fopen` (`audio` record `opened`) and which is gone once `stop()` has returned. jnext-only, no VHDL counterpart |
+| PIT-18 | stand-in QEMU writing a tone into the audio path of a real `start()`; the Emulator from `link_config`; NR 0xA2 = 0x00 then 0xC0 | `i2s.vhd:177-180`, `zxnext.vhd:2358-2359`, MX-06/07 x4: gate shut: swing <= 16 both channels; open: exactly left -1024..+1024, right -512..+512; `-audiodev` is the wav one. The end to end of PI-48 on every OS (a named pipe, written by another process, on Windows) |
+| PIT-19 | a writer that sends a header, a frame and 2 stray bytes and leaves; a second writer with a header and 2205 frames | MX-34 on every OS: the second header is skipped, the stray bytes are not glued to it: `available()` 2206, then the frames pop exactly. jnext-only |
+| PIT-20 | 200 000 frames written with nothing popping | the writer finishes within 5 s; `frames_received` 131072 (`kCapacity`), `frames_dropped` 68928; the next pop flushes (dropped 200000). MX-33 + MX-42 on every OS. jnext-only |
+| PIT-21 | `close()` with no writer ever connected, and with a connected silent writer; then `open` on the same name | each `close()` < 1000 ms; the name can be served again (a leaked Windows pipe handle would refuse it). jnext-only |
+| PIT-22 | the writer has left | over 1 s: < 100 ms CPU (`nxs::process_cpu_ms`), so no spinning on any OS; <= 60 writer-gone reads (POSIX ~50, which bounds its poll rate; Windows 1) and <= 60 wakeups (`idle_reads`: on Windows each return of the reader's one wait, so a timed poll in it shows; a poll built elsewhere is not seen). jnext-only |
+| PIT-23 | the audio pipe cannot be made (Windows: every candidate name held by a one-instance server; POSIX: `$TMPDIR` so deep that `<base>.audio` is one byte past `PATH_MAX`) | `start()` fails naming the pipe (`jnext-pi-<pid>-` / `uart.audio`), `audio()` null, no QEMU spawned. PI-51 for the portable launcher. jnext-only |
 | PIT-24 | a QEMU ignoring the orderly stop, grace 300 ms, every launcher poll sleep stretched 5x (`Spec::poll_sleep`) | killed, `stop()` returns in 300..900 ms: the grace is elapsed time, not a count of sleeps (GH #355). jnext-only, no VHDL counterpart |
 
 Functional row `nextpi-link-func`: the real binary starts the stand-in QEMU, the

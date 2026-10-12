@@ -410,10 +410,6 @@ starts without the Pi.
 On Linux and macOS the link is a pair of FIFOs; on Windows (QEMU for
 Windows, its folder on \f[CR]PATH\f[R] or set in Preferences) it is a
 loopback TCP socket QEMU listens on.
-On Windows an empty Pi audio setting plays the Pi\(cqs sound on the host
-speakers (QEMU\(cqs \f[CR]dsound\f[R], the same as \f[CR]host\f[R]);
-sending it through the Next\(cqs mixer (NR 0xA2, the volume controls) is
-not there yet.
 .RE
 .TP
 \f[B]\-\-no\-nextpi\f[R]
@@ -2958,8 +2954,7 @@ name on the mirror, or \f[CR]latest\f[R] for the newest one listed
 there; empty means \f[CR]1_93D\f[R]), \f[CR]qemu_binary\f[R] (empty
 means \f[CR]qemu\-system\-arm\f[R] on \f[CR]PATH\f[R]) and
 \f[CR]audio\f[R] (empty means the Next\(cqs mixer, so NextREG 0xA2
-controls it and \f[CR]\-\-record\f[R] captures it; on Windows, which has
-no mixer path yet, empty means the host output instead.
+controls it and \f[CR]\-\-record\f[R] captures it.
 \f[CR]host\f[R] plays it on this computer\(cqs default output,
 \f[CR]coreaudio\f[R] on macOS, \f[CR]dsound\f[R] on Windows and
 \f[CR]pa\f[R] elsewhere; otherwise a QEMU \f[CR]\-audiodev\f[R] driver

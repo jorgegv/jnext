@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.48</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.49</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.48</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.49</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3609,8 +3609,7 @@ the genuine article.</p>
 <code>sudo apt install qemu-system-arm qemu-utils</code>; on Windows install QEMU for
 Windows and either add its folder to your <code>PATH</code> or set the QEMU binary under
 <strong>Settings ▸ Preferences ▸ NextPi</strong>. On Windows the Pi is reached over a local
-(loopback) socket, which may raise a firewall prompt the first time; with the Pi audio setting empty, the Pi's
-sound plays on your speakers (QEMU's <code>dsound</code>). Then either tick <strong>Start
+(loopback) socket, which may raise a firewall prompt the first time. Then either tick <strong>Start
 NextPi</strong> under <strong>Settings ▸ Preferences ▸ NextPi</strong> and restart JNEXT, or start
 it for one run with:</p>
 <pre><code>jnext --nextpi
@@ -3632,9 +3631,6 @@ little late — about a tenth of a second — and at the 10-bit quality of the
 Next's input. With bit 0 of NextREG <code>0xA2</code> set, the Pi's sound goes to the EAR
 input instead, the tape signal port <code>0xFE</code> bit 6 reads, which is how a Next loads
 a tape the Pi plays to it.</p>
-<p>On Windows the sound does not go through the mixer yet: with the Pi audio
-setting empty it plays on your speakers, so NextREG <code>0xA2</code> does not control it
-and recordings do not include it.</p>
 <p>QEMU runs in the background for as long as JNEXT does, and stops with it. A
 soft or hard reset of the Next leaves the Pi running, as it would on the real
 machine. <code>--no-nextpi</code> leaves the Pi off for one run even when the preference
@@ -3668,7 +3664,7 @@ the Preferences tab means that default:</p>
 </tr>
 <tr>
 <td>Pi audio</td>
-<td>the Next's mixer (on Windows: your computer's default output, until the mixer path arrives there)</td>
+<td>the Next's mixer</td>
 <td>or <code>host</code> to play it on your computer's default output (<code>pa</code> on Linux, <code>coreaudio</code> on macOS, <code>dsound</code> on Windows), a QEMU audio driver to play it straight to your computer, <code>none</code> to mute it, or <code>wav:FILE</code> to record it on its own</td>
 </tr>
 </tbody>
@@ -3694,8 +3690,7 @@ joystick port (<a href="07-the-joystick-port-serial-cable.html">5.7</a>).</p>
 <ul>
 <li>It is not saved in snapshots. Rewinding and RZX playback do not resend
   anything to the Pi, and the Pi is not rewound either.</li>
-<li>Only the serial link and the sound cross over, not the Pi's other GPIO pins.
-  On Windows the sound goes to your speakers, not into the Next's mixer.</li>
+<li>Only the serial link and the sound cross over, not the Pi's other GPIO pins.</li>
 </ul>
 
 

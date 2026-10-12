@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.48</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.49</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.48</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.49</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2693,7 +2693,9 @@ UART 1, the Pi GPIO header's UART. Three pieces:</p>
 <li>
 <p><strong><code>audio/pi_audio.{h,cpp}</code></strong> carries the Pi's sound into the mixer, the way
   a real Next takes it over I2S. QEMU's <code>wav</code> audio back-end writes 44.1 kHz s16
-  stereo into a FIFO; <code>PiAudio</code>'s reader thread drains it into a lock-free ring
+  stereo into a FIFO (on Windows a named pipe <code>\\.\pipe\jnext-pi-&lt;pid&gt;-&lt;n&gt;.audio</code>
+  that <code>pi_audio_win.cpp</code> serves, created before QEMU is spawned because QEMU
+  <code>fopen</code>s the path at startup); <code>PiAudio</code>'s reader thread drains it into a lock-free ring
   (so QEMU never blocks), and <code>Emulator::feed_pi_audio</code> pops one frame at each
   mixer output sample into <code>I2s</code>, whose NR 0xA2 gating and mixer sum already
   modelled the hardware. The ring prebuffers 50 ms, plays silence on an

@@ -335,9 +335,7 @@ naming the option and the value, and exits with status 1.
     download is not — jnext then starts without the Pi.
     On Linux and macOS the link is a pair of FIFOs; on Windows (QEMU for
     Windows, its folder on `PATH` or set in Preferences) it is a loopback TCP
-    socket QEMU listens on. On Windows an empty Pi audio setting plays the Pi's
-    sound on the host speakers (QEMU's `dsound`, the same as `host`); sending it
-    through the Next's mixer (NR 0xA2, the volume controls) is not there yet.
+    socket QEMU listens on.
 
 **\--no-nextpi**
 :   Do not start NextPi this run, overriding a saved preference that
@@ -2228,8 +2226,7 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     release name on the mirror, or `latest` for the newest one listed there;
     empty means `1_93D`), `qemu_binary` (empty means `qemu-system-arm` on
     `PATH`) and `audio` (empty means the Next's mixer, so NextREG 0xA2
-    controls it and `--record` captures it; on Windows, which has no mixer path
-    yet, empty means the host output instead. `host` plays it on this
+    controls it and `--record` captures it. `host` plays it on this
     computer's default output, `coreaudio` on macOS, `dsound` on Windows and
     `pa` elsewhere; otherwise a QEMU `-audiodev` driver such as `coreaudio`,
     `pa` or `none` to play it straight to the host, or `wav:`*FILE* to record

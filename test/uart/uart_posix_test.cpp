@@ -957,143 +957,6 @@ static void test_pi_qemu() {
     }
 }
 
-static void test_nextpi_provisioner() {
-    set_group("PI");
-    namespace fs = std::filesystem;
-    const std::vector<uint8_t> disk_a = fake_nextpi_disk("kernel image a", "device tree a");
-    const std::vector<uint8_t> disk_b = fake_nextpi_disk("kernel image b", "device tree b");
-
-    // ── PI-10 — releases: the mirror listing yields each NextPi-<name>.tar.gz
-    // once (not its .md5), and names compare as `sort -V` does, so "latest"
-    // picks 1_100 over 1_93D and 1_93D over 1_93C.
-    {
-        const std::vector<std::string> names = nextpi::parse_release_listing(
-            "<a href=\"NextPi-1_93C.tar.gz\">x</a> <a href=\"NextPi-1_93C.tar.gz.md5\">m</a>"
-            "<a href=\"NextPi-1_93D.tar.gz\">NextPi-1_93D.tar.gz</a> <a href=\"NextPi-1_100.tar.gz\">");
-        const bool listing = names == std::vector<std::string>({"1_93C", "1_93D", "1_100"});
-        const bool order = nextpi::compare_release("1_100", "1_93D") > 0
-                        && nextpi::compare_release("1_93D", "1_93C") > 0
-                        && nextpi::compare_release("1_93D", "1_93D") == 0
-                        && nextpi::compare_release("1_9", "1_10") < 0;
-        std::string joined;
-        for (const std::string& n : names) joined += n + " ";
-        check("PI-10",
-              "NextPi's release list is read from the mirror's NextPi-<name>.tar.gz "
-              "links, once each, and release names order numerically (1_100 after 1_93D)",
-              listing && order, fmt("listed [%s] order=%d", joined.c_str(), order ? 1 : 0));
-    }
-
-    // ── PI-11 — the tar stream: the image entry is found by suffix through a pax
-    // path record, its size read from a GNU base-256 field, and written out
-    // byte for byte; an archive without such an entry is an error.
-    {
-        FakeMirror mirror("tar");
-        const fs::path archive = mirror.dir / "a.tar.gz";
-        const fs::path out = mirror.dir / "out.img";
-        std::string err, err_missing;
-        const bool wrote = write_fake_release(archive.string(), "T", disk_a);
-        const bool ok = wrote && nextpi::extract_tar_gz_entry(archive.string(), ".img", out.string(), {}, err);
-        const bool same = ok && slurp(out) == std::string(disk_a.begin(), disk_a.end());
-        const bool missing = !nextpi::extract_tar_gz_entry(archive.string(), ".iso", out.string(), {}, err_missing)
-                           && err_missing.find(".iso") != std::string::npos;
-        check("PI-11",
-              "the NextPi archive reader finds the image through a pax path record, "
-              "reads its GNU base-256 size, and writes it byte for byte; a missing "
-              "entry is an error",
-              ok && same && missing,
-              fmt("ok=%d (%s) same=%d missing='%s'", ok ? 1 : 0, err.c_str(), same ? 1 : 0,
-                  err_missing.c_str()));
-    }
-
-    // ── PI-12 — FIRST USE: asked once, the checksum and archive fetched, the
-    // image and both boot files installed, the release recorded, the archive
-    // deleted. The next run finds it ready: no question, no network.
-    {
-        FakeMirror mirror("first");
-        const bool fixture = mirror.add_release("1_93D", disk_a);
-        const fs::path dir = mirror.dir / "nextpi";
-        int confirms = 0;
-        const nextpi::ProvisionResult r1 = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
-        const bool installed = r1.status == sdcard::ProvisionStatus::Ok && r1.release == "1_93D"
-            && slurp(dir / "nextpi.img") == std::string(disk_a.begin(), disk_a.end())
-            && slurp(dir / "boot" / "kernel.img") == "kernel image a"
-            && slurp(dir / "boot" / "bcm2708-rpi-zero.dtb") == "device tree a"
-            && nextpi::prepared_release(dir.string()) == "1_93D"
-            && !fs::exists(dir / "NextPi-1_93D.tar.gz");
-        const std::size_t fetched_first = mirror.fetched.size();
-        const nextpi::ProvisionResult r2 = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
-        const bool second_quiet = r2.status == sdcard::ProvisionStatus::Ok && confirms == 1
-                                && mirror.fetched.size() == fetched_first;
-        check("PI-12",
-              "first use of NextPi asks once, downloads the default release with "
-              "its MD5, installs the image and the two boot files from its FAT32 "
-              "partition and deletes the archive; the next run asks nothing and "
-              "fetches nothing",
-              fixture && installed && fetched_first == 2 && second_quiet,
-              fmt("fixture=%d installed=%d (%s) fetched=%zu (want 2) second_quiet=%d confirms=%d",
-                  fixture ? 1 : 0, installed ? 1 : 0, r1.error.c_str(), fetched_first,
-                  second_quiet ? 1 : 0, confirms));
-    }
-
-    // ── PI-13 — the refusals: declining downloads nothing and installs nothing;
-    // an archive whose MD5 does not match is deleted and nothing is installed.
-    {
-        FakeMirror mirror("refuse");
-        const bool fixture = mirror.add_release("1_93D", disk_a);
-        const fs::path dir_no = mirror.dir / "declined";
-        int confirms = 0;
-        const nextpi::ProvisionResult declined =
-            nextpi::provision(nextpi_options(mirror, dir_no.string(), "", confirms, false));
-        const bool declined_ok = declined.status == sdcard::ProvisionStatus::Declined
-                               && mirror.fetched.empty() && nextpi::prepared_release(dir_no.string()).empty();
-
-        std::ofstream(mirror.dir / "NextPi-1_93D.tar.gz.md5") << "00000000000000000000000000000000\n";
-        const fs::path dir_bad = mirror.dir / "corrupt";
-        const nextpi::ProvisionResult corrupt =
-            nextpi::provision(nextpi_options(mirror, dir_bad.string(), "", confirms));
-        const bool corrupt_ok = corrupt.status == sdcard::ProvisionStatus::Failed
-                              && corrupt.error.find("MD5") != std::string::npos
-                              && !fs::exists(dir_bad / "NextPi-1_93D.tar.gz")
-                              && nextpi::prepared_release(dir_bad.string()).empty();
-        check("PI-13",
-              "declining the NextPi download fetches and installs nothing; a download "
-              "whose MD5 does not match is deleted and nothing is installed",
-              fixture && declined_ok && corrupt_ok,
-              fmt("fixture=%d declined=%d corrupt=%d ('%s')", fixture ? 1 : 0,
-                  declined_ok ? 1 : 0, corrupt_ok ? 1 : 0, corrupt.error.c_str()));
-    }
-
-    // ── PI-14 — CHANGING RELEASE, and "latest". A directory holding another
-    // release is replaced after asking, and its overlay (made over the old
-    // image) discarded. "latest" picks the newest listed release; with the
-    // mirror unreachable it keeps the installed one, with a warning, asking
-    // nothing.
-    {
-        FakeMirror mirror("change");
-        const bool fixture = mirror.add_release("1_93D", disk_a) && mirror.add_release("1_100", disk_b);
-        const fs::path dir = mirror.dir / "nextpi";
-        int confirms = 0;
-        const nextpi::ProvisionResult r1 = nextpi::provision(nextpi_options(mirror, dir.string(), "1_93D", confirms));
-        std::ofstream(dir / "overlay.qcow2") << "old overlay";
-        const nextpi::ProvisionResult r2 = nextpi::provision(nextpi_options(mirror, dir.string(), "latest", confirms));
-        const bool upgraded = r1.status == sdcard::ProvisionStatus::Ok
-            && r2.status == sdcard::ProvisionStatus::Ok && r2.release == "1_100" && confirms == 2
-            && slurp(dir / "boot" / "kernel.img") == "kernel image b" && !fs::exists(dir / "overlay.qcow2");
-        mirror.offline = true;
-        const nextpi::ProvisionResult r3 = nextpi::provision(nextpi_options(mirror, dir.string(), "latest", confirms));
-        const bool offline_kept = r3.status == sdcard::ProvisionStatus::Ok && r3.release == "1_100"
-                                && !r3.warning.empty() && confirms == 2;
-        check("PI-14",
-              "the NextPi provisioner replaces a directory holding another release after asking, "
-              "discarding its overlay; \"latest\" installs the newest listed release, and "
-              "with the mirror unreachable keeps the installed one with a warning",
-              fixture && upgraded && offline_kept,
-              fmt("fixture=%d upgraded=%d (%s / %s, confirms=%d) offline_kept=%d ('%s')",
-                  fixture ? 1 : 0, upgraded ? 1 : 0, r1.error.c_str(), r2.release.c_str(),
-                  confirms, offline_kept ? 1 : 0, r3.warning.c_str()));
-    }
-}
-
 static void test_nextpi_review_rows() {
     set_group("PI");
     namespace fs = std::filesystem;
@@ -1136,22 +999,6 @@ static void test_nextpi_review_rows() {
               fmt("before=[%s] during=[%s] (want empty) not_read=%d heard=[%s] (want E1 E2) after=[%s]",
                   bytes_hex(live_before).c_str(), bytes_hex(during).c_str(), not_read ? 1 : 0,
                   bytes_hex(heard).c_str(), bytes_hex(live_after).c_str()));
-    }
-
-    // ── PI-16 — the warm-start recording machine (Emulator::warm_start_boot_config)
-    // must not open the NextPi FIFOs: a second reader would steal the Pi's bytes.
-    {
-        EmulatorConfig live;
-        live.type            = MachineType::ZXN_ISSUE2;
-        live.sd_card_image   = "card.img";
-        live.pi_uart_fifo_rx = "/tmp/x/uart.out";
-        live.pi_uart_fifo_tx = "/tmp/x/uart.in";
-        const EmulatorConfig b = Emulator::warm_start_boot_config(live);
-        check("PI-16",
-              "the warm-start recording boot gets no NextPi link (both FIFO paths cleared); the "
-              "machine itself is kept",
-              b.pi_uart_fifo_rx.empty() && b.pi_uart_fifo_tx.empty() && b.sd_card_image == "card.img",
-              fmt("rx='%s' tx='%s'", b.pi_uart_fifo_rx.c_str(), b.pi_uart_fifo_tx.c_str()));
     }
 
     // ── PI-17 — SIGKILL ESCALATION: a QEMU that ignores SIGTERM is killed —
@@ -1275,150 +1122,6 @@ static void test_nextpi_review_rows() {
                   held ? 1 : 0, stopped ? 1 : 0));
     }
 
-    // ── PI-21 — the free-space check: with less free space than unpacking needs,
-    // the download is refused before anything is fetched.
-    {
-        FakeMirror mirror("space");
-        const bool fixture = mirror.add_release("1_93D", fake_nextpi_disk("k", "d"));
-        int confirms = 0;
-        nextpi::ProvisionOptions o = nextpi_options(mirror, (mirror.dir / "np").string(), "", confirms);
-        o.space_needed = std::numeric_limits<uint64_t>::max();
-        const nextpi::ProvisionResult r = nextpi::provision(o);
-        check("PI-21",
-              "NextPi is not downloaded when the directory lacks the free space unpacking needs: "
-              "refused with the amounts, nothing fetched",
-              fixture && r.status == sdcard::ProvisionStatus::Failed &&
-                  r.error.find("free") != std::string::npos && mirror.fetched.empty(),
-              fmt("status=%d error='%s' fetched=%zu", static_cast<int>(r.status), r.error.c_str(),
-                  mirror.fetched.size()));
-    }
-
-    // ── PI-22 — long names: a GNU 'L' record, and a POSIX ustar prefix, each
-    // supply the directory part a suffix match needs (neither short name has it).
-    {
-        FakeMirror mirror("names");
-        const std::string data = "image bytes";
-        std::string gnu = tar_entry("././@LongLink", "NextPi-T/very/deep/name.img", 'L');
-        gnu += tar_entry("short-name", data);
-        std::string ustar_hdr = tar_header("x.img", data.size(), '0');
-        std::memcpy(&ustar_hdr[257], "ustar\0" "00", 8);           // POSIX, not GNU
-        std::memcpy(&ustar_hdr[345], "NextPi-T/dir", 12);         // the prefix field
-        std::memset(&ustar_hdr[148], ' ', 8);
-        unsigned sum = 0;
-        for (unsigned char c : ustar_hdr) sum += c;
-        std::snprintf(&ustar_hdr[148], 8, "%06o", sum);
-        std::string ustar = ustar_hdr + data;
-        ustar.resize((ustar.size() + 511) / 512 * 512, '\0');
-        const fs::path a_gnu = mirror.dir / "gnu.tar.gz", a_ustar = mirror.dir / "ustar.tar.gz";
-        const fs::path out = mirror.dir / "out";
-        std::string e1, e2;
-        const bool ok_gnu = write_tar_gz(a_gnu.string(), gnu) &&
-            nextpi::extract_tar_gz_entry(a_gnu.string(), "deep/name.img", out.string(), {}, e1) &&
-            slurp(out) == data;
-        const bool ok_ustar = write_tar_gz(a_ustar.string(), ustar) &&
-            nextpi::extract_tar_gz_entry(a_ustar.string(), "dir/x.img", out.string(), {}, e2) &&
-            slurp(out) == data;
-        check("PI-22",
-              "the NextPi archive reader takes an entry's full name from a GNU long-name record "
-              "and from a POSIX ustar prefix",
-              ok_gnu && ok_ustar, fmt("gnu=%d (%s) ustar=%d (%s)", ok_gnu ? 1 : 0, e1.c_str(),
-                                      ok_ustar ? 1 : 0, e2.c_str()));
-    }
-
-    // ── PI-23 — A MALFORMED ARCHIVE IS AN ERROR, NOT A CRASH. Each bound has
-    // its own case, and each case must fail with THAT bound's message: a
-    // long-name record claiming ~2^64 bytes and an entry of 2^40+1 hit the
-    // entry-size bound, an `x` header of 2^40 the metadata bound, and a pax
-    // `size=` record of 2^40+1 the pax size bound. No exception escapes. (The
-    // fixture's tag must not contain any of the words searched for: it is in
-    // every archive path, so in every message.)
-    {
-        FakeMirror mirror("bounds");
-        const fs::path out = mirror.dir / "out";
-        auto try_one = [&](const char* name, const std::string& body, const char* want,
-                           std::string& why) {
-            const fs::path a = mirror.dir / name;
-            if (!write_tar_gz(a.string(), body)) { why = "fixture"; return false; }
-            try {
-                return !nextpi::extract_tar_gz_entry(a.string(), ".img", out.string(), {}, why) &&
-                       why.find(want) != std::string::npos;
-            } catch (const std::exception& ex) {
-                why = std::string("threw ") + ex.what();
-                return false;
-            }
-        };
-        std::string huge_l = tar_header("././@LongLink", 0, 'L');
-        huge_l[124] = static_cast<char>(0x80);
-        for (int i = 125; i < 136; ++i) huge_l[i] = static_cast<char>(0xFF);
-        huge_l[135] = static_cast<char>(0x00);
-        std::string big_x = tar_header("PaxHeaders/x", 1ull << 40, 'x', true);
-        std::string big_file = tar_header("big.img", (1ull << 40) + 1, '0', true);
-        std::string pax_size = tar_entry("PaxHeaders/big.img", pax_record("size", "1099511627777"), 'x') +
-                               tar_entry("big.img", "");
-        std::string w1, w2, w3, w4;
-        const bool l_ok = try_one("l.tar.gz", huge_l, "an entry claims", w1);
-        const bool x_ok = try_one("x.tar.gz", big_x, "name/metadata record", w2);
-        const bool f_ok = try_one("f.tar.gz", big_file, "an entry claims", w3);
-        const bool p_ok = try_one("p.tar.gz", pax_size, "a pax size of", w4);
-        check("PI-23",
-              "a NextPi archive with an absurd long-name, pax header, entry or pax size= record "
-              "fails with that bound's \"malformed\" message instead of throwing (no crash after a "
-              "6 GB download)",
-              l_ok && x_ok && f_ok && p_ok,
-              fmt("L: %d (%s) x: %d (%s) entry: %d (%s) pax size: %d (%s)", l_ok ? 1 : 0, w1.c_str(),
-                  x_ok ? 1 : 0, w2.c_str(), f_ok ? 1 : 0, w3.c_str(), p_ok ? 1 : 0, w4.c_str()));
-    }
-
-    // ── PI-24 — a FAILED UPGRADE KEEPS THE OLD RELEASE. 1_93D is installed;
-    // "latest" finds 1_100 whose archive (with a valid MD5) has no image: the
-    // upgrade fails, and 1_93D is still prepared, marker and files intact.
-    {
-        FakeMirror mirror("keep");
-        const bool fixture = mirror.add_release("1_93D", fake_nextpi_disk("kernel old", "dtb old"));
-        const fs::path broken = mirror.dir / "NextPi-1_100.tar.gz";
-        const bool broken_ok = write_tar_gz(broken.string(), tar_entry("NextPi-1_100/readme.txt", "no image"));
-        std::ofstream(broken.string() + ".md5") << nextpi::md5_file(broken.string()) << "\n";
-        mirror.listing += "<a href=\"NextPi-1_100.tar.gz\">x</a>\n";
-        const fs::path dir = mirror.dir / "np";
-        int confirms = 0;
-        const nextpi::ProvisionResult r1 = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
-        const nextpi::ProvisionResult r2 = nextpi::provision(nextpi_options(mirror, dir.string(), "latest", confirms));
-        const bool kept = r1.status == sdcard::ProvisionStatus::Ok && r2.status == sdcard::ProvisionStatus::Failed &&
-                          nextpi::prepared_release(dir.string()) == "1_93D" &&
-                          slurp(dir / "boot" / "kernel.img") == "kernel old" &&
-                          !fs::exists(dir / "nextpi.img.part") && !fs::exists(dir / "boot.part");
-        check("PI-24",
-              "a NextPi upgrade that fails while unpacking leaves the installed release prepared "
-              "and intact, with no partial files",
-              fixture && broken_ok && kept,
-              fmt("fixture=%d r1=%d r2=%d ('%s') prepared='%s'", fixture && broken_ok ? 1 : 0,
-                  static_cast<int>(r1.status), static_cast<int>(r2.status), r2.error.c_str(),
-                  nextpi::prepared_release(dir.string()).c_str()));
-    }
-
-    // ── PI-25 — the release name from Preferences goes into a file name and a
-    // URL, so anything but a mirror-style name is refused before either.
-    {
-        FakeMirror mirror("names-check");
-        int confirms = 0;
-        bool all_refused = true;
-        std::string detail;
-        for (const char* bad : {"../escape", "a/b", "a b", ".hidden", "x?y=1"}) {
-            const nextpi::ProvisionResult r =
-                nextpi::provision(nextpi_options(mirror, (mirror.dir / "np").string(), bad, confirms));
-            if (r.status != sdcard::ProvisionStatus::Failed || r.error.find("release name") == std::string::npos)
-                all_refused = false;
-            detail += std::string(bad) + "->" + std::to_string(static_cast<int>(r.status)) + " ";
-        }
-        const bool good = nextpi::valid_release_name("1_93D") && nextpi::valid_release_name("2.0-beta");
-        check("PI-25",
-              "a NextPi release name with a path separator, space, leading dot or URL syntax is "
-              "refused before anything is asked or fetched; real names pass",
-              all_refused && good && confirms == 0 && mirror.fetched.empty(),
-              fmt("%sconfirms=%d fetched=%zu good=%d", detail.c_str(), confirms, mirror.fetched.size(),
-                  good ? 1 : 0));
-    }
-
     // ── PI-26 — a FAILED START CLEANS UP what it made: the overlay it created
     // is removed (it would otherwise be reused, half-made), qemu.log is kept
     // because the error points at it.
@@ -1441,105 +1144,11 @@ static void test_nextpi_review_rows() {
                   overlay_gone ? 1 : 0, log_kept ? 1 : 0));
     }
 
-    // ── PI-27 — THE START POLICY (main.cpp, through nextpi::start_outcome):
-    // running is running; declining starts jnext without NextPi either way; a
-    // failure is an error only when --nextpi asked for it, and from Preferences
-    // a warning that lets jnext start.
-    {
-        using nextpi::StartOutcome;
-        const auto Ok = sdcard::ProvisionStatus::Ok, No = sdcard::ProvisionStatus::Declined,
-                   Bad = sdcard::ProvisionStatus::Failed;
-        const bool table =
-            nextpi::start_outcome(true, Ok, true) == StartOutcome::Started &&
-            nextpi::start_outcome(false, Ok, true) == StartOutcome::Started &&
-            nextpi::start_outcome(true, No, false) == StartOutcome::Declined &&
-            nextpi::start_outcome(false, No, false) == StartOutcome::Declined &&
-            nextpi::start_outcome(true, Bad, false) == StartOutcome::Exit &&
-            nextpi::start_outcome(true, Ok, false) == StartOutcome::Exit &&
-            nextpi::start_outcome(false, Bad, false) == StartOutcome::WarnAndContinue &&
-            nextpi::start_outcome(false, Ok, false) == StartOutcome::WarnAndContinue;
-        check("PI-27",
-              "NextPi's start policy: a failure exits only when --nextpi asked for it (from "
-              "Preferences it warns and continues); declining continues either way",
-              table, "");
-    }
 }
 
 static void test_nextpi_review2_rows() {
     set_group("PI");
     namespace fs = std::filesystem;
-
-    // ── PI-28 — THE INSTALL IS CRASH-SAFE (R2-3). The `release` marker is what
-    // makes a directory "prepared", so it is removed BEFORE anything is
-    // replaced and written LAST, through release.part and a rename. Two
-    // installs are made to fail part-way, with obstacles that stop root too:
-    //   a. the image cannot be put in place (a directory holds its name): the
-    //      old marker must already be gone;
-    //   b. the marker cannot be written (a directory holds release.part): the
-    //      new release is in place, but the directory must not claim it.
-    // Either way the next start re-provisions instead of booting a mixture.
-    {
-        FakeMirror mirror("swap");
-        const bool fixture = mirror.add_release("1_93D", fake_nextpi_disk("k", "d"));
-        int confirms = 0;
-
-        const fs::path dir_a = mirror.dir / "a";
-        std::error_code ec;
-        fs::create_directories(dir_a / "nextpi.img" / "in-the-way", ec);
-        std::ofstream(dir_a / "release") << "1_92\n";
-        const nextpi::ProvisionResult ra = nextpi::provision(nextpi_options(mirror, dir_a.string(), "", confirms));
-        const bool a_ok = ra.status == sdcard::ProvisionStatus::Failed &&
-                          ra.error.find("cannot install") != std::string::npos &&
-                          !fs::exists(dir_a / "release");
-
-        const fs::path dir_b = mirror.dir / "b";
-        fs::create_directories(dir_b / "release.part" / "in-the-way", ec);
-        const nextpi::ProvisionResult rb = nextpi::provision(nextpi_options(mirror, dir_b.string(), "", confirms));
-        const bool b_ok = rb.status == sdcard::ProvisionStatus::Failed &&
-                          fs::is_regular_file(dir_b / "nextpi.img") && !fs::exists(dir_b / "release") &&
-                          nextpi::prepared_release(dir_b.string()).empty();
-        check("PI-28",
-              "a NextPi install that fails part-way leaves no release marker: it is removed before "
-              "the image is replaced and written last through release.part, so the directory is "
-              "never taken as prepared",
-              fixture && a_ok && b_ok,
-              fmt("fixture=%d a=%d ('%s', marker %s) b=%d ('%s', marker %s)", fixture ? 1 : 0,
-                  a_ok ? 1 : 0, ra.error.c_str(), fs::exists(dir_a / "release") ? "kept" : "gone",
-                  b_ok ? 1 : 0, rb.error.c_str(), fs::exists(dir_b / "release") ? "written" : "absent"));
-    }
-
-    // ── PI-29 — NAMES FROM THE MIRROR ARE CHECKED (R2-4). For "latest" the
-    // release name comes from the mirror's listing, not from the user, and the
-    // listing is the only place it is checked: a leading dot or dash, or more
-    // than 64 characters, is not a release. The 65-digit name would win
-    // "latest" numerically, so the provisioner must never fetch it.
-    {
-        const std::string long_name(65, '9');
-        const std::string html = "<a href=\"NextPi-.hidden.tar.gz\">x</a> <a href=\"NextPi--rf.tar.gz\">x</a> "
-                                 "<a href=\"NextPi-" + long_name + ".tar.gz\">x</a> "
-                                 "<a href=\"NextPi-1_93D.tar.gz\">x</a>";
-        const std::vector<std::string> names = nextpi::parse_release_listing(html);
-        const bool listed_ok = names == std::vector<std::string>({"1_93D"});
-
-        FakeMirror mirror("listing");
-        const bool fixture = mirror.add_release("1_93D", fake_nextpi_disk("k", "d"));
-        mirror.listing += "<a href=\"NextPi-" + long_name + ".tar.gz\">x</a>\n";
-        int confirms = 0;
-        const fs::path dir = mirror.dir / "np";
-        const nextpi::ProvisionResult r = nextpi::provision(nextpi_options(mirror, dir.string(), "latest", confirms));
-        bool fetched_bad = false;
-        for (const std::string& u : mirror.fetched)
-            if (u.find(long_name) != std::string::npos) fetched_bad = true;
-        std::string joined;
-        for (const std::string& n : names) joined += n + " ";
-        check("PI-29",
-              "release names from the mirror's listing are checked like typed ones: a leading dot "
-              "or dash or a 65-character name is not listed, and \"latest\" never fetches one",
-              fixture && listed_ok && r.status == sdcard::ProvisionStatus::Ok && r.release == "1_93D" &&
-                  !fetched_bad,
-              fmt("listed [%s] (want 1_93D) latest=%s status=%d fetched_bad=%d", joined.c_str(),
-                  r.release.c_str(), static_cast<int>(r.status), fetched_bad ? 1 : 0));
-    }
 
     // ── PI-30 — NO TEMPORARY DIRECTORY (R2-6). With $TMPDIR naming no
     // directory, start() fails with an error that says so — it used to throw
@@ -1573,124 +1182,6 @@ static void test_nextpi_review2_rows() {
               fmt("refused=%d threw=%d error='%s'", refused ? 1 : 0, threw ? 1 : 0, error.c_str()));
     }
 
-    // ── PI-31 — A PAX RECORD CANNOT REACH OUTSIDE ITS HEADER (R2-8). Its length
-    // is checked against what is left; 2^64-1 used to wrap `pos + len` and be
-    // taken. Such a header is malformed, whatever the records after it say.
-    {
-        FakeMirror mirror("paxlen");
-        const fs::path a = mirror.dir / "wrap.tar.gz", out = mirror.dir / "out";
-        const std::string body = tar_entry("PaxHeaders/x", "18446744073709551615 path=EVIL.img\n", 'x') +
-                                 tar_entry("data.bin", "payload");
-        std::string why;
-        bool refused = false;
-        try {
-            refused = write_tar_gz(a.string(), body) &&
-                      !nextpi::extract_tar_gz_entry(a.string(), ".img", out.string(), {}, why) &&
-                      why.find("pax record overruns") != std::string::npos;
-        } catch (const std::exception& ex) {
-            why = std::string("threw ") + ex.what();
-        }
-        check("PI-31",
-              "a pax record whose length runs past its header (18446744073709551615) makes the "
-              "archive malformed instead of wrapping and renaming the next entry",
-              refused, fmt("error='%s'", why.c_str()));
-    }
-
-    // ── PI-39..42 — EACH WELL-FORMEDNESS CHECK OF THE PAX PARSER (R3-2). A pax
-    // record is "<len> <key>=<value>\n", <len> counting the whole record. Each
-    // archive below breaks exactly one rule, after a valid first record, and
-    // must be refused as malformed; with that one check gone it would be read.
-    {
-        FakeMirror mirror("paxshape");
-        const fs::path out = mirror.dir / "out";
-        // `pad_newline_at` puts a '\n' at that offset of the header's data
-        // block, in the zero padding past its end.
-        auto refused = [&](const char* name, const std::string& records, std::string& why,
-                           std::size_t pad_newline_at = 0) {
-            const fs::path a = mirror.dir / name;
-            std::string x = tar_entry("PaxHeaders/x", records, 'x');
-            if (pad_newline_at) x[512 + pad_newline_at] = '\n';
-            const std::string body = x + tar_entry("data.bin", "payload");
-            try {
-                return write_tar_gz(a.string(), body) &&
-                       !nextpi::extract_tar_gz_entry(a.string(), ".img", out.string(), {}, why) &&
-                       why.find("pax record overruns") != std::string::npos;
-            } catch (const std::exception& ex) {
-                why = std::string("threw ") + ex.what();
-                return false;
-            }
-        };
-        const std::string valid = pax_record("comment", "ok");
-
-        // PI-39 — a record claiming more than what is left of the header: 99
-        // bytes, and 2^64-1 (which wrapped `pos + len` in the original code).
-        // The wrapped case is also refused by the space rule: a wrapped end
-        // lies before `pos`, and so before the record's own space. And one
-        // claiming 30 whose 30th byte, in the padding past the header, is a
-        // '\n': only the length check stands between it and being read.
-        std::string w1, w2, w6;
-        const bool short_ok = refused("long.tar.gz", valid + "99 path=EVIL.img\n", w1);
-        const bool wrap_ok  = refused("wrap.tar.gz", valid + "18446744073709551615 path=EVIL.img\n", w2);
-        const bool pad_ok   = refused("pad.tar.gz", valid + "30 path=EVIL.img\n", w6, valid.size() + 29);
-        check("PI-39",
-              "a pax record after a valid one that claims more than is left of the header (99, "
-              "2^64-1, or 30 with a '\\n' in the padding where it would end) makes the archive "
-              "malformed",
-              short_ok && wrap_ok && pad_ok,
-              fmt("99: %d (%s) 2^64-1: %d (%s) padded: %d (%s)", short_ok ? 1 : 0, w1.c_str(),
-                  wrap_ok ? 1 : 0, w2.c_str(), pad_ok ? 1 : 0, w6.c_str()));
-
-        // PI-40 — the right length, but the record does not end on '\n'.
-        std::string w3;
-        const bool nl_ok = refused("nl.tar.gz", valid + "19 path=NextPi.imgX", w3);
-        check("PI-40", "a pax record that does not end on '\\n' makes the archive malformed", nl_ok,
-              fmt("error='%s'", w3.c_str()));
-
-        // PI-41 — the length ends before the record's first space: "3\n\n" is
-        // three bytes ending on '\n', and the space found is the next record's.
-        std::string w4;
-        const bool sp_ok = refused("space.tar.gz", valid + "3\n\n" + pax_record("path", "x.img"), w4);
-        check("PI-41",
-              "a pax record whose length ends before its first space (the space found belongs to the "
-              "next record) makes the archive malformed",
-              sp_ok, fmt("error='%s'", w4.c_str()));
-
-        // PI-42 — no space at all in what is left.
-        std::string w5;
-        const bool nosp_ok = refused("nospace.tar.gz", valid + "4ab\n", w5);
-        check("PI-42", "a pax record with no space after its length makes the archive malformed", nosp_ok,
-              fmt("error='%s'", w5.c_str()));
-    }
-
-    // ── PI-43 — THE MARKER CANNOT BE REMOVED (R3-4). Removing `release` is the
-    // install's first step; when it fails (here a non-empty directory holds
-    // the name) the install stops there, before the image is put in place.
-    {
-        FakeMirror mirror("marker");
-        const bool fixture = mirror.add_release("1_93D", fake_nextpi_disk("k", "d"));
-        const fs::path dir = mirror.dir / "np";
-        std::error_code ec;
-        fs::create_directories(dir / "release" / "in-the-way", ec);
-        int confirms = 0;
-        const nextpi::ProvisionResult r = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
-        check("PI-43",
-              "a NextPi install whose release marker cannot be removed fails at once, before the "
-              "image is put in place",
-              fixture && r.status == sdcard::ProvisionStatus::Failed &&
-                  r.error.find("cannot install") != std::string::npos && !fs::exists(dir / "nextpi.img"),
-              fmt("status=%d error='%s' image %s", static_cast<int>(r.status), r.error.c_str(),
-                  fs::exists(dir / "nextpi.img") ? "installed" : "absent"));
-    }
-
-    // ── PI-44 — THE NAME LENGTH LIMIT, AT ITS BOUNDARY (R3-5): a release name
-    // of 64 characters is accepted, one of 65 refused.
-    {
-        const bool at_64 = nextpi::valid_release_name(std::string(64, 'a'));
-        const bool at_65 = nextpi::valid_release_name(std::string(65, 'a'));
-        check("PI-44", "a NextPi release name of 64 characters is valid and one of 65 is not",
-              at_64 && !at_65, fmt("64: %d 65: %d", at_64 ? 1 : 0, at_65 ? 1 : 0));
-    }
-
     // ── PI-32 — A FAILED START KEEPS THE USER'S OVERLAY (R2-9). Only an overlay
     // the failing start created is removed: one that was there before holds
     // everything NextPi saved, and must survive.
@@ -1710,23 +1201,6 @@ static void test_nextpi_review2_rows() {
               "NextPi state): only one the failing start created is removed",
               refused && slurp(overlay) == "NextPi's saved state",
               fmt("refused=%d overlay='%s'", refused ? 1 : 0, slurp(overlay).c_str()));
-    }
-
-    // ── PI-33 — THE CHILD ENVIRONMENT ITSELF (R2-10). PiQemu::child_environment
-    // drops every LANG and LC_ALL entry before adding its own, so the child
-    // gets each exactly once. (A shell in between, as PI-18 sees it, would
-    // hide a duplicate; qemu-img is spawned directly and would not.)
-    {
-        const char* env[] = {"PATH=/bin", "LANG=es_ES.UTF-8", "LC_ALL=es_ES.UTF-8", "LANGUAGE=es",
-                             "LC_ALL=fr_FR", nullptr};
-        const std::vector<std::string> got = PiQemu::child_environment(env);
-        const std::vector<std::string> want = {"PATH=/bin", "LANGUAGE=es", "LANG=C", "LC_ALL=C"};
-        std::string joined;
-        for (const std::string& v : got) joined += v + " ";
-        check("PI-33",
-              "a spawned NextPi child's environment is the parent's without any LANG or LC_ALL "
-              "entry, then LANG=C and LC_ALL=C, each exactly once (LANGUAGE is not LANG)",
-              got == want, fmt("got [%s]", joined.c_str()));
     }
 
     // ── PI-34 — THE WATCHDOG PASSES QEMU'S EXIT STATUS ON (R2-10). QEMU runs
@@ -2015,88 +1489,12 @@ static void test_nextpi_review2_rows() {
               ok, detail);
     }
 
-    // ── PI-38 — WHETHER TO START NEXTPI (R2-5), main.cpp's decision through
-    // nextpi::start_request. The command line wins either way; without it a
-    // GUI session follows Preferences and a headless one starts nothing.
-    // Only --nextpi makes a failure an error (asked_on_cli; PI-27).
-    {
-        using nextpi::start_request;
-        auto is = [](nextpi::StartRequest r, bool wanted, bool asked) {
-            return r.wanted == wanted && r.asked_on_cli == asked;
-        };
-        const bool table =
-            is(start_request(true, true, true, false), true, true) &&     // GUI --nextpi, pref off
-            is(start_request(true, true, false, true), false, false) &&   // GUI --no-nextpi, pref on
-            is(start_request(true, false, false, true), true, false) &&   // GUI, pref on
-            is(start_request(true, false, false, false), false, false) && // GUI, pref off
-            is(start_request(false, true, true, false), true, true) &&    // headless --nextpi
-            is(start_request(false, false, false, true), false, false) && // headless: no Preferences
-            is(start_request(false, true, false, true), false, false);    // headless --no-nextpi
-        check("PI-38",
-              "whether NextPi starts: --nextpi and --no-nextpi win, otherwise a GUI session follows "
-              "the [nextpi] preference and a headless one starts nothing; only --nextpi makes a "
-              "failure an error",
-              table, "");
-    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
 // NextPi's sound into the Next's mixer (PiAudio → I2s), end to end
 // ══════════════════════════════════════════════════════════════════════
 
-namespace {
-
-/// A WAV file as QEMU's wav back-end writes it (44-byte header, s16 stereo,
-/// 44.1 kHz) holding `frames` frames of a square wave flipping every `half`
-/// frames: left +amp/-amp and right -r_amp/+r_amp. A right amplitude different
-/// from the left one lets a row tell the two channels apart.
-void write_tone(const std::string& path, int frames, int16_t amp, int half, int16_t r_amp) {
-    std::ofstream f(path, std::ios::binary);
-    auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) f.put(static_cast<char>(v >> (8 * i))); };
-    auto u16 = [&](uint16_t v) { f.put(static_cast<char>(v)); f.put(static_cast<char>(v >> 8)); };
-    f.write("RIFF", 4); u32(0); f.write("WAVEfmt ", 8); u32(16); u16(1); u16(2);
-    u32(44100); u32(44100 * 4); u16(4); u16(16); f.write("data", 4); u32(0);
-    for (int i = 0; i < frames; ++i) {
-        const bool low = (i / half) % 2;
-        u16(static_cast<uint16_t>(low ? static_cast<int16_t>(-amp) : amp));
-        u16(static_cast<uint16_t>(low ? r_amp : static_cast<int16_t>(-r_amp)));
-    }
-}
-
-/// The mixer's output over some frames: how many samples, and each channel's
-/// lowest and highest value.
-struct MixerLevels {
-    int n = 0;
-    int lo_l = 32767, hi_l = -32768, lo_r = 32767, hi_r = -32768;
-};
-
-/// Run `frames` frames with NR 0xA2 held at `a2` and return the levels of the
-/// mixer's output over them.
-MixerLevels mixer_levels(Emulator& emu, uint8_t a2, int frames) {
-    MixerLevels m;
-    std::vector<int16_t> buf(2 * 4096);
-    for (int f = 0; f < frames; ++f) {
-        emu.nextreg().write(0xA2, a2);
-        emu.run_frame();
-        int n;
-        while ((n = emu.mixer().read_samples(buf.data(), 4096)) > 0) {
-            m.n += n;
-            for (int i = 0; i < n; ++i) {
-                m.lo_l = std::min<int>(m.lo_l, buf[2 * i]);     m.hi_l = std::max<int>(m.hi_l, buf[2 * i]);
-                m.lo_r = std::min<int>(m.lo_r, buf[2 * i + 1]); m.hi_r = std::max<int>(m.hi_r, buf[2 * i + 1]);
-            }
-        }
-    }
-    return m;
-}
-
-/// The left and right peak-to-peak of the mixer's output (see mixer_levels).
-std::pair<int, int> mixer_swing(Emulator& emu, uint8_t a2, int frames) {
-    const MixerLevels m = mixer_levels(emu, a2, frames);
-    return {m.hi_l - m.lo_l, m.hi_r - m.lo_r};
-}
-
-} // namespace
 
 static void test_nextpi_audio() {
     set_group("PI");
@@ -2852,7 +2250,6 @@ int main() {
 
     test_pi_uart_link();
     test_pi_qemu();
-    test_nextpi_provisioner();
     test_nextpi_review_rows();
     test_nextpi_review2_rows();
     test_nextpi_audio();

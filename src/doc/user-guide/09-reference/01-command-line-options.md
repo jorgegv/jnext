@@ -354,10 +354,7 @@ with status 1.
     download is not — jnext then starts without the Pi. On Linux and
     macOS the link is a pair of FIFOs; on Windows (QEMU for Windows, its
     folder on `PATH` or set in Preferences) it is a loopback TCP socket
-    QEMU listens on. On Windows an empty Pi audio setting plays the Pi’s
-    sound on the host speakers (QEMU’s `dsound`, the same as `host`);
-    sending it through the Next’s mixer (NR 0xA2, the volume controls)
-    is not there yet.
+    QEMU listens on.
 
 **--no-nextpi**
 :   Do not start NextPi this run, overriding a saved preference that

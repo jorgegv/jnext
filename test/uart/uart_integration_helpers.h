@@ -318,17 +318,9 @@ std::string waited(const Drained& d) {
 // side through the real `--joy-uart-rx` config field, file and all.
 // ══════════════════════════════════════════════════════════════════════
 
-namespace {
+#include "nextpi_fixtures.h"
 
-// A tag unique to this process: concurrent runs share the temp directory, and a
-// fixed name lets one run replace or delete another's file (or FIFO).
-std::string pid_tag() {
-#ifdef _WIN32
-    return std::to_string(::_getpid());
-#else
-    return std::to_string(::getpid());
-#endif
-}
+namespace {
 
 // A `--joy-uart-rx` stream on disk, removed when the row's scope ends. Real
 // file I/O rather than a test-only injection hook, so the row covers
@@ -798,194 +790,6 @@ bool contains(const std::vector<std::string>& v, const std::string& a, const std
 
 
 // ══════════════════════════════════════════════════════════════════════
-// The NextPi directory, prepared on first use (nextpi_provisioner)
-// ══════════════════════════════════════════════════════════════════════
-//
-// Offline: the "mirror" is a temporary directory and the download seam copies
-// from it, as sdcard_provisioner's tests do. The archive is built here — a
-// gzip-compressed tar in GNU format whose image entry is a tiny MBR disk with a
-// hand-made FAT32 boot partition holding kernel.img and a long-named
-// bcm2708-rpi-zero.dtb — so the whole real code path runs: checksum, tar
-// stream, base-256 / pax sizes and names, the FAT32 reader, the install swap.
-
-namespace {
-
-void put16(std::vector<uint8_t>& b, std::size_t at, uint16_t v) {
-    b[at] = static_cast<uint8_t>(v); b[at + 1] = static_cast<uint8_t>(v >> 8);
-}
-void put32(std::vector<uint8_t>& b, std::size_t at, uint32_t v) {
-    for (int i = 0; i < 4; ++i) b[at + i] = static_cast<uint8_t>(v >> (8 * i));
-}
-
-/// A 64-sector disk: MBR, one FAT32 (type 0x0C) partition at LBA 8 with one
-/// sector per cluster, kernel.img (8.3) and bcm2708-rpi-zero.dtb (VFAT long
-/// name) in its root directory. Small files only (one cluster each).
-std::vector<uint8_t> fake_nextpi_disk(const std::string& kernel, const std::string& dtb) {
-    std::vector<uint8_t> d(64 * 512, 0);
-    const std::size_t part = 8 * 512;
-    d[0x1BE + 4] = 0x0C;                 // FAT32 LBA
-    put32(d, 0x1BE + 8, 8);              // first sector
-    put32(d, 0x1BE + 12, 56);            // size
-    d[510] = 0x55; d[511] = 0xAA;
-    put16(d, part + 11, 512);            // bytes per sector
-    d[part + 13] = 1;                    // sectors per cluster
-    put16(d, part + 14, 1);              // reserved sectors
-    d[part + 16] = 1;                    // FATs
-    put32(d, part + 32, 56);             // total sectors
-    put32(d, part + 36, 1);              // sectors per FAT
-    put32(d, part + 44, 2);              // root cluster
-    std::memcpy(&d[part + 82], "FAT32   ", 8);
-    d[part + 510] = 0x55; d[part + 511] = 0xAA;
-    const std::size_t fat = part + 512;  // LBA 9
-    put32(d, fat + 0, 0x0FFFFFF8);
-    put32(d, fat + 4, 0x0FFFFFFF);
-    for (int cl = 2; cl <= 4; ++cl) put32(d, fat + 4 * cl, 0x0FFFFFFF);   // root, kernel, dtb
-    const auto cluster = [&](int cl) { return static_cast<std::size_t>((10 + cl - 2) * 512); };
-
-    std::size_t e = cluster(2);
-    auto sfn = [&](const char* name11, int cl, std::size_t size) {
-        std::memcpy(&d[e], name11, 11);
-        d[e + 11] = 0x20;
-        put16(d, e + 26, static_cast<uint16_t>(cl));
-        put32(d, e + 28, static_cast<uint32_t>(size));
-        e += 32;
-    };
-    sfn("KERNEL  IMG", 3, kernel.size());
-    // "bcm2708-rpi-zero.dtb" = 20 chars: two LFN slots, highest first.
-    const std::string lfn = "bcm2708-rpi-zero.dtb";
-    for (int slot = 2; slot >= 1; --slot) {
-        d[e] = static_cast<uint8_t>(slot | (slot == 2 ? 0x40 : 0));
-        d[e + 11] = 0x0F;
-        static const int offs[13] = {1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30};
-        for (int k = 0; k < 13; ++k) {
-            const std::size_t idx = static_cast<std::size_t>((slot - 1) * 13 + k);
-            const uint16_t ch = idx < lfn.size() ? static_cast<uint8_t>(lfn[idx])
-                              : idx == lfn.size() ? 0x0000 : 0xFFFF;
-            put16(d, e + offs[k], ch);
-        }
-        e += 32;
-    }
-    sfn("BCM270~1DTB", 4, dtb.size());
-    std::memcpy(&d[cluster(3)], kernel.data(), kernel.size());
-    std::memcpy(&d[cluster(4)], dtb.data(), dtb.size());
-    return d;
-}
-
-/// A tar header: name, size, type. `base256` writes the size in GNU's
-/// base-256 form (how a >8 GB image, like NextPi's, is recorded).
-std::string tar_header(const std::string& name, uint64_t size, char type, bool base256 = false) {
-    std::string h(512, '\0');
-    std::memcpy(&h[0], name.data(), std::min<std::size_t>(name.size(), 100));
-    std::snprintf(&h[100], 8, "%07o", 0644);
-    if (base256) {
-        h[124] = static_cast<char>(0x80);
-        for (int i = 0; i < 8; ++i) h[135 - i] = static_cast<char>(size >> (8 * i));
-    } else {
-        std::snprintf(&h[124], 12, "%011llo", static_cast<unsigned long long>(size));
-    }
-    h[156] = type;
-    std::memcpy(&h[257], "ustar  ", 8);                      // GNU magic, like NextPi's
-    std::memset(&h[148], ' ', 8);
-    unsigned sum = 0;
-    for (unsigned char c : h) sum += c;
-    std::snprintf(&h[148], 8, "%06o", sum);
-    return h;
-}
-std::string tar_entry(const std::string& name, const std::string& data, char type = '0',
-                      bool base256 = false) {
-    std::string out = tar_header(name, data.size(), type, base256) + data;
-    out.resize((out.size() + 511) / 512 * 512, '\0');
-    return out;
-}
-std::string pax_record(const std::string& key, const std::string& value) {
-    const std::string body = " " + key + "=" + value + "\n";
-    std::size_t len = body.size() + 1;
-    while (std::to_string(len).size() + body.size() != len) ++len;
-    return std::to_string(len) + body;
-}
-
-/// NextPi-<release>.tar.gz as the mirror serves it: a directory, an md5 file,
-/// a pax-named and base-256-sized image, written with zlib.
-bool write_fake_release(const std::string& path, const std::string& release,
-                        const std::vector<uint8_t>& disk) {
-    const std::string top = "NextPi-" + release + "/";
-    std::string tar = tar_entry(top, "", '5');
-    tar += tar_entry(top + "NextPi2-test.img.md5", "0123 x\n");
-    tar += tar_entry(top + "PaxHeaders/img", pax_record("path", top + "NextPi2-test.img"), 'x');
-    tar += tar_entry("ignored-short-name", std::string(disk.begin(), disk.end()), '0', true);
-    tar += std::string(1024, '\0');
-    gzFile gz = gzopen(path.c_str(), "wb");
-    if (!gz) return false;
-    const bool ok = gzwrite(gz, tar.data(), static_cast<unsigned>(tar.size())) == static_cast<int>(tar.size());
-    return gzclose(gz) == Z_OK && ok;
-}
-
-/// A mirror directory plus a download seam that serves from it (and the
-/// listing page for "<mirror>/"), counting what it was asked for.
-struct FakeMirror {
-    std::filesystem::path dir;
-    std::string           listing;
-    std::vector<std::string> fetched;
-    bool                  offline = false;
-
-    explicit FakeMirror(const std::string& tag) {
-        dir = std::filesystem::temp_directory_path() / ("jnext-nextpi-mirror-" + tag + "-" + pid_tag());
-        std::error_code ec;
-        std::filesystem::remove_all(dir, ec);
-        std::filesystem::create_directories(dir, ec);
-    }
-    ~FakeMirror() { std::error_code ec; std::filesystem::remove_all(dir, ec); }
-
-    std::string url() const { return "https://mirror.test/NextPi2"; }
-
-    bool add_release(const std::string& release, const std::vector<uint8_t>& disk) {
-        const std::string archive = (dir / ("NextPi-" + release + ".tar.gz")).string();
-        if (!write_fake_release(archive, release, disk)) return false;
-        std::ofstream(archive + ".md5") << "MD5 (NextPi-" << release << ".tar.gz) = "
-                                        << nextpi::md5_file(archive) << "\n";
-        listing += "<a href=\"NextPi-" + release + ".tar.gz\">NextPi-" + release + ".tar.gz</a>\n"
-                   "<a href=\"NextPi-" + release + ".tar.gz.md5\">md5</a>\n";
-        return true;
-    }
-
-    sdcard::DownloadFn download() {
-        return [this](const std::string& u, const std::string& dest, const sdcard::ProgressFn& progress,
-                      std::string& err) {
-            fetched.push_back(u);
-            if (offline) { err = "Could not resolve hostname"; return false; }
-            if (u == url() + "/") { std::ofstream(dest) << listing; return true; }
-            const std::string name = u.substr(u.find_last_of('/') + 1);
-            std::error_code ec;
-            std::filesystem::copy_file(dir / name, dest,
-                                       std::filesystem::copy_options::overwrite_existing, ec);
-            if (ec) { err = "HTTP status 404"; return false; }
-            if (progress) progress(1, 1);
-            return true;
-        };
-    }
-};
-
-std::string slurp(const std::filesystem::path& p) {
-    std::ifstream f(p, std::ios::binary);
-    return std::string(std::istreambuf_iterator<char>(f), {});
-}
-
-nextpi::ProvisionOptions nextpi_options(FakeMirror& mirror, const std::string& dir,
-                                        const std::string& release, int& confirms, bool answer = true) {
-    nextpi::ProvisionOptions o;
-    o.dir          = dir;
-    o.release      = release;
-    o.mirror       = mirror.url();
-    o.download     = mirror.download();
-    o.confirm      = [&confirms, answer](const std::string&) { ++confirms; return answer; };
-    o.space_needed = 0;
-    return o;
-}
-
-} // namespace
-
-
-// ══════════════════════════════════════════════════════════════════════
 // NextPi — behaviours the first review found untested (PR #310)
 // ══════════════════════════════════════════════════════════════════════
 
@@ -1000,14 +804,6 @@ bool gone_within(int pid, int ms) {
     return false;
 }
 
-/// A tar.gz of `entries` (already-built tar blocks) plus the end marker.
-bool write_tar_gz(const std::string& path, const std::string& tar_body) {
-    const std::string tar = tar_body + std::string(1024, '\0');
-    gzFile gz = gzopen(path.c_str(), "wb");
-    if (!gz) return false;
-    const bool ok = gzwrite(gz, tar.data(), static_cast<unsigned>(tar.size())) == static_cast<int>(tar.size());
-    return gzclose(gz) == Z_OK && ok;
-}
 
 } // namespace
 

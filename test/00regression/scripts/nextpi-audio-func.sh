@@ -7,10 +7,13 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 
 # NextPi's SOUND (--nextpi), through the real binary. Split out of nextpi-func,
-# whose four start-policy facts run on every OS: these three need a /bin/sh
-# stand-in QEMU and the path that brings the Pi's sound into the Next's mixer
-# (a FIFO), and Windows has neither yet (os=linux,macos in functional_tests.conf;
-# GH #331 is the Windows mixer path).
+# whose four start-policy facts need no stand-in QEMU: these three do, and the
+# path that brings the Pi's sound into the Next's mixer (a FIFO; on Windows a
+# named pipe, GH #331). On POSIX the stand-in is a /bin/sh script; on Windows
+# (a run under wine) it is the C++ stand-in test/uart/nextpi_qemu_stub.cpp, a PE
+# copied as qemu-system-arm.exe, as nextpi-link-func does. Its `tone.loop` is
+# the same 44-byte header and tone the shell script writes into the audio path,
+# and the assertions are the same on every OS.
 #
 # THREE FACTS:
 #   1. The Pi's sound reaches jnext's own output: with a stand-in QEMU on PATH
@@ -27,10 +30,30 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      sets NR 0xA2 = 0xC3 and polls port 0xFE sees bit 6 toggle with a Pi
 #      square wave, as a tape loader does when NextPi streams a tape.
 # Fact 2 runs the GUI on Qt's offscreen platform.
+# Windows arms (a run under wine): the PE stand-in replaces a directory's shell
+# script. `win_standin DIR [loop]` copies it in as qemu-system-arm.exe (and
+# qemu-img.exe); with `loop`, DIR's header.bin + tone.pcm become its tone.loop.
+win=false
+stub=""
+wp=()
+if [[ "${JNEXT_TARGET_OS:-linux}" == windows ]]; then
+    win=true
+    stub="$TEST_BIN_DIR/../../win-sdl-unit-test/test/nextpi_qemu_stub.exe"
+fi
+win_standin() {
+    rm -f "$1/qemu-system-arm"
+    cp "$stub" "$1/qemu-system-arm.exe"
+    cp "$stub" "$1/qemu-img.exe"
+    if [[ -n "${2:-}" ]]; then cat "$1/header.bin" "$1/tone.pcm" >"$1/tone.loop"; fi
+}
+
 if want nextpi-audio-func; then
     begin_func nextpi-audio-func
 
     fails=()
+    if $win && [[ ! -x "$stub" ]]; then
+        fails+=("$stub missing — run 'make unit-test-win-build'")
+    fi
     np="$JNEXT_CONFIG_DIR/nextpi"
 
     # Fact 1 — the Pi's sound in jnext's own output. A ready directory with its
@@ -75,11 +98,12 @@ exec 3<>"$base.in" 4<>"$base.out"
 exec cat <&3 >/dev/null
 STANDIN
     chmod +x "$stand_in/qemu-system-arm"
+    if $win; then win_standin "$stand_in" loop; wp=(JNEXT_EXTRA_WINEPATH="$stand_in"); fi
     printf '\355\221\242\300\030\376' >"$TMP_DIR/nextpi-a2.bin"
     wav="$TMP_DIR/nextpi-audio.wav"
     rc=0
     out=$(timeout --foreground --kill-after=5s 60s \
-        env PATH="$stand_in:$PATH" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" --machine 48k \
+        env "${wp[@]}" PATH="$stand_in:$PATH" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" --machine 48k \
         --nextpi --inject "$TMP_DIR/nextpi-a2.bin" --wav-record "$wav" \
         --delayed-automatic-exit-frames 1500 </dev/null 2>&1) || rc=$?
     [[ $rc -eq 0 ]] || fails+=("--nextpi with a stand-in QEMU and --wav-record exited $rc, want 0")
@@ -127,10 +151,12 @@ exec 3<>"$base.in" 4<>"$base.out"
 exec cat <&3 >/dev/null
 STANDIN
     chmod +x "$args_bin/qemu-system-arm"
+    wp=()
+    if $win; then win_standin "$args_bin"; wp=(JNEXT_EXTRA_WINEPATH="$args_bin"); fi
     rc=0
     out=$(QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy \
         timeout --foreground --kill-after=5s 60s \
-        env PATH="$args_bin:$PATH" "$JNEXT" "${SD_CARD_ARGS[@]}" \
+        env "${wp[@]}" PATH="$args_bin:$PATH" "$JNEXT" "${SD_CARD_ARGS[@]}" \
         --delayed-automatic-exit 3 </dev/null 2>&1) || rc=$?
     [[ $rc -eq 0 ]] || fails+=("a GUI session with the Pi's audio saved as 'none' exited $rc, want 0")
     qemu_args=""
@@ -166,12 +192,18 @@ STANDIN
     : >"$ear_bin/tone.pcm"
     for _ in $(seq 20); do printf '\000\140\000\140' >>"$ear_bin/tone.pcm"; done   # +24576 both
     for _ in $(seq 20); do printf '\000\240\000\240' >>"$ear_bin/tone.pcm"; done   # -24576 both
-    cp "$stand_in/qemu-system-arm" "$ear_bin/qemu-system-arm"   # fact 1's, reading its own dir
+    wp=()
+    if $win; then
+        win_standin "$ear_bin" loop
+        wp=(JNEXT_EXTRA_WINEPATH="$ear_bin")
+    else
+        cp "$stand_in/qemu-system-arm" "$ear_bin/qemu-system-arm"   # fact 1's, reading its own dir
+    fi
     printf '\355\221\242\303\041\000\000\021\140\352\016\000\076\377\333\376\346\100\271\050\002\117\043\033\172\263\040\360\001\064\022\076\245\355\171\355\141\355\151\030\376' \
         >"$TMP_DIR/nextpi-ear.bin"
     rc=0
     out=$(timeout --foreground --kill-after=5s 60s \
-        env PATH="$ear_bin:$PATH" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" --machine 48k \
+        env "${wp[@]}" PATH="$ear_bin:$PATH" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" --machine 48k \
         --nextpi --inject "$TMP_DIR/nextpi-ear.bin" --magic-port 0x1234 --magic-port-mode dec \
         --delayed-automatic-exit-frames 150 </dev/null 2>&1) || rc=$?
     [[ $rc -eq 0 ]] || fails+=("the NR 0xA2 bit 0 EAR run exited $rc, want 0")

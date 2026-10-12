@@ -419,15 +419,10 @@ QWidget* PreferencesDialog::build_nextpi_tab() {
                                    QStringLiteral("alsa"), QStringLiteral("sdl"),
                                    QStringLiteral("dsound")});
     nextpi_audio_combo_->lineEdit()->setPlaceholderText(
-#ifdef _WIN32
-        tr("this computer's default output (dsound)"));   // no mixer path here yet (GH #331)
-#else
         tr("the Next's mixer (default); \"host\": this computer's default output"));
-#endif
     nextpi_audio_combo_->setToolTip(
         tr("Where the Pi's sound goes. Empty: into the Next's mixer, as on the "
-           "real machine — NextREG 0xA2 controls it, and recordings include it "
-           "(on Windows, empty plays it on this computer's default output instead). "
+           "real machine — NextREG 0xA2 controls it, and recordings include it. "
            "\"host\": straight to this computer's default output. "
            "Or a QEMU audio driver to play it straight to this computer, "
            "\"none\" to mute it, or wav:FILE to record it on its own."));

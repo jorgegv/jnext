@@ -261,8 +261,10 @@ add_test(NAME uart_integration_tests COMMAND uart_integration_test)
 
 # The rows of the integration suite that need POSIX (GH #214; `# os: posix` in
 # unit-tests.conf): the joystick-port cable over FIFOs and a pty (JOY-15..22)
-# and the NextPi link / QEMU launcher (PI-*), none of which Windows has. They
-# moved out of uart_integration_test unchanged; the scaffolding is shared
+# and the NextPi rows that need the FIFO transport, a /bin/sh stand-in QEMU, fork()
+# or signals (PI-*; the provisioner, archive-reader and pure-policy PI rows run on
+# every OS in nextpi_test since GH #331). They moved out of uart_integration_test
+# unchanged; the scaffolding is shared
 # through uart/uart_integration_includes.h + uart_integration_helpers.h.
 if(NOT WIN32)
     add_executable(uart_posix_test uart/uart_posix_test.cpp)
