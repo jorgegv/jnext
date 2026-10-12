@@ -119,18 +119,6 @@ bool SzxLoader::parse_spcr(const uint8_t* data, uint32_t size)
     return true;
 }
 
-bool SzxLoader::parse_scld(const uint8_t* data, uint32_t size)
-{
-    // libspectrum szx.c:1347-1362: exactly 2 bytes, chF4 (HSR) then chFF (DEC).
-    if (size != 2) {
-        Log::emulator()->error("SZX: SCLD chunk has {} bytes (expected 2)", size);
-        return false;
-    }
-    scld_dec_  = data[1];
-    have_scld_ = true;
-    return true;
-}
-
 bool SzxLoader::parse_ay(const uint8_t* data, uint32_t size)
 {
     // libspectrum szx.c:471-497: exactly 18 bytes - flags, the selected
@@ -220,7 +208,6 @@ bool SzxLoader::load_from_buffer(const std::vector<uint8_t>& buf, const std::str
     loaded_ = false;
     have_z80r_ = false;
     have_spcr_ = false;
-    have_scld_ = false;
     have_ay_   = false;
     ram_pages_.clear();
 
@@ -267,7 +254,13 @@ bool SzxLoader::load_from_buffer(const std::vector<uint8_t>& buf, const std::str
         } else if (std::memcmp(chunk_id, "RAMP", 4) == 0) {
             if (!parse_ramp(chunk_data, chunk_size)) return false;
         } else if (std::memcmp(chunk_id, "SCLD", 4) == 0) {
-            if (!parse_scld(chunk_data, chunk_size)) return false;
+            // DELIBERATELY IGNORED (GH #323). The chunk holds the Timex port 0xFF (and 0xF4)
+            // registers. Every machine a snapshot can switch to (48K, 128K, +3, Pentagon) boots
+            // with port 0xFF DISABLED (NR 0x82 bit 0 = 0, tbblue boot.c), and port_ff_reg is
+            // written only through `port_ff_wr <= iowr and port_ff and port_ff_io_en`
+            // (zxnext.vhd:2714, :3615), so on that hardware the state cannot exist or take
+            // effect: restoring it would put the ULA in a mode the machine cannot reach.
+            Log::emulator()->debug("SZX: SCLD chunk ignored (port 0xFF is off on this machine)");
         } else if (std::memcmp(chunk_id, "AY\0\0", 4) == 0) {
             if (!parse_ay(chunk_data, chunk_size)) return false;
         } else {
@@ -339,12 +332,6 @@ bool SzxLoader::apply(Emulator& emu) const
             emu.port().out(0x7FFD, spcr_.port_7ffd);
             Log::emulator()->debug("SZX: port 7FFD = {:#04x}", spcr_.port_7ffd);
         }
-    }
-
-    // Timex port 0xFF (the SCLD chunk); chF4 (HSR) is not modelled by the Next.
-    if (have_scld_) {
-        emu.port().out(0x00FF, scld_dec_);
-        Log::emulator()->debug("SZX: port FF = {:#04x}", scld_dec_);
     }
 
     // The sound chip, on the 128K-class machines.

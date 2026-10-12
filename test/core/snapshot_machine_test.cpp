@@ -4,7 +4,7 @@
 //   * libspectrum 1.5.0, how a snapshot says which machine it holds:
 //     sna.c:80-88 (size), szx.c:41-58 + :2613-2680 (machine ID), z80.c:270-285
 //     (header lengths), :320-352 (modify-hardware flag), :405-565 (hardware
-//     modes), and szx.c:471-497 (AY chunk), :1347-1362 (SCLD chunk);
+//     modes), and szx.c:471-497 (AY chunk);
 //   * the .z80 format description for bytes 36-38 (IF1 ROM paged, AY), 39-54
 //     (AY registers), 59-60 (MGT / Multiface paged) and 86 (port 0x1FFD);
 //   * the VHDL: zxnext.vhd:3718 (port 0x7FFD lock bit closes 0x1FFD),
@@ -134,7 +134,6 @@ struct SzxOpts {
     uint8_t p7ffd = 0, p1ffd = 0;
     bool    spcr = true;
     std::vector<int> pages;       // RAM bank numbers; first byte = 0x40+bank
-    bool    scld = false; uint8_t scld_hsr = 0, scld_dec = 0;
     bool    ay = false;  uint8_t ay_sel = 0; uint8_t ay_regs[16] = {};
 };
 
@@ -156,7 +155,6 @@ Bytes szx_bytes(uint8_t id, const SzxOpts& o = {}) {
         r.insert(r.end(), page.begin(), page.end());
         chunk(f, "RAMP", r);
     }
-    if (o.scld) chunk(f, "SCLD", {o.scld_hsr, o.scld_dec});
     if (o.ay) {
         Bytes a = {0x00, o.ay_sel};
         a.insert(a.end(), o.ay_regs, o.ay_regs + 16);
@@ -546,18 +544,6 @@ int main() {
         check("SNM-28", ".z80 +3, header 55: byte 86 reaches port 0x1FFD before the 0x7FFD lock; with "
                         "header 54 there is no 1FFD in the file and it stays 0; a 128K file's byte 86 is "
                         "not written to 0x1FFD", a_ok && b_ok && c_ok);
-    }
-
-    {   // SNM-29
-        SzxOpts with; with.scld = true; with.scld_hsr = 0; with.scld_dec = 0x06;
-        auto e = make_emu(MachineType::ZX48K);
-        const bool a = e->load_szx(write_file("scld.szx", szx_bytes(1, with)));
-        const uint8_t got = e->port_ff_reg();
-        auto e2 = make_emu(MachineType::ZX48K);
-        const bool b = e2->load_szx(write_file("noscld.szx", szx_bytes(1)));
-        check("SNM-29", ".szx SCLD chunk (DEC = 0x06, Timex hi-res) reaches port 0xFF; without the chunk "
-                        "port 0xFF stays 0 (ports.txt:90-100)",
-              a && b && got == 0x06 && e2->port_ff_reg() == 0x00, "ff=" + std::to_string(got));
     }
 
     {   // SNM-30

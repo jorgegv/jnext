@@ -92,9 +92,9 @@ What the loaders restore on the switched-to machine: the `.z80` +3 port `0x1FFD`
 (byte 86; written BEFORE `0x7FFD`, because the `0x7FFD` lock bit closes `0x1FFD`,
 `zxnext.vhd:3718`, and the `.szx` does the same), the AY registers of the 128K,
 +3 and Pentagon (`.z80` bytes 38-54, the `.szx` `AY` chunk, through the AY
-ports, `Emulator::restore_ay_registers()`), the `.szx` `SCLD` chunk's port `0xFF`,
-and NTSC 48K (`.szx` ID 15) as the 48K with NR `0x05` bit 2 (60 Hz). The tests are
-`snapshot_machine_test` (SNM-01..33), the QS-25..27/SNM-40..41 rows of
+ports, `Emulator::restore_ay_registers()`), and NTSC 48K (`.szx` ID 15) as the 48K with NR `0x05` bit 2 (60 Hz).
+The `.szx` `SCLD` chunk (Timex port `0xFF`) is deliberately ignored: every machine a snapshot switches to boots with port `0xFF` off (`zxnext.vhd:2714`), so that state cannot exist there. The tests are
+`snapshot_machine_test` (SNM-01..33, SNM-29 withdrawn), the QS-25..27/SNM-40..41 rows of
 `emulator_boot_test`, PA-24 and the `snapshot-machine-func` regression row.
 
 ## Tapes: two completely different mechanisms

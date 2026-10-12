@@ -1056,8 +1056,7 @@ format is detected from the extension:
 
 `.szx`
 :   Chunked snapshots, zlib-compressed pages. Runs on the machine its header
-    names: 48K, 128K, +3 or Pentagon 128. Restores the AY registers and the
-    Timex port 0xFF.
+    names: 48K, 128K, +3 or Pentagon 128. Restores the AY registers.
 
 `.z80`
 :   v1/v2/v3, 48K and 128K, RLE-compressed or raw pages. Runs on the machine its
