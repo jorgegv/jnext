@@ -729,6 +729,33 @@ static void g_pi_audio() {
                       static_cast<unsigned long long>(wakeups)));
         }
 
+        // MX-53 — NO PAUSE AFTER A POLL THAT ALREADY WAITED: on a FIFO that
+        // has never had a writer, poll() times out (20 ms) and the read then
+        // finds no writer. That timeout already paced the loop, so the reader
+        // takes no further 20 ms pause. Oracles: Linux fs/pipe.c pipe_poll
+        // reports EPOLLHUP only once a writer has come and gone since this
+        // open; XNU bsd/vfs/vfs_vnops.c filt_vnode_common makes a FIFO
+        // readable only when FIONREAD != 0 (so macOS never reports a gone
+        // writer either). A second wait there would be on the timer macOS may
+        // stretch by tens of ms (GH #354). Counts a mechanism, not wall-clock
+        // time. jnext-only, no VHDL counterpart.
+        {
+            const std::string fifo = (dir / "mx53.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            for (int i = 0; opened && i < 200 && a.eof_reads() < 5; ++i) ::usleep(10000);
+            const uint64_t eofs = a.eof_reads();
+            const uint64_t pauses = a.no_writer_pauses();
+            check("MX-53", "with no writer ever connected, poll() times out and the reads that "
+                  "find no writer take no pause: the timeout already waited (jnext-only, no VHDL "
+                  "counterpart)",
+                  opened && eofs >= 5 && pauses == 0,
+                  fmt("opened=%d eof reads=%llu (want >= 5) pauses=%llu (want 0)",
+                      opened ? 1 : 0, static_cast<unsigned long long>(eofs),
+                      static_cast<unsigned long long>(pauses)));
+        }
+
         // MX-38 — A LIVE WRITER'S PAUSE IS NOT AN END: QEMU writes nothing while
         // the Pi is silent, so the reader's non-blocking read gets EAGAIN with
         // the writer still there. That must not reset the stream: a frame split

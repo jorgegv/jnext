@@ -137,11 +137,11 @@ void PiAudio::run() {
         // only the non-blocking read's EOF (0, versus EAGAIN while a writer is
         // still there) tells the stream ended, so the next one's header is
         // skipped and a half frame of the old one is not glued to it.
-        // With no writer the timeout is 20 ms: a poll() that began before a
-        // new writer connected is not always woken by its data (a macOS CI
-        // runner took the pause plus a whole 100 ms timeout to deliver a
-        // reconnecting writer's first frame), and 20 ms bounds that wait.
-        if (::poll(&p, 1, no_writer ? 20 : 100) < 0) continue;
+        // With no writer the timeout is 20 ms. On macOS that timeout alone
+        // paces the loop (poll() never reports a gone writer, see below), and
+        // it bounds how long a reconnecting writer's first frame can wait.
+        const int ready = ::poll(&p, 1, no_writer ? 20 : 100);
+        if (ready < 0) continue;
         const ssize_t n = ::read(fd_, buf.data(), buf.size());
         if (n == 0 || (n < 0 && errno != EAGAIN && errno != EINTR)) {
             // No writer: QEMU has not opened its end yet, or closed it. The
@@ -150,7 +150,19 @@ void PiAudio::run() {
             carry.clear();
             no_writer = true;
             eof_reads_.fetch_add(1, std::memory_order_relaxed);
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            // Pause only if poll() returned at once. That is Linux reporting
+            // POLLHUP for a gone writer (or an error): without the pause the
+            // loop would spin a core. After a timeout (ready == 0) poll()
+            // already waited, and macOS never reports a FIFO whose writer has
+            // gone (XNU bsd/vfs/vfs_vnops.c filt_vnode_common: readable only
+            // when FIONREAD != 0), so there it would be a second wait on the
+            // one timer macOS may stretch (nanosleep: user urgency, QoS
+            // leeway of up to ~100 ms; poll's timeout: system urgency, <= 1 ms).
+            // That is consistent with the CI runner's 3-6 wakeups per 600 ms.
+            if (ready > 0) {
+                no_writer_pauses_.fetch_add(1, std::memory_order_relaxed);
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
             continue;
         }
         if (n > 0 || errno == EAGAIN) no_writer = false;   // a writer is there
