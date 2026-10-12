@@ -192,9 +192,13 @@ STANDIN
     : >"$ear_bin/tone.pcm"
     for _ in $(seq 20); do printf '\000\140\000\140' >>"$ear_bin/tone.pcm"; done   # +24576 both
     for _ in $(seq 20); do printf '\000\240\000\240' >>"$ear_bin/tone.pcm"; done   # -24576 both
-    cp "$stand_in/qemu-system-arm" "$ear_bin/qemu-system-arm"   # fact 1's, reading its own dir
     wp=()
-    if $win; then win_standin "$ear_bin" loop; wp=(JNEXT_EXTRA_WINEPATH="$ear_bin"); fi
+    if $win; then
+        win_standin "$ear_bin" loop
+        wp=(JNEXT_EXTRA_WINEPATH="$ear_bin")
+    else
+        cp "$stand_in/qemu-system-arm" "$ear_bin/qemu-system-arm"   # fact 1's, reading its own dir
+    fi
     printf '\355\221\242\303\041\000\000\021\140\352\016\000\076\377\333\376\346\100\271\050\002\117\043\033\172\263\040\360\001\064\022\076\245\355\171\355\141\355\151\030\376' \
         >"$TMP_DIR/nextpi-ear.bin"
     rc=0
