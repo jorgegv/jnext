@@ -330,6 +330,126 @@ static void g_pi_audio() {
                       static_cast<unsigned long long>(received), exact ? 1 : 0, l));
         }
 
+        auto write_all_fd = [](int fd, const std::string& b) {
+            std::size_t off = 0;
+            while (fd >= 0 && off < b.size()) {
+                const ssize_t n = ::write(fd, b.data() + off, b.size() - off);
+                if (n <= 0) return false;
+                off += static_cast<std::size_t>(n);
+            }
+            return fd >= 0;
+        };
+
+        // MX-50 — THE PREBUFFER AFTER A FLUSH: MX-42 flushes a ring that was not
+        // playing yet. Here the reader IS playing (a prebuffer's worth arrived and
+        // one frame was popped) when the ring overflows during a pause; on resume
+        // the flush must also end the playing state, so 100 fresh frames, fewer
+        // than the 2205-frame prebuffer, are not played at once (pop returns
+        // silence), while 2205 of them are. jnext-only, no VHDL counterpart.
+        {
+            const std::string fifo = (dir / "mx50.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const bool w1 = write_all_fd(w, header() + frames_bytes(2300, 0));
+            wait_available(a, 2300);
+            int16_t l = 0, r = 0;
+            const bool playing = a.pop(l, r);                         // now playing
+            const bool w2 = write_all_fd(w, frames_bytes(140000, 0));   // a pause: the ring fills
+            for (int i = 0; i < 500 && a.frames_received() + a.frames_dropped() < 142300; ++i)
+                ::usleep(10000);
+            const bool flushed = !a.pop(l, r) && a.available() == 0;
+            const bool w3 = write_all_fd(w, frames_bytes(100, 30000));
+            wait_available(a, 100);
+            const bool silent_below = !a.pop(l, r) && a.available() == 100;   // still filling
+            const bool w4 = write_all_fd(w, frames_bytes(2105, 30100));
+            wait_available(a, 2205);
+            const bool fresh = a.pop(l, r) && l == 30000 && r == -30000;
+            if (w >= 0) ::close(w);
+            check("MX-50", "after the ring overflowed during a pause, the flush also ends playback: "
+                  "100 fresh frames (below the 2205-frame prebuffer) are not played, and the "
+                  "prebuffer's worth is, from its first frame (jnext-only, no VHDL counterpart)",
+                  opened && w1 && playing && w2 && flushed && w3 && silent_below && w4 && fresh,
+                  fmt("opened=%d writes=%d%d%d%d playing=%d flushed=%d silent_below=%d (available=%u, "
+                      "want 100) fresh=%d first L=%d (want 30000)", opened ? 1 : 0, w1 ? 1 : 0,
+                      w2 ? 1 : 0, w3 ? 1 : 0, w4 ? 1 : 0, playing ? 1 : 0, flushed ? 1 : 0,
+                      silent_below ? 1 : 0, a.available(), fresh ? 1 : 0, l));
+        }
+
+        // MX-51 — A HEADER SPLIT AT A READ BOUNDARY BETWEEN BYTES 12 AND 44:
+        // MX-43 splits B's header at byte 6 (too short to tell, the reader
+        // waits). Here the first read holds 20 bytes: enough to recognise
+        // RIFF...WAVE, not the whole header, so the other 24 bytes must still be
+        // skipped on the next read and not played as six frames of noise. Exactly
+        // 6000 frames arrive, exact. jnext-only, no VHDL counterpart.
+        {
+            const std::string fifo = (dir / "mx51.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            const int wa = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            const bool a_ok = write_all_fd(wa, header() + frames_bytes(3000, 0));
+            const int wb = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;   // before A closes
+            if (wa >= 0) ::close(wa);
+            const std::string b_stream = header() + frames_bytes(3000, 5000);
+            const bool b1 = write_all_fd(wb, b_stream.substr(0, 20));
+            ::usleep(150000);                                           // read on its own
+            const bool b_ok = b1 && write_all_fd(wb, b_stream.substr(20));
+            const uint32_t got = wait_available(a, 6000);
+            ::usleep(100000);                                           // anything extra would have landed too
+            const uint64_t received = a.frames_received();
+            int16_t l = 0, r = 0;
+            bool exact = got == 6000 && received == 6000;
+            for (int i = 0; exact && i < 6000; ++i) {
+                const int want = i < 3000 ? i : 5000 + (i - 3000);
+                exact = a.pop(l, r) && l == want && r == -want;
+            }
+            if (wb >= 0) ::close(wb);
+            check("MX-51", "a second stream's WAV header split between its 12th and 44th byte across "
+                  "two reads is still skipped whole: exactly 6000 frames arrive, exact (jnext-only, "
+                  "no VHDL counterpart)",
+                  opened && a_ok && b_ok && exact,
+                  fmt("opened=%d a=%d b=%d available=%u received=%llu (want 6000) exact=%d last L=%d",
+                      opened ? 1 : 0, a_ok ? 1 : 0, b_ok ? 1 : 0, got,
+                      static_cast<unsigned long long>(received), exact ? 1 : 0, l));
+        }
+
+        // MX-52 — AUDIO THAT SPELLS "RIFF" IS AUDIO: a frame whose bytes are
+        // "RIFF" at a frame boundary is a header only if "WAVE" follows at byte 8.
+        // Three frames, the first "RIFF", the third "NOTW" (not "WAVE"), then
+        // 3000 more: all 3003 frames arrive, exact. jnext-only, no VHDL counterpart.
+        {
+            const std::string fifo = (dir / "mx52.fifo").string();
+            PiAudio a;
+            std::string err;
+            const bool opened = a.open(fifo, err);
+            const int w = opened ? ::open(fifo.c_str(), O_WRONLY) : -1;
+            auto raw = [](const char* four) { return std::string(four, 4); };
+            const std::string stream = header() + raw("RIFF") + raw("abcd") + raw("NOTW") +
+                                       frames_bytes(3000, 100);
+            const bool wrote = write_all_fd(w, stream);
+            const uint32_t got = wait_available(a, 3003);
+            ::usleep(100000);
+            int16_t l = 0, r = 0;
+            auto le = [](char lo, char hi) {
+                return static_cast<int16_t>(static_cast<uint8_t>(lo) | (static_cast<uint8_t>(hi) << 8));
+            };
+            bool exact = got == 3003 && a.frames_received() == 3003;
+            exact = exact && a.pop(l, r) && l == le('R', 'I') && r == le('F', 'F');
+            exact = exact && a.pop(l, r) && l == le('a', 'b') && r == le('c', 'd');
+            exact = exact && a.pop(l, r) && l == le('N', 'O') && r == le('T', 'W');
+            for (int i = 0; exact && i < 3000; ++i) exact = a.pop(l, r) && l == 100 + i && r == -(100 + i);
+            if (w >= 0) ::close(w);
+            check("MX-52", "audio frames that spell RIFF at a frame boundary without WAVE at byte 8 "
+                  "are played as audio, not skipped as a header: all 3003 frames arrive, exact "
+                  "(jnext-only, no VHDL counterpart)",
+                  opened && wrote && exact,
+                  fmt("opened=%d wrote=%d available=%u received=%llu (want 3003) exact=%d",
+                      opened ? 1 : 0, wrote ? 1 : 0, got,
+                      static_cast<unsigned long long>(a.frames_received()), exact ? 1 : 0));
+        }
+
         // MX-44..46 — LATENCY. The reader must wake on data at once, give up
         // its thread promptly on close(), and resume promptly after a writer
         // goes. Each is timed against the steady clock with margins that hold

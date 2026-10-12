@@ -468,13 +468,14 @@ NextPi image is needed.
 | PIT-01..17 | `nextpi_test` (every OS): `md5_file`, the socket command line, the platform audio default, what an empty audio setting means per OS (PIT-16/17), the TCP endpoint (both directions, lazy connect, peer loss and reconnect), `link_config` and warm start, end to end with a stand-in QEMU, hard reset, refusals, force-kill, exit status, never orphaned, no inherited handles, child locale |
 | `nextpi-link-func` | the real binary attaches the launcher's link to UART 1 over the platform's transport and stops QEMU the orderly way |
 
-`test/audio/audio_posix_test.cpp` (POSIX-only: the rows use a real FIFO) adds **MX-41** (the stream retired MX-30 asked for; MX-30 itself stays retired, its ID not reused) and MX-31..40 for `PiAudio`
+`test/audio/audio_posix_test.cpp` (POSIX-only: the rows use a real FIFO) adds **MX-41** (the stream retired MX-30 asked for; MX-30 itself stays retired, its ID not reused) and MX-31..40 and MX-42..47 and MX-50..52 for `PiAudio`
 against a real FIFO: the stream frame for frame (header and frames split across
 writes), the 10-bit mapping, a frame's level in the mix and the received count;
 prebuffer and underrun (2205 frames, 50 ms); the latency trim (to 4410 frames,
 100 ms) and its edge (13230 frames, 300 ms, kept; 13231 trimmed); the ring full
-(131072 frames); a pause longer than the ring, flushed on resume; a writer reconnecting with a
-fresh header; the open errors and
+(131072 frames); a pause longer than the ring, flushed on resume, with the prebuffer
+again; a writer reconnecting with a fresh header, also one split at any read
+boundary; audio that spells `RIFF` without `WAVE`; the open errors and
 the FIFO's 0600 mode; the reader pausing, not spinning, while there is no
 writer; the latency of a write, of `close()` and of a reconnect, and an idle
 reader's CPU; a live writer's pause (EAGAIN) not ending the stream; one descriptor
@@ -546,8 +547,10 @@ latency MX-36, and trimming at `>=` fails MX-36; an off-by-one in the ring-full
 check, not counting its drops, or a different capacity fails MX-33; not
 flushing the ring after it overflowed fails MX-42; not resetting the
 header skip or the half-frame carry when the writer goes fails MX-34; not
-recognising a header in-stream, or taking a partial one for a frame, fails
-MX-43; polling for the wrong event fails MX-44 on Linux (latency) and MX-47
+recognising a header in-stream, or taking one split at byte 6 for a frame, fails
+MX-43, and ending the skip at the first read of a header split between bytes 12 and
+44 fails MX-51; keeping the playing state through a flush fails MX-50; dropping
+the `WAVE` check fails MX-52; polling for the wrong event fails MX-44 on Linux (latency) and MX-47
 on macOS (a spinning core); a 1000 ms poll timeout fails MX-45 (`close()`
 waits); a 200 ms no-writer pause fails MX-46 (reconnect latency); a FIFO
 made 0666, or a regular file accepted, fails MX-35; no pause after a read that
