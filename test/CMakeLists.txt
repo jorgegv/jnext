@@ -699,6 +699,17 @@ target_link_libraries(snapshot_im_test PRIVATE
 target_include_directories(snapshot_im_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME snapshot_im_tests COMMAND snapshot_im_test)
 
+# GH #323 — a .sna/.szx/.z80 loads on the machine it was saved on: the single
+# machine table, the loaders' in-place switch, and the +3 / AY / SCLD / NTSC
+# state they restore.
+add_executable(snapshot_machine_test core/snapshot_machine_test.cpp)
+target_link_libraries(snapshot_machine_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(snapshot_machine_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME snapshot_machine_tests COMMAND snapshot_machine_test)
+
 # CLI option table / man page alignment (issue #43). Header-only table under
 # test (src/core/cli_options.h) — no emulator core needed. The three paths are
 # baked in at configure time so the suite works from any working directory
