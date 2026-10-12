@@ -98,6 +98,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     quick_screenshot_fmt_combo_->setCurrentIndex(
         quick_screenshot_fmt_combo_->findData(
             static_cast<int>(current.quick_screenshot_format)));
+    quick_keep_spin_->setValue(current.quick_snapshot_keep);
 
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Apply, this);
@@ -414,10 +415,13 @@ QWidget* PreferencesDialog::build_nextpi_tab() {
     nextpi_audio_combo_->setEditable(true);
     nextpi_audio_combo_->addItems({QString(), QStringLiteral("none"), QStringLiteral("coreaudio"),
                                    QStringLiteral("pa"), QStringLiteral("pipewire"),
-                                   QStringLiteral("alsa"), QStringLiteral("sdl")});
+                                   QStringLiteral("alsa"), QStringLiteral("sdl"),
+                                   QStringLiteral("dsound")});
     nextpi_audio_combo_->lineEdit()->setPlaceholderText(
 #ifdef __APPLE__
         tr("coreaudio (default)"));
+#elif defined(_WIN32)
+        tr("dsound (default)"));
 #else
         tr("pa (default)"));
 #endif
@@ -490,6 +494,16 @@ QWidget* PreferencesDialog::build_paths_tab() {
     quick_screenshot_fmt_combo_->addItem(tr("SCR (ULA screen memory)"),
                                          static_cast<int>(ScreenshotFormat::Scr));
     form->addRow(tr("Quick screenshot format:"), quick_screenshot_fmt_combo_);
+
+    // GH #321 — how many Quick Save snapshots to keep in ~/.jnext/snapshots.
+    quick_keep_spin_ = new QSpinBox(tab);
+    quick_keep_spin_->setObjectName(QStringLiteral("quickKeepSpin"));
+    quick_keep_spin_->setRange(0, 1000000);
+    quick_keep_spin_->setSpecialValueText(tr("Unlimited"));
+    quick_keep_spin_->setToolTip(tr("Quick Save deletes the oldest quick snapshots (files named "
+                                    "jnext-<date>-<time>.jns) beyond this many. Other files in the "
+                                    "folder are never touched. --quick-snapshot-keep overrides this."));
+    form->addRow(tr("Quick snapshots to keep:"), quick_keep_spin_);
 
     auto* quick_note = new QLabel(
         tr("Quick Screenshot (Alt+K) writes jnext-<date>-<time> into that "
@@ -576,6 +590,7 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.quick_screenshot_dir = quick_screenshot_dir_edit_->text();
     cfg.quick_screenshot_format = static_cast<ScreenshotFormat>(
         quick_screenshot_fmt_combo_->currentData().toInt());
+    cfg.quick_snapshot_keep = quick_keep_spin_->value();
     return cfg;
 }
 

@@ -151,6 +151,11 @@ add_test(NAME esxdos_stub_tests COMMAND esxdos_stub_test)
 # POSIX-only (GH #214; `# os: posix` in unit-tests.conf): Windows -- and wine --
 # cannot create the symbolic-link fixtures they read.
 if(NOT WIN32)
+    # GH #321 — prune must not delete symlinks.
+    add_executable(quick_snapshot_posix_test core/quick_snapshot_posix_test.cpp)
+    target_link_libraries(quick_snapshot_posix_test PRIVATE jnext_core spdlog::spdlog)
+    target_include_directories(quick_snapshot_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME quick_snapshot_posix_tests COMMAND quick_snapshot_posix_test)
     add_executable(esxdos_symlink_test esxdos_stub/esxdos_symlink_test.cpp)
     target_link_libraries(esxdos_symlink_test PRIVATE jnext_core spdlog::spdlog)
     target_include_directories(esxdos_symlink_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -258,6 +263,25 @@ if(NOT WIN32)
     target_include_directories(uart_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME uart_posix_tests COMMAND uart_posix_test)
 endif()
+
+# NextPi under QEMU on every OS (GH #316; `# os: all` in unit-tests.conf): the
+# socket transport and the Windows launch, run natively on Linux and macOS and
+# under wine. The QEMU stand-in is a program (uart/nextpi_qemu_stub.cpp), copied
+# by the suite as `qemu-system-arm[.exe]` / `qemu-img[.exe]` (the ffmpeg_stub
+# idiom: CreateProcess runs an .exe and nothing else). Not an add_test() -- a
+# test-support binary.
+add_executable(nextpi_qemu_stub uart/nextpi_qemu_stub.cpp)
+target_link_libraries(nextpi_qemu_stub PRIVATE esp01)
+add_executable(nextpi_test uart/nextpi_test.cpp uart/nextpi_support.cpp)
+target_link_libraries(nextpi_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(nextpi_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_dependencies(nextpi_test nextpi_qemu_stub)
+target_compile_definitions(nextpi_test PRIVATE
+    JNEXT_NEXTPI_STUB="$<TARGET_FILE:nextpi_qemu_stub>")
+add_test(NAME nextpi_tests COMMAND nextpi_test)
 
 # The emulated ESP-01's own suites (esp_at_test, esp_socket_test) are NOT
 # declared here. They ship WITH the module and are registered from

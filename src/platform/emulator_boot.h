@@ -12,7 +12,13 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 
+#include "save/jns_container.h"
+#include "save/zip_archive.h"
+
 #include <cctype>
+#include <fstream>
+#include <iterator>
+#include <vector>
 #include <functional>
 #include <new>
 #include <optional>
@@ -33,12 +39,18 @@ inline bool emulator_apply_load(Emulator& emu, const std::string& file,
     }
     if (ext == ".tap") return emu.load_tap(file, !tape_realtime);
     if (ext == ".tzx") return emu.load_tzx(file, !tape_realtime);
-    if (ext == ".sna") return emu.load_sna(file);
-    if (ext == ".szx") return emu.load_szx(file);
-    if (ext == ".z80") return emu.load_z80(file);
+    // GH #321 — a snapshot restores machine state, but the keys the HOST held
+    // when it was taken (the Shift of the Alt+Shift+F5 chord) are not state to
+    // come back to: their host release is long gone, so they would stay stuck.
+    // After any snapshot load the guest starts with no key down; a key the
+    // user still holds is re-asserted by its next event, as after a cold boot.
+    auto snapshot = [&emu](bool ok) { if (ok) emu.keyboard().release_all_keys(); return ok; };
+    if (ext == ".sna") return snapshot(emu.load_sna(file));
+    if (ext == ".szx") return snapshot(emu.load_szx(file));
+    if (ext == ".z80") return snapshot(emu.load_z80(file));
     if (ext == ".wav") return emu.load_wav(file);
     if (ext == ".rzx") return emu.load_rzx(file);
-    if (ext == ".jns") return emu.load_jns_file(file);   // GH #27 S8
+    if (ext == ".jns") return snapshot(emu.load_jns_file(file));   // GH #27 S8
     return emu.load_nex(file);   // .nex + unknown extensions
 }
 
@@ -81,10 +93,44 @@ inline bool emulator_load_routes_to_rzx(const std::string& file) {
 /// an explicit --machine wins) and every cold boot (emulator_cold_boot()), the
 /// route of the GUI's File > Play RZX Recording and File > Load NEX File....
 inline MachineType emulator_boot_machine(const std::string& load_file, MachineType configured) {
+    if (jnext::is_jns_path(load_file)) {
+        // GH #321 — a `.jns` names its machine too. Boot that machine, so the
+        // frontend's keep_machine hook records it; load_jns would otherwise
+        // reconfigure behind the frontend's back and a later reset would boot
+        // the old machine. An unreadable manifest returns `configured`: the
+        // load refuses the file anyway.
+        std::ifstream f(load_file, std::ios::binary);
+        if (!f) return configured;
+        std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
+                                   std::istreambuf_iterator<char>());
+        jnext::zip::Reader zip;
+        std::string why, text;
+        jnext::jns::Manifest m;
+        std::vector<std::string> unknown;
+        MachineType want = configured;
+        if (zip.open(bytes.data(), bytes.size(), why) &&
+            zip.read_text(jnext::jns::kManifestMember, text, why) &&
+            jnext::jns::manifest_from_json(text, m, unknown, why) &&
+            parse_machine_type(m.model.machine, want))
+            return want;
+        return configured;
+    }
     if (!emulator_load_routes_to_rzx(load_file)) return configured;
     RzxRecording rec;
     MachineType  recorded = configured;
     if (rzx::parse(load_file, rec) && rzx::recorded_machine(rec, recorded)) return recorded;
+    return configured;
+}
+
+/// GH #321 — the machine the COMMAND-LINE startup boots. An explicit --machine
+/// wins over an RZX's recorded machine (load_rzx() warns), but never over a
+/// `.jns`'s: load_jns() always reconfigures to the snapshot's machine, so
+/// booting any other would leave the frontend naming a machine that is not
+/// running.
+inline MachineType emulator_startup_machine(const std::string& load_file,
+                                            MachineType configured, bool machine_explicit) {
+    if (jnext::is_jns_path(load_file) || !machine_explicit)
+        return emulator_boot_machine(load_file, configured);
     return configured;
 }
 

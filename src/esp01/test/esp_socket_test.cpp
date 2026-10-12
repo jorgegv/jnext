@@ -415,8 +415,8 @@ std::thread::id main_thread_id;
 /// than to the name the guest typed. Caps its own wait so a forgotten gate
 /// cannot wedge the suite.
 bool gated(const std::string&, std::vector<IpAddress>& out, std::string& err) {
-    entered.fetch_add(1);
     if (std::this_thread::get_id() != main_thread_id) off_thread.store(true);
+    entered.fetch_add(1);
     const bool opened = wait_until([] { return gate.load(); }, 5000);
     if (!opened) {
         err = "the gate was never opened";
@@ -2109,6 +2109,47 @@ int main() {
                   "lookup, not a success with nothing in it",
                   settled && r->state() == ResolveState::Failed); }
 
+        {   // GH #328. A worker started right after another one finished must
+            // still run. The pattern that lost threads on Windows: an
+            // instantly finishing resolver, then the next lookup begun as soon
+            // as the previous one has settled. `entered` proves each worker
+            // really ran the resolver, not merely that a state changed.
+            const int entered0 = fake_dns::entered.load();
+            int       settled_n = 0, failed_n = 0, stuck_at = -1;
+            for (int i = 0; i < 200; ++i) {
+                auto r = make_socket_resolver(loopback_ok(), fake_dns::empty_but_ok);
+                r->begin("instant.test");
+                if (!wait_until([&] { r->poll(); return r->state() != ResolveState::Resolving; },
+                                4000)) { stuck_at = i; break; }
+                ++settled_n;
+                if (r->state() == ResolveState::Failed) ++failed_n;
+            }
+            check("RSLV-13",
+                  "200 back-to-back lookups through an instant resolver all reach a verdict: "
+                  "a worker started right after another finished is never lost (GH #328)",
+                  settled_n == 200 && failed_n == 200 &&
+                      fake_dns::entered.load() - entered0 == 200,
+                  "settled=" + std::to_string(settled_n) + " failed=" + std::to_string(failed_n) +
+                      " stuck_at=" + std::to_string(stuck_at) + " entered=" +
+                      std::to_string(fake_dns::entered.load() - entered0)); }
+
+        {   // GH #328 (review F1): the Windows worker owns its body by hand
+            // (new std::function, freed by the trampoline). A finished worker
+            // must have released everything it captured, or every lookup leaks.
+            auto sentinel = std::make_shared<int>(0);
+            {
+                ResolveFn fn = [sentinel](const std::string&, std::vector<IpAddress>&,
+                                          std::string&) { return true; };
+                auto r = make_socket_resolver(loopback_ok(), fn);
+                r->begin("x.test");
+                wait_until([&] { r->poll(); return r->state() != ResolveState::Resolving; },
+                           4000);
+            }
+            check("RSLV-14",
+                  "a finished lookup worker has released what it captured (GH #328)",
+                  wait_until([&] { return sentinel.use_count() == 1; }, 2000),
+                  "use_count=" + std::to_string(sentinel.use_count())); }
+
         {   // THE LIFETIME PROPERTY, from this side. The gate is held SHUT, so
             // a lookup is provably parked in the resolver function when the
             // object is destroyed; destruction must not wait for it.
@@ -2247,6 +2288,24 @@ int main() {
                   settled && p->state() == PingState::Failed &&
                       p->last_error().find("IPv4") != std::string::npos);
         }
+        {
+            // GH #328: the same pattern as RSLV-13 for the ping worker. A
+            // denied literal needs no network and its worker finishes at once.
+            int ok_n = 0, stuck_at = -1;
+            for (int i = 0; i < 100; ++i) {
+                auto p = make_icmp_pinger(kDefault);
+                p->begin("127.0.0.1");
+                if (!wait_until([&] { p->poll(); return p->state() != PingState::Pinging; },
+                                4000)) { stuck_at = i; break; }
+                if (p->state() == PingState::Failed &&
+                    p->last_error().find("policy") != std::string::npos) ++ok_n;
+            }
+            check("PICMP-06",
+                  "100 back-to-back pings of a denied literal all FAIL on the policy: no "
+                  "worker is lost (GH #328)",
+                  ok_n == 100,
+                  "ok=" + std::to_string(ok_n) + " stuck_at=" + std::to_string(stuck_at));
+        }
     
     }
 
@@ -2279,6 +2338,23 @@ int main() {
         auto c = make_udp_sntp_client(kDefault);
         check("SNTPR-02", "an implausible server name is refused outright",
               !c->begin("a;rm -rf b") && !c->begin("") && c->state() == SntpState::Idle);
+    }
+    {
+        // GH #328: the same pattern as RSLV-13 for the SNTP worker.
+        int ok_n = 0, stuck_at = -1;
+        for (int i = 0; i < 100; ++i) {
+            auto c = make_udp_sntp_client(kDefault);
+            c->begin("127.0.0.1");
+            if (!wait_until([&] { c->poll(); return c->state() != SntpState::Querying; },
+                            4000)) { stuck_at = i; break; }
+            if (c->state() == SntpState::Failed &&
+                c->last_error().find("policy") != std::string::npos) ++ok_n;
+        }
+        check("SNTPR-03",
+              "100 back-to-back SNTP queries of a denied literal all FAIL on the policy: no "
+              "worker is lost (GH #328)",
+              ok_n == 100,
+              "ok=" + std::to_string(ok_n) + " stuck_at=" + std::to_string(stuck_at));
     }
 
     // ══ SNTP's two pure pieces (GH #154, owner Q7) ══════════════════════

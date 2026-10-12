@@ -308,6 +308,12 @@ struct EmulatorConfig {
     bool jns_strict       = false;   ///< --snapshot-mode strict
     bool jns_force_sdcard = false;   ///< --snapshot-mode force
 
+    /// GH #321 — Quick Save retention: keep the newest N (0 = unlimited).
+    /// `quick_snapshot_keep_cli` says --quick-snapshot-keep was given, which
+    /// then overrides the Preferences / jnext.conf setting for the whole run.
+    int  quick_snapshot_keep     = 20;
+    bool quick_snapshot_keep_cli = false;
+
     // Magic port: debug output port that logs bytes to stderr
     bool     magic_port_enabled = false;
     uint16_t magic_port_address = 0x0000;  // 16-bit port address (default disabled)
@@ -489,6 +495,11 @@ struct EmulatorConfig {
     // ends of QEMU's `pipe` chardev. Both empty means no Pi.
     std::string              pi_uart_fifo_rx;
     std::string              pi_uart_fifo_tx;
+    // Or, instead of the FIFOs (GH #316; Windows, where QEMU's `pipe` chardev
+    // is a blocking single-client named-pipe server): the loopback TCP port
+    // QEMU's `socket` chardev listens on. jnext connects to 127.0.0.1:<port>.
+    // The FIFOs win when both are set (a hand-built config only); 0 with no FIFOs means no Pi.
+    uint16_t                 pi_uart_tcp_port = 0;
 
     // Host capture callbacks are reattached by init() after a cold boot.
     std::function<void(const int16_t*, int)> audio_capture_callback;

@@ -8,10 +8,13 @@
 #include "platform/rzx_startup.h"
 #include "platform/frame_sequencer.h"   // RENDER_INTERVAL_MS, shared with QtApp
 #include "platform/render_policy.h"
+#include "platform/quick_snapshot_chord.h"   // GH #321
+#include "core/quick_snapshot.h"
 #include "platform/pointer_capture.h"   // GH #307 release_chord
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include <cmath>
+#include <ctime>
 
 bool SdlApp::init(int argc, char* argv[]) {
     // SDL3 SDL_Init returns bool (true = success); SDL2 returned 0 on
@@ -121,6 +124,8 @@ bool SdlApp::init(int argc, char* argv[]) {
     // "the keyboard went elsewhere" signal forgotten, which is the failure the
     // Qt side shipped with and no test saw. See platform/host_key_wiring.h.
     wire_host_keys(input_, key_router_, [this](SDL_Scancode sc, bool pressed) {
+        // GH #321 — quick-snapshot chords: the tracker sees every event.
+        const jnext::QuickChord quick = quick_chords_.on_key(static_cast<int>(sc), pressed);
         if (pressed) {
             // Ctrl+Alt releases the pointer — the VirtualBox/VMware
             // convention, and the same combo the Qt frontend uses. It is
@@ -137,6 +142,16 @@ bool SdlApp::init(int argc, char* argv[]) {
                     // Not consumed — see the Qt handler: swallowing the Alt
                     // key-down would desync Keyboard's host Alt-modifier state.
                 }
+            }
+            // GH #321 — Alt+Shift+F5 / Alt+Shift+F9, tested BEFORE the F-key block below
+            // so Alt+Shift+F9 is not the Multiface NMI; an autorepeat of the chord
+            // is swallowed. The tracker (platform/quick_snapshot_chord.h) keeps
+            // the modifiers from the key events, not SDL_GetModState().
+            switch (quick) {
+            case jnext::QuickChord::Save:   quick_save(); return;
+            case jnext::QuickChord::Load:   quick_load_requested_ = true; return;
+            case jnext::QuickChord::Repeat: return;
+            case jnext::QuickChord::None:   break;
             }
             if (sc == SDL_SCANCODE_F11) {
                 display_.toggle_fullscreen();
@@ -240,10 +255,48 @@ void SdlApp::set_pending_inject(const std::string& file, uint16_t org,
                            file, org, pc, delay_frames);
 }
 
+static_assert(jnext::kQuickSaveScancode == SDL_SCANCODE_F5 &&
+              jnext::kQuickLoadScancode == SDL_SCANCODE_F9,
+              "quick_snapshot_chord.h scancodes must match SDL");
+
 void SdlApp::set_pending_load(const std::string& file, int delay_frames) {
     load_file_ = file;
     load_countdown_ = delay_frames;
     Log::platform()->info("--load: will load '{}' after {} frame(s)", file, delay_frames);
+}
+
+// GH #321 — SDL has no status bar or OSD, so both report in the log.
+void SdlApp::quick_save() {
+    const std::string path = auto_quick_snapshot_path(
+        default_quick_snapshot_dir(), std::time(nullptr));
+    if (path.empty()) {
+        Log::platform()->error("quick save: FAILED (cannot create a snapshot file in '{}')",
+                               default_quick_snapshot_dir());
+        return;
+    }
+    if (!emulator_.save_jns_file(path)) {
+        Log::platform()->error("quick save: FAILED ({})", emulator_.last_jns_error());
+        return;
+    }
+    Log::platform()->info("quick save: wrote '{}'", path);
+    prune_quick_snapshots(default_quick_snapshot_dir(), emulator_.config().quick_snapshot_keep);
+}
+
+void SdlApp::quick_load() {
+    const std::string dir = default_quick_snapshot_dir();
+    std::string why;
+    const std::string path = latest_quick_snapshot(dir, why);
+    if (path.empty()) {
+        Log::platform()->warn("quick load: {}", why);
+        return;
+    }
+    // Refuse a bad file BEFORE the cold boot throws the session away.
+    if (!emulator_.probe_jns_file(path, why)) {
+        Log::platform()->error("quick load: refused '{}': {}", path, why);
+        return;
+    }
+    Log::platform()->info("quick load: '{}'", path);
+    cold_boot(path);
 }
 
 // GH #276 B4 — CTL-12 rule 5: a boot the loop owner decides on (F1, a guest
@@ -491,6 +544,12 @@ void SdlApp::run() {
 
         if (std::string load_file = emulator_.take_nex_load_request(); !load_file.empty()) {
             cold_boot(load_file);
+            continue;
+        }
+
+        if (quick_load_requested_) {
+            quick_load_requested_ = false;
+            quick_load();   // cold-boots through cold_boot() when it loads
             continue;
         }
 

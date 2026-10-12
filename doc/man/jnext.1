@@ -52,8 +52,10 @@ The format is detected from the extension: \f[CR].nex\f[R],
 \f[B]JNEXT SNAPSHOTS\f[R] below).
 Loading one restores the machine it was taken on, including the machine
 \f[I]type\f[R]: a \f[CR].jns\f[R] taken on a Next loads as a Next even
-if \f[B]\-\-machine\f[R] says otherwise, the same way a \f[CR].sna\f[R],
-\f[CR].szx\f[R] or \f[CR].z80\f[R] already does.
+if \f[B]\-\-machine\f[R] says otherwise.
+A \f[CR].sna\f[R], \f[CR].szx\f[R] or \f[CR].z80\f[R] is different: it
+is loaded onto the machine that is running (\f[B]\-\-machine\f[R], or
+the saved choice), whatever machine it was made on.
 .PP
 A NEX file with bytes after the banks its header declares is an
 \f[I]extended\f[R] NEX.
@@ -379,7 +381,12 @@ A soft or hard reset leaves the Pi running.
 A Pi asked for with this option that cannot start (no QEMU, a failed
 download) is an error; declining the download is not \(em jnext then
 starts without the Pi.
-POSIX only.
+On Linux and macOS the link is a pair of FIFOs; on Windows (QEMU for
+Windows, its folder on \f[CR]PATH\f[R] or set in Preferences) it is a
+loopback TCP socket QEMU listens on.
+On Windows the Pi\(cqs sound plays on the host speakers (QEMU\(cqs
+\f[CR]dsound\f[R]); sending it through the Next\(cqs mixer (NR 0xA2, the
+volume controls) is not there yet.
 .RE
 .TP
 \f[B]\-\-no\-nextpi\f[R]
@@ -798,6 +805,18 @@ hex editor at roughly five times the size.
 A debugging aid; it changes nothing about what the file contains, and
 jnext reads both forms.
 Any other \f[I]STATE\f[R] is an error.
+.TP
+\f[B]\-\-quick\-snapshot\-keep\f[R] \f[I]N\f[R]|\f[CR]unlimited\f[R]
+How many quick snapshots \f[B]File > Quick Save Snapshot\f[R] keeps in
+\f[CR]\(ti/.jnext/snapshots/\f[R]: after each save the oldest beyond
+\f[I]N\f[R] are deleted (default 20; \f[I]N\f[R] is 1 to 1000000).
+Only files named exactly like Quick Save\(cqs own
+(\f[CR]jnext\-YYYYMMDD\-HHMMSS.jns\f[R], optional \f[CR]\-NN\f[R]) are
+ever deleted; anything else in the folder is left alone.
+\f[CR]unlimited\f[R] keeps everything.
+Overrides the \f[CR][snapshot] quick_keep\f[R] setting for the run; the
+SDL\-only build, which reads no configuration file, takes only this
+option.
 .TP
 \f[B]\-\-snapshot\-mode\f[R] \f[I]MODE\f[R]
 How much a \f[CR].jns\f[R] load refuses.
@@ -1452,6 +1471,34 @@ On a Next the save dialog offers \f[CR].jns\f[R] first and appends it to
 a name typed without an extension; on a 48K, 128K, Pentagon or +3 it
 offers \f[CR].sna\f[R] first and appends that instead.
 .PP
+\f[B]File > Quick Save Snapshot\f[R] (Alt+Shift+F5) and \f[B]Quick Load
+Snapshot\f[R] (Alt+Shift+F9) need no dialog.
+Quick Save writes a \f[CR].jns\f[R] named
+\f[CR]jnext\-YYYYMMDD\-HHMMSS.jns\f[R] (a \f[CR]\-02\f[R],
+\f[CR]\-03\f[R] suffix if the name is taken, so nothing is overwritten)
+into \f[CR]\(ti/.jnext/snapshots/\f[R] on every machine type, and names
+the file in the status bar.
+Quick Load restores the \f[I]newest\f[R] \f[CR].jns\f[R] in that folder
+by modification time, by the same route as \f[B]File > Load NEX
+File\&...\f[R]: a full cold boot, then the load.
+An empty or missing folder only reports that there is no snapshot, and a
+newest file that cannot be loaded is refused before anything is reset,
+so the running session is kept.
+Older quick saves, and any \f[CR].jns\f[R] you put in the folder
+yourself, are loaded through the ordinary load dialog; nothing is ever
+deleted by hand\-picking: Quick Save itself keeps only the newest 20 of
+its own files (\f[B]\-\-quick\-snapshot\-keep\f[R]
+\f[I]N\f[R]|\f[CR]unlimited\f[R], or \f[B]Settings > Preferences >
+Paths\f[R], or \f[CR][snapshot] quick_keep\f[R]) and deletes only files
+named exactly \f[CR]jnext\-YYYYMMDD\-HHMMSS.jns\f[R] (with an optional
+\f[CR]\-NN\f[R]); anything else in the folder is never touched.
+The folder is \f[CR]$JNEXT_CONFIG_DIR/snapshots\f[R] when that variable
+is set.
+The SDL\-only build has the same two keys, the same folder and the same
+option (it reads no configuration file), and reports in the log instead
+of the status bar.
+Plain F5/F9 and Alt+F5/F9 are unchanged.
+.PP
 Loading a \f[CR].jns\f[R] restores the machine \f[I]type\f[R] as well as
 its contents, so one taken on a Next comes back as a Next whatever
 \f[B]\-\-machine\f[R] says.
@@ -1955,7 +2002,9 @@ Load a program (Alt+O \- NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Insert SD
 Card Image / Eject SD Card (see \f[B]CHANGING THE CARD WHILE
 RUNNING\f[R]), Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX /
 Record RZX / Stop RZX, Save Screenshot (Alt+S), Quick Screenshot
-(Alt+K), Save Snapshot (Alt+Shift+S), Quit (Alt+Q).
+(Alt+K), Save Snapshot (Alt+Shift+S), Quick Save Snapshot
+(Alt+Shift+F5), Quick Load Snapshot (Alt+Shift+F9) (see \f[B]JNEXT
+SNAPSHOTS\f[R] above), Quit (Alt+Q).
 .RS
 .PP
 \f[B]Save Screenshot\&...\f[R] asks for a name; the extension chooses
@@ -2183,6 +2232,11 @@ Multiface NMI, F10 fires the DivMMC NMI, F2 cycles the window scale and
 F11 toggles fullscreen.
 With the debugger open F9 belongs to the debugger (Pause / Break)
 instead.
+With Alt and Shift held, F5 and F9 are the quick snapshot keys
+(Alt+Shift+F5 saves, Alt+Shift+F9 loads) and reach neither the Multiface
+nor the guest; Alt+F5 and Alt+F9 on their own are not claimed.
+Shift is the guest\(cqs Caps Shift, so it is held down for the guest
+while you press the chord.
 .PP
 The Pause key (Pause/Break) pauses and resumes the machine in the GUI,
 the same as Machine > Pause; keyboards without one, such as most Mac
@@ -2205,10 +2259,11 @@ and stop video recording), and function keys have no Spectrum meaning to
 lose.
 .PP
 Alt is the opposite: it is a host modifier, never a Spectrum key.
-jnext claims Alt + Q/O/S/K/R/T/D/P/U and Alt+Shift+S (menu shortcuts),
-Alt + F/M/I/A/B/V/N/H (menu bar) and Alt + 1 to Alt + 8 (the script host
-keys), which leaves the guest only Alt + E/G/C (EDIT, GRAPH, CAPS LOCK)
-and Alt + the key left of \f[CR]1\f[R] (INV VIDEO).
+jnext claims Alt + Q/O/S/K/R/T/D/P/U, Alt+Shift+S, Alt+Shift+F5 and
+Alt+Shift+F9 (menu shortcuts), Alt + F/M/I/A/B/V/N/H (menu bar) and Alt
++ 1 to Alt + 8 (the script host keys), which leaves the guest only Alt +
+E/G/C (EDIT, GRAPH, CAPS LOCK) and Alt + the key left of \f[CR]1\f[R]
+(INV VIDEO).
 Alt + 1 to Alt + 8 no longer type their digit into the program (earlier
 releases let them through as plain 1\-8); Alt + 9 and Alt + 0 still do.
 Real Next hardware instead maps Left Alt to EXTEND MODE and Right Alt to
@@ -2871,8 +2926,8 @@ there; empty means \f[CR]1_93D\f[R]), \f[CR]qemu_binary\f[R] (empty
 means \f[CR]qemu\-system\-arm\f[R] on \f[CR]PATH\f[R]) and
 \f[CR]audio\f[R] (a QEMU \f[CR]\-audiodev\f[R] driver such as
 \f[CR]coreaudio\f[R], \f[CR]pa\f[R] or \f[CR]none\f[R], or
-\f[CR]wav:\f[R]\f[I]FILE\f[R]; empty means \f[CR]coreaudio\f[R] on macOS
-and \f[CR]pa\f[R] elsewhere).
+\f[CR]wav:\f[R]\f[I]FILE\f[R]; empty means \f[CR]coreaudio\f[R] on
+macOS, \f[CR]dsound\f[R] on Windows and \f[CR]pa\f[R] elsewhere).
 Changing the release makes the next start offer to download it,
 replacing the installed one.
 The joystick ports are stored under \f[CR][input]\f[R]:
@@ -2890,6 +2945,11 @@ The quick screenshot is stored under \f[CR][screenshot]\f[R] as
 and \f[CR]quick_format\f[R] (\f[CR]png\f[R] or \f[CR]scr\f[R]), edited
 under \f[B]Settings > Preferences > Paths\f[R]; an unrecognised format
 keeps the default.
+The Quick Save retention is stored under \f[CR][snapshot]\f[R] as
+\f[CR]quick_keep\f[R] (a number from 1, or \f[CR]unlimited\f[R]; default
+20), edited under \f[B]Settings > Preferences > Paths\f[R];
+\f[B]\-\-quick\-snapshot\-keep\f[R] overrides it for one run, and an
+unrecognised value keeps the default.
 The debugger window\(cqs layout is stored under \f[CR][debugger]\f[R]:
 \f[CR]size\f[R] (\f[CR]W, H\f[R]), \f[CR]position\f[R] (\f[CR]X, Y\f[R],
 written only while the window is detached) and \f[CR]attached\f[R]
@@ -2904,6 +2964,13 @@ never read it.
 Where \f[B]File > Quick Screenshot\f[R] writes, unless
 \f[CR][screenshot] quick_dir\f[R] says otherwise.
 Created on the first capture.
+.TP
+\f[CR]\(ti/.jnext/snapshots/\f[R]
+Where \f[B]File > Quick Save Snapshot\f[R] writes and \f[B]Quick Load
+Snapshot\f[R] reads (the newest \f[CR].jns\f[R] in it).
+Created on the first save.
+Quick Save keeps the newest 20 files it made (see
+\f[B]\-\-quick\-snapshot\-keep\f[R]).
 .TP
 \f[CR]\(ti/.jnext/warm\-start/\f[R]
 The recorded NextZXOS\-resident machine a \f[B]\-\-load\f[R] of a

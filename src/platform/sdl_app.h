@@ -1,4 +1,5 @@
 #pragma once
+#include "platform/quick_snapshot_chord.h"
 #include "platform/cli_delay.h"
 #include <SDL3/SDL.h>
 #include <memory>
@@ -127,6 +128,13 @@ private:
     /// this plus the begin/done pair.
     void boot_machine(const std::string& load_file);
     bool       running_ = false;
+
+    /// GH #321 — Alt+Shift+F5 / Alt+Shift+F9. Save runs from the key callback (between
+    /// frames); Load is serviced in run() beside the NEX load request.
+    void quick_save();
+    void quick_load();
+    bool quick_load_requested_ = false;
+    jnext::QuickChordTracker quick_chords_;
 
     // Kempston mouse host adapter — wires SDL_MOUSE* events into the
     // emulator's KempstonMouse. Created in init() once emulator_ is

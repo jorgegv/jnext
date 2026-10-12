@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.37</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.34</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.37</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3236,6 +3236,37 @@ the name is taken. Its directory and format are separate config fields from the
 Save-Screenshot dialog's remembered directory, deliberately — that one follows
 the dialog around, and a no-dialog capture whose destination moves is
 unfindable.</p>
+<p><strong>Quick Save / Quick Load</strong> (File ▸ Quick Save Snapshot Alt+Shift+F5, Quick Load
+Snapshot Alt+Shift+F9; the same two chords in the SDL-only build) follow the same
+shape for <code>.jns</code>. <code>src/core/quick_snapshot.*</code> holds the folder
+(<code>default_quick_snapshot_dir()</code> = <code>sdcard::default_state_dir()</code> + <code>/snapshots</code>,
+so <code>$JNEXT_CONFIG_DIR</code> and the SD image's own state-dir resolution apply — on
+Windows it inherits the HOME → USERPROFILE fix tracked in GH #316, and until
+then a missing HOME puts it beside the SD image under <code>./.jnext</code>), the name
+(<code>auto_timestamped_path()</code>, the one function <code>auto_screenshot_path()</code> also
+uses) and the choice of file (<code>latest_quick_snapshot()</code>: greatest modification
+time among <code>*.jns</code> regular files directly in the folder, ties to the greater
+name stem so <code>…-02</code> beats the bare name; local-time names are not ordered across
+a DST change, which is why the name is not the key). Quick Load goes through
+<code>MainWindow::handle_load_path()</code> / <code>SdlApp::cold_boot()</code>, i.e. a full cold boot
+and then <code>load_jns_file()</code>, never an in-place load. Two things make that route
+safe for a <code>.jns</code>: <code>Emulator::probe_jns_file()</code> runs the pre-touch half of
+<code>load_jns</code> (<code>check_jns()</code>) BEFORE the cold boot, so a file that will be refused
+costs no session; and <code>emulator_boot_machine()</code> reads the <code>.jns</code> manifest's
+machine the way it reads an RZX's, so the cold boot builds the snapshot's
+machine and the frontend's <code>keep_machine</code> hook records it (otherwise a later
+reset would boot the old machine); the command-line startup does the same through <code>emulator_startup_machine()</code>, where a <code>.jns</code> wins even over an explicit <code>--machine</code>. After ANY snapshot load the frontends' <code>emulator_apply_load()</code> calls <code>Keyboard::release_all_keys()</code>: the membrane matrix in a <code>.jns</code> records the keys the host held at save time (the Shift of the Alt+Shift+F5 chord), whose release would never arrive, so the guest starts with no key down (the matrix, the extended-key register that the arrows use, and the shift scan history; the core load keeps them, the round-trip contract: QS-28..30). Debugger-initiated loads (DZRP, ZRCP, GDB) go through <code>emulator_apply_load()</code> too, so they release held keys as well. <code>prune_quick_snapshots()</code> never deletes a symbolic link. Quick Load failures (no snapshot, unreadable newest file) are a status-bar line in Qt and a log line in SDL, never a dialog; both actions act once per key press (<code>QuickChordTracker</code>, <code>setAutoRepeat(false)</code>). <code>.sna</code>, <code>.szx</code> and <code>.z80</code> do NOT
+reconfigure the machine at all (their loaders apply the file onto the running
+one), so no stale-frontend symptom exists for them; QS-25..27 pin that, and
+if a loader ever starts switching machines <code>emulator_boot_machine()</code> must learn
+that format as it did <code>.jns</code>. Retention: <code>prune_quick_snapshots()</code> runs after
+each Quick Save and deletes only names matching <code>is_quick_snapshot_name()</code>;
+the count is <code>EmulatorConfig::quick_snapshot_keep</code> (CLI) or
+<code>AppConfigData::quick_snapshot_keep</code> (<code>[snapshot] quick_keep</code>, Preferences),
+the CLI winning (<code>quick_snapshot_keep_cli</code>). The debugger keymap refuses
+Alt+Shift+F5/F9 by name (<code>validate_combo</code>).
+The SDL chord predicate is <code>platform/quick_snapshot_chord.h</code>; the Qt chords are
+the two QAction shortcuts in <code>main_window.cpp</code>.</p>
 <p>Video recording needs <strong>FFmpeg on the host</strong>. jnext writes raw ARGB frames and
 raw stereo PCM to temporary files during the run, so the hot loop pays no
 encoding cost, and shells out once at stop, trying <code>libx264</code>, <code>mpeg4</code> and

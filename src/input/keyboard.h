@@ -37,6 +37,14 @@ public:
     /// Reset all keys to released state (matrix filled with 0xFF).
     void reset();
 
+    /// GH #321 — release every guest key (matrix, extended keys, shift scan
+    /// history) WITHOUT touching the rest of the keyboard state (the host Alt
+    /// modifier, the auto-type queue). The frontends call it after a snapshot
+    /// load: the matrix in a `.jns` is a recording of keys the HOST was holding
+    /// at save time (the Shift of the Alt+Shift+F5 chord, say), and the host
+    /// release that would clear them has long gone by.
+    void release_all_keys();
+
     /// Called from the SDL input handler on each KEYDOWN/KEYUP event.
     void set_key(SDL_Scancode sc, bool pressed);
 

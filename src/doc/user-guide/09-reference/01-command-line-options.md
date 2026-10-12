@@ -50,7 +50,9 @@ with status 1.
     Snapshots](../05-running-programs/09-snapshots.md)). Loading one
     restores the machine it was taken on, including the machine *type*:
     a `.jns` taken on a Next loads as a Next even if **--machine** says
-    otherwise, the same way a `.sna`, `.szx` or `.z80` already does.
+    otherwise. A `.sna`, `.szx` or `.z80` is different: it is loaded
+    onto the machine that is running (**--machine**, or the saved
+    choice), whatever machine it was made on.
 
     A NEX file with bytes after the banks its header declares is an
     *extended* NEX. If its header asks for the file to be kept open (any
@@ -329,7 +331,12 @@ with status 1.
     inert, and nothing about it is saved in a snapshot. A soft or hard
     reset leaves the Pi running. A Pi asked for with this option that
     cannot start (no QEMU, a failed download) is an error; declining the
-    download is not — jnext then starts without the Pi. POSIX only.
+    download is not — jnext then starts without the Pi. On Linux and
+    macOS the link is a pair of FIFOs; on Windows (QEMU for Windows, its
+    folder on `PATH` or set in Preferences) it is a loopback TCP socket
+    QEMU listens on. On Windows the Pi’s sound plays on the host
+    speakers (QEMU’s `dsound`); sending it through the Next’s mixer (NR
+    0xA2, the volume controls) is not there yet.
 
 **--no-nextpi**
 :   Do not start NextPi this run, overriding a saved preference that
@@ -699,6 +706,16 @@ with status 1.
     readable with `unzip -p` and a hex editor at roughly five times the
     size. A debugging aid; it changes nothing about what the file
     contains, and jnext reads both forms. Any other *STATE* is an error.
+
+**--quick-snapshot-keep** *N*\|`unlimited`
+:   How many quick snapshots **File \> Quick Save Snapshot** keeps in
+    `~/.jnext/snapshots/`: after each save the oldest beyond *N* are
+    deleted (default 20; *N* is 1 to 1000000). Only files named exactly
+    like Quick Save’s own (`jnext-YYYYMMDD-HHMMSS.jns`, optional `-NN`)
+    are ever deleted; anything else in the folder is left alone.
+    `unlimited` keeps everything. Overrides the `[snapshot] quick_keep`
+    setting for the run; the SDL-only build, which reads no
+    configuration file, takes only this option.
 
 **--snapshot-mode** *MODE*
 

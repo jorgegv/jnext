@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=193  # HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=197  # HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -765,6 +765,34 @@ early=n;   grep -qE "$MKHELP_CMD_RE" <<<"$dry_head2" && early=y
 check "HS-46" "the help-listing lint is wired to unit-test AND regression, ahead of the build (GH #140)" 0 0 \
     "unit=$u_wired regression=$r_wired early=$early" \
     "unit=y" "regression=y" "early=y"
+
+# --------------- the detached-thread lint must stay wired AND must fire (GH #328)
+# Same exposure as HS-46. lint-thread-detach.sh self-tests its pattern, but nothing else
+# proves it is still REACHED from both entry points or that its verdict still turns red
+# on a tree with a stray `.detach()`. The second row runs the real lint against a
+# throwaway tree (its optional root argument): one offending file must exit 1 and name
+# the file, a tree holding only the sanctioned POSIX twin must exit 0.
+DETACH_CMD_RE='^[[:space:]]*bash[[:space:]]+test/lint-thread-detach\.sh'
+d_u=n; grep -qE "$DETACH_CMD_RE" <<<"$dry"     && d_u=y
+d_r=n; grep -qE "$DETACH_CMD_RE" <<<"$dry_reg" && d_r=y
+check "HS-96a" "the detached-thread lint is wired to unit-test AND regression (GH #328)" 0 0 \
+    "unit=$d_u regression=$d_r" "unit=y" "regression=y"
+
+DT="$T/detach-tree"
+rm -rf "$DT"; mkdir -p "$DT/src/esp01/src" "$DT/src/other" "$DT/test"
+echo 'void s() { std::thread(f).detach(); }' > "$DT/src/esp01/src/esp_socket_posix.cpp"
+out_clean=$(timeout --kill-after=5s "${INVOKE_TIMEOUT}s" bash "$PROJECT_DIR/test/lint-thread-detach.sh" "$DT" 2>&1); rc_clean=$?
+echo 'void s() { std::thread(f).detach(); }' > "$DT/src/other/stray.cpp"
+out_bad=$(timeout --kill-after=5s "${INVOKE_TIMEOUT}s" bash "$PROJECT_DIR/test/lint-thread-detach.sh" "$DT" 2>&1); rc_bad=$?
+check "HS-96b" "the detached-thread lint passes the sanctioned twin alone and fails, naming the file, on a stray .detach() (GH #328)" 1 $rc_bad "$out_bad" \
+    "src/other/stray.cpp:1" "start_detached"
+# test/ is in scope too (test binaries run under wine): a stray there alone must fail.
+rm -f "$DT/src/other/stray.cpp"
+echo 'void s() { std::thread(f).detach(); }' > "$DT/test/stray_test.cpp"
+out_t=$(timeout --kill-after=5s "${INVOKE_TIMEOUT}s" bash "$PROJECT_DIR/test/lint-thread-detach.sh" "$DT" 2>&1); rc_t=$?
+check "HS-96d" "...and fails on a stray .detach() under test/ alone (the lint scans test/, not only src/)" 1 $rc_t "$out_t" \
+    "test/stray_test.cpp:1"
+check "HS-96c" "...and exits 0 on the tree holding only the sanctioned twin" 0 $rc_clean "$out_clean" "clean"
 
 # ------------- worktree-bootstrap must not call an unprovisioned tree "ready" (GH #149)
 # `git worktree add` does not populate submodules, so a fresh worktree has an EMPTY
@@ -1886,7 +1914,7 @@ printf 'xdotool key a\nxvfb-run -d --server-args="-screen 0 1x1x24" bash -c y\n'
 noreset_scan "$NR_FIX" $'good.sh\nbad.sh'
 check "HS-89" "every xvfb-run in an xdotool-driving test script passes -noreset; the matcher's controls, the scanned-file count and a fixture offender (GH #318)" 0 0 \
     "control=$ctl scanned=$scanned offenders=[${noreset_off}] fixture scanned=$scan_n offenders=[${scan_off}]" \
-    "control=10000 scanned=6 offenders=[] fixture scanned=2 offenders=[bad.sh: xvfb-run -d --server-args=\"-screen 0 1x1x24\" bash -c y]"
+    "control=10000 scanned=8 offenders=[] fixture scanned=2 offenders=[bad.sh: xvfb-run -d --server-args=\"-screen 0 1x1x24\" bash -c y]"
 
 # ---------------- a nested harness never waits on its ancestor's lock (GH #295) ----------------
 # `make regression-confirm` could not pass harness-selftest-func: the confirm
@@ -2306,10 +2334,10 @@ check "HS-90e" "the control: an explicit full os= list on one row is accepted (c
 plat_tree "$T/pt-ok" windows windows
 out=$(run_plat "$T/pt-ok" "$REG_FUNC"); rc=$?
 check "HS-91a" "a platform preflight names the target and the admitted / absent row counts" 0 $rc "$out" \
-    "platform windows: 130 functional rows run, 20 declared absent"
+    "platform windows: 133 functional rows run, 21 declared absent"
 plat_tree "$T/pt-mac" macos macos
 out=$(run_plat "$T/pt-mac" "$REG_FUNC"); rc=$?
-check "HS-91b" "...macOS runs 133 and declares 17 absent" 0 $rc "$out" "platform macos: 133 functional rows run, 17 declared absent"
+check "HS-91b" "...macOS runs 135 and declares 19 absent" 0 $rc "$out" "platform macos: 135 functional rows run, 19 declared absent"
 plat_tree "$T/pt-none" windows windows; sed -i '/^JNEXT_TARGET_OS/d' "$T/pt-none/s/CMakeCache.txt"
 out=$(run_plat "$T/pt-none" "$REG_FUNC"); rc=$?
 check "HS-91c" "a build tree without JNEXT_TARGET_OS is a refusal naming it, not an assumed OS" 2 $rc "$out" "HARNESS FAULT" "JNEXT_TARGET_OS"
@@ -2332,12 +2360,12 @@ out=$(run_plat "$T/pt-ok" "$REG_FUNC" magic-bp-func); rc=$?
 check "HS-92b" "...and a named admitted row is accepted" 0 $rc "$out" "preflight OK"
 
 # per-OS pins, both directions
-sed 's/^# expect-windows: 130$/# expect-windows: 129/' "$REG_FUNC" > "$T/pin-lo.conf"
+sed 's/^# expect-windows: 133$/# expect-windows: 132/' "$REG_FUNC" > "$T/pin-lo.conf"
 out=$(run_preflight "$REG_CONF" "$T/pin-lo.conf"); rc=$?
-check "HS-93a" "a Windows pin one too low is a refusal naming the OS" 2 $rc "$out" "HARNESS FAULT" "windows" "expect-windows: 129"
-sed 's/^# expect-macos: 133$/# expect-macos: 134/' "$REG_FUNC" > "$T/pin-hi.conf"
+check "HS-93a" "a Windows pin one too low is a refusal naming the OS" 2 $rc "$out" "HARNESS FAULT" "windows" "expect-windows: 132"
+sed 's/^# expect-macos: 135$/# expect-macos: 136/' "$REG_FUNC" > "$T/pin-hi.conf"
 out=$(run_preflight "$REG_CONF" "$T/pin-hi.conf"); rc=$?
-check "HS-93b" "a macOS pin one too high is a refusal" 2 $rc "$out" "HARNESS FAULT" "macos" "expect-macos: 134"
+check "HS-93b" "a macOS pin one too high is a refusal" 2 $rc "$out" "HARNESS FAULT" "macos" "expect-macos: 136"
 grep -v '^# expect-macos:' "$REG_FUNC" > "$T/pin-none.conf"
 out=$(run_preflight "$REG_CONF" "$T/pin-none.conf"); rc=$?
 check "HS-93c" "os= tags without the per-OS pin are a refusal" 2 $rc "$out" "HARNESS FAULT" "No '# expect-macos: N' pin"

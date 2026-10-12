@@ -54,6 +54,12 @@ bool save_screenshot(const std::string& path,
                      const uint32_t* framebuffer, int width, int height,
                      const Ula& ula);
 
+/// GH #321 — the naming shared by quick screenshots and quick snapshots:
+/// `<dir>/jnext-YYYYMMDD-HHMMSS<ext>` (`ext` includes the dot), `-NN` from 2
+/// on collision. Empty if `dir` cannot be created or no free name exists.
+std::string auto_timestamped_path(const std::string& dir, const std::string& ext,
+                                  std::time_t when);
+
 /// GH #19 — a collision-free auto-generated screenshot path inside `dir`:
 /// `<dir>/jnext-YYYYMMDD-HHMMSS<ext>`, and `-NN` appended (from 2) while that
 /// name already exists, so a burst of captures inside one second cannot
