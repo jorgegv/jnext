@@ -24,6 +24,7 @@ BuildRequires:  libcurl-devel
 BuildRequires:  openssl-devel
 BuildRequires:  libpng-devel
 BuildRequires:  qt6-qtbase-devel
+BuildRequires:  qt6-qtsvg-devel
 BuildRequires:  desktop-file-utils
 BuildRequires:  libappstream-glib
 

@@ -152,7 +152,7 @@ jobs:
           dnf install -y \
             cmake gcc-c++ git make ccache \
             SDL3-devel zlib-devel libcurl-devel openssl-devel libpng-devel \
-            qt6-qtbase-devel libspectrum-devel \
+            qt6-qtbase-devel qt6-qtsvg-devel libspectrum-devel \
             ImageMagick xorg-x11-server-Xvfb xdotool python3 python3-pyyaml python3-jsonschema unzip diffutils \
             ripgrep ffmpeg-free bc file xxd \
             mtools dosfstools rpm-build \
@@ -242,7 +242,7 @@ jobs:
             wine-core wine-common
           # GH #319. The regression-win leg also builds the Qt frontend for
           # Windows (the build that ships, minus PGO), so it needs the MinGW Qt6.
-          if [ "${{ matrix.leg }}" = regression-win ]; then dnf install -y mingw64-qt6-qtbase; fi
+          if [ "${{ matrix.leg }}" = regression-win ]; then dnf install -y mingw64-qt6-qtbase mingw64-qt6-qtsvg; fi
 
       - name: Check out
         uses: actions/checkout@v5
@@ -452,13 +452,13 @@ jobs:
     steps:
       # Same before-checkout ordering rule as the test job (bare fedora:44
       # has no git). Package set = the build-only subset of the test job's
-      # list, with qt5-qtbase-devel replacing qt6-qtbase-devel.
+      # list, with qt5-qtbase-devel and qt5-qtsvg-devel replacing the qt6 pair.
       - name: Install build dependencies
         run: |
           dnf install -y \
             cmake gcc-c++ git make ccache \
             SDL3-devel zlib-devel libcurl-devel openssl-devel libpng-devel \
-            qt5-qtbase-devel diffutils
+            qt5-qtbase-devel qt5-qtsvg-devel diffutils
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Check out
@@ -542,17 +542,17 @@ jobs:
           dnf install -y \
             cmake make gcc-c++ git ccache \
             SDL3-devel libcurl-devel openssl-devel zlib-devel libpng-devel \
-            qt6-qtbase-devel \
+            qt6-qtbase-devel qt6-qtsvg-devel \
             rpm-build dpkg dpkg-dev file zip unzip \
             findutils gawk grep coreutils diffutils \
             python3 python3-pyyaml mkdocs-material \
             mingw64-gcc mingw64-gcc-c++ mingw64-binutils mingw64-filesystem \
-            mingw64-qt6-qtbase mingw64-SDL3 \
-            mingw64-qt5-qtbase mingw64-qt5-qtbase-devel mingw64-qt5-qmake \
+            mingw64-qt6-qtbase mingw64-qt6-qtsvg mingw64-SDL3 \
+            mingw64-qt5-qtbase mingw64-qt5-qtbase-devel mingw64-qt5-qmake mingw64-qt5-qtsvg \
             mingw64-zlib mingw64-libpng mingw64-winpthreads \
             mingw32-gcc mingw32-gcc-c++ mingw32-binutils mingw32-filesystem \
             mingw32-SDL3 \
-            mingw32-qt5-qtbase mingw32-qt5-qtbase-devel mingw32-qt5-qmake \
+            mingw32-qt5-qtbase mingw32-qt5-qtbase-devel mingw32-qt5-qmake mingw32-qt5-qtsvg \
             mingw32-zlib mingw32-libpng mingw32-winpthreads \
             wine-core wine-common
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
