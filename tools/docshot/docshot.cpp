@@ -580,24 +580,13 @@ void capture_gui_shots(Emulator& emu, jnext::dbg::Debugger& backend, const Optio
                                             emu.get_framebuffer_width(),
                                             emu.get_framebuffer_height());
 
-        // ONE TOOLBAR BUTTON RENDERS AS ITS WORD, not as a picture, and that
-        // is faithful rather than broken. Power Reset / Soft Reset / Load take
-        // their icons from QStyle::standardIcon(), which Fusion carries itself,
-        // so they draw here. Screenshot takes its icon from
-        // QIcon::fromTheme("camera-photo") (main_window.cpp), which resolves
-        // only against a DESKTOP icon theme — there is none under the
-        // offscreen platform, and there is none on Windows either. Qt's
-        // CE_ToolButtonLabel draws the action's TEXT when the icon is null, so
-        // the button reads "Screenshot", exactly as it does for a real user
-        // with no icon theme installed. Making it draw a camera would mean
-        // picking up whichever theme the capturing machine happens to have,
-        // i.e. the one thing forcing Fusion exists to prevent. The guide's
-        // prose names the button rather than its picture for the same reason.
-        //
-        // That null-icon-draws-text rule is also what RULED OUT the other
-        // explanation for the stale image this case replaces (GH #275 item 2):
-        // a Soft Reset button whose icon the old theme failed to draw would
-        // have shown the words "Soft Reset", not a gap.
+        // EVERY TOOLBAR BUTTON DRAWS ITS ICON. The icons are the monochrome SVG
+        // set (src/gui/icons/, doc/design/ICONSET-DESIGN.md), compiled into the
+        // binary and rendered by jnext itself in the palette's WindowText, so
+        // the capture depends on no desktop icon theme and comes out the same
+        // on every host. (Before the set, the Screenshot button took its icon
+        // from a desktop theme that the offscreen platform does not have, and
+        // the picture showed the word "Screenshot".)
 
         // The status bar. Its numbers are the one fixture in this picture, and
         // they are DERIVED rather than typed: a headless capture does no

@@ -1466,6 +1466,18 @@ if(ENABLE_QT_UI)
         target_link_libraries(quit_cleanup_test PRIVATE jnext_gui jnext_debugger)
         target_include_directories(quit_cleanup_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
         add_test(NAME quit_cleanup_tests COMMAND quit_cleanup_test)
+
+        # The toolbar icon set (doc/design/ICONSET-DESIGN.md): the loader in
+        # src/toolbar_icons/, the Main and Debug toolbars that use it (a real
+        # MainWindow with a backend builds both, hence ENABLE_DEBUGGER), and
+        # the section 2 lint on every file in src/gui/icons/. Offscreen QPA.
+        add_executable(toolbar_icons_test gui/toolbar_icons_test.cpp)
+        set_target_properties(toolbar_icons_test PROPERTIES AUTOMOC ON)
+        target_link_libraries(toolbar_icons_test PRIVATE jnext_gui jnext_debugger jnext_toolbar_icons)
+        target_include_directories(toolbar_icons_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+        target_compile_definitions(toolbar_icons_test PRIVATE
+            JNEXT_ICON_SRC_DIR="${CMAKE_SOURCE_DIR}/src/gui/icons")
+        add_test(NAME toolbar_icons_tests COMMAND toolbar_icons_test)
     endif()
 endif()
 

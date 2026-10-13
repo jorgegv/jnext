@@ -1095,6 +1095,7 @@ my %NO_MATRIX_SECTION = (
     # configuration, which a traceability record must not.
     'window_attach_test'        => 'host window-attach geometry (GH #39 contract, no VHDL oracle)',
     'quit_cleanup_test'         => 'host shutdown ordering (GUI lifecycle)',
+    'toolbar_icons_test'        => 'toolbar icon set: SVG loader, Main/Debug toolbars, icon-file lint (host GUI, doc/design/ICONSET-DESIGN.md)',
     'resume_guard_test'         => 'debugger resume-confirmation policy (jnext-internal)',
     # GH #278 WP1 — a structural lint of the SOURCE TREE (src/debug/ Qt-free by
     # directory, src/qt/ header-only): it asserts nothing about the machine.

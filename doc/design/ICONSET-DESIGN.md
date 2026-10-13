@@ -80,20 +80,34 @@ same way: by working the geometry out, not by nudging points until it looks righ
 Qt does not colour `currentColor` from the widget palette, so the SVG is coloured
 before it is rendered:
 
-- The GUI links **QtSvg** (the `Svg` component, for both the Qt 6 and the Qt 5 build)
+- The loader is its own library, `jnext_toolbar_icons` in `src/toolbar_icons/`,
+  because both Qt libraries use it (the Main toolbar in `jnext_gui`, the Debug
+  toolbar in `jnext_debugger`) and neither may depend on the other.
+- It links **QtSvg** (the `Svg` component, for both the Qt 6 and the Qt 5 build)
   and renders each icon with `QSvgRenderer`. It does not use QIcon's SVG
   icon-engine plugin, so no Qt plugin has to be deployed for the icons to appear.
-- The SVGs are compiled in as Qt resources.
+- The SVGs are compiled in as Qt resources under `:/icons/`
+  (`src/toolbar_icons/toolbar_icons.qrc`, which lists every file in
+  `src/gui/icons/` by alias).
 - At render time `currentColor` is replaced with the palette's `WindowText` colour
-  for the Normal state, and with the Disabled `WindowText` colour for the Disabled
-  state. Qt's automatic greying is weak on a flat glyph, which is why the disabled
-  state gets its own rendering.
+  (Active group) for the Normal state, and with the Disabled `WindowText` colour
+  for the Disabled state. Qt's automatic greying is weak on a flat glyph, which is
+  why the disabled state gets its own rendering.
 - One QIcon holds a pixmap per size (16, 24, 32, 48) and per state, so a HiDPI
   toolbar picks a pixmap drawn for it rather than scaling a smaller one up.
-- The icons are re-rendered when the palette changes (`QEvent::PaletteChange`), so a
-  switch between light and dark follows at run time.
+- A checkable action can carry a second icon for its checked (QIcon `On`) state.
+  Pause uses it: `pause.svg` while running, `resume.svg` while paused, in the
+  toolbar and in the Machine menu alike, since both show the same action.
+- `toolbar_icons::bind(action, toolbar, name)` sets the icon from the toolbar's
+  palette and re-renders it whenever the toolbar receives `QEvent::PaletteChange`,
+  so a switch between light and dark follows at run time.
+- Failures are loud: a missing resource, an SVG `QSvgRenderer` cannot parse, one
+  with no `currentColor`, or one that renders no pixel throws
+  `std::runtime_error` naming the icon. A blank button is never the result.
 
-The branch that implements this keeps this section accurate.
+`toolbar_icons_test` pins all of this, and also lints every file in
+`src/gui/icons/` against section 2 (viewBox, allowed elements, disallowed
+attributes, colour, licence comment).
 
 ## 5. Adding or changing an icon
 

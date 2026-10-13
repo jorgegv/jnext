@@ -15,6 +15,7 @@ set_target_properties(jnext_debugger PROPERTIES AUTOMOC ON)
 target_include_directories(jnext_debugger PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(jnext_debugger PUBLIC
     Qt${JNEXT_QT_MAJOR}::Widgets
+    jnext_toolbar_icons
     jnext_debug
     jnext_core
     jnext_cpu

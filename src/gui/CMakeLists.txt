@@ -18,6 +18,7 @@ set_target_properties(jnext_gui PROPERTIES AUTOMOC ON)
 
 target_link_libraries(jnext_gui PUBLIC
     Qt${JNEXT_QT_MAJOR}::Widgets
+    jnext_toolbar_icons
     ${JNEXT_SDL3_TARGET}
     spdlog::spdlog
     Threads::Threads

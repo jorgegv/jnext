@@ -68,7 +68,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |    48 |   48 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  5798 | 5798 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5798**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5377**. Rows the 145 suites declared in `test/unit-tests.conf` run live: **12871**.
+Rows the sections above carry: **5798**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5377**. Rows the 146 suites declared in `test/unit-tests.conf` run live: **12899**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,7 +80,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 98 suites (7578 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 99 suites (7606 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -168,6 +168,7 @@ These 98 suites (7578 live rows) have no VHDL-derived plan row to map, so they h
 | `window_scale_test` | 10 | main-window scale/fullscreen geometry (host GUI) |
 | `window_title_test` | 6 | main-window title carries the version (host GUI) |
 | `quit_cleanup_test` | 8 | host shutdown ordering (GUI lifecycle) |
+| `toolbar_icons_test` | 28 | toolbar icon set: SVG loader, Main/Debug toolbars, icon-file lint (host GUI, doc/design/ICONSET-DESIGN.md) |
 | `preferences_apply_test` | 79 | Preferences dialog wiring (host GUI) |
 | `debugger_video_panel_test` | 116 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 17 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |

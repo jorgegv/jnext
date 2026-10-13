@@ -25,6 +25,7 @@
 #include "gui/mac_cursor_warp.h"      // GH #303 (macOS only)
 #include "platform/speed_report.h"
 #include "qt/menu_bar_alt_nav_qt.h"   // GH #268
+#include "toolbar_icons/toolbar_icons.h"
 #include "debug/debugger.h"            // GH #278 WP6 — the Magic Breakpoint item (CTL-14)
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_manager.h"
@@ -51,7 +52,6 @@
 #include <QActionGroup>
 #include <QApplication>
 #include <QInputDialog>
-#include <QStyle>
 #include <QTimer>
 #include <QFileInfo>
 
@@ -975,7 +975,7 @@ void MainWindow::create_menus() {
                                  QKeySequence(Qt::Key_Pause)});
     // A held key re-fired the action (measured ~20 toggles in 1.5 s).
     pause_action_->setAutoRepeat(false);
-    pause_action_->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
+    // Its icon (pause, resume while checked) is bound in create_toolbar().
     pause_action_->setToolTip(tr("Pause / resume emulation (Alt+U or Pause)"));
     connect(pause_action_, &QAction::triggered, this, [this]() { toggle_pause(); });
     addAction(pause_action_);
@@ -1252,33 +1252,42 @@ void MainWindow::create_toolbar() {
     QToolBar* toolbar = addToolBar(tr("Main"));
     toolbar->setMovable(false);
 
-    QAction* reset_btn = toolbar->addAction(
-        style()->standardIcon(QStyle::SP_BrowserReload), tr("Power Reset"));
+    // Every icon is from the monochrome SVG set (doc/design/ICONSET-DESIGN.md),
+    // rendered in the toolbar's palette and again on every palette change.
+    // Icon-only buttons: each action's tooltip is its text unless set below.
+    QAction* reset_btn = toolbar->addAction(tr("Power Reset"));
+    toolbar_icons::bind(reset_btn, toolbar, QStringLiteral("power"));
     connect(reset_btn, &QAction::triggered, this, &MainWindow::on_reset);
 
-    QAction* soft_reset_btn = toolbar->addAction(
-        style()->standardIcon(QStyle::SP_DialogResetButton), tr("Soft Reset"));
+    QAction* soft_reset_btn = toolbar->addAction(tr("Soft Reset"));
+    toolbar_icons::bind(soft_reset_btn, toolbar, QStringLiteral("soft-reset"));
     connect(soft_reset_btn, &QAction::triggered, this, &MainWindow::on_soft_reset);
 
-    if (pause_action_) toolbar->addAction(pause_action_);   // GH #306 — the same action
+    if (pause_action_) {   // GH #306 — the same action as Machine > Pause
+        toolbar->addAction(pause_action_);
+        // Checked = paused: the button then shows what a click does, resume.
+        toolbar_icons::bind(pause_action_, toolbar, QStringLiteral("pause"),
+                            QStringLiteral("resume"));
+    }
 
-    QAction* load_btn = toolbar->addAction(
-        style()->standardIcon(QStyle::SP_DialogOpenButton), tr("Load"));
+    QAction* load_btn = toolbar->addAction(tr("Load"));
+    toolbar_icons::bind(load_btn, toolbar, QStringLiteral("load"));
     connect(load_btn, &QAction::triggered, this, &MainWindow::on_load_nex);
 
     toolbar->addSeparator();
 
     // Screenshot toolbar button — triggers the same action as File > Save Screenshot.
     if (screenshot_action_) {
-        QAction* screenshot_btn = toolbar->addAction(
-            QIcon::fromTheme("camera-photo"), tr("Screenshot"));
+        QAction* screenshot_btn = toolbar->addAction(tr("Screenshot"));
+        toolbar_icons::bind(screenshot_btn, toolbar, QStringLiteral("screenshot"));
         connect(screenshot_btn, &QAction::triggered, screenshot_action_, &QAction::trigger);
     }
 
     toolbar->addSeparator();
 
-    // Multiface NMI toolbar button — text-only, mirrors F9 hotkey path.
+    // Multiface NMI toolbar button — mirrors the F9 hotkey path.
     QAction* nmi_btn = toolbar->addAction(tr("NMI"));
+    toolbar_icons::bind(nmi_btn, toolbar, QStringLiteral("nmi"));
     nmi_btn->setToolTip(tr("Multiface NMI (F9)"));
     connect(nmi_btn, &QAction::triggered, this, [this]() {
         if (emulator_) {
