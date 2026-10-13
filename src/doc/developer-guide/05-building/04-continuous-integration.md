@@ -227,7 +227,7 @@ rather than a standing one.
 
 Two more blocking jobs run a portable subset of the regression suite, with the
 same plain make targets a developer types. The **`regression-win`** leg of the
-`test` job installs the MinGW cross toolchain (including `mingw64-qt6-qtbase`)
+`test` job installs the MinGW cross toolchain (including `mingw64-qt6-qtbase` and `mingw64-qt6-qtsvg`)
 and wine and runs `make regression-win`: the screenshots and the functional rows
 Windows can run, against the Release + LTO Qt exe and the SDL-only exe under
 wine. **`macos-regression`** runs `make regression-macos` on `macos-latest` with

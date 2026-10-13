@@ -1676,7 +1676,8 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
 
 The toolbar has Power Reset, Soft Reset, Pause, Load, Screenshot, an NMI button
 (Multiface NMI) and, in a debugger-enabled build, a Debug button (a magnifier over a chip) that opens the
-debugger.
+debugger. The icons are monochrome, drawn in the window's text colour, so they
+follow a light or dark theme; hovering a button shows its name.
 
 CPU Speed and Emulator Speed are different things: the first changes the clock
 the emulated Z80 runs at, which is a real Next feature; the second changes how

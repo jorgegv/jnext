@@ -2589,7 +2589,7 @@ rather than a standing one.</p>
 <h2 id="the-regression-suite-on-other-operating-systems-gh-319">The regression suite on other operating systems (GH #319)<a class="headerlink" href="#the-regression-suite-on-other-operating-systems-gh-319" title="Permanent link">&para;</a></h2>
 <p>Two more blocking jobs run a portable subset of the regression suite, with the
 same plain make targets a developer types. The <strong><code>regression-win</code></strong> leg of the
-<code>test</code> job installs the MinGW cross toolchain (including <code>mingw64-qt6-qtbase</code>)
+<code>test</code> job installs the MinGW cross toolchain (including <code>mingw64-qt6-qtbase</code> and <code>mingw64-qt6-qtsvg</code>)
 and wine and runs <code>make regression-win</code>: the screenshots and the functional rows
 Windows can run, against the Release + LTO Qt exe and the SDL-only exe under
 wine. <strong><code>macos-regression</code></strong> runs <code>make regression-macos</code> on <code>macos-latest</code> with

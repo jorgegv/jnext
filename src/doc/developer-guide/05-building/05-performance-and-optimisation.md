@@ -8,7 +8,7 @@ measure a change, then what has been measured so far.
 
 ## Link-time optimisation
 
-The emulator is built as per-subsystem static libraries — seventeen in the
+The emulator is built as per-subsystem static libraries — eighteen in the
 shipped build with the Qt GUI and the debugger, fifteen in the SDL-only build
 (`add_library(... STATIC ...)` in each `src/*/CMakeLists.txt`). That split is good for the code and bad for the
 compiler: every hot call that crosses a library — the
