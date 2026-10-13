@@ -49,7 +49,10 @@ is_write_op() {
   printf '%s' "$1" | grep -qE "${GIT_PFX}reset([[:space:]]|$)" || return 1
   local rest
   rest="$(printf '%s' "$1" | sed -E "s/^.*${GIT_PFX}reset//")"
-  printf '%s' "$rest" | grep -qE '(^|[[:space:]])--([[:space:]]|$)' && return 1
+  # git refuses paths with --soft/--hard/--merge/--keep: those always move the branch.
+  printf '%s' "$rest" | grep -qE '(^|[[:space:]])--(so|ha|me|ke)[a-z]*([[:space:]]|$)' && return 0
+  # Otherwise a path reset needs a literal `--` followed by at least one word.
+  printf '%s' "$rest" | grep -qE '(^|[[:space:]])--[[:space:]]+[^[:space:]]' && return 1
   return 0
 }
 
@@ -73,6 +76,7 @@ while IFS= read -r seg; do
     continue
   fi
 
+  [[ "$seg" == *git* ]] || continue   # cheap pre-check: no git word, nothing to judge
   is_write_op "$seg" || continue
 
   # --git-dir / --work-tree / GIT_DIR= / GIT_WORK_TREE= can point the write anywhere;

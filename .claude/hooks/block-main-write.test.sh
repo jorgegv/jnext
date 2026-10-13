@@ -140,6 +140,12 @@ check 2 "continued line, commit on the next line"  "git -C $REPO \\
   commit -m x"
 check 2 "subshell"                                 "(git -C $REPO -c a=b commit -m x)"
 check 2 "bash -c wrapped"                          "bash -c 'git -C $REPO -c a=b commit -m x'"
+check 2 "reset --hard HEAD~1 -- (no paths)"        "git -C $REPO reset --hard HEAD~1 --"
+check 2 "reset --hard \$(rev-list .. -- a)"        "git -C $REPO reset --hard \$(git rev-list -n1 HEAD -- a)"
+check 2 "reset --hard \"\$(rev-list .. -- a)\""     "git -C $REPO reset --hard \"\$(git rev-list -n1 HEAD -- a)\""
+check 2 "reset --hard \`rev-list .. -- a\`"         "git -C $REPO reset --hard \`git rev-list -n1 HEAD -- a\`"
+check 2 "reset --soft ... -- a"                    "git -C $REPO reset --soft HEAD~1 -- a"
+check 2 "reset <rev> -- with no path"              "git -C $REPO reset HEAD~1 --"
 
 printf '\nTotal: %d pass, %d fail\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
