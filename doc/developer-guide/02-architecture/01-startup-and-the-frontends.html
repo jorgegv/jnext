@@ -681,6 +681,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#light-and-dark-gh-363" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Light and dark (GH #363)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#compile-time-arms" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2423,7 +2434,9 @@ in a modal dialog that an unattended run would wait on forever.</p>
 <li><strong><code>QtApp</code></strong> (<code>src/gui/qt_app.h</code>) owns a <code>QApplication</code> and a <code>MainWindow</code>
   whose central widget is an <code>EmulatorWidget</code>. A <code>QTimer</code> drives the machine,
   paced from <code>Emulator::frame_period_ms()</code> and the current speed multiplier.
-  SDL is still linked into this build, but only to get audio out.</li>
+  SDL is still linked into this build, but only to get audio out. Right after
+  the <code>QApplication</code> exists it calls <code>DesktopColorScheme::install()</code> (light and
+  dark, below).</li>
 <li><strong><code>SdlApp</code></strong> (<code>src/platform/sdl_app.h</code>) owns an <code>SdlDisplay</code>, an <code>SdlInput</code>
   and an <code>SdlAudio</code>, and runs its own event and pacing loop. Its speed
   multiplier (<code>--speed</code>, <code>SdlApp::set_speed_percent()</code>) scales the whole-ms
@@ -2432,6 +2445,42 @@ in a modal dialog that an unattended run would wait on forever.</p>
   <code>QtApp</code> does, done inline because this loop does not use the sequencer.</li>
 <li><strong><code>HeadlessApp</code></strong> (<code>src/platform/headless_app.h</code>) owns nothing but the
   <code>Emulator</code>. Its <code>run()</code> is a bare <code>run_frame()</code> loop with no sleep in it.</li>
+</ul>
+<h2 id="light-and-dark-gh-363">Light and dark (GH #363)<a class="headerlink" href="#light-and-dark-gh-363" title="Permanent link">&para;</a></h2>
+<p>The Qt frontend follows the desktop's light/dark preference, at start and
+live. The decision is the pure <code>src/gui/color_scheme_policy.h</code>; the glue is
+<code>src/gui/desktop_color_scheme.{h,cpp}</code>, installed by <code>QtApp::init()</code> and by the
+SD-card provisioning dialogs' temporary <code>QApplication</code>.</p>
+<ul>
+<li><strong>Inputs</strong>, in precedence order: <code>JNEXT_COLOR_SCHEME</code> (<code>dark</code>, <code>light</code>,
+  <code>system</code>; documented in the man page); on Linux, the XDG desktop portal's
+  <code>org.freedesktop.appearance</code> <code>color-scheme</code> (1 dark, 2 light, 0 none), read
+  over QtDBus with <code>ReadOne</code> (falling back to <code>Read</code>) and watched through its
+  <code>SettingChanged</code> signal; otherwise nothing, and Qt's own detection stands.
+  Qt misses the portal value under GNOME (it reports Light with the desktop on
+  <em>prefer-dark</em>), which is the reason jnext asks itself. QtDBus is linked on
+  Linux Qt 6 builds only (<code>JNEXT_HAVE_QTDBUS</code>); it is part of qtbase.</li>
+<li><strong>Applying</strong> a request is <code>QStyleHints::setColorScheme()</code> (Qt 6.8+). Some
+  platform themes report the new scheme and keep their old palette (Qt's
+  <code>gtk3</code> theme under X11, measured), so after the theme has had its event-loop
+  turn, a palette that still does not match gets Fusion's palette for that
+  scheme (<code>DesktopColorScheme::fusion_palette()</code>: identical to Qt 6.11's
+  Fusion palette in every role and group for both schemes when compared on the
+  development host; <code>color_scheme_test</code> CS-09 re-checks the light one). Below Qt 6.8 the palette is
+  the only lever. Qt 5 builds do none of this.</li>
+<li><strong>What follows the palette.</strong> The toolbar icons re-render on
+  <code>QEvent::PaletteChange</code> (<code>toolbar_icons::bind</code>). The debugger panels' own
+  colours (table tints, separators, the HALTED and flag labels) go through
+  <code>src/qt/palette_tint_qt.h</code>: the colour a panel names, unchanged, on a light
+  palette, and its dark counterpart (lightness mirrored around the dark Base)
+  otherwise. Two Qt behaviours shape it, both measured on 6.11: an application
+  palette change reaches only the application and the top-level widgets as
+  <code>ApplicationPaletteChange</code>, and a widget with a style sheet keeps, with its
+  whole subtree, the palette it had when the sheet was applied. So
+  <code>palette_tint::follow()</code> re-sets every followed sheet from one application
+  listener after each change, and <code>DebuggerWindow::changeEvent()</code> re-runs
+  <code>refresh_panels()</code> (queued) so table cells re-colour without a step.
+  <code>debugger_panels_test</code> QDARK-01..05 pin it.</li>
 </ul>
 <h2 id="compile-time-arms">Compile-time arms<a class="headerlink" href="#compile-time-arms" title="Permanent link">&para;</a></h2>
 <table>

@@ -2431,11 +2431,11 @@ profiler — surround the emulation rather than being part of it.</p>
 </tr>
 <tr>
 <td><code>gui/</code></td>
-<td>The Qt 6 frontend: <code>QtApp</code>, <code>MainWindow</code>, <code>EmulatorWidget</code>, the preferences dialog and the saved-configuration store. <code>gui/icons/</code> holds the toolbar icon set: monochrome SVGs, one per toolbar action, whose only colour is <code>currentColor</code> (rules in <code>doc/design/ICONSET-DESIGN.md</code>).</td>
+<td>The Qt 6 frontend: <code>QtApp</code>, <code>MainWindow</code>, <code>EmulatorWidget</code>, the preferences dialog and the saved-configuration store. <code>gui/icons/</code> holds the toolbar icon set: monochrome SVGs, one per toolbar action, whose only colour is <code>currentColor</code> (rules in <code>doc/design/ICONSET-DESIGN.md</code>). <code>color_scheme_policy.h</code> and <code>desktop_color_scheme.*</code> make the GUI follow the desktop's light/dark preference (see 2.1).</td>
 </tr>
 <tr>
 <td><code>qt/</code></td>
-<td>Header-only Qt code that both Qt libraries need — the debugger keymap's Qt conversions and the menu-bar Alt-navigation style. No library target, no <code>Emulator</code>; it exists so that <code>jnext_gui</code> and <code>jnext_debugger</code> can share it without depending on each other, and so that <code>src/debug/</code> stays free of Qt (<code>debug_qt_free_test</code> fails if a Qt include or a <code>*_qt.h</code> reappears there).</td>
+<td>Header-only Qt code that both Qt libraries need — the debugger keymap's Qt conversions, the menu-bar Alt-navigation style, and <code>palette_tint_qt.h</code>, which makes the colours a panel picks for itself work on a dark palette (see 2.1). No library target, no <code>Emulator</code>; it exists so that <code>jnext_gui</code> and <code>jnext_debugger</code> can share it without depending on each other, and so that <code>src/debug/</code> stays free of Qt (<code>debug_qt_free_test</code> fails if a Qt include or a <code>*_qt.h</code> reappears there).</td>
 </tr>
 <tr>
 <td><code>toolbar_icons/</code></td>

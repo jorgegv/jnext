@@ -101,6 +101,13 @@ before it is rendered:
 - `toolbar_icons::bind(action, toolbar, name)` sets the icon from the toolbar's
   palette and re-renders it whenever the toolbar receives `QEvent::PaletteChange`,
   so a switch between light and dark follows at run time.
+- What makes the palette light or dark is GH #363's colour-scheme follower
+  (`src/gui/desktop_color_scheme.*`): on Linux it reads the XDG desktop portal's
+  `color-scheme`, which Qt misses under GNOME, and applies it with
+  `QStyleHints::setColorScheme()` (Fusion's palette when the platform theme
+  does not follow); on Windows and macOS Qt's own detection stands;
+  `JNEXT_COLOR_SCHEME=dark|light` forces either. Qt 5 builds stay on Qt's own
+  (light) palette. The developer guide, section 2.1, has the detail.
 - Failures are loud: a missing resource, an SVG `QSvgRenderer` cannot parse, one
   with no `currentColor`, or one that renders no pixel throws
   `std::runtime_error` naming the icon. A blank button is never the result.
