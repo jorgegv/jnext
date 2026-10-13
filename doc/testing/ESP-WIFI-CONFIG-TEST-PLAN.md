@@ -57,8 +57,8 @@ so it carries coverage in two more suites:
 
 | Suite | Rows | What only it can prove |
 |---|---|---|
-| `esp_socket_test` | `RSLV-01..14` (plus `08a`/`11a`) | The real `SocketResolver`: the address policy on a path nobody dials, the literal fast path and that it **never consults the injected resolver**, one-at-a-time, a resolver that throws, one that reports success with no addresses, and that **destroying a resolver mid-lookup returns immediately** |
-| `esp_wiring_test` | `RGATE-01..09` | `EspGatedResolver`: the `--esp-allow` list over lookups, that a blocked name **never reaches the wrapped resolver**, and that a refusal is **accepted-then-failed rather than rejected** — the property that stops the command being an allowlist oracle |
+| `esp_socket_test` | `RSLV-01..14` (plus `08a`/`10a`/`11a`) | The real `SocketResolver`: the address policy on a path nobody dials, the literal fast path and that it **never consults the injected resolver**, one-at-a-time, a resolver that throws, one that reports success with no addresses, and that **destroying a resolver mid-lookup returns immediately** |
+| `esp_wiring_test` | `RGATE-01..09` (plus `08b`) | `EspGatedResolver`: the `--esp-allow` list over lookups, that a blocked name **never reaches the wrapped resolver**, and that a refusal is **accepted-then-failed rather than rejected** — the property that stops the command being an allowlist oracle |
 
 Every reply is asserted **byte-exact** via `check_eq`, not by substring, except
 where a row deliberately asserts a relationship between two replies
