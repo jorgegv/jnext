@@ -9,6 +9,7 @@
 #include <cstdlib>
 
 #ifdef JNEXT_HAVE_QTDBUS
+#include "gui/desktop_color_scheme_portal.h"
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusVariant>
@@ -30,35 +31,9 @@ const char* name_of(Request r) {
 const char* const PORTAL_SERVICE = "org.freedesktop.portal.Desktop";
 const char* const PORTAL_PATH = "/org/freedesktop/portal/desktop";
 const char* const PORTAL_IFACE = "org.freedesktop.portal.Settings";
-
-// ReadOne returns the value as a variant; the older Read wraps it in a second
-// variant. Unwrap either.
-std::optional<uint32_t> unwrap(QVariant v) {
-    for (int i = 0; i < 3 && v.metaType() == QMetaType::fromType<QDBusVariant>(); ++i)
-        v = qvariant_cast<QDBusVariant>(v).variant();
-    bool ok = false;
-    const uint value = v.toUInt(&ok);
-    return ok ? std::optional<uint32_t>(value) : std::nullopt;
-}
 #endif
 
 } // namespace
-
-#ifdef JNEXT_HAVE_QTDBUS
-// Receives the portal's SettingChanged signal: QtDBus connects a signal to a
-// slot by its signature, which needs a Q_OBJECT receiver.
-class PortalListener : public QObject {
-    Q_OBJECT
-public:
-    explicit PortalListener(DesktopColorScheme* owner) : QObject(owner), owner_(owner) {}
-public slots:
-    void changed(const QString& ns, const QString& key, const QDBusVariant& value) {
-        owner_->setting_changed(ns.toStdString(), key.toStdString(), unwrap(value.variant()));
-    }
-private:
-    DesktopColorScheme* owner_;
-};
-#endif
 
 QPalette DesktopColorScheme::fusion_palette(bool dark) {
     const QColor window_text = dark ? QColor(240, 240, 240) : QColor(Qt::black);
@@ -115,7 +90,7 @@ std::optional<uint32_t> DesktopColorScheme::read_portal() {
         call << QStringLiteral("org.freedesktop.appearance") << QStringLiteral("color-scheme");
         const QDBusMessage reply = bus.call(call, QDBus::Block, 1000);
         if (reply.type() == QDBusMessage::ReplyMessage && !reply.arguments().isEmpty())
-            return unwrap(reply.arguments().first());
+            return portal_unwrap(reply.arguments().first());
         if (reply.errorName() != QLatin1String("org.freedesktop.DBus.Error.UnknownMethod"))
             break;
     }
@@ -185,7 +160,3 @@ DesktopColorScheme* DesktopColorScheme::install() {
 #endif
     return self;
 }
-
-#ifdef JNEXT_HAVE_QTDBUS
-#include "desktop_color_scheme.moc"
-#endif

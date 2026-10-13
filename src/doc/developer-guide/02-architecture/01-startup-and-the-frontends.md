@@ -129,7 +129,9 @@ in a modal dialog that an unattended run would wait on forever.
 
 The Qt frontend follows the desktop's light/dark preference, at start and
 live. The decision is the pure `src/gui/color_scheme_policy.h`; the glue is
-`src/gui/desktop_color_scheme.{h,cpp}`, installed by `QtApp::init()` and by the
+`src/gui/desktop_color_scheme.{h,cpp}` (its D-Bus signal receiver is
+`desktop_color_scheme_portal.*`, a header of its own so that its meta-object
+code stays out of the PGO-profiled sources), installed by `QtApp::init()` and by the
 SD-card provisioning dialogs' temporary `QApplication`.
 
 - **Inputs**, in precedence order: `JNEXT_COLOR_SCHEME` (`dark`, `light`,

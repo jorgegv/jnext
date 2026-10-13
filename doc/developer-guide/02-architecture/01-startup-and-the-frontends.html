@@ -2449,7 +2449,9 @@ in a modal dialog that an unattended run would wait on forever.</p>
 <h2 id="light-and-dark-gh-363">Light and dark (GH #363)<a class="headerlink" href="#light-and-dark-gh-363" title="Permanent link">&para;</a></h2>
 <p>The Qt frontend follows the desktop's light/dark preference, at start and
 live. The decision is the pure <code>src/gui/color_scheme_policy.h</code>; the glue is
-<code>src/gui/desktop_color_scheme.{h,cpp}</code>, installed by <code>QtApp::init()</code> and by the
+<code>src/gui/desktop_color_scheme.{h,cpp}</code> (its D-Bus signal receiver is
+<code>desktop_color_scheme_portal.*</code>, a header of its own so that its meta-object
+code stays out of the PGO-profiled sources), installed by <code>QtApp::init()</code> and by the
 SD-card provisioning dialogs' temporary <code>QApplication</code>.</p>
 <ul>
 <li><strong>Inputs</strong>, in precedence order: <code>JNEXT_COLOR_SCHEME</code> (<code>dark</code>, <code>light</code>,
