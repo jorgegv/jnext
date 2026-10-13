@@ -165,6 +165,8 @@ private:
     bool initial_fit_done_ = false;
     int  initial_fit_passes_ = 0;
     static constexpr int kMaxInitialFitPasses = 4;
+    // GH #363 — one queued refresh_panels() per palette change (changeEvent).
+    bool palette_refresh_queued_ = false;
 
     // Layout
     QSplitter* main_splitter_ = nullptr;
@@ -259,7 +261,6 @@ private:
 
     // Rewind toolbar (second bottom toolbar, shown when rewind buffer has data)
     QToolBar* rewind_toolbar_ = nullptr;
-    bool palette_refresh_queued_ = false;   // GH #363, changeEvent()
     QSlider*  rewind_slider_ = nullptr;
     QLabel*   rewind_frame_label_ = nullptr;
     QPushButton* rewind_jump_btn_ = nullptr;
