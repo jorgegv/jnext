@@ -1,4 +1,5 @@
 #include "gui/sdcard_download_dialog.h"
+#include "gui/desktop_color_scheme.h"
 
 #include <QApplication>
 #include <QEventLoop>
@@ -30,6 +31,7 @@ void SdcardGuiProvisioner::ensure_app() {
         static char arg0[] = "jnext";
         static char* argv[] = {arg0, nullptr};
         temp_app_ = std::make_unique<QApplication>(argc, argv);
+        DesktopColorScheme::install();   // GH #363: these dialogs follow it too
     }
 }
 

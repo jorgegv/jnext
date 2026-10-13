@@ -1450,6 +1450,15 @@ if(ENABLE_QT_UI)
     target_include_directories(window_title_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME window_title_tests COMMAND window_title_test)
 
+    # GH #363 — the GUI follows the desktop's light/dark preference: the pure
+    # decision (gui/color_scheme_policy.h) and its glue (desktop_color_scheme),
+    # offscreen, the portal fed through setting_changed() (no D-Bus).
+    add_executable(color_scheme_test gui/color_scheme_test.cpp)
+    set_target_properties(color_scheme_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(color_scheme_test PRIVATE jnext_gui)
+    target_include_directories(color_scheme_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME color_scheme_tests COMMAND color_scheme_test)
+
     # Issue #131 — File > Quit was wired straight to QApplication::quit(), so
     # MainWindow::closeEvent() never ran and its cleanup (stop an active
     # recording, tear the debugger down) was skipped. Asserts the OBSERVABLE

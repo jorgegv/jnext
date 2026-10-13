@@ -1066,6 +1066,7 @@ my %NO_MATRIX_SECTION = (
     'shifted_keys_test'   => 'host shifted-scancode translation; guest matrix is `## Input`',
     'window_scale_test'   => 'main-window scale/fullscreen geometry (host GUI)',
     'window_title_test'   => 'main-window title carries the version (host GUI)',
+    'color_scheme_test'   => 'GUI light/dark scheme from the desktop portal (host GUI, GH #363)',
     'sdl_window_title_test' => 'SDL window title carries the version (host GUI)',
 
     # ── CLI, configuration, logging, profiling ───────────────────────

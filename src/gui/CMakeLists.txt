@@ -29,6 +29,16 @@ target_link_libraries(jnext_gui PUBLIC
 
 target_include_directories(jnext_gui PUBLIC ${CMAKE_SOURCE_DIR}/src "${CMAKE_BINARY_DIR}/generated")
 
+# GH #363 — the desktop's light/dark preference is read from the XDG desktop
+# portal over D-Bus (gui/desktop_color_scheme.cpp). Linux + Qt 6 only: QtDBus is
+# part of qtbase there, so this adds no package. Windows and macOS report the
+# system scheme through Qt itself.
+if(UNIX AND NOT APPLE AND JNEXT_QT_MAJOR EQUAL 6)
+    find_package(Qt6 REQUIRED COMPONENTS DBus)
+    target_link_libraries(jnext_gui PUBLIC Qt6::DBus)
+    target_compile_definitions(jnext_gui PUBLIC JNEXT_HAVE_QTDBUS)
+endif()
+
 if(ENABLE_DEBUGGER)
     target_link_libraries(jnext_gui PUBLIC jnext_debugger)
     target_compile_definitions(jnext_gui PUBLIC ENABLE_DEBUGGER)

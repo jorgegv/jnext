@@ -113,7 +113,9 @@ in a modal dialog that an unattended run would wait on forever.
 - **`QtApp`** (`src/gui/qt_app.h`) owns a `QApplication` and a `MainWindow`
   whose central widget is an `EmulatorWidget`. A `QTimer` drives the machine,
   paced from `Emulator::frame_period_ms()` and the current speed multiplier.
-  SDL is still linked into this build, but only to get audio out.
+  SDL is still linked into this build, but only to get audio out. Right after
+  the `QApplication` exists it calls `DesktopColorScheme::install()` (light and
+  dark, below).
 - **`SdlApp`** (`src/platform/sdl_app.h`) owns an `SdlDisplay`, an `SdlInput`
   and an `SdlAudio`, and runs its own event and pacing loop. Its speed
   multiplier (`--speed`, `SdlApp::set_speed_percent()`) scales the whole-ms
@@ -122,6 +124,43 @@ in a modal dialog that an unattended run would wait on forever.
   `QtApp` does, done inline because this loop does not use the sequencer.
 - **`HeadlessApp`** (`src/platform/headless_app.h`) owns nothing but the
   `Emulator`. Its `run()` is a bare `run_frame()` loop with no sleep in it.
+
+## Light and dark (GH #363)
+
+The Qt frontend follows the desktop's light/dark preference, at start and
+live. The decision is the pure `src/gui/color_scheme_policy.h`; the glue is
+`src/gui/desktop_color_scheme.{h,cpp}`, installed by `QtApp::init()` and by the
+SD-card provisioning dialogs' temporary `QApplication`.
+
+- **Inputs**, in precedence order: `JNEXT_COLOR_SCHEME` (`dark`, `light`,
+  `system`; documented in the man page); on Linux, the XDG desktop portal's
+  `org.freedesktop.appearance` `color-scheme` (1 dark, 2 light, 0 none), read
+  over QtDBus with `ReadOne` (falling back to `Read`) and watched through its
+  `SettingChanged` signal; otherwise nothing, and Qt's own detection stands.
+  Qt misses the portal value under GNOME (it reports Light with the desktop on
+  *prefer-dark*), which is the reason jnext asks itself. QtDBus is linked on
+  Linux Qt 6 builds only (`JNEXT_HAVE_QTDBUS`); it is part of qtbase.
+- **Applying** a request is `QStyleHints::setColorScheme()` (Qt 6.8+). Some
+  platform themes report the new scheme and keep their old palette (Qt's
+  `gtk3` theme under X11, measured), so after the theme has had its event-loop
+  turn, a palette that still does not match gets Fusion's palette for that
+  scheme (`DesktopColorScheme::fusion_palette()`: identical to Qt 6.11's
+  Fusion palette in every role and group for both schemes when compared on the
+  development host; `color_scheme_test` CS-09 re-checks the light one). Below Qt 6.8 the palette is
+  the only lever. Qt 5 builds do none of this.
+- **What follows the palette.** The toolbar icons re-render on
+  `QEvent::PaletteChange` (`toolbar_icons::bind`). The debugger panels' own
+  colours (table tints, separators, the HALTED and flag labels) go through
+  `src/qt/palette_tint_qt.h`: the colour a panel names, unchanged, on a light
+  palette, and its dark counterpart (lightness mirrored around the dark Base)
+  otherwise. Two Qt behaviours shape it, both measured on 6.11: an application
+  palette change reaches only the application and the top-level widgets as
+  `ApplicationPaletteChange`, and a widget with a style sheet keeps, with its
+  whole subtree, the palette it had when the sheet was applied. So
+  `palette_tint::follow()` re-sets every followed sheet from one application
+  listener after each change, and `DebuggerWindow::changeEvent()` re-runs
+  `refresh_panels()` (queued) so table cells re-colour without a step.
+  `debugger_panels_test` QDARK-01..05 pin it.
 
 ## Compile-time arms
 

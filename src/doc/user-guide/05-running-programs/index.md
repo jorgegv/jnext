@@ -56,6 +56,14 @@ own, **Debug**. Hovering a button shows its name. The icons are drawn in the
 window's text colour, so they follow a light or a dark desktop theme, including
 a switch made while JNEXT is running.
 
+**Light and dark.** JNEXT's windows, the debugger included, follow your
+desktop's light or dark setting, and change with it while running. On Linux
+that is the setting your desktop publishes to applications (GNOME's *Dark
+style*, KDE's colour scheme); on Windows and macOS it is the system
+appearance. The legacy Windows packages (Windows 7 and 8) stay light. To force
+one regardless (not in the legacy packages), start JNEXT with `JNEXT_COLOR_SCHEME=dark` or
+`JNEXT_COLOR_SCHEME=light` in its environment.
+
 The status bar along the bottom tracks the session: frame rate, the emulated
 CPU clock, the emulator speed, tape state, and the current machine.
 

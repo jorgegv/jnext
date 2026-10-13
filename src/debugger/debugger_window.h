@@ -112,6 +112,7 @@ signals:
 protected:
     void closeEvent(QCloseEvent* event) override;
     void showEvent(QShowEvent* event) override;
+    void changeEvent(QEvent* event) override;   // GH #363
 
 private:
     void create_panels();
@@ -258,6 +259,7 @@ private:
 
     // Rewind toolbar (second bottom toolbar, shown when rewind buffer has data)
     QToolBar* rewind_toolbar_ = nullptr;
+    bool palette_refresh_queued_ = false;   // GH #363, changeEvent()
     QSlider*  rewind_slider_ = nullptr;
     QLabel*   rewind_frame_label_ = nullptr;
     QPushButton* rewind_jump_btn_ = nullptr;

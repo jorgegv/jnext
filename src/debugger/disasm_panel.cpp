@@ -1,4 +1,5 @@
 #include "disasm_panel.h"
+#include "qt/palette_tint_qt.h"   // GH #363
 #include "debugger/breakpoint_model.h"
 
 #include <cstring>
@@ -417,7 +418,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
 
     // Fill background
     painter.fillRect(0, paint_y_offset_, w, visible_lines() * LINE_HEIGHT,
-                     QColor(255, 255, 255));
+                     palette_tint::surface(palette(), QColor(255, 255, 255)));
 
     // Draw column headers just above the disasm lines
     QFont header_font = mono_font_;
@@ -425,14 +426,14 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
     header_font.setPointSize(8);
     QFontMetrics hfm(header_font);
     painter.setFont(header_font);
-    painter.setPen(QColor(80, 80, 80));
+    painter.setPen(palette_tint::ink(palette(), QColor(80, 80, 80)));
     int header_y = paint_y_offset_ - 4;
     painter.drawText(2, header_y, "BP");
     painter.drawText(GUTTER_WIDTH + 4, header_y, "Addr");
     painter.setFont(mono_font_);
 
     // Draw gutter separator
-    painter.setPen(QColor(200, 200, 200));
+    painter.setPen(palette_tint::surface(palette(), QColor(200, 200, 200)));
     painter.drawLine(GUTTER_WIDTH, paint_y_offset_,
                      GUTTER_WIDTH, paint_y_offset_ + visible_lines() * LINE_HEIGHT);
 
@@ -446,7 +447,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         // Row background highlights
         if (entry.is_current_pc) {
             painter.fillRect(GUTTER_WIDTH, y, w - GUTTER_WIDTH, LINE_HEIGHT,
-                             QColor(255, 255, 204)); // light yellow
+                             palette_tint::surface(palette(), QColor(255, 255, 204))); // light yellow
         }
         // GH #21 — the selection, as a range of addresses. Two things the
         // fill must not destroy: it starts at GUTTER_WIDTH, so the breakpoint
@@ -456,7 +457,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         // always used — this is the same highlight, over more lines.
         if (line_selected(entry.line.addr)) {
             painter.fillRect(GUTTER_WIDTH, y, w - GUTTER_WIDTH, LINE_HEIGHT,
-                             QColor(204, 221, 255, 128)); // semi-transparent light blue
+                             palette_tint::surface(palette(), QColor(204, 221, 255, 128))); // semi-transparent light blue
         }
 
         // Breakpoint indicator in the gutter.
@@ -494,13 +495,13 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
 
         // Address column
         int x = GUTTER_WIDTH + 4;
-        painter.setPen(QColor(100, 100, 100));
+        painter.setPen(palette_tint::ink(palette(), QColor(100, 100, 100)));
         QString addr_str = QString::asprintf("$%04X", entry.line.addr);
         painter.drawText(x, text_y, addr_str);
 
         // Hex bytes column
         x += ADDR_WIDTH;
-        painter.setPen(QColor(150, 150, 150));
+        painter.setPen(palette_tint::ink(palette(), QColor(150, 150, 150)));
         QString bytes_str;
         for (int b = 0; b < entry.line.byte_count; ++b) {
             if (b > 0) bytes_str += ' ';
@@ -515,7 +516,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
             bold.setBold(true);
             painter.setFont(bold);
         }
-        painter.setPen(QColor(0, 0, 0));
+        painter.setPen(palette_tint::ink(palette(), QColor(0, 0, 0)));
 
         // Symbol substitution lives in disasm_text::apply_symbols(), which is
         // also what the clipboard path calls — GH #21 requires the copied text
@@ -533,7 +534,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
     // Gray overlay when running (not paused)
     if (!paused_) {
         painter.fillRect(0, paint_y_offset_, w, visible_lines() * LINE_HEIGHT,
-                         QColor(192, 192, 192, 80)); // light semi-transparent gray
+                         palette_tint::surface(palette(), QColor(192, 192, 192, 80))); // light semi-transparent gray
     }
 }
 

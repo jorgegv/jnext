@@ -134,6 +134,7 @@
 #include "gui/app_config.h"
 #include "gui/emulator_widget.h"
 #include "gui/main_window.h"
+#include "gui/desktop_color_scheme.h"
 #include "gui/preferences_dialog.h"
 #include "port/nextreg.h"
 #include "script/script_host.h"
@@ -723,6 +724,11 @@ int main(int argc, char** argv)
     // way two correct runs can still disagree byte for byte.
     if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion")))
         QApplication::setStyle(fusion);
+    // GH #363 — JNEXT_COLOR_SCHEME=dark previews every image in the dark
+    // scheme (the committed images are the light one: leave it unset). Only
+    // the explicit override: the desktop's own preference must not leak in.
+    if (color_scheme::from_override(std::getenv("JNEXT_COLOR_SCHEME")))
+        DesktopColorScheme::install();
 
     QDir().mkpath(opt.out_dir);
 

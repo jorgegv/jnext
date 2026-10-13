@@ -1,4 +1,5 @@
 #include "gui/preferences_dialog.h"
+#include "qt/palette_tint_qt.h"   // GH #363
 #include "gui/emulator_widget.h"
 #ifdef ENABLE_DEBUGGER
 #include "gui/shortcut_capture_button.h"
@@ -630,7 +631,8 @@ QWidget* PreferencesDialog::build_debug_keys_tab(
                 .arg(lines.join(QStringLiteral("<br>"))),
             tab);
         bad->setWordWrap(true);
-        bad->setStyleSheet(QStringLiteral("QLabel { color: #b00000; }"));
+        bad->setStyleSheet("QLabel { color: " +
+                           palette_tint::css(palette_tint::ink(palette(), QColor(0xB0, 0x00, 0x00))) + "; }");
         outer->addWidget(bad);
     }
 

@@ -1,4 +1,5 @@
 #include "debugger/copper_panel.h"
+#include "qt/palette_tint_qt.h"   // GH #363
 #include "debug/debugger.h"
 
 #include <QVBoxLayout>
@@ -122,9 +123,9 @@ void CopperPanel::refresh() {
         table_->item(r, 3)->setText(details);
 
         // Highlight current PC row
-        QColor bg = (static_cast<uint16_t>(addr) == pc)
+        QColor bg = palette_tint::surface(palette(), (static_cast<uint16_t>(addr) == pc)
             ? QColor(255, 255, 160)   // yellow highlight
-            : (r % 2 == 0 ? QColor(255, 255, 255) : QColor(245, 245, 245));
+            : (r % 2 == 0 ? QColor(255, 255, 255) : QColor(245, 245, 245)));
 
         for (int c = 0; c < 4; ++c) {
             table_->item(r, c)->setBackground(bg);
