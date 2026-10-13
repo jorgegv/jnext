@@ -107,7 +107,7 @@ jobs:
           DEBIAN_FRONTEND=noninteractive apt-get install -y \
             cmake make g++ git file dpkg-dev curl ca-certificates \
             zlib1g-dev libcurl4-openssl-dev libssl-dev libpng-dev \
-            qt6-base-dev libqt6svg6-dev
+            qt6-base-dev qt6-svg-dev
           # SDL3 (GH #57). Ubuntu 24.04 LTS has no libsdl3 at ANY version, and
           # neither does 24.10 — it first appears in 25.04. That one series
           # therefore installs nothing here: `make package-deb` depends on the
