@@ -136,7 +136,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Shifted symbols reach the guest |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Window scale + fullscreen geometry |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Main-window title (version) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI light/dark scheme (GH #363) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI light/dark scheme (GH #363) |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quit runs closeEvent cleanup |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Toolbar SVG icon set + icon lint |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply) |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -151,8 +151,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Key Bindings |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       53 |       53 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Panels (GH #278) |       80 |       80 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Panels (GH #278) |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12921**| **12921**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12936**| **12936**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
