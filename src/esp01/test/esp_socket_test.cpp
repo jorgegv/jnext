@@ -401,6 +401,9 @@ namespace fake_dns {
 /// opens it is exercising the resolver-that-never-answers case on purpose
 /// (ASYNC-09); main() opens it on the way out so no thread is left parked.
 std::atomic<bool> gate{false};
+// GH #356: rows share these counters, so a row that starts a counting worker
+// must wait for that worker's entry (and, where it opens the gate, for its
+// completion) before it ends; otherwise a later row's delta counts it.
 std::atomic<int>  entered{0};    ///< lookups that reached the resolver at all
 std::atomic<int>  completed{0};  ///< lookups that ran to the end of the resolver
 std::atomic<bool> off_thread{false};
@@ -1545,7 +1548,8 @@ int main() {
             //      for.)
             {
                 fake_dns::gate.store(false);
-                const int entered0 = fake_dns::entered.load();
+                const int entered0   = fake_dns::entered.load();
+                const int completed0 = fake_dns::completed.load();
 
                 auto t = make_socket_transport(loopback_ok(), fake_dns::gated);
                 t->begin_connect("first-poll.test", l.port());
@@ -1563,6 +1567,15 @@ int main() {
                       "waiting it out",
                       first_poll_ms < 100 && started &&
                           t->state() == TransportState::Resolving);
+
+                // GH #356: open the gate and wait for THIS lookup to finish, so
+                // it cannot complete during a later row and be counted there.
+                fake_dns::gate.store(true);
+                check("ASYNC-11a",
+                      "...and once the gate opens that lookup runs to the end here, "
+                      "so no later row's completion count includes it (GH #356)",
+                      wait_until([&] { return fake_dns::completed.load() > completed0; },
+                                 2000));
             }
 
             // (02..04) A NAME goes to the resolver thread. The gate is held shut,
@@ -1738,6 +1751,7 @@ int main() {
             //      poll() take those 5 s and the row fails on elapsed time.
             {
                 fake_dns::gate.store(false);
+                const int entered0 = fake_dns::entered.load();
                 auto tr = make_socket_transport(loopback_ok(), fake_dns::gated);
                 AtEngine eng(*tr);
                 eng.set_connect_timeout(std::chrono::milliseconds(150));
@@ -1763,6 +1777,16 @@ int main() {
                       "AT+CIPSTART's deadline bounds NAME RESOLUTION, not just the "
                       "TCP handshake",
                       got_error && ms < 1500);
+
+                // GH #356: the ERROR above is answered on the deadline whether
+                // or not a lookup exists, so assert the worker really reached
+                // the resolver (and no later row counts it as its own).
+                check("ASYNC-09a",
+                      "...and the lookup the deadline cut short really reached the "
+                      "resolver: the ERROR answered a running lookup, not a lost one "
+                      "(GH #356)",
+                      wait_until([&] { return fake_dns::entered.load() > entered0; },
+                                 2000));
             }
 
             // (12) A THROWING RESOLVER MUST NOT ABORT THE PROCESS. `ResolveFn`
@@ -1807,8 +1831,8 @@ int main() {
         } else {
             for (const char* id : {"ASYNC-01", "ASYNC-02", "ASYNC-03", "ASYNC-04",
                                    "ASYNC-05", "ASYNC-06", "ASYNC-07", "ASYNC-08", "ASYNC-10",
-                                   "ASYNC-11", "ASYNC-12",
-                                   "ASYNC-09"})
+                                   "ASYNC-11", "ASYNC-11a", "ASYNC-12",
+                                   "ASYNC-09", "ASYNC-09a"})
                 skip(id, "could not bind a loopback listener");
         }
     }
@@ -2074,6 +2098,7 @@ int main() {
                   fake_dns::off_thread.load()); }
 
         {   fake_dns::gate.store(false);
+            const int  entered0 = fake_dns::entered.load();
             auto       r      = make_socket_resolver(loopback_ok(), fake_dns::gated);
             const bool first  = r->begin("one.test");
             const bool second = r->begin("two.test");
@@ -2081,6 +2106,12 @@ int main() {
                   "a second begin() while one is in flight is refused, so an answer can "
                   "never be silently replaced",
                   first && !second && r->state() == ResolveState::Resolving);
+            // GH #356: wait for the in-flight worker to reach the resolver, so
+            // a later row's entered-count delta cannot include it.
+            check("RSLV-08a",
+                  "...and the lookup in flight really reached the resolver; the row "
+                  "waits for it, so no later row counts it as its own (GH #356)",
+                  wait_until([&] { return fake_dns::entered.load() > entered0; }, 2000));
             fake_dns::gate.store(true); }
 
         {   auto r = make_socket_resolver(loopback_ok(), fake_dns::throws_after_appending);
