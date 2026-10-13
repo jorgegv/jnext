@@ -2475,8 +2475,10 @@ gate was written for. One body, one gate, three callers.</p>
 <h2 id="testing-a-runs-packages">Testing a run's packages<a class="headerlink" href="#testing-a-runs-packages" title="Permanent link">&para;</a></h2>
 <p>Every green <code>ci.yml</code> run leaves its builds on the run's Summary page, under
 <strong>Artifacts</strong>, so a tester can try a build without a release (GH #359). Upload is
-by <code>uses: actions/upload-artifact@v6</code> steps (no <code>run:</code>), only on success, with
-<code>if-no-files-found: error</code> so a renamed output turns the job red. Retention is 14
+by <code>uses: actions/upload-artifact@v6</code> steps (no <code>run:</code>). The <code>package</code> and
+<code>macos</code> uploads come after their job's tests, so they happen only on success; the
+Flatpak is uploaded by its action BEFORE the permission check, so it can be
+present in a red run. <code>if-no-files-found: error</code> turns a renamed output into a red job. Retention is 14
 days (the Flatpak, uploaded by its action, keeps the repository default of 90),
 and compression is off since the packages are already compressed.</p>
 <table>
@@ -2543,7 +2545,7 @@ testers use the Flatpak.</p>
 <p>A developer fetches one with <code>gh run download &lt;run-id&gt; -n &lt;artifact&gt;</code>. A tester
 follows the click path in the user guide (Installing, "Trying a build before it
 is released"). Pick a run whose overall status is green: an artifact appears when
-its own job finishes, possibly while another job is still running or failing. A
+its upload step runs, possibly while another job is still running or failing. A
 pull-request run's artifacts are built from that PR's code; test <code>main</code> runs
 unless asked to test a PR. A new <code>package-*</code> row needs its own upload step in
 <code>ci.yml</code>: nothing cross-checks the two.</p>

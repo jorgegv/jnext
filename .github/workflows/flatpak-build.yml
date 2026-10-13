@@ -150,8 +150,9 @@ jobs:
 
       # The action produces the .flatpak bundle and uploads it as a run
       # artifact itself (named jnext-linux-flatpak, GH #359; the file inside
-      # keeps the bundle name, so the release asset is unchanged), which release.yml's `publish` job then attaches (a
-      # reusable workflow's artifacts belong to the calling run). No upload step
+      # keeps the bundle name, so the release asset is unchanged), which
+      # release.yml's `publish` job then attaches (a reusable workflow's
+      # artifacts belong to the calling run). No upload step
       # is added here: a second one would clash, and on the manual entry point
       # the same artifact is what makes the bundle downloadable from the run.
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6

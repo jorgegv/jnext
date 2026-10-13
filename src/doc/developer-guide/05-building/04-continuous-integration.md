@@ -146,8 +146,10 @@ gate was written for. One body, one gate, three callers.
 
 Every green `ci.yml` run leaves its builds on the run's Summary page, under
 **Artifacts**, so a tester can try a build without a release (GH #359). Upload is
-by `uses: actions/upload-artifact@v6` steps (no `run:`), only on success, with
-`if-no-files-found: error` so a renamed output turns the job red. Retention is 14
+by `uses: actions/upload-artifact@v6` steps (no `run:`). The `package` and
+`macos` uploads come after their job's tests, so they happen only on success; the
+Flatpak is uploaded by its action BEFORE the permission check, so it can be
+present in a red run. `if-no-files-found: error` turns a renamed output into a red job. Retention is 14
 days (the Flatpak, uploaded by its action, keeps the repository default of 90),
 and compression is off since the packages are already compressed.
 
@@ -172,7 +174,7 @@ testers use the Flatpak.
 A developer fetches one with `gh run download <run-id> -n <artifact>`. A tester
 follows the click path in the user guide (Installing, "Trying a build before it
 is released"). Pick a run whose overall status is green: an artifact appears when
-its own job finishes, possibly while another job is still running or failing. A
+its upload step runs, possibly while another job is still running or failing. A
 pull-request run's artifacts are built from that PR's code; test `main` runs
 unless asked to test a PR. A new `package-*` row needs its own upload step in
 `ci.yml`: nothing cross-checks the two.
