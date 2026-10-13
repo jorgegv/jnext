@@ -18,7 +18,7 @@ $ sudo dnf install SDL3-devel cmake gcc-c++ qt6-qtbase-devel qt6-qtsvg-devel lib
 On Debian and Ubuntu:
 
 ```console
-$ sudo apt install libsdl3-dev cmake g++ qt6-base-dev libqt6svg6-dev libpng-dev \
+$ sudo apt install libsdl3-dev cmake g++ qt6-base-dev qt6-svg-dev libpng-dev \
                    zlib1g-dev libcurl4-openssl-dev libssl-dev
 ```
 
@@ -31,7 +31,9 @@ Running the tests needs one more tool, **ripgrep**. Both suites run the
 tautological-assertion lint, and when ripgrep is missing that lint refuses to
 report a verdict at all rather than quietly skipping itself. The reasoning is
 worth internalising, because it recurs throughout this project: a check that did
-not run must never read as a check that passed.
+not run must never read as a check that passed. The same holds for
+**dbus-daemon**: `color_scheme_test` starts a private one to serve a mock
+desktop portal (GH #363), and its portal rows fail without it.
 
 **The documentation toolchain is separate, and it is optional.** `pandoc`
 regenerates the man page and `USAGE.md`, `mkdocs-material` renders the user and

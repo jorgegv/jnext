@@ -2482,7 +2482,17 @@ SD-card provisioning dialogs' temporary <code>QApplication</code>.</p>
   <code>palette_tint::follow()</code> re-sets every followed sheet from one application
   listener after each change, and <code>DebuggerWindow::changeEvent()</code> re-runs
   <code>refresh_panels()</code> (queued) so table cells re-colour without a step.
-  <code>debugger_panels_test</code> QDARK-01..05 pin it.</li>
+  <code>debugger_panels_test</code> QDARK-01..10 pin it, one row per converted site (the
+  Preferences label is <code>color_scheme_test</code> CS-27).</li>
+<li><strong>Tests.</strong> <code>color_scheme_test</code> pins the policy (CS-01..08), the glue fed
+  directly (CS-09..17), and the real D-Bus path (CS-18..22) against a mock
+  <code>org.freedesktop.portal.Settings</code> that the suite serves itself on a private
+  <code>dbus-daemon</code> with no service activation: <code>ReadOne</code>, the version-1 <code>Read</code>,
+  <code>install()</code> reading it, and the checked <code>SettingChanged</code> subscription. CS-23/24
+  are source checks that <code>QtApp::init()</code> and the SD-card dialogs install the
+  follower; CS-25/26 exercise both arms of the Qt 6.8 guard on one build
+  (<code>set_scheme_request_enabled(false)</code> runs the palette-only arm a Qt 6.4 build
+  takes).</li>
 </ul>
 <h2 id="compile-time-arms">Compile-time arms<a class="headerlink" href="#compile-time-arms" title="Permanent link">&para;</a></h2>
 <table>

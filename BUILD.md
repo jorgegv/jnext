@@ -27,7 +27,7 @@ sudo dnf install SDL3-devel cmake gcc-c++ qt6-qtbase-devel qt6-qtsvg-devel libpn
 **Debian / Ubuntu:**
 
 ```sh
-sudo apt install libsdl3-dev cmake g++ qt6-base-dev libqt6svg6-dev libpng-dev \
+sudo apt install libsdl3-dev cmake g++ qt6-base-dev qt6-svg-dev libpng-dev \
                  zlib1g-dev libcurl4-openssl-dev libssl-dev
 ```
 
@@ -389,7 +389,9 @@ tool is an error to fix, not a row to skip. The tools the suites use are the
 `test` job's `dnf install` list in `.github/workflows/ci.yml` (the reference set:
 ImageMagick, Xvfb, xdotool, python3 with PyYAML and jsonschema, unzip, ripgrep,
 ffmpeg, mtools and dosfstools, rpm-build, libspectrum-devel, pandoc, mkdocs-material,
-graphviz, perl modules, ...). The one tool that is not a package, the `z88dk-gdb`
+graphviz, perl modules, dbus-daemon, ...). `color_scheme_test` starts a private
+`dbus-daemon` to serve a mock desktop portal (GH #363), so its portal rows fail
+without it. The one tool that is not a package, the `z88dk-gdb`
 client, is provisioned: `make regression` runs `make z88dk-gdb`, which builds
 z88dk v2.4's client (pinned by sha256, `cc` and `make` only, about 4 s) into
 `~/.cache/jnext/tools` unless one is already on `PATH`, in `$Z88DK_GDB`, or in

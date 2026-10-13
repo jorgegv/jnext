@@ -631,8 +631,10 @@ QWidget* PreferencesDialog::build_debug_keys_tab(
                 .arg(lines.join(QStringLiteral("<br>"))),
             tab);
         bad->setWordWrap(true);
-        bad->setStyleSheet("QLabel { color: " +
-                           palette_tint::css(palette_tint::ink(palette(), QColor(0xB0, 0x00, 0x00))) + "; }");
+        palette_tint::follow(bad, [](const QPalette& p) {   // GH #363: legible on dark, live
+            return "QLabel { color: " + palette_tint::css(palette_tint::ink(p, QColor(0xB0, 0x00, 0x00))) +
+                   "; }";
+        });
         outer->addWidget(bad);
     }
 

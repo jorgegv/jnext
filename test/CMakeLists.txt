@@ -1457,6 +1457,11 @@ if(ENABLE_QT_UI)
     set_target_properties(color_scheme_test PROPERTIES AUTOMOC ON)
     target_link_libraries(color_scheme_test PRIVATE jnext_gui)
     target_include_directories(color_scheme_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # CS-23/24 read the two install() call sites from the source tree; CS-18..22
+    # start a private dbus-daemon (the test job installs it).
+    target_compile_definitions(color_scheme_test PRIVATE
+        JNEXT_QT_APP_CPP="${CMAKE_SOURCE_DIR}/src/gui/qt_app.cpp"
+        JNEXT_SDCARD_DIALOG_CPP="${CMAKE_SOURCE_DIR}/src/gui/sdcard_download_dialog.cpp")
     add_test(NAME color_scheme_tests COMMAND color_scheme_test)
 
     # Issue #131 — File > Quit was wired straight to QApplication::quit(), so

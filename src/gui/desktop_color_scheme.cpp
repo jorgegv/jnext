@@ -98,6 +98,14 @@ std::optional<uint32_t> DesktopColorScheme::read_portal() {
     return std::nullopt;
 }
 
+bool DesktopColorScheme::has_scheme_request() {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    return true;
+#else
+    return false;
+#endif
+}
+
 void DesktopColorScheme::apply(Request r) {
     QApplication* app = qobject_cast<QApplication*>(QCoreApplication::instance());
     if (!app) return;
@@ -113,11 +121,14 @@ void DesktopColorScheme::apply(Request r) {
         forced_ = false;
     }
 #if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
-    app->styleHints()->setColorScheme(r == Request::Dark    ? Qt::ColorScheme::Dark
-                                      : r == Request::Light ? Qt::ColorScheme::Light
-                                                            : Qt::ColorScheme::Unknown);
-    // The theme delivers its new palette through the event queue.
-    QCoreApplication::processEvents();
+    if (request_enabled_) {
+        app->styleHints()->setColorScheme(r == Request::Dark    ? Qt::ColorScheme::Dark
+                                          : r == Request::Light ? Qt::ColorScheme::Light
+                                                                : Qt::ColorScheme::Unknown);
+        last_request_ = r;
+        // The theme delivers its new palette through the event queue.
+        QCoreApplication::processEvents();
+    }
 #endif
     const QPalette pal = QApplication::palette();
     if (!color_scheme::palette_matches(r, pal.color(QPalette::Window).lightness(),
@@ -153,9 +164,14 @@ DesktopColorScheme* DesktopColorScheme::install() {
 #ifdef JNEXT_HAVE_QTDBUS
     if (!override) {
         auto* listener = new PortalListener(self);
-        QDBusConnection::sessionBus().connect(PORTAL_SERVICE, PORTAL_PATH, PORTAL_IFACE,
-                                              QStringLiteral("SettingChanged"), listener,
-                                              SLOT(changed(QString, QString, QDBusVariant)));
+        // QtDBus has no functor form of connect(); the slot is named by its
+        // signature, so the result is checked rather than trusted.
+        self->subscribed_ = QDBusConnection::sessionBus().connect(
+            PORTAL_SERVICE, PORTAL_PATH, PORTAL_IFACE, QStringLiteral("SettingChanged"), listener,
+            SLOT(changed(QString, QString, QDBusVariant)));
+        if (!self->subscribed_ && QDBusConnection::sessionBus().isConnected())
+            Log::platform()->warn("colour scheme: could not subscribe to the desktop portal's "
+                                  "SettingChanged; a light/dark switch will need a restart");
     }
 #endif
     return self;

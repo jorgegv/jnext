@@ -9,8 +9,16 @@
 // CS-01..08: the pure decision logic (gui/color_scheme_policy.h).
 // CS-09..17: the glue (gui/desktop_color_scheme.h) on a live QApplication.
 // The offscreen platform's theme ignores setColorScheme(), which is exactly
-// the case the palette fallback exists for, so these rows exercise it.
-// No row talks to D-Bus: the portal's input is fed through setting_changed().
+// the case the palette fallback exists for, so these rows exercise it. These
+// feed the portal's input through setting_changed().
+// CS-18..22: the REAL D-Bus path, against a mock org.freedesktop.portal.Settings
+// served by this process on a PRIVATE bus (a dbus-daemon started by main(),
+// with no service activation, so no real portal can answer): read_portal()
+// with ReadOne and with the older Read, install() reading it, the
+// SettingChanged subscription. CS-23/24: QtApp and the SD-card dialogs call
+// install() (source checks, as MWP-12: no suite can construct a QtApp).
+// CS-25/26: both arms of the Qt 6.8 setColorScheme() guard. CS-27: the
+// Preferences dialog's problems label on a dark palette.
 //
 // Run: ./build/test/color_scheme_test
 // ===========================================================================
@@ -20,16 +28,64 @@
 #include "gui/main_window.h"
 #include "toolbar_icons/toolbar_icons.h"
 
+#include "gui/preferences_dialog.h"
+
 #include <QAction>
 #include <QApplication>
+#include <QElapsedTimer>
+#include <QFile>
+#include <QLabel>
+#include <QProcess>
 #include <QStyle>
 #include <QTemporaryDir>
 #include <QToolBar>
+#ifdef JNEXT_HAVE_QTDBUS
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusVariant>
+#endif
 
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include "../row_id.h"
+
+#ifdef JNEXT_HAVE_QTDBUS
+// The mock portal: org.freedesktop.portal.Settings as version 2 (ReadOne and
+// Read) and as version 1 (Read only, the value wrapped in a second variant,
+// which is what the spec's Read returns).
+class MockPortalV2 : public QObject {
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "org.freedesktop.portal.Settings")
+public:
+    uint value = 1;
+    QStringList calls;
+public slots:
+    QDBusVariant ReadOne(const QString& ns, const QString& key) {
+        calls << QStringLiteral("ReadOne ") + ns + QStringLiteral(" ") + key;
+        return QDBusVariant(QVariant::fromValue(value));
+    }
+    QDBusVariant Read(const QString& ns, const QString& key) {
+        calls << QStringLiteral("Read ") + ns + QStringLiteral(" ") + key;
+        return QDBusVariant(QVariant::fromValue(QDBusVariant(QVariant::fromValue(value))));
+    }
+};
+
+class MockPortalV1 : public QObject {
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "org.freedesktop.portal.Settings")
+public:
+    uint value = 1;
+    QStringList calls;
+public slots:
+    QDBusVariant Read(const QString& ns, const QString& key) {
+        calls << QStringLiteral("Read ") + ns + QStringLiteral(" ") + key;
+        return QDBusVariant(QVariant::fromValue(QDBusVariant(QVariant::fromValue(value))));
+    }
+};
+#endif
 
 namespace {
 
@@ -234,6 +290,275 @@ void test_glue() {
     }
 }
 
+// The private bus main() starts; empty when dbus-daemon could not be started.
+QByteArray g_bus_address;
+std::string g_bus_error;
+
+std::string code_of(const char* path) {   // a source file, line comments removed
+    std::ifstream in(path);
+    std::stringstream ss;
+    ss << in.rdbuf();
+    std::string code, line;
+    std::istringstream ls(ss.str());
+    while (std::getline(ls, line)) {
+        const size_t c = line.find("//");
+        code += (c == std::string::npos ? line : line.substr(0, c)) + "\n";
+    }
+    return code;
+}
+
+void settle() { for (int i = 0; i < 5; ++i) QApplication::processEvents(); }
+
+void test_portal() {
+#ifdef JNEXT_HAVE_QTDBUS
+    const char* PATH = "/org/freedesktop/portal/desktop";
+    const bool bus = !g_bus_address.isEmpty() && QDBusConnection::sessionBus().isConnected();
+    const std::string nobus = "private bus not available: " + g_bus_error;
+    const QPalette start = QApplication::palette();
+
+    // CS-18 — nothing owns the portal name.
+    {
+        QElapsedTimer t;
+        t.start();
+        const std::optional<uint32_t> v = bus ? DesktopColorScheme::read_portal() : std::optional<uint32_t>(7);
+        const qint64 ms = t.elapsed();
+        check("CS-18", "with no portal on the bus read_portal() is unavailable, at once (no 1 s wait for "
+                       "an activation that cannot happen)", bus && !v && ms < 900,
+              bus ? std::to_string(ms) + " ms" : nobus);
+    }
+
+    MockPortalV2 v2;
+    const bool reg = bus && QDBusConnection::sessionBus().registerService("org.freedesktop.portal.Desktop") &&
+                     QDBusConnection::sessionBus().registerObject(PATH, &v2, QDBusConnection::ExportAllSlots);
+
+    // CS-19 — ReadOne, each value.
+    {
+        std::string got;
+        bool ok = reg;
+        for (uint want : {1u, 2u, 0u}) {
+            v2.value = want;
+            const std::optional<uint32_t> v = reg ? DesktopColorScheme::read_portal() : std::nullopt;
+            got += v ? std::to_string(*v) + " " : "none ";
+            ok = ok && v && *v == want;
+        }
+        ok = ok && v2.calls.size() == 3 &&
+             v2.calls.first() == "ReadOne org.freedesktop.appearance color-scheme";
+        check("CS-19", "read_portal() asks the portal's ReadOne for org.freedesktop.appearance "
+                       "color-scheme and returns its value (1, 2, 0)", ok,
+              reg ? got + "calls=" + v2.calls.join(QStringLiteral("|")).toStdString() : nobus);
+    }
+
+    // CS-20 — a version-1 portal: no ReadOne, Read's value inside a second variant.
+    {
+        MockPortalV1 v1;
+        v1.value = 2;
+        bool ok = reg;
+        std::optional<uint32_t> v;
+        if (reg) {
+            QDBusConnection::sessionBus().unregisterObject(PATH);
+            ok = QDBusConnection::sessionBus().registerObject(PATH, &v1, QDBusConnection::ExportAllSlots);
+            v = DesktopColorScheme::read_portal();
+            QDBusConnection::sessionBus().unregisterObject(PATH);
+            ok = ok && QDBusConnection::sessionBus().registerObject(PATH, &v2, QDBusConnection::ExportAllSlots);
+        }
+        ok = ok && v && *v == 2 && v1.calls == QStringList{"Read org.freedesktop.appearance color-scheme"};
+        check("CS-20", "a portal without ReadOne (version 1) is read with Read, its doubly wrapped value "
+                       "unwrapped", ok,
+              reg ? (v ? std::to_string(*v) : std::string("none")) + " calls=" +
+                        v1.calls.join(QStringLiteral("|")).toStdString()
+                  : nobus);
+    }
+
+    // CS-21 / CS-22 — install() with no override: it reads the portal, applies
+    // it, and follows SettingChanged.
+    qunsetenv("JNEXT_COLOR_SCHEME");
+    v2.value = 1;
+    v2.calls.clear();
+    DesktopColorScheme* cs = reg ? DesktopColorScheme::install() : nullptr;
+    settle();
+    check("CS-21", "install() with no override reads the portal (1 = prefer dark) and applies a dark "
+                   "scheme", cs && !cs->overridden() && cs->current() == Request::Dark &&
+                                 is_dark(QApplication::palette()) && v2.calls.size() == 1,
+          cs ? pal_s(QApplication::palette()) + " calls=" + std::to_string(v2.calls.size()) : nobus);
+    {
+        auto emit_change = [&](const char* ns, const char* key, const QVariant& value) {
+            QDBusMessage sig = QDBusMessage::createSignal(PATH, "org.freedesktop.portal.Settings",
+                                                          "SettingChanged");
+            sig << QString::fromLatin1(ns) << QString::fromLatin1(key)
+                << QVariant::fromValue(QDBusVariant(value));
+            QDBusConnection::sessionBus().send(sig);
+            QElapsedTimer t;
+            t.start();
+            while (t.elapsed() < 300) QApplication::processEvents(QEventLoop::AllEvents, 20);
+        };
+        bool light = false, ignored = false, dark = false;
+        const bool subscribed = cs && cs->subscribed();
+        if (cs) {
+            emit_change("org.freedesktop.appearance", "color-scheme", QVariant::fromValue(2u));
+            light = cs->current() == Request::Light && !is_dark(QApplication::palette());
+            emit_change("org.freedesktop.appearance", "accent-color", QVariant::fromValue(1u));
+            ignored = cs->current() == Request::Light;
+            emit_change("org.freedesktop.appearance", "color-scheme", QVariant::fromValue(1u));
+            dark = cs->current() == Request::Dark && is_dark(QApplication::palette());
+            cs->apply(Request::Leave);
+            delete cs;
+            settle();
+        }
+        check("CS-22", "install() subscribes to SettingChanged (connect() reported success): a live 2 turns the scheme light, an "
+                       "accent-color change is ignored, a 1 turns it dark again",
+              cs && subscribed && light && ignored && dark,
+              cs ? std::string(subscribed ? "subscribed " : "NOT subscribed ") + (light ? "light " : "NOT light ") + (ignored ? "ignored " : "NOT ignored ") +
+                       (dark ? "dark" : "NOT dark")
+                 : nobus);
+    }
+    if (reg) {
+        QDBusConnection::sessionBus().unregisterObject(PATH);
+        QDBusConnection::sessionBus().unregisterService("org.freedesktop.portal.Desktop");
+    }
+    (void)start;
+#else
+    for (const char* id : {"CS-18", "CS-19", "CS-20", "CS-21", "CS-22"})
+        check(id, "a build without QtDBus never reads a portal", !DesktopColorScheme::read_portal());
+#endif
+}
+
+void test_wiring_and_arms() {
+    // CS-23 — QtApp::init(): install() after the QApplication, before the window.
+    {
+        const std::string code = code_of(JNEXT_QT_APP_CPP);
+        const size_t init = code.find("bool QtApp::init(");
+        const size_t app = code.find("new QApplication(", init);
+        const size_t inst = code.find("DesktopColorScheme::install();", init);
+        const size_t win = code.find("new MainWindow(", init);
+        check("CS-23", "QtApp::init() installs the colour-scheme follower after creating the "
+                       "QApplication and before the main window (source check)",
+              init != std::string::npos && app != std::string::npos && inst != std::string::npos &&
+                  win != std::string::npos && app < inst && inst < win);
+    }
+    // CS-24 — the SD-card dialogs' temporary QApplication gets it too.
+    {
+        const std::string code = code_of(JNEXT_SDCARD_DIALOG_CPP);
+        const size_t fn = code.find("void SdcardGuiProvisioner::ensure_app(");
+        const size_t app = code.find("std::make_unique<QApplication>(", fn);
+        const size_t inst = code.find("DesktopColorScheme::install();", fn);
+        const size_t end = code.find("\n}", fn);
+        check("CS-24", "the SD-card dialogs' temporary QApplication installs the follower right after "
+                       "it is created (source check)",
+              fn != std::string::npos && app != std::string::npos && inst != std::string::npos &&
+                  app < inst && inst < end);
+    }
+
+    // CS-25 — the Qt 6.8 arm: apply() asks QStyleHints.
+    {
+        const bool want = QT_VERSION >= QT_VERSION_CHECK(6, 8, 0);
+        DesktopColorScheme c;
+        std::string got;
+        bool ok = DesktopColorScheme::has_scheme_request() == want;
+        for (Request r : {Request::Dark, Request::Light, Request::Leave}) {
+            c.apply(r);
+            settle();
+            const auto last = c.last_scheme_request();
+            got += last ? std::string(nm(*last)) + " " : std::string("none ");
+            ok = ok && (want ? last && *last == r : !last);
+        }
+        check("CS-25", "on Qt 6.8+ apply() hands each request to QStyleHints::setColorScheme() (Dark, "
+                       "Light, Leave = Unknown); below 6.8 it never does", ok,
+              std::string("has_scheme_request=") + (DesktopColorScheme::has_scheme_request() ? "1" : "0") +
+                  " requests: " + got);
+    }
+    // CS-26 — the arm below 6.8, run on this build: the palette alone.
+    {
+        const QPalette start = QApplication::palette();
+        DesktopColorScheme c;
+        c.set_scheme_request_enabled(false);
+        c.apply(Request::Dark);
+        settle();
+        const bool dark = is_dark(QApplication::palette()) && c.palette_forced();
+        c.apply(Request::Light);
+        settle();
+        const bool light = !is_dark(QApplication::palette());
+        c.apply(Request::Leave);
+        settle();
+        const bool back = QApplication::palette() == start && !c.palette_forced();
+        check("CS-26", "the Qt < 6.8 arm (no setColorScheme; run here with the request switched off): "
+                       "dark and light come from the palette alone, Leave restores the platform's own, "
+                       "and nothing is asked of QStyleHints",
+              dark && light && back && !c.last_scheme_request(),
+              std::string(dark ? "dark " : "NOT dark ") + (light ? "light " : "NOT light ") +
+                  (back ? "back" : "NOT back"));
+    }
+
+    // CS-27 — the Preferences dialog's problems label (#B00000 on light).
+    {
+        jnext::dbgkeys::LoadIssue issue;
+        issue.action_id = "run";
+        issue.text = "Q";
+        issue.reason = "a bare key";
+        PreferencesDialog dlg(AppConfigData{}, nullptr, {issue});
+        dlg.show();
+        settle();
+        QLabel* bad = nullptr;
+        for (QLabel* l : dlg.findChildren<QLabel*>())
+            if (l->text().contains("Problems found")) bad = l;
+        auto colour = [&] {
+            const QString ss = bad ? bad->styleSheet() : QString();
+            const int i = ss.indexOf("color: #");
+            return i < 0 ? QColor() : QColor(ss.mid(i + 7, 7));
+        };
+        const QColor light = colour();
+        DesktopColorScheme c;
+        c.apply(Request::Dark);
+        settle();
+        const QColor dark = colour();
+        c.apply(Request::Leave);
+        settle();
+        const QColor back = colour();
+        check("CS-27", "the Preferences problems label is #B00000 on a light palette and a light red on "
+                       "a dark one, following a live switch",
+              bad && light == QColor(0xB0, 0x00, 0x00) && dark.lightness() >= 150 && dark.hslHue() == 0 &&
+                  back == QColor(0xB0, 0x00, 0x00),
+              "light " + light.name().toStdString() + ", dark " + dark.name().toStdString() + ", back " +
+                  back.name().toStdString());
+    }
+}
+
+// A private session bus for CS-18..22: a dbus-daemon with a minimal config
+// (no service directories, so nothing is ever activated), its socket in a
+// temporary directory, its environment explicit (LANG=C, CLAUDE.md).
+struct PrivateBus {
+    QTemporaryDir dir;
+    QProcess daemon;
+    PrivateBus() {
+        if (!dir.isValid()) { g_bus_error = "no temporary directory"; return; }
+        const QString conf = dir.filePath("bus.conf");
+        QFile f(conf);
+        if (!f.open(QIODevice::WriteOnly)) { g_bus_error = "cannot write bus.conf"; return; }
+        f.write(QStringLiteral(
+                    "<!DOCTYPE busconfig PUBLIC \"-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN\" "
+                    "\"http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd\">\n"
+                    "<busconfig><type>session</type><listen>unix:dir=%1</listen>"
+                    "<auth>EXTERNAL</auth><policy context=\"default\"><allow send_destination=\"*\"/>"
+                    "<allow eavesdrop=\"true\"/><allow own=\"*\"/></policy></busconfig>\n")
+                    .arg(dir.path()).toUtf8());
+        f.close();
+        QProcessEnvironment env;
+        env.insert("LANG", "C");
+        env.insert("PATH", qEnvironmentVariable("PATH"));
+        daemon.setProcessEnvironment(env);
+        daemon.start("dbus-daemon", {"--config-file=" + conf, "--nofork", "--print-address=1"});
+        if (!daemon.waitForStarted(5000)) { g_bus_error = "dbus-daemon did not start (is it installed?)"; return; }
+        QElapsedTimer t;
+        t.start();
+        while (!daemon.canReadLine() && t.elapsed() < 5000) daemon.waitForReadyRead(100);
+        g_bus_address = daemon.readLine().trimmed();
+        if (g_bus_address.isEmpty()) g_bus_error = "dbus-daemon printed no address";
+    }
+    ~PrivateBus() {
+        daemon.terminate();
+        if (!daemon.waitForFinished(3000)) { daemon.kill(); daemon.waitForFinished(3000); }
+    }
+};
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -246,6 +571,10 @@ int main(int argc, char** argv) {
         return 1;
     }
     qputenv("JNEXT_CONFIG_DIR", cfg.path().toUtf8());
+    // Before QApplication: QDBusConnection::sessionBus() reads the address once.
+    PrivateBus bus;
+    if (!g_bus_address.isEmpty()) qputenv("DBUS_SESSION_BUS_ADDRESS", g_bus_address);
+    else qunsetenv("DBUS_SESSION_BUS_ADDRESS");
     QApplication app(argc, argv);
 
     std::printf("GH #363 - light/dark colour scheme\n");
@@ -254,8 +583,16 @@ int main(int argc, char** argv) {
     std::printf("  Group: CS policy      - done\n");
     test_glue();
     std::printf("  Group: CS glue        - done\n");
+    test_portal();
+    std::printf("  Group: CS portal      - done\n");
+    test_wiring_and_arms();
+    std::printf("  Group: CS wiring      - done\n");
     std::printf("\n==================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;
 }
+
+#ifdef JNEXT_HAVE_QTDBUS
+#include "color_scheme_test.moc"
+#endif

@@ -154,7 +154,7 @@ jobs:
             SDL3-devel zlib-devel libcurl-devel openssl-devel libpng-devel \
             qt6-qtbase-devel qt6-qtsvg-devel libspectrum-devel \
             ImageMagick xorg-x11-server-Xvfb xdotool python3 python3-pyyaml python3-jsonschema unzip diffutils \
-            ripgrep ffmpeg-free bc file xxd \
+            ripgrep ffmpeg-free bc file xxd dbus-daemon \
             mtools dosfstools rpm-build \
             pandoc mkdocs-material graphviz liberation-sans-fonts \
             perl-interpreter perl-FindBin perl-File-Temp perl-PathTools

@@ -49,6 +49,19 @@ public:
     color_scheme::Request current() const { return current_; }
     bool palette_forced() const { return forced_; }
     bool overridden() const { return overridden_; }
+    /// install() subscribed to the portal's SettingChanged (QtDBus reported
+    /// the connection made; a wrong slot signature makes it false).
+    bool subscribed() const { return subscribed_; }
+
+    /// This build asks QStyleHints::setColorScheme() (Qt 6.8+). Below that the
+    /// palette is the only lever.
+    static bool has_scheme_request();
+    /// The last request apply() handed to setColorScheme(), if any (Leave is
+    /// Qt::ColorScheme::Unknown). Tests read it: the offscreen platform's
+    /// theme does not report the requested scheme back.
+    std::optional<color_scheme::Request> last_scheme_request() const { return last_request_; }
+    /// Tests only: run apply() as a Qt < 6.8 build does, palette only.
+    void set_scheme_request_enabled(bool on) { request_enabled_ = on && has_scheme_request(); }
 
     /// Fusion's palette for the light or the dark scheme (the colours
     /// QFusionStyle::standardPalette() gives for that scheme in Qt 6).
@@ -62,4 +75,7 @@ private:
     color_scheme::Request current_ = color_scheme::Request::Leave;
     bool forced_ = false;
     bool overridden_ = false;
+    bool subscribed_ = false;
+    bool request_enabled_ = has_scheme_request();
+    std::optional<color_scheme::Request> last_request_;
 };
