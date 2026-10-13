@@ -11,12 +11,15 @@ set -euo pipefail
 
 input="$(cat)"
 cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // ""')"
+# A backslash-newline continues the same command.
+cmd="$(printf '%s' "$cmd" | sed -z 's/\\\n/ /g')"
 
 if printf '%s' "$cmd" | grep -qE '(^|[[:space:]])JNEXT_ALLOW_AMEND=1([[:space:]]|$)'; then
   exit 0
 fi
 
-if printf '%s' "$cmd" | grep -qE '(^|[[:space:];&|])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit[[:space:]].*--amend'; then
+GIT_OPTS='((-C|-c|--git-dir|--work-tree|--namespace|--config-env|--exec-path|--super-prefix|--attr-source|--shallow-file)[[:space:]]+[^[:space:]]+|--[a-z][a-z-]*=[^[:space:]]*|-p|-P|--paginate|--no-pager|--bare|--no-replace-objects|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-optional-locks|--no-advice|--no-lazy-fetch)'
+if printf '%s' "$cmd" | grep -qE "(^|[[:space:];&|(\`'\"])git([[:space:]]+$GIT_OPTS)*[[:space:]]+commit[[:space:]].*--amend"; then
   cat >&2 <<'EOF'
 [block-amend hook] BLOCKED: git commit --amend.
 

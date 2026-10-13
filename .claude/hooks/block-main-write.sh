@@ -27,6 +27,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 input="$(cat)"
 cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // ""')"
 cwd="$(printf '%s' "$input" | jq -r '.cwd // ""')"
+# A backslash-newline continues the same command.
+cmd="$(printf '%s' "$cmd" | sed -z 's/\\\n/ /g')"
 [ -n "$cwd" ] || cwd="$REPO_ROOT"
 
 # Override.
@@ -34,8 +36,24 @@ if printf '%s' "$cmd" | grep -qE '(^|[[:space:]])JNEXT_ALLOW_MAIN_WRITE=1([[:spa
   exit 0
 fi
 
+# git's global options that may sit between `git` and the subcommand: those with a
+# separate value, `--opt=value`, and the flags. Textual and conservative, like
+# the rest of this hook; an option missing from this list hides the subcommand.
+GIT_OPTS='((-C|-c|--git-dir|--work-tree|--namespace|--config-env|--exec-path|--super-prefix|--attr-source|--shallow-file)[[:space:]]+[^[:space:]]+|--[a-z][a-z-]*=[^[:space:]]*|-p|-P|--paginate|--no-pager|--bare|--no-replace-objects|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-optional-locks|--no-advice|--no-lazy-fetch)'
+GIT_PFX="(^|[[:space:](\`'\"])git([[:space:]]+$GIT_OPTS)*[[:space:]]+"
+
+# Write subcommands. `reset` is separate: a path reset (`git reset [<rev>] -- <paths>`)
+# only touches the index and is allowed; every other reset moves the branch.
 is_write_op() {
-  printf '%s' "$1" | grep -qE '(^|[[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)*[[:space:]]+(commit|merge|rebase|reset[[:space:]]+--hard|cherry-pick|revert|am)([[:space:]]|$)'
+  printf '%s' "$1" | grep -qE "${GIT_PFX}(commit|merge|rebase|cherry-pick|revert|am|pull)([[:space:]]|$)" && return 0
+  printf '%s' "$1" | grep -qE "${GIT_PFX}reset([[:space:]]|$)" || return 1
+  local rest
+  rest="$(printf '%s' "$1" | sed -E "s/^.*${GIT_PFX}reset//")"
+  # git refuses paths with --soft/--hard/--merge/--keep: those always move the branch.
+  printf '%s' "$rest" | grep -qE '(^|[[:space:]])--(so|ha|me|ke)[a-z]*([[:space:]]|$)' && return 0
+  # Otherwise a path reset needs a literal `--` followed by at least one word.
+  printf '%s' "$rest" | grep -qE '(^|[[:space:]])--[[:space:]]+[^[:space:]]' && return 1
+  return 0
 }
 
 # This segment's `-C <path>`, if any. Last one wins, as git itself does.
@@ -58,7 +76,23 @@ while IFS= read -r seg; do
     continue
   fi
 
+  [[ "$seg" == *git* ]] || continue   # cheap pre-check: no git word, nothing to judge
   is_write_op "$seg" || continue
+
+  # --git-dir / --work-tree / GIT_DIR= / GIT_WORK_TREE= can point the write anywhere;
+  # not resolved here, so a write that uses one is blocked (override as below).
+  if printf '%s' "$seg" | grep -qE '(^|[[:space:]])(--git-dir|--work-tree)([=[:space:]]|$)|(^|[[:space:]])GIT_(DIR|WORK_TREE)='; then
+    cat >&2 <<EOF
+[block-main-write hook] BLOCKED: git write op with --git-dir / --work-tree / GIT_DIR / GIT_WORK_TREE.
+
+The target is not resolved for these; use -C <path> instead, or override (when
+explicitly authorized to land work on main):
+    JNEXT_ALLOW_MAIN_WRITE=1 <your command>
+
+  segment: $seg
+EOF
+    exit 2
+  fi
 
   target="$(segment_target "$seg" || true)"
   if [ -z "$target" ]; then
