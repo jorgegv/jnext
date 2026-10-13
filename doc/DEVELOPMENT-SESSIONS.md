@@ -199,4 +199,7 @@
 | 8/10    |      | PR protocol: small commits; PR #310 NextPi under QEMU, --nextpi (vmorilla, 6 review rounds). v1.1.12   |
 | 9-10/10 |      | Autonomous run: #307 #304 #305 #308 #306 #312 #309 #311 (#314 fixed by #304). v1.1.13->1.1.22          |
 |         |      | v1.1.23 PUBLIC RELEASE                                                                                 |
+| 10-11/10|      | Autonomous run: #318 #317 #320 #322 #319 #326 #324 #328 #321 #316 #325. v1.1.26->1.1.38                |
+| 12/10   |      | #327 #323 #329 #330 #332 #352 #354 #355; PR #315 by takeover; #331 Pi audio on Windows                 |
+|         |      | epic #23 planned (#333-#353). v1.1.39->1.1.50; v1.1.51 PUBLIC RELEASE                                  |
 | TOTAL:  | 666h |                                                                                                        |
