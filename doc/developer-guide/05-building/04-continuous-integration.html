@@ -2080,6 +2080,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#testing-a-runs-packages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing a run's packages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-sd-card-image-is-provisioned-never-faked" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2343,7 +2354,9 @@ runs on a <code>v*</code> tag push.</p>
 because a platform whose build only runs at release time is a platform whose
 breakage is found at release time. <code>macos-build.yml</code> builds, packages and
 verifies the macOS <code>.dmg</code>; <code>windows-build.yml</code> produces the three Windows zips,
-which is also how a fix build reaches a reporter before the next release; and
+which reaches a reporter a fix build for a ref <code>ci.yml</code> does not run on
+(every <code>ci.yml</code> run on <code>main</code> already offers the same zips, see
+<a href="#testing-a-runs-packages">Testing a run's packages</a>); and
 <code>flatpak-build.yml</code> builds the Flatpak bundle and checks its sandbox
 permissions.</p>
 <p><code>flatpak-build.yml</code> is different in kind from the other two, and the difference
@@ -2378,10 +2391,11 @@ exit status, and a failing <code>make</code> therefore reports success. That is 
 hypothetical worry: a run here once printed <code>62 pass, 1 fail</code> and
 <code>UNIT TESTS FAILED</code> in bold, and went green.</p>
 <h2 id="why-a-fedora-container">Why a Fedora container<a class="headerlink" href="#why-a-fedora-container" title="Permanent link">&para;</a></h2>
-<p>Three of the five <code>ci.yml</code> jobs — <code>test</code>, <code>qt5-guard</code> and <code>package</code> — run in a
+<p>Three of the seven <code>ci.yml</code> jobs — <code>test</code>, <code>qt5-guard</code> and <code>package</code> — run in a
 pinned Fedora container: the same image <code>release.yml</code> builds the rpm and Windows
 artifacts in, and the same distribution family the maintainer develops on. (The
-remaining two cannot: <code>macos</code> needs a <code>macos-latest</code> runner, and <code>flatpak</code> runs
+remaining four cannot: <code>macos</code>, <code>macos-unit</code> and <code>macos-regression</code> need a
+<code>macos-latest</code> runner, and <code>flatpak</code> runs
 in the Flathub <code>flatpak-github-actions</code> image, because that is where
 <code>flatpak-builder</code> and the KDE SDK live.)</p>
 <p>Matching the maintainer's distribution is load-bearing rather than cosmetic. The
@@ -2394,7 +2408,7 @@ shipped an older pandoc than the maintainer's failed <code>docs-check</code> on 
 from the day the man page landed. Matching the distribution removes the whole
 class of problem, instead of pinning tool by tool and waiting for the next one.</p>
 <h2 id="the-jobs-in-ciyml">The jobs in <code>ci.yml</code><a class="headerlink" href="#the-jobs-in-ciyml" title="Permanent link">&para;</a></h2>
-<p><strong><code>test</code></strong> is the main job: one definition, a matrix of four legs that run in
+<p><strong><code>test</code></strong> is the main job: one definition, a matrix of five legs that run in
 parallel on runners of their own (GH #295). Every leg installs the same
 dependency set and checks out the repository with submodules; then</p>
 <ul>
@@ -2437,8 +2451,11 @@ directory differs from a container's. One detail matters here: a missing packagi
 run (locally too — the old CI-only <code>$CI</code> split is gone), so a row that has
 quietly stopped running cannot read as a pass. The Flatpak build is not a row of
 this job; the <code>flatpak</code> job below builds it, and only the tool-free
-<code>flatpak-manifest</code> contract runs here.</p>
-<p><strong><code>macos</code></strong> runs <code>make package-macos</code> on a real <code>macos-latest</code> runner,
+<code>flatpak-manifest</code> contract runs here. After <code>make package-test</code> passes the job
+uploads each package it built as a run artifact (GH #359); the steps are
+<code>uses:</code> steps, so the make-target rule is untouched.</p>
+<p><strong><code>macos</code></strong> runs <code>make package-macos</code> on a real <code>macos-latest</code> runner and
+uploads the <code>.dmg</code>,
 <strong><code>macos-unit</code></strong> (GH #214) runs <code>make unit-test-sdl</code> on one, with Homebrew's
 <code>bash</code>, <code>coreutils</code> and <code>grep</code> installed because the unit harness needs them
 (macOS ships bash 3.2 and BSD tools), and uploads the suites' logs on failure,
@@ -2455,6 +2472,81 @@ job used to be <code>release.yml</code>'s copied near-verbatim, minus that step,
 the day GH #271 was fixed a bundle that stopped carrying <code>--share=network</code>
 would still have passed here on every push — which is exactly the defect the
 gate was written for. One body, one gate, three callers.</p>
+<h2 id="testing-a-runs-packages">Testing a run's packages<a class="headerlink" href="#testing-a-runs-packages" title="Permanent link">&para;</a></h2>
+<p>Every green <code>ci.yml</code> run leaves its builds on the run's Summary page, under
+<strong>Artifacts</strong>, so a tester can try a build without a release (GH #359). Upload is
+by <code>uses: actions/upload-artifact@v6</code> steps (no <code>run:</code>), only on success, with
+<code>if-no-files-found: error</code> so a renamed output turns the job red. Retention is 14
+days (the Flatpak, uploaded by its action, keeps the repository default of 90),
+and compression is off since the packages are already compressed.</p>
+<table>
+<thead>
+<tr>
+<th>artifact</th>
+<th>file inside</th>
+<th>from</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>jnext-windows-x64-zip</code></td>
+<td><code>jnext-&lt;v&gt;-windows-x64.zip</code></td>
+<td><code>package</code></td>
+</tr>
+<tr>
+<td><code>jnext-windows-x64-legacy-zip</code></td>
+<td><code>jnext-&lt;v&gt;-windows-x64-legacy.zip</code></td>
+<td><code>package</code></td>
+</tr>
+<tr>
+<td><code>jnext-windows-x86-legacy-zip</code></td>
+<td><code>jnext-&lt;v&gt;-windows-x86-legacy.zip</code></td>
+<td><code>package</code></td>
+</tr>
+<tr>
+<td><code>jnext-windows-x64-sdl-zip</code></td>
+<td><code>jnext-&lt;v&gt;-windows-x64-sdl.zip</code></td>
+<td><code>package</code> (repo-internal, not a release asset)</td>
+</tr>
+<tr>
+<td><code>jnext-windows-x86-sdl-zip</code></td>
+<td><code>jnext-&lt;v&gt;-windows-x86-sdl.zip</code></td>
+<td><code>package</code> (repo-internal, not a release asset)</td>
+</tr>
+<tr>
+<td><code>jnext-linux-rpm</code></td>
+<td><code>jnext-&lt;v&gt;-1.x86_64.rpm</code></td>
+<td><code>package</code></td>
+</tr>
+<tr>
+<td><code>jnext-source-zip</code></td>
+<td><code>jnext-&lt;v&gt;-src.zip</code></td>
+<td><code>package</code></td>
+</tr>
+<tr>
+<td><code>jnext-macos-dmg</code></td>
+<td><code>jnext-&lt;v&gt;-Darwin.dmg</code></td>
+<td><code>macos</code></td>
+</tr>
+<tr>
+<td><code>jnext-linux-flatpak</code></td>
+<td><code>jnext-&lt;v&gt;-x86_64.flatpak</code></td>
+<td><code>flatpak</code></td>
+</tr>
+</tbody>
+</table>
+<p>There is <strong>no <code>.deb</code></strong>. The one <code>package-deb</code> builds in the Fedora container is
+only checked for content: it links Fedora's shared SDL3 and carries no Debian
+<code>Depends</code>, so it would install on Ubuntu and then fail at launch. The shippable
+debs exist only in <code>release.yml</code>'s Ubuntu-container matrix; Ubuntu and Debian
+testers use the Flatpak.</p>
+<p>A developer fetches one with <code>gh run download &lt;run-id&gt; -n &lt;artifact&gt;</code>. A tester
+follows the click path in the user guide (Installing, "Trying a build before it
+is released"). Pick a run whose overall status is green: an artifact appears when
+its own job finishes, possibly while another job is still running or failing. A
+pull-request run's artifacts are built from that PR's code; test <code>main</code> runs
+unless asked to test a PR. A new <code>package-*</code> row needs its own upload step in
+<code>ci.yml</code>: nothing cross-checks the two.</p>
 <h2 id="the-sd-card-image-is-provisioned-never-faked">The SD-card image is provisioned, never faked<a class="headerlink" href="#the-sd-card-image-is-provisioned-never-faked" title="Permanent link">&para;</a></h2>
 <p><code>roms/</code> is git-ignored, so a fresh checkout has no NextZXOS SD image, and
 jnext's harness treats a missing image as a fatal fault rather than as a silent

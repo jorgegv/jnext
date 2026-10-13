@@ -8,7 +8,9 @@ The rest are dispatched by hand, from Actions → *Run workflow*. They exist
 because a platform whose build only runs at release time is a platform whose
 breakage is found at release time. `macos-build.yml` builds, packages and
 verifies the macOS `.dmg`; `windows-build.yml` produces the three Windows zips,
-which is also how a fix build reaches a reporter before the next release; and
+which reaches a reporter a fix build for a ref `ci.yml` does not run on
+(every `ci.yml` run on `main` already offers the same zips, see
+[Testing a run's packages](#testing-a-runs-packages)); and
 `flatpak-build.yml` builds the Flatpak bundle and checks its sandbox
 permissions.
 
@@ -50,10 +52,11 @@ hypothetical worry: a run here once printed `62 pass, 1 fail` and
 
 ## Why a Fedora container
 
-Three of the five `ci.yml` jobs — `test`, `qt5-guard` and `package` — run in a
+Three of the seven `ci.yml` jobs — `test`, `qt5-guard` and `package` — run in a
 pinned Fedora container: the same image `release.yml` builds the rpm and Windows
 artifacts in, and the same distribution family the maintainer develops on. (The
-remaining two cannot: `macos` needs a `macos-latest` runner, and `flatpak` runs
+remaining four cannot: `macos`, `macos-unit` and `macos-regression` need a
+`macos-latest` runner, and `flatpak` runs
 in the Flathub `flatpak-github-actions` image, because that is where
 `flatpak-builder` and the KDE SDK live.)
 
@@ -69,7 +72,7 @@ class of problem, instead of pinning tool by tool and waiting for the next one.
 
 ## The jobs in `ci.yml`
 
-**`test`** is the main job: one definition, a matrix of four legs that run in
+**`test`** is the main job: one definition, a matrix of five legs that run in
 parallel on runners of their own (GH #295). Every leg installs the same
 dependency set and checks out the repository with submodules; then
 
@@ -115,9 +118,12 @@ directory differs from a container's. One detail matters here: a missing packagi
 run (locally too — the old CI-only `$CI` split is gone), so a row that has
 quietly stopped running cannot read as a pass. The Flatpak build is not a row of
 this job; the `flatpak` job below builds it, and only the tool-free
-`flatpak-manifest` contract runs here.
+`flatpak-manifest` contract runs here. After `make package-test` passes the job
+uploads each package it built as a run artifact (GH #359); the steps are
+`uses:` steps, so the make-target rule is untouched.
 
-**`macos`** runs `make package-macos` on a real `macos-latest` runner,
+**`macos`** runs `make package-macos` on a real `macos-latest` runner and
+uploads the `.dmg`,
 **`macos-unit`** (GH #214) runs `make unit-test-sdl` on one, with Homebrew's
 `bash`, `coreutils` and `grep` installed because the unit harness needs them
 (macOS ships bash 3.2 and BSD tools), and uploads the suites' logs on failure,
@@ -135,6 +141,41 @@ job used to be `release.yml`'s copied near-verbatim, minus that step, so from
 the day GH #271 was fixed a bundle that stopped carrying `--share=network`
 would still have passed here on every push — which is exactly the defect the
 gate was written for. One body, one gate, three callers.
+
+## Testing a run's packages
+
+Every green `ci.yml` run leaves its builds on the run's Summary page, under
+**Artifacts**, so a tester can try a build without a release (GH #359). Upload is
+by `uses: actions/upload-artifact@v6` steps (no `run:`), only on success, with
+`if-no-files-found: error` so a renamed output turns the job red. Retention is 14
+days (the Flatpak, uploaded by its action, keeps the repository default of 90),
+and compression is off since the packages are already compressed.
+
+| artifact | file inside | from |
+|---|---|---|
+| `jnext-windows-x64-zip` | `jnext-<v>-windows-x64.zip` | `package` |
+| `jnext-windows-x64-legacy-zip` | `jnext-<v>-windows-x64-legacy.zip` | `package` |
+| `jnext-windows-x86-legacy-zip` | `jnext-<v>-windows-x86-legacy.zip` | `package` |
+| `jnext-windows-x64-sdl-zip` | `jnext-<v>-windows-x64-sdl.zip` | `package` (repo-internal, not a release asset) |
+| `jnext-windows-x86-sdl-zip` | `jnext-<v>-windows-x86-sdl.zip` | `package` (repo-internal, not a release asset) |
+| `jnext-linux-rpm` | `jnext-<v>-1.x86_64.rpm` | `package` |
+| `jnext-source-zip` | `jnext-<v>-src.zip` | `package` |
+| `jnext-macos-dmg` | `jnext-<v>-Darwin.dmg` | `macos` |
+| `jnext-linux-flatpak` | `jnext-<v>-x86_64.flatpak` | `flatpak` |
+
+There is **no `.deb`**. The one `package-deb` builds in the Fedora container is
+only checked for content: it links Fedora's shared SDL3 and carries no Debian
+`Depends`, so it would install on Ubuntu and then fail at launch. The shippable
+debs exist only in `release.yml`'s Ubuntu-container matrix; Ubuntu and Debian
+testers use the Flatpak.
+
+A developer fetches one with `gh run download <run-id> -n <artifact>`. A tester
+follows the click path in the user guide (Installing, "Trying a build before it
+is released"). Pick a run whose overall status is green: an artifact appears when
+its own job finishes, possibly while another job is still running or failing. A
+pull-request run's artifacts are built from that PR's code; test `main` runs
+unless asked to test a PR. A new `package-*` row needs its own upload step in
+`ci.yml`: nothing cross-checks the two.
 
 ## The SD-card image is provisioned, never faked
 

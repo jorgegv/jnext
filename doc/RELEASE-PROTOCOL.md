@@ -250,14 +250,21 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
 ## 5. CI / CD workflows
 
 - **`.github/workflows/ci.yml`** — tests. Triggers on **push to `main` and PRs**
-  (not on tags). Five jobs, in parallel: **`test`**, a matrix of three
+  (not on tags). Seven jobs, in parallel: **`test`**, a matrix of five
   parallel legs (GH #295) — `build-matrix` runs `make build-matrix`; `unit`
   builds `gui-release` and runs `make unit-test` (which includes the FUSE
-  suite) and `make unit-test-sdl`; `regression` builds `gui-release` and runs
-  `make regression` — self-provisioning the SD image; **`qt5-guard`** runs `make qt5-guard-build`; **`package`** runs
+  suite) and `make unit-test-sdl`; `unit-win` runs `make unit-test-win`;
+  `regression` builds `gui-release` and runs `make regression` — self-provisioning
+  the SD image; `regression-win` runs `make regression-win`; **`qt5-guard`** runs
+  `make qt5-guard-build`; **`package`** runs
   `make package-test` in a `fedora:44` container, building every package and
-  asserting its contents; **`macos`** runs `make package-macos` on
-  `macos-latest`; **`flatpak`** calls `flatpak-build.yml` (§4). Packaging
+  asserting its contents, then (GH #359) uploads each as a run artifact
+  (Windows zips, rpm, source zip; 14-day retention, success only; the
+  Fedora-built deb is not uploaded); **`macos`** runs `make package-macos` on
+  `macos-latest` and uploads the dmg; **`macos-unit`** runs `make unit-test-sdl`
+  and **`macos-regression`** runs `make regression-macos` there; **`flatpak`**
+  calls `flatpak-build.yml` (§4), whose bundle is the `jnext-linux-flatpak`
+  artifact. Packaging
   therefore costs nothing on the critical path.
 
 - **`.github/workflows/release.yml`** — one tag-triggered workflow (it replaced
