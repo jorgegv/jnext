@@ -41,6 +41,7 @@ Load `verification-discipline`; it is the evidence standard.
 - Never move a tag. Never `git reset --hard` on `main`.
 - Push only `main` + its tags (explicit refspecs, ≤3 tags, CI idle) and epic branches (never force; SKILL.md §Branches). After pushing `main`, watch the LATEST CI run on `main`; red → it becomes the next issue.
 - Inherited work from a dead agent = unreviewed third-party code: back it up, review it in full.
+- No role ever bypasses or disables a hook, git or Claude Code (`git -c core.hooksPath=…`, `--no-verify`, an env override). A blocked agent stops and reports; the orchestrator decides, and asks the owner if the hook guards something only the owner can authorize (owner, 2026-10-13: an implementer committed with `core.hooksPath=/dev/null` unprompted).
 
 ## Agents and tokens
 
