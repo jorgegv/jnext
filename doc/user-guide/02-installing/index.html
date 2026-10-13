@@ -3507,6 +3507,68 @@
 <p>Installing a package is the recommended way to get JNEXT. Download the one for
 your system from the latest release:</p>
 <p><strong><a href="https://github.com/jorgegv/jnext/releases/latest">https://github.com/jorgegv/jnext/releases/latest</a></strong></p>
+<h2 id="trying-a-build-before-it-is-released">Trying a build before it is released<a class="headerlink" href="#trying-a-build-before-it-is-released" title="Permanent link">&para;</a></h2>
+<p>Every change that reaches the <code>main</code> branch is built automatically, and the
+resulting packages can be downloaded and tried before the next release. These
+are untested development builds, for people helping to check a fix.</p>
+<ol>
+<li>Open <a href="https://github.com/jorgegv/jnext/actions/workflows/ci.yml">https://github.com/jorgegv/jnext/actions/workflows/ci.yml</a> and set
+   <strong>Branch</strong> to <code>main</code>.</li>
+<li>Open the newest run that has a green tick.</li>
+<li>Scroll down to <strong>Artifacts</strong>, at the bottom of the run's Summary page.</li>
+<li>
+<p>Click the one for your system:</p>
+<table>
+<thead>
+<tr>
+<th>System</th>
+<th>Artifact</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Windows 10 / 11, 64-bit</td>
+<td><code>jnext-windows-x64-zip</code></td>
+</tr>
+<tr>
+<td>Windows 7 SP1 or later, 64-bit</td>
+<td><code>jnext-windows-x64-legacy-zip</code></td>
+</tr>
+<tr>
+<td>Windows 7 SP1 or later, 32-bit</td>
+<td><code>jnext-windows-x86-legacy-zip</code></td>
+</tr>
+<tr>
+<td>macOS</td>
+<td><code>jnext-macos-dmg</code></td>
+</tr>
+<tr>
+<td>Fedora / RHEL</td>
+<td><code>jnext-linux-rpm</code></td>
+</tr>
+<tr>
+<td>Any Linux (Flatpak)</td>
+<td><code>jnext-linux-flatpak</code></td>
+</tr>
+<tr>
+<td>Source code</td>
+<td><code>jnext-source-zip</code></td>
+</tr>
+</tbody>
+</table>
+<p>The <code>jnext-windows-*-sdl-zip</code> artifacts are reduced builds without the Qt
+interface; you do not need them.</p>
+</li>
+<li>
+<p>You must be <strong>signed in to GitHub</strong> (a free account is enough) to download.</p>
+</li>
+<li>The download is a zip that wraps the package. Unzip it, then install as
+   described in the pages that follow; the Windows and macOS security prompts
+   behave the same way.</li>
+<li>Builds are kept for 14 days. Please report problems on the issue tracker and
+   include the run's address.</li>
+</ol>
+<p>There is no Ubuntu or Debian package here; use the Flatpak.</p>
 
 
 

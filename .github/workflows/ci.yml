@@ -587,6 +587,83 @@ jobs:
       - name: make package-test (build every package, assert its contents)
         run: LANG=C make package-test
 
+      # GH #359: every package this job builds is uploaded as a run artifact, so
+      # a green run's builds can be tested (Windows, rpm, source) without cutting
+      # a release. These are `uses:` steps, not `run:` steps: the CI-equals-local
+      # rule (every `run:` is a plain make target) is untouched.
+      # - Uploaded only on success (no `if:`): a red package-test means some
+      #   package's contents are known to be wrong.
+      # - `if-no-files-found: error`: a renamed output is a red job, not a green
+      #   one with nothing in it. A NEW package-* row needs its own upload here.
+      # - The Fedora-built .deb is deliberately NOT uploaded: it links Fedora's
+      #   shared SDL3 and carries no Debian Depends, so it would not run on Ubuntu.
+      #   The Flatpak is the Ubuntu/Debian route.
+      # - retention-days 14 (the repo default is 90): a tester's loop is days.
+      #   compression-level 0: the packages are already compressed.
+
+      - name: Upload the source zip
+        uses: actions/upload-artifact@v6
+        with:
+          name: jnext-source-zip
+          path: build/dist/jnext-*-src.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload the rpm
+        uses: actions/upload-artifact@v6
+        with:
+          name: jnext-linux-rpm
+          path: build/rpm-release/jnext-*.x86_64.rpm
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload the Windows x64 zip
+        uses: actions/upload-artifact@v6
+        with:
+          name: jnext-windows-x64-zip
+          path: build/win-release/jnext-*-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload the Windows x64 legacy zip
+        uses: actions/upload-artifact@v6
+        with:
+          name: jnext-windows-x64-legacy-zip
+          path: build/win-qt5-release/jnext-*-windows-x64-legacy.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload the Windows x86 legacy zip
+        uses: actions/upload-artifact@v6
+        with:
+          name: jnext-windows-x86-legacy-zip
+          path: build/win32-qt5-release/jnext-*-windows-x86-legacy.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload the Windows x64 SDL-only zip
+        uses: actions/upload-artifact@v6
+        with:
+          name: jnext-windows-x64-sdl-zip
+          path: build/win-sdl-release/jnext-*-windows-x64-sdl.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload the Windows x86 SDL-only zip
+        uses: actions/upload-artifact@v6
+        with:
+          name: jnext-windows-x86-sdl-zip
+          path: build/win32-sdl-release/jnext-*-windows-x86-sdl.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
   # macOS is the ONE platform the regular push path did not cover.
   #
   # Windows already is, and adding a second Windows job here would duplicate
@@ -639,7 +716,8 @@ jobs:
       - name: make package-macos (build, package, verify self-containment)
         run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" make package-macos
 
-      - uses: actions/upload-artifact@v6
+      - name: Upload the dmg
+        uses: actions/upload-artifact@v6
         with:
           name: jnext-macos-dmg
           # BUILD_DIR_MAC_RELEASE, the same path release.yml's macos job
@@ -647,6 +725,8 @@ jobs:
           # is a red job rather than a green one with no artifact in it.
           path: build/mac-release/*.dmg
           if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
 
   # GH #214. The SDL-only unit suites on macOS. The `macos` job above builds and
   # packages but runs no suite, so a POSIX divergence in a suite or in the code it
