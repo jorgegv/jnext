@@ -1,4 +1,6 @@
 #include "debugger/cpu_panel.h"
+#include "qt/palette_tint_qt.h"   // GH #363
+#include <QApplication>
 #include "debug/debugger.h"
 
 #include <QGridLayout>
@@ -41,7 +43,9 @@ void CpuPanel::create_ui() {
         auto* line = new QFrame(this);
         line->setFrameShape(QFrame::VLine);
         line->setFrameShadow(QFrame::Plain);
-        line->setStyleSheet("color: #C0C0C0;");
+        palette_tint::follow(line, [](const QPalette& p) {
+            return "color: " + palette_tint::css(palette_tint::surface(p, QColor(0xC0, 0xC0, 0xC0))) + ";";
+        });
         return line;
     };
 
@@ -49,7 +53,9 @@ void CpuPanel::create_ui() {
     auto make_hsep = [&]() -> QFrame* {
         auto* line = new QFrame(this);
         line->setFrameShape(QFrame::HLine);
-        line->setStyleSheet("color: #D0D0D0;");
+        palette_tint::follow(line, [](const QPalette& p) {
+            return "color: " + palette_tint::css(palette_tint::surface(p, QColor(0xD0, 0xD0, 0xD0))) + ";";
+        });
         return line;
     };
 
@@ -184,7 +190,7 @@ void CpuPanel::paintEvent(QPaintEvent* event) {
     QWidget::paintEvent(event);
     if (!paused_) {
         QPainter painter(this);
-        painter.fillRect(rect(), QColor(192, 192, 192, 80));
+        painter.fillRect(rect(), palette_tint::surface(palette(), QColor(192, 192, 192, 80)));
     }
 }
 
@@ -216,11 +222,16 @@ void CpuPanel::refresh() {
 
     // Flags
     uint8_t f = regs.AF & 0xFF;
-    auto set_flag = [](QLabel* lbl, bool active) {
+    // The application palette, not the panel's: inside a style-sheeted box the
+    // panel's own palette lags a light/dark switch (qt/palette_tint_qt.h).
+    const QPalette pal = QApplication::palette();
+    auto set_flag = [&pal](QLabel* lbl, bool active) {
         if (active) {
-            lbl->setStyleSheet("QLabel { font-weight: bold; color: #00AA00; }");
+            lbl->setStyleSheet("QLabel { font-weight: bold; color: " +
+                               palette_tint::css(palette_tint::ink(pal, QColor(0x00, 0xAA, 0x00))) + "; }");
         } else {
-            lbl->setStyleSheet("QLabel { color: #888888; }");
+            lbl->setStyleSheet("QLabel { color: " +
+                               palette_tint::css(palette_tint::ink(pal, QColor(0x88, 0x88, 0x88))) + "; }");
         }
     };
 
@@ -234,7 +245,9 @@ void CpuPanel::refresh() {
     // Halted state
     if (regs.halted) {
         reg_halted_->setText("HALTED");
-        reg_halted_->setStyleSheet("QLabel { color: #CC0000; font-weight: bold; }");
+        reg_halted_->setStyleSheet("QLabel { color: " +
+                                   palette_tint::css(palette_tint::ink(pal, QColor(0xCC, 0x00, 0x00))) +
+                                   "; font-weight: bold; }");
     } else {
         reg_halted_->setText("Running");
         reg_halted_->setStyleSheet("");

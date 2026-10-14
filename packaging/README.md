@@ -97,7 +97,7 @@ cryptic mid-build failure.
 any target.) Install the full toolchain + libraries first:
 
 ```sh
-sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase \
+sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase mingw64-qt6-qtsvg \
   mingw64-sdl2-compat mingw64-zlib \
   mingw64-libpng mingw64-winpthreads
 ```
@@ -178,7 +178,7 @@ HiDPI opt-in; a `qt5-guard` CI job (`make qt5-guard-build`, native Linux Qt5)
 keeps the combination compiling. Extra toolchain on top of the Qt6 list:
 
 ```sh
-sudo dnf install mingw64-qt5-qtbase mingw64-qt5-qtbase-devel mingw64-qt5-qmake
+sudo dnf install mingw64-qt5-qtbase mingw64-qt5-qtbase-devel mingw64-qt5-qmake mingw64-qt5-qtsvg
 ```
 
 (`mingw64-qt5-qtbase` carries the Qt5 DLLs, `Qt5Config.cmake` and
@@ -188,7 +188,7 @@ AUTOMOC needs.) The entry point differs from both other legs: fedora's
 `main`→`qMain` for `libqt5main.a`'s WinMain) and links `mingw32` before it —
 the same ordering trick Qt6 encodes in its `EntryPointMinGW32` helper. The
 target refuses to ship a bundle where Qt6 DLLs leaked in (that would re-raise
-the floor to Windows 10) or Qt5Core/qwindows/SDL2/SDL3 are missing;
+the floor to Windows 10) or Qt5Core/Qt5Svg/qwindows/SDL2/SDL3 are missing;
 `make package-test` re-checks the zip contents, including that the exe is a
 GUI-subsystem binary and the curl/OpenSSL chain stays absent.
 
@@ -199,7 +199,7 @@ WINDOWS-COMPAT-PLAN.md §7 Phase C). Its toolchain is the mingw32 mirror:
 
 ```sh
 sudo dnf install mingw32-gcc mingw32-gcc-c++ mingw32-qt5-qtbase \
-  mingw32-qt5-qtbase-devel mingw32-qt5-qmake mingw32-sdl2-compat \
+  mingw32-qt5-qtbase-devel mingw32-qt5-qmake mingw32-qt5-qtsvg mingw32-sdl2-compat \
   mingw32-zlib mingw32-libpng mingw32-winpthreads
 ```
 
@@ -453,7 +453,9 @@ CI runs rather than guessed:
   (separate `qtbase`/`qtsvg`/`qtdeclarative` prefixes) it cannot always resolve
   those plugins' own frameworks — it logs `Cannot resolve rpath
   "@rpath/QtSvg.framework/..."` and **exits 0 anyway**, leaving the plugin in the
-  bundle with its framework absent. jnext needs none of them, and a plugin that
+  bundle with its framework absent. jnext needs none of those plugins (it links
+  QtSvg itself, for the toolbar icons: a direct dependency of the executable,
+  deployed and checked like any other library), and a plugin that
   cannot load is strictly worse than an absent one. The rule is generic (remove
   anything with an unresolvable reference) so it survives Qt reshuffling its
   modules; `platforms/libqcocoa.dylib` is exempt and **fails the build** instead

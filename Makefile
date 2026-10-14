@@ -362,10 +362,11 @@ win-release:
 	@# "compiler not found" from deep inside CMake's project() call.
 	@if ! command -v mingw64-cmake >/dev/null 2>&1 \
 	   || ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 \
-	   || [ ! -f /usr/x86_64-w64-mingw32/sys-root/mingw/lib/cmake/Qt6/Qt6Config.cmake ]; then \
+	   || [ ! -f /usr/x86_64-w64-mingw32/sys-root/mingw/lib/cmake/Qt6/Qt6Config.cmake ] \
+	   || [ ! -f /usr/x86_64-w64-mingw32/sys-root/mingw/lib/cmake/Qt6Svg/Qt6SvgConfig.cmake ]; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) Fedora MinGW cross toolchain/libraries incomplete.\n"; \
 		printf "  Install them all:\n"; \
-		printf "  $(BOLD)sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase \\\\\n"; \
+		printf "  $(BOLD)sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt6-qtbase mingw64-qt6-qtsvg \\\\\n"; \
 		printf "    mingw64-sdl2-compat mingw64-zlib \\\\\n"; \
 		printf "    mingw64-libpng mingw64-winpthreads$(RESET)\n"; \
 		printf "  (mingw64-filesystem supplies mingw64-cmake; native qt6-qtbase-devel supplies moc/rcc/uic.)\n"; \
@@ -418,11 +419,12 @@ win-qt5-release:
 	@if ! command -v mingw64-cmake >/dev/null 2>&1 \
 	   || ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 \
 	   || [ ! -f /usr/x86_64-w64-mingw32/sys-root/mingw/lib/cmake/Qt5/Qt5Config.cmake ] \
+	   || [ ! -f /usr/x86_64-w64-mingw32/sys-root/mingw/lib/cmake/Qt5Svg/Qt5SvgConfig.cmake ] \
 	   || ! command -v x86_64-w64-mingw32-moc-qt5 >/dev/null 2>&1; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) Fedora MinGW Qt5 cross toolchain incomplete.\n"; \
 		printf "  Install it:\n"; \
 		printf "  $(BOLD)sudo dnf install mingw64-gcc mingw64-gcc-c++ mingw64-qt5-qtbase \\\\\n"; \
-		printf "    mingw64-qt5-qtbase-devel mingw64-qt5-qmake mingw64-sdl2-compat \\\\\n"; \
+		printf "    mingw64-qt5-qtbase-devel mingw64-qt5-qmake mingw64-qt5-qtsvg mingw64-sdl2-compat \\\\\n"; \
 		printf "    mingw64-zlib mingw64-libpng mingw64-winpthreads$(RESET)\n"; \
 		printf "  (mingw64-filesystem supplies mingw64-cmake.)\n"; \
 		exit 1; \
@@ -479,11 +481,12 @@ win32-qt5-release:
 	@if ! command -v mingw32-cmake >/dev/null 2>&1 \
 	   || ! command -v i686-w64-mingw32-gcc >/dev/null 2>&1 \
 	   || [ ! -f /usr/i686-w64-mingw32/sys-root/mingw/lib/cmake/Qt5/Qt5Config.cmake ] \
+	   || [ ! -f /usr/i686-w64-mingw32/sys-root/mingw/lib/cmake/Qt5Svg/Qt5SvgConfig.cmake ] \
 	   || ! command -v i686-w64-mingw32-moc-qt5 >/dev/null 2>&1; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) Fedora MinGW i686 Qt5 cross toolchain incomplete.\n"; \
 		printf "  Install it:\n"; \
 		printf "  $(BOLD)sudo dnf install mingw32-gcc mingw32-gcc-c++ mingw32-qt5-qtbase \\\\\n"; \
-		printf "    mingw32-qt5-qtbase-devel mingw32-qt5-qmake mingw32-sdl2-compat \\\\\n"; \
+		printf "    mingw32-qt5-qtbase-devel mingw32-qt5-qmake mingw32-qt5-qtsvg mingw32-sdl2-compat \\\\\n"; \
 		printf "    mingw32-zlib mingw32-libpng mingw32-winpthreads$(RESET)\n"; \
 		printf "  (mingw32-filesystem supplies mingw32-cmake.)\n"; \
 		exit 1; \
@@ -1766,8 +1769,9 @@ package-win: win-release
 	@# bundle-dlls.sh `;`-terminated with nothing after it that read the bundle, so a
 	@# failed bundle zipped the docs, printed "ZIP(s) produced:" and exited 0 — an
 	@# artifact with no executable in it, published by release.yml. Required set:
-	@# the exe, the Qt6 core DLL, the mandatory qwindows platform plugin (no GUI
-	@# without it) and SDL3.dll, which jnext links directly since GH #57. SDL2.dll
+	@# the exe, the Qt6 core DLL, Qt6Svg.dll (the toolbar icons' QSvgRenderer), the
+	@# mandatory qwindows platform plugin (no GUI without it) and SDL3.dll, which
+	@# jnext links directly since GH #57. SDL2.dll
 	@# is NOT expected any more: it used to appear because fedora's mingw SDL2 was
 	@# the sdl2-compat shim that LoadLibrary()s SDL3.dll at runtime.
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}') && \
@@ -1775,7 +1779,7 @@ package-win: win-release
 	 stage="$(BUILD_DIR_WIN_RELEASE)/dist/$$name" && \
 	 rm -rf "$(BUILD_DIR_WIN_RELEASE)/dist" && mkdir -p "$$stage" && \
 	 bash packaging/windows/bundle-dlls.sh $(BUILD_DIR_WIN_RELEASE)/jnext.exe "$$stage" && \
-	 for f in jnext.exe Qt6Core.dll platforms/qwindows.dll SDL3.dll; do \
+	 for f in jnext.exe Qt6Core.dll Qt6Svg.dll platforms/qwindows.dll SDL3.dll; do \
 		if [ ! -f "$$stage/$$f" ]; then \
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Windows bundle.\n"; exit 1; \
 		fi; \
@@ -1826,7 +1830,7 @@ package-win-qt5: win-qt5-release
 	 if ls "$$stage"/Qt6*.dll >/dev/null 2>&1; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) Qt6 DLLs leaked into the Qt5 bundle.\n"; exit 1; \
 	 fi && \
-	 for f in jnext.exe Qt5Core.dll platforms/qwindows.dll SDL3.dll; do \
+	 for f in jnext.exe Qt5Core.dll Qt5Svg.dll platforms/qwindows.dll SDL3.dll; do \
 		if [ ! -f "$$stage/$$f" ]; then \
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Qt5 bundle.\n"; exit 1; \
 		fi; \
@@ -1852,7 +1856,7 @@ package-win32-qt5: win32-qt5-release
 	 if ls "$$stage"/Qt6*.dll >/dev/null 2>&1; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) Qt6 DLLs leaked into the Qt5 bundle.\n"; exit 1; \
 	 fi && \
-	 for f in jnext.exe Qt5Core.dll platforms/qwindows.dll SDL3.dll; do \
+	 for f in jnext.exe Qt5Core.dll Qt5Svg.dll platforms/qwindows.dll SDL3.dll; do \
 		if [ ! -f "$$stage/$$f" ]; then \
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Qt5 bundle.\n"; exit 1; \
 		fi; \

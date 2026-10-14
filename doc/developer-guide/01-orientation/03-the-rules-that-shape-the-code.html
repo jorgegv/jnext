@@ -2476,15 +2476,13 @@ where the product builds four.</p>
 <p>It has nothing to do with the images that are emulator <em>output</em> —
 <code>boot-splash</code>, <code>machine-*</code>, <code>layers-*</code> and the rest — which jnext already
 renders itself with <code>--delayed-screenshot</code>.</p>
-<p>One consequence of forcing Fusion is worth knowing before you look at
-<code>gui-main-window.png</code> and think it is wrong: the Screenshot toolbar button
-takes its icon from <code>QIcon::fromTheme("camera-photo")</code>, which resolves only
-against a desktop icon theme. There is none under the offscreen platform (nor
-on Windows), and Qt draws an action's <em>text</em> when its icon is null — so that
-one button reads "Screenshot" while its neighbours, whose icons come from
-<code>QStyle::standardIcon()</code>, draw as pictures. Resolving it would mean picking up
-whichever theme the capturing machine happens to have, which is the one thing
-forcing Fusion exists to prevent.</p>
+<p>Every toolbar button in <code>gui-main-window.png</code> draws its icon. The icons are
+the monochrome SVG set in <code>src/gui/icons/</code>, compiled into the binary and
+rendered by jnext itself (<code>src/toolbar_icons/</code>, see <a href="02-repository-layout.html">1.2</a>),
+so the capture depends on no desktop icon theme. Until that set existed, the
+Screenshot button took its icon from <code>QIcon::fromTheme("camera-photo")</code>, which
+the offscreen platform cannot resolve, and the picture showed the word
+"Screenshot".</p>
 <p><strong>It is not a prerequisite of anything, and there is no staleness gate on these
 images.</strong> Both are deliberate. The target boots a machine and needs a Qt build
 and an offscreen platform, which is not something an ordinary build or test run

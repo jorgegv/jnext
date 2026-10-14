@@ -1,4 +1,6 @@
 #include "debugger/video_panel.h"
+#include "qt/palette_tint_qt.h"   // GH #363
+#include <QApplication>
 #include "debug/debugger.h"
 
 #include <QShowEvent>
@@ -569,7 +571,9 @@ void VideoPanel::create_ui()
 
     auto* line = new QFrame(this);
     line->setFrameShape(QFrame::HLine);
-    line->setStyleSheet("color: #D0D0D0;");
+    palette_tint::follow(line, [](const QPalette& p) {
+        return "color: " + palette_tint::css(palette_tint::surface(p, QColor(0xD0, 0xD0, 0xD0))) + ";";
+    });
     layout->addWidget(line);
 
     // ── Layer sub-panels ─────────────────────────────────────────────────────
@@ -777,11 +781,16 @@ void VideoPanel::refresh()
     int priority;
     video_panel_layer_state(*dbg_, layer_active, priority);
 
-    auto set_flag = [](QLabel* lbl, bool active) {
+    // The application palette, not the panel's: inside a style-sheeted box the
+    // panel's own palette lags a light/dark switch (qt/palette_tint_qt.h).
+    const QPalette pal = QApplication::palette();
+    auto set_flag = [&pal](QLabel* lbl, bool active) {
         if (active)
-            lbl->setStyleSheet("QLabel { font-weight: bold; color: #00AA00; }");
+            lbl->setStyleSheet("QLabel { font-weight: bold; color: " +
+                               palette_tint::css(palette_tint::ink(pal, QColor(0x00, 0xAA, 0x00))) + "; }");
         else
-            lbl->setStyleSheet("QLabel { color: #888888; }");
+            lbl->setStyleSheet("QLabel { color: " +
+                               palette_tint::css(palette_tint::ink(pal, QColor(0x88, 0x88, 0x88))) + "; }");
     };
 
     for (int i = 0; i < 4; ++i)

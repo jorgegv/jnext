@@ -1,4 +1,5 @@
 #include "debugger/stack_panel.h"
+#include "qt/palette_tint_qt.h"   // GH #363
 #include "debug/debugger.h"
 
 #include <QVBoxLayout>
@@ -70,7 +71,7 @@ void StackPanel::refresh() {
             table_->item(r, 2)->setText("--");
             table_->item(r, 3)->setText("--");
             for (int c = 0; c < 4; ++c)
-                table_->item(r, c)->setBackground(QColor(Qt::white));
+                table_->item(r, c)->setBackground(palette_tint::surface(palette(), QColor(Qt::white)));
             continue;
         }
 
@@ -91,7 +92,7 @@ void StackPanel::refresh() {
 
         // Highlight SP row (top row = top of stack)
         bool is_sp = (offset == 0);
-        QColor bg = is_sp ? QColor(0xE0, 0xFF, 0xE0) : QColor(Qt::white);
+        QColor bg = palette_tint::surface(palette(), is_sp ? QColor(0xE0, 0xFF, 0xE0) : QColor(Qt::white));
         for (int c = 0; c < 4; ++c) {
             table_->item(r, c)->setBackground(bg);
         }

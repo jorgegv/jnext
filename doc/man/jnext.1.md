@@ -1594,6 +1594,13 @@ A log file carries no colour, whatever `NO_COLOR` says.
     because both are non-empty. It has no effect on **\--log-file** output,
     which is never coloured in the first place.
 
+`JNEXT_COLOR_SCHEME`
+:   **dark** or **light** forces the GUI's colour scheme (Qt 6 builds); **system**, empty or
+    unset follows the desktop (see THE GUI). Any other value is ignored with a
+    warning. Meant for screenshots and tests, where there is no desktop to
+    ask (an Xvfb display), and for a desktop that reports the wrong thing. It
+    applies to the windows only, never to the emulated screen.
+
 # PROFILING
 
 **\--profile** enables the CPU T-state profiler: one histogram entry per
@@ -1676,7 +1683,16 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
 
 The toolbar has Power Reset, Soft Reset, Pause, Load, Screenshot, an NMI button
 (Multiface NMI) and, in a debugger-enabled build, a Debug button (a magnifier over a chip) that opens the
-debugger.
+debugger. The icons are monochrome, drawn in the window's text colour, so they
+follow a light or dark theme; hovering a button shows its name.
+
+The windows follow the desktop's light or dark preference, including a switch
+made while jnext runs. On Linux jnext reads it from the XDG desktop portal
+(the `org.freedesktop.appearance` `color-scheme` setting that GNOME, KDE and
+others publish), because Qt's own detection misses it under GNOME; with no
+portal it keeps Qt's own choice. On Windows and macOS Qt follows the system
+setting itself. The Qt 5 builds (the legacy Windows packages) do not follow it.
+**JNEXT_COLOR_SCHEME** overrides all of this (see ENVIRONMENT).
 
 CPU Speed and Emulator Speed are different things: the first changes the clock
 the emulated Z80 runs at, which is a real Next feature; the second changes how

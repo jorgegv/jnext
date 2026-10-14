@@ -92,6 +92,8 @@
 
 ## GUI (Qt 6)
 - Native Qt 6 main window with menu bar, toolbar, and status bar
+- Monochrome SVG toolbar icons (Power Reset, Soft Reset, Pause/Resume, Load, Screenshot, NMI, Debug) drawn in the window's text colour, so they follow a light or dark theme, re-rendered live when it changes; Screenshot and NMI now have icons of their own, and Pause shows a play icon while paused
+- Light and dark mode: the windows (debugger included) follow the desktop's colour scheme, live; on Linux read from the XDG desktop portal, which Qt misses under GNOME; `JNEXT_COLOR_SCHEME=dark|light` forces one. Qt 6 builds only
 - Hi-DPI pixel-perfect rendering at integer scale (2×/3×/4×)
 - True fullscreen with aspect-ratio letterbox
 - CRT scanline filter overlay

@@ -1450,6 +1450,20 @@ if(ENABLE_QT_UI)
     target_include_directories(window_title_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME window_title_tests COMMAND window_title_test)
 
+    # GH #363 — the GUI follows the desktop's light/dark preference: the pure
+    # decision (gui/color_scheme_policy.h) and its glue (desktop_color_scheme),
+    # offscreen, the portal fed through setting_changed() (no D-Bus).
+    add_executable(color_scheme_test gui/color_scheme_test.cpp)
+    set_target_properties(color_scheme_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(color_scheme_test PRIVATE jnext_gui)
+    target_include_directories(color_scheme_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # CS-23/24 read the two install() call sites from the source tree; CS-18..22
+    # start a private dbus-daemon (the test job installs it).
+    target_compile_definitions(color_scheme_test PRIVATE
+        JNEXT_QT_APP_CPP="${CMAKE_SOURCE_DIR}/src/gui/qt_app.cpp"
+        JNEXT_SDCARD_DIALOG_CPP="${CMAKE_SOURCE_DIR}/src/gui/sdcard_download_dialog.cpp")
+    add_test(NAME color_scheme_tests COMMAND color_scheme_test)
+
     # Issue #131 — File > Quit was wired straight to QApplication::quit(), so
     # MainWindow::closeEvent() never ran and its cleanup (stop an active
     # recording, tear the debugger down) was skipped. Asserts the OBSERVABLE
@@ -1466,6 +1480,18 @@ if(ENABLE_QT_UI)
         target_link_libraries(quit_cleanup_test PRIVATE jnext_gui jnext_debugger)
         target_include_directories(quit_cleanup_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
         add_test(NAME quit_cleanup_tests COMMAND quit_cleanup_test)
+
+        # The toolbar icon set (doc/design/ICONSET-DESIGN.md): the loader in
+        # src/toolbar_icons/, the Main and Debug toolbars that use it (a real
+        # MainWindow with a backend builds both, hence ENABLE_DEBUGGER), and
+        # the section 2 lint on every file in src/gui/icons/. Offscreen QPA.
+        add_executable(toolbar_icons_test gui/toolbar_icons_test.cpp)
+        set_target_properties(toolbar_icons_test PROPERTIES AUTOMOC ON)
+        target_link_libraries(toolbar_icons_test PRIVATE jnext_gui jnext_debugger jnext_toolbar_icons)
+        target_include_directories(toolbar_icons_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+        target_compile_definitions(toolbar_icons_test PRIVATE
+            JNEXT_ICON_SRC_DIR="${CMAKE_SOURCE_DIR}/src/gui/icons")
+        add_test(NAME toolbar_icons_tests COMMAND toolbar_icons_test)
     endif()
 endif()
 

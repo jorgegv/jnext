@@ -1,6 +1,7 @@
 #include "debugger/debugger_window.h"
 #include "qt/menu_bar_alt_nav_qt.h"   // GH #268
 #include "qt/debug_keymap_qt.h"
+#include "qt/palette_tint_qt.h"     // GH #363
 #include "debugger/cpu_panel.h"
 #include "debugger/disasm_panel.h"
 #include "debugger/memory_panel.h"
@@ -409,6 +410,22 @@ void DebuggerWindow::showEvent(QShowEvent* event) {
     // Queued, not immediate: the scroll range this reads is only correct once
     // the shown window has been laid out.
     QTimer::singleShot(0, this, [this]() { grow_default_size_to_natural(); });
+}
+
+// GH #363 — a light/dark switch while the window is open. Painted panels pick
+// the new palette up on their next paint; table cell backgrounds and the flag
+// labels' colours are set when a panel refreshes, so refresh them now rather
+// than leave them in the old scheme until the next step. Queued: the window
+// hears of the change before its children have their new palettes.
+void DebuggerWindow::changeEvent(QEvent* event) {
+    QMainWindow::changeEvent(event);
+    if (event->type() == QEvent::PaletteChange && !palette_refresh_queued_) {
+        palette_refresh_queued_ = true;
+        QTimer::singleShot(0, this, [this]() {
+            palette_refresh_queued_ = false;
+            if (isVisible()) refresh_panels();
+        });
+    }
 }
 
 void DebuggerWindow::grow_default_size_to_natural() {
@@ -1185,12 +1202,14 @@ void DebuggerWindow::create_panels() {
     // --- Helper: wrap a widget in a titled QGroupBox ---
     auto make_group = [](const QString& title, QWidget* content) -> QGroupBox* {
         auto* box = new QGroupBox(title);
-        box->setStyleSheet(
-            "QGroupBox { font-weight: bold; border: 1px solid #C0C0C0;"
-            "  margin-top: 18px; padding-top: 8px; }"
-            "QGroupBox::title { subcontrol-origin: margin;"
-            "  subcontrol-position: top left; padding: 3px 8px;"
-            "  background: #D8D8D8; }");
+        palette_tint::follow(box, [](const QPalette& p) {
+            return "QGroupBox { font-weight: bold; border: 1px solid " +
+                   palette_tint::css(palette_tint::surface(p, QColor(0xC0, 0xC0, 0xC0))) + ";"
+                   "  margin-top: 18px; padding-top: 8px; }"
+                   "QGroupBox::title { subcontrol-origin: margin;"
+                   "  subcontrol-position: top left; padding: 3px 8px;"
+                   "  background: " + palette_tint::css(palette_tint::surface(p, QColor(0xD8, 0xD8, 0xD8))) + "; }";
+        });
         auto* lay = new QVBoxLayout(box);
         lay->setContentsMargins(4, 6, 4, 4);
         lay->addWidget(content);

@@ -1,5 +1,6 @@
 #include "gui/qt_app.h"
 #include "gui/main_window.h"
+#include "gui/desktop_color_scheme.h"   // GH #363
 #include "platform/host_key_wiring.h"
 #include "gui/emulator_widget.h"
 #include "gui/frame_timer.h"
@@ -269,6 +270,10 @@ bool QtApp::init(int argc, char* argv[]) {
     // themselves (jon263 asked for exactly this).
     Log::platform()->info("Qt platform plugin: {}",
                           QGuiApplication::platformName().toStdString());
+
+    // GH #363 — follow the desktop's light/dark preference (and JNEXT_COLOR_SCHEME),
+    // before any window exists, and live afterwards.
+    DesktopColorScheme::install();
 
     // Initialize the emulator core.
     EmulatorConfig cfg = config_set_ ? config_ : EmulatorConfig{};

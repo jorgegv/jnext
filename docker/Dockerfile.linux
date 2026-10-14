@@ -9,6 +9,7 @@ RUN dnf install -y \
     git \
     SDL3-devel \
     qt6-qtbase-devel \
+    qt6-qtsvg-devel \
     libpng-devel \
     zlib-devel \
     libcurl-devel \

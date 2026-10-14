@@ -31,7 +31,7 @@ if(NOT MSVC)
 endif()
 
 # LTO/IPO for the Release (gui-release) build ONLY (Task 27 B1). The
-# per-subsystem static libs (17 with Qt + debugger, 15 SDL-only) mean every hot cross-TU
+# per-subsystem static libs (18 with Qt + debugger, 15 SDL-only) mean every hot cross-TU
 # call — CPU→Mmu::read, CPU→PortDispatch — is un-inlinable and
 # un-devirtualisable at compile time.
 # LTO lets the linker inline/devirtualise across those library boundaries.
@@ -351,6 +351,11 @@ if(ENABLE_QT_UI OR ENABLE_DEBUGGER)
         set(JNEXT_QT_MAJOR ${QT_VERSION_MAJOR})
     endif()
     message(STATUS "jnext GUI/debugger Qt major: ${JNEXT_QT_MAJOR}")
+endif()
+
+# The toolbar icon set, shared by both Qt libraries (src/toolbar_icons/).
+if(ENABLE_QT_UI OR ENABLE_DEBUGGER)
+    add_subdirectory(src/toolbar_icons)
 endif()
 
 if(ENABLE_QT_UI)
@@ -677,7 +682,9 @@ install(CODE "
         # Remove plugins macdeployqt copied but could not complete. On a
         # split Homebrew Qt it cannot resolve some plugins' own frameworks
         # (QtSvg, QtPdf, QtVirtualKeyboard) and ships them unusable; jnext
-        # needs none of them. Runs BEFORE signing so the signature covers the
+        # needs none of those plugins. (QtSvg itself it does need, for the
+        # toolbar icons, but as a direct dependency of the executable, which
+        # macdeployqt deploys and verify-bundle.sh checks like any other.) Runs BEFORE signing so the signature covers the
         # final contents.
         execute_process(
             COMMAND bash \"${CMAKE_SOURCE_DIR}/packaging/macos/prune-broken-plugins.sh\" \"\${_app}\"

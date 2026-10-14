@@ -12,6 +12,7 @@ Build-Depends: debhelper-compat (= 13),
                libssl-dev,
                libpng-dev,
                qt6-base-dev,
+               qt6-svg-dev,
                desktop-file-utils,
                appstream
 Standards-Version: 4.6.2

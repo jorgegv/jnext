@@ -51,6 +51,7 @@
 #include "debugger/disasm_panel.h"
 #include "debugger/memory_panel.h"
 #include "debugger/mmu_panel.h"
+#include "debugger/video_panel.h"
 #include "debugger/nextreg_panel.h"
 #include "debugger/script_panel.h"
 #include "script/script_host.h"
@@ -63,6 +64,7 @@
 #include "video/renderer.h"
 #include "video/ula.h"
 
+#include <QGroupBox>
 #include <QAbstractButton>
 #include <QApplication>
 #include <QMenuBar>
@@ -90,6 +92,8 @@
 #include <QTimer>
 
 #include <algorithm>
+#include <cstring>
+#include <map>
 #include <climits>
 #include <cstdarg>
 #include <cstdint>
@@ -1819,6 +1823,262 @@ static void test_window_wiring() {
 }
 
 // ===========================================================================
+// QDARK — GH #363: the panels' own colours on a dark palette. Several panels
+// were written against a white table (light-green SP row, light-yellow PC
+// row, #CC0000 "HALTED", #00AA00 flags); on a dark palette the cell text turns
+// light, so those colours now go through qt/palette_tint_qt.h: unchanged on a
+// light palette (every QPN row above pins them), the dark counterpart on a
+// dark one. These rows switch the APPLICATION palette with the real window
+// open, as a desktop light/dark switch does, and read the panels without an
+// explicit refresh: DebuggerWindow::changeEvent() must re-colour them.
+// Oracle: the GH #363 owner report (unreadable tables in dark mode) and the
+// rule that a background under light text is dark (lightness < 100).
+// ===========================================================================
+static QPalette dark_test_palette() {
+    QPalette p;   // Fusion's dark roles that the panels read
+    for (auto g : {QPalette::Active, QPalette::Inactive}) {
+        p.setColor(g, QPalette::Window, QColor(0x32, 0x32, 0x32));
+        p.setColor(g, QPalette::WindowText, QColor(0xF0, 0xF0, 0xF0));
+        p.setColor(g, QPalette::Base, QColor(0x24, 0x24, 0x24));
+        p.setColor(g, QPalette::Text, QColor(0xF0, 0xF0, 0xF0));
+    }
+    return p;
+}
+
+static void test_dark_palette() {
+    set_group("QDARK");
+
+    WindowFixture fx(MachineType::ZXN_ISSUE2);
+    StackPanel*  stk = fx.ok ? fx.dbg()->findChild<StackPanel*>() : nullptr;
+    CopperPanel* cop = fx.ok ? fx.dbg()->findChild<CopperPanel*>() : nullptr;
+    CpuPanel*    cpu = fx.ok ? fx.dbg()->findChild<CpuPanel*>() : nullptr;
+    MmuPanel*    mmu = fx.ok ? fx.dbg()->findChild<MmuPanel*>() : nullptr;
+    VideoPanel*  vid = fx.ok ? fx.dbg()->findChild<VideoPanel*>() : nullptr;
+    QGroupBox*   dis_box = nullptr;
+    if (fx.ok)
+        for (QGroupBox* b : fx.dbg()->findChildren<QGroupBox*>())
+            if (b->title() == "Disassembly") dis_box = b;
+    if (!stk || !cop || !cpu || !mmu || !vid || !dis_box) {
+        check("QDARK-01", "fixture: debugger window with its Stack panel", false);
+        check("QDARK-02", "fixture: debugger window with its Copper panel", false);
+        check("QDARK-03", "fixture: debugger window with its CPU panel", false);
+        check("QDARK-04", "fixture: debugger window with its Stack panel", false);
+        check("QDARK-05", "fixture: debugger window with its CPU panel", false);
+        check("QDARK-06", "fixture: debugger window", false);
+        check("QDARK-07", "fixture: debugger window", false);
+        check("QDARK-08", "fixture: debugger window with its MMU panel", false);
+        check("QDARK-09", "fixture: debugger window with its Video panel", false);
+        check("QDARK-10", "fixture: debugger window with its titled boxes", false);
+        return;
+    }
+    poke(fx.emu, 0x8000, {0x76});                              // HALT
+    Z80Registers r = fx.emu.cpu().get_registers();
+    r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = 0; r.IFF2 = 0;
+    r.AF = 0x1240;                                             // Z set
+    fx.emu.cpu().set_registers(r);
+    fx.emu.port().write(0x7FFD, 0x20);                         // 128K paging locked: Lock "Yes"
+    fx.mgr->on_run();
+    fx.emu.run_frame();
+    fx.mgr->on_pause();
+    QApplication::processEvents();
+
+    // Two painted panels of their own (they inherit the application palette):
+    // a Disassembly parked on a PC row, a CPU-view Memory panel with SP in
+    // the attributes.
+    Emulator demu;
+    build(demu, MachineType::ZX48K);
+    for (uint16_t a = 0x7F00; a < 0x8100; ++a) poke(demu, a, {0x00});   // NOPs
+    Z80Registers dr = demu.cpu().get_registers();
+    dr.PC = 0x8000; dr.SP = 0x5A08;
+    demu.cpu().set_registers(dr);
+    jnext::dbg::Debugger ddbg(demu);
+    DisasmPanel dis(&ddbg);
+    dis.resize(700, 400);
+    dis.set_paused(true);
+    dis.activate_follow_pc();
+    dis.refresh();
+    MemoryPanel mem(&ddbg);
+    mem.resize(700, 600);
+    auto image_of = [](QWidget* w) {
+        QImage img(w->size(), QImage::Format_ARGB32);
+        img.fill(Qt::black);
+        w->render(&img);
+        return img;
+    };
+    // Pixels of a hue (within 8 degrees) and the commonest of them: the row's
+    // fill, not the anti-aliased text drawn over it.
+    struct Tint { int count = 0; QColor fill; };
+    auto tint = [](const QImage& img, int hue) {
+        Tint t;
+        std::map<QRgb, int> n;
+        for (int y = 0; y < img.height(); ++y)
+            for (int x = 0; x < img.width(); ++x) {
+                const QColor c(img.pixel(x, y));
+                if (c.hslSaturation() < 40 || std::abs(c.hslHue() - hue) > 8) continue;
+                ++t.count;
+                ++n[img.pixel(x, y)];
+            }
+        int best = 0;
+        for (const auto& [rgb, k] : n)
+            if (k > best) { best = k; t.fill = QColor(rgb); }
+        return t;
+    };
+    auto row_colour = [&](const QString& go, const QString& label) -> QColor {
+        go_to(&mem, go);
+        const DumpRow row = dump_row(painted(&mem), label);
+        if (!row.found) return QColor();
+        return QColor(image_of(&mem).pixel(0, static_cast<int>(row.baseline_y)));
+    };
+    auto sheet_colour = [](QWidget* w, const char* key) {
+        const QString ss = w ? w->styleSheet() : QString();
+        const int i = ss.indexOf(QLatin1String(key));
+        return i < 0 ? QColor() : QColor(ss.mid(i + int(std::strlen(key)), 7));
+    };
+    auto label_in = [](QWidget* root, const QString& text) -> QLabel* {
+        for (QLabel* l : root->findChildren<QLabel*>())
+            if (l->text() == text) return l;
+        return nullptr;
+    };
+
+    const QPalette light = QApplication::palette();
+    const QColor light_sp = cell_bg(stk, 0, 0);
+    // The event loop delivers the palette change, then the window's queued
+    // re-colouring: a few turns of it, as the running application gets.
+    auto settle = [] { for (int i = 0; i < 3; ++i) QApplication::processEvents(); };
+    QApplication::setPalette(dark_test_palette());
+    settle();
+    dis.refresh();
+    const Tint dis_dark = tint(image_of(&dis), 60);
+    const QColor mem_dark[4] = {row_colour("4000", "$4000"), row_colour("5800", "$5800"),
+                                row_colour("5A80", "$5A00"), row_colour("8000", "$8000")};
+    QLabel* lock = grid_value(mmu, "Lock:");
+    QLabel* rom0 = grid_value(mmu, "Type", 1, 0);
+    const QColor lock_dark = sheet_colour(lock, "color: "), rom_dark = sheet_colour(rom0, "color: ");
+    const QColor ula_dark = sheet_colour(label_in(vid, "ULA"), "color: ");
+    const QColor band_dark = sheet_colour(dis_box, "background: ");
+
+    {
+        const QColor sp = cell_bg(stk, 0, 0), plain = cell_bg(stk, 1, 0);
+        check("QDARK-01", "after a switch to a dark palette the Stack panel's SP row is a dark green and "
+                          "its other rows the dark Base, with no step in between",
+              light_sp == QColor(0xE0, 0xFF, 0xE0) && sp.lightness() < 100 && sp.hslHue() == 120 &&
+                  plain == QColor(0x24, 0x24, 0x24),
+              fmt("light SP %s, dark SP %s, row 1 %s", s(light_sp.name()).c_str(),
+                  s(sp.name()).c_str(), s(plain.name()).c_str()));
+    }
+    {
+        std::string bad;
+        for (int row = 0; row < row_count(cop) && row < 8; ++row)
+            if (cell_bg(cop, row, 0).lightness() >= 100)
+                bad += fmt("r%d %s ", row, s(cell_bg(cop, row, 0).name()).c_str());
+        check("QDARK-02", "the Copper panel's rows (white and #F5F5F5 alternating) are dark on a dark "
+                          "palette", row_count(cop) > 0 && bad.empty(), bad);
+    }
+    {
+        // The HALTED label and the lit Z flag: lighter than the #CC0000 /
+        // #00AA00 they are on a light palette, hue kept.
+        QLabel* halted = nullptr;
+        QLabel* lit = nullptr;
+        for (QLabel* l : cpu->findChildren<QLabel*>()) {
+            if (l->text() == "HALTED") halted = l;
+            if (l->text() == "Z") lit = l;
+        }
+        auto colour_of = [](QLabel* l) {
+            const QString ss = l ? l->styleSheet() : QString();
+            const int i = ss.indexOf("color: #");
+            return i < 0 ? QColor() : QColor(ss.mid(i + 7, 7));
+        };
+        const QColor h = colour_of(halted), z = colour_of(lit);
+        // The panel sits in a style-sheeted titled box, which keeps its subtree
+        // on the old palette unless the box is re-polished (palette_tint::follow).
+        const QColor text = cpu->palette().color(QPalette::WindowText);
+        check("QDARK-03", "on a dark palette the CPU panel (inside its titled box) takes the dark text "
+                          "colour, its HALTED is a light red and the lit Z flag a light green",
+              h.isValid() && z.isValid() && h.lightness() >= 150 && h.hslHue() == 0 &&
+                  z.lightness() >= 150 && z.hslHue() == 120 && text == QColor(0xF0, 0xF0, 0xF0),
+              fmt("HALTED %s, Z %s, panel text %s", s(h.name()).c_str(), s(z.name()).c_str(),
+                  s(text.name()).c_str()));
+    }
+
+    QApplication::setPalette(light);
+    settle();
+    check("QDARK-04", "switching back to the light palette restores the exact light colours (#E0FFE0 "
+                      "SP row)", cell_bg(stk, 0, 0) == QColor(0xE0, 0xFF, 0xE0),
+          s(cell_bg(stk, 0, 0).name()));
+
+    // QDARK-05 — light to ANOTHER light palette: every followed style sheet
+    // reads the same, so only the forced re-polish moves the boxed CPU panel.
+    {
+        QPalette other = light;
+        for (auto g : {QPalette::Active, QPalette::Inactive})
+            other.setColor(g, QPalette::WindowText, QColor(0x10, 0x20, 0x60));
+        QApplication::setPalette(other);
+        settle();
+        const QColor text = cpu->palette().color(QPalette::WindowText);
+        QApplication::setPalette(light);
+        settle();
+        check("QDARK-05", "a change between two light palettes (style sheets unchanged) still reaches the "
+                          "CPU panel inside its titled box", text == QColor(0x10, 0x20, 0x60),
+              s(text.name()));
+    }
+
+    // The light palette is back (QDARK-05 restored it): sample each site again.
+    dis.refresh();
+    const Tint dis_light = tint(image_of(&dis), 60);
+    {
+        // The PC row: #FFFFCC on light; on dark a yellow no lighter than 100.
+        const bool light_ok = dis_light.count > 200 && dis_light.fill == QColor(255, 255, 204);
+        check("QDARK-06", "the Disassembly panel's PC row is #FFFFCC on a light palette and a dark yellow "
+                          "(lightness < 100) on a dark one",
+              light_ok && dis_dark.count > 200 && dis_dark.fill.lightness() < 100,
+              fmt("light: %d px, fill %s; dark: %d px, fill %s", dis_light.count,
+                  s(dis_light.fill.name()).c_str(), dis_dark.count, s(dis_dark.fill.name()).c_str()));
+    }
+    {
+        const int hue[4] = {180, 60, 30, -1};
+        const char* names[4] = {"$4000 cyan", "$5800 yellow", "$5A00 orange", "$8000 plain"};
+        std::string bad;
+        for (int i = 0; i < 4; ++i) {
+            const QColor c = mem_dark[i];
+            const bool ok = i < 3 ? (c.lightness() < 100 && std::abs(c.hslHue() - hue[i]) <= 8)
+                                  : c == QColor(0x24, 0x24, 0x24);
+            if (!ok) bad += fmt("%s=%s ", names[i], s(c.name()).c_str());
+        }
+        const QColor plain_light = row_colour("8000", "$8000"), attr_light = row_colour("5800", "$5800");
+        if (plain_light != QColor(Qt::white) || attr_light != QColor(0xFF, 0xFF, 0xE0))
+            bad += fmt("light: plain %s attr %s ", s(plain_light.name()).c_str(), s(attr_light.name()).c_str());
+        check("QDARK-07", "the Memory panel's VRAM, attribute and SP row tints are dark (their hues kept) "
+                          "and a plain row the dark Base on a dark palette; white and #FFFFE0 again on light",
+              bad.empty(), bad);
+    }
+    {
+        const QColor lock_light = sheet_colour(lock, "color: "), rom_light = sheet_colour(rom0, "color: ");
+        check("QDARK-08", "the MMU panel's Lock \"Yes\" (#CC0000) and ROM (#CC6600) labels are light on a "
+                          "dark palette, hue kept, and exactly those colours on light",
+              lock && text_of(lock) == "Yes" && rom0 && text_of(rom0) == "ROM" &&
+                  lock_dark.lightness() >= 150 && lock_dark.hslHue() == 0 &&
+                  rom_dark.lightness() >= 150 && std::abs(rom_dark.hslHue() - 30) <= 2 &&
+                  lock_light == QColor(0xCC, 0x00, 0x00) && rom_light == QColor(0xCC, 0x66, 0x00),
+              fmt("Lock %s/%s, ROM %s/%s (dark/light)", s(lock_dark.name()).c_str(),
+                  s(lock_light.name()).c_str(), s(rom_dark.name()).c_str(), s(rom_light.name()).c_str()));
+    }
+    {
+        const QColor ula_light = sheet_colour(label_in(vid, "ULA"), "color: ");
+        check("QDARK-09", "the Video panel's lit layer flag (ULA, #00AA00) is a light green on a dark "
+                          "palette and #00AA00 on light",
+              ula_dark.lightness() >= 150 && ula_dark.hslHue() == 120 && ula_light == QColor(0x00, 0xAA, 0x00),
+              fmt("dark %s, light %s", s(ula_dark.name()).c_str(), s(ula_light.name()).c_str()));
+    }
+    {
+        const QColor band_light = sheet_colour(dis_box, "background: ");
+        check("QDARK-10", "the titled boxes' title band (#D8D8D8 on light) is dark on a dark palette, so the "
+                          "light title text on it can be read",
+              band_dark.isValid() && band_dark.lightness() < 100 && band_light == QColor(0xD8, 0xD8, 0xD8),
+              fmt("dark %s, light %s", s(band_dark.name()).c_str(), s(band_light.name()).c_str()));
+    }
+}
+
+// ===========================================================================
 // QMP — the Memory panel (memory_panel.cpp). CPU view: the bytes the CPU sees,
 // hex-edit through Mmu::write (ROM ignored), the SP/VRAM/attribute row
 // colours. Slot view: the CURRENT behaviour — reads and writes go through the
@@ -2799,6 +3059,7 @@ int main(int argc, char** argv) {
     test_watch_panel();
     test_panel_attribution();
     test_window_wiring();
+    test_dark_palette();
     test_memory_panel();
     test_disasm_latch();
     test_script_panel();

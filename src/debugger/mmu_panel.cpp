@@ -1,4 +1,6 @@
 #include "debugger/mmu_panel.h"
+#include "qt/palette_tint_qt.h"   // GH #363
+#include <QApplication>
 #include "debug/debugger.h"
 
 #include <QGridLayout>
@@ -28,7 +30,9 @@ void MmuPanel::create_ui() {
     auto make_hsep = [&]() -> QFrame* {
         auto* line = new QFrame(this);
         line->setFrameShape(QFrame::HLine);
-        line->setStyleSheet("color: #D0D0D0;");
+        palette_tint::follow(line, [](const QPalette& p) {
+            return "color: " + palette_tint::css(palette_tint::surface(p, QColor(0xD0, 0xD0, 0xD0))) + ";";
+        });
         return line;
     };
 
@@ -120,7 +124,9 @@ void MmuPanel::refresh() {
 
         if (is_rom) {
             slot_type_[s]->setText("ROM");
-            slot_type_[s]->setStyleSheet("QLabel { color: #CC6600; font-weight: bold; }");
+            slot_type_[s]->setStyleSheet("QLabel { color: " +
+                palette_tint::css(palette_tint::ink(QApplication::palette(), QColor(0xCC, 0x66, 0x00))) +
+                "; font-weight: bold; }");
         } else {
             slot_type_[s]->setText(QString("B%1").arg(page / 2));
             slot_type_[s]->setStyleSheet("");
@@ -133,5 +139,7 @@ void MmuPanel::refresh() {
     bool locked = (p7ffd >> 5) & 1;
     paging_locked_->setText(locked ? "Yes" : "No");
     paging_locked_->setStyleSheet(locked
-        ? "QLabel { color: #CC0000; font-weight: bold; }" : "");
+        ? "QLabel { color: " + palette_tint::css(palette_tint::ink(QApplication::palette(), QColor(0xCC, 0x00, 0x00))) +
+              "; font-weight: bold; }"
+        : QString());
 }

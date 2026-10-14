@@ -2230,11 +2230,11 @@ toolchain the maintainer's distribution packages, and macOS has to be built on
 a Mac.</p>
 <h2 id="what-you-need">What you need<a class="headerlink" href="#what-you-need" title="Permanent link">&para;</a></h2>
 <p>To build the emulator on Fedora and its relatives:</p>
-<pre><code class="language-console">$ sudo dnf install SDL3-devel cmake gcc-c++ qt6-qtbase-devel libpng-devel \
+<pre><code class="language-console">$ sudo dnf install SDL3-devel cmake gcc-c++ qt6-qtbase-devel qt6-qtsvg-devel libpng-devel \
                    zlib-devel libcurl-devel openssl-devel
 </code></pre>
 <p>On Debian and Ubuntu:</p>
-<pre><code class="language-console">$ sudo apt install libsdl3-dev cmake g++ qt6-base-dev libpng-dev \
+<pre><code class="language-console">$ sudo apt install libsdl3-dev cmake g++ qt6-base-dev qt6-svg-dev libpng-dev \
                    zlib1g-dev libcurl4-openssl-dev libssl-dev
 </code></pre>
 <p>Clone with <code>--recursive</code>, because spdlog is a git submodule. If you forget,
@@ -2245,7 +2245,9 @@ the network is up, so getting it right at clone time saves some confusion later.
 tautological-assertion lint, and when ripgrep is missing that lint refuses to
 report a verdict at all rather than quietly skipping itself. The reasoning is
 worth internalising, because it recurs throughout this project: a check that did
-not run must never read as a check that passed.</p>
+not run must never read as a check that passed. The same holds for
+<strong>dbus-daemon</strong>: <code>color_scheme_test</code> starts a private one to serve a mock
+desktop portal (GH #363), and its portal rows fail without it.</p>
 <p><strong>The documentation toolchain is separate, and it is optional.</strong> <code>pandoc</code>
 regenerates the man page and <code>USAGE.md</code>, <code>mkdocs-material</code> renders the user and
 developer guides, and <code>graphviz</code> renders this guide's diagrams. No target that

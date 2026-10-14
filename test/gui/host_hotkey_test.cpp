@@ -1342,16 +1342,19 @@ int main(int argc, char** argv) {
         live.removeDuplicates();
 
         // DBGICON-01 — the Debug toolbar button is the magnifier over a chip (no
-        // VHDL oracle: host UI; oracle is the owner-approved 24-unit design:
-        // chip rect 3,3 13x13 #3a3f4a; pins #9aa3b2 w1.2; lens c=15,15 r=5 fill
-        // #fff5e0 at 85%, rim #e08a1e w2; handle 18.6..22.2 w2.8 on top). It
-        // reads the toolbar action's own QIcon, at every size it carries.
+        // VHDL oracle: host UI; oracle is the owner-approved debug.svg of the
+        // monochrome set, doc/design/ICONSET-DESIGN.md: chip outline x=3 w2, die
+        // rect 6,6 4x4 filled, lens c=15,15 r=5 w2 with a clear centre, handle
+        // 18.7..22 w2.8; one colour, the toolbar's WindowText). It reads the
+        // toolbar action's own QIcon, at every size it carries. Rewritten for the
+        // SVG set: the QPainter chip it pinned (dark body, orange magnifier) is gone.
 #ifdef ENABLE_DEBUGGER
         {
             QAction* dbg_act = nullptr;
+            QToolBar* dbg_tb = nullptr;
             for (QToolBar* tb : w2.findChildren<QToolBar*>())
                 for (QAction* a : tb->actions())
-                    if (a->isCheckable() && a->text() == "Debug") dbg_act = a;
+                    if (a->isCheckable() && a->text() == "Debug") { dbg_act = a; dbg_tb = tb; }
             bool ok = dbg_act != nullptr;
             std::string detail = ok ? "" : "no checkable Debug toolbar action";
             if (ok) {
@@ -1363,51 +1366,40 @@ int main(int argc, char** argv) {
                     detail = "sizes wrong";
                 }
             }
-            auto near = [](int a, int b) { return std::abs(a - b) <= 4; };
-            // Thin strokes are anti-aliased at 16 px (a 2-unit rim is 1.3 px): allow a wider band there.
+            const QColor ink = ok ? dbg_tb->palette().color(QPalette::Active, QPalette::WindowText) : QColor();
             for (int px : {16, 24, 32, 48}) {
                 if (!ok) break;
-                auto like = [&](const QColor& c, int r, int g, int b) {
-                    const int tol = px < 24 ? 30 : 4;
-                    return std::abs(c.red() - r) <= tol && std::abs(c.green() - g) <= tol &&
-                           std::abs(c.blue() - b) <= tol && c.alpha() >= (px < 24 ? 200 : 250);
-                };
                 const QImage img = dbg_act->icon().pixmap(px, px).toImage()
                                        .convertToFormat(QImage::Format_ARGB32);
                 if (img.width() != px) { ok = false; detail = "pixmap size"; break; }
                 auto at = [&](double ux, double uy) {   // design units -> pixel
                     return img.pixelColor(int(ux * px / 24.0), int(uy * px / 24.0));
                 };
-                const QColor body = at(4.5, 4.5), pin = at(9.5, 2.0), ring = at(19.5, 15.5);
-                const QColor lens = at(17.5, 13.5), hnd = at(20.4, 20.4);
+                // Inked in the palette colour (an anti-aliased edge keeps the hue).
+                auto inked = [&](const QColor& c, int min_alpha) {
+                    return c.alpha() >= min_alpha && std::abs(c.red() - ink.red()) <= 8 &&
+                           std::abs(c.green() - ink.green()) <= 8 && std::abs(c.blue() - ink.blue()) <= 8;
+                };
+                const QColor die = at(8, 8), edge = at(3, 9.5), ring = at(20, 15);
+                const QColor lens = at(15, 15), hnd = at(20.4, 20.4);
                 const QColor c0 = at(23.5, 0.5), c1 = at(0.5, 23.5);
-                const bool one = body.rgb() == qRgb(0x3a, 0x3f, 0x4a) && body.alpha() == 255 &&
-                                 (px < 24 /* 0.8 px wide: never fully covered */ ||
-                                  like(pin, 0x9a, 0xa3, 0xb2)) &&
-                                 like(ring, 0xe0, 0x8a, 0x1e) &&
-                                 near(lens.red(), 0xff) && near(lens.green(), 0xf5) &&
-                                 near(lens.blue(), 0xe0) && lens.alpha() > 200 && lens.alpha() < 230 &&
-                                 like(hnd, 0xe0, 0x8a, 0x1e) &&
+                // At 16 px the 2-unit chip edge is 1.3 px and never fully covers a pixel.
+                const bool one = inked(die, 255) && inked(edge, px < 24 ? 100 : 255) &&
+                                 inked(ring, 100) && inked(hnd, 100) && lens.alpha() == 0 &&
                                  c0.alpha() == 0 && c1.alpha() == 0;
-                // At 48 px only: anti-aliasing leaves a partial pixel on the chip's rounded
-                // corner, and the handle's cap (drawn LAST, as in the SVG) is solid orange
-                // inside the lens rim.
-                const QColor corner = img.pixelColor(6 * px / 48, 6 * px / 48);
-                const QColor cap = at(17.72, 17.72);
-                const bool one48 = px != 48 || (corner.alpha() > 0 && corner.alpha() < 255 &&
-                                                (cap.blue() < 0x60 && cap.alpha() >= 200));
-                if (!one || !one48) {
+                if (!one) {
                     ok = false;
-                    detail = std::to_string(px) + "px body=" + body.name().toStdString() +
-                             " pin=" + pin.name().toStdString() + " ring=" + ring.name().toStdString() +
+                    detail = std::to_string(px) + "px ink=" + ink.name().toStdString() +
+                             " die=" + die.name(QColor::HexArgb).toStdString() +
+                             " edge=" + edge.name(QColor::HexArgb).toStdString() +
+                             " ring=" + ring.name(QColor::HexArgb).toStdString() +
                              " lens=" + lens.name(QColor::HexArgb).toStdString() +
-                             " handle=" + hnd.name().toStdString() +
-                             " corner_a=" + std::to_string(px == 48 ? corner.alpha() : -1) +
-                             " cap=" + cap.name().toStdString();
+                             " handle=" + hnd.name(QColor::HexArgb).toStdString();
                 }
             }
-            check("DBGICON-01", "the Debug toolbar button's QIcon carries 16/24/32/48 px pixmaps, each a "
-                                "magnifier over a chip (chip, pin, rim, lens, handle, transparent corners)",
+            check("DBGICON-01", "the Debug toolbar button's QIcon carries 16/24/32/48 px pixmaps, each "
+                                "debug.svg's magnifier over a chip in the toolbar's WindowText (die, chip "
+                                "edge, rim, clear lens, handle, transparent corners)",
                   ok, detail);
         }
 #else

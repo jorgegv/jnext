@@ -1,4 +1,5 @@
 #include "debugger/memory_panel.h"
+#include "qt/palette_tint_qt.h"   // GH #363
 #include "debug/debugger.h"
 
 #include <QHBoxLayout>
@@ -341,7 +342,7 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
         int y = y0 + vrow * rh;
 
         // Determine row background colour.
-        QColor bg = Qt::white;
+        QColor bg = Qt::white;   // a light panel's colours; surface() below adapts them
         if (cpu_view) {
             uint16_t row_start = static_cast<uint16_t>(base_addr);
             uint16_t row_end   = static_cast<uint16_t>(base_addr + BYTES_PER_ROW - 1);
@@ -364,10 +365,10 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
             }
         }
 
-        p.fillRect(0, y, width() - scroll_bar_->width(), rh, bg);
+        p.fillRect(0, y, width() - scroll_bar_->width(), rh, palette_tint::surface(palette(), bg));
 
         // Address column
-        p.setPen(Qt::darkGray);
+        p.setPen(palette_tint::ink(palette(), QColor(Qt::darkGray)));
         QString addr_str = QString("$%1").arg(base_addr & 0xFFFF, 4, 16, QChar('0')).toUpper();
         p.drawText(2, y + fm.ascent(), addr_str);
 
@@ -398,7 +399,7 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
                 p.fillRect(x_pos - 1, y, char_w_ * 2 + 2, rh, QColor(0x33, 0x66, 0xFF));
                 p.setPen(Qt::white);
             } else {
-                p.setPen(Qt::black);
+                p.setPen(palette_tint::ink(palette(), QColor(Qt::black)));
             }
 
             QString hex_str = QString("%1").arg(byte, 2, 16, QChar('0')).toUpper();
@@ -411,7 +412,7 @@ void MemoryPanel::paintEvent(QPaintEvent*) {
         ascii_buf[BYTES_PER_ROW] = '\0';
 
         // ASCII column
-        p.setPen(Qt::darkBlue);
+        p.setPen(palette_tint::ink(palette(), QColor(Qt::darkBlue)));
         int asc_x = ascii_area_left();
         p.drawText(asc_x, y + fm.ascent(), QString("|%1|").arg(ascii_buf));
     }

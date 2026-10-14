@@ -1,0 +1,15 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+<!-- The toolbar icon set: every SVG in src/gui/icons/, and only those
+     (toolbar_icons_test TBI-01 checks both directions). -->
+<qresource prefix="/icons">
+    <file alias="debug.svg">../gui/icons/debug.svg</file>
+    <file alias="load.svg">../gui/icons/load.svg</file>
+    <file alias="nmi.svg">../gui/icons/nmi.svg</file>
+    <file alias="pause.svg">../gui/icons/pause.svg</file>
+    <file alias="power.svg">../gui/icons/power.svg</file>
+    <file alias="resume.svg">../gui/icons/resume.svg</file>
+    <file alias="screenshot.svg">../gui/icons/screenshot.svg</file>
+    <file alias="soft-reset.svg">../gui/icons/soft-reset.svg</file>
+</qresource>
+</RCC>

@@ -112,6 +112,7 @@ signals:
 protected:
     void closeEvent(QCloseEvent* event) override;
     void showEvent(QShowEvent* event) override;
+    void changeEvent(QEvent* event) override;   // GH #363
 
 private:
     void create_panels();
@@ -164,6 +165,8 @@ private:
     bool initial_fit_done_ = false;
     int  initial_fit_passes_ = 0;
     static constexpr int kMaxInitialFitPasses = 4;
+    // GH #363 — one queued refresh_panels() per palette change (changeEvent).
+    bool palette_refresh_queued_ = false;
 
     // Layout
     QSplitter* main_splitter_ = nullptr;

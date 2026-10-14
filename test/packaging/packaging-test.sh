@@ -276,10 +276,11 @@ if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
                 bad package-win "curl/OpenSSL chain DLLs leaked back into the zip (GH #108 Phase B regression)" "$LOGDIR/win.log"
             elif printf '%s' "$list" | grep -q "jnext.exe" \
                && printf '%s' "$list" | grep -q "Qt6Core.dll" \
+               && printf '%s' "$list" | grep -q "Qt6Svg.dll" \
                && printf '%s' "$list" | grep -q "platforms/qwindows.dll" \
                && printf '%s' "$list" | grep -qi "SDL3.dll" \
                && ! printf '%s' "$list" | grep -qi "SDL2.dll"; then
-                ok package-win "$(basename "$z") (jnext.exe + Qt6/SDL3 DLLs + qwindows plugin, no SDL2 shim, no curl/OpenSSL)"
+                ok package-win "$(basename "$z") (jnext.exe + Qt6 Core/Svg + SDL3 DLLs + qwindows plugin, no SDL2 shim, no curl/OpenSSL)"
             else
                 bad package-win ".zip missing bundled DLLs/qwindows plugin/SDL3.dll, or the SDL2 shim leaked back in" "$LOGDIR/win.log"
             fi
@@ -563,10 +564,11 @@ if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
                 bad package-win-qt5 "jnext.exe not GUI subsystem — got: ${subsys:-<none>}" "$LOGDIR/win-qt5.log"
             elif printf '%s' "$list" | grep -q "jnext.exe" \
                && printf '%s' "$list" | grep -q "Qt5Core.dll" \
+               && printf '%s' "$list" | grep -q "Qt5Svg.dll" \
                && printf '%s' "$list" | grep -q "platforms/qwindows.dll" \
                && printf '%s' "$list" | grep -qi "SDL3.dll" \
                && ! printf '%s' "$list" | grep -qi "SDL2.dll"; then
-                ok package-win-qt5 "$(basename "$z") (jnext.exe GUI-subsys + Qt5/SDL3 DLLs + qwindows, no SDL2 shim, no Qt6, no curl/OpenSSL)"
+                ok package-win-qt5 "$(basename "$z") (jnext.exe GUI-subsys + Qt5 Core/Svg + SDL3 DLLs + qwindows, no SDL2 shim, no Qt6, no curl/OpenSSL)"
             else
                 bad package-win-qt5 ".zip missing exe/Qt5 DLLs/qwindows plugin/SDL3.dll, or the SDL2 shim leaked back in" "$LOGDIR/win-qt5.log"
             fi
@@ -654,10 +656,11 @@ if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
                 bad package-win32-qt5 "jnext.exe not GUI subsystem — got: ${subsys:-<none>}" "$LOGDIR/win32-qt5.log"
             elif printf '%s' "$list" | grep -q "jnext.exe" \
                && printf '%s' "$list" | grep -q "Qt5Core.dll" \
+               && printf '%s' "$list" | grep -q "Qt5Svg.dll" \
                && printf '%s' "$list" | grep -q "platforms/qwindows.dll" \
                && printf '%s' "$list" | grep -qi "SDL3.dll" \
                && ! printf '%s' "$list" | grep -qi "SDL2.dll"; then
-                ok package-win32-qt5 "$(basename "$z") (jnext.exe GUI-subsys + Qt5/SDL3 DLLs + qwindows, no SDL2 shim, no Qt6, no curl/OpenSSL)"
+                ok package-win32-qt5 "$(basename "$z") (jnext.exe GUI-subsys + Qt5 Core/Svg + SDL3 DLLs + qwindows, no SDL2 shim, no Qt6, no curl/OpenSSL)"
             else
                 bad package-win32-qt5 ".zip missing exe/Qt5 DLLs/qwindows plugin/SDL3.dll, or the SDL2 shim leaked back in" "$LOGDIR/win32-qt5.log"
             fi

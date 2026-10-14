@@ -50,13 +50,27 @@ what was wrong with it.
 
 ![JNEXT running, with NextZXOS booted](../img/gui-main-window.png)
 
+The toolbar buttons are, from the left: **Power Reset**, **Soft Reset**,
+**Pause**, **Load**, **Screenshot**, **NMI** (the Multiface button) and, on its
+own, **Debug**. Hovering a button shows its name. The icons are drawn in the
+window's text colour, so they follow a light or a dark desktop theme, including
+a switch made while JNEXT is running.
+
+**Light and dark.** JNEXT's windows, the debugger included, follow your
+desktop's light or dark setting, and change with it while running. On Linux
+that is the setting your desktop publishes to applications (GNOME's *Dark
+style*, KDE's colour scheme); on Windows and macOS it is the system
+appearance. The legacy Windows packages (Windows 7 and 8) stay light. To force
+one regardless (not in the legacy packages), start JNEXT with `JNEXT_COLOR_SCHEME=dark` or
+`JNEXT_COLOR_SCHEME=light` in its environment.
+
 The status bar along the bottom tracks the session: frame rate, the emulated
 CPU clock, the emulator speed, tape state, and the current machine.
 
 **Pausing.** To freeze the machine where it is, press the Pause button on the
 toolbar, choose **Machine > Pause**, press the **Pause** key, or press **Alt+U** (for keyboards without a Pause key, such as most Mac keyboards); press it again to
-carry on. The button stays pressed and a **Paused** cell appears in the status
-bar while the machine is stopped. Sound goes quiet without a click, and the
+carry on. The button stays pressed, its icon turns into a play triangle, and a
+**Paused** cell appears in the status bar while the machine is stopped. Sound goes quiet without a click, and the
 debugger window does not open. The Pause key and Alt+U also work in fullscreen, where the menu
 and toolbar are hidden. If you open the debugger while paused it shows the same
 pause, and closing it resumes the machine, as it always does.

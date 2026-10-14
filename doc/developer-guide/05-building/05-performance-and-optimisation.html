@@ -2392,7 +2392,7 @@ and profile-guided optimisation — and a third, ccache, decides how long you wa
 for it. This page describes all three as the code has them today, then how to
 measure a change, then what has been measured so far.</p>
 <h2 id="link-time-optimisation">Link-time optimisation<a class="headerlink" href="#link-time-optimisation" title="Permanent link">&para;</a></h2>
-<p>The emulator is built as per-subsystem static libraries — seventeen in the
+<p>The emulator is built as per-subsystem static libraries — eighteen in the
 shipped build with the Qt GUI and the debugger, fifteen in the SDL-only build
 (<code>add_library(... STATIC ...)</code> in each <code>src/*/CMakeLists.txt</code>). That split is good for the code and bad for the
 compiler: every hot call that crosses a library — the
