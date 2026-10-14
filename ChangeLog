@@ -1,5 +1,14 @@
 # ChangeLog
 
+## Unreleased (2026-10-14)
+
+### User Features
+- Monochrome toolbar icons that follow the light or dark theme; Screenshot, NMI and Debug get real icons
+- Linux: the GUI follows the desktop's light/dark preference, switching live; `JNEXT_COLOR_SCHEME` forces either
+
+### Contributors in this release
+- @pavero01
+
 ## v1.1.51 (2026-10-13)
 
 ### User Features
