@@ -19,7 +19,8 @@
 // install() (source checks, as MWP-12: no suite can construct a QtApp).
 // CS-25/26: both arms of the Qt 6.8 setColorScheme() guard. CS-27: the
 // Preferences dialog's problems label on a dark palette. CS-28: the private
-// bus dies with the suite, even when the harness SIGKILLs it.
+// bus dies with the suite, even when the harness SIGKILLs it; CS-29: and at
+// once when the suite exits normally.
 //
 // Run: ./build/test/color_scheme_test
 // ===========================================================================
@@ -657,16 +658,53 @@ void test_bus_cleanup() {
 #endif
 }
 
-// --bus-child FILE: start the private bus, publish the daemon's pid, wait to
-// be killed (bounded: 60 s).
-int bus_child(const char* pidfile) {
+// CS-29 — the normal end: a suite that EXITS takes its daemon with it, at
+// once (~PrivateBus closes the guard's stdin). A --bus-child-exit copy starts
+// the bus, writes the daemon's pid and returns from main().
+void test_bus_normal_exit() {
+#ifdef __linux__
+    QTemporaryDir dir;
+    const QString pidfile = dir.filePath("daemon.pid");
+    QProcess child;
+    QProcessEnvironment env;
+    env.insert("LANG", "C");
+    env.insert("PATH", qEnvironmentVariable("PATH"));
+    child.setProcessEnvironment(env);
+    QElapsedTimer t;
+    t.start();
+    child.start(QString::fromLocal8Bit(g_self), {"--bus-child-exit", pidfile});
+    const bool exited = child.waitForFinished(15000);
+    const qint64 ms = t.elapsed();
+    if (!exited) { child.kill(); child.waitForFinished(5000); }   // SIGKILL past the bound
+    QFile f(pidfile);
+    const qint64 daemon = f.open(QIODevice::ReadOnly) ? f.readAll().trimmed().toLongLong() : 0;
+    bool gone = false;
+    t.restart();
+    while (daemon > 0 && !(gone = process_gone(daemon)) && t.elapsed() < 2000) QThread::msleep(20);
+    if (daemon > 0 && !gone) ::kill(static_cast<pid_t>(daemon), SIGKILL);   // never leave it behind
+    check("CS-29", "a suite that exits normally takes its private dbus-daemon with it (the destructor "
+                   "closes the guard's stdin), with no wait: exit within 3 s, daemon gone within 2 s",
+          exited && child.exitCode() == 0 && ms < 3000 && daemon > 0 && gone,
+          daemon > 0 ? "exit after " + std::to_string(ms) + " ms (code " + std::to_string(child.exitCode()) +
+                           "), daemon " + std::to_string(daemon) + (gone ? " gone" : " STILL RUNNING")
+                     : std::string("the child reported no daemon"));
+#else
+    check("CS-29", "a suite that exits normally takes its private dbus-daemon with it (Linux only)", false,
+          "not a Linux build");
+#endif
+}
+
+// --bus-child FILE: start the private bus, publish the daemon's pid, then
+// wait to be killed (bounded: 60 s); with `stay` false, return at once, so
+// the caller's exit runs ~PrivateBus.
+int bus_child(const char* pidfile, bool stay) {
     PrivateBus bus;
     QFile tmp(QString::fromLocal8Bit(pidfile) + ".tmp");
     if (bus.daemon_pid <= 0 || !tmp.open(QIODevice::WriteOnly)) return 1;
     tmp.write(QByteArray::number(bus.daemon_pid));
     tmp.close();
     if (!tmp.rename(QString::fromLocal8Bit(pidfile))) return 1;
-    QThread::sleep(60);
+    if (stay) QThread::sleep(60);
     return 0;
 }
 
@@ -677,7 +715,8 @@ int main(int argc, char** argv) {
 #ifdef __linux__
     if (argc == 3 && std::string(argv[1]) == "--bus-guard") return bus_guard(argv[2]);
 #endif
-    if (argc == 3 && std::string(argv[1]) == "--bus-child") return bus_child(argv[2]);
+    if (argc == 3 && std::string(argv[1]) == "--bus-child") return bus_child(argv[2], true);
+    if (argc == 3 && std::string(argv[1]) == "--bus-child-exit") return bus_child(argv[2], false);
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("JNEXT_COLOR_SCHEME");
     QTemporaryDir cfg;
@@ -704,6 +743,7 @@ int main(int argc, char** argv) {
     test_wiring_and_arms();
     std::printf("  Group: CS wiring      - done\n");
     test_bus_cleanup();
+    test_bus_normal_exit();
     std::printf("  Group: CS bus cleanup - done\n");
     std::printf("\n==================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
