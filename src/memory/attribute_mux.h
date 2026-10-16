@@ -169,6 +169,10 @@ public:
         return read_prepared(offset, hc);
     }
 
+    /// True when `offset` was written this frame (so a read of it can depend on
+    /// the instant). Only valid after prepare().
+    bool is_hot(uint32_t offset) const { return offset < nbytes_ && hot_[offset] != 0; }
+
     /// Chain every write recorded so far. read() does it itself; a caller that
     /// reads many bytes in a row (a scanline's 32 columns) calls it once and
     /// then uses read_prepared().

@@ -366,8 +366,9 @@ public:
     /// Fetch through the bank-7 flag: BRAM when wired, page-14 fallback.
     /// `hc` is the raw horizontal instant of the fetch, used when the beam
     /// replay is wired and started (set_beam_mux); the caller has called
-    /// prepare() on the muxes for the row.
-    uint8_t vram_read(const Ram& ram, uint32_t addr, uint16_t hc) const;
+    /// prepare() on the muxes for the row. `hot`, if given, is set when the
+    /// byte was written this frame (its value depends on `hc`).
+    uint8_t vram_read(const Ram& ram, uint32_t addr, uint16_t hc, bool* hot = nullptr) const;
 
 private:
     const uint8_t* bank7_bram_ = nullptr;  ///< dedicated bank-7 BRAM

@@ -75,7 +75,8 @@ public:
         for (const Slot& s : slots_) idx_[s.addr] = 0;
         slots_.clear();
         log_.clear();
-        hc_origin_ = hc_origin;
+        narrow_base_ = beam::phc_raw_hc(hc_origin, -1);   // fetch of column 0
+        wide_base_   = beam::whc_raw_hc(hc_origin, -1);
         sram_bytes_ = sram_bytes;
         recording_ = false;
         started_ = true;
@@ -86,6 +87,8 @@ public:
     void arm() {
         if (!started_) return;
         if (idx_.size() < sram_bytes_) idx_.assign(sram_bytes_, 0);
+        idx_data_ = idx_.data();
+        idx_n_ = static_cast<uint32_t>(idx_.size());
         recording_ = true;
     }
 
@@ -132,12 +135,16 @@ public:
     /// Set the scanline subsequent reads resolve against. O(1).
     void apply_changes_for_line(int line) { target_line_ = static_cast<uint16_t>(line); }
 
-    /// Raw hc of the fetch of column X in each Layer 2 mode (see the table above).
+    /// Raw hc of the fetch of column X in each Layer 2 mode (see the table above;
+    /// beam_counters.h has the derivations). Called per pixel, so the origin
+    /// terms are folded once in start_frame().
     uint16_t narrow_fetch_hc(int x) const {
-        return static_cast<uint16_t>(beam::phc_raw_hc(hc_origin_, x - 1));
+        const int h = narrow_base_ + x;
+        return static_cast<uint16_t>(h < 0 ? 0 : h);
     }
     uint16_t wide_fetch_hc(int x) const {
-        return static_cast<uint16_t>(beam::whc_raw_hc(hc_origin_, x - 1));
+        const int h = wide_base_ + x;
+        return static_cast<uint16_t>(h < 0 ? 0 : h);
     }
 
     /// The byte at SRAM address `addr` as the fetch at raw hc `hc` of the
@@ -145,7 +152,7 @@ public:
     /// before (line, hc), else the frame-start value (the first write's
     /// `prev`), else the live byte in `ram`.
     uint8_t read(uint32_t addr, uint16_t hc, const Ram& ram) const {
-        const uint32_t ix = (addr < idx_.size()) ? idx_[addr] : 0;
+        const uint32_t ix = (addr < idx_n_) ? idx_data_[addr] : 0;
         if (ix == 0) return ram.read(addr);   // never written this frame
         Slot& s = slots_[ix - 1];
         const uint32_t key = (static_cast<uint32_t>(target_line_) << 16) | hc;
@@ -184,10 +191,13 @@ private:
     };
 
     std::vector<uint32_t>        idx_;       // addr -> slot index + 1 (0 = never written)
+    const uint32_t*              idx_data_ = nullptr;   // idx_.data()/size(), for the per-pixel read
+    uint32_t                     idx_n_ = 0;
     mutable std::vector<Slot>    slots_;
     std::vector<Entry>           log_;
     uint32_t                     sram_bytes_ = 0;
-    int                          hc_origin_ = 0;
+    int                          narrow_base_ = 0;   // raw hc of column 0's fetch, 256x192
+    int                          wide_base_ = 0;     // same, 320x256 / 640x256 (may be < 0 on a bare fixture)
     uint16_t                     target_line_ = 0;
     bool                         started_ = false;
     bool                         recording_ = false;

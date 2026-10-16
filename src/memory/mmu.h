@@ -10,8 +10,8 @@
 #include "cpu/z80_cpu.h"
 #include "debug/debug_state.h"
 #include "memory/contention.h"   // for MachineType
-#include "memory/attribute_mux.h"
-#include "memory/sram_beam_log.h" // G12 — Nirvana-class attribute replay
+#include "memory/attribute_mux.h" // G12 — Nirvana-class attribute replay
+#include "memory/sram_beam_log.h"  // GH #362 — Layer 2 SRAM beam replay
 
 
 namespace jnext { namespace save { class StateDesc; } }
@@ -611,7 +611,9 @@ public:
                                AttributeMux::kBank7Bytes);
         // The Layer 2 SRAM log restarts with the VRAM mux, disarmed
         // (sram_log_arm(), GH #362).
-        sram_log_.start_frame(hc_origin, static_cast<uint32_t>(ram_.size()));
+        sram_base_ = ram_.page_ptr(0);
+        sram_size_ = ram_.size();
+        sram_log_.start_frame(hc_origin, static_cast<uint32_t>(sram_size_));
     }
 
     /// Start logging SRAM writes for Layer 2's beam-time fetch (sram_beam_log.h).
@@ -1816,6 +1818,10 @@ private:
     AttributeMux   attr_mux5_;
     AttributeMux   attr_mux7_;
     SramBeamLog    sram_log_;
+    // The SRAM's bytes, cached when the frame starts (the Ram never moves
+    // within a frame) so a recorded store does not pay a page_ptr() call.
+    const uint8_t* sram_base_ = nullptr;
+    size_t         sram_size_ = 0;
     uint16_t       attr_mux_current_line_ = 0;
     // Round 4 column-accurate resolution: the coarse 7 MHz-domain hc tag
     // of a NON-CPU write — 0 in production, set by test fixtures. NOT
@@ -1874,10 +1880,9 @@ private:
     /// cannot fetch. Call BEFORE the store: the log keeps the byte it overwrites.
     void sram_log_write_(const uint8_t* dest, uint8_t val) {
         if (!sram_log_.recording()) return;
-        const uint8_t* base = ram_.page_ptr(0);
-        if (!base || dest < base) return;
-        const size_t off = static_cast<size_t>(dest - base);
-        if (off >= ram_.size()) return;
+        // Unsigned: a `dest` below the SRAM wraps to a huge offset and is refused too.
+        const size_t off = static_cast<size_t>(dest - sram_base_);
+        if (off >= sram_size_) return;
         uint16_t line, hc;
         write_tag_(line, hc);
         sram_log_.record_write(line, hc, static_cast<uint32_t>(off), *dest, val);
