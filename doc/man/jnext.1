@@ -250,6 +250,19 @@ Physical controller for Joy 2 (port 0x37); same form as
 The two connectors cannot name the same controller.
 Interactive (SDL/Qt) frontends only; inert under \f[B]\-\-headless\f[R].
 .TP
+\f[B]\-\-mouse\-release\f[R] \f[I]METHOD\f[R]
+How a captured mouse is released: \f[CR]ctrl\-alt\f[R] (default; Alt+Cmd
+in the Qt GUI on macOS), \f[CR]middle\-click\f[R] or \f[CR]esc\f[R].
+The methods are exclusive: only the one chosen releases.
+\f[CR]ctrl\-alt\f[R] is not consumed (Alt still types its compounds);
+the middle click and Esc are not passed to the program.
+Esc is the ZX BREAK key whenever the mouse is not captured, and
+\f[CR]middle\-click\f[R] needs a 3\-button mouse.
+Wins over the saved GUI preference for this run.
+Interactive (SDL/Qt) frontends only; inert under \f[B]\-\-headless\f[R].
+The GUI equivalent is \f[I]Release captured mouse with\f[R] under
+\f[B]Settings > Preferences > Input\f[R], which applies live.
+.TP
 \f[B]\-\-joy\-uart\-rx\f[R] \f[I]FILE\f[R]
 Attach \f[I]FILE\f[R] as a serial byte source on the joystick\-port UART
 RX pin \(em the \(lqPC\(rq end of a joy\-port serial cable, as used by a
@@ -2091,7 +2104,8 @@ Joy 1 Source (port 0x1F) and Joy 2 Source (port 0x37), each selecting
 what drives that connector: Automatic (the first free controller), any
 connected controller by name, Cursor Keys + Space, or None; Capture
 Mouse, which confines the host pointer so the Kempston mouse can move
-freely (Ctrl+Alt releases it; Alt+Cmd on macOS).
+freely (by default Ctrl+Alt releases it, Alt+Cmd on macOS; see
+\f[B]\-\-mouse\-release\f[R]).
 .TP
 \f[B]Tape\f[R]
 Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle); Start
@@ -3007,6 +3021,9 @@ shown while that controller is not connected).
 \f[B]\-\-joy1\-device\f[R] and \f[B]\-\-joy2\-device\f[R] override the
 ids for one run.
 An id that is not valid is ignored, with its name.
+Also under \f[CR][input]\f[R], \f[CR]mouse_release\f[R]
+(\f[CR]ctrl\-alt\f[R], \f[CR]middle\-click\f[R] or \f[CR]esc\f[R];
+\f[B]\-\-mouse\-release\f[R] overrides it for one run).
 The quick screenshot is stored under \f[CR][screenshot]\f[R] as
 \f[CR]quick_dir\f[R] (empty means \f[CR]\(ti/.jnext/screenshots\f[R])
 and \f[CR]quick_format\f[R] (\f[CR]png\f[R] or \f[CR]scr\f[R]), edited

@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.55</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.56</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.55</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.56</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3562,7 +3562,10 @@ Automatic) and <code>joy1_device_name</code> and <code>joy2_device_name</code> (
 shows while that controller is not connected). They are the same settings as the
 <strong>Input</strong> menu and the Preferences <strong>Input</strong> tab, and <code>--joy1-device</code> /
 <code>--joy2-device</code> override the ids for one run. An id that is not valid is ignored
-together with its name, and the connector falls back to Automatic.</p>
+together with its name, and the connector falls back to Automatic. The same section
+holds <code>mouse_release</code> (<code>ctrl-alt</code>, <code>middle-click</code> or <code>esc</code>): which gesture releases a
+captured mouse, the <strong>Release captured mouse with</strong> setting of the Preferences <strong>Input</strong> tab;
+<code>--mouse-release</code> overrides it for one run, and an unknown word falls back to <code>ctrl-alt</code>.</p>
 <p>The quick screenshot is stored in the <code>[screenshot]</code> section: <code>quick_dir</code> (an
 empty value means <code>~/.jnext/screenshots</code>) and <code>quick_format</code>, either <code>png</code> or
 <code>scr</code>. They are the same two settings as the Preferences <strong>Paths</strong> tab;

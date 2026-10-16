@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.55</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.56</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.55</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.56</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3784,7 +3784,11 @@ arrows and Space stop working as ZX keys.</p>
 otherwise it hits the edge of your screen and the emulated pointer stops.</p>
 <ul>
 <li><strong>Capture:</strong> click the emulator screen, or use <strong>Input &gt; Capture Mouse</strong>.</li>
-<li><strong>Release:</strong> <strong>Ctrl+Alt</strong> (<strong>Alt+Cmd</strong> on a Mac), the same combination VirtualBox and QEMU use.</li>
+<li><strong>Release:</strong> <strong>Ctrl+Alt</strong> (<strong>Alt+Cmd</strong> on a Mac) by default, the same combination VirtualBox and QEMU use. You can
+  choose a <strong>middle click</strong> or <strong>Esc</strong> instead in <strong>Settings &gt; Preferences &gt; Input</strong>, or with <code>--mouse-release</code>
+  (<code>ctrl-alt</code>, <code>middle-click</code> or <code>esc</code>). Only the chosen gesture releases. With <strong>Esc</strong>, Esc stops being BREAK while
+  the mouse is captured (it is BREAK again once released); with <strong>middle click</strong>, the middle button no longer reaches
+  the program. Either way the click or key that releases is not passed to the program.</li>
 </ul>
 <p>Capture is off until you ask for it, so the pointer stays yours and you can
 always reach the menus. While captured, the status bar reminds you how to get

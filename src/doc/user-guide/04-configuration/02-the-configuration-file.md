@@ -57,7 +57,10 @@ Automatic) and `joy1_device_name` and `joy2_device_name` (the name the menu
 shows while that controller is not connected). They are the same settings as the
 **Input** menu and the Preferences **Input** tab, and `--joy1-device` /
 `--joy2-device` override the ids for one run. An id that is not valid is ignored
-together with its name, and the connector falls back to Automatic.
+together with its name, and the connector falls back to Automatic. The same section
+holds `mouse_release` (`ctrl-alt`, `middle-click` or `esc`): which gesture releases a
+captured mouse, the **Release captured mouse with** setting of the Preferences **Input** tab;
+`--mouse-release` overrides it for one run, and an unknown word falls back to `ctrl-alt`.
 
 The quick screenshot is stored in the `[screenshot]` section: `quick_dir` (an
 empty value means `~/.jnext/screenshots`) and `quick_format`, either `png` or

@@ -908,6 +908,15 @@ target_include_directories(host_key_latch_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(host_key_latch_test PRIVATE ${JNEXT_SDL3_TARGET})
 add_test(NAME host_key_latch_tests COMMAND host_key_latch_test)
 
+# GH #365 — the SDL pointer-release route (src/platform/sdl_pointer_release.h)
+# driven through the REAL SdlInput::poll(), exactly like host_key_latch_test.
+# sdl_input.cpp compiled in directly; SDL_INIT_EVENTS only, so ungated.
+add_executable(sdl_pointer_release_test platform/sdl_pointer_release_test.cpp
+                                        ${CMAKE_SOURCE_DIR}/src/platform/sdl_input.cpp)
+target_include_directories(sdl_pointer_release_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(sdl_pointer_release_test PRIVATE ${JNEXT_SDL3_TARGET})
+add_test(NAME sdl_pointer_release_tests COMMAND sdl_pointer_release_test)
+
 # GH #155 — the SDL window title names the version. Drives the real
 # SdlDisplay::init() under SDL's dummy video driver: no display, ungated.
 add_executable(sdl_window_title_test platform/sdl_window_title_test.cpp)
@@ -1282,6 +1291,13 @@ if(ENABLE_QT_UI)
     target_link_libraries(audio_gain_config_test PRIVATE jnext_gui)
     target_include_directories(audio_gain_config_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME audio_gain_config_tests COMMAND audio_gain_config_test)
+
+    # GH #365 — the captured-mouse release gesture through the real MainWindow.
+    add_executable(mouse_release_test gui/mouse_release_test.cpp)
+    set_target_properties(mouse_release_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(mouse_release_test PRIVATE jnext_gui)
+    target_include_directories(mouse_release_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME mouse_release_tests COMMAND mouse_release_test)
 
     add_executable(audio_gain_preferences_test gui/audio_gain_preferences_test.cpp)
     target_link_libraries(audio_gain_preferences_test PRIVATE jnext_gui)

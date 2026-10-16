@@ -1,6 +1,7 @@
 #pragma once
 #include "platform/quick_snapshot_chord.h"
 #include "platform/cli_delay.h"
+#include "platform/pointer_capture.h"
 #include <SDL3/SDL.h>
 #include <memory>
 #include <string>
@@ -34,6 +35,12 @@ public:
     /// dialog, so the CLI is the only way in.
     void set_when_slow_prefer(audio_pacing::WhenSlowPrefer prefer) {
         when_slow_prefer_ = prefer;
+    }
+
+    /// GH #365 — how a captured mouse is released (--mouse-release). This
+    /// frontend has no Preferences dialog, so the CLI is the only way in.
+    void set_mouse_release_method(pointer_capture::ReleaseMethod m) {
+        release_filter_.set_method(m);
     }
 
     /// Task 70 — power-on cold boot: reconstruct the emulator in place and
@@ -146,8 +153,10 @@ private:
     /// guest pointer stops dead. SDL's relative mode does the hiding,
     /// confining and unbounded xrel/yrel for us — the Qt frontend has to
     /// hand-roll the equivalent. Same semantics as there: click the window to
-    /// capture, Ctrl+Alt to release. Uncaptured, no mouse event is forwarded.
+    /// capture, the configured release gesture (GH #365; Ctrl+Alt by default)
+    /// to release. Uncaptured, no mouse event is forwarded.
     bool mouse_captured_ = false;
+    pointer_capture::ReleaseFilter release_filter_;
     void set_mouse_captured(bool on);
 
     // Joystick / gamepad host adapter — wires SDL_EVENT_GAMEPAD_* events into

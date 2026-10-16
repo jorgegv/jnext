@@ -223,6 +223,13 @@ void AppConfig::load() {
         if (parse_joy_source(v.toStdString().c_str(), parsed))
             data_.joy_source[i] = parsed;
     }
+    // GH #365 — an unknown word keeps the default, as joy_source does.
+    {
+        pointer_capture::ReleaseMethod m;
+        const QString v = settings_.value("mouse_release").toString().trimmed();
+        if (pointer_capture::parse_release_method(v.toStdString(), m))
+            data_.mouse_release = m;
+    }
     // GH #311 — assigned controller. An id that does not parse is dropped
     // together with its name, so a hand-edit cannot leave a name with no id.
     const char* dev_keys[2]  = { "joy1_device", "joy2_device" };
@@ -332,6 +339,8 @@ void AppConfig::save() const {
     settings_.setValue("joy1_device_name", data_.joy_device_name[0]);
     settings_.setValue("joy2_device", data_.joy_device[1]);
     settings_.setValue("joy2_device_name", data_.joy_device_name[1]);
+    settings_.setValue("mouse_release",                            // GH #365
+                       QString::fromLatin1(pointer_capture::release_method_name(data_.mouse_release)));
     settings_.endGroup();
 
     // GH #1 — ONLY redefinitions are written. The group is removed first so

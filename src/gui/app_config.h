@@ -9,6 +9,7 @@
 #include "core/emulator_config.h"
 #include "debug/debug_keymap.h"
 #include "platform/audio_pacing.h"
+#include "platform/pointer_capture.h"
 #include "core/screenshot.h"
 
 /// Persisted GUI preferences (Task 66 — Configurability).
@@ -45,6 +46,11 @@ struct AppConfigData {
     // Default Sdl/Sdl reproduces the historical behaviour. Persisted as the
     // "sdl"/"keys" strings via joy_source_str()/parse_joy_source().
     JoySource   joy_source[2]          = { JoySource::Sdl, JoySource::Sdl };
+
+    // GH #365 — how a captured mouse is released. Default Ctrl+Alt reproduces
+    // the historical behaviour. Persisted as `[input] mouse_release`
+    // (ctrl-alt | middle-click | esc), see pointer_capture::release_method_name().
+    pointer_capture::ReleaseMethod mouse_release = pointer_capture::kDefaultReleaseMethod;
 
     // GH #311 — the physical controller assigned to each connector, by stable
     // id ("<sdl guid>" or "<sdl guid>#N", see input/joy_source.h). Empty =

@@ -88,6 +88,7 @@ private:
 
     QComboBox* joy1_source_combo_ = nullptr;   // Task 79
     QComboBox* joy2_source_combo_ = nullptr;
+    QComboBox* mouse_release_combo_ = nullptr;   // GH #365
     // GH #311 — the choices come from joy_choices(), the same builder the Input
     // menu uses. The dialog edits copies of these, so a controller that is not
     // plugged in right now keeps its (id, name) through OK.
