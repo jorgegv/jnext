@@ -15,7 +15,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Copper                |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      262 |      262 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Memory/MMU (int)      |      114 |      114 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Memory/MMU (int)      |      118 |      118 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      379 |      379 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub           |      185 |      185 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -26,7 +26,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Phantom Typist        |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC + Interrupts      |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC (integration)     |       88 |       88 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Layer 2               |      153 |      153 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Layer 2               |      161 |      161 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART + I2C/RTC        |      104 |      104 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (POSIX-only rows) |       49 |       49 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -52,7 +52,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Sprites               |      212 |      212 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor            |      246 |      246 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor (int)      |       51 |       51 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ULA Video             |      151 |      151 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ULA Video             |      152 |      152 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video (int)       |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Floating Bus          |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | VideoTiming           |      113 |      113 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -93,9 +93,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Snapshot IM latch (NR 0xC0) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | snapshot_machine_test |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "snapshot_machine_test" to the label map in refresh-subsystem-status.sh. |
 | DMA                   |      185 |      185 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Tilemap               |       88 |       88 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Tilemap               |       97 |       97 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap raster splits |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
-| LoRes                 |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
+| LoRes                 |       51 |       51 |      0 |       0 |    100% | 🟢 All tests pass. |
 | LoRes (integration)   |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI Source Pipeline   |       77 |       77 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI (integration)     |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -140,7 +140,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Quit runs closeEvent cleanup |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Toolbar SVG icon set + icon lint |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply) |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Video Panel  |      116 |      116 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Video Panel  |      118 |      118 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persist. BP (GUI) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -153,6 +153,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **12938**| **12938**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **12965**| **12965**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
