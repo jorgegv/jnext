@@ -2612,9 +2612,50 @@ are: palette contents (<code>PaletteManager</code>); Layer 2 scroll, clip, bank,
 NR 0x70 (five separate logs); sprite attributes and sprite patterns; the ULA's
 port-0xFF screen mode, ULA scroll, and the NR 0x43 / NR 0x6B b4 active-palette
 selectors; the tilemap's NR 0x6B; the <code>AttributeMux</code> on the <code>Mmu</code>
-(every ULA-fetched VRAM byte, pixels included, replayed at the instant the ULA
-fetches it, per <em>column</em> rather than per row); and NR 0x15 layer priority plus sprite enable on the <code>Renderer</code>
+(every VRAM byte the ULA, the tilemap and LoRes fetch, replayed at the instant
+each fetches it, per <em>column</em> rather than per row); the <code>SramBeamLog</code> on the
+<code>Mmu</code> (the SRAM bytes Layer 2 fetches, same way); and NR 0x15 layer priority plus sprite enable on the <code>Renderer</code>
 itself.</p>
+<p>The two memory logs are queried by the layer instead of replayed into it, and
+the fetch instant differs by layer (raw <code>hc</code>, <code>c_min_hactive</code> = the machine's
+display origin; every instant is derived from the VHDL in <code>beam_counters.h</code> and
+the headers of the two classes):</p>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Fetch instant of the pixel / group</th>
+<th>VHDL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ULA</td>
+<td>per display slot, <code>attribute_mux.h</code> table</td>
+<td><code>zxula.vhd:270-303</code></td>
+</tr>
+<tr>
+<td>Tilemap</td>
+<td>group <em>g</em> (8 pixels, 4 <code>whc</code> ticks in 80-column mode) is fetched while <code>whc</code> = 8(<em>g</em>-1) (4(<em>g</em>-1)), one character ahead; map entry and tile bytes share the instant; a tile split by fine X scroll is read again in each group</td>
+<td><code>tilemap.vhd:226-231, 260-300</code></td>
+</tr>
+<tr>
+<td>LoRes</td>
+<td>pixel <em>p</em> at <code>phc</code> = <em>p</em>, raw <code>hc</code> <code>c_min_hactive</code> + 1 + <em>p</em></td>
+<td><code>zxnext.vhd:4250, 6603-6631</code></td>
+</tr>
+<tr>
+<td>Layer 2 256x192</td>
+<td>column <em>X</em> at raw <code>hc</code> <code>c_min_hactive</code> + <em>X</em></td>
+<td><code>layer2.vhd</code> <code>hc_eff</code>, <code>zxula_timing.vhd:510-522</code></td>
+</tr>
+<tr>
+<td>Layer 2 320x256 / 640x256</td>
+<td>column (byte) <em>X</em> at raw <code>hc</code> <code>c_min_hactive</code> - 32 + <em>X</em></td>
+<td><code>layer2.vhd</code>, <code>zxula_timing.vhd:476-492</code></td>
+</tr>
+</tbody>
+</table>
 <p>Two details there are load-bearing. Writes tagged during vblank never match a
 visible row, so <code>flush_remaining_changes</code> must drain them or they are lost
 forever — the next frame's baseline would not contain them. And writes that
@@ -2632,7 +2673,8 @@ of that row. Hardware samples those latches per pixel and would change only the
 pixels after the write.</p>
 <p>Three logs do better. <code>AttributeMux</code> was the first (Nirvana-class attribute
 rewrites; since GH #305 it covers the pixel bytes too, so a frame can no longer
-show new glyphs on old attributes), and GH #270 added the Layer 2 <strong>bank</strong> (NR 0x12/0x13) and <strong>scroll</strong>
+show new glyphs on old attributes; since GH #362 the tilemap and LoRes read
+through it, and <code>SramBeamLog</code> does the same for Layer 2's bitmap), and GH #270 added the Layer 2 <strong>bank</strong> (NR 0x12/0x13) and <strong>scroll</strong>
 (NR 0x16/0x17/0x71) logs. Those two carry an <code>hpos</code> beside the line tag,
 <code>Layer2::apply_changes_for_line</code> merges them into one per-row list of render
 segments ordered by column, and <code>render_scanline</code> draws the row as one span per

@@ -6,6 +6,9 @@
 - Monochrome toolbar icons that follow the light or dark theme; Screenshot, NMI and Debug get real icons
 - Linux: the GUI follows the desktop's light/dark preference, switching live; `JNEXT_COLOR_SCHEME` forces either
 
+### Bug Fixes
+- Tilemap, LoRes and Layer 2 no longer show memory written after the beam passed; fixes torn scrolling (Pixel Wheels)
+
 ### Contributors in this release
 - @pavero01
 

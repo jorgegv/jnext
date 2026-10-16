@@ -2460,7 +2460,17 @@ that implements it:</p>
 <p>The classes that carry one are <code>PaletteManager</code>, <code>Layer2</code> (scroll and bank),
 <code>SpriteEngine</code> (attributes), <code>Ula</code> (Timex screen mode, scroll, active-palette
 select), <code>Tilemap</code> (NR 0x6B), <code>Mmu</code>'s <code>AttributeMux</code> (mid-frame writes to every
-ULA-fetched VRAM byte), and <code>Renderer</code> itself (NR 0x15 priority and sprite enable).</p>
+VRAM byte the ULA, the tilemap and LoRes fetch), <code>Mmu</code>'s <code>SramBeamLog</code>
+(mid-frame writes to the SRAM bytes Layer 2 fetches), and <code>Renderer</code> itself
+(NR 0x15 priority and sprite enable).</p>
+<p>The two memory logs differ from the register logs in one way: a register log is
+<em>replayed into</em> the live state row by row, while a memory log is <em>queried</em> by
+the layer that fetches, with the scanline and the raw <code>hc</code> of the fetch
+(<code>read(offset, hc)</code> after <code>apply_changes_for_line(row)</code>). Both answer "the last
+write tagged at or before this (line, hc), else the frame-start value", and both
+take their write position from the one source in <code>Mmu</code> (<code>write_tag_()</code>: the
+CPU's own <code>(line, hc)</code> for a CPU write, the coarse line tag for every other
+writer, including the debugger's page pokes).</p>
 <p>A soft reset (NR 0x02 bit 0, F4) can land in the middle of a frame, and the
 hardware draws the rows above it with the old registers and the rows below with
 the reset ones. So each class's <code>reset(bool hard)</code> treats the two differently:

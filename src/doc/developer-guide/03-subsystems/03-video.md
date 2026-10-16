@@ -251,9 +251,23 @@ are: palette contents (`PaletteManager`); Layer 2 scroll, clip, bank, enable and
 NR 0x70 (five separate logs); sprite attributes and sprite patterns; the ULA's
 port-0xFF screen mode, ULA scroll, and the NR 0x43 / NR 0x6B b4 active-palette
 selectors; the tilemap's NR 0x6B; the `AttributeMux` on the `Mmu`
-(every ULA-fetched VRAM byte, pixels included, replayed at the instant the ULA
-fetches it, per *column* rather than per row); and NR 0x15 layer priority plus sprite enable on the `Renderer`
+(every VRAM byte the ULA, the tilemap and LoRes fetch, replayed at the instant
+each fetches it, per *column* rather than per row); the `SramBeamLog` on the
+`Mmu` (the SRAM bytes Layer 2 fetches, same way); and NR 0x15 layer priority plus sprite enable on the `Renderer`
 itself.
+
+The two memory logs are queried by the layer instead of replayed into it, and
+the fetch instant differs by layer (raw `hc`, `c_min_hactive` = the machine's
+display origin; every instant is derived from the VHDL in `beam_counters.h` and
+the headers of the two classes):
+
+| Layer | Fetch instant of the pixel / group | VHDL |
+|-------|------------------------------------|------|
+| ULA | per display slot, `attribute_mux.h` table | `zxula.vhd:270-303` |
+| Tilemap | group *g* (8 pixels, 4 `whc` ticks in 80-column mode) is fetched while `whc` = 8(*g*-1) (4(*g*-1)), one character ahead; map entry and tile bytes share the instant; a tile split by fine X scroll is read again in each group | `tilemap.vhd:226-231, 260-300` |
+| LoRes | pixel *p* at `phc` = *p*, raw `hc` `c_min_hactive` + 1 + *p* | `zxnext.vhd:4250, 6603-6631` |
+| Layer 2 256x192 | column *X* at raw `hc` `c_min_hactive` + *X* | `layer2.vhd` `hc_eff`, `zxula_timing.vhd:510-522` |
+| Layer 2 320x256 / 640x256 | column (byte) *X* at raw `hc` `c_min_hactive` - 32 + *X* | `layer2.vhd`, `zxula_timing.vhd:476-492` |
 
 Two details there are load-bearing. Writes tagged during vblank never match a
 visible row, so `flush_remaining_changes` must drain them or they are lost
@@ -276,7 +290,8 @@ pixels after the write.
 
 Three logs do better. `AttributeMux` was the first (Nirvana-class attribute
 rewrites; since GH #305 it covers the pixel bytes too, so a frame can no longer
-show new glyphs on old attributes), and GH #270 added the Layer 2 **bank** (NR 0x12/0x13) and **scroll**
+show new glyphs on old attributes; since GH #362 the tilemap and LoRes read
+through it, and `SramBeamLog` does the same for Layer 2's bitmap), and GH #270 added the Layer 2 **bank** (NR 0x12/0x13) and **scroll**
 (NR 0x16/0x17/0x71) logs. Those two carry an `hpos` beside the line tag,
 `Layer2::apply_changes_for_line` merges them into one per-row list of render
 segments ordered by column, and `render_scanline` draws the row as one span per

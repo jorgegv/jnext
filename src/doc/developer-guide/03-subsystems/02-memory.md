@@ -166,12 +166,17 @@ the same arm for it as for `ZX128K`), and its default timing is
 `TimingPentagon`. Guest software can still reach Pentagon *timing* on any
 machine by writing NR 0x03.
 
-`AttributeMux` replays, at beam time, every byte the ULA fetches from VRAM: the
-pixel planes and the attribute plane of bank 5 (pages 0x0A and 0x0B, the second
-holding the Timex alt screen and second plane) and of the bank-7 shadow screen
-(page 0x0E), offsets 0x0000-0x1AFF of each. The ULA fetches a pixel byte and an
+`AttributeMux` replays, at beam time, every byte the display fetches from VRAM:
+all of bank 5 (pages 0x0A and 0x0B) and of the bank-7 BRAM (page 0x0E). Three
+layers fetch it: the ULA (pixel and attribute planes, the Timex second plane and
+the shadow screen), the tilemap (map entry and tile definition, anywhere in
+either bank) and LoRes (bank 5). The ULA fetches a pixel byte and an
 attribute byte per column on every scanline (`zxula.vhd:270-303`), so a write
-is seen by the first fetch after it, whichever plane it hit. Each write is
+is seen by the first fetch after it, whichever plane it hit; the tilemap
+fetches each 8-pixel group one character ahead (`tilemap.vhd:226-231`) and
+LoRes a byte per 7 MHz pixel (`zxnext.vhd:6603-6631`). `beam_counters.h` holds
+the `whc` / `phc` raw-`hc` derivations (`zxula_timing.vhd:476-522`) the
+tilemap, LoRes and Layer 2 instants hang off. Each write is
 tagged with the raw frame `(hc, vc)` at the instant the byte lands on the bus —
 a position on the master clock, so it is the same at 3.5, 7, 14 and 28 MHz
 (`derive_hc_vc` scales the CPU T-state counter by the divisor
@@ -185,7 +190,22 @@ instants are tabulated in `attribute_mux.h`: pixel and attribute of a display
 slot differ by two ticks, the slot's parity moves both, and the bytes a fine
 X scroll shifts in come from a separate, later "secondary" fetch. Until GH #278
 the CPU's position outlived its write, and the next non-CPU attribute write
-took it over (`mmu_integration_test` G12-TAG).
+took it over (`mmu_integration_test` G12-TAG). A write before framebuffer row 0
+is tagged (row 0, hc 0): it precedes every row-0 fetch, and the tilemap and the
+wide Layer 2 modes do fetch on row 0.
+
+`SramBeamLog` is the same idea for Layer 2, which fetches the SRAM bitmap one
+pixel ahead of the beam (`layer2.vhd`, `hc_eff <= hc + 1`). The SRAM is 2 MB,
+so it is sparse: an append-only per-frame log of `(key, address, value)` in
+which each address remembers the byte its first write replaced, so an address
+that was written reads back its frame-start value, and one that never was reads
+live from `Ram` (also its frame-start value). It is disarmed at every frame
+start and armed when Layer 2 is on (at frame start, or at the moment it is
+turned on); once armed it records every SRAM store, enabled or not, until the
+frame ends. The stores are `Mmu::write()`'s four (Layer 2 write-over, alt-ROM,
+config-mode, normal slot) and the debugger's page pokes
+(`Mmu::log_page_store()`), which bypass `write()`; the list and what is
+deliberately not logged are in `sram_beam_log.h`.
 `Mmu` separately keeps the
 +3 floating-bus latch `p3_floating_bus_dat_`, updated on every read that
 `mem_contend_for_(addr)` says is contended — a per-page decode, not the older

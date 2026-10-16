@@ -82,6 +82,15 @@ carries a per-scanline change log, which the renderer rewinds and replays row by
 row as it descends the screen. [2.4 The video pipeline](../02-architecture/04-the-video-pipeline.md)
 covers the mechanism in full.
 
+The same problem exists for *memory*, and the same answer applies. Four layers
+fetch guest memory at the beam — the ULA, the tilemap and LoRes from the
+bank-5 / bank-7 VRAM and Layer 2 from the SRAM — so a byte written after the
+beam has passed it belongs to the next frame, not to the one being drawn.
+Reading the memory at the end of the frame gets that wrong (a game that
+rewrites its tile map in the vertical blank tore its own scroll, GH #362), so
+the `Mmu` keeps a per-frame log of those writes and the renderer asks it "what
+did the fetch at this scanline and column read".
+
 Extreme cycle-exactness is deliberately not a goal; "good enough to develop
 games on" is. The consequences of that choice are documented rather than
 hidden. The main one follows directly from the change log above: a register
