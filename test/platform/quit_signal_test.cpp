@@ -107,7 +107,12 @@ int main() {
           run_child([] { return survives_with(SIGTERM); }) == 0);
 
     check("QSIG-02", "install(), raise(SIGINT): survives, pending()==SIGINT",
-          run_child([] { return survives_with(SIGINT); }) == 0);
+          run_child([] {
+              // A harness may start us with SIGINT ignored (background job of a
+              // non-interactive shell); undo that, QSIG-04 owns the ignored case.
+              std::signal(SIGINT, SIG_DFL);
+              return survives_with(SIGINT);
+          }) == 0);
 
     {
         bool sigd = false; int ts = 0;

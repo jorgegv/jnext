@@ -1068,6 +1068,7 @@ my %NO_MATRIX_SECTION = (
     'window_title_test'   => 'main-window title carries the version (host GUI)',
     'color_scheme_test'   => 'GUI light/dark scheme from the desktop portal (host GUI, GH #363)',
     'sdl_window_title_test' => 'SDL window title carries the version (host GUI)',
+    'quit_signal_test' => 'SIGINT/SIGTERM as a quit request (host process behaviour; GH #364)',
 
     # ── CLI, configuration, logging, profiling ───────────────────────
     # jnext-internal contracts. `cli_options_test` is checked against the man
