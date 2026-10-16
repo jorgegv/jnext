@@ -1492,6 +1492,7 @@ int main(int argc, char* argv[]) {
             nextpi::start_request(gui, nextpi_enabled_set, nextpi_enabled, saved_enabled);
         if (req.wanted) {
             std::function<void(const std::string&)> report = [](const std::string& m) {
+                Log::uart()->error("NextPi: {}", m);   // kept by --log-file; stderr may go nowhere
                 std::fprintf(stderr, "error: NextPi: %s\n", m.c_str());
             };
             popts.download = sdcard::default_http_download;

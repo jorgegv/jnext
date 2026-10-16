@@ -311,6 +311,10 @@ naming the option and the value, and exits with status 1.
     (<https://zx.xalior.com/NextPi2/>) into `~/.jnext/nextpi` — about 6 GB,
     with about 22 GB free needed while it is unpacked — with a progress bar,
     exactly as the SD-card image is provisioned; later runs start at once.
+    An archive `NextPi-<release>.tar.gz` already in that directory is checked
+    against its `.md5` beside it (fetched only if absent) and unpacked without
+    downloading; a directory that cannot be used is reported with the missing
+    file, in the question and in the log.
     NextPi then takes about a minute to reach its Supervisor prompt (`SUP>`).
     The release, the directory, the QEMU binary and where the Pi's sound goes
     are set under **Settings > Preferences > NextPi** (the `[nextpi]` section
@@ -2300,7 +2304,8 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 `~/.jnext/nextpi/`
 :   The NextPi directory: `nextpi.img` (the release's SD-card image,
     never written), `boot/` (the kernel and device tree QEMU boots, copied out
-    of the image), `release` (which release it is), `overlay.qcow2` (everything
+    of the image), `release` (which release it is; it must match the configured
+    release), `overlay.qcow2` (everything
     NextPi writes to its card — delete it to start again from a pristine image)
     and `qemu.log` (QEMU's own messages). About 15 GB.
 

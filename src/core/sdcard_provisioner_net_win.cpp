@@ -48,7 +48,6 @@
 #include <string>
 #include <vector>
 
-#include <sys/stat.h>
 
 // mingw-w64 defines these in winhttp.h; the #ifndef is a guard for older
 // header sets only (values are the documented Windows SDK constants).
@@ -62,11 +61,6 @@
 namespace sdcard {
 
 namespace {
-
-bool file_exists_win(const std::string& path) {
-    struct stat st{};
-    return ::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
-}
 
 // UTF-8 -> UTF-16 (WinHTTP is a wide-char API; jnext strings are UTF-8 — the
 // exe embeds the activeCodePage=UTF-8 manifest, GH #62).
@@ -246,7 +240,7 @@ done:
         err = "write/flush error on " + dest_path;
         return false;
     }
-    if (!file_exists_win(dest_path)) {
+    if (!regular_file_exists(dest_path)) {
         err = "produced no file: " + dest_path;
         return false;
     }

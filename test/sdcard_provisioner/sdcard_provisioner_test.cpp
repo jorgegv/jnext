@@ -19,6 +19,9 @@
 //   PROV-PREC-02   Default-location FIXED image is used when present; no download.
 //   PROV-PREC-03   --sdcard-download-force ignores an explicit path and an
 //                  existing default image (routes to the download branch).
+//   PROV-PREC-04   GH #358 — a 5 GiB SPARSE default FIXED image is found (Windows
+//                  ::stat failed at 4 GiB and read it as absent, which offered
+//                  a download over the user's image). Sparse: ~0 blocks on disk.
 //   PROV-CONF-01   No image + declined confirm → Declined; no download.
 //   PROV-CONF-02   Confirm accepted + download seam fails → Failed; seam ran.
 //   PROV-PROG-01   The ProvisionOptions.progress seam is forwarded into the
@@ -477,6 +480,32 @@ int main() {
               r.path == "/some/explicit/path.img", r.path);
         check("PROV-PREC-03b", "download seam never invoked when --sdcard given",
               !download_called);
+    }
+
+    // -- PROV-PREC-04: GH #358 — a >= 4 GiB default image is "present". Oracle: the
+    // documented precedence (sdcard_provisioner.h, PROV-PREC-02). It discriminates
+    // only in `make unit-test-win`: MinGW's ::stat (stat64i32) fails with EOVERFLOW
+    // at 4 GiB; on Linux/macOS it passes either way. A fixture that cannot make the
+    // sparse file FAILS the row (never skips).
+    {
+        download_called = false;
+        bool confirm_called = false;
+        const std::string big = sdcard::default_sdcard_image_path();
+        std::remove(big.c_str());
+        write_file(big, {'i'});
+        std::error_code rec;
+        std::filesystem::resize_file(big, 5368709120ull, rec);
+        std::error_code sec;
+        const auto got = std::filesystem::file_size(big, sec);
+        sdcard::ProvisionOptions o;
+        o.download = recording_dl;
+        o.confirm = [&](const std::string&) { confirm_called = true; return true; };
+        auto r = sdcard::provision_sd_card(o);
+        check("PROV-PREC-04", "a 5 GiB default image is found: used, no download, no question",
+              !rec && !sec && got == 5368709120ull && r.status == sdcard::ProvisionStatus::Ok &&
+              r.path == big && !download_called && !confirm_called,
+              "resize=" + rec.message() + " size=" + std::to_string(got) + " status=" +
+              std::to_string(static_cast<int>(r.status)) + " err=" + r.error);
     }
 
     // Remove the default image for the confirm tests.

@@ -16,7 +16,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # network or a NextPi image: the first run has no QEMU on its PATH, the second
 # answers the download prompt with end-of-input.
 #
-# FIVE FACTS (the Pi's sound is in nextpi-audio-func, which needs a stand-in QEMU
+# SEVEN FACTS (the Pi's sound is in nextpi-audio-func, which needs a stand-in QEMU
 # playing a tone into the audio pipe):
 #   1. --nextpi with a ready NextPi directory and no QEMU installed exits 1 and
 #      says QEMU is not found (the install hint), without booting.
@@ -34,6 +34,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   5. --nextpi with nothing installed and no QEMU exits 1 saying QEMU is not
 #      found, WITHOUT asking to download NextPi and without fetching anything
 #      (GH #357: nobody is offered 6 GB for a program that cannot run it).
+#   6. The same failure with --log-file: the reason is in the LOG file too, not
+#      only on stderr (GH #358: a GUI-subsystem Windows exe has no stderr).
+#   7. A NextPi directory the provisioner cannot use (only an empty nextpi.img)
+#      is reported in the log with the missing file (GH #358), then the
+#      declined download starts jnext without NextPi (exit 0).
 # Facts 3 and 4 run the GUI on Qt's offscreen platform, where the warning
 # dialog of fact 4 is not shown (nobody could dismiss it); the log line that
 # precedes it is what the row reads.
@@ -108,6 +113,31 @@ if want nextpi-func; then
     [[ ! -e "$np/NextPi-1_93D.tar.gz.md5" ]] \
         || fails+=("--nextpi with no QEMU still fetched the NextPi checksum")
 
+    # Fact 6 — the same refusal, with --log-file: the reason must reach the file.
+    rm -rf "$np"
+    nplog="$TMP_DIR/nextpi-func.log"
+    rm -f "$nplog"
+    rc=0
+    JNEXT_NEXTPI_MIRROR="file:///nonexistent-nextpi-mirror" \
+        timeout --foreground --kill-after=5s 60s \
+        env PATH="$no_qemu_path" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" \
+        --nextpi --log-file "$nplog" --delayed-automatic-exit-frames 2 </dev/null >/dev/null 2>&1 || rc=$?
+    grep -q 'NextPi: qemu-system-arm not found' "$nplog" 2>/dev/null \
+        || fails+=("--nextpi without QEMU did not log why to --log-file")
+
+    # Fact 7 — a directory holding only nextpi.img: the log says which file is missing.
+    rm -rf "$np"
+    mkdir -p "$np"
+    : >"$np/nextpi.img"
+    rc=0
+    out=$(JNEXT_NEXTPI_MIRROR="file:///nonexistent-nextpi-mirror" \
+        timeout --foreground --kill-after=5s 60s \
+        env PATH="$bindir:$PATH" JNEXT_EXTRA_WINEPATH="$bindir" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" \
+        --nextpi --delayed-automatic-exit-frames 2 </dev/null 2>&1) || rc=$?
+    [[ $rc -eq 0 ]] || fails+=("--nextpi with an unusable NextPi directory (download declined) exited $rc, want 0")
+    grep -Eq '\] \[uart\] \[warning\] NextPi: .*kernel\.img.* is missing' <<<"$out" \
+        || fails+=("an unusable NextPi directory did not log which file is missing")
+
     # Facts 3 and 4 — a GUI session whose saved preference enables NextPi, with
     # the ready directory of fact 1 and still no QEMU on its PATH.
     conf="$JNEXT_CONFIG_DIR/jnext.conf"
@@ -149,7 +179,7 @@ if want nextpi-func; then
     rm -rf "$np"
 
     if [[ ${#fails[@]} -eq 0 ]]; then
-        pass_row " (--nextpi without QEMU exits 1 with the install hint; a declined download starts jnext without NextPi; --no-nextpi overrides the preference; a Preferences-only failure is logged and jnext runs on; with no QEMU nothing is offered or fetched)"
+        pass_row " (--nextpi without QEMU exits 1 with the install hint; a declined download starts jnext without NextPi; --no-nextpi overrides the preference; a Preferences-only failure is logged and jnext runs on; with no QEMU nothing is offered or fetched; failures reach --log-file; an unusable directory names its missing file)"
     else
         fail_row " (${fails[*]})"
     fi

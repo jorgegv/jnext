@@ -305,7 +305,17 @@ UART 1, the Pi GPIO header's UART. Three pieces:
   copies `kernel.img` and the device tree out of the image's FAT32 boot
   partition with the lenient `fat32_read_tree`. A `release` marker records what
   is installed, so a changed release (or `latest` moving on) re-provisions and
-  discards the overlay.
+  discards the overlay. The order matters: an archive already in the directory
+  is checked first (the `.md5` beside it is preferred, the mirror's is fetched
+  only if there is none) and installed with no question when it matches; nothing
+  is deleted before the user agrees to a download; a download step that fails
+  never deletes a complete file (the backend removes its own partial, and
+  Windows once reported failure for a finished 5.7 GB file); only a fresh
+  download whose MD5 differs is removed. `unprepared_reason` names the piece an
+  unusable directory lacks, and the question and the `[uart]` log both say it.
+  File existence goes through `sdcard::regular_file_exists`
+  (`std::filesystem`), never `::stat`: MinGW's `stat` is `stat64i32` and fails
+  with `EOVERFLOW` for files of 4 GiB or more (GH #358).
 
 * **`audio/pi_audio.{h,cpp}`** carries the Pi's sound into the mixer, the way
   a real Next takes it over I2S. QEMU's `wav` audio back-end writes 44.1 kHz s16

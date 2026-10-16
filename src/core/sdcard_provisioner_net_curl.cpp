@@ -25,19 +25,12 @@
 #include <string>
 #include <vector>
 
-#include <sys/stat.h>
-
 namespace sdcard {
 
 // ---------------------------------------------------------------------------
 // Download (default impl uses libcurl — no shell-out)
 // ---------------------------------------------------------------------------
 namespace {
-bool file_exists_posix(const std::string& path) {
-    struct stat st{};
-    return ::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
-}
-
 // libcurl write callback: append received bytes to the destination FILE*.
 size_t curl_write_to_file(char* ptr, size_t size, size_t nmemb, void* userdata) {
     FILE* f = static_cast<FILE*>(userdata);
@@ -121,7 +114,7 @@ bool default_http_download(const std::string& url, const std::string& dest_path,
         err = "write/flush error on " + dest_path;
         return false;
     }
-    if (!file_exists_posix(dest_path)) {
+    if (!regular_file_exists(dest_path)) {
         err = "produced no file: " + dest_path;
         return false;
     }

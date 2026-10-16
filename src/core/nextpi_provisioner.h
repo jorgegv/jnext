@@ -17,6 +17,12 @@
 /// its mirror with a progress bar, checks the archive's MD5, unpacks the image,
 /// and copies `kernel.img` and `bcm2708-rpi-zero.dtb` out of the image's FAT32
 /// boot partition. Every later run finds it ready and touches no network.
+/// An archive already in the directory (what a user fetched by hand) is
+/// checked FIRST, before anything is asked: against the `.md5` beside it, or
+/// the mirror's if there is none, and when it matches it is unpacked with no
+/// question and no download. Nothing is deleted before the user agrees to a
+/// download, and a download step that fails never deletes a complete file.
+/// A directory that cannot be used is reported with the piece that is missing.
 ///
 /// THE DIRECTORY (default `<config-dir>/nextpi`, next to `<config-dir>/sdcard`):
 ///   nextpi.img                    the release's SD-card image, never written
@@ -34,8 +40,6 @@
 /// overlay only makes sense over the image it was made on. With "latest", an
 /// unreachable mirror is not an error when a release is already there: it is
 /// used, with a warning.
-///
-/// POSIX ONLY, like the Pi link itself (`provision` refuses on Windows).
 namespace nextpi {
 
 extern const char* const kDefaultRelease;   // "1_93D"
@@ -62,6 +66,11 @@ int compare_release(const std::string& a, const std::string& b);
 /// The release recorded in `dir`, or "" when `dir` is not a complete NextPi
 /// directory (any of the image, the two boot files or the marker missing).
 std::string prepared_release(const std::string& dir);
+
+/// "" when `dir` is a complete NextPi directory, else the first thing wrong:
+/// `<path> is missing`, or `<dir>/release is empty`. `prepared_release` is
+/// built on it, so the layout is defined once.
+std::string unprepared_reason(const std::string& dir);
 
 /// Lowercase hex MD5 of a file ("" if it cannot be read).
 std::string md5_file(const std::string& path);

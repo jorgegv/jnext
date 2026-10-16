@@ -13,7 +13,6 @@
 #include <fstream>
 #include <iostream>
 #include <string>
-#include <sys/stat.h>
 #include <sys/types.h>
 
 namespace sdcard {
@@ -69,10 +68,6 @@ bool make_dirs(const std::string& path) {
     std::filesystem::create_directories(path, ec); // no error if it exists
     return std::filesystem::is_directory(path);
 }
-bool file_exists(const std::string& path) {
-    struct stat st{};
-    return ::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
-}
 // GH #271 — if a download fails while we are inside a Flatpak sandbox, say so.
 //
 // A Flatpak without --share=network has its own network namespace with nothing
@@ -90,7 +85,7 @@ bool file_exists(const std::string& path) {
 //
 // Returns "" — and therefore changes NOTHING — outside a sandbox.
 std::string sandbox_network_note(const ProvisionOptions& opts) {
-    if (opts.sandbox_marker.empty() || !file_exists(opts.sandbox_marker))
+    if (opts.sandbox_marker.empty() || !regular_file_exists(opts.sandbox_marker))
         return {};
     return "\n  note: jnext is running inside a Flatpak sandbox, which has its own"
            "\n  network namespace. If the same URL downloads fine outside the sandbox,"
@@ -123,6 +118,11 @@ std::string read_stored_sha256(const std::string& path) {
     return tok;
 }
 } // namespace
+
+bool regular_file_exists(const std::string& path) {
+    std::error_code ec;
+    return std::filesystem::is_regular_file(path, ec);
+}
 
 std::string default_state_dir() { return config_dir(); }
 std::string default_sdcard_dir() {
@@ -506,7 +506,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
 
     // The FIXED (patched) image is what jnext boots from. If it is already
     // present, use it — unless a re-provision is forced.
-    if (!opts.force_download && file_exists(fixed)) {
+    if (!opts.force_download && regular_file_exists(fixed)) {
         r.status = ProvisionStatus::Ok;
         r.path   = fixed;
         Log::emulator()->info("sdcard: using default image {}", fixed);
@@ -522,7 +522,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     // sidecar. A missing/unreadable sidecar or a mismatch marks the raw
     // untrusted (stale/corrupt) and forces the full download cycle.
     bool raw_trusted = false;
-    if (!opts.force_download && file_exists(raw)) {
+    if (!opts.force_download && regular_file_exists(raw)) {
         const std::string stored = read_stored_sha256(raw_sha_path);
         if (stored.empty()) {
             Log::emulator()->warn(

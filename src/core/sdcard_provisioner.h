@@ -130,6 +130,11 @@ using BusyFn = std::function<bool(const std::string& phase,
 using CopyFn = std::function<bool(const std::string& src,
                                   const std::string& dst, std::string& err)>;
 
+// Is `path` an existing regular file? Not ::stat: MinGW's stat is stat64i32 and
+// fails with EOVERFLOW for a file of 4 GiB or more, so on Windows a finished
+// 5.7 GB NextPi download (or a large SD image) read as absent (GH #358).
+bool regular_file_exists(const std::string& path);
+
 bool default_http_download(const std::string& url, const std::string& dest_path,
                            const ProgressFn& progress, std::string& err);
 bool cli_confirm(const std::string& message);

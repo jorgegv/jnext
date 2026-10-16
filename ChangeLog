@@ -8,9 +8,11 @@
 
 ### Bug Fixes
 - NextPi checks that QEMU is installed before offering its 6 GB download
+- Windows: NextPi's finished 6 GB download was deleted as "missing"; files over 4 GB are now recognised
+- NextPi uses an archive already in its folder, and says which file or check rejected an existing setup
 
 ### Contributors in this release
-- @pavero01
+- @pavero01, @janko-jj
 
 ## v1.1.51 (2026-10-13)
 

@@ -3903,13 +3903,16 @@ install hint if not, before anything is offered or downloaded.</p>
 mirror (<a href="https://zx.xalior.com/NextPi2/">https://zx.xalior.com/NextPi2/</a>) into <code>~/.jnext/nextpi</code> —
 about 6 GB, with about 22 GB free needed while it is unpacked — with
 a progress bar, exactly as the SD-card image is provisioned; later
-runs start at once. NextPi then takes about a minute to reach its
-Supervisor prompt (<code>SUP&gt;</code>). The release, the directory, the QEMU
-binary and where the Pi’s sound goes are set under <strong>Settings &gt;
-Preferences &gt; NextPi</strong> (the <code>[nextpi]</code> section of
-<code>~/.jnext/jnext.conf</code>); their defaults are release <code>1_93D</code>,
-<code>~/.jnext/nextpi</code>, <code>qemu-system-arm</code> on <code>PATH</code>, and the Next’s
-mixer.</p>
+runs start at once. An archive <code>NextPi-&lt;release&gt;.tar.gz</code> already in
+that directory is checked against its <code>.md5</code> beside it (fetched only
+if absent) and unpacked without downloading; a directory that cannot
+be used is reported with the missing file, in the question and in
+the log. NextPi then takes about a minute to reach its Supervisor
+prompt (<code>SUP&gt;</code>). The release, the directory, the QEMU binary and
+where the Pi’s sound goes are set under <strong>Settings &gt; Preferences &gt;
+NextPi</strong> (the <code>[nextpi]</code> section of <code>~/.jnext/jnext.conf</code>); their
+defaults are release <code>1_93D</code>, <code>~/.jnext/nextpi</code>, <code>qemu-system-arm</code>
+on <code>PATH</code>, and the Next’s mixer.</p>
 <p>On Linux and macOS the Pi’s sound reaches the Next’s mixer over I2S,
 as on the real machine: it is mixed with the beeper, the AY chips
 and the DAC, so <strong>--record</strong> and <strong>--wav-record</strong> include it, and NR

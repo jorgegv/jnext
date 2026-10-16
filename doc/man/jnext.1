@@ -376,6 +376,10 @@ The first run that needs it offers to download NextPi from its mirror
 ) into \f[CR]\(ti/.jnext/nextpi\f[R] \(em about 6 GB, with about 22 GB
 free needed while it is unpacked \(em with a progress bar, exactly as
 the SD\-card image is provisioned; later runs start at once.
+An archive \f[CR]NextPi\-<release>.tar.gz\f[R] already in that directory
+is checked against its \f[CR].md5\f[R] beside it (fetched only if
+absent) and unpacked without downloading; a directory that cannot be
+used is reported with the missing file, in the question and in the log.
 NextPi then takes about a minute to reach its Supervisor prompt
 (\f[CR]SUP>\f[R]).
 The release, the directory, the QEMU binary and where the Pi\(cqs sound
@@ -3049,9 +3053,9 @@ The canonical distribution image the patched one above is produced from.
 The NextPi directory: \f[CR]nextpi.img\f[R] (the release\(cqs SD\-card
 image, never written), \f[CR]boot/\f[R] (the kernel and device tree QEMU
 boots, copied out of the image), \f[CR]release\f[R] (which release it
-is), \f[CR]overlay.qcow2\f[R] (everything NextPi writes to its card \(em
-delete it to start again from a pristine image) and \f[CR]qemu.log\f[R]
-(QEMU\(cqs own messages).
+is; it must match the configured release), \f[CR]overlay.qcow2\f[R]
+(everything NextPi writes to its card \(em delete it to start again from
+a pristine image) and \f[CR]qemu.log\f[R] (QEMU\(cqs own messages).
 About 15 GB.
 .SH EXIT STATUS
 \f[B]jnext\f[R] exits 0 on success and non\-zero on error.
