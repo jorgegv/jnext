@@ -1,6 +1,8 @@
 #include "platform/quit_signal.h"
 
+#include <cerrno>
 #include <csignal>
+#include <signal.h>
 
 #ifndef _WIN32
 
@@ -20,6 +22,7 @@ std::atomic<bool> g_ours_term{false};
 static_assert(std::atomic<bool>::is_always_lock_free);
 
 extern "C" void on_quit_signal(int sig) {
+    const int saved_errno = errno;   // handler hygiene: sigaction below may set it
     int expected = 0;
     g_signal.compare_exchange_strong(expected, sig);   // keep the first one
     // Any SECOND quit signal is the escape hatch, whichever one it is: put the
@@ -35,6 +38,7 @@ extern "C" void on_quit_signal(int sig) {
         dfl.sa_flags   = 0;
         sigaction(other, &dfl, nullptr);
     }
+    errno = saved_errno;
 }
 
 void install_one(int sig) {
@@ -54,8 +58,17 @@ void install_one(int sig) {
 namespace quit_signal {
 
 void install() {
+    // Block both while the two handlers go in, so a signal landing between
+    // them is delivered once both are in place (and still gets the
+    // second-signal reset); restore the caller's mask, not a blind unblock.
+    sigset_t both, old;
+    sigemptyset(&both);
+    sigaddset(&both, SIGINT);
+    sigaddset(&both, SIGTERM);
+    pthread_sigmask(SIG_BLOCK, &both, &old);
     install_one(SIGINT);
     install_one(SIGTERM);
+    pthread_sigmask(SIG_SETMASK, &old, nullptr);
 }
 
 int pending() { return g_signal.load(); }

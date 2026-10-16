@@ -2146,6 +2146,7 @@ int main(int argc, char* argv[]) {
                         "Valid: single char (a-z 0-9 . , ; :), ENTER, SPACE, "
                         "UP, DOWN, LEFT, RIGHT, sym+<char>, caps+<char>\n",
                         dk.key.c_str());
+                quit_signal::reraise_if_pending();   // a quit signal is not a usage error
                 return 1;
             }
         }
@@ -2159,6 +2160,7 @@ int main(int argc, char* argv[]) {
                         "       drive (or divmmc) = the DRIVE button (DivMMC)\n"
                         "(RESET is not an NMI button)\n",
                         dn.button.c_str());
+                quit_signal::reraise_if_pending();
                 return 1;
             }
         }

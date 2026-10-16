@@ -21,6 +21,7 @@
 //   reraise_if_pending() does nothing         -> QSIG-05 fails
 //   handler re-raises at once                 -> QSIG-01/02 fail
 //   reraise_if_pending() without its SIG_DFL   -> QSIG-10 fails
+//   install() unblocking instead of restoring   -> QSIG-14 fails
 //   handler keeps the last signal / does not reset the OTHER signal -> QSIG-11/12 fail
 // ===========================================================================
 
@@ -231,6 +232,19 @@ int main() {
               struct sigaction cur;
               sigaction(SIGTERM, nullptr, &cur);
               return (quit_signal::pending() == SIGINT && cur.sa_handler == SIG_IGN) ? 0 : 1;
+          }) == 0);
+
+    check("QSIG-14", "install() restores the caller's signal mask: a blocked SIGTERM stays blocked, SIGINT stays unblocked",
+          run_child([] {
+              sigset_t blk;
+              sigemptyset(&blk);
+              sigaddset(&blk, SIGTERM);
+              pthread_sigmask(SIG_BLOCK, &blk, nullptr);
+              std::signal(SIGINT, SIG_DFL);
+              quit_signal::install();
+              sigset_t cur;
+              pthread_sigmask(SIG_BLOCK, nullptr, &cur);
+              return (sigismember(&cur, SIGTERM) == 1 && sigismember(&cur, SIGINT) == 0) ? 0 : 1;
           }) == 0);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

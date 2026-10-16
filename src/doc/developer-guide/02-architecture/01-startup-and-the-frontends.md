@@ -128,7 +128,7 @@ the process dies by the signal (status 128+N, `WIFSIGNALED`) and never reads as
 a success. Windows is exempt: the helper is a no-op there, because no SIGTERM
 can be delivered to a Windows process from outside and Ctrl+C reaches the GUI
 exe only through the console it borrows. Tests: `quit_signal_test`
-(QSIG-01..13), `quit-signal-func` (all three frontends, asserting the process
+(QSIG-01..14), `quit-signal-func` (all three frontends, asserting the process
 was terminated BY the signal, plus headless held paused by a DZRP client) and
 `quit-signal-rzx-func` (Qt with a failing RZX write, Linux only).
 
