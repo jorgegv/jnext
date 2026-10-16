@@ -846,6 +846,11 @@ int main()
         }
         {
             auto f = filt(RM::MiddleClick);
+            const Verdict v = f.on_button(HostButton::Middle, false, true);
+            check("PCAP-43e", "MiddleClick: a captured middle button-UP does nothing (a click that captured must not release)", none(v), vs(v));
+        }
+        {
+            auto f = filt(RM::MiddleClick);
             const Verdict a = f.on_key(Alt, true, true, true, true);
             const Verdict b = f.on_key(Esc, true, false, false, true);
             check("PCAP-43d", "MiddleClick: captured Ctrl+Alt and captured Esc do nothing", none(a) && none(b), vs(a) + vs(b));

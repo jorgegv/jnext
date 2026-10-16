@@ -120,16 +120,18 @@ bool SdlApp::init(int argc, char* argv[]) {
     // (GH #268): a frontend must not be able to end up with keys wired and the
     // "the keyboard went elsewhere" signal forgotten, which is the failure the
     // Qt side shipped with and no test saw. See platform/host_key_wiring.h.
-    wire_host_keys(input_, key_router_, [this](SDL_Scancode sc, bool pressed) {
+    //
+    // GH #365 — the pointer-release gate (a consumed key reaches neither the
+    // hotkeys below nor the Router) and the filter's keyboard-loss reset go
+    // through ONE template too, so a suite drives this very composition.
+    sdl_pointer_release::wire_release_host_keys(
+        input_, key_router_, release_filter_,
+        []() { return SDL_GetModState(); },
+        [this]() { return mouse_captured_; },
+        [this](bool on) { set_mouse_captured(on); },
+        [this](SDL_Scancode sc, bool pressed) {
         // GH #321 — quick-snapshot chords: the tracker sees every event.
         const jnext::QuickChord quick = quick_chords_.on_key(static_cast<int>(sc), pressed);
-        // GH #365 — the pointer-release gesture (Ctrl+Alt, Esc; the middle
-        // click is in on_mouse). A consumed key reaches neither the hotkeys
-        // nor the Router.
-        if (sdl_pointer_release::route_sdl_release_key(
-                release_filter_, sc, pressed, SDL_GetModState(), mouse_captured_,
-                [this](bool on) { set_mouse_captured(on); }))
-            return;
         if (pressed) {
             // GH #321 — Alt+Shift+F5 / Alt+Shift+F9, tested BEFORE the F-key block below
             // so Alt+Shift+F9 is not the Multiface NMI; an autorepeat of the chord
@@ -192,16 +194,6 @@ bool SdlApp::init(int argc, char* argv[]) {
         // reachable only through a live SDL window.
         key_router_.on_host_key(sc, pressed);
     });
-
-    // GH #365 — a swallowed Esc's release goes wherever took the keyboard:
-    // forget it, then let the Router release what the guest holds.
-    {
-        auto router_lost = input_.on_keyboard_lost;
-        input_.on_keyboard_lost = [this, router_lost]() {
-            release_filter_.reset();
-            if (router_lost) router_lost();
-        };
-    }
 
     // GH #276 B4 — THE HOSTED DEBUGGER BACKEND (the B4 plan's §6.1), exactly as
     // in HeadlessApp::init(): built on the initialised machine, kept across every

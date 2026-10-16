@@ -3014,8 +3014,8 @@ void MainWindow::update_capture_status_tip() {
 void MainWindow::set_mouse_release_method(pointer_capture::ReleaseMethod m) {
     release_filter_.set_method(m);
     update_capture_status_tip();
-    if (mouse_captured_)
-        setWindowTitle(base_window_title_ + tr(" - %1 to release mouse").arg(release_hint_text()));
+    // No captured-title refresh: the only callers are startup and Preferences,
+    // and a modal dialog has already released the capture (changeEvent).
 }
 
 void MainWindow::set_mouse_captured(bool on) {

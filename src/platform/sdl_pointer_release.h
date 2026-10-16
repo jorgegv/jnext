@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "platform/host_key_wiring.h"
 #include "platform/pointer_capture.h"
 
 // The SDL frontend's route for the pointer-release gesture (GH #365).
@@ -65,6 +66,28 @@ bool route_sdl_release_key(pointer_capture::ReleaseFilter& f, SDL_Scancode sc, b
         to_host_key(sc), pressed, (mods & SDL_KMOD_CTRL) != 0, (mods & SDL_KMOD_ALT) != 0, captured);
     if (v.release) set_captured(false);
     return v.consume;
+}
+
+/// SdlApp's key surface, in ONE call: the key callback gated by the release
+/// filter (a consumed key never reaches `next`, which holds the hotkeys and the
+/// Router forward), and the keyboard-loss binding extended to forget a swallowed
+/// Esc whose release went elsewhere BEFORE the previously bound callback (the
+/// Router's release_all, GH #268) runs.
+template <class Source, class Router, class Mods, class Captured, class SetCaptured, class Next>
+void wire_release_host_keys(Source& source, Router& router, pointer_capture::ReleaseFilter& f,
+                            Mods mods, Captured captured, SetCaptured set_captured, Next next)
+{
+    wire_host_keys(source, router,
+        [&f, mods, captured, set_captured, next](SDL_Scancode sc, bool pressed) {
+            if (route_sdl_release_key(f, sc, pressed, mods(), captured(), set_captured))
+                return;
+            next(sc, pressed);
+        });
+    auto router_lost = source.on_keyboard_lost;
+    source.on_keyboard_lost = [&f, router_lost]() {
+        f.reset();
+        if (router_lost) router_lost();
+    };
 }
 
 }  // namespace sdl_pointer_release

@@ -13,9 +13,10 @@
 // condition: a push that silently failed would read exactly like a missing
 // route.
 //
-// Not covered here (declared): the one-line SdlApp::init composition that wraps
-// input_.on_keyboard_lost to call ReleaseFilter::reset(). Its failure mode is
-// one later uncaptured Esc being eaten.
+// The key surface is driven through the REAL wire_release_host_keys template,
+// the very call SdlApp::init makes, so the consumed-key return and the
+// keyboard-loss chaining are pinned (MRS-01/02/08). Only the argument list
+// SdlApp passes (its own getters) is outside any suite.
 //
 // Run: ./build/test/sdl_pointer_release_test
 
@@ -48,25 +49,33 @@ struct FakeDispatcher {
     void handle_sdl_event(const SDL_Event&) { ++events; }
 };
 
-// The frontend's wiring, with the real route functions and real SdlInput.
+// SdlApp's key wiring, via the REAL wire_release_host_keys (the very template
+// SdlApp::init calls), with a fake Router and a counting "hotkeys" stage.
+struct FakeRouter {
+    int keys = 0;          // key events that reached the Router
+    int lost = 0;          // release_all() calls (GH #268)
+    void on_host_key(SDL_Scancode, bool) { ++keys; }
+    void release_all() { ++lost; }
+};
+
 struct Rig {
     SdlInput input;
     pointer_capture::ReleaseFilter filter;
     FakeDispatcher disp;
+    FakeRouter router;
     bool captured = true;
-    int sink_keys = 0;            // key events that reached "hotkeys / Router"
     SDL_Keymod mods = SDL_KMOD_NONE;
 
     explicit Rig(pointer_capture::ReleaseMethod m)
     {
         filter.set_method(m);
         auto set_captured = [this](bool on) { captured = on; };
-        input.on_key = [this, set_captured](SDL_Scancode sc, bool pressed) {
-            if (sdl_pointer_release::route_sdl_release_key(filter, sc, pressed, mods,
-                                                           captured, set_captured))
-                return;
-            ++sink_keys;
-        };
+        sdl_pointer_release::wire_release_host_keys(
+            input, router, filter,
+            [this]() { return mods; },
+            [this]() { return captured; },
+            set_captured,
+            [this](SDL_Scancode sc, bool pressed) { router.on_host_key(sc, pressed); });
         input.on_mouse = [this, set_captured](const SDL_Event& e) {
             sdl_pointer_release::route_sdl_mouse(e, filter, captured, set_captured, disp);
         };
@@ -90,7 +99,7 @@ struct Rig {
 
 std::string state(const Rig& r)
 {
-    return "captured=" + std::to_string((int)r.captured) + " sink=" + std::to_string(r.sink_keys) +
+    return "captured=" + std::to_string((int)r.captured) + " sink=" + std::to_string(r.router.keys) +
            " disp=" + std::to_string(r.disp.events);
 }
 
@@ -110,7 +119,7 @@ int main()
         const bool p = Rig::push_key(SDL_SCANCODE_ESCAPE, true) && Rig::push_key(SDL_SCANCODE_ESCAPE, false);
         r.input.poll();
         check("MRS-01", "Esc method: a captured Esc press+release releases and reaches no key sink",
-              p && !r.captured && r.sink_keys == 0, state(r));
+              p && !r.captured && r.router.keys == 0, state(r));
     }
     // MRS-02: an SDL repeat (a further press) is swallowed too; later Esc is BREAK.
     {
@@ -118,11 +127,11 @@ int main()
         const bool p = Rig::push_key(SDL_SCANCODE_ESCAPE, true) && Rig::push_key(SDL_SCANCODE_ESCAPE, true) &&
                        Rig::push_key(SDL_SCANCODE_ESCAPE, false);
         r.input.poll();
-        const int after_first = r.sink_keys;
+        const int after_first = r.router.keys;
         const bool p2 = Rig::push_key(SDL_SCANCODE_ESCAPE, true) && Rig::push_key(SDL_SCANCODE_ESCAPE, false);
         r.input.poll();
         check("MRS-02", "Esc method: press, repeat, release give the sink 0; a later uncaptured Esc pair gives 2",
-              p && p2 && !r.captured && after_first == 0 && r.sink_keys == 2, state(r));
+              p && p2 && !r.captured && after_first == 0 && r.router.keys == 2, state(r));
     }
     // MRS-03: a middle press releases and is not forwarded.
     {
@@ -156,7 +165,7 @@ int main()
         const bool p = Rig::push_key(SDL_SCANCODE_LALT, true);
         r.input.poll();
         check("MRS-06", "CtrlAlt: LALT down with Ctrl+Alt in the modstate releases and still reaches the sink",
-              p && !r.captured && r.sink_keys == 1, state(r));
+              p && !r.captured && r.router.keys == 1, state(r));
     }
     // MRS-07: under the default the middle button stays a Kempston button.
     {
@@ -165,6 +174,55 @@ int main()
         r.input.poll();
         check("MRS-07", "CtrlAlt: a captured middle press/release reach the dispatcher, still captured",
               p && r.captured && r.disp.events == 2, state(r));
+    }
+
+    // MRS-08: a lost keyboard forgets a swallowed Esc AND still runs the callback
+    // wire_host_keys bound (the Router's release_all, GH #268).
+    {
+        Rig r(RM::Esc);
+        const bool p = Rig::push_key(SDL_SCANCODE_ESCAPE, true);   // releases; its key-up goes elsewhere
+        SDL_Event ev{};
+        ev.type = SDL_EVENT_WINDOW_FOCUS_LOST;
+        ev.window.windowID = 1;
+        const bool pl = SDL_PushEvent(&ev);
+        const bool p2 = Rig::push_key(SDL_SCANCODE_ESCAPE, true);  // uncaptured: BREAK again
+        r.input.poll();
+        check("MRS-08", "focus loss runs the Router's release_all and forgets the swallowed Esc",
+              p && pl && p2 && r.router.lost == 1 && r.router.keys == 1 && !r.captured, state(r) +
+              " lost=" + std::to_string(r.router.lost));
+    }
+    // MRS-09: the right-hand keys release under the default, not consumed.
+    {
+        Rig r(RM::CtrlAlt);
+        r.mods = static_cast<SDL_Keymod>(SDL_KMOD_RCTRL | SDL_KMOD_RALT);
+        const bool p = Rig::push_key(SDL_SCANCODE_RCTRL, true);
+        r.input.poll();
+        const bool released = !r.captured;
+        const int kept = r.router.keys;
+        r.captured = true;
+        const bool p2 = Rig::push_key(SDL_SCANCODE_RALT, true);
+        r.input.poll();
+        check("MRS-09", "CtrlAlt: RCTRL down and RALT down with right-hand modstate release, both still reach the Router",
+              p && p2 && released && kept == 1 && !r.captured && r.router.keys == 2, state(r));
+    }
+    // MRS-10: either side's modifier in the modstate counts (SDL_KMOD_CTRL / _ALT).
+    {
+        Rig r(RM::CtrlAlt);
+        r.mods = static_cast<SDL_Keymod>(SDL_KMOD_LCTRL | SDL_KMOD_RALT);
+        const bool p = Rig::push_key(SDL_SCANCODE_RALT, true);
+        r.input.poll();
+        check("MRS-10", "CtrlAlt: LCTRL held + RALT pressed (mixed sides) releases",
+              p && !r.captured, state(r));
+    }
+    // MRS-11: under middle-click an uncaptured middle click captures and its
+    // button-UP (now captured) does NOT release.
+    {
+        Rig r(RM::MiddleClick);
+        r.captured = false;
+        const bool p = Rig::push_button(SDL_BUTTON_MIDDLE, true) && Rig::push_button(SDL_BUTTON_MIDDLE, false);
+        r.input.poll();
+        check("MRS-11", "MiddleClick: a middle click on the free pointer captures and stays captured (UP forwarded)",
+              p && r.captured && r.disp.events == 1, state(r));
     }
 
     SDL_Quit();
