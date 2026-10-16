@@ -320,7 +320,9 @@ UART 1, the Pi GPIO header's UART. Three pieces:
   replay never generates audio at all.
 
 `main()` wires them: it merges `--nextpi`/`--no-nextpi` over the saved
-preference (GUI sessions only, as for the ESP), provisions, starts QEMU, and
+preference (GUI sessions only, as for the ESP), checks the QEMU programs
+(`PiQemu::find_programs`, so nobody is offered 6 GB for a Pi that cannot run),
+provisions, starts QEMU, and
 puts the link (`PiQemu::link_config`) in the `EmulatorConfig`. A Pi asked for on the command line
 that cannot start is a usage error; one enabled only in Preferences is reported
 in a dialog and the session goes on without it. Design:

@@ -2705,7 +2705,9 @@ UART 1, the Pi GPIO header's UART. Three pieces:</p>
 </li>
 </ul>
 <p><code>main()</code> wires them: it merges <code>--nextpi</code>/<code>--no-nextpi</code> over the saved
-preference (GUI sessions only, as for the ESP), provisions, starts QEMU, and
+preference (GUI sessions only, as for the ESP), checks the QEMU programs
+(<code>PiQemu::find_programs</code>, so nobody is offered 6 GB for a Pi that cannot run),
+provisions, starts QEMU, and
 puts the link (<code>PiQemu::link_config</code>) in the <code>EmulatorConfig</code>. A Pi asked for on the command line
 that cannot start is a usage error; one enabled only in Preferences is reported
 in a dialog and the session goes on without it. Design:

@@ -386,6 +386,10 @@ NextZXOS’s own Pi tools (`.pisend`, the NextPi UI) then talk to a real
 NextPi. jnext does not emulate the Pi: QEMU must be installed, and jnext
 starts it, wires it in and stops it when it exits.
 
+jnext first checks that QEMU (and, until the first start has made the
+Pi’s overlay, `qemu-img`) is installed, and stops with the install hint
+if not, before anything is offered or downloaded.
+
 The first run that needs it offers to download NextPi from its mirror
 (<https://zx.xalior.com/NextPi2/>) into `~/.jnext/nextpi` — about 6 GB,
 with about 22 GB free needed while it is unpacked — with a progress bar,

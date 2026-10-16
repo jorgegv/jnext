@@ -2122,6 +2122,62 @@ int main(int argc, char** argv) {
                   spawned ? 1 : 0, error.c_str(), want_text.c_str()));
     }
 
+    // ── PIT-26 — THE PROGRAMS ARE LOOKED FOR BEFORE ANYTHING IS DOWNLOADED (GH #357):
+    // PiQemu::find_programs is what main.cpp asks first and what start() resolves
+    // through. Missing QEMU is refused naming qemu-system-arm; QEMU without qemu-img
+    // is refused naming qemu-img, but only while the directory has no overlay.qcow2
+    // (start() creates the overlay with it, once); with both, both are the stand-ins'.
+    // A QEMU given by path needs no PATH. The rules are start()'s, moved (PIT-10).
+    {
+        Fixture fx("programs");
+        const fs::path root = fs::path(fx.dir()).parent_path();
+        std::error_code ec;
+        const fs::path qonly = root / "qonly";
+        fs::create_directories(qonly, ec);
+        fs::copy_file(JNEXT_NEXTPI_STUB, qonly / (std::string("qemu-system-arm") + kExe),
+                      fs::copy_options::overwrite_existing, ec);
+        const bool setup = fx.ok() && !ec;
+        PiQemu::Spec spec;
+        spec.dir = fx.dir();
+        std::string q, qi, e_none, e_img, e_over, e_both, e_path;
+        bool none_refused = false, img_refused = false, over_ok = false, both_ok = false, path_ok = false;
+        {
+            EnvVar path("PATH", (root / "empty").string());
+            none_refused = !PiQemu::find_programs(spec, q, qi, e_none) &&
+                           e_none.find("qemu-system-arm not found") == 0;
+        }
+        {
+            EnvVar path("PATH", qonly.string());
+            img_refused = !PiQemu::find_programs(spec, q, qi, e_img) && e_img.find("qemu-img not found") == 0;
+            std::ofstream(fs::path(fx.dir()) / "overlay.qcow2").put('\0');
+            over_ok = PiQemu::find_programs(spec, q, qi, e_over) && qi.empty() && !q.empty() &&
+                      fs::equivalent(q, qonly / (std::string("qemu-system-arm") + kExe), ec);
+            fs::remove(fs::path(fx.dir()) / "overlay.qcow2", ec);
+        }
+        {
+            EnvVar path("PATH", fx.bin_dir());
+            both_ok = PiQemu::find_programs(spec, q, qi, e_both) && !q.empty() && !qi.empty() &&
+                      fs::equivalent(q, fx.bin("qemu-system-arm"), ec) &&
+                      fs::equivalent(qi, fx.bin("qemu-img"), ec);
+        }
+        {
+            EnvVar path("PATH", (root / "empty").string());
+            PiQemu::Spec by_path = spec;
+            by_path.qemu_binary  = fx.bin("qemu-system-arm");
+            path_ok = PiQemu::find_programs(by_path, q, qi, e_path) &&
+                      fs::equivalent(q, fx.bin("qemu-system-arm"), ec) &&
+                      fs::equivalent(qi, fx.bin("qemu-img"), ec);
+        }
+        check("PIT-26",
+              "PiQemu::find_programs, asked before NextPi is offered or downloaded, refuses a missing "
+              "QEMU naming qemu-system-arm, refuses QEMU without qemu-img naming qemu-img only while "
+              "the directory has no overlay, and otherwise returns the programs start() will run, a "
+              "QEMU given by path included (GH #357; jnext-only, no VHDL counterpart)",
+              setup && none_refused && img_refused && over_ok && both_ok && path_ok,
+              fmt("setup=%d none='%s' img='%s' overlay=%d both=%d by_path=%d", setup ? 1 : 0, e_none.c_str(),
+                  e_img.c_str(), over_ok ? 1 : 0, both_ok ? 1 : 0, path_ok ? 1 : 0));
+    }
+
     test_nextpi_provisioner();
     test_nextpi_review_rows();
     test_nextpi_review2_rows();

@@ -6,6 +6,9 @@
 - Monochrome toolbar icons that follow the light or dark theme; Screenshot, NMI and Debug get real icons
 - Linux: the GUI follows the desktop's light/dark preference, switching live; `JNEXT_COLOR_SCHEME` forces either
 
+### Bug Fixes
+- NextPi checks that QEMU is installed before offering its 6 GB download
+
 ### Contributors in this release
 - @pavero01
 

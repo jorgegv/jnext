@@ -365,6 +365,10 @@ jnext does not emulate the Pi: QEMU must be installed, and jnext starts
 it, wires it in and stops it when it exits.
 .RS
 .PP
+jnext first checks that QEMU (and, until the first start has made the
+Pi\(cqs overlay, \f[CR]qemu\-img\f[R]) is installed, and stops with the
+install hint if not, before anything is offered or downloaded.
+.PP
 The first run that needs it offers to download NextPi from its mirror
 (\c
 .UR https://zx.xalior.com/NextPi2/

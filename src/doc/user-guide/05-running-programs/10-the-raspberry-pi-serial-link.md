@@ -25,6 +25,10 @@ it for one run with:
 jnext --nextpi
 ```
 
+JNEXT checks for QEMU (and, before the first start, `qemu-img`) first, and
+stops with that install hint if it is missing, before offering or downloading
+anything.
+
 The first time, JNEXT offers to download NextPi, the way it offers to download
 the SD card image: about 6 GB, with a progress bar, into `~/.jnext/nextpi`. It
 needs about 22 GB free while the image is unpacked, and about 15 GB afterwards.

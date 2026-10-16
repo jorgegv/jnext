@@ -235,17 +235,34 @@ std::string PiQemu::mark_close_on_exec_except(int, const std::vector<std::string
 
 bool PiQemu::open_descriptors(const std::string&, std::vector<int>&) { return false; }
 
+bool PiQemu::find_programs(const Spec& spec, std::string& qemu, std::string& qemu_img,
+                           std::string& error) {
+    qemu_img.clear();
+    qemu = find_program(spec.qemu_binary);
+    if (qemu.empty()) {
+        error = spec.qemu_binary + kInstallHint;
+        return false;
+    }
+    std::error_code ec;
+    if (!fs::exists(fs::path(spec.dir) / "overlay.qcow2", ec)) {
+        qemu_img = (fs::path(qemu).parent_path() / "qemu-img.exe").string();
+        if (!usable_file(qemu_img)) qemu_img = find_program("qemu-img");
+        if (qemu_img.empty()) {
+            error = "qemu-img" + kInstallHint;
+            return false;
+        }
+    }
+    return true;
+}
+
 bool PiQemu::start(const Spec& spec, std::string& error) {
     if (running()) {
         error = "already running";
         return false;
     }
     if (!check_dir(spec.dir, error)) return false;
-    const std::string qemu = find_program(spec.qemu_binary);
-    if (qemu.empty()) {
-        error = spec.qemu_binary + kInstallHint;
-        return false;
-    }
+    std::string qemu, qemu_img;
+    if (!find_programs(spec, qemu, qemu_img, error)) return false;
     stop_grace_ms_ = spec.stop_grace_ms;
     poll_sleep_    = spec.poll_sleep;
 
@@ -267,9 +284,7 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
     // The overlay: all of NextPi's writes go here, never to the release image.
     // The backing path is relative to the overlay, so the directory can move.
     if (!fs::exists(overlay, ec)) {
-        std::string qemu_img = (fs::path(qemu).parent_path() / "qemu-img.exe").string();
-        if (!usable_file(qemu_img)) qemu_img = find_program("qemu-img");
-        if (qemu_img.empty()) return fail("qemu-img" + kInstallHint);
+        if (qemu_img.empty()) return fail("qemu-img" + kInstallHint);   // overlay vanished since find_programs
         Child img;
         std::string spawn_error;
         if (!spawn_child(qemu_img,
