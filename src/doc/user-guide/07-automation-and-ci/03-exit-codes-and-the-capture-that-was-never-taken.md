@@ -76,3 +76,11 @@ machine until it exits, and then exits non-zero, whatever the format. The same
 holds for an RZX recording given to `--load` or `--rzx-play`, under
 `--headless`, in the window and in the SDL-only build alike. A script never mistakes "the program never loaded" for a clean
 run.
+
+**A stopped run is not a successful one.** A `timeout` or `kill` that stops
+JNEXT (SIGTERM, or Ctrl-C's SIGINT) still gets its `--wav-record`, `--record`
+and `--rzx-record` output finalized, as a window close would, under
+`--headless`, in the window and in the SDL-only build alike. JNEXT then ends by
+that signal, so the status is 128+N (143, or 130 for Ctrl-C) and a stopped run
+never reads as success. A second signal ends it at once, and a signal that was
+ignored when JNEXT started stays ignored. This does not apply on Windows.

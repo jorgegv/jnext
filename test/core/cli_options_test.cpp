@@ -873,10 +873,10 @@ int main() {
         } else {
             probe.close();
             // `--kill-after` is NOT optional, and the comment above is the
-            // reason: a bare `timeout 20` sends only SIGTERM, which a Qt
-            // jnext that has reached its event loop does not die on. The
-            // row then hangs exactly as the mis-parse it exists to catch
-            // would — measured, GH #27: a mutation that made an invalid
+            // reason: a bare `timeout 20` sends only SIGTERM, which a jnext
+            // stuck outside its frame loop (which is what polls for it, GH
+            // #364) does not die on. The row then hangs exactly as the
+            // mis-parse it exists to catch would — measured, GH #27: a mutation that made an invalid
             // `--snapshot-mode` non-fatal let `--snapshot-mode --version`
             // boot a machine, and the "bounded" invocation was still alive
             // twelve minutes later. Same rule as test/lint-timeouts.sh

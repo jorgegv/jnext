@@ -110,6 +110,25 @@ the command-line one reached the disk — at exit or at any earlier point, since
 main window, and `MainWindow::closeEvent()` reports a recording it has to stop
 in a modal dialog that an unattended run would wait on forever.
 
+**Quit signals (GH #364).** SDL3's `SDL_Init` installs a persistent
+SIGINT/SIGTERM handler that only queues `SDL_EVENT_QUIT`; `QtApp` never reads
+that event, so the Qt GUI swallowed both signals, and the SDL frontend exited
+with status 0. `quit_signal` (`src/platform/quit_signal.h`) takes the signals
+over for every frontend: `main()` calls `quit_signal::install()` before any
+frontend's `init()`, hence before `SDL_Init`, and SDL then installs no handler of
+its own. The handler stores the signal number in a lock-free atomic (a second
+signal gets the default action at once, `SA_RESETHAND`; a signal that was
+`SIG_IGN` at start stays ignored). Each frame loop polls `pending()` once per
+iteration and leaves through its normal teardown: `QtApp`'s `post_frames()` does
+the unattended quit (finish the RZX recording, `set_unattended`, `quit()`),
+`SdlApp::run()` and `HeadlessApp::run()` break out of their loops. The end of
+`main()`, after every teardown, calls `quit_signal::reraise_if_pending()`, so
+the process dies by the signal (status 128+N, `WIFSIGNALED`) and never reads as
+a success. Windows is exempt: the helper is a no-op there, because no SIGTERM
+can be delivered to a Windows process from outside and Ctrl+C reaches the GUI
+exe only through the console it borrows. Tests: `quit_signal_test` (QSIG-01..09)
+and `quit-signal-func`.
+
 - **`QtApp`** (`src/gui/qt_app.h`) owns a `QApplication` and a `MainWindow`
   whose central widget is an `EmulatorWidget`. A `QTimer` drives the machine,
   paced from `Emulator::frame_period_ms()` and the current speed multiplier.

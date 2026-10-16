@@ -19,6 +19,7 @@
 // other options, before the frontend type is known.
 #include "platform/audio_pacing.h"
 #include "platform/emulator_boot.h"   // emulator_boot_machine (RZX playback)
+#include "platform/quit_signal.h"      // SIGINT/SIGTERM as a quit request (GH #364)
 #include "core/screenshot.h"   // screenshot_format_for_path (GH #18)
 #include "video/renderer.h"
 #include "version.h"
@@ -2108,6 +2109,10 @@ int main(int argc, char* argv[]) {
         return capture_ok ? 0 : 1;
     };
 
+    // GH #364: take SIGINT/SIGTERM over BEFORE any frontend's SDL_Init, so SDL
+    // installs no swallowing handler of its own. Each frontend polls it.
+    quit_signal::install();
+
     int result;
     // The frontends hold the 1.17 MB Emulator by value; as automatic variables
     // they were main()'s stack frame, which needed a 16 MB Windows reserve
@@ -2171,5 +2176,8 @@ int main(int argc, char* argv[]) {
 
     pi_qemu.reset();   // stop QEMU while logging still works
     spdlog::shutdown();
+    // GH #364: the signal decides the status (128+N, WIFSIGNALED) even when
+    // result is non-zero; the error behind it has been logged already.
+    quit_signal::reraise_if_pending();
     return result;
 }

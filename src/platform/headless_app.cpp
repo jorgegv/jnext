@@ -5,6 +5,7 @@
 #include "platform/cli_delay.h"
 #include "platform/recording_info.h"   // GH #26 WP6
 #include "platform/rzx_startup.h"
+#include "platform/quit_signal.h"   // GH #364
 #include "core/log.h"
 #include "input/keyboard.h"
 #include "debug/inspect.h"
@@ -550,6 +551,12 @@ void HeadlessApp::run() {
     long long paused_wait_us = 0;
 
     while (running_) {
+        // GH #364 — SIGINT/SIGTERM: leave through the normal teardown; main()
+        // re-raises the signal for the exit status.
+        if (const int sig = quit_signal::pending()) {
+            Log::platform()->info("{} received: quitting", quit_signal::name(sig));
+            break;
+        }
         // GH #12 (WP-5) — PAUSED WITH A REMOTE ATTACHED: no frame and no frame
         // countdown, only the servers — `pump()` waits up to 50 ms for the next
         // command (transport.md §2 item 15). This is what turns a paused
