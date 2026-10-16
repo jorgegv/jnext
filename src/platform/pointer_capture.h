@@ -229,4 +229,107 @@ inline const char* release_chord(bool ctrl_is_command) {
     return ctrl_is_command ? "Alt+Cmd" : "Ctrl+Alt";
 }
 
+// ---------------------------------------------------------------------------
+// Release gesture (GH #365). The user picks ONE way to release a captured
+// mouse; the methods are exclusive. ReleaseFilter is the whole decision, shared
+// by both frontends and toolkit-free, so a test can reach what the Qt and SDL
+// event handlers would otherwise keep to themselves.
+// ---------------------------------------------------------------------------
+
+enum class ReleaseMethod { CtrlAlt, MiddleClick, Esc };
+inline constexpr ReleaseMethod kDefaultReleaseMethod = ReleaseMethod::CtrlAlt;
+
+/// The CLI / jnext.conf word for a method.
+inline const char* release_method_name(ReleaseMethod m) {
+    switch (m) {
+        case ReleaseMethod::MiddleClick: return "middle-click";
+        case ReleaseMethod::Esc:         return "esc";
+        case ReleaseMethod::CtrlAlt:     break;
+    }
+    return "ctrl-alt";
+}
+
+/// Parse a CLI / config word (exact words, ASCII case-insensitive). On failure
+/// returns false and leaves `out` untouched.
+inline bool parse_release_method(std::string_view s, ReleaseMethod& out) {
+    auto eq = [&](std::string_view word) {
+        if (s.size() != word.size()) return false;
+        for (size_t i = 0; i < s.size(); ++i) {
+            char c = s[i];
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+            if (c != word[i]) return false;
+        }
+        return true;
+    };
+    for (ReleaseMethod m : {ReleaseMethod::CtrlAlt, ReleaseMethod::MiddleClick, ReleaseMethod::Esc})
+        if (eq(release_method_name(m))) { out = m; return true; }
+    return false;
+}
+
+/// The gesture as the user reads it in a title, status message or tip.
+inline const char* release_hint(ReleaseMethod m, bool ctrl_is_command) {
+    switch (m) {
+        case ReleaseMethod::MiddleClick: return "middle click";
+        case ReleaseMethod::Esc:         return "Esc";
+        case ReleaseMethod::CtrlAlt:     break;
+    }
+    return release_chord(ctrl_is_command);
+}
+
+enum class HostKey    { Ctrl, Alt, Esc, Other };
+enum class HostButton { Left, Middle, Right, Other };
+
+/// What a frontend does with one host event: `release` the capture, and/or
+/// `consume` the event (it must not reach the ZX keyboard / mouse).
+struct Verdict {
+    bool release = false;
+    bool consume = false;
+};
+
+class ReleaseFilter {
+public:
+    void set_method(ReleaseMethod m) { method_ = m; swallow_esc_ = false; }
+    ReleaseMethod method() const { return method_; }
+
+    /// Every non-autorepeat Qt key event; every SDL key event (SDL repeats
+    /// arrive as presses). ctrl_held / alt_held: the toolkit's modifier state
+    /// for this event.
+    ///
+    /// CtrlAlt is NOT consumed: swallowing Alt would desync Keyboard::alt_held_
+    /// (its release would never be seen). Esc IS consumed in full (press, SDL
+    /// repeats, release), or a stranded release / fake repeat would reach the
+    /// guest as BREAK.
+    Verdict on_key(HostKey k, bool pressed, bool ctrl_held, bool alt_held, bool captured) {
+        if (method_ == ReleaseMethod::CtrlAlt) {
+            if (captured && pressed &&
+                ((k == HostKey::Alt && ctrl_held) || (k == HostKey::Ctrl && alt_held)))
+                return {true, false};
+            return {};
+        }
+        if (method_ == ReleaseMethod::Esc && k == HostKey::Esc) {
+            if (pressed && captured) { swallow_esc_ = true; return {true, true}; }
+            if (swallow_esc_) {
+                if (!pressed) swallow_esc_ = false;
+                return {false, true};
+            }
+        }
+        return {};
+    }
+
+    /// No latch is needed for the middle release: uncaptured, neither frontend
+    /// forwards buttons, and only a button DOWN captures.
+    Verdict on_button(HostButton b, bool pressed, bool captured) const {
+        if (method_ == ReleaseMethod::MiddleClick && captured && pressed && b == HostButton::Middle)
+            return {true, true};
+        return {};
+    }
+
+    /// The keyboard was lost: a swallowed Esc's release went elsewhere.
+    void reset() { swallow_esc_ = false; }
+
+private:
+    ReleaseMethod method_ = kDefaultReleaseMethod;
+    bool swallow_esc_ = false;
+};
+
 }  // namespace pointer_capture

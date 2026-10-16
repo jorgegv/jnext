@@ -448,6 +448,54 @@ static void test_quick_keep(QTemporaryDir& dir) {
               merge_cli_precedence(true, 0, 20) == 0);
 }
 
+// ── AC-84..86: GH #365 — [input] mouse_release (captured-mouse release gesture) ──
+
+static void test_mouse_release(QTemporaryDir& dir) {
+    set_group("AC-MOUSEREL");
+    using RM = pointer_capture::ReleaseMethod;
+
+    {
+        const QString none = fresh_ini_path(dir, "mouserel-none");
+        AppConfig absent(none);
+        absent.load();
+        check("AC-84", "mouse_release defaults to ctrl-alt, in the struct and from an empty file",
+              AppConfigData{}.mouse_release == RM::CtrlAlt && absent.data().mouse_release == RM::CtrlAlt);
+    }
+    const QString pe = fresh_ini_path(dir, "mouserel-esc");
+    const QString pm = fresh_ini_path(dir, "mouserel-mid");
+    RM back_e = RM::CtrlAlt, back_m = RM::CtrlAlt;
+    { AppConfig w(pe); w.data().mouse_release = RM::Esc; w.save(); }
+    { AppConfig w(pm); w.data().mouse_release = RM::MiddleClick; w.save(); }
+    { AppConfig r(pe); r.load(); back_e = r.data().mouse_release; }
+    { AppConfig r(pm); r.load(); back_m = r.data().mouse_release; }
+    check("AC-85a", "esc round-trips through save/load", back_e == RM::Esc);
+    check("AC-85b", "middle-click round-trips through save/load", back_m == RM::MiddleClick);
+    {
+        QSettings raw(pe, QSettings::IniFormat);
+        raw.beginGroup("input");
+        check("AC-85c", "the file spells it mouse_release=esc under [input]",
+              raw.value("mouse_release").toString() == QStringLiteral("esc"));
+    }
+    {
+        bool bad_ok = true;
+        for (const char* junk : {"middle", "escape", "ctrl+alt", ""}) {
+            const QString p = fresh_ini_path(dir, "mouserel-junk");
+            { QSettings raw(p, QSettings::IniFormat); raw.beginGroup("input");
+              raw.setValue("mouse_release", QString::fromLatin1(junk)); raw.endGroup(); raw.sync(); }
+            AppConfig a(p); a.load();
+            if (a.data().mouse_release != RM::CtrlAlt) bad_ok = false;
+        }
+        check("AC-86a", "unknown saved words load as the default ctrl-alt", bad_ok);
+    }
+    {
+        const QString p = fresh_ini_path(dir, "mouserel-case");
+        { QSettings raw(p, QSettings::IniFormat); raw.beginGroup("input");
+          raw.setValue("mouse_release", " ESC "); raw.endGroup(); raw.sync(); }
+        AppConfig a(p); a.load();
+        check("AC-86b", "a padded, upper-case ESC loads as Esc", a.data().mouse_release == RM::Esc);
+    }
+}
+
 // ── AC-PATH: the production config lives under ~/.jnext, not ~/.config ──
 
 static void test_default_path() {
@@ -1194,6 +1242,7 @@ int main() {
     test_malformed_values(dir);
     test_merge_precedence();
     test_quick_keep(dir);
+    test_mouse_release(dir);
     test_default_path();
     test_debug_keys_defaults(dir);
     test_debug_keys_grammar();

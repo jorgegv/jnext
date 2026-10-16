@@ -18,6 +18,7 @@
 // included unconditionally because the parsed value is declared alongside the
 // other options, before the frontend type is known.
 #include "platform/audio_pacing.h"
+#include "platform/pointer_capture.h"   // GH #365 --mouse-release
 #include "platform/emulator_boot.h"   // emulator_boot_machine (RZX playback)
 #include "core/screenshot.h"   // screenshot_format_for_path (GH #18)
 #include "video/renderer.h"
@@ -351,6 +352,9 @@ int main(int argc, char* argv[]) {
     audio_pacing::WhenSlowPrefer when_slow_prefer =
         audio_pacing::WhenSlowPrefer::Audio;
     bool        when_slow_prefer_set = false;  // was --when-slow-prefer given?
+    // GH #365 — how a captured mouse is released.
+    pointer_capture::ReleaseMethod mouse_release = pointer_capture::kDefaultReleaseMethod;
+    bool        mouse_release_set = false;     // was --mouse-release given?
     int         rewind_buffer_frames = 0;
     bool        trace_enabled = false;
     std::string compositor_trace_path;
@@ -902,6 +906,15 @@ int main(int argc, char* argv[]) {
                 }
                 break;
             }
+            case cli::OptId::MouseRelease:
+                if (!pointer_capture::parse_release_method(v[0], mouse_release)) {
+                    std::fprintf(stderr,
+                        "Unknown --mouse-release value: %s (valid: ctrl-alt, middle-click, esc)\n",
+                        v[0]);
+                    return 1;
+                }
+                mouse_release_set = true;
+                break;
             case cli::OptId::JoyUartRx:
                 joy_uart_rx_file = v[0];
                 break;
@@ -1431,6 +1444,12 @@ int main(int argc, char* argv[]) {
             "warning: --when-slow-prefer has no effect with --headless "
             "(headless runs uncapped with no audio device); ignoring.\n");
     }
+    // GH #365 — pointer capture exists only in the interactive frontends.
+    if (headless && mouse_release_set) {
+        std::fprintf(stderr,
+            "warning: --mouse-release has no effect with --headless "
+            "(no host mouse in headless mode); ignoring.\n");
+    }
     // --speed is a pace, and headless has none: it runs uncapped. Said, as
     // for --when-slow-prefer, rather than quietly ignored.
     if (headless && speed_percent_set) {
@@ -1930,6 +1949,10 @@ int main(int argc, char* argv[]) {
             gui_app_config.data().when_slow_prefer = merge_cli_precedence(
                 when_slow_prefer_set, when_slow_prefer,
                 gui_app_config.data().when_slow_prefer);
+            // GH #365 — the same CLI-over-saved resolution.
+            gui_app_config.data().mouse_release = merge_cli_precedence(
+                mouse_release_set, mouse_release,
+                gui_app_config.data().mouse_release);
             if (auto* mw = app.main_window()) mw->apply_startup_config(gui_app_config.data());
         }
 #else
@@ -1938,6 +1961,7 @@ int main(int argc, char* argv[]) {
         // path above, so on this frontend it was accepted and ignored (#138).
         if constexpr (std::is_same_v<std::decay_t<decltype(app)>, SdlApp>) {
             app.set_when_slow_prefer(when_slow_prefer);
+            app.set_mouse_release_method(mouse_release);   // GH #365
             if (speed_percent_set) app.set_speed_percent(speed_percent);
         }
 #endif

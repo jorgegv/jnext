@@ -214,6 +214,8 @@ BEGIN {
     M["preferences_apply_test"]        = "GUI Preferences (Apply)"
     M["preferences_apply_policy_test"] = "GUI Preferences (Apply Policy)"
     M["pointer_capture_test"]          = "Pointer Capture"
+    M["sdl_pointer_release_test"]      = "SDL Pointer Release (GH #365)"
+    M["mouse_release_test"]            = "Mouse Release Gesture (GH #365)"
 
     # --- Live results (annotation only; never a source of counts). ---
     while ((getline line < summary) > 0) {

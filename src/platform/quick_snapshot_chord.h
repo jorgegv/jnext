@@ -42,7 +42,7 @@ inline QuickChord quick_snapshot_chord_held(int scancode, unsigned held)
 // which quick key is already down (so autorepeat acts once per press).
 class QuickChordTracker {
 public:
-    // Feed EVERY key event, press and release. Returns what a PRESS means.
+    // Feed EVERY key event the pointer-release gate does not consume (GH #365), press and release. Returns what a PRESS means.
     QuickChord on_key(int scancode, bool pressed)
     {
         if (scancode >= 224 && scancode <= 231) {
