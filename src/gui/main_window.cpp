@@ -4,6 +4,7 @@
 #include "gui/host_chords.h"
 #include "gui/preferences_dialog.h"
 #include "gui/preferences_apply_policy.h"
+#include "gui/qt_ctrl_is_command.h"   // GH #365
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/video_recorder.h"
@@ -61,17 +62,26 @@
 
 namespace {
 
-// Qt on macOS maps the Command key to Qt::Key_Control / ControlModifier (and
-// Control to Meta) unless AA_MacDontSwapCtrlAndMeta is set; jnext does not set
-// it. So the Ctrl+Alt chord matched in keyPressEvent is Alt+Command there.
-#ifdef Q_OS_MACOS
-constexpr bool kQtCtrlIsCommand = true;   // GH #307
-#else
-constexpr bool kQtCtrlIsCommand = false;
-#endif
+QString release_hint_text(pointer_capture::ReleaseMethod m) {
+    return QString::fromLatin1(pointer_capture::release_hint(m, kQtCtrlIsCommand));
+}
 
-QString release_chord_text() {
-    return QString::fromLatin1(pointer_capture::release_chord(kQtCtrlIsCommand));
+pointer_capture::HostKey qt_host_key(int key) {
+    switch (key) {
+        case Qt::Key_Control: return pointer_capture::HostKey::Ctrl;
+        case Qt::Key_Alt:     return pointer_capture::HostKey::Alt;
+        case Qt::Key_Escape:  return pointer_capture::HostKey::Esc;
+        default:              return pointer_capture::HostKey::Other;
+    }
+}
+
+pointer_capture::HostButton qt_host_button(Qt::MouseButton b) {
+    switch (b) {
+        case Qt::LeftButton:   return pointer_capture::HostButton::Left;
+        case Qt::MiddleButton: return pointer_capture::HostButton::Middle;
+        case Qt::RightButton:  return pointer_capture::HostButton::Right;
+        default:               return pointer_capture::HostButton::Other;
+    }
 }
 
 SDL_Scancode qt_key_to_sdl(int key) {
@@ -1100,11 +1110,9 @@ void MainWindow::create_menus() {
     // sequence — Ctrl maps to Symbol Shift (issue #115), so Ctrl+M IS SS+M —
     // and a host shortcut would swallow it before the guest ever saw it.
     // Capture is by clicking the viewport (or this menu item); Ctrl+Alt
-    // releases (Alt+Cmd on macOS, where Qt reads Command as Ctrl).
-    capture_mouse_action_->setStatusTip(
-        tr("Confine the host pointer so the Kempston mouse can move freely "
-           "(click the screen to capture, %1 to release)")
-            .arg(release_chord_text()));
+    // releases by default (Alt+Cmd on macOS, where Qt reads Command as Ctrl);
+    // GH #365 makes the gesture configurable.
+    update_capture_status_tip();
     connect(capture_mouse_action_, &QAction::triggered, this,
             [this](bool on) { set_mouse_captured(on); });
 
@@ -2404,6 +2412,7 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
     }
     if (tape_fast_action_) tape_fast_action_->setChecked(cfg.tape_fast_load);
 
+    set_mouse_release_method(cfg.mouse_release);   // GH #365
     set_scale(cfg.window_scale);
     set_crt_filter(cfg.crt_filter);
 
@@ -2596,22 +2605,23 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         int key = event->key();
         Qt::KeyboardModifiers modifiers = event->modifiers();
 
-        // Ctrl+Alt (on macOS Qt's swap makes this Alt+Command) releases the
-        // pointer — the convention users already know
-        // from VirtualBox / VMware / QEMU. Checked before anything else so it
-        // works even if the guest is busy. Either order of the two keys
-        // arrives here as "this one down, the other already held".
-        if (mouse_captured_ &&
-            ((key == Qt::Key_Alt     && (modifiers & Qt::ControlModifier)) ||
-             (key == Qt::Key_Control && (modifiers & Qt::AltModifier)))) {
-            set_mouse_captured(false);
-            // Deliberately NOT consumed: fall through to normal key handling.
-            // Keyboard::set_key() treats Alt as a host modifier (never a ZX
-            // key) and swallowing it here would leave alt_held_ false, so the
-            // Alt-compounds (EDIT = Alt+E, GRAPH = Alt+G, CAPS LOCK = Alt+C)
-            // would silently resolve to their unmodified meaning until Alt was
-            // released and pressed again. Ctrl was already forwarded on its own
-            // key-down, so falling through changes nothing for it.
+        // The pointer-release gesture (GH #365; by default Ctrl+Alt, the
+        // convention users know from VirtualBox / VMware / QEMU — Alt+Command
+        // on macOS, where Qt swaps the keys). Checked before anything else so
+        // it works even if the guest is busy. Ctrl+Alt arrives here as "this
+        // one down, the other already held" in either order, and is
+        // deliberately NOT consumed: Keyboard::set_key() treats Alt as a host
+        // modifier (never a ZX key) and swallowing it would leave alt_held_
+        // false, so the Alt-compounds (EDIT = Alt+E, GRAPH = Alt+G, CAPS LOCK
+        // = Alt+C) would silently resolve to their unmodified meaning until
+        // Alt was released and pressed again. Esc IS consumed (press, release).
+        const pointer_capture::Verdict rv = release_filter_.on_key(
+            qt_host_key(key), true, modifiers & Qt::ControlModifier, modifiers & Qt::AltModifier,
+            mouse_captured_);
+        if (rv.release) set_mouse_captured(false);
+        if (rv.consume) {
+            event->accept();
+            return;
         }
 
 #ifdef ENABLE_DEBUGGER
@@ -2802,6 +2812,13 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event) {
     // Consume release events for keys we handle in keyPressEvent.
     if (!event->isAutoRepeat()) {
         int key = event->key();
+        // GH #365 — the release of an Esc that released the mouse.
+        const Qt::KeyboardModifiers mods = event->modifiers();
+        if (release_filter_.on_key(qt_host_key(key), false, mods & Qt::ControlModifier,
+                                   mods & Qt::AltModifier, mouse_captured_).consume) {
+            event->accept();
+            return;
+        }
         if (key == Qt::Key_F11 || key == Qt::Key_F2) {
             event->accept();
             return;
@@ -2882,6 +2899,7 @@ void MainWindow::focusOutEvent(QFocusEvent* event) {
     // variant — EDIT / GRAPH / CAPS LOCK (keyboard.cpp:248-250) — so those
     // three letters silently stop appearing while every other letter still
     // types. "press A I got A, press G nothing is shown", exactly.
+    release_filter_.reset();   // GH #365 — a swallowed Esc's release goes elsewhere
     if (keyboard_lost_callback_) keyboard_lost_callback_();
     QMainWindow::focusOutEvent(event);
 }
@@ -2981,6 +2999,25 @@ int MainWindow::capture_margin() const {
     return qMax(8, qMin(w->width(), w->height()) / 4);
 }
 
+QString MainWindow::release_hint_text() const {
+    return ::release_hint_text(release_filter_.method());
+}
+
+void MainWindow::update_capture_status_tip() {
+    if (!capture_mouse_action_) return;
+    capture_mouse_action_->setStatusTip(
+        tr("Confine the host pointer so the Kempston mouse can move freely "
+           "(click the screen to capture, %1 to release)")
+            .arg(release_hint_text()));
+}
+
+void MainWindow::set_mouse_release_method(pointer_capture::ReleaseMethod m) {
+    release_filter_.set_method(m);
+    update_capture_status_tip();
+    // No captured-title refresh: the only callers are startup and Preferences,
+    // and a modal dialog has already released the capture (changeEvent).
+}
+
 void MainWindow::set_mouse_captured(bool on) {
     if (on == mouse_captured_) return;
     mouse_captured_ = on;
@@ -3014,8 +3051,8 @@ void MainWindow::set_mouse_captured(bool on) {
         }
         // The status-bar message times out; the title carries the way out for
         // as long as the pointer is actually held.
-        setWindowTitle(base_window_title_ + tr(" - %1 to release mouse").arg(release_chord_text()));
-        statusBar()->showMessage(tr("Mouse captured — %1 to release").arg(release_chord_text()), 4000);
+        setWindowTitle(base_window_title_ + tr(" - %1 to release mouse").arg(release_hint_text()));
+        statusBar()->showMessage(tr("Mouse captured — %1 to release").arg(release_hint_text()), 4000);
     } else {
         releaseMouse();
         // Drop any latched button/wheel state. Buttons are only forwarded
@@ -3069,6 +3106,14 @@ void MainWindow::changeEvent(QEvent* event) {
 }
 
 void MainWindow::mousePressEvent(QMouseEvent* event) {
+    // GH #365 — a middle click that releases the mouse is consumed whole: it
+    // must not reach handle_button(), whose release (uncaptured by then) would
+    // never be forwarded and would leave Kempston bit 2 stuck.
+    if (release_filter_.on_button(qt_host_button(event->button()), true, mouse_captured_).release) {
+        set_mouse_captured(false);
+        event->accept();
+        return;
+    }
     if (!mouse_dispatcher_) {
         QMainWindow::mousePressEvent(event);
         return;

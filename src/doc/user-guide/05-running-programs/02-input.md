@@ -140,7 +140,11 @@ For software that uses a Kempston mouse, JNEXT has to confine your pointer —
 otherwise it hits the edge of your screen and the emulated pointer stops.
 
 - **Capture:** click the emulator screen, or use **Input > Capture Mouse**.
-- **Release:** **Ctrl+Alt** (**Alt+Cmd** on a Mac), the same combination VirtualBox and QEMU use.
+- **Release:** **Ctrl+Alt** (**Alt+Cmd** on a Mac) by default, the same combination VirtualBox and QEMU use. You can
+  choose a **middle click** or **Esc** instead in **Settings > Preferences > Input**, or with `--mouse-release`
+  (`ctrl-alt`, `middle-click` or `esc`). Only the chosen gesture releases. With **Esc**, Esc stops being BREAK while
+  the mouse is captured (it is BREAK again once released); with **middle click**, the middle button no longer reaches
+  the program. Either way the click or key that releases is not passed to the program.
 
 Capture is off until you ask for it, so the pointer stays yours and you can
 always reach the menus. While captured, the status bar reminds you how to get

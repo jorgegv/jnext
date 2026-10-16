@@ -1914,7 +1914,7 @@ printf 'xdotool key a\nxvfb-run -d --server-args="-screen 0 1x1x24" bash -c y\n'
 noreset_scan "$NR_FIX" $'good.sh\nbad.sh'
 check "HS-89" "every xvfb-run in an xdotool-driving test script passes -noreset; the matcher's controls, the scanned-file count and a fixture offender (GH #318)" 0 0 \
     "control=$ctl scanned=$scanned offenders=[${noreset_off}] fixture scanned=$scan_n offenders=[${scan_off}]" \
-    "control=10000 scanned=8 offenders=[] fixture scanned=2 offenders=[bad.sh: xvfb-run -d --server-args=\"-screen 0 1x1x24\" bash -c y]"
+    "control=10000 scanned=9 offenders=[] fixture scanned=2 offenders=[bad.sh: xvfb-run -d --server-args=\"-screen 0 1x1x24\" bash -c y]"
 
 # ---------------- a nested harness never waits on its ancestor's lock (GH #295) ----------------
 # `make regression-confirm` could not pass harness-selftest-func: the confirm
@@ -2334,10 +2334,10 @@ check "HS-90e" "the control: an explicit full os= list on one row is accepted (c
 plat_tree "$T/pt-ok" windows windows
 out=$(run_plat "$T/pt-ok" "$REG_FUNC"); rc=$?
 check "HS-91a" "a platform preflight names the target and the admitted / absent row counts" 0 $rc "$out" \
-    "platform windows: 136 functional rows run, 21 declared absent"
+    "platform windows: 136 functional rows run, 22 declared absent"
 plat_tree "$T/pt-mac" macos macos
 out=$(run_plat "$T/pt-mac" "$REG_FUNC"); rc=$?
-check "HS-91b" "...macOS runs 138 and declares 19 absent" 0 $rc "$out" "platform macos: 138 functional rows run, 19 declared absent"
+check "HS-91b" "...macOS runs 138 and declares 20 absent" 0 $rc "$out" "platform macos: 138 functional rows run, 20 declared absent"
 plat_tree "$T/pt-none" windows windows; sed -i '/^JNEXT_TARGET_OS/d' "$T/pt-none/s/CMakeCache.txt"
 out=$(run_plat "$T/pt-none" "$REG_FUNC"); rc=$?
 check "HS-91c" "a build tree without JNEXT_TARGET_OS is a refusal naming it, not an assumed OS" 2 $rc "$out" "HARNESS FAULT" "JNEXT_TARGET_OS"

@@ -454,6 +454,12 @@ private:
     /// While not captured the mouse belongs to the desktop and nothing is
     /// forwarded, so menus and window controls behave normally.
     bool     mouse_captured_ = false;
+    /// GH #365 — which gesture releases the capture, and the swallow state of
+    /// an Esc that did. See pointer_capture.h.
+    pointer_capture::ReleaseFilter release_filter_;
+    void set_mouse_release_method(pointer_capture::ReleaseMethod m);
+    void update_capture_status_tip();
+    QString release_hint_text() const;
     QAction* capture_mouse_action_ = nullptr;
     /// Motion policies for the captured pointer. Pure, and unit-tested — see
     /// pointer_capture.h. `centre_policy_` (warp-echo suppression and the stale

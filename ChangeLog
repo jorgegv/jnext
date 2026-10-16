@@ -5,12 +5,13 @@
 ### User Features
 - Monochrome toolbar icons that follow the light or dark theme; Screenshot, NMI and Debug get real icons
 - Linux: the GUI follows the desktop's light/dark preference, switching live; `JNEXT_COLOR_SCHEME` forces either
+- The captured mouse can be released with Ctrl+Alt (default), a middle click or Esc: Preferences > Input, `--mouse-release`
 
 ### Bug Fixes
 - Tilemap, LoRes and Layer 2 no longer show memory written after the beam passed; fixes torn scrolling (Pixel Wheels)
 
 ### Contributors in this release
-- @pavero01
+- @pavero01, @janko-jj
 
 ## v1.1.51 (2026-10-13)
 
