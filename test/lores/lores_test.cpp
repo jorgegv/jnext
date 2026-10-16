@@ -740,6 +740,105 @@ static void test_group9()
     }
 }
 
+// ═════════════════════════════════════════════════════════════════════════
+// Group 10 (U row) — beam-time fetch (GH #362)
+// ═════════════════════════════════════════════════════════════════════════
+//
+// ORACLE. LoRes requests its byte for display pixel `phc` at that pixel's own
+// 7 MHz tick: lores.vhd derives the address combinationally from hc_i/vc_i,
+// zxnext.vhd:4250 wires hc_i to phc, and the VRAM request is issued at
+// sc = "00" of every 7 MHz tick (zxnext.vhd:6603-6631). phc is loaded with -48
+// on the 7 MHz edge after hc = c_min_hactive - 48 (zxula_timing.vhd:510-522),
+// so phc = p at raw hc c_min_hactive + 1 + p. c_min_hactive is 128 here
+// (origin 116). A write is seen by a fetch when its (line, hc) tag is at or
+// before the instant; each write below is 2 ticks from the instant.
+
+namespace {
+constexpr int kBeamOrigin = 116;
+constexpr int kMinHactive = 128;
+constexpr int kPhc        = 100;     // pixel under test
+constexpr uint8_t kOld    = 0x41;
+constexpr uint8_t kNew    = 0x82;
+
+struct LrBeamBed {
+    Ram ram;
+    Rom rom;
+    Mmu mmu;
+    PaletteManager pal;
+    Renderer r;
+    LrBeamBed() : ram(), rom(), mmu(ram, rom) {
+        mmu.reset();
+        mmu.set_page(2, 10);   // bank 5 -> 0x4000
+        mmu.set_page(3, 11);
+        pal.reset();
+        r.reset();
+        r.ula().set_ram(&ram);
+        r.ula().set_palette(&pal);
+        r.lores().set_enabled(true);
+        r.lores().init_per_line();
+        r.lores().set_beam_mux(&mmu.attr_mux5());
+        // 8-bit mode, no scroll: the byte of pixel (phc 100, vc 0) is at
+        // lores.vhd:82-93 address ref_addr8(100, 0) = 50.
+        ram.write(10u * 8192u + ref_addr8(ref_x(kPhc, 0), ref_y(0, 0)), kOld);
+    }
+    uint16_t cpu_addr() const {
+        return static_cast<uint16_t>(0x4000u + ref_addr8(ref_x(kPhc, 0), ref_y(0, 0)));
+    }
+    void begin() { mmu.attr_mux_start_frame(kBeamOrigin, 0); }
+    void wr(uint8_t v, int line, int hc) {
+        mmu.attr_mux_set_current_line(line);
+        mmu.attr_mux_set_current_hc(hc);
+        mmu.write(cpu_addr(), v);
+    }
+    // Colour LoRes shows at pixel kPhc of display row 0.
+    uint32_t shown() {
+        const int row = Renderer::DISP_Y;
+        std::vector<uint32_t> line(Renderer::FB_WIDTH, 0);
+        mmu.attr_mux_rewind_to_baseline();
+        mmu.attr_mux_apply_line(row);
+        r.apply_lores(line.data(), row, ram, pal);
+        return line[Renderer::DISP_X + kPhc * 2];
+    }
+    uint32_t colour(uint8_t data) const { return pal.ula_colour(false, data); }
+};
+} // namespace
+
+static void test_group10()
+{
+    set_group("LR-BR");
+
+    {
+        LrBeamBed b;
+        b.begin();
+        b.wr(kNew, 260, 0);
+        const bool now_old = b.shown() == b.colour(kOld);
+        b.begin();
+        const bool next_new = b.shown() == b.colour(kNew);
+        check("LR-BR-01", "zxnext.vhd:6603-6631 - a bank-5 byte written after "
+              "the beam passed its row (post-display line 260) is seen by "
+              "the next frame only",
+              now_old && next_new && b.colour(kOld) != b.colour(kNew),
+              DETAIL("this frame old=%d next frame new=%d", now_old, next_new));
+    }
+    {
+        LrBeamBed b;
+        b.begin();
+        b.wr(kNew, Renderer::DISP_Y, kMinHactive + 1 + kPhc + 2);
+        check("LR-BR-02", "zxnext.vhd:4250,6603-6631 - a write 2 ticks after "
+              "pixel 100's own fetch tick (raw hc c_min_hactive + 1 + phc) "
+              "is not seen on that row",
+              b.shown() == b.colour(kOld) && b.colour(kOld) != b.colour(kNew));
+    }
+    {
+        LrBeamBed b;
+        b.begin();
+        b.wr(kNew, Renderer::DISP_Y, kMinHactive + 1 + kPhc - 2);
+        check("LR-BR-03", "zxnext.vhd:4250,6603-6631 - a write 2 ticks before "
+              "pixel 100's own fetch tick is seen on that row",
+              b.shown() == b.colour(kNew) && b.colour(kOld) != b.colour(kNew));
+    }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────
 
 int main()
@@ -754,6 +853,7 @@ int main()
     test_group6();  printf("  Group: LR-10x (scrolling) — done\n");
     test_group7();  printf("  Group: LR-12x (clip window) — done\n");
     test_group9();  printf("  Group: LR-16x (negatives) — done\n");
+    test_group10(); printf("  Group: LR-BR  (beam-time fetch) — done\n");
 
     printf("\n================================\n");
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

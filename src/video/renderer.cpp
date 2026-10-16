@@ -584,13 +584,14 @@ void Renderer::apply_lores(uint32_t* line, int row, Ram& ram,
     const bool pal_bank  = ula_.get_active_ula_palette();
     const uint16_t vc    = static_cast<uint16_t>(screen_row);
 
+    lores_.beam_prepare();
     for (int phc = 0; phc < 256; ++phc) {
         const uint16_t h = static_cast<uint16_t>(phc);
         if (!Lores::pixel_en(p, h, vc))
             continue;
         const uint8_t  x    = Lores::coord_x(h, p.scroll_x);
         const uint16_t addr = Lores::address(p, h, vc);
-        const uint8_t  data = lores_.read_bank5(addr, ram);
+        const uint8_t  data = lores_.read_bank5(addr, ram, phc);
         const uint8_t  px   = Lores::pixel(p, x, data);
         const uint32_t argb = palette.ula_colour(pal_bank, px);
         uint32_t* dst = line + DISP_X + phc * 2;

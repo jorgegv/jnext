@@ -3,10 +3,20 @@
 #include <cstdint>
 #include <vector>
 
-// Beam-time replay of every byte the ULA fetches from VRAM (GH #305, builds
-// on G12 Nirvana-class attribute multiplex).
+// Beam-time replay of every byte a display layer fetches from VRAM (GH #305,
+// builds on G12 Nirvana-class attribute multiplex; extended to the tilemap
+// and LoRes by GH #362).
 //
-// VHDL authority: cores/zxnext/src/video/zxula.vhd.
+// VHDL authority: cores/zxnext/src/video/zxula.vhd (ULA), tilemap.vhd and
+// lores.vhd (the other two readers; their fetch instants are at whc_hc() /
+// phc_hc() below).
+//
+// Three layers read bank 5 / the bank 7 BRAM from the hardware's video
+// ports at beam time, so a CPU write after the beam has passed a byte is
+// invisible to that frame: the ULA (below), the tilemap (map entry and tile
+// definition, tilemap.vhd:226-231, 393-403) and LoRes (lores.vhd, address
+// from phc). The recorder (Mmu::write) therefore covers the WHOLE of both
+// memories, not just the ULA screen planes the sections below derive.
 //
 // The ULA does not read the screen once per frame. On EVERY scanline it
 // fetches, for every one of the 32 columns, a pixel byte and an attribute
@@ -141,6 +151,26 @@ public:
             case Fetch::AttrNext:  d = odd ? 12 : 8;  break;
         }
         return static_cast<uint16_t>(origin + slot * 8 + d);
+    }
+
+    /// Raw hc at which the wide counter `whc` reads `w` (the tilemap's and the
+    /// 320x256 / 640x256 Layer 2 modes' horizontal counter).
+    /// zxula_timing.vhd:476-492: `whc` is loaded with -16 on the 7 MHz edge
+    /// after hc = c_min_hactive - 48 (`wide_min_hactive`, :473), i.e. at raw hc
+    /// c_min_hactive - 47, and counts +1 per tick, so whc = w at raw hc
+    /// c_min_hactive - 31 + w. c_min_hactive = hc_origin + 12. Clamped at 0
+    /// for bare fixtures whose origin is 0.
+    uint16_t whc_hc(int w) const {
+        const int h = ((hc_origin_ < 0) ? 0 : hc_origin_) + 12 - 31 + w;
+        return static_cast<uint16_t>(h < 0 ? 0 : h);
+    }
+
+    /// Raw hc at which the 256-pixel counter `phc` reads `p` (LoRes, Layer 2
+    /// 256x192). zxula_timing.vhd:510-522: loaded with -48 on the same edge as
+    /// `whc`, so phc = p at raw hc c_min_hactive + 1 + p.
+    uint16_t phc_hc(int p) const {
+        const int h = ((hc_origin_ < 0) ? 0 : hc_origin_) + 12 + 1 + p;
+        return static_cast<uint16_t>(h < 0 ? 0 : h);
     }
 
     /// Value of bank offset `offset` as the ULA fetch at horizontal instant

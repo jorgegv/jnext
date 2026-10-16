@@ -560,40 +560,39 @@ public:
         // bank7_bram_ buffers on Next machines -- see rebuild_ptr()); `ptr`
         // already points at whichever buffer backs it.
         //
-        // It records every byte the ULA can fetch (attribute_mux.h): bank 5
-        // pages 0x0A and 0x0B and bank 7 page 0x0E, offsets 0x0000-0x1AFF
-        // (the pixel planes, the attribute plane, and the Timex second
-        // plane / alt screen). Cost: a page compare, an offset compare and
+        // It records every byte any display layer fetches from VRAM
+        // (attribute_mux.h): all of bank 5 (pages 0x0A and 0x0B) and of the
+        // bank 7 BRAM (page 0x0E). That is the ULA screen planes, and since
+        // GH #362 also the tilemap (map and tile definitions anywhere in
+        // bank 5 or the bank 7 BRAM) and LoRes. Cost: a page compare and
         // one log append per write that lands there.
         {
             const uint8_t page = slots_[slot];
             if (page == kAttrMuxBank5Page || page == kAttrMuxBank5HiPage
                 || page == kAttrMuxBank7Page) {
                 const uint16_t off = addr & 0x1FFF;
-                if (off <= kAttrMuxOffHi) {
-                    // Prefer the beam position derived from THIS write's own
-                    // T-state (fuse_z80_writebyte -> attr_mux_set_write_pos)
-                    // over the on_scanline() tag, which is only refreshed
-                    // between instructions and is therefore stale for any
-                    // write inside an instruction that straddles a scanline
-                    // boundary. Both halves of the position come from the
-                    // same source: a CPU write's own (line, hc), or the
-                    // coarse (line, hc) every other writer takes. The CPU's
-                    // position is valid for its ONE write only --
-                    // fuse_z80_writebyte() ends it with attr_mux_end_write()
-                    // -- so a DMA, loader or debugger write can never inherit
-                    // it (GH #278 WP4d).
-                    const bool     own  = attr_mux_write_pos_valid_;
-                    const uint16_t line = own ? attr_mux_write_line_ : attr_mux_current_line_;
-                    const uint16_t hc   = own ? attr_mux_write_hc_   : attr_mux_current_hc_;
-                    attr_mux_write_pos_valid_ = false;
-                    if (page == kAttrMuxBank7Page)
-                        attr_mux7_.record_write(line, hc, off, val);
-                    else
-                        attr_mux5_.record_write(
-                            line, hc,
-                            off + (page == kAttrMuxBank5HiPage ? 0x2000u : 0u), val);
-                }
+                // Prefer the beam position derived from THIS write's own
+                // T-state (fuse_z80_writebyte -> attr_mux_set_write_pos)
+                // over the on_scanline() tag, which is only refreshed
+                // between instructions and is therefore stale for any
+                // write inside an instruction that straddles a scanline
+                // boundary. Both halves of the position come from the
+                // same source: a CPU write's own (line, hc), or the
+                // coarse (line, hc) every other writer takes. The CPU's
+                // position is valid for its ONE write only --
+                // fuse_z80_writebyte() ends it with attr_mux_end_write()
+                // -- so a DMA, loader or debugger write can never inherit
+                // it (GH #278 WP4d).
+                const bool     own  = attr_mux_write_pos_valid_;
+                const uint16_t line = own ? attr_mux_write_line_ : attr_mux_current_line_;
+                const uint16_t hc   = own ? attr_mux_write_hc_   : attr_mux_current_hc_;
+                attr_mux_write_pos_valid_ = false;
+                if (page == kAttrMuxBank7Page)
+                    attr_mux7_.record_write(line, hc, off, val);
+                else
+                    attr_mux5_.record_write(
+                        line, hc,
+                        off + (page == kAttrMuxBank5HiPage ? 0x2000u : 0u), val);
             }
         }
         return true;
@@ -639,8 +638,13 @@ public:
     /// (`attr_mux_current_line_`, `attr_mux_current_hc_`) pair is untouched,
     /// so it stays what every non-CPU writer is tagged with (GH #278 WP4d).
     void attr_mux_set_write_pos(int vc, int hc) {
-        attr_mux_write_hc_ = (hc < 0) ? 0 : static_cast<uint16_t>(hc);
         const int fb_row = vc - attr_mux_vblank_top_;
+        // A write before framebuffer row 0 (raw lines 0..vblank_top-1) is
+        // tagged (line 0, hc 0): it physically precedes every row-0 fetch,
+        // and keeping its real hc would hide it from a fetch at a smaller hc
+        // (the tilemap and the wide Layer 2 modes fetch on row 0 before
+        // hc 100; the ULA never fetches on rows 0..31). GH #362.
+        attr_mux_write_hc_ = (hc < 0 || fb_row < 0) ? 0 : static_cast<uint16_t>(hc);
         attr_mux_write_line_ = (fb_row < 0) ? 0 : static_cast<uint16_t>(fb_row);
         attr_mux_write_pos_valid_ = true;
     }
@@ -1797,13 +1801,12 @@ private:
     // attribute_mux.h for the VHDL citations. Physical MMU pages whose
     // bytes the ULA fetches (bank 5 pages 0x0A/0x0B, bank 7 page 0x0E --
     // see rebuild_ptr()'s bank5_vram_/bank7_bram_ + plain-ram_ branches,
-    // both of which use these same logical page numbers) and the highest
-    // byte offset within an 8K page it fetches (0x1AFF: the attribute
-    // plane ends there, the pixel planes end at 0x17FF).
+    // both of which use these same logical page numbers). Every byte of
+    // those pages is recorded (GH #362): the tilemap and LoRes fetch from
+    // anywhere in them, not only from the ULA screen planes.
     static constexpr uint8_t  kAttrMuxBank5Page   = 0x0A;
     static constexpr uint8_t  kAttrMuxBank5HiPage = 0x0B;
     static constexpr uint8_t  kAttrMuxBank7Page   = 0x0E;
-    static constexpr uint16_t kAttrMuxOffHi       = 0x1AFF;
 
     AttributeMux   attr_mux5_;
     AttributeMux   attr_mux7_;

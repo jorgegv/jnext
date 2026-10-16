@@ -7329,6 +7329,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // (zxnext.vhd:6631, lores.vhd:56) — never bank 7, never via the MMU.
     renderer_.lores().set_bank5_vram(next_machine ? mmu_.bank5_vram() : nullptr);
     tilemap_.set_bank5_vram(next_machine ? mmu_.bank5_vram() : nullptr);
+    // GH #362 — the tilemap and LoRes fetch these memories at beam time; the
+    // renderer reads them through the same beam replay the ULA uses.
+    tilemap_.set_beam_mux(&mmu_.attr_mux5(), &mmu_.attr_mux7());
+    renderer_.lores().set_beam_mux(&mmu_.attr_mux5());
 
     // The border resets to black with port_fe_reg (zxnext.vhd:3587-3593),
     // in Ula::reset() above. It used to be forced to white here, a phase-1

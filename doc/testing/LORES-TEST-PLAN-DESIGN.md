@@ -541,6 +541,20 @@ them. The consumers are exhaustive — `nr_19_*` appears at zxnext.vhd:1151-1155
 `nr_1b_*` likewise at 1161-1165, 4424-4427, 4977-4981, 5270-5276 / 5289 and
 5972-5976 / 5980.
 
+### Group 10 — Beam-time fetch (LR-BR-01 … LR-BR-03, GH #362)
+
+LoRes requests its byte for pixel `phc` at that pixel's own 7 MHz tick
+(`zxnext.vhd:4250,6603-6631`); phc = p is at raw hc `c_min_hactive + 1 + p`
+(`zxula_timing.vhd:510-522`). `Renderer::apply_lores` reads bank 5 through the
+`AttributeMux` replay at that instant. Rows are in `lores_test`
+(`c_min_hactive` = 128; each write 2 ticks from the instant).
+
+| ID | Tier | Asserts | Stimulus | Expected | VHDL cite |
+|----|------|---------|----------|----------|-----------|
+| LR-BR-01 | U | A bank-5 byte written after the beam passed its row is for the next frame | Write at post-display line 260 | Old this frame, new next frame — pass | zxnext.vhd:6603-6631 |
+| LR-BR-02 | U | A write after the pixel's own tick is not seen on that row | Same row, hc = instant + 2 | Old — pass | zxnext.vhd:4250,6603-6631 |
+| LR-BR-03 | U | A write before the pixel's own tick is seen | Same row, hc = instant - 2 | New — pass | zxnext.vhd:4250,6603-6631 |
+
 ## Test Case Summary
 
 | Group | Rows | Tier mix | U | C | N |

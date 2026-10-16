@@ -1085,6 +1085,7 @@ are re-derived in the test from the register table above, not from
 | VMUX-13 | Hi-colour pixel byte written at the pixel instant / one tick later, even and odd slot | Seen / not seen (the sibling of VMUX-06's colour byte)             | pass |
 | VMUX-14 | Scrolled path (fine scroll 4), primary fetches, slots 2 and 3: pixel at P/P+1, attribute at A/A+1, both at P+1 | Seen / not seen; old pixel in the new attribute | pass |
 | VMUX-15 | Render, flush, rewind, render again at the same instant (the debugger panel's second walk) | A pixel written after its fetch shows the old byte on both passes | pass |
+| VMUX-16 | Pre-display write (raw line 10, raw hc 300) to a paper byte, vblank_top 32 | The first paper row shows it: the pre-display tag is (row 0, hc 0) (GH #362) | pass |
 
 The production render orders (main render then the debugger panel; panel then the frame-end render) are pinned by `debugger_backend_test` INS-14-24 / INS-14-25. The end-to-end check is the functional row `editmenu-beam-func`: NextZXOS's EDIT
 menu frames, rebuilt from the debugger's own write log with this fetch rule.
