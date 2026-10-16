@@ -143,6 +143,16 @@ if want beam-replay-func; then
         echo 'end'
     }
 
+    # The same, but Layer 2 is turned on through NextREG 0x69 (bit 7), the other
+    # enable path: a CPU or Copper write to NR 0x69 must arm the SRAM log too.
+    br_l2_nr69_on_setup() { br_l2_late_on_setup; }
+    br_l2_nr69_on_poke() { br_xor_page 0x12 0x1400 1024; }
+    br_l2_nr69_on_extra() {
+        echo "on scanline 10 when FRAME == $br_poke_f do"
+        echo '    set nextreg[0x69] = 0x80'
+        echo 'end'
+    }
+
     # Layer 2 ON at the frame's start; OFF at scanline 100, ON again at 240.
     br_l2_mid_off_setup() { br_l2_256_setup; }
     br_l2_mid_off_poke() { br_xor_page 0x12 0x1400 1024; }
@@ -155,7 +165,7 @@ if want beam-replay-func; then
         echo 'end'
     }
 
-    br_lanes=(ula sprattr sprpat tilemap lores l2_256 l2_320 l2_late_on l2_mid_off)
+    br_lanes=(ula sprattr sprpat tilemap lores l2_256 l2_320 l2_late_on l2_nr69_on l2_mid_off)
 
     br_make_script() {   # $1 = lane, $2 = poke|control, $3 = output dir
         local lane=$1 kind=$2 out=$3

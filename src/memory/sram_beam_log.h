@@ -62,7 +62,10 @@
 // buffers of a Next machine (not SRAM bytes, Layer 2 never fetches them);
 // the DivMMC and Multiface backings (SRAM below 0x40000, outside what Layer 2
 // can address on a Next); the ROM / RAM fills Emulator::init does and the
-// state loads (they precede the frame's baseline).
+// state loads (they precede the frame's baseline). A NEX / snapshot loader's
+// own bank writes, which run after init() and before the first
+// begin_new_frame(), are not logged either: init() calls stop(), and arm() does
+// nothing until start_frame() (Emulator::sram_log_stop, GH #362 review F3).
 //
 // No save_state/load_state: everything here is rebuilt each frame
 // (Emulator::begin_new_frame -> Mmu::attr_mux_start_frame), exactly like
@@ -81,6 +84,19 @@ public:
         recording_ = false;
         started_ = true;
         target_line_ = 0;
+    }
+
+    /// Back to "never started": not recording, and `arm()` does nothing until the
+    /// next start_frame(). Frees the log's memory (clear() keeps capacity, so a
+    /// burst of writes would otherwise stay allocated for the session). Called on
+    /// a machine re-initialisation, so a loader's bank writes before the first
+    /// frame (NEX load) are not logged.
+    void stop() {
+        for (const Slot& s : slots_) idx_[s.addr] = 0;
+        std::vector<Slot>().swap(slots_);
+        std::vector<Entry>().swap(log_);
+        started_ = false;
+        recording_ = false;
     }
 
     /// Start recording (idempotent). The first call allocates the address index.

@@ -486,6 +486,7 @@ compared against.
 | TM-BR-07 | 80-col, write between instant(10) and instant(11) | `tilemap.vhd:226-231` | Group 10 old, group 11 new (4 whc per group) — pass |
 | TM-BR-08 | 40-col, write between instant(4) and instant(5) | `tilemap.vhd:226-231` | Group 4 old, group 5 new (one character ahead) — pass |
 | TM-BR-09 | Fine X scroll 4 splits a tile over groups 0 and 1; write between their fetches | `tilemap.vhd:260-300` | Group 0 half old, group 1 half new — pass |
+| TM-BR-10 | Same split with a rotated tile (per-pixel pattern reads); pattern bytes written between the instants | `tilemap.vhd:260-300` | Group 0 half old, group 1 half new — pass |
 
 ## Test Execution
 

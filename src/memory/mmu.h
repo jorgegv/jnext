@@ -621,6 +621,9 @@ public:
     /// it becomes enabled mid-frame; the log then records until the frame ends.
     void sram_log_arm() { sram_log_.arm(); }
     const SramBeamLog& sram_log() const { return sram_log_; }
+    /// Machine re-initialisation: the log is off and its memory freed until the
+    /// next attr_mux_start_frame() (a loader's writes before frame 1 are not logged).
+    void sram_log_stop() { sram_log_.stop(); }
 
     /// Log a store made straight into the backing byte of logical page `page`
     /// (offset `off`, at `dest`) that does not go through write(): the

@@ -2501,6 +2501,25 @@ void group17_beam_fetch() {
               "8-pixel group, so a tile split by fine scroll is read at two "
               "instants (group 0 at whc -8, group 1 at whc 0)");
     }
+
+    // TM-BR-10: the same split with a ROTATED tile (attribute bit 1). A rotated
+    // tile reads its definition bytes pixel by pixel, so the second group must
+    // re-key the block even though no prefetched byte was written: every
+    // pattern byte of tile 1 is rewritten between the two groups' instants.
+    {
+        TmBeamBed b;
+        write_map2(b.ram, BANK5, 1, 0, 40, 1, 0x02);   // tile 1 rotated
+        b.tm.set_scroll_x_lsb(4);
+        b.begin();
+        for (int i = 0; i < 32; ++i)
+            b.wr(b5(0x2000 + 32 + i), 0x33, 3, tm_instant(8, 1) - 4);
+        const bool half0_old = b.px(3, 2 * 5) == b.colour(1);   // x 4..7 (group 0)
+        const bool half1_new = b.px(3, 2 * 9) == b.colour(3);   // x 8..11 (group 1)
+        check_pred("TM-BR-10", half0_old && half1_new,
+              "tilemap.vhd:260-300 - a rotated tile split by fine scroll: its "
+              "per-pixel pattern reads in group 1 happen at group 1's instant "
+              "(whc 0), after the write that group 0 (whc -8) did not see");
+    }
 }
 
 int main() {

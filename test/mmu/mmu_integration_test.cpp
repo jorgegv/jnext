@@ -3154,6 +3154,37 @@ static void test_l2log_tags() {
               fmt("before=0x%02X (want 0x11) at=0x%02X (want 0x33)", before, at));
     }
 
+    // L2LOG-TAG-05 — a machine re-initialisation leaves the log off until the
+    // next frame starts: a NEX loader writes every bank through Mmu::write()
+    // after init() and before frame 1, and with Layer 2 armed each byte used to
+    // be logged (+41 MB resident on a Layer 2 loading-screen NEX).
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.mmu().attr_mux_start_frame(kL2Origin, kL2Vbt);
+        emu.mmu().sram_log_arm();
+        const bool armed = emu.mmu().sram_log().recording();
+        build_next_emulator(emu);                       // the re-init a load performs
+        emu.mmu().sram_log_arm();                       // port 0x123B handler, mid-load
+        const uint16_t a = static_cast<uint16_t>(0x8000u);
+        emu.mmu().write(a, 0x5A);
+        emu.mmu().write(static_cast<uint16_t>(a + 1), 0x5B);
+        const size_t during_load = emu.mmu().sram_log().log_size();
+        const bool rec_load = emu.mmu().sram_log().recording();
+        emu.mmu().attr_mux_start_frame(kL2Origin, kL2Vbt);   // frame 1 begins
+        emu.mmu().sram_log_arm();
+        emu.mmu().write(a, 0x5C);
+        const size_t in_frame = emu.mmu().sram_log().log_size();
+        check("L2LOG-TAG-05",
+              "layer2.vhd hc_eff = hc + 1 - after a re-init the SRAM log is off "
+              "until the first frame starts (loader writes are not logged), then "
+              "records again",
+              armed && !rec_load && during_load == 0 && in_frame == 1,
+              fmt("armed=%d recording after re-init+arm=%d log size during load=%zu "
+                  "(want 0) in frame 1=%zu (want 1)", int(armed), int(rec_load),
+                  during_load, in_frame));
+    }
+
     // L2LOG-TAG-04 — a non-CPU write right after a CPU write does not inherit
     // the CPU's position (mirrors G12-TAG-01..03 for the VRAM mux).
     {

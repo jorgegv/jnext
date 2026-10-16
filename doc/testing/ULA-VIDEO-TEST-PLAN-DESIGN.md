@@ -1089,7 +1089,7 @@ are re-derived in the test from the register table above, not from
 
 The production render orders (main render then the debugger panel; panel then the frame-end render) are pinned by `debugger_backend_test` INS-14-24 / INS-14-25. The end-to-end check is the functional row `editmenu-beam-func`: NextZXOS's EDIT
 menu frames, rebuilt from the debugger's own write log with this fetch rule.
-The end-to-end check for the other memory-fetching layers (sprite attribute and pattern controls, tilemap, LoRes, Layer 2 in two resolutions and with a mid-frame enable / disable) is the functional row `beam-replay-func` (GH #362): a halted CPU, a write at CVC 229, and a control run of the same script without it.
+The end-to-end check for the other memory-fetching layers (sprite attribute and pattern controls, tilemap, LoRes, Layer 2 in two resolutions and with a mid-frame enable through port 0x123B or NR 0x69 / disable) is the functional row `beam-replay-func` (GH #362): a halted CPU, a write at CVC 229, and a control run of the same script without it.
 
 ## Total Test Count
 

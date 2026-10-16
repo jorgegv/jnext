@@ -7336,6 +7336,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     tilemap_.set_beam_mux(&mmu_.attr_mux5(), &mmu_.attr_mux7());
     renderer_.lores().set_beam_mux(&mmu_.attr_mux5());
     layer2_.set_beam_log(&mmu_.sram_log());
+    // A re-init leaves the SRAM log off until the next begin_new_frame(): the
+    // NEX loader writes every bank through Mmu::write() before frame 1, and
+    // with Layer 2 armed each byte would be logged (and its memory kept).
+    mmu_.sram_log_stop();
 
     // The border resets to black with port_fe_reg (zxnext.vhd:3587-3593),
     // in Ula::reset() above. It used to be forced to white here, a phase-1
