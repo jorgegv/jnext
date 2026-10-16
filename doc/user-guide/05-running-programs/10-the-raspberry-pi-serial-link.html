@@ -3639,6 +3639,9 @@ the SD card image: about 6 GB, with a progress bar, into <code>~/.jnext/nextpi</
 needs about 22 GB free while the image is unpacked, and about 15 GB afterwards.
 Every later start skips all of that. If you say No, JNEXT starts without NextPi,
 even with <code>--nextpi</code>, and asks again next time.</p>
+<p>If the download stops (network trouble, Cancel, closing JNEXT), the part already
+fetched is kept as <code>NextPi-&lt;release&gt;.tar.gz.part</code> in the NextPi directory, and the
+next start continues from there after asking; delete that file to start over.</p>
 <h3 id="if-you-already-have-nextpi-or-prepare-it-by-hand">If you already have NextPi, or prepare it by hand<a class="headerlink" href="#if-you-already-have-nextpi-or-prepare-it-by-hand" title="Permanent link">&para;</a></h3>
 <p>Put <code>NextPi-&lt;release&gt;.tar.gz</code> from the mirror (and, if you have it, its <code>.md5</code>)
 in the NextPi directory (<code>~/.jnext/nextpi</code>; on Windows <code>%USERPROFILE%\.jnext\nextpi</code>).

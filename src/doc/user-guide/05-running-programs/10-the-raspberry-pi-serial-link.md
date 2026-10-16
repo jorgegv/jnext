@@ -35,6 +35,10 @@ needs about 22 GB free while the image is unpacked, and about 15 GB afterwards.
 Every later start skips all of that. If you say No, JNEXT starts without NextPi,
 even with `--nextpi`, and asks again next time.
 
+If the download stops (network trouble, Cancel, closing JNEXT), the part already
+fetched is kept as `NextPi-<release>.tar.gz.part` in the NextPi directory, and the
+next start continues from there after asking; delete that file to start over.
+
 ### If you already have NextPi, or prepare it by hand
 
 Put `NextPi-<release>.tar.gz` from the mirror (and, if you have it, its `.md5`)

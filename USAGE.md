@@ -188,8 +188,8 @@ Skip the download prompt for the default-location image and proceed.
 
 **--sdcard-download-force**  
 Force re-download and re-patch of the default-location image, to recover
-a corrupted one. Ignored when **--sdcard** is given: an explicit path
-always wins.
+a corrupted one. Also discards a half-finished download. Ignored when
+**--sdcard** is given: an explicit path always wins.
 
 **--sdcard-readonly**  
 Open the SD image read-only, so the host file is never modified. The
@@ -397,12 +397,14 @@ exactly as the SD-card image is provisioned; later runs start at once.
 An archive `NextPi-<release>.tar.gz` already in that directory is
 checked against its `.md5` beside it (fetched only if absent) and
 unpacked without downloading; a directory that cannot be used is
-reported with the missing file, in the question and in the log. NextPi
-then takes about a minute to reach its Supervisor prompt (`SUP>`). The
-release, the directory, the QEMU binary and where the Pi’s sound goes
-are set under **Settings \> Preferences \> NextPi** (the `[nextpi]`
-section of `~/.jnext/jnext.conf`); their defaults are release `1_93D`,
-`~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and the Next’s mixer.
+reported with the missing file, in the question and in the log. An
+interrupted download is kept as `NextPi-<release>.tar.gz.part` and
+continues on the next run. NextPi then takes about a minute to reach its
+Supervisor prompt (`SUP>`). The release, the directory, the QEMU binary
+and where the Pi’s sound goes are set under **Settings \> Preferences \>
+NextPi** (the `[nextpi]` section of `~/.jnext/jnext.conf`); their
+defaults are release `1_93D`, `~/.jnext/nextpi`, `qemu-system-arm` on
+`PATH`, and the Next’s mixer.
 
 On Linux and macOS the Pi’s sound reaches the Next’s mixer over I2S, as
 on the real machine: it is mixed with the beeper, the AY chips and the
@@ -1042,7 +1044,9 @@ offering to download the canonical distribution image (kept alongside it
 as `cspect-next-1gb.img`) and produce that patched copy on first run.
 **--sdcard-download-confirm** skips the prompt, which is useful in
 scripts; **--sdcard-download-force** re-downloads and re-patches a
-corrupted cached image. An explicit **--sdcard** always wins over both.
+corrupted cached image. An interrupted download is kept
+(`sn-emulator.zip.part`) and continues on the next run. An explicit
+**--sdcard** always wins over both.
 
 Note that jnext opens the image **read-write** by default, and writes
 the emulated machine makes to the SD card are persisted to the file. Two

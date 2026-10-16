@@ -5,6 +5,7 @@
 ### User Features
 - Monochrome toolbar icons that follow the light or dark theme; Screenshot, NMI and Debug get real icons
 - Linux: the GUI follows the desktop's light/dark preference, switching live; `JNEXT_COLOR_SCHEME` forces either
+- NextPi and SD-card image downloads continue where they stopped instead of starting over
 
 ### Bug Fixes
 - NextPi checks that QEMU is installed before offering its 6 GB download

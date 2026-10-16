@@ -615,8 +615,22 @@ ProvisionResult provision(const ProvisionOptions& opts) {
     // appends " [y/N]"), so: the question LAST, no line breaks inside a
     // sentence (the dialog wraps by itself), the path alone on its line, and
     // what each answer leads to said before it is asked.
+    // A download that stopped (GH #358): the backend kept `<archive>.part` and its
+    // record, and continues it. Never adopted as an archive: only a finished
+    // download is renamed to the archive's name.
+    const std::string archive_url = mirror + "/" + archive_name;
+    uint64_t part_have = 0, part_total = 0;
+    const bool resuming = !reuse && sdcard::resumable_partial(archive, archive_url, part_have, part_total);
+    auto gb = [](uint64_t b) {
+        char t[32];
+        std::snprintf(t, sizeof t, "%.1f GB", static_cast<double>(b) / (1024.0 * 1024.0 * 1024.0));
+        return std::string(t);
+    };
     if (!reuse || !current.empty()) {
         std::ostringstream msg;
+        if (resuming)
+            msg << "A previous download of NextPi " << target << " stopped after " << gb(part_have) << " of "
+                << gb(part_total) << " (in " << sdcard::partial_path(archive) << "); jnext continues it from there.\n\n";
         if (!reason.empty()) msg << "NextPi in this folder cannot be used: " << reason << ".\n\n";
         if (!archive_note.empty()) msg << archive_note << ".\n\n";
         if (current.empty()) {
@@ -683,11 +697,15 @@ ProvisionResult provision(const ProvisionOptions& opts) {
         }
         // An archive that checks out against the mirror's MD5 is reused.
         if (!(sdcard::regular_file_exists(archive) && md5_file(archive) == expected)) {
-            // A failed download does NOT delete the archive: the backend removes its own
-            // partial file, and one that wrongly reports failure for a complete file
-            // (GH #358) leaves it for the next run's MD5 check to find.
-            if (!download(mirror + "/" + archive_name, archive, opts.progress, err)) {
+            // A failed download does NOT delete the archive: the backend owns the
+            // partial (`<archive>.part`, kept for resuming) and writes `archive`
+            // only when complete, and one that wrongly reports failure for a
+            // complete file (GH #358) leaves it for the next run's MD5 check.
+            if (!download(archive_url, archive, opts.progress, err)) {
+                uint64_t h2 = 0, t2 = 0;
                 res.error = "NextPi download failed: " + err;
+                if (sdcard::resumable_partial(archive, archive_url, h2, t2))
+                    res.error += "; the " + gb(h2) + " fetched so far are kept and the download continues next time";
                 return res;
             }
             std::string actual;

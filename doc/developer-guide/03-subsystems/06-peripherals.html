@@ -2698,7 +2698,11 @@ UART 1, the Pi GPIO header's UART. Three pieces:</p>
   unusable directory lacks, and the question and the <code>[uart]</code> log both say it.
   File existence goes through <code>sdcard::regular_file_exists</code>
   (<code>std::filesystem</code>), never <code>::stat</code>: MinGW's <code>stat</code> is <code>stat64i32</code> and fails
-  with <code>EOVERFLOW</code> for files of 4 GiB or more (GH #358).</p>
+  with <code>EOVERFLOW</code> for files of 4 GiB or more (GH #358). The download itself is
+  resumable (contract and decision table: <code>08-media-and-loaders.md</code>): the
+  backend keeps <code>&lt;archive&gt;.part</code>, the question offers to continue it, and only a
+  finished download is renamed to the archive's name, so a partial is never
+  mistaken for an archive.</p>
 </li>
 <li>
 <p><strong><code>audio/pi_audio.{h,cpp}</code></strong> carries the Pi's sound into the mixer, the way

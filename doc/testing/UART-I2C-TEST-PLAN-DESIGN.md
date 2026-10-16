@@ -618,6 +618,8 @@ listed in Group 17 moved here in GH #331, and PIT-16..23 cover the Pi audio path
 | PIT-30 | archive truncated to half beside the correct `.md5`; declined, then accepted | declined: one confirm naming the archive and `MD5`, archive untouched, nothing fetched; accepted: `.md5` and archive fetched, installed (GH #358). jnext-only, no VHDL counterpart |
 | PIT-31 | `unprepared_reason` on image-only, no-marker, empty-marker and complete dirs; `provision` on the image-only dir, declined | names `kernel.img` missing / `release` / empty / "" ; the confirm text contains `kernel.img` (GH #358). jnext-only, no VHDL counterpart |
 | PIT-32 | 1_93D installed with an overlay, `NextPi-1_100.tar.gz` + `.md5` in the dir, release `1_100`, accepted | one confirm without "about 6 GB", `Ok` 1_100, nothing fetched, overlay gone (GH #358). jnext-only, no VHDL counterpart |
+| PIT-33 | `NextPi-1_93D.tar.gz.part` (1000 B) + its resume record (total 2000, the mirror URL) in an otherwise empty dir; declined | one confirm saying jnext continues it and naming the `.part`, no MD5 note, nothing fetched, `.part` and record untouched (GH #358). jnext-only, no VHDL counterpart |
+| PIT-34 | a download seam that leaves `.part` + record (1000 of 2000) and fails | error contains `continues next time`; the archive name is not created, the `.part` remains (GH #358). jnext-only, no VHDL counterpart |
 
 Functional row `nextpi-link-func`: the real binary starts the stand-in QEMU, the
 launcher's link is attached to UART 1 over the platform's transport (the FIFO pair,

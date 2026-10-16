@@ -1361,6 +1361,80 @@ static void test_nextpi_local_archive_rows() {
                   fixture ? 1 : 0, placed ? 1 : 0, static_cast<int>(r1.status), static_cast<int>(r2.status),
                   r2.error.c_str(), r2.release.c_str(), confirms, mirror.fetched.size(), message.c_str()));
     }
+
+    // ── PIT-33 — A DOWNLOAD THAT STOPPED (GH #358): the backend left <archive>.part and its
+    // resume record. The question says jnext continues it (and names the .part), it is
+    // never taken for an archive (no "cannot be used" warning, no MD5 note), and
+    // declining leaves both files untouched.
+    {
+        FakeMirror mirror("partial");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        const std::string archive = (dir / "NextPi-1_93D.tar.gz").string();
+        const std::string partial(1000, 'p');
+        { std::ofstream(sdcard::partial_path(archive), std::ios::binary) << partial; }
+        sdcard::ResumeInfo ri;
+        ri.url = mirror.url() + "/NextPi-1_93D.tar.gz";
+        ri.validator_kind = "etag";
+        ri.validator = "\"abc\"";
+        ri.total = 2000;
+        const bool rec = sdcard::write_resume_info(archive, ri);
+        const std::string rec_before = slurp(sdcard::partial_path(archive) + ".resume");
+        std::string message;
+        int asked = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, dir.string(), "", asked, false);
+        o.confirm = [&](const std::string& m) { ++asked; message = m; return false; };
+        const nextpi::ProvisionResult r = nextpi::provision(o);
+        check("PIT-33",
+              "a partial download left by the backend (<archive>.part + record) is offered to be continued: "
+              "the question says jnext continues it and names the .part, it is never taken for an archive, "
+              "and declining leaves both files byte for byte (GH #358; jnext-only, no VHDL counterpart)",
+              fixture && rec && r.status == sdcard::ProvisionStatus::Declined && asked == 1 &&
+                  message.find("continues") != std::string::npos && message.find(".part") != std::string::npos &&
+                  message.find("MD5") == std::string::npos && mirror.fetched.empty() &&
+                  slurp(sdcard::partial_path(archive)) == partial &&
+                  slurp(sdcard::partial_path(archive) + ".resume") == rec_before && !fs::exists(archive),
+              fmt("fixture=%d rec=%d status=%d asked=%d msg='%.140s'", fixture ? 1 : 0, rec ? 1 : 0,
+                  static_cast<int>(r.status), asked, message.c_str()));
+    }
+
+    // ── PIT-34 — a download that fails but leaves a resumable partial says so in the error,
+    // and the archive's own name stays empty (only the partial exists).
+    {
+        FakeMirror mirror("partialfail");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        int confirms = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, dir.string(), "", confirms);
+        sdcard::DownloadFn real = mirror.download();
+        o.download = [real](const std::string& u, const std::string& dest, const sdcard::ProgressFn& p,
+                            std::string& e) {
+            if (u.size() > 7 && u.compare(u.size() - 7, 7, ".tar.gz") == 0) {
+                { std::ofstream(sdcard::partial_path(dest), std::ios::binary) << std::string(1000, 'p'); }
+                sdcard::ResumeInfo ri;
+                ri.url = u;
+                ri.validator_kind = "etag";
+                ri.validator = "\"abc\"";
+                ri.total = 2000;
+                sdcard::write_resume_info(dest, ri);
+                e = "connection closed after 1000 of 2000 bytes";
+                return false;
+            }
+            return real(u, dest, p, e);
+        };
+        const nextpi::ProvisionResult r = nextpi::provision(o);
+        const std::string archive = (dir / "NextPi-1_93D.tar.gz").string();
+        check("PIT-34",
+              "a failed download that left a resumable partial says the fetched bytes are kept and the "
+              "download continues next time; the archive's own name is not created (GH #358; jnext-only, "
+              "no VHDL counterpart)",
+              fixture && r.status == sdcard::ProvisionStatus::Failed &&
+                  r.error.find("continues next time") != std::string::npos && !fs::exists(archive) &&
+                  fs::exists(sdcard::partial_path(archive)),
+              fmt("fixture=%d status=%d error='%s'", fixture ? 1 : 0, static_cast<int>(r.status), r.error.c_str()));
+    }
 }
 
 int main(int argc, char** argv) {

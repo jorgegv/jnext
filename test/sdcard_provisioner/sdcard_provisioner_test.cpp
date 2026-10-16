@@ -22,6 +22,14 @@
 //   PROV-PREC-04   GH #358 — a 5 GiB SPARSE default FIXED image is found (Windows
 //                  ::stat failed at 4 GiB and read it as absent, which offered
 //                  a download over the user's image). Sparse: ~0 blocks on disk.
+//   PROV-RESUME-01..12  GH #358 — resumable downloads through the REAL backend
+//                  (libcurl; WinHTTP under wine) against a loopback server
+//                  (range_server.h): a cut transfer keeps <dest>.part + record;
+//                  the next call sends Range/If-Range and appends only a 206 for
+//                  exactly that range; 200, 416, a wrong Content-Range, a changed
+//                  ETag, a stale or foreign partial all start again from 0;
+//                  cancel keeps; no validator keeps nothing; a 302 hop; the SD
+//                  path and --sdcard-download-force.
 //   PROV-CONF-01   No image + declined confirm → Declined; no download.
 //   PROV-CONF-02   Confirm accepted + download seam fails → Failed; seam ran.
 //   PROV-PROG-01   The ProvisionOptions.progress seam is forwarded into the
@@ -74,6 +82,7 @@
 
 #include "core/fat32_image.h"
 #include "core/sdcard_provisioner.h"
+#include "range_server.h"
 
 #include <zlib.h>
 
@@ -293,6 +302,357 @@ std::string slurp_text(const std::string& path) {
     std::ifstream f(path);
     return std::string((std::istreambuf_iterator<char>(f)),
                        std::istreambuf_iterator<char>());
+}
+
+
+// GH #358 — resumable downloads, through the REAL backend (libcurl; WinHTTP under
+// wine) against a loopback server on an ephemeral 127.0.0.1 port. Oracle: RFC 9110
+// (Range, If-Range, 206/416, Content-Range) and the partial-file contract in
+// sdcard_provisioner.h.
+void test_resume_rows() {
+    namespace fs = std::filesystem;
+    jtp::set_env("no_proxy", "127.0.0.1,localhost");   // curl reads it; keeps a proxy out of loopback
+    jtp::set_env("NO_PROXY", "127.0.0.1,localhost");
+    const std::string body = rs::pattern(300000);
+    const std::string body2 = rs::pattern(300000, 2);
+    auto slurp = [](const std::string& p) {
+        std::ifstream f(p, std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    };
+    auto dest_in = [&](const char* name) {
+        const std::string d = g_tmpdir + "/resume-" + name;
+        std::error_code ec;
+        fs::remove_all(d, ec);
+        fs::create_directories(d, ec);
+        return d + "/dest.bin";
+    };
+    auto exists = [](const std::string& p) { std::error_code ec; return fs::exists(p, ec); };
+    auto opts = [&](const char* etag = "\"v1\"") {
+        rs::Opts o;
+        o.body = body;
+        o.etag = etag;
+        return o;
+    };
+    const std::string kEtag = "\"v1\"";
+
+    rs::Server srv;
+    if (!srv.ok()) {
+        check("PROV-RESUME-01", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
+        return;
+    }
+    const std::string url = srv.url();
+
+    // 01 + 02: a transfer cut at 100000 keeps its partial; the next call continues it.
+    {
+        const std::string dest = dest_in("a");
+        rs::Opts o = opts();
+        o.drop_after = 100000;
+        srv.set(o);
+        std::string err;
+        const bool ok = sdcard::default_http_download(url, dest, {}, err);
+        sdcard::ResumeInfo ri;
+        const bool have_rec = sdcard::read_resume_info(dest, ri);
+        check("PROV-RESUME-01",
+              "a transfer cut short fails naming the bytes (100000 of 300000), writes nothing to dest, and "
+              "keeps <dest>.part (the first 100000 bytes) and a resume record (url, strong ETag, size)",
+              !ok && err.find("100000 of 300000") != std::string::npos && !exists(dest) &&
+                  slurp(sdcard::partial_path(dest)) == body.substr(0, 100000) && have_rec && ri.url == url &&
+                  ri.validator_kind == "etag" && ri.validator == kEtag && ri.total == 300000,
+              "ok=" + std::to_string(ok) + " err='" + err + "' rec=" + std::to_string(have_rec));
+
+        srv.set(opts());
+        srv.clear_requests();
+        uint64_t first = UINT64_MAX, last_d = 0, last_t = 0;
+        sdcard::ProgressFn pf = [&](uint64_t d, uint64_t t) {
+            if (first == UINT64_MAX) first = d;
+            last_d = d;
+            last_t = t;
+            return true;
+        };
+        err.clear();
+        const bool ok2 = sdcard::default_http_download(url, dest, pf, err);
+        const auto reqs = srv.requests();
+        check("PROV-RESUME-02",
+              "the next call asks for the rest (Range bytes=100000-, If-Range with the ETag), appends the 206, "
+              "leaves exactly the body, removes the partial and the record, and reports progress from the "
+              "resumed offset to (300000, 300000)",
+              ok2 && reqs.size() == 1 && reqs[0].range == "bytes=100000-" && reqs[0].if_range == kEtag &&
+                  slurp(dest) == body && !exists(sdcard::partial_path(dest)) &&
+                  !sdcard::read_resume_info(dest, ri) && first != UINT64_MAX && first >= 100000 &&
+                  last_d == 300000 && last_t == 300000,
+              "ok=" + std::to_string(ok2) + " err='" + err + "' reqs=" + std::to_string(reqs.size()) +
+                  " first=" + std::to_string(first) + " last=" + std::to_string(last_d) + "/" +
+                  std::to_string(last_t));
+    }
+
+    // Leaves a 100000-byte partial of `body` (ETag "v1") at `dest`.
+    auto make_partial = [&](const std::string& dest) {
+        rs::Opts o = opts();
+        o.drop_after = 100000;
+        srv.set(o);
+        std::string e;
+        (void)sdcard::default_http_download(url, dest, {}, e);
+    };
+
+    // 03: the server ignores Range and sends 200.
+    {
+        const std::string dest = dest_in("b");
+        make_partial(dest);
+        rs::Opts o = opts();
+        o.honour_range = false;
+        srv.set(o);
+        std::string err;
+        const bool ok = sdcard::default_http_download(url, dest, {}, err);
+        check("PROV-RESUME-03",
+              "a server that ignores Range and answers 200 gives exactly the body (the partial is replaced, "
+              "never prefixed to it)",
+              ok && slurp(dest) == body, "ok=" + std::to_string(ok) + " err='" + err + "' size=" +
+                  std::to_string(slurp(dest).size()));
+    }
+
+    // 04: the representation changed (new ETag): If-Range makes the server send the new whole file.
+    {
+        const std::string dest = dest_in("c");
+        make_partial(dest);
+        rs::Opts o = opts("\"v2\"");
+        o.body = body2;
+        srv.set(o);
+        std::string err;
+        const bool ok = sdcard::default_http_download(url, dest, {}, err);
+        check("PROV-RESUME-04", "a changed representation (ETag v2) replaces the partial: dest is exactly the new body",
+              ok && slurp(dest) == body2, "ok=" + std::to_string(ok) + " err='" + err + "'");
+    }
+
+    // 05: 416 to the range: one plain retry.
+    {
+        const std::string dest = dest_in("d");
+        make_partial(dest);
+        rs::Opts o = opts();
+        o.answer_416 = true;
+        srv.set(o);
+        srv.clear_requests();
+        std::string err;
+        const bool ok = sdcard::default_http_download(url, dest, {}, err);
+        const auto reqs = srv.requests();
+        check("PROV-RESUME-05",
+              "a 416 to the range makes exactly one more request, without Range, and gives the whole body",
+              ok && reqs.size() == 2 && !reqs[0].range.empty() && reqs[1].range.empty() && slurp(dest) == body,
+              "ok=" + std::to_string(ok) + " err='" + err + "' reqs=" + std::to_string(reqs.size()));
+    }
+
+    // 06: a 206 for the wrong range is never appended.
+    {
+        const std::string dest = dest_in("e");
+        make_partial(dest);
+        rs::Opts o = opts();
+        o.bad_range_start = true;
+        srv.set(o);
+        srv.clear_requests();
+        std::string err;
+        const bool ok = sdcard::default_http_download(url, dest, {}, err);
+        const auto reqs = srv.requests();
+        check("PROV-RESUME-06",
+              "a 206 whose Content-Range starts at 0 instead of 100000 is distrusted: one retry without "
+              "Range, and dest is exactly the body (never prefix + body)",
+              ok && reqs.size() == 2 && reqs[1].range.empty() && slurp(dest) == body,
+              "ok=" + std::to_string(ok) + " err='" + err + "' reqs=" + std::to_string(reqs.size()) + " size=" +
+                  std::to_string(slurp(dest).size()));
+    }
+
+    // 07: cancel keeps the partial, and it is continued.
+    {
+        const std::string dest = dest_in("f");
+        rs::Opts o = opts();
+        o.chunk_delay_ms = 25;   // a slow link, so the cancel lands mid-transfer
+        srv.set(o);
+        std::string err;
+        sdcard::ProgressFn cancel_at = [](uint64_t d, uint64_t) { return d < 50000; };
+        const bool ok = sdcard::default_http_download(url, dest, cancel_at, err);
+        const std::string part = slurp(sdcard::partial_path(dest));
+        sdcard::ResumeInfo ri;
+        const bool kept = !ok && err == "cancelled by user" && !exists(dest) && part.size() >= 50000 &&
+                          part.size() < 300000 && part == body.substr(0, part.size()) &&
+                          sdcard::read_resume_info(dest, ri);
+        srv.set(opts());
+        srv.clear_requests();
+        std::string err2;
+        const bool ok2 = sdcard::default_http_download(url, dest, {}, err2);
+        const auto reqs = srv.requests();
+        check("PROV-RESUME-07",
+              "a cancelled download keeps its partial and record, and the next call resumes it (Range sent) "
+              "to exactly the body",
+              kept && ok2 && reqs.size() == 1 && !reqs[0].range.empty() && slurp(dest) == body,
+              "kept=" + std::to_string(kept) + " err='" + err + "' part=" + std::to_string(part.size()) +
+                  " ok2=" + std::to_string(ok2) + " err2='" + err2 + "'");
+    }
+
+    // 08: partials that must not be trusted: no record; a record for another URL.
+    {
+        const std::string dest = dest_in("g");
+        write_file(sdcard::partial_path(dest), std::vector<uint8_t>(1000, 'X'));
+        srv.set(opts());
+        srv.clear_requests();
+        std::string err;
+        const bool ok = sdcard::default_http_download(url, dest, {}, err);
+        const auto r1 = srv.requests();
+        const bool a_ok = ok && r1.size() == 1 && r1[0].range.empty() && slurp(dest) == body;
+
+        const std::string dest2 = dest_in("h");
+        write_file(sdcard::partial_path(dest2), std::vector<uint8_t>(1000, 'X'));
+        sdcard::ResumeInfo other;
+        other.url = "http://127.0.0.1:1/other";
+        other.validator_kind = "etag";
+        other.validator = kEtag;
+        other.total = 300000;
+        sdcard::write_resume_info(dest2, other);
+        srv.clear_requests();
+        const bool ok2 = sdcard::default_http_download(url, dest2, {}, err);
+        const auto r2 = srv.requests();
+        const bool b_ok = ok2 && r2.size() == 1 && r2[0].range.empty() && slurp(dest2) == body;
+        check("PROV-RESUME-08",
+              "a partial with no record, and one whose record names another URL, are never resumed: no Range "
+              "is sent and dest is exactly the body (no stale byte survives)",
+              a_ok && b_ok, "no_record=" + std::to_string(a_ok) + " other_url=" + std::to_string(b_ok));
+    }
+
+    // 09: the Range reaches the redirect target.
+    {
+        const std::string dest = dest_in("i");
+        rs::Opts o = opts();
+        o.redirect_first = true;
+        o.drop_after = 100000;
+        srv.set(o);
+        std::string e;
+        (void)sdcard::default_http_download(url, dest, {}, e);
+        o.drop_after = rs::kNoDrop;
+        srv.set(o);
+        srv.clear_requests();
+        std::string err;
+        const bool ok = sdcard::default_http_download(url, dest, {}, err);
+        const auto reqs = srv.requests();
+        const bool hop = reqs.size() == 2 && reqs[1].path == "/real" && reqs[1].range == "bytes=100000-" &&
+                         reqs[1].if_range == kEtag;
+        check("PROV-RESUME-09",
+              "a resumed request that is redirected (302) sends Range and If-Range to the target too, and "
+              "the result is exactly the body",
+              ok && hop && slurp(dest) == body,
+              "ok=" + std::to_string(ok) + " err='" + err + "' reqs=" + std::to_string(reqs.size()) +
+                  (reqs.size() > 1 ? " second='" + reqs[1].path + "' range='" + reqs[1].range + "'" : ""));
+    }
+
+    // 10: Last-Modified only; a weak ETag is not a validator.
+    {
+        const std::string lm = "Wed, 21 Oct 2015 07:28:00 GMT";
+        const std::string dest = dest_in("j");
+        rs::Opts o = opts("");
+        o.last_modified = lm;
+        o.drop_after = 100000;
+        srv.set(o);
+        std::string e;
+        (void)sdcard::default_http_download(url, dest, {}, e);
+        o.drop_after = rs::kNoDrop;
+        srv.set(o);
+        srv.clear_requests();
+        const bool ok = sdcard::default_http_download(url, dest, {}, e);
+        const auto r1 = srv.requests();
+        const bool date_ok = ok && r1.size() == 1 && r1[0].if_range == lm && slurp(dest) == body;
+
+        const std::string dest2 = dest_in("k");
+        rs::Opts w = opts("W/\"weak\"");
+        w.last_modified = lm;
+        w.drop_after = 100000;
+        srv.set(w);
+        (void)sdcard::default_http_download(url, dest2, {}, e);
+        sdcard::ResumeInfo ri;
+        const bool kind_date = sdcard::read_resume_info(dest2, ri) && ri.validator_kind == "date" && ri.validator == lm;
+        w.drop_after = rs::kNoDrop;
+        srv.set(w);
+        srv.clear_requests();
+        const bool ok2 = sdcard::default_http_download(url, dest2, {}, e);
+        const auto r2 = srv.requests();
+        check("PROV-RESUME-10",
+              "If-Range carries the Last-Modified date verbatim when there is no ETag, and a weak ETag is "
+              "never used: the date is",
+              date_ok && kind_date && ok2 && r2.size() == 1 && r2[0].if_range == lm && slurp(dest2) == body,
+              "date_ok=" + std::to_string(date_ok) + " kind_date=" + std::to_string(kind_date));
+    }
+
+    // 11: no validator: nothing is left behind (the old contract).
+    {
+        const std::string dest = dest_in("l");
+        rs::Opts o = opts("");
+        o.drop_after = 100000;
+        srv.set(o);
+        std::string err;
+        const bool ok = sdcard::default_http_download(url, dest, {}, err);
+        check("PROV-RESUME-11",
+              "a transfer cut short from a server with no ETag and no Last-Modified fails and leaves neither "
+              "dest, the partial nor a record",
+              !ok && !exists(dest) && !exists(sdcard::partial_path(dest)) &&
+                  !exists(sdcard::partial_path(dest) + ".resume"),
+              "ok=" + std::to_string(ok) + " err='" + err + "'");
+    }
+
+    // 12: the SD-card download is resumable through provision_sd_card, and
+    // --sdcard-download-force starts over.
+    {
+        const std::string sddir = sdcard::default_sdcard_dir();
+        for (const std::string& f : {sdcard::default_sdcard_image_path(), sdcard::default_sdcard_raw_image_path(),
+                                     sdcard::default_sdcard_raw_image_path() + ".sha256"})
+            std::remove(f.c_str());
+        std::vector<uint8_t> payload;
+        for (int i = 0; i < 20000; ++i) payload.push_back(static_cast<uint8_t>(i * 7));
+        const std::vector<uint8_t> zip = make_zip("cspect-next-1gb.img", payload, 0);
+        rs::Opts o;
+        o.body.assign(reinterpret_cast<const char*>(zip.data()), zip.size());
+        o.etag = "\"zip1\"";
+        o.drop_after = 8000;
+        srv.set(o);
+        jtp::set_env("JNEXT_SDCARD_DISTRO_URL", srv.url("/sn.zip").c_str());
+        sdcard::ProvisionOptions po;
+        po.auto_confirm = true;
+        const auto r1 = sdcard::provision_sd_card(po);
+        const std::string part = sddir + "/sn-emulator.zip.part";
+        const bool first_ok = r1.status == sdcard::ProvisionStatus::Failed &&
+                              r1.error.find("continues it") != std::string::npos && exists(part);
+
+        o.drop_after = rs::kNoDrop;
+        srv.set(o);
+        srv.clear_requests();
+        (void)sdcard::provision_sd_card(po);   // Failed at the patch step (the payload is not FAT32)
+        const auto q2 = srv.requests();
+        const bool second_ok = q2.size() == 1 && q2[0].range == "bytes=8000-" &&
+                               exists(sdcard::default_sdcard_raw_image_path()) &&
+                               read_file(sdcard::default_sdcard_raw_image_path()) == payload && !exists(part);
+
+        // force: a partial is discarded, so no Range
+        for (const std::string& f : {sdcard::default_sdcard_image_path(), sdcard::default_sdcard_raw_image_path(),
+                                     sdcard::default_sdcard_raw_image_path() + ".sha256"})
+            std::remove(f.c_str());
+        o.drop_after = 8000;
+        srv.set(o);
+        sdcard::ProvisionOptions pf = po;
+        pf.force_download = true;
+        (void)sdcard::provision_sd_card(po);   // leaves the partial
+        const bool partial_there = exists(part);
+        o.drop_after = rs::kNoDrop;
+        srv.set(o);
+        srv.clear_requests();
+        (void)sdcard::provision_sd_card(pf);
+        const auto q3 = srv.requests();
+        const bool third_ok = partial_there && q3.size() == 1 && q3[0].range.empty();
+        jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
+        for (const std::string& f : {sdcard::default_sdcard_image_path(), sdcard::default_sdcard_raw_image_path(),
+                                     sdcard::default_sdcard_raw_image_path() + ".sha256"})
+            std::remove(f.c_str());
+        check("PROV-RESUME-12",
+              "the SD-card download continues a stopped transfer on the next start (error says so, "
+              "sn-emulator.zip.part kept, Range sent, the image extracted) and --sdcard-download-force "
+              "starts over (no Range)",
+              first_ok && second_ok && third_ok,
+              "first=" + std::to_string(first_ok) + " (" + r1.error.substr(0, 80) + ") second=" +
+                  std::to_string(second_ok) + " third=" + std::to_string(third_ok));
+    }
 }
 
 } // namespace
@@ -1178,6 +1538,8 @@ int main() {
             std::remove(img.c_str());
         }
     }
+
+    test_resume_rows();
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

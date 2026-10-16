@@ -3709,8 +3709,8 @@ image</a>.</dd>
 <dd>Skip the download prompt for the default-location image and proceed.</dd>
 <dt><strong>--sdcard-download-force</strong></dt>
 <dd>Force re-download and re-patch of the default-location image, to
-recover a corrupted one. Ignored when <strong>--sdcard</strong> is given: an
-explicit path always wins.</dd>
+recover a corrupted one. Also discards a half-finished download.
+Ignored when <strong>--sdcard</strong> is given: an explicit path always wins.</dd>
 <dt><strong>--sdcard-readonly</strong></dt>
 <dd>Open the SD image read-only, so the host file is never modified. The
 emulated machine sees a write-protected card: writes are rejected
@@ -3907,12 +3907,14 @@ runs start at once. An archive <code>NextPi-&lt;release&gt;.tar.gz</code> alread
 that directory is checked against its <code>.md5</code> beside it (fetched only
 if absent) and unpacked without downloading; a directory that cannot
 be used is reported with the missing file, in the question and in
-the log. NextPi then takes about a minute to reach its Supervisor
-prompt (<code>SUP&gt;</code>). The release, the directory, the QEMU binary and
-where the Pi’s sound goes are set under <strong>Settings &gt; Preferences &gt;
-NextPi</strong> (the <code>[nextpi]</code> section of <code>~/.jnext/jnext.conf</code>); their
-defaults are release <code>1_93D</code>, <code>~/.jnext/nextpi</code>, <code>qemu-system-arm</code>
-on <code>PATH</code>, and the Next’s mixer.</p>
+the log. An interrupted download is kept as
+<code>NextPi-&lt;release&gt;.tar.gz.part</code> and continues on the next run. NextPi
+then takes about a minute to reach its Supervisor prompt (<code>SUP&gt;</code>).
+The release, the directory, the QEMU binary and where the Pi’s sound
+goes are set under <strong>Settings &gt; Preferences &gt; NextPi</strong> (the
+<code>[nextpi]</code> section of <code>~/.jnext/jnext.conf</code>); their defaults are
+release <code>1_93D</code>, <code>~/.jnext/nextpi</code>, <code>qemu-system-arm</code> on <code>PATH</code>, and
+the Next’s mixer.</p>
 <p>On Linux and macOS the Pi’s sound reaches the Next’s mixer over I2S,
 as on the real machine: it is mixed with the beeper, the AY chips
 and the DAC, so <strong>--record</strong> and <strong>--wav-record</strong> include it, and NR

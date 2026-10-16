@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <string>
 #include <vector>
@@ -87,13 +88,26 @@ std::vector<uint8_t> default_config_ini();
 
 // Progress seam: invoked periodically during a download with the number of
 // bytes downloaded so far and the total (0 if the server sent no
-// Content-Length). Returning FALSE aborts the transfer (the download then
-// fails and any partial file is removed). May be empty (no progress reporting).
+// Content-Length). Both include bytes a resumed download already had on disk.
+// Returning FALSE aborts the transfer (the download then fails with "cancelled
+// by user"; the partial file is kept or removed by the rule below). May be
+// empty (no progress reporting).
 using ProgressFn = std::function<bool(uint64_t downloaded, uint64_t total)>;
 
 // Download seam: fetch `url` into local file `dest_path`, reporting progress
 // via `progress` (may be empty). Returns true on success, else sets `err`.
 //
+// THE PARTIAL-FILE CONTRACT (GH #358, resumable downloads). The default
+// backends write into `<dest_path>.part`, so `dest_path` exists only once the
+// transfer is complete (renamed over any older file). Beside it they keep a
+// resume record `<dest_path>.part.resume` (url, validator, full size). On a
+// failure or cancel the partial and its record are KEPT if and only if the part
+// holds bytes AND the server sent a validator (a strong ETag, else
+// Last-Modified); otherwise both are removed. The next call for the same url
+// asks the server for the rest (`Range` + `If-Range`) and appends only when it
+// answers 206 for exactly that range; any other answer starts again from 0.
+// The file names, the record format and the resumability test live below, once.
+
 // `err` is a BARE reason — "Could not resolve hostname", "HTTP status 404" —
 // and must NOT carry a "download failed" of its own. provision_sd_card adds
 // that framing exactly once, and both default backends used to add it too, so
@@ -134,6 +148,77 @@ using CopyFn = std::function<bool(const std::string& src,
 // fails with EOVERFLOW for a file of 4 GiB or more, so on Windows a finished
 // 5.7 GB NextPi download (or a large SD image) read as absent (GH #358).
 bool regular_file_exists(const std::string& path);
+
+std::string partial_path(const std::string& dest);   // dest + ".part"
+
+struct ResumeInfo {
+    std::string url;
+    std::string validator_kind;   // "etag" or "date"
+    std::string validator;        // the ETag / Last-Modified value, verbatim
+    uint64_t    total = 0;        // the full size of the resource
+};
+bool read_resume_info(const std::string& dest, ResumeInfo& out);   // false: none / malformed
+bool write_resume_info(const std::string& dest, const ResumeInfo& info);
+void discard_partial(const std::string& dest);   // removes .part and its record
+// True with have/total when a resumable partial exists for exactly `url`:
+// record present, url equal, 0 < size of .part < total.
+bool resumable_partial(const std::string& dest, const std::string& url,
+                       uint64_t& have, uint64_t& total);
+
+// What the two backends read off an HTTP response (header names are matched
+// without regard to case: HTTP/2 sends them lowercase).
+struct HttpResponseInfo {
+    long        status = 0;
+    std::string content_range, etag, last_modified;
+    bool        has_content_length = false;
+    uint64_t    content_length = 0;
+};
+// Feed one header line ("HTTP/1.1 206 Partial Content", "ETag: ...") of the
+// LAST response; a status line starts a new response (redirects send several).
+void parse_response_line(const std::string& line, HttpResponseInfo& r);
+
+// One download attempt's file handling, shared by both backends so the
+// decision table exists once. Usage: construct; send `range_value()` as Range
+// and `if_range_value()` as If-Range when ranged(); call begin() once the
+// response headers are known; write() each body chunk; then finish() on a
+// complete body or fail() otherwise. `allow_resume` false = a plain GET.
+class PartialDownload {
+public:
+    PartialDownload(const std::string& url, const std::string& dest, bool allow_resume);
+    ~PartialDownload();
+    PartialDownload(const PartialDownload&) = delete;
+    PartialDownload& operator=(const PartialDownload&) = delete;
+
+    bool ranged() const { return ranged_; }
+    std::string range_value() const;      // "bytes=<have>-"
+    std::string if_range_value() const;   // the validator, verbatim
+
+    enum class Begin { Ok, Retry, Error };
+    // Decide on the response BEFORE any body byte is written. Retry: the
+    // partial was discarded, send a plain GET (once). Error: `err` is set.
+    Begin begin(const HttpResponseInfo& r, std::string& err);
+    bool begun() const { return begun_; }
+    bool write(const char* data, std::size_t n);
+    // Report to `progress` with `got` body bytes of this response received;
+    // false = the caller cancelled.
+    bool report(const ProgressFn& progress, uint64_t got) const;
+    // Complete body: check the size, move .part to dest. False sets `err`.
+    bool finish(std::string& err);
+    // Any other failure or cancel: apply the keep-or-remove rule. `clean_eof`:
+    // the transport ended the body without an error of its own.
+    void fail(std::string& err, bool clean_eof);
+    void cancelled();
+    uint64_t total() const { return total_; }
+
+private:
+    void close_file();
+    uint64_t part_size() const;
+    std::string url_, dest_;
+    bool ranged_ = false, begun_ = false;
+    uint64_t have_ = 0, base_ = 0, total_ = 0;
+    ResumeInfo rec_;
+    FILE* f_ = nullptr;
+};
 
 bool default_http_download(const std::string& url, const std::string& dest_path,
                            const ProgressFn& progress, std::string& err);

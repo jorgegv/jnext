@@ -12,8 +12,11 @@
 //
 // This file implements the same three functions as the POSIX twin
 // (sdcard_provisioner_net_curl.cpp): default_http_download, sha256_hex,
-// sha256_file — same contracts, same error semantics (partial file removed on
-// failure, ProgressFn false aborts with "cancelled by user"). The
+// sha256_file — same contracts, same error semantics (the partial-file
+// contract documented in sdcard_provisioner.h: `<dest>.part` kept for
+// resuming, ProgressFn false aborts with "cancelled by user"). The decisions
+// (append / truncate / retry, the record, the keep-or-remove rule) are
+// PartialDownload's, shared with the curl twin. The
 // whole-file #ifdef pair keeps file(GLOB_RECURSE) in src/core/CMakeLists.txt
 // correct on every platform: exactly one twin has content per build.
 //
@@ -100,151 +103,152 @@ struct WinHttpHandle {
     ~WinHttpHandle() { if (h) WinHttpCloseHandle(h); }
 };
 
+// A response header as a narrow string ("" when the response has none).
+std::string query_header(HINTERNET req, DWORD what) {
+    wchar_t buf[1024] = {0};
+    DWORD sz = sizeof(buf) - sizeof(wchar_t);
+    if (!WinHttpQueryHeaders(req, what, WINHTTP_HEADER_NAME_BY_INDEX, buf, &sz, WINHTTP_NO_HEADER_INDEX))
+        return {};
+    std::string out;
+    for (const wchar_t* p = buf; *p; ++p) out.push_back(*p < 128 ? static_cast<char>(*p) : '?');
+    return out;
+}
+
+enum class Outcome { Done, Retry, Failed };
+
+Outcome attempt_download(const std::string& url, const std::string& dest_path, const ProgressFn& progress,
+                         bool allow_resume, std::string& err) {
+    PartialDownload part(url, dest_path, allow_resume);
+
+    // Crack the URL into host / port / path(+query) / scheme.
+    const std::wstring wurl = widen(url);
+    std::vector<wchar_t> host(256, L'\0');
+    std::vector<wchar_t> path(2048, L'\0');
+    std::vector<wchar_t> extra(2048, L'\0');
+    URL_COMPONENTSW uc{};
+    uc.dwStructSize      = sizeof(uc);
+    uc.lpszHostName      = host.data();
+    uc.dwHostNameLength  = static_cast<DWORD>(host.size() - 1);
+    uc.lpszUrlPath       = path.data();
+    uc.dwUrlPathLength   = static_cast<DWORD>(path.size() - 1);
+    uc.lpszExtraInfo     = extra.data();
+    uc.dwExtraInfoLength = static_cast<DWORD>(extra.size() - 1);
+    if (wurl.empty() || !WinHttpCrackUrl(wurl.c_str(), 0, 0, &uc)) {
+        err = "bad URL: " + url;
+        part.fail(err, false);
+        return Outcome::Failed;
+    }
+    const bool secure = (uc.nScheme == INTERNET_SCHEME_HTTPS);
+    std::wstring object = path.data();
+    object += extra.data(); // "" when the URL has no query part
+    if (object.empty()) object = L"/";
+
+    // From here every failure is a transport one: settle the partial (kept
+    // when it holds bytes and a validator) and report a bare reason.
+    auto transport_fail = [&](const std::string& why, bool clean_eof) {
+        err = why;
+        part.fail(err, clean_eof);
+        return Outcome::Failed;
+    };
+
+    WinHttpHandle ses;
+    ses.h = WinHttpOpen(L"jnext-sdcard-provisioner", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                        WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!ses.h) return transport_fail(winhttp_error("open", GetLastError()), false);
+
+    // resolve / connect / send = 30 s (curl CONNECTTIMEOUT 30); a receive
+    // stalled for 120 s aborts (curl LOW_SPEED_LIMIT 1 B/s over 120 s).
+    WinHttpSetTimeouts(ses.h, 30000, 30000, 30000, 120000);
+
+    if (secure) {
+        DWORD protos = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_1 |
+                       WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
+        // Best effort — see the file header about unpatched Win7.
+        WinHttpSetOption(ses.h, WINHTTP_OPTION_SECURE_PROTOCOLS, &protos, sizeof(protos));
+    }
+
+    WinHttpHandle con;
+    con.h = WinHttpConnect(ses.h, host.data(), uc.nPort, 0);
+    if (!con.h) return transport_fail(winhttp_error("connect", GetLastError()), false);
+
+    WinHttpHandle req;
+    req.h = WinHttpOpenRequest(con.h, L"GET", object.c_str(), nullptr, WINHTTP_NO_REFERER,
+                               WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0);
+    if (!req.h) return transport_fail(winhttp_error("request", GetLastError()), false);
+
+    // Resuming: ask for the rest, and only if the file is still the one we
+    // started (If-Range). The added headers go to a redirect's target too.
+    std::wstring extra_headers;
+    if (part.ranged())
+        extra_headers = widen("Range: " + part.range_value() + "\r\nIf-Range: " + part.if_range_value() + "\r\n");
+    if (!WinHttpSendRequest(req.h, extra_headers.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : extra_headers.c_str(),
+                            extra_headers.empty() ? 0 : static_cast<DWORD>(-1L),
+                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
+        !WinHttpReceiveResponse(req.h, nullptr))
+        return transport_fail(winhttp_error("transfer", GetLastError()), false);
+
+    HttpResponseInfo resp;
+    {
+        DWORD status = 0;
+        DWORD status_sz = sizeof(status);
+        if (!WinHttpQueryHeaders(req.h, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                                 WINHTTP_HEADER_NAME_BY_INDEX, &status, &status_sz, WINHTTP_NO_HEADER_INDEX))
+            return transport_fail(winhttp_error("status", GetLastError()), false);
+        resp.status = static_cast<long>(status);
+        resp.content_range = query_header(req.h, WINHTTP_QUERY_CONTENT_RANGE);
+        resp.etag          = query_header(req.h, WINHTTP_QUERY_ETAG);
+        resp.last_modified = query_header(req.h, WINHTTP_QUERY_LAST_MODIFIED);
+        const std::string cl = query_header(req.h, WINHTTP_QUERY_CONTENT_LENGTH);
+        if (!cl.empty()) {
+            resp.has_content_length = true;
+            resp.content_length = std::strtoull(cl.c_str(), nullptr, 10);
+        }
+    }
+    switch (part.begin(resp, err)) {
+        case PartialDownload::Begin::Retry: return Outcome::Retry;
+        case PartialDownload::Begin::Error: return Outcome::Failed;   // begin() settled the partial
+        case PartialDownload::Begin::Ok:    break;
+    }
+
+    std::vector<char> buf(1 << 16);
+    uint64_t got_total = 0;
+    for (;;) {
+        DWORD got = 0;
+        if (!WinHttpReadData(req.h, buf.data(), static_cast<DWORD>(buf.size()), &got))
+            return transport_fail(winhttp_error("read", GetLastError()), false);
+        if (got == 0) break; // end of body
+        if (!part.write(buf.data(), got)) return transport_fail("write error on " + partial_path(dest_path), false);
+        got_total += got;
+        if (!part.report(progress, got_total)) {
+            part.cancelled();   // caller cancelled — same as curl's abort path
+            err = "cancelled by user";
+            return Outcome::Failed;
+        }
+    }
+    if (!part.finish(err)) return Outcome::Failed;
+    if (!regular_file_exists(dest_path)) {
+        err = "produced no file: " + dest_path;
+        return Outcome::Failed;
+    }
+    return Outcome::Done;
+}
+
 } // namespace
 
 bool default_http_download(const std::string& url, const std::string& dest_path,
                            const ProgressFn& progress, std::string& err) {
     Log::emulator()->info("sdcard: downloading via WinHTTP: {}", url);
-
-    // Same order as the curl path: fail on the output file before any network.
-    FILE* out = std::fopen(dest_path.c_str(), "wb");
-    if (!out) { err = "cannot create output file: " + dest_path; return false; }
-
-    bool ok = false;
-    bool aborted = false;
-    {
-        // Crack the URL into host / port / path(+query) / scheme.
-        const std::wstring wurl = widen(url);
-        std::vector<wchar_t> host(256, L'\0');
-        std::vector<wchar_t> path(2048, L'\0');
-        std::vector<wchar_t> extra(2048, L'\0');
-        URL_COMPONENTSW uc{};
-        uc.dwStructSize      = sizeof(uc);
-        uc.lpszHostName      = host.data();
-        uc.dwHostNameLength  = static_cast<DWORD>(host.size() - 1);
-        uc.lpszUrlPath       = path.data();
-        uc.dwUrlPathLength   = static_cast<DWORD>(path.size() - 1);
-        uc.lpszExtraInfo     = extra.data();
-        uc.dwExtraInfoLength = static_cast<DWORD>(extra.size() - 1);
-        if (wurl.empty() || !WinHttpCrackUrl(wurl.c_str(), 0, 0, &uc)) {
-            err = "bad URL: " + url;
-            goto done;
-        }
-        {
-        const bool secure = (uc.nScheme == INTERNET_SCHEME_HTTPS);
-        std::wstring object = path.data();
-        object += extra.data(); // "" when the URL has no query part
-        if (object.empty()) object = L"/";
-
-        WinHttpHandle ses;
-        ses.h = WinHttpOpen(L"jnext-sdcard-provisioner",
-                            WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                            WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-        if (!ses.h) { err = winhttp_error("open", GetLastError()); goto done; }
-
-        // resolve / connect / send = 30 s (curl CONNECTTIMEOUT 30); a receive
-        // stalled for 120 s aborts (curl LOW_SPEED_LIMIT 1 B/s over 120 s).
-        WinHttpSetTimeouts(ses.h, 30000, 30000, 30000, 120000);
-
-        if (secure) {
-            DWORD protos = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1 |
-                           WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_1 |
-                           WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
-            // Best effort — see the file header about unpatched Win7.
-            WinHttpSetOption(ses.h, WINHTTP_OPTION_SECURE_PROTOCOLS,
-                             &protos, sizeof(protos));
-        }
-
-        WinHttpHandle con;
-        con.h = WinHttpConnect(ses.h, host.data(), uc.nPort, 0);
-        if (!con.h) { err = winhttp_error("connect", GetLastError()); goto done; }
-
-        WinHttpHandle req;
-        req.h = WinHttpOpenRequest(con.h, L"GET", object.c_str(), nullptr,
-                                   WINHTTP_NO_REFERER,
-                                   WINHTTP_DEFAULT_ACCEPT_TYPES,
-                                   secure ? WINHTTP_FLAG_SECURE : 0);
-        if (!req.h) { err = winhttp_error("request", GetLastError()); goto done; }
-
-        if (!WinHttpSendRequest(req.h, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-                                WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
-            !WinHttpReceiveResponse(req.h, nullptr)) {
-            err = winhttp_error("transfer", GetLastError());
-            goto done;
-        }
-
-        // HTTP >= 400 is a failure, as with CURLOPT_FAILONERROR.
-        DWORD status = 0;
-        DWORD status_sz = sizeof(status);
-        if (!WinHttpQueryHeaders(req.h,
-                                 WINHTTP_QUERY_STATUS_CODE |
-                                     WINHTTP_QUERY_FLAG_NUMBER,
-                                 WINHTTP_HEADER_NAME_BY_INDEX, &status,
-                                 &status_sz, WINHTTP_NO_HEADER_INDEX)) {
-            err = winhttp_error("status", GetLastError());
-            goto done;
-        }
-        if (status >= 400) {
-            err = "HTTP status " + std::to_string(status);
-            goto done;
-        }
-
-        // Content-Length (of the FINAL response, after redirects); 0 when the
-        // server sent none — the ProgressFn contract for "total unknown".
-        uint64_t total = 0;
-        {
-            wchar_t cl[64] = {0};
-            DWORD cl_sz = sizeof(cl) - sizeof(wchar_t);
-            if (WinHttpQueryHeaders(req.h, WINHTTP_QUERY_CONTENT_LENGTH,
-                                    WINHTTP_HEADER_NAME_BY_INDEX, cl, &cl_sz,
-                                    WINHTTP_NO_HEADER_INDEX)) {
-                total = std::wcstoull(cl, nullptr, 10);
-            }
-        }
-
-        std::vector<char> buf(1 << 16);
-        uint64_t downloaded = 0;
-        for (;;) {
-            DWORD got = 0;
-            if (!WinHttpReadData(req.h, buf.data(),
-                                 static_cast<DWORD>(buf.size()), &got)) {
-                err = winhttp_error("read", GetLastError());
-                goto done;
-            }
-            if (got == 0) break; // end of body
-            if (std::fwrite(buf.data(), 1, got, out) != got) {
-                err = "write error on " + dest_path;
-                goto done;
-            }
-            downloaded += got;
-            if (progress && !progress(downloaded, total)) {
-                aborted = true; // caller cancelled — same as curl's
-                goto done;      // CURLE_ABORTED_BY_CALLBACK path
-            }
-        }
-        ok = true;
-        }
+    // At most two attempts: the first may ask for the rest of a partial; if the
+    // server refuses that (416, or a 206 that is not the range asked for) the
+    // second is a plain GET. Never a loop.
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        err.clear();
+        const Outcome o = attempt_download(url, dest_path, progress, attempt == 0, err);
+        if (o == Outcome::Done) return true;
+        if (o == Outcome::Failed) return false;
     }
-
-done:
-    if (aborted) err = "cancelled by user";
-    const bool flush_ok = (std::fflush(out) == 0);
-    std::fclose(out);
-    if (!ok || aborted) {
-        std::remove(dest_path.c_str());
-        if (err.empty()) err = "unknown error";
-        return false;
-    }
-    if (!flush_ok) {
-        std::remove(dest_path.c_str());
-        err = "write/flush error on " + dest_path;
-        return false;
-    }
-    if (!regular_file_exists(dest_path)) {
-        err = "produced no file: " + dest_path;
-        return false;
-    }
-    return true;
+    err = "the server keeps refusing a plain request";
+    return false;
 }
 
 // ---------------------------------------------------------------------------

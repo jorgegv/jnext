@@ -315,7 +315,11 @@ UART 1, the Pi GPIO header's UART. Three pieces:
   unusable directory lacks, and the question and the `[uart]` log both say it.
   File existence goes through `sdcard::regular_file_exists`
   (`std::filesystem`), never `::stat`: MinGW's `stat` is `stat64i32` and fails
-  with `EOVERFLOW` for files of 4 GiB or more (GH #358).
+  with `EOVERFLOW` for files of 4 GiB or more (GH #358). The download itself is
+  resumable (contract and decision table: `08-media-and-loaders.md`): the
+  backend keeps `<archive>.part`, the question offers to continue it, and only a
+  finished download is renamed to the archive's name, so a partial is never
+  mistaken for an archive.
 
 * **`audio/pi_audio.{h,cpp}`** carries the Pi's sound into the mixer, the way
   a real Next takes it over I2S. QEMU's `wav` audio back-end writes 44.1 kHz s16
