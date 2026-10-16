@@ -130,7 +130,7 @@ bool SdlApp::init(int argc, char* argv[]) {
         [this]() { return mouse_captured_; },
         [this](bool on) { set_mouse_captured(on); },
         [this](SDL_Scancode sc, bool pressed) {
-        // GH #321 — quick-snapshot chords: the tracker sees every event.
+        // GH #321 — quick-snapshot chords: the tracker sees every event the pointer-release gate does not consume.
         const jnext::QuickChord quick = quick_chords_.on_key(static_cast<int>(sc), pressed);
         if (pressed) {
             // GH #321 — Alt+Shift+F5 / Alt+Shift+F9, tested BEFORE the F-key block below
