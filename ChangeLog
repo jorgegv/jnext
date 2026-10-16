@@ -6,6 +6,9 @@
 - Monochrome toolbar icons that follow the light or dark theme; Screenshot, NMI and Debug get real icons
 - Linux: the GUI follows the desktop's light/dark preference, switching live; `JNEXT_COLOR_SCHEME` forces either
 
+### Bug Fixes
+- SIGTERM and Ctrl-C end JNEXT cleanly, finishing recordings, with the signal's exit status; the Qt GUI ignored them
+
 ### Contributors in this release
 - @pavero01
 

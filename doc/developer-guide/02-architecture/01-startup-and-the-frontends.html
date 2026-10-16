@@ -2430,6 +2430,24 @@ the command-line one reached the disk — at exit or at any earlier point, since
 <code>QtApp</code> calls it before an automatic exit's <code>quit()</code> too: <code>quit()</code> closes the
 main window, and <code>MainWindow::closeEvent()</code> reports a recording it has to stop
 in a modal dialog that an unattended run would wait on forever.</p>
+<p><strong>Quit signals (GH #364).</strong> SDL3's <code>SDL_Init</code> installs a persistent
+SIGINT/SIGTERM handler that only queues <code>SDL_EVENT_QUIT</code>; <code>QtApp</code> never reads
+that event, so the Qt GUI swallowed both signals, and the SDL frontend exited
+with status 0. <code>quit_signal</code> (<code>src/platform/quit_signal.h</code>) takes the signals
+over for every frontend: <code>main()</code> calls <code>quit_signal::install()</code> before any
+frontend's <code>init()</code>, hence before <code>SDL_Init</code>, and SDL then installs no handler of
+its own. The handler stores the signal number in a lock-free atomic (a second
+signal gets the default action at once, <code>SA_RESETHAND</code>; a signal that was
+<code>SIG_IGN</code> at start stays ignored). Each frame loop polls <code>pending()</code> once per
+iteration and leaves through its normal teardown: <code>QtApp</code>'s <code>post_frames()</code> does
+the unattended quit (finish the RZX recording, <code>set_unattended</code>, <code>quit()</code>),
+<code>SdlApp::run()</code> and <code>HeadlessApp::run()</code> break out of their loops. The end of
+<code>main()</code>, after every teardown, calls <code>quit_signal::reraise_if_pending()</code>, so
+the process dies by the signal (status 128+N, <code>WIFSIGNALED</code>) and never reads as
+a success. Windows is exempt: the helper is a no-op there, because no SIGTERM
+can be delivered to a Windows process from outside and Ctrl+C reaches the GUI
+exe only through the console it borrows. Tests: <code>quit_signal_test</code> (QSIG-01..09)
+and <code>quit-signal-func</code>.</p>
 <ul>
 <li><strong><code>QtApp</code></strong> (<code>src/gui/qt_app.h</code>) owns a <code>QApplication</code> and a <code>MainWindow</code>
   whose central widget is an <code>EmulatorWidget</code>. A <code>QTimer</code> drives the machine,
