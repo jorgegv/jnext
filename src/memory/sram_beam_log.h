@@ -49,6 +49,21 @@
 // first entry's `prev` is the live byte at the instant of arming and any
 // address written earlier simply reads back its current value.
 //
+// Writers (swept with "a byte of SRAM changes during a frame"). Every store
+// into the SRAM (`Ram`) goes through Mmu::write(); its four stores call
+// Mmu::sram_log_write_() before storing:
+//   * Layer 2 write-over (port 0x123B bit 0)        CPU: own position
+//   * alt-ROM write-over (NR 0x8C)                  CPU: own position
+//   * config-mode ROM-in-SRAM write                 CPU: own position
+//   * normal MMU slot (RAM pages)                   CPU: own position
+// A DMA transfer (dma_.write_memory), a tape / NEX loader and a debugger poke
+// reach the same four stores through Mmu::write() and take the coarse
+// (line, hc) tag. NOT logged, and why: the dedicated bank 5 / bank 7 VRAM
+// buffers of a Next machine (not SRAM bytes, Layer 2 never fetches them);
+// the DivMMC and Multiface backings (SRAM below 0x40000, outside what Layer 2
+// can address on a Next); the ROM / RAM fills Emulator::init does and the
+// state loads (they precede the frame's baseline).
+//
 // No save_state/load_state: everything here is rebuilt each frame
 // (Emulator::begin_new_frame -> Mmu::attr_mux_start_frame), exactly like
 // AttributeMux.
