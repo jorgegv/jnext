@@ -129,10 +129,9 @@ bool regular_file_exists(const std::string& path) {
 // comment above DownloadFn in sdcard_provisioner.h.
 // ---------------------------------------------------------------------------
 std::string partial_path(const std::string& dest) { return dest + ".part"; }
+std::string resume_record_path(const std::string& dest) { return partial_path(dest) + ".resume"; }
 
 namespace {
-std::string record_path(const std::string& dest) { return partial_path(dest) + ".resume"; }
-
 uint64_t file_bytes(const std::string& path) {
     std::error_code ec;
     const auto n = std::filesystem::file_size(path, ec);
@@ -155,7 +154,7 @@ bool starts_with_icase(const std::string& s, const char* lower) {
 } // namespace
 
 bool read_resume_info(const std::string& dest, ResumeInfo& out) {
-    std::ifstream f(record_path(dest), std::ios::binary);
+    std::ifstream f(resume_record_path(dest), std::ios::binary);
     if (!f) return false;
     std::string url, val, total;
     if (!std::getline(f, url) || !std::getline(f, val) || !std::getline(f, total)) return false;
@@ -176,7 +175,7 @@ bool read_resume_info(const std::string& dest, ResumeInfo& out) {
 }
 
 bool write_resume_info(const std::string& dest, const ResumeInfo& info) {
-    std::ofstream f(record_path(dest), std::ios::binary | std::ios::trunc);
+    std::ofstream f(resume_record_path(dest), std::ios::binary | std::ios::trunc);
     if (!f) return false;
     f << info.url << "\n" << info.validator_kind << " " << info.validator << "\n" << info.total << "\n";
     return static_cast<bool>(f);
@@ -185,17 +184,29 @@ bool write_resume_info(const std::string& dest, const ResumeInfo& info) {
 void discard_partial(const std::string& dest) {
     std::error_code ec;
     std::filesystem::remove(partial_path(dest), ec);
-    std::filesystem::remove(record_path(dest), ec);
+    std::filesystem::remove(resume_record_path(dest), ec);
+}
+
+PartialState partial_state(const std::string& dest, const std::string& url, uint64_t& have, uint64_t& total) {
+    std::error_code ec;
+    if (!std::filesystem::exists(partial_path(dest), ec)) return PartialState::None;
+    ResumeInfo r;
+    if (!read_resume_info(dest, r) || r.url != url) return PartialState::Stale;
+    const uint64_t n = file_bytes(partial_path(dest));
+    if (n == 0) return PartialState::Stale;
+    have = n;
+    total = r.total;
+    if (n < r.total) return PartialState::Resumable;
+    return n == r.total ? PartialState::Complete : PartialState::Oversize;
 }
 
 bool resumable_partial(const std::string& dest, const std::string& url, uint64_t& have, uint64_t& total) {
-    ResumeInfo r;
-    if (!read_resume_info(dest, r) || r.url != url) return false;
-    const uint64_t n = file_bytes(partial_path(dest));
-    if (n == 0 || n >= r.total) return false;
-    have = n;
-    total = r.total;
-    return true;
+    return partial_state(dest, url, have, total) == PartialState::Resumable;
+}
+
+bool finish_complete_partial(const std::string& dest, const std::string& url, std::string& err) {
+    PartialDownload part(url, dest, true);
+    return part.complete() && part.finish(err);
 }
 
 void parse_response_line(const std::string& line, HttpResponseInfo& r) {
@@ -223,12 +234,21 @@ void parse_response_line(const std::string& line, HttpResponseInfo& r) {
 PartialDownload::PartialDownload(const std::string& url, const std::string& dest, bool allow_resume)
     : url_(url), dest_(dest) {
     uint64_t have = 0, total = 0;
-    if (allow_resume && resumable_partial(dest, url, have, total) && read_resume_info(dest, rec_)) {
+    const PartialState st = allow_resume ? partial_state(dest, url, have, total) : PartialState::Stale;
+    if (st == PartialState::Resumable && read_resume_info(dest, rec_)) {
         ranged_ = true;
         have_ = base_ = have;
         total_ = total;
+    } else if (st == PartialState::Complete && read_resume_info(dest, rec_)) {
+        // The whole file is there and its last step (the rename) is what failed:
+        // finish it, never fetch it again (GH #358). complete() tells the backend.
+        complete_ = true;
+        total_ = total;
     } else {
-        discard_partial(dest);   // stale: no record, another url, finished, or not asked for
+        if (st == PartialState::Oversize)
+            Log::emulator()->warn("download: {} is larger ({} bytes) than the {} its record names; discarded",
+                                  partial_path(dest), have, total);
+        discard_partial(dest);   // stale (no record, another url), foreign, or not asked for
     }
 }
 
@@ -262,8 +282,23 @@ PartialDownload::Begin PartialDownload::begin(const HttpResponseInfo& r, std::st
             begun_ = false;
             return Begin::Retry;
         }
-        f_ = std::fopen(partial_path(dest_).c_str(), "ab");
+        // Append at an explicit 64-bit offset instead of trusting the CRT's "ab"
+        // past 4 GiB; a positioning fault is a clean restart, never a splice.
+        f_ = std::fopen(partial_path(dest_).c_str(), "r+b");
         if (!f_) { err = "cannot create output file: " + partial_path(dest_); return Begin::Error; }
+#ifdef _WIN32
+        const bool at = _fseeki64(f_, static_cast<__int64>(have_), SEEK_SET) == 0 &&
+                        static_cast<uint64_t>(_ftelli64(f_)) == have_;
+#else
+        const bool at = fseeko(f_, static_cast<off_t>(have_), SEEK_SET) == 0 &&
+                        static_cast<uint64_t>(ftello(f_)) == have_;
+#endif
+        if (!at) {
+            close_file();
+            discard_partial(dest_);
+            begun_ = false;
+            return Begin::Retry;
+        }
         return Begin::Ok;
     }
     // 200 (the range was ignored or the validator changed), or any other
@@ -317,7 +352,7 @@ bool PartialDownload::finish(std::string& err) {
         err = "cannot move " + partial_path(dest_) + " to " + dest_ + ": " + ec.message();
         return false;
     }
-    std::filesystem::remove(record_path(dest_), ec);
+    std::filesystem::remove(resume_record_path(dest_), ec);
     return true;
 }
 
@@ -811,8 +846,11 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
         if (!download(distro_url, zip_tmp, opts.progress, err)) {
             r.status = ProvisionStatus::Failed;
             uint64_t h2 = 0, t2 = 0;
-            if (resumable_partial(zip_tmp, distro_url, h2, t2))
+            const PartialState ps = partial_state(zip_tmp, distro_url, h2, t2);
+            if (ps == PartialState::Resumable)
                 err += "; the part fetched so far is kept and the next start continues it";
+            else if (ps == PartialState::Complete)
+                err += "; the complete download is kept and the next start uses it";
             r.error  = "download failed: " + err + sandbox_network_note(opts);
             return r;
         }

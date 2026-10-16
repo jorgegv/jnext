@@ -620,6 +620,11 @@ listed in Group 17 moved here in GH #331, and PIT-16..23 cover the Pi audio path
 | PIT-32 | 1_93D installed with an overlay, `NextPi-1_100.tar.gz` + `.md5` in the dir, release `1_100`, accepted | one confirm without "about 6 GB", `Ok` 1_100, nothing fetched, overlay gone (GH #358). jnext-only, no VHDL counterpart |
 | PIT-33 | `NextPi-1_93D.tar.gz.part` (1000 B) + its resume record (total 2000, the mirror URL) in an otherwise empty dir; declined | one confirm saying jnext continues it and naming the `.part`, no MD5 note, nothing fetched, `.part` and record untouched (GH #358). jnext-only, no VHDL counterpart |
 | PIT-34 | a download seam that leaves `.part` + record (1000 of 2000) and fails | error contains `continues next time`; the archive name is not created, the `.part` remains (GH #358). jnext-only, no VHDL counterpart |
+| PIT-35 | a NextPi dir holding `NextPi-1_93D.tar` and a `NextPi-1_93D/` folder with an .img (the reporter's manual unpack); declined | one confirm containing `cannot be used`, `nextpi.img` and `missing` (GH #358 review). jnext-only, no VHDL counterpart |
+| PIT-36 | a dir with only the provisioner's fetch files (archive `.part` + record, `.md5`, `.listing.html.part`); then `nextpi.img.part` added | no `cannot be used` for the first; `cannot be used` for the second (GH #358 review). jnext-only, no VHDL counterpart |
+| PIT-37 | an archive alone, no `.md5` beside it and none on the mirror; declined | one confirm saying `cannot check` the archive; `Declined`, nothing installed, archive byte-identical (GH #358 review). jnext-only, no VHDL counterpart |
+| PIT-38 | a complete `NextPi-1_93D.tar.gz.part` + record + the `.md5` | promoted to the archive with no request, installed with no confirm, `.part` and record gone (GH #358 review). jnext-only, no VHDL counterpart |
+| PIT-39 | a truncated archive + correct local `.md5`, replacement accepted; the busy seam counts md5 calls | every md5 hash happens inside a "Checking the NextPi download" busy call, none outside (GH #358 review). jnext-only, no VHDL counterpart |
 
 Functional row `nextpi-link-func`: the real binary starts the stand-in QEMU, the
 launcher's link is attached to UART 1 over the platform's transport (the FIFO pair,

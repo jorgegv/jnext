@@ -38,6 +38,8 @@ even with `--nextpi`, and asks again next time.
 If the download stops (network trouble, Cancel, closing JNEXT), the part already
 fetched is kept as `NextPi-<release>.tar.gz.part` in the NextPi directory, and the
 next start continues from there after asking; delete that file to start over.
+A download that finished but could not be put in place is used as it is on the next
+start.
 
 ### If you already have NextPi, or prepare it by hand
 

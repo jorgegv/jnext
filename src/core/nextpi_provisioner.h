@@ -75,6 +75,10 @@ std::string unprepared_reason(const std::string& dir);
 /// Lowercase hex MD5 of a file ("" if it cannot be read).
 std::string md5_file(const std::string& path);
 
+/// How many times md5_file has been called in this process (a test hook: a
+/// row proves a 5.7 GB hash is never taken outside the busy dialog).
+uint64_t md5_file_calls();
+
 /// Stream the gzip-compressed tar `archive` and write the first regular-file
 /// entry whose name ends in `suffix` to `out_path`. Handles GNU base-256 and
 /// pax sizes (the NextPi image is past the 8 GB the octal field can hold) and

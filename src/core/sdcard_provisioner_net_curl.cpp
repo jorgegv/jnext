@@ -83,6 +83,11 @@ enum class Outcome { Done, Retry, Failed };
 Outcome attempt_download(const std::string& url, const std::string& dest, const ProgressFn& progress,
                          bool allow_resume, std::string& err) {
     PartialDownload part(url, dest, allow_resume);
+    if (part.complete()) {   // only its rename was missing: no request (GH #358)
+        if (!part.finish(err)) return Outcome::Failed;
+        if (!regular_file_exists(dest)) { err = "produced no file: " + dest; return Outcome::Failed; }
+        return Outcome::Done;
+    }
     CurlAttempt a;
     a.part = &part;
     a.fn = progress ? &progress : nullptr;

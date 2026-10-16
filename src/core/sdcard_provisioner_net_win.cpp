@@ -119,6 +119,11 @@ enum class Outcome { Done, Retry, Failed };
 Outcome attempt_download(const std::string& url, const std::string& dest_path, const ProgressFn& progress,
                          bool allow_resume, std::string& err) {
     PartialDownload part(url, dest_path, allow_resume);
+    if (part.complete()) {   // only its rename was missing: no request (GH #358)
+        if (!part.finish(err)) return Outcome::Failed;
+        if (!regular_file_exists(dest_path)) { err = "produced no file: " + dest_path; return Outcome::Failed; }
+        return Outcome::Done;
+    }
 
     // Crack the URL into host / port / path(+query) / scheme.
     const std::wstring wurl = widen(url);

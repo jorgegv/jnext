@@ -1282,6 +1282,7 @@ static void test_nextpi_local_archive_rows() {
         const bool decl_ok = declined.status == sdcard::ProvisionStatus::Declined && asked == 1 &&
                              message.find("NextPi-1_93D.tar.gz") != std::string::npos &&
                              message.find("MD5") != std::string::npos &&
+                             message.find("cannot be used") == std::string::npos &&
                              slurp(dir / "NextPi-1_93D.tar.gz") == half && mirror.fetched.empty();
         int confirms = 0;
         const nextpi::ProvisionResult accepted = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
@@ -1393,7 +1394,8 @@ static void test_nextpi_local_archive_rows() {
               "and declining leaves both files byte for byte (GH #358; jnext-only, no VHDL counterpart)",
               fixture && rec && r.status == sdcard::ProvisionStatus::Declined && asked == 1 &&
                   message.find("continues") != std::string::npos && message.find(".part") != std::string::npos &&
-                  message.find("MD5") == std::string::npos && mirror.fetched.empty() &&
+                  message.find("MD5") == std::string::npos &&
+                  message.find("cannot be used") == std::string::npos && mirror.fetched.empty() &&
                   slurp(sdcard::partial_path(archive)) == partial &&
                   slurp(sdcard::partial_path(archive) + ".resume") == rec_before && !fs::exists(archive),
               fmt("fixture=%d rec=%d status=%d asked=%d msg='%.140s'", fixture ? 1 : 0, rec ? 1 : 0,
@@ -1426,14 +1428,201 @@ static void test_nextpi_local_archive_rows() {
         };
         const nextpi::ProvisionResult r = nextpi::provision(o);
         const std::string archive = (dir / "NextPi-1_93D.tar.gz").string();
+        // R7: nothing kept -> no "kept" claim. A seam that fails and leaves nothing.
+        const fs::path dir_n = mirror.dir / "np_none";
+        nextpi::ProvisionOptions on = nextpi_options(mirror, dir_n.string(), "", confirms);
+        on.download = [real](const std::string& u, const std::string& dest, const sdcard::ProgressFn& p,
+                             std::string& e) {
+            if (u.size() > 7 && u.compare(u.size() - 7, 7, ".tar.gz") == 0) { e = "Could not resolve hostname"; return false; }
+            return real(u, dest, p, e);
+        };
+        const nextpi::ProvisionResult rn = nextpi::provision(on);
+        const bool none_ok = rn.status == sdcard::ProvisionStatus::Failed &&
+                             rn.error.find("continues next time") == std::string::npos &&
+                             rn.error.find("is kept in") == std::string::npos;
+        // A seam that leaves a COMPLETE partial and fails (its rename failed).
+        const fs::path dir_c = mirror.dir / "np_complete";
+        nextpi::ProvisionOptions oc = nextpi_options(mirror, dir_c.string(), "", confirms);
+        oc.download = [real, &mirror](const std::string& u, const std::string& dest, const sdcard::ProgressFn& p,
+                                      std::string& e) {
+            if (u.size() > 7 && u.compare(u.size() - 7, 7, ".tar.gz") == 0) {
+                std::error_code ec2;
+                fs::copy_file(mirror.dir / "NextPi-1_93D.tar.gz", sdcard::partial_path(dest),
+                              fs::copy_options::overwrite_existing, ec2);
+                sdcard::ResumeInfo ri;
+                ri.url = u; ri.validator_kind = "etag"; ri.validator = "\"abc\"";
+                ri.total = fs::file_size(mirror.dir / "NextPi-1_93D.tar.gz", ec2);
+                sdcard::write_resume_info(dest, ri);
+                e = "cannot move the partial: Permission denied";
+                return false;
+            }
+            return real(u, dest, p, e);
+        };
+        const nextpi::ProvisionResult rc = nextpi::provision(oc);
+        const bool complete_ok = rc.status == sdcard::ProvisionStatus::Failed &&
+                                 rc.error.find("the complete download is kept in") != std::string::npos;
         check("PIT-34",
               "a failed download that left a resumable partial says the fetched bytes are kept and the "
               "download continues next time; the archive's own name is not created (GH #358; jnext-only, "
               "no VHDL counterpart)",
               fixture && r.status == sdcard::ProvisionStatus::Failed &&
                   r.error.find("continues next time") != std::string::npos && !fs::exists(archive) &&
-                  fs::exists(sdcard::partial_path(archive)),
-              fmt("fixture=%d status=%d error='%s'", fixture ? 1 : 0, static_cast<int>(r.status), r.error.c_str()));
+                  fs::exists(sdcard::partial_path(archive)) && none_ok && complete_ok,
+              fmt("fixture=%d status=%d error='%s' none_ok=%d (%s) complete_ok=%d (%s)", fixture ? 1 : 0,
+                  static_cast<int>(r.status), r.error.c_str(), none_ok ? 1 : 0, rn.error.c_str(),
+                  complete_ok ? 1 : 0, rc.error.c_str()));
+    }
+
+    // ── PIT-35 — JANKO'S MANUAL UNPACK (GH #358): `NextPi-1_93D.tar` and a `NextPi-1_93D/`
+    // folder holding the .img are NOT the provisioner's fetch files, so the directory
+    // counts as a setup that was tried: the question says what is missing.
+    {
+        FakeMirror mirror("manual");
+        const fs::path dir = mirror.dir / "np";
+        std::error_code ec;
+        fs::create_directories(dir / "NextPi-1_93D", ec);
+        std::ofstream(dir / "NextPi-1_93D.tar") << "tar";
+        std::ofstream(dir / "NextPi-1_93D" / "NextPi2-20260924.img") << "img";
+        std::string message;
+        int asked = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, dir.string(), "", asked, false);
+        o.confirm = [&](const std::string& m) { ++asked; message = m; return false; };
+        const nextpi::ProvisionResult r = nextpi::provision(o);
+        check("PIT-35",
+              "a directory holding a manual unpack (NextPi-1_93D.tar and a NextPi-1_93D folder with the .img) "
+              "is reported as unusable: the question names the missing nextpi.img (GH #358; jnext-only, no "
+              "VHDL counterpart)",
+              r.status == sdcard::ProvisionStatus::Declined && asked == 1 &&
+                  message.find("cannot be used") != std::string::npos &&
+                  message.find("nextpi.img") != std::string::npos && message.find("missing") != std::string::npos,
+              fmt("status=%d asked=%d msg='%.200s'", static_cast<int>(r.status), asked, message.c_str()));
+    }
+
+    // ── PIT-36 — only the provisioner's own fetch files: no "cannot be used"; an interrupted
+    // install's leftovers (nextpi.img.part) beside them: "cannot be used".
+    {
+        FakeMirror mirror("fetchonly");
+        const fs::path dir = mirror.dir / "np";
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        const std::string archive = (dir / "NextPi-1_93D.tar.gz").string();
+        std::ofstream(sdcard::partial_path(archive), std::ios::binary) << std::string(10, 'p');
+        sdcard::ResumeInfo ri;
+        ri.url = mirror.url() + "/NextPi-1_93D.tar.gz";
+        ri.validator_kind = "etag"; ri.validator = "\"abc\""; ri.total = 20;
+        sdcard::write_resume_info(archive, ri);
+        std::ofstream(archive + ".md5") << "x";
+        std::ofstream(dir / ".listing.html.part") << "x";
+        auto ask = [&](const fs::path& d) {
+            std::string message;
+            int asked = 0;
+            nextpi::ProvisionOptions o = nextpi_options(mirror, d.string(), "", asked, false);
+            o.confirm = [&](const std::string& m) { ++asked; message = m; return false; };
+            (void)nextpi::provision(o);
+            return message;
+        };
+        const std::string only = ask(dir);
+        std::ofstream(dir / "nextpi.img.part") << "x";
+        const std::string leftovers = ask(dir);
+        check("PIT-36",
+              "a directory holding only the provisioner's own fetch files (archive .part + record, .md5, "
+              "listing partial) gets no \"cannot be used\"; an interrupted install's nextpi.img.part beside "
+              "them does (GH #358; jnext-only, no VHDL counterpart)",
+              !only.empty() && only.find("cannot be used") == std::string::npos &&
+                  leftovers.find("cannot be used") != std::string::npos,
+              fmt("only='%.100s' leftovers='%.100s'", only.c_str(), leftovers.c_str()));
+    }
+
+    // ── PIT-37 — an archive that cannot be verified (no .md5 beside it, the mirror gives none) is
+    // never installed silently: one question that says jnext cannot check it; declined keeps it.
+    {
+        FakeMirror mirror("unverifiable");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        const bool placed = place(mirror, dir, "1_93D", false);
+        std::remove((mirror.dir / "NextPi-1_93D.tar.gz.md5").string().c_str());   // the mirror has none either
+        const std::string before = slurp(dir / "NextPi-1_93D.tar.gz");
+        std::string message;
+        int asked = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, dir.string(), "", asked, false);
+        o.confirm = [&](const std::string& m) { ++asked; message = m; return false; };
+        const nextpi::ProvisionResult r = nextpi::provision(o);
+        check("PIT-37",
+              "an archive with no .md5 beside it and none on the mirror is not installed silently: one "
+              "question says jnext cannot check it, declining installs nothing and keeps the archive "
+              "(GH #358; jnext-only, no VHDL counterpart)",
+              fixture && placed && r.status == sdcard::ProvisionStatus::Declined && asked == 1 &&
+                  message.find("cannot check") != std::string::npos &&
+                  message.find("NextPi-1_93D.tar.gz") != std::string::npos &&
+                  slurp(dir / "NextPi-1_93D.tar.gz") == before && !before.empty() &&
+                  nextpi::prepared_release(dir.string()).empty(),
+              fmt("fixture=%d placed=%d status=%d asked=%d msg='%.140s'", fixture ? 1 : 0, placed ? 1 : 0,
+                  static_cast<int>(r.status), asked, message.c_str()));
+    }
+
+    // ── PIT-38 — a COMPLETE <archive>.part (its rename failed last time) is finished with no
+    // request and then takes the archive check: installed, no question, nothing fetched.
+    {
+        FakeMirror mirror("completepart");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        const std::string archive = (dir / "NextPi-1_93D.tar.gz").string();
+        fs::copy_file(mirror.dir / "NextPi-1_93D.tar.gz", sdcard::partial_path(archive), ec);
+        fs::copy_file(mirror.dir / "NextPi-1_93D.tar.gz.md5", archive + ".md5", ec);
+        sdcard::ResumeInfo ri;
+        ri.url = mirror.url() + "/NextPi-1_93D.tar.gz";
+        ri.validator_kind = "etag"; ri.validator = "\"abc\"";
+        ri.total = fs::file_size(mirror.dir / "NextPi-1_93D.tar.gz", ec);
+        const bool rec = sdcard::write_resume_info(archive, ri);
+        int confirms = 0;
+        const nextpi::ProvisionResult r = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
+        check("PIT-38",
+              "a complete <archive>.part with its record is promoted to the archive with no request, then "
+              "checked and installed with no question; the partial and record are gone (GH #358; jnext-only, "
+              "no VHDL counterpart)",
+              fixture && rec && r.status == sdcard::ProvisionStatus::Ok && confirms == 0 &&
+                  mirror.fetched.empty() && installed_a(dir) && !fs::exists(sdcard::partial_path(archive)) &&
+                  !fs::exists(sdcard::resume_record_path(archive)),
+              fmt("fixture=%d rec=%d status=%d (%s) confirms=%d fetched=%zu", fixture ? 1 : 0, rec ? 1 : 0,
+                  static_cast<int>(r.status), r.error.c_str(), confirms, mirror.fetched.size()));
+    }
+
+    // ── PIT-39 — NO SECOND 5.7 GB HASH OUTSIDE THE BUSY DIALOG: a rejected local archive that the
+    // user agrees to replace is hashed once (inside "Checking the NextPi download"), and the
+    // fresh download once more (inside it too); nothing is hashed with the GUI frozen.
+    {
+        FakeMirror mirror("hashes");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        const bool placed = place(mirror, dir, "1_93D", true);
+        std::string whole = slurp(dir / "NextPi-1_93D.tar.gz");
+        { std::ofstream(dir / "NextPi-1_93D.tar.gz", std::ios::binary | std::ios::trunc) << whole.substr(0, whole.size() / 2); }
+        int confirms = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, dir.string(), "", confirms);
+        uint64_t inside = 0;
+        int checking = 0;
+        o.busy = [&](const std::string& phase, const std::function<bool()>& work) {
+            if (phase != "Checking the NextPi download") return work();
+            ++checking;
+            const uint64_t before = nextpi::md5_file_calls();
+            const bool ok = work();
+            inside += nextpi::md5_file_calls() - before;
+            return ok;
+        };
+        const uint64_t calls0 = nextpi::md5_file_calls();
+        const nextpi::ProvisionResult r = nextpi::provision(o);
+        const uint64_t total_calls = nextpi::md5_file_calls() - calls0;
+        check("PIT-39",
+              "replacing a rejected local archive hashes it once and the fresh download once, both inside the "
+              "\"Checking the NextPi download\" busy dialog: no hash is taken outside it (GH #358; jnext-only, "
+              "no VHDL counterpart)",
+              fixture && placed && r.status == sdcard::ProvisionStatus::Ok && checking >= 2 && total_calls == inside &&
+                  total_calls >= 2 && installed_a(dir),
+              fmt("fixture=%d placed=%d status=%d (%s) checking=%d hashes=%llu inside=%llu", fixture ? 1 : 0,
+                  placed ? 1 : 0, static_cast<int>(r.status), r.error.c_str(), checking,
+                  static_cast<unsigned long long>(total_calls), static_cast<unsigned long long>(inside)));
     }
 }
 

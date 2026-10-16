@@ -51,6 +51,9 @@ struct Opts {
     bool bad_range_start = false;  // a Range request gets 206 whose Content-Range starts at 0 (body from 0)
     bool redirect_first  = false;  // any path but /real gets 302 /real
     std::size_t drop_after = kNoDrop;   // close after this many body bytes (Content-Length still full)
+    bool bad_range_total = false;       // a Range request gets a 206 whose Content-Range total is wrong
+    int  fail_ranged_status = 0;        // >0: a Range request gets this status (e.g. 503) with no body
+    bool close_immediately = false;     // accept, read the request, answer nothing (a dead server)
     int chunk_delay_ms = 0;             // >0: send the body in 16 KiB pieces with this pause (a slow link)
 };
 
@@ -162,6 +165,12 @@ private:
             o = opts_;
         }
 
+        if (o.close_immediately) return;
+        if (!r.range.empty() && o.fail_ranged_status > 0) {
+            send_all(c, "HTTP/1.1 " + std::to_string(o.fail_ranged_status) +
+                            " Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            return;
+        }
         if (o.redirect_first && r.path != "/real") {
             send_all(c, "HTTP/1.1 302 Found\r\nLocation: /real\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
             return;
@@ -189,7 +198,8 @@ private:
         std::string head;
         if (partial) {
             head = "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes " + std::to_string(start) + "-" +
-                   std::to_string(total - 1) + "/" + std::to_string(total) + "\r\n";
+                   std::to_string(total - 1) + "/" +
+                   std::to_string(o.bad_range_total ? total + 1 : total) + "\r\n";
         } else {
             head = "HTTP/1.1 200 OK\r\n";
         }

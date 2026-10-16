@@ -937,4 +937,8 @@ plain GET. libcurl uses `CURLOPT_RANGE` with an explicit `If-Range` header, not
 the transfer. The file names, the record format and the decision table live once
 in `PartialDownload` (`sdcard_provisioner.cpp`); both backends only feed it
 headers and body. Residual corruption (a server that lies about its validator) is
-caught after the download: the NextPi MD5, the zip entry CRC.
+caught after the download: the NextPi MD5, the zip entry CRC. One classifier
+(`partial_state`) names the five states of a `.part`: a Complete one (whole file,
+only the final rename failed) is finished with no request and never refetched; an
+Oversize or Stale one is discarded; a Resumable one is continued, appended at an
+explicit 64-bit offset.

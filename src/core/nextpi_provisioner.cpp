@@ -4,6 +4,7 @@
 #include "core/log.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -42,6 +43,30 @@ const char* const kLatest         = "latest";
 const char* const kMirrorUrl      = "https://zx.xalior.com/NextPi2";
 
 namespace {
+
+std::atomic<uint64_t> g_md5_calls{0};
+
+// The files the provisioner itself creates while fetching: the archive, its
+// .md5, the "latest" listing, each with the backend's partial and record
+// suffixes. Anything else in the directory means a setup was tried there.
+bool is_fetch_file(const fs::directory_entry& e) {
+    std::error_code ec;
+    if (!e.is_regular_file(ec)) return false;
+    std::string n = e.path().filename().string();
+    for (const std::string& suf : {std::string(), std::string(".md5"), sdcard::partial_path(""),
+                                   sdcard::resume_record_path("")}) {
+        if (suf.empty() || (n.size() > suf.size() && n.compare(n.size() - suf.size(), suf.size(), suf) == 0)) {
+            const std::string base = suf.empty() ? n : n.substr(0, n.size() - suf.size());
+            if (base == ".listing.html") return true;
+            const std::string pre = "NextPi-", post = ".tar.gz";
+            if (base.size() > pre.size() + post.size() && base.compare(0, pre.size(), pre) == 0 &&
+                base.compare(base.size() - post.size(), post.size(), post) == 0 &&
+                valid_release_name(base.substr(pre.size(), base.size() - pre.size() - post.size())))
+                return true;
+        }
+    }
+    return false;
+}
 
 constexpr const char* kImageName   = "nextpi.img";
 constexpr const char* kReleaseName = "release";
@@ -209,6 +234,8 @@ int compare_release(const std::string& a, const std::string& b) {
     return i == a.size() ? -1 : 1;
 }
 
+uint64_t md5_file_calls() { return g_md5_calls.load(); }
+
 std::string unprepared_reason(const std::string& dir) {
     const fs::path d(dir);
     std::error_code ec;
@@ -230,6 +257,7 @@ std::string prepared_release(const std::string& dir) {
 // Windows build carries no OpenSSL. Streamed in 1 MiB reads like the OpenSSL
 // twin: the archive is gigabytes. "" on any failure, as there.
 std::string md5_file(const std::string& path) {
+    ++g_md5_calls;
     std::ifstream f(path, std::ios::binary);
     if (!f) return {};
     BCRYPT_ALG_HANDLE  alg  = nullptr;
@@ -274,6 +302,7 @@ std::string md5_file(const std::string& path) {
 }
 #else
 std::string md5_file(const std::string& path) {
+    ++g_md5_calls;
     std::ifstream f(path, std::ios::binary);
     if (!f) return {};
     EVP_MD_CTX* ctx = EVP_MD_CTX_new();
@@ -500,12 +529,14 @@ ProvisionResult provision(const ProvisionOptions& opts) {
     const auto busy           = opts.busy ? opts.busy
                                           : sdcard::BusyFn([](const std::string&, const std::function<bool()>& w) { return w(); });
     std::error_code ec;
-    // Did the user already put something here? (Archives do not count: they are
-    // handled below and are not "a setup that was rejected".)
+    // Did the user (or an earlier install) already put something here? The
+    // provisioner's own fetch files do not count: a lone archive is explained by
+    // the archive check below, a partial download by the continuation note. A
+    // manual unpack (`NextPi-1_93D.tar`, a `NextPi-1_93D/` folder) does count.
     bool dir_had_entries = false;
     if (fs::is_directory(dir, ec)) {
         for (const fs::directory_entry& e : fs::directory_iterator(dir, ec)) {
-            if (e.path().filename().string().rfind("NextPi-", 0) != 0) { dir_had_entries = true; break; }
+            if (!is_fetch_file(e)) { dir_had_entries = true; break; }
         }
     }
     ec.clear();
@@ -577,12 +608,34 @@ ProvisionResult provision(const ProvisionOptions& opts) {
         return d;
     };
 
+    const std::string archive_url = mirror + "/" + archive_name;
+    uint64_t part_have = 0, part_total = 0;
+    auto gb = [](uint64_t b) {
+        char t[32];
+        std::snprintf(t, sizeof t, "%.1f GB", static_cast<double>(b) / (1024.0 * 1024.0 * 1024.0));
+        return std::string(t);
+    };
+    // A finished download whose last step (the rename to the archive's name)
+    // failed last time: finish it now, with no request. It then takes the
+    // archive check below, and its MD5 is the judge.
+    if (!sdcard::regular_file_exists(archive) &&
+        sdcard::partial_state(archive, archive_url, part_have, part_total) == sdcard::PartialState::Complete) {
+        std::string perr;
+        if (!sdcard::finish_complete_partial(archive, archive_url, perr)) {
+            res.error = perr + "; the complete download is kept in " + sdcard::partial_path(archive) +
+                        " and is used next time";
+            Log::uart()->warn("NextPi: {}", res.error);
+            return res;
+        }
+    }
+
     // An archive already in the directory (fetched by hand, or left by an
     // interrupted run) is looked at BEFORE anything is asked: if it matches its
     // MD5 it is installed with no download. A rejected one is never deleted here;
     // a download, if the user agrees to one, overwrites it.
     bool reuse = false;
     std::string archive_note;
+    std::string local_digest;   // the archive's MD5 as computed by the check below
     if (sdcard::regular_file_exists(archive)) {
         std::string expected = md5_in(read_file(md5_path));
         std::string expected_from = md5_path;
@@ -599,6 +652,7 @@ ProvisionResult provision(const ProvisionOptions& opts) {
         if (!expected.empty()) {
             std::string actual;
             busy("Checking the NextPi download", [&] { actual = md5_file(archive); return !actual.empty(); });
+            local_digest = actual;
             if (actual == expected) {
                 reuse = true;
                 Log::uart()->info("NextPi: {} matches its MD5; installing it without downloading", archive);
@@ -618,14 +672,7 @@ ProvisionResult provision(const ProvisionOptions& opts) {
     // A download that stopped (GH #358): the backend kept `<archive>.part` and its
     // record, and continues it. Never adopted as an archive: only a finished
     // download is renamed to the archive's name.
-    const std::string archive_url = mirror + "/" + archive_name;
-    uint64_t part_have = 0, part_total = 0;
     const bool resuming = !reuse && sdcard::resumable_partial(archive, archive_url, part_have, part_total);
-    auto gb = [](uint64_t b) {
-        char t[32];
-        std::snprintf(t, sizeof t, "%.1f GB", static_cast<double>(b) / (1024.0 * 1024.0 * 1024.0));
-        return std::string(t);
-    };
     if (!reuse || !current.empty()) {
         std::ostringstream msg;
         if (resuming)
@@ -696,7 +743,15 @@ ProvisionResult provision(const ProvisionOptions& opts) {
             return res;
         }
         // An archive that checks out against the mirror's MD5 is reused.
-        if (!(sdcard::regular_file_exists(archive) && md5_file(archive) == expected)) {
+        // (The digest the check above already computed is reused: hashing 5.7 GB
+        // again outside busy() would freeze the GUI.)
+        bool already_good = false;
+        if (!local_digest.empty()) {
+            already_good = local_digest == expected;
+        } else if (sdcard::regular_file_exists(archive)) {
+            busy("Checking the NextPi download", [&] { already_good = md5_file(archive) == expected; return already_good; });
+        }
+        if (!already_good) {
             // A failed download does NOT delete the archive: the backend owns the
             // partial (`<archive>.part`, kept for resuming) and writes `archive`
             // only when complete, and one that wrongly reports failure for a
@@ -704,8 +759,16 @@ ProvisionResult provision(const ProvisionOptions& opts) {
             if (!download(archive_url, archive, opts.progress, err)) {
                 uint64_t h2 = 0, t2 = 0;
                 res.error = "NextPi download failed: " + err;
-                if (sdcard::resumable_partial(archive, archive_url, h2, t2))
+                switch (sdcard::partial_state(archive, archive_url, h2, t2)) {
+                case sdcard::PartialState::Resumable:
                     res.error += "; the " + gb(h2) + " fetched so far are kept and the download continues next time";
+                    break;
+                case sdcard::PartialState::Complete:
+                    res.error += "; the complete download is kept in " + sdcard::partial_path(archive) +
+                                 " and is used next time";
+                    break;
+                default: break;
+                }
                 return res;
             }
             std::string actual;

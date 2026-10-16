@@ -149,7 +149,8 @@ using CopyFn = std::function<bool(const std::string& src,
 // 5.7 GB NextPi download (or a large SD image) read as absent (GH #358).
 bool regular_file_exists(const std::string& path);
 
-std::string partial_path(const std::string& dest);   // dest + ".part"
+std::string partial_path(const std::string& dest);          // dest + ".part"
+std::string resume_record_path(const std::string& dest);    // dest + ".part.resume"
 
 struct ResumeInfo {
     std::string url;
@@ -160,10 +161,22 @@ struct ResumeInfo {
 bool read_resume_info(const std::string& dest, ResumeInfo& out);   // false: none / malformed
 bool write_resume_info(const std::string& dest, const ResumeInfo& info);
 void discard_partial(const std::string& dest);   // removes .part and its record
-// True with have/total when a resumable partial exists for exactly `url`:
-// record present, url equal, 0 < size of .part < total.
+// The state of `<dest>.part` for `url` (the ONE classifier):
+//   None      no .part
+//   Stale     .part with no/unreadable record, a record for another url, or empty
+//   Resumable record for url, 0 < size < total          (have/total set)
+//   Complete  record for url, size == total             (have = total)
+//   Oversize  record for url, size >  total             (foreign or damaged)
+// A Complete partial is finished (renamed) with no request, never refetched.
+enum class PartialState { None, Resumable, Complete, Oversize, Stale };
+PartialState partial_state(const std::string& dest, const std::string& url,
+                           uint64_t& have, uint64_t& total);
+// partial_state() == Resumable.
 bool resumable_partial(const std::string& dest, const std::string& url,
                        uint64_t& have, uint64_t& total);
+// Turn a Complete partial for `url` into `dest` with no transfer. False (err
+// set, partial kept) if there is none or the rename fails.
+bool finish_complete_partial(const std::string& dest, const std::string& url, std::string& err);
 
 // What the two backends read off an HTTP response (header names are matched
 // without regard to case: HTTP/2 sends them lowercase).
@@ -190,6 +203,8 @@ public:
     PartialDownload& operator=(const PartialDownload&) = delete;
 
     bool ranged() const { return ranged_; }
+    // The partial is already the whole file: call finish(), make no request.
+    bool complete() const { return complete_; }
     std::string range_value() const;      // "bytes=<have>-"
     std::string if_range_value() const;   // the validator, verbatim
 
@@ -214,7 +229,7 @@ private:
     void close_file();
     uint64_t part_size() const;
     std::string url_, dest_;
-    bool ranged_ = false, begun_ = false;
+    bool ranged_ = false, begun_ = false, complete_ = false;
     uint64_t have_ = 0, base_ = 0, total_ = 0;
     ResumeInfo rec_;
     FILE* f_ = nullptr;

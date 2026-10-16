@@ -16,7 +16,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # network or a NextPi image: the first run has no QEMU on its PATH, the second
 # answers the download prompt with end-of-input.
 #
-# SEVEN FACTS (the Pi's sound is in nextpi-audio-func, which needs a stand-in QEMU
+# EIGHT FACTS (the Pi's sound is in nextpi-audio-func, which needs a stand-in QEMU
 # playing a tone into the audio pipe):
 #   1. --nextpi with a ready NextPi directory and no QEMU installed exits 1 and
 #      says QEMU is not found (the install hint), without booting.
@@ -39,6 +39,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   7. A NextPi directory the provisioner cannot use (only an empty nextpi.img)
 #      is reported in the log with the missing file (GH #358), then the
 #      declined download starts jnext without NextPi (exit 0).
+#   8. A manual unpack (NextPi-1_93D.tar and a NextPi-1_93D/ folder holding the
+#      .img, GH #358's reporter's layout) is reported in the log with the
+#      missing nextpi.img: the provisioner's own fetch files are the only
+#      NextPi-* names that do not count as "a setup was tried".
 # Facts 3 and 4 run the GUI on Qt's offscreen platform, where the warning
 # dialog of fact 4 is not shown (nobody could dismiss it); the log line that
 # precedes it is what the row reads.
@@ -138,6 +142,20 @@ if want nextpi-func; then
     grep -Eq '\] \[uart\] \[warning\] NextPi: .*kernel\.img.* is missing' <<<"$out" \
         || fails+=("an unusable NextPi directory did not log which file is missing")
 
+    # Fact 8 — the reporter's manual unpack: the reason must reach the log.
+    rm -rf "$np"
+    mkdir -p "$np/NextPi-1_93D"
+    : >"$np/NextPi-1_93D.tar"
+    : >"$np/NextPi-1_93D/NextPi2-20260924.img"
+    rc=0
+    out=$(JNEXT_NEXTPI_MIRROR="file:///nonexistent-nextpi-mirror" \
+        timeout --foreground --kill-after=5s 60s \
+        env PATH="$bindir:$PATH" JNEXT_EXTRA_WINEPATH="$bindir" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" \
+        --nextpi --delayed-automatic-exit-frames 2 </dev/null 2>&1) || rc=$?
+    [[ $rc -eq 0 ]] || fails+=("--nextpi with a manually unpacked NextPi directory (download declined) exited $rc, want 0")
+    grep -Eq '\] \[uart\] \[warning\] NextPi: .*cannot be used: .*nextpi\.img is missing' <<<"$out" \
+        || fails+=("a manually unpacked NextPi directory did not log that nextpi.img is missing")
+
     # Facts 3 and 4 — a GUI session whose saved preference enables NextPi, with
     # the ready directory of fact 1 and still no QEMU on its PATH.
     conf="$JNEXT_CONFIG_DIR/jnext.conf"
@@ -179,7 +197,7 @@ if want nextpi-func; then
     rm -rf "$np"
 
     if [[ ${#fails[@]} -eq 0 ]]; then
-        pass_row " (--nextpi without QEMU exits 1 with the install hint; a declined download starts jnext without NextPi; --no-nextpi overrides the preference; a Preferences-only failure is logged and jnext runs on; with no QEMU nothing is offered or fetched; failures reach --log-file; an unusable directory names its missing file)"
+        pass_row " (--nextpi without QEMU exits 1 with the install hint; a declined download starts jnext without NextPi; --no-nextpi overrides the preference; a Preferences-only failure is logged and jnext runs on; with no QEMU nothing is offered or fetched; failures reach --log-file; an unusable directory, a manual unpack included, names its missing file)"
     else
         fail_row " (${fails[*]})"
     fi

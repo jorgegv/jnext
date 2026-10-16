@@ -309,10 +309,12 @@ UART 1, the Pi GPIO header's UART. Three pieces:
   is checked first (the `.md5` beside it is preferred, the mirror's is fetched
   only if there is none) and installed with no question when it matches; nothing
   is deleted before the user agrees to a download; a download step that fails
-  never deletes a complete file (the backend removes its own partial, and
-  Windows once reported failure for a finished 5.7 GB file); only a fresh
-  download whose MD5 differs is removed. `unprepared_reason` names the piece an
-  unusable directory lacks, and the question and the `[uart]` log both say it.
+  never deletes a complete file (the backend keeps the partial, writes the
+  archive's own name only when whole, and a complete `.part` whose rename failed
+  is finished next time with no request; Windows once reported failure for a
+  finished 5.7 GB file); only a fresh download whose MD5 differs is removed. `unprepared_reason` names the piece an
+  unusable directory lacks (the provisioner's own fetch files are the only
+  entries that do not count as a setup having been tried; a manual unpack does), and the question and the `[uart]` log both say it.
   File existence goes through `sdcard::regular_file_exists`
   (`std::filesystem`), never `::stat`: MinGW's `stat` is `stat64i32` and fails
   with `EOVERFLOW` for files of 4 GiB or more (GH #358). The download itself is
