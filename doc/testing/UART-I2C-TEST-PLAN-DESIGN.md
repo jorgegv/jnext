@@ -625,6 +625,9 @@ listed in Group 17 moved here in GH #331, and PIT-16..23 cover the Pi audio path
 | PIT-37 | an archive alone, no `.md5` beside it and none on the mirror; declined | one confirm saying `cannot check` the archive; `Declined`, nothing installed, archive byte-identical (GH #358 review). jnext-only, no VHDL counterpart |
 | PIT-38 | a complete `NextPi-1_93D.tar.gz.part` + record + the `.md5` | promoted to the archive with no request, installed with no confirm, `.part` and record gone (GH #358 review). jnext-only, no VHDL counterpart |
 | PIT-39 | a truncated archive + correct local `.md5`, replacement accepted; the busy seam counts md5 calls | every md5 hash happens inside a "Checking the NextPi download" busy call, none outside (GH #358 review). jnext-only, no VHDL counterpart |
+| PIT-40 | a complete `.part` + record + `.md5`; the archive's name is a non-empty directory (promotion fails) | `Failed`, error contains `the complete download is kept in`, no confirm, `.part` and record kept (GH #358 review 2). jnext-only, no VHDL counterpart |
+| PIT-41 | a good archive + a wrong local `.md5`, replacement accepted | `Ok`, only the mirror's `.md5` fetched, installed (GH #358 review 2). jnext-only, no VHDL counterpart |
+| PIT-42 | an archive alone, first `.md5` fetch fails, second works, accepted | `Ok`, every hash inside the "Checking" busy call (GH #358 review 2). jnext-only, no VHDL counterpart |
 
 Functional row `nextpi-link-func`: the real binary starts the stand-in QEMU, the
 launcher's link is attached to UART 1 over the platform's transport (the FIFO pair,

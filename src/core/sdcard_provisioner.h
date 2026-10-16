@@ -174,8 +174,9 @@ PartialState partial_state(const std::string& dest, const std::string& url,
 // partial_state() == Resumable.
 bool resumable_partial(const std::string& dest, const std::string& url,
                        uint64_t& have, uint64_t& total);
-// Turn a Complete partial for `url` into `dest` with no transfer. False (err
-// set, partial kept) if there is none or the rename fails.
+// Turn a Complete partial for `url` into `dest` with no transfer. False if the
+// rename fails (err set, partial kept) or if the partial is not Complete (err
+// unset; a Stale or Oversize one is discarded): check partial_state() first.
 bool finish_complete_partial(const std::string& dest, const std::string& url, std::string& err);
 
 // What the two backends read off an HTTP response (header names are matched

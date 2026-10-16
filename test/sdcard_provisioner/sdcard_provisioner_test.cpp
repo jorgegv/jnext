@@ -858,6 +858,34 @@ void test_resume_rows() {
               "status=" + std::to_string(st) + " lower=" + std::to_string(lower) + " mixed=" +
                   std::to_string(mixed) + " exact=" + std::to_string(exact));
     }
+
+    // 21: a failed SD download that left a COMPLETE partial says it is kept.
+    {
+        const std::string sddir = sdcard::default_sdcard_dir();
+        for (const std::string& f : {sdcard::default_sdcard_image_path(), sdcard::default_sdcard_raw_image_path(),
+                                     sdcard::default_sdcard_raw_image_path() + ".sha256"})
+            std::remove(f.c_str());
+        jtp::set_env("JNEXT_SDCARD_DISTRO_URL", "http://127.0.0.1:1/sn.zip");
+        sdcard::ProvisionOptions po;
+        po.auto_confirm = true;
+        po.download = [](const std::string& u, const std::string& dest, const sdcard::ProgressFn&, std::string& e) {
+            write_file(sdcard::partial_path(dest), std::vector<uint8_t>(5000, 'z'));
+            sdcard::ResumeInfo ri;
+            ri.url = u; ri.validator_kind = "etag"; ri.validator = "\"zip1\""; ri.total = 5000;
+            sdcard::write_resume_info(dest, ri);
+            e = "cannot move the partial: Permission denied";
+            return false;
+        };
+        const auto r = sdcard::provision_sd_card(po);
+        sdcard::discard_partial(sddir + "/sn-emulator.zip");
+        jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
+        check("PROV-RESUME-21",
+              "a failed SD-card download that left a COMPLETE partial says the complete download is kept "
+              "and the next start uses it",
+              r.status == sdcard::ProvisionStatus::Failed &&
+                  r.error.find("the complete download is kept and the next start uses it") != std::string::npos,
+              "status=" + std::to_string(static_cast<int>(r.status)) + " error='" + r.error.substr(0, 160) + "'");
+    }
 }
 
 } // namespace

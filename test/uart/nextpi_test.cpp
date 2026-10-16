@@ -1624,6 +1624,98 @@ static void test_nextpi_local_archive_rows() {
                   placed ? 1 : 0, static_cast<int>(r.status), r.error.c_str(), checking,
                   static_cast<unsigned long long>(total_calls), static_cast<unsigned long long>(inside)));
     }
+
+    // ── PIT-40 — a COMPLETE <archive>.part whose promotion fails (the archive's name is a
+    // non-empty directory) stops there: Failed, "the complete download is kept in", nothing asked.
+    {
+        FakeMirror mirror("promotefail");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        std::error_code ec;
+        const std::string archive = (dir / "NextPi-1_93D.tar.gz").string();
+        fs::create_directories(archive + "/obstacle", ec);
+        fs::copy_file(mirror.dir / "NextPi-1_93D.tar.gz", sdcard::partial_path(archive), ec);
+        fs::copy_file(mirror.dir / "NextPi-1_93D.tar.gz.md5", archive + ".md5", ec);
+        sdcard::ResumeInfo ri;
+        ri.url = mirror.url() + "/NextPi-1_93D.tar.gz";
+        ri.validator_kind = "etag"; ri.validator = "\"abc\"";
+        ri.total = fs::file_size(mirror.dir / "NextPi-1_93D.tar.gz", ec);
+        const bool rec = sdcard::write_resume_info(archive, ri);
+        int confirms = 0;
+        const nextpi::ProvisionResult r = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
+        check("PIT-40",
+              "a complete <archive>.part that cannot be promoted (its name is taken) ends in Failed saying the "
+              "complete download is kept, asks nothing and keeps the partial and its record (GH #358; "
+              "jnext-only, no VHDL counterpart)",
+              fixture && rec && r.status == sdcard::ProvisionStatus::Failed && confirms == 0 &&
+                  r.error.find("the complete download is kept in") != std::string::npos &&
+                  fs::exists(sdcard::partial_path(archive)) && fs::exists(sdcard::resume_record_path(archive)),
+              fmt("fixture=%d rec=%d status=%d confirms=%d error='%.160s'", fixture ? 1 : 0, rec ? 1 : 0,
+                  static_cast<int>(r.status), confirms, r.error.c_str()));
+    }
+
+    // ── PIT-41 — a GOOD archive beside a WRONG local .md5: the user agrees, the mirror's .md5 matches
+    // the digest already computed, and the archive is installed with no archive download.
+    {
+        FakeMirror mirror("wrongmd5");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        const bool placed = place(mirror, dir, "1_93D", true);
+        { std::ofstream(dir / "NextPi-1_93D.tar.gz.md5") << std::string(32, '0') << "\n"; }
+        int confirms = 0;
+        const nextpi::ProvisionResult r = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
+        check("PIT-41",
+              "a good archive beside a wrong local .md5, once the user agrees, is installed after fetching only "
+              "the mirror's .md5: the digest already computed is reused, the archive is not downloaded again "
+              "(GH #358; jnext-only, no VHDL counterpart)",
+              fixture && placed && r.status == sdcard::ProvisionStatus::Ok && confirms == 1 &&
+                  mirror.fetched == std::vector<std::string>({md5_url}) && installed_a(dir),
+              fmt("fixture=%d placed=%d status=%d (%s) confirms=%d fetched=%zu", fixture ? 1 : 0, placed ? 1 : 0,
+                  static_cast<int>(r.status), r.error.c_str(), confirms, mirror.fetched.size()));
+    }
+
+    // ── PIT-42 — the sibling hash path: an archive that could not be checked (the first .md5 fetch
+    // failed), then the user agrees and the second fetch works: it is hashed once, INSIDE the busy dialog.
+    {
+        FakeMirror mirror("lateMd5");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        const bool placed = place(mirror, dir, "1_93D", false);
+        int confirms = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, dir.string(), "", confirms);
+        sdcard::DownloadFn real = mirror.download();
+        int md5_fetches = 0;
+        o.download = [real, &md5_fetches](const std::string& u, const std::string& dest, const sdcard::ProgressFn& p,
+                                          std::string& e) {
+            if (u.size() > 4 && u.compare(u.size() - 4, 4, ".md5") == 0 && ++md5_fetches == 1) {
+                e = "Could not resolve hostname";
+                return false;
+            }
+            return real(u, dest, p, e);
+        };
+        uint64_t inside = 0;
+        int checking = 0;
+        o.busy = [&](const std::string& phase, const std::function<bool()>& work) {
+            if (phase != "Checking the NextPi download") return work();
+            ++checking;
+            const uint64_t before = nextpi::md5_file_calls();
+            const bool ok = work();
+            inside += nextpi::md5_file_calls() - before;
+            return ok;
+        };
+        const uint64_t calls0 = nextpi::md5_file_calls();
+        const nextpi::ProvisionResult r = nextpi::provision(o);
+        const uint64_t total_calls = nextpi::md5_file_calls() - calls0;
+        check("PIT-42",
+              "an archive that could not be checked, once the user agrees and the .md5 arrives, is hashed "
+              "inside the \"Checking the NextPi download\" busy dialog and installed without a download "
+              "(GH #358; jnext-only, no VHDL counterpart)",
+              fixture && placed && r.status == sdcard::ProvisionStatus::Ok && md5_fetches == 2 && checking >= 1 &&
+                  total_calls >= 1 && total_calls == inside && installed_a(dir),
+              fmt("fixture=%d placed=%d status=%d (%s) md5_fetches=%d checking=%d hashes=%llu inside=%llu",
+                  fixture ? 1 : 0, placed ? 1 : 0, static_cast<int>(r.status), r.error.c_str(), md5_fetches, checking,
+                  static_cast<unsigned long long>(total_calls), static_cast<unsigned long long>(inside)));
+    }
 }
 
 int main(int argc, char** argv) {
