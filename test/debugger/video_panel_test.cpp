@@ -1089,8 +1089,9 @@ static void test_tilemap_per_line_scroll(Emulator& emu) {
 // Layer 2 and the tilemap fetch their memory at beam time, so the panel's
 // replay (Debugger::render_layer -> replay_rewind / replay_line) must show a
 // row ABOVE a later write as it was fetched, and a row BELOW it with the write,
-// exactly as the live render does. Both rows write through the real Mmu (so the
-// write is logged) at a coarse line between the two rows under test.
+// exactly as the live render does. Both rows write with the debugger's own page
+// poke (so the write is logged by Mmu::log_page_store) at a coarse line between
+// the two rows under test.
 
 static void test_beam_replay_views(Emulator& emu) {
     set_group("DVP-BR");
@@ -1122,11 +1123,16 @@ static void test_beam_replay_views(Emulator& emu) {
         emu.mmu().attr_mux_start_frame(emu.video_timing().ula_prefetch_origin_hc(),
                                        emu.video_timing().vblank_top());
         emu.mmu().sram_log_arm();
-        emu.mmu().set_l2_port(0x01, 9);                 // write-over, bank 9
+        // The writes are the debugger's own page pokes (a script's `set
+        // phys[]`): they do not go through Mmu::write(), so they must be
+        // logged by their own path (Mmu::log_page_store), with the coarse tag.
+        // Layer 2 bank 9 is logical pages 0x12 / 0x13.
         emu.mmu().attr_mux_set_current_line(WRITE_LINE);
-        emu.mmu().write(static_cast<uint16_t>(above), IDX_NEW);
-        emu.mmu().write(static_cast<uint16_t>(below), IDX_NEW);
-        emu.mmu().set_l2_port(0x00, 9);
+        const uint8_t new_byte = IDX_NEW;
+        dbg.poke(0, jnext::dbg::MemSpace::page(static_cast<uint16_t>(0x12 + (above >> 13))),
+                 above & 0x1FFF, 1, &new_byte);
+        dbg.poke(0, jnext::dbg::MemSpace::page(static_cast<uint16_t>(0x12 + (below >> 13))),
+                 below & 0x1FFF, 1, &new_byte);
 
         // The frame's own render has already walked the log to its end: the
         // panel must rewind and re-apply per row.
@@ -1169,11 +1175,11 @@ static void test_beam_replay_views(Emulator& emu) {
         begin_frame(emu);
         emu.mmu().attr_mux_start_frame(emu.video_timing().ula_prefetch_origin_hc(),
                                        emu.video_timing().vblank_top());
-        emu.mmu().set_page(3, 0x0B);                     // bank 5 high half at 0x6000
         emu.mmu().attr_mux_set_current_line(WRITE_LINE);
-        emu.mmu().write(static_cast<uint16_t>(0x6000 + (TM_MAP_OFF - 0x2000)), 2);
-        emu.mmu().write(static_cast<uint16_t>(
-            0x6000 + (TM_MAP_OFF - 0x2000) + 20 * TM_TILES_PER_ROW * 2), 2);
+        const uint8_t new_tile = 2;                      // debugger page pokes, as above
+        dbg.poke(0, jnext::dbg::MemSpace::page(0x0B), TM_MAP_OFF - 0x2000, 1, &new_tile);
+        dbg.poke(0, jnext::dbg::MemSpace::page(0x0B),
+                 TM_MAP_OFF - 0x2000 + 20 * TM_TILES_PER_ROW * 2, 1, &new_tile);
 
         // As above: the frame's own render left the replay at the end.
         emu.mmu().attr_mux_apply_line(Renderer::FB_HEIGHT - 1);

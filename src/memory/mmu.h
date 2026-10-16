@@ -577,34 +577,7 @@ public:
         // GH #362 also the tilemap (map and tile definitions anywhere in
         // bank 5 or the bank 7 BRAM) and LoRes. Cost: a page compare and
         // one log append per write that lands there.
-        {
-            const uint8_t page = slots_[slot];
-            if (page == kAttrMuxBank5Page || page == kAttrMuxBank5HiPage
-                || page == kAttrMuxBank7Page) {
-                const uint16_t off = addr & 0x1FFF;
-                // Prefer the beam position derived from THIS write's own
-                // T-state (fuse_z80_writebyte -> attr_mux_set_write_pos)
-                // over the on_scanline() tag, which is only refreshed
-                // between instructions and is therefore stale for any
-                // write inside an instruction that straddles a scanline
-                // boundary. Both halves of the position come from the
-                // same source: a CPU write's own (line, hc), or the
-                // coarse (line, hc) every other writer takes. The CPU's
-                // position is valid for its ONE write only --
-                // fuse_z80_writebyte() ends it with attr_mux_end_write()
-                // -- so a DMA, loader or debugger write can never inherit
-                // it (GH #278 WP4d).
-                uint16_t line, hc;
-                write_tag_(line, hc);
-                attr_mux_write_pos_valid_ = false;
-                if (page == kAttrMuxBank7Page)
-                    attr_mux7_.record_write(line, hc, off, val);
-                else
-                    attr_mux5_.record_write(
-                        line, hc,
-                        off + (page == kAttrMuxBank5HiPage ? 0x2000u : 0u), val);
-            }
-        }
+        attr_mux_record_(slots_[slot], addr & 0x1FFF, val);
         return true;
     }
 
@@ -646,6 +619,17 @@ public:
     /// it becomes enabled mid-frame; the log then records until the frame ends.
     void sram_log_arm() { sram_log_.arm(); }
     const SramBeamLog& sram_log() const { return sram_log_; }
+
+    /// Log a store made straight into the backing byte of logical page `page`
+    /// (offset `off`, at `dest`) that does not go through write(): the
+    /// debugger's poke(Page), i.e. a script's `set phys[]`. It is not a
+    /// CPU-mapped write, but the beam replays must see it like any other
+    /// (coarse tag). Call BEFORE the store, as the SRAM log keeps the byte it
+    /// overwrites. GH #362.
+    void log_page_store(uint8_t page, uint16_t off, const uint8_t* dest, uint8_t val) {
+        sram_log_write_(dest, val);
+        attr_mux_record_(page, off, val);
+    }
 
     /// True beam position at the exact T-state the write lands on the bus,
     /// as derived from the FUSE T-state counter in fuse_z80_writebyte().
@@ -1844,6 +1828,34 @@ private:
     uint16_t       attr_mux_write_hc_        = 0;
     bool           attr_mux_write_pos_valid_ = false;
     int            attr_mux_vblank_top_      = 0;
+
+    /// Record a store into logical page `page` at `off` with the VRAM beam
+    /// replay, if the page is bank 5 (0x0A/0x0B) or the bank 7 BRAM (0x0E).
+    /// Keys off the logical page, which is identical for both backing stores
+    /// (plain ram_ pages on standalone 48K/128K/+3, the dedicated
+    /// bank5_vram_/bank7_bram_ buffers on Next machines). Cost: a page compare
+    /// and one log append per write that lands there.
+    ///
+    /// The beam position is the CPU write's own (line, hc) when
+    /// fuse_z80_writebyte() set one for THIS write (attr_mux_set_write_pos), over
+    /// the on_scanline() tag, which is only refreshed between instructions and
+    /// is therefore stale for any write inside an instruction that straddles a
+    /// scanline boundary; otherwise the coarse tag every other writer takes
+    /// (write_tag_()). The CPU's position is valid for its ONE write only --
+    /// fuse_z80_writebyte() ends it with attr_mux_end_write() -- so a DMA,
+    /// loader or debugger write can never inherit it (GH #278 WP4d).
+    void attr_mux_record_(uint8_t page, uint16_t off, uint8_t val) {
+        if (page != kAttrMuxBank5Page && page != kAttrMuxBank5HiPage
+            && page != kAttrMuxBank7Page) return;
+        uint16_t line, hc;
+        write_tag_(line, hc);
+        attr_mux_write_pos_valid_ = false;
+        if (page == kAttrMuxBank7Page)
+            attr_mux7_.record_write(line, hc, off, val);
+        else
+            attr_mux5_.record_write(
+                line, hc, off + (page == kAttrMuxBank5HiPage ? 0x2000u : 0u), val);
+    }
 
     /// The beam position tag of the write being made now: the CPU's own
     /// (line, hc) when fuse_z80_writebyte() set one for this write, else the
