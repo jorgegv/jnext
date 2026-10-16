@@ -148,7 +148,7 @@ if want mouse-release-func; then
         done
 
         # Arms 6-7: the CLI itself, no display needed.
-        rc6=0; err6=$(env LANG=C "$JNEXT" --headless --mouse-release bogus 2>&1 >/dev/null) || rc6=$?
+        rc6=0; err6=$(env LANG=C timeout --kill-after=5s 30s "$JNEXT" --headless --mouse-release bogus 2>&1 >/dev/null) || rc6=$?
         [[ "$rc6" -eq 1 && "$err6" == *"ctrl-alt, middle-click, esc"* ]] \
             || bad+=("arm 6: bogus value gave exit $rc6 / '$err6'")
         rc7=0; err7=$(env LANG=C timeout --kill-after=5s 60s "$JNEXT" --headless --machine 48k \
