@@ -186,7 +186,17 @@ in the machine-side class, plus a stated policy.
   delta, re-centre, or ignore the echo of its own warp. SDL does not use it,
   because its relative mode does the equivalent natively. Both frontends do
   use its `release_chord()` for the release hint: Qt on macOS reads Command as
-  Ctrl, so the chord there is Alt+Cmd (issue #307). Its default policy
+  Ctrl, so the chord there is Alt+Cmd (issue #307). The release gesture itself
+  is configurable (GH #365): `ReleaseFilter` is the toolkit-free decision for
+  one of three exclusive methods (`ctrl-alt`, `middle-click`, `esc`), returning
+  per event whether to release and whether to consume it, and `release_hint()`
+  is the one spelling of the gesture for every title, tip, log line and
+  Preferences label. Qt calls the filter from `keyPressEvent`, `keyReleaseEvent`
+  and `mousePressEvent`; SDL calls it through the templates of
+  `sdl_pointer_release.h`, so a suite can drive them through the real
+  `SdlInput::poll()`. Ctrl+Alt is deliberately not consumed (swallowing Alt would
+  desync `Keyboard::alt_held_`); Esc is consumed whole, including SDL repeats and
+  the release, and a focus loss forgets a pending swallow. Its default policy
   measures every delta from the centre, which needs a warp that lands at once:
   X11 and Windows. macOS and Wayland get a second policy,
   `DeferredWarpPolicy` (issue #303). On macOS `QCursor::setPos` is a synthetic

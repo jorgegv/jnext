@@ -3806,6 +3806,17 @@ saved choice for this run.</dd>
 <strong>--joy1-device</strong>. The two connectors cannot name the same
 controller. Interactive (SDL/Qt) frontends only; inert under
 <strong>--headless</strong>.</dd>
+<dt><strong>--mouse-release</strong> <em>METHOD</em></dt>
+<dd>How a captured mouse is released: <code>ctrl-alt</code> (default; Alt+Cmd in
+the Qt GUI on macOS), <code>middle-click</code> or <code>esc</code>. The methods are
+exclusive: only the one chosen releases. <code>ctrl-alt</code> is not consumed
+(Alt still types its compounds); the middle click and Esc are not
+passed to the program. Esc is the ZX BREAK key whenever the mouse is
+not captured, and <code>middle-click</code> needs a 3-button mouse. Wins over
+the saved GUI preference for this run. Interactive (SDL/Qt)
+frontends only; inert under <strong>--headless</strong>. The GUI equivalent is
+<em>Release captured mouse with</em> under <strong>Settings &gt; Preferences &gt;
+Input</strong>, which applies live.</dd>
 <dt><strong>--joy-uart-rx</strong> <em>FILE</em></dt>
 <dd>
 <p>Attach <em>FILE</em> as a serial byte source on the joystick-port UART RX

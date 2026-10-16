@@ -10,7 +10,8 @@
 #include "platform/render_policy.h"
 #include "platform/quick_snapshot_chord.h"   // GH #321
 #include "core/quick_snapshot.h"
-#include "platform/pointer_capture.h"   // GH #307 release_chord
+#include "platform/pointer_capture.h"   // GH #307 release_chord, GH #365 release_hint
+#include "platform/sdl_pointer_release.h"
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include <cmath>
@@ -54,13 +55,9 @@ bool SdlApp::init(int argc, char* argv[]) {
     // Build the Kempston mouse host adapter now that emulator_ is initialised.
     mouse_dispatcher_ = std::make_unique<MouseDispatcher>(emulator_.mouse());
     input_.on_mouse = [this](const SDL_Event& e) {
-        // Uncaptured the pointer belongs to the desktop; clicking the window
-        // is how you hand it to the guest (same gesture as the Qt frontend).
-        if (!mouse_captured_) {
-            if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) set_mouse_captured(true);
-            return;
-        }
-        mouse_dispatcher_->handle_sdl_event(e);
+        sdl_pointer_release::route_sdl_mouse(
+            e, release_filter_, mouse_captured_,
+            [this](bool on) { set_mouse_captured(on); }, *mouse_dispatcher_);
     };
 
     // Build the joystick host adapter (G42 closure — JOY-WIRE-02/03/04).
@@ -126,23 +123,14 @@ bool SdlApp::init(int argc, char* argv[]) {
     wire_host_keys(input_, key_router_, [this](SDL_Scancode sc, bool pressed) {
         // GH #321 — quick-snapshot chords: the tracker sees every event.
         const jnext::QuickChord quick = quick_chords_.on_key(static_cast<int>(sc), pressed);
+        // GH #365 — the pointer-release gesture (Ctrl+Alt, Esc; the middle
+        // click is in on_mouse). A consumed key reaches neither the hotkeys
+        // nor the Router.
+        if (sdl_pointer_release::route_sdl_release_key(
+                release_filter_, sc, pressed, SDL_GetModState(), mouse_captured_,
+                [this](bool on) { set_mouse_captured(on); }))
+            return;
         if (pressed) {
-            // Ctrl+Alt releases the pointer — the VirtualBox/VMware
-            // convention, and the same combo the Qt frontend uses. It is
-            // checked on the modifier keys themselves rather than bound to a
-            // letter: every plain Ctrl+<key> is a real ZX sequence (Ctrl is
-            // Symbol Shift — issue #115), so a letter shortcut would steal it
-            // from the guest.
-            if (mouse_captured_ &&
-                (sc == SDL_SCANCODE_LALT  || sc == SDL_SCANCODE_RALT ||
-                 sc == SDL_SCANCODE_LCTRL || sc == SDL_SCANCODE_RCTRL)) {
-                const SDL_Keymod m = SDL_GetModState();
-                if ((m & SDL_KMOD_CTRL) && (m & SDL_KMOD_ALT)) {
-                    set_mouse_captured(false);
-                    // Not consumed — see the Qt handler: swallowing the Alt
-                    // key-down would desync Keyboard's host Alt-modifier state.
-                }
-            }
             // GH #321 — Alt+Shift+F5 / Alt+Shift+F9, tested BEFORE the F-key block below
             // so Alt+Shift+F9 is not the Multiface NMI; an autorepeat of the chord
             // is swallowed. The tracker (platform/quick_snapshot_chord.h) keeps
@@ -204,6 +192,16 @@ bool SdlApp::init(int argc, char* argv[]) {
         // reachable only through a live SDL window.
         key_router_.on_host_key(sc, pressed);
     });
+
+    // GH #365 — a swallowed Esc's release goes wherever took the keyboard:
+    // forget it, then let the Router release what the guest holds.
+    {
+        auto router_lost = input_.on_keyboard_lost;
+        input_.on_keyboard_lost = [this, router_lost]() {
+            release_filter_.reset();
+            if (router_lost) router_lost();
+        };
+    }
 
     // GH #276 B4 — THE HOSTED DEBUGGER BACKEND (the B4 plan's §6.1), exactly as
     // in HeadlessApp::init(): built on the initialised machine, kept across every
@@ -757,6 +755,6 @@ void SdlApp::set_mouse_captured(bool on)
     }
     // SDL's KMOD_CTRL is the physical Control key on every platform (GH #307).
     Log::platform()->info("Mouse {} ({})", on ? "captured" : "released",
-                          on ? std::string(pointer_capture::release_chord(false)) + " to release"
+                          on ? std::string(pointer_capture::release_hint(release_filter_.method(), false)) + " to release"
                              : std::string("click the window to capture"));
 }

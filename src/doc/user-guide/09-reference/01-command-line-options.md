@@ -219,6 +219,18 @@ with status 1.
     controller. Interactive (SDL/Qt) frontends only; inert under
     **--headless**.
 
+**--mouse-release** *METHOD*
+:   How a captured mouse is released: `ctrl-alt` (default; Alt+Cmd in
+    the Qt GUI on macOS), `middle-click` or `esc`. The methods are
+    exclusive: only the one chosen releases. `ctrl-alt` is not consumed
+    (Alt still types its compounds); the middle click and Esc are not
+    passed to the program. Esc is the ZX BREAK key whenever the mouse is
+    not captured, and `middle-click` needs a 3-button mouse. Wins over
+    the saved GUI preference for this run. Interactive (SDL/Qt)
+    frontends only; inert under **--headless**. The GUI equivalent is
+    *Release captured mouse with* under **Settings \> Preferences \>
+    Input**, which applies live.
+
 **--joy-uart-rx** *FILE*
 
 :   Attach *FILE* as a serial byte source on the joystick-port UART RX
