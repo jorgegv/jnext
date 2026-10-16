@@ -1,4 +1,5 @@
 #include "video/layer2.h"
+#include "memory/sram_beam_log.h"
 #include "video/palette.h"
 #include "memory/ram.h"
 #include "core/log.h"
@@ -556,6 +557,13 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
     // a live NextREG read.
     uint8_t transp_rgb = transparent_rgb;
 
+    // GH #362 — read the bitmap as the beam fetched it (layer2.vhd: one
+    // pixel ahead, `hc_eff <= hc + 1`), not as it is at the end of the frame.
+    // Only when something was written since the log armed: otherwise every
+    // byte is its live value.
+    const SramBeamLog* const blog =
+        (sram_log_ && sram_log_->started() && sram_log_->any_writes()) ? sram_log_ : nullptr;
+
     if (resolution_ == 0) {
         // ---------------------------------------------------------------
         // 256x192 @ 8bpp (row-major)
@@ -631,7 +639,8 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
 
                 uint32_t l2_addr = l2_addr_base + src_x;
                 uint32_t ram_addr = compute_ram_addr(seg_bank, l2_addr, rom_in_sram);
-                uint8_t pixel = ram.read(ram_addr);
+                uint8_t pixel = blog ? blog->read(ram_addr, blog->narrow_fetch_hc(x), ram)
+                                     : ram.read(ram_addr);
 
                 uint8_t colour_idx = static_cast<uint8_t>(
                     ((pixel >> 4) + palette_offset_) << 4 | (pixel & 0x0F));
@@ -727,7 +736,8 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
                 // Column-major: addr = x * 256 + y (17-bit).
                 uint32_t l2_addr = static_cast<uint32_t>(src_x) * 256 + src_y;
                 uint32_t ram_addr = compute_ram_addr(seg_bank, l2_addr, rom_in_sram);
-                uint8_t pixel = ram.read(ram_addr);
+                uint8_t pixel = blog ? blog->read(ram_addr, blog->wide_fetch_hc(x), ram)
+                                     : ram.read(ram_addr);
 
                 uint8_t colour_idx = static_cast<uint8_t>(
                     ((pixel >> 4) + palette_offset_) << 4 | (pixel & 0x0F));
@@ -816,7 +826,8 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
 
                 uint32_t l2_addr = static_cast<uint32_t>(src_col) * 256 + src_y;
                 uint32_t ram_addr = compute_ram_addr(seg_bank, l2_addr, rom_in_sram);
-                uint8_t byte = ram.read(ram_addr);
+                uint8_t byte = blog ? blog->read(ram_addr, blog->wide_fetch_hc(col), ram)
+                                    : ram.read(ram_addr);
 
                 // High nibble = left pixel.
                 uint8_t left_nib = (byte >> 4) & 0x0F;

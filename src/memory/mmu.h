@@ -10,7 +10,8 @@
 #include "cpu/z80_cpu.h"
 #include "debug/debug_state.h"
 #include "memory/contention.h"   // for MachineType
-#include "memory/attribute_mux.h" // G12 — Nirvana-class attribute replay
+#include "memory/attribute_mux.h"
+#include "memory/sram_beam_log.h" // G12 — Nirvana-class attribute replay
 
 
 namespace jnext { namespace save { class StateDesc; } }
@@ -513,7 +514,10 @@ public:
             uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
             uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page | ((addr >> 13) & 1)));
             uint8_t* p = ram_.page_ptr(phys_page);
-            if (p) p[addr & 0x1FFF] = val;
+            if (p) {
+                sram_log_write_(p + (addr & 0x1FFF), val);
+                p[addr & 0x1FFF] = val;
+            }
             return p != nullptr;
         }
         int slot = addr >> 13;
@@ -529,7 +533,10 @@ public:
         if (nr_8c_altrom_en() && nr_8c_altrom_rw() &&
             !config_mode_ && addr < 0x4000 && read_only_[slot]) {
             uint8_t* p = ram_.page_ptr(altrom_sram_page_(addr));
-            if (p) p[addr & 0x1FFF] = val;
+            if (p) {
+                sram_log_write_(p + (addr & 0x1FFF), val);
+                p[addr & 0x1FFF] = val;
+            }
             return p != nullptr;
         }
         // Config-mode routing (VHDL zxnext.vhd:3044-3050, sram_pre_rdonly<='0'):
@@ -538,12 +545,16 @@ public:
         // tbblue.fw's load_roms() populates ROM content in SRAM.
         if (config_mode_ && addr < 0x4000 && read_only_[slot]) {
             uint8_t* p = ram_.page_ptr((static_cast<uint16_t>(nr_04_romram_bank_) << 1) | slot);
-            if (p) p[addr & 0x1FFF] = val;
+            if (p) {
+                sram_log_write_(p + (addr & 0x1FFF), val);
+                p[addr & 0x1FFF] = val;
+            }
             return p != nullptr;
         }
         if (read_only_[slot]) return false;
         uint8_t* ptr = write_ptr_[slot];
         if (!ptr) return false;
+        sram_log_write_(ptr + (addr & 0x1FFF), val);
         ptr[addr & 0x1FFF] = val;
         // VHDL zxnext.vhd:4498-4509 — p3_floating_bus_dat captures cpu_do
         // on every contended memory write. Verify9-memory class-(c) →
@@ -583,9 +594,8 @@ public:
                 // fuse_z80_writebyte() ends it with attr_mux_end_write()
                 // -- so a DMA, loader or debugger write can never inherit
                 // it (GH #278 WP4d).
-                const bool     own  = attr_mux_write_pos_valid_;
-                const uint16_t line = own ? attr_mux_write_line_ : attr_mux_current_line_;
-                const uint16_t hc   = own ? attr_mux_write_hc_   : attr_mux_current_hc_;
+                uint16_t line, hc;
+                write_tag_(line, hc);
                 attr_mux_write_pos_valid_ = false;
                 if (page == kAttrMuxBank7Page)
                     attr_mux7_.record_write(line, hc, off, val);
@@ -626,7 +636,16 @@ public:
                                AttributeMux::kBank5Bytes);
         attr_mux7_.start_frame(bank7_vram_baseline_ptr(), hc_origin,
                                AttributeMux::kBank7Bytes);
+        // The Layer 2 SRAM log restarts with the VRAM mux, disarmed
+        // (sram_log_arm(), GH #362).
+        sram_log_.start_frame(hc_origin, static_cast<uint32_t>(ram_.size()));
     }
+
+    /// Start logging SRAM writes for Layer 2's beam-time fetch (sram_beam_log.h).
+    /// The emulator calls it when Layer 2 is enabled at frame start and when
+    /// it becomes enabled mid-frame; the log then records until the frame ends.
+    void sram_log_arm() { sram_log_.arm(); }
+    const SramBeamLog& sram_log() const { return sram_log_; }
 
     /// True beam position at the exact T-state the write lands on the bus,
     /// as derived from the FUSE T-state counter in fuse_z80_writebyte().
@@ -680,6 +699,7 @@ public:
     void attr_mux_rewind_to_baseline() {
         attr_mux5_.rewind_to_baseline();
         attr_mux7_.rewind_to_baseline();
+        sram_log_.rewind_to_baseline();
     }
 
     /// Set the scanline the VRAM replay of both banks resolves against.
@@ -687,6 +707,7 @@ public:
     void attr_mux_apply_line(int line) {
         attr_mux5_.apply_changes_for_line(line);
         attr_mux7_.apply_changes_for_line(line);
+        sram_log_.apply_changes_for_line(line);
     }
 
     /// Drain any remaining log entries (e.g. tagged past FB_HEIGHT) so
@@ -1810,6 +1831,7 @@ private:
 
     AttributeMux   attr_mux5_;
     AttributeMux   attr_mux7_;
+    SramBeamLog    sram_log_;
     uint16_t       attr_mux_current_line_ = 0;
     // Round 4 column-accurate resolution: the coarse 7 MHz-domain hc tag
     // of a NON-CPU write — 0 in production, set by test fixtures. NOT
@@ -1822,6 +1844,32 @@ private:
     uint16_t       attr_mux_write_hc_        = 0;
     bool           attr_mux_write_pos_valid_ = false;
     int            attr_mux_vblank_top_      = 0;
+
+    /// The beam position tag of the write being made now: the CPU's own
+    /// (line, hc) when fuse_z80_writebyte() set one for this write, else the
+    /// coarse (line, hc) every other writer (DMA, loader, debugger) takes. ONE
+    /// source for every beam-replay recorder (the VRAM mux and the Layer 2 SRAM
+    /// log), so a write is tagged the same by both (GH #362).
+    void write_tag_(uint16_t& line, uint16_t& hc) const {
+        const bool own = attr_mux_write_pos_valid_;
+        line = own ? attr_mux_write_line_ : attr_mux_current_line_;
+        hc   = own ? attr_mux_write_hc_   : attr_mux_current_hc_;
+    }
+
+    /// Log the store of `val` to `dest` for Layer 2's beam-time fetch, if the
+    /// log is recording and `dest` is a byte of the SRAM (`ram_`): not the
+    /// dedicated bank 5 / bank 7 VRAM buffers of a Next machine, which Layer 2
+    /// cannot fetch. Call BEFORE the store: the log keeps the byte it overwrites.
+    void sram_log_write_(const uint8_t* dest, uint8_t val) {
+        if (!sram_log_.recording()) return;
+        const uint8_t* base = ram_.page_ptr(0);
+        if (!base || dest < base) return;
+        const size_t off = static_cast<size_t>(dest - base);
+        if (off >= ram_.size()) return;
+        uint16_t line, hc;
+        write_tag_(line, hc);
+        sram_log_.record_write(line, hc, static_cast<uint32_t>(off), *dest, val);
+    }
 
     /// Pointer to the live bank-5 VRAM (16 KB: pages 0x0A then 0x0B,
     /// contiguous in both backing stores), wherever it lives (dedicated

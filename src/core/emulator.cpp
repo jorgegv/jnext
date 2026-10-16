@@ -3947,6 +3947,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   bits 3:0 = reserved
     nextreg_.set_write_handler(0x69, [this](uint8_t v) -> uint8_t {
         layer2_.set_enabled((v & 0x80) != 0);
+        if (layer2_.enabled()) mmu_.sram_log_arm();   // GH #362
         // V13-MEM-01 fix — VHDL zxnext.vhd:3924-3925 fans NR 0x69 bit 7
         // (`nr_wr_dat(7)`) into `port_123b_layer2_en` (the SAME FF that
         // port 0x123B bit 1 latches at :3916). The port 0x123B readback
@@ -4578,6 +4579,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // for the renderer — refresh it from the post-write state.
             if ((val & 0x10) == 0) {
                 layer2_.set_enabled((val & 0x02) != 0);
+                if (layer2_.enabled()) mmu_.sram_log_arm();   // GH #362
             }
             // Feed L2 read-map-enable into DivMmc so the ROM3-conditional
             // automap gate can honour VHDL zxnext.vhd:3138
@@ -7333,6 +7335,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // renderer reads them through the same beam replay the ULA uses.
     tilemap_.set_beam_mux(&mmu_.attr_mux5(), &mmu_.attr_mux7());
     renderer_.lores().set_beam_mux(&mmu_.attr_mux5());
+    layer2_.set_beam_log(&mmu_.sram_log());
 
     // The border resets to black with port_fe_reg (zxnext.vhd:3587-3593),
     // in Ula::reset() above. It used to be forced to white here, a phase-1
@@ -9261,6 +9264,10 @@ void Emulator::begin_new_frame()
     // attribute_mux.h's column-accurate-resolution block comment.
     mmu_.attr_mux_start_frame(video_timing_.ula_prefetch_origin_hc(),
                               video_timing_.vblank_top());
+    // GH #362 — Layer 2's SRAM beam log restarted with it (disarmed); arm it
+    // now if Layer 2 is on, else the enable handlers above arm it when it
+    // turns on.
+    if (layer2_.enabled()) mmu_.sram_log_arm();
 
     // Per-scanline NR 0x15 change log (G02, GH #73) — baseline snapshot +
     // log reset, so a Copper/CPU mid-frame write to layer priority (b4:2)
@@ -13740,6 +13747,7 @@ bool Emulator::load_state(StateReader& r)
         ula.palsel_start_frame();
         mmu_.attr_mux_start_frame(video_timing_.ula_prefetch_origin_hc(),
                                   video_timing_.vblank_top());
+        if (layer2_.enabled()) mmu_.sram_log_arm();   // GH #362
     }
 
     // Task 60c — the input subsystem (keyboard/joystick/mouse/md6/…) has now

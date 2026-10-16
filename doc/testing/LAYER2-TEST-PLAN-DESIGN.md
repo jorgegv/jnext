@@ -582,6 +582,27 @@ per-line replay of the enable flag is sufficient to gate output.
 | G10-G14-01 | Layer2 set_enabled write logged with current scanline                                       | reset; start_frame; line=50 set_enabled(true); line=150 set_enabled(false)                        | enable change-log holds (50,true) and (150,false)                                       | zxnext.vhd:3916, 3924-3925 |
 | G10-G14-02 | Renderer applies enable per scanline: rows above 50 hidden; 50..149 visible; 150..end hidden| log entries as 01; render rows 0..200 with L2 content                                             | first 50 rows have no L2 pixels; rows 50-149 do; rows 150-200 do not                    | layer2.vhd:175,197-198     |
 
+### Group G12 — Beam-time fetch (L2-BR-01 … L2-BR-08, GH #362)
+
+Layer 2 requests one byte per 7 MHz tick, one pixel ahead (`layer2.vhd`
+`hc_eff <= hc + 1`; SRAM address and request toggle at `sc = "00"`). The pixel
+at column X is fetched while the counter (`phc` for 256x192, `whc` for the wide
+modes) reads X - 1: raw hc `c_min_hactive + X` (256x192) or `c_min_hactive - 32 + X`
+(320x256 and 640x256, one byte per tick), from `zxula_timing.vhd:476-522`. The
+render reads the bitmap through `SramBeamLog` at that instant. Rows are in
+`layer2_test`; `c_min_hactive` = 128, every write 2 ticks from the instant.
+
+| ID | Title | Stimulus | Expected | VHDL cite |
+|----|-------|----------|----------|-----------|
+| L2-BR-01 | A byte written after the beam passed is for the next frame | 256x192, write at post-display line 260; then next frame | Old this frame, new next frame — pass | layer2.vhd hc_eff |
+| L2-BR-02 | 256x192 instant | Pixel 50: write at raw hc 180 / 176 on its row | Old / new — pass | layer2.vhd hc_eff; zxula_timing.vhd:510-522 |
+| L2-BR-03 | 320x256 instant (whc origin) | Column 100: write at raw hc 198 / 194 | Old / new — pass | zxula_timing.vhd:476-492 |
+| L2-BR-04 | 640x256 instant (one byte per tick) | Byte column 100: write at raw hc 198 / 194 | Left pixel old / new — pass | zxula_timing.vhd:476-492 |
+| L2-BR-05 | Address written twice, other written once | Writes at rows 30 and 80; read by row 50 | Row-30 value; the once-written one shows its frame-start value — pass | layer2.vhd hc_eff |
+| L2-BR-06 | Recording independent of the enable | Layer off rows 60..119, write at row 90 | Row 40 old, row 130 new — pass | layer2.vhd hc_eff |
+| L2-BR-07 | Logging armed mid-frame | Write at row 30 (unlogged), arm, write at row 150 | Row 100 shows the row-30 value — pass | layer2.vhd hc_eff |
+| L2-BR-08 | Log restarts every frame | Frame without writes after one with | Shows the RAM as it is — pass | layer2.vhd hc_eff |
+
 ## Test Case Summary
 
 | Group | Area | Tests |

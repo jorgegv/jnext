@@ -586,6 +586,8 @@ A debug view must never mutate the state it observes.
 |---------|-------------------------------------------------------------------|--------|
 | ~~DVP-06~~  | a panel refresh does not clobber the per-line scroll snapshots     | PASS   |
 | ~~DVP-07~~  | the debug render reads the per-line scroll split (not live scroll) | PASS   |
+| ~~DVP-BR-01~~ | the Layer 2 view replays the beam-time SRAM fetch: the row above a write is old, the row below new (GH #362) | PASS   |
+| ~~DVP-BR-02~~ | the Tilemap view replays the beam-time map fetch, same (GH #362) | PASS   |
 
 Hosted in `test/debugger/video_panel_test.cpp` (`debugger_video_panel_test`).
 

@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "memory/beam_counters.h"
+
 // Beam-time replay of every byte a display layer fetches from VRAM (GH #305,
 // builds on G12 Nirvana-class attribute multiplex; extended to the tilemap
 // and LoRes by GH #362).
@@ -153,25 +155,10 @@ public:
         return static_cast<uint16_t>(origin + slot * 8 + d);
     }
 
-    /// Raw hc at which the wide counter `whc` reads `w` (the tilemap's and the
-    /// 320x256 / 640x256 Layer 2 modes' horizontal counter).
-    /// zxula_timing.vhd:476-492: `whc` is loaded with -16 on the 7 MHz edge
-    /// after hc = c_min_hactive - 48 (`wide_min_hactive`, :473), i.e. at raw hc
-    /// c_min_hactive - 47, and counts +1 per tick, so whc = w at raw hc
-    /// c_min_hactive - 31 + w. c_min_hactive = hc_origin + 12. Clamped at 0
-    /// for bare fixtures whose origin is 0.
-    uint16_t whc_hc(int w) const {
-        const int h = ((hc_origin_ < 0) ? 0 : hc_origin_) + 12 - 31 + w;
-        return static_cast<uint16_t>(h < 0 ? 0 : h);
-    }
-
-    /// Raw hc at which the 256-pixel counter `phc` reads `p` (LoRes, Layer 2
-    /// 256x192). zxula_timing.vhd:510-522: loaded with -48 on the same edge as
-    /// `whc`, so phc = p at raw hc c_min_hactive + 1 + p.
-    uint16_t phc_hc(int p) const {
-        const int h = ((hc_origin_ < 0) ? 0 : hc_origin_) + 12 + 1 + p;
-        return static_cast<uint16_t>(h < 0 ? 0 : h);
-    }
+    /// Raw hc at which the wide counter `whc` reads `w` / the 256-pixel counter
+    /// `phc` reads `p` (beam_counters.h has the derivations).
+    uint16_t whc_hc(int w) const { return static_cast<uint16_t>(beam::whc_raw_hc(hc_origin_, w)); }
+    uint16_t phc_hc(int p) const { return static_cast<uint16_t>(beam::phc_raw_hc(hc_origin_, p)); }
 
     /// Value of bank offset `offset` as the ULA fetch at horizontal instant
     /// `hc` of the scanline set by apply_changes_for_line() reads it: the
