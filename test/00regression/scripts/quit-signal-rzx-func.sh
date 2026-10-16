@@ -8,7 +8,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # quit-signal-rzx-func: a Qt run whose --rzx-record write fails (/dev/full) must
 # still end on SIGTERM without waiting on closeEvent's modal "RZX write failed"
 # dialog: the signal path finishes the recording first (GH #364, plan D1).
-# Status 143, "SIGTERM received: quitting" and "RZX: failed to write" in the
+# Terminated BY SIGTERM, "SIGTERM received: quitting" and "RZX: failed to write" in the
 # log. Its own row, Linux only: the macOS stand-in for /dev/full (full-disk.sh)
 # puts a wrapper process between the row and jnext, so the signal would not
 # reach jnext's PID.
@@ -29,7 +29,7 @@ if want quit-signal-rzx-func; then
     if [[ ${#qs_faults[@]} -gt 0 ]]; then
         fail_row " ($(IFS=';'; echo "${qs_faults[*]}"))"
     else
-        pass_row " (Qt with a failing --rzx-record exits on SIGTERM by the signal, 143, without waiting on a dialog)"
+        pass_row " (Qt with a failing --rzx-record exits on SIGTERM BY the signal, without waiting on a dialog)"
     fi
 fi
 

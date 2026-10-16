@@ -14,9 +14,27 @@ namespace {
 std::atomic<int> g_signal{0};
 static_assert(std::atomic<int>::is_always_lock_free);
 
+// Which of SIGINT / SIGTERM install() took over (not an inherited SIG_IGN).
+std::atomic<bool> g_ours_int{false};
+std::atomic<bool> g_ours_term{false};
+static_assert(std::atomic<bool>::is_always_lock_free);
+
 extern "C" void on_quit_signal(int sig) {
     int expected = 0;
     g_signal.compare_exchange_strong(expected, sig);   // keep the first one
+    // Any SECOND quit signal is the escape hatch, whichever one it is: put the
+    // OTHER signal back to its default action too (SA_RESETHAND only resets
+    // the one being delivered). sigaction is async-signal-safe. An inherited
+    // SIG_IGN was never taken over, so it stays ignored.
+    const int  other = (sig == SIGINT) ? SIGTERM : SIGINT;
+    const bool ours  = (other == SIGINT) ? g_ours_int.load() : g_ours_term.load();
+    if (ours) {
+        struct sigaction dfl;
+        sigemptyset(&dfl.sa_mask);
+        dfl.sa_handler = SIG_DFL;
+        dfl.sa_flags   = 0;
+        sigaction(other, &dfl, nullptr);
+    }
 }
 
 void install_one(int sig) {
@@ -27,6 +45,7 @@ void install_one(int sig) {
     sigemptyset(&sa.sa_mask);
     sa.sa_handler = on_quit_signal;
     sa.sa_flags   = SA_RESETHAND | SA_RESTART;
+    (sig == SIGINT ? g_ours_int : g_ours_term).store(true);
     sigaction(sig, &sa, nullptr);
 }
 

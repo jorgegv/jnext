@@ -2437,7 +2437,8 @@ with status 0. <code>quit_signal</code> (<code>src/platform/quit_signal.h</code>
 over for every frontend: <code>main()</code> calls <code>quit_signal::install()</code> before any
 frontend's <code>init()</code>, hence before <code>SDL_Init</code>, and SDL then installs no handler of
 its own. The handler stores the signal number in a lock-free atomic (a second
-signal gets the default action at once, <code>SA_RESETHAND</code>; a signal that was
+quit signal gets the default action at once: the same one by <code>SA_RESETHAND</code>, the
+other one because the handler resets it; a signal that was
 <code>SIG_IGN</code> at start stays ignored). Each frame loop polls <code>pending()</code> once per
 iteration and leaves through its normal teardown: <code>QtApp</code>'s <code>post_frames()</code> does
 the unattended quit (finish the RZX recording, <code>set_unattended</code>, <code>quit()</code>),
@@ -2446,8 +2447,10 @@ the unattended quit (finish the RZX recording, <code>set_unattended</code>, <cod
 the process dies by the signal (status 128+N, <code>WIFSIGNALED</code>) and never reads as
 a success. Windows is exempt: the helper is a no-op there, because no SIGTERM
 can be delivered to a Windows process from outside and Ctrl+C reaches the GUI
-exe only through the console it borrows. Tests: <code>quit_signal_test</code> (QSIG-01..09)
-and <code>quit-signal-func</code>.</p>
+exe only through the console it borrows. Tests: <code>quit_signal_test</code>
+(QSIG-01..13), <code>quit-signal-func</code> (all three frontends, asserting the process
+was terminated BY the signal, plus headless held paused by a DZRP client) and
+<code>quit-signal-rzx-func</code> (Qt with a failing RZX write, Linux only).</p>
 <ul>
 <li><strong><code>QtApp</code></strong> (<code>src/gui/qt_app.h</code>) owns a <code>QApplication</code> and a <code>MainWindow</code>
   whose central widget is an <code>EmulatorWidget</code>. A <code>QTimer</code> drives the machine,

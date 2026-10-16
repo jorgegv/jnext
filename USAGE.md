@@ -2487,10 +2487,10 @@ SIGTERM, or SIGINT (Ctrl-C in the terminal), ends **jnext** the way
 closing the window does: recordings and captures are finished and no
 dialog is shown. **jnext** then terminates by that same signal, so the
 shell sees 143 (SIGTERM) or 130 (SIGINT), never a success. A second
-signal ends it immediately. A signal that was ignored when **jnext**
-started (**nohup**, a background job of a non-interactive shell) stays
-ignored. This applies to the GUI, the SDL-only build and **--headless**;
-on Windows it is unchanged.
+signal, SIGINT or SIGTERM in either order, ends it immediately. A signal
+that was ignored when **jnext** started (**nohup**, a background job of
+a non-interactive shell) stays ignored. This applies to the GUI, the
+SDL-only build and **--headless**; on Windows it is unchanged.
 
 **--sdcard-file-add** is a scriptable non-emulation mode, so it reports
 which failure happened rather than a single non-zero status:

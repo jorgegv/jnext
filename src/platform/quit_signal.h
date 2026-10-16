@@ -14,9 +14,9 @@
 // Rules: a signal that was SIG_IGN at start stays ignored (nohup, background
 // jobs of a non-interactive shell; SDL applies the same rule). Anything else is
 // taken over whether or not SDL's handler is already there, so the result does
-// not depend on the call order relative to SDL_Init. SA_RESETHAND: a second
-// signal gets the default action at once, the escape hatch when the orderly
-// exit hangs. SIGHUP is untouched.
+// not depend on the call order relative to SDL_Init. A second quit signal, the
+// same one (SA_RESETHAND) or the other one (the handler resets it), gets the
+// default action at once: the escape hatch when the orderly exit hangs. SIGHUP is untouched.
 //
 // Windows: all four functions are no-ops, exempt for cause. No SIGTERM can be
 // delivered to a Windows process from outside (taskkill without /F posts

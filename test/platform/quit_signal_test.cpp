@@ -20,6 +20,8 @@
 //   install only over SIG_DFL (SDL's rule)    -> QSIG-07 fails
 //   reraise_if_pending() does nothing         -> QSIG-05 fails
 //   handler re-raises at once                 -> QSIG-01/02 fail
+//   reraise_if_pending() without its SIG_DFL   -> QSIG-10 fails
+//   handler keeps the last signal / does not reset the OTHER signal -> QSIG-11/12 fail
 // ===========================================================================
 
 #include "platform/quit_signal.h"
@@ -178,6 +180,57 @@ int main() {
               if (!SDL_Init(SDL_INIT_EVENTS)) return 2;
               std::raise(SIGTERM);
               return drain_quit_events() == 1 ? 0 : 1;
+          }) == 0);
+
+    {
+        bool sigd = false; int ts = 0;
+        run_child([] {
+            quit_signal::install();
+            std::raise(SIGTERM);             // handler ran; SA_RESETHAND -> SIG_DFL
+            if (!SDL_Init(SDL_INIT_EVENTS)) return 2;   // installs over SIG_DFL, no SDL_Quit
+            quit_signal::reraise_if_pending();
+            return 0;
+        }, &sigd, &ts);
+        check("QSIG-10", "a signal before SDL_Init, then init fails without SDL_Quit: the re-raise still kills (SDL's handler is bypassed)",
+              sigd && ts == SIGTERM);
+    }
+
+    {
+        bool sigd = false; int ts = 0;
+        run_child([] {
+            std::signal(SIGINT, SIG_DFL);   // a harness may hand us SIGINT ignored
+            quit_signal::install();
+            std::raise(SIGINT);
+            std::raise(SIGTERM);            // the OTHER signal is a second signal too
+            return 0;
+        }, &sigd, &ts);
+        check("QSIG-11", "SIGINT then SIGTERM: the second, different signal kills by the default action",
+              sigd && ts == SIGTERM);
+    }
+
+    {
+        bool sigd = false; int ts = 0;
+        run_child([] {
+            std::signal(SIGINT, SIG_DFL);
+            quit_signal::install();
+            std::raise(SIGTERM);
+            std::raise(SIGINT);
+            return 0;
+        }, &sigd, &ts);
+        check("QSIG-12", "SIGTERM then SIGINT: the second, different signal kills by the default action",
+              sigd && ts == SIGINT);
+    }
+
+    check("QSIG-13", "an inherited SIGTERM ignore survives a SIGINT: INT pending, TERM discarded and still SIG_IGN",
+          run_child([] {
+              std::signal(SIGINT, SIG_DFL);
+              std::signal(SIGTERM, SIG_IGN);
+              quit_signal::install();
+              std::raise(SIGINT);
+              std::raise(SIGTERM);
+              struct sigaction cur;
+              sigaction(SIGTERM, nullptr, &cur);
+              return (quit_signal::pending() == SIGINT && cur.sa_handler == SIG_IGN) ? 0 : 1;
           }) == 0);
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
