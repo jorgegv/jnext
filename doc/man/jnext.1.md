@@ -212,6 +212,17 @@ naming the option and the value, and exits with status 1.
     The two connectors cannot name the same controller. Interactive (SDL/Qt)
     frontends only; inert under **\--headless**.
 
+**\--mouse-release** *METHOD*
+:   How a captured mouse is released: `ctrl-alt` (default; Alt+Cmd in the Qt GUI
+    on macOS), `middle-click` or `esc`. The methods are exclusive: only the one
+    chosen releases. `ctrl-alt` is not consumed (Alt still types its compounds);
+    the middle click and Esc are not passed to the program. Esc is the ZX BREAK
+    key whenever the mouse is not captured, and `middle-click` needs a 3-button
+    mouse. Wins over the saved GUI preference for this run. Interactive (SDL/Qt)
+    frontends only; inert under **\--headless**. The GUI equivalent is *Release
+    captured mouse with* under **Settings > Preferences > Input**, which applies
+    live.
+
 **\--joy-uart-rx** *FILE*
 :   Attach *FILE* as a serial byte source on the joystick-port UART RX pin — the
     "PC" end of a joy-port serial cable, as used by a dezogif / DeZog serial rig.
@@ -1657,7 +1668,7 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
 :   Joy 1 Source (port 0x1F) and Joy 2 Source (port 0x37), each selecting what
     drives that connector: Automatic (the first free controller), any
     connected controller by name, Cursor Keys + Space, or None; Capture Mouse, which confines the host pointer so
-    the Kempston mouse can move freely (Ctrl+Alt releases it; Alt+Cmd on macOS).
+    the Kempston mouse can move freely (by default Ctrl+Alt releases it, Alt+Cmd on macOS; see **\--mouse-release**).
 
 **Tape**
 :   Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle); Start Saving...,
@@ -2254,7 +2265,8 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     Automatic) and `joy1_device_name` and `joy2_device_name` (the name shown
     while that controller is not connected). **\--joy1-device** and
     **\--joy2-device** override the ids for one run. An id that is not valid is
-    ignored, with its name.
+    ignored, with its name. Also under `[input]`, `mouse_release` (`ctrl-alt`,
+    `middle-click` or `esc`; **\--mouse-release** overrides it for one run).
     The quick screenshot is stored under `[screenshot]` as `quick_dir` (empty
     means `~/.jnext/screenshots`) and `quick_format` (`png` or `scr`), edited
     under **Settings > Preferences > Paths**; an unrecognised format keeps the

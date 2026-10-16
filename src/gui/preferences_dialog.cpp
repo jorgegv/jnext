@@ -1,4 +1,5 @@
 #include "gui/preferences_dialog.h"
+#include "gui/qt_ctrl_is_command.h"   // GH #365
 #include "qt/palette_tint_qt.h"   // GH #363
 #include "gui/emulator_widget.h"
 #ifdef ENABLE_DEBUGGER
@@ -67,6 +68,8 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     emu_speed_spin_->setValue(current.emulator_speed_percent);
     when_slow_combo_->setCurrentIndex(
         when_slow_combo_->findData(static_cast<int>(current.when_slow_prefer)));
+    mouse_release_combo_->setCurrentIndex(
+        mouse_release_combo_->findData(static_cast<int>(current.mouse_release)));
     scale_combo_->setCurrentIndex(scale_combo_->findData(current.window_scale));
     crt_check_->setChecked(current.crt_filter);
     silent_check_->setChecked(current.silent);
@@ -235,6 +238,23 @@ QWidget* PreferencesDialog::build_input_tab() {
             this, [=]() { enforce_exclusive(joy1_source_combo_, joy2_source_combo_); });
     connect(joy2_source_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [=]() { enforce_exclusive(joy2_source_combo_, joy1_source_combo_); });
+
+    // GH #365 — the gesture that releases a captured mouse. The labels are
+    // pointer_capture::release_hint(), the same text the title and tips use.
+    mouse_release_combo_ = new QComboBox(tab);
+    mouse_release_combo_->setObjectName(QStringLiteral("mouseReleaseCombo"));
+    for (auto m : { pointer_capture::ReleaseMethod::CtrlAlt,
+                    pointer_capture::ReleaseMethod::MiddleClick,
+                    pointer_capture::ReleaseMethod::Esc })
+        mouse_release_combo_->addItem(
+            QString::fromLatin1(pointer_capture::release_hint(m, kQtCtrlIsCommand)),
+            static_cast<int>(m));
+    form->addRow(tr("Release captured mouse with:"), mouse_release_combo_);
+    auto* release_note = new QLabel(
+        tr("The chosen click or key is not passed to the program while the "
+           "mouse is captured."), tab);
+    release_note->setWordWrap(true);
+    form->addRow(QString(), release_note);
 
     auto* note = new QLabel(
         tr("Cursor keys drive one connector's directions with Space as fire;\n"
@@ -535,6 +555,8 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.when_slow_prefer = static_cast<audio_pacing::WhenSlowPrefer>(
         when_slow_combo_->currentData().toInt());
     cfg.window_scale = scale_combo_->currentData().toInt();
+    cfg.mouse_release = static_cast<pointer_capture::ReleaseMethod>(
+        mouse_release_combo_->currentData().toInt());
     cfg.crt_filter   = crt_check_->isChecked();
     cfg.silent       = silent_check_->isChecked();
     cfg.tape_fast_load = tape_fast_check_->isChecked();

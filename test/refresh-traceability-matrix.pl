@@ -1058,6 +1058,8 @@ my %NO_MATRIX_SECTION = (
     # does not contain (it sees a PS/2 stream and a membrane, not a Qt event).
     'host_key_latch_test' => 'host key latch/debounce compensation; guest matrix is `## Input`',
     'pointer_capture_test' => 'host mouse-capture policy (window-manager behaviour)',
+    'sdl_pointer_release_test' => 'SDL pointer-release route (host UI, GH #365)',
+    'mouse_release_test'  => 'captured-mouse release gesture in the Qt window (host UI, GH #365)',
     'esc_break_test'      => 'host ESC->BREAK binding; guest matrix is `## Input`',
     'host_hotkey_test'    => 'host hotkey bindings (Alt vs the guest Symbol Shift)',
     'main_window_accel_test' => 'main-window menu mnemonics (host GUI)',

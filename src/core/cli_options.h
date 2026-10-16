@@ -115,6 +115,7 @@ enum class OptId {
     Joy2Source,
     Joy1Device,
     Joy2Device,
+    MouseRelease,
     JoyUartRx,
     JoyUartRxDelayFrames,
     JoyUartConnector,
@@ -309,6 +310,12 @@ inline constexpr Option OPTIONS[] = {
       "ID",
       "Physical controller for Joy 2 (port 0x37); same form\n"
       "as --joy1-device" },
+    { "--mouse-release", 1, Doc::Documented, OptId::MouseRelease,
+      "METHOD",
+      "How a captured mouse is released: 'ctrl-alt' (default;\n"
+      "Alt+Cmd in the Qt GUI on macOS), 'middle-click' or 'esc'.\n"
+      "The middle click or Esc is not passed to the program.\n"
+      "Wins over the saved GUI preference for this run" },
     // GH #251 — a serial cable in a joystick socket, whose bytes reach the guest
     // through the NR 0x0B I/O-mode mux rather than either UART header. It exists
     // because nothing on the command line could put a byte on that pin, so a

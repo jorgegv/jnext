@@ -28,6 +28,12 @@
 // there is Alt+Cmd), the reporter confirms it, and the documented chord
 // elsewhere is Ctrl+Alt (man page Input menu; SDL's Command is the GUI key).
 //
+// Issue #365 adds ReleaseFilter / release_hint / parse_release_method: the
+// user-chosen release gesture. No VHDL (host UI); the oracle is the design
+// table in the issue plan: three exclusive methods (ctrl-alt default, not
+// consumed; middle-click and esc consumed in full), uncaptured Esc is BREAK
+// and uncaptured clicks capture.
+//
 // Run: ./build/test/pointer_capture_test
 
 #include "platform/pointer_capture.h"
@@ -688,6 +694,176 @@ int main()
           std::string(pointer_capture::release_chord(true)) == "Alt+Cmd");
     check("PCAP-35", "every other frontend/platform names the release chord Ctrl+Alt",
           std::string(pointer_capture::release_chord(false)) == "Ctrl+Alt");
+
+    // PCAP-36..44: the release gesture (GH #365).
+    {
+        using namespace pointer_capture;
+        using RM = ReleaseMethod;
+        auto vs = [](Verdict v) { return std::string(v.release ? "R" : "-") + (v.consume ? "C" : "-"); };
+        auto none = [](Verdict v) { return !v.release && !v.consume; };
+        auto rel_only = [](Verdict v) { return v.release && !v.consume; };
+        auto rel_con = [](Verdict v) { return v.release && v.consume; };
+        auto con_only = [](Verdict v) { return !v.release && v.consume; };
+        auto filt = [](RM m) { ReleaseFilter f; f.set_method(m); return f; };
+        const HostKey Ctl = HostKey::Ctrl, Alt = HostKey::Alt, Esc = HostKey::Esc, Oth = HostKey::Other;
+
+        check("PCAP-36", "the default release method is Ctrl+Alt",
+              kDefaultReleaseMethod == RM::CtrlAlt && ReleaseFilter{}.method() == RM::CtrlAlt);
+
+        check("PCAP-37a", "CtrlAlt is named ctrl-alt", std::string(release_method_name(RM::CtrlAlt)) == "ctrl-alt");
+        check("PCAP-37b", "MiddleClick is named middle-click", std::string(release_method_name(RM::MiddleClick)) == "middle-click");
+        check("PCAP-37c", "Esc is named esc", std::string(release_method_name(RM::Esc)) == "esc");
+
+        {
+            bool ok = true;
+            for (RM m : {RM::CtrlAlt, RM::MiddleClick, RM::Esc}) {
+                RM out = RM::CtrlAlt == m ? RM::Esc : RM::CtrlAlt;   // start different
+                ok = ok && parse_release_method(release_method_name(m), out) && out == m;
+            }
+            check("PCAP-38a", "name then parse round-trips all three methods", ok);
+        }
+        {
+            RM a = RM::CtrlAlt, b = RM::CtrlAlt;
+            const bool pa = parse_release_method("ESC", a), pb = parse_release_method("Middle-Click", b);
+            check("PCAP-38b", "parsing is ASCII case-insensitive", pa && a == RM::Esc && pb && b == RM::MiddleClick);
+        }
+        {
+            bool all_rejected = true, untouched = true;
+            for (const char* w : {"", "middle", "ctrl+alt", "escape", "esc ", " esc", "ctrl-alt-"}) {
+                RM out = RM::MiddleClick;
+                all_rejected = all_rejected && !parse_release_method(w, out);
+                untouched = untouched && out == RM::MiddleClick;
+            }
+            check("PCAP-39", "unknown words are rejected and leave the output untouched", all_rejected && untouched);
+        }
+
+        check("PCAP-40a", "release_hint(CtrlAlt, false) is Ctrl+Alt", std::string(release_hint(RM::CtrlAlt, false)) == "Ctrl+Alt");
+        const bool on_mac = true;
+        check("PCAP-40b", "release_hint(CtrlAlt, on_mac) is Alt+Cmd", std::string(release_hint(RM::CtrlAlt, on_mac)) == "Alt+Cmd");
+        check("PCAP-40c", "release_hint(MiddleClick) is 'middle click' for both flags",
+              std::string(release_hint(RM::MiddleClick, false)) == "middle click" &&
+              std::string(release_hint(RM::MiddleClick, true)) == "middle click");
+        check("PCAP-40d", "release_hint(Esc) is Esc for both flags",
+              std::string(release_hint(RM::Esc, false)) == "Esc" && std::string(release_hint(RM::Esc, true)) == "Esc");
+
+        {
+            auto f = filt(RM::CtrlAlt);
+            const Verdict v = f.on_key(Alt, true, true, true, true);
+            check("PCAP-41a", "CtrlAlt: captured Alt press with Ctrl held releases, not consumed", rel_only(v), vs(v));
+        }
+        {
+            auto f = filt(RM::CtrlAlt);
+            const Verdict v = f.on_key(Ctl, true, true, true, true);
+            check("PCAP-41b", "CtrlAlt: captured Ctrl press with Alt held releases, not consumed", rel_only(v), vs(v));
+        }
+        {
+            auto f = filt(RM::CtrlAlt);
+            const Verdict a = f.on_key(Ctl, true, true, false, true);
+            const Verdict b = f.on_key(Alt, true, false, true, true);
+            check("PCAP-41c", "CtrlAlt: a lone Ctrl or a lone Alt does nothing", none(a) && none(b), vs(a) + vs(b));
+        }
+        {
+            auto f = filt(RM::CtrlAlt);
+            const Verdict v = f.on_key(Alt, true, true, true, false);
+            check("PCAP-41d", "CtrlAlt: Ctrl+Alt uncaptured does nothing", none(v), vs(v));
+        }
+        {
+            auto f = filt(RM::CtrlAlt);
+            const Verdict a = f.on_key(Esc, true, false, false, true);
+            const Verdict b = f.on_button(HostButton::Middle, true, true);
+            check("PCAP-41e", "CtrlAlt: a captured Esc and a captured middle press do nothing", none(a) && none(b), vs(a) + vs(b));
+        }
+
+        {
+            auto f = filt(RM::Esc);
+            const Verdict v = f.on_key(Esc, true, false, false, true);
+            check("PCAP-42a", "Esc: a captured Esc press releases and is consumed", rel_con(v), vs(v));
+        }
+        {
+            auto f = filt(RM::Esc);
+            f.on_key(Esc, true, false, false, true);
+            const Verdict v = f.on_key(Esc, false, false, false, false);
+            check("PCAP-42b", "Esc: its release (now uncaptured) is consumed only", con_only(v), vs(v));
+        }
+        {
+            auto f = filt(RM::Esc);
+            f.on_key(Esc, true, false, false, true);
+            const Verdict r1 = f.on_key(Esc, true, false, false, false);
+            const Verdict r2 = f.on_key(Esc, true, false, false, false);
+            const Verdict up = f.on_key(Esc, false, false, false, false);
+            const Verdict p2 = f.on_key(Esc, true, false, false, false);
+            const Verdict u2 = f.on_key(Esc, false, false, false, false);
+            check("PCAP-42c", "Esc: repeats are consumed, the release disarms, a later Esc is BREAK again",
+                  con_only(r1) && con_only(r2) && con_only(up) && none(p2) && none(u2),
+                  vs(r1) + vs(r2) + vs(up) + vs(p2) + vs(u2));
+        }
+        {
+            auto f = filt(RM::Esc);
+            const Verdict v = f.on_key(Esc, true, false, false, false);
+            check("PCAP-42d", "Esc: an unarmed uncaptured Esc is BREAK (nothing)", none(v), vs(v));
+        }
+        {
+            auto f = filt(RM::Esc);
+            const Verdict v = f.on_key(Alt, true, true, true, true);
+            check("PCAP-42e", "Esc: captured Ctrl+Alt does not release", none(v), vs(v));
+        }
+        {
+            auto f = filt(RM::Esc);
+            f.on_key(Esc, true, false, false, true);
+            f.reset();
+            const Verdict v = f.on_key(Esc, true, false, false, false);
+            check("PCAP-42f", "Esc: after reset() an uncaptured Esc is not swallowed", none(v), vs(v));
+        }
+        {
+            auto f = filt(RM::Esc);
+            f.on_key(Esc, true, false, false, true);
+            const Verdict v = f.on_key(Esc, true, false, false, true);
+            check("PCAP-42g", "Esc: armed, then captured again, releases again", rel_con(v), vs(v));
+        }
+        {
+            auto f = filt(RM::Esc);
+            f.on_key(Esc, true, false, false, true);
+            const Verdict d = f.on_key(Oth, true, false, false, false);
+            const Verdict u = f.on_key(Oth, false, false, false, false);
+            check("PCAP-42h", "Esc: another key while armed is untouched", none(d) && none(u), vs(d) + vs(u));
+        }
+
+        {
+            auto f = filt(RM::MiddleClick);
+            const Verdict v = f.on_button(HostButton::Middle, true, true);
+            check("PCAP-43a", "MiddleClick: a captured middle press releases and is consumed", rel_con(v), vs(v));
+        }
+        {
+            auto f = filt(RM::MiddleClick);
+            const Verdict l = f.on_button(HostButton::Left, true, true);
+            const Verdict r = f.on_button(HostButton::Right, true, true);
+            check("PCAP-43b", "MiddleClick: captured left and right presses do nothing", none(l) && none(r), vs(l) + vs(r));
+        }
+        {
+            auto f = filt(RM::MiddleClick);
+            const Verdict v = f.on_button(HostButton::Middle, true, false);
+            check("PCAP-43c", "MiddleClick: an uncaptured middle press does nothing (the frontend captures)", none(v), vs(v));
+        }
+        {
+            auto f = filt(RM::MiddleClick);
+            const Verdict v = f.on_button(HostButton::Middle, false, true);
+            check("PCAP-43e", "MiddleClick: a captured middle button-UP does nothing (a click that captured must not release)", none(v), vs(v));
+        }
+        {
+            auto f = filt(RM::MiddleClick);
+            const Verdict a = f.on_key(Alt, true, true, true, true);
+            const Verdict b = f.on_key(Esc, true, false, false, true);
+            check("PCAP-43d", "MiddleClick: captured Ctrl+Alt and captured Esc do nothing", none(a) && none(b), vs(a) + vs(b));
+        }
+
+        {
+            auto f = filt(RM::Esc);
+            f.on_key(Esc, true, false, false, true);
+            f.set_method(RM::Esc);
+            const Verdict v = f.on_key(Esc, true, false, false, false);
+            check("PCAP-44", "set_method() clears an armed swallow", none(v), vs(v));
+        }
+    }
 
     std::printf("\n==============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
