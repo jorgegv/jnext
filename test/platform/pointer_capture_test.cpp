@@ -738,7 +738,8 @@ int main()
         }
 
         check("PCAP-40a", "release_hint(CtrlAlt, false) is Ctrl+Alt", std::string(release_hint(RM::CtrlAlt, false)) == "Ctrl+Alt");
-        check("PCAP-40b", "release_hint(CtrlAlt, true) is Alt+Cmd", std::string(release_hint(RM::CtrlAlt, true)) == "Alt+Cmd");
+        const bool on_mac = true;
+        check("PCAP-40b", "release_hint(CtrlAlt, on_mac) is Alt+Cmd", std::string(release_hint(RM::CtrlAlt, on_mac)) == "Alt+Cmd");
         check("PCAP-40c", "release_hint(MiddleClick) is 'middle click' for both flags",
               std::string(release_hint(RM::MiddleClick, false)) == "middle click" &&
               std::string(release_hint(RM::MiddleClick, true)) == "middle click");
