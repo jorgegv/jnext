@@ -113,6 +113,13 @@ public:
     PiQemu(const PiQemu&)            = delete;
     PiQemu& operator=(const PiQemu&) = delete;
 
+    /// The programs a start() in `spec.dir` runs: `qemu` (spec.qemu_binary resolved) always,
+    /// `qemu_img` only while spec.dir has no overlay.qcow2 ("" otherwise). False with `error`
+    /// naming the first one missing and how to install it (the text start() reports).
+    /// main.cpp calls it BEFORE provisioning (GH #357); start() resolves through it.
+    static bool find_programs(const Spec& spec, std::string& qemu, std::string& qemu_img,
+                              std::string& error);
+
     /// Check the directory, create the overlay if it is missing (`qemu-img`,
     /// found next to the QEMU binary or on PATH), create the FIFOs and spawn
     /// QEMU. False with `error` set on any failure, including QEMU not being

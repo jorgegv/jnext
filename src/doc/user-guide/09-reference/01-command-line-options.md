@@ -106,8 +106,8 @@ with status 1.
 
 **--sdcard-download-force**
 :   Force re-download and re-patch of the default-location image, to
-    recover a corrupted one. Ignored when **--sdcard** is given: an
-    explicit path always wins.
+    recover a corrupted one. Also discards a half-finished download.
+    Ignored when **--sdcard** is given: an explicit path always wins.
 
 **--sdcard-readonly**
 :   Open the SD image read-only, so the host file is never modified. The
@@ -332,17 +332,26 @@ with status 1.
     installed, and jnext starts it, wires it in and stops it when it
     exits.
 
+    jnext first checks that QEMU (and, until the first start has made
+    the Pi’s overlay, `qemu-img`) is installed, and stops with the
+    install hint if not, before anything is offered or downloaded.
+
     The first run that needs it offers to download NextPi from its
     mirror (<https://zx.xalior.com/NextPi2/>) into `~/.jnext/nextpi` —
     about 6 GB, with about 22 GB free needed while it is unpacked — with
     a progress bar, exactly as the SD-card image is provisioned; later
-    runs start at once. NextPi then takes about a minute to reach its
-    Supervisor prompt (`SUP>`). The release, the directory, the QEMU
-    binary and where the Pi’s sound goes are set under **Settings \>
-    Preferences \> NextPi** (the `[nextpi]` section of
-    `~/.jnext/jnext.conf`); their defaults are release `1_93D`,
-    `~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and the Next’s
-    mixer.
+    runs start at once. An archive `NextPi-<release>.tar.gz` already in
+    that directory is checked against its `.md5` beside it (fetched only
+    if absent) and unpacked without downloading; a directory that cannot
+    be used is reported with the missing file, in the question and in
+    the log. An interrupted download is kept as
+    `NextPi-<release>.tar.gz.part` and continues on the next run. NextPi
+    then takes about a minute to reach its Supervisor prompt (`SUP>`).
+    The release, the directory, the QEMU binary and where the Pi’s sound
+    goes are set under **Settings \> Preferences \> NextPi** (the
+    `[nextpi]` section of `~/.jnext/jnext.conf`); their defaults are
+    release `1_93D`, `~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and
+    the Next’s mixer.
 
     On Linux and macOS the Pi’s sound reaches the Next’s mixer over I2S,
     as on the real machine: it is mixed with the beeper, the AY chips

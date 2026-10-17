@@ -4,6 +4,7 @@
 #include "core/log.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -42,6 +43,30 @@ const char* const kLatest         = "latest";
 const char* const kMirrorUrl      = "https://zx.xalior.com/NextPi2";
 
 namespace {
+
+std::atomic<uint64_t> g_md5_calls{0};
+
+// The files the provisioner itself creates while fetching: the archive, its
+// .md5, the "latest" listing, each with the backend's partial and record
+// suffixes. Anything else in the directory means a setup was tried there.
+bool is_fetch_file(const fs::directory_entry& e) {
+    std::error_code ec;
+    if (!e.is_regular_file(ec)) return false;
+    std::string n = e.path().filename().string();
+    for (const std::string& suf : {std::string(), std::string(".md5"), sdcard::partial_path(""),
+                                   sdcard::resume_record_path("")}) {
+        if (suf.empty() || (n.size() > suf.size() && n.compare(n.size() - suf.size(), suf.size(), suf) == 0)) {
+            const std::string base = suf.empty() ? n : n.substr(0, n.size() - suf.size());
+            if (base == ".listing.html") return true;
+            const std::string pre = "NextPi-", post = ".tar.gz";
+            if (base.size() > pre.size() + post.size() && base.compare(0, pre.size(), pre) == 0 &&
+                base.compare(base.size() - post.size(), post.size(), post) == 0 &&
+                valid_release_name(base.substr(pre.size(), base.size() - pre.size() - post.size())))
+                return true;
+        }
+    }
+    return false;
+}
 
 constexpr const char* kImageName   = "nextpi.img";
 constexpr const char* kReleaseName = "release";
@@ -209,12 +234,22 @@ int compare_release(const std::string& a, const std::string& b) {
     return i == a.size() ? -1 : 1;
 }
 
-std::string prepared_release(const std::string& dir) {
+uint64_t md5_file_calls() { return g_md5_calls.load(); }
+
+std::string unprepared_reason(const std::string& dir) {
     const fs::path d(dir);
     std::error_code ec;
     for (const fs::path& p : {d / kImageName, d / "boot" / kKernel, d / "boot" / kDtb})
-        if (!fs::is_regular_file(p, ec)) return {};
-    return trim(read_file((d / kReleaseName).string()));
+        if (!fs::is_regular_file(p, ec)) return p.string() + " is missing";
+    const fs::path marker = d / kReleaseName;
+    if (!fs::is_regular_file(marker, ec)) return marker.string() + " is missing";
+    if (trim(read_file(marker.string())).empty()) return marker.string() + " is empty";
+    return {};
+}
+
+std::string prepared_release(const std::string& dir) {
+    if (!unprepared_reason(dir).empty()) return {};
+    return trim(read_file((fs::path(dir) / kReleaseName).string()));
 }
 
 #ifdef _WIN32
@@ -222,6 +257,7 @@ std::string prepared_release(const std::string& dir) {
 // Windows build carries no OpenSSL. Streamed in 1 MiB reads like the OpenSSL
 // twin: the archive is gigabytes. "" on any failure, as there.
 std::string md5_file(const std::string& path) {
+    ++g_md5_calls;
     std::ifstream f(path, std::ios::binary);
     if (!f) return {};
     BCRYPT_ALG_HANDLE  alg  = nullptr;
@@ -266,6 +302,7 @@ std::string md5_file(const std::string& path) {
 }
 #else
 std::string md5_file(const std::string& path) {
+    ++g_md5_calls;
     std::ifstream f(path, std::ios::binary);
     if (!f) return {};
     EVP_MD_CTX* ctx = EVP_MD_CTX_new();
@@ -492,12 +529,29 @@ ProvisionResult provision(const ProvisionOptions& opts) {
     const auto busy           = opts.busy ? opts.busy
                                           : sdcard::BusyFn([](const std::string&, const std::function<bool()>& w) { return w(); });
     std::error_code ec;
+    // Did the user (or an earlier install) already put something here? The
+    // provisioner's own fetch files do not count: a lone archive is explained by
+    // the archive check below, a partial download by the continuation note. A
+    // manual unpack (`NextPi-1_93D.tar`, a `NextPi-1_93D/` folder) does count.
+    bool dir_had_entries = false;
+    if (fs::is_directory(dir, ec)) {
+        for (const fs::directory_entry& e : fs::directory_iterator(dir, ec)) {
+            if (!is_fetch_file(e)) { dir_had_entries = true; break; }
+        }
+    }
+    ec.clear();
     fs::create_directories(dir, ec);
     if (ec) {
         res.error = dir + ": " + ec.message();
         return res;
     }
     const std::string current = prepared_release(dir);
+    std::string reason;
+    if (current.empty() && dir_had_entries) {
+        reason = unprepared_reason(dir);
+        if (!reason.empty())
+            Log::uart()->warn("NextPi: {} cannot be used: {}", dir, reason);
+    }
 
     // "latest" is resolved against the mirror's listing on every start, and is
     // the only case that touches the network when a release is already there.
@@ -543,41 +597,129 @@ ProvisionResult provision(const ProvisionOptions& opts) {
     }
 
     const std::string archive_name = "NextPi-" + target + ".tar.gz";
+    const std::string archive  = (fs::path(dir) / archive_name).string();
+    const std::string md5_path = archive + ".md5";
+    std::string err;
+    auto md5_in = [](const std::string& text) {
+        std::smatch mm;
+        if (!std::regex_search(text, mm, std::regex("[0-9a-fA-F]{32}"))) return std::string();
+        std::string d = mm.str();
+        std::transform(d.begin(), d.end(), d.begin(), ::tolower);
+        return d;
+    };
+
+    const std::string archive_url = mirror + "/" + archive_name;
+    uint64_t part_have = 0, part_total = 0;
+    auto gb = [](uint64_t b) {
+        char t[32];
+        std::snprintf(t, sizeof t, "%.1f GB", static_cast<double>(b) / (1024.0 * 1024.0 * 1024.0));
+        return std::string(t);
+    };
+    // A finished download whose last step (the rename to the archive's name)
+    // failed last time: finish it now, with no request. It then takes the
+    // archive check below, and its MD5 is the judge.
+    if (!sdcard::regular_file_exists(archive) &&
+        sdcard::partial_state(archive, archive_url, part_have, part_total) == sdcard::PartialState::Complete) {
+        std::string perr;
+        if (!sdcard::finish_complete_partial(archive, archive_url, perr)) {
+            res.error = perr + "; the complete download is kept in " + sdcard::partial_path(archive) +
+                        " and is used next time";
+            Log::uart()->warn("NextPi: {}", res.error);
+            return res;
+        }
+    }
+
+    // An archive already in the directory (fetched by hand, or left by an
+    // interrupted run) is looked at BEFORE anything is asked: if it matches its
+    // MD5 it is installed with no download. A rejected one is never deleted here;
+    // a download, if the user agrees to one, overwrites it.
+    bool reuse = false;
+    std::string archive_note;
+    std::string local_digest;   // the archive's MD5 as computed by the check below
+    if (sdcard::regular_file_exists(archive)) {
+        std::string expected = md5_in(read_file(md5_path));
+        std::string expected_from = md5_path;
+        if (expected.empty()) {
+            if (download(mirror + "/" + archive_name + ".md5", md5_path, {}, err)) {
+                expected = md5_in(read_file(md5_path));
+                expected_from = mirror + "/" + archive_name + ".md5";
+                if (expected.empty()) err = md5_path + ": no MD5 in it";
+            }
+            if (expected.empty())
+                archive_note = "jnext cannot check " + archive + ": no MD5 beside it and " + mirror +
+                               " gave none: " + err;
+        }
+        if (!expected.empty()) {
+            std::string actual;
+            busy("Checking the NextPi download", [&] { actual = md5_file(archive); return !actual.empty(); });
+            local_digest = actual;
+            if (actual == expected) {
+                reuse = true;
+                Log::uart()->info("NextPi: {} matches its MD5; installing it without downloading", archive);
+            } else {
+                archive_note = archive + " does not match its MD5 (" +
+                               (actual.empty() ? std::string("unreadable") : actual) + ", expected " +
+                               expected + " from " + expected_from + "): it is incomplete or damaged";
+            }
+        }
+        if (!archive_note.empty()) Log::uart()->warn("NextPi: {}", archive_note);
+    }
+
     // The same text is the GUI dialog's body and the terminal prompt (which
     // appends " [y/N]"), so: the question LAST, no line breaks inside a
     // sentence (the dialog wraps by itself), the path alone on its line, and
     // what each answer leads to said before it is asked.
-    std::ostringstream msg;
-    if (current.empty()) {
-        msg << "NextPi is the software that runs on the Raspberry Pi of the Spectrum "
-               "Next, and it is not installed yet.\n\n"
-            << "jnext can download it now (NextPi " << target << ", about 6 GB) into:\n"
-            << display_path(dir) << "\n\n"
-            << "This happens only once. About 22 GB of free space is needed there while "
-               "it is unpacked; it uses about 15 GB afterwards.\n\n"
-            << "If you choose No, NextPi is not started. To stop being asked, turn it off "
-               "in Settings > Preferences > NextPi.\n\n"
-            << "Download NextPi now?";
-    } else {
-        msg << "jnext is set to use NextPi " << target << ", but NextPi " << current
-            << " is installed in:\n"
-            << display_path(dir) << "\n\n"
-            << "jnext can download NextPi " << target << " now (about 6 GB) and replace it. "
-               "Anything NextPi " << current << " saved to its own card is lost.\n\n"
-            << "If you choose No, jnext keeps using NextPi " << current << ".\n\n"
-            << "Download NextPi " << target << " now?";
-    }
-    if (!confirm(msg.str())) {
-        if (!current.empty()) {
-            res.status  = sdcard::ProvisionStatus::Ok;
-            res.dir     = dir;
-            res.release = current;
-            res.warning = "kept the installed NextPi " + current + " (" + target + " not downloaded)";
+    // A download that stopped (GH #358): the backend kept `<archive>.part` and its
+    // record, and continues it. Never adopted as an archive: only a finished
+    // download is renamed to the archive's name.
+    const bool resuming = !reuse && sdcard::resumable_partial(archive, archive_url, part_have, part_total);
+    if (!reuse || !current.empty()) {
+        std::ostringstream msg;
+        if (resuming)
+            msg << "A previous download of NextPi " << target << " stopped after " << gb(part_have) << " of "
+                << gb(part_total) << " (in " << sdcard::partial_path(archive) << "); jnext continues it from there.\n\n";
+        if (!reason.empty()) msg << "NextPi in this folder cannot be used: " << reason << ".\n\n";
+        if (!archive_note.empty()) msg << archive_note << ".\n\n";
+        if (current.empty()) {
+            msg << "NextPi is the software that runs on the Raspberry Pi of the Spectrum "
+                   "Next, and it is not installed yet.\n\n"
+                << "jnext can download it now (NextPi " << target << ", about 6 GB) into:\n"
+                << display_path(dir) << "\n\n"
+                << "This happens only once. About 22 GB of free space is needed there while "
+                   "it is unpacked; it uses about 15 GB afterwards.\n\n"
+                << "If you choose No, NextPi is not started. To stop being asked, turn it off "
+                   "in Settings > Preferences > NextPi.\n\n"
+                << "Download NextPi now?";
+        } else if (reuse) {
+            msg << "jnext is set to use NextPi " << target << ", but NextPi " << current
+                << " is installed in:\n"
+                << display_path(dir) << "\n\n"
+                << "jnext can install NextPi " << target << " from the downloaded " << archive_name
+                << " and replace it. Anything NextPi " << current << " saved to its own card is lost.\n\n"
+                << "If you choose No, jnext keeps using NextPi " << current << ".\n\n"
+                << "Install NextPi " << target << " now?";
+        } else {
+            msg << "jnext is set to use NextPi " << target << ", but NextPi " << current
+                << " is installed in:\n"
+                << display_path(dir) << "\n\n"
+                << "jnext can download NextPi " << target << " now (about 6 GB) and replace it. "
+                   "Anything NextPi " << current << " saved to its own card is lost.\n\n"
+                << "If you choose No, jnext keeps using NextPi " << current << ".\n\n"
+                << "Download NextPi " << target << " now?";
+        }
+        if (!confirm(msg.str())) {
+            if (!current.empty()) {
+                res.status  = sdcard::ProvisionStatus::Ok;
+                res.dir     = dir;
+                res.release = current;
+                res.warning = "kept the installed NextPi " + current + " (" + target + " not " +
+                              (reuse ? "installed" : "downloaded") + ")";
+                return res;
+            }
+            res.status = sdcard::ProvisionStatus::Declined;
+            res.error  = "NextPi download declined";
             return res;
         }
-        res.status = sdcard::ProvisionStatus::Declined;
-        res.error  = "NextPi download declined";
-        return res;
     }
 
     const fs::space_info space = fs::space(dir, ec);
@@ -587,41 +729,59 @@ ProvisionResult provision(const ProvisionOptions& opts) {
         return res;
     }
 
-    // The checksum first: it is tiny, and a release name the mirror does not
-    // have fails here rather than after a long download.
-    const std::string archive = (fs::path(dir) / archive_name).string();
-    const std::string md5_path = archive + ".md5";
-    std::string err;
-    if (!download(mirror + "/" + archive_name + ".md5", md5_path, {}, err)) {
-        res.error = "NextPi " + target + ": cannot download " + archive_name + ".md5 from " + mirror +
-                    ": " + err;
-        return res;
-    }
-    std::smatch m;
-    const std::string md5_text = read_file(md5_path);
-    if (!std::regex_search(md5_text, m, std::regex("[0-9a-fA-F]{32}"))) {
-        res.error = md5_path + ": no MD5 in it";
-        return res;
-    }
-    std::string expected = m.str();
-    std::transform(expected.begin(), expected.end(), expected.begin(), ::tolower);
-
-    // An archive left by an interrupted run is reused if it checks out.
-    bool have_archive = fs::exists(archive, ec) && md5_file(archive) == expected;
-    if (!have_archive) {
-        if (!download(mirror + "/" + archive_name, archive, opts.progress, err)) {
-            fs::remove(archive, ec);
-            res.error = "NextPi download failed: " + err;
+    if (!reuse) {
+        // The checksum first: it is tiny, and a release name the mirror does not
+        // have fails here rather than after a long download.
+        if (!download(mirror + "/" + archive_name + ".md5", md5_path, {}, err)) {
+            res.error = "NextPi " + target + ": cannot download " + archive_name + ".md5 from " + mirror +
+                        ": " + err;
             return res;
         }
-        bool matches = false;
-        busy("Checking the NextPi download", [&] { matches = md5_file(archive) == expected; return matches; });
-        if (!matches) {
-            fs::remove(archive, ec);
-            res.error = archive + ": MD5 mismatch (the download is corrupt); try again";
+        const std::string expected = md5_in(read_file(md5_path));
+        if (expected.empty()) {
+            res.error = md5_path + ": no MD5 in it";
             return res;
         }
+        // An archive that checks out against the mirror's MD5 is reused.
+        // (The digest the check above already computed is reused: hashing 5.7 GB
+        // again outside busy() would freeze the GUI.)
+        bool already_good = false;
+        if (!local_digest.empty()) {
+            already_good = local_digest == expected;
+        } else if (sdcard::regular_file_exists(archive)) {
+            busy("Checking the NextPi download", [&] { already_good = md5_file(archive) == expected; return already_good; });
+        }
+        if (!already_good) {
+            // A failed download does NOT delete the archive: the backend owns the
+            // partial (`<archive>.part`, kept for resuming) and writes `archive`
+            // only when complete, and one that wrongly reports failure for a
+            // complete file (GH #358) leaves it for the next run's MD5 check.
+            if (!download(archive_url, archive, opts.progress, err)) {
+                uint64_t h2 = 0, t2 = 0;
+                res.error = "NextPi download failed: " + err;
+                switch (sdcard::partial_state(archive, archive_url, h2, t2)) {
+                case sdcard::PartialState::Resumable:
+                    res.error += "; the " + gb(h2) + " fetched so far are kept and the download continues next time";
+                    break;
+                case sdcard::PartialState::Complete:
+                    res.error += "; the complete download is kept in " + sdcard::partial_path(archive) +
+                                 " and is used next time";
+                    break;
+                default: break;
+                }
+                return res;
+            }
+            std::string actual;
+            busy("Checking the NextPi download", [&] { actual = md5_file(archive); return actual == expected; });
+            if (actual != expected) {
+                fs::remove(archive, ec);
+                res.error = archive + ": MD5 mismatch (got " + (actual.empty() ? std::string("nothing") : actual) +
+                            ", expected " + expected + "): the download is corrupt and was removed; try again";
+                return res;
+            }
+        }
     }
+    const std::string kept = "; the download is kept in " + archive + " and is used next time";
 
     // Unpack beside the old release, so a failure up to here leaves the
     // previous NextPi (if any) untouched and usable.
@@ -635,7 +795,7 @@ ProvisionResult provision(const ProvisionOptions& opts) {
     if (!unpacked) {
         fs::remove(image_part, ec);
         fs::remove_all(boot_part, ec);
-        res.error = "NextPi " + target + ": " + err;
+        res.error = "NextPi " + target + ": " + err + kept;
         return res;
     }
 
@@ -649,7 +809,7 @@ ProvisionResult provision(const ProvisionOptions& opts) {
     const fs::path boot   = fs::path(dir) / "boot";
     const fs::path boot_old = fs::path(dir) / "boot.old";
     auto install_failed = [&](const std::string& what) {
-        res.error = dir + ": cannot install NextPi " + target + ": " + what;
+        res.error = dir + ": cannot install NextPi " + target + ": " + what + kept;
         return res;
     };
     fs::remove(marker, ec);

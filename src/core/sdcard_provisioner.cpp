@@ -13,7 +13,6 @@
 #include <fstream>
 #include <iostream>
 #include <string>
-#include <sys/stat.h>
 #include <sys/types.h>
 
 namespace sdcard {
@@ -69,10 +68,6 @@ bool make_dirs(const std::string& path) {
     std::filesystem::create_directories(path, ec); // no error if it exists
     return std::filesystem::is_directory(path);
 }
-bool file_exists(const std::string& path) {
-    struct stat st{};
-    return ::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
-}
 // GH #271 — if a download fails while we are inside a Flatpak sandbox, say so.
 //
 // A Flatpak without --share=network has its own network namespace with nothing
@@ -90,7 +85,7 @@ bool file_exists(const std::string& path) {
 //
 // Returns "" — and therefore changes NOTHING — outside a sandbox.
 std::string sandbox_network_note(const ProvisionOptions& opts) {
-    if (opts.sandbox_marker.empty() || !file_exists(opts.sandbox_marker))
+    if (opts.sandbox_marker.empty() || !regular_file_exists(opts.sandbox_marker))
         return {};
     return "\n  note: jnext is running inside a Flatpak sandbox, which has its own"
            "\n  network namespace. If the same URL downloads fine outside the sandbox,"
@@ -123,6 +118,262 @@ std::string read_stored_sha256(const std::string& path) {
     return tok;
 }
 } // namespace
+
+bool regular_file_exists(const std::string& path) {
+    std::error_code ec;
+    return std::filesystem::is_regular_file(path, ec);
+}
+
+// ---------------------------------------------------------------------------
+// Resumable downloads (GH #358): the partial-file contract, once. See the
+// comment above DownloadFn in sdcard_provisioner.h.
+// ---------------------------------------------------------------------------
+std::string partial_path(const std::string& dest) { return dest + ".part"; }
+std::string resume_record_path(const std::string& dest) { return partial_path(dest) + ".resume"; }
+
+namespace {
+uint64_t file_bytes(const std::string& path) {
+    std::error_code ec;
+    const auto n = std::filesystem::file_size(path, ec);
+    return ec ? 0 : static_cast<uint64_t>(n);
+}
+
+std::string trimmed(std::string v) {
+    const char* ws = " \t\r\n";
+    const auto b = v.find_first_not_of(ws);
+    if (b == std::string::npos) return {};
+    return v.substr(b, v.find_last_not_of(ws) - b + 1);
+}
+
+bool starts_with_icase(const std::string& s, const char* lower) {
+    for (std::size_t i = 0; lower[i]; ++i) {
+        if (i >= s.size() || std::tolower(static_cast<unsigned char>(s[i])) != lower[i]) return false;
+    }
+    return true;
+}
+} // namespace
+
+bool read_resume_info(const std::string& dest, ResumeInfo& out) {
+    std::ifstream f(resume_record_path(dest), std::ios::binary);
+    if (!f) return false;
+    std::string url, val, total;
+    if (!std::getline(f, url) || !std::getline(f, val) || !std::getline(f, total)) return false;
+    url = trimmed(url);
+    const auto sp = val.find(' ');
+    if (url.empty() || sp == std::string::npos) return false;
+    ResumeInfo r;
+    r.url = url;
+    r.validator_kind = val.substr(0, sp);
+    r.validator = trimmed(val.substr(sp + 1));
+    if ((r.validator_kind != "etag" && r.validator_kind != "date") || r.validator.empty()) return false;
+    char* end = nullptr;
+    const std::string t = trimmed(total);
+    r.total = std::strtoull(t.c_str(), &end, 10);
+    if (t.empty() || *end != '\0' || r.total == 0) return false;
+    out = r;
+    return true;
+}
+
+bool write_resume_info(const std::string& dest, const ResumeInfo& info) {
+    std::ofstream f(resume_record_path(dest), std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f << info.url << "\n" << info.validator_kind << " " << info.validator << "\n" << info.total << "\n";
+    return static_cast<bool>(f);
+}
+
+void discard_partial(const std::string& dest) {
+    std::error_code ec;
+    std::filesystem::remove(partial_path(dest), ec);
+    std::filesystem::remove(resume_record_path(dest), ec);
+}
+
+PartialState partial_state(const std::string& dest, const std::string& url, uint64_t& have, uint64_t& total) {
+    std::error_code ec;
+    if (!std::filesystem::exists(partial_path(dest), ec)) return PartialState::None;
+    ResumeInfo r;
+    if (!read_resume_info(dest, r) || r.url != url) return PartialState::Stale;
+    const uint64_t n = file_bytes(partial_path(dest));
+    if (n == 0) return PartialState::Stale;
+    have = n;
+    total = r.total;
+    if (n < r.total) return PartialState::Resumable;
+    return n == r.total ? PartialState::Complete : PartialState::Oversize;
+}
+
+bool resumable_partial(const std::string& dest, const std::string& url, uint64_t& have, uint64_t& total) {
+    return partial_state(dest, url, have, total) == PartialState::Resumable;
+}
+
+bool finish_complete_partial(const std::string& dest, const std::string& url, std::string& err) {
+    PartialDownload part(url, dest, true);
+    return part.complete() && part.finish(err);
+}
+
+void parse_response_line(const std::string& line, HttpResponseInfo& r) {
+    if (line.compare(0, 5, "HTTP/") == 0) {
+        r = HttpResponseInfo{};
+        const auto sp = line.find(' ');
+        if (sp != std::string::npos) r.status = std::strtol(line.c_str() + sp + 1, nullptr, 10);
+        return;
+    }
+    const auto colon = line.find(':');
+    if (colon == std::string::npos) return;
+    const std::string name = line.substr(0, colon);
+    const std::string value = trimmed(line.substr(colon + 1));
+    auto is = [&](const char* lower) { return starts_with_icase(name, lower) && name.size() == std::strlen(lower); };
+    if (is("content-range")) r.content_range = value;
+    else if (is("etag")) r.etag = value;
+    else if (is("last-modified")) r.last_modified = value;
+    else if (is("content-length")) {
+        char* end = nullptr;
+        r.content_length = std::strtoull(value.c_str(), &end, 10);
+        r.has_content_length = !value.empty() && *end == '\0';
+    }
+}
+
+PartialDownload::PartialDownload(const std::string& url, const std::string& dest, bool allow_resume)
+    : url_(url), dest_(dest) {
+    uint64_t have = 0, total = 0;
+    const PartialState st = allow_resume ? partial_state(dest, url, have, total) : PartialState::Stale;
+    if (st == PartialState::Resumable && read_resume_info(dest, rec_)) {
+        ranged_ = true;
+        have_ = base_ = have;
+        total_ = total;
+    } else if (st == PartialState::Complete && read_resume_info(dest, rec_)) {
+        // The whole file is there and its last step (the rename) is what failed:
+        // finish it, never fetch it again (GH #358). complete() tells the backend.
+        complete_ = true;
+        total_ = total;
+    } else {
+        if (st == PartialState::Oversize)
+            Log::emulator()->warn("download: {} is larger ({} bytes) than the {} its record names; discarded",
+                                  partial_path(dest), have, total);
+        discard_partial(dest);   // stale (no record, another url), foreign, or not asked for
+    }
+}
+
+PartialDownload::~PartialDownload() { close_file(); }
+
+void PartialDownload::close_file() {
+    if (f_) { std::fclose(f_); f_ = nullptr; }
+}
+
+uint64_t PartialDownload::part_size() const { return file_bytes(partial_path(dest_)); }
+
+std::string PartialDownload::range_value() const { return "bytes=" + std::to_string(have_) + "-"; }
+std::string PartialDownload::if_range_value() const { return rec_.validator; }
+
+PartialDownload::Begin PartialDownload::begin(const HttpResponseInfo& r, std::string& err) {
+    begun_ = true;
+    if (r.status == 416 && ranged_) { discard_partial(dest_); return Begin::Retry; }
+    if (r.status >= 400) {
+        err = "HTTP status " + std::to_string(r.status);
+        cancelled();
+        return Begin::Error;
+    }
+    if (r.status == 206) {
+        unsigned long long s = 0, e = 0, t = 0;
+        const bool good = ranged_ &&
+            std::sscanf(r.content_range.c_str(), "bytes %llu-%llu/%llu", &s, &e, &t) == 3 &&
+            s == have_ && t == rec_.total && e >= s && e < t;
+        if (!good) {
+            if (!ranged_) { err = "unexpected partial content (HTTP 206)"; cancelled(); return Begin::Error; }
+            discard_partial(dest_);
+            begun_ = false;
+            return Begin::Retry;
+        }
+        // Append at an explicit 64-bit offset instead of trusting the CRT's "ab"
+        // past 4 GiB; a positioning fault is a clean restart, never a splice.
+        f_ = std::fopen(partial_path(dest_).c_str(), "r+b");
+        if (!f_) { err = "cannot create output file: " + partial_path(dest_); return Begin::Error; }
+#ifdef _WIN32
+        const bool at = _fseeki64(f_, static_cast<__int64>(have_), SEEK_SET) == 0 &&
+                        static_cast<uint64_t>(_ftelli64(f_)) == have_;
+#else
+        const bool at = fseeko(f_, static_cast<off_t>(have_), SEEK_SET) == 0 &&
+                        static_cast<uint64_t>(ftello(f_)) == have_;
+#endif
+        if (!at) {
+            close_file();
+            discard_partial(dest_);
+            begun_ = false;
+            return Begin::Retry;
+        }
+        return Begin::Ok;
+    }
+    // 200 (the range was ignored or the validator changed), or any other
+    // success: start from byte 0 and say what this response is a validator for.
+    discard_partial(dest_);
+    ranged_ = false;
+    have_ = base_ = 0;
+    total_ = r.has_content_length ? r.content_length : 0;
+    ResumeInfo rec;
+    rec.url = url_;
+    rec.total = total_;
+    if (!r.etag.empty() && r.etag.compare(0, 2, "W/") != 0) { rec.validator_kind = "etag"; rec.validator = r.etag; }
+    else if (!r.last_modified.empty()) { rec.validator_kind = "date"; rec.validator = r.last_modified; }
+    f_ = std::fopen(partial_path(dest_).c_str(), "wb");
+    if (!f_) { err = "cannot create output file: " + partial_path(dest_); return Begin::Error; }
+    if (!rec.validator.empty() && rec.total > 0) { rec_ = rec; write_resume_info(dest_, rec); }
+    return Begin::Ok;
+}
+
+bool PartialDownload::write(const char* data, std::size_t n) {
+    return f_ && std::fwrite(data, 1, n, f_) == n;
+}
+
+bool PartialDownload::report(const ProgressFn& progress, uint64_t got) const {
+    return !progress || progress(base_ + got, total_);
+}
+
+bool PartialDownload::finish(std::string& err) {
+    const bool flushed = !f_ || std::fflush(f_) == 0;
+    close_file();
+    const uint64_t n = part_size();
+    if (!flushed) {
+        err = "write/flush error on " + partial_path(dest_);
+        cancelled();
+        return false;
+    }
+    if (total_ > 0 && n != total_) {
+        if (n < total_)
+            err = "connection closed after " + std::to_string(n) + " of " + std::to_string(total_) + " bytes";
+        else {
+            err = "received " + std::to_string(n) + " bytes, expected " + std::to_string(total_);
+            discard_partial(dest_);
+            return false;
+        }
+        cancelled();
+        return false;
+    }
+    std::error_code ec;
+    std::filesystem::rename(partial_path(dest_), dest_, ec);
+    if (ec) {
+        err = "cannot move " + partial_path(dest_) + " to " + dest_ + ": " + ec.message();
+        return false;
+    }
+    std::filesystem::remove(resume_record_path(dest_), ec);
+    return true;
+}
+
+void PartialDownload::cancelled() {
+    close_file();
+    ResumeInfo r;
+    if (part_size() > 0 && read_resume_info(dest_, r)) return;   // kept: bytes and a validator
+    discard_partial(dest_);
+}
+
+void PartialDownload::fail(std::string& err, bool clean_eof) {
+    close_file();
+    if (begun_ && total_ > 0) {
+        const uint64_t n = part_size();
+        if (n < total_) {
+            const std::string at = std::to_string(n) + " of " + std::to_string(total_) + " bytes";
+            err = clean_eof ? "connection closed after " + at : err + " (after " + at + ")";
+        }
+    }
+    cancelled();
+}
 
 std::string default_state_dir() { return config_dir(); }
 std::string default_sdcard_dir() {
@@ -506,7 +757,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
 
     // The FIXED (patched) image is what jnext boots from. If it is already
     // present, use it — unless a re-provision is forced.
-    if (!opts.force_download && file_exists(fixed)) {
+    if (!opts.force_download && regular_file_exists(fixed)) {
         r.status = ProvisionStatus::Ok;
         r.path   = fixed;
         Log::emulator()->info("sdcard: using default image {}", fixed);
@@ -522,7 +773,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     // sidecar. A missing/unreadable sidecar or a mismatch marks the raw
     // untrusted (stale/corrupt) and forces the full download cycle.
     bool raw_trusted = false;
-    if (!opts.force_download && file_exists(raw)) {
+    if (!opts.force_download && regular_file_exists(raw)) {
         const std::string stored = read_stored_sha256(raw_sha_path);
         if (stored.empty()) {
             Log::emulator()->warn(
@@ -547,9 +798,36 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
         DownloadFn download = opts.download ? opts.download
                                             : DownloadFn(default_http_download);
 
+        // Distro URL: $JNEXT_SDCARD_DISTRO_URL overrides kDistroUrl when set
+        // and non-empty. A TEST SEAM in the same spirit as $JNEXT_CONFIG_DIR
+        // above (GH #108 Phase B): it lets a harness point the REAL download
+        // path (libcurl / WinHTTP) at a local fixture server instead of the
+        // multi-hundred-MB specnext.com zip — e.g. the wine packaging smoke,
+        // which proves the Windows WinHTTP backend end-to-end against a
+        // loopback HTTP server. Not a user feature; deliberately absent from
+        // --help and the man page.
+        const char* env_url = std::getenv("JNEXT_SDCARD_DISTRO_URL");
+        const std::string distro_url =
+            (env_url && *env_url) ? std::string(env_url) : std::string(kDistroUrl);
+
+        // The download is resumable (GH #358): the backend keeps `<zip>.part` when
+        // a transfer stops, and --sdcard-download-force means start over.
+        const std::string zip_tmp = dir + "/sn-emulator.zip";
+        if (opts.force_download) discard_partial(zip_tmp);
+        uint64_t part_have = 0, part_total = 0;
+        const bool resuming = resumable_partial(zip_tmp, distro_url, part_have, part_total);
+        auto mb = [](uint64_t b) {
+            char t[32];
+            std::snprintf(t, sizeof t, "%.1f MB", static_cast<double>(b) / (1024.0 * 1024.0));
+            return std::string(t);
+        };
+
         if (!opts.auto_confirm) {
             std::string msg =
-                "No SD-card image was found at ~/.jnext/.\n\n"
+                std::string("No SD-card image was found at ~/.jnext/.") +
+                (resuming ? " (continuing a download that stopped at " + mb(part_have) + " of " +
+                                mb(part_total) + ")"
+                          : std::string()) + "\n\n"
                 "Download the NextZXOS official distribution image and "
                 "install it there?";
             if (!confirm(msg)) {
@@ -565,21 +843,14 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             return r;
         }
 
-        // Distro URL: $JNEXT_SDCARD_DISTRO_URL overrides kDistroUrl when set
-        // and non-empty. A TEST SEAM in the same spirit as $JNEXT_CONFIG_DIR
-        // above (GH #108 Phase B): it lets a harness point the REAL download
-        // path (libcurl / WinHTTP) at a local fixture server instead of the
-        // multi-hundred-MB specnext.com zip — e.g. the wine packaging smoke,
-        // which proves the Windows WinHTTP backend end-to-end against a
-        // loopback HTTP server. Not a user feature; deliberately absent from
-        // --help and the man page.
-        const char* env_url = std::getenv("JNEXT_SDCARD_DISTRO_URL");
-        const std::string distro_url =
-            (env_url && *env_url) ? std::string(env_url) : std::string(kDistroUrl);
-
-        const std::string zip_tmp = dir + "/sn-emulator.zip.part";
         if (!download(distro_url, zip_tmp, opts.progress, err)) {
             r.status = ProvisionStatus::Failed;
+            uint64_t h2 = 0, t2 = 0;
+            const PartialState ps = partial_state(zip_tmp, distro_url, h2, t2);
+            if (ps == PartialState::Resumable)
+                err += "; the part fetched so far is kept and the next start continues it";
+            else if (ps == PartialState::Complete)
+                err += "; the complete download is kept and the next start uses it";
             r.error  = "download failed: " + err + sandbox_network_note(opts);
             return r;
         }

@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.56</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.56</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.57</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3547,7 +3547,9 @@ SD card image</strong>. Answer yes and JNEXT will:</p>
 </ol>
 <p>Both files are kept in <code>~/.jnext/sdcard/</code>, and together they take about 2 GB of
 disk space. The download happens once; every later run reuses it and starts
-immediately.</p>
+immediately. If the download stops (network trouble, Cancel, closing JNEXT), the
+part already fetched is kept as <code>sn-emulator.zip.part</code> in <code>~/.jnext/sdcard</code>, and
+the next start continues from there (the question then says so).</p>
 <p>Answering no leaves JNEXT with nothing to boot from, so it explains the problem
 and exits.</p>
 
