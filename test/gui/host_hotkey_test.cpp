@@ -940,14 +940,24 @@ void test_alt_reset_keys() {
         type_key(w3, Qt::Key_F4, {kMeta, kAlt});
         const uint8_t rt_alt = emu.nmi_source().reset_type();
         const int fired = watch.fired;
-        type_key(w3, Qt::Key_F4, {});
+        type_key(w3, Qt::Key_F4, {});                 // the Soft Reset QAction's F4
         const uint8_t rt_plain = emu.nmi_source().reset_type();
+        // The same plain F4 with the menu bar hidden (fullscreen): no shortcut
+        // matches, so it reaches keyPressEvent's F4 case, which must still soft-reset
+        // and must not read it as a quit (010 -> 001).
+        w3.menuBar()->hide();
+        type_key(w3, Qt::Key_F4, {});
+        w3.menuBar()->show();
+        const uint8_t rt_plain_hidden = emu.nmi_source().reset_type();
         check("H380-07", "With an emulator attached, Alt+F4, Ctrl+Alt+F4 and Meta+Alt+F4 trigger File "
-                         "> Quit and start no soft reset, and F4 alone soft-resets",
+                         "> Quit and start no soft reset, and F4 alone soft-resets and does not quit, "
+                         "menu bar shown or hidden",
               watch.quit != nullptr && rt0 == 0b100 && rt_alt == 0b100 && fired == 3 &&
-                  rt_plain == 0b010 && watch.f4_to_guest == 0,
+                  rt_plain == 0b010 && rt_plain_hidden == 0b001 && watch.fired == 3 &&
+                  watch.f4_to_guest == 0,
               watch.detail() + " rt0=" + std::to_string(rt0) + " rt_after_alt=" +
-                  std::to_string(rt_alt) + " rt_after_plain=" + std::to_string(rt_plain));
+                  std::to_string(rt_alt) + " rt_after_plain=" + std::to_string(rt_plain) +
+                  " rt_after_plain_hidden=" + std::to_string(rt_plain_hidden));
     }
 }
 
