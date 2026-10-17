@@ -29,7 +29,7 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 
 ## Slots and models
 
-- 3 live agents max (owner cap), in **2 epic slots + 1 non-epic slot**. A queue with no workable issue lends its slots to the other; take them back when work appears there (at the next phase boundary, never mid-phase).
+- 4 live agents max (owner cap, 2026-10-11), in **3 epic slots + 1 non-epic slot** (owner split, 2026-09-29). A queue with no workable issue lends its slots to the other; take them back when work appears there (at the next phase boundary, never mid-phase).
 - An issue runs its phases one after another in its slot; only running agents count.
 - Roles: dispatch by `subagent_type`; the agent definition pins the model and loads the role skill. Never pass a `model:` override, except where noted.
 
