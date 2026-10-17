@@ -3185,6 +3185,61 @@ static void test_l2log_tags() {
                   during_load, in_frame));
     }
 
+    // L2LOG-TAG-06 — the warm start of a Next `--load` is init(), then
+    // load_state(), then the loader's bank writes, all before frame 1:
+    // load_state() restarts the VRAM mux and must leave the SRAM log off too
+    // (Pixel Wheels: +41 MB resident otherwise).
+    {
+        Emulator src;
+        build_next_emulator(src);
+        size_t need = 0;
+        { StateWriter measure(nullptr, 0); src.save_state(measure); need = measure.position(); }
+        std::vector<uint8_t> blob(need, 0);
+        { StateWriter w(blob.data(), blob.size()); src.save_state(w); }
+        Emulator emu;
+        build_next_emulator(emu);
+        { StateReader r(blob.data(), blob.size()); emu.load_state(r); }
+        emu.mmu().sram_log_arm();                        // port 0x123B handler, mid-load
+        emu.mmu().write(0x8000, 0x5A);
+        emu.mmu().write(0x8001, 0x5B);
+        const size_t during_load = emu.mmu().sram_log().log_size();
+        const bool rec_load = emu.mmu().sram_log().recording();
+        emu.mmu().attr_mux_start_frame(kL2Origin, kL2Vbt);
+        emu.mmu().sram_log_arm();
+        emu.mmu().write(0x8000, 0x5C);
+        const size_t in_frame = emu.mmu().sram_log().log_size();
+        check("L2LOG-TAG-06",
+              "layer2.vhd hc_eff = hc + 1 - init() then load_state() (the warm "
+              "start of a --load) leaves the SRAM log off until the first frame "
+              "starts, then it records again",
+              !rec_load && during_load == 0 && in_frame == 1,
+              fmt("recording after load_state+arm=%d log size during load=%zu "
+                  "(want 0) in frame 1=%zu (want 1)", int(rec_load), during_load, in_frame));
+    }
+
+    // L2LOG-TAG-07 — a soft reset (init with preserve_memory) can land in the
+    // middle of a frame, and the VHDL keeps SRAM and beam (zxnext.vhd:3905-3911
+    // clears only the Layer 2 enable): the log keeps running through it.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.mmu().attr_mux_start_frame(kL2Origin, kL2Vbt);
+        emu.mmu().sram_log_arm();
+        emu.mmu().write(0x8000, 0x5A);
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg, /*preserve_memory=*/true);
+        const bool rec = emu.mmu().sram_log().recording();
+        emu.mmu().write(0x8001, 0x5B);
+        const size_t n = emu.mmu().sram_log().log_size();
+        check("L2LOG-TAG-07",
+              "zxnext.vhd:3905-3911 - a soft reset keeps the SRAM and the beam, so "
+              "the SRAM log keeps recording through it",
+              rec && n >= 1,
+              fmt("recording=%d log size after the reset+write=%zu (want >= 1)", int(rec), n));
+    }
+
     // L2LOG-TAG-04 — a non-CPU write right after a CPU write does not inherit
     // the CPU's position (mirrors G12-TAG-01..03 for the VRAM mux).
     {

@@ -7336,10 +7336,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     tilemap_.set_beam_mux(&mmu_.attr_mux5(), &mmu_.attr_mux7());
     renderer_.lores().set_beam_mux(&mmu_.attr_mux5());
     layer2_.set_beam_log(&mmu_.sram_log());
-    // A re-init leaves the SRAM log off until the next begin_new_frame(): the
-    // NEX loader writes every bank through Mmu::write() before frame 1, and
-    // with Layer 2 armed each byte would be logged (and its memory kept).
-    mmu_.sram_log_stop();
+    // A re-init BETWEEN frames (a load: preserve_memory false) leaves the SRAM log
+    // off until the next begin_new_frame(): the NEX loader writes every bank
+    // through Mmu::write() before frame 1, and with Layer 2 armed each byte would
+    // be logged (and its memory kept). A soft reset (preserve_memory true) can
+    // land mid-frame and the VHDL keeps the SRAM and the beam (zxnext.vhd:3905-
+    // 3911 clears only the Layer 2 enable), so the rows already drawn keep their
+    // beam-time fetch: the log is left running.
+    if (!preserve_memory) mmu_.sram_log_stop();
 
     // The border resets to black with port_fe_reg (zxnext.vhd:3587-3593),
     // in Ula::reset() above. It used to be forced to white here, a phase-1
@@ -13751,7 +13755,10 @@ bool Emulator::load_state(StateReader& r)
         ula.palsel_start_frame();
         mmu_.attr_mux_start_frame(video_timing_.ula_prefetch_origin_hc(),
                                   video_timing_.vblank_top());
-        if (layer2_.enabled()) mmu_.sram_log_arm();   // GH #362
+        // The warm start of a Next `--load` is init() then this load_state() then
+        // the loader's bank writes, all before frame 1: keep the SRAM log off until
+        // begin_new_frame() arms it (it re-arms when Layer 2 is on).
+        mmu_.sram_log_stop();
     }
 
     // Task 60c — the input subsystem (keyboard/joystick/mouse/md6/…) has now

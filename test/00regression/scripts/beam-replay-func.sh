@@ -153,6 +153,31 @@ if want beam-replay-func; then
         echo 'end'
     }
 
+    # Layer 2 ON; the Copper soft-resets the machine at line 100 (WAIT 100; MOVE
+    # NR 0x02,1), i.e. init(preserve_memory) in the middle of the frame. A soft
+    # reset clears only the Layer 2 enable (zxnext.vhd:3905-3911), never the SRAM
+    # or the video timing, so rows 0-99 keep their beam-time fetch: the SRAM log
+    # must survive it. (A script's `set nextreg[2]` is refused, hence the Copper.)
+    # The reset also puts NR 0x12 / 0x70 and the enable back to defaults, so the
+    # lane restores them at the end of frame POKE_F to stay non-vacuous.
+    br_l2_softreset_setup() { br_l2_256_setup; }
+    br_l2_softreset_poke() { br_xor_page 0x12 0x1400 1024; }
+    br_l2_softreset_extra() {
+        echo "on frame $((br_poke_f - 1)) do"
+        echo '    set nextreg[0x61] = 0x00'
+        echo '    set nextreg[0x62] = 0x00'
+        local b
+        for b in 0x80 0x64 0x02 0x01 0xFF 0xFF; do echo "    set nextreg[0x60] = $b"; done
+        echo '    set nextreg[0x61] = 0x00'
+        echo '    set nextreg[0x62] = 0x40'
+        echo 'end'
+        echo "on frame $br_poke_f do"
+        echo '    set nextreg[0x12] = 9'
+        echo '    set nextreg[0x70] = 0'
+        echo '    out 0x123B 0x02'
+        echo 'end'
+    }
+
     # Layer 2 ON at the frame's start; OFF at scanline 100, ON again at 240.
     br_l2_mid_off_setup() { br_l2_256_setup; }
     br_l2_mid_off_poke() { br_xor_page 0x12 0x1400 1024; }
@@ -165,7 +190,7 @@ if want beam-replay-func; then
         echo 'end'
     }
 
-    br_lanes=(ula sprattr sprpat tilemap lores l2_256 l2_320 l2_late_on l2_nr69_on l2_mid_off)
+    br_lanes=(ula sprattr sprpat tilemap lores l2_256 l2_320 l2_late_on l2_nr69_on l2_softreset l2_mid_off)
 
     br_make_script() {   # $1 = lane, $2 = poke|control, $3 = output dir
         local lane=$1 kind=$2 out=$3

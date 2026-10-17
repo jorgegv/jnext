@@ -64,8 +64,9 @@
 // can address on a Next); the ROM / RAM fills Emulator::init does and the
 // state loads (they precede the frame's baseline). A NEX / snapshot loader's
 // own bank writes, which run after init() and before the first
-// begin_new_frame(), are not logged either: init() calls stop(), and arm() does
-// nothing until start_frame() (Emulator::sram_log_stop, GH #362 review F3).
+// begin_new_frame(), are not logged either: init(preserve_memory=false) and
+// load_state() call stop(), and arm() does nothing until start_frame(). A soft
+// reset (init with preserve_memory) is mid-frame and keeps the log running.
 //
 // No save_state/load_state: everything here is rebuilt each frame
 // (Emulator::begin_new_frame -> Mmu::attr_mux_start_frame), exactly like
