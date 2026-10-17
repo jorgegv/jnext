@@ -9,6 +9,9 @@
 #include "memory/ram.h"
 #include "video/palette.h"
 
+#include <algorithm>
+#include <climits>
+
 // ---------------------------------------------------------------------------
 // Reset
 // ---------------------------------------------------------------------------
@@ -228,16 +231,18 @@ void Tilemap::flush_remaining_nr6b_changes()
 // every tile of every row (GH #362 added the mux lookups; out of line, the call
 // alone cost the tilemap path ~2% on the beast workload).
 inline __attribute__((always_inline))
-uint8_t Tilemap::vram_read(const Ram& ram, uint32_t addr, uint16_t hc, bool* hot) const
+uint8_t Tilemap::vram_read(const Ram& ram, uint32_t addr, uint16_t hc,
+                           const AttributeMux* m5, const AttributeMux* m7,
+                           bool* hot) const
 {
     // GH #362 — the beam replay: the last write tagged at or before this
-    // row's fetch instant `hc`, else the frame-start value.
+    // row's fetch instant `hc`, else the frame-start value. The offsets are
+    // masked to the bank, inside the muxes' 0x4000 / 0x2000 bytes, which
+    // read_prepared_hot() relies on in place of is_hot()'s bounds check.
     if (addr & kBank7Flag) {
         const uint32_t off = addr & ~kBank7Flag;
-        if (mux7_ && mux7_->started()) {
-            if (hot && mux7_->is_hot(off & 0x1FFF)) *hot = true;
-            return mux7_->read_prepared(off & 0x1FFF, hc);
-        }
+        if (m7) return hot ? m7->read_prepared_hot(off & 0x1FFF, hc, *hot)
+                           : m7->read_prepared(off & 0x1FFF, hc);
         if (bank7_bram_) return bank7_bram_[off & 0x1FFF];
         return ram.read(14u * 8192u + (off & 0x3FFF));
     }
@@ -246,10 +251,8 @@ uint8_t Tilemap::vram_read(const Ram& ram, uint32_t addr, uint16_t hc, bool* hot
     // port B — tm_vram_di <= vram_bank5_do1 when tm_mem_bank7='0',
     // :6663). Served from the wired buffer; physical-page-10 Ram
     // fallback for standalone unit tests. Task 25.
-    if (mux5_ && mux5_->started()) {
-        if (hot && mux5_->is_hot((addr - 5u * 16384u) & 0x3FFF)) *hot = true;
-        return mux5_->read_prepared((addr - 5u * 16384u) & 0x3FFF, hc);
-    }
+    if (m5) return hot ? m5->read_prepared_hot((addr - 5u * 16384u) & 0x3FFF, hc, *hot)
+                       : m5->read_prepared((addr - 5u * 16384u) & 0x3FFF, hc);
     if (bank5_vram_) return bank5_vram_[(addr - 5u * 16384u) & 0x3FFF];
     return ram.read(addr);
 }
@@ -374,10 +377,13 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     // renderer's all-false fill, which is the tm_on_top = 1 answer, so a
     // tilemap-off frame in blend mode 01 or 11 put the ULA below the sprites
     // when hardware puts it above. Rows TM-140 / TM-141.
+    //
+    // One fill, so ula_on_top_ is read once per row: a loop storing through
+    // the bool* had to re-read the member for each of the 640 cells (the
+    // store may alias it), which cost ~1M instructions per tilemap-off frame.
     if (!enabled_) {
         if (ula_over_flags)
-            for (int i = 0; i < 640; ++i)
-                ula_over_flags[i] = !ula_on_top_;
+            std::fill_n(ula_over_flags, 640, !ula_on_top_);
         return;
     }
 
@@ -410,26 +416,6 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     // upper bound 0x13F = 319 is safe (no 8-bit wrap).
     const int clip_xlo_320 = static_cast<int>(out.clip_x1) * 2;
     const int clip_xhi_320 = static_cast<int>(out.clip_x2) * 2 + 1;
-
-    // Shift mapping screen_x (0..639) into the index that is compared
-    // against the 320-grid clip range [clip_x1*2, clip_x2*2+1].  Per
-    // VHDL tilemap.vhd:424, the clip comparator (`pixel_en_s`) runs
-    // against `hcounter_i` (9-bit, 0..319 visible, paced at 7 MHz)
-    // — NOT against `hcount_effsub` — so the clip decision is paced at
-    // 320-grid hcounter granularity REGARDLESS of col-mode.  In our
-    // 14 MHz / 640-cell framebuffer each pair of output cells
-    // (2k, 2k+1) shares one `hcounter_i` step; mapping
-    // screen_x → hcounter_i is `screen_x >> 1` in BOTH col-modes.
-    //
-    // The col-mode only affects which SOURCE PIXEL each output cell
-    // reads (VHDL tilemap.vhd:228 selects `hcount(10:1)` for 80-col
-    // vs `hcount(10:2)` for 40-col, i.e. hcount_effsub).  It does NOT
-    // affect the clip-comparator rate.  Consequently, a single
-    // clip_x register-pair (xsv = clip_x1*2, xev = clip_x2*2+1)
-    // covers exactly 4 output cells in the 640-grid: cells
-    // (2*xsv, 2*xsv+1, 2*xev, 2*xev+1) — or, with xsv=clip_x1*2 and
-    // xev=clip_x2*2+1 contiguous, cells [2*clip_x1*2 .. 2*(clip_x2*2+1)+1].
-    const int clip_x_shift = 1;
 
     const uint8_t transp_idx = out.transp_idx;
 
@@ -475,6 +461,96 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     // Row offset in map memory (tile entries).
     const uint32_t map_row_offset = static_cast<uint32_t>(tile_row) * tiles_per_row;
 
+    // GH #362 — the beam replay of bank 5 / the bank 7 BRAM. A row whose
+    // started muxes hold no hot offset reads the same bytes at every instant
+    // (AttributeMux::read_prepared returns the baseline for a non-hot
+    // offset), so it runs the cold instance of the loop, which reads the
+    // baselines directly; a hot offset anywhere sends the row through the
+    // replay. Cold is the common case: a static map, or a frame whose only
+    // VRAM writes are the frame interrupt's pre-display stores, which the mux
+    // folds into its baseline. A mux that is not started (bare fixtures) is
+    // read live, as vram_read() does.
+    const bool beam5 = mux5_ && mux5_->started();
+    const bool beam7 = mux7_ && mux7_->started();
+    if (beam5) mux5_->prepare();
+    if (beam7) mux7_->prepare();
+    TileRow r;
+    r.clip_xlo_320        = clip_xlo_320;
+    r.clip_xhi_320        = clip_xhi_320;
+    r.wrap_x              = wrap_x;
+    r.map_entry_size      = map_entry_size;
+    r.pixel_y             = pixel_y;
+    // whc ticks per 8-pixel group: 8 at 7 MHz (40-col), 4 at 14 MHz (80-col).
+    r.whc_per_group       = mode_80col_ ? 4 : 8;
+    r.line_map_base       = line_map_base;
+    r.line_def_base       = line_def_base;
+    r.map_row_offset      = map_row_offset;
+    r.line_scroll_x       = line_scroll_x;
+    r.line_default_attr   = line_default_attr;
+    r.transp_idx          = transp_idx;
+    r.palette_bank_second = palette_bank_second;
+    r.hcmux               = beam5 ? mux5_ : (beam7 ? mux7_ : nullptr);
+    r.p5                  = beam5 ? mux5_->baseline() : bank5_vram_;
+    r.p7                  = beam7 ? mux7_->baseline() : bank7_bram_;
+    const bool cold = !(beam5 && mux5_->any_hot()) && !(beam7 && mux7_->any_hot());
+    if (cold)
+        render_tiles_<false>(dst, ula_over_flags, ram, palette, textmode_flags, r);
+    else
+        render_tiles_<true>(dst, ula_over_flags, ram, palette, textmode_flags, r);
+}
+
+template <bool kBeam>
+void Tilemap::render_tiles_(uint32_t* dst, bool* ula_over_flags, const Ram& ram,
+                            const PaletteManager& palette, bool* textmode_flags,
+                            const TileRow r) const
+{
+    const int      clip_xlo_320        = r.clip_xlo_320;
+    const int      clip_xhi_320        = r.clip_xhi_320;
+    const int      wrap_x              = r.wrap_x;
+    const int      map_entry_size      = r.map_entry_size;
+    const int      pixel_y             = r.pixel_y;
+    const int      whc_per_group       = r.whc_per_group;
+    const uint32_t line_map_base       = r.line_map_base;
+    const uint32_t line_def_base       = r.line_def_base;
+    const uint32_t map_row_offset      = r.map_row_offset;
+    const uint16_t line_scroll_x       = r.line_scroll_x;
+    const uint8_t  line_default_attr   = r.line_default_attr;
+    const uint8_t  transp_idx          = r.transp_idx;
+    const bool     palette_bank_second = r.palette_bank_second;
+    const AttributeMux* const hcmux    = r.hcmux;
+    // The beam instance's started muxes, taken once per row rather than
+    // re-tested by every vram_read() (null = not started: read live).
+    const AttributeMux* const m5 = (kBeam && mux5_ && mux5_->started()) ? mux5_ : nullptr;
+    const AttributeMux* const m7 = (kBeam && mux7_ && mux7_->started()) ? mux7_ : nullptr;
+    const uint8_t* const p5            = r.p5;
+    const uint8_t* const p7            = r.p7;
+    // The NR 0x6B decode, copied: as far as the compiler knows, the loop's
+    // stores through the bool flag buffers may alias these bool members, so
+    // read through `this` they are reloaded at every cell. No caller's flag
+    // buffer is part of the Tilemap.
+    const bool mode_80col = mode_80col_, text_mode = text_mode_, force_attr = force_attr_,
+               mode_512 = mode_512_, ula_on_top = ula_on_top_;
+
+    // Shift mapping screen_x (0..639) into the index that is compared
+    // against the 320-grid clip range [clip_x1*2, clip_x2*2+1].  Per
+    // VHDL tilemap.vhd:424, the clip comparator (`pixel_en_s`) runs
+    // against `hcounter_i` (9-bit, 0..319 visible, paced at 7 MHz)
+    // — NOT against `hcount_effsub` — so the clip decision is paced at
+    // 320-grid hcounter granularity REGARDLESS of col-mode.  In our
+    // 14 MHz / 640-cell framebuffer each pair of output cells
+    // (2k, 2k+1) shares one `hcounter_i` step; mapping
+    // screen_x → hcounter_i is `screen_x >> 1` in BOTH col-modes.
+    //
+    // The col-mode only affects which SOURCE PIXEL each output cell
+    // reads (VHDL tilemap.vhd:228 selects `hcount(10:1)` for 80-col
+    // vs `hcount(10:2)` for 40-col, i.e. hcount_effsub).  It does NOT
+    // affect the clip-comparator rate.  Consequently, a single
+    // clip_x register-pair (xsv = clip_x1*2, xev = clip_x2*2+1)
+    // covers exactly 4 output cells in the 640-grid: cells
+    // (2*xsv, 2*xsv+1, 2*xev, 2*xev+1) — or, with xsv=clip_x1*2 and
+    // xev=clip_x2*2+1 contiguous, cells [2*clip_x1*2 .. 2*(clip_x2*2+1)+1].
+    const int clip_x_shift = 1;
+
     // G104: framebuffer is now canonical 640 (64 left border + 512 display
     // + 64 right border).  Tilemap covers the full 640 width — VHDL
     // tilemap.vhd:424 gates pixel_en_s purely on hcounter_i < 320 and
@@ -510,26 +586,32 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     // and re-fetches the map entry in every group (S_IDLE -> S_READ_TILE_0),
     // so a tile that fine X scroll splits across two groups is read twice, at
     // two instants. The block below is therefore keyed on (tile_col, group)
-    // when a byte it read was written this frame (`group_dep`); a block whose
-    // bytes were never written reads the same at any instant, so the hoist
-    // stays per tile (the common case: no replay, or a static map). Every read
-    // of the group (map entry, attribute, tile-definition bytes) uses the
-    // group's one instant. The VHDL spreads them over the group's window; the
-    // whole window is within one character of the instant.
-    const bool beam5 = mux5_ && mux5_->started();
-    const bool beam7 = mux7_ && mux7_->started();
-    if (beam5) mux5_->prepare();
-    if (beam7) mux7_->prepare();
-    const AttributeMux* const hcmux = beam5 ? mux5_ : (beam7 ? mux7_ : nullptr);
-    const bool beam = (hcmux != nullptr);
-    // whc ticks per 8-pixel group: 8 at 7 MHz (40-col), 4 at 14 MHz (80-col).
-    const int whc_per_group = mode_80col_ ? 4 : 8;
-    int      group_end_x     = 0;       // first tilemap_x of the next 8-pixel group
+    // when a byte it read is hot (AttributeMux::is_hot: written this frame
+    // and not folded into the baseline): `group_end_x` is then the first
+    // tilemap_x of the next group, else INT_MAX, so the test stays one
+    // compare. A block of non-hot bytes reads the same at any instant, so the
+    // hoist stays per tile. Every read of the group (map entry, attribute,
+    // tile-definition bytes) uses the group's one instant. The VHDL spreads
+    // them over the group's window; the whole window is within one character
+    // of the instant.
+    //
+    // The cold instance (kBeam = false), which render_scanline runs for a row
+    // with no hot byte at all, has no group test: the block is per tile as
+    // before the replay, and `fetch` reads the baseline byte that every
+    // replayed read of such a row returns.
+    const bool beam = kBeam && (hcmux != nullptr);
+    // whc_hc()'s origin in a local: read through `hcmux` at every block, it
+    // would be reloaded there, since the loop's stores may alias it.
+    const int hc_origin = beam ? hcmux->hc_origin() : 0;
+    int      group_end_x     = INT_MAX; // next group's first tilemap_x, or INT_MAX
     uint16_t fetch_hc        = 0;
-    bool     group_dep       = false;   // the cached block depends on its group's instant
     int      cached_tile_col = -1;
     uint16_t full_tile_index = 0;
-    uint8_t  pal_offset      = 0;
+    // The row's palette bank, and the slice of it that the current tile's
+    // palette offset selects: a pixel's colour is tile_pal[pixel], one load
+    // with no index to build per pixel.
+    const uint32_t* const tm_pal = palette.tilemap_colours(palette_bank_second);
+    const uint32_t* tile_pal     = tm_pal;
     bool     rotate          = false;
     bool     eff_x_mirror    = false;   // x_mirror ^ rotate (non-rotate: == x_mirror)
     bool     pixel_below     = false;
@@ -539,6 +621,22 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     // eff_py for the non-rotate standard path (y-mirror applied, per tile).
     int      eff_py_tile     = 0;
 
+    // One byte of the row's map or tile definitions: the beam instance
+    // replays the muxes at the group's instant (vram_read); the cold one reads
+    // the same pointers and masks as vram_read's non-replay paths.
+    const auto fetch = [&](uint32_t addr, bool* hot) __attribute__((always_inline)) -> uint8_t {
+        if constexpr (kBeam) {
+            return vram_read(ram, addr, fetch_hc, m5, m7, hot);
+        } else {
+            (void)hot;
+            if (addr & kBank7Flag) {
+                const uint32_t off = addr & ~kBank7Flag;
+                return p7 ? p7[off & 0x1FFF] : ram.read(14u * 8192u + (off & 0x3FFF));
+            }
+            return p5 ? p5[(addr - 5u * 16384u) & 0x3FFF] : ram.read(addr);
+        }
+    };
+
     for (int screen_x = 0; screen_x < out_width; ++screen_x) {
         // Tile-fetch source-pixel index.
         //   80-col (VHDL tm_mode='1', 14 MHz tap): native 1:1 — each
@@ -547,7 +645,7 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
         //   40-col (VHDL tm_mode='0', 7 MHz tap): each tilemap pixel
         //     covers two adjacent output cells.  Pairs (2k, 2k+1) read
         //     the same source.  tilemap_x = screen_x >> 1 (range 0..319).
-        const int tilemap_x = mode_80col_ ? screen_x : (screen_x >> 1);
+        const int tilemap_x = mode_80col ? screen_x : (screen_x >> 1);
 
         // Per-pixel X-clip — blank to transparent when the source-pixel
         // index (mapped to the 320-grid clip domain via clip_x_shift)
@@ -568,34 +666,36 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
         int pixel_x  = abs_x & 7;    // abs_x % 8
 
         // --- Per-tile block: recompute only on a tile boundary. ---
-        if (tile_col != cached_tile_col || (group_dep && tilemap_x >= group_end_x)) {
+        if (tile_col != cached_tile_col || (kBeam && tilemap_x >= group_end_x)) {
             cached_tile_col = tile_col;
             bool block_hot = false;
+            int  next_group_x = INT_MAX;
             if (beam) {
                 const int group = tilemap_x >> 3;
-                group_end_x = (group + 1) << 3;
-                fetch_hc = hcmux->whc_hc(whc_per_group * (group - 1));
+                next_group_x = (group + 1) << 3;
+                fetch_hc = static_cast<uint16_t>(
+                    beam::whc_raw_hc(hc_origin, whc_per_group * (group - 1)));
             }
 
             // Read tile index from map memory.
             uint32_t map_addr = line_map_base + (map_row_offset + tile_col) * map_entry_size;
-            uint8_t tile_index = vram_read(ram, map_addr, fetch_hc, &block_hot);
+            uint8_t tile_index = fetch(map_addr, &block_hot);
 
             // Read or apply attribute.
             uint8_t attr;
-            if (force_attr_) {
+            if (force_attr) {
                 attr = line_default_attr;
             } else {
-                attr = vram_read(ram, map_addr + 1, fetch_hc, &block_hot);
+                attr = fetch(map_addr + 1, &block_hot);
             }
 
             // Decode attribute.
             bool x_mirror, y_mirror;
             bool tile_ula_over;
 
-            if (text_mode_) {
+            if (text_mode) {
                 // Text mode: bits 7:1 = palette offset (7 bits), bit 0 = ULA-over / tile bit 8.
-                pal_offset = (attr >> 1) & 0x7F;
+                tile_pal   = tm_pal + (((attr >> 1) & 0x7F) << 1);
                 x_mirror   = false;
                 y_mirror   = false;
                 rotate     = false;
@@ -603,7 +703,7 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
             } else {
                 // Standard mode: bits 7:4 = palette offset, bit 3 = X mirror,
                 // bit 2 = Y mirror, bit 1 = rotate, bit 0 = ULA-over / tile bit 8.
-                pal_offset = (attr >> 4) & 0x0F;
+                tile_pal   = tm_pal + (((attr >> 4) & 0x0F) << 4);
                 x_mirror   = (attr & 0x08) != 0;
                 y_mirror   = (attr & 0x04) != 0;
                 rotate     = (attr & 0x02) != 0;
@@ -612,7 +712,7 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
 
             // In 512-tile mode, attr bit 0 is tile index bit 8 instead of ULA-over.
             full_tile_index = tile_index;
-            if (mode_512_) {
+            if (mode_512) {
                 full_tile_index |= (attr & 0x01) ? 0x100 : 0;
                 // In 512-tile mode, per-tile ULA-over is not available.
                 tile_ula_over = false;
@@ -622,12 +722,12 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
             // From VHDL: pixel_below = (tm_tilemap_1(0) or mode_512_q) and not tm_on_top_q
             // tile_ula_over is attr bit 0; in 512 mode it's always set (tile bit 8),
             // but tm_on_top_q overrides.
-            if (ula_on_top_) {
+            if (ula_on_top) {
                 // Global ULA-on-top: tilemap is always below ULA.
                 pixel_below = false;
             } else {
                 // Per-tile: below if ULA-over bit or 512-mode.
-                pixel_below = tile_ula_over || mode_512_;
+                pixel_below = tile_ula_over || mode_512;
             }
 
             // Effective x-mirror for the non-rotate pattern path
@@ -640,12 +740,12 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
             //     only), so all 4 row bytes are per-tile.
             // Rotate keeps its fetch on the per-pixel path (eff_py depends
             // on the pixel column), so we prefetch nothing for it.
-            if (text_mode_) {
+            if (text_mode) {
                 // eff_py == pixel_y (no transform in text mode).
                 uint32_t def_addr = line_def_base
                     + static_cast<uint32_t>(full_tile_index) * 8
                     + static_cast<uint32_t>(pixel_y);
-                row_text = vram_read(ram, def_addr, fetch_hc, &block_hot);
+                row_text = fetch(def_addr, &block_hot);
             } else {
                 // eff_py is per-tile (y-mirror + per-scanline pixel_y); used by
                 // both the non-rotate prefetch below and the rotate per-pixel
@@ -655,21 +755,22 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
                     uint32_t row_base = line_def_base
                         + static_cast<uint32_t>(full_tile_index) * 32
                         + static_cast<uint32_t>(eff_py_tile) * 4;
-                    row_std[0] = vram_read(ram, row_base + 0, fetch_hc, &block_hot);
-                    row_std[1] = vram_read(ram, row_base + 1, fetch_hc, &block_hot);
-                    row_std[2] = vram_read(ram, row_base + 2, fetch_hc, &block_hot);
-                    row_std[3] = vram_read(ram, row_base + 3, fetch_hc, &block_hot);
+                    row_std[0] = fetch(row_base + 0, &block_hot);
+                    row_std[1] = fetch(row_base + 1, &block_hot);
+                    row_std[2] = fetch(row_base + 2, &block_hot);
+                    row_std[3] = fetch(row_base + 3, &block_hot);
                 }
             }
             // A rotated tile reads its definition byte by byte below, at this
             // group's instant, so it always depends on the group.
-            group_dep = beam && (block_hot || rotate);
+            if constexpr (kBeam)
+                group_end_x = (block_hot || rotate) ? next_group_x : INT_MAX;
         }
 
         // Fetch the pixel value from tile definition memory.
         uint8_t pixel_4bit;
 
-        if (text_mode_) {
+        if (text_mode) {
             // Text mode: 1bpp, 8 bytes per tile (one byte per row), row byte
             // prefetched above.  VHDL: shift_left by abs_x(2:0), take bit 7.
             pixel_4bit = (row_text >> (7 - pixel_x)) & 0x01;
@@ -699,7 +800,7 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
                 + static_cast<uint32_t>(full_tile_index) * 32
                 + static_cast<uint32_t>(eff_py) * 4
                 + (eff_px >> 1);
-            uint8_t pattern_byte = vram_read(ram, def_addr, fetch_hc);
+            uint8_t pattern_byte = fetch(def_addr, nullptr);
             if ((eff_px & 1) == 0)
                 pixel_4bit = (pattern_byte >> 4) & 0x0F;
             else
@@ -725,25 +826,21 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
         // paper area transparent, so lower layers showed through it.  That is
         // what garbled the NextZXOS CP/M 80-column screen: leftover ULA
         // content bled through the tilemap's paper.
-        if (!text_mode_ && pixel_4bit == transp_idx)
+        if (!text_mode && pixel_4bit == transp_idx)
             continue;
 
-        // Build the full 8-bit palette index.
-        // Standard: upper 4 bits from attr palette offset, lower 4 from pixel.
-        // Text mode: upper 7 bits from attr (bits 7:1), lower 1 bit from pixel.
-        uint8_t colour_idx;
-        if (text_mode_) {
-            colour_idx = static_cast<uint8_t>((pal_offset << 1) | (pixel_4bit & 0x01));
-        } else {
-            colour_idx = static_cast<uint8_t>((pal_offset << 4) | (pixel_4bit & 0x0F));
-        }
-
+        // The full 8-bit palette index is the palette offset above the pixel:
+        // standard, offset (attr 7:4) << 4 | 4-bit pixel; text mode, offset
+        // (attr 7:1) << 1 | 1-bit pixel. tile_pal starts at the offset's
+        // part, and the pixel has no bit at or above it, so tile_pal[pixel]
+        // is that colour.
+        //
         // GH #168 — the palette bank comes from the CALLER's per-scanline
         // replay of NR 0x6B b4, not from the live PaletteManager selector.
         // zxnext.vhd:6826 samples nr_6b_tm_control(4) every pixel cycle into
         // tm_palette_select_0, which reaches the palette RAM address at
         // :6981, so a mid-frame flip must split the frame at that row.
-        dst[screen_x] = palette.tilemap_colour(palette_bank_second, colour_idx);
+        dst[screen_x] = tile_pal[pixel_4bit];
 
         if (ula_over_flags)
             ula_over_flags[screen_x] = pixel_below;
@@ -757,7 +854,7 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
         // downstream compositor logic mirrors VHDL `pixel_en_f`-gated
         // pipeline state.
         if (textmode_flags)
-            textmode_flags[screen_x] = text_mode_;
+            textmode_flags[screen_x] = text_mode;
     }
 }
 

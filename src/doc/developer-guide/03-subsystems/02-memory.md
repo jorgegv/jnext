@@ -192,7 +192,14 @@ X scroll shifts in come from a separate, later "secondary" fetch. Until GH #278
 the CPU's position outlived its write, and the next non-CPU attribute write
 took it over (`mmu_integration_test` G12-TAG). A write before framebuffer row 0
 is tagged (row 0, hc 0): it precedes every row-0 fetch, and the tilemap and the
-wide Layer 2 modes do fetch on row 0.
+wide Layer 2 modes do fetch on row 0. Every read consumes such a write, so the
+mux folds an offset's leading run of (0,0) writes into its baseline instead of
+chaining them: the baseline is the frame-start bytes plus those writes, and an
+offset written only that way (the frame interrupt's sysvar stores) stays out of
+the hot set, so no read of it walks a chain and the tilemap does not re-fetch
+its block per group. A (0,0) write that follows a later-tagged one (a coarse
+DMA write after a CPU write on row 0) is chained as before (`mmu_test`
+G12-MUX-15..17).
 
 `SramBeamLog` is the same idea for Layer 2, which fetches the SRAM bitmap one
 pixel ahead of the beam (`layer2.vhd`, `hc_eff <= hc + 1`). The SRAM is 2 MB,
