@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 #include "memory/beam_counters.h"
@@ -195,6 +196,20 @@ public:
     /// touched_ exactly when it becomes hot, and both are cleared together.
     /// Only valid after prepare().
     bool any_hot() const { return !touched_.empty(); }
+
+    /// True when is_hot() holds for any offset of [off, off + n). `n` is a
+    /// multiple of 8 and the range lies inside the bank. Only valid after
+    /// prepare(). False = read_prepared() returns baseline()[o] for every o
+    /// of the range at every instant.
+    bool any_hot_in(uint32_t off, uint32_t n) const {
+        uint64_t acc = 0;
+        for (uint32_t i = 0; i < n; i += 8) {
+            uint64_t w;
+            std::memcpy(&w, hot_.data() + off + i, sizeof w);
+            acc |= w;
+        }
+        return acc != 0;
+    }
 
     /// The bytes a read of a non-hot offset returns at every instant: the
     /// frame-start bytes plus the folded writes (class comment). Only valid

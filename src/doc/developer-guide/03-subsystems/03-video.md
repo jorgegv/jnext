@@ -156,6 +156,14 @@ and there is deliberately no fifth layer buffer. The LoRes byte indexes the
 because that is where hardware wires it. Both 8-bit LoRes and Radastan fetch
 from bank 5 directly.
 
+Each byte is fetched at its pixel's own instant, through the `AttributeMux`
+replay (see the table under "Per-scanline state" below). All the fetches of one
+row fall in one span of bank 5, 128 bytes in 8-bit mode and 64 in Radastan, so
+`apply_lores` first asks the mux whether any byte of that span was written this
+frame. When none was, it reads the row straight from the frame baseline, which
+is what the replay would return for every pixel; only a row with a written byte
+pays for the per-pixel replay.
+
 ## Layer 2, tilemap, sprites
 
 These three are the Next's own additions, and each removes a specific piece of

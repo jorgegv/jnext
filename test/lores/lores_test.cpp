@@ -800,6 +800,36 @@ struct LrBeamBed {
         return line[Renderer::DISP_X + kPhc * 2];
     }
     uint32_t colour(uint8_t data) const { return pal.ula_colour(false, data); }
+
+    // LR-BR-04..06: any row, mode, scroll and window.
+    void regs(uint8_t nr6a, uint8_t sx, uint8_t sy) {
+        r.lores().set_nr6a(nr6a);
+        r.lores().set_scroll_x(sx);
+        r.lores().set_scroll_y(sy);
+        r.lores().init_per_line();
+    }
+    void window(uint8_t x1, uint8_t x2, uint8_t y1, uint8_t y2) {
+        r.ula().set_clip_x1(x1);
+        r.ula().set_clip_x2(x2);
+        r.ula().set_clip_y1(y1);
+        r.ula().set_clip_y2(y2);
+        r.init_ula_clip_per_line();
+    }
+    // A CPU write of bank-5 offset `off` (slots 2/3 hold pages 10/11).
+    void wr_off(uint16_t off, uint8_t v, int line, int hc) {
+        mmu.attr_mux_set_current_line(line);
+        mmu.attr_mux_set_current_hc(hc);
+        mmu.write(static_cast<uint16_t>(0x4000u + off), v);
+    }
+    // The line LoRes leaves on display row `vc`, every cell pre-set to `fill`.
+    std::vector<uint32_t> render(int vc, uint32_t fill) {
+        const int row = Renderer::DISP_Y + vc;
+        std::vector<uint32_t> line(Renderer::FB_WIDTH, fill);
+        mmu.attr_mux_rewind_to_baseline();
+        mmu.attr_mux_apply_line(row);
+        r.apply_lores(line.data(), row, ram, pal);
+        return line;
+    }
 };
 } // namespace
 
@@ -836,6 +866,127 @@ static void test_group10()
         check("LR-BR-03", "zxnext.vhd:4250,6603-6631 - a write 2 ticks before "
               "pixel 100's own fetch tick is seen on that row",
               b.shown() == b.colour(kNew) && b.colour(kOld) != b.colour(kNew));
+    }
+
+    // LR-BR-04..06 — y is fixed for a row (lores.vhd:84-87), so a row's
+    // fetches all fall in one span of bank 5: 128 bytes from lores_addr(x=0)
+    // (lores.vhd:91-94) or 64 from lores_addr_rad(x=0) (lores.vhd:96). Each
+    // byte is still read at its own pixel's tick (zxnext.vhd:4250,6603-6631).
+    // The written byte sits in the LAST 8 bytes of its row's span.
+    {
+        // Radastan with NR $6A b4 set, so dfile = 1 (port 0xFF b0 = 0,
+        // zxnext.vhd:6796): pixel 240 of row 10 reads lores_addr_rad =
+        // 1 & y(7:1)=5 & x(7:2)=60 = 0x217C.
+        constexpr int vc = 10, phc = 240;
+        LrBeamBed b;
+        b.regs(0x30, 0, 0);
+        const uint16_t off = ref_addr_rad(ref_x(phc, 0), ref_y(vc, 0), true);
+        b.ram.write(10u * 8192u + off, kOld);
+        b.begin();
+        b.wr_off(off, kNew, Renderer::DISP_Y + vc, kMinHactive + 1 + phc - 2);
+        const uint32_t got = b.render(vc, 0)[Renderer::DISP_X + phc * 2];
+        // lores.vhd:106-107,111: x(1) = 0 and palette offset 0, so the
+        // index is data(7:4).
+        const uint32_t want_new = b.colour(kNew >> 4);
+        const uint32_t want_old = b.colour(kOld >> 4);
+        check("LR-BR-04", "zxnext.vhd:4250,6603-6631; lores.vhd:96 - Radastan, "
+              "dfile 1: a write 2 ticks before pixel 240's own fetch tick on "
+              "row 10 (lores_addr_rad 0x217C) is seen on that row",
+              off == 0x217C && got == want_new && want_new != want_old,
+              DETAIL("off=0x%04X got=%08X new=%08X old=%08X",
+                     off, got, want_new, want_old));
+    }
+    {
+        // 8-bit with scroll_y 140: row 150 has y_pre = 290 >= 192, so
+        // y = 98 (lores.vhd:84-87); pixel 244 reads y(7:1)=49 & x(7:1)=122 =
+        // 0x18FA, +1 on bits 13:11 as y >= 96, = 0x20FA (lores.vhd:91-94).
+        // Without the wrap y would be 34 (0x08FA); unscrolled, 150 (0x2DFA).
+        constexpr int vc = 150, phc = 244;
+        constexpr uint8_t sy = 140;
+        LrBeamBed b;
+        b.regs(0x00, 0, sy);
+        const uint16_t off = ref_addr8(ref_x(phc, 0), ref_y(vc, sy));
+        b.ram.write(10u * 8192u + off, kOld);
+        b.begin();
+        b.wr_off(off, kNew, Renderer::DISP_Y + vc, kMinHactive + 1 + phc - 2);
+        const uint32_t got = b.render(vc, 0)[Renderer::DISP_X + phc * 2];
+        // lores.vhd:102,111 with palette offset 0: the index is the byte.
+        check("LR-BR-05", "zxnext.vhd:4250,6603-6631; lores.vhd:84-94 - 8-bit, "
+              "scroll_y 140: row 150 wraps to y 98 (lores_addr 0x20FA for pixel "
+              "244), and a write 2 ticks before pixel 244's own fetch tick is "
+              "seen on that row",
+              off == 0x20FA && got == b.colour(kNew) && b.colour(kNew) != b.colour(kOld),
+              DETAIL("off=0x%04X got=%08X new=%08X old=%08X",
+                     off, got, b.colour(kNew), b.colour(kOld)));
+    }
+    {
+        // A row rendered from the frame-start bank, with no write (every byte
+        // of its span unwritten) and with a write to a byte of its span tagged
+        // on the NEXT line (after all the row's fetch ticks, so it is for the
+        // next row, zxnext.vhd:6603-6631). Both must be lores.vhd's image of
+        // the frame-start bank, computed below straight from the VHDL text:
+        //   lores.vhd:115     pixel_en = x1 <= phc <= x2 and y1 <= vc <= y2
+        //   lores.vhd:82-96   x, y and the two address generators (ref_*)
+        //   lores.vhd:102-111 8-bit: ((d(7:4) + off) mod 16) & d(3:0);
+        //                     Radastan (ULA+ off): off & d(7:4) when x(1) = 0,
+        //                     off & d(3:0) when x(1) = 1
+        // and the index looks up the first ULA palette (zxnext.vhd:6981).
+        // y2 stays <= 0xBF here, so the zxnext.vhd:6779-6783 clamp is idle.
+        struct Case { const char* name; uint8_t nr6a, sx, sy, x1, x2, y1, y2; int vc; };
+        static const Case cases[] = {
+            {"8-bit sx 37",                   0x00,  37,   0,  0, 255,   0, 191,  40},
+            {"8-bit off 3 sx 200 sy 150 clip", 0x03, 200, 150, 20, 230,   0, 191, 120},
+            {"8-bit y>=96 clip y",            0x00,   5,   0,  0, 255, 100, 160, 150},
+            {"Rad off 5 sx 13 sy 70 clip",    0x25,  13,  70,  5, 250,  10, 180,  77},
+            {"Rad dfile off 9 sx 255 sy 191", 0x39, 255, 191,  0, 200,   0, 191, 191},
+        };
+        constexpr uint32_t kFill = 0xDEADBEEFu;
+        bool ok = true;
+        std::string bad;
+        for (const Case& c : cases) {
+            LrBeamBed b;
+            b.regs(c.nr6a, c.sx, c.sy);
+            b.window(c.x1, c.x2, c.y1, c.y2);
+            std::vector<uint8_t> bank(0x4000);
+            for (uint32_t o = 0; o < 0x4000; ++o) {
+                bank[o] = static_cast<uint8_t>(0x20 + (o * 53 + (o >> 7) * 11) % 0xE0);
+                b.ram.write(10u * 8192u + o, bank[o]);
+            }
+            const bool rad   = (c.nr6a & 0x20) != 0;
+            const bool dfile = (c.nr6a & 0x10) != 0;
+            const uint8_t po = static_cast<uint8_t>(c.nr6a & 0x0F);
+            const uint8_t y  = ref_y(static_cast<unsigned>(c.vc), c.sy);
+            std::vector<uint32_t> want(Renderer::FB_WIDTH, kFill);
+            for (unsigned phc = 0; phc < 256; ++phc) {
+                if (phc < c.x1 || phc > c.x2 || c.vc < c.y1 || c.vc > c.y2)
+                    continue;
+                const uint8_t x = ref_x(phc, c.sx);
+                const uint8_t d = bank[rad ? ref_addr_rad(x, y, dfile) : ref_addr8(x, y)];
+                const uint8_t idx = rad
+                    ? static_cast<uint8_t>((po << 4) | ((x & 0x02) ? (d & 0x0F) : (d >> 4)))
+                    : static_cast<uint8_t>(((((d >> 4) + po) & 0x0F) << 4) | (d & 0x0F));
+                want[Renderer::DISP_X + phc * 2]     = b.colour(idx);
+                want[Renderer::DISP_X + phc * 2 + 1] = b.colour(idx);
+            }
+            b.begin();
+            const std::vector<uint32_t> clean = b.render(c.vc, kFill);
+            // The byte the window's first pixel reads, so it is in the span.
+            const uint8_t x1x = ref_x(c.x1, c.sx);
+            const uint16_t hot = rad ? ref_addr_rad(x1x, y, dfile) : ref_addr8(x1x, y);
+            b.begin();
+            b.wr_off(hot, static_cast<uint8_t>(bank[hot] ^ 0xFF),
+                     Renderer::DISP_Y + c.vc + 1, 0);
+            const std::vector<uint32_t> late = b.render(c.vc, kFill);
+            if (clean != want || late != want) {
+                if (ok) bad = c.name;
+                ok = false;
+            }
+        }
+        check("LR-BR-06", "lores.vhd:82-115; zxnext.vhd:6603-6631 - 8-bit and "
+              "Radastan rows with scroll and clip show the frame-start bank, both "
+              "with no write and with a write to a byte of the row's span tagged "
+              "on the next line (after the row's fetch ticks)",
+              ok, DETAIL("first failing case: %s", bad.c_str()));
     }
 }
 

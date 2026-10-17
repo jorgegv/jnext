@@ -541,7 +541,7 @@ them. The consumers are exhaustive — `nr_19_*` appears at zxnext.vhd:1151-1155
 `nr_1b_*` likewise at 1161-1165, 4424-4427, 4977-4981, 5270-5276 / 5289 and
 5972-5976 / 5980.
 
-### Group 10 — Beam-time fetch (LR-BR-01 … LR-BR-03, GH #362)
+### Group 10 — Beam-time fetch (LR-BR-01 … LR-BR-06, GH #362)
 
 LoRes requests its byte for pixel `phc` at that pixel's own 7 MHz tick
 (`zxnext.vhd:4250,6603-6631`); phc = p is at raw hc `c_min_hactive + 1 + p`
@@ -549,11 +549,23 @@ LoRes requests its byte for pixel `phc` at that pixel's own 7 MHz tick
 `AttributeMux` replay at that instant. Rows are in `lores_test`
 (`c_min_hactive` = 128; each write 2 ticks from the instant).
 
+`y` is fixed for a row (`lores.vhd:84-87`), so all of a row's fetches fall in
+one span of bank 5: 128 bytes from `lores_addr` at x = 0 in 8-bit mode
+(`lores.vhd:91-94`), 64 from `lores_addr_rad` at x = 0 in Radastan mode
+(`lores.vhd:96`). A row whose span holds no byte written this frame is read
+straight from the frame baseline. LR-BR-04 and LR-BR-05 write a byte in the
+last 8 bytes of the span in the two modes, LR-BR-05 on a row whose `y` wraps
+mod 192. LR-BR-06 compares rows with and without a written byte against the
+image computed from the VHDL.
+
 | ID | Tier | Asserts | Stimulus | Expected | VHDL cite |
 |----|------|---------|----------|----------|-----------|
 | LR-BR-01 | U | A bank-5 byte written after the beam passed its row is for the next frame | Write at post-display line 260 | Old this frame, new next frame — pass | zxnext.vhd:6603-6631 |
 | LR-BR-02 | U | A write after the pixel's own tick is not seen on that row | Same row, hc = instant + 2 | Old — pass | zxnext.vhd:4250,6603-6631 |
 | LR-BR-03 | U | A write before the pixel's own tick is seen | Same row, hc = instant - 2 | New — pass | zxnext.vhd:4250,6603-6631 |
+| LR-BR-04 | U | Radastan with dfile = 1: a write before the pixel's own tick is seen | NR $6A = 0x30, row 10, pixel 240 (`lores_addr_rad` 0x217C), hc = instant - 2 | New — pass | zxnext.vhd:4250,6603-6631; lores.vhd:96 |
+| LR-BR-05 | U | 8-bit with scroll_y: a write before the pixel's own tick is seen on a row whose y wraps mod 192 | NR $33 = 140, row 150 (y = 98), pixel 244 (`lores_addr` 0x20FA), hc = instant - 2 | New — pass | zxnext.vhd:4250,6603-6631; lores.vhd:84-94 |
+| LR-BR-06 | U | A write after the row's fetches does not change the row, in either mode, with scroll and clip | 5 rows (8-bit, Radastan, dfile, NR $32/$33, NR $1A X and Y bounds, NR $6A palette offset), each with no write and with a write to a byte of its span tagged on the next line | Both = the VHDL image of the frame-start bank — pass | lores.vhd:82-115; zxnext.vhd:6603-6631 |
 
 ## Test Case Summary
 
@@ -568,10 +580,11 @@ LoRes requests its byte for pixel `phc` at that pixel's own 7 MHz tick
 | 7 — Clip window | 8 | U + C/N | 6 | 1 | 1 |
 | 8 — Compositor interaction | 8 | C | 0 | 8 | 0 |
 | 9 — Negative / non-behaviour | 8 | U/C/N | 1 | 6 | 1 |
-| **Total** | **91** | | **48** | **29** | **14** |
+| 10 — Beam-time fetch | 6 | U | 6 | 0 | 0 |
+| **Total** | **97** | | **54** | **29** | **14** |
 
 (Rows tagged `U/C` or `N/C` are counted once, in the first-named tier.
-48 + 29 + 14 = 91.)
+54 + 29 + 14 = 97. Group 10 is GH #362's: 91 + 6 = 97, all U.)
 
 **Amendment arithmetic (2026-07-22).** Group 7 lost the two retired rows LR-127
 and LR-128 (both tier C) and gained LR-127a (tier C): 9 − 2 + 1 = **8**, C going
@@ -585,11 +598,11 @@ history, not coverage.
 
 | Tier | Suite | Catalogued rows | live `check()` | `skip()` |
 |------|-------|-----------------|----------------|----------|
-| U | `test/lores/lores_test.cpp` | 48 | 48 | 0 |
+| U | `test/lores/lores_test.cpp` | 54 | 54 | 0 |
 | C | `test/compositor/compositor_test.cpp` (group `LR`) | 27 | 27 | 0 |
 | C | `test/lores/lores_integration_test.cpp` | 2 | 2 | 0 |
 | N | `test/nextreg/nextreg_integration_test.cpp` (group `LoRes-NR`) | 14 | 14 | 0 |
-| | **Total** | **91** | **91** | **0** |
+| | **Total** | **97** | **97** | **0** |
 
 C rows split 27 + 2 = 29. From 2026-07-22 to 2026-07-24 `compositor_test`
 additionally emitted two `skip()` rows for the **retired** LR-127 / LR-128
