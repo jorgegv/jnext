@@ -252,6 +252,17 @@ void DivMmc::on_m1_retn_delay_apply_(bool retn_seen) {
 
 // ── Auto-mapping ──────────────────────────────────────────────────────
 
+// The ROM3-conditional path's gate on this M1, i_automap_rom3_active
+// (zxnext.vhd:3138). decode_m1_() explains both gates.
+bool DivMmc::rom3_path_eligible_(bool sram_pre_override_2, bool sram_pre_override_0,
+                                 bool sram_altrom_en_read, bool sram_alt_128_n) const {
+    const bool sram_pre_rom3_sel =
+        (sram_altrom_en_read && sram_alt_128_n) ||
+        (rom3_active_ && !sram_altrom_en_read);
+    return sram_pre_override_2 && sram_pre_override_0 &&
+           !layer2_map_read_ && sram_pre_rom3_sel;
+}
+
 // The entry-point decode of one M1 (divmmc.vhd:120-131, zxnext.vhd:2892-2908):
 // which instant-on, delayed-on and off matches `pc` raises. Pure — shared by
 // check_automap(), which acts on it, and active_on_m1(), which predicts.
@@ -293,17 +304,10 @@ void DivMmc::decode_m1_(uint16_t pc, bool sram_pre_override_2, bool sram_pre_ove
     // 0x056A tape trap never fired, the alt-48 ROM's stock LD-BYTES ran
     // for real, and it span in LD-SAMPLE (0x05ED-0x05F8) waiting for an
     // EAR edge that no tape was ever going to supply.
-    const bool sram_pre_rom3_sel =
-        (sram_altrom_en_read && sram_alt_128_n) ||
-        (rom3_active_ && !sram_altrom_en_read);
     const bool main_path_eligible = sram_pre_override_2;
-    const bool rom3_path_eligible =
-        sram_pre_override_2 && sram_pre_override_0 &&
-        !layer2_map_read_ && sram_pre_rom3_sel;
+    const bool rom3_path_eligible = rom3_path_eligible_(sram_pre_override_2, sram_pre_override_0,
+                                                        sram_altrom_en_read, sram_alt_128_n);
 
-    // P0 boot probe (doc/issues/nextzxos-boot/ZXGO-COMPARISON-2026-07-09.md):
-    // env-gated, capped; logs automap decision inputs at RST vectors to
-    // diagnose the post-soft-reset $0000 trap.
     static constexpr uint16_t rst_addrs[8] = {
         0x0000, 0x0008, 0x0010, 0x0018, 0x0020, 0x0028, 0x0030, 0x0038
     };
@@ -376,14 +380,6 @@ void DivMmc::decode_m1_(uint16_t pc, bool sram_pre_override_2, bool sram_pre_ove
     if ((entry_points_1_ & 0x80) && (pc & 0xFF00) == 0x3D00 && rom3_path_eligible) {
         instant_match = true;
     }
-    // JNEXT_G46B_AUTOMAP_3DXX_TRACE=1 — log every $3Dxx PC eval with the
-    // gate inputs. EOD-28 candidate: the $3Dxx wildcard automap trap may
-    // fire in jnext during the supervisor's post-NEXTREG-$8E,$03 NOP-sled
-    // at $3D00, overlaying slot 0/1 with DivMMC RAM and diverting the
-    // CPU's execution. CSpect's gate composite at the same PC may NOT
-    // fire automap there (per EOD-26 P4 Candidate C). Capture inputs so
-    // the divergence is observable without source instrumentation in
-    // CSpect.
     if ((entry_points_1_ & 0x40) && pc >= 0x1FF8 && pc <= 0x1FFF
                && main_path_eligible) {
         // Auto-unmap range (divmmc.vhd:131, automap_delayed_off factor).
@@ -398,7 +394,6 @@ void DivMmc::decode_m1_(uint16_t pc, bool sram_pre_override_2, bool sram_pre_ove
         // latch propagates rather than dropping. Gate match accordingly.
         off_match = true;
     }
-
 }
 
 bool DivMmc::active_on_m1(uint16_t pc, bool sram_pre_override_2, bool sram_pre_override_0,
@@ -410,11 +405,12 @@ bool DivMmc::active_on_m1(uint16_t pc, bool sram_pre_override_2, bool sram_pre_o
     if (!port_io_enable_) return false;
     if (conmem_) return true;
     if (!enabled_) return automap_active_;   // check_automap returns early
-    const bool held       = automap_hold_;
-    const bool button_nmi = button_nmi_ && !held;
+    // The button_nmi clear needs no modelling: it only acts while held, and
+    // then the answer is held whatever the decode says.
+    const bool held = automap_hold_;
     bool instant = false, delayed = false, off = false;
     decode_m1_(pc, sram_pre_override_2, sram_pre_override_0, sram_altrom_en_read,
-               sram_alt_128_n, button_nmi, instant, delayed, off);
+               sram_alt_128_n, button_nmi_, instant, delayed, off);
     return held || instant;
 }
 
@@ -501,6 +497,9 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1,
     bool delayed_match = false;
     bool off_match     = false;
 
+    // P0 boot probe (doc/issues/nextzxos-boot/ZXGO-COMPARISON-2026-07-09.md):
+    // env-gated, capped; logs automap decision inputs at RST vectors to
+    // diagnose the post-soft-reset $0000 trap.
     if (pc <= 0x0038 && boot_probe_env()) {
         static int probe_count = 0;
         if (probe_count < 60) {
@@ -518,6 +517,14 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1,
 
     decode_m1_(pc, sram_pre_override_2, sram_pre_override_0, sram_altrom_en_read,
                sram_alt_128_n, button_nmi_, instant_match, delayed_match, off_match);
+    // JNEXT_G46B_AUTOMAP_3DXX_TRACE=1 — log every $3Dxx PC eval with the
+    // gate inputs. EOD-28 candidate: the $3Dxx wildcard automap trap may
+    // fire in jnext during the supervisor's post-NEXTREG-$8E,$03 NOP-sled
+    // at $3D00, overlaying slot 0/1 with DivMMC RAM and diverting the
+    // CPU's execution. CSpect's gate composite at the same PC may NOT
+    // fire automap there (per EOD-26 P4 Candidate C). Capture inputs so
+    // the divergence is observable without source instrumentation in
+    // CSpect.
     {
         static const char* env_3dxx = std::getenv("JNEXT_G46B_AUTOMAP_3DXX_TRACE");
         if (env_3dxx && (pc & 0xFF00) == 0x3D00) {
@@ -528,6 +535,7 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1,
                     "G46B-v2 AUTOMAP_3DXX pc=%04x hit=%llu "
                     "ep1=%02x bit7=%d "
                     "pre_ovr2=%d pre_ovr0=%d layer2_map=%d rom3_active=%d "
+                    "main_eligible=%d rom3_eligible=%d "
                     "instant_match=%d delayed_match=%d off_match=%d "
                     "automap_active_before=%d automap_hold_before=%d "
                     "conmem=%d port_io_en=%d enabled=%d\n",
@@ -537,6 +545,9 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1,
                     sram_pre_override_0 ? 1 : 0,
                     layer2_map_read_ ? 1 : 0,
                     rom3_active_ ? 1 : 0,
+                    sram_pre_override_2 ? 1 : 0,
+                    rom3_path_eligible_(sram_pre_override_2, sram_pre_override_0,
+                                        sram_altrom_en_read, sram_alt_128_n) ? 1 : 0,
                     instant_match ? 1 : 0,
                     delayed_match ? 1 : 0,
                     off_match ? 1 : 0,
