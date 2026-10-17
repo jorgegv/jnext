@@ -552,11 +552,11 @@ LoRes requests its byte for pixel `phc` at that pixel's own 7 MHz tick
 `y` is fixed for a row (`lores.vhd:84-87`), so all of a row's fetches fall in
 one span of bank 5: 128 bytes from `lores_addr` at x = 0 in 8-bit mode
 (`lores.vhd:91-94`), 64 from `lores_addr_rad` at x = 0 in Radastan mode
-(`lores.vhd:96`). A row whose span holds no byte written this frame is read
-straight from the frame baseline. LR-BR-04 and LR-BR-05 write a byte in the
-last 8 bytes of the span in the two modes, LR-BR-05 on a row whose `y` wraps
-mod 192. LR-BR-06 compares rows with and without a written byte against the
-image computed from the VHDL.
+(`lores.vhd:96`). A row whose span holds no hot byte (a write the mux has not
+folded into its baseline) is read straight from the mux baseline. LR-BR-04 and
+LR-BR-05 write a byte in the last 8 bytes of the span in the two modes, LR-BR-05
+on a row whose `y` wraps mod 192. LR-BR-06 compares rows with and without a
+written byte against the image computed from the VHDL.
 
 | ID | Tier | Asserts | Stimulus | Expected | VHDL cite |
 |----|------|---------|----------|----------|-----------|

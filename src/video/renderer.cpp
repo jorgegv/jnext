@@ -588,8 +588,8 @@ void Renderer::apply_lores(uint32_t* line, int row, Ram& ram,
     // falls in one span of bank 5: 128 bytes from lores_addr(x = 0) in 8-bit
     // mode (lores.vhd:91-94, the +1 on bits 13:11 depends on y alone), 64 from
     // lores_addr_rad(x = 0) in Radastan mode (lores.vhd:96). When no byte of
-    // the span was written this frame the replay answers the frame baseline at
-    // every instant, so the row reads the baseline directly; otherwise each
+    // the span is hot (AttributeMux::is_hot()) the replay answers the baseline
+    // at every instant, so the row reads the baseline directly; otherwise each
     // pixel reads at its own instant through read_bank5().
     const AttributeMux* mux = lores_.beam_prepare() ? lores_.beam_mux() : nullptr;
     const uint8_t  ly      = Lores::coord_y(vc, p.scroll_y);
