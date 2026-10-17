@@ -13,6 +13,7 @@
 #include "core/quick_snapshot.h"
 #include "platform/pointer_capture.h"   // GH #307 release_chord, GH #365 release_hint
 #include "platform/sdl_pointer_release.h"
+#include "platform/sdl_reset_keys.h"   // GH #380
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include <cmath>
@@ -160,8 +161,10 @@ bool SdlApp::init(int argc, char* argv[]) {
             }
             // G152 host hotkeys (F1 hard reset / F4 soft reset / F9 MF NMI
             // / F10 DivMMC NMI). Mirror MainWindow keyPressEvent.
-            if (sc == SDL_SCANCODE_F1)  { emulator_.on_hotkey_f1_hard_reset();   return; }
-            if (sc == SDL_SCANCODE_F4)  { emulator_.on_hotkey_f4_soft_reset();   return; }
+            // GH #380 — F1 and F4 are decided in platform/sdl_reset_keys.h: with Alt
+            // held neither resets, and Alt+F4 quits (SDL_EVENT_QUIT, as a window
+            // close does). It reads the tracker fed above, not SDL_GetModState().
+            if (sdl_reset_keys::on_press(emulator_, sc, quick_chords_)) return;
             if (sc == SDL_SCANCODE_F9)  { emulator_.on_hotkey_f9_mf_nmi();       return; }
             if (sc == SDL_SCANCODE_F10) { emulator_.on_hotkey_f10_divmmc_nmi();  return; }
             // G147 host hotkeys F3/F5/F6/F7/F8 → EmuFnKeys FSM. Side-effect
