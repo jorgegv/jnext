@@ -9,6 +9,7 @@
 #include "memory/ram.h"
 #include "video/palette.h"
 
+#include <algorithm>
 #include <climits>
 
 // ---------------------------------------------------------------------------
@@ -376,10 +377,13 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     // renderer's all-false fill, which is the tm_on_top = 1 answer, so a
     // tilemap-off frame in blend mode 01 or 11 put the ULA below the sprites
     // when hardware puts it above. Rows TM-140 / TM-141.
+    //
+    // One fill, so ula_on_top_ is read once per row: a loop storing through
+    // the bool* had to re-read the member for each of the 640 cells (the
+    // store may alias it), which cost ~1M instructions per tilemap-off frame.
     if (!enabled_) {
         if (ula_over_flags)
-            for (int i = 0; i < 640; ++i)
-                ula_over_flags[i] = !ula_on_top_;
+            std::fill_n(ula_over_flags, 640, !ula_on_top_);
         return;
     }
 
