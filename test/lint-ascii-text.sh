@@ -317,13 +317,14 @@ fx() {
 }
 
 self_test() {
-    local bad=0 EM ARR BAD BS rc
+    local bad=0 EM ARR BAD BS CR rc
     ST_DIR=$(mktemp -d) || exit 2
     CONF_TEXT=''
     EM=$(printf '\342\200\224')        # U+2014
     ARR=$(printf '\342\206\222')       # U+2192
     BAD=$(printf '\377')               # a byte that is not UTF-8
     BS='\'
+    CR=$(printf '\r')
 
     # Rule A: flagged, with the line the literal starts on.
     fx LAT-A01 "A:1"     src/t.cpp "f(\"a ${EM} b\");"
@@ -337,6 +338,18 @@ self_test() {
     fx LAT-A09 "A:1"     src/t.cpp "char q = '\"'; int n = 1'000; f(\"${EM}\");"
     fx LAT-A10 "A:6"     src/t.cpp "/* one" "   two ${EM}" "   three */" "const char* s = R\"(four" "five)\";" "f(\"${EM}\");"
     fx LAT-A11 "A:1"     src/t.cpp "f(\"${BS}${BS}${BS}u2014\");"
+    fx LAT-A13 "A:1"     src/sub/dir/t.h   "const char* s = \"${EM}\";"
+    fx LAT-A14 "A:1"     src/t.hpp "const char* s = \"${EM}\";"
+    fx LAT-A15 "A:1"     src/t.cc  "const char* s = \"${EM}\";"
+    fx LAT-A16 "A:1"     src/t.c   "const char* s = \"${EM}\";"
+    fx LAT-A17 "A:1"     src/t.cpp "char16_t c = u'${EM}';"
+    fx LAT-A18 "A:1"     src/t.cpp "f(R\"x(a)\" ${EM} b)x\");"          # the delimiter ends a raw string, not )"
+    fx LAT-A19 "A:2"     src/t.cpp "// it's a comment, not a character literal" "f(\"${EM}\");"
+    fx LAT-A20 "A:1"     src/t.cpp "/* a \"quote */ f(\"${EM}\");"
+    fx LAT-A21 "A:1"     src/t.cpp "f(\"a \\\"b ${EM} c\");"             # an escaped quote does not end the literal
+    fx LAT-A22 "A:1"     src/t.cpp "f(\"abc ${BS}" "${EM} def\");"        # a spliced literal starts on its first line
+    fx LAT-A23 "A:3"     src/t.cpp "f(\"abc ${BS}" "def\");" "g(\"${EM}\");"
+    fx LAT-A24 "A:1 A:2" src/t.cpp "f(\"${EM}\");${CR}" "g(\"${EM}\");${CR}"
     # Rule A is not excused by a declaration, and the declaration is not stale for it.
     CONF_TEXT=$(printf 'src/t.cpp\ta %s b\treason\n' "$EM")
     fx LAT-A12 "A:1"     src/t.cpp "f(\"a ${EM} b\");"
@@ -349,6 +362,13 @@ self_test() {
     fx LAT-N05 ""        src/t.cpp "f(\"${BS}${BS}u2014\");"
     fx LAT-N06 ""        src/t.cpp "x = 28'000'000; // ${EM}"
     fx LAT-N07 ""        src/t.cpp "// continued ${BS}" "f(\"${EM}\"); still the comment"
+    fx LAT-N08 ""        src/notes.md "f(\"${EM}\");"            # not a C or C++ source
+    fx LAT-N09 ""        test/t.cpp   "f(\"${EM}\");"            # outside src/
+    fx LAT-N10 ""        src/t.cpp "x = 1'000; // ${EM}"                    # ONE separator: no literal starts there
+    fx LAT-N11 ""        src/t.cpp "f(u8R\"(${BS}u2014)\", uR\"(${BS}u2014)\", UR\"(${BS}u2014)\", LR\"(${BS}u2014)\");"
+    fx LAT-N12 ""        src/t.cpp "// continued ${BS}${CR}" "f(\"${EM}\");${CR}"
+    fx LAT-N13 ""        src/t.cpp "// the \"${EM}\" glyph, quoted inside a comment"
+    fx LAT-N14 ""        src/t.cpp "/* the \"${EM}\" glyph," "   quoted inside a comment */"
 
     # Rule B.
     fx LAT-B01 "B:1:U+2192" src/t.cpp "f(\"a ${ARR} b\");"
