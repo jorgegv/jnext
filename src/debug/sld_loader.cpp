@@ -232,8 +232,9 @@ SourceMapLoadResult load_sld(SourceMap& map, const std::string& path)
         + static_cast<int>(program_size.has_value());
     std::optional<SourceProgramIdentity> identity;
     if (has_identity_metadata) {
-        if (identity_fields != 4 || program_name->empty()
-            || !valid_sha256(*program_sha256) || *program_org > 0xFFFF
+        if (program_sha256 && !valid_sha256(*program_sha256))
+            return failed("invalid SHA-256 in SLD program identity");
+        if (identity_fields != 4 || program_name->empty() || *program_org > 0xFFFF
             || *program_size > 0x10000 || *program_org + *program_size > 0x10000) {
             return failed("invalid or incomplete SLD program identity");
         }

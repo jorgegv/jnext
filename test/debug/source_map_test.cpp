@@ -190,6 +190,18 @@ int main() {
               refused("partial.sld", std::string("|SLD.data.version|1\n") +
                   "||program.sha256:9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a\n"
                   "m.bas|1||0" + kNextDevice + "m.bas|1||0|4|32768|T|\n"));
+        {
+            const fs::path p = dir / "sha63.sld";
+            write_text(p, std::string("|SLD.data.version|1\n") +
+                "||program.name:game.bin\n"
+                "||program.sha256:9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806\n"
+                "||program.org:32768\n"
+                "||program.size:4\n"
+                "m.bas|1||0" + kNextDevice + "m.bas|1||0|4|32768|T|\n");
+            const SourceMapLoadResult r = load_sld(kept, p.string());
+            check("SLD-21", "a program.sha256 of 63 hex digits is refused as an invalid SHA-256",
+                  r.count == -1 && r.error.find("invalid SHA-256") != std::string::npos);
+        }
         check("SLD-13", "a refused load leaves the live map in place",
               kept.size() == 4 && kept.lookup(4, 0x8016).has_value());
     }
