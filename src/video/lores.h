@@ -258,6 +258,10 @@ public:
     /// the frame. Null, or a mux whose started() is false = live read.
     void set_beam_mux(const AttributeMux* bank5) { mux5_ = bank5; }
 
+    /// What set_beam_mux() / set_bank5_vram() wired (null = none).
+    const AttributeMux* beam_mux() const { return mux5_; }
+    const uint8_t* bank5_vram() const { return bank5_vram_; }
+
     /// Call once per rendered row before the pixel loop's read_bank5() calls:
     /// chains the writes the replay has recorded. False = no replay, live read.
     bool beam_prepare() const;

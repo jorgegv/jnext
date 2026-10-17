@@ -42,7 +42,7 @@ mentions them, so a test can no longer be absent from this document.
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |   113 |  113 |    0 |    0 |       0 |          0 |
 | Contention                                 |   162 |  162 |    0 |    0 |       0 |          0 |
-| LoRes                                      |    94 |   94 |    0 |    0 |       0 |          0 |
+| LoRes                                      |    97 |   97 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    88 |   88 |    0 |    0 |       0 |          0 |
 | NMI Source Pipeline                        |    78 |   78 |    0 |    0 |       0 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
@@ -66,9 +66,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    49 |   49 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    65 |   65 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5868 | 5868 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5871 | 5871 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5868**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5423**. Rows the 150 suites declared in `test/unit-tests.conf` run live: **13086**.
+Rows the sections above carry: **5871**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5426**. Rows the 150 suites declared in `test/unit-tests.conf` run live: **13089**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -4211,9 +4211,12 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-165 | LoRes does not disturb the ULA's own VRAM fetch — switching LoRes off again restores an intact ULA screen (zxnext.vhd:6631, 6660) | zxnext.vhd:6631,6660 | pass | test/compositor/compositor_test.cpp:6133 |
 | LR-166 | NR $19 (sprite clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4366-4369) | zxnext.vhd:4258-4261 | pass | test/compositor/compositor_test.cpp:6158 |
 | LR-167 | NR $1B (tilemap clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4424-4427) | zxnext.vhd:4258-4261,4424-4427 | pass | test/compositor/compositor_test.cpp:6167 |
-| LR-BR-01 | zxnext.vhd:6603-6631 - a bank-5 byte written after the beam passed its row (post-display line 260) is seen by the next frame only | zxnext.vhd:6603-6631 | pass | test/lores/lores_test.cpp:817 |
-| LR-BR-02 | zxnext.vhd:4250,6603-6631 - a write 2 ticks after pixel 100's own fetch tick (raw hc c_min_hactive + 1 + phc) is not seen on that row | zxnext.vhd:4250,6603-6631 | pass | test/lores/lores_test.cpp:827 |
-| LR-BR-03 | zxnext.vhd:4250,6603-6631 - a write 2 ticks before pixel 100's own fetch tick is seen on that row | zxnext.vhd:4250,6603-6631 | pass | test/lores/lores_test.cpp:836 |
+| LR-BR-01 | zxnext.vhd:6603-6631 - a bank-5 byte written after the beam passed its row (post-display line 260) is seen by the next frame only | zxnext.vhd:6603-6631 | pass | test/lores/lores_test.cpp:847 |
+| LR-BR-02 | zxnext.vhd:4250,6603-6631 - a write 2 ticks after pixel 100's own fetch tick (raw hc c_min_hactive + 1 + phc) is not seen on that row | zxnext.vhd:4250,6603-6631 | pass | test/lores/lores_test.cpp:857 |
+| LR-BR-03 | zxnext.vhd:4250,6603-6631 - a write 2 ticks before pixel 100's own fetch tick is seen on that row | zxnext.vhd:4250,6603-6631 | pass | test/lores/lores_test.cpp:866 |
+| LR-BR-04 | zxnext.vhd:4250,6603-6631; lores.vhd:96 - Radastan, dfile 1: a write 2 ticks before pixel 240's own fetch tick on row 10 (lores_addr_rad 0x217C) is seen on that row | zxnext.vhd:4250,6603-6631, lores.vhd:96 | pass | test/lores/lores_test.cpp:892 |
+| LR-BR-05 | zxnext.vhd:4250,6603-6631; lores.vhd:84-94 - 8-bit, scroll_y 140: row 150 wraps to y 98 (lores_addr 0x20FA for pixel 244), and a write 2 ticks before pixel 244's own fetch tick is seen on that row | zxnext.vhd:4250,6603-6631, lores.vhd:84-94 | pass | test/lores/lores_test.cpp:914 |
+| LR-BR-06 | lores.vhd:82-115; zxnext.vhd:6603-6631 - 8-bit and Radastan rows with scroll and clip show the frame-start bank, both with no write and with a write to a byte of the row's span tagged on the next line (after the row's fetch ticks) | lores.vhd:82-115, zxnext.vhd:6603-6631 | pass | test/lores/lores_test.cpp:985 |
 
 ## SD Card — `test/sdcard/sdcard_test.cpp`
 

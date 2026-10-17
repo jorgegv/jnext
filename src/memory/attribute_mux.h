@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 #include "memory/beam_counters.h"
@@ -172,6 +173,24 @@ public:
     /// True when `offset` was written this frame (so a read of it can depend on
     /// the instant). Only valid after prepare().
     bool is_hot(uint32_t offset) const { return offset < nbytes_ && hot_[offset] != 0; }
+
+    /// True when any offset of [off, off + n) was written this frame. `n` is a
+    /// multiple of 8 and the range lies inside the bank. Only valid after
+    /// prepare(). False = read_prepared() returns baseline()[o] for every o
+    /// of the range at every instant.
+    bool any_hot_in(uint32_t off, uint32_t n) const {
+        uint64_t acc = 0;
+        for (uint32_t i = 0; i < n; i += 8) {
+            uint64_t w;
+            std::memcpy(&w, hot_.data() + off + i, sizeof w);
+            acc |= w;
+        }
+        return acc != 0;
+    }
+
+    /// This frame's baseline (the bank as start_frame() copied it): what
+    /// read_prepared() returns for an offset that is not hot.
+    const uint8_t* baseline() const { return base_.data(); }
 
     /// Chain every write recorded so far. read() does it itself; a caller that
     /// reads many bytes in a row (a scanline's 32 columns) calls it once and
