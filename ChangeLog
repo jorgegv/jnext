@@ -12,6 +12,7 @@
 - NextPi checks that QEMU is installed before offering its 6 GB download
 - Windows: NextPi's finished 6 GB download was deleted as "missing"; files over 4 GB are now recognised
 - NextPi uses an archive already in its folder, and says which file or check rejected an existing setup
+- SIGTERM and Ctrl-C end JNEXT cleanly, finishing recordings, with the signal's exit status; the Qt GUI ignored them
 - Tilemap, LoRes and Layer 2 no longer show memory written after the beam passed; fixes torn scrolling (Pixel Wheels)
 
 ### Contributors in this release

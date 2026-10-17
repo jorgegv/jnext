@@ -2,6 +2,7 @@
 #include "gui/main_window.h"
 #include "gui/desktop_color_scheme.h"   // GH #363
 #include "platform/host_key_wiring.h"
+#include "platform/quit_signal.h"   // GH #364
 #include "gui/emulator_widget.h"
 #include "gui/frame_timer.h"
 #include "platform/emulator_boot.h"
@@ -235,6 +236,8 @@ bool QtApp::init(int argc, char* argv[]) {
     //
     // SDL3 SDL_Init returns bool (true = success); SDL2 returned 0 on success
     // and a negative on failure, so the SENSE of this test is inverted.
+    // SIGINT/SIGTERM belong to quit_signal (installed in main() before this),
+    // so SDL installs no handler of its own (GH #364).
     if (!SDL_Init(SDL_INIT_AUDIO | SDL_INIT_GAMEPAD)) {
         Log::platform()->error("SDL_Init(AUDIO|GAMEPAD): {}", SDL_GetError());
         return false;
@@ -823,6 +826,17 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
         }
     } else if (a.screenshot_countdown_.pending()) {
         a.screenshot_countdown_.tick(a.emulator_.video_timing().refresh_60hz());
+    }
+
+    // GH #364 — SIGINT/SIGTERM: the unattended quit, as the auto-exit below
+    // (finish RZX first: closeEvent would otherwise show a modal dialog on a
+    // failed write). main() re-raises the signal for the status.
+    if (const int sig = quit_signal::pending(); sig != 0 && !a.quit_signal_handled_) {
+        a.quit_signal_handled_ = true;
+        Log::platform()->info("{} received: quitting", quit_signal::name(sig));
+        a.main_window_->set_unattended(true);
+        emulator_finish_rzx(a.emulator_, a.rzx_record_file_);
+        a.qapp_->quit();
     }
 
     // Delayed automatic exit.

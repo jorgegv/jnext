@@ -3099,6 +3099,17 @@ This holds in the GUI, the SDL\-only build and under
 The error is logged, the machine keeps running without the program, and
 the non\-zero status is reported when \f[B]jnext\f[R] exits.
 .PP
+SIGTERM, or SIGINT (Ctrl\-C in the terminal), ends \f[B]jnext\f[R] the
+way closing the window does: recordings and captures are finished and no
+dialog is shown.
+\f[B]jnext\f[R] then terminates by that same signal, so the shell sees
+143 (SIGTERM) or 130 (SIGINT), never a success.
+A second signal, SIGINT or SIGTERM in either order, ends it immediately.
+A signal that was ignored when \f[B]jnext\f[R] started (\f[B]nohup\f[R],
+a background job of a non\-interactive shell) stays ignored.
+This applies to the GUI, the SDL\-only build and \f[B]\-\-headless\f[R];
+on Windows it is unchanged.
+.PP
 \f[B]\-\-sdcard\-file\-add\f[R] is a scriptable non\-emulation mode, so
 it reports which failure happened rather than a single non\-zero status:
 .TP

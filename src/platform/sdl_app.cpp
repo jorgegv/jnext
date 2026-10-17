@@ -6,6 +6,7 @@
 #include "platform/auto_exit.h"
 #include "platform/recording_info.h"   // GH #26 WP6
 #include "platform/rzx_startup.h"
+#include "platform/quit_signal.h"   // GH #364
 #include "platform/frame_sequencer.h"   // RENDER_INTERVAL_MS, shared with QtApp
 #include "platform/render_policy.h"
 #include "platform/quick_snapshot_chord.h"   // GH #321
@@ -21,6 +22,8 @@ bool SdlApp::init(int argc, char* argv[]) {
     // SDL3 SDL_Init returns bool (true = success); SDL2 returned 0 on
     // success and a negative on failure, so the SENSE of this test is
     // inverted, not just the spelling.
+    // SIGINT/SIGTERM belong to quit_signal (installed in main() before this),
+    // so SDL installs no handler of its own (GH #364).
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD)) {
         Log::platform()->error("SDL_Init: {}", SDL_GetError());
         return false;
@@ -406,6 +409,12 @@ void SdlApp::run() {
         exit_code_ = 1;   // a failed RZX load exits non-zero (as headless)
 
     while (running_) {
+        // GH #364 — SIGINT/SIGTERM: leave through the normal teardown; main()
+        // re-raises the signal for the exit status.
+        if (const int sig = quit_signal::pending()) {
+            Log::platform()->info("{} received: quitting", quit_signal::name(sig));
+            break;
+        }
         // SDL3's SDL_GetTicks() returns Uint64 (SDL2: Uint32). Only
         // differences are ever taken, so the width is carried through
         // deliberately rather than truncated back.
