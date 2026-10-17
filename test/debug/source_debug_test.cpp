@@ -827,8 +827,12 @@ int main() {
         const auto r = m.dbg->load_source_map("prog.sld", false);
         fs::current_path(before);
         const std::string f = m.dbg->source_map().loaded_file();
+        // The same file, not the same spelling: macOS's temp dir is under /var, a
+        // link to /private/var, and the working directory reads back resolved.
+        std::error_code ec;
         check("SRCDBG-PATH-01", "a map loaded by a relative name records its absolute path",
-              r.count == 6 && fs::path(f).is_absolute() && fs::path(f) == dir / "prog.sld", f);
+              r.count == 6 && fs::path(f).is_absolute() && fs::equivalent(f, dir / "prog.sld", ec),
+              f);
     }
 
     // ── Back after a Frame Back goes back in time ───────────────────────
