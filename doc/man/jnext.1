@@ -2068,7 +2068,7 @@ RUNNING\f[R]), Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX /
 Record RZX / Stop RZX, Save Screenshot (Alt+S), Quick Screenshot
 (Alt+K), Save Snapshot (Alt+Shift+S), Quick Save Snapshot
 (Alt+Shift+F5), Quick Load Snapshot (Alt+Shift+F9) (see \f[B]JNEXT
-SNAPSHOTS\f[R] above), Quit (Alt+Q).
+SNAPSHOTS\f[R] above), Quit (Alt+Q or Alt+F4).
 .RS
 .PP
 \f[B]Save Screenshot\&...\f[R] asks for a name; the extension chooses
@@ -2307,6 +2307,10 @@ The function keys are host controls, not Spectrum keys.
 F1 is Power Reset (the same as Alt+R), F4 is Soft Reset, F9 fires the
 Multiface NMI, F10 fires the DivMMC NMI, F2 cycles the window scale and
 F11 toggles fullscreen.
+With Alt held F1 and F4 are not resets: Alt+F4 quits jnext, the same as
+File > Quit, whatever else is held and whether or not the mouse is
+captured, and Alt+F1 does nothing.
+The SDL\-only build does the same.
 With the debugger open F9 belongs to the debugger (Pause / Break)
 instead.
 With Alt and Shift held, F5 and F9 are the quick snapshot keys
@@ -2336,11 +2340,11 @@ and stop video recording), and function keys have no Spectrum meaning to
 lose.
 .PP
 Alt is the opposite: it is a host modifier, never a Spectrum key.
-jnext claims Alt + Q/O/S/K/R/T/D/P/U, Alt+Shift+S, Alt+Shift+F5 and
-Alt+Shift+F9 (menu shortcuts), Alt + F/M/I/A/B/V/N/H (menu bar) and Alt
-+ 1 to Alt + 8 (the script host keys), which leaves the guest only Alt +
-E/G/C (EDIT, GRAPH, CAPS LOCK) and Alt + the key left of \f[CR]1\f[R]
-(INV VIDEO).
+jnext claims Alt + Q/O/S/K/R/T/D/P/U, Alt+F4, Alt+Shift+S, Alt+Shift+F5
+and Alt+Shift+F9 (menu shortcuts), Alt + F/M/I/A/B/V/N/H (menu bar) and
+Alt + 1 to Alt + 8 (the script host keys), which leaves the guest only
+Alt + E/G/C (EDIT, GRAPH, CAPS LOCK) and Alt + the key left of
+\f[CR]1\f[R] (INV VIDEO).
 Alt + 1 to Alt + 8 no longer type their digit into the program (earlier
 releases let them through as plain 1\-8); Alt + 9 and Alt + 0 still do.
 Real Next hardware instead maps Left Alt to EXTEND MODE and Right Alt to
