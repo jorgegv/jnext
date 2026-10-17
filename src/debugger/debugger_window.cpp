@@ -1365,7 +1365,8 @@ bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr) {
 
     if (dlg.exec() != QDialog::Accepted) return false;
 
-    // CAP-SYM — a loaded symbol name, else hex ($ / 0x prefixes optional).
+    // CAP-SYM: hex ($ / 0x prefixes optional), else a loaded symbol name;
+    // `@name` forces the symbol (OD-12).
     const auto resolved = dbg_.symbols().resolve(addr_edit->text().toStdString());
     if (!resolved) return false;
     addr = *resolved;

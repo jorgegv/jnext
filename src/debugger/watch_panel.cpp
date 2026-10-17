@@ -151,7 +151,8 @@ bool WatchPanel::show_watch_dialog(const QString& title, uint16_t& addr,
 
     if (dlg.exec() != QDialog::Accepted) return false;
 
-    // CAP-SYM — a loaded symbol name, else hex ($ / 0x prefixes optional).
+    // CAP-SYM: hex ($ / 0x prefixes optional), else a loaded symbol name;
+    // `@name` forces the symbol (OD-12).
     // A watch named by symbol is labelled with it unless a label was given.
     const std::string entered = addr_edit->text().trimmed().toStdString();
     const auto resolved = dbg_ ? dbg_->symbols().resolve(entered) : SymbolTable().resolve(entered);
@@ -159,8 +160,14 @@ bool WatchPanel::show_watch_dialog(const QString& title, uint16_t& addr,
     addr = *resolved;
 
     label = label_edit->text().trimmed().toStdString();
-    if (label.empty() && dbg_ && dbg_->lookup_name(entered))
-        label = entered;
+    // Labelled only when the text named the symbol it resolved to: `BEEF`
+    // typed as a number is not the variable `BEEF`.
+    if (label.empty() && dbg_) {
+        std::string name = entered;
+        if (!name.empty() && name.front() == '@')
+            name = QString::fromStdString(name.substr(1)).trimmed().toStdString();
+        if (dbg_->lookup_name(name) == resolved) label = name;
+    }
     type = type_combo->currentIndex();
     return true;
 }

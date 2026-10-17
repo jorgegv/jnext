@@ -401,6 +401,12 @@ void test_address_fields() {
           seen && cell(wp, 0, 1) == QStringLiteral("Landing") &&
               cell(wp, 0, 0).contains(QStringLiteral("8005")),
           s(cell(wp, 0, 0)) + " " + s(cell(wp, 0, 1)));
+    const bool seen_at =
+        wp && answer_modal(QStringLiteral("@Landing"), [&]() { wp->on_add_watch(); });
+    check("QADR-04", "a watch added as @name watches the symbol and is labelled with the name",
+          seen_at && cell(wp, 1, 1) == QStringLiteral("Landing") &&
+              cell(wp, 1, 0).contains(QStringLiteral("8005")),
+          s(cell(wp, 1, 0)) + " " + s(cell(wp, 1, 1)));
 
     QAction* add_exec = nullptr;
     for (QAction* a : fx.dbg()->menuBar()->actions())

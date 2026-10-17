@@ -88,10 +88,12 @@ their target in the instructions the trace has kept.
 
 ## Breakpoints on a source line
 
-In the Breakpoints panel's **Add** dialog, the address can be a symbol
-(`PlayerTick`), a number (`8000`, `$8000`, `0x8000`), or — for an Execute
-breakpoint — a source line, `file:line`: `main.bas:120`, or the full path
-when two files share a name. A breakpoint on a line of banked code is tied to
+In the Breakpoints panel's **Add** dialog, the address can be a number
+(`8000`, `$8000`, `0x8000`), a symbol (`PlayerTick`), or, for an Execute
+breakpoint, a source line, `file:line`: `main.bas:120`, or the full path
+when two files share a name. A number wins over a symbol: `FE` or `B` is that
+address even when the program has a variable called `FE` or `B`. Write `@FE`
+to mean the symbol. A breakpoint on a line of banked code is tied to
 its page (shown as `$C000 @2E`): it fires only while that RAM page supplies the
 address, and the disassembly gutter shows it only then.
 

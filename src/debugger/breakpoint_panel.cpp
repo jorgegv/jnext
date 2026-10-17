@@ -261,7 +261,7 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t& addr, uint1
 
     const std::string text = addr_edit->text().trimmed().toStdString();
     type_index = type_combo->currentIndex();
-    // A symbol or a number first; then, for an Execute breakpoint, a source
+    // A number or a symbol first; then, for an Execute breakpoint, a source
     // line — which keeps the page its record names, so a line of banked code
     // breaks only while that bank is mapped.
     if (const auto resolved = symbol_table_ ? symbol_table_->resolve(text)

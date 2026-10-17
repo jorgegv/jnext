@@ -261,7 +261,8 @@ The `-debug` records (names starting `__C_LINE_`, `__ASM_LINE_` or `__CDBINFO__`
 are dropped by the loader, so they never name an address or resolve by name.
 `MapFormat::NextBuild` reads a NextBuild / Boriel ZX Basic `Memory.txt` (`8000: ._Main`): the shown name drops the `.` and the
 compiler's `_`, and the raw label resolves by name too. `SymbolTable::resolve()`
-turns an address field's text into an address: a symbol first, else hex.
+turns an address field's text into an address: hex first (`4000`, `$4000`,
+`0x4000`), else a symbol; `@name` always means the symbol.
 
 ### Source maps — CAP-SRC
 

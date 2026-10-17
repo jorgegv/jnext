@@ -37,10 +37,10 @@ public:
     /// then says why (over the size cap, not a regular file, cannot be opened).
     int load_nextbuild_memory(const std::string& path, std::string* why = nullptr);
 
-    /// Resolve the text of an address field: a loaded symbol name first, else
-    /// a hexadecimal address (`4000`, `$4000`, `0x4000`). An explicit `$` or
-    /// `0x` always means a number, so a symbol spelled like hex (`BEEF`) is
-    /// still reachable as a number.
+    /// Resolve the text of an address field: a hexadecimal address first
+    /// (`4000`, `$4000`, `0x4000`), else a loaded symbol name. A typed `FE`
+    /// or `B` is the number even when a program has a variable of that name;
+    /// `@name` always means the symbol, so that variable is still reachable.
     std::optional<uint16_t> resolve(std::string_view text) const;
 
     /// Look up a symbol name by its address. Returns nullopt if not found.

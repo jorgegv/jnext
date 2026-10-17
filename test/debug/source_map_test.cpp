@@ -330,8 +330,14 @@ int main() {
         const fs::path h = dir / "hexy.Memory.txt";
         write_text(h, "9000: .BEEF\n");
         hexy.load_nextbuild_memory(h.string());
-        check("NBSYM-12", "a symbol spelled like hex wins as a name; $ forces the number",
-              hexy.resolve("BEEF") == 0x9000 && hexy.resolve("$BEEF") == 0xBEEF);
+        // OD-12 (#23): a typed number is the number; `@` forces the name.
+        check("NBSYM-12", "a symbol spelled like hex is the number; @ forces the name",
+              hexy.resolve("BEEF") == 0xBEEF && hexy.resolve("$BEEF") == 0xBEEF &&
+                  hexy.resolve("@BEEF") == 0x9000);
+        check("NBSYM-14", "@ resolves a name only: @ with no such symbol is nothing, "
+                          "never the number",
+              !hexy.resolve("@4000") && !hexy.resolve("@") &&
+                  st.resolve("@ RespawnPlayer") == 0xC735);
     }
 
     fs::remove_all(dir);

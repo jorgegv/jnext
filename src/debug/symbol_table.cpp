@@ -267,13 +267,15 @@ std::optional<uint16_t> SymbolTable::resolve(std::string_view text) const
     text = trim_view(text);
     if (text.empty())
         return std::nullopt;
+    if (text.front() == '@')
+        return lookup_name(std::string(trim_view(text.substr(1))));
     if (text.front() == '$')
         return parse_hex16(text.substr(1));
     if (text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X'))
         return parse_hex16(text.substr(2));
-    if (const auto named = lookup_name(std::string(text)))
-        return named;
-    return parse_hex16(text);
+    if (const auto number = parse_hex16(text))
+        return number;
+    return lookup_name(std::string(text));
 }
 
 std::optional<std::string> SymbolTable::lookup(uint16_t addr) const
