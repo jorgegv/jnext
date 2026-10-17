@@ -523,6 +523,73 @@ void test_address_fields() {
           std::to_string(start) + " " + std::to_string(by_number) + " " + std::to_string(by_name));
 }
 
+// ── QBPM-08: the Breakpoints panel keeps a row's page ──────────────────
+
+void test_breakpoint_page_rows() {
+    Fixture fx;
+    fx.enable();
+    fx.load_map();
+    BreakpointModel& m = fx.mgr->breakpoints();
+    const auto page = static_cast<uint16_t>(fx.p80);
+    BreakpointPanel* bp = fx.dbg() ? fx.dbg()->breakpoint_panel() : nullptr;
+    auto* table = bp ? bp->findChild<QTableWidget*>() : nullptr;
+    if (!bp || !table) { check("QBPM-08", "Breakpoints panel", false); return; }
+
+    m.add(BreakpointModel::Execute, 0x8005, page);
+    bp->refresh();
+    if (QTableWidgetItem* en = table->item(0, 0)) en->setCheckState(Qt::Unchecked);
+    const bool disabled = m.rows().size() == 1 && !m.rows()[0].enabled && m.rows()[0].page == page;
+    table->setCurrentCell(0, 1);
+    // The edit moves it to main.bas:11 ($8002): the old row must go, by its page.
+    const bool edited = answer_modal(QStringLiteral("main.bas:11"), [&]() { bp->on_edit(); });
+    const auto after_edit = m.rows();
+    const bool kept = edited && after_edit.size() == 1 && after_edit[0].addr == 0x8002 &&
+                      after_edit[0].page == page && !after_edit[0].enabled;
+    bp->refresh();
+    table->setCurrentCell(0, 1);
+    bp->on_remove();
+    check("QBPM-08", "a page-qualified row is disabled, moved by Edit and removed as itself: "
+                     "the page and the disabled state survive the move, and Remove removes it",
+          disabled && kept && m.rows().empty(),
+          "disabled=" + std::to_string(disabled) + " kept=" + std::to_string(kept) +
+              " rows=" + std::to_string(m.rows().size()));
+
+    // The Symbol / Source column reads the breakpoint's own page, not the one
+    // mapped there now.
+    m.add(BreakpointModel::Execute, 0x8005, page);
+    fx.emu.mmu().set_page(4, static_cast<uint8_t>(page + 2));
+    bp->refresh();
+    const QString while_other = cell(bp, 0, 3);
+    fx.emu.mmu().set_page(4, static_cast<uint8_t>(page));
+    m.remove(BreakpointModel::Execute, 0x8005, page);
+    check("QBPP-03", "the Symbol / Source column names the breakpoint's line while another "
+                     "page is mapped at its address",
+          while_other == QStringLiteral("main.bas:12"), s(while_other));
+
+    // A page-qualified data breakpoint is not something the Add dialog can
+    // type, so even under the GUI's client it is listed read-only.
+    jnext::dbg::Subscription mem;
+    mem.kind = jnext::dbg::EventKind::Mem;
+    mem.action = jnext::dbg::Action::Stop;
+    mem.access = jnext::dbg::Access::Read;
+    mem.filter.lo = mem.filter.hi = 0x9000;
+    mem.filter.page = page;
+    const bool subscribed = static_cast<bool>(fx.backend->subscribe(m.client(), mem));
+    // The client that made the change is not told at once (a later pump may
+    // tell it): an add and a remove of the model's own make it read the listing.
+    m.add(BreakpointModel::Execute, 0x8000);
+    m.remove(BreakpointModel::Execute, 0x8000);
+    const auto listed = m.rows();
+    check("QBPM-11", "a page-qualified Read breakpoint under the GUI's client is not one of "
+                     "its own typed rows",
+          subscribed && listed.size() == 1 && listed[0].type == -1 && !listed[0].own,
+          "subscribed=" + std::to_string(subscribed) +
+              " rows=" + std::to_string(listed.size()) +
+              (listed.empty() ? std::string()
+                              : " type=" + std::to_string(listed[0].type) +
+                                    " own=" + std::to_string(listed[0].own)));
+}
+
 // ── QBPM-10: Edit never cancels silently ──────────────────────────────
 
 void test_edit_type_refused() {
@@ -588,6 +655,7 @@ int main(int argc, char** argv) {
     test_call_stack();
     test_address_fields();
     test_edit_type_refused();
+    test_breakpoint_page_rows();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
