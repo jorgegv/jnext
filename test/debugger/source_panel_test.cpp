@@ -1078,6 +1078,37 @@ void test_sidecar_reason() {
     }
 }
 
+// ── QCSP-02: the caller's page, not the target's ───────────────────────
+
+void test_call_stack_pages() {
+    Fixture fx;
+    fx.enable();
+    // CALL $C000 from main.bas:11: $C000 is another 8K page than $8000.
+    fx.emu.mmu().write(0x8003, 0x00);
+    fx.emu.mmu().write(0x8004, 0xC0);
+    fx.emu.mmu().write(0xC000, 0x00);
+    fx.emu.mmu().write(0xC001, 0xC9);
+    const unsigned pc0 = fx.backend->effective_page(0xC000);
+    const std::string a = std::to_string(fx.p80);
+    const std::string path = g_tmp->path().toStdString() + "/far.sld";
+    write_text(path, std::string("|SLD.data.version|1\nmain.bas|10||0") + kNextDevice +
+                         "main.bas|10||0|" + a + "|32768|T|\n" +
+                         "main.bas|11||0|" + a + "|32770|T|\n" +
+                         "main.bas|12||0|" + a + "|32773|T|\n" +
+                         "sub.bas|1||0|" + std::to_string(pc0) + "|49152|T|\n");
+    fx.backend->load_source_map(path, false);
+    fx.backend->set_call_stack_enabled(true);
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);   // the CALL
+    CallStackPanel* cs = fx.dbg() ? fx.dbg()->callstack_panel() : nullptr;
+    if (cs) { cs->set_paused(true); cs->refresh(); }
+    check("QCSP-02", "Called from names the caller's line on the caller's page when the "
+                     "target is on another page",
+          pc0 != fx.p80 && fx.pc() == 0xC000 && cell(cs, 0, 4) == QStringLiteral("main.bas:11"),
+          "pages " + std::to_string(fx.p80) + "/" + std::to_string(pc0) + " " + s(cell(cs, 0, 4)));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1108,6 +1139,7 @@ int main(int argc, char** argv) {
     test_source_buttons();
     test_source_button_states();
     test_source_messages();
+    test_call_stack_pages();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
