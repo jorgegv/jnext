@@ -156,6 +156,7 @@ BEGIN {
     M["toolbar_icons_test"]            = "Toolbar SVG icon set + icon lint"
     M["color_scheme_test"]             = "GUI light/dark scheme (GH #363)"
     M["nex_v13_dialog_test"]           = "NEX V1.3 GUI warning dialog"
+    M["sdcard_dialog_test"]            = "SD-card/NextPi download dialog (GH #358)"
     M["load_error_test"]               = "GUI load-failure dialogs"
     M["log_test"]                      = "Logging"
     M["log_gate_test"]                 = "Logging (gate)"

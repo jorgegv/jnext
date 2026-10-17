@@ -375,6 +375,54 @@ void PartialDownload::fail(std::string& err, bool clean_eof) {
     cancelled();
 }
 
+// ---------------------------------------------------------------------------
+// The tick / stall / cancel contract (GH #358): see the comment above DownloadFn
+// in sdcard_provisioner.h. The rule lives here, once; both backends and the GUI
+// call it.
+// ---------------------------------------------------------------------------
+uint64_t StallWatch::idle_ms(uint64_t bytes, Clock::time_point now) {
+    if (bytes != last_bytes_) {   // any change, a drop included (a restarted attempt)
+        last_bytes_ = bytes;
+        since_ = now;
+        return 0;
+    }
+    if (now <= since_) return 0;
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now - since_).count());
+}
+
+std::string stall_reason(int stall_timeout_ms) {
+    return "stalled: no data received for " + std::to_string(stall_timeout_ms / 1000) + " s";
+}
+
+std::string stall_note(uint64_t idle_ms) {
+    if (idle_ms < static_cast<uint64_t>(kStallNoticeMs)) return {};
+    // The text does not promise that the part is kept: that depends on the
+    // server's validator, and the final error says what happened to it.
+    return "Stalled: no data received for " + std::to_string(idle_ms / 1000) +
+           " s. The network or the server may be down; jnext gives up after " +
+           std::to_string(DownloadTimings{}.stall_timeout_ms / 1000) + " s.";
+}
+
+bool download_step(PartialDownload& part, const ProgressFn& progress, uint64_t got,
+                   StallWatch& watch, const DownloadTimings& timings, std::string& err) {
+    if (!part.report(progress, got)) {
+        part.cancelled();
+        err = "cancelled by user";
+        return false;
+    }
+    if (watch.idle_ms(got, StallWatch::Clock::now()) >= static_cast<uint64_t>(timings.stall_timeout_ms)) {
+        err = stall_reason(timings.stall_timeout_ms);
+        part.fail(err, false);
+        return false;
+    }
+    return true;
+}
+
+bool default_http_download(const std::string& url, const std::string& dest_path,
+                           const ProgressFn& progress, std::string& err) {
+    return http_download(url, dest_path, progress, err, DownloadTimings{});
+}
+
 std::string default_state_dir() { return config_dir(); }
 std::string default_sdcard_dir() {
     return config_dir() + "/sdcard";
@@ -443,8 +491,9 @@ std::vector<uint8_t> default_config_ini() {
     return std::vector<uint8_t>(p, p + std::strlen(kIni));
 }
 
-// The network download (default_http_download) and the SHA-256 helpers
-// (sha256_hex / sha256_file) live in the per-platform backend files:
+// The network download (http_download; default_http_download forwards to it above)
+// and the SHA-256 helpers (sha256_hex / sha256_file) live in the per-platform
+// backend files:
 //   sdcard_provisioner_net_curl.cpp  — libcurl + OpenSSL EVP (Linux/macOS)
 //   sdcard_provisioner_net_win.cpp   — WinHTTP + BCrypt/CNG (Windows, GH #108
 //                                      Phase B: no curl/OpenSSL DLLs shipped,

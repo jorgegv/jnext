@@ -11,22 +11,35 @@
 // _WIN32_WINNT=0x0601 so any post-Win7 API would fail to COMPILE, not load.
 //
 // This file implements the same three functions as the POSIX twin
-// (sdcard_provisioner_net_curl.cpp): default_http_download, sha256_hex,
-// sha256_file — same contracts, same error semantics (the partial-file
-// contract documented in sdcard_provisioner.h: `<dest>.part` kept for
-// resuming, ProgressFn false aborts with "cancelled by user"). The decisions
-// (append / truncate / retry, the record, the keep-or-remove rule) are
-// PartialDownload's, shared with the curl twin. The
+// (sdcard_provisioner_net_curl.cpp): http_download, sha256_hex, sha256_file,
+// same contracts, same error semantics: the partial-file contract documented in
+// sdcard_provisioner.h (`<dest>.part` kept for resuming) and the tick / stall /
+// cancel one (the ProgressFn at least every tick whatever the network does;
+// false aborts with "cancelled by user"; no body byte for the stall timeout ends
+// the attempt). The decisions (append / truncate / retry, the record, the
+// keep-or-remove rule, the per-tick decision) are shared code, the curl twin's
+// too. The
 // whole-file #ifdef pair keeps file(GLOB_RECURSE) in src/core/CMakeLists.txt
 // correct on every platform: exactly one twin has content per build.
 //
+// ASYNCHRONOUS WinHTTP (WINHTTP_FLAG_ASYNC), because the contract cannot be met
+// synchronously: a synchronous WinHttpReadData blocks its thread until data
+// arrives or the receive timeout fires, so with the cable pulled the GUI thread
+// sat inside it, Windows ghosted the window as "Not Responding", and nothing was
+// said until the network came back (#358). Microsoft forbids ending a
+// synchronous call from another thread (WinHttpCloseHandle remarks: "an
+// application should never call WinHttpCloseHandle on a synchronous request"),
+// so the only way out of a blocked read is its own timeout. In async mode this
+// thread waits on an event for the next completion, one tick at a time, and a
+// cancel or a stall is simply "close the request handle and return".
+//
 // Behaviour replicated from the curl path (only what it actually USED):
-//   - follow redirects (WinHTTP sync API follows them inside
+//   - follow redirects (WinHTTP follows them inside
 //     WinHttpSendRequest/ReceiveResponse by default; the default policy
 //     refuses https->http downgrades, which is strictly safer than curl's)
 //   - HTTP status >= 400 is a failure (CURLOPT_FAILONERROR)
-//   - 30 s connect timeout; a 120 s receive stall aborts (curl used
-//     LOW_SPEED_LIMIT 1 B/s over 120 s — same intent)
+//   - 30 s connect timeout; the stall timeout (not WinHTTP's receive timeout,
+//     which is only a backstop 30 s behind it) ends a silent transfer
 //   - "jnext-sdcard-provisioner" User-Agent
 //   - server certificate validated against the OS store — WinHTTP does that
 //     natively, which is exactly what the curl path needed
@@ -44,6 +57,7 @@
 #include <winhttp.h>
 #include <bcrypt.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cwchar>
@@ -97,10 +111,76 @@ std::string winhttp_error(const char* stage, DWORD code) {
     return e;
 }
 
-// RAII for the three WinHTTP handles — every early return closes them.
+// RAII for the session and connect handles: every early return closes them.
 struct WinHttpHandle {
     HINTERNET h = nullptr;
     ~WinHttpHandle() { if (h) WinHttpCloseHandle(h); }
+};
+
+// What the status callback tells the thread that waits for a completion. One per
+// request, on the heap, and OWNED BY THE REQUEST HANDLE once the callback is
+// installed: the callback frees it on WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING, the
+// last callback a handle gets. That is what lets an abort return AT ONCE after
+// WinHttpCloseHandle while WinHTTP may still complete or cancel a pending read
+// into `buf` (the SendRequest remarks: keep the buffers valid until the callback
+// says the operation is over). Nothing touches it after the close.
+struct AsyncState {
+    HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);   // auto-reset: a completion arrived
+    std::atomic<DWORD> last{0};    // WINHTTP_CALLBACK_STATUS_* of the latest completion
+    std::atomic<DWORD> value{0};   // DATA_AVAILABLE: bytes available; READ_COMPLETE: bytes read
+    std::atomic<DWORD> error{0};   // REQUEST_ERROR: dwError
+    std::vector<char> buf = std::vector<char>(1 << 16);   // the read buffer
+    std::wstring headers;          // SendRequest's extra headers, valid until SENDREQUEST_COMPLETE
+    AsyncState() = default;
+    AsyncState(const AsyncState&) = delete;
+    AsyncState& operator=(const AsyncState&) = delete;
+    ~AsyncState() { if (ev) CloseHandle(ev); }
+};
+
+// Runs on a WinHTTP thread (or, for a fast completion, inside the call that
+// started the operation). It only stores atomics and signals: no logging, no
+// globals, no PartialDownload. CALLBACK = __stdcall, which the i686 builds need.
+void CALLBACK status_cb(HINTERNET, DWORD_PTR ctx, DWORD status, LPVOID info, DWORD len) {
+    AsyncState* st = reinterpret_cast<AsyncState*>(ctx);
+    if (!st) return;
+    switch (status) {
+    case WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE:
+    case WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE:
+        break;
+    case WINHTTP_CALLBACK_STATUS_DATA_AVAILABLE:
+        st->value = info ? *static_cast<DWORD*>(info) : 0;
+        break;
+    case WINHTTP_CALLBACK_STATUS_READ_COMPLETE:
+        st->value = len;
+        break;
+    case WINHTTP_CALLBACK_STATUS_REQUEST_ERROR:
+        st->error = info ? static_cast<WINHTTP_ASYNC_RESULT*>(info)->dwError : ERROR_WINHTTP_INTERNAL_ERROR;
+        break;
+    case WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING:
+        delete st;   // the last callback for this handle: the state was its own
+        return;
+    default:
+        return;
+    }
+    st->last = status;
+    SetEvent(st->ev);
+}
+
+// The request handle and its state. Once the callback is installed the state is
+// the callback's, so closing the handle is all the destructor does for it; if the
+// callback could not be installed no HANDLE_CLOSING will come and the state is
+// deleted here.
+struct AsyncRequest {
+    HINTERNET h = nullptr;
+    AsyncState* st = nullptr;
+    bool callback_owns_state = false;
+    AsyncRequest() = default;
+    AsyncRequest(const AsyncRequest&) = delete;
+    AsyncRequest& operator=(const AsyncRequest&) = delete;
+    ~AsyncRequest() {
+        if (h) WinHttpCloseHandle(h);
+        if (!callback_owns_state) delete st;
+    }
 };
 
 // A response header as a narrow string ("" when the response has none).
@@ -117,7 +197,7 @@ std::string query_header(HINTERNET req, DWORD what) {
 enum class Outcome { Done, Retry, Failed };
 
 Outcome attempt_download(const std::string& url, const std::string& dest_path, const ProgressFn& progress,
-                         bool allow_resume, std::string& err) {
+                         bool allow_resume, const DownloadTimings& timings, std::string& err) {
     PartialDownload part(url, dest_path, allow_resume);
     if (part.complete()) {   // only its rename was missing: no request (GH #358)
         if (!part.finish(err)) return Outcome::Failed;
@@ -158,12 +238,13 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
 
     WinHttpHandle ses;
     ses.h = WinHttpOpen(L"jnext-sdcard-provisioner", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                        WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+                        WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, WINHTTP_FLAG_ASYNC);
     if (!ses.h) return transport_fail(winhttp_error("open", GetLastError()), false);
 
-    // resolve / connect / send = 30 s (curl CONNECTTIMEOUT 30); a receive
-    // stalled for 120 s aborts (curl LOW_SPEED_LIMIT 1 B/s over 120 s).
-    WinHttpSetTimeouts(ses.h, 30000, 30000, 30000, 120000);
+    // resolve / connect / send = 30 s (curl CONNECTTIMEOUT 30). The receive
+    // timeout is only a BACKSTOP, 30 s behind the stall timeout the wait loop
+    // below enforces first (tick-accurate, and the same rule as the curl twin).
+    WinHttpSetTimeouts(ses.h, 30000, 30000, 30000, timings.stall_timeout_ms + 30000);
 
     if (secure) {
         DWORD protos = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_1 |
@@ -176,21 +257,70 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
     con.h = WinHttpConnect(ses.h, host.data(), uc.nPort, 0);
     if (!con.h) return transport_fail(winhttp_error("connect", GetLastError()), false);
 
-    WinHttpHandle req;
+    AsyncRequest req;
     req.h = WinHttpOpenRequest(con.h, L"GET", object.c_str(), nullptr, WINHTTP_NO_REFERER,
                                WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0);
     if (!req.h) return transport_fail(winhttp_error("request", GetLastError()), false);
 
+    // The state, then the callback, BEFORE any asynchronous call. If either
+    // cannot be installed no HANDLE_CLOSING will come, and ~AsyncRequest frees
+    // the state itself.
+    req.st = new AsyncState;
+    if (!req.st->ev) return transport_fail(winhttp_error("event", GetLastError()), false);
+    DWORD_PTR ctx = reinterpret_cast<DWORD_PTR>(req.st);
+    if (!WinHttpSetOption(req.h, WINHTTP_OPTION_CONTEXT_VALUE, &ctx, sizeof(ctx)) ||
+        WinHttpSetStatusCallback(req.h, status_cb,
+                                 WINHTTP_CALLBACK_FLAG_ALL_COMPLETIONS | WINHTTP_CALLBACK_FLAG_HANDLES,
+                                 0) == WINHTTP_INVALID_STATUS_CALLBACK)
+        return transport_fail(winhttp_error("callback", GetLastError()), false);
+    req.callback_owns_state = true;   // from here the callback frees it, on HANDLE_CLOSING
+    AsyncState& st = *req.st;
+
+    // The per-tick decision, shared with the curl twin, runs after every
+    // completion and on every idle tick.
+    StallWatch watch;
+    uint64_t got_total = 0;   // body bytes of this response written so far
+
+    // Wait for the completion `want`, one tick at a time. On Ended the attempt is
+    // over (download_step has set `err` and settled the partial) and nothing is
+    // waited for: the caller returns, the handles close, WinHTTP cleans up behind.
+    enum class Wait { Done, Error, Ended };
+    auto wait_for = [&](DWORD want) {
+        for (;;) {
+            const DWORD w = WaitForSingleObject(st.ev, static_cast<DWORD>(timings.tick_ms));
+            if (w == WAIT_OBJECT_0) {
+                const DWORD last = st.last.load();
+                if (last == WINHTTP_CALLBACK_STATUS_REQUEST_ERROR) return Wait::Error;
+                if (last == want) return Wait::Done;
+                continue;   // some other notification: keep waiting for ours
+            }
+            if (w != WAIT_TIMEOUT) { st.error = GetLastError(); return Wait::Error; }
+            if (!download_step(part, progress, got_total, watch, timings, err)) return Wait::Ended;
+        }
+    };
+    // wait_for() mapped to an Outcome; false = return `out` now.
+    Outcome out = Outcome::Failed;
+    auto await = [&](DWORD want, const char* stage) {
+        switch (wait_for(want)) {
+        case Wait::Done:  return true;
+        case Wait::Ended: out = Outcome::Failed; return false;
+        case Wait::Error: out = transport_fail(winhttp_error(stage, st.error.load()), false); return false;
+        }
+        return false;
+    };
+
     // Resuming: ask for the rest, and only if the file is still the one we
     // started (If-Range). The added headers go to a redirect's target too.
-    std::wstring extra_headers;
     if (part.ranged())
-        extra_headers = widen("Range: " + part.range_value() + "\r\nIf-Range: " + part.if_range_value() + "\r\n");
-    if (!WinHttpSendRequest(req.h, extra_headers.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : extra_headers.c_str(),
-                            extra_headers.empty() ? 0 : static_cast<DWORD>(-1L),
-                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
-        !WinHttpReceiveResponse(req.h, nullptr))
+        st.headers = widen("Range: " + part.range_value() + "\r\nIf-Range: " + part.if_range_value() + "\r\n");
+    if (!WinHttpSendRequest(req.h, st.headers.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : st.headers.c_str(),
+                            st.headers.empty() ? 0 : static_cast<DWORD>(-1L),
+                            WINHTTP_NO_REQUEST_DATA, 0, 0, ctx))
         return transport_fail(winhttp_error("transfer", GetLastError()), false);
+    if (!await(WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE, "transfer")) return out;
+    if (!WinHttpReceiveResponse(req.h, nullptr))
+        return transport_fail(winhttp_error("transfer", GetLastError()), false);
+    if (!await(WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE, "transfer")) return out;
 
     HttpResponseInfo resp;
     {
@@ -210,25 +340,28 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
         }
     }
     switch (part.begin(resp, err)) {
-        case PartialDownload::Begin::Retry: return Outcome::Retry;
-        case PartialDownload::Begin::Error: return Outcome::Failed;   // begin() settled the partial
-        case PartialDownload::Begin::Ok:    break;
+    case PartialDownload::Begin::Retry: return Outcome::Retry;
+    case PartialDownload::Begin::Error: return Outcome::Failed;   // begin() settled the partial
+    case PartialDownload::Begin::Ok:    break;
     }
 
-    std::vector<char> buf(1 << 16);
-    uint64_t got_total = 0;
+    // The body, sized by what WinHTTP says is available: a fixed 64 KiB read
+    // would sit waiting to fill its buffer under wine, so the bytes that arrived
+    // before a stall never reached the .part. n == 0 is the end of the body.
     for (;;) {
-        DWORD got = 0;
-        if (!WinHttpReadData(req.h, buf.data(), static_cast<DWORD>(buf.size()), &got))
+        if (!WinHttpQueryDataAvailable(req.h, nullptr))
             return transport_fail(winhttp_error("read", GetLastError()), false);
-        if (got == 0) break; // end of body
-        if (!part.write(buf.data(), got)) return transport_fail("write error on " + partial_path(dest_path), false);
+        if (!await(WINHTTP_CALLBACK_STATUS_DATA_AVAILABLE, "read")) return out;
+        const DWORD avail = st.value.load();
+        if (avail == 0) break;   // end of body
+        const DWORD n = avail < st.buf.size() ? avail : static_cast<DWORD>(st.buf.size());
+        if (!WinHttpReadData(req.h, st.buf.data(), n, nullptr))
+            return transport_fail(winhttp_error("read", GetLastError()), false);
+        if (!await(WINHTTP_CALLBACK_STATUS_READ_COMPLETE, "read")) return out;
+        const DWORD got = st.value.load();
+        if (!part.write(st.buf.data(), got)) return transport_fail("write error on " + partial_path(dest_path), false);
         got_total += got;
-        if (!part.report(progress, got_total)) {
-            part.cancelled();   // caller cancelled — same as curl's abort path
-            err = "cancelled by user";
-            return Outcome::Failed;
-        }
+        if (!download_step(part, progress, got_total, watch, timings, err)) return Outcome::Failed;
     }
     if (!part.finish(err)) return Outcome::Failed;
     if (!regular_file_exists(dest_path)) {
@@ -240,15 +373,15 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
 
 } // namespace
 
-bool default_http_download(const std::string& url, const std::string& dest_path,
-                           const ProgressFn& progress, std::string& err) {
+bool http_download(const std::string& url, const std::string& dest_path,
+                   const ProgressFn& progress, std::string& err, const DownloadTimings& timings) {
     Log::emulator()->info("sdcard: downloading via WinHTTP: {}", url);
     // At most two attempts: the first may ask for the rest of a partial; if the
     // server refuses that (416, or a 206 that is not the range asked for) the
     // second is a plain GET. Never a loop.
     for (int attempt = 0; attempt < 2; ++attempt) {
         err.clear();
-        const Outcome o = attempt_download(url, dest_path, progress, attempt == 0, err);
+        const Outcome o = attempt_download(url, dest_path, progress, attempt == 0, timings, err);
         if (o == Outcome::Done) return true;
         if (o == Outcome::Failed) return false;
     }

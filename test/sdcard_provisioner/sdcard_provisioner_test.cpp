@@ -35,6 +35,19 @@
 //                  discarded; a 206 with a wrong total is distrusted; a kept
 //                  partial survives a failed resumed attempt; an empty 200 body;
 //                  the SD prompt's continuation note; header-name case.
+//   PROV-STALL-01..08  GH #358 point 2 — a dropped network, through the REAL backend
+//                  (libcurl; WinHTTP under wine) against a loopback server that goes
+//                  silent mid-transfer (range_server.h: stall_after, silent, stall_ms).
+//                  Oracle: the tick / stall / cancel contract in sdcard_provisioner.h
+//                  (owner, #358 comment of 2026-10-17: "make the hung connection more
+//                  responsive than 1-2 minutes, or at least give some feedback to the
+//                  user"). The ProgressFn keeps being called through a stall (01); a
+//                  stall ends the attempt with its own message, keeps the partial, and
+//                  the next call resumes it (02); Cancel works DURING a stall (03); a
+//                  server that never answers is a stall too (04); a slow transfer that
+//                  is alive is never cut (05); the pure rule and the production numbers
+//                  (06, 08); the SD-card path says it (07). The NextPi twin is PIT-43,
+//                  the GUI side SDD-01..04 (test/gui/sdcard_dialog_test.cpp).
 //   PROV-CONF-01   No image + declined confirm → Declined; no download.
 //   PROV-CONF-02   Confirm accepted + download seam fails → Failed; seam ran.
 //   PROV-PROG-01   The ProvisionOptions.progress seam is forwarded into the
@@ -91,6 +104,8 @@
 
 #include <zlib.h>
 
+#include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -885,6 +900,335 @@ void test_resume_rows() {
               r.status == sdcard::ProvisionStatus::Failed &&
                   r.error.find("the complete download is kept and the next start uses it") != std::string::npos,
               "status=" + std::to_string(static_cast<int>(r.status)) + " error='" + r.error.substr(0, 160) + "'");
+    }
+}
+
+// GH #358 point 2 — a dropped network. The contract (tick / stall / cancel, in
+// sdcard_provisioner.h) through the REAL backend: libcurl, WinHTTP under wine. A
+// stalled connection is one that stays open and carries nothing, which is what a
+// receiver sees until TCP gives up after a pulled cable. Every row that waits
+// builds its OWN rs::Server: its destructor lets go of a connection the client
+// abandoned (WinHTTP under wine only closes it when the server does).
+using Clk = std::chrono::steady_clock;
+
+// What a ProgressFn saw: when (seconds since this was made) and the two numbers.
+struct Seen {
+    struct Call { double at; uint64_t d, t; };
+    std::vector<Call> calls;
+    Clk::time_point t0 = Clk::now();
+    double now() const { return std::chrono::duration<double>(Clk::now() - t0).count(); }
+    sdcard::ProgressFn fn() {
+        return [this](uint64_t d, uint64_t t) { calls.push_back({now(), d, t}); return true; };
+    }
+    int count_at(uint64_t d, uint64_t t) const {
+        int n = 0;
+        for (const Call& c : calls) n += (c.d == d && c.t == t);
+        return n;
+    }
+    // The longest silence from the first call at (d, t) to `end` (the return).
+    double max_gap_from(uint64_t d, uint64_t t, double end) const {
+        double prev = -1, gap = 0;
+        for (const Call& c : calls) {
+            if (prev < 0 && !(c.d == d && c.t == t)) continue;
+            if (prev >= 0) gap = std::max(gap, c.at - prev);
+            prev = c.at;
+        }
+        return prev < 0 ? 1e9 : std::max(gap, end - prev);
+    }
+};
+
+void test_stall_rows() {
+    namespace fs = std::filesystem;
+    jtp::set_env("no_proxy", "127.0.0.1,localhost");
+    jtp::set_env("NO_PROXY", "127.0.0.1,localhost");
+    const std::string body = rs::pattern(300000);
+    auto slurp = [](const std::string& p) {
+        std::ifstream f(p, std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    };
+    auto dest_in = [&](const char* name) {
+        const std::string d = g_tmpdir + "/stall-" + name;
+        std::error_code ec;
+        fs::remove_all(d, ec);
+        fs::create_directories(d, ec);
+        return d + "/dest.bin";
+    };
+    auto exists = [](const std::string& p) { std::error_code ec; return fs::exists(p, ec); };
+    auto num = [](double v) { char b[32]; std::snprintf(b, sizeof b, "%.2f", v); return std::string(b); };
+    // 100000 of 300000 bytes, then silence for `stall_ms`.
+    auto stalling = [&](int stall_ms = 8000) {
+        rs::Opts o;
+        o.body = body;
+        o.etag = "\"v1\"";
+        o.stall_after = 100000;
+        o.stall_ms = stall_ms;
+        return o;
+    };
+    const sdcard::DownloadTimings fast{200, 2000};   // tick 200 ms, stall after 2 s
+    const std::string kEtag = "\"v1\"";
+
+    // 01: the ProgressFn is called through the stall, every tick.
+    {
+        rs::Server srv;
+        if (!srv.ok()) {
+            check("PROV-STALL-01", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
+        } else {
+            srv.set(stalling());
+            Seen seen;
+            std::string err;
+            const bool ok = sdcard::http_download(srv.url(), dest_in("a"), seen.fn(), err, fast);
+            const double end = seen.now();
+            const int n = seen.count_at(100000, 300000);
+            const double gap = seen.max_gap_from(100000, 300000, end);
+            check("PROV-STALL-01",
+                  "a transfer that goes silent after 100000 of 300000 bytes keeps calling the ProgressFn: at least "
+                  "6 calls at (100000, 300000) and no gap over 800 ms from the first of them to the return "
+                  "(tick 200 ms; a window stays alive through a dropped network)",
+                  !ok && n >= 6 && gap <= 0.8,
+                  "ok=" + std::to_string(ok) + " calls_at_stall=" + std::to_string(n) + " max_gap=" + num(gap) +
+                      "s err='" + err + "'");
+        }
+    }
+
+    // 02: the stall ends the attempt with its own message, keeps the partial, and the next call resumes it.
+    {
+        rs::Server srv;
+        if (!srv.ok()) {
+            check("PROV-STALL-02", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
+        } else {
+            const std::string dest = dest_in("b");
+            const std::string url = srv.url();
+            srv.set(stalling());
+            std::string err;
+            const Clk::time_point t0 = Clk::now();
+            const bool ok = sdcard::http_download(url, dest, {}, err, fast);
+            const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
+            sdcard::ResumeInfo ri;
+            const bool rec = sdcard::read_resume_info(dest, ri);
+            const bool stopped = !ok && secs >= 1.9 && secs <= 5.0 &&
+                                 err.rfind("stalled: no data received for 2 s", 0) == 0 &&
+                                 err.find("(after 100000 of 300000 bytes)") != std::string::npos && !exists(dest) &&
+                                 slurp(sdcard::partial_path(dest)) == body.substr(0, 100000) && rec && ri.url == url &&
+                                 ri.validator_kind == "etag" && ri.validator == kEtag && ri.total == 300000;
+
+            // The network is back (the same server, healthy): the next call asks for the rest.
+            rs::Opts healthy;
+            healthy.body = body;
+            healthy.etag = kEtag;
+            srv.set(healthy);
+            srv.clear_requests();
+            std::string err2;
+            const bool ok2 = sdcard::default_http_download(url, dest, {}, err2);
+            const auto reqs = srv.requests();
+            const bool resumed = ok2 && reqs.size() == 1 && reqs[0].range == "bytes=100000-" &&
+                                 reqs[0].if_range == kEtag && slurp(dest) == body &&
+                                 !exists(sdcard::partial_path(dest)) && !exists(sdcard::resume_record_path(dest));
+            check("PROV-STALL-02",
+                  "no byte for the stall timeout ends the attempt in 1.9-5.0 s with 'stalled: no data received for "
+                  "2 s (after 100000 of 300000 bytes)', dest absent, the .part exactly the 100000 bytes that "
+                  "arrived and its record kept; the next call sends Range bytes=100000- with If-Range and ends "
+                  "with exactly the body and no partial",
+                  stopped && resumed,
+                  "stopped=" + std::to_string(stopped) + " ok=" + std::to_string(ok) + " t=" + num(secs) + "s err='" +
+                      err + "' part=" + std::to_string(slurp(sdcard::partial_path(dest)).size()) +
+                      " resumed=" + std::to_string(resumed) + " ok2=" + std::to_string(ok2) + " err2='" + err2 +
+                      "' reqs=" + std::to_string(reqs.size()));
+        }
+    }
+
+    // 03: Cancel works DURING a stall, within a tick, and keeps the partial.
+    {
+        rs::Server srv;
+        if (!srv.ok()) {
+            check("PROV-STALL-03", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
+        } else {
+            const std::string dest = dest_in("c");
+            srv.set(stalling());
+            Seen seen;
+            double seen_at = -1, cancelled_at = -1;
+            sdcard::ProgressFn pf = [&](uint64_t d, uint64_t t) {
+                const double at = seen.now();
+                seen.calls.push_back({at, d, t});
+                if (d != 100000) return true;
+                if (seen_at < 0) { seen_at = at; return true; }
+                if (at - seen_at >= 0.5) { cancelled_at = at; return false; }   // 100000, unchanged for 0.5 s
+                return true;
+            };
+            std::string err;
+            const bool ok = sdcard::http_download(srv.url(), dest, pf, err, {200, 5000});
+            const double after = seen.now() - cancelled_at;
+            sdcard::ResumeInfo ri;
+            check("PROV-STALL-03",
+                  "a ProgressFn that says false once 100000 has stood still for 0.5 s ends the stalled transfer "
+                  "within 1.0 s of it (the stall timeout is 5 s) with 'cancelled by user', the .part exactly the "
+                  "100000 bytes that arrived and its record kept",
+                  !ok && cancelled_at >= 0 && after <= 1.0 && err == "cancelled by user" && !exists(dest) &&
+                      slurp(sdcard::partial_path(dest)) == body.substr(0, 100000) &&
+                      sdcard::read_resume_info(dest, ri) && ri.total == 300000,
+                  "ok=" + std::to_string(ok) + " cancelled_at=" + num(cancelled_at) + " returned_after=" + num(after) +
+                      "s err='" + err + "' part=" + std::to_string(slurp(sdcard::partial_path(dest)).size()));
+        }
+    }
+
+    // 04: a server that never answers is a stall too, with nothing begun and nothing left behind.
+    {
+        rs::Server srv;
+        if (!srv.ok()) {
+            check("PROV-STALL-04", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
+        } else {
+            const std::string dest = dest_in("d");
+            rs::Opts o;
+            o.body = body;
+            o.etag = kEtag;
+            o.silent = true;
+            o.stall_ms = 8000;
+            srv.set(o);
+            Seen seen;
+            std::string err;
+            const Clk::time_point t0 = Clk::now();
+            const bool ok = sdcard::http_download(srv.url(), dest, seen.fn(), err, fast);
+            const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
+            check("PROV-STALL-04",
+                  "a server that reads the request and never answers ends the attempt in 1.9-5.0 s with exactly "
+                  "'stalled: no data received for 2 s' (nothing begun, so no 'after'), leaves no dest, .part or "
+                  "record, and the ProgressFn was called at least 6 times, always (0, 0)",
+                  !ok && secs >= 1.9 && secs <= 5.0 && err == "stalled: no data received for 2 s" && !exists(dest) &&
+                      !exists(sdcard::partial_path(dest)) && !exists(sdcard::resume_record_path(dest)) &&
+                      seen.calls.size() >= 6 && seen.count_at(0, 0) == static_cast<int>(seen.calls.size()),
+                  "ok=" + std::to_string(ok) + " t=" + num(secs) + "s err='" + err + "' calls=" +
+                      std::to_string(seen.calls.size()) + " at_0_0=" + std::to_string(seen.count_at(0, 0)));
+        }
+    }
+
+    // 05: a slow transfer that is ALIVE is never cut: the timeout counts from the last byte.
+    {
+        rs::Server srv;
+        if (!srv.ok()) {
+            check("PROV-STALL-05", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
+        } else {
+            const std::string dest = dest_in("e");
+            const std::string slow = rs::pattern(100000, 5);
+            rs::Opts o;
+            o.body = slow;
+            o.etag = kEtag;
+            o.chunk_delay_ms = 400;   // 16 KiB every 400 ms: 7 chunks, about 2.8 s
+            srv.set(o);
+            std::string err;
+            const Clk::time_point t0 = Clk::now();
+            const bool ok = sdcard::http_download(srv.url(), dest, {}, err, fast);
+            const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
+            check("PROV-STALL-05",
+                  "a transfer that takes longer than the stall timeout (2.8 s against 2 s) but never goes 2 s "
+                  "without a byte completes with exactly the body: the timeout counts from the last byte",
+                  ok && secs > 2.0 && slurp(dest) == slow,
+                  "ok=" + std::to_string(ok) + " t=" + num(secs) + "s err='" + err + "'");
+        }
+    }
+
+    // 06: the pure rule: StallWatch, the texts and the production numbers. No network.
+    {
+        using C = sdcard::StallWatch::Clock;
+        const C::time_point T0 = C::time_point{} + std::chrono::seconds(1000);
+        auto at = [&](int ms) { return T0 + std::chrono::milliseconds(ms); };
+        sdcard::StallWatch w(T0);
+        const bool watch = w.idle_ms(0, T0) == 0 && w.idle_ms(0, at(1999)) == 1999 && w.idle_ms(7, at(2000)) == 0 &&
+                           w.idle_ms(7, at(4500)) == 2500 && w.idle_ms(3, at(4600)) == 0;   // a drop resets too
+        const bool reason = sdcard::stall_reason(30000) == "stalled: no data received for 30 s" &&
+                            sdcard::stall_reason(2000) == "stalled: no data received for 2 s";
+        auto has = [](const std::string& s, const char* sub) { return s.find(sub) != std::string::npos; };
+        const std::string n5 = sdcard::stall_note(5000), n12 = sdcard::stall_note(12999);
+        const bool note = sdcard::stall_note(4999).empty() && sdcard::stall_note(0).empty() &&
+                          has(n5, "Stalled: no data received for 5 s") && has(n5, "gives up after 30 s") &&
+                          has(n12, "Stalled: no data received for 12 s") && has(n12, "gives up after 30 s");
+        const sdcard::DownloadTimings def;
+        const bool nums = def.tick_ms == 200 && def.stall_timeout_ms == 30000 && sdcard::kStallNoticeMs == 5000;
+        check("PROV-STALL-06",
+              "StallWatch counts from the last CHANGE of the byte count (a drop resets it too); the stall reason "
+              "reads 'stalled: no data received for N s'; the GUI note is empty under 5 s and from 5 s says how "
+              "long and that jnext gives up after 30 s; the production numbers are tick 200 ms, stall 30 s, "
+              "notice 5 s",
+              watch && reason && note && nums,
+              "watch=" + std::to_string(watch) + " reason=" + std::to_string(reason) + " note=" + std::to_string(note) +
+                  " nums=" + std::to_string(nums));
+    }
+
+    // 07: the SD-card path: the same stall, named in the error that provision_sd_card builds.
+    {
+        rs::Server srv;
+        if (!srv.ok()) {
+            check("PROV-STALL-07", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
+        } else {
+            const std::string sddir = sdcard::default_sdcard_dir();
+            auto clean = [&] {
+                for (const std::string& f : {sdcard::default_sdcard_image_path(), sdcard::default_sdcard_raw_image_path(),
+                                             sdcard::default_sdcard_raw_image_path() + ".sha256"})
+                    std::remove(f.c_str());
+                sdcard::discard_partial(sddir + "/sn-emulator.zip");
+            };
+            clean();
+            std::vector<uint8_t> payload;
+            for (int i = 0; i < 20000; ++i) payload.push_back(static_cast<uint8_t>(i * 7));
+            const std::vector<uint8_t> zip = make_zip("cspect-next-1gb.img", payload, 0);
+            rs::Opts o;
+            o.body.assign(reinterpret_cast<const char*>(zip.data()), zip.size());
+            o.etag = "\"zip1\"";
+            o.stall_after = 8000;
+            o.stall_ms = 8000;
+            srv.set(o);
+            jtp::set_env("JNEXT_SDCARD_DISTRO_URL", srv.url("/sn.zip").c_str());
+            sdcard::ProvisionOptions po;
+            po.auto_confirm = true;
+            po.download = [&](const std::string& u, const std::string& dest, const sdcard::ProgressFn& p, std::string& e) {
+                return sdcard::http_download(u, dest, p, e, fast);
+            };
+            const Clk::time_point t0 = Clk::now();
+            const auto r = sdcard::provision_sd_card(po);
+            const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
+            const std::string part = sddir + "/sn-emulator.zip.part";
+            const std::string kept = slurp(part);
+            jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
+            clean();
+            check("PROV-STALL-07",
+                  "an SD-card download that stalls fails within 5 s saying 'download failed: stalled: no data "
+                  "received for 2 s' and that the part fetched so far is kept and the next start continues it; "
+                  "sn-emulator.zip.part holds the 8000 bytes that arrived",
+                  r.status == sdcard::ProvisionStatus::Failed && secs <= 5.0 &&
+                      r.error.find("download failed: stalled: no data received for 2 s") != std::string::npos &&
+                      r.error.find("the part fetched so far is kept and the next start continues it") !=
+                          std::string::npos &&
+                      kept.size() == 8000,
+                  "status=" + std::to_string(static_cast<int>(r.status)) + " t=" + num(secs) + "s part=" +
+                      std::to_string(kept.size()) + " error='" + r.error.substr(0, 200) + "'");
+        }
+    }
+
+    // 08: the production numbers, end to end: default_http_download gives up at 30 s, not 120.
+    {
+        rs::Server srv;
+        if (!srv.ok()) {
+            check("PROV-STALL-08", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
+        } else {
+            const std::string dest = dest_in("h");
+            srv.set(stalling(40000));
+            Seen seen;
+            std::string err;
+            const Clk::time_point t0 = Clk::now();
+            const bool ok = sdcard::default_http_download(srv.url(), dest, seen.fn(), err);
+            const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
+            const double gap = seen.max_gap_from(100000, 300000, seen.now());
+            sdcard::ResumeInfo ri;
+            check("PROV-STALL-08",
+                  "default_http_download (the production numbers) gives up on a silent connection at 30 s, not "
+                  "120: it returns in 29.5-34 s with 'stalled: no data received for 30 s', called the ProgressFn "
+                  "at least 100 times at (100000, 300000) with no gap over 800 ms, and kept the 100000-byte "
+                  ".part and its record",
+                  !ok && secs >= 29.5 && secs <= 34.0 && err.rfind("stalled: no data received for 30 s", 0) == 0 &&
+                      seen.count_at(100000, 300000) >= 100 && gap <= 0.8 &&
+                      slurp(sdcard::partial_path(dest)).size() == 100000 && sdcard::read_resume_info(dest, ri),
+                  "ok=" + std::to_string(ok) + " t=" + num(secs) + "s err='" + err + "' calls_at_stall=" +
+                      std::to_string(seen.count_at(100000, 300000)) + " max_gap=" + num(gap) + "s part=" +
+                      std::to_string(slurp(sdcard::partial_path(dest)).size()));
+        }
     }
 }
 
@@ -1773,6 +2117,7 @@ int main() {
     }
 
     test_resume_rows();
+    test_stall_rows();
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

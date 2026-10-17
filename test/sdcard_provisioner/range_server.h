@@ -9,6 +9,15 @@
 // ETag, Last-Modified, Range -> 206 + Content-Range, If-Range. Everything a row
 // needs to break is a field of `Opts`. Every request's Range and If-Range
 // headers are recorded.
+//
+// A dropped network (GH #358, the stall rows) is a connection that stays open
+// and carries nothing: `stall_after` sends that many body bytes and then goes
+// silent, `silent` answers nothing at all, and `stall_ms` is how long such a
+// connection is held. The hold ends early when the client closes the connection
+// or the Server is destroyed, so a row that waits builds its OWN Server: its
+// destructor is what lets go of a connection the client abandoned (WinHTTP under
+// wine only closes an abandoned request's socket when the server does). The
+// server serves one connection at a time, so a held one is the whole server.
 #pragma once
 
 #include "esp01/esp_socket.h"
@@ -55,6 +64,9 @@ struct Opts {
     int  fail_ranged_status = 0;        // >0: a Range request gets this status (e.g. 503) with no body
     bool close_immediately = false;     // accept, read the request, answer nothing (a dead server)
     int chunk_delay_ms = 0;             // >0: send the body in 16 KiB pieces with this pause (a slow link)
+    std::size_t stall_after = kNoDrop;  // send this many body bytes, then hold the connection open sending nothing
+    bool silent = false;                // read the request, send nothing at all, hold the connection open
+    int stall_ms = 8000;                // how long stall_after / silent hold it (ends early: client closes, ~Server)
 };
 
 class Server {
@@ -84,6 +96,19 @@ public:
 
 private:
     static void sleep_ms(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
+
+    /// Hold `c` open, sending nothing, for up to `ms`; return early when the client closes it or the Server is being destroyed.
+    void hold(esp::net::NativeSocket c, int ms) {
+        const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+        while (!stop_ && std::chrono::steady_clock::now() < until) {
+            std::uint8_t b[256];
+            bool eof = false, failed = false, reset = false;
+            std::string err;
+            esp::net::recv(c, b, sizeof(b), true, eof, failed, reset, err);
+            if (eof || failed) return;
+            sleep_ms(5);
+        }
+    }
 
     void run() {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
@@ -166,6 +191,7 @@ private:
         }
 
         if (o.close_immediately) return;
+        if (o.silent) { hold(c, o.stall_ms); return; }
         if (!r.range.empty() && o.fail_ranged_status > 0) {
             send_all(c, "HTTP/1.1 " + std::to_string(o.fail_ranged_status) +
                             " Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
@@ -209,6 +235,10 @@ private:
         head += "Accept-Ranges: bytes\r\nConnection: close\r\n\r\n";
         std::string payload = o.body.substr(start);
         if (o.drop_after != kNoDrop && o.drop_after < payload.size()) payload.resize(o.drop_after);
+        if (o.stall_after != kNoDrop && o.stall_after < payload.size()) {
+            if (send_all(c, head + payload.substr(0, o.stall_after))) hold(c, o.stall_ms);
+            return;
+        }
         if (o.chunk_delay_ms <= 0) {
             send_all(c, head + payload);
             return;
