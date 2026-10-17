@@ -582,7 +582,7 @@ per-line replay of the enable flag is sufficient to gate output.
 | G10-G14-01 | Layer2 set_enabled write logged with current scanline                                       | reset; start_frame; line=50 set_enabled(true); line=150 set_enabled(false)                        | enable change-log holds (50,true) and (150,false)                                       | zxnext.vhd:3916, 3924-3925 |
 | G10-G14-02 | Renderer applies enable per scanline: rows above 50 hidden; 50..149 visible; 150..end hidden| log entries as 01; render rows 0..200 with L2 content                                             | first 50 rows have no L2 pixels; rows 50-149 do; rows 150-200 do not                    | layer2.vhd:175,197-198     |
 
-### Group G12 — Beam-time fetch (L2-BR-01 … L2-BR-13, GH #362)
+### Group G12 — Beam-time fetch (L2-BR-01 … L2-BR-18, GH #362)
 
 Layer 2 requests one byte per 7 MHz tick, one pixel ahead (`layer2.vhd`
 `hc_eff <= hc + 1`; SRAM address and request toggle at `sc = "00"`). The pixel
@@ -603,11 +603,14 @@ render reads the bitmap through `SramBeamLog` at that instant. Rows are in
 | L2-BR-07 | Logging armed mid-frame | Write at row 30 (unlogged), arm, write at row 150 | Row 100 shows the row-30 value — pass | layer2.vhd hc_eff |
 | L2-BR-08 | Log restarts every frame | Frame without writes after one with | Shows the RAM as it is — pass | layer2.vhd hc_eff |
 
-L2-BR-09 … L2-BR-13 pin which 16 KB SRAM banks a span fetches: a 256x192 row
+L2-BR-09 … L2-BR-18 pin which 16 KB SRAM banks a span fetches: a 256x192 row
 reads one (`'0' & y & x(7:0)`, y fixed), a wide row reads x*256 + y with x up
 to 511, so x(8:6) selects one of eight from the span's first; the SRAM bank is
 `bank_eff` (NR 0x12 + 16 in the Next layout) plus addr(16:14). A write the
 replay must show lies in a bank the span fetches, whatever else the frame wrote.
+Each wide mode has its own span check, so each case is pinned in both: the last
+sub-bank under X scroll (L2-BR-12, L2-BR-14), the Next layout (L2-BR-11,
+L2-BR-18) and a mid-line NR 0x12 segment (L2-BR-16, L2-BR-17, after L2-BR-13).
 
 | ID | Title | Stimulus | Expected | VHDL cite |
 |----|-------|----------|----------|-----------|
@@ -616,6 +619,11 @@ replay must show lies in a bank the span fetches, whatever else the frame wrote.
 | L2-BR-11 | 640x256 in the Next SRAM layout | rom_in_sram: byte column 100 of row 20 = SRAM bank 25; write at raw hc 198 / 194 | Left pixel old / new — pass | layer2.vhd:172-173 |
 | L2-BR-12 | 320x256, X scroll past 320 | Scroll 511: column 300 fetches x = 491 (sub-bank 7); write at raw hc 398 / 394 | Old / new — pass | layer2.vhd:152-153, 160, 172-173 |
 | L2-BR-13 | Mid-line NR 0x12 (GH #270 segment) | NR 0x12 8 -> 0x10 at hpos 65 (column 67); write 2 ticks after the fetch of column 100 (bank 16), and in another frame of column 20 (bank 8) | Both old — pass | layer2.vhd:120, 172-173 |
+| L2-BR-14 | 640x256, X scroll past 320 | Scroll 511: byte column 300 fetches x = 491 (sub-bank 7); write at raw hc 398 / 394 | Left pixel old / new — pass | layer2.vhd:152-153, 160, 172-173 |
+| L2-BR-15 | 640x256: sub-bank 3 of the span | Byte column 200 of row 20 (sub-bank 3); write at raw hc 298 / 294 | Left pixel old / new — pass | layer2.vhd:160, 172-173 |
+| L2-BR-16 | 320x256, mid-line NR 0x12 | NR 0x12 8 -> 0x10 at hpos 65 (column 99); write 2 ticks after the fetch of column 20 (bank 8), and in another frame of column 100 (bank 17) | Both old — pass | layer2.vhd:120, 172-173 |
+| L2-BR-17 | 640x256, mid-line NR 0x12 | As L2-BR-16, byte columns 20 (bank 8) and 100 (bank 17) | Both left pixels old — pass | layer2.vhd:120, 172-173 |
+| L2-BR-18 | 320x256 in the Next SRAM layout | rom_in_sram: column 100 of row 20 = SRAM bank 25; write at raw hc 198 / 194 | Old / new — pass | layer2.vhd:172-173 |
 
 ## Test Case Summary
 
