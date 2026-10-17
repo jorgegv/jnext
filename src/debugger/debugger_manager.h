@@ -129,12 +129,11 @@ public slots:
     void on_rewind_to_frame(uint32_t frame_num);
     void on_load_map_z88dk();
     void on_load_map_simple();
-    /// CAP-SRC — Map > Load Symbols > Boriel/NextBuild Memory.txt, and
-    /// Map > Load SLD Source Map.
+    /// CAP-SRC: the Source tab's Load Memory.txt... and Load SLD... buttons.
     void on_load_nextbuild_memory();
     void on_load_sld();
-    /// CAP-SRC — Debug > Source Step: step by source statement over the
-    /// loaded source map (doc/design/SOURCE-LEVEL-DEBUGGING.md).
+    /// CAP-SRC: the Source tab's step buttons: step by source statement over
+    /// the loaded source map (doc/design/SOURCE-LEVEL-DEBUGGING.md).
     void on_source_step_into();
     void on_source_step_over();
     void on_source_step_out();
