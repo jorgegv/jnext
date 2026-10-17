@@ -488,6 +488,30 @@ compared against.
 | TM-BR-09 | Fine X scroll 4 splits a tile over groups 0 and 1; write between their fetches | `tilemap.vhd:260-300` | Group 0 half old, group 1 half new — pass |
 | TM-BR-10 | Same split with a rotated tile (per-pixel pattern reads); pattern bytes written between the instants | `tilemap.vhd:260-300` | Group 0 half old, group 1 half new — pass |
 
+TM-BR-11..21 (GH #362 perf) are a differential family. The tilemap's only VRAM
+reads are the bytes its address generator names (`tilemap.vhd:393-403`), so a
+write to a byte a scene never reads changes nothing in it, whatever its instant.
+Each row draws all 256 display rows of one scene twice with the replay started:
+with no recorded write, and with one write tagged on row 3 at hc 200 to bank-5
+offset 0x3FFF, which no scene reads. The first has no hot offset and is drawn by
+the cold loop, the second by the replay loop. Every cell, below flag and
+textmode flag must be equal, and each row also checks that premise (no hot
+offset / 0x3FFF hot) and that the scene has at least 16 distinct cell values.
+
+| ID | Test | VHDL Basis | Verify |
+|----|------|-----------|--------|
+| TM-BR-11 | 40-col, per-tile palette offset and ULA-over bit | `tilemap.vhd:393-403` | Both loops equal — pass |
+| TM-BR-12 | 80-col with tm_on_top, X scroll 637 (wraps at 640) | `tilemap.vhd:226-231, 393-403` | Both loops equal — pass |
+| TM-BR-13 | Text mode (8-byte glyphs, attr(7:1) offset) | `tilemap.vhd:393-403` | Both loops equal, textmode flags included — pass |
+| TM-BR-14 | 512-tile mode (attr bit 0 = tile bit 8), mirrors and rotate | `tilemap.vhd:393` | Both loops equal — pass |
+| TM-BR-15 | Strip flags: 1-byte entries, NR 0x6C attribute 0x9D | `tilemap.vhd:363-366, 396-398` | Both loops equal — pass |
+| TM-BR-16 | Per-tile X and Y mirror | `tilemap.vhd:320-322` | Both loops equal — pass |
+| TM-BR-17 | Rotated tiles split by fine X scroll 267 (fetched again in each group) | `tilemap.vhd:260-300, 323-324` | Both loops equal — pass |
+| TM-BR-18 | Y scroll 43 with X scroll 90 | `tilemap.vhd:326-328` | Both loops equal — pass |
+| TM-BR-19 | Clip window x 0x13..0x8A, y 0x10..0xE0 | `tilemap.vhd:412-424` | Both loops equal, clipped cells included — pass |
+| TM-BR-20 | Map in the bank 7 BRAM, definitions in bank 5 | `tilemap.vhd:400-402`, `zxnext.vhd:6660-6664` | Both loops equal — pass |
+| TM-BR-21 | TM-BR-20 with a bank 7 map byte and a bank 5 definition byte stored past the recorder after the frame starts | `tilemap.vhd:393-403` | Both loops equal (both answer from the frame's bytes); a bed reading live memory differs — pass |
+
 ## Test Execution
 
 ### Building test programs

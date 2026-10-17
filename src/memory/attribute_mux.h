@@ -186,6 +186,16 @@ public:
     /// prepare().
     bool is_hot(uint32_t offset) const { return offset < nbytes_ && hot_[offset] != 0; }
 
+    /// True when is_hot() holds for at least one offset: an offset joins
+    /// touched_ exactly when it becomes hot, and both are cleared together.
+    /// Only valid after prepare().
+    bool any_hot() const { return !touched_.empty(); }
+
+    /// The bytes a read of a non-hot offset returns at every instant: the
+    /// frame-start bytes plus the folded writes (class comment). Only valid
+    /// after prepare().
+    const uint8_t* baseline() const { return base_.data(); }
+
     /// Chain every write recorded so far. read() does it itself; a caller that
     /// reads many bytes in a row (a scanline's 32 columns) calls it once and
     /// then uses read_prepared().

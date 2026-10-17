@@ -269,6 +269,15 @@ the headers of the two classes):
 | Layer 2 256x192 | column *X* at raw `hc` `c_min_hactive` + *X* | `layer2.vhd` `hc_eff`, `zxula_timing.vhd:510-522` |
 | Layer 2 320x256 / 640x256 | column (byte) *X* at raw `hc` `c_min_hactive` - 32 + *X* | `layer2.vhd`, `zxula_timing.vhd:476-492` |
 
+Most tilemap rows read nothing that was written during the frame, so the
+tilemap does not replay them. When neither mux holds a hot offset (a write the
+mux has not folded into its baseline), the row is drawn by a second instance of
+the same loop, `Tilemap::render_tiles_<false>`. That instance reads the mux
+baselines directly, which is what every replayed read of the row would return,
+and keeps one block per tile. A hot offset anywhere sends the row through
+`render_tiles_<true>`, the replay. Both instances come from one loop source, and
+`tilemap_test` TM-BR-11..21 draw each mode both ways and require the same output.
+
 Two details there are load-bearing. Writes tagged during vblank never match a
 visible row, so `flush_remaining_changes` must drain them or they are lost
 forever — the next frame's baseline would not contain them. And writes that

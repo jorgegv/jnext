@@ -26,7 +26,7 @@ mentions them, so a test can no longer be absent from this document.
 | ULA Video                                  |   155 |  155 |    0 |    0 |       0 |          0 |
 | Layer2                                     |   228 |  228 |    0 |    0 |       0 |          0 |
 | Sprites                                    |   217 |  217 |    0 |    0 |       0 |          0 |
-| Tilemap                                    |   108 |  108 |    0 |    0 |       0 |          0 |
+| Tilemap                                    |   119 |  119 |    0 |    0 |       0 |          0 |
 | Copper                                     |   110 |  110 |    0 |    0 |       0 |          0 |
 | Compositor                                 |   294 |  294 |    0 |    0 |       0 |          0 |
 | Audio                                      |   244 |  244 |    0 |    0 |       0 |          0 |
@@ -66,9 +66,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    49 |   49 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    65 |   65 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5871 | 5871 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5882 | 5882 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5871**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5426**. Rows the 150 suites declared in `test/unit-tests.conf` run live: **13089**.
+Rows the sections above carry: **5882**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5437**. Rows the 150 suites declared in `test/unit-tests.conf` run live: **13100**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -1146,15 +1146,15 @@ Notes and rationale: [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| TM-01 | VHDL zxnext.vhd nr_6b reset — tilemap enable clears to 0 | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:208 |
-| TM-02 | VHDL zxnext.vhd — NR 0x6B bit 7 maps to nr_6b_tm_en | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:217 |
-| TM-03 | VHDL zxnext.vhd — NR 0x6B bit 7 = 0 clears nr_6b_tm_en | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:227 |
-| TM-04 | VHDL zxnext.vhd NR 0x6B/6C/6E/6F reset — ctrl=0, attr=0, map=0x2C, def=0x0C | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:236 |
-| TM-160 | VHDL tilemap.vhd:189 + zxnext.vhd:5461-5462 — NR 0x6B b6 mid-frame flip lands on the correct scanline | tilemap.vhd:189, zxnext.vhd:5461-5462 | pass | test/tilemap/tilemap_test.cpp:278 |
-| TM-161 | VHDL tilemap.vhd:191 + zxnext.vhd:5461-5462 — NR 0x6B b3 (textmode) mid-frame flip per scanline | tilemap.vhd:191, zxnext.vhd:5461-5462 | pass | test/tilemap/tilemap_test.cpp:301 |
-| TM-162 | VHDL tilemap.vhd:194 + zxnext.vhd:5461-5462 — NR 0x6B b1 (256->512 tile) mid-frame flip per scanline | tilemap.vhd:194, zxnext.vhd:5461-5462 | pass | test/tilemap/tilemap_test.cpp:324 |
-| TM-163 | VHDL tilemap.vhd:195 + zxnext.vhd:5461-5462 — NR 0x6B b0 (tm_on_top) mid-frame flip per scanline | tilemap.vhd:195, zxnext.vhd:5461-5462 | pass | test/tilemap/tilemap_test.cpp:347 |
-| TM-164 | VHDL zxnext.vhd:5461 + :6820 — NR 0x6B b7 (enable) mid-frame flip per scanline | zxnext.vhd:5461,6820 | pass | test/tilemap/tilemap_test.cpp:370 |
+| TM-01 | VHDL zxnext.vhd nr_6b reset — tilemap enable clears to 0 | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:209 |
+| TM-02 | VHDL zxnext.vhd — NR 0x6B bit 7 maps to nr_6b_tm_en | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:218 |
+| TM-03 | VHDL zxnext.vhd — NR 0x6B bit 7 = 0 clears nr_6b_tm_en | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:228 |
+| TM-04 | VHDL zxnext.vhd NR 0x6B/6C/6E/6F reset — ctrl=0, attr=0, map=0x2C, def=0x0C | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:237 |
+| TM-160 | VHDL tilemap.vhd:189 + zxnext.vhd:5461-5462 — NR 0x6B b6 mid-frame flip lands on the correct scanline | tilemap.vhd:189, zxnext.vhd:5461-5462 | pass | test/tilemap/tilemap_test.cpp:279 |
+| TM-161 | VHDL tilemap.vhd:191 + zxnext.vhd:5461-5462 — NR 0x6B b3 (textmode) mid-frame flip per scanline | tilemap.vhd:191, zxnext.vhd:5461-5462 | pass | test/tilemap/tilemap_test.cpp:302 |
+| TM-162 | VHDL tilemap.vhd:194 + zxnext.vhd:5461-5462 — NR 0x6B b1 (256->512 tile) mid-frame flip per scanline | tilemap.vhd:194, zxnext.vhd:5461-5462 | pass | test/tilemap/tilemap_test.cpp:325 |
+| TM-163 | VHDL tilemap.vhd:195 + zxnext.vhd:5461-5462 — NR 0x6B b0 (tm_on_top) mid-frame flip per scanline | tilemap.vhd:195, zxnext.vhd:5461-5462 | pass | test/tilemap/tilemap_test.cpp:348 |
+| TM-164 | VHDL zxnext.vhd:5461 + :6820 — NR 0x6B b7 (enable) mid-frame flip per scanline | zxnext.vhd:5461,6820 | pass | test/tilemap/tilemap_test.cpp:371 |
 | TM-165 | Per-scanline NR 0x4C (TM transparent nibble) flip mid-frame (G04 cross-bucket) | tilemap.vhd:427, zxnext.vhd:4395 | pass | test/tilemap/tilemap_fetch_split_test.cpp:453 |
 | TM-SPLIT-05 | NR 0x6E and NR 0x4C switched by adjacent Copper MOVEs stay coherent | tilemap.vhd:229,349,427, copper.vhd:94, zxula_timing.vhd:423-436,474-490 | pass | test/tilemap/tilemap_fetch_split_test.cpp:481 |
 | TM-SPLIT-06 | NR 0x1B clip written mid-frame via the Copper | tilemap.vhd:412-424, zxnext.vhd:4424-4427, copper.vhd:94, zxula_timing.vhd:423-436,474-490 | pass | test/tilemap/tilemap_fetch_split_test.cpp:516 |
@@ -1162,98 +1162,109 @@ Notes and rationale: [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md).
 | TM-GH257-02 | 50 Hz: a write below the displayed surface does not reach the last row | zxula_timing.vhd:195-204 | pass | test/tilemap/tilemap_fetch_split_test.cpp:580 |
 | TM-GH257-03 | 60 Hz: the last row is captured although no scanline event follows it | zxula_timing.vhd:229-238 | pass | test/tilemap/tilemap_fetch_split_test.cpp:609 |
 | TM-GH257-04 | GH #16 shape: an IM2 line-interrupt handler's NR 0x30 write | tilemap.vhd:227-229,264, zxula_timing.vhd:423-436,560-583 | pass | test/tilemap/tilemap_fetch_split_test.cpp:660 |
-| TM-10 | VHDL tilemap.vhd:382-383 standard pixel index = attr(7:4)\|pix | tilemap.vhd:382-383 | pass | test/tilemap/tilemap_test.cpp:392 |
-| TM-11 | VHDL tilemap.vhd:393 — tilemap_0 selects tile 0..255 within a 256-tile bank | tilemap.vhd:393 | pass | test/tilemap/tilemap_test.cpp:410 |
-| TM-12 | VHDL tilemap.vhd:382 — final index = attr(7:4)<<4 \| pixel | tilemap.vhd:382 | pass | test/tilemap/tilemap_test.cpp:426 |
-| TM-13 | VHDL tilemap.vhd:320-321 — attr(3) inverts effective_x when rotate=0 | tilemap.vhd:320-321 | pass | test/tilemap/tilemap_test.cpp:450 |
-| TM-14 | VHDL tilemap.vhd:322 — attr(2) inverts effective_y | tilemap.vhd:322 | pass | test/tilemap/tilemap_test.cpp:474 |
-| TM-15 | VHDL tilemap.vhd:320-324 — rotate is 90° (swap + XOR mirror) | tilemap.vhd:320-324 | pass | test/tilemap/tilemap_test.cpp:503 |
-| TM-16 | VHDL tilemap.vhd:320 — attr(3) XOR attr(1) cancels x-mirror | tilemap.vhd:320 | pass | test/tilemap/tilemap_test.cpp:521 |
-| TM-17 | VHDL tilemap.vhd:388 — per-tile below = attr(0) when mode_512=0 AND tm_on_top=0 | tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:537 |
-| TM-20 | VHDL tilemap.vhd:189 — control(6)=1 selects 80-col, rightmost map column reaches native pixel 639 | tilemap.vhd:189 | pass | test/tilemap/tilemap_test.cpp:560 |
-| TM-21 | VHDL tilemap.vhd:382 — attr(7:4) palette offset holds in 80-col | tilemap.vhd:382 | pass | test/tilemap/tilemap_test.cpp:575 |
-| TM-22 | VHDL tilemap.vhd:228 — 80-col native 640 emits both alternating tile colours | tilemap.vhd:228 | pass | test/tilemap/tilemap_test.cpp:599 |
-| TM-30 | VHDL tilemap.vhd:194 — control(1)=1 enables 9-bit tile index | tilemap.vhd:194 | pass | test/tilemap/tilemap_test.cpp:631 |
-| TM-31 | VHDL tilemap.vhd:393 — attr(0) becomes tile bit 8 in 512 mode | tilemap.vhd:393 | pass | test/tilemap/tilemap_test.cpp:649 |
-| TM-32 | VHDL tilemap.vhd:388 — mode_512=1, tm_on_top=0 forces below=1 | tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:665 |
-| TM-40 | VHDL tilemap.vhd:191 — textmode_i = control(3); pix uses 1bpp | tilemap.vhd:191 | pass | test/tilemap/tilemap_test.cpp:691 |
-| TM-41 | VHDL tilemap.vhd:385-386 — shift_left(mem, abs_x(2:0))(7); 429 — text mode emits paper too; G104 40-col 2-cell pairs | tilemap.vhd:385-386 | pass | test/tilemap/tilemap_test.cpp:719 |
-| TM-42 | VHDL tilemap.vhd:386 — textmode index = attr(7:1)<<1 \| bit | tilemap.vhd:386 | pass | test/tilemap/tilemap_test.cpp:742 |
-| TM-43 | VHDL tilemap.vhd:386 — attr(3..1) belong to palette offset in textmode, not transform controls; 429 — paper emitted; G104 40-col 2-cell pairs | tilemap.vhd:386 | pass | test/tilemap/tilemap_test.cpp:772 |
-| TM-50 | VHDL tilemap.vhd:190 — control(5)=strip_flags; map packed 1 byte per tile | tilemap.vhd:190 | pass | test/tilemap/tilemap_test.cpp:836 |
-| TM-51 | VHDL tilemap.vhd:366 — default_flags_i drives tilemap_1 when strip_flags=1 | tilemap.vhd:366 | pass | test/tilemap/tilemap_test.cpp:854 |
-| TM-52 | VHDL tilemap.vhd:395-398 — 40-col strip map: row offset = row * 40 bytes | tilemap.vhd:395-398 | pass | test/tilemap/tilemap_test.cpp:873 |
-| TM-53 | VHDL tilemap.vhd:328,395-398 — 80-col strip: row offset = row * 80 bytes | tilemap.vhd:328,395-398 | pass | test/tilemap/tilemap_test.cpp:894 |
-| TM-60 | VHDL tilemap.vhd:403 — map fetched from bank5 + offset(5:0) * 256 | tilemap.vhd:403 | pass | test/tilemap/tilemap_test.cpp:921 |
-| TM-61 | VHDL tilemap.vhd:402 — NR 0x6E bit 7 selects bank 7 | tilemap.vhd:402 | pass | test/tilemap/tilemap_test.cpp:936 |
-| TM-62 | VHDL tilemap.vhd:403 — tile defs from bank5 + offset * 256 | tilemap.vhd:403 | pass | test/tilemap/tilemap_test.cpp:951 |
-| TM-63 | VHDL tilemap.vhd:402 — NR 0x6F bit 7 selects bank 7 | tilemap.vhd:402 | pass | test/tilemap/tilemap_test.cpp:965 |
-| TM-64 | VHDL tilemap.vhd:403 — distinct NR 0x6E offsets map to distinct physical base addresses | tilemap.vhd:403 | pass | test/tilemap/tilemap_test.cpp:986 |
-| TM-65 | VHDL tilemap.vhd:396 — strip=0 uses 2-byte entries (tile_index at even byte, flags at odd) | tilemap.vhd:396 | pass | test/tilemap/tilemap_test.cpp:1013 |
-| TM-66 | VHDL zxnext.vhd:6108 — NR 0x6E read forces bit 6=0; raw store unchanged | zxnext.vhd:6108 | pass | test/tilemap/tilemap_test.cpp:1028 |
-| TM-67 | VHDL zxnext.vhd:6111 — NR 0x6F read forces bit 6=0; raw store unchanged | zxnext.vhd:6111 | pass | test/tilemap/tilemap_test.cpp:1040 |
-| TM-70 | VHDL tilemap.vhd:394 — standard pix addr = idx*32 + y*4 + x/2 | tilemap.vhd:394 | pass | test/tilemap/tilemap_test.cpp:1068 |
-| TM-71 | VHDL tilemap.vhd:394 — textmode pix addr = idx*8 + abs_y(2:0) | tilemap.vhd:394 | pass | test/tilemap/tilemap_test.cpp:1083 |
-| TM-72 | VHDL tilemap.vhd:383 — nibble select: x(0)=0 high, x(0)=1 low | tilemap.vhd:383 | pass | test/tilemap/tilemap_test.cpp:1102 |
-| TM-80 | VHDL tilemap.vhd:309-318 — scroll_x=8 brings col 1 to pixel 0 | tilemap.vhd:309-318 | pass | test/tilemap/tilemap_test.cpp:1128 |
-| TM-81 | VHDL tilemap.vhd:315 — scroll_x=320 wraps to 0 in 40-col | tilemap.vhd:315 | pass | test/tilemap/tilemap_test.cpp:1148 |
-| TM-82 | VHDL tilemap.vhd:314 — scroll_x=640 wraps to 0 in 80-col | tilemap.vhd:314 | pass | test/tilemap/tilemap_test.cpp:1167 |
-| TM-83 | VHDL tilemap.vhd:326 — scroll_y=8 brings row 1 to line 0 | tilemap.vhd:326 | pass | test/tilemap/tilemap_test.cpp:1186 |
-| TM-84 | VHDL tilemap.vhd:326 — scroll_y is 8-bit; 256 wraps to 0 | tilemap.vhd:326 | pass | test/tilemap/tilemap_test.cpp:1204 |
-| TM-85 | VHDL tilemap.vhd:345 — per-scanline scroll samples are honoured between scanlines | tilemap.vhd:345 | pass | test/tilemap/tilemap_test.cpp:1231 |
-| TM-86 | VHDL tilemap.vhd:309/326 — per-line scroll snapshot must store late (vblank-region) writes; mirrors SpriteEngine catch-up at sprites.cpp:119-144 | tilemap.vhd:309/326 | pass | test/tilemap/tilemap_test.cpp:1266 |
-| TM-90 | VHDL tilemap.vhd:427 — pix == transp_colour => pixel disabled | tilemap.vhd:427 | pass | test/tilemap/tilemap_test.cpp:1294 |
-| TM-91 | VHDL zxnext.vhd NR 0x4C reset — default transparent idx = 0xF | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:1302 |
-| TM-92 | VHDL tilemap.vhd:427 — custom transp idx 0x07 disables pixel | tilemap.vhd:427 | pass | test/tilemap/tilemap_test.cpp:1316 |
-| TM-95 | VHDL zxnext.vhd:7109 — textmode pixel + RGB==NR0x14 marked transparent at compositor; ULA shows through | zxnext.vhd:7109 | pass | test/tilemap/tilemap_test.cpp:1478 |
-| TM-100 | NR 0x6B bit 4 = 0 → tm.palette_sel() = false | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:1498 |
-| TM-101 | NR 0x6B bit 4 = 1 → tm.palette_sel() = true — VHDL zxnext.vhd:5462,6826 | zxnext.vhd:5462,6826 | pass | test/tilemap/tilemap_test.cpp:1506 |
-| TM-102 | palette_sel authoritative at Tilemap layer (VHDL zxnext.vhd:6826,6921-6922,6981 tm_palette_select) | zxnext.vhd:6826,6921-6922,6981 | pass | test/tilemap/tilemap_test.cpp:1521 |
-| TM-103 | VHDL tilemap.vhd:382-383 — standard: idx = attr(7:4)<<4 \| pix | tilemap.vhd:382-383 | pass | test/tilemap/tilemap_test.cpp:1535 |
-| TM-104 | VHDL tilemap.vhd:386 — textmode: idx = attr(7:1)<<1 \| bit | tilemap.vhd:386 | pass | test/tilemap/tilemap_test.cpp:1549 |
-| TM-105 | VHDL tilemap.vhd:62,443 — per-pixel pixel_textmode_o exposed: 1 in textmode for emitted pixels, 0 otherwise | tilemap.vhd:62,443 | pass | test/tilemap/tilemap_test.cpp:1603 |
-| TM-110 | Default clip 0x00..0x9F/0x00..0xFF renders full scanline | tilemap.vhd:424, zxnext.vhd:4977-4980 | pass | test/tilemap/tilemap_test.cpp:1639 |
-| TM-111 | Y outside clip (y=0x20 < clip_y1=0x40) → scanline transparent | — | pass | test/tilemap/tilemap_test.cpp:1661 |
-| TM-112 | clip_x1=clip_x2=0x10 → 4 opaque cells at x=0x40..0x43 (VHDL tilemap.vhd:416-417,424 — clip comparator runs against hcounter_i, doubled into 640-grid) | tilemap.vhd:416-417,424 | pass | test/tilemap/tilemap_test.cpp:1692 |
-| TM-113 | Y clip inclusive at clip_y1/clip_y2, outside transparent | — | pass | test/tilemap/tilemap_test.cpp:1718 |
+| TM-10 | VHDL tilemap.vhd:382-383 standard pixel index = attr(7:4)\|pix | tilemap.vhd:382-383 | pass | test/tilemap/tilemap_test.cpp:393 |
+| TM-11 | VHDL tilemap.vhd:393 — tilemap_0 selects tile 0..255 within a 256-tile bank | tilemap.vhd:393 | pass | test/tilemap/tilemap_test.cpp:411 |
+| TM-12 | VHDL tilemap.vhd:382 — final index = attr(7:4)<<4 \| pixel | tilemap.vhd:382 | pass | test/tilemap/tilemap_test.cpp:427 |
+| TM-13 | VHDL tilemap.vhd:320-321 — attr(3) inverts effective_x when rotate=0 | tilemap.vhd:320-321 | pass | test/tilemap/tilemap_test.cpp:451 |
+| TM-14 | VHDL tilemap.vhd:322 — attr(2) inverts effective_y | tilemap.vhd:322 | pass | test/tilemap/tilemap_test.cpp:475 |
+| TM-15 | VHDL tilemap.vhd:320-324 — rotate is 90° (swap + XOR mirror) | tilemap.vhd:320-324 | pass | test/tilemap/tilemap_test.cpp:504 |
+| TM-16 | VHDL tilemap.vhd:320 — attr(3) XOR attr(1) cancels x-mirror | tilemap.vhd:320 | pass | test/tilemap/tilemap_test.cpp:522 |
+| TM-17 | VHDL tilemap.vhd:388 — per-tile below = attr(0) when mode_512=0 AND tm_on_top=0 | tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:538 |
+| TM-20 | VHDL tilemap.vhd:189 — control(6)=1 selects 80-col, rightmost map column reaches native pixel 639 | tilemap.vhd:189 | pass | test/tilemap/tilemap_test.cpp:561 |
+| TM-21 | VHDL tilemap.vhd:382 — attr(7:4) palette offset holds in 80-col | tilemap.vhd:382 | pass | test/tilemap/tilemap_test.cpp:576 |
+| TM-22 | VHDL tilemap.vhd:228 — 80-col native 640 emits both alternating tile colours | tilemap.vhd:228 | pass | test/tilemap/tilemap_test.cpp:600 |
+| TM-30 | VHDL tilemap.vhd:194 — control(1)=1 enables 9-bit tile index | tilemap.vhd:194 | pass | test/tilemap/tilemap_test.cpp:632 |
+| TM-31 | VHDL tilemap.vhd:393 — attr(0) becomes tile bit 8 in 512 mode | tilemap.vhd:393 | pass | test/tilemap/tilemap_test.cpp:650 |
+| TM-32 | VHDL tilemap.vhd:388 — mode_512=1, tm_on_top=0 forces below=1 | tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:666 |
+| TM-40 | VHDL tilemap.vhd:191 — textmode_i = control(3); pix uses 1bpp | tilemap.vhd:191 | pass | test/tilemap/tilemap_test.cpp:692 |
+| TM-41 | VHDL tilemap.vhd:385-386 — shift_left(mem, abs_x(2:0))(7); 429 — text mode emits paper too; G104 40-col 2-cell pairs | tilemap.vhd:385-386 | pass | test/tilemap/tilemap_test.cpp:720 |
+| TM-42 | VHDL tilemap.vhd:386 — textmode index = attr(7:1)<<1 \| bit | tilemap.vhd:386 | pass | test/tilemap/tilemap_test.cpp:743 |
+| TM-43 | VHDL tilemap.vhd:386 — attr(3..1) belong to palette offset in textmode, not transform controls; 429 — paper emitted; G104 40-col 2-cell pairs | tilemap.vhd:386 | pass | test/tilemap/tilemap_test.cpp:773 |
+| TM-50 | VHDL tilemap.vhd:190 — control(5)=strip_flags; map packed 1 byte per tile | tilemap.vhd:190 | pass | test/tilemap/tilemap_test.cpp:837 |
+| TM-51 | VHDL tilemap.vhd:366 — default_flags_i drives tilemap_1 when strip_flags=1 | tilemap.vhd:366 | pass | test/tilemap/tilemap_test.cpp:855 |
+| TM-52 | VHDL tilemap.vhd:395-398 — 40-col strip map: row offset = row * 40 bytes | tilemap.vhd:395-398 | pass | test/tilemap/tilemap_test.cpp:874 |
+| TM-53 | VHDL tilemap.vhd:328,395-398 — 80-col strip: row offset = row * 80 bytes | tilemap.vhd:328,395-398 | pass | test/tilemap/tilemap_test.cpp:895 |
+| TM-60 | VHDL tilemap.vhd:403 — map fetched from bank5 + offset(5:0) * 256 | tilemap.vhd:403 | pass | test/tilemap/tilemap_test.cpp:922 |
+| TM-61 | VHDL tilemap.vhd:402 — NR 0x6E bit 7 selects bank 7 | tilemap.vhd:402 | pass | test/tilemap/tilemap_test.cpp:937 |
+| TM-62 | VHDL tilemap.vhd:403 — tile defs from bank5 + offset * 256 | tilemap.vhd:403 | pass | test/tilemap/tilemap_test.cpp:952 |
+| TM-63 | VHDL tilemap.vhd:402 — NR 0x6F bit 7 selects bank 7 | tilemap.vhd:402 | pass | test/tilemap/tilemap_test.cpp:966 |
+| TM-64 | VHDL tilemap.vhd:403 — distinct NR 0x6E offsets map to distinct physical base addresses | tilemap.vhd:403 | pass | test/tilemap/tilemap_test.cpp:987 |
+| TM-65 | VHDL tilemap.vhd:396 — strip=0 uses 2-byte entries (tile_index at even byte, flags at odd) | tilemap.vhd:396 | pass | test/tilemap/tilemap_test.cpp:1014 |
+| TM-66 | VHDL zxnext.vhd:6108 — NR 0x6E read forces bit 6=0; raw store unchanged | zxnext.vhd:6108 | pass | test/tilemap/tilemap_test.cpp:1029 |
+| TM-67 | VHDL zxnext.vhd:6111 — NR 0x6F read forces bit 6=0; raw store unchanged | zxnext.vhd:6111 | pass | test/tilemap/tilemap_test.cpp:1041 |
+| TM-70 | VHDL tilemap.vhd:394 — standard pix addr = idx*32 + y*4 + x/2 | tilemap.vhd:394 | pass | test/tilemap/tilemap_test.cpp:1069 |
+| TM-71 | VHDL tilemap.vhd:394 — textmode pix addr = idx*8 + abs_y(2:0) | tilemap.vhd:394 | pass | test/tilemap/tilemap_test.cpp:1084 |
+| TM-72 | VHDL tilemap.vhd:383 — nibble select: x(0)=0 high, x(0)=1 low | tilemap.vhd:383 | pass | test/tilemap/tilemap_test.cpp:1103 |
+| TM-80 | VHDL tilemap.vhd:309-318 — scroll_x=8 brings col 1 to pixel 0 | tilemap.vhd:309-318 | pass | test/tilemap/tilemap_test.cpp:1129 |
+| TM-81 | VHDL tilemap.vhd:315 — scroll_x=320 wraps to 0 in 40-col | tilemap.vhd:315 | pass | test/tilemap/tilemap_test.cpp:1149 |
+| TM-82 | VHDL tilemap.vhd:314 — scroll_x=640 wraps to 0 in 80-col | tilemap.vhd:314 | pass | test/tilemap/tilemap_test.cpp:1168 |
+| TM-83 | VHDL tilemap.vhd:326 — scroll_y=8 brings row 1 to line 0 | tilemap.vhd:326 | pass | test/tilemap/tilemap_test.cpp:1187 |
+| TM-84 | VHDL tilemap.vhd:326 — scroll_y is 8-bit; 256 wraps to 0 | tilemap.vhd:326 | pass | test/tilemap/tilemap_test.cpp:1205 |
+| TM-85 | VHDL tilemap.vhd:345 — per-scanline scroll samples are honoured between scanlines | tilemap.vhd:345 | pass | test/tilemap/tilemap_test.cpp:1232 |
+| TM-86 | VHDL tilemap.vhd:309/326 — per-line scroll snapshot must store late (vblank-region) writes; mirrors SpriteEngine catch-up at sprites.cpp:119-144 | tilemap.vhd:309/326 | pass | test/tilemap/tilemap_test.cpp:1267 |
+| TM-90 | VHDL tilemap.vhd:427 — pix == transp_colour => pixel disabled | tilemap.vhd:427 | pass | test/tilemap/tilemap_test.cpp:1295 |
+| TM-91 | VHDL zxnext.vhd NR 0x4C reset — default transparent idx = 0xF | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:1303 |
+| TM-92 | VHDL tilemap.vhd:427 — custom transp idx 0x07 disables pixel | tilemap.vhd:427 | pass | test/tilemap/tilemap_test.cpp:1317 |
+| TM-95 | VHDL zxnext.vhd:7109 — textmode pixel + RGB==NR0x14 marked transparent at compositor; ULA shows through | zxnext.vhd:7109 | pass | test/tilemap/tilemap_test.cpp:1479 |
+| TM-100 | NR 0x6B bit 4 = 0 → tm.palette_sel() = false | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:1499 |
+| TM-101 | NR 0x6B bit 4 = 1 → tm.palette_sel() = true — VHDL zxnext.vhd:5462,6826 | zxnext.vhd:5462,6826 | pass | test/tilemap/tilemap_test.cpp:1507 |
+| TM-102 | palette_sel authoritative at Tilemap layer (VHDL zxnext.vhd:6826,6921-6922,6981 tm_palette_select) | zxnext.vhd:6826,6921-6922,6981 | pass | test/tilemap/tilemap_test.cpp:1522 |
+| TM-103 | VHDL tilemap.vhd:382-383 — standard: idx = attr(7:4)<<4 \| pix | tilemap.vhd:382-383 | pass | test/tilemap/tilemap_test.cpp:1536 |
+| TM-104 | VHDL tilemap.vhd:386 — textmode: idx = attr(7:1)<<1 \| bit | tilemap.vhd:386 | pass | test/tilemap/tilemap_test.cpp:1550 |
+| TM-105 | VHDL tilemap.vhd:62,443 — per-pixel pixel_textmode_o exposed: 1 in textmode for emitted pixels, 0 otherwise | tilemap.vhd:62,443 | pass | test/tilemap/tilemap_test.cpp:1604 |
+| TM-110 | Default clip 0x00..0x9F/0x00..0xFF renders full scanline | tilemap.vhd:424, zxnext.vhd:4977-4980 | pass | test/tilemap/tilemap_test.cpp:1640 |
+| TM-111 | Y outside clip (y=0x20 < clip_y1=0x40) → scanline transparent | — | pass | test/tilemap/tilemap_test.cpp:1662 |
+| TM-112 | clip_x1=clip_x2=0x10 → 4 opaque cells at x=0x40..0x43 (VHDL tilemap.vhd:416-417,424 — clip comparator runs against hcounter_i, doubled into 640-grid) | tilemap.vhd:416-417,424 | pass | test/tilemap/tilemap_test.cpp:1693 |
+| TM-113 | Y clip inclusive at clip_y1/clip_y2, outside transparent | — | pass | test/tilemap/tilemap_test.cpp:1719 |
 | TM-114 | NR 0x1B 4-write cycle programs x1/x2/y1/y2 in order [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:705 |
 | TM-115 | NR 0x1C bit 3 resets tilemap clip idx so next 0x1B write → x1 [zxnext.vhd:5288-5289] | zxnext.vhd:5288-5289 | pass | test/nextreg/nextreg_integration_test.cpp:728 |
-| TM-116 | clip getters return programmed values | — | pass | test/tilemap/tilemap_test.cpp:1738 |
-| TM-117 | VHDL zxnext.vhd:4977-4980 — reset restores the NR 0x1B clip window to x1=0x00 x2=0x9F y1=0x00 y2=0xFF | zxnext.vhd:4977-4980 | pass | test/tilemap/tilemap_test.cpp:1754 |
-| TM-118 | VHDL zxnext.vhd:4977-4980, tilemap.vhd:424 — after reset rows 0, 0x60 and 0xFF are opaque in all 640 cells: the narrowed window (x1=0x10 x2=0x20 y1=0x40 y2=0x80) is gone | zxnext.vhd:4977-4980, tilemap.vhd:424 | pass | test/tilemap/tilemap_test.cpp:1775 |
+| TM-116 | clip getters return programmed values | — | pass | test/tilemap/tilemap_test.cpp:1739 |
+| TM-117 | VHDL zxnext.vhd:4977-4980 — reset restores the NR 0x1B clip window to x1=0x00 x2=0x9F y1=0x00 y2=0xFF | zxnext.vhd:4977-4980 | pass | test/tilemap/tilemap_test.cpp:1755 |
+| TM-118 | VHDL zxnext.vhd:4977-4980, tilemap.vhd:424 — after reset rows 0, 0x60 and 0xFF are opaque in all 640 cells: the narrowed window (x1=0x10 x2=0x20 y1=0x40 y2=0x80) is gone | zxnext.vhd:4977-4980, tilemap.vhd:424 | pass | test/tilemap/tilemap_test.cpp:1776 |
 | TM-119 | Soft (NR 0x02 b0) and hard reset restore window and index through the machine (GH #260, companion `tilemap_fetch_split_test`) | zxnext.vhd:4977-4981 | pass | test/tilemap/tilemap_fetch_split_test.cpp:730 |
-| TM-120 | VHDL tilemap.vhd:388 — default attr(0)=0 yields below=0 | tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:1797 |
-| TM-121 | VHDL tilemap.vhd:388 — tm_on_top=1 overrides per-tile below | tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:1810 |
-| TM-122 | VHDL tilemap.vhd:388 — attr(0)=1 with tm_on_top=0 sets below=1 | tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:1823 |
-| TM-123 | VHDL zxnext.vhd:7116 + tilemap.vhd:388 — the per-tile below flag reaches the compositor: attr(0)=0 lets the tile cover an opaque ULA pixel, attr(0)=1 lets the ULA cover the tile | zxnext.vhd:7116, tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:1875 |
-| TM-124 | VHDL tilemap.vhd:388 — tm_on_top=1 zeroes below even in 512 mode | tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:1893 |
-| TM-125 | VHDL tilemap.vhd:388 — mode_512=1 OR forces below=1 | tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:1906 |
-| TM-130 | VHDL zxnext.vhd:7113 — stencil output is the per-channel AND of the ULA and tilemap RGB (0xFC AND 0x3F = 0x3C), a value equal to neither input | zxnext.vhd:7113 | pass | test/tilemap/tilemap_test.cpp:1960 |
-| TM-140 | VHDL zxnext.vhd:6863 — tm_en=0 with tm_on_top=0 gives below = NOT tm_on_top = 1 on every pixel (and the layer still emits nothing), both at the Tilemap tier and in Renderer::render_row | zxnext.vhd:6863 | pass | test/tilemap/tilemap_test.cpp:2060 |
-| TM-141 | VHDL zxnext.vhd:6863 — tm_en=0 with tm_on_top=1 gives below = 0 on every pixel; paired with TM-140 this proves the flag follows NOT tm_on_top rather than being cleared (asserted through Renderer::render_row too) | zxnext.vhd:6863 | pass | test/tilemap/tilemap_test.cpp:2077 |
-| TM-BR-01 | tilemap.vhd:226-231 — a map byte written after the beam has fetched row 0 (post-display line 260) is seen by the next frame only | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2374 |
-| TM-BR-02 | tilemap.vhd:226-231 — a map write 2 ticks after group 5's fetch instant (whc 32, raw hc 129) is old on that row, new on the next | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2387 |
-| TM-BR-03 | tilemap.vhd:226-231 — a map write 2 ticks before group 5's fetch instant is already seen by that row | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2397 |
-| TM-BR-04 | tilemap.vhd:393-403 — the tile-definition bytes of a group are fetched with its map entry (S_READ_PIXELS): old after the instant, new before it | tilemap.vhd:393-403 | pass | test/tilemap/tilemap_test.cpp:2414 |
-| TM-BR-05 | tilemap.vhd:393-403 + zxnext.vhd:6660-6664 — the map is fetched from anywhere in bank 5 / the bank 7 BRAM (NR 0x6E bits 5:0), so writes above the ULA planes (bank 5 0x3C00, bank 7 0x1C00) replay too: a late write is old, an in-time one is new | tilemap.vhd:393-403, zxnext.vhd:6660-6664 | pass | test/tilemap/tilemap_test.cpp:2436 |
-| TM-BR-06 | tilemap.vhd:226-231 — a write before framebuffer row 0 happened before row 0's group-0 fetch (hc 89), whatever its own hc | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2451 |
-| TM-BR-07 | tilemap.vhd:226-231 — 80-col: hcount_effsub = hcount(10:1), so a group is 4 whc ticks and group 10 / 11 are fetched 4 ticks apart | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2467 |
-| TM-BR-08 | tilemap.vhd:226-231 — the fetch runs one character ahead (hcount_eff = hcount_effsub + 8): group 4 at whc 24, group 5 at whc 32; a write at whc 28 is late for 4, in time for 5 | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2482 |
-| TM-BR-09 | tilemap.vhd:260-300 — the map entry is fetched again in every 8-pixel group, so a tile split by fine scroll is read at two instants (group 0 at whc -8, group 1 at whc 0) | tilemap.vhd:260-300 | pass | test/tilemap/tilemap_test.cpp:2499 |
-| TM-BR-10 | tilemap.vhd:260-300 - a rotated tile split by fine scroll: its per-pixel pattern reads in group 1 happen at group 1's instant (whc 0), after the write that group 0 (whc -8) did not see | tilemap.vhd:260-300 | pass | test/tilemap/tilemap_test.cpp:2518 |
-| TM-CB1 | VHDL tilemap.vhd:189 — mode_i <= control_i(6): only bit 6 selects 80-column mode | tilemap.vhd:189 | pass | test/tilemap/tilemap_test.cpp:2124 |
-| TM-CB2 | VHDL zxnext.vhd NR 0x6B — nr_6b_tm_en <= nr_wr_dat(7): only bit 7 enables the tilemap | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:2138 |
-| TM-CB3 | VHDL tilemap.vhd:194 — mode_512_i <= control_i(1): only bit 1 selects 512-tile mode | tilemap.vhd:194 | pass | test/tilemap/tilemap_test.cpp:2152 |
-| TM-CB4 | VHDL tilemap.vhd:195 — tm_on_top_i <= control_i(0): only bit 0 puts the tilemap above the ULA | tilemap.vhd:195 | pass | test/tilemap/tilemap_test.cpp:2166 |
-| TM-CB5 | VHDL tilemap.vhd:190-191 — strip_flags_i is control_i(5) and textmode_i is control_i(3); bit 5 alone must not turn text mode on | tilemap.vhd:190-191 | pass | test/tilemap/tilemap_test.cpp:2182 |
-| TM-RR1 | VHDL zxnext.vhd:6102 — the NR 0x6B read-back is the stored control byte, all 8 bits | zxnext.vhd:6102 | pass | test/tilemap/tilemap_test.cpp:2197 |
-| TM-RR2 | VHDL zxnext.vhd:6105 — NR 0x6C read-back is the stored default attribute, all 8 bits | zxnext.vhd:6105 | pass | test/tilemap/tilemap_test.cpp:2210 |
-| TM-RR3 | VHDL zxnext.vhd:5041-5042 / :6108 — NR 0x6E stores the whole byte; only the read mux drops bit 6 | zxnext.vhd:5041-5042/6108 | pass | test/tilemap/tilemap_test.cpp:2224 |
-| TM-RR4 | VHDL zxnext.vhd:5044-5045 / :6111 — NR 0x6F stores the whole byte; only the read mux drops bit 6 | zxnext.vhd:5044-5045/6111 | pass | test/tilemap/tilemap_test.cpp:2236 |
-| TM-RR5 | VHDL zxnext.vhd:5033-5045 — reset restores NR 0x6B/0x6C to 0x00, NR 0x6E to 0x2C, NR 0x6F to 0x0C and clears both tilemap scroll registers, from a fully dirtied state | zxnext.vhd:5033-5045 | pass | test/tilemap/tilemap_test.cpp:2267 |
-| TM-96 | VHDL tilemap.vhd:429 — text mode emits paper pixels opaque; an all-paper tile is a solid run, never transparent | tilemap.vhd:429 | pass | test/tilemap/tilemap_test.cpp:1356 |
-| TM-97 | VHDL tilemap.vhd:386 — paper index = attr(7:1)<<1 \| 0, a real palette entry distinct from the ink index | tilemap.vhd:386 | pass | test/tilemap/tilemap_test.cpp:1374 |
-| TM-98 | VHDL tilemap.vhd:427/429 — pixel_en_f masks the index transparency test in text mode only: same data drops in standard mode and emits in text mode | tilemap.vhd:427/429 | pass | test/tilemap/tilemap_test.cpp:1405 |
+| TM-120 | VHDL tilemap.vhd:388 — default attr(0)=0 yields below=0 | tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:1798 |
+| TM-121 | VHDL tilemap.vhd:388 — tm_on_top=1 overrides per-tile below | tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:1811 |
+| TM-122 | VHDL tilemap.vhd:388 — attr(0)=1 with tm_on_top=0 sets below=1 | tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:1824 |
+| TM-123 | VHDL zxnext.vhd:7116 + tilemap.vhd:388 — the per-tile below flag reaches the compositor: attr(0)=0 lets the tile cover an opaque ULA pixel, attr(0)=1 lets the ULA cover the tile | zxnext.vhd:7116, tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:1876 |
+| TM-124 | VHDL tilemap.vhd:388 — tm_on_top=1 zeroes below even in 512 mode | tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:1894 |
+| TM-125 | VHDL tilemap.vhd:388 — mode_512=1 OR forces below=1 | tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:1907 |
+| TM-130 | VHDL zxnext.vhd:7113 — stencil output is the per-channel AND of the ULA and tilemap RGB (0xFC AND 0x3F = 0x3C), a value equal to neither input | zxnext.vhd:7113 | pass | test/tilemap/tilemap_test.cpp:1961 |
+| TM-140 | VHDL zxnext.vhd:6863 — tm_en=0 with tm_on_top=0 gives below = NOT tm_on_top = 1 on every pixel (and the layer still emits nothing), both at the Tilemap tier and in Renderer::render_row | zxnext.vhd:6863 | pass | test/tilemap/tilemap_test.cpp:2061 |
+| TM-141 | VHDL zxnext.vhd:6863 — tm_en=0 with tm_on_top=1 gives below = 0 on every pixel; paired with TM-140 this proves the flag follows NOT tm_on_top rather than being cleared (asserted through Renderer::render_row too) | zxnext.vhd:6863 | pass | test/tilemap/tilemap_test.cpp:2078 |
+| TM-BR-01 | tilemap.vhd:226-231 — a map byte written after the beam has fetched row 0 (post-display line 260) is seen by the next frame only | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2535 |
+| TM-BR-02 | tilemap.vhd:226-231 — a map write 2 ticks after group 5's fetch instant (whc 32, raw hc 129) is old on that row, new on the next | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2548 |
+| TM-BR-03 | tilemap.vhd:226-231 — a map write 2 ticks before group 5's fetch instant is already seen by that row | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2558 |
+| TM-BR-04 | tilemap.vhd:393-403 — the tile-definition bytes of a group are fetched with its map entry (S_READ_PIXELS): old after the instant, new before it | tilemap.vhd:393-403 | pass | test/tilemap/tilemap_test.cpp:2575 |
+| TM-BR-05 | tilemap.vhd:393-403 + zxnext.vhd:6660-6664 — the map is fetched from anywhere in bank 5 / the bank 7 BRAM (NR 0x6E bits 5:0), so writes above the ULA planes (bank 5 0x3C00, bank 7 0x1C00) replay too: a late write is old, an in-time one is new | tilemap.vhd:393-403, zxnext.vhd:6660-6664 | pass | test/tilemap/tilemap_test.cpp:2597 |
+| TM-BR-06 | tilemap.vhd:226-231 — a write before framebuffer row 0 happened before row 0's group-0 fetch (hc 89), whatever its own hc | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2612 |
+| TM-BR-07 | tilemap.vhd:226-231 — 80-col: hcount_effsub = hcount(10:1), so a group is 4 whc ticks and group 10 / 11 are fetched 4 ticks apart | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2628 |
+| TM-BR-08 | tilemap.vhd:226-231 — the fetch runs one character ahead (hcount_eff = hcount_effsub + 8): group 4 at whc 24, group 5 at whc 32; a write at whc 28 is late for 4, in time for 5 | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2643 |
+| TM-BR-09 | tilemap.vhd:260-300 — the map entry is fetched again in every 8-pixel group, so a tile split by fine scroll is read at two instants (group 0 at whc -8, group 1 at whc 0) | tilemap.vhd:260-300 | pass | test/tilemap/tilemap_test.cpp:2660 |
+| TM-BR-10 | tilemap.vhd:260-300 - a rotated tile split by fine scroll: its per-pixel pattern reads in group 1 happen at group 1's instant (whc 0), after the write that group 0 (whc -8) did not see | tilemap.vhd:260-300 | pass | test/tilemap/tilemap_test.cpp:2679 |
+| TM-BR-11 | tilemap.vhd:393-403 — 40-col: a write to a byte the tilemap never addresses (bank 5 0x3FFF, row 3) changes no pixel, below or textmode flag of any row | tilemap.vhd:393-403 | pass | test/tilemap/tilemap_test.cpp:2690 |
+| TM-BR-12 | tilemap.vhd:226-231, 393-403 — 80-col (hcount(10:1), 4 whc per group) with tm_on_top and X scroll 637: an unaddressed write changes nothing | tilemap.vhd:226-231,393-403 | pass | test/tilemap/tilemap_test.cpp:2699 |
+| TM-BR-13 | tilemap.vhd:393-403 — text mode (8-byte glyphs, attr(7:1) offset): an unaddressed write changes nothing, textmode flags included | tilemap.vhd:393-403 | pass | test/tilemap/tilemap_test.cpp:2706 |
+| TM-BR-14 | tilemap.vhd:393 — 512-tile mode (mode_512_q & tm_tilemap_1(0) is address bit 13 of the definition): an unaddressed write changes nothing | tilemap.vhd:393 | pass | test/tilemap/tilemap_test.cpp:2716 |
+| TM-BR-15 | tilemap.vhd:363-366, 396-398 — strip flags (1-byte entries, default_flags_i for the attribute): an unaddressed write changes nothing | tilemap.vhd:363-366,396-398 | pass | test/tilemap/tilemap_test.cpp:2724 |
+| TM-BR-16 | tilemap.vhd:320-322 — X and Y mirror per tile: an unaddressed write changes nothing | tilemap.vhd:320-322 | pass | test/tilemap/tilemap_test.cpp:2731 |
+| TM-BR-17 | tilemap.vhd:260-300, 323-324 — rotated tiles split by fine X scroll (267) are fetched again in each group; with no written byte read, both fetches see the same bytes and nothing changes | tilemap.vhd:260-300,323-324 | pass | test/tilemap/tilemap_test.cpp:2739 |
+| TM-BR-18 | tilemap.vhd:326-328 — Y scroll 43 (tile row and pixel row) with X scroll 90: an unaddressed write changes nothing | tilemap.vhd:326-328 | pass | test/tilemap/tilemap_test.cpp:2749 |
+| TM-BR-19 | tilemap.vhd:412-424 — clip window x 0x13..0x8A, y 0x10..0xE0: an unaddressed write changes nothing, clipped cells included | tilemap.vhd:412-424 | pass | test/tilemap/tilemap_test.cpp:2759 |
+| TM-BR-20 | tilemap.vhd:400-402, zxnext.vhd:6660-6664 — map in bank 7 (NR 0x6E bit 7, tm_mem_bank7_o), definitions in bank 5: an unaddressed write changes nothing | tilemap.vhd:400-402, zxnext.vhd:6660-6664 | pass | test/tilemap/tilemap_test.cpp:2766 |
+| TM-BR-21 | tilemap.vhd:393-403 — with a bank 7 map byte and a bank 5 definition byte stored past the recorder, an unaddressed write still changes nothing (both loops answer from the frame's bytes; a live read differs) | tilemap.vhd:393-403 | pass | test/tilemap/tilemap_test.cpp:2787 |
+| TM-CB1 | VHDL tilemap.vhd:189 — mode_i <= control_i(6): only bit 6 selects 80-column mode | tilemap.vhd:189 | pass | test/tilemap/tilemap_test.cpp:2125 |
+| TM-CB2 | VHDL zxnext.vhd NR 0x6B — nr_6b_tm_en <= nr_wr_dat(7): only bit 7 enables the tilemap | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:2139 |
+| TM-CB3 | VHDL tilemap.vhd:194 — mode_512_i <= control_i(1): only bit 1 selects 512-tile mode | tilemap.vhd:194 | pass | test/tilemap/tilemap_test.cpp:2153 |
+| TM-CB4 | VHDL tilemap.vhd:195 — tm_on_top_i <= control_i(0): only bit 0 puts the tilemap above the ULA | tilemap.vhd:195 | pass | test/tilemap/tilemap_test.cpp:2167 |
+| TM-CB5 | VHDL tilemap.vhd:190-191 — strip_flags_i is control_i(5) and textmode_i is control_i(3); bit 5 alone must not turn text mode on | tilemap.vhd:190-191 | pass | test/tilemap/tilemap_test.cpp:2183 |
+| TM-RR1 | VHDL zxnext.vhd:6102 — the NR 0x6B read-back is the stored control byte, all 8 bits | zxnext.vhd:6102 | pass | test/tilemap/tilemap_test.cpp:2198 |
+| TM-RR2 | VHDL zxnext.vhd:6105 — NR 0x6C read-back is the stored default attribute, all 8 bits | zxnext.vhd:6105 | pass | test/tilemap/tilemap_test.cpp:2211 |
+| TM-RR3 | VHDL zxnext.vhd:5041-5042 / :6108 — NR 0x6E stores the whole byte; only the read mux drops bit 6 | zxnext.vhd:5041-5042/6108 | pass | test/tilemap/tilemap_test.cpp:2225 |
+| TM-RR4 | VHDL zxnext.vhd:5044-5045 / :6111 — NR 0x6F stores the whole byte; only the read mux drops bit 6 | zxnext.vhd:5044-5045/6111 | pass | test/tilemap/tilemap_test.cpp:2237 |
+| TM-RR5 | VHDL zxnext.vhd:5033-5045 — reset restores NR 0x6B/0x6C to 0x00, NR 0x6E to 0x2C, NR 0x6F to 0x0C and clears both tilemap scroll registers, from a fully dirtied state | zxnext.vhd:5033-5045 | pass | test/tilemap/tilemap_test.cpp:2268 |
+| TM-96 | VHDL tilemap.vhd:429 — text mode emits paper pixels opaque; an all-paper tile is a solid run, never transparent | tilemap.vhd:429 | pass | test/tilemap/tilemap_test.cpp:1357 |
+| TM-97 | VHDL tilemap.vhd:386 — paper index = attr(7:1)<<1 \| 0, a real palette entry distinct from the ink index | tilemap.vhd:386 | pass | test/tilemap/tilemap_test.cpp:1375 |
+| TM-98 | VHDL tilemap.vhd:427/429 — pixel_en_f masks the index transparency test in text mode only: same data drops in standard mode and emits in text mode | tilemap.vhd:427/429 | pass | test/tilemap/tilemap_test.cpp:1406 |
 
 ## Copper — `test/copper/copper_test.cpp`
 

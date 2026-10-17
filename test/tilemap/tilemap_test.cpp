@@ -46,6 +46,7 @@
 #undef private
 #undef protected
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -2357,6 +2358,166 @@ struct TmBeamBed {
 uint16_t b5(uint32_t o) { return static_cast<uint16_t>(0x4000u + o); }
 uint16_t b7(uint32_t o) { return static_cast<uint16_t>(0x8000u + o); }
 
+// ── G17 differential rows TM-BR-11..21 (GH #362 perf) ──────────────────────
+//
+// ORACLE (tilemap.vhd:393-403): the tilemap's only VRAM reads are the map
+// entries (S_READ_TILE_0/1, tm_mem_addr_tile_sub) and the tile-definition
+// bytes (S_READ_PIXELS, tm_mem_addr_pix_sub) its address generator names; no
+// other byte of bank 5 / the bank 7 BRAM ever reaches tm_mem_data_i. A write
+// to a byte a scene never reads therefore cannot change one pixel, below flag
+// or textmode flag of it, whatever instant it lands at (tilemap.vhd:226-231).
+//
+// Each row draws all 256 display rows of one scene twice with the replay
+// started: (a) with no recorded write, and (b) with one write tagged on row 3
+// at hc 200 to bank-5 offset 0x3FFF, which no scene reads. The write makes
+// (b)'s mux hold a hot offset, so (b) is drawn by the replay loop, and (a),
+// with none, by the cold loop: the two outputs must be equal everywhere.
+// Every cell starts as a sentinel, so a cell one loop leaves alone shows.
+
+constexpr uint32_t kUnreadOff  = 0x3FFF;  // bank-5 offset no differential scene reads
+constexpr int      kSceneTiles = 12;      // tiles 1..12 (and 257..268 in 512-tile mode)
+
+struct TmScene {
+    uint8_t  control      = 0x80;   // NR 0x6B
+    uint8_t  map_base     = 0x00;   // NR 0x6E
+    uint8_t  def_base     = 0x20;   // NR 0x6F
+    uint8_t  attr_flags   = 0x01;   // attribute bits 3:0 the map entries may carry
+    uint8_t  default_attr = 0x00;   // NR 0x6C
+    uint16_t scroll_x     = 0;      // NR 0x2F/0x30
+    uint8_t  scroll_y     = 0;      // NR 0x31
+    uint8_t  clip[4]      = {0x00, 0x9F, 0x00, 0xFF};   // NR 0x1B x1, x2, y1, y2
+};
+
+// Physical address of offset `o` of the 16K bank that NR 0x6E / 0x6F value
+// `nr` selects (test layout: bank 5 at BANK5, bank 7 at page 14).
+uint32_t scene_phys(uint8_t nr, uint32_t o) {
+    return ((nr & 0x80) ? BANK7 : BANK5)
+         + ((static_cast<uint32_t>(nr & 0x3F) * 256u + o) & 0x3FFFu);
+}
+
+// A scene's map and definitions: every cell names one of the scene's tiles
+// with its own palette offset and flag bits; every pattern byte differs, so a
+// mirror, a rotation or a wrong byte shows.
+void fill_scene(TmBeamBed& b, const TmScene& s) {
+    b.tm.set_control(s.control);
+    b.tm.set_map_base(s.map_base);
+    b.tm.set_def_base(s.def_base);
+    b.tm.set_default_attr(s.default_attr);
+    b.tm.set_scroll_x_msb(static_cast<uint8_t>(s.scroll_x >> 8));
+    b.tm.set_scroll_x_lsb(static_cast<uint8_t>(s.scroll_x & 0xFF));
+    b.tm.set_scroll_y(s.scroll_y);
+    b.tm.set_clip_x1(s.clip[0]);
+    b.tm.set_clip_x2(s.clip[1]);
+    b.tm.set_clip_y1(s.clip[2]);
+    b.tm.set_clip_y2(s.clip[3]);
+    for (int i = 0; i < 256; ++i)
+        paint_tm_palette_entry(b.pal, static_cast<uint8_t>(i), static_cast<uint8_t>(i));
+    const bool col80 = (s.control & 0x40) != 0;
+    const bool strip = (s.control & 0x20) != 0;
+    const bool text  = (s.control & 0x08) != 0;
+    const bool m512  = (s.control & 0x02) != 0;
+    const int  tpr   = col80 ? 80 : 40;
+    for (int row = 0; row < 32; ++row) {
+        for (int col = 0; col < tpr; ++col) {
+            const uint32_t cell = static_cast<uint32_t>(row * tpr + col);
+            const uint8_t tile = static_cast<uint8_t>(1 + (col * 7 + row * 13) % kSceneTiles);
+            const uint8_t attr = static_cast<uint8_t>((((col + 3 * row) & 0x0F) << 4)
+                                                    | (((col * 5 + row * 3) & 0x0F) & s.attr_flags));
+            if (strip) {
+                b.ram.write(scene_phys(s.map_base, cell), tile);
+            } else {
+                b.ram.write(scene_phys(s.map_base, cell * 2), tile);
+                b.ram.write(scene_phys(s.map_base, cell * 2 + 1), attr);
+            }
+        }
+    }
+    // Tile t + 256 gets a pattern of its own (the `hi` term; 256 * 37 alone is
+    // 0 mod 256), so reading tile t in its place shows.
+    const uint32_t bytes = text ? 8u : 32u;
+    for (int t = 1; t <= kSceneTiles; ++t) {
+        for (int hi = 0; hi <= (m512 ? 1 : 0); ++hi) {
+            const uint32_t full = static_cast<uint32_t>(t + 256 * hi);
+            for (uint32_t i = 0; i < bytes; ++i)
+                b.ram.write(scene_phys(s.def_base, full * bytes + i),
+                            static_cast<uint8_t>(full * 37u + hi * 91u + i * 11u + 5u));
+        }
+    }
+}
+
+// All 256 display rows of a bed: pixels, below flags, textmode flags.
+struct TmFrame {
+    std::vector<uint32_t> px;
+    std::vector<uint8_t>  below, text;
+    bool operator==(const TmFrame& o) const {
+        return px == o.px && below == o.below && text == o.text;
+    }
+    bool operator!=(const TmFrame& o) const { return !(*this == o); }
+};
+
+TmFrame render_all_rows(TmBeamBed& b) {
+    TmFrame f;
+    f.px.resize(256 * MAX_W);
+    f.below.resize(256 * MAX_W);
+    f.text.resize(256 * MAX_W);
+    b.tm.init_scroll_per_line();
+    b.mmu.attr_mux_rewind_to_baseline();
+    for (int y = 0; y < 256; ++y) {
+        uint32_t pixels[MAX_W];
+        bool     over[MAX_W];
+        bool     text[MAX_W];
+        for (int i = 0; i < MAX_W; ++i) {
+            pixels[i] = 0x5A5A0000u | static_cast<uint32_t>(i);
+            over[i]   = (i & 1) != 0;
+            text[i]   = (i & 2) != 0;
+        }
+        b.mmu.attr_mux_apply_line(y);
+        b.tm.render_scanline(pixels, over, y, b.ram, b.pal, text);
+        for (int i = 0; i < MAX_W; ++i) {
+            f.px[y * MAX_W + i]    = pixels[i];
+            f.below[y * MAX_W + i] = over[i] ? 1 : 0;
+            f.text[y * MAX_W + i]  = text[i] ? 1 : 0;
+        }
+    }
+    return f;
+}
+
+// One differential row: scene `s`, (a) cold and (b) replayed, must be equal.
+// `extra` runs on both beds after the frame starts. Also checks the premises:
+// (a)'s muxes hold no hot offset and (b)'s holds 0x3FFF, and the scene is not
+// degenerate (at least 16 distinct cell values).
+bool cold_equals_beam(const TmScene& s, void (*extra)(TmBeamBed&) = nullptr,
+                      TmFrame* beam_out = nullptr) {
+    TmBeamBed a, b;
+    fill_scene(a, s);
+    fill_scene(b, s);
+    a.begin();
+    b.begin();
+    if (extra) { extra(a); extra(b); }
+    b.wr(b5(kUnreadOff), 0x5A, 3, 200);
+    a.mmu.attr_mux5().prepare();
+    a.mmu.attr_mux7().prepare();
+    b.mmu.attr_mux5().prepare();
+    b.mmu.attr_mux7().prepare();
+    const bool premise = !a.mmu.attr_mux5().any_hot() && !a.mmu.attr_mux7().any_hot()
+                      && b.mmu.attr_mux5().is_hot(kUnreadOff);
+    const TmFrame fa = render_all_rows(a);
+    const TmFrame fb = render_all_rows(b);
+    std::vector<uint32_t> vals(fa.px);
+    std::sort(vals.begin(), vals.end());
+    const bool rich = std::unique(vals.begin(), vals.end()) - vals.begin() >= 16;
+    if (beam_out) *beam_out = fb;
+    return premise && rich && fa == fb;
+}
+
+// Stores that bypass the recorder (straight into the backing Ram, as a loader
+// or a machine reset does), so live memory no longer holds the frame-start
+// bytes the replay answers from: a bank-7 map entry and a bank-5 tile
+// definition byte that the TM-BR-20/21 scene reads.
+void unrecorded_stores(TmBeamBed& b) {
+    b.ram.write(scene_phys(0x80, (2 * 40 + 5) * 2), 11);    // cell (5, 2): tile 2 -> 11
+    b.ram.write(scene_phys(0x20, 3 * 32 + 4 * 1 + 2), 0xE1); // tile 3, row 1, byte 2
+}
+
 } // namespace
 
 void group17_beam_fetch() {
@@ -2519,6 +2680,114 @@ void group17_beam_fetch() {
               "tilemap.vhd:260-300 - a rotated tile split by fine scroll: its "
               "per-pixel pattern reads in group 1 happen at group 1's instant "
               "(whc 0), after the write that group 0 (whc -8) did not see");
+    }
+
+    // TM-BR-11..21: the differential family (helpers above). Each scene is
+    // drawn with no hot byte and with one hot byte it never reads; the two
+    // must be equal on all 256 rows: cells, below flags, textmode flags.
+    {
+        TmScene s;                       // 40-col, per-tile palette offset and ULA-over bit
+        check_pred("TM-BR-11", cold_equals_beam(s),
+              "tilemap.vhd:393-403 — 40-col: a write to a byte the tilemap never "
+              "addresses (bank 5 0x3FFF, row 3) changes no pixel, below or "
+              "textmode flag of any row");
+    }
+    {
+        TmScene s;                       // 80-col, tm_on_top, X scroll wrapping at 640
+        s.control  = 0xC1;
+        s.scroll_x = 0x27D;
+        check_pred("TM-BR-12", cold_equals_beam(s),
+              "tilemap.vhd:226-231, 393-403 — 80-col (hcount(10:1), 4 whc per group) "
+              "with tm_on_top and X scroll 637: an unaddressed write changes nothing");
+    }
+    {
+        TmScene s;                       // text mode: 1bpp glyphs, 7-bit palette offset
+        s.control = 0x88;
+        check_pred("TM-BR-13", cold_equals_beam(s),
+              "tilemap.vhd:393-403 — text mode (8-byte glyphs, attr(7:1) offset): "
+              "an unaddressed write changes nothing, textmode flags included");
+    }
+    {
+        TmScene s;                       // 512 tiles: attr bit 0 is tile bit 8
+        s.control    = 0x82;
+        s.map_base   = 0x30;
+        s.def_base   = 0x00;
+        s.attr_flags = 0x0F;
+        check_pred("TM-BR-14", cold_equals_beam(s),
+              "tilemap.vhd:393 — 512-tile mode (mode_512_q & tm_tilemap_1(0) is "
+              "address bit 13 of the definition): an unaddressed write changes nothing");
+    }
+    {
+        TmScene s;                       // stripped flags: 1-byte entries, NR 0x6C attribute
+        s.control      = 0xA0;
+        s.default_attr = 0x9D;
+        check_pred("TM-BR-15", cold_equals_beam(s),
+              "tilemap.vhd:363-366, 396-398 — strip flags (1-byte entries, "
+              "default_flags_i for the attribute): an unaddressed write changes nothing");
+    }
+    {
+        TmScene s;                       // per-tile X and Y mirror
+        s.attr_flags = 0x0D;
+        check_pred("TM-BR-16", cold_equals_beam(s),
+              "tilemap.vhd:320-322 — X and Y mirror per tile: an unaddressed write "
+              "changes nothing");
+    }
+    {
+        TmScene s;                       // rotate with fine X scroll: the per-group re-fetch
+        s.attr_flags = 0x0F;
+        s.scroll_x   = 0x10B;
+        check_pred("TM-BR-17", cold_equals_beam(s),
+              "tilemap.vhd:260-300, 323-324 — rotated tiles split by fine X scroll "
+              "(267) are fetched again in each group; with no written byte read, "
+              "both fetches see the same bytes and nothing changes");
+    }
+    {
+        TmScene s;                       // Y scroll plus coarse and fine X scroll
+        s.attr_flags = 0x0D;
+        s.scroll_x   = 0x05A;
+        s.scroll_y   = 0x2B;
+        check_pred("TM-BR-18", cold_equals_beam(s),
+              "tilemap.vhd:326-328 — Y scroll 43 (tile row and pixel row) with X "
+              "scroll 90: an unaddressed write changes nothing");
+    }
+    {
+        TmScene s;                       // clip window, both axes
+        s.clip[0] = 0x13;
+        s.clip[1] = 0x8A;
+        s.clip[2] = 0x10;
+        s.clip[3] = 0xE0;
+        check_pred("TM-BR-19", cold_equals_beam(s),
+              "tilemap.vhd:412-424 — clip window x 0x13..0x8A, y 0x10..0xE0: an "
+              "unaddressed write changes nothing, clipped cells included");
+    }
+    {
+        TmScene s;                       // map in the bank 7 BRAM, definitions in bank 5
+        s.map_base = 0x80;
+        check_pred("TM-BR-20", cold_equals_beam(s),
+              "tilemap.vhd:400-402, zxnext.vhd:6660-6664 — map in bank 7 (NR 0x6E "
+              "bit 7, tm_mem_bank7_o), definitions in bank 5: an unaddressed write "
+              "changes nothing");
+    }
+    {
+        // TM-BR-21: live memory no longer holds the frame's bytes (stores that
+        // bypass the recorder, after the frame started). Both loops must still
+        // agree, so a loop that read live memory instead of the replay's
+        // bytes fails here: a third bed with the replay unwired reads live
+        // memory and must differ.
+        TmScene s;
+        s.map_base = 0x80;
+        TmFrame beam;
+        const bool equal = cold_equals_beam(s, unrecorded_stores, &beam);
+        TmBeamBed c;
+        fill_scene(c, s);
+        c.begin();
+        unrecorded_stores(c);
+        c.tm.set_beam_mux(nullptr, nullptr);
+        const bool live_differs = render_all_rows(c) != beam;
+        check_pred("TM-BR-21", equal && live_differs,
+              "tilemap.vhd:393-403 — with a bank 7 map byte and a bank 5 definition "
+              "byte stored past the recorder, an unaddressed write still changes "
+              "nothing (both loops answer from the frame's bytes; a live read differs)");
     }
 }
 

@@ -367,7 +367,7 @@ public:
     /// `hc` is the raw horizontal instant of the fetch, used when the beam
     /// replay is wired and started (set_beam_mux); the caller has called
     /// prepare() on the muxes for the row. `hot`, if given, is set when the
-    /// byte was written this frame (its value depends on `hc`).
+    /// byte is hot (AttributeMux::is_hot: its value depends on `hc`).
     uint8_t vram_read(const Ram& ram, uint32_t addr, uint16_t hc, bool* hot = nullptr) const;
 
 private:
@@ -436,6 +436,36 @@ private:
 
     // Helpers
     static uint32_t decode_base_addr(uint8_t reg_val);
+
+    /// The row constants render_scanline() computes once for its per-cell loop.
+    struct TileRow {
+        int      clip_xlo_320, clip_xhi_320;  ///< X clip, 320-grid hcounter domain
+        int      wrap_x;                      ///< X scroll wrap (320 / 640)
+        int      map_entry_size;              ///< bytes per map entry (2, 1 stripped)
+        int      pixel_y;                     ///< pixel row within the tile row
+        int      whc_per_group;               ///< beam: whc ticks per 8-pixel group
+        uint32_t line_map_base, line_def_base, map_row_offset;
+        uint16_t line_scroll_x;
+        uint8_t  line_default_attr, transp_idx;
+        bool     palette_bank_second;
+        const AttributeMux* hcmux;            ///< beam: the mux keying the groups' instants
+        const uint8_t* p5;                    ///< cold: bank 5 bytes (null = Ram page 10)
+        const uint8_t* p7;                    ///< cold: bank 7 BRAM bytes (null = Ram page 14)
+    };
+
+    /// The per-cell loop of render_scanline(): ONE source, two instances (GH
+    /// #362 perf). kBeam = true replays the muxes at each group's fetch
+    /// instant; kBeam = false serves a row whose muxes hold no hot offset,
+    /// reading `p5` / `p7` (the mux baselines, which every replayed read of
+    /// such a row returns) with the per-tile block of the loop before GH #362.
+    /// Not inlined, so each instance is laid out on its own. The attribute
+    /// is on this declaration: GCC ignores it on the definition, which
+    /// follows the call sites in tilemap.cpp.
+    template <bool kBeam>
+    [[gnu::noinline]] void render_tiles_(uint32_t* dst, bool* ula_over_flags,
+                                         const Ram& ram,
+                                         const PaletteManager& palette,
+                                         bool* textmode_flags, TileRow r) const;
 
     // ── Per-scanline NR 0x6B change log (G06) ────────────────────────
     // VHDL zxnext.vhd:5461-5462 — NR 0x6B latches every write.
