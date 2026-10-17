@@ -9,7 +9,8 @@ jnext --sdcard-download-force
 
 This only affects the image in `~/.jnext/sdcard/`; it is ignored when you pass
 an explicit `--sdcard`. It downloads the distribution again and builds a new
-working copy from it, so **any files you saved on the card are lost**.
+working copy from it, so **any files you saved on the card are lost**. It also
+discards a half-finished download and starts the download again from the beginning.
 
 **The boot menu's ZX81 entry stops on `zx81.rom...error reading!`.** Your
 working copy was prepared by an earlier version of JNEXT, before it doubled

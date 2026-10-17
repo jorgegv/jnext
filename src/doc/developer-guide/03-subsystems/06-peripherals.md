@@ -305,7 +305,23 @@ UART 1, the Pi GPIO header's UART. Three pieces:
   copies `kernel.img` and the device tree out of the image's FAT32 boot
   partition with the lenient `fat32_read_tree`. A `release` marker records what
   is installed, so a changed release (or `latest` moving on) re-provisions and
-  discards the overlay.
+  discards the overlay. The order matters: an archive already in the directory
+  is checked first (the `.md5` beside it is preferred, the mirror's is fetched
+  only if there is none) and installed with no question when it matches; nothing
+  is deleted before the user agrees to a download; a download step that fails
+  never deletes a complete file (the backend keeps the partial, writes the
+  archive's own name only when whole, and a complete `.part` whose rename failed
+  is finished next time with no request; Windows once reported failure for a
+  finished 5.7 GB file); only a fresh download whose MD5 differs is removed. `unprepared_reason` names the piece an
+  unusable directory lacks (the provisioner's own fetch files are the only
+  entries that do not count as a setup having been tried; a manual unpack does), and the question and the `[uart]` log both say it.
+  File existence goes through `sdcard::regular_file_exists`
+  (`std::filesystem`), never `::stat`: MinGW's `stat` is `stat64i32` and fails
+  with `EOVERFLOW` for files of 4 GiB or more (GH #358). The download itself is
+  resumable (contract and decision table: `08-media-and-loaders.md`): the
+  backend keeps `<archive>.part`, the question offers to continue it, and only a
+  finished download is renamed to the archive's name, so a partial is never
+  mistaken for an archive.
 
 * **`audio/pi_audio.{h,cpp}`** carries the Pi's sound into the mixer, the way
   a real Next takes it over I2S. QEMU's `wav` audio back-end writes 44.1 kHz s16
@@ -320,7 +336,9 @@ UART 1, the Pi GPIO header's UART. Three pieces:
   replay never generates audio at all.
 
 `main()` wires them: it merges `--nextpi`/`--no-nextpi` over the saved
-preference (GUI sessions only, as for the ESP), provisions, starts QEMU, and
+preference (GUI sessions only, as for the ESP), checks the QEMU programs
+(`PiQemu::find_programs`, so nobody is offered 6 GB for a Pi that cannot run),
+provisions, starts QEMU, and
 puts the link (`PiQemu::link_config`) in the `EmulatorConfig`. A Pi asked for on the command line
 that cannot start is a usage error; one enabled only in Preferences is reported
 in a dialog and the session goes on without it. Design:
