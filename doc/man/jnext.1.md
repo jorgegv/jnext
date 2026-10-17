@@ -325,7 +325,8 @@ naming the option and the value, and exits with status 1.
     An archive `NextPi-<release>.tar.gz` already in that directory is checked
     against its `.md5` beside it (fetched only if absent) and unpacked without
     downloading; a directory that cannot be used is reported with the missing
-    file, in the question and in the log. An interrupted download is kept as
+    file, in the question and in the log. An interrupted download (Cancel, a
+    dropped connection, or 30 seconds without data) is kept as
     `NextPi-<release>.tar.gz.part` and continues on the next run.
     NextPi then takes about a minute to reach its Supervisor prompt (`SUP>`).
     The release, the directory, the QEMU binary and where the Pi's sound goes
@@ -956,8 +957,9 @@ FAT32-patched image), offering to download the canonical distribution image
 (kept alongside it as `cspect-next-1gb.img`) and produce that patched copy on
 first run. **\--sdcard-download-confirm** skips the prompt, which is useful in
 scripts; **\--sdcard-download-force** re-downloads and re-patches a corrupted
-cached image. An interrupted download is kept (`sn-emulator.zip.part`) and
-continues on the next run. An explicit **\--sdcard** always wins over both.
+cached image. An interrupted download (Cancel, a dropped connection, or 30
+seconds without data) is kept (`sn-emulator.zip.part`) and continues on the next
+run. An explicit **\--sdcard** always wins over both.
 
 Note that jnext opens the image **read-write** by default, and writes the
 emulated machine makes to the SD card are persisted to the file. Two runs

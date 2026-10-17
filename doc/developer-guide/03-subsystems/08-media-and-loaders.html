@@ -3378,6 +3378,65 @@ caught after the download: the NextPi MD5, the zip entry CRC. One classifier
 only the final rename failed) is finished with no request and never refetched; an
 Oversize or Stale one is discarded; a Resumable one is continued, appended at an
 explicit 64-bit offset.</p>
+<p>A dropped network must neither freeze the window nor take minutes to be noticed
+(GH #358). The same contract on <code>DownloadFn</code> says how both backends behave while a
+transfer is under way. They call the <code>ProgressFn</code> at least every <code>tick_ms</code> (200),
+whatever the network does: connecting, waiting for headers, a silent body. A
+<code>false</code> from it ends the attempt within a tick (<code>cancelled by user</code>, the partial
+kept by the rule above). An attempt that gets no body byte for <code>stall_timeout_ms</code>
+(30 000, counted from the start of the attempt and then from the last byte) ends
+with <code>stalled: no data received for 30 s (after X of Y bytes)</code>, the partial kept
+the same way, and a slow transfer that is alive is never cut. The download runs on
+the GUI thread, before <code>QtApp</code> exists, so the window lives exactly as often as a
+backend calls <code>SdcardGuiProvisioner::progress</code>, which pumps the event loop: the
+cadence is the backends' business, not a worker thread's. The rule exists once.
+<code>StallWatch</code> answers "how long since the byte count last changed", <code>download_step</code>
+is the per-tick decision both backends take (report, honour a cancel, test the
+watch), <code>DownloadTimings</code> carries the two numbers (tests pass short ones to
+<code>http_download</code>; <code>default_http_download</code> forwards the production pair), and the
+dialog uses the same watch for its notice: once 5 s (<code>kStallNoticeMs</code>) pass with no
+byte its label gains <code>Stalled: no data received for N s</code>, the seconds counting up
+and the note gone when bytes arrive. The dialog's watch starts when it opens, so a
+slow answer to the confirm box is not a stall.</p>
+<p>The libcurl twin runs the transfer on the multi interface: <code>curl_multi_perform</code>,
+<code>download_step</code>, then <code>curl_multi_poll</code> for one tick. With the easy interface the
+progress callback fires about once a second at best and not at all while nothing
+arrives, so the window repainted at 1 Hz and a stall could not be named;
+<code>CURLOPT_LOW_SPEED_*</code> is gone because its moving average overshot (120 s set, 126 s
+measured) and a second mechanism would be a second message. <code>curl_multi_poll</code> needs
+libcurl 7.66, which every packaged target exceeds. A <code>file://</code> URL (a test seam,
+and the Flatpak build) is read inside one <code>curl_multi_perform</code> call and has no
+ticks. The WinHTTP twin is asynchronous (<code>WINHTTP_FLAG_ASYNC</code>) because the contract
+cannot be met synchronously: a synchronous <code>WinHttpReadData</code> blocks its thread until
+data arrives or its receive timeout fires, and Microsoft documents closing a
+synchronous request's handle from another thread as a race. With the cable pulled
+the GUI thread sat inside that read for its 120 s, and Windows ghosted the window as
+"Not Responding". In async mode the thread waits on an event for the next completion,
+one tick at a time, and a cancel or a stall is "close the request handle and return".
+The per-request state (event, latest completion, read buffer, the extra headers
+<code>WinHttpSendRequest</code> still points at) is heap-allocated and belongs to the request
+handle from the moment the status callback is installed: the callback frees it on
+<code>WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING</code>, the last callback a handle gets, so an
+abort returns at once while WinHTTP may still be completing a read into that buffer,
+and nothing touches the state after <code>WinHttpCloseHandle</code>. The callback only stores
+atomics and signals (no logging, no globals) and is declared <code>CALLBACK</code>, which the
+i686 builds need. Reads are sized by <code>WinHttpQueryDataAvailable</code>, so every byte that
+arrived reaches the <code>.part</code>; the receive timeout is only a backstop 30 s behind the
+stall timeout.</p>
+<p>Under wine the rows (<code>PROV-STALL-*</code>, <code>PIT-43</code>) show the tick cadence, the stall, the
+cancel and the resume on the WinHTTP backend; they cannot show four things. Windows'
+own hung-window detection (five seconds without a message pump) and the Qt dialog on
+top of WinHTTP: the Qt suites run on Linux only, so the pump is proven there
+(<code>SDD-01..03</code>) and meets the WinHTTP cadence in <code>progress()</code>, which every platform
+shares. A physical cable pull (media sense, TCP retransmission, RST or ICMP): the
+loopback server models "connection open, nothing arrives", which is what a receiver
+sees until TCP gives up. WinHTTP's teardown of a pending asynchronous read: wine keeps
+it until data, EOF, the server's close or the backstop (measured 58 s), so a row that
+abandons a connection builds its own server and lets its destructor close it; the
+caller's result and timing are the same, only the abandoned socket lives longer. And
+TLS under asynchronous WinHTTP, and the read-fill semantics and error codes of real
+Windows (wine fills the buffer and reports a read timeout as 10060): the rows use
+plain <code>http</code> on loopback, and https to the real mirrors is exercised only by use.</p>
 
 
 

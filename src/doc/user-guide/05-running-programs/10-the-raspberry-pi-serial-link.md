@@ -41,6 +41,10 @@ next start continues from there after asking; delete that file to start over.
 A download that finished but could not be put in place is used as it is on the next
 start.
 
+If no data arrives for a few seconds, the progress dialog says the download has stalled and for
+how long; after 30 seconds without data JNEXT stops waiting and says why. Cancel works at any
+time.
+
 ### If you already have NextPi, or prepare it by hand
 
 Put `NextPi-<release>.tar.gz` from the mirror (and, if you have it, its `.md5`)

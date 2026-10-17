@@ -18,7 +18,9 @@
 // The transfer runs on libcurl's MULTI interface: curl_easy_perform with an
 // XFERINFO callback is called by libcurl about once a second at best, and
 // nothing at all while the network is silent, so the window would repaint at
-// 1 Hz and a stall could not be named. Here the loop wakes every tick.
+// 1 Hz and a stall could not be named. Here the loop wakes every tick. (A file://
+// URL, a test seam and the Flatpak build's source, is read by libcurl inside one
+// curl_multi_perform call: no ticks, nothing to cancel, and it needs none.)
 #ifndef _WIN32
 
 #include "core/sdcard_provisioner.h"

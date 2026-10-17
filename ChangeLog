@@ -14,6 +14,7 @@
 - NextPi uses an archive already in its folder, and says which file or check rejected an existing setup
 - SIGTERM and Ctrl-C end JNEXT cleanly, finishing recordings, with the signal's exit status; the Qt GUI ignored them
 - Tilemap, LoRes and Layer 2 no longer show memory written after the beam passed; fixes torn scrolling (Pixel Wheels)
+- SD-card and NextPi downloads no longer freeze when the network drops: the dialog says stalled; 30 s without data stops it
 
 ### Contributors in this release
 - @pavero01, @janko-jj

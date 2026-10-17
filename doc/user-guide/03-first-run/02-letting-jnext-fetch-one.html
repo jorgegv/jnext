@@ -3550,6 +3550,9 @@ disk space. The download happens once; every later run reuses it and starts
 immediately. If the download stops (network trouble, Cancel, closing JNEXT), the
 part already fetched is kept as <code>sn-emulator.zip.part</code> in <code>~/.jnext/sdcard</code>, and
 the next start continues from there (the question then says so).</p>
+<p>If no data arrives for a few seconds, the progress dialog says the download has stalled and for
+how long; after 30 seconds without data JNEXT stops waiting and says why. Cancel works at any
+time.</p>
 <p>Answering no leaves JNEXT with nothing to boot from, so it explains the problem
 and exits.</p>
 

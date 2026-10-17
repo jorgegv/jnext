@@ -3644,6 +3644,9 @@ fetched is kept as <code>NextPi-&lt;release&gt;.tar.gz.part</code> in the NextPi
 next start continues from there after asking; delete that file to start over.
 A download that finished but could not be put in place is used as it is on the next
 start.</p>
+<p>If no data arrives for a few seconds, the progress dialog says the download has stalled and for
+how long; after 30 seconds without data JNEXT stops waiting and says why. Cancel works at any
+time.</p>
 <h3 id="if-you-already-have-nextpi-or-prepare-it-by-hand">If you already have NextPi, or prepare it by hand<a class="headerlink" href="#if-you-already-have-nextpi-or-prepare-it-by-hand" title="Permanent link">&para;</a></h3>
 <p>Put <code>NextPi-&lt;release&gt;.tar.gz</code> from the mirror (and, if you have it, its <code>.md5</code>)
 in the NextPi directory (<code>~/.jnext/nextpi</code>; on Windows <code>%USERPROFILE%\.jnext\nextpi</code>).
