@@ -960,14 +960,16 @@ lint-thread-detach:
 	@# structural. Cheap (ripgrep over src/ and test/), so it runs before the build.
 	@bash test/lint-thread-detach.sh
 
-# Fail if a string literal under src/ holds an em dash (GH #382)
+# Fail if a string literal under src/ holds an em dash or other non-ASCII text (GH #382)
 lint-ascii-text:
 	@# A Windows console decodes jnext's UTF-8 messages in its OEM code page, so the
 	@# three bytes of an em dash show up as accented letters in a log line (GH #382).
 	@# Owner rule: program text is ASCII. No unit row can see a new offender, so the
 	@# rule is structural: a perl lexer over the string and character literals under
-	@# src/ (comments are not looked at). Cheap (about a second), so it runs before the
-	@# build in both `unit-test` and `regression`, like lint-thread-detach.
+	@# src/ (comments are not looked at). Rule A: no em dash anywhere. Rule B: no other
+	@# non-ASCII text in product sources unless test/lint-ascii-text.conf declares it as
+	@# Qt-only widget text. Cheap (about a second), so it runs before the build in both
+	@# `unit-test` and `regression`, like lint-thread-detach.
 	@bash test/lint-ascii-text.sh
 
 # Fail if a NEW tautological assertion appeared in test/ (baseline-relative)

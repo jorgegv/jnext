@@ -31,14 +31,34 @@ program's bytes in its OEM code page, so the three UTF-8 bytes of an em dash
 come out as three accented letters (`ÔÇö` in code page 850) instead of a dash.
 The fix is in the text, not the console: there is no UTF-16 sink and no
 code-page change. So **no string or character literal under `src/` holds an em
-dash**. Write a plain `-` and keep the spacing around it.
+dash**. Write a plain `-` and keep the spacing around it. The other characters
+that used to reach a console have an ASCII spelling too:
+
+| Not this | Write |
+|---|---|
+| `→` | `->` |
+| `←` | `<-` |
+| `…` | `...` |
+| `▸` (a menu path) | `>` |
+| `§` | `section ` |
+| `×` | `x` |
 
 `make unit-test` and `make regression` run the lint before they build anything.
 It reads literals, not comments: an em dash in a `//` or `/* */` comment is
 fine, and so is one in prose outside `src/`. It also catches the escaped
 spellings (a `u` or `U` escape of U+2014, or its bytes `\xE2\x80\x94` in one
-literal), so rewriting the character does not get around it. There is no
-exception list for the em dash.
+literal), so rewriting the character does not get around it.
+
+There are two rules. **Rule A**, the em dash, has no exceptions and covers every
+file under `src/`, `src/esp01/test/` included. **Rule B**, any other
+non-ASCII character in a literal, covers the product sources (everything under
+`src/` except `src/esp01/test/`, whose literals are test-row descriptions). The
+one way out of rule B is text that only Qt ever draws: a button label, a status
+bar message or a dialog text with a glyph such as `◄`. Declare it in
+`test/lint-ascii-text.conf` as the file, the literal exactly as written and the
+reason, separated by tabs. A declaration that no longer matches a literal fails
+the lint, so editing the text means editing its line. Bytes written as `\x` or
+octal escapes are data, not text, and are never flagged.
 
 What the lint cannot see is stated in its header: text built at run time, an em
 dash split across adjacent literals, and files that are not C or C++. User
