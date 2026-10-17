@@ -919,3 +919,26 @@ upstream tbblue did after the 24.11 release), only when it is that exact file.
 That recipe is versioned (`kFixedImageRecipe`, recorded in a `.recipe` sidecar
 next to the image). jnext never rebuilds an existing image because its recipe
 is old: the image holds the user's own files.
+
+Downloads are resumable (GH #358), by one contract for every caller of
+`DownloadFn` (the SD distro zip, the NextPi archive, its `.md5`, the mirror
+listing). The default backends (libcurl, WinHTTP) write `<dest>.part`, beside a
+resume record `<dest>.part.resume` (requested URL, validator, full size), and
+rename it over `dest` only when the byte count matches the advertised total, so
+`dest` exists only when complete and a transfer cut short is a failure on both
+OSes. A failure or cancel keeps the partial only if it holds bytes and the
+server sent a strong ETag (else Last-Modified); otherwise nothing is left. The
+next call asks for the rest (`Range`, `If-Range` with the validator verbatim)
+and decides before the first body byte: 206 with exactly the expected
+`Content-Range` appends; 200 (range ignored or representation changed) starts
+again from 0; 416 or a wrong 206 discards the partial and retries once as a
+plain GET. libcurl uses `CURLOPT_RANGE` with an explicit `If-Range` header, not
+`CURLOPT_RESUME_FROM_LARGE`, which turns a server's 200 into error 33 and loses
+the transfer. The file names, the record format and the decision table live once
+in `PartialDownload` (`sdcard_provisioner.cpp`); both backends only feed it
+headers and body. Residual corruption (a server that lies about its validator) is
+caught after the download: the NextPi MD5, the zip entry CRC. One classifier
+(`partial_state`) names the five states of a `.part`: a Complete one (whole file,
+only the final rename failed) is finished with no request and never refetched; an
+Oversize or Stale one is discarded; a Resumable one is continued, appended at an
+explicit 64-bit offset.

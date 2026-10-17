@@ -1162,6 +1162,562 @@ static void test_pi_audio_pipe() {
     }
 }
 
+// GH #358 — an archive already in the NextPi directory, a download step that fails
+// after a complete transfer, and an unusable directory. Offline: FakeMirror seam.
+static void test_nextpi_local_archive_rows() {
+    namespace fs = std::filesystem;
+    const std::vector<uint8_t> disk_a = fake_nextpi_disk("kernel image a", "device tree a");
+    const std::vector<uint8_t> disk_b = fake_nextpi_disk("kernel image b", "device tree b");
+    const std::string disk_a_bytes(disk_a.begin(), disk_a.end());
+    // What `wget` gives a user: the mirror's archive and its .md5 in the NextPi directory.
+    auto place = [](FakeMirror& m, const fs::path& dir, const std::string& rel, bool with_md5) {
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        const std::string name = "NextPi-" + rel + ".tar.gz";
+        fs::copy_file(m.dir / name, dir / name, fs::copy_options::overwrite_existing, ec);
+        if (with_md5)
+            fs::copy_file(m.dir / (name + ".md5"), dir / (name + ".md5"),
+                          fs::copy_options::overwrite_existing, ec);
+        return !ec;
+    };
+    auto installed_a = [&](const fs::path& dir) {
+        return slurp(dir / "nextpi.img") == disk_a_bytes &&
+               slurp(dir / "boot" / "kernel.img") == "kernel image a" &&
+               slurp(dir / "boot" / "bcm2708-rpi-zero.dtb") == "device tree a" &&
+               nextpi::prepared_release(dir.string()) == "1_93D" &&
+               !fs::exists(dir / "NextPi-1_93D.tar.gz") && !fs::exists(dir / "NextPi-1_93D.tar.gz.md5");
+    };
+    const std::string md5_url = "https://mirror.test/NextPi2/NextPi-1_93D.tar.gz.md5";
+    const std::string tgz_url = "https://mirror.test/NextPi2/NextPi-1_93D.tar.gz";
+
+    // ── PIT-27 — JANKO'S CASE (GH #358): the mirror's archive and its .md5 are already in
+    // the empty NextPi directory. Nothing is asked, nothing fetched, it is installed.
+    {
+        FakeMirror mirror("localboth");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        const bool placed = place(mirror, dir, "1_93D", true);
+        int confirms = 0;
+        const nextpi::ProvisionResult r = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
+        check("PIT-27",
+              "an archive and its .md5 already in the NextPi directory are checked and installed with no "
+              "question and no download, then deleted (GH #358; jnext-only, no VHDL counterpart)",
+              fixture && placed && r.status == sdcard::ProvisionStatus::Ok && confirms == 0 &&
+                  mirror.fetched.empty() && installed_a(dir),
+              fmt("fixture=%d placed=%d status=%d (%s) confirms=%d fetched=%zu installed=%d", fixture ? 1 : 0,
+                  placed ? 1 : 0, static_cast<int>(r.status), r.error.c_str(), confirms, mirror.fetched.size(),
+                  installed_a(dir) ? 1 : 0));
+    }
+
+    // ── PIT-28 — the archive alone: only the (tiny) .md5 is fetched; still no question.
+    {
+        FakeMirror mirror("localarch");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        const bool placed = place(mirror, dir, "1_93D", false);
+        int confirms = 0;
+        const nextpi::ProvisionResult r = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
+        check("PIT-28",
+              "an archive with no .md5 beside it is checked against the mirror's .md5, which is the only "
+              "thing fetched, and installed with no question (GH #358; jnext-only, no VHDL counterpart)",
+              fixture && placed && r.status == sdcard::ProvisionStatus::Ok && confirms == 0 &&
+                  mirror.fetched == std::vector<std::string>({md5_url}) && installed_a(dir),
+              fmt("fixture=%d placed=%d status=%d (%s) confirms=%d fetched=%zu", fixture ? 1 : 0, placed ? 1 : 0,
+                  static_cast<int>(r.status), r.error.c_str(), confirms, mirror.fetched.size()));
+    }
+
+    // ── PIT-29 — THE WINDOWS FAILURE, MODELLED (GH #358): the backend transfers the whole
+    // archive, then reports failure ("produced no file"). The complete download must
+    // survive, and the next run must find and install it without fetching it again.
+    {
+        FakeMirror mirror("lostdl");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        int confirms = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, dir.string(), "", confirms);
+        sdcard::DownloadFn real = mirror.download();
+        o.download = [real](const std::string& u, const std::string& dest, const sdcard::ProgressFn& p,
+                            std::string& e) {
+            if (!real(u, dest, p, e)) return false;
+            if (u.size() > 7 && u.compare(u.size() - 7, 7, ".tar.gz") == 0) {
+                e = "produced no file: " + dest;
+                return false;
+            }
+            return true;
+        };
+        const nextpi::ProvisionResult r1 = nextpi::provision(o);
+        const std::string mirror_bytes = slurp(mirror.dir / "NextPi-1_93D.tar.gz");
+        const bool kept = r1.status == sdcard::ProvisionStatus::Failed &&
+                          r1.error.find("produced no file") != std::string::npos &&
+                          slurp(dir / "NextPi-1_93D.tar.gz") == mirror_bytes && !mirror_bytes.empty() &&
+                          fs::exists(dir / "NextPi-1_93D.tar.gz.md5");
+        mirror.fetched.clear();
+        const nextpi::ProvisionResult r2 = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
+        check("PIT-29",
+              "a download step that fails after the whole archive arrived does not delete it: the next run "
+              "checks it, fetches nothing and installs it without asking again (GH #358; jnext-only, no "
+              "VHDL counterpart)",
+              fixture && kept && r2.status == sdcard::ProvisionStatus::Ok && mirror.fetched.empty() &&
+                  confirms == 1 && installed_a(dir),
+              fmt("fixture=%d kept=%d (%s) second status=%d (%s) fetched=%zu confirms=%d (want 1)",
+                  fixture ? 1 : 0, kept ? 1 : 0, r1.error.c_str(), static_cast<int>(r2.status),
+                  r2.error.c_str(), mirror.fetched.size(), confirms));
+    }
+
+    // ── PIT-30 — a pre-existing archive that fails its MD5 (truncated): the question names
+    // it and the MD5; declining deletes nothing and fetches nothing; accepting downloads over it.
+    {
+        FakeMirror mirror("truncated");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        const bool placed = place(mirror, dir, "1_93D", true);
+        std::string whole = slurp(dir / "NextPi-1_93D.tar.gz");
+        const std::string half = whole.substr(0, whole.size() / 2);
+        { std::ofstream(dir / "NextPi-1_93D.tar.gz", std::ios::binary | std::ios::trunc) << half; }
+        std::string message;
+        int asked = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, dir.string(), "", asked, false);
+        o.confirm = [&](const std::string& m) { ++asked; message = m; return false; };
+        const nextpi::ProvisionResult declined = nextpi::provision(o);
+        const bool decl_ok = declined.status == sdcard::ProvisionStatus::Declined && asked == 1 &&
+                             message.find("NextPi-1_93D.tar.gz") != std::string::npos &&
+                             message.find("MD5") != std::string::npos &&
+                             message.find("cannot be used") == std::string::npos &&
+                             slurp(dir / "NextPi-1_93D.tar.gz") == half && mirror.fetched.empty();
+        int confirms = 0;
+        const nextpi::ProvisionResult accepted = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
+        const bool acc_ok = accepted.status == sdcard::ProvisionStatus::Ok && confirms == 1 &&
+                            mirror.fetched == std::vector<std::string>({md5_url, tgz_url}) && installed_a(dir);
+        check("PIT-30",
+              "a pre-existing archive that fails its MD5 is named in the question with the MD5, is not "
+              "deleted or replaced before the user agrees to a download, and is then downloaded over "
+              "(GH #358; jnext-only, no VHDL counterpart)",
+              fixture && placed && decl_ok && acc_ok,
+              fmt("fixture=%d placed=%d declined=%d (status=%d asked=%d fetched=%zu) accepted=%d (%s) msg='%.120s'",
+                  fixture ? 1 : 0, placed ? 1 : 0, decl_ok ? 1 : 0, static_cast<int>(declined.status), asked,
+                  mirror.fetched.size(), acc_ok ? 1 : 0, accepted.error.c_str(), message.c_str()));
+    }
+
+    // ── PIT-31 — an unusable directory says why: the first missing piece, in the question.
+    {
+        FakeMirror mirror("reason");
+        const fs::path d1 = mirror.dir / "imgonly", d2 = mirror.dir / "nomarker", d3 = mirror.dir / "complete",
+                       d4 = mirror.dir / "emptymarker";
+        std::error_code ec;
+        for (const fs::path& d : {d1, d2, d3, d4}) fs::create_directories(d / "boot", ec);
+        for (const fs::path& d : {d1, d2, d3, d4}) std::ofstream(d / "nextpi.img").put('\0');
+        for (const fs::path& d : {d2, d3, d4}) {
+            std::ofstream(d / "boot" / "kernel.img").put('\0');
+            std::ofstream(d / "boot" / "bcm2708-rpi-zero.dtb").put('\0');
+        }
+        std::ofstream(d3 / "release") << "1_93D\n";
+        std::ofstream(d4 / "release") << "\n";
+        const std::string r1 = nextpi::unprepared_reason(d1.string());
+        const std::string r2 = nextpi::unprepared_reason(d2.string());
+        const std::string r3 = nextpi::unprepared_reason(d3.string());
+        const std::string r4 = nextpi::unprepared_reason(d4.string());
+        std::string message;
+        int asked = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, d1.string(), "", asked, false);
+        o.confirm = [&](const std::string& m) { ++asked; message = m; return false; };
+        const nextpi::ProvisionResult r = nextpi::provision(o);
+        check("PIT-31",
+              "unprepared_reason names the first missing piece (kernel.img, the release marker) and is empty "
+              "for a complete directory; the question about an unusable directory says which piece is "
+              "missing (GH #358; jnext-only, no VHDL counterpart)",
+              r1.find("kernel.img") != std::string::npos && r1.find("missing") != std::string::npos &&
+                  r2.find("release") != std::string::npos && r3.empty() && r4.find("empty") != std::string::npos &&
+                  r.status == sdcard::ProvisionStatus::Declined && asked == 1 &&
+                  message.find("kernel.img") != std::string::npos,
+              fmt("image-only='%s' no-marker='%s' complete='%s' empty-marker='%s' msg='%.160s'", r1.c_str(),
+                  r2.c_str(), r3.c_str(), r4.c_str(), message.c_str()));
+    }
+
+    // ── PIT-32 — a release switch with a verified local archive: one question that does not
+    // promise a 6 GB download; yes installs it with nothing fetched and discards the overlay.
+    {
+        FakeMirror mirror("switch");
+        const bool fixture = mirror.add_release("1_93D", disk_a) && mirror.add_release("1_100", disk_b);
+        const fs::path dir = mirror.dir / "np";
+        int confirms = 0;
+        const nextpi::ProvisionResult r1 = nextpi::provision(nextpi_options(mirror, dir.string(), "1_93D", confirms));
+        std::ofstream(dir / "overlay.qcow2") << "old overlay";
+        const bool placed = place(mirror, dir, "1_100", true);
+        mirror.fetched.clear();
+        confirms = 0;
+        std::string message;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, dir.string(), "1_100", confirms);
+        o.confirm = [&](const std::string& m) { ++confirms; message = m; return true; };
+        const nextpi::ProvisionResult r2 = nextpi::provision(o);
+        check("PIT-32",
+              "switching release with a verified archive already in the directory asks once, without "
+              "promising a 6 GB download, then installs it with nothing fetched and discards the old "
+              "overlay (GH #358; jnext-only, no VHDL counterpart)",
+              fixture && placed && r1.status == sdcard::ProvisionStatus::Ok && confirms == 1 &&
+                  message.find("about 6 GB") == std::string::npos &&
+                  r2.status == sdcard::ProvisionStatus::Ok && r2.release == "1_100" &&
+                  mirror.fetched.empty() && !fs::exists(dir / "overlay.qcow2") &&
+                  slurp(dir / "boot" / "kernel.img") == "kernel image b",
+              fmt("fixture=%d placed=%d first=%d second=%d (%s) release=%s confirms=%d fetched=%zu msg='%.100s'",
+                  fixture ? 1 : 0, placed ? 1 : 0, static_cast<int>(r1.status), static_cast<int>(r2.status),
+                  r2.error.c_str(), r2.release.c_str(), confirms, mirror.fetched.size(), message.c_str()));
+    }
+
+    // ── PIT-33 — A DOWNLOAD THAT STOPPED (GH #358): the backend left <archive>.part and its
+    // resume record. The question says jnext continues it (and names the .part), it is
+    // never taken for an archive (no "cannot be used" warning, no MD5 note), and
+    // declining leaves both files untouched.
+    {
+        FakeMirror mirror("partial");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        const std::string archive = (dir / "NextPi-1_93D.tar.gz").string();
+        const std::string partial(1000, 'p');
+        { std::ofstream(sdcard::partial_path(archive), std::ios::binary) << partial; }
+        sdcard::ResumeInfo ri;
+        ri.url = mirror.url() + "/NextPi-1_93D.tar.gz";
+        ri.validator_kind = "etag";
+        ri.validator = "\"abc\"";
+        ri.total = 2000;
+        const bool rec = sdcard::write_resume_info(archive, ri);
+        const std::string rec_before = slurp(sdcard::partial_path(archive) + ".resume");
+        std::string message;
+        int asked = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, dir.string(), "", asked, false);
+        o.confirm = [&](const std::string& m) { ++asked; message = m; return false; };
+        const nextpi::ProvisionResult r = nextpi::provision(o);
+        check("PIT-33",
+              "a partial download left by the backend (<archive>.part + record) is offered to be continued: "
+              "the question says jnext continues it and names the .part, it is never taken for an archive, "
+              "and declining leaves both files byte for byte (GH #358; jnext-only, no VHDL counterpart)",
+              fixture && rec && r.status == sdcard::ProvisionStatus::Declined && asked == 1 &&
+                  message.find("continues") != std::string::npos && message.find(".part") != std::string::npos &&
+                  message.find("MD5") == std::string::npos &&
+                  message.find("cannot be used") == std::string::npos && mirror.fetched.empty() &&
+                  slurp(sdcard::partial_path(archive)) == partial &&
+                  slurp(sdcard::partial_path(archive) + ".resume") == rec_before && !fs::exists(archive),
+              fmt("fixture=%d rec=%d status=%d asked=%d msg='%.140s'", fixture ? 1 : 0, rec ? 1 : 0,
+                  static_cast<int>(r.status), asked, message.c_str()));
+    }
+
+    // ── PIT-34 — a download that fails but leaves a resumable partial says so in the error,
+    // and the archive's own name stays empty (only the partial exists).
+    {
+        FakeMirror mirror("partialfail");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        int confirms = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, dir.string(), "", confirms);
+        sdcard::DownloadFn real = mirror.download();
+        o.download = [real](const std::string& u, const std::string& dest, const sdcard::ProgressFn& p,
+                            std::string& e) {
+            if (u.size() > 7 && u.compare(u.size() - 7, 7, ".tar.gz") == 0) {
+                { std::ofstream(sdcard::partial_path(dest), std::ios::binary) << std::string(1000, 'p'); }
+                sdcard::ResumeInfo ri;
+                ri.url = u;
+                ri.validator_kind = "etag";
+                ri.validator = "\"abc\"";
+                ri.total = 2000;
+                sdcard::write_resume_info(dest, ri);
+                e = "connection closed after 1000 of 2000 bytes";
+                return false;
+            }
+            return real(u, dest, p, e);
+        };
+        const nextpi::ProvisionResult r = nextpi::provision(o);
+        const std::string archive = (dir / "NextPi-1_93D.tar.gz").string();
+        // R7: nothing kept -> no "kept" claim. A seam that fails and leaves nothing.
+        const fs::path dir_n = mirror.dir / "np_none";
+        nextpi::ProvisionOptions on = nextpi_options(mirror, dir_n.string(), "", confirms);
+        on.download = [real](const std::string& u, const std::string& dest, const sdcard::ProgressFn& p,
+                             std::string& e) {
+            if (u.size() > 7 && u.compare(u.size() - 7, 7, ".tar.gz") == 0) { e = "Could not resolve hostname"; return false; }
+            return real(u, dest, p, e);
+        };
+        const nextpi::ProvisionResult rn = nextpi::provision(on);
+        const bool none_ok = rn.status == sdcard::ProvisionStatus::Failed &&
+                             rn.error.find("continues next time") == std::string::npos &&
+                             rn.error.find("is kept in") == std::string::npos;
+        // A seam that leaves a COMPLETE partial and fails (its rename failed).
+        const fs::path dir_c = mirror.dir / "np_complete";
+        nextpi::ProvisionOptions oc = nextpi_options(mirror, dir_c.string(), "", confirms);
+        oc.download = [real, &mirror](const std::string& u, const std::string& dest, const sdcard::ProgressFn& p,
+                                      std::string& e) {
+            if (u.size() > 7 && u.compare(u.size() - 7, 7, ".tar.gz") == 0) {
+                std::error_code ec2;
+                fs::copy_file(mirror.dir / "NextPi-1_93D.tar.gz", sdcard::partial_path(dest),
+                              fs::copy_options::overwrite_existing, ec2);
+                sdcard::ResumeInfo ri;
+                ri.url = u; ri.validator_kind = "etag"; ri.validator = "\"abc\"";
+                ri.total = fs::file_size(mirror.dir / "NextPi-1_93D.tar.gz", ec2);
+                sdcard::write_resume_info(dest, ri);
+                e = "cannot move the partial: Permission denied";
+                return false;
+            }
+            return real(u, dest, p, e);
+        };
+        const nextpi::ProvisionResult rc = nextpi::provision(oc);
+        const bool complete_ok = rc.status == sdcard::ProvisionStatus::Failed &&
+                                 rc.error.find("the complete download is kept in") != std::string::npos;
+        check("PIT-34",
+              "a failed download that left a resumable partial says the fetched bytes are kept and the "
+              "download continues next time; the archive's own name is not created (GH #358; jnext-only, "
+              "no VHDL counterpart)",
+              fixture && r.status == sdcard::ProvisionStatus::Failed &&
+                  r.error.find("continues next time") != std::string::npos && !fs::exists(archive) &&
+                  fs::exists(sdcard::partial_path(archive)) && none_ok && complete_ok,
+              fmt("fixture=%d status=%d error='%s' none_ok=%d (%s) complete_ok=%d (%s)", fixture ? 1 : 0,
+                  static_cast<int>(r.status), r.error.c_str(), none_ok ? 1 : 0, rn.error.c_str(),
+                  complete_ok ? 1 : 0, rc.error.c_str()));
+    }
+
+    // ── PIT-35 — JANKO'S MANUAL UNPACK (GH #358): `NextPi-1_93D.tar` and a `NextPi-1_93D/`
+    // folder holding the .img are NOT the provisioner's fetch files, so the directory
+    // counts as a setup that was tried: the question says what is missing.
+    {
+        FakeMirror mirror("manual");
+        const fs::path dir = mirror.dir / "np";
+        std::error_code ec;
+        fs::create_directories(dir / "NextPi-1_93D", ec);
+        std::ofstream(dir / "NextPi-1_93D.tar") << "tar";
+        std::ofstream(dir / "NextPi-1_93D" / "NextPi2-20260924.img") << "img";
+        std::string message;
+        int asked = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, dir.string(), "", asked, false);
+        o.confirm = [&](const std::string& m) { ++asked; message = m; return false; };
+        const nextpi::ProvisionResult r = nextpi::provision(o);
+        check("PIT-35",
+              "a directory holding a manual unpack (NextPi-1_93D.tar and a NextPi-1_93D folder with the .img) "
+              "is reported as unusable: the question names the missing nextpi.img (GH #358; jnext-only, no "
+              "VHDL counterpart)",
+              r.status == sdcard::ProvisionStatus::Declined && asked == 1 &&
+                  message.find("cannot be used") != std::string::npos &&
+                  message.find("nextpi.img") != std::string::npos && message.find("missing") != std::string::npos,
+              fmt("status=%d asked=%d msg='%.200s'", static_cast<int>(r.status), asked, message.c_str()));
+    }
+
+    // ── PIT-36 — only the provisioner's own fetch files: no "cannot be used"; an interrupted
+    // install's leftovers (nextpi.img.part) beside them: "cannot be used".
+    {
+        FakeMirror mirror("fetchonly");
+        const fs::path dir = mirror.dir / "np";
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        const std::string archive = (dir / "NextPi-1_93D.tar.gz").string();
+        std::ofstream(sdcard::partial_path(archive), std::ios::binary) << std::string(10, 'p');
+        sdcard::ResumeInfo ri;
+        ri.url = mirror.url() + "/NextPi-1_93D.tar.gz";
+        ri.validator_kind = "etag"; ri.validator = "\"abc\""; ri.total = 20;
+        sdcard::write_resume_info(archive, ri);
+        std::ofstream(archive + ".md5") << "x";
+        std::ofstream(dir / ".listing.html.part") << "x";
+        auto ask = [&](const fs::path& d) {
+            std::string message;
+            int asked = 0;
+            nextpi::ProvisionOptions o = nextpi_options(mirror, d.string(), "", asked, false);
+            o.confirm = [&](const std::string& m) { ++asked; message = m; return false; };
+            (void)nextpi::provision(o);
+            return message;
+        };
+        const std::string only = ask(dir);
+        std::ofstream(dir / "nextpi.img.part") << "x";
+        const std::string leftovers = ask(dir);
+        check("PIT-36",
+              "a directory holding only the provisioner's own fetch files (archive .part + record, .md5, "
+              "listing partial) gets no \"cannot be used\"; an interrupted install's nextpi.img.part beside "
+              "them does (GH #358; jnext-only, no VHDL counterpart)",
+              !only.empty() && only.find("cannot be used") == std::string::npos &&
+                  leftovers.find("cannot be used") != std::string::npos,
+              fmt("only='%.100s' leftovers='%.100s'", only.c_str(), leftovers.c_str()));
+    }
+
+    // ── PIT-37 — an archive that cannot be verified (no .md5 beside it, the mirror gives none) is
+    // never installed silently: one question that says jnext cannot check it; declined keeps it.
+    {
+        FakeMirror mirror("unverifiable");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        const bool placed = place(mirror, dir, "1_93D", false);
+        std::remove((mirror.dir / "NextPi-1_93D.tar.gz.md5").string().c_str());   // the mirror has none either
+        const std::string before = slurp(dir / "NextPi-1_93D.tar.gz");
+        std::string message;
+        int asked = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, dir.string(), "", asked, false);
+        o.confirm = [&](const std::string& m) { ++asked; message = m; return false; };
+        const nextpi::ProvisionResult r = nextpi::provision(o);
+        check("PIT-37",
+              "an archive with no .md5 beside it and none on the mirror is not installed silently: one "
+              "question says jnext cannot check it, declining installs nothing and keeps the archive "
+              "(GH #358; jnext-only, no VHDL counterpart)",
+              fixture && placed && r.status == sdcard::ProvisionStatus::Declined && asked == 1 &&
+                  message.find("cannot check") != std::string::npos &&
+                  message.find("NextPi-1_93D.tar.gz") != std::string::npos &&
+                  slurp(dir / "NextPi-1_93D.tar.gz") == before && !before.empty() &&
+                  nextpi::prepared_release(dir.string()).empty(),
+              fmt("fixture=%d placed=%d status=%d asked=%d msg='%.140s'", fixture ? 1 : 0, placed ? 1 : 0,
+                  static_cast<int>(r.status), asked, message.c_str()));
+    }
+
+    // ── PIT-38 — a COMPLETE <archive>.part (its rename failed last time) is finished with no
+    // request and then takes the archive check: installed, no question, nothing fetched.
+    {
+        FakeMirror mirror("completepart");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        const std::string archive = (dir / "NextPi-1_93D.tar.gz").string();
+        fs::copy_file(mirror.dir / "NextPi-1_93D.tar.gz", sdcard::partial_path(archive), ec);
+        fs::copy_file(mirror.dir / "NextPi-1_93D.tar.gz.md5", archive + ".md5", ec);
+        sdcard::ResumeInfo ri;
+        ri.url = mirror.url() + "/NextPi-1_93D.tar.gz";
+        ri.validator_kind = "etag"; ri.validator = "\"abc\"";
+        ri.total = fs::file_size(mirror.dir / "NextPi-1_93D.tar.gz", ec);
+        const bool rec = sdcard::write_resume_info(archive, ri);
+        int confirms = 0;
+        const nextpi::ProvisionResult r = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
+        check("PIT-38",
+              "a complete <archive>.part with its record is promoted to the archive with no request, then "
+              "checked and installed with no question; the partial and record are gone (GH #358; jnext-only, "
+              "no VHDL counterpart)",
+              fixture && rec && r.status == sdcard::ProvisionStatus::Ok && confirms == 0 &&
+                  mirror.fetched.empty() && installed_a(dir) && !fs::exists(sdcard::partial_path(archive)) &&
+                  !fs::exists(sdcard::resume_record_path(archive)),
+              fmt("fixture=%d rec=%d status=%d (%s) confirms=%d fetched=%zu", fixture ? 1 : 0, rec ? 1 : 0,
+                  static_cast<int>(r.status), r.error.c_str(), confirms, mirror.fetched.size()));
+    }
+
+    // ── PIT-39 — NO SECOND 5.7 GB HASH OUTSIDE THE BUSY DIALOG: a rejected local archive that the
+    // user agrees to replace is hashed once (inside "Checking the NextPi download"), and the
+    // fresh download once more (inside it too); nothing is hashed with the GUI frozen.
+    {
+        FakeMirror mirror("hashes");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        const bool placed = place(mirror, dir, "1_93D", true);
+        std::string whole = slurp(dir / "NextPi-1_93D.tar.gz");
+        { std::ofstream(dir / "NextPi-1_93D.tar.gz", std::ios::binary | std::ios::trunc) << whole.substr(0, whole.size() / 2); }
+        int confirms = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, dir.string(), "", confirms);
+        uint64_t inside = 0;
+        int checking = 0;
+        o.busy = [&](const std::string& phase, const std::function<bool()>& work) {
+            if (phase != "Checking the NextPi download") return work();
+            ++checking;
+            const uint64_t before = nextpi::md5_file_calls();
+            const bool ok = work();
+            inside += nextpi::md5_file_calls() - before;
+            return ok;
+        };
+        const uint64_t calls0 = nextpi::md5_file_calls();
+        const nextpi::ProvisionResult r = nextpi::provision(o);
+        const uint64_t total_calls = nextpi::md5_file_calls() - calls0;
+        check("PIT-39",
+              "replacing a rejected local archive hashes it once and the fresh download once, both inside the "
+              "\"Checking the NextPi download\" busy dialog: no hash is taken outside it (GH #358; jnext-only, "
+              "no VHDL counterpart)",
+              fixture && placed && r.status == sdcard::ProvisionStatus::Ok && checking >= 2 && total_calls == inside &&
+                  total_calls >= 2 && installed_a(dir),
+              fmt("fixture=%d placed=%d status=%d (%s) checking=%d hashes=%llu inside=%llu", fixture ? 1 : 0,
+                  placed ? 1 : 0, static_cast<int>(r.status), r.error.c_str(), checking,
+                  static_cast<unsigned long long>(total_calls), static_cast<unsigned long long>(inside)));
+    }
+
+    // ── PIT-40 — a COMPLETE <archive>.part whose promotion fails (the archive's name is a
+    // non-empty directory) stops there: Failed, "the complete download is kept in", nothing asked.
+    {
+        FakeMirror mirror("promotefail");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        std::error_code ec;
+        const std::string archive = (dir / "NextPi-1_93D.tar.gz").string();
+        fs::create_directories(archive + "/obstacle", ec);
+        fs::copy_file(mirror.dir / "NextPi-1_93D.tar.gz", sdcard::partial_path(archive), ec);
+        fs::copy_file(mirror.dir / "NextPi-1_93D.tar.gz.md5", archive + ".md5", ec);
+        sdcard::ResumeInfo ri;
+        ri.url = mirror.url() + "/NextPi-1_93D.tar.gz";
+        ri.validator_kind = "etag"; ri.validator = "\"abc\"";
+        ri.total = fs::file_size(mirror.dir / "NextPi-1_93D.tar.gz", ec);
+        const bool rec = sdcard::write_resume_info(archive, ri);
+        int confirms = 0;
+        const nextpi::ProvisionResult r = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
+        check("PIT-40",
+              "a complete <archive>.part that cannot be promoted (its name is taken) ends in Failed saying the "
+              "complete download is kept, asks nothing and keeps the partial and its record (GH #358; "
+              "jnext-only, no VHDL counterpart)",
+              fixture && rec && r.status == sdcard::ProvisionStatus::Failed && confirms == 0 &&
+                  r.error.find("the complete download is kept in") != std::string::npos &&
+                  fs::exists(sdcard::partial_path(archive)) && fs::exists(sdcard::resume_record_path(archive)),
+              fmt("fixture=%d rec=%d status=%d confirms=%d error='%.160s'", fixture ? 1 : 0, rec ? 1 : 0,
+                  static_cast<int>(r.status), confirms, r.error.c_str()));
+    }
+
+    // ── PIT-41 — a GOOD archive beside a WRONG local .md5: the user agrees, the mirror's .md5 matches
+    // the digest already computed, and the archive is installed with no archive download.
+    {
+        FakeMirror mirror("wrongmd5");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        const bool placed = place(mirror, dir, "1_93D", true);
+        { std::ofstream(dir / "NextPi-1_93D.tar.gz.md5") << std::string(32, '0') << "\n"; }
+        int confirms = 0;
+        const nextpi::ProvisionResult r = nextpi::provision(nextpi_options(mirror, dir.string(), "", confirms));
+        check("PIT-41",
+              "a good archive beside a wrong local .md5, once the user agrees, is installed after fetching only "
+              "the mirror's .md5: the digest already computed is reused, the archive is not downloaded again "
+              "(GH #358; jnext-only, no VHDL counterpart)",
+              fixture && placed && r.status == sdcard::ProvisionStatus::Ok && confirms == 1 &&
+                  mirror.fetched == std::vector<std::string>({md5_url}) && installed_a(dir),
+              fmt("fixture=%d placed=%d status=%d (%s) confirms=%d fetched=%zu", fixture ? 1 : 0, placed ? 1 : 0,
+                  static_cast<int>(r.status), r.error.c_str(), confirms, mirror.fetched.size()));
+    }
+
+    // ── PIT-42 — the sibling hash path: an archive that could not be checked (the first .md5 fetch
+    // failed), then the user agrees and the second fetch works: it is hashed once, INSIDE the busy dialog.
+    {
+        FakeMirror mirror("lateMd5");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const fs::path dir = mirror.dir / "np";
+        const bool placed = place(mirror, dir, "1_93D", false);
+        int confirms = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, dir.string(), "", confirms);
+        sdcard::DownloadFn real = mirror.download();
+        int md5_fetches = 0;
+        o.download = [real, &md5_fetches](const std::string& u, const std::string& dest, const sdcard::ProgressFn& p,
+                                          std::string& e) {
+            if (u.size() > 4 && u.compare(u.size() - 4, 4, ".md5") == 0 && ++md5_fetches == 1) {
+                e = "Could not resolve hostname";
+                return false;
+            }
+            return real(u, dest, p, e);
+        };
+        uint64_t inside = 0;
+        int checking = 0;
+        o.busy = [&](const std::string& phase, const std::function<bool()>& work) {
+            if (phase != "Checking the NextPi download") return work();
+            ++checking;
+            const uint64_t before = nextpi::md5_file_calls();
+            const bool ok = work();
+            inside += nextpi::md5_file_calls() - before;
+            return ok;
+        };
+        const uint64_t calls0 = nextpi::md5_file_calls();
+        const nextpi::ProvisionResult r = nextpi::provision(o);
+        const uint64_t total_calls = nextpi::md5_file_calls() - calls0;
+        check("PIT-42",
+              "an archive that could not be checked, once the user agrees and the .md5 arrives, is hashed "
+              "inside the \"Checking the NextPi download\" busy dialog and installed without a download "
+              "(GH #358; jnext-only, no VHDL counterpart)",
+              fixture && placed && r.status == sdcard::ProvisionStatus::Ok && md5_fetches == 2 && checking >= 1 &&
+                  total_calls >= 1 && total_calls == inside && installed_a(dir),
+              fmt("fixture=%d placed=%d status=%d (%s) md5_fetches=%d checking=%d hashes=%llu inside=%llu",
+                  fixture ? 1 : 0, placed ? 1 : 0, static_cast<int>(r.status), r.error.c_str(), md5_fetches, checking,
+                  static_cast<unsigned long long>(total_calls), static_cast<unsigned long long>(inside)));
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc >= 2 && std::strcmp(argv[1], "--holder") == 0) return holder_main(argc, argv);
     const std::string self = fs::absolute(argv[0]).string();
@@ -2122,7 +2678,64 @@ int main(int argc, char** argv) {
                   spawned ? 1 : 0, error.c_str(), want_text.c_str()));
     }
 
+    // ── PIT-26 — THE PROGRAMS ARE LOOKED FOR BEFORE ANYTHING IS DOWNLOADED (GH #357):
+    // PiQemu::find_programs is what main.cpp asks first and what start() resolves
+    // through. Missing QEMU is refused naming qemu-system-arm; QEMU without qemu-img
+    // is refused naming qemu-img, but only while the directory has no overlay.qcow2
+    // (start() creates the overlay with it, once); with both, both are the stand-ins'.
+    // A QEMU given by path needs no PATH. The rules are start()'s, moved (PIT-10).
+    {
+        Fixture fx("programs");
+        const fs::path root = fs::path(fx.dir()).parent_path();
+        std::error_code ec;
+        const fs::path qonly = root / "qonly";
+        fs::create_directories(qonly, ec);
+        fs::copy_file(JNEXT_NEXTPI_STUB, qonly / (std::string("qemu-system-arm") + kExe),
+                      fs::copy_options::overwrite_existing, ec);
+        const bool setup = fx.ok() && !ec;
+        PiQemu::Spec spec;
+        spec.dir = fx.dir();
+        std::string q, qi, e_none, e_img, e_over, e_both, e_path;
+        bool none_refused = false, img_refused = false, over_ok = false, both_ok = false, path_ok = false;
+        {
+            EnvVar path("PATH", (root / "empty").string());
+            none_refused = !PiQemu::find_programs(spec, q, qi, e_none) &&
+                           e_none.find("qemu-system-arm not found") == 0;
+        }
+        {
+            EnvVar path("PATH", qonly.string());
+            img_refused = !PiQemu::find_programs(spec, q, qi, e_img) && e_img.find("qemu-img not found") == 0;
+            std::ofstream(fs::path(fx.dir()) / "overlay.qcow2").put('\0');
+            over_ok = PiQemu::find_programs(spec, q, qi, e_over) && qi.empty() && !q.empty() &&
+                      fs::equivalent(q, qonly / (std::string("qemu-system-arm") + kExe), ec);
+            fs::remove(fs::path(fx.dir()) / "overlay.qcow2", ec);
+        }
+        {
+            EnvVar path("PATH", fx.bin_dir());
+            both_ok = PiQemu::find_programs(spec, q, qi, e_both) && !q.empty() && !qi.empty() &&
+                      fs::equivalent(q, fx.bin("qemu-system-arm"), ec) &&
+                      fs::equivalent(qi, fx.bin("qemu-img"), ec);
+        }
+        {
+            EnvVar path("PATH", (root / "empty").string());
+            PiQemu::Spec by_path = spec;
+            by_path.qemu_binary  = fx.bin("qemu-system-arm");
+            path_ok = PiQemu::find_programs(by_path, q, qi, e_path) &&
+                      fs::equivalent(q, fx.bin("qemu-system-arm"), ec) &&
+                      fs::equivalent(qi, fx.bin("qemu-img"), ec);
+        }
+        check("PIT-26",
+              "PiQemu::find_programs, asked before NextPi is offered or downloaded, refuses a missing "
+              "QEMU naming qemu-system-arm, refuses QEMU without qemu-img naming qemu-img only while "
+              "the directory has no overlay, and otherwise returns the programs start() will run, a "
+              "QEMU given by path included (GH #357; jnext-only, no VHDL counterpart)",
+              setup && none_refused && img_refused && over_ok && both_ok && path_ok,
+              fmt("setup=%d none='%s' img='%s' overlay=%d both=%d by_path=%d", setup ? 1 : 0, e_none.c_str(),
+                  e_img.c_str(), over_ok ? 1 : 0, both_ok ? 1 : 0, path_ok ? 1 : 0));
+    }
+
     test_nextpi_provisioner();
+    test_nextpi_local_archive_rows();
     test_nextpi_review_rows();
     test_nextpi_review2_rows();
     test_pi_audio_pipe();

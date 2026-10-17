@@ -120,6 +120,7 @@ Skip the download prompt for the default\-location image and proceed.
 \f[B]\-\-sdcard\-download\-force\f[R]
 Force re\-download and re\-patch of the default\-location image, to
 recover a corrupted one.
+Also discards a half\-finished download.
 Ignored when \f[B]\-\-sdcard\f[R] is given: an explicit path always
 wins.
 .TP
@@ -378,6 +379,10 @@ jnext does not emulate the Pi: QEMU must be installed, and jnext starts
 it, wires it in and stops it when it exits.
 .RS
 .PP
+jnext first checks that QEMU (and, until the first start has made the
+Pi\(cqs overlay, \f[CR]qemu\-img\f[R]) is installed, and stops with the
+install hint if not, before anything is offered or downloaded.
+.PP
 The first run that needs it offers to download NextPi from its mirror
 (\c
 .UR https://zx.xalior.com/NextPi2/
@@ -385,6 +390,12 @@ The first run that needs it offers to download NextPi from its mirror
 ) into \f[CR]\(ti/.jnext/nextpi\f[R] \(em about 6 GB, with about 22 GB
 free needed while it is unpacked \(em with a progress bar, exactly as
 the SD\-card image is provisioned; later runs start at once.
+An archive \f[CR]NextPi\-<release>.tar.gz\f[R] already in that directory
+is checked against its \f[CR].md5\f[R] beside it (fetched only if
+absent) and unpacked without downloading; a directory that cannot be
+used is reported with the missing file, in the question and in the log.
+An interrupted download is kept as
+\f[CR]NextPi\-<release>.tar.gz.part\f[R] and continues on the next run.
 NextPi then takes about a minute to reach its Supervisor prompt
 (\f[CR]SUP>\f[R]).
 The release, the directory, the QEMU binary and where the Pi\(cqs sound
@@ -1150,6 +1161,8 @@ produce that patched copy on first run.
 \f[B]\-\-sdcard\-download\-confirm\f[R] skips the prompt, which is
 useful in scripts; \f[B]\-\-sdcard\-download\-force\f[R] re\-downloads
 and re\-patches a corrupted cached image.
+An interrupted download is kept (\f[CR]sn\-emulator.zip.part\f[R]) and
+continues on the next run.
 An explicit \f[B]\-\-sdcard\f[R] always wins over both.
 .PP
 Note that jnext opens the image \f[B]read\-write\f[R] by default, and
@@ -3062,9 +3075,9 @@ The canonical distribution image the patched one above is produced from.
 The NextPi directory: \f[CR]nextpi.img\f[R] (the release\(cqs SD\-card
 image, never written), \f[CR]boot/\f[R] (the kernel and device tree QEMU
 boots, copied out of the image), \f[CR]release\f[R] (which release it
-is), \f[CR]overlay.qcow2\f[R] (everything NextPi writes to its card \(em
-delete it to start again from a pristine image) and \f[CR]qemu.log\f[R]
-(QEMU\(cqs own messages).
+is; it must match the configured release), \f[CR]overlay.qcow2\f[R]
+(everything NextPi writes to its card \(em delete it to start again from
+a pristine image) and \f[CR]qemu.log\f[R] (QEMU\(cqs own messages).
 About 15 GB.
 .SH EXIT STATUS
 \f[B]jnext\f[R] exits 0 on success and non\-zero on error.

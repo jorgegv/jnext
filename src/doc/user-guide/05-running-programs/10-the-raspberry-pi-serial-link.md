@@ -25,11 +25,37 @@ it for one run with:
 jnext --nextpi
 ```
 
+JNEXT checks for QEMU (and, before the first start, `qemu-img`) first, and
+stops with that install hint if it is missing, before offering or downloading
+anything.
+
 The first time, JNEXT offers to download NextPi, the way it offers to download
 the SD card image: about 6 GB, with a progress bar, into `~/.jnext/nextpi`. It
 needs about 22 GB free while the image is unpacked, and about 15 GB afterwards.
 Every later start skips all of that. If you say No, JNEXT starts without NextPi,
 even with `--nextpi`, and asks again next time.
+
+If the download stops (network trouble, Cancel, closing JNEXT), the part already
+fetched is kept as `NextPi-<release>.tar.gz.part` in the NextPi directory, and the
+next start continues from there after asking; delete that file to start over.
+A download that finished but could not be put in place is used as it is on the next
+start.
+
+### If you already have NextPi, or prepare it by hand
+
+Put `NextPi-<release>.tar.gz` from the mirror (and, if you have it, its `.md5`)
+in the NextPi directory (`~/.jnext/nextpi`; on Windows `%USERPROFILE%\.jnext\nextpi`).
+JNEXT checks it against the MD5 and unpacks it without downloading, then deletes
+the archive.
+
+To prepare the directory by hand instead: `nextpi.img` is the `.img` inside the
+archive, renamed; `boot/kernel.img` and `boot/bcm2708-rpi-zero.dtb` are copied
+from the image's first (FAT) partition; and a file `release` holds the release
+name, which must be the NextPi release set in Preferences (default `1_93D`).
+
+When JNEXT cannot use what is there, the question and the log say which file is
+missing or which check failed. A run started from an icon shows no log: add
+`--log-file FILE` to its shortcut to keep one.
 
 NextPi takes about a minute to boot. Then, at the NextZXOS command line:
 

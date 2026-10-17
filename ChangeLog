@@ -5,7 +5,13 @@
 ### User Features
 - Monochrome toolbar icons that follow the light or dark theme; Screenshot, NMI and Debug get real icons
 - Linux: the GUI follows the desktop's light/dark preference, switching live; `JNEXT_COLOR_SCHEME` forces either
+- NextPi and SD-card image downloads continue where they stopped instead of starting over
 - The captured mouse can be released with Ctrl+Alt (default), a middle click or Esc: Preferences > Input, `--mouse-release`
+
+### Bug Fixes
+- NextPi checks that QEMU is installed before offering its 6 GB download
+- Windows: NextPi's finished 6 GB download was deleted as "missing"; files over 4 GB are now recognised
+- NextPi uses an archive already in its folder, and says which file or check rejected an existing setup
 
 ### Contributors in this release
 - @pavero01, @janko-jj

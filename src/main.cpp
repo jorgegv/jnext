@@ -1478,7 +1478,9 @@ int main(int argc, char* argv[]) {
     // as the SD image is (core/nextpi_provisioner.h): on first use, after
     // asking, with a progress bar. Started HERE, after every quick argument
     // check (so a typo never triggers a 6 GB download) and before the machine
-    // boots (so its FIFOs exist when Emulator::init() opens them).
+    // boots (so its FIFOs exist when Emulator::init() opens them). QEMU is
+    // looked for FIRST (PiQemu::find_programs, GH #357), so nobody is offered
+    // 6 GB to learn that the program that runs it is missing.
     //
     // A Pi asked for on the command line that cannot start is an error, like
     // any other unusable option. One that is merely enabled in Preferences is
@@ -1509,6 +1511,7 @@ int main(int argc, char* argv[]) {
             nextpi::start_request(gui, nextpi_enabled_set, nextpi_enabled, saved_enabled);
         if (req.wanted) {
             std::function<void(const std::string&)> report = [](const std::string& m) {
+                Log::uart()->error("NextPi: {}", m);   // kept by --log-file; stderr may go nowhere
                 std::fprintf(stderr, "error: NextPi: %s\n", m.c_str());
             };
             popts.download = sdcard::default_http_download;
@@ -1533,8 +1536,13 @@ int main(int argc, char* argv[]) {
                     };
             }
 #endif
-            std::string error;
-            const nextpi::ProvisionResult res = nextpi::provision(popts);
+            std::string error, qemu_path, qemu_img_path;
+            nextpi::ProvisionResult res;   // status Failed unless provision() runs
+            spec.dir = popts.dir.empty() ? nextpi::default_dir() : popts.dir;
+            if (PiQemu::find_programs(spec, qemu_path, qemu_img_path, error))
+                res = nextpi::provision(popts);
+            else
+                res.error = error;
             if (res.status == sdcard::ProvisionStatus::Ok) {
                 if (!res.warning.empty()) Log::uart()->warn("NextPi: {}", res.warning);
                 spec.dir = res.dir;

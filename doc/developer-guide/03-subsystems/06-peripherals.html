@@ -2688,7 +2688,23 @@ UART 1, the Pi GPIO header's UART. Three pieces:</p>
   copies <code>kernel.img</code> and the device tree out of the image's FAT32 boot
   partition with the lenient <code>fat32_read_tree</code>. A <code>release</code> marker records what
   is installed, so a changed release (or <code>latest</code> moving on) re-provisions and
-  discards the overlay.</p>
+  discards the overlay. The order matters: an archive already in the directory
+  is checked first (the <code>.md5</code> beside it is preferred, the mirror's is fetched
+  only if there is none) and installed with no question when it matches; nothing
+  is deleted before the user agrees to a download; a download step that fails
+  never deletes a complete file (the backend keeps the partial, writes the
+  archive's own name only when whole, and a complete <code>.part</code> whose rename failed
+  is finished next time with no request; Windows once reported failure for a
+  finished 5.7 GB file); only a fresh download whose MD5 differs is removed. <code>unprepared_reason</code> names the piece an
+  unusable directory lacks (the provisioner's own fetch files are the only
+  entries that do not count as a setup having been tried; a manual unpack does), and the question and the <code>[uart]</code> log both say it.
+  File existence goes through <code>sdcard::regular_file_exists</code>
+  (<code>std::filesystem</code>), never <code>::stat</code>: MinGW's <code>stat</code> is <code>stat64i32</code> and fails
+  with <code>EOVERFLOW</code> for files of 4 GiB or more (GH #358). The download itself is
+  resumable (contract and decision table: <code>08-media-and-loaders.md</code>): the
+  backend keeps <code>&lt;archive&gt;.part</code>, the question offers to continue it, and only a
+  finished download is renamed to the archive's name, so a partial is never
+  mistaken for an archive.</p>
 </li>
 <li>
 <p><strong><code>audio/pi_audio.{h,cpp}</code></strong> carries the Pi's sound into the mixer, the way
@@ -2705,7 +2721,9 @@ UART 1, the Pi GPIO header's UART. Three pieces:</p>
 </li>
 </ul>
 <p><code>main()</code> wires them: it merges <code>--nextpi</code>/<code>--no-nextpi</code> over the saved
-preference (GUI sessions only, as for the ESP), provisions, starts QEMU, and
+preference (GUI sessions only, as for the ESP), checks the QEMU programs
+(<code>PiQemu::find_programs</code>, so nobody is offered 6 GB for a Pi that cannot run),
+provisions, starts QEMU, and
 puts the link (<code>PiQemu::link_config</code>) in the <code>EmulatorConfig</code>. A Pi asked for on the command line
 that cannot start is a usage error; one enabled only in Preferences is reported
 in a dialog and the session goes on without it. Design:

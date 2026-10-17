@@ -34,7 +34,9 @@ SD card image**. Answer yes and JNEXT will:
 
 Both files are kept in `~/.jnext/sdcard/`, and together they take about 2 GB of
 disk space. The download happens once; every later run reuses it and starts
-immediately.
+immediately. If the download stops (network trouble, Cancel, closing JNEXT), the
+part already fetched is kept as `sn-emulator.zip.part` in `~/.jnext/sdcard`, and
+the next start continues from there (the question then says so).
 
 Answering no leaves JNEXT with nothing to boot from, so it explains the problem
 and exits.

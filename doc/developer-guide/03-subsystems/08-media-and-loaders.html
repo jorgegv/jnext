@@ -3356,6 +3356,28 @@ upstream tbblue did after the 24.11 release), only when it is that exact file.
 That recipe is versioned (<code>kFixedImageRecipe</code>, recorded in a <code>.recipe</code> sidecar
 next to the image). jnext never rebuilds an existing image because its recipe
 is old: the image holds the user's own files.</p>
+<p>Downloads are resumable (GH #358), by one contract for every caller of
+<code>DownloadFn</code> (the SD distro zip, the NextPi archive, its <code>.md5</code>, the mirror
+listing). The default backends (libcurl, WinHTTP) write <code>&lt;dest&gt;.part</code>, beside a
+resume record <code>&lt;dest&gt;.part.resume</code> (requested URL, validator, full size), and
+rename it over <code>dest</code> only when the byte count matches the advertised total, so
+<code>dest</code> exists only when complete and a transfer cut short is a failure on both
+OSes. A failure or cancel keeps the partial only if it holds bytes and the
+server sent a strong ETag (else Last-Modified); otherwise nothing is left. The
+next call asks for the rest (<code>Range</code>, <code>If-Range</code> with the validator verbatim)
+and decides before the first body byte: 206 with exactly the expected
+<code>Content-Range</code> appends; 200 (range ignored or representation changed) starts
+again from 0; 416 or a wrong 206 discards the partial and retries once as a
+plain GET. libcurl uses <code>CURLOPT_RANGE</code> with an explicit <code>If-Range</code> header, not
+<code>CURLOPT_RESUME_FROM_LARGE</code>, which turns a server's 200 into error 33 and loses
+the transfer. The file names, the record format and the decision table live once
+in <code>PartialDownload</code> (<code>sdcard_provisioner.cpp</code>); both backends only feed it
+headers and body. Residual corruption (a server that lies about its validator) is
+caught after the download: the NextPi MD5, the zip entry CRC. One classifier
+(<code>partial_state</code>) names the five states of a <code>.part</code>: a Complete one (whole file,
+only the final rename failed) is finished with no request and never refetched; an
+Oversize or Stale one is discarded; a Resumable one is continued, appended at an
+explicit 64-bit offset.</p>
 
 
 

@@ -7,8 +7,9 @@
 // keeping the SDL-only bundle off Windows 7.
 //
 // Both twins implement the same three functions declared in
-// sdcard_provisioner.h with identical contracts (partial file removed on
-// failure, ProgressFn false aborts with "cancelled by user"). The
+// sdcard_provisioner.h with identical contracts (the partial-file contract
+// documented there: `<dest>.part` kept for resuming, ProgressFn false aborts
+// with "cancelled by user"). The
 // whole-file #ifdef pair keeps file(GLOB_RECURSE) in src/core/CMakeLists.txt
 // correct on every platform: exactly one twin has content per build.
 #ifndef _WIN32
@@ -25,72 +26,96 @@
 #include <string>
 #include <vector>
 
-#include <sys/stat.h>
-
 namespace sdcard {
 
 // ---------------------------------------------------------------------------
 // Download (default impl uses libcurl — no shell-out)
 // ---------------------------------------------------------------------------
 namespace {
-bool file_exists_posix(const std::string& path) {
-    struct stat st{};
-    return ::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
-}
-
-// libcurl write callback: append received bytes to the destination FILE*.
-size_t curl_write_to_file(char* ptr, size_t size, size_t nmemb, void* userdata) {
-    FILE* f = static_cast<FILE*>(userdata);
-    return std::fwrite(ptr, size, nmemb, f);
-}
-
-// libcurl progress (xferinfo) callback context: wraps the caller's ProgressFn.
-struct CurlProgressCtx {
+// One libcurl attempt's state. The FILE is opened lazily, at the first body
+// byte, by PartialDownload::begin(), which decides from the headers of the LAST
+// response (redirects send several) whether to append, truncate or retry.
+struct CurlAttempt {
+    PartialDownload* part = nullptr;
     const ProgressFn* fn = nullptr;
-    bool aborted = false;
+    HttpResponseInfo resp;
+    std::string err;          // set when begin() refused the response
+    bool retry = false;       // begin() asked for one plain GET
+    bool aborted = false;     // the caller cancelled
+    bool write_failed = false;
+    uint64_t got = 0;         // body bytes of THIS response
 };
-// CURLOPT_XFERINFOFUNCTION: forward (dlnow, dltotal) to the ProgressFn.
-// Returning nonzero makes curl abort the transfer with
-// CURLE_ABORTED_BY_CALLBACK, which we surface as a download failure.
-int curl_xferinfo(void* p, curl_off_t dltotal, curl_off_t dlnow,
-                  curl_off_t /*ultotal*/, curl_off_t /*ulnow*/) {
-    auto* ctx = static_cast<CurlProgressCtx*>(p);
-    if (ctx && ctx->fn && *ctx->fn) {
-        const bool keep_going = (*ctx->fn)(static_cast<uint64_t>(dlnow),
-                                           static_cast<uint64_t>(dltotal));
-        if (!keep_going) { ctx->aborted = true; return 1; }
+
+// Returns false when the transfer must stop (retry / error already recorded).
+bool begin_once(CurlAttempt& a) {
+    if (a.part->begun()) return true;
+    switch (a.part->begin(a.resp, a.err)) {
+        case PartialDownload::Begin::Ok:    return true;
+        case PartialDownload::Begin::Retry: a.retry = true; return false;
+        default:                            return false;
     }
+}
+
+size_t curl_header(char* ptr, size_t size, size_t nmemb, void* userdata) {
+    auto* a = static_cast<CurlAttempt*>(userdata);
+    parse_response_line(std::string(ptr, size * nmemb), a->resp);
+    return size * nmemb;
+}
+
+size_t curl_write(char* ptr, size_t size, size_t nmemb, void* userdata) {
+    auto* a = static_cast<CurlAttempt*>(userdata);
+    if (!begin_once(*a)) return 0;   // 0 aborts the transfer (CURLE_WRITE_ERROR)
+    if (!a->part->write(ptr, size * nmemb)) { a->write_failed = true; return 0; }
+    a->got += size * nmemb;
+    return size * nmemb;
+}
+
+// CURLOPT_XFERINFOFUNCTION: the caller's ProgressFn gets the bytes already on
+// disk added to this response's; returning nonzero aborts the transfer.
+int curl_xferinfo(void* p, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+    auto* a = static_cast<CurlAttempt*>(p);
+    if (a->fn && *a->fn && !a->part->report(*a->fn, a->got)) { a->aborted = true; return 1; }
     return 0;
 }
-} // namespace
 
-bool default_http_download(const std::string& url, const std::string& dest_path,
-                           const ProgressFn& progress, std::string& err) {
-    Log::emulator()->info("sdcard: downloading via libcurl: {}", url);
+enum class Outcome { Done, Retry, Failed };
 
-    FILE* out = std::fopen(dest_path.c_str(), "wb");
-    if (!out) { err = "cannot create output file: " + dest_path; return false; }
+Outcome attempt_download(const std::string& url, const std::string& dest, const ProgressFn& progress,
+                         bool allow_resume, std::string& err) {
+    PartialDownload part(url, dest, allow_resume);
+    if (part.complete()) {   // only its rename was missing: no request (GH #358)
+        if (!part.finish(err)) return Outcome::Failed;
+        if (!regular_file_exists(dest)) { err = "produced no file: " + dest; return Outcome::Failed; }
+        return Outcome::Done;
+    }
+    CurlAttempt a;
+    a.part = &part;
+    a.fn = progress ? &progress : nullptr;
 
     CURL* curl = curl_easy_init();
-    if (!curl) {
-        std::fclose(out);
-        std::remove(dest_path.c_str());
-        err = "curl_easy_init failed";
-        return false;
-    }
-
-    CurlProgressCtx prog_ctx;
-    prog_ctx.fn = progress ? &progress : nullptr;
-
+    if (!curl) { err = "curl_easy_init failed"; return Outcome::Failed; }
+    struct curl_slist* headers = nullptr;
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); // follow redirects
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);    // HTTP >= 400 -> error
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_to_file);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, curl_header);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &a);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &a);
+    // NOT CURLOPT_RESUME_FROM_LARGE: it turns a server's 200 (range ignored)
+    // into CURLE_RANGE_ERROR and loses the transfer. CURLOPT_RANGE hands a 200
+    // back as is, and PartialDownload::begin() decides what to do with it.
+    std::string range;
+    if (part.ranged()) {
+        range = part.range_value().substr(6);   // "bytes=N-" -> "N-"
+        curl_easy_setopt(curl, CURLOPT_RANGE, range.c_str());
+        headers = curl_slist_append(headers, ("If-Range: " + part.if_range_value()).c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    }
     if (progress) {
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, curl_xferinfo);
-        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &prog_ctx);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &a);
     } else {
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
     }
@@ -104,28 +129,53 @@ bool default_http_download(const std::string& url, const std::string& dest_path,
     long http_code = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
     curl_easy_cleanup(curl);
+    curl_slist_free_all(headers);
 
-    const bool flush_ok = (std::fflush(out) == 0);
-    std::fclose(out);
-
+    if (rc == CURLE_OK && !part.begun()) begin_once(a);   // an empty body never called write
+    if (a.retry) return Outcome::Retry;
+    if (rc != CURLE_OK && http_code == 416 && part.ranged()) {
+        discard_partial(dest);
+        return Outcome::Retry;
+    }
+    if (!a.err.empty()) { err = a.err; return Outcome::Failed; }   // begin() refused (it settled the partial)
+    if (a.aborted || rc == CURLE_ABORTED_BY_CALLBACK) {
+        part.cancelled();
+        err = "cancelled by user";
+        return Outcome::Failed;
+    }
+    if (a.write_failed) {
+        err = "write error on " + partial_path(dest);
+        part.fail(err, false);
+        return Outcome::Failed;
+    }
     if (rc != CURLE_OK) {
-        std::remove(dest_path.c_str());
-        if (rc == CURLE_ABORTED_BY_CALLBACK || prog_ctx.aborted)
-            err = "cancelled by user";
-        else
-            err = curl_easy_strerror(rc);
-        return false;
+        err = curl_easy_strerror(rc);
+        part.fail(err, rc == CURLE_PARTIAL_FILE);
+        return Outcome::Failed;
     }
-    if (!flush_ok) {
-        std::remove(dest_path.c_str());
-        err = "write/flush error on " + dest_path;
-        return false;
+    if (!part.finish(err)) return Outcome::Failed;
+    if (!regular_file_exists(dest)) {
+        err = "produced no file: " + dest;
+        return Outcome::Failed;
     }
-    if (!file_exists_posix(dest_path)) {
-        err = "produced no file: " + dest_path;
-        return false;
+    return Outcome::Done;
+}
+} // namespace
+
+bool default_http_download(const std::string& url, const std::string& dest_path,
+                           const ProgressFn& progress, std::string& err) {
+    Log::emulator()->info("sdcard: downloading via libcurl: {}", url);
+    // At most two attempts: the first may ask for the rest of a partial; if the
+    // server refuses that (416, or a 206 that is not the range asked for) the
+    // second is a plain GET. Never a loop, so a misbehaving server is asked twice.
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        err.clear();
+        const Outcome o = attempt_download(url, dest_path, progress, attempt == 0, err);
+        if (o == Outcome::Done) return true;
+        if (o == Outcome::Failed) return false;
     }
-    return true;
+    err = "the server keeps refusing a plain request";
+    return false;
 }
 
 // ---------------------------------------------------------------------------
