@@ -1199,6 +1199,7 @@ TAG-08 and TAG-09 write more of it).
 | L2LOG-TAG-05 | Machine re-init (a NEX load) with the log armed | `init()`, arm, write; then a frame starts and write   | Log empty and off until the frame starts, then records — pass |
 | L2LOG-TAG-08 | Consecutive frames, each logging fewer writes (layer2.vhd:177-188) | Frame 1: A twice, B and C once (4 entries); frame 2: A once; frame 3: none | Frame 2: log size 1, A starts from frame 1's last value, B and C live; frame 3: log size 0, no writes — pass |
 | L2LOG-TAG-09 | A frame that outgrows the log's storage, then a re-init (layer2.vhd:177-188) | 16 384 addresses of bank 8 written at rows 20 and 40 (32 768 entries); `sram_log_stop()`; next frame 3 writes | Every address: frame-start, first and second value at rows 10/30/50; after the stop the log is empty and off; the next frame replays its 3 writes, the rest read live — pass |
+| L2LOG-TAG-10 | Render passes interleaved with writes in one frame (layer2.vhd:177-188) | A written at (30, 0); one pass reads it at (50, 100); A written at (45, 0); passes read it at (50, 100), (40, 100), (20, 100) | 0x22 first, then 0x33, 0x22 and the frame-start 0x11: no pass changes what a later one reads — pass |
 
 **Total: ~178 test cases across 30 categories.**
 

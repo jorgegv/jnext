@@ -151,17 +151,25 @@ public:
         record_unchecked_(line, hc, addr, prev, value);
     }
 
-    /// Reset every replay cursor to the frame-start state (call before the
-    /// first apply_changes_for_line of a render pass; the debugger's second
-    /// pass re-walks the same log).
-    void rewind_to_baseline() {
-        target_line_ = 0;
-        for (Slot *s = slots_.data(), *e = s + slots_n_; s != e; ++s) {
-            s->cursor = s->first;
-            s->lastkey = 0;
-            s->curval = s->prev0;
-        }
-    }
+    /// Start a render pass (call before its first apply_changes_for_line; the
+    /// debugger's second pass re-walks the same log). O(1): the replay cursors
+    /// stay where the last read left them, because read() answers from any
+    /// state that its own reads and record_unchecked_() leave a slot in:
+    ///   (I) every chain entry before `cursor` (all of them when it is kNone)
+    ///       has a key <= `lastkey`, and `curval` is the value of the last of
+    ///       them (`prev0` if there is none).
+    /// read() at key K returns the last value of the chain's longest prefix
+    /// whose keys are all <= K (`prev0` if that prefix is empty). From a state
+    /// with (I), a K below `lastkey` replays from the chain head; any other K
+    /// continues from `cursor`, and every entry before it has a key <= lastkey
+    /// <= K, so it lies in K's prefix too. Either way the walk ends where K's
+    /// prefix ends, and the slot keeps (I) with lastkey = K. record_unchecked_()
+    /// keeps (I): a new slot starts with an empty prefix, and an append only
+    /// adds after `last`, moving an exhausted cursor (kNone) onto the new
+    /// entry. A per-slot reset here (cursor = first, lastkey = 0, curval =
+    /// prev0) would be one more state with (I), so it could change no read
+    /// (GH #362 perf, K7).
+    void rewind_to_baseline() { target_line_ = 0; }
 
     /// Set the scanline subsequent reads resolve against. O(1).
     void apply_changes_for_line(int line) { target_line_ = static_cast<uint16_t>(line); }

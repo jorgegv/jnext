@@ -3384,6 +3384,40 @@ static void test_l2log_tags() {
                   n1, int(w1), bad, first_bad, n_stop, int(w_stop), int(rec_stop), n2,
                   bad2));
     }
+
+    // L2LOG-TAG-10 — render passes interleaved with writes in one frame: a
+    // debugger view (or a rewind's re-render) while the machine is paused
+    // mid-frame, then the frame's own render. A fetch reads the last write at
+    // or before its instant (layer2.vhd:177-188); a render pass is not a
+    // hardware event, so no pass may change what a later one reads. Each
+    // seen() is one pass (rewind, then the row), as Renderer and the debugger
+    // replay make it. A is written at (30, 0); a pass reads it at (50, 100);
+    // the machine runs on and writes it again at (45, 0); the next pass reads
+    // (50, 100) again, and later passes fetch it at earlier instants. Coarse tags.
+    {
+        L2LogBed b;
+        b.mmu.set_page(4, static_cast<uint8_t>(kL2Sram >> 13));
+        const uint16_t cpu = static_cast<uint16_t>(0x8000u + (kL2Sram & 0x1FFFu));
+        auto put = [&](uint8_t v, int line) {
+            b.mmu.attr_mux_set_current_line(line);
+            b.mmu.attr_mux_set_current_hc(0);
+            b.mmu.write(cpu, v);
+        };
+        put(0x22, 30);
+        const uint8_t p1 = b.seen(50, 100);   // the view, paused at line 40
+        put(0x33, 45);                         // the machine runs on
+        const uint8_t p2 = b.seen(50, 100);   // the frame's own render
+        const uint8_t p3 = b.seen(40, 100);   // later passes, earlier instants
+        const uint8_t p4 = b.seen(20, 100);
+        check("L2LOG-TAG-10",
+              "layer2.vhd:177-188 - a fetch reads the last write at or before its instant "
+              "whatever render passes ran earlier in the frame: a write after a pass "
+              "that read the byte is seen by the next pass, and a pass that fetches it "
+              "at an earlier instant sees the earlier value",
+              p1 == 0x22 && p2 == 0x33 && p3 == 0x22 && p4 == 0x11,
+              fmt("@50 %02X (22), then write: @50 %02X (33) @40 %02X (22) @20 %02X (11)",
+                  p1, p2, p3, p4));
+    }
 }
 
 int main() {

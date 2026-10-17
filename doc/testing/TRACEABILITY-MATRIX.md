@@ -22,7 +22,7 @@ mentions them, so a test can no longer be absent from this document.
 <!-- BEGIN GENERATED SUMMARY — written by test/refresh-traceability-matrix.pl; do not edit by hand -->
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
-| Memory/MMU                                 |   298 |  298 |    0 |    0 |       0 |          0 |
+| Memory/MMU                                 |   299 |  299 |    0 |    0 |       0 |          0 |
 | ULA Video                                  |   155 |  155 |    0 |    0 |       0 |          0 |
 | Layer2                                     |   233 |  233 |    0 |    0 |       0 |          0 |
 | Sprites                                    |   217 |  217 |    0 |    0 |       0 |          0 |
@@ -52,7 +52,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: esp_sigpipe_test                |     2 |    2 |    0 |    0 |       0 |          0 |
 | ESP-01 AT engine                           |   499 |  499 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
-| Companion: mmu_integration_test            |   123 |  123 |    0 |    0 |       0 |          0 |
+| Companion: mmu_integration_test            |   124 |  124 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: compositor_integration_test     |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: copper_integration_test         |    30 |   30 |    0 |    0 |       0 |          0 |
@@ -66,9 +66,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    49 |   49 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    65 |   65 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5877 | 5877 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5879 | 5879 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5877**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5430**. Rows the 150 suites declared in `test/unit-tests.conf` run live: **13093**.
+Rows the sections above carry: **5879**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5431**. Rows the 150 suites declared in `test/unit-tests.conf` run live: **13094**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -426,6 +426,7 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | L2LOG-TAG-05 | layer2.vhd hc_eff = hc + 1 - after a re-init the SRAM log is off until the first frame starts (loader writes are not logged), then records again | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3178 |
 | L2LOG-TAG-08 | layer2.vhd:177-188 - a fetch reads the SRAM as it is at its instant and a frame boundary resets nothing: a frame logging fewer writes than the one before sees only its own, over the bytes the earlier frame left | layer2.vhd:177-188 | pass | test/mmu/mmu_integration_test.cpp:3302 |
 | L2LOG-TAG-09 | layer2.vhd:177-188 - every fetch reads the last write at or before its instant however many writes a frame holds (32768 entries, 16384 addresses), and after a re-init frees the log the next frame records again | layer2.vhd:177-188 | pass | test/mmu/mmu_integration_test.cpp:3376 |
+| L2LOG-TAG-10 | layer2.vhd:177-188 - a fetch reads the last write at or before its instant whatever render passes ran earlier in the frame: a write after a pass that read the byte is seen by the next pass, and a pass that fetches it at an earlier instant sees the earlier value | layer2.vhd:177-188 | pass | test/mmu/mmu_integration_test.cpp:3412 |
 | N8E-05a | NR 0x8E read-back {dffd(0),7FFD(2:0),1,1FFD(0),1FFD(2),bit0} — VHDL zxnext.vhd:6158-6159 | zxnext.vhd:6158-6159 | pass | test/mmu/mmu_test.cpp:1261 |
 | N8E-05b | NR 0x8E read-back bit 0 flips with 1FFD(0) selector — VHDL zxnext.vhd:6159 | zxnext.vhd:6159 | pass | test/mmu/mmu_test.cpp:1278 |
 | EFP-01 | port 7FFD/1FFD select this machine's legacy ROM pages in slots 0/1 (VHDL zxnext.vhd:2981-3008) | zxnext.vhd:2981-3008 | pass | test/mmu/mmu_test.cpp:1865 |
@@ -5504,6 +5505,7 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | L2LOG-TAG-04 | layer2.vhd hc_eff = hc + 1 - a DMA/debugger write after a CPU write takes the coarse position, not the CPU's | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3254 |
 | L2LOG-TAG-08 | layer2.vhd:177-188 - a fetch reads the SRAM as it is at its instant and a frame boundary resets nothing: a frame logging fewer writes than the one before sees only its own, over the bytes the earlier frame left | layer2.vhd:177-188 | pass | test/mmu/mmu_integration_test.cpp:3302 |
 | L2LOG-TAG-09 | layer2.vhd:177-188 - every fetch reads the last write at or before its instant however many writes a frame holds (32768 entries, 16384 addresses), and after a re-init frees the log the next frame records again | layer2.vhd:177-188 | pass | test/mmu/mmu_integration_test.cpp:3376 |
+| L2LOG-TAG-10 | layer2.vhd:177-188 - a fetch reads the last write at or before its instant whatever render passes ran earlier in the frame: a write after a pass that read the byte is seen by the next pass, and a pass that fetches it at an earlier instant sees the earlier value | layer2.vhd:177-188 | pass | test/mmu/mmu_integration_test.cpp:3412 |
 
 ### Companion integration suite — `test/ula/ula_integration_test.cpp`
 
