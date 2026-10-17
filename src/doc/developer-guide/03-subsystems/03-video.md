@@ -277,6 +277,11 @@ baselines directly, which is what every replayed read of the row would return,
 and keeps one block per tile. A hot offset anywhere sends the row through
 `render_tiles_<true>`, the replay. Both instances come from one loop source, and
 `tilemap_test` TM-BR-11..21 draw each mode both ways and require the same output.
+The replay, like LoRes' per-pixel read, goes through
+`AttributeMux::read_prepared_hot()`: a byte that is not hot is read inline and
+only a hot one walks its chain, out of line. The ULA keeps `read_prepared()`,
+whose walk is inlined into its column loop, since a multicolour frame reads hot
+attributes on every line.
 
 Two details there are load-bearing. Writes tagged during vblank never match a
 visible row, so `flush_remaining_changes` must drain them or they are lost

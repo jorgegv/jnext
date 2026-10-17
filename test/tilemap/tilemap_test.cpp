@@ -2789,6 +2789,42 @@ void group17_beam_fetch() {
               "byte stored past the recorder, an unaddressed write still changes "
               "nothing (both loops answer from the frame's bytes; a live read differs)");
     }
+
+    // TM-BR-22: TM-BR-09's split with the map in the bank 7 BRAM (NR 0x6E
+    // bit 7). The bank-7 map entry read in group 1 is fetched again, at
+    // group 1's instant, after the write that group 0 did not see.
+    {
+        TmBeamBed b(false, 0x80);                 // map at bank 7 + 0x0000
+        b.tm.set_scroll_x_lsb(4);
+        b.begin();
+        b.wr(b7(1 * 2), 2, 3, tm_instant(8, 1) - 4);
+        const bool half0_old = b.px(3, 2 * 5) == b.colour(1);   // x 4..7 (group 0)
+        const bool half1_new = b.px(3, 2 * 9) == b.colour(2);   // x 8..11 (group 1)
+        check_pred("TM-BR-22", half0_old && half1_new,
+              "tilemap.vhd:260-300, 400-402 + zxnext.vhd:6663 — a map in the bank 7 "
+              "BRAM (tm_mem_bank7_o) is fetched again in every group like bank 5's: "
+              "a tile split by fine scroll reads it at both instants (whc -8, whc 0)");
+    }
+
+    // TM-BR-23: TM-BR-10's rotated split with the tile definitions in the
+    // bank 7 BRAM (NR 0x6F bit 7): group 1's per-pixel pattern reads come
+    // from the bank 7 port at group 1's instant.
+    {
+        TmBeamBed b;
+        for (int t = 1; t <= 3; ++t) fill_tile_pattern(b.ram, BANK7 + 0x1000, t, t);
+        b.tm.set_def_base(0x90);                  // definitions at bank 7 + 0x1000
+        write_map2(b.ram, BANK5, 1, 0, 40, 1, 0x02);   // tile 1 rotated
+        b.tm.set_scroll_x_lsb(4);
+        b.begin();
+        for (int i = 0; i < 32; ++i)
+            b.wr(b7(0x1000 + 32 + i), 0x33, 3, tm_instant(8, 1) - 4);
+        const bool half0_old = b.px(3, 2 * 5) == b.colour(1);   // x 4..7 (group 0)
+        const bool half1_new = b.px(3, 2 * 9) == b.colour(3);   // x 8..11 (group 1)
+        check_pred("TM-BR-23", half0_old && half1_new,
+              "tilemap.vhd:260-300, 323-324, 400-402 + zxnext.vhd:6663 — a rotated "
+              "tile with its definitions in the bank 7 BRAM, split by fine scroll: "
+              "group 1's per-pixel reads see the write group 0 (whc -8) did not");
+    }
 }
 
 int main() {

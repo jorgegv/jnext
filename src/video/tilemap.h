@@ -364,11 +364,14 @@ public:
     static constexpr size_t MAX_NR6B_CHANGES_PER_FRAME = 1024;
 
     /// Fetch through the bank-7 flag: BRAM when wired, page-14 fallback.
-    /// `hc` is the raw horizontal instant of the fetch, used when the beam
-    /// replay is wired and started (set_beam_mux); the caller has called
-    /// prepare() on the muxes for the row. `hot`, if given, is set when the
-    /// byte is hot (AttributeMux::is_hot: its value depends on `hc`).
-    uint8_t vram_read(const Ram& ram, uint32_t addr, uint16_t hc, bool* hot = nullptr) const;
+    /// `hc` is the raw horizontal instant of the fetch, used for a bank whose
+    /// beam replay is wired and started: `m5` / `m7` are the row's started
+    /// muxes (null = read live), and the caller has called prepare() on them.
+    /// `hot`, if given, is set when the byte is hot (AttributeMux::is_hot:
+    /// its value depends on `hc`).
+    uint8_t vram_read(const Ram& ram, uint32_t addr, uint16_t hc,
+                      const AttributeMux* m5, const AttributeMux* m7,
+                      bool* hot) const;
 
 private:
     const uint8_t* bank7_bram_ = nullptr;  ///< dedicated bank-7 BRAM

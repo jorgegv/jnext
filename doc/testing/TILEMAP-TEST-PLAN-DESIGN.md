@@ -512,6 +512,15 @@ offset / 0x3FFF hot) and that the scene has at least 16 distinct cell values.
 | TM-BR-20 | Map in the bank 7 BRAM, definitions in bank 5 | `tilemap.vhd:400-402`, `zxnext.vhd:6660-6664` | Both loops equal — pass |
 | TM-BR-21 | TM-BR-20 with a bank 7 map byte and a bank 5 definition byte stored past the recorder after the frame starts | `tilemap.vhd:393-403` | Both loops equal (both answer from the frame's bytes); a bed reading live memory differs — pass |
 
+TM-BR-22/23 (GH #362 perf) repeat TM-BR-09/10 with the bytes in the bank 7
+BRAM, which the replay reads through its own mux (`tm_mem_bank7_o` picks the
+port per fetch, for the map and the definitions separately).
+
+| ID | Test | VHDL Basis | Verify |
+|----|------|-----------|--------|
+| TM-BR-22 | TM-BR-09's split (fine X scroll 4, write between the two groups' fetches) with the map in bank 7 (NR 0x6E = 0x80) | `tilemap.vhd:260-300, 400-402`, `zxnext.vhd:6663` | Group 0 half old, group 1 half new — pass |
+| TM-BR-23 | TM-BR-10's rotated split with the tile definitions in bank 7 (NR 0x6F = 0x90); pattern bytes written between the instants | `tilemap.vhd:260-300, 323-324, 400-402`, `zxnext.vhd:6663` | Group 0 half old, group 1 half new — pass |
+
 ## Test Execution
 
 ### Building test programs

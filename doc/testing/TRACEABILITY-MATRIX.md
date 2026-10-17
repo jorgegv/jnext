@@ -26,7 +26,7 @@ mentions them, so a test can no longer be absent from this document.
 | ULA Video                                  |   155 |  155 |    0 |    0 |       0 |          0 |
 | Layer2                                     |   228 |  228 |    0 |    0 |       0 |          0 |
 | Sprites                                    |   217 |  217 |    0 |    0 |       0 |          0 |
-| Tilemap                                    |   119 |  119 |    0 |    0 |       0 |          0 |
+| Tilemap                                    |   121 |  121 |    0 |    0 |       0 |          0 |
 | Copper                                     |   110 |  110 |    0 |    0 |       0 |          0 |
 | Compositor                                 |   294 |  294 |    0 |    0 |       0 |          0 |
 | Audio                                      |   244 |  244 |    0 |    0 |       0 |          0 |
@@ -66,9 +66,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    49 |   49 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    65 |   65 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5882 | 5882 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5884 | 5884 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5882**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5437**. Rows the 150 suites declared in `test/unit-tests.conf` run live: **13100**.
+Rows the sections above carry: **5884**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5439**. Rows the 150 suites declared in `test/unit-tests.conf` run live: **13102**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -1252,6 +1252,8 @@ Notes and rationale: [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md).
 | TM-BR-19 | tilemap.vhd:412-424 — clip window x 0x13..0x8A, y 0x10..0xE0: an unaddressed write changes nothing, clipped cells included | tilemap.vhd:412-424 | pass | test/tilemap/tilemap_test.cpp:2759 |
 | TM-BR-20 | tilemap.vhd:400-402, zxnext.vhd:6660-6664 — map in bank 7 (NR 0x6E bit 7, tm_mem_bank7_o), definitions in bank 5: an unaddressed write changes nothing | tilemap.vhd:400-402, zxnext.vhd:6660-6664 | pass | test/tilemap/tilemap_test.cpp:2766 |
 | TM-BR-21 | tilemap.vhd:393-403 — with a bank 7 map byte and a bank 5 definition byte stored past the recorder, an unaddressed write still changes nothing (both loops answer from the frame's bytes; a live read differs) | tilemap.vhd:393-403 | pass | test/tilemap/tilemap_test.cpp:2787 |
+| TM-BR-22 | tilemap.vhd:260-300, 400-402 + zxnext.vhd:6663 — a map in the bank 7 BRAM (tm_mem_bank7_o) is fetched again in every group like bank 5's: a tile split by fine scroll reads it at both instants (whc -8, whc 0) | tilemap.vhd:260-300,400-402, zxnext.vhd:6663 | pass | test/tilemap/tilemap_test.cpp:2803 |
+| TM-BR-23 | tilemap.vhd:260-300, 323-324, 400-402 + zxnext.vhd:6663 — a rotated tile with its definitions in the bank 7 BRAM, split by fine scroll: group 1's per-pixel reads see the write group 0 (whc -8) did not | tilemap.vhd:260-300,323-324,400-402, zxnext.vhd:6663 | pass | test/tilemap/tilemap_test.cpp:2823 |
 | TM-CB1 | VHDL tilemap.vhd:189 — mode_i <= control_i(6): only bit 6 selects 80-column mode | tilemap.vhd:189 | pass | test/tilemap/tilemap_test.cpp:2125 |
 | TM-CB2 | VHDL zxnext.vhd NR 0x6B — nr_6b_tm_en <= nr_wr_dat(7): only bit 7 enables the tilemap | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:2139 |
 | TM-CB3 | VHDL tilemap.vhd:194 — mode_512_i <= control_i(1): only bit 1 selects 512-tile mode | tilemap.vhd:194 | pass | test/tilemap/tilemap_test.cpp:2153 |

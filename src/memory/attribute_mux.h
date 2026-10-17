@@ -172,6 +172,11 @@ public:
     uint16_t whc_hc(int w) const { return static_cast<uint16_t>(beam::whc_raw_hc(hc_origin_, w)); }
     uint16_t phc_hc(int p) const { return static_cast<uint16_t>(beam::phc_raw_hc(hc_origin_, p)); }
 
+    /// The `hc_origin` start_frame() stored: whc_hc() is
+    /// beam::whc_raw_hc(hc_origin(), w), for a caller that keeps the origin
+    /// in a local across a loop.
+    int hc_origin() const { return hc_origin_; }
+
     /// Value of bank offset `offset` as the ULA fetch at horizontal instant
     /// `hc` of the scanline set by apply_changes_for_line() reads it: the
     /// last write at or before (line, hc), else the frame baseline.
@@ -225,6 +230,18 @@ public:
         return s.curval;
     }
 
+    /// read_prepared() that also sets `hot` when the offset is hot (is_hot(),
+    /// whose bounds check the caller's guarantee makes redundant). Only the
+    /// non-hot read is inline; the chain walk is the out-of-line read_hot_(),
+    /// for the tilemap's and LoRes' per-byte reads (GH #362 perf). The ULA
+    /// keeps read_prepared(): its walk is inlined into its column loop, and
+    /// it reads hot attributes on every line of a multicolour frame.
+    [[gnu::always_inline]] uint8_t read_prepared_hot(uint32_t offset, uint16_t hc, bool& hot) const {
+        if (!hot_[offset]) return base_[offset];
+        hot = true;
+        return read_hot_(offset, hc);
+    }
+
     /// Standard attribute plane read (offset 0..767 of 0x1800-0x1AFF) at the
     /// primary attribute instant of its column.
     uint8_t current(int offset) const {
@@ -261,6 +278,12 @@ private:
 
     void reset_touched_();
     void link_pending_() const;
+
+    /// read_prepared_hot()'s hot path: read_prepared() itself, kept out of
+    /// line so its callers' loops carry only the non-hot read.
+    [[gnu::noinline]] uint8_t read_hot_(uint32_t offset, uint16_t hc) const {
+        return read_prepared(offset, hc);
+    }
 
     uint32_t              nbytes_    = 0;
     // Frame-start bytes plus the folded leading (0,0) writes (class comment);
