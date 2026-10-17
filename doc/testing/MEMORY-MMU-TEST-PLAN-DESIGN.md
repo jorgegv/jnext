@@ -1172,20 +1172,29 @@ at raw line `vblank_top + 150`.
 
 `AttributeMux::read()` answers "what did the ULA fetch at (line, hc)" from a
 per-offset chain walked by a forward cursor. Rendering is covered by
-`ula_test` S19 (VMUX-01..12); these three rows pin the log's own contract (the render, flush, rewind sequence is VMUX-15).
+`ula_test` S19 (VMUX-01..12); these rows pin the log's own contract (the render, flush, rewind sequence is VMUX-15).
+G12-MUX-15..17 (GH #362 perf) cover writes tagged (0,0): a store before
+framebuffer row 0 (the frame interrupt fires at vc 0, the display starts at
+`c_min_vactive`) lands in the dual-port bank-5 RAM before every fetch of the
+frame, and the mux folds an offset's leading run of such writes into its
+baseline instead of chaining them.
 
 | ID          | Test                                             | Setup                                                         | Expected                                              |
 |-------------|--------------------------------------------------|---------------------------------------------------------------|-------------------------------------------------------|
 | G12-MUX-12  | Read earlier than the previous read of the byte  | Baseline 0x11, 0x22 @(40,100), 0x33 @(40,200); read @300, @150, @50 | 0x33, 0x22, 0x11                              |
 | G12-MUX-13  | `rewind_to_baseline()` restarts every cursor     | Second pass over the same log; then the previous line         | 0x22 @(40,150); baseline 0x11 on line 39              |
 | G12-MUX-14  | Second pass at the same instant after more writes | Cursor exhausted, write appended; read with and without a rewind | 0x55 both (cursor re-arm and rewind reset each pinned) |
+| G12-MUX-15  | A pre-row-0 write, then an in-display write to the same byte | Baseline 0x11; 0x22 at raw line 1; 0x33 @(40,200); reads in order, out of order, after a rewind | 0x22 at (0,0), (40,199), (40,150) and rewound; 0x33 at (40,200) and (41,0) |
+| G12-MUX-16  | A (0,0) write after a later-tagged one is not folded | Baseline 0x44; CPU 0x55 @(0,50); coarse 0x66 @(0,0) | 0x44 at (0,10); 0x66 on row 1; `log_size()` 2 |
+| G12-MUX-17  | Two pre-row-0 writes with a mid-frame pass between them | Baseline 0x77 (FRAMES); 0x78 at raw line 1; pass; 0x79 at raw line 2 | Pass reads 0x78; rows 0 and 191 read 0x79; `log_size()` 2 |
 
 ### Category 31: SRAM beam-log write tags (GH #362)
 
 Layer 2 fetches the SRAM bitmap at beam time, so `Mmu::write()` logs every SRAM
 store in `SramBeamLog` with the same position source the VRAM mux uses (a CPU
 write's own `(line, hc)`, every other writer the coarse one). Read back through
-`SramBeamLog::read()` in `mmu_integration_test` (bare `Mmu`, one byte of bank 8).
+`SramBeamLog::read()` in `mmu_integration_test` (bare `Mmu`, one byte of bank 8;
+TAG-08 and TAG-09 write more of it).
 
 | ID           | Test                                         | Setup                                                    | Expected                                          |
 |--------------|----------------------------------------------|----------------------------------------------------------|---------------------------------------------------|
@@ -1196,8 +1205,15 @@ write's own `(line, hc)`, every other writer the coarse one). Read back through
 | L2LOG-TAG-06 | Warm start of a `--load`: init, `load_state`, loader writes, with the log armed | Same, through `load_state()` | Log empty and off until the frame starts, then records — pass |
 | L2LOG-TAG-07 | Soft reset (init with preserve_memory) mid-frame | Log armed, write, soft re-init, write | Still recording (zxnext.vhd:3905-3911) — pass |
 | L2LOG-TAG-05 | Machine re-init (a NEX load) with the log armed | `init()`, arm, write; then a frame starts and write   | Log empty and off until the frame starts, then records — pass |
+| L2LOG-TAG-08 | Consecutive frames, each logging fewer writes (layer2.vhd:177-188) | Frame 1: A twice, B and C once (4 entries); frame 2: A once; frame 3: none | Frame 2: log size 1, A starts from frame 1's last value, B and C live; frame 3: log size 0, no writes — pass |
+| L2LOG-TAG-09 | A frame that outgrows the log's storage, then a re-init (layer2.vhd:177-188) | 16 384 addresses of bank 8 written at rows 20 and 40 (32 768 entries); `sram_log_stop()`; next frame 3 writes | Every address: frame-start, first and second value at rows 10/30/50; after the stop the log is empty and off; the next frame replays its 3 writes, the rest read live — pass |
+| L2LOG-TAG-10 | Render passes interleaved with writes in one frame (layer2.vhd:177-188) | A written at (30, 0); one pass reads it at (50, 100); A written at (45, 0); passes read it at (50, 100), (40, 100), (20, 100) | 0x22 first, then 0x33, 0x22 and the frame-start 0x11: no pass changes what a later one reads — pass |
 
-**Total: ~178 test cases across 30 categories.**
+**Total: 211 test cases across 31 categories.** Counted from the catalogue
+above (2026-10-17), one per row ID: 230 rows, less the 19 struck through, which
+are retired or, for CON-01 … CON-11, re-homed to the Contention plan (P7F-11,
+P1F-07, EF7-06, CON-01 … CON-12b, BOOT-FDC-01 … BOOT-FDC-03). Category 11.x
+counts as one of the 31; there is no Category 27.
 
 ## Test Approach
 

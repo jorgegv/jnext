@@ -1882,13 +1882,23 @@ private:
     /// dedicated bank 5 / bank 7 VRAM buffers of a Next machine, which Layer 2
     /// cannot fetch. Call BEFORE the store: the log keeps the byte it overwrites.
     void sram_log_write_(const uint8_t* dest, uint8_t val) {
-        if (!sram_log_.recording()) return;
+        if (sram_log_.recording()) sram_log_record_(dest, val);
+    }
+
+    /// The rest of sram_log_write_(), out of line on purpose: Mmu::write() then
+    /// only tests recording() inline, so a store the log does not record pays
+    /// nothing more, and the record path is one leaf with no callee-saved
+    /// register on its straight line (inlined, it took five).
+    [[gnu::noinline]] void sram_log_record_(const uint8_t* dest, uint8_t val) {
         // Unsigned: a `dest` below the SRAM wraps to a huge offset and is refused too.
         const size_t off = static_cast<size_t>(dest - sram_base_);
         if (off >= sram_size_) return;
         uint16_t line, hc;
         write_tag_(line, hc);
-        sram_log_.record_write(line, hc, static_cast<uint32_t>(off), *dest, val);
+        // recording() (tested by the caller) and the bound above are the two
+        // conditions record_unchecked_() relies on: attr_mux_start_frame() sets
+        // the log's bound to sram_size_.
+        sram_log_.record_unchecked_(line, hc, static_cast<uint32_t>(off), *dest, val);
     }
 
     /// Pointer to the live bank-5 VRAM (16 KB: pages 0x0A then 0x0B,

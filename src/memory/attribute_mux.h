@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 #include "memory/beam_counters.h"
@@ -10,8 +11,8 @@
 // and LoRes by GH #362).
 //
 // VHDL authority: cores/zxnext/src/video/zxula.vhd (ULA), tilemap.vhd and
-// lores.vhd (the other two readers; their fetch instants are at whc_hc() /
-// phc_hc() below).
+// lores.vhd (the other two readers; their fetch instants are on the whc and
+// phc counters of beam_counters.h, from hc_origin() and phc_hc() below).
 //
 // Three layers read bank 5 / the bank 7 BRAM from the hardware's video
 // ports at beam time, so a CPU write after the beam has passed a byte is
@@ -91,6 +92,18 @@
 // order. `read()` advances a per-offset cursor lazily and monotonically; a
 // query earlier than the previous one for that offset restarts from the
 // baseline, so the instants of different fetch kinds may interleave freely.
+//
+// The baseline is the frame-start bytes PLUS each offset's leading writes
+// tagged (line 0, hc 0): the writes before framebuffer row 0, which
+// Mmu::attr_mux_set_write_pos() clamps to (0,0) (the frame interrupt's
+// sysvar stores), and coarse-tagged ones on row 0. Key 0 is at or before
+// every fetch instant, so every read consumes such an entry;
+// link_pending_() therefore folds the leading run into base_
+// (its last value wins) instead of chaining it, and an offset written only
+// that way stays out of the hot set. Only the LEADING run folds: a (0,0)
+// entry appended after a later-tagged one (a coarse DMA write after a CPU
+// write on row 0) is chained as before, because the walk stops at the
+// earlier entry with the larger key (G12-MUX-15..17).
 class AttributeMux {
 public:
     // 32 columns x 24 character rows = one full standard attribute plane
@@ -155,10 +168,14 @@ public:
         return static_cast<uint16_t>(origin + slot * 8 + d);
     }
 
-    /// Raw hc at which the wide counter `whc` reads `w` / the 256-pixel counter
-    /// `phc` reads `p` (beam_counters.h has the derivations).
-    uint16_t whc_hc(int w) const { return static_cast<uint16_t>(beam::whc_raw_hc(hc_origin_, w)); }
+    /// Raw hc at which the 256-pixel counter `phc` reads `p` (beam_counters.h
+    /// has the derivation).
     uint16_t phc_hc(int p) const { return static_cast<uint16_t>(beam::phc_raw_hc(hc_origin_, p)); }
+
+    /// The `hc_origin` start_frame() stored, for a caller that keeps it in a
+    /// local across a loop: the raw hc at which the wide counter `whc` reads
+    /// `w` is beam::whc_raw_hc(hc_origin(), w).
+    int hc_origin() const { return hc_origin_; }
 
     /// Value of bank offset `offset` as the ULA fetch at horizontal instant
     /// `hc` of the scanline set by apply_changes_for_line() reads it: the
@@ -169,9 +186,34 @@ public:
         return read_prepared(offset, hc);
     }
 
-    /// True when `offset` was written this frame (so a read of it can depend on
-    /// the instant). Only valid after prepare().
+    /// True when `offset` has a write this frame that is not folded into the
+    /// baseline (so a read of it can depend on the instant). Only valid after
+    /// prepare().
     bool is_hot(uint32_t offset) const { return offset < nbytes_ && hot_[offset] != 0; }
+
+    /// True when is_hot() holds for at least one offset: an offset joins
+    /// touched_ exactly when it becomes hot, and both are cleared together.
+    /// Only valid after prepare().
+    bool any_hot() const { return !touched_.empty(); }
+
+    /// True when is_hot() holds for any offset of [off, off + n). `n` is a
+    /// multiple of 8 and the range lies inside the bank. Only valid after
+    /// prepare(). False = read_prepared() returns baseline()[o] for every o
+    /// of the range at every instant.
+    bool any_hot_in(uint32_t off, uint32_t n) const {
+        uint64_t acc = 0;
+        for (uint32_t i = 0; i < n; i += 8) {
+            uint64_t w;
+            std::memcpy(&w, hot_.data() + off + i, sizeof w);
+            acc |= w;
+        }
+        return acc != 0;
+    }
+
+    /// The bytes a read of a non-hot offset returns at every instant: the
+    /// frame-start bytes plus the folded writes (class comment). Only valid
+    /// after prepare().
+    const uint8_t* baseline() const { return base_.data(); }
 
     /// Chain every write recorded so far. read() does it itself; a caller that
     /// reads many bytes in a row (a scanline's 32 columns) calls it once and
@@ -185,7 +227,7 @@ public:
     /// last write (the render path masks the offset to the bank and no CPU
     /// write can happen while a row is rendered).
     uint8_t read_prepared(uint32_t offset, uint16_t hc) const {
-        if (!hot_[offset]) return base_[offset];   // never written this frame
+        if (!hot_[offset]) return base_[offset];   // no chain: unwritten, or only folded writes
         OffState& s = st_[offset];
         const uint32_t key = (static_cast<uint32_t>(target_line_) << 16) | hc;
         if (key < s.lastkey) {           // out-of-order query: replay from the start
@@ -200,6 +242,18 @@ public:
             s.cursor = e.next;
         }
         return s.curval;
+    }
+
+    /// read_prepared() that also sets `hot` when the offset is hot (is_hot(),
+    /// whose bounds check the caller's guarantee makes redundant). Only the
+    /// non-hot read is inline; the chain walk is the out-of-line read_hot_(),
+    /// for the tilemap's and LoRes' per-byte reads (GH #362 perf). The ULA
+    /// keeps read_prepared(): its walk is inlined into its column loop, and
+    /// it reads hot attributes on every line of a multicolour frame.
+    [[gnu::always_inline]] uint8_t read_prepared_hot(uint32_t offset, uint16_t hc, bool& hot) const {
+        if (!hot_[offset]) return base_[offset];
+        hot = true;
+        return read_hot_(offset, hc);
     }
 
     /// Standard attribute plane read (offset 0..767 of 0x1800-0x1AFF) at the
@@ -229,7 +283,7 @@ private:
     };
 
     struct OffState {
-        uint32_t first   = kNone;   // chain head (kNone = offset never written)
+        uint32_t first   = kNone;   // chain head (kNone = no chain this frame)
         uint32_t last    = kNone;   // chain tail
         uint32_t cursor  = kNone;   // next unconsumed entry
         uint32_t lastkey = 0;       // key of the previous read
@@ -239,13 +293,21 @@ private:
     void reset_touched_();
     void link_pending_() const;
 
+    /// read_prepared_hot()'s hot path: read_prepared() itself, kept out of
+    /// line so its callers' loops carry only the non-hot read.
+    [[gnu::noinline]] uint8_t read_hot_(uint32_t offset, uint16_t hc) const {
+        return read_prepared(offset, hc);
+    }
+
     uint32_t              nbytes_    = 0;
-    std::vector<uint8_t>  base_;
+    // Frame-start bytes plus the folded leading (0,0) writes (class comment);
+    // mutable because link_pending_() folds them inside the const prepare().
+    mutable std::vector<uint8_t> base_;
     // The write path only appends to log_ (it runs inside the CPU's hot loop);
     // the per-offset chains are built from the new entries the first time they
     // are needed (link_pending_), once per frame in practice.
     mutable std::vector<OffState> st_;
-    mutable std::vector<uint8_t>  hot_;   // 1 = offset written this frame (the untouched read stays on two small arrays)
+    mutable std::vector<uint8_t>  hot_;   // 1 = offset has a chain this frame (the untouched read stays on two small arrays)
     mutable std::vector<Entry>    log_;
     mutable std::vector<uint32_t> touched_;
     mutable size_t                linked_ = 0;   // log_ entries already chained
@@ -264,6 +326,10 @@ inline void AttributeMux::link_pending_() const
         const uint32_t offset = log_[n].offset;
         OffState& s = st_[offset];
         if (!hot_[offset]) {
+            // A leading (0,0) write: every read consumes it, so fold it into
+            // the baseline (class comment). Never outside this branch: a (0,0)
+            // entry after a chained one is not at the head of the chain.
+            if (log_[n].key == 0) { base_[offset] = log_[n].value; continue; }
             s.first   = n;
             s.last    = n;
             s.cursor  = n;

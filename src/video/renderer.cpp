@@ -584,20 +584,40 @@ void Renderer::apply_lores(uint32_t* line, int row, Ram& ram,
     const bool pal_bank  = ula_.get_active_ula_palette();
     const uint16_t vc    = static_cast<uint16_t>(screen_row);
 
-    lores_.beam_prepare();
-    for (int phc = 0; phc < 256; ++phc) {
-        const uint16_t h = static_cast<uint16_t>(phc);
-        if (!Lores::pixel_en(p, h, vc))
-            continue;
-        const uint8_t  x    = Lores::coord_x(h, p.scroll_x);
-        const uint16_t addr = Lores::address(p, h, vc);
-        const uint8_t  data = lores_.read_bank5(addr, ram, phc);
-        const uint8_t  px   = Lores::pixel(p, x, data);
-        const uint32_t argb = palette.ula_colour(pal_bank, px);
-        uint32_t* dst = line + DISP_X + phc * 2;
-        dst[0] = argb;
-        dst[1] = argb;
-    }
+    // GH #362 — y is fixed for the row (lores.vhd:84-87), so every fetch of it
+    // falls in one span of bank 5: 128 bytes from lores_addr(x = 0) in 8-bit
+    // mode (lores.vhd:91-94, the +1 on bits 13:11 depends on y alone), 64 from
+    // lores_addr_rad(x = 0) in Radastan mode (lores.vhd:96). When no byte of
+    // the span is hot (AttributeMux::is_hot()) the replay answers the baseline
+    // at every instant, so the row reads the baseline directly; otherwise each
+    // pixel reads at its own instant through read_bank5().
+    const AttributeMux* mux = lores_.beam_prepare() ? lores_.beam_mux() : nullptr;
+    const uint8_t  ly      = Lores::coord_y(vc, p.scroll_y);
+    const uint16_t span_lo = static_cast<uint16_t>(
+        (p.mode ? Lores::addr_radastan(0, ly, p.dfile) : Lores::addr_lores(0, ly)) & 0x3FFF);
+    const uint32_t span_n  = p.mode ? 64u : 128u;
+    const uint8_t* direct  = mux ? (mux->any_hot_in(span_lo, span_n) ? nullptr : mux->baseline())
+                                 : lores_.bank5_vram();
+
+    const auto run = [&](auto fetch) {
+        for (int phc = 0; phc < 256; ++phc) {
+            const uint16_t h = static_cast<uint16_t>(phc);
+            if (!Lores::pixel_en(p, h, vc))
+                continue;
+            const uint8_t  x    = Lores::coord_x(h, p.scroll_x);
+            const uint16_t addr = Lores::address(p, h, vc);
+            const uint8_t  data = fetch(addr, phc);
+            const uint8_t  px   = Lores::pixel(p, x, data);
+            const uint32_t argb = palette.ula_colour(pal_bank, px);
+            uint32_t* dst = line + DISP_X + phc * 2;
+            dst[0] = argb;
+            dst[1] = argb;
+        }
+    };
+    if (direct)
+        run([direct](uint16_t addr, int) { return direct[addr & 0x3FFF]; });
+    else
+        run([&](uint16_t addr, int phc) { return lores_.read_bank5(addr, ram, phc); });
 }
 
 void Renderer::apply_ula_clip(uint32_t* line, int row) const
