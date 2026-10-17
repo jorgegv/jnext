@@ -22,7 +22,7 @@ mentions them, so a test can no longer be absent from this document.
 <!-- BEGIN GENERATED SUMMARY — written by test/refresh-traceability-matrix.pl; do not edit by hand -->
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
-| Memory/MMU                                 |   294 |  294 |    0 |    0 |       0 |          0 |
+| Memory/MMU                                 |   296 |  296 |    0 |    0 |       0 |          0 |
 | ULA Video                                  |   155 |  155 |    0 |    0 |       0 |          0 |
 | Layer2                                     |   228 |  228 |    0 |    0 |       0 |          0 |
 | Sprites                                    |   217 |  217 |    0 |    0 |       0 |          0 |
@@ -52,7 +52,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: esp_sigpipe_test                |     2 |    2 |    0 |    0 |       0 |          0 |
 | ESP-01 AT engine                           |   499 |  499 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
-| Companion: mmu_integration_test            |   119 |  119 |    0 |    0 |       0 |          0 |
+| Companion: mmu_integration_test            |   121 |  121 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: compositor_integration_test     |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: copper_integration_test         |    30 |   30 |    0 |    0 |       0 |          0 |
@@ -66,9 +66,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    49 |   49 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    65 |   65 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5864 | 5864 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5868 | 5868 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5864**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5421**. Rows the 149 suites declared in `test/unit-tests.conf` run live: **13070**.
+Rows the sections above carry: **5868**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5423**. Rows the 149 suites declared in `test/unit-tests.conf` run live: **13072**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -419,7 +419,9 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | L2LOG-TAG-01 | zxnext.vhd:2966-2969 - a CPU write through the Layer 2 write-over path is logged at the CPU's own (line, hc) | zxnext.vhd:2966-2969 | pass | test/mmu/mmu_integration_test.cpp:3121 |
 | L2LOG-TAG-02 | layer2.vhd hc_eff = hc + 1 - a CPU write through a normal MMU slot is logged at the CPU's own (line, hc) | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3134 |
 | L2LOG-TAG-03 | layer2.vhd hc_eff = hc + 1 - a non-CPU writer (DMA, loader, debugger) is logged at the coarse (line, hc) | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3150 |
-| L2LOG-TAG-04 | layer2.vhd hc_eff = hc + 1 - a DMA/debugger write after a CPU write takes the coarse position, not the CPU's | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3199 |
+| L2LOG-TAG-04 | layer2.vhd hc_eff = hc + 1 - a DMA/debugger write after a CPU write takes the coarse position, not the CPU's | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3254 |
+| L2LOG-TAG-06 | layer2.vhd hc_eff = hc + 1 - init() then load_state() (the warm start of a --load) leaves the SRAM log off until the first frame starts, then it records again | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3211 |
+| L2LOG-TAG-07 | zxnext.vhd:3905-3911 - a soft reset keeps the SRAM and the beam, so the SRAM log keeps recording through it | zxnext.vhd:3905-3911 | pass | test/mmu/mmu_integration_test.cpp:3236 |
 | L2LOG-TAG-05 | layer2.vhd hc_eff = hc + 1 - after a re-init the SRAM log is off until the first frame starts (loader writes are not logged), then records again | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3178 |
 | N8E-05a | NR 0x8E read-back {dffd(0),7FFD(2:0),1,1FFD(0),1FFD(2),bit0} — VHDL zxnext.vhd:6158-6159 | zxnext.vhd:6158-6159 | pass | test/mmu/mmu_test.cpp:1261 |
 | N8E-05b | NR 0x8E read-back bit 0 flips with 1FFD(0) selector — VHDL zxnext.vhd:6159 | zxnext.vhd:6159 | pass | test/mmu/mmu_test.cpp:1278 |
@@ -5489,7 +5491,9 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | L2LOG-TAG-02 | layer2.vhd hc_eff = hc + 1 - a CPU write through a normal MMU slot is logged at the CPU's own (line, hc) | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3134 |
 | L2LOG-TAG-03 | layer2.vhd hc_eff = hc + 1 - a non-CPU writer (DMA, loader, debugger) is logged at the coarse (line, hc) | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3150 |
 | L2LOG-TAG-05 | layer2.vhd hc_eff = hc + 1 - after a re-init the SRAM log is off until the first frame starts (loader writes are not logged), then records again | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3178 |
-| L2LOG-TAG-04 | layer2.vhd hc_eff = hc + 1 - a DMA/debugger write after a CPU write takes the coarse position, not the CPU's | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3199 |
+| L2LOG-TAG-06 | layer2.vhd hc_eff = hc + 1 - init() then load_state() (the warm start of a --load) leaves the SRAM log off until the first frame starts, then it records again | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3211 |
+| L2LOG-TAG-07 | zxnext.vhd:3905-3911 - a soft reset keeps the SRAM and the beam, so the SRAM log keeps recording through it | zxnext.vhd:3905-3911 | pass | test/mmu/mmu_integration_test.cpp:3236 |
+| L2LOG-TAG-04 | layer2.vhd hc_eff = hc + 1 - a DMA/debugger write after a CPU write takes the coarse position, not the CPU's | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3254 |
 
 ### Companion integration suite — `test/ula/ula_integration_test.cpp`
 
