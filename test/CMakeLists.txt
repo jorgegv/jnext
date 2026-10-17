@@ -1098,6 +1098,17 @@ target_link_libraries(source_debug_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(source_debug_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME source_debug_tests COMMAND source_debug_test)
+# The rows whose sidecar fixtures are POSIX file types (a socket, a symlink,
+# a FIFO): Windows has none of them, so they live apart (GH #214).
+if(NOT WIN32)
+    add_executable(source_debug_posix_test debug/source_debug_posix_test.cpp)
+    target_link_libraries(source_debug_posix_test PRIVATE
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(source_debug_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME source_debug_posix_tests COMMAND source_debug_posix_test)
+endif()
 
 # GH #276 B1 — the jnext::dbg::Debugger backend: the control verbs, the
 # inspection/mutation surface, F1 (Mmu::peek) and F2 (the frame counter). Drives

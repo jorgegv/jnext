@@ -6,7 +6,8 @@
 //   NBSYM-*    the NextBuild / Boriel ZX Basic Memory.txt adapter and
 //              SymbolTable::resolve() for address fields
 //
-// Pure: no machine. Run: ./build/test/source_map_test
+// Pure: no machine. The looping-link row (SLD-18) needs a symlink, so it is in
+// source_debug_posix_test. Run: ./build/test/source_map_test
 
 #include "debug/sld_loader.h"
 #include "debug/source_map.h"
@@ -223,20 +224,6 @@ int main() {
               r3.count == -1 && m.size() == 2);
     }
 
-    // A sidecar that is a link to itself: no sidecar, never an exception.
-    {
-        std::error_code ec;
-        fs::create_symlink("self.sld", dir / "self.sld", ec);
-        SourceMap m;
-        bool threw = false;
-        SourceMapLoadResult r;
-        try {
-            r = load_sld_sidecar(m, (dir / "self.nex").string());
-        } catch (...) {
-            threw = true;
-        }
-        check("SLD-18", "a looping sidecar link is refused, not thrown", !threw && r.count == -1);
-    }
     {
         // 225 pages: more than the Next's RAM, and page 0xFF must never be one.
         SourceMap m;

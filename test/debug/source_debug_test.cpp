@@ -36,6 +36,9 @@
 //   SRCDBG-PATH-*    a relative map path is made absolute
 //   SRCDBG-FB-*      Back after a Frame Back goes back in time
 //
+// Rows that need POSIX file types as sidecars (a socket, a symlink, a FIFO)
+// are in source_debug_posix_test.
+//
 // Run: ./build/test/source_debug_test
 
 #include "core/emulator.h"
@@ -52,9 +55,6 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <sys/un.h>
 #include <string>
 #include <unistd.h>
 #include "../row_id.h"
@@ -738,32 +738,6 @@ int main() {
               r.symbols == -1 && m.dbg->lookup_name("__data_crt_head") == 0x1234 &&
                   !m.dbg->lookup_name("Main"));
     }
-    {
-        // A Memory.txt that is there and cannot be opened — a UNIX socket
-        // node, which open() refuses for every user, root included.
-        Machine m;
-        write_text(own / "own3.nex", "");
-        write_text(own / "own3.Memory.txt", "8000: ._Old\n");
-        m.dbg->load_program_sidecars((own / "own3.nex").string());
-        const bool had_old = m.dbg->lookup_name("Old").has_value();
-        write_text(own / "own4.nex", "");
-        const fs::path sock = own / "own4.Memory.txt";
-        fs::remove(sock);
-        const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
-        sockaddr_un sa{};
-        sa.sun_family = AF_UNIX;
-        std::snprintf(sa.sun_path, sizeof(sa.sun_path), "%s", sock.c_str());
-        const bool made = fd >= 0 &&
-                          ::bind(fd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == 0;
-        const auto r = m.dbg->load_program_sidecars((own / "own4.nex").string());
-        if (fd >= 0) ::close(fd);
-        fs::remove(sock);
-        check("SRCDBG-OWN-03", "a sidecar Memory.txt that cannot be opened is reported "
-                               "unreadable, and leaves none of the previous program's "
-                               "symbols",
-              had_old && made && r.symbols_unreadable && !m.dbg->lookup_name("Old"));
-    }
-
     // ── a tape program gets no automatic map ────────────────────────────
     {
         Machine m;
@@ -846,23 +820,6 @@ int main() {
     }
 
     // ── loops, links and relative paths ─────────────────────────────────
-    {
-        Machine m;
-        write_text(own / "loop.nex", "");
-        std::error_code ec;
-        fs::create_symlink("loop.sld", own / "loop.sld", ec);
-        fs::create_symlink("loop.Memory.txt", own / "loop.Memory.txt", ec);
-        bool threw = false;
-        Debugger::SidecarLoad r;
-        try {
-            r = m.dbg->load_program_sidecars((own / "loop.nex").string());
-        } catch (...) {
-            threw = true;
-        }
-        check("SRCDBG-SIDE-09", "a sidecar that is a looping link is no sidecar, not an "
-                                "exception",
-              !threw && r.symbols == -1 && r.sources == -1);
-    }
     {
         Machine m;
         const fs::path before = fs::current_path();

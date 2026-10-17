@@ -183,6 +183,7 @@ BEGIN {
     M["step_out_test"]                 = "Debugger Step Out"
     M["source_map_test"]               = "Source maps + symbols"
     M["source_debug_test"]             = "Source debugging (backend)"
+    M["source_debug_posix_test"]       = "Source debugging (POSIX file types)"
     M["debugger_backend_test"]         = "Debugger Backend (GH #276)"
     M["persistent_bp_test"]            = "Debugger persistent BPs"
     M["io_watchpoint_test"]            = "Debugger I/O Watchpoints"
