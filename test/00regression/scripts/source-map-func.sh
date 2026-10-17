@@ -29,7 +29,8 @@ if want source-map-func; then
         '||program.sha256:9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a' \
         '||program.org:32768' '||program.size:4' \
         "main.bas|1||0$dev" 'main.bas|1||0|4|32768|T|' > "$bad_sld"
-    want_line="Loaded 1 SLD source traces from '$sld'"
+    # Matched on the file name: under wine jnext reports the path in Windows form.
+    want_line="Loaded 1 SLD source traces from '[^']*source-sidecar\.sld'"
 
     # Every run must exit cleanly: a sidecar never makes a load fail.
     rcs=()
@@ -46,7 +47,7 @@ if want source-map-func; then
     o_qt=$(env QT_QPA_PLATFORM=offscreen LANG=C timeout --foreground --kill-after=5s 60s \
         "$JNEXT" --machine next "${SD_CARD_ARGS[@]}" --silent --load "$nex" \
         --delayed-automatic-exit-frames 10 2>&1) || rc_qt=$?
-    sdl_bin="$PROJECT_DIR/build/sdl-release/jnext"
+    sdl_bin="$JNEXT_SDL"
     o_sdl="(SDL-only binary not built: $sdl_bin; run 'make sdl-release')"
     rc_sdl=1
     if [[ -x "$sdl_bin" ]]; then
@@ -57,11 +58,11 @@ if want source-map-func; then
     fi
 
     hl=0; qt=0; sdl=0; rej=0; clean=0
-    grep -Fq "$want_line" <<<"$o_hl" && hl=1
-    grep -Fq "$want_line" <<<"$o_qt" && qt=1
-    grep -Fq "$want_line" <<<"$o_sdl" && sdl=1
-    if grep -Fq "Rejected SLD source map '$bad_sld'" <<<"$o_bad" &&
-       ! grep -Fq "SLD source traces from '$bad_sld'" <<<"$o_bad"; then
+    grep -Eq "$want_line" <<<"$o_hl" && hl=1
+    grep -Eq "$want_line" <<<"$o_qt" && qt=1
+    grep -Eq "$want_line" <<<"$o_sdl" && sdl=1
+    if grep -Eq "Rejected SLD source map '[^']*source-wrong\.sld'" <<<"$o_bad" &&
+       ! grep -Eq "SLD source traces from '[^']*source-wrong\.sld'" <<<"$o_bad"; then
         rej=1
     fi
     if grep -Fq "RC headless:0" <<<"$o_hl" && grep -Fq "RC headless:0" <<<"$o_bad" &&

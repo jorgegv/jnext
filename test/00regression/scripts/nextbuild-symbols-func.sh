@@ -22,19 +22,20 @@ if want nextbuild-symbols-func; then
     mem="$TMP_DIR/symbol-sidecar.Memory.txt"
     cp "$PROJECT_DIR/test/00regression/nex/menu.nex" "$nex"
     printf '8000: ._Main\n8123: ._PlayerTick\n' > "$mem"
-    want_line="Loaded 2 NextBuild symbols from '$mem'"
+    # Matched on the file name: under wine jnext reports the path in Windows form.
+    want_line="Loaded 2 NextBuild symbols from '[^']*symbol-sidecar\.Memory\.txt'"
 
     # Every frontend: attached, and a clean exit.
     rc=0
     o=$(LANG=C timeout --foreground --kill-after=5s 30s "$JNEXT" --headless --machine next \
         "${SD_CARD_ARGS[@]}" --silent --load "$nex" --delayed-automatic-exit-frames 10 2>&1) || rc=$?
-    [[ $rc -eq 0 ]] && grep -Fq "$want_line" <<<"$o" || fails+=("headless: exit $rc, attached=$(grep -Fc "$want_line" <<<"$o" || true)")
+    [[ $rc -eq 0 ]] && grep -Eq "$want_line" <<<"$o" || fails+=("headless: exit $rc, attached=$(grep -Ec "$want_line" <<<"$o" || true)")
     rc=0
     o=$(env QT_QPA_PLATFORM=offscreen LANG=C timeout --foreground --kill-after=5s 60s \
         "$JNEXT" --machine next "${SD_CARD_ARGS[@]}" --silent --load "$nex" \
         --delayed-automatic-exit-frames 10 2>&1) || rc=$?
-    [[ $rc -eq 0 ]] && grep -Fq "$want_line" <<<"$o" || fails+=("Qt: exit $rc, attached=$(grep -Fc "$want_line" <<<"$o" || true)")
-    sdl_bin="$PROJECT_DIR/build/sdl-release/jnext"
+    [[ $rc -eq 0 ]] && grep -Eq "$want_line" <<<"$o" || fails+=("Qt: exit $rc, attached=$(grep -Ec "$want_line" <<<"$o" || true)")
+    sdl_bin="$JNEXT_SDL"
     if [[ ! -x "$sdl_bin" ]]; then
         fails+=("SDL-only binary not built: $sdl_bin; run 'make sdl-release'")
     else
@@ -42,7 +43,7 @@ if want nextbuild-symbols-func; then
         o=$(env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy LANG=C \
             timeout --foreground --kill-after=5s 60s "$sdl_bin" --machine next --silent \
             "${SD_CARD_ARGS[@]}" --load "$nex" --delayed-automatic-exit-frames 10 2>&1) || rc=$?
-        [[ $rc -eq 0 ]] && grep -Fq "$want_line" <<<"$o" || fails+=("SDL: exit $rc, attached=$(grep -Fc "$want_line" <<<"$o" || true)")
+        [[ $rc -eq 0 ]] && grep -Eq "$want_line" <<<"$o" || fails+=("SDL: exit $rc, attached=$(grep -Ec "$want_line" <<<"$o" || true)")
     fi
 
     # The lookup, through a remote client, after the load.
@@ -50,7 +51,7 @@ if want nextbuild-symbols-func; then
     if gdb_launch_cmd "$log" "$JNEXT" --headless --machine next "${SD_CARD_ARGS[@]}" \
             --silent --load "$nex" --gdb-port 0; then
         for _ in $(seq 1 100); do
-            grep -Fq "$want_line" "$log" && break
+            grep -Eq "$want_line" "$log" && break
             sleep 0.1
         done
         client="$TMP_DIR/nextbuild-symbols-gdb.py"
