@@ -49,7 +49,6 @@ public:
     /// source path. The first emitted instruction for the line is returned.
     std::optional<SourceAddress> resolve(std::string_view expression) const;
 
-    /// Verify optional identity metadata against live logical memory.
     /// Verify optional identity metadata against live logical memory: nullopt
     /// when the map carries none, else whether the bytes still match.
     std::optional<bool> verify_program(
