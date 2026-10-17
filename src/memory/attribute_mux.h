@@ -91,6 +91,18 @@
 // order. `read()` advances a per-offset cursor lazily and monotonically; a
 // query earlier than the previous one for that offset restarts from the
 // baseline, so the instants of different fetch kinds may interleave freely.
+//
+// The baseline is the frame-start bytes PLUS each offset's leading writes
+// tagged (line 0, hc 0): the writes before framebuffer row 0, which
+// Mmu::attr_mux_set_write_pos() clamps to (0,0) (the frame interrupt's
+// sysvar stores), and coarse-tagged ones on row 0. Key 0 is at or before
+// every fetch instant, so every read consumes such an entry;
+// link_pending_() therefore folds the leading run into base_
+// (its last value wins) instead of chaining it, and an offset written only
+// that way stays out of the hot set. Only the LEADING run folds: a (0,0)
+// entry appended after a later-tagged one (a coarse DMA write after a CPU
+// write on row 0) is chained as before, because the walk stops at the
+// earlier entry with the larger key (G12-MUX-15..17).
 class AttributeMux {
 public:
     // 32 columns x 24 character rows = one full standard attribute plane
@@ -169,8 +181,9 @@ public:
         return read_prepared(offset, hc);
     }
 
-    /// True when `offset` was written this frame (so a read of it can depend on
-    /// the instant). Only valid after prepare().
+    /// True when `offset` has a write this frame that is not folded into the
+    /// baseline (so a read of it can depend on the instant). Only valid after
+    /// prepare().
     bool is_hot(uint32_t offset) const { return offset < nbytes_ && hot_[offset] != 0; }
 
     /// Chain every write recorded so far. read() does it itself; a caller that
@@ -185,7 +198,7 @@ public:
     /// last write (the render path masks the offset to the bank and no CPU
     /// write can happen while a row is rendered).
     uint8_t read_prepared(uint32_t offset, uint16_t hc) const {
-        if (!hot_[offset]) return base_[offset];   // never written this frame
+        if (!hot_[offset]) return base_[offset];   // no chain: unwritten, or only folded writes
         OffState& s = st_[offset];
         const uint32_t key = (static_cast<uint32_t>(target_line_) << 16) | hc;
         if (key < s.lastkey) {           // out-of-order query: replay from the start
@@ -229,7 +242,7 @@ private:
     };
 
     struct OffState {
-        uint32_t first   = kNone;   // chain head (kNone = offset never written)
+        uint32_t first   = kNone;   // chain head (kNone = no chain this frame)
         uint32_t last    = kNone;   // chain tail
         uint32_t cursor  = kNone;   // next unconsumed entry
         uint32_t lastkey = 0;       // key of the previous read
@@ -240,12 +253,14 @@ private:
     void link_pending_() const;
 
     uint32_t              nbytes_    = 0;
-    std::vector<uint8_t>  base_;
+    // Frame-start bytes plus the folded leading (0,0) writes (class comment);
+    // mutable because link_pending_() folds them inside the const prepare().
+    mutable std::vector<uint8_t> base_;
     // The write path only appends to log_ (it runs inside the CPU's hot loop);
     // the per-offset chains are built from the new entries the first time they
     // are needed (link_pending_), once per frame in practice.
     mutable std::vector<OffState> st_;
-    mutable std::vector<uint8_t>  hot_;   // 1 = offset written this frame (the untouched read stays on two small arrays)
+    mutable std::vector<uint8_t>  hot_;   // 1 = offset has a chain this frame (the untouched read stays on two small arrays)
     mutable std::vector<Entry>    log_;
     mutable std::vector<uint32_t> touched_;
     mutable size_t                linked_ = 0;   // log_ entries already chained
@@ -264,6 +279,10 @@ inline void AttributeMux::link_pending_() const
         const uint32_t offset = log_[n].offset;
         OffState& s = st_[offset];
         if (!hot_[offset]) {
+            // A leading (0,0) write: every read consumes it, so fold it into
+            // the baseline (class comment). Never outside this branch: a (0,0)
+            // entry after a chained one is not at the head of the chain.
+            if (log_[n].key == 0) { base_[offset] = log_[n].value; continue; }
             s.first   = n;
             s.last    = n;
             s.cursor  = n;
