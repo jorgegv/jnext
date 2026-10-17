@@ -1,7 +1,7 @@
 #include "debug/source_map.h"
 
-#include "core/sdcard_provisioner.h"
-#include "debug/ram_page.h"   // sha256_hex: OpenSSL on POSIX, CNG on Windows
+#include "core/sha256.h"
+#include "debug/ram_page.h"
 
 #include <algorithm>
 #include <charconv>
