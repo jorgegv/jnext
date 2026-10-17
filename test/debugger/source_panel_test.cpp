@@ -35,6 +35,8 @@
 #include "debugger/callstack_panel.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
+#include "debugger/disasm_panel.h"
+#include "debugger/memory_panel.h"
 #include "debugger/source_panel.h"
 #include "debugger/watch_panel.h"
 
@@ -44,6 +46,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
+#include <QLabel>
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QMenu>
@@ -51,6 +54,7 @@
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QScrollBar>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTemporaryDir>
@@ -61,6 +65,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <string>
 #include "../row_id.h"
@@ -175,6 +180,8 @@ bool answer_modal(const QString& text, Fn open) {
     QObject::connect(&timer, &QTimer::timeout, [&]() {
         auto* dlg = qobject_cast<QDialog*>(QApplication::activeModalWidget());
         if (!dlg) return;
+        // A dialog shown again after OK refused the text: give up on it.
+        if (seen) { dlg->reject(); return; }
         seen = true;
         if (QLineEdit* e = dlg->findChild<QLineEdit*>()) e->setText(text);
         dlg->accept();
@@ -184,6 +191,33 @@ bool answer_modal(const QString& text, Fn open) {
     timer.stop();
     QApplication::processEvents();
     return seen;
+}
+
+/// Answer each modal that opens while `open` runs: `act(widget, n)` for the
+/// n-th one, which must close it. Returns how many were answered. A dialog
+/// shown again after its OK (a refused entry) counts again.
+int drive_modals(const std::function<void(QWidget*, int)>& act,
+                 const std::function<void()>& open) {
+    int n = 0;
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        QWidget* w = QApplication::activeModalWidget();
+        if (!w || !w->isVisible()) return;
+        act(w, n++);
+    });
+    timer.start(1);
+    open();
+    timer.stop();
+    QApplication::processEvents();
+    return n;
+}
+
+/// The line edit whose placeholder is `placeholder`, under `root`.
+QLineEdit* line_edit(QWidget* root, const QString& placeholder) {
+    if (!root) return nullptr;
+    for (QLineEdit* e : root->findChildren<QLineEdit*>())
+        if (e->placeholderText() == placeholder) return e;
+    return nullptr;
 }
 
 // ── QSRC: the Source tab ───────────────────────────────────────────────
@@ -417,6 +451,75 @@ void test_address_fields() {
         add_exec && answer_modal(QStringLiteral("Landing"), [&]() { add_exec->trigger(); });
     check("QADR-02", "Add Execute Breakpoint takes a symbol name",
           seen2 && fx.mgr->breakpoints().pc_exists(0x8005));
+
+    fx.mgr->breakpoints().clear_all();
+    fx.load_map();
+    const bool seen3 =
+        add_exec && answer_modal(QStringLiteral("main.bas:12"), [&]() { add_exec->trigger(); });
+    const auto rows = fx.mgr->breakpoints().rows();
+    check("QADR-03", "Add Execute Breakpoint takes file:line, on the page its record names",
+          seen3 && rows.size() == 1 && rows[0].addr == 0x8005 && rows[0].page == fx.p80);
+
+    fx.mgr->breakpoints().clear_all();
+    QString reason;
+    const int shown = add_exec ? drive_modals(
+        [&](QWidget* w, int n) {
+            auto* dlg = qobject_cast<QDialog*>(w);
+            if (!dlg) return;
+            if (n == 0) {
+                if (QLineEdit* e = dlg->findChild<QLineEdit*>()) e->setText("no_such_thing");
+                dlg->accept();
+                return;
+            }
+            if (auto* err = dlg->findChild<QLabel*>(QStringLiteral("bp_dialog_error")))
+                if (err->isVisible()) reason = err->text();
+            dlg->reject();
+        },
+        [&]() { add_exec->trigger(); }) : 0;
+    check("QADR-05", "text that names nothing keeps Add Execute Breakpoint open with the "
+                     "reason, and adds nothing",
+          shown == 2 && reason.contains(QStringLiteral("no_such_thing")) &&
+              fx.mgr->breakpoints().rows().empty(),
+          "shown=" + std::to_string(shown) + " reason=" + s(reason));
+
+    // Go to Address: a symbol lands where its number does.
+    DisasmPanel* dp = fx.dbg()->disasm_panel();
+    QLineEdit* dgo = line_edit(dp, QStringLiteral("Address..."));
+    auto* dsb = dp ? dp->findChild<QScrollBar*>() : nullptr;
+    int by_number = -1, by_name = -1, start = -1;
+    if (dgo && dsb) {
+        dsb->setValue(0x4000);
+        start = dsb->value();
+        dgo->setText(QStringLiteral("8005"));
+        emit dgo->returnPressed();
+        by_number = dsb->value();
+        dsb->setValue(0x4000);
+        dgo->setText(QStringLiteral("Landing"));
+        emit dgo->returnPressed();
+        by_name = dsb->value();
+    }
+    check("QADR-06", "the disassembly's Go to Address takes a symbol",
+          by_number != start && by_name == by_number,
+          std::to_string(start) + " " + std::to_string(by_number) + " " + std::to_string(by_name));
+
+    MemoryPanel* mp = fx.dbg()->memory_panel();
+    QLineEdit* mgo = line_edit(mp, QStringLiteral("$0000"));
+    auto* msb = mp ? mp->findChild<QScrollBar*>() : nullptr;
+    by_number = by_name = start = -1;
+    if (mgo && msb) {
+        msb->setValue(0);
+        start = msb->value();
+        mgo->setText(QStringLiteral("8005"));
+        emit mgo->returnPressed();
+        by_number = msb->value();
+        msb->setValue(0);
+        mgo->setText(QStringLiteral("Landing"));
+        emit mgo->returnPressed();
+        by_name = msb->value();
+    }
+    check("QADR-07", "the memory panel's Go to Address takes a symbol",
+          by_number != start && by_name == by_number,
+          std::to_string(start) + " " + std::to_string(by_number) + " " + std::to_string(by_name));
 }
 
 }  // namespace

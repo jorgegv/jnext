@@ -44,7 +44,7 @@ DisasmPanel::DisasmPanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     addr_input_->setPlaceholderText("Address...");
     addr_input_->setFont(mono_font_);
     addr_input_->setMaximumWidth(80);
-    addr_input_->setToolTip("Enter hex address (e.g. 4000) and press Enter");
+    addr_input_->setToolTip("Enter an address (e.g. 4000) or a symbol and press Enter");
 
     goto_pc_btn_ = new QPushButton("Go to PC");
     goto_pc_btn_->setMaximumWidth(80);
@@ -156,9 +156,12 @@ void DisasmPanel::set_breakpoint_model(BreakpointModel* model)
 
 void DisasmPanel::navigate_to_address(const QString& text)
 {
-    bool ok = false;
-    uint16_t addr = static_cast<uint16_t>(text.toUInt(&ok, 16));
-    if (!ok) return;
+    // An address (`4000`, `$4000`, `0x4000`) or a symbol, as every other
+    // address field takes it (SymbolTable::resolve, OD-12).
+    const auto resolved = dbg_ ? dbg_->symbols().resolve(text.toStdString())
+                               : SymbolTable().resolve(text.toStdString());
+    if (!resolved) return;
+    const uint16_t addr = *resolved;
 
     // Center the target address in the view
     int half = visible_lines() / 2;

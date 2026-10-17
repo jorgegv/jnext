@@ -1347,15 +1347,25 @@ void DebuggerWindow::activate_follow_pc() {
     if (disasm_panel_) disasm_panel_->activate_follow_pc();
 }
 
-bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr) {
+bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr,
+                                       uint16_t* page) {
     QDialog dlg(this);
     dlg.setWindowTitle(title);
     dlg.setMinimumWidth(400);
 
     auto* form = new QFormLayout(&dlg);
     auto* addr_edit = new QLineEdit(&dlg);
-    addr_edit->setPlaceholderText("e.g. 4000, $4000 or a symbol");
-    form->addRow(tr("Address or symbol:"), addr_edit);
+    addr_edit->setPlaceholderText(page ? "e.g. 4000, $4000, a symbol or file.bas:12"
+                                       : "e.g. 4000, $4000 or a symbol");
+    form->addRow(page ? tr("Address, symbol or file:line:") : tr("Address or symbol:"),
+                 addr_edit);
+
+    auto* error = new QLabel(&dlg);
+    error->setObjectName(QStringLiteral("bp_dialog_error"));
+    error->setWordWrap(true);
+    error->setStyleSheet(QStringLiteral("color: #c00000;"));
+    error->hide();
+    form->addRow(error);
 
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
@@ -1363,14 +1373,32 @@ bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr) {
     connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     form->addRow(buttons);
 
-    if (dlg.exec() != QDialog::Accepted) return false;
-
-    // CAP-SYM: hex ($ / 0x prefixes optional), else a loaded symbol name;
-    // `@name` forces the symbol (OD-12).
-    const auto resolved = dbg_.symbols().resolve(addr_edit->text().toStdString());
-    if (!resolved) return false;
-    addr = *resolved;
-    return true;
+    // Text that resolves to nothing shows the dialog again with the reason;
+    // only Cancel gives up.
+    while (dlg.exec() == QDialog::Accepted) {
+        const std::string text = addr_edit->text().trimmed().toStdString();
+        // CAP-SYM: hex ($ / 0x prefixes optional), else a loaded symbol name;
+        // `@name` forces the symbol (OD-12).
+        if (const auto resolved = dbg_.symbols().resolve(text)) {
+            addr = *resolved;
+            if (page) *page = jnext::dbg::PAGE_ANY;
+            return true;
+        }
+        // CAP-SRC: a source line keeps the page its record names, as in the
+        // Breakpoints panel's Add dialog.
+        if (page) {
+            if (const auto src = dbg_.source_map().resolve(text)) {
+                addr = src->address;
+                *page = src->page ? *src->page : jnext::dbg::PAGE_ANY;
+                return true;
+            }
+        }
+        error->setText((page ? tr("Not an address, symbol or source line: %1")
+                             : tr("Not an address or symbol: %1"))
+                           .arg(addr_edit->text().trimmed()));
+        error->show();
+    }
+    return false;
 }
 
 void DebuggerWindow::show_add_data_bp_dialog(int type) {
@@ -1396,9 +1424,10 @@ void DebuggerWindow::show_add_data_bp_dialog(int type) {
 // this site remembering to repaint it.
 void DebuggerWindow::show_add_exec_bp_dialog() {
     uint16_t addr = 0;
-    if (!prompt_bp_address(tr("Add Execute Breakpoint"), addr)) return;
+    uint16_t page = jnext::dbg::PAGE_ANY;
+    if (!prompt_bp_address(tr("Add Execute Breakpoint"), addr, &page)) return;
 
-    if (BreakpointModel* m = breakpoint_model()) m->add(BreakpointModel::Execute, addr);
+    if (BreakpointModel* m = breakpoint_model()) m->add(BreakpointModel::Execute, addr, page);
 }
 
 void DebuggerWindow::refresh_panels() {

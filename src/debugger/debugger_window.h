@@ -135,9 +135,12 @@ private:
     /// GH #215 — Execute is the ordinary PC breakpoint, reached first; it has
     /// its own dialog title and menu entry.
     void show_add_exec_bp_dialog();
-    /// Modal "Address or symbol:" prompt shared by both of the above. Returns false
-    /// when the user cancels or types something that is not hex.
-    bool prompt_bp_address(const QString& title, uint16_t& addr);
+    /// Modal address prompt shared by both of the above: a number or a symbol,
+    /// and with a non-null `page` a source line `file:line` too, which comes
+    /// back with the page its record names (PAGE_ANY for a plain address).
+    /// Text that resolves to nothing keeps the dialog open with a message.
+    /// Returns false only when the user cancels.
+    bool prompt_bp_address(const QString& title, uint16_t& addr, uint16_t* page = nullptr);
     void show_rewind_buffer_size_dialog();
     void update_trace_indicator();
     void update_rewind_ui();
