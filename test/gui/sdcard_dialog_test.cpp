@@ -1,4 +1,4 @@
-// GH #358 point 2 — the download dialog through a dropped network, driven for real.
+// GH #358 point 2 - the download dialog through a dropped network, driven for real.
 //
 // Oracle: the tick / stall / cancel contract in core/sdcard_provisioner.h, which
 // is jnext policy (owner, #358 comment of 2026-10-17: "make the hung connection
@@ -116,7 +116,7 @@ std::string slurp(const std::string& p) {
     return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
-// ── SDD-01 / SDD-02: the dialog's notice, on a clock the test owns ─────────
+// -- SDD-01 / SDD-02: the dialog's notice, on a clock the test owns ---------
 
 void test_notice_and_cancel() {
     using namespace std::chrono;
@@ -124,7 +124,7 @@ void test_notice_and_cancel() {
     Clk::duration offset = Clk::duration::zero();
     SdcardGuiProvisioner gui([&] { return base + offset; });
     const std::string plain = "Downloading the test image";
-    gui.set_texts("jnext — test", "headline", "busy", plain);
+    gui.set_texts("jnext - test", "headline", "busy", plain);
     auto advance_ms = [&](int ms) { offset += milliseconds(ms); };
 
     // The confirm box before the first call can sit open for a minute: not a stall.
@@ -170,7 +170,7 @@ void test_notice_and_cancel() {
               " second_false=" + std::to_string(second_false));
 }
 
-// ── SDD-03: the real backend, a real silent server, the helper exactly as main.cpp wires it ─
+// -- SDD-03: the real backend, a real silent server, the helper exactly as main.cpp wires it -
 
 void test_through_the_backend() {
     rs::Server srv;
@@ -241,7 +241,7 @@ void test_through_the_backend() {
     std::filesystem::remove_all(dir, ec);
 }
 
-// ── SDD-04: a failed SD-card download is reported to a GUI user (wiring) ───
+// -- SDD-04: a failed SD-card download is reported to a GUI user (wiring) ---
 
 void test_failure_is_reported() {
     const std::string code = code_of(JNEXT_MAIN_CPP);

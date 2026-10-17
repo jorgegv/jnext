@@ -1493,7 +1493,7 @@ if(ENABLE_QT_UI)
         JNEXT_SDCARD_DIALOG_CPP="${CMAKE_SOURCE_DIR}/src/gui/sdcard_download_dialog.cpp")
     add_test(NAME color_scheme_tests COMMAND color_scheme_test)
 
-    # GH #358 point 2 — the SD-card / NextPi download dialog through a dropped
+    # GH #358 point 2 - the SD-card / NextPi download dialog through a dropped
     # network: the "Stalled" notice on a fake clock (SDD-01/02), the real backend
     # against a loopback server that goes silent while the event loop keeps
     # running (SDD-03), and the failure warning's wiring in main.cpp (SDD-04,

@@ -1718,7 +1718,7 @@ static void test_nextpi_local_archive_rows() {
                   static_cast<unsigned long long>(total_calls), static_cast<unsigned long long>(inside)));
     }
 
-    // ── PIT-43 — JANKO'S UNPLUGGED CABLE (GH #358 point 2), through the real backend: the archive
+    // -- PIT-43 - JANKO'S UNPLUGGED CABLE (GH #358 point 2), through the real backend: the archive
     // transfer goes silent halfway (a loopback server that stops sending and holds the connection).
     // The attempt must end with the stall reason instead of hanging, keep the half it has, and the
     // next provision must continue from there. Only the archive goes to the network backend (with

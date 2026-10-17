@@ -35,7 +35,7 @@
 //                  discarded; a 206 with a wrong total is distrusted; a kept
 //                  partial survives a failed resumed attempt; an empty 200 body;
 //                  the SD prompt's continuation note; header-name case.
-//   PROV-STALL-01..08  GH #358 point 2 — a dropped network, through the REAL backend
+//   PROV-STALL-01..08  GH #358 point 2 - a dropped network, through the REAL backend
 //                  (libcurl; WinHTTP under wine) against a loopback server that goes
 //                  silent mid-transfer (range_server.h: stall_after, silent, stall_ms).
 //                  Oracle: the tick / stall / cancel contract in sdcard_provisioner.h
@@ -903,7 +903,7 @@ void test_resume_rows() {
     }
 }
 
-// GH #358 point 2 — a dropped network. The contract (tick / stall / cancel, in
+// GH #358 point 2 - a dropped network. The contract (tick / stall / cancel, in
 // sdcard_provisioner.h) through the REAL backend: libcurl, WinHTTP under wine. A
 // stalled connection is one that stays open and carries nothing, which is what a
 // receiver sees until TCP gives up after a pulled cable. Every row that waits
