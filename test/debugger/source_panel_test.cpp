@@ -65,6 +65,7 @@
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTemporaryDir>
+#include <QTextBlock>
 #include <QTimer>
 
 #include <chrono>
@@ -329,6 +330,14 @@ void test_source_tab() {
           s(sp->location_text()));
     check("QSRC-04", "the forward steps are enabled while paused with a map",
           into && into->isEnabled());
+    {
+        // What the editor itself highlights, not the panel's own record of it.
+        auto* ed = sp->findChild<QPlainTextEdit*>();
+        const auto sel = ed ? ed->extraSelections() : QList<QTextEdit::ExtraSelection>{};
+        const QString text = sel.size() == 1 ? sel[0].cursor.block().text() : QString();
+        check("QSRC-16", "the editor's highlighted line is the file's line 10",
+              text == QStringLiteral("REM line 10"), s(text));
+    }
 
     if (into) into->click();
     QApplication::processEvents();
