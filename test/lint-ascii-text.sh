@@ -316,6 +316,46 @@ fx() {
     fi
 }
 
+# verdict <root>: scan <root> and report. Exit status: 0 clean, 1 violations, 2 the scanner
+# failed (a malformed conf, say).
+verdict() {
+    local root="$1" rc=0 out na nb ns
+    out=$(scan "$root") || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        echo "[lint-ascii-text] the scanner failed (exit $rc) on $root" >&2
+        return 2
+    fi
+    na=$(awk -F'\t' '$1 == "A" { n++ } END { print n + 0 }' <<<"$out")
+    nb=$(awk -F'\t' '$1 == "B" { n++ } END { print n + 0 }' <<<"$out")
+    ns=$(awk -F'\t' '$1 == "S" { n++ } END { print n + 0 }' <<<"$out")
+    if [[ "$na" -eq 0 && "$nb" -eq 0 && "$ns" -eq 0 ]]; then
+        echo "[lint-ascii-text] clean"
+        return 0
+    fi
+    echo "[lint-ascii-text] $na literal(s) with an em dash, $nb with other non-ASCII text, $ns stale declaration(s) (GH #382):" >&2
+    awk -F'\t' -v conf="$CONF_REL" '
+        $1 == "A" { printf "%s:%s: em dash (U+2014) in a string literal\n", $2, $3 }
+        $1 == "B" { l = $4; gsub(/,/, ", ", l); printf "%s:%s: non-ASCII %s in a string literal\n", $2, $3, l }
+        $1 == "S" { printf "%s:%s: no literal in %s matches the declared text: %s\n", conf, $2, $3, $4 }' <<<"$out" >&2
+    echo "Use ASCII in program text (- for an em dash; -> <- ... > section x for the rest); Qt-only widget text may be declared in $CONF_REL with a reason." >&2
+    return 1
+}
+
+# fxrc <id> <expected exit status> <conf text>: the scanner's exit status on a tree with
+# that conf (a malformed conf must be refused, not skipped).
+fxrc() {
+    local id="$1" want="$2" conf="$3" d rc=0
+    d="$ST_DIR/$id"
+    mkdir -p "$d/src" "$d/test"
+    printf 'f("a - b");\n' >"$d/src/t.cpp"
+    printf '%s' "$conf" >"$d/$CONF_REL"
+    verdict "$d" >/dev/null 2>&1 || rc=$?
+    if [[ "$rc" -ne "$want" ]]; then
+        echo "ERROR: self-test $id: expected exit $want, got $rc" >&2
+        bad=1
+    fi
+}
+
 self_test() {
     local bad=0 EM ARR BAD BS CR rc
     ST_DIR=$(mktemp -d) || exit 2
@@ -370,7 +410,7 @@ self_test() {
     fx LAT-N13 ""        src/t.cpp "// the \"${EM}\" glyph, quoted inside a comment"
     fx LAT-N14 ""        src/t.cpp "/* the \"${EM}\" glyph," "   quoted inside a comment */"
 
-    # Rule B.
+    # Rule B, the declarations, and the conf itself.
     fx LAT-B01 "B:1:U+2192" src/t.cpp "f(\"a ${ARR} b\");"
     fx LAT-B02 "B:1:U+25B8" src/t.cpp "f(\"${BS}u25B8\");"
     fx LAT-B03 ""           src/t.cpp "f(\"${BS}xFF${BS}xFE\");"
@@ -380,14 +420,21 @@ self_test() {
     fx LAT-B05 "S:1"        src/t.cpp "f(\"a - b\");"
     fx LAT-B06 ""           src/esp01/test/t.cpp "f(\"a ${ARR} b\");"
     fx LAT-B07 "B:1:0xFF"   src/t.cpp "f(\"a ${BAD} b\");"
-    mkdir -p "$ST_DIR/LAT-B08/src" "$ST_DIR/LAT-B08/test"
-    printf 'f("a - b");\n' >"$ST_DIR/LAT-B08/src/t.cpp"
-    printf 'src/t.cpp\tonly two fields\n' >"$ST_DIR/LAT-B08/$CONF_REL"
-    rc=0; scan "$ST_DIR/LAT-B08" >/dev/null 2>&1 || rc=$?
-    if [[ "$rc" -ne 2 ]]; then
-        echo "ERROR: self-test LAT-B08: a malformed conf must exit 2, got $rc" >&2
-        bad=1
-    fi
+    fxrc LAT-B08 2 "$(printf 'src/t.cpp\tonly two fields')"
+    fxrc LAT-B09 2 "$(printf 'src/t.cpp\ta %s b\t' "$ARR")"                 # an empty reason
+    fxrc LAT-B10 2 "$(printf 'src/t.cpp\ta %s b\treason\textra' "$ARR")"   # four fields
+    CONF_TEXT=$(printf '# a note\n\nsrc/t.cpp\ta %s b\treason\n\n' "$ARR")
+    fx LAT-B11 ""           src/t.cpp "f(\"a ${ARR} b\");"
+    fx LAT-B12 "B:1:U+2192,U+25B8" src/t.cpp "f(\"${ARR} ${BS}u25B8 ${ARR}\");"
+    fx LAT-B13 "A:1 B:1:U+2192" src/t.cpp "f(\"${EM} ${ARR}\");"
+    fx LAT-B14 "B:1:U+00E9,U+2713,U+1F600" src/t.cpp "f(\"$(printf '\303\251 \342\234\223 \360\237\230\200')\");"
+    CONF_TEXT=$(printf 'src/t.cpp\ta %s b \treason\n' "$ARR")      # a trailing space: not that literal
+    fx LAT-B15 "B:1:U+2192 S:1" src/t.cpp "f(\"a ${ARR} b\");"
+    CONF_TEXT=$(printf 'src/other.cpp\ta %s b\treason\n' "$ARR")   # another file
+    fx LAT-B16 "B:1:U+2192 S:1" src/t.cpp "f(\"a ${ARR} b\");"
+    CONF_TEXT=$(printf 'src/t.cpp\ta %s b\treason\n' "$ARR")       # one literal declared, one not
+    fx LAT-B17 "B:2:U+2192" src/t.cpp "f(\"a ${ARR} b\");" "g(\"c ${ARR} d\");"
+    fx LAT-B18 "B:1:U+25B8" src/t.cpp "f(\"${BS}u25b8\");"
 
     rm -rf "$ST_DIR"
     if [[ "$bad" -ne 0 ]]; then
@@ -399,26 +446,5 @@ self_test() {
 self_test
 
 rc=0
-out=$(scan "$ROOT") || rc=$?
-if [[ "$rc" -ne 0 ]]; then
-    echo "[lint-ascii-text] the scanner failed (exit $rc) on $ROOT" >&2
-    exit 2
-fi
-
-count() { awk -F'\t' -v k="$2" '$1 == k { n++ } END { print n + 0 }' <<<"$1"; }
-na=$(count "$out" A)
-nb=$(count "$out" B)
-ns=$(count "$out" S)
-
-if [[ "$na" -eq 0 && "$nb" -eq 0 && "$ns" -eq 0 ]]; then
-    echo "[lint-ascii-text] clean"
-    exit 0
-fi
-
-echo "[lint-ascii-text] $na literal(s) with an em dash, $nb with other non-ASCII text, $ns stale declaration(s) (GH #382):" >&2
-awk -F'\t' -v conf="$CONF_REL" '
-    $1 == "A" { printf "%s:%s: em dash (U+2014) in a string literal\n", $2, $3 }
-    $1 == "B" { l = $4; gsub(/,/, ", ", l); printf "%s:%s: non-ASCII %s in a string literal\n", $2, $3, l }
-    $1 == "S" { printf "%s:%s: no literal in %s matches the declared text: %s\n", conf, $2, $3, $4 }' <<<"$out" >&2
-echo "Use ASCII in program text (- for an em dash; -> <- ... > section x for the rest); Qt-only widget text may be declared in $CONF_REL with a reason." >&2
-exit 1
+verdict "$ROOT" || rc=$?
+exit "$rc"
