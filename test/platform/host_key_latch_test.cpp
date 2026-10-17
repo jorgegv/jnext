@@ -1977,31 +1977,43 @@ int main()
                             "reaches the Router",
               sdl_ok && ok03, d03);
 
-        // 04 — the positive control for 01-03: plain F1 and F4 still reset.
+        // 04 — the positive control for 01-03: plain F1 and F4 still reset. One key
+        // at a time, so each is told apart from the other: counting both together
+        // would pass with the two dispatches swapped.
         bool ok04 = false; std::string d04 = sdl_err;
         if (sdl_ok) {
             AltF4Rig r;
-            const bool more = r.batch({{F1, true}, {F1, false}, {F4, true}, {F4, false}});
-            ok04 = r.pushed && more && r.quits == 0 && r.emu.hard == 1 && r.emu.soft == 1 &&
+            const bool more_f1 = r.batch({{F1, true}, {F1, false}});
+            const int hard_after_f1 = r.emu.hard, soft_after_f1 = r.emu.soft;
+            const bool more = r.batch({{F4, true}, {F4, false}});
+            ok04 = r.pushed && more_f1 && more && r.quits == 0 && hard_after_f1 == 1 &&
+                   soft_after_f1 == 0 && r.emu.hard == 1 && r.emu.soft == 1 &&
                    r.router.fkeys == 0 && r.router.keys == 0;
-            d04 = r.state(more);
+            d04 = r.state(more) + " after_F1:hard=" + std::to_string(hard_after_f1) +
+                  " soft=" + std::to_string(soft_after_f1);
         }
         check("HKL-AF4-04", "Without Alt, F1 hard-resets and F4 soft-resets, once each, and neither "
                             "quits",
               sdl_ok && ok04, d04);
 
-        // 05 — only Alt held AT THE PRESS counts.
+        // 05 — only Alt held AT THE PRESS counts, and only Alt: Ctrl, Shift or GUI
+        // alone leave F1 and F4 as they were (the SDL frontend never tested them).
         bool ok05 = false; std::string d05 = sdl_err;
         if (sdl_ok) {
             AltF4Rig r;
             const bool m1 = r.batch({{LALT, true}, {LALT, false}, {F4, true}, {F4, false}});
             const bool m2 = r.batch({{F4, true}, {LALT, true}, {F4, false}, {LALT, false}});
-            ok05 = r.pushed && m1 && m2 && r.quits == 0 && r.emu.soft == 2 && r.emu.hard == 0 &&
-                   r.router.fkeys == 0;
-            d05 = r.state(m2) + " m1=" + std::to_string((int)m1);
+            const bool m3 = r.batch({{LCTRL, true}, {F4, true}, {F4, false}, {LCTRL, false}});
+            const bool m4 = r.batch({{LSHIFT, true}, {F1, true}, {F1, false}, {LSHIFT, false}});
+            const bool m5 = r.batch({{LGUI, true}, {F4, true}, {F4, false}, {LGUI, false}});
+            ok05 = r.pushed && m1 && m2 && m3 && m4 && m5 && r.quits == 0 && r.emu.soft == 4 &&
+                   r.emu.hard == 1 && r.router.fkeys == 0;
+            d05 = r.state(m5) + " m1..m4=" + std::to_string((int)m1) + std::to_string((int)m2) +
+                  std::to_string((int)m3) + std::to_string((int)m4);
         }
         check("HKL-AF4-05", "Only Alt held at the F4 press counts: Alt released before F4, or pressed "
-                            "after it, gives the soft reset and no quit",
+                            "after it, gives the soft reset and no quit, and Ctrl, Shift or GUI alone "
+                            "change nothing about F1 and F4",
               sdl_ok && ok05, d05);
 
         // 06 — mouse captured, under every release method.
