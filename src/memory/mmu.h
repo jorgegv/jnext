@@ -1895,8 +1895,9 @@ private:
         if (off >= sram_size_) return;
         uint16_t line, hc;
         write_tag_(line, hc);
-        // recording() (tested by the caller) and the bound above are the log's
-        // own two checks: attr_mux_start_frame() sets its bound to sram_size_.
+        // recording() (tested by the caller) and the bound above are the two
+        // conditions record_unchecked_() relies on: attr_mux_start_frame() sets
+        // the log's bound to sram_size_.
         sram_log_.record_unchecked_(line, hc, static_cast<uint32_t>(off), *dest, val);
     }
 

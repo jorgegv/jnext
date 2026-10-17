@@ -1209,7 +1209,11 @@ TAG-08 and TAG-09 write more of it).
 | L2LOG-TAG-09 | A frame that outgrows the log's storage, then a re-init (layer2.vhd:177-188) | 16 384 addresses of bank 8 written at rows 20 and 40 (32 768 entries); `sram_log_stop()`; next frame 3 writes | Every address: frame-start, first and second value at rows 10/30/50; after the stop the log is empty and off; the next frame replays its 3 writes, the rest read live — pass |
 | L2LOG-TAG-10 | Render passes interleaved with writes in one frame (layer2.vhd:177-188) | A written at (30, 0); one pass reads it at (50, 100); A written at (45, 0); passes read it at (50, 100), (40, 100), (20, 100) | 0x22 first, then 0x33, 0x22 and the frame-start 0x11: no pass changes what a later one reads — pass |
 
-**Total: ~191 test cases across 31 categories.**
+**Total: 211 test cases across 31 categories.** Counted from the catalogue
+above (2026-10-17), one per row ID: 230 rows, less the 19 struck through, which
+are retired or, for CON-01 … CON-11, re-homed to the Contention plan (P7F-11,
+P1F-07, EF7-06, CON-01 … CON-12b, BOOT-FDC-01 … BOOT-FDC-03). Category 11.x
+counts as one of the 31; there is no Category 27.
 
 ## Test Approach
 

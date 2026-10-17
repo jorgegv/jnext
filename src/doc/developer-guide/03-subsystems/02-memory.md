@@ -194,12 +194,13 @@ took it over (`mmu_integration_test` G12-TAG). A write before framebuffer row 0
 is tagged (row 0, hc 0): it precedes every row-0 fetch, and the tilemap and the
 wide Layer 2 modes do fetch on row 0. Every read consumes such a write, so the
 mux folds an offset's leading run of (0,0) writes into its baseline instead of
-chaining them: the baseline is the frame-start bytes plus those writes, and an
-offset written only that way (the frame interrupt's sysvar stores) stays out of
-the hot set, so no read of it walks a chain and the tilemap does not re-fetch
-its block per group. A (0,0) write that follows a later-tagged one (a coarse
-DMA write after a CPU write on row 0) is chained as before (`mmu_test`
-G12-MUX-15..17).
+chaining them: the baseline is the frame-start bytes plus those writes. An
+offset is *hot* when it holds a write the mux has not folded, so that a read of
+it depends on the instant and walks the offset's chain of writes; an offset
+written only that way (the frame interrupt's sysvar stores) is not hot, so no
+read of it walks a chain and the tilemap does not re-fetch its block per group.
+A (0,0) write that follows a later-tagged one (a coarse DMA write after a CPU
+write on row 0) is chained as before (`mmu_test` G12-MUX-15..17).
 
 `SramBeamLog` is the same idea for Layer 2, which fetches the SRAM bitmap one
 pixel ahead of the beam (`layer2.vhd`, `hc_eff <= hc + 1`). The SRAM is 2 MB,
@@ -220,10 +221,10 @@ deliberately not logged are in `sram_beam_log.h`. All of them go through
 `Mmu::sram_log_write_()`. It tests recording inline, so a store the log does not
 record costs that one test, and leaves the rest to one out-of-line function,
 `Mmu::sram_log_record_()`: the SRAM bound check, the tag, and the append with
-`SramBeamLog::record_unchecked_()`, which skips the log's own two checks because
-the caller has made them. The entry and slot storage keeps its size from frame
-to frame and grows, doubling, only in a cold helper, so the append is
-straight-line code.
+`SramBeamLog::record_unchecked_()`, which makes no check of its own: both it
+relies on (recording, and the address inside the SRAM) are the caller's. The
+entry and slot storage keeps its size from frame to frame and grows, doubling,
+only in a cold helper, so the append is straight-line code.
 `Mmu` separately keeps the
 +3 floating-bus latch `p3_floating_bus_dat_`, updated on every read that
 `mem_contend_for_(addr)` says is contended — a per-page decode, not the older

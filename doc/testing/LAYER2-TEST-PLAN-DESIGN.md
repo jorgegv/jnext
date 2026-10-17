@@ -632,13 +632,21 @@ L2-BR-18) and a mid-line NR 0x12 segment (L2-BR-16, L2-BR-17, after L2-BR-13).
 | 1 | Reset defaults (read-back only) | 12 |
 | 2 | Resolution modes and address generation | 12 |
 | 3 | Scrolling (narrow, wide, 4-bit, wrap branches, MSB) | 12 |
-| 4 | Clip window (auto-index, NR 0x1C, coordinates, inclusivity, doubling) | 13 |
+| 4 | Clip window (auto-index, NR 0x1C, coordinates, inclusivity, doubling) | 16 |
 | 5 | Palette (offset wrap, 4-bit, palette select) | 9 |
-| 6 | Transparency (palette-RGB check, NR 0x14, clip, disable, fallback, priority gate) | 9 |
-| 7 | Bank selection and port 0x123B mapping | 16 |
+| 6 | Transparency (palette-RGB check, NR 0x14, clip, disable, fallback, priority gate) | 11 |
+| 7 | Bank selection and port 0x123B mapping | 19 |
 | 8 | Layer priority interactions at the L2 boundary | 5 |
-| 9 | Negative / boundary / retracted-tautology cases | 6 |
-| | **Total** | **94** |
+| 9 | Negative / boundary / retracted-tautology cases | 4 |
+| G10b | Per-scanline NR 0x15 replay | 2 |
+| G10c | Per-scanline clip-window replay | 2 |
+| G10d | Per-scanline NR 0x12 / NR 0x13 active-bank replay | 2 |
+| G10e | Per-scanline Layer 2 enable replay | 2 |
+| G12 | Beam-time fetch (GH #362) | 18 |
+| | **Total** | **126** |
+
+Counted from the catalogue above (2026-10-17), one per row ID. The four retired
+Group 9 rows (struck through: G9-04, G9-06, L2-G17-01, G9-G28-01) are not counted.
 
 The prior plan listed ~91 tests and reported 61/61 passing, meaning at most
 61 of the listed ~91 were ever realised as code; the gap (~30 unrealised

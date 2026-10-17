@@ -11,8 +11,8 @@
 // and LoRes by GH #362).
 //
 // VHDL authority: cores/zxnext/src/video/zxula.vhd (ULA), tilemap.vhd and
-// lores.vhd (the other two readers; their fetch instants are at whc_hc() /
-// phc_hc() below).
+// lores.vhd (the other two readers; their fetch instants are on the whc and
+// phc counters of beam_counters.h, from hc_origin() and phc_hc() below).
 //
 // Three layers read bank 5 / the bank 7 BRAM from the hardware's video
 // ports at beam time, so a CPU write after the beam has passed a byte is
@@ -168,14 +168,13 @@ public:
         return static_cast<uint16_t>(origin + slot * 8 + d);
     }
 
-    /// Raw hc at which the wide counter `whc` reads `w` / the 256-pixel counter
-    /// `phc` reads `p` (beam_counters.h has the derivations).
-    uint16_t whc_hc(int w) const { return static_cast<uint16_t>(beam::whc_raw_hc(hc_origin_, w)); }
+    /// Raw hc at which the 256-pixel counter `phc` reads `p` (beam_counters.h
+    /// has the derivation).
     uint16_t phc_hc(int p) const { return static_cast<uint16_t>(beam::phc_raw_hc(hc_origin_, p)); }
 
-    /// The `hc_origin` start_frame() stored: whc_hc() is
-    /// beam::whc_raw_hc(hc_origin(), w), for a caller that keeps the origin
-    /// in a local across a loop.
+    /// The `hc_origin` start_frame() stored, for a caller that keeps it in a
+    /// local across a loop: the raw hc at which the wide counter `whc` reads
+    /// `w` is beam::whc_raw_hc(hc_origin(), w).
     int hc_origin() const { return hc_origin_; }
 
     /// Value of bank offset `offset` as the ULA fetch at horizontal instant

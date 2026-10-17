@@ -134,21 +134,13 @@ public:
     /// True when no address in the `n` 16 KB SRAM banks from bank `k0` (bank =
     /// address >> 14) was written since arming: read() of any of them returns
     /// the live byte, so Layer 2 may read such a span straight from the RAM.
-    /// A bank at or above sram_bytes_ is clean (record_write and
-    /// Mmu::sram_log_record_ refuse those addresses); every bank below it has a
-    /// bit (start_frame sizes the map).
+    /// A bank at or above sram_bytes_ is clean (Mmu::sram_log_record_()
+    /// records no address there); every bank below it has a bit (start_frame
+    /// sizes the map).
     bool banks_clean(uint32_t k0, uint32_t n) const {
         for (uint32_t k = k0; k - k0 < n && k < nbanks_; ++k)
             if ((dirty_banks_[k >> 6] >> (k & 63)) & 1u) return false;
         return true;
-    }
-
-    /// Record that SRAM byte `addr` was overwritten (`prev` -> `value`) while
-    /// scanline `line` (framebuffer-row space) was the beam position and `hc`
-    /// the raw horizontal position. A no-op while disarmed.
-    void record_write(uint16_t line, uint16_t hc, uint32_t addr, uint8_t prev, uint8_t value) {
-        if (!recording_ || addr >= sram_bytes_) return;
-        record_unchecked_(line, hc, addr, prev, value);
     }
 
     /// Start a render pass (call before its first apply_changes_for_line; the
@@ -215,10 +207,12 @@ private:
     static constexpr uint32_t kNone = 0xFFFFFFFFu;
     static constexpr uint32_t kMinStorage = 1024;   // entries / slots of a first grow_()
 
-    /// record_write() without its two checks: the caller guarantees recording_
-    /// and addr < sram_bytes_ (Mmu::sram_log_write_() tests recording(), then
-    /// Mmu::sram_log_record_() its own sram_size_, which attr_mux_start_frame()
-    /// assigns with sram_bytes_).
+    /// Record that SRAM byte `addr` was overwritten (`prev` -> `value`) while
+    /// scanline `line` (framebuffer-row space) was the beam position and `hc`
+    /// the raw horizontal position. Checks nothing: the caller guarantees
+    /// recording_ and addr < sram_bytes_ (Mmu::sram_log_write_() tests
+    /// recording(), then Mmu::sram_log_record_() its own sram_size_, which
+    /// attr_mux_start_frame() assigns with sram_bytes_).
     void record_unchecked_(uint16_t line, uint16_t hc, uint32_t addr, uint8_t prev, uint8_t value) {
         const uint32_t n = log_n_;
         if (n == log_cap_) grow_(log_, log_cap_);

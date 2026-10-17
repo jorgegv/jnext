@@ -227,9 +227,10 @@ void Tilemap::flush_remaining_nr6b_changes()
 //
 // VHDL defaults: map base = 44 (0x6C00), tile defs = 12 (0x4C00).
 
-// Always inlined: it is called for every map entry and tile-definition byte of
-// every tile of every row (GH #362 added the mux lookups; out of line, the call
-// alone cost the tilemap path ~2% on the beast workload).
+// Always inlined: the replay loop (render_tiles_<true>, a row with a hot byte)
+// calls it for every map entry and tile-definition byte of every tile of the
+// row (GH #362 added the mux lookups; out of line, the call alone cost the
+// tilemap path ~2% on the beast workload when every row was replayed).
 inline __attribute__((always_inline))
 uint8_t Tilemap::vram_read(const Ram& ram, uint32_t addr, uint16_t hc,
                            const AttributeMux* m5, const AttributeMux* m7,
@@ -600,7 +601,8 @@ void Tilemap::render_tiles_(uint32_t* dst, bool* ula_over_flags, const Ram& ram,
     // before the replay, and `fetch` reads the baseline byte that every
     // replayed read of such a row returns.
     const bool beam = kBeam && (hcmux != nullptr);
-    // whc_hc()'s origin in a local: read through `hcmux` at every block, it
+    // The mux's hc origin, which the group instants are computed from
+    // (beam::whc_raw_hc), in a local: read through `hcmux` at every block, it
     // would be reloaded there, since the loop's stores may alias it.
     const int hc_origin = beam ? hcmux->hc_origin() : 0;
     int      group_end_x     = INT_MAX; // next group's first tilemap_x, or INT_MAX

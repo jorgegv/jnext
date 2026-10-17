@@ -2502,12 +2502,13 @@ took it over (<code>mmu_integration_test</code> G12-TAG). A write before framebu
 is tagged (row 0, hc 0): it precedes every row-0 fetch, and the tilemap and the
 wide Layer 2 modes do fetch on row 0. Every read consumes such a write, so the
 mux folds an offset's leading run of (0,0) writes into its baseline instead of
-chaining them: the baseline is the frame-start bytes plus those writes, and an
-offset written only that way (the frame interrupt's sysvar stores) stays out of
-the hot set, so no read of it walks a chain and the tilemap does not re-fetch
-its block per group. A (0,0) write that follows a later-tagged one (a coarse
-DMA write after a CPU write on row 0) is chained as before (<code>mmu_test</code>
-G12-MUX-15..17).</p>
+chaining them: the baseline is the frame-start bytes plus those writes. An
+offset is <em>hot</em> when it holds a write the mux has not folded, so that a read of
+it depends on the instant and walks the offset's chain of writes; an offset
+written only that way (the frame interrupt's sysvar stores) is not hot, so no
+read of it walks a chain and the tilemap does not re-fetch its block per group.
+A (0,0) write that follows a later-tagged one (a coarse DMA write after a CPU
+write on row 0) is chained as before (<code>mmu_test</code> G12-MUX-15..17).</p>
 <p><code>SramBeamLog</code> is the same idea for Layer 2, which fetches the SRAM bitmap one
 pixel ahead of the beam (<code>layer2.vhd</code>, <code>hc_eff &lt;= hc + 1</code>). The SRAM is 2 MB,
 so it is sparse: an append-only per-frame log of <code>(key, address, value)</code> in
@@ -2527,10 +2528,10 @@ deliberately not logged are in <code>sram_beam_log.h</code>. All of them go thro
 <code>Mmu::sram_log_write_()</code>. It tests recording inline, so a store the log does not
 record costs that one test, and leaves the rest to one out-of-line function,
 <code>Mmu::sram_log_record_()</code>: the SRAM bound check, the tag, and the append with
-<code>SramBeamLog::record_unchecked_()</code>, which skips the log's own two checks because
-the caller has made them. The entry and slot storage keeps its size from frame
-to frame and grows, doubling, only in a cold helper, so the append is
-straight-line code.
+<code>SramBeamLog::record_unchecked_()</code>, which makes no check of its own: both it
+relies on (recording, and the address inside the SRAM) are the caller's. The
+entry and slot storage keeps its size from frame to frame and grows, doubling,
+only in a cold helper, so the append is straight-line code.
 <code>Mmu</code> separately keeps the
 +3 floating-bus latch <code>p3_floating_bus_dat_</code>, updated on every read that
 <code>mem_contend_for_(addr)</code> says is contended — a per-page decode, not the older
