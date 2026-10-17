@@ -22,7 +22,7 @@ code comments.
 
 ## General guidance
 
-- Use an Agent Team when working on different tasks
+- Use the `team-run` skill when working on different tasks in parallel: the main session orchestrates the agents (no manager agent)
 - Try to parallelize work on different agents for independent tasks (e.g. emulator, peripherals, GUI, tests, documentation, etc.)
 - Skills needed:
   - C/C++ expert developer
@@ -35,8 +35,8 @@ code comments.
 - Do not include Co-Authored-by headers in commit messages
 - Keep commit messages terse but insightful
 - When reading daily prompt files (in directory `.prompts`, they contains tasks for the daily work), always keep a Task Completion Status section in each of them. Update this section whenever a task is finished.
-- When launching Agent Teams, the Manager agent should NOT write or touch any code
-- When launching Agent Teams, each independent function should be worked on in a different branch, to avoid code trashing between agents. When code is ready on each branch, they should be merged to main. If merge problems occur, the agent responsible for fixing them is the one that tried to merge last, and it should try to fix them on their own branch.
+- When orchestrating agents (`team-run`, `autonomous-run`), the orchestrator (the main session) should NOT write or touch any code
+- When orchestrating agents, each independent function should be worked on in a different branch, to avoid code trashing between agents. When code is ready on each branch, they should be merged to main. If merge problems occur, the agent responsible for fixing them is the one that tried to merge last, and it should try to fix them on their own branch.
 - Agents should NOT write to the main branch, ever. Only on their own branches and worktrees!
 - **Git worktrees live OUTSIDE the repository directory.** Canonical location: `/home/jorgegv/tmp/worktrees/<name>` (2026-08-03; the previous sibling `/home/jorgegv/src/spectrum/jnext-worktrees/` is retired, as is the older in-repo `.claude/worktrees/` from 2026-07-19). Never create a worktree checkout inside the repo — even gitignored: anything walking the repository file list also walks the worktrees, which is unneeded work and loads the machine. The traceability generator finds the FPGA checkout from any worktree location on its own — it resolves the worktree's main checkout from its `.git` file and walks up from there — so no `JNEXT_FPGA_SRC` export is needed in worktrees (the env var remains for machines with no sibling checkout, e.g. CI).
 - **NEVER push to origin without explicit user authorization.** This applies to the manager AND every spawned agent. Local commits, rebases, and merges on owned branches/worktrees are fine; `git push`, `git push -u`, `git push --force`, `gh pr create`, and any equivalent are all forbidden unless the user explicitly says "push" or "open a PR". **Standing authorization (owner, 2026-09-29 and 2026-10-06) — exactly this, nothing more:** after a green, independently APPROVED merge to `main` and its `make bump-patch`, push `main` and its new tags (explicit refspecs, ≤3 tags per push, only when no CI run on `main` is in progress); push epic branches (`epic<E>-<slug>`, never force); comment on, file and edit issues and close them — during an autonomous run; and, after any approved merge is pushed, close the finished issue with its close note; once an issue is closed and its branch merged into its target, remove its clean worktrees and delete its merged local branch (`worktree-launch` §Cleanup). Other branches, force pushes, PRs, unmerged or dirty work, and public releases stay per-message.
