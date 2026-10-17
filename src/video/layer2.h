@@ -5,6 +5,7 @@
 
 class Ram;
 class PaletteManager;
+class SramBeamLog;
 
 namespace jnext { namespace save { class StateDesc; } }
 
@@ -96,6 +97,12 @@ public:
 
     /// True when in a wide mode (320×256 or 640×256).
     bool is_wide() const { return resolution_ != 0; }
+
+    /// Wire the SRAM beam-time replay (Mmu::sram_log(); GH #362). Layer 2
+    /// fetches one byte per 7 MHz tick, so a render pass reads the bitmap
+    /// through the log at each pixel's fetch instant instead of from the
+    /// live RAM, which holds the END of the frame. Null = live read.
+    void set_beam_log(const SramBeamLog* log) { sram_log_ = log; }
 
     /// Enable/disable Layer 2 rendering (from NextREG 0x69 bit 7 or port 0x123B).
     void set_enabled(bool en) {
@@ -370,6 +377,7 @@ public:
     int segment_first_column(size_t i, bool wide) const;
 
 private:
+    const SramBeamLog* sram_log_ = nullptr;   // GH #362: beam-time SRAM replay (not state)
     uint8_t  active_bank_    = 8;     // NextREG 0x12 default
     uint8_t  shadow_bank_    = 11;    // NextREG 0x13 default
     uint16_t scroll_x_       = 0;     // 9-bit X scroll (0x16 + 0x71)

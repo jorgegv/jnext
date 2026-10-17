@@ -2277,6 +2277,251 @@ void group16_control_decode() {
     }
 }
 
+// ── Group 17: beam-time fetch (GH #362) ─────────────────────────────────
+//
+// ORACLE (tilemap.vhd, re-derived here, NOT taken from the emulator):
+//   * The tilemap fetches each group of 8 output pixels ONE CHARACTER AHEAD,
+//     on the line being drawn: tilemap.vhd:226-231,
+//         hcount_eff = (hcount_effsub(9:3) + 1) & hcount_effsub(2:0)
+//         tm_mem_fetch = (hcount_eff(2:0) = "000")
+//     so group g is fetched when the counter reads 8(g-1) (40-col: hcount_effsub
+//     is hcount(10:2), one 7 MHz tick; 80-col: hcount(10:1), one 14 MHz tick,
+//     so 4 whc ticks per group).
+//   * The fetch reads the map entry (S_READ_TILE_0/1) and the tile-definition
+//     bytes (S_READ_PIXELS) from bank 5 / bank 7 through the VRAM port B:
+//     tilemap.vhd:393-403, zxnext.vhd:6660-6664.
+//   * whc = -16 on the 7 MHz edge after hc = c_min_hactive - 48, so whc = w at
+//     raw hc c_min_hactive - 31 + w: zxula_timing.vhd:473-492.
+// c_min_hactive is 128 for the machine under test (origin 116 = 128 - 12).
+// A write is seen by a fetch when its (line, hc) tag is at or before the
+// fetch instant (the AttributeMux contract). Every write below is at least 2
+// ticks from the instant it is compared against.
+
+namespace {
+
+constexpr int kBeamOrigin = 116;
+constexpr int kMinHactive = 128;
+
+// Raw hc of the fetch of display group `g`; `per_group` = whc ticks per group.
+int tm_instant(int per_group, int g) { return per_group * (g - 1) + kMinHactive - 31; }
+
+struct TmBeamBed {
+    Ram ram;
+    Rom rom;
+    Mmu mmu;
+    Tilemap tm;
+    PaletteManager pal;
+    explicit TmBeamBed(bool col80 = false, uint8_t map_base = 0x00) : ram(), rom(), mmu(ram, rom) {
+        mmu.reset();
+        mmu.set_page(2, 10);   // bank 5 -> 0x4000
+        mmu.set_page(3, 11);   // bank 5 -> 0x6000
+        mmu.set_page(4, 14);   // bank 7 -> 0x8000
+        tm.reset();
+        pal.reset();
+        paint_tm_palette_entry(pal, 1, 0xE0);
+        paint_tm_palette_entry(pal, 2, 0x1C);
+        paint_tm_palette_entry(pal, 3, 0x03);
+        tm.set_control(col80 ? 0xC0 : 0x80);
+        tm.set_map_base(map_base);
+        tm.set_def_base(0x20);   // tile definitions at bank 5 + 0x2000
+        tm.set_beam_mux(&mmu.attr_mux5(), &mmu.attr_mux7());
+        for (int t = 1; t <= 3; ++t) fill_tile_pattern(ram, BANK5 + 0x2000, t, t);
+        const int tpr = col80 ? 80 : 40;
+        const uint32_t base = (map_base & 0x80) ? BANK7 : BANK5;
+        for (int c = 0; c < tpr; ++c)
+            write_map2(ram, base + (map_base & 0x3Fu) * 256u, c, 0, tpr, 1, 0);
+    }
+    void begin(int vblank_top = 0) { mmu.attr_mux_start_frame(kBeamOrigin, vblank_top); }
+    // A write by a non-CPU writer carries the coarse (line, hc) tag.
+    void wr(uint16_t cpu_addr, uint8_t v, int line, int hc) {
+        mmu.attr_mux_set_current_line(line);
+        mmu.attr_mux_set_current_hc(hc);
+        mmu.write(cpu_addr, v);
+    }
+    uint32_t colour(int idx) const { return pal.tilemap_colour(false, static_cast<uint8_t>(idx)); }
+    // Pixel at output column `x` (0..639) of display row `y`.
+    uint32_t px(int y, int x) {
+        static uint32_t pixels[MAX_W];
+        static bool over[MAX_W];
+        static bool text[MAX_W];
+        std::memset(pixels, 0, sizeof(pixels));
+        tm.init_scroll_per_line();
+        mmu.attr_mux_rewind_to_baseline();
+        mmu.attr_mux_apply_line(y);
+        tm.render_scanline(pixels, over, y, ram, pal, text);
+        return pixels[x];
+    }
+};
+
+// CPU address of bank-5 offset `o` (slots 2/3) and of bank-7 offset (slot 4).
+uint16_t b5(uint32_t o) { return static_cast<uint16_t>(0x4000u + o); }
+uint16_t b7(uint32_t o) { return static_cast<uint16_t>(0x8000u + o); }
+
+} // namespace
+
+void group17_beam_fetch() {
+    set_group("G17 Beam fetch");
+
+    // TM-BR-01: a map write in the post-display lines belongs to the NEXT
+    // frame: row 0 still shows the old tile; the next frame shows the new.
+    {
+        TmBeamBed b;
+        b.begin();
+        b.wr(b5(0), 2, 260, 0);
+        const bool now_old = b.px(0, 0) == b.colour(1);
+        b.begin();
+        const bool next_new = b.px(0, 0) == b.colour(2);
+        check_pred("TM-BR-01", now_old && next_new,
+              "tilemap.vhd:226-231 — a map byte written after the beam has "
+              "fetched row 0 (post-display line 260) is seen by the next frame only");
+    }
+
+    // TM-BR-02: map write on the same row, 2 ticks AFTER group 5's fetch: that
+    // row keeps the old tile, the next row sees the new one.
+    {
+        TmBeamBed b;
+        b.begin();
+        b.wr(b5(5 * 2), 2, 3, tm_instant(8, 5) + 2);
+        const bool row_old = b.px(3, 5 * 16) == b.colour(1);
+        const bool next_row_new = b.px(4, 5 * 16) == b.colour(2);
+        check_pred("TM-BR-02", row_old && next_row_new,
+              "tilemap.vhd:226-231 — a map write 2 ticks after group 5's "
+              "fetch instant (whc 32, raw hc 129) is old on that row, new on the next");
+    }
+
+    // TM-BR-03: 2 ticks BEFORE the instant it is in time.
+    {
+        TmBeamBed b;
+        b.begin();
+        b.wr(b5(5 * 2), 2, 3, tm_instant(8, 5) - 2);
+        check_pred("TM-BR-03", b.px(3, 5 * 16) == b.colour(2),
+              "tilemap.vhd:226-231 — a map write 2 ticks before group 5's "
+              "fetch instant is already seen by that row");
+    }
+
+    // TM-BR-04: the tile DEFINITION bytes are fetched at the same instant:
+    // tile 1's row-3 pattern bytes rewritten to colour 3 after / before it.
+    {
+        TmBeamBed late, early;
+        late.begin();
+        early.begin();
+        for (int i = 0; i < 4; ++i) {
+            late.wr(b5(0x2000 + 32 + 3 * 4 + i), 0x33, 3, tm_instant(8, 5) + 2);
+            early.wr(b5(0x2000 + 32 + 3 * 4 + i), 0x33, 3, tm_instant(8, 5) - 2);
+        }
+        const bool late_old = late.px(3, 5 * 16) == late.colour(1);
+        const bool early_new = early.px(3, 5 * 16) == early.colour(3);
+        check_pred("TM-BR-04", late_old && early_new,
+              "tilemap.vhd:393-403 — the tile-definition bytes of a group are "
+              "fetched with its map entry (S_READ_PIXELS): old after the "
+              "instant, new before it");
+    }
+
+    // TM-BR-05: a map above the ULA planes (bank 5 + 0x3C00, bank 7 + 0x1C00)
+    // is recorded too: a post-display write is not seen this frame, and an
+    // in-time write (row 1, before row 3's fetch) is.
+    {
+        TmBeamBed b5bed(false, 0x3C);
+        b5bed.begin();
+        b5bed.wr(b5(0x3C00), 2, 260, 0);
+        b5bed.wr(b5(0x3C00 + 2), 2, 1, 0);
+        const bool bank5_ok = b5bed.px(0, 0) == b5bed.colour(1)
+                           && b5bed.px(3, 16) == b5bed.colour(2);
+        TmBeamBed b7bed(false, 0x9C);
+        b7bed.begin();
+        b7bed.wr(b7(0x1C00), 2, 260, 0);
+        b7bed.wr(b7(0x1C00 + 2), 2, 1, 0);
+        const bool bank7_ok = b7bed.px(0, 0) == b7bed.colour(1)
+                           && b7bed.px(3, 16) == b7bed.colour(2);
+        check_pred("TM-BR-05", bank5_ok && bank7_ok,
+              "tilemap.vhd:393-403 + zxnext.vhd:6660-6664 — the map is fetched "
+              "from anywhere in bank 5 / the bank 7 BRAM (NR 0x6E bits 5:0), so "
+              "writes above the ULA planes (bank 5 0x3C00, bank 7 0x1C00) replay "
+              "too: a late write is old, an in-time one is new");
+    }
+
+    // TM-BR-06: a write in the pre-display lines (raw line 10, hc 300) precedes
+    // every row-0 fetch, whatever its hc.
+    {
+        TmBeamBed b;
+        b.begin(32);
+        b.mmu.attr_mux_set_write_pos(10, 300);
+        b.mmu.write(b5(0), 2);
+        b.mmu.attr_mux_end_write();
+        check_pred("TM-BR-06", b.px(0, 0) == b.colour(2),
+              "tilemap.vhd:226-231 — a write before framebuffer row 0 happened "
+              "before row 0's group-0 fetch (hc 89), whatever its own hc");
+    }
+
+    // TM-BR-07: 80-col spacing is 4 whc per group (hcount(10:1)), not 8: a
+    // write 2 ticks after group 10's fetch is old for group 10, but in time for
+    // group 11 (fetched 4 ticks later).
+    {
+        TmBeamBed b(true);
+        b.begin();
+        const uint16_t t = static_cast<uint16_t>(tm_instant(4, 10) + 2);
+        b.wr(b5(10 * 2), 2, 3, t);
+        b.wr(b5(11 * 2), 2, 3, t);
+        const bool g10_old = b.px(3, 10 * 8) == b.colour(1);
+        const bool g11_new = b.px(3, 11 * 8) == b.colour(2);
+        check_pred("TM-BR-07", g10_old && g11_new,
+              "tilemap.vhd:226-231 — 80-col: hcount_effsub = hcount(10:1), so "
+              "a group is 4 whc ticks and group 10 / 11 are fetched 4 ticks apart");
+    }
+
+    // TM-BR-08: 40-col, the one-character-ahead instant: a write between the
+    // fetches of groups 4 and 5 is in time for group 5 and late for group 4.
+    {
+        TmBeamBed b;
+        b.begin();
+        const uint16_t t = static_cast<uint16_t>(tm_instant(8, 4) + 4);
+        b.wr(b5(4 * 2), 2, 3, t);
+        b.wr(b5(5 * 2), 2, 3, t);
+        const bool g4_old = b.px(3, 4 * 16) == b.colour(1);
+        const bool g5_new = b.px(3, 5 * 16) == b.colour(2);
+        check_pred("TM-BR-08", g4_old && g5_new,
+              "tilemap.vhd:226-231 — the fetch runs one character ahead "
+              "(hcount_eff = hcount_effsub + 8): group 4 at whc 24, group 5 at "
+              "whc 32; a write at whc 28 is late for 4, in time for 5");
+    }
+
+    // TM-BR-09: fine X scroll 4 splits tile 1 across groups 0 and 1; the map
+    // entry is re-fetched in every group (S_IDLE -> S_READ_TILE_0), so its two
+    // halves are read at two instants: a write between them changes only the
+    // half in group 1.
+    {
+        TmBeamBed b;
+        b.tm.set_scroll_x_lsb(4);
+        b.begin();
+        b.wr(b5(1 * 2), 2, 3, tm_instant(8, 1) - 4);
+        const bool half0_old = b.px(3, 2 * 5) == b.colour(1);   // x 4..7 (group 0)
+        const bool half1_new = b.px(3, 2 * 9) == b.colour(2);   // x 8..11 (group 1)
+        check_pred("TM-BR-09", half0_old && half1_new,
+              "tilemap.vhd:260-300 — the map entry is fetched again in every "
+              "8-pixel group, so a tile split by fine scroll is read at two "
+              "instants (group 0 at whc -8, group 1 at whc 0)");
+    }
+
+    // TM-BR-10: the same split with a ROTATED tile (attribute bit 1). A rotated
+    // tile reads its definition bytes pixel by pixel, so the second group must
+    // re-key the block even though no prefetched byte was written: every
+    // pattern byte of tile 1 is rewritten between the two groups' instants.
+    {
+        TmBeamBed b;
+        write_map2(b.ram, BANK5, 1, 0, 40, 1, 0x02);   // tile 1 rotated
+        b.tm.set_scroll_x_lsb(4);
+        b.begin();
+        for (int i = 0; i < 32; ++i)
+            b.wr(b5(0x2000 + 32 + i), 0x33, 3, tm_instant(8, 1) - 4);
+        const bool half0_old = b.px(3, 2 * 5) == b.colour(1);   // x 4..7 (group 0)
+        const bool half1_new = b.px(3, 2 * 9) == b.colour(3);   // x 8..11 (group 1)
+        check_pred("TM-BR-10", half0_old && half1_new,
+              "tilemap.vhd:260-300 - a rotated tile split by fine scroll: its "
+              "per-pixel pattern reads in group 1 happen at group 1's instant "
+              "(whc 0), after the write that group 0 (whc -8) did not see");
+    }
+}
+
 int main() {
     std::printf("Tilemap Subsystem Compliance Test (VHDL-derived rewrite)\n");
     std::printf("========================================================\n\n");
@@ -2297,6 +2542,7 @@ int main() {
     group14_stencil();       std::printf("  G14 Stencil      done\n");
     group15_enable_below();  std::printf("  G15 Enable/below done\n");
     group16_control_decode();std::printf("  G16 Control/RR   done\n");
+    group17_beam_fetch();    std::printf("  G17 Beam fetch   done\n");
 
     std::printf("\n========================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

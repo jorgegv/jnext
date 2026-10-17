@@ -3,10 +3,22 @@
 #include <cstdint>
 #include <vector>
 
-// Beam-time replay of every byte the ULA fetches from VRAM (GH #305, builds
-// on G12 Nirvana-class attribute multiplex).
+#include "memory/beam_counters.h"
+
+// Beam-time replay of every byte a display layer fetches from VRAM (GH #305,
+// builds on G12 Nirvana-class attribute multiplex; extended to the tilemap
+// and LoRes by GH #362).
 //
-// VHDL authority: cores/zxnext/src/video/zxula.vhd.
+// VHDL authority: cores/zxnext/src/video/zxula.vhd (ULA), tilemap.vhd and
+// lores.vhd (the other two readers; their fetch instants are at whc_hc() /
+// phc_hc() below).
+//
+// Three layers read bank 5 / the bank 7 BRAM from the hardware's video
+// ports at beam time, so a CPU write after the beam has passed a byte is
+// invisible to that frame: the ULA (below), the tilemap (map entry and tile
+// definition, tilemap.vhd:226-231, 393-403) and LoRes (lores.vhd, address
+// from phc). The recorder (Mmu::write) therefore covers the WHOLE of both
+// memories, not just the ULA screen planes the sections below derive.
 //
 // The ULA does not read the screen once per frame. On EVERY scanline it
 // fetches, for every one of the 32 columns, a pixel byte and an attribute
@@ -143,6 +155,11 @@ public:
         return static_cast<uint16_t>(origin + slot * 8 + d);
     }
 
+    /// Raw hc at which the wide counter `whc` reads `w` / the 256-pixel counter
+    /// `phc` reads `p` (beam_counters.h has the derivations).
+    uint16_t whc_hc(int w) const { return static_cast<uint16_t>(beam::whc_raw_hc(hc_origin_, w)); }
+    uint16_t phc_hc(int p) const { return static_cast<uint16_t>(beam::phc_raw_hc(hc_origin_, p)); }
+
     /// Value of bank offset `offset` as the ULA fetch at horizontal instant
     /// `hc` of the scanline set by apply_changes_for_line() reads it: the
     /// last write at or before (line, hc), else the frame baseline.
@@ -151,6 +168,10 @@ public:
         prepare();
         return read_prepared(offset, hc);
     }
+
+    /// True when `offset` was written this frame (so a read of it can depend on
+    /// the instant). Only valid after prepare().
+    bool is_hot(uint32_t offset) const { return offset < nbytes_ && hot_[offset] != 0; }
 
     /// Chain every write recorded so far. read() does it itself; a caller that
     /// reads many bytes in a row (a scanline's 32 columns) calls it once and

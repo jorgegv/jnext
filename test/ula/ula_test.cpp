@@ -4387,6 +4387,25 @@ static void test_section19_beam_replay() {
                   "rewound gives 0xFF on the second)", pass1, pass2));
     }
 
+    // VMUX-16 — a CPU write in the pre-display lines (raw line 10, raw hc 300,
+    // before framebuffer row 0 at vblank_top 32) is tagged (row 0, hc 0) so it
+    // precedes every row-0 fetch of the tilemap and the wide Layer 2 (GH #362).
+    // For the ULA, which never fetches above row 32, that clamp changes
+    // nothing: the first paper row still shows the byte.
+    {
+        BeamBed bed;
+        bed.mmu.attr_mux_start_frame(kBeamOrigin, 32);
+        bed.mmu.attr_mux_set_write_pos(10, 300);
+        bed.mmu.write(pix_addr(5, 0), 0xFF);
+        bed.mmu.attr_mux_end_write();
+        const uint8_t got = BeamBed::cell(bed.row(Ula::DISP_Y), 5, white);
+        check("VMUX-16",
+              "zxula.vhd:270-303 — a write before framebuffer row 0 precedes "
+              "the first paper row's pixel fetch whatever its raw hc (the "
+              "row-0 hc clamp leaves the ULA unchanged)",
+              got == 0xFF, fmt("got=0x%02X (expected 0xFF)", got));
+    }
+
     // VMUX-11 — no write is dropped: 20000 screen writes in one frame (the
     // old log capped at 8192 and silently dropped the tail) and the last one,
     // late in the frame, is still resolved.

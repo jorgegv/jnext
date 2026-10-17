@@ -11,6 +11,7 @@
 #include "debug/debug_state.h"
 #include "memory/contention.h"   // for MachineType
 #include "memory/attribute_mux.h" // G12 — Nirvana-class attribute replay
+#include "memory/sram_beam_log.h"  // GH #362 — Layer 2 SRAM beam replay
 
 
 namespace jnext { namespace save { class StateDesc; } }
@@ -513,7 +514,10 @@ public:
             uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
             uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page | ((addr >> 13) & 1)));
             uint8_t* p = ram_.page_ptr(phys_page);
-            if (p) p[addr & 0x1FFF] = val;
+            if (p) {
+                sram_log_write_(p + (addr & 0x1FFF), val);
+                p[addr & 0x1FFF] = val;
+            }
             return p != nullptr;
         }
         int slot = addr >> 13;
@@ -529,7 +533,10 @@ public:
         if (nr_8c_altrom_en() && nr_8c_altrom_rw() &&
             !config_mode_ && addr < 0x4000 && read_only_[slot]) {
             uint8_t* p = ram_.page_ptr(altrom_sram_page_(addr));
-            if (p) p[addr & 0x1FFF] = val;
+            if (p) {
+                sram_log_write_(p + (addr & 0x1FFF), val);
+                p[addr & 0x1FFF] = val;
+            }
             return p != nullptr;
         }
         // Config-mode routing (VHDL zxnext.vhd:3044-3050, sram_pre_rdonly<='0'):
@@ -538,12 +545,16 @@ public:
         // tbblue.fw's load_roms() populates ROM content in SRAM.
         if (config_mode_ && addr < 0x4000 && read_only_[slot]) {
             uint8_t* p = ram_.page_ptr((static_cast<uint16_t>(nr_04_romram_bank_) << 1) | slot);
-            if (p) p[addr & 0x1FFF] = val;
+            if (p) {
+                sram_log_write_(p + (addr & 0x1FFF), val);
+                p[addr & 0x1FFF] = val;
+            }
             return p != nullptr;
         }
         if (read_only_[slot]) return false;
         uint8_t* ptr = write_ptr_[slot];
         if (!ptr) return false;
+        sram_log_write_(ptr + (addr & 0x1FFF), val);
         ptr[addr & 0x1FFF] = val;
         // VHDL zxnext.vhd:4498-4509 — p3_floating_bus_dat captures cpu_do
         // on every contended memory write. Verify9-memory class-(c) →
@@ -560,42 +571,13 @@ public:
         // bank7_bram_ buffers on Next machines -- see rebuild_ptr()); `ptr`
         // already points at whichever buffer backs it.
         //
-        // It records every byte the ULA can fetch (attribute_mux.h): bank 5
-        // pages 0x0A and 0x0B and bank 7 page 0x0E, offsets 0x0000-0x1AFF
-        // (the pixel planes, the attribute plane, and the Timex second
-        // plane / alt screen). Cost: a page compare, an offset compare and
+        // It records every byte any display layer fetches from VRAM
+        // (attribute_mux.h): all of bank 5 (pages 0x0A and 0x0B) and of the
+        // bank 7 BRAM (page 0x0E). That is the ULA screen planes, and since
+        // GH #362 also the tilemap (map and tile definitions anywhere in
+        // bank 5 or the bank 7 BRAM) and LoRes. Cost: a page compare and
         // one log append per write that lands there.
-        {
-            const uint8_t page = slots_[slot];
-            if (page == kAttrMuxBank5Page || page == kAttrMuxBank5HiPage
-                || page == kAttrMuxBank7Page) {
-                const uint16_t off = addr & 0x1FFF;
-                if (off <= kAttrMuxOffHi) {
-                    // Prefer the beam position derived from THIS write's own
-                    // T-state (fuse_z80_writebyte -> attr_mux_set_write_pos)
-                    // over the on_scanline() tag, which is only refreshed
-                    // between instructions and is therefore stale for any
-                    // write inside an instruction that straddles a scanline
-                    // boundary. Both halves of the position come from the
-                    // same source: a CPU write's own (line, hc), or the
-                    // coarse (line, hc) every other writer takes. The CPU's
-                    // position is valid for its ONE write only --
-                    // fuse_z80_writebyte() ends it with attr_mux_end_write()
-                    // -- so a DMA, loader or debugger write can never inherit
-                    // it (GH #278 WP4d).
-                    const bool     own  = attr_mux_write_pos_valid_;
-                    const uint16_t line = own ? attr_mux_write_line_ : attr_mux_current_line_;
-                    const uint16_t hc   = own ? attr_mux_write_hc_   : attr_mux_current_hc_;
-                    attr_mux_write_pos_valid_ = false;
-                    if (page == kAttrMuxBank7Page)
-                        attr_mux7_.record_write(line, hc, off, val);
-                    else
-                        attr_mux5_.record_write(
-                            line, hc,
-                            off + (page == kAttrMuxBank5HiPage ? 0x2000u : 0u), val);
-                }
-            }
-        }
+        attr_mux_record_(slots_[slot], addr & 0x1FFF, val);
         return true;
     }
 
@@ -627,6 +609,31 @@ public:
                                AttributeMux::kBank5Bytes);
         attr_mux7_.start_frame(bank7_vram_baseline_ptr(), hc_origin,
                                AttributeMux::kBank7Bytes);
+        // The Layer 2 SRAM log restarts with the VRAM mux, disarmed
+        // (sram_log_arm(), GH #362).
+        sram_base_ = ram_.page_ptr(0);
+        sram_size_ = ram_.size();
+        sram_log_.start_frame(hc_origin, static_cast<uint32_t>(sram_size_));
+    }
+
+    /// Start logging SRAM writes for Layer 2's beam-time fetch (sram_beam_log.h).
+    /// The emulator calls it when Layer 2 is enabled at frame start and when
+    /// it becomes enabled mid-frame; the log then records until the frame ends.
+    void sram_log_arm() { sram_log_.arm(); }
+    const SramBeamLog& sram_log() const { return sram_log_; }
+    /// Machine re-initialisation: the log is off and its memory freed until the
+    /// next attr_mux_start_frame() (a loader's writes before frame 1 are not logged).
+    void sram_log_stop() { sram_log_.stop(); }
+
+    /// Log a store made straight into the backing byte of logical page `page`
+    /// (offset `off`, at `dest`) that does not go through write(): the
+    /// debugger's poke(Page), i.e. a script's `set phys[]`. It is not a
+    /// CPU-mapped write, but the beam replays must see it like any other
+    /// (coarse tag). Call BEFORE the store, as the SRAM log keeps the byte it
+    /// overwrites. GH #362.
+    void log_page_store(uint8_t page, uint16_t off, const uint8_t* dest, uint8_t val) {
+        sram_log_write_(dest, val);
+        attr_mux_record_(page, off, val);
     }
 
     /// True beam position at the exact T-state the write lands on the bus,
@@ -639,8 +646,13 @@ public:
     /// (`attr_mux_current_line_`, `attr_mux_current_hc_`) pair is untouched,
     /// so it stays what every non-CPU writer is tagged with (GH #278 WP4d).
     void attr_mux_set_write_pos(int vc, int hc) {
-        attr_mux_write_hc_ = (hc < 0) ? 0 : static_cast<uint16_t>(hc);
         const int fb_row = vc - attr_mux_vblank_top_;
+        // A write before framebuffer row 0 (raw lines 0..vblank_top-1) is
+        // tagged (line 0, hc 0): it physically precedes every row-0 fetch,
+        // and keeping its real hc would hide it from a fetch at a smaller hc
+        // (the tilemap and the wide Layer 2 modes fetch on row 0 before
+        // hc 100; the ULA never fetches on rows 0..31). GH #362.
+        attr_mux_write_hc_ = (hc < 0 || fb_row < 0) ? 0 : static_cast<uint16_t>(hc);
         attr_mux_write_line_ = (fb_row < 0) ? 0 : static_cast<uint16_t>(fb_row);
         attr_mux_write_pos_valid_ = true;
     }
@@ -676,6 +688,7 @@ public:
     void attr_mux_rewind_to_baseline() {
         attr_mux5_.rewind_to_baseline();
         attr_mux7_.rewind_to_baseline();
+        sram_log_.rewind_to_baseline();
     }
 
     /// Set the scanline the VRAM replay of both banks resolves against.
@@ -683,6 +696,7 @@ public:
     void attr_mux_apply_line(int line) {
         attr_mux5_.apply_changes_for_line(line);
         attr_mux7_.apply_changes_for_line(line);
+        sram_log_.apply_changes_for_line(line);
     }
 
     /// Drain any remaining log entries (e.g. tagged past FB_HEIGHT) so
@@ -1797,16 +1811,20 @@ private:
     // attribute_mux.h for the VHDL citations. Physical MMU pages whose
     // bytes the ULA fetches (bank 5 pages 0x0A/0x0B, bank 7 page 0x0E --
     // see rebuild_ptr()'s bank5_vram_/bank7_bram_ + plain-ram_ branches,
-    // both of which use these same logical page numbers) and the highest
-    // byte offset within an 8K page it fetches (0x1AFF: the attribute
-    // plane ends there, the pixel planes end at 0x17FF).
+    // both of which use these same logical page numbers). Every byte of
+    // those pages is recorded (GH #362): the tilemap and LoRes fetch from
+    // anywhere in them, not only from the ULA screen planes.
     static constexpr uint8_t  kAttrMuxBank5Page   = 0x0A;
     static constexpr uint8_t  kAttrMuxBank5HiPage = 0x0B;
     static constexpr uint8_t  kAttrMuxBank7Page   = 0x0E;
-    static constexpr uint16_t kAttrMuxOffHi       = 0x1AFF;
 
     AttributeMux   attr_mux5_;
     AttributeMux   attr_mux7_;
+    SramBeamLog    sram_log_;
+    // The SRAM's bytes, cached when the frame starts (the Ram never moves
+    // within a frame) so a recorded store does not pay a page_ptr() call.
+    const uint8_t* sram_base_ = nullptr;
+    size_t         sram_size_ = 0;
     uint16_t       attr_mux_current_line_ = 0;
     // Round 4 column-accurate resolution: the coarse 7 MHz-domain hc tag
     // of a NON-CPU write — 0 in production, set by test fixtures. NOT
@@ -1819,6 +1837,59 @@ private:
     uint16_t       attr_mux_write_hc_        = 0;
     bool           attr_mux_write_pos_valid_ = false;
     int            attr_mux_vblank_top_      = 0;
+
+    /// Record a store into logical page `page` at `off` with the VRAM beam
+    /// replay, if the page is bank 5 (0x0A/0x0B) or the bank 7 BRAM (0x0E).
+    /// Keys off the logical page, which is identical for both backing stores
+    /// (plain ram_ pages on standalone 48K/128K/+3, the dedicated
+    /// bank5_vram_/bank7_bram_ buffers on Next machines). Cost: a page compare
+    /// and one log append per write that lands there.
+    ///
+    /// The beam position is the CPU write's own (line, hc) when
+    /// fuse_z80_writebyte() set one for THIS write (attr_mux_set_write_pos), over
+    /// the on_scanline() tag, which is only refreshed between instructions and
+    /// is therefore stale for any write inside an instruction that straddles a
+    /// scanline boundary; otherwise the coarse tag every other writer takes
+    /// (write_tag_()). The CPU's position is valid for its ONE write only --
+    /// fuse_z80_writebyte() ends it with attr_mux_end_write() -- so a DMA,
+    /// loader or debugger write can never inherit it (GH #278 WP4d).
+    void attr_mux_record_(uint8_t page, uint16_t off, uint8_t val) {
+        if (page != kAttrMuxBank5Page && page != kAttrMuxBank5HiPage
+            && page != kAttrMuxBank7Page) return;
+        uint16_t line, hc;
+        write_tag_(line, hc);
+        attr_mux_write_pos_valid_ = false;
+        if (page == kAttrMuxBank7Page)
+            attr_mux7_.record_write(line, hc, off, val);
+        else
+            attr_mux5_.record_write(
+                line, hc, off + (page == kAttrMuxBank5HiPage ? 0x2000u : 0u), val);
+    }
+
+    /// The beam position tag of the write being made now: the CPU's own
+    /// (line, hc) when fuse_z80_writebyte() set one for this write, else the
+    /// coarse (line, hc) every other writer (DMA, loader, debugger) takes. ONE
+    /// source for every beam-replay recorder (the VRAM mux and the Layer 2 SRAM
+    /// log), so a write is tagged the same by both (GH #362).
+    void write_tag_(uint16_t& line, uint16_t& hc) const {
+        const bool own = attr_mux_write_pos_valid_;
+        line = own ? attr_mux_write_line_ : attr_mux_current_line_;
+        hc   = own ? attr_mux_write_hc_   : attr_mux_current_hc_;
+    }
+
+    /// Log the store of `val` to `dest` for Layer 2's beam-time fetch, if the
+    /// log is recording and `dest` is a byte of the SRAM (`ram_`): not the
+    /// dedicated bank 5 / bank 7 VRAM buffers of a Next machine, which Layer 2
+    /// cannot fetch. Call BEFORE the store: the log keeps the byte it overwrites.
+    void sram_log_write_(const uint8_t* dest, uint8_t val) {
+        if (!sram_log_.recording()) return;
+        // Unsigned: a `dest` below the SRAM wraps to a huge offset and is refused too.
+        const size_t off = static_cast<size_t>(dest - sram_base_);
+        if (off >= sram_size_) return;
+        uint16_t line, hc;
+        write_tag_(line, hc);
+        sram_log_.record_write(line, hc, static_cast<uint32_t>(off), *dest, val);
+    }
 
     /// Pointer to the live bank-5 VRAM (16 KB: pages 0x0A then 0x0B,
     /// contiguous in both backing stores), wherever it lives (dedicated

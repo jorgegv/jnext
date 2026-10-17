@@ -353,8 +353,15 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
         if (space.index > 0xFF) return make_refused<size_t>(Result::InvalidPage);
         uint8_t* p = emu.mmu().nr_page_ptr(static_cast<uint8_t>(space.index));
         if (!p) return make_refused<size_t>(Result::InvalidPage);
-        for (; done < n && addr + done < PAGE_BYTES; ++done)
+        // GH #362 — a poke of a page's backing byte is a write like any other
+        // for the tilemap / LoRes / Layer 2 beam replays (coarse tag): log it
+        // before it lands.
+        const uint8_t page = static_cast<uint8_t>(space.index);
+        for (; done < n && addr + done < PAGE_BYTES; ++done) {
+            emu.mmu().log_page_store(page, static_cast<uint16_t>(addr + done),
+                                     p + addr + done, buf[done]);
             p[addr + done] = buf[done];
+        }
     }
 
     if (n == 1) impl_->log_mutate(by, space_name(space, addr), old_first, buf[0]);

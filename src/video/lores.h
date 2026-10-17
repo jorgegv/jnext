@@ -4,6 +4,7 @@
 #include <cstdint>
 
 class Ram;
+class AttributeMux;
 class StateWriter;
 class StateReader;
 
@@ -250,10 +251,24 @@ public:
     /// shadow-screen mux at zxnext.vhd:6651-6655 is on the ULA's port B only.
     void set_bank5_vram(const uint8_t* p) { bank5_vram_ = p; }
 
+    /// Wire bank 5's beam-time replay (Mmu::attr_mux5(); GH #362). LoRes
+    /// fetches a byte per 7 MHz pixel at the beam (lores.vhd derives the
+    /// address from phc), so a render pass reads it through the mux at the
+    /// pixel's instant instead of from the live bank, which holds the END of
+    /// the frame. Null, or a mux whose started() is false = live read.
+    void set_beam_mux(const AttributeMux* bank5) { mux5_ = bank5; }
+
+    /// Call once per rendered row before the pixel loop's read_bank5() calls:
+    /// chains the writes the replay has recorded. False = no replay, live read.
+    bool beam_prepare() const;
+
     /// Read one byte of bank 5.  Uses the dedicated BRAM when wired (Next
     /// machines); the physical-page-10 fallback mirrors `Ula::vram_read` and
-    /// keeps standalone unit-test fixtures working.
-    uint8_t read_bank5(uint16_t addr, Ram& ram) const;
+    /// keeps standalone unit-test fixtures working. With the beam replay
+    /// started, the byte as of pixel `phc`'s fetch instant (raw hc
+    /// c_min_hactive + 1 + phc) of the row set by the mux's
+    /// apply_changes_for_line().
+    uint8_t read_bank5(uint16_t addr, Ram& ram, int phc) const;
 
     void save_state(StateWriter& w) const;
     void load_state(StateReader& r);
@@ -275,4 +290,5 @@ private:
     LineState                            live_{};
     std::array<LineState, MAX_LINES>     per_line_{};
     const uint8_t*                       bank5_vram_ = nullptr;
+    const AttributeMux*                  mux5_ = nullptr;
 };

@@ -2287,9 +2287,9 @@ consumes its vectors.</p>
 <td>Per-bus-cycle CPU stretch/WAIT decision</td>
 </tr>
 <tr>
-<td><code>video/zxula.vhd</code>, <code>zxula_timing.vhd</code></td>
-<td><code>src/memory</code> — <code>AttributeMux</code></td>
-<td>Beam-time replay of every ULA-fetched VRAM byte, pixels and attributes (Nirvana-class effects)</td>
+<td><code>video/zxula.vhd</code>, <code>zxula_timing.vhd</code>, <code>tilemap.vhd</code>, <code>lores.vhd</code>, <code>layer2.vhd</code></td>
+<td><code>src/memory</code> — <code>AttributeMux</code>, <code>SramBeamLog</code></td>
+<td>Beam-time replay of every VRAM byte the ULA, tilemap and LoRes fetch, and of Layer 2's SRAM bitmap (Nirvana-class effects, tile-map scrolling)</td>
 </tr>
 <tr>
 <td>(backing stores)</td>

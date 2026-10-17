@@ -1522,6 +1522,229 @@ static void test_group9_boundary() {
 // Emitted at the end of a run for anyone looking at the numbers. Kept as
 // a single logged line per deferred ID so the counts line up with the
 // plan's 94-test total.
+// =========================================================================
+// Group 12 — beam-time fetch (GH #362)
+// =========================================================================
+//
+// ORACLE (layer2.vhd + zxula_timing.vhd, re-derived here, NOT taken from the
+// emulator): Layer 2 requests one byte per 7 MHz tick, one pixel ahead of the
+// one being drawn - layer2.vhd `hc_eff <= hc + 1`, the SRAM address register
+// and request toggle update at sc = "00" - so the pixel at column X is fetched
+// while the counter reads X - 1. The counter is phc (256x192) or whc
+// (320x256 and 640x256), which read p / w at raw hc c_min_hactive + 1 + p /
+// c_min_hactive - 31 + w (zxula_timing.vhd:476-522). With c_min_hactive = 128
+// (origin 116):
+//   256x192   fetch of column X  = raw hc 128 + X
+//   320x256   fetch of column X  = raw hc  96 + X
+//   640x256   fetch of byte col  = raw hc  96 + col
+// A write is seen by a fetch when its (line, hc) tag is at or before the
+// instant. Every write below is 2 ticks from the instant it is compared with.
+
+namespace {
+constexpr int kBeamOrigin = 116;
+
+struct L2BeamBed {
+    Ram ram;
+    Rom rom;
+    Mmu mmu;
+    PaletteManager pal;
+    Layer2 l2;
+    uint32_t buf[BUF_WIDTH];
+    explicit L2BeamBed(uint8_t control) : ram(), rom(), mmu(ram, rom) {
+        mmu.reset();
+        pal.reset();
+        pal.set_global_transparency(0x01);
+        set_l2_palette_8bit(pal, 0x01, 0xFC);
+        set_l2_palette_8bit(pal, 0x02, 0x1C);
+        set_l2_palette_8bit(pal, 0x03, 0x03);
+        l2.reset();
+        l2.set_enabled(true);
+        l2.set_control(control);
+        l2.set_beam_log(&mmu.sram_log());
+    }
+    // Frame-start content (what the RAM holds when the frame begins).
+    void put(uint32_t l2_addr, uint8_t v) { ram.write(cpp_ram_addr(8, l2_addr), v); }
+    void begin(bool arm = true) {
+        mmu.attr_mux_start_frame(kBeamOrigin, 0);
+        if (arm) mmu.sram_log_arm();
+        l2.start_frame();
+    }
+    // A write by a non-CPU writer (coarse tag) to the SRAM byte of l2_addr,
+    // through a normal MMU slot.
+    void wr(uint32_t l2_addr, uint8_t v, int line, int hc) {
+        const uint32_t a = cpp_ram_addr(8, l2_addr);
+        mmu.set_page(4, static_cast<uint8_t>(a >> 13));
+        mmu.attr_mux_set_current_line(line);
+        mmu.attr_mux_set_current_hc(hc);
+        mmu.write(static_cast<uint16_t>(0x8000u + (a & 0x1FFFu)), v);
+    }
+    uint32_t px(int fb_row, int dst_idx) {
+        mmu.attr_mux_rewind_to_baseline();
+        mmu.attr_mux_apply_line(fb_row);
+        l2.rewind_to_baseline();
+        l2.apply_changes_for_line(fb_row);
+        render_row(l2, ram, pal, buf, fb_row);
+        return buf[dst_idx];
+    }
+    uint32_t col(uint8_t idx) const { return pal.layer2_colour(idx); }
+};
+} // namespace
+
+static void test_group12_beam_fetch() {
+    set_group("G12 beam fetch");
+
+    // L2-BR-01 (256x192, pixel x=50, y=10): a write after the beam passed the
+    // row (post-display line 260) is for the next frame.
+    {
+        const uint32_t a = 10u * 256u + 50u;
+        const int row = DISP_Y_NARROW + 10, dst = DISP_X_NARROW + 2 * 50;
+        L2BeamBed b(0x00);
+        b.put(a, 2);
+        b.begin();
+        b.wr(a, 3, 260, 0);
+        const bool now_old = b.px(row, dst) == b.col(2);
+        b.begin();
+        const bool next_new = b.px(row, dst) == b.col(3);
+        check("L2-BR-01", "layer2.vhd hc_eff = hc + 1 - a byte written in the "
+              "post-display lines is seen by the next frame only",
+              now_old && next_new && b.col(2) != b.col(3),
+              DETAIL("this frame old=%d next frame new=%d", now_old, next_new));
+    }
+
+    // L2-BR-02: same row, 2 ticks after / before pixel 50's fetch (raw hc 178).
+    {
+        const uint32_t a = 10u * 256u + 50u;
+        const int row = DISP_Y_NARROW + 10, dst = DISP_X_NARROW + 2 * 50;
+        L2BeamBed late(0x00), early(0x00);
+        late.put(a, 2); early.put(a, 2);
+        late.begin(); early.begin();
+        late.wr(a, 3, row, 128 + 50 + 2);
+        early.wr(a, 3, row, 128 + 50 - 2);
+        const bool late_old = late.px(row, dst) == late.col(2);
+        const bool early_new = early.px(row, dst) == early.col(3);
+        check("L2-BR-02", "layer2.vhd hc_eff = hc + 1, zxula_timing.vhd:510-522 "
+              "- 256x192: pixel 50 is fetched at raw hc 178; a write 2 ticks "
+              "after is old, 2 ticks before is new",
+              late_old && early_new,
+              DETAIL("late old=%d early new=%d", late_old, early_new));
+    }
+
+    // L2-BR-03: 320x256, column 100 of row 20 (address x*256+y): raw hc 196.
+    {
+        const uint32_t a = 100u * 256u + 20u;
+        L2BeamBed late(0x10), early(0x10);
+        late.put(a, 2); early.put(a, 2);
+        late.begin(); early.begin();
+        late.wr(a, 3, 20, 96 + 100 + 2);
+        early.wr(a, 3, 20, 96 + 100 - 2);
+        const bool late_old = late.px(20, 2 * 100) == late.col(2);
+        const bool early_new = early.px(20, 2 * 100) == early.col(3);
+        check("L2-BR-03", "layer2.vhd hc_eff = hc + 1, zxula_timing.vhd:476-492 "
+              "- 320x256: column 100 is fetched at raw hc 196 (whc origin, not "
+              "phc); a write 2 ticks after is old, 2 ticks before is new",
+              late_old && early_new,
+              DETAIL("late old=%d early new=%d", late_old, early_new));
+    }
+
+    // L2-BR-04: 640x256, byte column 100 (two pixels per byte): raw hc 196.
+    {
+        const uint32_t a = 100u * 256u + 20u;
+        L2BeamBed late(0x20), early(0x20);
+        late.put(a, 0x23); early.put(a, 0x23);
+        late.begin(); early.begin();
+        late.wr(a, 0x32, 20, 96 + 100 + 2);
+        early.wr(a, 0x32, 20, 96 + 100 - 2);
+        const bool late_old = late.px(20, 2 * 100) == late.col(2);
+        const bool early_new = early.px(20, 2 * 100) == early.col(3);
+        check("L2-BR-04", "layer2.vhd hc_eff = hc + 1, zxula_timing.vhd:476-492 "
+              "- 640x256: one byte (two pixels) per tick, byte column 100 is "
+              "fetched at raw hc 196; the left pixel is old after, new before",
+              late_old && early_new,
+              DETAIL("late old=%d early new=%d", late_old, early_new));
+    }
+
+    // L2-BR-05: an address written twice in the frame (rows 30 and 80), read
+    // by row 50: the first value; a neighbour written once, at row 80, shows
+    // the frame-start value (the first write's `prev`), not the live one.
+    {
+        const uint32_t a0 = 18u * 256u + 60u, a1 = 18u * 256u + 61u;
+        const int row = DISP_Y_NARROW + 18;   // 50
+        L2BeamBed b(0x00);
+        b.put(a0, 2); b.put(a1, 2);
+        b.begin();
+        b.wr(a0, 3, 30, 0);
+        b.wr(a0, 1, 80, 0);
+        b.wr(a1, 3, 80, 0);
+        const uint32_t twice = b.px(row, DISP_X_NARROW + 2 * 60);
+        const uint32_t once  = b.px(row, DISP_X_NARROW + 2 * 61);
+        check("L2-BR-05", "layer2.vhd hc_eff = hc + 1 - an address written at "
+              "rows 30 and 80 shows the row-30 value on row 50; one written "
+              "only at row 80 shows its frame-start value",
+              twice == b.col(3) && once == b.col(2),
+              DETAIL("twice=0x%08X (want 0x%08X) once=0x%08X (want 0x%08X)",
+                     twice, b.col(3), once, b.col(2)));
+    }
+
+    // L2-BR-06: Layer 2 disabled at row 60 and enabled again at row 120, one
+    // write at row 90 and none after: row 40 (before the disable) shows the
+    // frame-start value; row 130 (after the enable) shows the row-90 value.
+    {
+        const uint32_t early_a = 10u * 256u + 40u, late_a = 10u * 256u + 130u;
+        L2BeamBed b(0x10);
+        b.put(early_a, 2); b.put(late_a, 2);
+        b.begin();
+        b.l2.set_current_line(60);  b.l2.set_enabled(false);
+        b.l2.set_current_line(120); b.l2.set_enabled(true);
+        b.wr(early_a, 3, 90, 0);
+        b.wr(late_a, 3, 90, 0);
+        const uint32_t r40  = b.px(40, 2 * 10);
+        const uint32_t r130 = b.px(130, 2 * 10);
+        check("L2-BR-06", "layer2.vhd hc_eff = hc + 1 - recording does not "
+              "depend on Layer 2 being enabled: with the layer off from row 60 "
+              "to 119, a row-90 write is old on row 40 and new on row 130",
+              r40 == b.col(2) && r130 == b.col(3),
+              DETAIL("row40=0x%08X (want 0x%08X) row130=0x%08X (want 0x%08X)",
+                     r40, b.col(2), r130, b.col(3)));
+    }
+
+    // L2-BR-07: logging armed mid-frame (Layer 2 turned on at row 60): a write
+    // BEFORE the arming (row 30) is not logged, yet rows after it are right -
+    // the first logged write's `prev` is the byte at the arming.
+    {
+        const uint32_t a = 10u * 256u + 100u;
+        L2BeamBed b(0x10);
+        b.put(a, 2);
+        b.begin(/*arm=*/false);
+        b.wr(a, 3, 30, 0);          // before the arming: not logged
+        b.mmu.sram_log_arm();
+        b.wr(a, 1, 150, 0);         // after the beam passed row 100
+        const uint32_t got = b.px(100, 2 * 10);
+        check("L2-BR-07", "layer2.vhd hc_eff = hc + 1 - logging armed at row "
+              "60: a row-30 write is seen by row 100 (via the next write's "
+              "prev), the row-150 write is not",
+              got == b.col(3),
+              DETAIL("got=0x%08X (want 0x%08X)", got, b.col(3)));
+    }
+
+    // L2-BR-08: a frame with no writes shows the RAM as it now is, however it
+    // got there (loader, state load): the previous frame's log is gone.
+    {
+        const uint32_t a = 10u * 256u + 50u;
+        const int row = DISP_Y_NARROW + 10, dst = DISP_X_NARROW + 2 * 50;
+        L2BeamBed b(0x00);
+        b.put(a, 2);
+        b.begin();
+        b.wr(a, 3, 260, 0);
+        (void)b.px(row, dst);
+        b.begin();
+        b.put(a, 1);                // poked outside any write path
+        const uint32_t got = b.px(row, dst);
+        check("L2-BR-08", "layer2.vhd hc_eff = hc + 1 - the log restarts every "
+              "frame: a frame without writes shows the RAM as it is",
+              got == b.col(1), DETAIL("got=0x%08X (want 0x%08X)", got, b.col(1)));
+    }
+}
+
 static void log_deferred() {
     set_group("deferred (integration tier)");
     const char* deferred[] = {
@@ -2896,6 +3119,8 @@ int main() {
     printf("  Group: G10f mid-line segments — done\n");
     test_group11_priority_propagation();
     printf("  Group: G11 priority propagation — done\n");
+    test_group12_beam_fetch();
+    printf("  Group: G12 beam-time fetch — done\n");
     log_deferred();
 
     printf("\n================================================\n");

@@ -5,6 +5,7 @@
 
 class Ram;
 class PaletteManager;
+class AttributeMux;
 
 namespace jnext { namespace save { class StateDesc; } }
 
@@ -76,6 +77,18 @@ public:
     /// Mmu::bank5_vram(); VHDL bank5_ram dpram2, zxnext.vhd:6558).
     /// Null = legacy physical-page-10 Ram fallback. Task 25.
     void set_bank5_vram(const uint8_t* p) { bank5_vram_ = p; }
+
+    /// Wire the beam-time replay of bank 5 / the bank 7 BRAM (Mmu::attr_mux5()
+    /// / attr_mux7(); GH #362). The tilemap fetches its map entry and tile
+    /// definition bytes at beam time one character ahead of the pixel
+    /// (tilemap.vhd:226-231), so a render pass reads them through the mux at
+    /// that instant instead of from the live memory, which holds the END of
+    /// the frame. Null, or a mux whose started() is false = live read (bare
+    /// fixtures).
+    void set_beam_mux(const AttributeMux* bank5, const AttributeMux* bank7) {
+        mux5_ = bank5;
+        mux7_ = bank7;
+    }
 
     uint8_t get_map_base_read() const { return map_base_raw_ & 0xBF; }
 
@@ -351,11 +364,17 @@ public:
     static constexpr size_t MAX_NR6B_CHANGES_PER_FRAME = 1024;
 
     /// Fetch through the bank-7 flag: BRAM when wired, page-14 fallback.
-    uint8_t vram_read(const Ram& ram, uint32_t addr) const;
+    /// `hc` is the raw horizontal instant of the fetch, used when the beam
+    /// replay is wired and started (set_beam_mux); the caller has called
+    /// prepare() on the muxes for the row. `hot`, if given, is set when the
+    /// byte was written this frame (its value depends on `hc`).
+    uint8_t vram_read(const Ram& ram, uint32_t addr, uint16_t hc, bool* hot = nullptr) const;
 
 private:
     const uint8_t* bank7_bram_ = nullptr;  ///< dedicated bank-7 BRAM
     const uint8_t* bank5_vram_ = nullptr;  ///< dedicated bank-5 16K VRAM (Task 25)
+    const AttributeMux* mux5_ = nullptr;   ///< bank 5 beam replay (GH #362)
+    const AttributeMux* mux7_ = nullptr;   ///< bank 7 BRAM beam replay (GH #362)
 
     // --- Control register state ---
     uint8_t  control_raw_    = 0;

@@ -465,6 +465,29 @@ stencil_rgb <= (ula_rgb AND tm_rgb) when stencil_transparent=0
 | TM-140 | TM disabled, tm_on_top=0 | `tm_en_1a=0`, `nr_6b_tm_control(0)=0` | **LIVE since GH #201, and it found an emulator bug.** below = NOT tm_on_top = 1 on every pixel, asserted both at the Tilemap tier and through `Renderer::render_row`. jnext short-circuited `Tilemap::render_scanline` on `!enabled_` and left the renderer's all-false fill in place — the tm_on_top=1 answer, given unconditionally — so a tilemap-off frame in NR 0x68 blend mode 01 or 11 put the ULA in `mix_bot` (below the sprites) where hardware puts it in `mix_top` (above them). Fixed in `src/video/tilemap.cpp` + `src/video/renderer.cpp`. |
 | TM-141 | TM disabled, tm_on_top=1 | `tm_en_1a=0`, `nr_6b_tm_control(0)=1` | **LIVE since GH #201** — below = 0 on every pixel. Paired with TM-140 this is what proves the flag FOLLOWS `NOT tm_on_top` rather than merely being cleared; on its own it is satisfied by the pre-fix all-false fill. The earlier pointer to `compositor_test` TR-23 is withdrawn: TR-23 asserts a disabled tilemap is transparent, which says nothing about the below flag. |
 
+### Group 16: Beam-time fetch (GH #362)
+
+The tilemap fetches each 8-pixel group one character ahead, on the line being
+drawn (`tilemap.vhd:226-231`), re-fetching the map entry in every group
+(`:260-300`). A render pass reads bank 5 / the bank 7 BRAM through the
+`AttributeMux` replay at that instant; whc = w is at raw hc `c_min_hactive - 31 + w`
+(`zxula_timing.vhd:473-492`). Rows are in `tilemap_test`, group G17, with
+`c_min_hactive` = 128 and every write 2 or more ticks from the instant it is
+compared against.
+
+| ID | Test | VHDL Basis | Verify |
+|----|------|-----------|--------|
+| TM-BR-01 | Map write tagged post-display (line 260) | `tilemap.vhd:226-231` | Row old this frame, new next frame — pass |
+| TM-BR-02 | Map write on a row, instant(5) + 2 | `tilemap.vhd:226-231` | That row old, the next row new — pass |
+| TM-BR-03 | Map write on a row, instant(5) - 2 | `tilemap.vhd:226-231` | That row new — pass |
+| TM-BR-04 | Tile-definition bytes written after / before the instant | `tilemap.vhd:393-403` | Old / new (same instant as the map entry) — pass |
+| TM-BR-05 | Map at bank 5 + 0x3C00 and bank 7 + 0x1C00 (above the ULA planes) | `tilemap.vhd:393-403`, `zxnext.vhd:6660-6664` | Late write old, in-time write new — pass |
+| TM-BR-06 | Pre-display write (raw line 10, hc 300) | `tilemap.vhd:226-231` | Seen by row 0 column 0 (the pre-display tag is hc 0) — pass |
+| TM-BR-07 | 80-col, write between instant(10) and instant(11) | `tilemap.vhd:226-231` | Group 10 old, group 11 new (4 whc per group) — pass |
+| TM-BR-08 | 40-col, write between instant(4) and instant(5) | `tilemap.vhd:226-231` | Group 4 old, group 5 new (one character ahead) — pass |
+| TM-BR-09 | Fine X scroll 4 splits a tile over groups 0 and 1; write between their fetches | `tilemap.vhd:260-300` | Group 0 half old, group 1 half new — pass |
+| TM-BR-10 | Same split with a rotated tile (per-pixel pattern reads); pattern bytes written between the instants | `tilemap.vhd:260-300` | Group 0 half old, group 1 half new — pass |
+
 ## Test Execution
 
 ### Building test programs
@@ -564,6 +587,8 @@ A debug view must never mutate the state it observes.
 |---------|-------------------------------------------------------------------|--------|
 | ~~DVP-06~~  | a panel refresh does not clobber the per-line scroll snapshots     | PASS   |
 | ~~DVP-07~~  | the debug render reads the per-line scroll split (not live scroll) | PASS   |
+| ~~DVP-BR-01~~ | the Layer 2 view replays the beam-time SRAM fetch: the row above a write is old, the row below new (GH #362) | PASS   |
+| ~~DVP-BR-02~~ | the Tilemap view replays the beam-time map fetch, same (GH #362) | PASS   |
 
 Hosted in `test/debugger/video_panel_test.cpp` (`debugger_video_panel_test`).
 

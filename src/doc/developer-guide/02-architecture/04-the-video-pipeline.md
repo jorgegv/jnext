@@ -107,7 +107,18 @@ that implements it:
 The classes that carry one are `PaletteManager`, `Layer2` (scroll and bank),
 `SpriteEngine` (attributes), `Ula` (Timex screen mode, scroll, active-palette
 select), `Tilemap` (NR 0x6B), `Mmu`'s `AttributeMux` (mid-frame writes to every
-ULA-fetched VRAM byte), and `Renderer` itself (NR 0x15 priority and sprite enable).
+VRAM byte the ULA, the tilemap and LoRes fetch), `Mmu`'s `SramBeamLog`
+(mid-frame writes to the SRAM bytes Layer 2 fetches), and `Renderer` itself
+(NR 0x15 priority and sprite enable).
+
+The two memory logs differ from the register logs in one way: a register log is
+*replayed into* the live state row by row, while a memory log is *queried* by
+the layer that fetches, with the scanline and the raw `hc` of the fetch
+(`read(offset, hc)` after `apply_changes_for_line(row)`). Both answer "the last
+write tagged at or before this (line, hc), else the frame-start value", and both
+take their write position from the one source in `Mmu` (`write_tag_()`: the
+CPU's own `(line, hc)` for a CPU write, the coarse line tag for every other
+writer, including the debugger's page pokes).
 
 A soft reset (NR 0x02 bit 0, F4) can land in the middle of a frame, and the
 hardware draws the rows above it with the old registers and the rows below with

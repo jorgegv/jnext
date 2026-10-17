@@ -22,11 +22,11 @@ mentions them, so a test can no longer be absent from this document.
 <!-- BEGIN GENERATED SUMMARY — written by test/refresh-traceability-matrix.pl; do not edit by hand -->
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
-| Memory/MMU                                 |   289 |  289 |    0 |    0 |       0 |          0 |
-| ULA Video                                  |   154 |  154 |    0 |    0 |       0 |          0 |
-| Layer2                                     |   220 |  220 |    0 |    0 |       0 |          0 |
+| Memory/MMU                                 |   296 |  296 |    0 |    0 |       0 |          0 |
+| ULA Video                                  |   155 |  155 |    0 |    0 |       0 |          0 |
+| Layer2                                     |   228 |  228 |    0 |    0 |       0 |          0 |
 | Sprites                                    |   217 |  217 |    0 |    0 |       0 |          0 |
-| Tilemap                                    |    98 |   98 |    0 |    0 |       0 |          0 |
+| Tilemap                                    |   108 |  108 |    0 |    0 |       0 |          0 |
 | Copper                                     |   110 |  110 |    0 |    0 |       0 |          0 |
 | Compositor                                 |   294 |  294 |    0 |    0 |       0 |          0 |
 | Audio                                      |   244 |  244 |    0 |    0 |       0 |          0 |
@@ -42,7 +42,7 @@ mentions them, so a test can no longer be absent from this document.
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |   113 |  113 |    0 |    0 |       0 |          0 |
 | Contention                                 |   162 |  162 |    0 |    0 |       0 |          0 |
-| LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
+| LoRes                                      |    94 |   94 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    88 |   88 |    0 |    0 |       0 |          0 |
 | NMI Source Pipeline                        |    78 |   78 |    0 |    0 |       0 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
@@ -52,7 +52,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: esp_sigpipe_test                |     2 |    2 |    0 |    0 |       0 |          0 |
 | ESP-01 AT engine                           |   499 |  499 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
-| Companion: mmu_integration_test            |   114 |  114 |    0 |    0 |       0 |          0 |
+| Companion: mmu_integration_test            |   121 |  121 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: compositor_integration_test     |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: copper_integration_test         |    30 |   30 |    0 |    0 |       0 |          0 |
@@ -66,9 +66,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    49 |   49 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    65 |   65 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5832 | 5832 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5868 | 5868 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5832**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5394**. Rows the 150 suites declared in `test/unit-tests.conf` run live: **13055**.
+Rows the sections above carry: **5868**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5423**. Rows the 150 suites declared in `test/unit-tests.conf` run live: **13086**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,7 +80,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 103 suites (7745 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 103 suites (7747 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -174,7 +174,7 @@ These 103 suites (7745 live rows) have no VHDL-derived plan row to map, so they 
 | `quit_cleanup_test` | 8 | host shutdown ordering (GUI lifecycle) |
 | `toolbar_icons_test` | 28 | toolbar icon set: SVG loader, Main/Debug toolbars, icon-file lint (host GUI, doc/design/ICONSET-DESIGN.md) |
 | `preferences_apply_test` | 79 | Preferences dialog wiring (host GUI) |
-| `debugger_video_panel_test` | 116 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
+| `debugger_video_panel_test` | 118 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 17 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 8 | debugger quit gating (host GUI lifecycle) |
 | `debugger_persistent_bp_test` | 14 | debugger window raise-on-hit (host GUI lifecycle, GH #219) |
@@ -417,6 +417,13 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | G12-MUX-12 | a pixel-plane byte read at an instant earlier than the previous read of it returns the value as of that earlier instant (baseline 0x11, 0x22 @100, 0x33 @200 on line 40) | zxula.vhd:276-286 | pass | test/mmu/mmu_test.cpp:2414 |
 | G12-MUX-13 | rewind_to_baseline() restarts every cursor: a second pass over the recorded log sees 0x22 at (40,150) again and the baseline 0x11 on the previous line; a write made after the rewind is seen by the next read (0x44 @250 on line 40) | — | pass | test/mmu/mmu_test.cpp:2434 |
 | G12-MUX-14 | a pass that exhausted an offset's cursor, then a further write before the same instant: the next read at that instant sees it, with and without a rewind | — | pass | test/mmu/mmu_test.cpp:2472 |
+| L2LOG-TAG-01 | zxnext.vhd:2966-2969 - a CPU write through the Layer 2 write-over path is logged at the CPU's own (line, hc) | zxnext.vhd:2966-2969 | pass | test/mmu/mmu_integration_test.cpp:3121 |
+| L2LOG-TAG-02 | layer2.vhd hc_eff = hc + 1 - a CPU write through a normal MMU slot is logged at the CPU's own (line, hc) | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3134 |
+| L2LOG-TAG-03 | layer2.vhd hc_eff = hc + 1 - a non-CPU writer (DMA, loader, debugger) is logged at the coarse (line, hc) | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3150 |
+| L2LOG-TAG-04 | layer2.vhd hc_eff = hc + 1 - a DMA/debugger write after a CPU write takes the coarse position, not the CPU's | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3254 |
+| L2LOG-TAG-06 | layer2.vhd hc_eff = hc + 1 - init() then load_state() (the warm start of a --load) leaves the SRAM log off until the first frame starts, then it records again | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3211 |
+| L2LOG-TAG-07 | zxnext.vhd:3905-3911 - a soft reset keeps the SRAM and the beam, so the SRAM log keeps recording through it | zxnext.vhd:3905-3911 | pass | test/mmu/mmu_integration_test.cpp:3236 |
+| L2LOG-TAG-05 | layer2.vhd hc_eff = hc + 1 - after a re-init the SRAM log is off until the first frame starts (loader writes are not logged), then records again | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3178 |
 | N8E-05a | NR 0x8E read-back {dffd(0),7FFD(2:0),1,1FFD(0),1FFD(2),bit0} — VHDL zxnext.vhd:6158-6159 | zxnext.vhd:6158-6159 | pass | test/mmu/mmu_test.cpp:1261 |
 | N8E-05b | NR 0x8E read-back bit 0 flips with 1FFD(0) selector — VHDL zxnext.vhd:6159 | zxnext.vhd:6159 | pass | test/mmu/mmu_test.cpp:1278 |
 | EFP-01 | port 7FFD/1FFD select this machine's legacy ROM pages in slots 0/1 (VHDL zxnext.vhd:2981-3008) | zxnext.vhd:2981-3008 | pass | test/mmu/mmu_test.cpp:1865 |
@@ -547,11 +554,12 @@ Notes and rationale: [ULA-VIDEO-TEST-PLAN-DESIGN.md](ULA-VIDEO-TEST-PLAN-DESIGN.
 | VMUX-08 | zxula.vhd:218,238-252,276-286 — alt screen: pixels at 0x2000+ and attributes at 0x3800+ are each replayed at their own instant (old pixel + new attribute at A; old + old at A+1) | zxula.vhd:218,238-252,276-286 | pass | test/ula/ula_test.cpp:4243 |
 | VMUX-09 | zxula.vhd:199,276-286 — with a 2-column coarse scroll slot 5 shows column 7 but fetches at slot 5's instant: a write at it is seen, one between slots 5 and 7 is not | zxula.vhd:199,276-286 | pass | test/ula/ula_test.cpp:4268 |
 | VMUX-10 | zxula.vhd:216,245-248,383-384 — fine-scroll pixels follow the secondary fetches (pbyte01/abyte01 @5/@7 even slot, pbyte11/abyte11 @1/@3 of the next block odd slot): seen at the instant (0x0F), not one tick later (0x00) | zxula.vhd:216,245-248,383-384 | pass | test/ula/ula_test.cpp:4303 |
-| VMUX-11 | zxula.vhd:226-303 — a write is replayed however many came before it in the frame (the change log may not drop) | zxula.vhd:226-303 | pass | test/ula/ula_test.cpp:4401 |
-| VMUX-12 | zxnext.vhd:6649-6656 + zxula.vhd:276-286 — per-row bank: row A replays bank 5 (0xAA), row B replays bank 7 as it was at the fetch (0x0F; 0x81 for the column written in time), neither sees the other bank or the late write | zxnext.vhd:6649-6656, zxula.vhd:276-286 | pass | test/ula/ula_test.cpp:4436 |
+| VMUX-11 | zxula.vhd:226-303 — a write is replayed however many came before it in the frame (the change log may not drop) | zxula.vhd:226-303 | pass | test/ula/ula_test.cpp:4420 |
+| VMUX-12 | zxnext.vhd:6649-6656 + zxula.vhd:276-286 — per-row bank: row A replays bank 5 (0xAA), row B replays bank 7 as it was at the fetch (0x0F; 0x81 for the column written in time), neither sees the other bank or the late write | zxnext.vhd:6649-6656, zxula.vhd:276-286 | pass | test/ula/ula_test.cpp:4455 |
 | VMUX-13 | zxula.vhd:229-232,276-286 — hi-colour pixel byte is fetched in the pixel slot (pbyte00 @9 / pbyte10 @D): seen at the instant, not one tick later, for both parities | zxula.vhd:229-232,276-286 | pass | test/ula/ula_test.cpp:4172 |
 | VMUX-14 | zxula.vhd:199,234-252,276-286 — scrolled path, primary fetches: pixel seen at P not P+1, attribute seen at A not A+1, both at P+1 give old pixel + new attribute (slots 2 and 3) | zxula.vhd:199,234-252,276-286 | pass | test/ula/ula_test.cpp:4355 |
 | VMUX-15 | zxula.vhd:270-303 — render, flush, rewind, render again at the same instant: a pixel written after its fetch shows the old byte on both passes | zxula.vhd:270-303 | pass | test/ula/ula_test.cpp:4381 |
+| VMUX-16 | zxula.vhd:270-303 — a write before framebuffer row 0 precedes the first paper row's pixel fetch whatever its raw hc (the row-0 hc clamp leaves the ULA unchanged) | zxula.vhd:270-303 | pass | test/ula/ula_test.cpp:4402 |
 | S1.01 | zxula.vhd:218-263 — VHDL pixel/attr vram_a formula | zxula.vhd:218-263 | pass | test/ula/ula_test.cpp:218 |
 | S1.02 | zxula.vhd:218-263 — VHDL pixel/attr vram_a formula | zxula.vhd:218-263 | pass | test/ula/ula_test.cpp:219 |
 | S1.03 | zxula.vhd:218-263 — VHDL pixel/attr vram_a formula | zxula.vhd:218-263 | pass | test/ula/ula_test.cpp:220 |
@@ -678,28 +686,28 @@ Notes and rationale: [LAYER2-TEST-PLAN-DESIGN.md](LAYER2-TEST-PLAN-DESIGN.md).
 |---------|-------------|----------------|--------|----------------|
 | G1-01 | NR 0x12 default = 8 (layer2 active bank) | zxnext.vhd:4943 | pass | test/layer2/layer2_test.cpp:271 |
 | G1-02 | NR 0x13 default = 11 (layer2 shadow bank) | zxnext.vhd:4944 | pass | test/layer2/layer2_test.cpp:276 |
-| G1-03 | NR 0x14 default | zxnext.vhd:4946 | pass | test/layer2/layer2_test.cpp:1529 |
-| G1-04 | NR 0x16 default | zxnext.vhd:4955 | pass | test/layer2/layer2_test.cpp:1529 |
-| G1-05 | NR 0x17 default | zxnext.vhd:4957 | pass | test/layer2/layer2_test.cpp:1529 |
-| G1-06 | NR 0x18 defaults | zxnext.vhd:4959-4962 | pass | test/layer2/layer2_test.cpp:1529 |
-| G1-07 | NR 0x43[2] default | zxnext.vhd:5007 | pass | test/layer2/layer2_test.cpp:1529 |
-| G1-08 | NR 0x4A default | zxnext.vhd:5014 | pass | test/layer2/layer2_test.cpp:1529 |
+| G1-03 | NR 0x14 default | zxnext.vhd:4946 | pass | test/layer2/layer2_test.cpp:1752 |
+| G1-04 | NR 0x16 default | zxnext.vhd:4955 | pass | test/layer2/layer2_test.cpp:1752 |
+| G1-05 | NR 0x17 default | zxnext.vhd:4957 | pass | test/layer2/layer2_test.cpp:1752 |
+| G1-06 | NR 0x18 defaults | zxnext.vhd:4959-4962 | pass | test/layer2/layer2_test.cpp:1752 |
+| G1-07 | NR 0x43[2] default | zxnext.vhd:5007 | pass | test/layer2/layer2_test.cpp:1752 |
+| G1-08 | NR 0x4A default | zxnext.vhd:5014 | pass | test/layer2/layer2_test.cpp:1752 |
 | G1-09 | NR 0x70 default | zxnext.vhd:5047-5048 | pass | test/layer2/layer2_test.cpp:282 |
-| G1-10 | NR 0x71[0] default | zxnext.vhd:5050 | pass | test/layer2/layer2_test.cpp:1529 |
-| G1-11 | port 0x123B default | zxnext.vhd:3908-3913,3933 | pass | test/layer2/layer2_test.cpp:1529 |
+| G1-10 | NR 0x71[0] default | zxnext.vhd:5050 | pass | test/layer2/layer2_test.cpp:1752 |
+| G1-11 | port 0x123B default | zxnext.vhd:3908-3913,3933 | pass | test/layer2/layer2_test.cpp:1752 |
 | G1-12 | Layer 2 off after reset | zxnext.vhd:3908, layer2.vhd:175 | pass | test/layer2/layer2_test.cpp:289 |
 | G2-01 | 256x192 row-major address | layer2.vhd:160 | pass | test/layer2/layer2_test.cpp:337 |
 | G2-02 | narrow: y=1,x=5 differs from y=0,x=5 (row pitch acts) | layer2.vhd:160 | pass | test/layer2/layer2_test.cpp:367 |
 | G2-03 | narrow src_y=192 produces no L2 pixels | layer2.vhd:165 | pass | test/layer2/layer2_test.cpp:383 |
-| G2-04 | 256x192 x wraparound at 256 is impossible (no stimulus route) | layer2.vhd:164 | pass | test/layer2/layer2_test.cpp:1531 |
+| G2-04 | 256x192 x wraparound at 256 is impossible (no stimulus route) | layer2.vhd:164 | pass | test/layer2/layer2_test.cpp:1754 |
 | G2-05 | 320x256 column-major address | layer2.vhd:160 | pass | test/layer2/layer2_test.cpp:401 |
 | G2-06 | wide: (0,10) and (1,10) indices differ by 1 (column pitch) | layer2.vhd:160 | pass | test/layer2/layer2_test.cpp:424 |
-| G2-07 | 320x256 x in [320,383] invisible | layer2.vhd:164 | pass | test/layer2/layer2_test.cpp:1531 |
+| G2-07 | 320x256 x in [320,383] invisible | layer2.vhd:164 | pass | test/layer2/layer2_test.cpp:1754 |
 | G2-08 | wide y=255 row is visible | layer2.vhd:165 | pass | test/layer2/layer2_test.cpp:434 |
 | G2-09 | 640x256 high nibble = left pixel | layer2.vhd:202 | pass | test/layer2/layer2_test.cpp:448 |
 | G2-10 | 640 pre-offset left pixel ∈ palette[0..15] for all 256 byte values | layer2.vhd:202 | pass | test/layer2/layer2_test.cpp:477 |
-| G2-11 | 640x256 shares 320 column layout | layer2.vhd:160 | pass | test/layer2/layer2_test.cpp:1531 |
-| G2-12 | Lookahead one pixel | layer2.vhd:148 | pass | test/layer2/layer2_test.cpp:1531 |
+| G2-11 | 640x256 shares 320 column layout | layer2.vhd:160 | pass | test/layer2/layer2_test.cpp:1754 |
+| G2-12 | Lookahead one pixel | layer2.vhd:148 | pass | test/layer2/layer2_test.cpp:1754 |
 | G3-01 | 256x192 scroll X=128 | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:517 |
 | G3-02 | narrow scroll_x=255: col 0 = 0x22 | layer2.vhd:152 | pass | test/layer2/layer2_test.cpp:532 |
 | G3-03 | narrow scroll_y=191: row 0 sources y=191 (0x22) | layer2.vhd:157 | pass | test/layer2/layer2_test.cpp:547 |
@@ -708,17 +716,17 @@ Notes and rationale: [LAYER2-TEST-PLAN-DESIGN.md](LAYER2-TEST-PLAN-DESIGN.md).
 | G3-06 | narrow scroll_x MSB has no effect (col 0 still 0x11) | layer2.vhd:160 | pass | test/layer2/layer2_test.cpp:583 |
 | G3-07 | 320x256 scroll X=160 | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:602 |
 | G3-08 | wide scroll_x=319 col 0 sources src=319 (0x22) | layer2.vhd:152 | pass | test/layer2/layer2_test.cpp:617 |
-| G3-09 | 320x256 scroll X wrap arithmetic | layer2.vhd:153 | pass | test/layer2/layer2_test.cpp:1533 |
+| G3-09 | 320x256 scroll X wrap arithmetic | layer2.vhd:153 | pass | test/layer2/layer2_test.cpp:1756 |
 | G3-10 | 320x256 scroll Y=128 | layer2.vhd:157 | pass | test/layer2/layer2_test.cpp:631 |
-| G3-11 | 640x256 scroll X=160 byte-level | layer2.vhd:152-154,202 | pass | test/layer2/layer2_test.cpp:1533 |
+| G3-11 | 640x256 scroll X=160 byte-level | layer2.vhd:152-154,202 | pass | test/layer2/layer2_test.cpp:1756 |
 | G3-12 | wide scroll_x=100 col 0 sources src=100 (0x11, no wrap) | layer2.vhd:153 | pass | test/layer2/layer2_test.cpp:643 |
-| G4-01a | Auto-index advances — slot 0 observable | zxnext.vhd:5243-5249,5278-5281,5948-5952 | pass | test/layer2/layer2_test.cpp:1535 |
-| G4-01b | Auto-index advances — slot 1 observable | zxnext.vhd:5243-5249 | pass | test/layer2/layer2_test.cpp:1535 |
-| G4-01c | Auto-index advances — slot 2 observable | zxnext.vhd:5243-5249 | pass | test/layer2/layer2_test.cpp:1535 |
-| G4-01d | Auto-index advances — slot 3 observable and wraps | zxnext.vhd:5243-5249 | pass | test/layer2/layer2_test.cpp:1535 |
-| G4-02 | Auto-index wraps at 4 | zxnext.vhd:5249 | pass | test/layer2/layer2_test.cpp:1535 |
-| G4-03 | NR 0x1C[0] resets L2 clip index | zxnext.vhd:5278-5281 | pass | test/layer2/layer2_test.cpp:1535 |
-| G4-04 | NR 0x1C[0]=0 leaves L2 index alone | zxnext.vhd:5278-5281 | pass | test/layer2/layer2_test.cpp:1535 |
+| G4-01a | Auto-index advances — slot 0 observable | zxnext.vhd:5243-5249,5278-5281,5948-5952 | pass | test/layer2/layer2_test.cpp:1758 |
+| G4-01b | Auto-index advances — slot 1 observable | zxnext.vhd:5243-5249 | pass | test/layer2/layer2_test.cpp:1758 |
+| G4-01c | Auto-index advances — slot 2 observable | zxnext.vhd:5243-5249 | pass | test/layer2/layer2_test.cpp:1758 |
+| G4-01d | Auto-index advances — slot 3 observable and wraps | zxnext.vhd:5243-5249 | pass | test/layer2/layer2_test.cpp:1758 |
+| G4-02 | Auto-index wraps at 4 | zxnext.vhd:5249 | pass | test/layer2/layer2_test.cpp:1758 |
+| G4-03 | NR 0x1C[0] resets L2 clip index | zxnext.vhd:5278-5281 | pass | test/layer2/layer2_test.cpp:1758 |
+| G4-04 | NR 0x1C[0]=0 leaves L2 index alone | zxnext.vhd:5278-5281 | pass | test/layer2/layer2_test.cpp:1758 |
 | G4-05 | 256x192 default clip covers full area | layer2.vhd:167, zxnext.vhd:4959-4962 | pass | test/layer2/layer2_test.cpp:691 |
 | G4-06 | 256x192 clip to centre 64x64 | layer2.vhd:167 | pass | test/layer2/layer2_test.cpp:704 |
 | G4-07 | 256x192 clip x1==x2 single column | layer2.vhd:167 | pass | test/layer2/layer2_test.cpp:723 |
@@ -736,54 +744,62 @@ Notes and rationale: [LAYER2-TEST-PLAN-DESIGN.md](LAYER2-TEST-PLAN-DESIGN.md).
 | G5-06 | 640 offset=3 byte=0x50 left pixel = palette[0x35] | layer2.vhd:202-203 | pass | test/layer2/layer2_test.cpp:913 |
 | G5-07 | 640 byte=0x5A right pixel = palette[0x0A] | layer2.vhd:202 | pass | test/layer2/layer2_test.cpp:923 |
 | G5-08 | Palette 0 vs Palette 1 | zxnext.vhd:6827,5392 | pass | test/layer2/layer2_test.cpp:944 |
-| G5-09 | Palette select does not affect sprite/ula palette | zxnext.vhd:6827 | pass | test/layer2/layer2_test.cpp:1537 |
+| G5-09 | Palette select does not affect sprite/ula palette | zxnext.vhd:6827 | pass | test/layer2/layer2_test.cpp:1760 |
 | G6-01 | idx 0x40 with RGB 0xE3 is TRANSPARENT (RGB compare) | zxnext.vhd:7121 | pass | test/layer2/layer2_test.cpp:990 |
 | G6-02 | idx 0xE3 with RGB 0x00 is OPAQUE (RGB compare) | zxnext.vhd:7121 | pass | test/layer2/layer2_test.cpp:998 |
 | G6-03 | identity palette: byte 0xE3 is transparent | zxnext.vhd:7121 | pass | test/layer2/layer2_test.cpp:1010 |
 | G6-04 | Change NR 0x14 to 0x00 | zxnext.vhd:5226,7121 | pass | test/layer2/layer2_test.cpp:1020 |
 | G6-05 | clip to (0,0) kills pixel at (100,100) regardless | layer2.vhd:167, zxnext.vhd:7121 | pass | test/layer2/layer2_test.cpp:1035 |
 | G6-06 | L2 disabled: renderer emits nothing | layer2.vhd:175 | pass | test/layer2/layer2_test.cpp:1046 |
-| G6-07 | Fallback 0xE3 visible when every layer transparent | zxnext.vhd:5014,6823 | pass | test/layer2/layer2_test.cpp:1539 |
-| G6-08 | Fallback colour follows NR 0x4A write | zxnext.vhd:5407 | pass | test/layer2/layer2_test.cpp:1539 |
-| G6-09 | Priority bit gated by transparency | zxnext.vhd:7123, zxnext.vhd:7121-7123 | pass | test/layer2/layer2_test.cpp:1539 |
+| G6-07 | Fallback 0xE3 visible when every layer transparent | zxnext.vhd:5014,6823 | pass | test/layer2/layer2_test.cpp:1762 |
+| G6-08 | Fallback colour follows NR 0x4A write | zxnext.vhd:5407 | pass | test/layer2/layer2_test.cpp:1762 |
+| G6-09 | Priority bit gated by transparency | zxnext.vhd:7123, zxnext.vhd:7121-7123 | pass | test/layer2/layer2_test.cpp:1762 |
 | G6-10 | NR 0x44 b7:6 latched into palette priority slot (= 0b11) | zxnext.vhd:4920, zxnext.vhd:7025 | pass | test/layer2/layer2_test.cpp:1065 |
 | G6-11 | preconditions: 9-bit write set priority | zxnext.vhd:4920 | pass | test/layer2/layer2_test.cpp:1087 |
 | G7-01 | NR 0x12=0x08 (default): display sources SRAM 16K page 24 (VHDL layer2.vhd:172 bank_eff = (bank(6:4)+1)&bank(3:0)) | layer2.vhd:172 | pass | test/layer2/layer2_test.cpp:1195 |
 | G7-02 | NR 0x12=0x18: nonzero high 3 bits → SRAM 16K page 40 (VHDL layer2.vhd:172) | layer2.vhd:172 | pass | test/layer2/layer2_test.cpp:1203 |
 | G7-03 | NR 0x12=0x68 (max legal): SRAM 16K page 120, addr_eff bit 21 = 0 so the pixel is visible (VHDL layer2.vhd:172-175) | layer2.vhd:172-175 | pass | test/layer2/layer2_test.cpp:1217 |
-| G7-04 | Out-of-range bank → no pixel | layer2.vhd:173-175 | pass | test/layer2/layer2_test.cpp:1541 |
+| G7-04 | Out-of-range bank → no pixel | layer2.vhd:173-175 | pass | test/layer2/layer2_test.cpp:1764 |
 | G7-05 | addr(16:14) selects the 16K page within the 48K bitmap: rows 0-63 / 64-127 / 128-191 come from pages 24 / 25 / 26 (VHDL layer2.vhd:173) | layer2.vhd:173 | pass | test/layer2/layer2_test.cpp:1251 |
-| G7-06 | 320x256 uses 5 pages | layer2.vhd:160 | pass | test/layer2/layer2_test.cpp:1541 |
-| G7-07 | Port 0x123B bit 0 enables CPU writes | zxnext.vhd:3917,3025 | pass | test/layer2/layer2_test.cpp:1541 |
-| G7-08 | Port 0x123B bit 2 enables CPU reads | zxnext.vhd:3918,3025 | pass | test/layer2/layer2_test.cpp:1541 |
-| G7-09 | Port 0x123B bit 1 enables display | zxnext.vhd:3916,4211 | pass | test/layer2/layer2_test.cpp:1541 |
-| G7-10 | Port 0x123B bit 1 and NR 0x69 bit 7 target same flop | zxnext.vhd:3924-3925 | pass | test/layer2/layer2_test.cpp:1541 |
-| G7-11 | Port 0x123B bit 3 selects shadow bank for mapping only | zxnext.vhd:2968,4223 | pass | test/layer2/layer2_test.cpp:1541 |
-| G7-12 | Shadow bank data becomes visible after NR 0x12 rewrite | layer2.vhd:172 | pass | test/layer2/layer2_test.cpp:1542 |
-| G7-13 | Port 0x123B bits 7:6 select segment | zxnext.vhd:2966-2967,3920 | pass | test/layer2/layer2_test.cpp:1542 |
-| G7-14 | Port 0x123B segment=11 ⇒ A15:A14 selects page | zxnext.vhd:2966 | pass | test/layer2/layer2_test.cpp:1542 |
-| G7-15 | Port 0x123B bit 4 (offset latch) | zxnext.vhd:3922,2967 | pass | test/layer2/layer2_test.cpp:1542 |
-| G7-16 | Port 0x123B read-back formatting | zxnext.vhd:3933 | pass | test/layer2/layer2_test.cpp:1542 |
+| G7-06 | 320x256 uses 5 pages | layer2.vhd:160 | pass | test/layer2/layer2_test.cpp:1764 |
+| G7-07 | Port 0x123B bit 0 enables CPU writes | zxnext.vhd:3917,3025 | pass | test/layer2/layer2_test.cpp:1764 |
+| G7-08 | Port 0x123B bit 2 enables CPU reads | zxnext.vhd:3918,3025 | pass | test/layer2/layer2_test.cpp:1764 |
+| G7-09 | Port 0x123B bit 1 enables display | zxnext.vhd:3916,4211 | pass | test/layer2/layer2_test.cpp:1764 |
+| G7-10 | Port 0x123B bit 1 and NR 0x69 bit 7 target same flop | zxnext.vhd:3924-3925 | pass | test/layer2/layer2_test.cpp:1764 |
+| G7-11 | Port 0x123B bit 3 selects shadow bank for mapping only | zxnext.vhd:2968,4223 | pass | test/layer2/layer2_test.cpp:1764 |
+| G7-12 | Shadow bank data becomes visible after NR 0x12 rewrite | layer2.vhd:172 | pass | test/layer2/layer2_test.cpp:1765 |
+| G7-13 | Port 0x123B bits 7:6 select segment | zxnext.vhd:2966-2967,3920 | pass | test/layer2/layer2_test.cpp:1765 |
+| G7-14 | Port 0x123B segment=11 ⇒ A15:A14 selects page | zxnext.vhd:2966 | pass | test/layer2/layer2_test.cpp:1765 |
+| G7-15 | Port 0x123B bit 4 (offset latch) | zxnext.vhd:3922,2967 | pass | test/layer2/layer2_test.cpp:1765 |
+| G7-16 | Port 0x123B read-back formatting | zxnext.vhd:3933 | pass | test/layer2/layer2_test.cpp:1765 |
 | G7-17 | port 0x123B bit 4 = 1 latches offset only — VHDL zxnext.vhd:3914-3923 | zxnext.vhd:3914-3923 | pass | test/layer2/layer2_test.cpp:1296 |
 | G7-18 | port 0x123B bit 3 routes CPU writes through NR 0x13 shadow bank — VHDL zxnext.vhd:2968 | zxnext.vhd:2968 | pass | test/layer2/layer2_test.cpp:1321 |
 | G7-19 | port 0x123B read returns formatted control word (0x49, not 0xFF) — VHDL zxnext.vhd:3933 | zxnext.vhd:3933 | pass | test/layer2/layer2_test.cpp:1334 |
-| G8-01 | NR 0x15 priority SLU with L2 opaque over ULA | zxnext.vhd:7216 | pass | test/layer2/layer2_test.cpp:1544 |
-| G8-02 | L2 transparent ⇒ ULA shows through in SLU | zxnext.vhd:7121-7122 | pass | test/layer2/layer2_test.cpp:1544 |
-| G8-03 | L2 priority bit promotes over sprite | zxnext.vhd:7050,7123 | pass | test/layer2/layer2_test.cpp:1544 |
-| G8-04 | Priority bit suppressed when L2 pixel transparent | zxnext.vhd:7123 | pass | test/layer2/layer2_test.cpp:1544 |
-| G8-05 | layer2_rgb` zeroed when transparent | zxnext.vhd:7122 | pass | test/layer2/layer2_test.cpp:1544 |
-| G9-01 | Disable then re-enable via NR 0x69 | zxnext.vhd:3924 | pass | test/layer2/layer2_test.cpp:1546 |
-| G9-02 | Cold-reset port 0x123B read is 0x00 | zxnext.vhd:3908-3913,3933 | pass | test/layer2/layer2_test.cpp:1546 |
+| G8-01 | NR 0x15 priority SLU with L2 opaque over ULA | zxnext.vhd:7216 | pass | test/layer2/layer2_test.cpp:1767 |
+| G8-02 | L2 transparent ⇒ ULA shows through in SLU | zxnext.vhd:7121-7122 | pass | test/layer2/layer2_test.cpp:1767 |
+| G8-03 | L2 priority bit promotes over sprite | zxnext.vhd:7050,7123 | pass | test/layer2/layer2_test.cpp:1767 |
+| G8-04 | Priority bit suppressed when L2 pixel transparent | zxnext.vhd:7123 | pass | test/layer2/layer2_test.cpp:1767 |
+| G8-05 | layer2_rgb` zeroed when transparent | zxnext.vhd:7122 | pass | test/layer2/layer2_test.cpp:1767 |
+| G9-01 | Disable then re-enable via NR 0x69 | zxnext.vhd:3924 | pass | test/layer2/layer2_test.cpp:1769 |
+| G9-02 | Cold-reset port 0x123B read is 0x00 | zxnext.vhd:3908-3913,3933 | pass | test/layer2/layer2_test.cpp:1769 |
 | G9-03 | narrow clip y1=200 > y2=100 ⇒ no L2 pixels anywhere | layer2.vhd:167 | pass | test/layer2/layer2_test.cpp:1439 |
 | G9-05 | wide clip x2=0xFF renders all 640 framebuffer cells (320 src cols ×2) | layer2.vhd:134 | pass | test/layer2/layer2_test.cpp:1461 |
-| L2P-G02-01 | NR 0x15 write logged with current scanline (bit 0 sprite_en, bits 4:2 priority) | zxnext.vhd:5232,6799 | pass | test/layer2/layer2_test.cpp:1663 |
-| L2P-G02-02 | per-line replay: rows pre/mid/post show (0,0)/(1,0)/(0,5) | zxnext.vhd:6799 | pass | test/layer2/layer2_test.cpp:1706 |
-| G10-G05-01 | Layer2 clip-window 4-coord snapshot logged with current scanline | zxnext.vhd:5243,5278 | pass | test/layer2/layer2_test.cpp:1742 |
-| G10-G05-02 | row<change uses baseline clip; row>=change uses new clip | layer2.vhd:134,167 | pass | test/layer2/layer2_test.cpp:1821 |
-| G10-G09-01 | Layer2 NR 0x12 active-bank write logged with current scanline | zxnext.vhd:5220,1135 | pass | test/layer2/layer2_test.cpp:1850 |
-| G10-G09-02 | rows<64 sample old bank 0x08; rows>=64 sample new 0x10 | layer2.vhd:172 | pass | test/layer2/layer2_test.cpp:1910 |
-| G10-G14-01 | Layer2 set_enabled write logged with current scanline | zxnext.vhd:3916,3924-3925 | pass | test/layer2/layer2_test.cpp:2481 |
-| G10-G14-02 | rows<50 hidden; 50<=row<150 visible; row>=150 hidden | layer2.vhd:175,197-198 | pass | test/layer2/layer2_test.cpp:2551 |
+| L2P-G02-01 | NR 0x15 write logged with current scanline (bit 0 sprite_en, bits 4:2 priority) | zxnext.vhd:5232,6799 | pass | test/layer2/layer2_test.cpp:1886 |
+| L2P-G02-02 | per-line replay: rows pre/mid/post show (0,0)/(1,0)/(0,5) | zxnext.vhd:6799 | pass | test/layer2/layer2_test.cpp:1929 |
+| G10-G05-01 | Layer2 clip-window 4-coord snapshot logged with current scanline | zxnext.vhd:5243,5278 | pass | test/layer2/layer2_test.cpp:1965 |
+| G10-G05-02 | row<change uses baseline clip; row>=change uses new clip | layer2.vhd:134,167 | pass | test/layer2/layer2_test.cpp:2044 |
+| G10-G09-01 | Layer2 NR 0x12 active-bank write logged with current scanline | zxnext.vhd:5220,1135 | pass | test/layer2/layer2_test.cpp:2073 |
+| G10-G09-02 | rows<64 sample old bank 0x08; rows>=64 sample new 0x10 | layer2.vhd:172 | pass | test/layer2/layer2_test.cpp:2133 |
+| G10-G14-01 | Layer2 set_enabled write logged with current scanline | zxnext.vhd:3916,3924-3925 | pass | test/layer2/layer2_test.cpp:2704 |
+| G10-G14-02 | rows<50 hidden; 50<=row<150 visible; row>=150 hidden | layer2.vhd:175,197-198 | pass | test/layer2/layer2_test.cpp:2774 |
+| L2-BR-01 | layer2.vhd hc_eff = hc + 1 - a byte written in the post-display lines is seen by the next frame only | layer2.vhd | pass | test/layer2/layer2_test.cpp:1608 |
+| L2-BR-02 | layer2.vhd hc_eff = hc + 1, zxula_timing.vhd:510-522 - 256x192: pixel 50 is fetched at raw hc 178; a write 2 ticks after is old, 2 ticks before is new | layer2.vhd, zxula_timing.vhd:510-522 | pass | test/layer2/layer2_test.cpp:1625 |
+| L2-BR-03 | layer2.vhd hc_eff = hc + 1, zxula_timing.vhd:476-492 - 320x256: column 100 is fetched at raw hc 196 (whc origin, not phc); a write 2 ticks after is old, 2 ticks before is new | layer2.vhd, zxula_timing.vhd:476-492 | pass | test/layer2/layer2_test.cpp:1642 |
+| L2-BR-04 | layer2.vhd hc_eff = hc + 1, zxula_timing.vhd:476-492 - 640x256: one byte (two pixels) per tick, byte column 100 is fetched at raw hc 196; the left pixel is old after, new before | layer2.vhd, zxula_timing.vhd:476-492 | pass | test/layer2/layer2_test.cpp:1659 |
+| L2-BR-05 | layer2.vhd hc_eff = hc + 1 - an address written at rows 30 and 80 shows the row-30 value on row 50; one written only at row 80 shows its frame-start value | layer2.vhd | pass | test/layer2/layer2_test.cpp:1680 |
+| L2-BR-06 | layer2.vhd hc_eff = hc + 1 - recording does not depend on Layer 2 being enabled: with the layer off from row 60 to 119, a row-90 write is old on row 40 and new on row 130 | layer2.vhd | pass | test/layer2/layer2_test.cpp:1702 |
+| L2-BR-07 | layer2.vhd hc_eff = hc + 1 - logging armed at row 60: a row-30 write is seen by row 100 (via the next write's prev), the row-150 write is not | layer2.vhd | pass | test/layer2/layer2_test.cpp:1722 |
+| L2-BR-08 | layer2.vhd hc_eff = hc + 1 - the log restarts every frame: a frame without writes shows the RAM as it is | layer2.vhd | pass | test/layer2/layer2_test.cpp:1742 |
 | G1-09a | NR 0x70 default resolution = 00 (256x192) | — | pass | test/layer2/layer2_test.cpp:282 |
 | G1-09b | NR 0x70 default resolution => is_wide()==false | — | pass | test/layer2/layer2_test.cpp:285 |
 | G1-12a | Layer 2 disabled after reset | — | pass | test/layer2/layer2_test.cpp:289 |
@@ -847,55 +863,55 @@ Notes and rationale: [LAYER2-TEST-PLAN-DESIGN.md](LAYER2-TEST-PLAN-DESIGN.md).
 | G6-04a | NR 0x14=0x00: byte 0xE3 now opaque | — | pass | test/layer2/layer2_test.cpp:1020 |
 | G6-04b | NR 0x14=0x00: byte 0x00 now transparent | — | pass | test/layer2/layer2_test.cpp:1024 |
 | G7-20 | 320×256 sub_banks 2/3/4 fetch from VHDL-shifted SRAM bank (NR$12=14, +16 unconditional per layer2.vhd:172; pre-fix the < 16 guard left them reading ZX RAM banks 0..2 instead of the L2 buffer) | layer2.vhd:172 | pass | test/layer2/layer2_test.cpp:1396 |
-| G10-01 | start_frame baseline captures scroll_x_/y_ | zxnext.vhd:5237,5240 | pass | test/layer2/layer2_test.cpp:1583 |
-| G10-02 | three scroll writes recorded in change log (zxnext.vhd:5237) | zxnext.vhd:5237 | pass | test/layer2/layer2_test.cpp:1594 |
-| G10-03 | rewind_to_baseline restores live scroll_x to baseline (layer2.vhd:152-154) | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1600 |
-| G10-04a | line 0: no change applied -> scroll_x == baseline (0x10) (layer2.vhd:152-154) | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1608 |
-| G10-04b | line 49 (before first change at 50): scroll_x == 0x10 (layer2.vhd:152-154) | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1612 |
-| G10-04c | line 50 (first change): scroll_x == 0x40 (layer2.vhd:152-154) | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1616 |
-| G10-04d | line 99 (between 50 and 100): scroll_x == 0x40 (held) (layer2.vhd:152-154) | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1619 |
-| G10-04e | line 100: scroll_x == 0x80 (layer2.vhd:152-154) | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1623 |
-| G10-04f | line 150: scroll_x == 0xC0 (layer2.vhd:152-154) | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1626 |
-| G10-05 | change log capped at MAX_CHANGES_PER_FRAME | — | pass | test/layer2/layer2_test.cpp:1635 |
-| L2P-G02-01a | two NR 0x15 writes appended to log | — | pass | test/layer2/layer2_test.cpp:1663 |
-| L2P-G02-01b | live state after writes: nr15_raw=0x14, prio=5, sprite_en=0 | — | pass | test/layer2/layer2_test.cpp:1668 |
-| G10-G05-01a | four NR 0x18 writes append four log entries | — | pass | test/layer2/layer2_test.cpp:1742 |
-| G10-G05-01b | line 49: baseline clip (default 0x00,0xFF,0x00,0xBF) | — | pass | test/layer2/layer2_test.cpp:1751 |
-| G10-G05-01c | line 50: clip = (0x10, 0xF0, 0x20, 0xC0) | — | pass | test/layer2/layer2_test.cpp:1760 |
-| G10-G09-01a | NR 0x12 write logged once at line=64 | — | pass | test/layer2/layer2_test.cpp:1850 |
-| G10-G09-01b | rewind+replay: lines<64 baseline 0x08; lines>=64 new 0x10 | — | pass | test/layer2/layer2_test.cpp:1864 |
-| L2-GH270-01 | hpos 65 -> source column 67 narrow / 99 wide (the 32-column wide-mode overscan apart) | — | pass | test/layer2/layer2_test.cpp:1956 |
-| L2-GH270-02 | two NR 0x12 writes on one line: bank 0x08 to column 66, bank 0x10 from 67 - the second write does not repaint the line | — | pass | test/layer2/layer2_test.cpp:1997 |
-| L2-GH270-03 | 320x256: the same write splits the line at source column 99 | — | pass | test/layer2/layer2_test.cpp:2031 |
-| L2-GH270-04 | 640x256 4bpp: the split lands on byte column 99, both nibbles | — | pass | test/layer2/layer2_test.cpp:2065 |
-| L2-GH270-05 | mid-line NR 0x16: columns before 67 unscrolled, from 67 on shifted by 4 | — | pass | test/layer2/layer2_test.cpp:2099 |
-| L2-GH270-06 | mid-line NR 0x17: source row 100 to column 66, row 105 from 67 | — | pass | test/layer2/layer2_test.cpp:2133 |
-| L2-GH270-07 | hpos before the line owns all of it; hpos past it owns none but still becomes the next line's starting bank | — | pass | test/layer2/layer2_test.cpp:2174 |
-| L2-GH270-08 | two writes at one column coalesce into one segment, last wins | — | pass | test/layer2/layer2_test.cpp:2196 |
-| L2-GH270-09 | out-of-order hpos is clamped forward onto the previous segment, never applied earlier | — | pass | test/layer2/layer2_test.cpp:2240 |
-| L2-GH270-10 | a new scanline re-arms the column tag: an unpositioned write is one span covering the whole line | — | pass | test/layer2/layer2_test.cpp:2278 |
-| L2-GH270-11 | bank and scroll segments interleave by column even when the logs disagree with that order | — | pass | test/layer2/layer2_test.cpp:2322 |
-| L2-GH270-12 | render_scanline with no segment list uses the live registers | — | pass | test/layer2/layer2_test.cpp:2346 |
-| L2-GH270-13 | render_scanline_debug draws its forced bank across the whole row and leaves the segment list intact | — | pass | test/layer2/layer2_test.cpp:2389 |
-| L2-GH270-14 | rewind_to_baseline drops the segment list, so a render before the next replay uses the rewound live registers | — | pass | test/layer2/layer2_test.cpp:2430 |
-| L2-GH270-15 | a hard reset drops the segment list with the change logs it is derived from | — | pass | test/layer2/layer2_test.cpp:2452 |
-| G10-G14-01a | two enable writes appended to log | — | pass | test/layer2/layer2_test.cpp:2481 |
-| G10-G14-01b | rewind+replay matches per-line enable transitions | — | pass | test/layer2/layer2_test.cpp:2498 |
-| G11-00a | palette layer2_priority_high(K) == true | — | pass | test/layer2/layer2_test.cpp:2623 |
-| G11-00b | palette layer2_priority_high(K+1) == false | — | pass | test/layer2/layer2_test.cpp:2625 |
-| G11-00c | palette layer2_priority_high(K+2) == true | — | pass | test/layer2/layer2_test.cpp:2627 |
-| G11-01a | narrow: priority bit on (idx K) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:2657 |
-| G11-01b | narrow: priority bit off (idx K+1) overwrites priority_dst false (doubled) | — | pass | test/layer2/layer2_test.cpp:2663 |
-| G11-01c | narrow: priority bit on (idx K+2) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:2669 |
-| G11-02a-PRECOND | palette layer2_rgb8(K) == NR 0x14 (= 0xE3) | — | pass | test/layer2/layer2_test.cpp:2693 |
-| G11-02b | narrow: transparent L2 pixel leaves priority_dst untouched | — | pass | test/layer2/layer2_test.cpp:2713 |
-| G11-03a | wide: priority bit on (idx K) propagates at cols 0..1 (doubled) | — | pass | test/layer2/layer2_test.cpp:2747 |
-| G11-03b | wide: priority bit off (idx K+1) overwrites false at cols 2..3 (doubled) | — | pass | test/layer2/layer2_test.cpp:2751 |
-| G11-04a | 640px: left nibble (idx 0x01) writes priority TRUE at col*2 | — | pass | test/layer2/layer2_test.cpp:2788 |
-| G11-04b | 640px: right nibble (idx 0x02) writes priority FALSE at col*2+1 | — | pass | test/layer2/layer2_test.cpp:2792 |
-| G11-05a | 640@320: col=0 left nibble (idx 0x01) writes prio TRUE at col 0 | — | pass | test/layer2/layer2_test.cpp:2826 |
-| G11-05b | 640@320: col=1 left nibble (idx 0x02) writes prio FALSE at col 1 | — | pass | test/layer2/layer2_test.cpp:2830 |
-| G11-06 | nullptr priority_dst: render still emits colour, no crash | — | pass | test/layer2/layer2_test.cpp:2856 |
+| G10-01 | start_frame baseline captures scroll_x_/y_ | zxnext.vhd:5237,5240 | pass | test/layer2/layer2_test.cpp:1806 |
+| G10-02 | three scroll writes recorded in change log (zxnext.vhd:5237) | zxnext.vhd:5237 | pass | test/layer2/layer2_test.cpp:1817 |
+| G10-03 | rewind_to_baseline restores live scroll_x to baseline (layer2.vhd:152-154) | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1823 |
+| G10-04a | line 0: no change applied -> scroll_x == baseline (0x10) (layer2.vhd:152-154) | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1831 |
+| G10-04b | line 49 (before first change at 50): scroll_x == 0x10 (layer2.vhd:152-154) | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1835 |
+| G10-04c | line 50 (first change): scroll_x == 0x40 (layer2.vhd:152-154) | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1839 |
+| G10-04d | line 99 (between 50 and 100): scroll_x == 0x40 (held) (layer2.vhd:152-154) | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1842 |
+| G10-04e | line 100: scroll_x == 0x80 (layer2.vhd:152-154) | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1846 |
+| G10-04f | line 150: scroll_x == 0xC0 (layer2.vhd:152-154) | layer2.vhd:152-154 | pass | test/layer2/layer2_test.cpp:1849 |
+| G10-05 | change log capped at MAX_CHANGES_PER_FRAME | — | pass | test/layer2/layer2_test.cpp:1858 |
+| L2P-G02-01a | two NR 0x15 writes appended to log | — | pass | test/layer2/layer2_test.cpp:1886 |
+| L2P-G02-01b | live state after writes: nr15_raw=0x14, prio=5, sprite_en=0 | — | pass | test/layer2/layer2_test.cpp:1891 |
+| G10-G05-01a | four NR 0x18 writes append four log entries | — | pass | test/layer2/layer2_test.cpp:1965 |
+| G10-G05-01b | line 49: baseline clip (default 0x00,0xFF,0x00,0xBF) | — | pass | test/layer2/layer2_test.cpp:1974 |
+| G10-G05-01c | line 50: clip = (0x10, 0xF0, 0x20, 0xC0) | — | pass | test/layer2/layer2_test.cpp:1983 |
+| G10-G09-01a | NR 0x12 write logged once at line=64 | — | pass | test/layer2/layer2_test.cpp:2073 |
+| G10-G09-01b | rewind+replay: lines<64 baseline 0x08; lines>=64 new 0x10 | — | pass | test/layer2/layer2_test.cpp:2087 |
+| L2-GH270-01 | hpos 65 -> source column 67 narrow / 99 wide (the 32-column wide-mode overscan apart) | — | pass | test/layer2/layer2_test.cpp:2179 |
+| L2-GH270-02 | two NR 0x12 writes on one line: bank 0x08 to column 66, bank 0x10 from 67 - the second write does not repaint the line | — | pass | test/layer2/layer2_test.cpp:2220 |
+| L2-GH270-03 | 320x256: the same write splits the line at source column 99 | — | pass | test/layer2/layer2_test.cpp:2254 |
+| L2-GH270-04 | 640x256 4bpp: the split lands on byte column 99, both nibbles | — | pass | test/layer2/layer2_test.cpp:2288 |
+| L2-GH270-05 | mid-line NR 0x16: columns before 67 unscrolled, from 67 on shifted by 4 | — | pass | test/layer2/layer2_test.cpp:2322 |
+| L2-GH270-06 | mid-line NR 0x17: source row 100 to column 66, row 105 from 67 | — | pass | test/layer2/layer2_test.cpp:2356 |
+| L2-GH270-07 | hpos before the line owns all of it; hpos past it owns none but still becomes the next line's starting bank | — | pass | test/layer2/layer2_test.cpp:2397 |
+| L2-GH270-08 | two writes at one column coalesce into one segment, last wins | — | pass | test/layer2/layer2_test.cpp:2419 |
+| L2-GH270-09 | out-of-order hpos is clamped forward onto the previous segment, never applied earlier | — | pass | test/layer2/layer2_test.cpp:2463 |
+| L2-GH270-10 | a new scanline re-arms the column tag: an unpositioned write is one span covering the whole line | — | pass | test/layer2/layer2_test.cpp:2501 |
+| L2-GH270-11 | bank and scroll segments interleave by column even when the logs disagree with that order | — | pass | test/layer2/layer2_test.cpp:2545 |
+| L2-GH270-12 | render_scanline with no segment list uses the live registers | — | pass | test/layer2/layer2_test.cpp:2569 |
+| L2-GH270-13 | render_scanline_debug draws its forced bank across the whole row and leaves the segment list intact | — | pass | test/layer2/layer2_test.cpp:2612 |
+| L2-GH270-14 | rewind_to_baseline drops the segment list, so a render before the next replay uses the rewound live registers | — | pass | test/layer2/layer2_test.cpp:2653 |
+| L2-GH270-15 | a hard reset drops the segment list with the change logs it is derived from | — | pass | test/layer2/layer2_test.cpp:2675 |
+| G10-G14-01a | two enable writes appended to log | — | pass | test/layer2/layer2_test.cpp:2704 |
+| G10-G14-01b | rewind+replay matches per-line enable transitions | — | pass | test/layer2/layer2_test.cpp:2721 |
+| G11-00a | palette layer2_priority_high(K) == true | — | pass | test/layer2/layer2_test.cpp:2846 |
+| G11-00b | palette layer2_priority_high(K+1) == false | — | pass | test/layer2/layer2_test.cpp:2848 |
+| G11-00c | palette layer2_priority_high(K+2) == true | — | pass | test/layer2/layer2_test.cpp:2850 |
+| G11-01a | narrow: priority bit on (idx K) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:2880 |
+| G11-01b | narrow: priority bit off (idx K+1) overwrites priority_dst false (doubled) | — | pass | test/layer2/layer2_test.cpp:2886 |
+| G11-01c | narrow: priority bit on (idx K+2) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:2892 |
+| G11-02a-PRECOND | palette layer2_rgb8(K) == NR 0x14 (= 0xE3) | — | pass | test/layer2/layer2_test.cpp:2916 |
+| G11-02b | narrow: transparent L2 pixel leaves priority_dst untouched | — | pass | test/layer2/layer2_test.cpp:2936 |
+| G11-03a | wide: priority bit on (idx K) propagates at cols 0..1 (doubled) | — | pass | test/layer2/layer2_test.cpp:2970 |
+| G11-03b | wide: priority bit off (idx K+1) overwrites false at cols 2..3 (doubled) | — | pass | test/layer2/layer2_test.cpp:2974 |
+| G11-04a | 640px: left nibble (idx 0x01) writes priority TRUE at col*2 | — | pass | test/layer2/layer2_test.cpp:3011 |
+| G11-04b | 640px: right nibble (idx 0x02) writes priority FALSE at col*2+1 | — | pass | test/layer2/layer2_test.cpp:3015 |
+| G11-05a | 640@320: col=0 left nibble (idx 0x01) writes prio TRUE at col 0 | — | pass | test/layer2/layer2_test.cpp:3049 |
+| G11-05b | 640@320: col=1 left nibble (idx 0x02) writes prio FALSE at col 1 | — | pass | test/layer2/layer2_test.cpp:3053 |
+| G11-06 | nullptr priority_dst: render still emits colour, no crash | — | pass | test/layer2/layer2_test.cpp:3079 |
 
 ## Sprites — `test/sprites/sprites_test.cpp`
 
@@ -1212,6 +1228,16 @@ Notes and rationale: [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md).
 | TM-130 | VHDL zxnext.vhd:7113 — stencil output is the per-channel AND of the ULA and tilemap RGB (0xFC AND 0x3F = 0x3C), a value equal to neither input | zxnext.vhd:7113 | pass | test/tilemap/tilemap_test.cpp:1960 |
 | TM-140 | VHDL zxnext.vhd:6863 — tm_en=0 with tm_on_top=0 gives below = NOT tm_on_top = 1 on every pixel (and the layer still emits nothing), both at the Tilemap tier and in Renderer::render_row | zxnext.vhd:6863 | pass | test/tilemap/tilemap_test.cpp:2060 |
 | TM-141 | VHDL zxnext.vhd:6863 — tm_en=0 with tm_on_top=1 gives below = 0 on every pixel; paired with TM-140 this proves the flag follows NOT tm_on_top rather than being cleared (asserted through Renderer::render_row too) | zxnext.vhd:6863 | pass | test/tilemap/tilemap_test.cpp:2077 |
+| TM-BR-01 | tilemap.vhd:226-231 — a map byte written after the beam has fetched row 0 (post-display line 260) is seen by the next frame only | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2374 |
+| TM-BR-02 | tilemap.vhd:226-231 — a map write 2 ticks after group 5's fetch instant (whc 32, raw hc 129) is old on that row, new on the next | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2387 |
+| TM-BR-03 | tilemap.vhd:226-231 — a map write 2 ticks before group 5's fetch instant is already seen by that row | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2397 |
+| TM-BR-04 | tilemap.vhd:393-403 — the tile-definition bytes of a group are fetched with its map entry (S_READ_PIXELS): old after the instant, new before it | tilemap.vhd:393-403 | pass | test/tilemap/tilemap_test.cpp:2414 |
+| TM-BR-05 | tilemap.vhd:393-403 + zxnext.vhd:6660-6664 — the map is fetched from anywhere in bank 5 / the bank 7 BRAM (NR 0x6E bits 5:0), so writes above the ULA planes (bank 5 0x3C00, bank 7 0x1C00) replay too: a late write is old, an in-time one is new | tilemap.vhd:393-403, zxnext.vhd:6660-6664 | pass | test/tilemap/tilemap_test.cpp:2436 |
+| TM-BR-06 | tilemap.vhd:226-231 — a write before framebuffer row 0 happened before row 0's group-0 fetch (hc 89), whatever its own hc | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2451 |
+| TM-BR-07 | tilemap.vhd:226-231 — 80-col: hcount_effsub = hcount(10:1), so a group is 4 whc ticks and group 10 / 11 are fetched 4 ticks apart | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2467 |
+| TM-BR-08 | tilemap.vhd:226-231 — the fetch runs one character ahead (hcount_eff = hcount_effsub + 8): group 4 at whc 24, group 5 at whc 32; a write at whc 28 is late for 4, in time for 5 | tilemap.vhd:226-231 | pass | test/tilemap/tilemap_test.cpp:2482 |
+| TM-BR-09 | tilemap.vhd:260-300 — the map entry is fetched again in every 8-pixel group, so a tile split by fine scroll is read at two instants (group 0 at whc -8, group 1 at whc 0) | tilemap.vhd:260-300 | pass | test/tilemap/tilemap_test.cpp:2499 |
+| TM-BR-10 | tilemap.vhd:260-300 - a rotated tile split by fine scroll: its per-pixel pattern reads in group 1 happen at group 1's instant (whc 0), after the write that group 0 (whc -8) did not see | tilemap.vhd:260-300 | pass | test/tilemap/tilemap_test.cpp:2518 |
 | TM-CB1 | VHDL tilemap.vhd:189 — mode_i <= control_i(6): only bit 6 selects 80-column mode | tilemap.vhd:189 | pass | test/tilemap/tilemap_test.cpp:2124 |
 | TM-CB2 | VHDL zxnext.vhd NR 0x6B — nr_6b_tm_en <= nr_wr_dat(7): only bit 7 enables the tilemap | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:2138 |
 | TM-CB3 | VHDL tilemap.vhd:194 — mode_512_i <= control_i(1): only bit 1 selects 512-tile mode | tilemap.vhd:194 | pass | test/tilemap/tilemap_test.cpp:2152 |
@@ -4185,6 +4211,9 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-165 | LoRes does not disturb the ULA's own VRAM fetch — switching LoRes off again restores an intact ULA screen (zxnext.vhd:6631, 6660) | zxnext.vhd:6631,6660 | pass | test/compositor/compositor_test.cpp:6133 |
 | LR-166 | NR $19 (sprite clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4366-4369) | zxnext.vhd:4258-4261 | pass | test/compositor/compositor_test.cpp:6158 |
 | LR-167 | NR $1B (tilemap clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4424-4427) | zxnext.vhd:4258-4261,4424-4427 | pass | test/compositor/compositor_test.cpp:6167 |
+| LR-BR-01 | zxnext.vhd:6603-6631 - a bank-5 byte written after the beam passed its row (post-display line 260) is seen by the next frame only | zxnext.vhd:6603-6631 | pass | test/lores/lores_test.cpp:817 |
+| LR-BR-02 | zxnext.vhd:4250,6603-6631 - a write 2 ticks after pixel 100's own fetch tick (raw hc c_min_hactive + 1 + phc) is not seen on that row | zxnext.vhd:4250,6603-6631 | pass | test/lores/lores_test.cpp:827 |
+| LR-BR-03 | zxnext.vhd:4250,6603-6631 - a write 2 ticks before pixel 100's own fetch tick is seen on that row | zxnext.vhd:4250,6603-6631 | pass | test/lores/lores_test.cpp:836 |
 
 ## SD Card — `test/sdcard/sdcard_test.cpp`
 
@@ -5459,6 +5488,13 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | PENT-16 | rzx::snapshot_machine identifies SZX id 7 and .z80 v3 hardware 9 as PENTAGON; SZX id 13 (Pentagon 512) stays unrecognised [libspectrum szx.c:41-57, z80.c:81] | — | pass | test/mmu/mmu_integration_test.cpp:3036 |
 | SZXW-EXT-01 | 128K with OUT 0xDFFD 0x01 (bank 8 at 0xC000): SzxSaver refuses, naming .jns [zxnext.vhd:3763-3766] | zxnext.vhd:3763-3766 | pass | test/mmu/mmu_integration_test.cpp:3047 |
 | SZXW-EXT-02 | PENTAGON with NR 0x8F = 02 and 0x7FFD 0x40 (bank 8): SzxSaver refuses; the same machine in the standard mapping with bank 3 saves (control) [zxnext.vhd:3764] | zxnext.vhd:3764 | pass | test/mmu/mmu_integration_test.cpp:3064 |
+| L2LOG-TAG-01 | zxnext.vhd:2966-2969 - a CPU write through the Layer 2 write-over path is logged at the CPU's own (line, hc) | zxnext.vhd:2966-2969 | pass | test/mmu/mmu_integration_test.cpp:3121 |
+| L2LOG-TAG-02 | layer2.vhd hc_eff = hc + 1 - a CPU write through a normal MMU slot is logged at the CPU's own (line, hc) | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3134 |
+| L2LOG-TAG-03 | layer2.vhd hc_eff = hc + 1 - a non-CPU writer (DMA, loader, debugger) is logged at the coarse (line, hc) | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3150 |
+| L2LOG-TAG-05 | layer2.vhd hc_eff = hc + 1 - after a re-init the SRAM log is off until the first frame starts (loader writes are not logged), then records again | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3178 |
+| L2LOG-TAG-06 | layer2.vhd hc_eff = hc + 1 - init() then load_state() (the warm start of a --load) leaves the SRAM log off until the first frame starts, then it records again | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3211 |
+| L2LOG-TAG-07 | zxnext.vhd:3905-3911 - a soft reset keeps the SRAM and the beam, so the SRAM log keeps recording through it | zxnext.vhd:3905-3911 | pass | test/mmu/mmu_integration_test.cpp:3236 |
+| L2LOG-TAG-04 | layer2.vhd hc_eff = hc + 1 - a DMA/debugger write after a CPU write takes the coarse position, not the CPU's | layer2.vhd | pass | test/mmu/mmu_integration_test.cpp:3254 |
 
 ### Companion integration suite — `test/ula/ula_integration_test.cpp`
 

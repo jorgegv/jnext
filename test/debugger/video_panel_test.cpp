@@ -1084,6 +1084,119 @@ static void test_tilemap_per_line_scroll(Emulator& emu) {
               tm.scroll_x_for_line(64), tm.scroll_x_for_line(200)));
 }
 
+// ── DVP-BR-01/02: the panel views replay the beam-time fetch (GH #362) ──
+//
+// Layer 2 and the tilemap fetch their memory at beam time, so the panel's
+// replay (Debugger::render_layer -> replay_rewind / replay_line) must show a
+// row ABOVE a later write as it was fetched, and a row BELOW it with the write,
+// exactly as the live render does. Both rows write with the debugger's own page
+// poke (so the write is logged by Mmu::log_page_store) at a coarse line between
+// the two rows under test.
+
+static void test_beam_replay_views(Emulator& emu) {
+    set_group("DVP-BR");
+    jnext::dbg::Debugger dbg(emu);
+
+    constexpr int WRITE_LINE = 60;        // framebuffer line of the writes
+    constexpr uint8_t IDX_OLD = 0x40, IDX_NEW = 0x41;
+
+    // --- Layer 2 (DVP-BR-01): pixel (7, row 10) above the write, (7, row 50) below ---
+    {
+        Layer2& l2 = emu.layer2();
+        l2.set_enabled(true);
+        l2.set_control(0x00);
+        l2.set_active_bank(9);
+        l2.set_clip_x1(0); l2.set_clip_x2(255);
+        l2.set_clip_y1(0); l2.set_clip_y2(191);
+        PaletteManager& pal = emu.palette();
+        pal.set_global_transparency(0xE3);
+        set_l2_palette(pal, IDX_OLD, 0xFF);
+        set_l2_palette(pal, IDX_NEW, 0x3F);
+        const uint32_t argb_old = pal.layer2_colour(IDX_OLD);
+        const uint32_t argb_new = pal.layer2_colour(IDX_NEW);
+
+        const uint32_t above = l2_addr_256x192(7, 10), below = l2_addr_256x192(7, 50);
+        emu.ram().write(l2_phys_addr(9, above, /*rom_in_sram=*/true), IDX_OLD);
+        emu.ram().write(l2_phys_addr(9, below, /*rom_in_sram=*/true), IDX_OLD);
+
+        begin_frame(emu);
+        emu.mmu().attr_mux_start_frame(emu.video_timing().ula_prefetch_origin_hc(),
+                                       emu.video_timing().vblank_top());
+        emu.mmu().sram_log_arm();
+        // The writes are the debugger's own page pokes (a script's `set
+        // phys[]`): they do not go through Mmu::write(), so they must be
+        // logged by their own path (Mmu::log_page_store), with the coarse tag.
+        // Layer 2 bank 9 is logical pages 0x12 / 0x13.
+        emu.mmu().attr_mux_set_current_line(WRITE_LINE);
+        const uint8_t new_byte = IDX_NEW;
+        dbg.poke(0, jnext::dbg::MemSpace::page(static_cast<uint16_t>(0x12 + (above >> 13))),
+                 above & 0x1FFF, 1, &new_byte);
+        dbg.poke(0, jnext::dbg::MemSpace::page(static_cast<uint16_t>(0x12 + (below >> 13))),
+                 below & 0x1FFF, 1, &new_byte);
+
+        // The frame's own render has already walked the log to its end: the
+        // panel must rewind and re-apply per row.
+        emu.mmu().attr_mux_apply_line(Renderer::FB_HEIGHT - 1);
+        (void)emu.mmu().sram_log().read(
+            l2_phys_addr(9, above, /*rom_in_sram=*/true), 0xFFFF, emu.ram());
+
+        QImage img = render_view(dbg, VideoLayerView::Layer::Layer2Active,
+                                 fb_row_of(50));
+        const uint32_t got_above = px(img, l2_cell_256(7), fb_row_of(10));
+        const uint32_t got_below = px(img, l2_cell_256(7), fb_row_of(50));
+        check("DVP-BR-01",
+              "layer2.vhd hc_eff = hc + 1 - the Layer 2 view shows the row above "
+              "a write as fetched (old) and the row below it with the write (new)",
+              got_above == argb_old && got_below == argb_new && argb_old != argb_new,
+              fmt("above=0x%08X (want 0x%08X) below=0x%08X (want 0x%08X)",
+                  got_above, argb_old, got_below, argb_new));
+    }
+
+    // --- Tilemap (DVP-BR-02): map row 0 (screen rows 0-7) and map row 20
+    //     (screen rows 160-167), both rewritten at line 60 ---
+    {
+        PaletteManager& pal = emu.palette();
+        paint_palette(pal, 0x30, 1, 0x3F);
+        paint_palette(pal, 0x30, 2, 0xE0);
+        const uint32_t tm_old = pal.tilemap_colour(false, 1);
+        const uint32_t tm_new = pal.tilemap_colour(false, 2);
+
+        uint8_t* b5 = emu.mmu().bank5_vram();
+        Tilemap& tm = emu.tilemap();
+        tm.set_map_base(TM_MAP_BASE);
+        tm.set_def_base(TM_DEF_BASE);
+        tm.set_control(0x80);
+        fill_tile(b5, 1, 1);
+        fill_tile(b5, 2, 2);
+        for (int row = 0; row < 32; ++row)
+            for (int col = 0; col < TM_TILES_PER_ROW; ++col)
+                write_tile_map(b5, col, row, 1, 0);
+
+        begin_frame(emu);
+        emu.mmu().attr_mux_start_frame(emu.video_timing().ula_prefetch_origin_hc(),
+                                       emu.video_timing().vblank_top());
+        emu.mmu().attr_mux_set_current_line(WRITE_LINE);
+        const uint8_t new_tile = 2;                      // debugger page pokes, as above
+        dbg.poke(0, jnext::dbg::MemSpace::page(0x0B), TM_MAP_OFF - 0x2000, 1, &new_tile);
+        dbg.poke(0, jnext::dbg::MemSpace::page(0x0B),
+                 TM_MAP_OFF - 0x2000 + 20 * TM_TILES_PER_ROW * 2, 1, &new_tile);
+
+        // As above: the frame's own render left the replay at the end.
+        emu.mmu().attr_mux_apply_line(Renderer::FB_HEIGHT - 1);
+        (void)emu.mmu().attr_mux5().read(TM_MAP_OFF, 0xFFFF);
+
+        QImage img = render_view(dbg, VideoLayerView::Layer::Tilemap, 170);
+        const uint32_t got_above = px(img, 4, 3);
+        const uint32_t got_below = px(img, 4, 162);
+        check("DVP-BR-02",
+              "tilemap.vhd:226-231 - the Tilemap view shows the row above a map "
+              "write as fetched (old) and the row below it with the write (new)",
+              got_above == tm_old && got_below == tm_new && tm_old != tm_new,
+              fmt("above=0x%08X (want 0x%08X) below=0x%08X (want 0x%08X)",
+                  got_above, tm_old, got_below, tm_new));
+    }
+}
+
 // ── DVP-08/09: raw VC → framebuffer row ───────────────────────────────
 
 static void test_fb_row_conversion(Emulator& emu) {
@@ -2962,6 +3075,12 @@ int main(int argc, char** argv) {
         if (!build_next_emulator(emu)) return 1;
         test_fb_row_conversion(emu);
         std::printf("  Group: DVP-FBROW      — done\n");
+    }
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_beam_replay_views(emu);
+        std::printf("  Group: DVP-BR         — done\n");
     }
     {
         Emulator emu;

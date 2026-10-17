@@ -3070,6 +3070,196 @@ static void test_gh324_pentagon_savers() {
     }
 }
 
+// ── L2LOG-TAG: an SRAM write is logged for Layer 2 with ITS OWN position ──
+//
+// GH #362. Layer 2 fetches the SRAM bitmap at beam time (layer2.vhd: one pixel
+// ahead, hc_eff = hc + 1), so Mmu::write() logs every SRAM store with the beam
+// position of the write (sram_beam_log.h). The position comes from the same
+// source the VRAM mux uses: a CPU write carries its own (line, hc)
+// (attr_mux_set_write_pos), every other writer the coarse one. Bare Mmu, one
+// SRAM byte at bank 8 offset 0x0123 (the first 16K of Layer 2 at NR 0x12 = 8).
+// The log is read back through SramBeamLog::read(): the value a fetch at
+// (line, hc) sees.
+
+namespace {
+constexpr uint32_t kL2Sram = 8u * 16384u + 0x0123u;
+constexpr int      kL2Origin = 116, kL2Vbt = 32;
+
+struct L2LogBed {
+    Ram ram;
+    Rom rom;
+    Mmu mmu;
+    L2LogBed() : ram(), rom(), mmu(ram, rom) {
+        mmu.reset();
+        ram.write(kL2Sram, 0x11);
+        mmu.attr_mux_start_frame(kL2Origin, kL2Vbt);
+        mmu.sram_log_arm();
+    }
+    uint8_t seen(int line, int hc) {
+        mmu.attr_mux_rewind_to_baseline();
+        mmu.attr_mux_apply_line(line);
+        return mmu.sram_log().read(kL2Sram, static_cast<uint16_t>(hc), ram);
+    }
+    void cpu_write(uint16_t addr, uint8_t v, int line, int hc) {
+        mmu.attr_mux_set_write_pos(kL2Vbt + line, hc);
+        mmu.write(addr, v);
+        mmu.attr_mux_end_write();
+    }
+};
+}  // namespace
+
+static void test_l2log_tags() {
+    set_group("L2LOG-TAG");
+
+    // L2LOG-TAG-01 — a CPU write through the Layer 2 write-over path (port
+    // 0x123B bit 0; zxnext.vhd:2966-2969) is logged at the CPU's own position.
+    {
+        L2LogBed b;
+        b.mmu.set_l2_port(0x01, 8);
+        b.cpu_write(0x0123, 0x22, 50, 200);
+        const uint8_t before = b.seen(50, 199), at = b.seen(50, 200);
+        check("L2LOG-TAG-01",
+              "zxnext.vhd:2966-2969 - a CPU write through the Layer 2 write-over "
+              "path is logged at the CPU's own (line, hc)",
+              before == 0x11 && at == 0x22,
+              fmt("before=0x%02X (want 0x11) at=0x%02X (want 0x22)", before, at));
+    }
+
+    // L2LOG-TAG-02 — a CPU write through a normal MMU slot, same.
+    {
+        L2LogBed b;
+        b.mmu.set_page(4, static_cast<uint8_t>(kL2Sram >> 13));
+        b.cpu_write(static_cast<uint16_t>(0x8000u + (kL2Sram & 0x1FFFu)), 0x22, 50, 200);
+        const uint8_t before = b.seen(50, 199), at = b.seen(50, 200);
+        check("L2LOG-TAG-02",
+              "layer2.vhd hc_eff = hc + 1 - a CPU write through a normal MMU "
+              "slot is logged at the CPU's own (line, hc)",
+              before == 0x11 && at == 0x22,
+              fmt("before=0x%02X (want 0x11) at=0x%02X (want 0x22)", before, at));
+    }
+
+    // L2LOG-TAG-03 — a non-CPU writer (the DMA: dma_.write_memory -> Mmu::write,
+    // a loader, a debugger poke) is logged with the coarse (line, hc).
+    {
+        L2LogBed b;
+        b.mmu.set_page(4, static_cast<uint8_t>(kL2Sram >> 13));
+        b.mmu.attr_mux_set_current_line(70);
+        b.mmu.attr_mux_set_current_hc(40);
+        b.mmu.write(static_cast<uint16_t>(0x8000u + (kL2Sram & 0x1FFFu)), 0x33);
+        const uint8_t before = b.seen(70, 39), at = b.seen(70, 40);
+        check("L2LOG-TAG-03",
+              "layer2.vhd hc_eff = hc + 1 - a non-CPU writer (DMA, loader, "
+              "debugger) is logged at the coarse (line, hc)",
+              before == 0x11 && at == 0x33,
+              fmt("before=0x%02X (want 0x11) at=0x%02X (want 0x33)", before, at));
+    }
+
+    // L2LOG-TAG-05 — a machine re-initialisation leaves the log off until the
+    // next frame starts: a NEX loader writes every bank through Mmu::write()
+    // after init() and before frame 1, and with Layer 2 armed each byte used to
+    // be logged (+41 MB resident on a Layer 2 loading-screen NEX).
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.mmu().attr_mux_start_frame(kL2Origin, kL2Vbt);
+        emu.mmu().sram_log_arm();
+        const bool armed = emu.mmu().sram_log().recording();
+        build_next_emulator(emu);                       // the re-init a load performs
+        emu.mmu().sram_log_arm();                       // port 0x123B handler, mid-load
+        const uint16_t a = static_cast<uint16_t>(0x8000u);
+        emu.mmu().write(a, 0x5A);
+        emu.mmu().write(static_cast<uint16_t>(a + 1), 0x5B);
+        const size_t during_load = emu.mmu().sram_log().log_size();
+        const bool rec_load = emu.mmu().sram_log().recording();
+        emu.mmu().attr_mux_start_frame(kL2Origin, kL2Vbt);   // frame 1 begins
+        emu.mmu().sram_log_arm();
+        emu.mmu().write(a, 0x5C);
+        const size_t in_frame = emu.mmu().sram_log().log_size();
+        check("L2LOG-TAG-05",
+              "layer2.vhd hc_eff = hc + 1 - after a re-init the SRAM log is off "
+              "until the first frame starts (loader writes are not logged), then "
+              "records again",
+              armed && !rec_load && during_load == 0 && in_frame == 1,
+              fmt("armed=%d recording after re-init+arm=%d log size during load=%zu "
+                  "(want 0) in frame 1=%zu (want 1)", int(armed), int(rec_load),
+                  during_load, in_frame));
+    }
+
+    // L2LOG-TAG-06 — the warm start of a Next `--load` is init(), then
+    // load_state(), then the loader's bank writes, all before frame 1:
+    // load_state() restarts the VRAM mux and must leave the SRAM log off too
+    // (Pixel Wheels: +41 MB resident otherwise).
+    {
+        Emulator src;
+        build_next_emulator(src);
+        size_t need = 0;
+        { StateWriter measure(nullptr, 0); src.save_state(measure); need = measure.position(); }
+        std::vector<uint8_t> blob(need, 0);
+        { StateWriter w(blob.data(), blob.size()); src.save_state(w); }
+        Emulator emu;
+        build_next_emulator(emu);
+        { StateReader r(blob.data(), blob.size()); emu.load_state(r); }
+        emu.mmu().sram_log_arm();                        // port 0x123B handler, mid-load
+        emu.mmu().write(0x8000, 0x5A);
+        emu.mmu().write(0x8001, 0x5B);
+        const size_t during_load = emu.mmu().sram_log().log_size();
+        const bool rec_load = emu.mmu().sram_log().recording();
+        emu.mmu().attr_mux_start_frame(kL2Origin, kL2Vbt);
+        emu.mmu().sram_log_arm();
+        emu.mmu().write(0x8000, 0x5C);
+        const size_t in_frame = emu.mmu().sram_log().log_size();
+        check("L2LOG-TAG-06",
+              "layer2.vhd hc_eff = hc + 1 - init() then load_state() (the warm "
+              "start of a --load) leaves the SRAM log off until the first frame "
+              "starts, then it records again",
+              !rec_load && during_load == 0 && in_frame == 1,
+              fmt("recording after load_state+arm=%d log size during load=%zu "
+                  "(want 0) in frame 1=%zu (want 1)", int(rec_load), during_load, in_frame));
+    }
+
+    // L2LOG-TAG-07 — a soft reset (init with preserve_memory) can land in the
+    // middle of a frame, and the VHDL keeps SRAM and beam (zxnext.vhd:3905-3911
+    // clears only the Layer 2 enable): the log keeps running through it.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.mmu().attr_mux_start_frame(kL2Origin, kL2Vbt);
+        emu.mmu().sram_log_arm();
+        emu.mmu().write(0x8000, 0x5A);
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg, /*preserve_memory=*/true);
+        const bool rec = emu.mmu().sram_log().recording();
+        emu.mmu().write(0x8001, 0x5B);
+        const size_t n = emu.mmu().sram_log().log_size();
+        check("L2LOG-TAG-07",
+              "zxnext.vhd:3905-3911 - a soft reset keeps the SRAM and the beam, so "
+              "the SRAM log keeps recording through it",
+              rec && n >= 1,
+              fmt("recording=%d log size after the reset+write=%zu (want >= 1)", int(rec), n));
+    }
+
+    // L2LOG-TAG-04 — a non-CPU write right after a CPU write does not inherit
+    // the CPU's position (mirrors G12-TAG-01..03 for the VRAM mux).
+    {
+        L2LogBed b;
+        b.mmu.set_page(4, static_cast<uint8_t>(kL2Sram >> 13));
+        const uint16_t cpu = static_cast<uint16_t>(0x8000u + (kL2Sram & 0x1FFFu));
+        b.cpu_write(cpu, 0x22, 50, 200);
+        b.mmu.attr_mux_set_current_line(70);
+        b.mmu.attr_mux_set_current_hc(0);
+        b.mmu.write(cpu, 0x33);
+        const uint8_t row50 = b.seen(50, 400), row69 = b.seen(69, 400), row70 = b.seen(70, 0);
+        check("L2LOG-TAG-04",
+              "layer2.vhd hc_eff = hc + 1 - a DMA/debugger write after a CPU "
+              "write takes the coarse position, not the CPU's",
+              row50 == 0x22 && row69 == 0x22 && row70 == 0x33,
+              fmt("row50=0x%02X row69=0x%02X row70=0x%02X (want 22 22 33)",
+                  row50, row69, row70));
+    }
+}
+
 int main() {
     std::printf("MMU Integration Tests (full-Emulator + port-dispatch)\n");
     std::printf("====================================================\n\n");
@@ -3080,6 +3270,9 @@ int main() {
         return 1;
     }
     std::printf("  Emulator constructed (ZXN_ISSUE2)\n\n");
+
+    test_l2log_tags();
+    std::printf("  Group: L2LOG-TAG (SRAM beam log tags) — done\n");
 
     test_eff7_io_en_gate(emu);
     std::printf("  Group: EF7-IO-EN — done\n");

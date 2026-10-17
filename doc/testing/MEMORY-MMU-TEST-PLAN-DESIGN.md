@@ -1180,6 +1180,23 @@ per-offset chain walked by a forward cursor. Rendering is covered by
 | G12-MUX-13  | `rewind_to_baseline()` restarts every cursor     | Second pass over the same log; then the previous line         | 0x22 @(40,150); baseline 0x11 on line 39              |
 | G12-MUX-14  | Second pass at the same instant after more writes | Cursor exhausted, write appended; read with and without a rewind | 0x55 both (cursor re-arm and rewind reset each pinned) |
 
+### Category 31: SRAM beam-log write tags (GH #362)
+
+Layer 2 fetches the SRAM bitmap at beam time, so `Mmu::write()` logs every SRAM
+store in `SramBeamLog` with the same position source the VRAM mux uses (a CPU
+write's own `(line, hc)`, every other writer the coarse one). Read back through
+`SramBeamLog::read()` in `mmu_integration_test` (bare `Mmu`, one byte of bank 8).
+
+| ID           | Test                                         | Setup                                                    | Expected                                          |
+|--------------|----------------------------------------------|----------------------------------------------------------|---------------------------------------------------|
+| L2LOG-TAG-01 | CPU write through the Layer 2 write-over path | Port 0x123B bit 0; CPU position (50, 200)                | Old at hc 199, new at hc 200 — pass               |
+| L2LOG-TAG-02 | CPU write through a normal MMU slot          | Same position                                            | Old at hc 199, new at hc 200 — pass               |
+| L2LOG-TAG-03 | Non-CPU writer (DMA, loader, debugger)       | Coarse tag (70, 40)                                      | Old at hc 39, new at hc 40 — pass                 |
+| L2LOG-TAG-04 | Non-CPU write right after a CPU write        | CPU (50, 200), then coarse (70, 0)                       | Does not inherit the CPU position — pass          |
+| L2LOG-TAG-06 | Warm start of a `--load`: init, `load_state`, loader writes, with the log armed | Same, through `load_state()` | Log empty and off until the frame starts, then records — pass |
+| L2LOG-TAG-07 | Soft reset (init with preserve_memory) mid-frame | Log armed, write, soft re-init, write | Still recording (zxnext.vhd:3905-3911) — pass |
+| L2LOG-TAG-05 | Machine re-init (a NEX load) with the log armed | `init()`, arm, write; then a frame starts and write   | Log empty and off until the frame starts, then records — pass |
+
 **Total: ~178 test cases across 30 categories.**
 
 ## Test Approach

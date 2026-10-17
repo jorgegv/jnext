@@ -1,5 +1,6 @@
 #include "video/lores.h"
 #include "core/saveable.h"
+#include "memory/attribute_mux.h"
 #include "memory/ram.h"
 #include "save/state_desc.h"
 #include "save/state_desc_bin.h"
@@ -21,9 +22,24 @@
 // mirrors Ula::vram_read's own fallback so a standalone Ram fixture (unit
 // tests, non-Next machines) still resolves to physical bank 5.
 
-uint8_t Lores::read_bank5(uint16_t addr, Ram& ram) const
+//
+// GH #362 — the request goes out at the pixel's own 7 MHz tick (zxnext.vhd:
+// 6603-6631: sc = "00" of each tick; the address is combinational from
+// phc, zxnext.vhd:4250), phc = p at raw hc c_min_hactive + 1 + p
+// (zxula_timing.vhd:510-522), so a write the CPU makes after that tick is
+// for the NEXT frame. AttributeMux::phc_hc() has the derivation.
+
+bool Lores::beam_prepare() const
+{
+    if (!mux5_ || !mux5_->started()) return false;
+    mux5_->prepare();
+    return true;
+}
+
+uint8_t Lores::read_bank5(uint16_t addr, Ram& ram, int phc) const
 {
     const uint16_t off = static_cast<uint16_t>(addr & 0x3FFF);
+    if (mux5_ && mux5_->started()) return mux5_->read_prepared(off, mux5_->phc_hc(phc));
     if (bank5_vram_) return bank5_vram_[off];
     return ram.read(10u * 8192u + off);
 }
