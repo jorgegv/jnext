@@ -489,7 +489,7 @@ compared against.
 | TM-BR-09 | Fine X scroll 4 splits a tile over groups 0 and 1; write between their fetches | `tilemap.vhd:260-300` | Group 0 half old, group 1 half new — pass |
 | TM-BR-10 | Same split with a rotated tile (per-pixel pattern reads); pattern bytes written between the instants | `tilemap.vhd:260-300` | Group 0 half old, group 1 half new — pass |
 
-TM-BR-11..21 (GH #362 perf) are a differential family. The tilemap's only VRAM
+TM-BR-11..21 and TM-BR-24 (GH #362 perf) are a differential family. The tilemap's only VRAM
 reads are the bytes its address generator names (`tilemap.vhd:393-403`), so a
 write to a byte a scene never reads changes nothing in it, whatever its instant.
 Each row draws all 256 display rows of one scene twice with the replay started:
@@ -512,6 +512,7 @@ offset / 0x3FFF hot) and that the scene has at least 16 distinct cell values.
 | TM-BR-19 | Clip window x 0x13..0x8A, y 0x10..0xE0 | `tilemap.vhd:412-424` | Both loops equal, clipped cells included — pass |
 | TM-BR-20 | Map in the bank 7 BRAM, definitions in bank 5 | `tilemap.vhd:400-402`, `zxnext.vhd:6660-6664` | Both loops equal — pass |
 | TM-BR-21 | TM-BR-20 with a bank 7 map byte and a bank 5 definition byte stored past the recorder after the frame starts | `tilemap.vhd:393-403` | Both loops equal (both answer from the frame's bytes); a bed reading live memory differs — pass |
+| TM-BR-24 | Definitions in the bank 7 BRAM at +0x1000 (NR 0x6F = 0x90, the BRAM's upper 4 KB), map in bank 5 | `tilemap.vhd:400-403`, `zxnext.vhd:6663` | Both loops equal — pass |
 
 TM-BR-22/23 (GH #362 perf) repeat TM-BR-09/10 with the bytes in the bank 7
 BRAM, which the replay reads through its own mux (`tm_mem_bank7_o` picks the

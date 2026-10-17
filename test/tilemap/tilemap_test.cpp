@@ -2857,6 +2857,19 @@ void group17_beam_fetch() {
               "tile with its definitions in the bank 7 BRAM, split by fine scroll: "
               "group 1's per-pixel reads see the write group 0 (whc -8) did not");
     }
+
+    // TM-BR-24: the differential with the tile DEFINITIONS in the bank 7 BRAM
+    // (NR 0x6F bit 7) at +0x1000, its upper 4 KB (the BRAM holds bank 7's first
+    // 8 KB, zxnext.vhd:6663-6668), and the map in bank 5: TM-BR-20 the other
+    // way round. The cold loop reads them from the bank 7 mux baseline.
+    {
+        TmScene s;
+        s.def_base = 0x90;
+        check_pred("TM-BR-24", cold_equals_beam(s),
+              "tilemap.vhd:400-403, zxnext.vhd:6663 — definitions in the bank 7 BRAM "
+              "at +0x1000 (NR 0x6F 0x90, tm_mem_bank7_o), map in bank 5: an "
+              "unaddressed write changes nothing");
+    }
 }
 
 int main() {
