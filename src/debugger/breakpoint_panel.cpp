@@ -251,31 +251,51 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t& addr, uint1
         tr("IO Read/Write: 00-FF matches any port with that low byte\n"
            "(FE = the ULA); 0100 and up matches that exact port (243B)."), &dlg));
 
+    // Why OK did not close the dialog. Hidden until there is a reason.
+    auto* error = new QLabel(&dlg);
+    error->setObjectName(QStringLiteral("bp_dialog_error"));
+    error->setWordWrap(true);
+    error->setStyleSheet(QStringLiteral("color: #c00000;"));
+    error->hide();
+    form->addRow(error);
+
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     form->addRow(buttons);
 
-    if (dlg.exec() != QDialog::Accepted) return false;
-
-    const std::string text = addr_edit->text().trimmed().toStdString();
-    type_index = type_combo->currentIndex();
-    // A number or a symbol first; then, for an Execute breakpoint, a source
-    // line — which keeps the page its record names, so a line of banked code
-    // breaks only while that bank is mapped.
-    if (const auto resolved = symbol_table_ ? symbol_table_->resolve(text)
-                                            : SymbolTable().resolve(text)) {
-        addr = *resolved;
-        page = jnext::dbg::PAGE_ANY;
-        return true;
-    }
-    if (type_index == BreakpointModel::Execute && dbg_) {
-        if (const auto src = dbg_->source_map().resolve(text)) {
-            addr = src->address;
-            page = src->page ? *src->page : jnext::dbg::PAGE_ANY;
+    // OK on text that does not resolve for the chosen type shows the dialog
+    // again with the reason; it never returns as if cancelled, so an edit is
+    // never silently dropped. Only Cancel gives up.
+    while (dlg.exec() == QDialog::Accepted) {
+        const std::string text = addr_edit->text().trimmed().toStdString();
+        const int type = type_combo->currentIndex();
+        // A number or a symbol first; then, for an Execute breakpoint, a source
+        // line, which keeps the page its record names, so a line of banked code
+        // breaks only while that bank is mapped.
+        if (const auto resolved = symbol_table_ ? symbol_table_->resolve(text)
+                                                : SymbolTable().resolve(text)) {
+            addr = *resolved;
+            page = jnext::dbg::PAGE_ANY;
+            type_index = type;
             return true;
         }
+        std::optional<SourceAddress> src;
+        if (dbg_) src = dbg_->source_map().resolve(text);
+        if (src && type == BreakpointModel::Execute) {
+            addr = src->address;
+            page = src->page ? *src->page : jnext::dbg::PAGE_ANY;
+            type_index = type;
+            return true;
+        }
+        // A source line names an instruction, so only an Execute breakpoint
+        // can be set on one.
+        error->setText(src ? tr("A source line can only be an Execute breakpoint. "
+                                "Use an address or a symbol for this type.")
+                           : tr("Not an address, symbol or source line: %1")
+                                 .arg(addr_edit->text().trimmed()));
+        error->show();
     }
     return false;
 }

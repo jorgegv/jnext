@@ -42,6 +42,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QComboBox>
 #include <QDialog>
 #include <QDir>
 #include <QFile>
@@ -522,6 +523,47 @@ void test_address_fields() {
           std::to_string(start) + " " + std::to_string(by_number) + " " + std::to_string(by_name));
 }
 
+// ── QBPM-10: Edit never cancels silently ──────────────────────────────
+
+void test_edit_type_refused() {
+    Fixture fx;
+    fx.enable();
+    fx.load_map();
+    BreakpointModel& m = fx.mgr->breakpoints();
+    const auto page = static_cast<uint16_t>(fx.p80);
+    BreakpointPanel* bp = fx.dbg() ? fx.dbg()->breakpoint_panel() : nullptr;
+    auto* table = bp ? bp->findChild<QTableWidget*>() : nullptr;
+    if (!bp || !table) { check("QBPM-10", "Breakpoints panel", false); return; }
+
+    // Edit a source breakpoint and change only its Type. A source line names
+    // an instruction, so the dialog refuses with a reason and stays open;
+    // Cancel leaves the breakpoint as it was.
+    m.add(BreakpointModel::Execute, 0x8005, page);
+    bp->refresh();
+    table->setCurrentCell(0, 1);
+    QString reason;
+    const int shown = drive_modals(
+        [&](QWidget* w, int n) {
+            auto* dlg = qobject_cast<QDialog*>(w);
+            if (!dlg) return;
+            if (n == 0) {
+                if (auto* type = dlg->findChild<QComboBox*>()) type->setCurrentIndex(1);
+                dlg->accept();
+                return;
+            }
+            if (auto* err = dlg->findChild<QLabel*>(QStringLiteral("bp_dialog_error")))
+                if (err->isVisible()) reason = err->text();
+            dlg->reject();
+        },
+        [&]() { bp->on_edit(); });
+    const auto rows = m.rows();
+    check("QBPM-10", "changing only the Type of a source breakpoint is refused with a "
+                     "reason and the dialog stays open; the breakpoint is unchanged",
+          shown == 2 && reason.contains(QStringLiteral("Execute")) && rows.size() == 1 &&
+              rows[0].type == BreakpointModel::Execute && rows[0].page == page,
+          "shown=" + std::to_string(shown) + " reason=" + s(reason));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -545,6 +587,7 @@ int main(int argc, char** argv) {
     test_breakpoints();
     test_call_stack();
     test_address_fields();
+    test_edit_type_refused();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
