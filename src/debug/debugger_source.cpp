@@ -63,6 +63,11 @@ bool loads_later(const std::filesystem::path& p) {
     return ext == ".tap" || ext == ".tzx" || ext == ".wav";
 }
 
+// Both sidecars can be refused in one load: the second reason is appended.
+void add_problem(Debugger::SidecarLoad& out, const std::string& problem) {
+    out.problem += (out.problem.empty() ? "" : "; ") + problem;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -147,6 +152,7 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
             log->info("Loaded {} NextBuild symbols from '{}'", n, memory->string());
         } else {
             out.symbols_unreadable = true;
+            add_problem(out, "NextBuild symbols '" + memory->string() + "' rejected: " + why);
             log->warn("Could not read NextBuild symbols '{}': {}", memory->string(), why);
             if (impl_->symbols_owner == Owner::Sidecar) {
                 impl_->symbols.clear();
@@ -173,8 +179,10 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     SourceMap candidate;
     const SourceMapLoadResult parsed = load_sld_sidecar(candidate, program_path);
     if (!parsed) {
-        if (parsed.error != "no adjacent SLD sidecar")
+        if (parsed.error != "no adjacent SLD sidecar") {
             log->error("Rejected SLD source map for '{}': {}", program_path, parsed.error);
+            add_problem(out, "source map for '" + program_path + "' rejected: " + parsed.error);
+        }
         return out;
     }
     // A tape is loaded by the machine over the frames that follow, so there
@@ -190,6 +198,9 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     if (identity && !*identity) {
         log->error("Rejected SLD source map '{}': the loaded program's bytes differ "
                    "from its binary identity", candidate.loaded_file());
+        add_problem(out, "source map '" + candidate.loaded_file() +
+                             "' rejected: the loaded program's bytes differ from its "
+                             "binary identity");
         return out;
     }
     impl_->source_map    = std::move(candidate);

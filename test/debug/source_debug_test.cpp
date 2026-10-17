@@ -834,6 +834,11 @@ int main() {
                                "unreadable, and leaves none of the previous program's "
                                "symbols",
               had_old && !ec && r.symbols_unreadable && !m.dbg->lookup_name("Old"));
+        const std::string why = "own4.Memory.txt' rejected: file is " +
+                                std::to_string(SOURCE_FILE_MAX_BYTES + 1) + " bytes";
+        check("SRCDBG-OWN-04", "the problem a frontend shows for it names the file and why: "
+                               "its size over the cap",
+              r.problem.find(why) != std::string::npos, r.problem);
     }
     // ── a tape program gets no automatic map ────────────────────────────
     {

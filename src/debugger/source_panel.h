@@ -25,6 +25,10 @@ public:
 
     void refresh();
 
+    /// CAP-SRC: why the last program load attached no source map, shown in
+    /// place of "No source map loaded" until a map loads. Empty clears it.
+    void set_load_problem(const QString& problem);
+
     /// What the panel shows right now (for tests and the status line).
     QString location_text() const;
     /// One-based line highlighted in the editor, 0 when none.
@@ -55,4 +59,5 @@ private:
     QString loaded_source_;
     qint64 loaded_mtime_ = -1;
     int highlighted_line_ = 0;
+    QString load_problem_;
 };

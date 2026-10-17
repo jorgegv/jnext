@@ -1,6 +1,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/script_panel.h"
 #include "debugger/debugger_window.h"
+#include "debugger/source_panel.h"
 #include "debugger/cpu_panel.h"
 #include "debugger/disasm_panel.h"
 #include "debugger/watch_panel.h"
@@ -290,6 +291,8 @@ void DebuggerManager::ensure_window() {
         if (debugger_window_->watch_panel())
             dp->set_watch_panel(debugger_window_->watch_panel());
     }
+
+    if (auto* sp = debugger_window_->source_panel()) sp->set_load_problem(sidecar_problem_);
 
     // Wire call stack panel with symbol table.
     if (auto* cs = debugger_window_->callstack_panel()) {
@@ -636,6 +639,16 @@ void DebuggerManager::on_load_sld() {
             QObject::tr("Could not load SLD source map:\n%1\n\n%2")
                 .arg(path, QString::fromStdString(r.error)));
     }
+}
+
+void DebuggerManager::report_sidecars(const jnext::dbg::Debugger::SidecarLoad& result) {
+    if (!result.problem.empty())
+        dbg_.log(client_, jnext::dbg::LogLevel::Warn, "load: " + result.problem);
+    sidecar_problem_ = QString::fromStdString(result.problem);
+    if (!sidecar_problem_.isEmpty() && main_window_->statusBar())
+        main_window_->statusBar()->showMessage(sidecar_problem_, 10000);
+    if (debugger_window_ && debugger_window_->source_panel())
+        debugger_window_->source_panel()->set_load_problem(sidecar_problem_);
 }
 
 void DebuggerManager::run_source_step(jnext::dbg::Debugger::SourceStep kind,

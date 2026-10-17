@@ -70,6 +70,9 @@ SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
 
     location_label_ = new QLabel(tr("No source map loaded"), this);
     location_label_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    // A refused map's message names its full path before the reason; wrapped,
+    // the reason stays readable in a narrow tab.
+    location_label_->setWordWrap(true);
     layout->addWidget(location_label_);
 
     editor_ = new QPlainTextEdit(this);
@@ -112,6 +115,12 @@ QString SourcePanel::resolve_source_file(const std::string& source_name) const
     return {};
 }
 
+void SourcePanel::set_load_problem(const QString& problem)
+{
+    load_problem_ = problem;
+    refresh();
+}
+
 void SourcePanel::show_message(const QString& message)
 {
     location_label_->setText(message);
@@ -147,7 +156,9 @@ void SourcePanel::refresh()
     if (!paused) return;
 
     if (dbg_->source_map().empty()) {
-        show_message(tr("No source map loaded"));
+        show_message(load_problem_.isEmpty()
+                         ? tr("No source map loaded")
+                         : tr("No source map loaded: %1").arg(load_problem_));
         return;
     }
 

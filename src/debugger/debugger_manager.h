@@ -141,6 +141,12 @@ public slots:
     void on_source_step_back();
     void on_source_reverse_continue();
 
+    /// CAP-SRC: what a program load's sidecar search refused (the backend's
+    /// `SidecarLoad::problem`): logged at warn, named in the main window's
+    /// status bar and, while no source map is loaded, in the Source tab. An
+    /// empty one clears it.
+    void report_sidecars(const jnext::dbg::Debugger::SidecarLoad& result);
+
     /// Issue #39: re-snap the debugger window to the emulator window's edge.
     /// Called on every main-window Move/Resize, and by the debugger's own
     /// Window > "Attach to Emulator Window" toggle when it is switched back on.
@@ -209,6 +215,8 @@ private:
     bool confirm_resume_if_corrupt();
 
     QMainWindow* main_window_;
+    /// The last refused sidecar, kept for a Source tab built after it.
+    QString sidecar_problem_;
     jnext::dbg::Debugger& dbg_;
 
     /// GH #278 WP4c — owned (a QObject child); holds the observer client.

@@ -59,6 +59,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QStatusBar>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTemporaryDir>
@@ -796,6 +797,36 @@ void test_edit_type_refused() {
           "shown=" + std::to_string(shown) + " reason=" + s(reason));
 }
 
+// ── C1: a refused sidecar says why ────────────────────────────────────
+
+void test_sidecar_reason() {
+    const std::string dir = g_tmp->path().toStdString();
+    {
+        // A program whose SLD is refused: the Source tab and the main
+        // window's status bar say why.
+        Fixture fx;
+        fx.enable();
+        const std::string nex = dir + "/refused.nex";
+        write_text(nex, "not really a nex");
+        write_text(dir + "/refused.sld", "this is not an SLD\n");
+        fx.mgr->report_sidecars(fx.backend->load_program_sidecars(nex));
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        const QString bar = fx.win.statusBar()->currentMessage();
+        check("QSRC-26", "a refused sidecar names its reason in the Source tab and the "
+                         "status bar",
+              sp->location_text().contains(QStringLiteral("rejected: missing SLD.data.version")) &&
+                  bar.contains(QStringLiteral("rejected: missing SLD.data.version")),
+              s(sp->location_text()) + " | " + s(bar));
+        QLabel* where = nullptr;
+        for (QLabel* l : sp->findChildren<QLabel*>())
+            if (l->text() == sp->location_text()) where = l;
+        check("QSRC-31", "the message wraps, so a long path does not push the reason out "
+                         "of a narrow tab",
+              where && where->wordWrap());
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -822,6 +853,7 @@ int main(int argc, char** argv) {
     test_gutter();
     test_edit_type_refused();
     test_breakpoint_page_rows();
+    test_sidecar_reason();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
