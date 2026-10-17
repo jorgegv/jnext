@@ -248,15 +248,17 @@ void test_failure_is_reported() {
     const size_t def = code.find("const bool sd_gui_dialogs = !headless && sdcard_file_add_count == 0;");
     const size_t run = code.find("sdcard::provision_sd_card(opts);");
     const size_t cond = code.find("if (sd_gui_dialogs && res.status == sdcard::ProvisionStatus::Failed", run);
+    const size_t logged = code.find("Log::emulator()->error(\"SD-card image: {}\", res.error);", cond);
     const size_t warn = code.find("gui_prov.warn(", cond);
     const size_t ret = code.find("return 1;", run);
     check("SDD-04",
           "src/main.cpp: after provision_sd_card(opts) a FAILED (not declined) SD-card result in the GUI "
-          "(!headless, no --sdcard-file-add) calls gui_prov.warn( before the 'return 1;' that exits (source check: "
-          "it pins the wiring, not the dialog, because warn() returns at once on the offscreen platform)",
+          "(!headless, no --sdcard-file-add) is logged and calls gui_prov.warn( before the 'return 1;' that exits "
+          "(source check: it pins the wiring, not the dialog, because warn() returns at once on the offscreen "
+          "platform)",
           def != std::string::npos && run != std::string::npos && cond != std::string::npos &&
-              warn != std::string::npos && ret != std::string::npos && def < run && run < cond && cond < warn &&
-              warn < ret);
+              logged != std::string::npos && warn != std::string::npos && ret != std::string::npos && def < run &&
+              run < cond && cond < logged && logged < warn && warn < ret);
 }
 
 }  // namespace
