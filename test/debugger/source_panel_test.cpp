@@ -985,6 +985,60 @@ void test_source_button_states() {
     }
 }
 
+// ── T11: the Source tab's messages and source file search ─────────────
+
+void test_source_messages() {
+    const std::string dir = g_tmp->path().toStdString();
+    {
+        // A record names src/main.c; the map is in build/ beside it.
+        Fixture fx;
+        fx.enable();
+        const std::string proj = dir + "/walk";
+        std::filesystem::create_directories(proj + "/build");
+        std::filesystem::create_directories(proj + "/src");
+        std::string main_c;
+        for (int i = 1; i <= 20; ++i) main_c += "/* c line " + std::to_string(i) + " */\n";
+        write_text(proj + "/src/main.c", main_c);
+        write_text(proj + "/build/prog.sld",
+                   std::string("|SLD.data.version|1\nsrc/main.c|19||0") + kNextDevice +
+                       "src/main.c|19||0|" + std::to_string(fx.p80) + "|32768|T|\n");
+        fx.backend->load_source_map(proj + "/build/prog.sld", false);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        check("QSRC-23", "a source file named relative to a parent of the map's directory is "
+                         "found: ../src/main.c, line 19 shown",
+              sp->highlighted_line() == 19, s(sp->location_text()));
+    }
+    {
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        Z80Registers r = fx.emu.cpu().get_registers();
+        r.PC = 0x0000;
+        fx.emu.cpu().set_registers(r);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        check("QSRC-24", "the PC in ROM reads \"ROM or overlay\" with no source mapping",
+              sp->location_text() ==
+                  QStringLiteral("$0000 (ROM or overlay): no source mapping; use the disassembly"),
+              s(sp->location_text()));
+    }
+    {
+        Fixture fx;
+        fx.enable();
+        const std::string gone = dir + "/gone.sld";
+        write_text(gone, std::string("|SLD.data.version|1\nnowhere.bas|10||0") + kNextDevice +
+                             "nowhere.bas|10||0|" + std::to_string(fx.p80) + "|32768|T|\n");
+        fx.backend->load_source_map(gone, false);
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        check("QSRC-25", "a mapped line whose file cannot be found says so",
+              sp->location_text().startsWith(QStringLiteral("nowhere.bas:10")) &&
+                  sp->location_text().endsWith(QStringLiteral("source file not found")),
+              s(sp->location_text()));
+    }
+}
+
 // ── C1: a refused sidecar says why ────────────────────────────────────
 
 void test_sidecar_reason() {
@@ -1044,6 +1098,7 @@ int main(int argc, char** argv) {
     test_sidecar_reason();
     test_source_buttons();
     test_source_button_states();
+    test_source_messages();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
