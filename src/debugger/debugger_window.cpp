@@ -786,7 +786,9 @@ void DebuggerWindow::update_actions(bool is_paused) {
     const bool can_step_back = can_rewind && dbg->trace_enabled();
     if (step_back_action_) step_back_action_->setEnabled(can_step_back);
     if (rewind_jump_btn_)  rewind_jump_btn_->setEnabled(can_rewind);
-    if (source_panel_)     source_panel_->refresh();   // its step buttons
+    // Only the Source tab's buttons: its text is refreshed once per pause, by
+    // refresh_panels(), which also runs this.
+    if (source_panel_)     source_panel_->update_buttons(is_paused);
 }
 
 // GH #312 — fold an older <config-dir>/Debugger.conf into jnext.conf [debugger]

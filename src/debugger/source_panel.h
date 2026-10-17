@@ -24,6 +24,8 @@ public:
     explicit SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent = nullptr);
 
     void refresh();
+    /// Enable the step buttons for this state, without re-reading anything.
+    void update_buttons(bool paused);
 
     /// CAP-SRC: why the last program load attached no source map, shown in
     /// place of "No source map loaded" until a map loads. Empty clears it.
@@ -46,7 +48,6 @@ signals:
 private:
     QString resolve_source_file(const std::string& source_name) const;
     void show_message(const QString& message);
-    void update_buttons(bool paused);
 
     const jnext::dbg::Debugger* dbg_ = nullptr;
     QLabel* location_label_ = nullptr;
