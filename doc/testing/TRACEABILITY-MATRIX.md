@@ -42,7 +42,7 @@ mentions them, so a test can no longer be absent from this document.
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |   113 |  113 |    0 |    0 |       0 |          0 |
 | Contention                                 |   162 |  162 |    0 |    0 |       0 |          0 |
-| LoRes                                      |    97 |   97 |    0 |    0 |       0 |          0 |
+| LoRes                                      |   100 |  100 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    88 |   88 |    0 |    0 |       0 |          0 |
 | NMI Source Pipeline                        |    78 |   78 |    0 |    0 |       0 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
@@ -66,9 +66,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    49 |   49 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    65 |   65 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5899 | 5899 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5902 | 5902 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5899**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5451**. Rows the 150 suites declared in `test/unit-tests.conf` run live: **13114**.
+Rows the sections above carry: **5902**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5454**. Rows the 150 suites declared in `test/unit-tests.conf` run live: **13117**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -4242,6 +4242,9 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-BR-04 | zxnext.vhd:4250,6603-6631; lores.vhd:96 - Radastan, dfile 1: a write 2 ticks before pixel 240's own fetch tick on row 10 (lores_addr_rad 0x217C) is seen on that row | zxnext.vhd:4250,6603-6631, lores.vhd:96 | pass | test/lores/lores_test.cpp:892 |
 | LR-BR-05 | zxnext.vhd:4250,6603-6631; lores.vhd:84-94 - 8-bit, scroll_y 140: row 150 wraps to y 98 (lores_addr 0x20FA for pixel 244), and a write 2 ticks before pixel 244's own fetch tick is seen on that row | zxnext.vhd:4250,6603-6631, lores.vhd:84-94 | pass | test/lores/lores_test.cpp:914 |
 | LR-BR-06 | lores.vhd:82-115; zxnext.vhd:6603-6631 - 8-bit and Radastan rows with scroll and clip show the frame-start bank, both with no write and with a write to a byte of the row's span tagged on the next line (after the row's fetch ticks) | lores.vhd:82-115, zxnext.vhd:6603-6631 | pass | test/lores/lores_test.cpp:985 |
+| LR-BR-07 | zxnext.vhd:4250,6603-6631; lores.vhd:91-94 - 8-bit row 100: a byte written 2 ticks before its pixel's own fetch tick, the only write of its frame, is seen on that row in each of the 16 8-byte words of the row's 128-byte span (0x2100..0x217F) | zxnext.vhd:4250,6603-6631, lores.vhd:91-94 | pass | test/lores/lores_test.cpp:1032 |
+| LR-BR-08 | zxnext.vhd:4250,6603-6631; lores.vhd:96 - Radastan, dfile 1, row 100: a byte written 2 ticks before its pixel's own fetch tick, the only write of its frame, is seen on that row in each of the 8 8-byte words of the row's 64-byte span (0x2C80..0x2CBF) | zxnext.vhd:4250,6603-6631, lores.vhd:96 | pass | test/lores/lores_test.cpp:1039 |
+| LR-BR-09 | zxnext.vhd:4250,6603-6631; lores.vhd:82-111 - with the dedicated bank-5 VRAM wired and two bytes of row 40's span stored past the recorder after the frame started, the row shows the frame-start bank with no hot byte in its span and with one (a live read differs) | zxnext.vhd:4250,6603-6631, lores.vhd:82-111 | pass | test/lores/lores_test.cpp:1101 |
 
 ## SD Card — `test/sdcard/sdcard_test.cpp`
 
