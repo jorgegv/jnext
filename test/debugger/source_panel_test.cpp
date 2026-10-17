@@ -43,16 +43,19 @@
 #include <QAction>
 #include <QApplication>
 #include <QComboBox>
+#include <QContextMenuEvent>
 #include <QDialog>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
+#include <QImage>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollBar>
@@ -212,6 +215,62 @@ int drive_modals(const std::function<void(QWidget*, int)>& act,
     QApplication::processEvents();
     return n;
 }
+
+// The disassembly panel's geometry (DisasmPanel's private constants, as
+// debugger_disasm_copy_test restates them): line N is at y = 52 + N * 18.
+constexpr int kPaintY = 52, kLineH = 18, kGutterW = 20;
+
+/// A DisasmPanel over the fixture's backend and the GUI's breakpoint model,
+/// with $8005 on its top line.
+struct GutterView {
+    QMainWindow win;
+    DisasmPanel* panel = nullptr;
+    GutterView(jnext::dbg::Debugger& backend, BreakpointModel& model) {
+        panel = new DisasmPanel(&backend);
+        panel->set_breakpoint_model(&model);
+        win.setCentralWidget(panel);
+        win.resize(700, kPaintY + 20 * kLineH);
+        win.show();
+        panel->resize(700, kPaintY + 20 * kLineH);
+        QApplication::processEvents();
+        if (auto* sb = panel->findChild<QScrollBar*>()) sb->setValue(0x8005);
+        QApplication::processEvents();
+    }
+    QPoint dot() const { return QPoint(kGutterW / 2, kPaintY + kLineH / 2); }
+    void click_gutter() {
+        const QPointF pos(dot());
+        QMouseEvent ev(QEvent::MouseButtonPress, pos, panel->mapToGlobal(dot()),
+                       Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(panel, &ev);
+        QApplication::processEvents();
+    }
+    /// Right-click the top line and trigger `wanted` from the popup.
+    void context_pick(const QString& wanted) {
+        QTimer timer;
+        QObject::connect(&timer, &QTimer::timeout, [&]() {
+            auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+            if (!menu) return;
+            for (QAction* a : menu->actions())
+                if (a->text() == wanted) a->trigger();
+            menu->close();
+        });
+        timer.start(1);
+        const QPoint pos(kGutterW + 100, kPaintY + kLineH / 2);
+        QContextMenuEvent ev(QContextMenuEvent::Mouse, pos, panel->mapToGlobal(pos));
+        QApplication::sendEvent(panel, &ev);
+        timer.stop();
+        QApplication::processEvents();
+    }
+    /// The gutter's centre pixel on the top line: red for a breakpoint that
+    /// can fire, background for none or a suspended one (a hollow ring).
+    bool red_dot() const {
+        QImage img(panel->size(), QImage::Format_ARGB32);
+        img.fill(Qt::magenta);
+        panel->render(&img);
+        const QRgb c = img.pixel(dot());
+        return qRed(c) > 180 && qGreen(c) < 120 && qBlue(c) < 120;
+    }
+};
 
 /// The line edit whose placeholder is `placeholder`, under `root`.
 QLineEdit* line_edit(QWidget* root, const QString& placeholder) {
@@ -523,6 +582,112 @@ void test_address_fields() {
           std::to_string(start) + " " + std::to_string(by_number) + " " + std::to_string(by_name));
 }
 
+// ── B2: the gutter removes the breakpoint it draws ─────────────────────
+
+void test_gutter() {
+    Fixture fx;
+    fx.enable();
+    fx.load_map();
+    BreakpointModel& m = fx.mgr->breakpoints();
+    const auto page = static_cast<uint16_t>(fx.p80);
+    {
+        // ROM and RAM page numbers overlap: a breakpoint on RAM page N at $0000
+        // is not drawn while ROM page N supplies the fetch.
+        GutterView g(*fx.backend, m);
+        if (auto* sb = g.panel->findChild<QScrollBar*>()) sb->setValue(0);
+        const uint16_t rom = fx.backend->effective_page(0);
+        const uint16_t fetch = fx.backend->source_page(0);
+        m.add(BreakpointModel::Execute, 0x0000, rom);
+        g.panel->refresh();
+        QApplication::processEvents();
+        check("QSRC-36", "the gutter draws no dot for a RAM page's breakpoint on a ROM line "
+                         "whose page has the same number",
+              fetch != rom && !g.red_dot(),
+              "effective_page=" + std::to_string(rom) + " source_page=" + std::to_string(fetch));
+        m.clear_all();
+    }
+    {
+        GutterView g(*fx.backend, m);
+        m.add(BreakpointModel::Execute, 0x8005, page);
+        g.click_gutter();
+        const auto rows = m.rows();
+        check("QSRC-14", "one gutter click on a source breakpoint's dot removes it and adds "
+                         "nothing",
+              rows.empty(), std::to_string(rows.size()) + " row(s) left");
+
+        m.add(BreakpointModel::Execute, 0x8005, page);
+        g.context_pick(QStringLiteral("Toggle Breakpoint"));
+        check("QSRC-15", "the context menu's Toggle Breakpoint removes it the same way",
+              m.rows().empty(), std::to_string(m.rows().size()) + " row(s) left");
+
+        // QBPM-09: the dot of a page-qualified breakpoint is live or not by its
+        // own flag.
+        m.add(BreakpointModel::Execute, 0x8005, page);
+        m.set_enabled(BreakpointModel::Execute, 0x8005, false, page);
+        g.panel->refresh();
+        const bool hollow = !g.red_dot();
+        m.set_enabled(BreakpointModel::Execute, 0x8005, true, page);
+        g.panel->refresh();
+        check("QBPM-09", "the gutter draws a page-qualified breakpoint suspended when it is "
+                         "disabled and live when it is enabled",
+              hollow && g.red_dot());
+        m.clear_all();
+    }
+    {
+        // While running the panel does not re-disassemble, so the click's own
+        // patch is what the gutter shows: the source breakpoint still there.
+        GutterView g(*fx.backend, m);
+        m.add(BreakpointModel::Execute, 0x8005, page);
+        m.add(BreakpointModel::Execute, 0x8005);
+        g.panel->refresh();
+        g.panel->set_paused(false);
+        g.click_gutter();
+        const bool left = m.rows().size() == 1 && m.rows()[0].page == page;
+        check("QSRC-28", "while running, a click that removes the plain breakpoint still "
+                         "draws the source breakpoint under it",
+              left && g.red_dot());
+        g.panel->set_paused(true);
+        m.clear_all();
+    }
+    {
+        // While running the panel keeps the lines it drew. A bank switch after
+        // that must not turn a click on the drawn dot into a second breakpoint.
+        GutterView g(*fx.backend, m);
+        const uint8_t other = static_cast<uint8_t>(page + 2);
+        auto rows_text = [&]() {
+            std::string t;
+            for (const auto& r : m.rows()) t += " page=" + std::to_string(r.page);
+            return t;
+        };
+        m.add(BreakpointModel::Execute, 0x8005, page);
+        g.panel->refresh();
+        g.panel->set_paused(false);
+        fx.emu.mmu().set_page(4, other);
+        g.click_gutter();
+        const bool click_ok = m.rows().empty();
+        const std::string click_rows = rows_text();
+        fx.emu.mmu().set_page(4, static_cast<uint8_t>(page));
+        g.panel->set_paused(true);
+        check("QSRC-29", "while running, a click on a source breakpoint's dot after its bank "
+                         "is switched out removes it and adds nothing",
+              click_ok, "rows:" + click_rows);
+
+        m.clear_all();
+        m.add(BreakpointModel::Execute, 0x8005, page);
+        g.panel->refresh();
+        g.panel->set_paused(false);
+        fx.emu.mmu().set_page(4, other);
+        g.context_pick(QStringLiteral("Toggle Breakpoint"));
+        const bool menu_ok = m.rows().empty();
+        const std::string menu_rows = rows_text();
+        fx.emu.mmu().set_page(4, static_cast<uint8_t>(page));
+        g.panel->set_paused(true);
+        check("QSRC-30", "the context menu's Toggle Breakpoint does the same after a bank switch",
+              menu_ok, "rows:" + menu_rows);
+        m.clear_all();
+    }
+}
+
 // ── QBPM-08: the Breakpoints panel keeps a row's page ──────────────────
 
 void test_breakpoint_page_rows() {
@@ -654,6 +819,7 @@ int main(int argc, char** argv) {
     test_breakpoints();
     test_call_stack();
     test_address_fields();
+    test_gutter();
     test_edit_type_refused();
     test_breakpoint_page_rows();
 

@@ -154,6 +154,41 @@ void DisasmPanel::set_breakpoint_model(BreakpointModel* model)
         });
 }
 
+void DisasmPanel::toggle_breakpoint(uint16_t addr, int line)
+{
+    BreakpointModel* bps = bp_model_.data();
+    if (!bps) return;
+    // The click removes the breakpoint the gutter draws, so it asks the same
+    // question the gutter does: a logical one, or one tied to the page the
+    // line was drawn with (a breakpoint set on a source line of banked code).
+    // Asking only for the logical one added a second breakpoint on top of a
+    // drawn dot; asking for the page mapped now did the same after a bank
+    // switch while running, when the line is not redrawn.
+    // pc_exists(), not pc_live() (GH #225): a suspended breakpoint is still
+    // there, and a click on it removes it rather than stacking another.
+    const bool shown = line >= 0 && line < static_cast<int>(entries_.size()) &&
+                       entries_[line].line.addr == addr;
+    const uint16_t page = shown ? entries_[line].page
+                        : dbg_  ? dbg_->source_page(addr)
+                                : jnext::dbg::PAGE_ANY;
+    if (bps->pc_exists(addr))
+        bps->remove(BreakpointModel::Execute, addr);
+    else if (bps->exists(BreakpointModel::Execute, addr, page))
+        bps->remove(BreakpointModel::Execute, addr, page);
+    else
+        bps->add(BreakpointModel::Execute, addr);
+    // The model's notification has already run. While PAUSED it
+    // re-disassembled, so entries_ was rebuilt underneath us; hence the
+    // bounds check. While RUNNING refresh() is a no-op by design, and this
+    // patch plus update() is what still shows the dot the instant it is
+    // clicked.
+    if (line < static_cast<int>(entries_.size())) {
+        entries_[line].has_breakpoint  = bps->pc_marked(addr, page);
+        entries_[line].breakpoint_live = bps->pc_marked_live(addr, page);
+    }
+    update();
+}
+
 void DisasmPanel::navigate_to_address(const QString& text)
 {
     // An address (`4000`, `$4000`, `0x4000`) or a symbol, as every other
@@ -222,6 +257,7 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
         const uint16_t page   = dbg_ ? dbg_->source_page(cur) : jnext::dbg::PAGE_ANY;
         entry.has_breakpoint  = bps && bps->pc_marked(cur, page);
         entry.breakpoint_live = bps && bps->pc_marked_live(cur, page);
+        entry.page            = page;
         entries_.push_back(entry);
 
         cur = static_cast<uint16_t>(cur + entry.line.byte_count);
@@ -558,29 +594,10 @@ void DisasmPanel::mousePressEvent(QMouseEvent* event)
 
     if (static_cast<int>(evpos.x()) < GUTTER_WIDTH) {
         // Toggle breakpoint
-        uint16_t addr = entries_[line].line.addr;
-        BreakpointModel* bps = bp_model_.data();
-        if (!bps) return;
-        // GH #225 — pc_exists(), not pc_live(): the gutter click toggles
-        // whether a breakpoint IS THERE, which is what it has always done.
-        // pc_live() is "can it fire", so a click on a suspended breakpoint
-        // would have read "none here" and added a second one on top of it.
-        // Enabling and disabling is the Breakpoints panel's checkbox.
-        if (bps->pc_exists(addr)) {
-            bps->remove(BreakpointModel::Execute, addr);
-        } else {
-            bps->add(BreakpointModel::Execute, addr);
-        }
-        // The model's notification has already run. While PAUSED it
-        // re-disassembled, so entries_ was rebuilt underneath us — hence the
-        // bounds check. While RUNNING refresh() is a no-op by design, and this
-        // patch plus update() is what still shows the dot the instant it is
-        // clicked.
-        if (line < static_cast<int>(entries_.size())) {
-            entries_[line].has_breakpoint  = bps->pc_exists(addr);
-            entries_[line].breakpoint_live = bps->pc_live(addr);
-        }
-        update();
+        // GH #225: the gutter click toggles whether a breakpoint IS THERE,
+        // which is what it has always done; enabling and disabling is the
+        // Breakpoints panel's checkbox.
+        toggle_breakpoint(entries_[line].line.addr, line);
     } else {
         // Select line. GH #21: a plain click is also a one-line SELECTION —
         // anchor and cursor on the same address — so Ctrl+C right after a
@@ -807,19 +824,7 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
 
     auto* toggle_bp = menu.addAction("Toggle Breakpoint");
     connect(toggle_bp, &QAction::triggered, this, [this, addr, line]() {
-        BreakpointModel* bps = bp_model_.data();
-        if (!bps) return;
-        if (bps->pc_exists(addr)) {
-            bps->remove(BreakpointModel::Execute, addr);
-        } else {
-            bps->add(BreakpointModel::Execute, addr);
-        }
-        // Same as the gutter click above — see mousePressEvent().
-        if (line < static_cast<int>(entries_.size())) {
-            entries_[line].has_breakpoint  = bps->pc_exists(addr);
-            entries_[line].breakpoint_live = bps->pc_live(addr);
-        }
-        update();
+        toggle_breakpoint(addr, line);   // same as the gutter click
     });
 
     auto* run_to = menu.addAction("Run to Here");
