@@ -387,6 +387,81 @@ int main() {
                                 "the limit, paused, Ok",
               r == Result::Ok && m.pc() == 0x8006 && m.dbg->state().paused, m.where());
     }
+    {
+        // The caller's return address has no record: Out keeps going past it
+        // to the first mapped position below the call.
+        const fs::path no12 = dir / "no-line12.sld";
+        std::string text = program_sld(p80, p90);
+        const std::string line12 = "main.bas|12||0|" + std::to_string(p80) + "|32773|T|\n";
+        text.erase(text.find(line12), line12.size());
+        write_text(no12, text);
+        Machine m;
+        m.dbg->load_source_map(no12.string(), false);
+        m.dbg->source_step(m.a, Step::Into);
+        m.dbg->source_step(m.a, Step::Into);   // main.bas:11, sub.bas:1
+        const bool in_sub = m.pc() == 0x9000;
+        m.dbg->source_step(m.a, Step::Out);
+        check("SRCDBG-STEP-14", "Out whose caller returns into unmapped code stops at the "
+                                "first mapped position after it: main.bas:13, not $8005",
+              in_sub && m.pc() == 0x8006, m.where());
+    }
+    {
+        Machine m;
+        m.dbg->load_source_map(sld.string(), false);
+        m.emu.debug_state().breakpoints().add_pc(0x8001);
+        m.dbg->source_step(m.a, Step::Into);
+        check("SRCDBG-STEP-15", "a legacy PC breakpoint between two statements stops the "
+                                "step there, before it runs",
+              m.pc() == 0x8001, m.where());
+    }
+    {
+        // sub.bas:1 is one instruction, the write: the watchpoint fires on the
+        // step's last instruction, which also reaches the next statement.
+        Machine m;
+        m.dbg->load_source_map(sld.string(), false);
+        m.set_pc(0x9000);
+        Subscription w;
+        w.kind = EventKind::Mem;
+        w.filter.lo = w.filter.hi = 0xA000;
+        w.access = Access::Write;
+        w.action = Action::Stop;
+        m.dbg->subscribe(m.a, w);
+        m.dbg->source_step(m.a, Step::Into);
+        check("SRCDBG-STEP-16", "a watchpoint hit on the step's last instruction ends it "
+                                "with the Watch reason",
+              m.pc() == 0x9003 &&
+                  m.dbg->state().pause_reason.kind == PauseReason::Kind::Watch,
+              m.where());
+    }
+    {
+        // A watchpoint stop inside the step ends it at once: the next
+        // instruction's Execute handlers do not run on the way out.
+        Machine m;
+        m.dbg->load_source_map(sld.string(), false);
+        m.set_pc(0x8002);
+        Subscription w;
+        w.kind = EventKind::Mem;
+        w.filter.lo = w.filter.hi = 0xA000;
+        w.access = Access::Write;
+        w.action = Action::Stop;
+        m.dbg->subscribe(m.a, w);
+        int ran = 0;
+        Subscription logger;
+        logger.kind = EventKind::Execute;
+        logger.filter.lo = logger.filter.hi = 0x9003;
+        logger.action = Action::Continue;
+        logger.handler = [&ran](const jnext::dbg::Event&, Debugger&) {
+            ++ran;
+            return Action::Continue;
+        };
+        m.dbg->subscribe(m.a, logger);
+        m.dbg->source_step(m.a, Step::Over);
+        check("SRCDBG-STEP-17", "a watchpoint stop inside the step ends it before the next "
+                                "instruction's Execute handlers run",
+              m.pc() == 0x9003 && ran == 0 &&
+                  m.dbg->state().pause_reason.kind == PauseReason::Kind::Watch,
+              m.where() + " ran " + std::to_string(ran));
+    }
 
     // ── source_step() backwards ─────────────────────────────────────────
     {
@@ -875,6 +950,34 @@ int main() {
         const uint64_t after = m.emu.clock().get();
         check("SRCDBG-FB-01", "Back after a Frame Back lands earlier than the restored "
                               "point, never in the history it left",
+              rewound && r == Result::Ok && after < at,
+              "at " + std::to_string(at) + " after " + std::to_string(after) + " rc " +
+                  std::to_string(static_cast<int>(r)));
+    }
+    {
+        // After a Frame Back the trace still holds the instruction at the PC,
+        // recorded at exactly this cycle in the history that was left. It has
+        // not run yet: a breakpoint on it is not "back". Every address is
+        // mapped, so wherever the frame boundary falls the PC has a position.
+        const fs::path all = dir / "all-mapped.sld";
+        write_text(all, program_sld(p80, p90,
+                                    "main.bas|20||0|" + std::to_string(p80) + "|32769|T|\n" +
+                                    "sub.bas|3||0|" + std::to_string(p90) + "|36868|T|\n"));
+        Machine m(/*rewind=*/true);
+        m.dbg->load_source_map(all.string(), false);
+        m.dbg->set_trace_enabled(true);
+        m.dbg->run(m.a);
+        for (int i = 0; i < 4; ++i) m.emu.run_frame();
+        m.dbg->pause(m.a);
+        const bool rewound =
+            m.dbg->rewind_to_frame(m.a, m.dbg->rewind_range().newest_frame) == Result::Ok;
+        const uint64_t at = m.emu.clock().get();
+        m.dbg->subscribe(m.a, execute_stop(m.pc()));
+        const Result r = m.dbg->source_step(m.a, Step::ReverseContinue);
+        const uint64_t after = m.emu.clock().get();
+        check("SRCDBG-BACK-09", "after a Frame Back the trace entry at this very cycle is "
+                                "not back: Reverse Continue to a breakpoint on the PC lands "
+                                "on an earlier hit",
               rewound && r == Result::Ok && after < at,
               "at " + std::to_string(at) + " after " + std::to_string(after) + " rc " +
                   std::to_string(static_cast<int>(r)));
