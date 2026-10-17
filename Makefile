@@ -191,7 +191,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
-       kloc-count regression regression-win regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
+       kloc-count regression regression-win regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-diagrams read-devguide \
@@ -548,7 +548,7 @@ z88dk-gdb:
 	bash test/provision-z88dk-gdb.sh
 
 # Run the full regression test suite (screenshot + functional tests)
-regression: lint-makefile-help lint-thread-detach regression-doc-check unit-test-build gui-release fuse-pgo sdl-release docs-check cli-check z88dk-gdb
+regression: lint-makefile-help lint-thread-detach lint-ascii-text regression-doc-check unit-test-build gui-release fuse-pgo sdl-release docs-check cli-check z88dk-gdb
 	@# Depends on unit-test-build: regression.sh runs build/test/rewind_test, and a
 	@# `make clean` deletes it. It used to vanish from the suite with no row printed.
 	@# gui-release is a REAL prerequisite, not a convenience: regression.sh runs
@@ -757,7 +757,7 @@ traceability-dup-check:
 	@perl test/traceability-dup-ids.pl
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions lint-makefile-help lint-thread-detach traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test
+unit-test: lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —
@@ -959,6 +959,16 @@ lint-thread-detach:
 	@# thread comes next, and no unit row can force the window; the rule is
 	@# structural. Cheap (ripgrep over src/ and test/), so it runs before the build.
 	@bash test/lint-thread-detach.sh
+
+# Fail if a string literal under src/ holds an em dash (GH #382)
+lint-ascii-text:
+	@# A Windows console decodes jnext's UTF-8 messages in its OEM code page, so the
+	@# three bytes of an em dash show up as accented letters in a log line (GH #382).
+	@# Owner rule: program text is ASCII. No unit row can see a new offender, so the
+	@# rule is structural: a perl lexer over the string and character literals under
+	@# src/ (comments are not looked at). Cheap (about a second), so it runs before the
+	@# build in both `unit-test` and `regression`, like lint-thread-detach.
+	@bash test/lint-ascii-text.sh
 
 # Fail if a NEW tautological assertion appeared in test/ (baseline-relative)
 lint-assertions:

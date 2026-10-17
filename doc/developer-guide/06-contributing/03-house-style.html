@@ -2243,6 +2243,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#program-text-is-ascii" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Program text is ASCII
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#comments-explain-why" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2350,6 +2361,24 @@ cosmetic ones costs the reviewer the ability to see the real one, and that
 reviewer is the gate the whole process depends on.</p>
 <p>If you do notice a genuine second problem, say so — in a note, in the pull
 request, or as a new issue. Just do not fix it in the same change.</p>
+<h2 id="program-text-is-ascii">Program text is ASCII<a class="headerlink" href="#program-text-is-ascii" title="Permanent link">&para;</a></h2>
+<p><em>(Owner decision, 2026-10-17, GH #382; enforced by <code>test/lint-ascii-text.sh</code>.)</em></p>
+<p>The text jnext writes to a console is ASCII. A Windows console decodes the
+program's bytes in its OEM code page, so the three UTF-8 bytes of an em dash
+come out as three accented letters (<code>ÔÇö</code> in code page 850) instead of a dash.
+The fix is in the text, not the console: there is no UTF-16 sink and no
+code-page change. So <strong>no string or character literal under <code>src/</code> holds an em
+dash</strong>. Write a plain <code>-</code> and keep the spacing around it.</p>
+<p><code>make unit-test</code> and <code>make regression</code> run the lint before they build anything.
+It reads literals, not comments: an em dash in a <code>//</code> or <code>/* */</code> comment is
+fine, and so is one in prose outside <code>src/</code>. It also catches the escaped
+spellings (a <code>u</code> or <code>U</code> escape of U+2014, or its bytes <code>\xE2\x80\x94</code> in one
+literal), so rewriting the character does not get around it. There is no
+exception list for the em dash.</p>
+<p>What the lint cannot see is stated in its header: text built at run time, an em
+dash split across adjacent literals, and files that are not C or C++. User
+data is the residual that stays: a path with an accent, a file name or text from
+the guest still reaches the console as the bytes it has.</p>
 <h2 id="comments-explain-why">Comments explain WHY<a class="headerlink" href="#comments-explain-why" title="Permanent link">&para;</a></h2>
 <p><em>(Derived from reading the sources; the pattern is consistent enough to count as
 a convention rather than a habit.)</em></p>

@@ -22,6 +22,29 @@ reviewer is the gate the whole process depends on.
 If you do notice a genuine second problem, say so — in a note, in the pull
 request, or as a new issue. Just do not fix it in the same change.
 
+## Program text is ASCII
+
+*(Owner decision, 2026-10-17, GH #382; enforced by `test/lint-ascii-text.sh`.)*
+
+The text jnext writes to a console is ASCII. A Windows console decodes the
+program's bytes in its OEM code page, so the three UTF-8 bytes of an em dash
+come out as three accented letters (`ÔÇö` in code page 850) instead of a dash.
+The fix is in the text, not the console: there is no UTF-16 sink and no
+code-page change. So **no string or character literal under `src/` holds an em
+dash**. Write a plain `-` and keep the spacing around it.
+
+`make unit-test` and `make regression` run the lint before they build anything.
+It reads literals, not comments: an em dash in a `//` or `/* */` comment is
+fine, and so is one in prose outside `src/`. It also catches the escaped
+spellings (a `u` or `U` escape of U+2014, or its bytes `\xE2\x80\x94` in one
+literal), so rewriting the character does not get around it. There is no
+exception list for the em dash.
+
+What the lint cannot see is stated in its header: text built at run time, an em
+dash split across adjacent literals, and files that are not C or C++. User
+data is the residual that stays: a path with an accent, a file name or text from
+the guest still reaches the console as the bytes it has.
+
 ## Comments explain WHY
 
 *(Derived from reading the sources; the pattern is consistent enough to count as
