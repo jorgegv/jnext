@@ -1185,7 +1185,8 @@ per-offset chain walked by a forward cursor. Rendering is covered by
 Layer 2 fetches the SRAM bitmap at beam time, so `Mmu::write()` logs every SRAM
 store in `SramBeamLog` with the same position source the VRAM mux uses (a CPU
 write's own `(line, hc)`, every other writer the coarse one). Read back through
-`SramBeamLog::read()` in `mmu_integration_test` (bare `Mmu`, one byte of bank 8).
+`SramBeamLog::read()` in `mmu_integration_test` (bare `Mmu`, one byte of bank 8;
+TAG-08 and TAG-09 write more of it).
 
 | ID           | Test                                         | Setup                                                    | Expected                                          |
 |--------------|----------------------------------------------|----------------------------------------------------------|---------------------------------------------------|
@@ -1196,6 +1197,8 @@ write's own `(line, hc)`, every other writer the coarse one). Read back through
 | L2LOG-TAG-06 | Warm start of a `--load`: init, `load_state`, loader writes, with the log armed | Same, through `load_state()` | Log empty and off until the frame starts, then records — pass |
 | L2LOG-TAG-07 | Soft reset (init with preserve_memory) mid-frame | Log armed, write, soft re-init, write | Still recording (zxnext.vhd:3905-3911) — pass |
 | L2LOG-TAG-05 | Machine re-init (a NEX load) with the log armed | `init()`, arm, write; then a frame starts and write   | Log empty and off until the frame starts, then records — pass |
+| L2LOG-TAG-08 | Consecutive frames, each logging fewer writes (layer2.vhd:177-188) | Frame 1: A twice, B and C once (4 entries); frame 2: A once; frame 3: none | Frame 2: log size 1, A starts from frame 1's last value, B and C live; frame 3: log size 0, no writes — pass |
+| L2LOG-TAG-09 | A frame that outgrows the log's storage, then a re-init (layer2.vhd:177-188) | 16 384 addresses of bank 8 written at rows 20 and 40 (32 768 entries); `sram_log_stop()`; next frame 3 writes | Every address: frame-start, first and second value at rows 10/30/50; after the stop the log is empty and off; the next frame replays its 3 writes, the rest read live — pass |
 
 **Total: ~178 test cases across 30 categories.**
 

@@ -3258,6 +3258,132 @@ static void test_l2log_tags() {
               fmt("row50=0x%02X row69=0x%02X row70=0x%02X (want 22 22 33)",
                   row50, row69, row70));
     }
+
+    // L2LOG-TAG-08 — the log restarts with every frame, and a frame that logs
+    // fewer writes than the one before must see none of the earlier frame's
+    // entries or slots. A fetch reads the SRAM as it is at its instant
+    // (layer2.vhd:177-188) and a frame boundary resets nothing, so a byte the
+    // earlier frame wrote reads back what that frame left. Frame 1 writes A
+    // twice and B, C once (4 entries, 3 addresses); frame 2 writes A once;
+    // frame 3 writes nothing. Coarse tags (line, hc 0); reads at hc 0.
+    {
+        L2LogBed b;
+        b.mmu.set_page(4, static_cast<uint8_t>(kL2Sram >> 13));
+        const uint16_t cpu = static_cast<uint16_t>(0x8000u + (kL2Sram & 0x1FFFu));
+        const uint32_t sa = kL2Sram, sb = kL2Sram + 1, sc = kL2Sram + 2;
+        b.ram.write(sb, 0x21);
+        b.ram.write(sc, 0x31);
+        auto put = [&](uint16_t addr, uint8_t v, int line) {
+            b.mmu.attr_mux_set_current_line(line);
+            b.mmu.attr_mux_set_current_hc(0);
+            b.mmu.write(addr, v);
+        };
+        auto at = [&](uint32_t sram, int line) {
+            b.mmu.attr_mux_rewind_to_baseline();
+            b.mmu.attr_mux_apply_line(line);
+            return b.mmu.sram_log().read(sram, 0, b.ram);
+        };
+        put(cpu, 0x12, 100);
+        put(static_cast<uint16_t>(cpu + 1), 0x22, 100);
+        put(static_cast<uint16_t>(cpu + 2), 0x32, 100);
+        put(cpu, 0x13, 150);
+        const size_t n1 = b.mmu.sram_log().log_size();
+        const uint8_t a1 = at(sa, 120), b1 = at(sb, 50);
+        b.mmu.attr_mux_start_frame(kL2Origin, kL2Vbt);   // frame 2
+        b.mmu.sram_log_arm();
+        put(cpu, 0x14, 120);
+        const size_t n2 = b.mmu.sram_log().log_size();
+        const uint8_t a2e = at(sa, 50), a2l = at(sa, 130), b2 = at(sb, 50), c2 = at(sc, 50);
+        b.mmu.attr_mux_start_frame(kL2Origin, kL2Vbt);   // frame 3
+        b.mmu.sram_log_arm();
+        const size_t n3 = b.mmu.sram_log().log_size();
+        const bool w3 = b.mmu.sram_log().any_writes();
+        const uint8_t a3 = at(sa, 50);
+        check("L2LOG-TAG-08",
+              "layer2.vhd:177-188 - a fetch reads the SRAM as it is at its instant and "
+              "a frame boundary resets nothing: a frame logging fewer writes than the "
+              "one before sees only its own, over the bytes the earlier frame left",
+              n1 == 4 && a1 == 0x12 && b1 == 0x21 && n2 == 1 && a2e == 0x13
+                  && a2l == 0x14 && b2 == 0x22 && c2 == 0x32 && n3 == 0 && !w3
+                  && a3 == 0x14,
+              fmt("f1: log %zu (4) A@120 %02X (12) B@50 %02X (21); f2: log %zu (1) "
+                  "A@50 %02X (13) A@130 %02X (14) B@50 %02X (22) C@50 %02X (32); "
+                  "f3: log %zu (0) writes %d (0) A@50 %02X (14)",
+                  n1, a1, b1, n2, a2e, a2l, b2, c2, n3, int(w3), a3));
+    }
+
+    // L2LOG-TAG-09 — a frame that logs more writes than the log's storage
+    // holds: every fetch still reads the last write at or before its instant
+    // (layer2.vhd:177-188), and a write chain begun before the storage grew is
+    // continued after it. Two 8 KB pages of bank 8 (16 384 addresses) are each
+    // written at rows 20 and 40: 32 768 entries and 16 384 addresses, past
+    // every doubling of the storage up to that size. Then a re-initialisation
+    // frees the log (sram_log_stop()) and the next frame logs 3 writes into new
+    // storage: an address the earlier frame wrote and this one does not reads
+    // what the earlier frame left.
+    {
+        L2LogBed b;
+        constexpr uint32_t kBase = 16u * 8192u;   // SRAM of pages 16 and 17
+        constexpr uint32_t kN = 16384;
+        b.mmu.set_page(4, 16);
+        b.mmu.set_page(5, 17);
+        auto val = [](uint32_t i, uint32_t pass) {   // distinct per pass, varies with i
+            return static_cast<uint8_t>(((i ^ (i >> 6) ^ (i >> 12)) & 0x3Fu) | (pass << 6));
+        };
+        auto put = [&](uint32_t i, uint8_t v, int line) {
+            b.mmu.attr_mux_set_current_line(line);
+            b.mmu.attr_mux_set_current_hc(0);
+            b.mmu.write(static_cast<uint16_t>(0x8000u + i), v);
+        };
+        for (uint32_t i = 0; i < kN; ++i) b.ram.write(kBase + i, val(i, 0));
+        for (uint32_t i = 0; i < kN; ++i) put(i, val(i, 1), 20);
+        for (uint32_t i = 0; i < kN; ++i) put(i, val(i, 2), 40);
+        const size_t n1 = b.mmu.sram_log().log_size();
+        const bool w1 = b.mmu.sram_log().any_writes();
+        // One render pass: rewind once, then rows in order (as Renderer does).
+        uint32_t bad = 0, first_bad = kN;
+        b.mmu.attr_mux_rewind_to_baseline();
+        const int rows[3] = {10, 30, 50};
+        for (uint32_t r = 0; r < 3; ++r) {
+            b.mmu.attr_mux_apply_line(rows[r]);
+            for (uint32_t i = 0; i < kN; ++i) {
+                if (b.mmu.sram_log().read(kBase + i, 0, b.ram) != val(i, r)) {
+                    if (bad++ == 0) first_bad = i;
+                }
+            }
+        }
+        b.mmu.sram_log_stop();                            // machine re-initialisation
+        const size_t n_stop = b.mmu.sram_log().log_size();
+        const bool w_stop = b.mmu.sram_log().any_writes();
+        const bool rec_stop = b.mmu.sram_log().recording();
+        b.mmu.attr_mux_start_frame(kL2Origin, kL2Vbt);    // the next frame
+        b.mmu.sram_log_arm();
+        const uint32_t hit[3] = {0, 5000, kN - 1}, miss[3] = {1, 4999, kN - 2};
+        for (uint32_t i : hit) put(i, val(i, 3), 60);
+        const size_t n2 = b.mmu.sram_log().log_size();
+        uint32_t bad2 = 0;
+        b.mmu.attr_mux_rewind_to_baseline();
+        b.mmu.attr_mux_apply_line(55);
+        for (uint32_t k = 0; k < 3; ++k) {
+            bad2 += b.mmu.sram_log().read(kBase + hit[k], 0, b.ram) != val(hit[k], 2);
+            bad2 += b.mmu.sram_log().read(kBase + miss[k], 0, b.ram) != val(miss[k], 2);
+        }
+        b.mmu.attr_mux_apply_line(65);
+        for (uint32_t k = 0; k < 3; ++k) {
+            bad2 += b.mmu.sram_log().read(kBase + hit[k], 0, b.ram) != val(hit[k], 3);
+            bad2 += b.mmu.sram_log().read(kBase + miss[k], 0, b.ram) != val(miss[k], 2);
+        }
+        check("L2LOG-TAG-09",
+              "layer2.vhd:177-188 - every fetch reads the last write at or before its "
+              "instant however many writes a frame holds (32768 entries, 16384 "
+              "addresses), and after a re-init frees the log the next frame records again",
+              n1 == 2 * kN && w1 && bad == 0 && n_stop == 0 && !w_stop && !rec_stop
+                  && n2 == 3 && bad2 == 0,
+              fmt("log %zu (32768) writes %d; wrong reads %u (0, first at %u); after "
+                  "stop: log %zu (0) writes %d rec %d; next frame: log %zu (3) wrong %u (0)",
+                  n1, int(w1), bad, first_bad, n_stop, int(w_stop), int(rec_stop), n2,
+                  bad2));
+    }
 }
 
 int main() {

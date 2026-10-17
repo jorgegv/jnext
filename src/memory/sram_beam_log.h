@@ -68,19 +68,27 @@
 // load_state() call stop(), and arm() does nothing until start_frame(). A soft
 // reset (init with preserve_memory) is mid-frame and keeps the log running.
 //
+// Storage: the entries and the slots live in two vectors that keep their size
+// from frame to frame; `log_n_` / `slots_n_` say how much of each this frame
+// uses, and only a cold helper (grow_()) enlarges them, doubling. The record
+// path (record_unchecked_(), which Mmu's store calls after its own checks) is
+// therefore straight-line: no growth code, no size division.
+//
 // No save_state/load_state: everything here is rebuilt each frame
 // (Emulator::begin_new_frame -> Mmu::attr_mux_start_frame), exactly like
 // AttributeMux.
 class SramBeamLog {
+    friend class Mmu;   // Mmu::sram_log_record_() calls record_unchecked_()
+
 public:
     /// Reset for a new frame. `hc_origin` is VideoTiming::ula_prefetch_origin_hc();
     /// `sram_bytes` the size of the Ram (the address bound). Disarmed.
     void start_frame(int hc_origin, uint32_t sram_bytes) {
-        for (const Slot& s : slots_) idx_[s.addr] = 0;
+        for (const Slot *s = slots_.data(), *e = s + slots_n_; s != e; ++s) idx_[s->addr] = 0;
         nbanks_ = (sram_bytes >> 14) + ((sram_bytes & 0x3FFFu) != 0);
         dirty_banks_.assign((nbanks_ + 63) / 64, 0);   // a bit for every bank below sram_bytes
-        slots_.clear();
-        log_.clear();
+        slots_n_ = 0;   // the storage keeps its size
+        log_n_ = 0;
         narrow_base_ = beam::phc_raw_hc(hc_origin, -1);   // fetch of column 0
         wide_base_   = beam::whc_raw_hc(hc_origin, -1);
         sram_bytes_ = sram_bytes;
@@ -90,15 +98,17 @@ public:
     }
 
     /// Back to "never started": not recording, and `arm()` does nothing until the
-    /// next start_frame(). Frees the log's memory (clear() keeps capacity, so a
-    /// burst of writes would otherwise stay allocated for the session). Called on
-    /// a machine re-initialisation, so a loader's bank writes before the first
-    /// frame (NEX load) are not logged.
+    /// next start_frame(). Frees the log's memory (start_frame() keeps the
+    /// storage, so a burst of writes would otherwise stay allocated for the
+    /// session). Called on a machine re-initialisation, so a loader's bank writes
+    /// before the first frame (NEX load) are not logged.
     void stop() {
-        for (const Slot& s : slots_) idx_[s.addr] = 0;
+        for (const Slot *s = slots_.data(), *e = s + slots_n_; s != e; ++s) idx_[s->addr] = 0;
         dirty_banks_.assign(dirty_banks_.size(), 0);
         std::vector<Slot>().swap(slots_);
         std::vector<Entry>().swap(log_);
+        slots_n_ = slots_cap_ = 0;
+        log_n_ = log_cap_ = 0;
         started_ = false;
         recording_ = false;
     }
@@ -119,13 +129,14 @@ public:
 
     /// True when at least one address was written since arming: the only case
     /// a read can differ from the live RAM.
-    bool any_writes() const { return !slots_.empty(); }
+    bool any_writes() const { return slots_n_ != 0; }
 
     /// True when no address in the `n` 16 KB SRAM banks from bank `k0` (bank =
     /// address >> 14) was written since arming: read() of any of them returns
     /// the live byte, so Layer 2 may read such a span straight from the RAM.
-    /// A bank at or above sram_bytes_ is clean (record_write refuses those
-    /// addresses); every bank below it has a bit (start_frame sizes the map).
+    /// A bank at or above sram_bytes_ is clean (record_write and
+    /// Mmu::sram_log_record_ refuse those addresses); every bank below it has a
+    /// bit (start_frame sizes the map).
     bool banks_clean(uint32_t k0, uint32_t n) const {
         for (uint32_t k = k0; k - k0 < n && k < nbanks_; ++k)
             if ((dirty_banks_[k >> 6] >> (k & 63)) & 1u) return false;
@@ -137,19 +148,7 @@ public:
     /// the raw horizontal position. A no-op while disarmed.
     void record_write(uint16_t line, uint16_t hc, uint32_t addr, uint8_t prev, uint8_t value) {
         if (!recording_ || addr >= sram_bytes_) return;
-        const uint32_t n = static_cast<uint32_t>(log_.size());
-        log_.push_back({(static_cast<uint32_t>(line) << 16) | hc, kNone, value});
-        uint32_t& ix = idx_[addr];
-        if (ix == 0) {
-            slots_.push_back({addr, n, n, n, 0, prev, prev});
-            ix = static_cast<uint32_t>(slots_.size());
-            dirty_banks_[addr >> 20] |= uint64_t{1} << ((addr >> 14) & 63);
-        } else {
-            Slot& s = slots_[ix - 1];
-            log_[s.last].next = n;
-            s.last = n;
-            if (s.cursor == kNone) s.cursor = n;
-        }
+        record_unchecked_(line, hc, addr, prev, value);
     }
 
     /// Reset every replay cursor to the frame-start state (call before the
@@ -157,10 +156,10 @@ public:
     /// pass re-walks the same log).
     void rewind_to_baseline() {
         target_line_ = 0;
-        for (Slot& s : slots_) {
-            s.cursor = s.first;
-            s.lastkey = 0;
-            s.curval = s.prev0;
+        for (Slot *s = slots_.data(), *e = s + slots_n_; s != e; ++s) {
+            s->cursor = s->first;
+            s->lastkey = 0;
+            s->curval = s->prev0;
         }
     }
 
@@ -202,10 +201,44 @@ public:
         return s.curval;
     }
 
-    size_t log_size() const { return log_.size(); }
+    size_t log_size() const { return log_n_; }
 
 private:
     static constexpr uint32_t kNone = 0xFFFFFFFFu;
+    static constexpr uint32_t kMinStorage = 1024;   // entries / slots of a first grow_()
+
+    /// record_write() without its two checks: the caller guarantees recording_
+    /// and addr < sram_bytes_ (Mmu::sram_log_write_() tests recording(), then
+    /// Mmu::sram_log_record_() its own sram_size_, which attr_mux_start_frame()
+    /// assigns with sram_bytes_).
+    void record_unchecked_(uint16_t line, uint16_t hc, uint32_t addr, uint8_t prev, uint8_t value) {
+        const uint32_t n = log_n_;
+        if (n == log_cap_) grow_(log_, log_cap_);
+        log_[n] = {(static_cast<uint32_t>(line) << 16) | hc, kNone, value};
+        log_n_ = n + 1;
+        uint32_t& ix = idx_[addr];
+        if (ix == 0) {
+            const uint32_t k = slots_n_;
+            if (k == slots_cap_) grow_(slots_, slots_cap_);
+            slots_[k] = {addr, n, n, n, 0, prev, prev};
+            slots_n_ = k + 1;
+            ix = k + 1;
+            dirty_banks_[addr >> 20] |= uint64_t{1} << ((addr >> 14) & 63);
+        } else {
+            Slot& s = slots_[ix - 1];
+            log_[s.last].next = n;
+            s.last = n;
+            if (s.cursor == kNone) s.cursor = n;
+        }
+    }
+
+    /// Enlarge `v` (doubling; the elements in use are kept) and publish its new
+    /// size as `cap`. Off the record path's straight line.
+    template <class T>
+    [[gnu::cold, gnu::noinline]] static void grow_(std::vector<T>& v, uint32_t& cap) {
+        v.resize(v.empty() ? kMinStorage : v.size() * 2);
+        cap = static_cast<uint32_t>(v.size());
+    }
 
     struct Entry {
         uint32_t key;     // (line << 16) | hc
@@ -225,8 +258,12 @@ private:
     std::vector<uint32_t>        idx_;       // addr -> slot index + 1 (0 = never written)
     const uint32_t*              idx_data_ = nullptr;   // idx_.data()/size(), for the per-pixel read
     uint32_t                     idx_n_ = 0;
-    mutable std::vector<Slot>    slots_;
-    std::vector<Entry>           log_;
+    mutable std::vector<Slot>    slots_;     // storage: [0, slots_n_) in use, size slots_cap_
+    std::vector<Entry>           log_;       // storage: [0, log_n_) in use, size log_cap_
+    uint32_t                     slots_n_ = 0;
+    uint32_t                     slots_cap_ = 0;
+    uint32_t                     log_n_ = 0;
+    uint32_t                     log_cap_ = 0;
     std::vector<uint64_t>        dirty_banks_;   // bit k: a slot lies in SRAM bank k (addr >> 14)
     uint32_t                     nbanks_ = 0;    // 16 KB banks below sram_bytes_ (the map's extent)
     uint32_t                     sram_bytes_ = 0;

@@ -209,7 +209,14 @@ turned on); once armed it records every SRAM store, enabled or not, until the
 frame ends. The stores are `Mmu::write()`'s four (Layer 2 write-over, alt-ROM,
 config-mode, normal slot) and the debugger's page pokes
 (`Mmu::log_page_store()`), which bypass `write()`; the list and what is
-deliberately not logged are in `sram_beam_log.h`.
+deliberately not logged are in `sram_beam_log.h`. All of them go through
+`Mmu::sram_log_write_()`. It tests recording inline, so a store the log does not
+record costs that one test, and leaves the rest to one out-of-line function,
+`Mmu::sram_log_record_()`: the SRAM bound check, the tag, and the append with
+`SramBeamLog::record_unchecked_()`, which skips the log's own two checks because
+the caller has made them. The entry and slot storage keeps its size from frame
+to frame and grows, doubling, only in a cold helper, so the append is
+straight-line code.
 `Mmu` separately keeps the
 +3 floating-bus latch `p3_floating_bus_dat_`, updated on every read that
 `mem_contend_for_(addr)` says is contended — a per-page decode, not the older
