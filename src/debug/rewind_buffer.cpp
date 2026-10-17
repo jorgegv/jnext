@@ -62,7 +62,7 @@ void RewindBuffer::take_snapshot(const Emulator& emu, uint64_t frame_cycle, uint
     // letting a later rewind feed a garbled snapshot into load_state.
     if (w.overflow() || w.position() != snapshot_bytes_) {
         Log::emulator()->error(
-            "rewind: snapshot size mismatch (wrote {} bytes, slot is {}) — "
+            "rewind: snapshot size mismatch (wrote {} bytes, slot is {}) - "
             "snapshot dropped{}",
             w.position(), snapshot_bytes_,
             full ? "; oldest snapshot destroyed by the aborted write" : "");
@@ -149,7 +149,7 @@ uint64_t RewindBuffer::restore_nearest(uint64_t target_cycle, Emulator& emu) con
         // limitation — no rollback). Report failure instead of a cycle
         // value that claims success.
         Log::emulator()->error(
-            "rewind: restore of snapshot @cycle {} failed verification — "
+            "rewind: restore of snapshot @cycle {} failed verification - "
             "machine state is not trustworthy", s.frame_cycle);
         return UINT64_MAX;
     }

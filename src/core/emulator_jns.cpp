@@ -734,7 +734,7 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
         // been partly written and is not trustworthy. Say so the way
         // `load_state`'s sentinel mismatch does rather than implying the
         // machine survived.
-        Log::emulator()->error("load_jns: {} — the machine is NOT trustworthy",
+        Log::emulator()->error("load_jns: {} - the machine is NOT trustworthy",
                                why);
         return false;
     }

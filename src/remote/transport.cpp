@@ -70,7 +70,7 @@ void Connection::write(const std::uint8_t* data, std::size_t len) {
         // silently is how it becomes a corrupt stream. Neither: the session
         // ends, loudly, and the adapter gets `on_disconnect()`.
         Log::debugger()->warn(
-            "{}: client {} is not reading its replies ({} bytes pending, limit {}) — "
+            "{}: client {} is not reading its replies ({} bytes pending, limit {}) - "
             "disconnecting",
             cfg_.name, peer_, pending_output() + len, cfg_.max_output);
         overflow_ = true;
@@ -157,7 +157,7 @@ bool Server::open(const std::string& bind_address, std::uint16_t port) {
     if (!esp::parse_ip(bind_address, ip)) {
         stop();
         last_error_ = "'" + bind_address + "' is not a numeric IP address";
-        Log::debugger()->error("{}: cannot listen on {}:{} — {}", cfg_.name, bind_address,
+        Log::debugger()->error("{}: cannot listen on {}:{} - {}", cfg_.name, bind_address,
                                port, last_error_);
         return false;
     }
@@ -165,7 +165,7 @@ bool Server::open(const std::string& bind_address, std::uint16_t port) {
     if (!listener) {
         stop();
         last_error_ = "network initialisation failed";
-        Log::debugger()->error("{}: cannot listen on {}:{} — {}", cfg_.name,
+        Log::debugger()->error("{}: cannot listen on {}:{} - {}", cfg_.name,
                                address_label(ip), port, last_error_);
         return false;
     }
@@ -179,7 +179,7 @@ bool Server::open(std::unique_ptr<esp::EspListener> listener, const std::string&
     listener_failed_ = false;
     if (!listener || !listener->open(port)) {
         last_error_ = listener ? listener->last_error() : std::string("no listener");
-        Log::debugger()->error("{}: cannot listen on {}:{} — {}", cfg_.name, label, port,
+        Log::debugger()->error("{}: cannot listen on {}:{} - {}", cfg_.name, label, port,
                                last_error_);
         return false;
     }
@@ -286,7 +286,7 @@ Server::Pass Server::pass() {
         // spins). Said once: a line per pass would bury everything else.
         if (!listener_->listening() && !listener_failed_) {
             listener_failed_ = true;
-            Log::debugger()->error("{}: listener on {}:{} failed — {}; no longer listening",
+            Log::debugger()->error("{}: listener on {}:{} failed - {}; no longer listening",
                                    cfg_.name, label_, bound_port_, listener_->last_error());
         }
     }
@@ -308,7 +308,7 @@ void Server::admit(std::unique_ptr<esp::EspTransport> t) {
         // ONE CLIENT PER LISTENER (all three designs). What the second one is
         // told is the adapter's; that it is turned away, and that it is said
         // at warn, is the same everywhere.
-        Log::debugger()->warn("{}: refused a connection from {} — a client is already "
+        Log::debugger()->warn("{}: refused a connection from {} - a client is already "
                               "connected (one at a time)",
                               cfg_.name, c->peer());
         if (!cfg_.busy_reply.empty()) c->write(cfg_.busy_reply);

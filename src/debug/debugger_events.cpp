@@ -658,7 +658,7 @@ void Debugger::Impl::apply_stop(bool from_event) {
     // exit it takes is this stop's (`ScriptHost`'s, "requesting exit 3"), so a
     // passing run no longer prints a warning contradicting its verdict.
     self->log(CLIENT_NONE, LogLevel::Info,
-              "STOP under StopPolicy::ExitNonZero — asking the loop owner to exit");
+              "STOP under StopPolicy::ExitNonZero - asking the loop owner to exit");
     notify_exit_requested(kStopExitCode);
 }
 

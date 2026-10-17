@@ -6,4 +6,4 @@
 #include "version.h"
 
 inline constexpr const char JNEXT_WINDOW_TITLE[] =
-    "JNEXT " JNEXT_VERSION_STRING " — ZX Spectrum Next Emulator";
+    "JNEXT " JNEXT_VERSION_STRING " - ZX Spectrum Next Emulator";

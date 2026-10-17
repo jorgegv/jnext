@@ -21,7 +21,7 @@ bool DebugServers::start(jnext::dbg::Debugger& dbg, const EmulatorConfig& cfg) {
         // row) where it is — or `dzrp: cannot listen on …` with the reason.
         if (!s->server().open(cfg.debug_listen_address,
                               static_cast<std::uint16_t>(cfg.dzrp_port))) {
-            Log::platform()->error("--dzrp-port {}: the DZRP server cannot listen on {} ({}) — "
+            Log::platform()->error("--dzrp-port {}: the DZRP server cannot listen on {} ({}) - "
                                    "exiting",
                                    cfg.dzrp_port, cfg.debug_listen_address,
                                    s->server().last_error());
@@ -36,7 +36,7 @@ bool DebugServers::start(jnext::dbg::Debugger& dbg, const EmulatorConfig& cfg) {
         // (and the regression rows) read the bound port from.
         if (!s->server().open(cfg.debug_listen_address,
                               static_cast<std::uint16_t>(cfg.gdb_port))) {
-            Log::platform()->error("--gdb-port {}: the GDB RSP server cannot listen on {} ({}) — "
+            Log::platform()->error("--gdb-port {}: the GDB RSP server cannot listen on {} ({}) - "
                                    "exiting",
                                    cfg.gdb_port, cfg.debug_listen_address,
                                    s->server().last_error());
@@ -51,7 +51,7 @@ bool DebugServers::start(jnext::dbg::Debugger& dbg, const EmulatorConfig& cfg) {
         auto s = std::make_unique<jnext::remote::zrcp::ZrcpServer>(dbg);
         if (!s->server().open(cfg.debug_listen_address,
                               static_cast<std::uint16_t>(cfg.zrcp_port))) {
-            Log::platform()->error("--zrcp-port {}: the ZRCP server cannot listen on {} ({}) — "
+            Log::platform()->error("--zrcp-port {}: the ZRCP server cannot listen on {} ({}) - "
                                    "exiting",
                                    cfg.zrcp_port, cfg.debug_listen_address,
                                    s->server().last_error());

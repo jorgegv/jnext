@@ -420,7 +420,7 @@ bool TzxLoader::load(const std::string& path) {
     // backslashes, which rfind('/') never saw).
     filename_ = std::filesystem::path(path).filename().string();
 
-    Log::emulator()->info("TZX: loaded '{}' — {} format, {} bytes",
+    Log::emulator()->info("TZX: loaded '{}' - {} format, {} bytes",
                            filename_, is_tzx_ ? "TZX" : "TAP",
                            file_data_.size());
     return true;
@@ -644,7 +644,7 @@ bool TzxLoader::handle_ld_bytes_trap(Emulator& emu) {
         regs.IX = static_cast<uint16_t>(dest + copy_len);
         regs.DE = 0;
     } else {
-        Log::emulator()->debug("TZX: verify mode — auto-passing");
+        Log::emulator()->debug("TZX: verify mode - auto-passing");
         regs.IX = static_cast<uint16_t>(dest + length);
         regs.DE = 0;
     }

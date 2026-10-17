@@ -121,12 +121,12 @@ bool SnaLoader::load_from_buffer(const std::vector<uint8_t>& buf, const std::str
         const size_t extra_size = file_size - extra_start;
         extra_banks_.assign(raw + extra_start, raw + file_size);
 
-        Log::emulator()->info("SNA: loaded 128K '{}' — PC={:#06x} port_7ffd={:#04x} "
+        Log::emulator()->info("SNA: loaded 128K '{}' - PC={:#06x} port_7ffd={:#04x} "
                               "extra_banks={} KB",
                               name, ext_header_.PC, ext_header_.port_7ffd,
                               extra_size / 1024);
     } else {
-        Log::emulator()->info("SNA: loaded 48K '{}' — SP={:#06x} IM={} border={}",
+        Log::emulator()->info("SNA: loaded 48K '{}' - SP={:#06x} IM={} border={}",
                               name, header_.SP, header_.IM, header_.border);
     }
 
@@ -233,7 +233,7 @@ bool SnaLoader::apply(Emulator& emu) const
     }
 
     cpu.set_registers(regs);
-    Log::emulator()->debug("SNA: CPU set — PC={:#06x} SP={:#06x} AF={:#06x} IM={}",
+    Log::emulator()->debug("SNA: CPU set - PC={:#06x} SP={:#06x} AF={:#06x} IM={}",
                           regs.PC, regs.SP, regs.AF, regs.IM);
 
     // ---------------------------------------------------------------

@@ -365,7 +365,7 @@ void MainWindow::set_emulator(Emulator* emu) {
     // bound, rather than tolerated as a debugger-less window.
     if (emu && !debugger_mgr_ && !debugger_)
         throw std::logic_error(
-            "MainWindow::set_emulator(): no debugger backend — call "
+            "MainWindow::set_emulator(): no debugger backend - call "
             "set_debugger() with the loop owner's jnext::dbg::Debugger first");
 #endif
     emulator_ = emu;
@@ -1316,7 +1316,7 @@ void MainWindow::create_statusbar() {
     fps_label_->setToolTip(tr(
         "emu:   emulated frames per second (how fast the machine is simulated)\n"
         "shown: frames per second that actually reached the screen\n\n"
-        "'shown' below 'emu' means frames are not being presented — deliberately "
+        "'shown' below 'emu' means frames are not being presented - deliberately "
         "(audio catch-up, speed > 1x) or otherwise. Run with "
         "--log-level platform=info for the full cadence breakdown."));
 
@@ -1563,7 +1563,7 @@ void MainWindow::load_finished(const std::string& file, bool ok) {
         for (const std::string& w : emulator_->last_jns_report().warnings) {
             lines << QString::fromStdString(w);
         }
-        statusBar()->showMessage(tr("Snapshot restored — %1")
+        statusBar()->showMessage(tr("Snapshot restored - %1")
                                      .arg(lines.join(QStringLiteral("; "))),
                                  10000);
     }
@@ -2041,7 +2041,7 @@ QString MainWindow::rzx_record_refusal() const {
     if (emulator_->config().type == MachineType::ZXN_ISSUE2) {
         return tr("RZX recording is not available on a ZX Spectrum Next.\n\n"
                   "An RZX carries a snapshot of the machine it starts from, and the "
-                  "formats it can carry describe a 48K, 128K, Pentagon or +3 Spectrum — none of "
+                  "formats it can carry describe a 48K, 128K, Pentagon or +3 Spectrum - none of "
                   "them holds the Next's extra RAM, NextREGs, Layer 2, tilemap, sprites "
                   "or Copper.\n\n"
                   "Switch to Machine > Machine Type > 48K, 128K, Pentagon or +3 and record there. "
@@ -2449,7 +2449,7 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
 bool MainWindow::confirm_machine_restart_dialog(MachineType requested) {
     const auto answer = QMessageBox::question(
         this, tr("Change Machine Type"),
-        tr("Switching to %1 restarts the emulator — anything currently "
+        tr("Switching to %1 restarts the emulator - anything currently "
            "running will be lost.\n\nRestart now?\n\n"
            "(Choosing No keeps the machine running and applies the new "
            "machine type the next time jnext starts.)")
@@ -3052,7 +3052,7 @@ void MainWindow::set_mouse_captured(bool on) {
         // The status-bar message times out; the title carries the way out for
         // as long as the pointer is actually held.
         setWindowTitle(base_window_title_ + tr(" - %1 to release mouse").arg(release_hint_text()));
-        statusBar()->showMessage(tr("Mouse captured — %1 to release").arg(release_hint_text()), 4000);
+        statusBar()->showMessage(tr("Mouse captured - %1 to release").arg(release_hint_text()), 4000);
     } else {
         releaseMouse();
         // Drop any latched button/wheel state. Buttons are only forwarded

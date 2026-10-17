@@ -6,7 +6,7 @@ void RzxPlayer::start(RzxRecording recording) {
     frame_index_ = 0;
     in_index_ = 0;
     playing_ = true;
-    Log::emulator()->info("RZX: playback started — {} frames", recording_.frames.size());
+    Log::emulator()->info("RZX: playback started - {} frames", recording_.frames.size());
 }
 
 void RzxPlayer::stop() {

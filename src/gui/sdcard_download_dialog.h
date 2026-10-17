@@ -58,8 +58,8 @@ private:
     std::unique_ptr<QApplication>    temp_app_;
     std::unique_ptr<QProgressDialog> dialog_;
     bool cancelled_ = false;
-    std::string title_      = "jnext — SD card image";
+    std::string title_      = "jnext - SD card image";
     std::string headline_   = "No ZX Spectrum Next SD-card image found";
-    std::string busy_title_ = "jnext — Preparing SD card image";
+    std::string busy_title_ = "jnext - Preparing SD card image";
     std::string download_label_ = "Downloading NextZXOS distribution image…";
 };

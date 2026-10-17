@@ -59,15 +59,15 @@ static_assert(!ok(Result::Unsupported), "ok() must reject every refusal");
 // change what a remote reports. Pinning `Ok == 0` and `Unsupported == 10` alone
 // let `RefusedRunning` and `RefusedPaused` swap silently.
 static_assert(static_cast<int>(Result::Ok)                 ==  0, "");
-static_assert(static_cast<int>(Result::RefusedRunning)     ==  1, "Result::RefusedRunning moved off 1 — the set is ordered and adapters map it by index");
-static_assert(static_cast<int>(Result::RefusedPaused)      ==  2, "Result::RefusedPaused moved off 2 — the set is ordered and adapters map it by index");
-static_assert(static_cast<int>(Result::RefusedCorrupt)     ==  3, "Result::RefusedCorrupt moved off 3 — the set is ordered and adapters map it by index");
-static_assert(static_cast<int>(Result::RefusedRzx)         ==  4, "Result::RefusedRzx moved off 4 — the set is ordered and adapters map it by index");
-static_assert(static_cast<int>(Result::RefusedUnavailable) ==  5, "Result::RefusedUnavailable moved off 5 — the set is ordered and adapters map it by index");
-static_assert(static_cast<int>(Result::RefusedReadOnly)    ==  6, "Result::RefusedReadOnly moved off 6 — the set is ordered and adapters map it by index");
-static_assert(static_cast<int>(Result::InvalidPage)        ==  7, "Result::InvalidPage moved off 7 — the set is ordered and adapters map it by index");
-static_assert(static_cast<int>(Result::NotAtFrameBoundary) ==  8, "Result::NotAtFrameBoundary moved off 8 — the set is ordered and adapters map it by index");
-static_assert(static_cast<int>(Result::NoFrame)            ==  9, "Result::NoFrame moved off 9 — the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::RefusedRunning)     ==  1, "Result::RefusedRunning moved off 1 - the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::RefusedPaused)      ==  2, "Result::RefusedPaused moved off 2 - the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::RefusedCorrupt)     ==  3, "Result::RefusedCorrupt moved off 3 - the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::RefusedRzx)         ==  4, "Result::RefusedRzx moved off 4 - the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::RefusedUnavailable) ==  5, "Result::RefusedUnavailable moved off 5 - the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::RefusedReadOnly)    ==  6, "Result::RefusedReadOnly moved off 6 - the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::InvalidPage)        ==  7, "Result::InvalidPage moved off 7 - the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::NotAtFrameBoundary) ==  8, "Result::NotAtFrameBoundary moved off 8 - the set is ordered and adapters map it by index");
+static_assert(static_cast<int>(Result::NoFrame)            ==  9, "Result::NoFrame moved off 9 - the set is ordered and adapters map it by index");
 // The §4 preamble's set is exactly eleven values. A twelfth is a change to the
 // design document, and this row is where it gets noticed.
 static_assert(static_cast<int>(Result::Unsupported) == 10,
@@ -382,7 +382,7 @@ struct AllSeven : Listener {
     DBG_ON_PAUSED DBG_ON_RESUMED DBG_ON_RESET DBG_ON_FRAME DBG_ON_SUBS DBG_ON_EXIT DBG_ON_LOG
 };
 static_assert(!std::is_abstract<AllSeven>::value,
-              "a stub overriding all seven must be concrete — if this fires, one "
+              "a stub overriding all seven must be concrete - if this fires, one "
               "of the seven signatures above does not match the interface and the "
               "OmitX asserts are passing for the wrong reason");
 static_assert(std::is_base_of<Listener, AllSeven>::value, "");

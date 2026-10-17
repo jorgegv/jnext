@@ -157,7 +157,7 @@ void SdCardDevice::deselect() {
         pending_write_after_r1_ = false;
         persistent_response_byte_ = 0xFF;
         sd_log()->debug(
-            "CS deasserted mid-CMD18 — stream paused (next byte={:#010x})",
+            "CS deasserted mid-CMD18 - stream paused (next byte={:#010x})",
             multi_block_addr_);
         return;
     }
@@ -204,7 +204,7 @@ void SdCardDevice::deselect() {
     // mmc_index_command=0 (so case 0x00 fires next, returning $FF on TBBlue).
     persistent_response_byte_ = 0xFF;
     // Note: initialized_ is NOT reset — the card stays initialized
-    sd_log()->debug("CS deasserted — protocol state reset to IDLE");
+    sd_log()->debug("CS deasserted - protocol state reset to IDLE");
 }
 
 uint8_t SdCardDevice::exchange(uint8_t tx) {
@@ -333,7 +333,7 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                     if (!file_.good()) {
                         sd_log()->warn(
                             "CMD24 host-side write failed at sector={} "
-                            "(byte={:#010x}) — emitting write-error token "
+                            "(byte={:#010x}) - emitting write-error token "
                             "0x0D (file was opened RO or I/O error)",
                             sector, byte_addr);
                         write_ok = false;
@@ -1236,7 +1236,7 @@ void SdCardDevice::build_csd_v1(uint8_t csd[16]) const {
         units = 1;
         sd_log()->warn(
             "SDSC CSD v1.0 cannot express {} bytes (the smallest v1.0 "
-            "capacity is one MULT unit = 2048 bytes); declaring 2048 — reads "
+            "capacity is one MULT unit = 2048 bytes); declaring 2048 - reads "
             "past the real end of the image are still refused",
             file_size_);
     }

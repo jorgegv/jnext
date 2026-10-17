@@ -286,7 +286,7 @@ void AtEngine::dispatch_line() {
         // useless: 512 characters of an `AT+CIPSTART=` is still a valid
         // `AT+CIPSTART=`, so a truncate-and-run reading would open a
         // connection to a host the guest never named.
-        log_debug("AT line over {} bytes — refusing the whole line", MAX_COMMAND_LEN);
+        log_debug("AT line over {} bytes - refusing the whole line", MAX_COMMAND_LEN);
         queue_error();
         return;
     }
@@ -309,7 +309,7 @@ void AtEngine::dispatch_line() {
         return;
     }
 
-    log_debug("unsupported command \"{}\" — answering ERROR", escape(line_));
+    log_debug("unsupported command \"{}\" - answering ERROR", escape(line_));
     queue_error();
 }
 
@@ -366,7 +366,7 @@ void AtEngine::cmd_reset(const std::string&) {
         Connection& c = conn_[cid];
         if (!c.transport) continue;
         if (c.open || c.connecting) {
-            log_info("AT+RST — dropping the connection to {}:{}", c.host, c.port);
+            log_info("AT+RST - dropping the connection to {}:{}", c.host, c.port);
             c.transport->close();
         }
         c.open          = false;
@@ -383,7 +383,7 @@ void AtEngine::cmd_reset(const std::string&) {
     // makes it a security property rather than only a fidelity one: a listening
     // port that outlived the module that opened it is exactly how this leaks.
     if (listener_ && listener_->listening()) {
-        log_info("AT+RST — closing the server on port {}", listener_->port());
+        log_info("AT+RST - closing the server on port {}", listener_->port());
         listener_->close();
     }
     mode_        = Mode::Command;
@@ -438,7 +438,7 @@ void AtEngine::cmd_cipstart(const std::string& args) {
     // this is a redundant GUARD, which can only refuse something twice.
     if (c.open || c.connecting) {
         // Real firmware says `ALREADY CONNECTED`, which nothing parses.
-        log_debug("AT+CIPSTART while a connection exists — answering ERROR");
+        log_debug("AT+CIPSTART while a connection exists - answering ERROR");
         queue_error();
         return;
     }
@@ -459,7 +459,7 @@ void AtEngine::cmd_cipstart(const std::string& args) {
     // traffic behaviour that has never been measured — the one thing §16.3 says
     // not to do.
     if (!station_enabled_by_guest()) {
-        log_debug("AT+CIPSTART with no station (mode {}, joined {}) — answering ERROR",
+        log_debug("AT+CIPSTART with no station (mode {}, joined {}) - answering ERROR",
                   cwmode_, joined_);
         queue_error();
         return;
@@ -468,7 +468,7 @@ void AtEngine::cmd_cipstart(const std::string& args) {
     std::string rest = args;
     std::string proto;
     if (!take_quoted(rest, proto)) {
-        log_debug("AT+CIPSTART has no quoted protocol — answering ERROR");
+        log_debug("AT+CIPSTART has no quoted protocol - answering ERROR");
         queue_error();
         return;
     }
@@ -479,21 +479,21 @@ void AtEngine::cmd_cipstart(const std::string& args) {
         protocol = Protocol::Udp;
     } else {
         // SSL/"UDPv6"/anything else: still no consumer, still refused.
-        log_debug("AT+CIPSTART protocol \"{}\" unsupported — answering ERROR", escape(proto));
+        log_debug("AT+CIPSTART protocol \"{}\" unsupported - answering ERROR", escape(proto));
         queue_error();
         return;
     }
 
     std::string host;
     if (!take_quoted(rest, host) || host.empty()) {
-        log_debug("AT+CIPSTART has no usable host — answering ERROR");
+        log_debug("AT+CIPSTART has no usable host - answering ERROR");
         queue_error();
         return;
     }
 
     std::uint32_t port = 0;
     if (!parse_uint(take_field(rest), 65535, port) || port == 0) {
-        log_debug("AT+CIPSTART has no usable port — answering ERROR");
+        log_debug("AT+CIPSTART has no usable port - answering ERROR");
         queue_error();
         return;
     }
@@ -509,7 +509,7 @@ void AtEngine::cmd_cipstart(const std::string& args) {
         if (!rest.empty()) {
             std::uint32_t keepalive = 0;
             if (!parse_uint(take_field(rest), 7200, keepalive) || !rest.empty()) {
-                log_debug("AT+CIPSTART trailing arguments unparseable — answering ERROR");
+                log_debug("AT+CIPSTART trailing arguments unparseable - answering ERROR");
                 queue_error();
                 return;
             }
@@ -517,7 +517,7 @@ void AtEngine::cmd_cipstart(const std::string& args) {
     } else if (!rest.empty()) {
         std::uint32_t lport = 0;
         if (!parse_uint(take_field(rest), 65535, lport)) {
-            log_debug("AT+CIPSTART=\"UDP\" local port unparseable — answering ERROR");
+            log_debug("AT+CIPSTART=\"UDP\" local port unparseable - answering ERROR");
             queue_error();
             return;
         }
@@ -525,7 +525,7 @@ void AtEngine::cmd_cipstart(const std::string& args) {
         if (!rest.empty()) {
             std::uint32_t mode = 0;
             if (!parse_uint(take_field(rest), 2, mode) || !rest.empty()) {
-                log_debug("AT+CIPSTART=\"UDP\" mode unparseable — answering ERROR");
+                log_debug("AT+CIPSTART=\"UDP\" mode unparseable - answering ERROR");
                 queue_error();
                 return;
             }
@@ -535,7 +535,7 @@ void AtEngine::cmd_cipstart(const std::string& args) {
                 // this transport (a `connect()`ed socket, by design) cannot do
                 // and which would need its own security decision about who is
                 // allowed to become the peer.
-                log_debug("AT+CIPSTART=\"UDP\" mode {} unsupported (peer is fixed) — "
+                log_debug("AT+CIPSTART=\"UDP\" mode {} unsupported (peer is fixed) - "
                            "answering ERROR", mode);
                 queue_error();
                 return;
@@ -562,7 +562,7 @@ void AtEngine::cmd_cipstart(const std::string& args) {
     // Through `now()`, like every other wall-clock read here: one notion of
     // time, so a host (or a row) that supplies a clock supplies all of it.
     c.connect_deadline = now() + connect_timeout_;
-    log_debug("AT+CIPSTART accepted: {} {}:{} (local port {}) on cid {} — reply deferred to "
+    log_debug("AT+CIPSTART accepted: {} {}:{} (local port {}) on cid {} - reply deferred to "
               "poll() (deadline {} ms)",
                protocol_text(protocol), c.host, c.port, local_port, SINGLE_CID,
                connect_timeout_.count());
@@ -583,7 +583,7 @@ void AtEngine::begin_send(const std::string& args, const char* name) {
     if (cipmux_) {
         std::uint32_t id = 0;
         if (!parse_uint(take_field(rest), MAX_CONNECTIONS - 1, id)) {
-            log_debug("{} link id \"{}\" out of range — answering ERROR", name, escape(args));
+            log_debug("{} link id \"{}\" out of range - answering ERROR", name, escape(args));
             queue_error();
             return;
         }
@@ -591,14 +591,14 @@ void AtEngine::begin_send(const std::string& args, const char* name) {
     }
 
     if (!conn_[cid].open) {
-        log_debug("{} on cid {} which is not open — answering ERROR", name, cid);
+        log_debug("{} on cid {} which is not open - answering ERROR", name, cid);
         queue_error();
         return;
     }
 
     std::uint32_t len = 0;
     if (!parse_uint(rest, MAX_SEND_LEN, len) || len == 0) {
-        log_debug("{} length \"{}\" out of range — answering ERROR", name, escape(args));
+        log_debug("{} length \"{}\" out of range - answering ERROR", name, escape(args));
         queue_error();
         return;
     }
@@ -612,7 +612,7 @@ void AtEngine::begin_send(const std::string& args, const char* name) {
     // THE prompt. Three parsers need these exact bytes and none of them has a
     // timeout; emitting anything else hangs the guest forever.
     queue("\r\nOK\r\n> ");
-    log_debug("{}={} accepted — '>' prompt issued, awaiting {} payload byte(s)", name, len,
+    log_debug("{}={} accepted - '>' prompt issued, awaiting {} payload byte(s)", name, len,
                len);
 }
 
@@ -621,7 +621,7 @@ void AtEngine::cmd_cipclose(const std::string&) {
     if (!c.open && !c.connecting) {
         // nextsync loops AT+CIPCLOSE up to 10 times WHILE ERROR IS NOT SEEN,
         // so "nothing was open" must really answer ERROR or it spins.
-        log_debug("AT+CIPCLOSE with nothing open — answering ERROR");
+        log_debug("AT+CIPCLOSE with nothing open - answering ERROR");
         queue_error();
         return;
     }
@@ -638,7 +638,7 @@ void AtEngine::cmd_cipclose_id(const std::string& args) {
     // working in both modes, which is what nextsync — the one client that
     // loops `AT+CIPCLOSE` — depends on.
     if (!cipmux_) {
-        log_debug("AT+CIPCLOSE=<id> needs AT+CIPMUX=1 first — answering ERROR");
+        log_debug("AT+CIPCLOSE=<id> needs AT+CIPMUX=1 first - answering ERROR");
         queue_error();
         return;
     }
@@ -655,7 +655,7 @@ void AtEngine::cmd_cipclose_id(const std::string& args) {
     // per-connection close is what exists.
     std::uint32_t id = 0;
     if (!parse_uint(args, MAX_CONNECTIONS - 1, id)) {
-        log_debug("AT+CIPCLOSE link id \"{}\" out of range — answering ERROR", escape(args));
+        log_debug("AT+CIPCLOSE link id \"{}\" out of range - answering ERROR", escape(args));
         queue_error();
         return;
     }
@@ -668,7 +668,7 @@ void AtEngine::cmd_cipclose_id(const std::string& args) {
         // slot that was never taken. A connection the PEER has already dropped
         // is in this state too — its `<id>,CLOSED` is already owed and will
         // arrive on its own.
-        log_debug("AT+CIPCLOSE={} but that cid has no connection — answering ERROR", cid);
+        log_debug("AT+CIPCLOSE={} but that cid has no connection - answering ERROR", cid);
         queue_error();
         return;
     }
@@ -716,7 +716,7 @@ void AtEngine::close_connection(std::size_t cid) {
 
 void AtEngine::cmd_cipmux(const std::string& args) {
     if (args != "0" && args != "1") {
-        log_debug("AT+CIPMUX={} is not a mode (0 or 1) — answering ERROR", escape(args));
+        log_debug("AT+CIPMUX={} is not a mode (0 or 1) - answering ERROR", escape(args));
         queue_error();
         return;
     }
@@ -738,7 +738,7 @@ void AtEngine::cmd_cipmux(const std::string& args) {
     // even fail cleanly on the other one (see `format_ipd_header`).
     for (std::size_t cid = 0; cid < MAX_CONNECTIONS; ++cid) {
         if (!conn_[cid].open && !conn_[cid].connecting) continue;
-        log_debug("AT+CIPMUX={} while cid {} is live — answering ERROR", args, cid);
+        log_debug("AT+CIPMUX={} while cid {} is live - answering ERROR", args, cid);
         queue_error();
         return;
     }
@@ -747,14 +747,14 @@ void AtEngine::cmd_cipmux(const std::string& args) {
     // and `+IPD,<id>,…` to whoever connects next, so leaving it up under
     // CIPMUX=0 would mean framing the next client cannot have asked for.
     if (!want && listener_ && listener_->listening()) {
-        log_debug("AT+CIPMUX=0 while the server is listening on port {} — answering ERROR",
+        log_debug("AT+CIPMUX=0 while the server is listening on port {} - answering ERROR",
                   listener_->port());
         queue_error();
         return;
     }
 
     cipmux_ = want;
-    log_debug("AT+CIPMUX={} accepted — {} connection mode", args,
+    log_debug("AT+CIPMUX={} accepted - {} connection mode", args,
               cipmux_ ? "multiple" : "single");
     queue_ok();
 }
@@ -765,7 +765,7 @@ void AtEngine::cmd_cipserver(const std::string& args) {
     std::string   rest = args;
     std::uint32_t mode = 0;
     if (!parse_uint(take_field(rest), 1, mode)) {
-        log_debug("AT+CIPSERVER mode \"{}\" is not 0 or 1 — answering ERROR", escape(args));
+        log_debug("AT+CIPSERVER mode \"{}\" is not 0 or 1 - answering ERROR", escape(args));
         queue_error();
         return;
     }
@@ -775,7 +775,7 @@ void AtEngine::cmd_cipserver(const std::string& args) {
             // ESP-AT's `<close_all>` argument. Refused rather than ignored, for
             // the `AT+CIPMUX=1` reason: accepting it would promise a choice
             // about existing connections that this engine does not make.
-            log_debug("AT+CIPSERVER=0 takes no further argument — answering ERROR");
+            log_debug("AT+CIPSERVER=0 takes no further argument - answering ERROR");
             queue_error();
             return;
         }
@@ -784,7 +784,7 @@ void AtEngine::cmd_cipserver(const std::string& args) {
             // evidenced sender of this line turns the server off at init and
             // has always received `ERROR` here (v1.0 had no such command at
             // all), so this is the spelling that changes nothing for it.
-            log_debug("AT+CIPSERVER=0 with no server running — answering ERROR");
+            log_debug("AT+CIPSERVER=0 with no server running - answering ERROR");
             queue_error();
             return;
         }
@@ -793,7 +793,7 @@ void AtEngine::cmd_cipserver(const std::string& args) {
         // Established connections are deliberately left alone: the guest asked
         // to stop ACCEPTING, and dropping a live debug session because its
         // listener was retired would be a surprise nothing asked for.
-        log_info("AT+CIPSERVER=0 — stopped listening on port {}", was);
+        log_info("AT+CIPSERVER=0 - stopped listening on port {}", was);
         queue_ok();
         return;
     }
@@ -803,7 +803,7 @@ void AtEngine::cmd_cipserver(const std::string& args) {
     // so that a guest which forgot the prerequisite is not also told its port
     // is wrong.
     if (!cipmux_) {
-        log_debug("AT+CIPSERVER=1 needs AT+CIPMUX=1 first — answering ERROR");
+        log_debug("AT+CIPSERVER=1 needs AT+CIPMUX=1 first - answering ERROR");
         queue_error();
         return;
     }
@@ -813,13 +813,13 @@ void AtEngine::cmd_cipserver(const std::string& args) {
         // Port 0 is refused although the platform layer accepts it: it means
         // "let the OS choose", and a guest that named no port has no way to be
         // told which one it got.
-        log_debug("AT+CIPSERVER=1 has no usable port — answering ERROR");
+        log_debug("AT+CIPSERVER=1 has no usable port - answering ERROR");
         queue_error();
         return;
     }
 
     if (listener_ && listener_->listening()) {
-        log_debug("AT+CIPSERVER=1 while already listening on port {} — answering ERROR",
+        log_debug("AT+CIPSERVER=1 while already listening on port {} - answering ERROR",
                   listener_->port());
         queue_error();
         return;
@@ -827,7 +827,7 @@ void AtEngine::cmd_cipserver(const std::string& args) {
     if (!listener_) {
         // No server capability was built. Indistinguishable from a failed bind
         // on purpose — see the constructor's note.
-        log_warn("AT+CIPSERVER=1,{} but this ESP has no listener — answering ERROR", port);
+        log_warn("AT+CIPSERVER=1,{} but this ESP has no listener - answering ERROR", port);
         queue_error();
         return;
     }
@@ -836,12 +836,12 @@ void AtEngine::cmd_cipserver(const std::string& args) {
         // NO FALL BACK OF ANY KIND, which is the whole of design doc §13.4's
         // consequence: not to another port, and above all not to a wider bind
         // address. The listener has already logged what went wrong.
-        log_warn("AT+CIPSERVER=1,{} failed to bind ({}) — answering ERROR", port,
+        log_warn("AT+CIPSERVER=1,{} failed to bind ({}) - answering ERROR", port,
                  listener_->last_error());
         queue_error();
         return;
     }
-    log_info("AT+CIPSERVER=1,{} — listening", listener_->port());
+    log_info("AT+CIPSERVER=1,{} - listening", listener_->port());
     queue_ok();
 }
 
@@ -866,7 +866,7 @@ void AtEngine::cmd_cipsto(const std::string& args) {
     // both arms answer ERROR and leave `server_timeout_` alone, so no claim is
     // being made about which one a real module checks first.
     if (!listener_ || !listener_->listening()) {
-        log_debug("AT+CIPSTO=\"{}\" with no server running — answering ERROR",
+        log_debug("AT+CIPSTO=\"{}\" with no server running - answering ERROR",
                   escape(args));
         queue_error();
         return;
@@ -879,7 +879,7 @@ void AtEngine::cmd_cipsto(const std::string& args) {
     // a leading '-' as a non-digit, which is how a negative gets here.
     std::uint32_t seconds = 0;
     if (!parse_uint(args, MAX_SERVER_TIMEOUT_S, seconds)) {
-        log_debug("AT+CIPSTO=\"{}\" is not 0..{} — answering ERROR", escape(args),
+        log_debug("AT+CIPSTO=\"{}\" is not 0..{} - answering ERROR", escape(args),
                   MAX_SERVER_TIMEOUT_S);
         queue_error();
         return;
@@ -889,9 +889,9 @@ void AtEngine::cmd_cipsto(const std::string& args) {
     // re-reads this on every pass, so a guest that raises the value while a
     // client is already connected extends THAT client.
     if (seconds == 0) {
-        log_info("AT+CIPSTO=0 — inbound connections will never be timed out");
+        log_info("AT+CIPSTO=0 - inbound connections will never be timed out");
     } else {
-        log_debug("AT+CIPSTO={} — an inbound client silent for that long is dropped", seconds);
+        log_debug("AT+CIPSTO={} - an inbound client silent for that long is dropped", seconds);
     }
     queue_ok();
 }
@@ -906,7 +906,7 @@ void AtEngine::cmd_uart(const std::string& args) {
     std::string rest = args;
     std::uint32_t baud = 0;
     if (!parse_uint(take_field(rest), 5000000, baud) || baud == 0) {
-        log_debug("AT+UART baud \"{}\" unparseable — answering ERROR", escape(args));
+        log_debug("AT+UART baud \"{}\" unparseable - answering ERROR", escape(args));
         queue_error();
         return;
     }
@@ -916,7 +916,7 @@ void AtEngine::cmd_uart(const std::string& args) {
     // own side is all that is needed for the rate to follow. nextsync does not
     // even wait for this OK — it switches immediately and re-probes with the
     // empty line.
-    log_debug("AT+UART baud set to {} — pacing follows the live prescaler", baud);
+    log_debug("AT+UART baud set to {} - pacing follows the live prescaler", baud);
     queue_ok();
 }
 
@@ -996,7 +996,7 @@ void AtEngine::cmd_cwmode(const std::string& args) {
     // 1 = station, 2 = SoftAP, 3 = both. `AT+CWMODE=?` lands here too and
     // fails this parse, which is the intended refusal of the test form.
     if (!parse_uint(args, 3, mode) || mode == 0) {
-        log_debug("AT+CWMODE=\"{}\" is not a mode — answering ERROR", escape(args));
+        log_debug("AT+CWMODE=\"{}\" is not a mode - answering ERROR", escape(args));
         queue_error();
         return;
     }
@@ -1008,7 +1008,7 @@ void AtEngine::cmd_cwmode(const std::string& args) {
     // instead would have been the easy choice and a worse one: it would make
     // jnext answer ERROR to a value the Next's own OTA instructions use
     // (`AT+CWMODE=3`, readme:553) and teach nothing about the mode.
-    log_debug("AT+CWMODE={} — station {}", cwmode_,
+    log_debug("AT+CWMODE={} - station {}", cwmode_,
               cwmode_ == CWMODE_SOFTAP_ONLY ? "disabled (SoftAP only)" : "enabled");
     queue_ok();
 }
@@ -1021,7 +1021,7 @@ void AtEngine::cmd_cwjap_set(const std::string& args) {
     std::string rest = args;
     std::string ssid;
     if (!take_quoted(rest, ssid) || ssid.empty()) {
-        log_debug("AT+CWJAP=\"{}\" has no SSID — answering ERROR", escape(args));
+        log_debug("AT+CWJAP=\"{}\" has no SSID - answering ERROR", escape(args));
         queue_error();
         return;
     }
@@ -1038,7 +1038,7 @@ void AtEngine::cmd_cwjap_set(const std::string& args) {
     // reported back.
     std::string password;
     if (!take_quoted(rest, password)) {
-        log_debug("AT+CWJAP=\"{}\" has no password — answering ERROR", escape(args));
+        log_debug("AT+CWJAP=\"{}\" has no password - answering ERROR", escape(args));
         queue_error();
         return;
     }
@@ -1111,12 +1111,12 @@ void AtEngine::cmd_cipmode(const std::string& args) {
     // module that hangs the emulated machine when it is wrong.
     std::uint32_t mode = 0;
     if (!parse_uint(args, 1, mode)) {
-        log_debug("AT+CIPMODE=\"{}\" unparseable — answering ERROR", escape(args));
+        log_debug("AT+CIPMODE=\"{}\" unparseable - answering ERROR", escape(args));
         queue_error();
         return;
     }
     if (mode != 0) {
-        log_debug("AT+CIPMODE=1 (passthrough) is not implemented — answering ERROR");
+        log_debug("AT+CIPMODE=1 (passthrough) is not implemented - answering ERROR");
         queue_error();
         return;
     }
@@ -1148,7 +1148,7 @@ void AtEngine::cmd_cipdomain(const std::string& args) {
     if (!resolver_) {
         // No resolver was supplied, so the module genuinely cannot do this —
         // the same shape as `AT+CIPSERVER` without a listener.
-        log_debug("AT+CIPDOMAIN with no resolver wired — answering ERROR");
+        log_debug("AT+CIPDOMAIN with no resolver wired - answering ERROR");
         queue_error();
         return;
     }
@@ -1158,7 +1158,7 @@ void AtEngine::cmd_cipdomain(const std::string& args) {
         // thing that makes it unreachable is NON-LOCAL, so a reader of this
         // function cannot see it, and a second lookup would silently discard
         // the first one's answer.
-        log_debug("AT+CIPDOMAIN while a lookup is in flight — answering ERROR");
+        log_debug("AT+CIPDOMAIN while a lookup is in flight - answering ERROR");
         queue_error();
         return;
     }
@@ -1178,7 +1178,7 @@ void AtEngine::cmd_cipdomain(const std::string& args) {
     // REPORT — the user guide promises new connections still open during one,
     // ASSOC-13 and CWQ-08 pin it for connects, and DOM-25 now pins it here.
     if (!station_enabled_by_guest()) {
-        log_debug("AT+CIPDOMAIN with no station (mode {}, joined {}) — answering ERROR",
+        log_debug("AT+CIPDOMAIN with no station (mode {}, joined {}) - answering ERROR",
                   cwmode_, joined_);
         queue_error();
         return;
@@ -1187,7 +1187,7 @@ void AtEngine::cmd_cipdomain(const std::string& args) {
     std::string rest = args;
     std::string host;
     if (!take_quoted(rest, host) || host.empty()) {
-        log_debug("AT+CIPDOMAIN=\"{}\" has no quoted name — answering ERROR", escape(args));
+        log_debug("AT+CIPDOMAIN=\"{}\" has no quoted name - answering ERROR", escape(args));
         queue_error();
         return;
     }
@@ -1196,13 +1196,13 @@ void AtEngine::cmd_cipdomain(const std::string& args) {
     // (NONOS AT instruction set §5.2.2). A guest-supplied string that leaves
     // the module is exactly where a length check belongs.
     if (host.size() >= MAX_DOMAIN_NAME) {
-        log_debug("AT+CIPDOMAIN name is {} bytes, limit is {} — answering ERROR", host.size(),
+        log_debug("AT+CIPDOMAIN name is {} bytes, limit is {} - answering ERROR", host.size(),
                   MAX_DOMAIN_NAME - 1);
         queue_error();
         return;
     }
     if (!resolver_->begin(host)) {
-        log_debug("AT+CIPDOMAIN resolver refused '{}' — answering ERROR", escape(host));
+        log_debug("AT+CIPDOMAIN resolver refused '{}' - answering ERROR", escape(host));
         queue_error();
         return;
     }
@@ -1284,7 +1284,7 @@ void AtEngine::finish_domain(bool ok) {
 
 void AtEngine::cmd_ping(const std::string& args) {
     if (!pinger_) {
-        log_debug("AT+PING with no pinger wired — answering ERROR");
+        log_debug("AT+PING with no pinger wired - answering ERROR");
         queue_error();
         return;
     }
@@ -1292,7 +1292,7 @@ void AtEngine::cmd_ping(const std::string& args) {
         // Unreachable while `receive()` defers, kept for the reason the
         // matching guards in cmd_cipstart and cmd_cipdomain are kept: what
         // makes it unreachable is NON-LOCAL.
-        log_debug("AT+PING while one is in flight — answering ERROR");
+        log_debug("AT+PING while one is in flight - answering ERROR");
         queue_error();
         return;
     }
@@ -1303,7 +1303,7 @@ void AtEngine::cmd_ping(const std::string& args) {
     // only, never `station_has_ip()`: a HOST-scheduled outage must not refuse,
     // because GH #246 confined an outage to the address report.
     if (!station_enabled_by_guest()) {
-        log_debug("AT+PING with no station (mode {}, joined {}) — answering ERROR", cwmode_,
+        log_debug("AT+PING with no station (mode {}, joined {}) - answering ERROR", cwmode_,
                   joined_);
         queue_error();
         return;
@@ -1312,12 +1312,12 @@ void AtEngine::cmd_ping(const std::string& args) {
     std::string rest = args;
     std::string host;
     if (!take_quoted(rest, host) || host.empty()) {
-        log_debug("AT+PING=\"{}\" has no quoted host — answering ERROR", escape(args));
+        log_debug("AT+PING=\"{}\" has no quoted host - answering ERROR", escape(args));
         queue_error();
         return;
     }
     if (host.size() >= MAX_DOMAIN_NAME) {
-        log_debug("AT+PING host is {} bytes, limit is {} — answering ERROR", host.size(),
+        log_debug("AT+PING host is {} bytes, limit is {} - answering ERROR", host.size(),
                   MAX_DOMAIN_NAME - 1);
         queue_error();
         return;
@@ -1326,7 +1326,7 @@ void AtEngine::cmd_ping(const std::string& args) {
         // Covers a hostile or implausible host: `plausible_ping_host` refuses a
         // leading `-` and anything outside the hostname alphabet, so a guest
         // cannot turn this into an option or a shell fragment.
-        log_debug("AT+PING refused the host \"{}\" — answering ERROR", escape(host));
+        log_debug("AT+PING refused the host \"{}\" - answering ERROR", escape(host));
         queue_error();
         return;
     }
@@ -1397,7 +1397,7 @@ void AtEngine::cmd_cipsntpcfg(const std::string& args) {
     std::string   rest = args;
     std::uint32_t enable = 0;
     if (!parse_uint(take_field(rest), 1, enable)) {
-        log_debug("AT+CIPSNTPCFG enable \"{}\" unparseable — answering ERROR", escape(args));
+        log_debug("AT+CIPSNTPCFG enable \"{}\" unparseable - answering ERROR", escape(args));
         queue_error();
         return;
     }
@@ -1411,14 +1411,14 @@ void AtEngine::cmd_cipsntpcfg(const std::string& args) {
         char*             end = nullptr;
         const long        v   = std::strtol(tz_text.c_str(), &end, 10);
         if (tz_text.empty() || end == tz_text.c_str() || *end != '\0' || v < -11 || v > 13) {
-            log_debug("AT+CIPSNTPCFG timezone \"{}\" out of range [-11,13] — answering ERROR",
+            log_debug("AT+CIPSNTPCFG timezone \"{}\" out of range [-11,13] - answering ERROR",
                       escape(tz_text));
             queue_error();
             return;
         }
         timezone = static_cast<int>(v);
     } else if (enable) {
-        log_debug("AT+CIPSNTPCFG=1 with no timezone — answering ERROR");
+        log_debug("AT+CIPSNTPCFG=1 with no timezone - answering ERROR");
         queue_error();
         return;
     }
@@ -1431,7 +1431,7 @@ void AtEngine::cmd_cipsntpcfg(const std::string& args) {
     while (!rest.empty() && given < 3) {
         std::string one;
         if (!take_quoted(rest, one) || one.empty() || !plausible_ping_host(one)) {
-            log_debug("AT+CIPSNTPCFG server \"{}\" is not a usable host — answering ERROR",
+            log_debug("AT+CIPSNTPCFG server \"{}\" is not a usable host - answering ERROR",
                       escape(rest));
             queue_error();
             return;
@@ -1439,7 +1439,7 @@ void AtEngine::cmd_cipsntpcfg(const std::string& args) {
         servers[given++] = one;
     }
     if (!rest.empty()) {
-        log_debug("AT+CIPSNTPCFG has trailing arguments — answering ERROR");
+        log_debug("AT+CIPSNTPCFG has trailing arguments - answering ERROR");
         queue_error();
         return;
     }
@@ -1464,7 +1464,7 @@ void AtEngine::cmd_cipsntpcfg_query(const std::string&) {
 
 void AtEngine::cmd_cipsntptime_query(const std::string&) {
     if (sntp_pending_) {
-        log_debug("AT+CIPSNTPTIME? while a query is in flight — answering ERROR");
+        log_debug("AT+CIPSNTPTIME? while a query is in flight - answering ERROR");
         queue_error();
         return;
     }
@@ -1783,7 +1783,7 @@ void AtEngine::accept_connections() {
             // invisible on ours. Real firmware refuses past its own ceiling
             // too; ours is one lower because slot 0 is reserved
             // (simplification 8a).
-            log_warn("inbound connection dropped — all {} inbound slots are in use",
+            log_warn("inbound connection dropped - all {} inbound slots are in use",
                      MAX_CONNECTIONS - FIRST_INBOUND_CID);
             adopted->close();
             continue;
@@ -1844,7 +1844,7 @@ void AtEngine::resolve_connect(std::size_t cid) {
             // does not slow down, it FREEZES. Answering ERROR is AT-protocol
             // behaviour and belongs here, not in the transport: the transport
             // has no idea a guest is blocked on a reply.
-            log_warn("connection to {}:{} timed out after {} ms — answering ERROR", c.host,
+            log_warn("connection to {}:{} timed out after {} ms - answering ERROR", c.host,
                       c.port, connect_timeout_.count());
             c.connecting = false;
             c.open       = false;
@@ -2057,7 +2057,7 @@ void AtEngine::enforce_server_timeout() {
         if (!c.transport || !c.open) continue;
         if (t - c.last_client_data < window) continue;
 
-        log_info("inbound connection {} on cid {} idle for {} s — closing it (AT+CIPSTO)",
+        log_info("inbound connection {} on cid {} idle for {} s - closing it (AT+CIPSTO)",
                  c.host, cid, server_timeout_);
         // MODELLED AS A PEER CLOSE, deliberately. The module hangs up, but the
         // guest did not ask it to, so this is a URC and not a command reply —

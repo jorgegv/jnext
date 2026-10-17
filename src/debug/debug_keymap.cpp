@@ -175,7 +175,7 @@ bool validate_combo(const Combo& c, std::string& why) {
     // behaviour that does not exist. A panel that later gives a modified
     // navigation key its own meaning must reserve it here, the way GH #21 did.
     if (!has_hard_mod && !is_function_key(c.key)) {
-        why = "needs Ctrl, Alt or Meta — only F1-F12 may be bound on their own, "
+        why = "needs Ctrl, Alt or Meta - only F1-F12 may be bound on their own, "
               "because a bare key is taken from the panel that has focus";
         return false;
     }

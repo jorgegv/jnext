@@ -2444,7 +2444,7 @@ static void test_rewind_refusal_ui() {
         // The wall: a change at C mid-frame, two steps, Step Back past C.
         Fixture fx(MachineType::ZX48K, 10);
         const char* desc = "Step Back across a debugger change: \"Step Back refused: it would "
-                           "undo a change you made from the debugger in frame N — use Frame "
+                           "undo a change you made from the debugger in frame N - use Frame "
                            "Back (or the slider) to that frame's start, which undoes the "
                            "change, or carry on forward\"";
         if (!fx.ok || !fx.emu.rewind_buffer()) {
@@ -2466,7 +2466,7 @@ static void test_rewind_refusal_ui() {
             const uint16_t pc0 = fx.pc();
             fx.mgr->on_step_back();
             const QString want = QStringLiteral("Step Back refused: it would undo a change you "
-                                                "made from the debugger in frame %1 — use "
+                                                "made from the debugger in frame %1 - use "
                                                 "Frame Back (or the slider) to that frame's "
                                                 "start, which undoes the change, or carry on "
                                                 "forward")

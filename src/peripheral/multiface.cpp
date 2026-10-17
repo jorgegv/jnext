@@ -61,7 +61,7 @@ void Multiface::set_enabled(bool en)
         // behaviour the next clock would produce. This mirrors the
         // DivMmc::set_enabled enabled→disabled-edge clear pattern.
         if (mf_log()->should_log(spdlog::level::debug)) {
-            mf_log()->debug("disabled — forcing FFs to reset state");
+            mf_log()->debug("disabled - forcing FFs to reset state");
         }
         nmi_active_   = false;
         invisible_    = true;   // VHDL reset value (line 156)

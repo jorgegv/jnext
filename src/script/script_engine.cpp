@@ -542,7 +542,7 @@ void ScriptEngine::runtime_error(RuleRec& r, const Diagnostic& d) {
     r.dead = true;
     ++runtime_errors_;
     for (dbg::EventId id : r.subs) dbg_.set_enabled(cid_, id, false);
-    log(dbg::LogLevel::Error, "SCRIPT ERROR " + r.unit->file + ":" + d.to_string() + " — rule " +
+    log(dbg::LogLevel::Error, "SCRIPT ERROR " + r.unit->file + ":" + d.to_string() + " - rule " +
                                   rule_name(*r.rule) + " disabled");
     mark_failure(1, "a run-time error in " + rule_name(*r.rule));
     error_exit_pending_ = true;

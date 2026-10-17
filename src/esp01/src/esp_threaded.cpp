@@ -173,7 +173,7 @@ void ThreadedEsp::note_pass_exception(const std::string& what) {
     // can see it happened at all rather than inferring it from log text.
     const std::uint64_t n = pass_exceptions_.fetch_add(1, std::memory_order_release);
     if (n == 0)
-        log_error("ESP worker: the transport threw ({}) — this service pass is lost. "
+        log_error("ESP worker: the transport threw ({}) - this service pass is lost. "
                   "EspTransport methods must not throw; see esp_socket.h.", what);
     else
         log_debug("ESP worker: the transport threw again ({}), occurrence {}", what, n + 1);

@@ -1981,7 +1981,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                         a, r.BC, r.DE, r.HL);
                 } else {
                     Log::esxdos()->trace(
-                        "<- ${:02X} {:<12} not serviced by jnext — dispatched to "
+                        "<- ${:02X} {:<12} not serviced by jnext - dispatched to "
                         "the ROM at $0008", defb, name ? name : "(unknown)");
                 }
                 return handled;
@@ -6836,18 +6836,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                                     const char* desc) -> bool {
             std::vector<uint8_t> bytes;
             if (!extract_sd_rom(cfg.sd_card_image, sd_path, bytes)) {
-                Log::emulator()->warn("could not extract '{}' from SD image '{}' — {} will not boot",
+                Log::emulator()->warn("could not extract '{}' from SD image '{}' - {} will not boot",
                                       sd_path, cfg.sd_card_image, desc);
                 return false;
             }
             if (bytes.size() < expected_size) {
-                Log::emulator()->warn("SD ROM '{}' short ({} bytes, expected {}) — {} will not boot",
+                Log::emulator()->warn("SD ROM '{}' short ({} bytes, expected {}) - {} will not boot",
                                       sd_path, bytes.size(), expected_size, desc);
                 return false;
             }
             for (int b = 0; b < total_banks; ++b) {
                 if (!rom_.load_bytes(b, bytes.data() + b * 0x4000, 0x4000)) {
-                    Log::emulator()->warn("could not load bank {} from SD ROM '{}' — {} will not boot",
+                    Log::emulator()->warn("could not load bank {} from SD ROM '{}' - {} will not boot",
                                           b, sd_path, desc);
                     return false;
                 }
@@ -7105,7 +7105,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 Log::emulator()->warn("could not install DivMMC ROM from SD '{}'", divmmc_sd_path);
             }
         } else {
-            Log::emulator()->warn("could not extract DivMMC ROM from SD image '{}' (path '{}') — DivMMC disabled",
+            Log::emulator()->warn("could not extract DivMMC ROM from SD image '{}' (path '{}') - DivMMC disabled",
                                   cfg.sd_card_image, divmmc_sd_path);
         }
 
@@ -7132,7 +7132,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 Log::emulator()->warn("could not install Multiface ROM from SD '{}'", mf_sd_path);
             }
         } else {
-            Log::emulator()->warn("Multiface ROM not found on SD image '{}' (path '{}') — Multiface ROM unavailable",
+            Log::emulator()->warn("Multiface ROM not found on SD image '{}' (path '{}') - Multiface ROM unavailable",
                                   cfg.sd_card_image, mf_sd_path);
         }
 
@@ -7191,7 +7191,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 Log::emulator()->info("AltROM loaded from SD '{}' ({} bytes -> SRAM pages 0x0C..0x0F)",
                                       alt_sd_path, off);
             } else {
-                Log::emulator()->warn("AltROM not found on SD image '{}' (path '{}') — AltROM unavailable (NextZXOS will likely crash on first AltROM trampoline)",
+                Log::emulator()->warn("AltROM not found on SD image '{}' (path '{}') - AltROM unavailable (NextZXOS will likely crash on first AltROM trampoline)",
                                       cfg.sd_card_image, alt_sd_path);
             }
         }
@@ -7538,7 +7538,7 @@ bool Emulator::nextzxos_resident(std::string& why) const
     //    (VHDL zxnext.vhd:5147-5151 / the bootrom_en gate at :3052). An
     //    overlay still active means the boot never got past the first ROM.
     if (mmu_.boot_rom_enabled()) {
-        why = "the FPGA boot-ROM overlay is still active — the IPL did not run to "
+        why = "the FPGA boot-ROM overlay is still active - the IPL did not run to "
               "its NR 0x03 write";
         return false;
     }
@@ -7549,7 +7549,7 @@ bool Emulator::nextzxos_resident(std::string& why) const
     //    drove it — which is exactly the GH #226 state this mechanism exists
     //    to stop shipping to loaded programs.
     if (nextreg_.nr_03_config_mode()) {
-        why = "NextREG 0x03 config mode is still set — no firmware committed a "
+        why = "NextREG 0x03 config mode is still set - no firmware committed a "
               "machine type";
         return false;
     }
@@ -7605,7 +7605,7 @@ bool Emulator::nextzxos_resident(std::string& why) const
 
     why = "no NextZXOS ROM found in SRAM pages 0-7 (searched for \"";
     why += kMarker;
-    why += "\") — the firmware booted but left no NextZXOS resident";
+    why += "\") - the firmware booted but left no NextZXOS resident";
     return false;
 }
 
@@ -7654,7 +7654,7 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
     const EmulatorConfig boot_cfg = warm_start_boot_config(config_);
 
     Log::emulator()->info(
-        "warm start: no usable cached state — cold-booting the firmware "
+        "warm start: no usable cached state - cold-booting the firmware "
         "(nextboot.rom -> TBBLUE.FW -> NextZXOS) for {} frames to record one. "
         "This happens once per SD image.",
         kWarmStartBootFrames);
@@ -7685,7 +7685,7 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
     if (w.overflow() || w.position() != bytes) {
         Log::emulator()->error(
             "warm start: state serialisation wrote {} bytes against a measured {} "
-            "(overflow={}) — not recording",
+            "(overflow={}) - not recording",
             w.position(), bytes, w.overflow());
         out.clear();
         return false;
@@ -7708,7 +7708,7 @@ bool Emulator::ensure_warm_start_state()
         // on the command line to remind them it was even attempted. So the
         // latch short-circuits the 500-frame boot, not the sentence.
         Log::emulator()->error(
-            "warm start: this SD image was already refused earlier in this session — "
+            "warm start: this SD image was already refused earlier in this session - "
             "this load falls back to the synthetic machine");
         return false;
     }
@@ -7722,14 +7722,14 @@ bool Emulator::ensure_warm_start_state()
         // `--load` comes through here, the same line would print on every
         // legacy-machine run forever, which is how a log stops being read.
         Log::emulator()->debug(
-            "warm start: not applicable on the {} — only the Next boots firmware, so "
+            "warm start: not applicable on the {} - only the Next boots firmware, so "
             "there is nothing to record",
             machine_type_str(config_.type));
         return false;
     }
     if (config_.sd_card_image.empty()) {
         Log::emulator()->error("warm start: no SD image is mounted, so there is no "
-                               "firmware to boot — this load falls back to the "
+                               "firmware to boot - this load falls back to the "
                                "synthetic machine, which is NOT what hardware does");
         return false;
     }
@@ -7754,7 +7754,7 @@ bool Emulator::ensure_warm_start_state()
     // restored state stays in warm_start_state_ for the session.
     id.sd_image_sha256 = sdcard::sha256_file(config_.sd_card_image);
     if (id.sd_image_sha256.empty()) {
-        Log::emulator()->error("warm start: cannot digest SD image '{}' — this load "
+        Log::emulator()->error("warm start: cannot digest SD image '{}' - this load "
                                "falls back to the synthetic machine",
                                config_.sd_card_image);
         warm_start_failed_image_ = config_.sd_card_image;
@@ -7762,7 +7762,7 @@ bool Emulator::ensure_warm_start_state()
     }
 
     if (config_.warm_start_regenerate) {
-        Log::emulator()->info("warm start: --warm-start-regenerate — ignoring any "
+        Log::emulator()->info("warm start: --warm-start-regenerate - ignoring any "
                               "cached state and taking a fresh recording");
     } else {
         std::string why;
@@ -7791,7 +7791,7 @@ bool Emulator::ensure_warm_start_state()
     if (warm_start_state_.size() != id.plain_bytes) {
         Log::emulator()->error(
             "warm start: the recording is {} bytes but this machine's state stream is "
-            "{} — discarding it",
+            "{} - discarding it",
             warm_start_state_.size(), id.plain_bytes);
         warm_start_state_.clear();
         warm_start_failed_image_ = config_.sd_card_image;
@@ -7847,7 +7847,7 @@ bool Emulator::init_for_load_from_file()
         // deserialises wrong leaves the machine half-restored, so the only
         // safe answer is to build a clean synthetic one and say what happened.
         Log::emulator()->error(
-            "warm start: the recorded state failed to deserialise ({}) — discarding "
+            "warm start: the recorded state failed to deserialise ({}) - discarding "
             "it and falling back to the synthetic machine",
             last_state_error().empty() ? std::string("unknown") : last_state_error());
         warm_start_state_.clear();
@@ -7862,7 +7862,7 @@ bool Emulator::init_for_load_from_file()
     std::string why;
     if (!nextzxos_resident(why)) {
         Log::emulator()->error(
-            "warm start: the restored machine is not NextZXOS-resident ({}) — "
+            "warm start: the restored machine is not NextZXOS-resident ({}) - "
             "discarding it and falling back to the synthetic machine", why);
         warm_start_state_.clear();
         warm_start_failed_image_ = config_.sd_card_image;
@@ -7940,7 +7940,7 @@ bool Emulator::load_nex(const std::string& path)
     if (nex_version_needs_v13_optin(loader.header().version_bcd) &&
         !config_.allow_experimental_nex_v13) {
         Log::emulator()->error(
-            "NEX: '{}' is version '{:.4s}' — NEX V1.3 is an experimental format "
+            "NEX: '{}' is version '{:.4s}' - NEX V1.3 is an experimental format "
             "and is not supported; refusing to load. Pass --experimental-nex-v1.3 "
             "(or confirm the GUI warning) to load it anyway, unsupported.",
             path, loader.header().version);
@@ -8230,7 +8230,7 @@ void Emulator::resume_from_park(const char* reason)
     if (!cpu_parked_) return;   // silent no-op: callers call unconditionally
     cpu_parked_ = false;
     Log::emulator()->info(
-        "CPU un-parked: {} — the machine was holding a load-only NEX's state "
+        "CPU un-parked: {} - the machine was holding a load-only NEX's state "
         "(header PC=0) and would otherwise never have run it", reason);
 }
 
@@ -8281,7 +8281,7 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
 
     loader.set_fast_load(fast_load);
     tape_ = std::move(loader);
-    Log::emulator()->info("TAP: tape attached — {} blocks, mode: {}",
+    Log::emulator()->info("TAP: tape attached - {} blocks, mode: {}",
                            tape_.block_count(), tape_.fast_load() ? "fast" : "realtime");
 
     // A new tape replaces whatever tape was in, whatever its format: a TZX
@@ -8517,7 +8517,7 @@ bool Emulator::load_rzx(const std::string& path)
         return false;
     }
 
-    Log::emulator()->info("RZX: loaded '{}' — creator='{}' frames={} snapshot={}",
+    Log::emulator()->info("RZX: loaded '{}' - creator='{}' frames={} snapshot={}",
                           path, rec.creator, rec.frames.size(),
                           rec.snapshot_data.empty() ? "none" : rec.snapshot_ext);
     if (rec.later_snapshots > 0) {
@@ -8575,7 +8575,7 @@ bool Emulator::load_rzx(const std::string& path)
             "RZX: '{}' was recorded on a ZX Spectrum Next, which jnext no longer records "
             "(its embedded '{}' snapshot cannot hold the Next's extra RAM, NextREGs, "
             "Layer 2, tilemap, sprites or Copper). The replay may diverge from the "
-            "recording — a program that does not redraw its display every frame will. "
+            "recording - a program that does not redraw its display every frame will. "
             "Playing it anyway.",
             path, rec.snapshot_ext.empty() ? "none" : rec.snapshot_ext);
     }
@@ -8717,7 +8717,7 @@ bool Emulator::start_tape_save(const std::string& path)
         if (ok)
             Log::emulator()->info("Tape SAVE: appending SAVEd blocks to '{}'", path);
         else
-            Log::emulator()->error("Tape SAVE: cannot open '{}' for append — SAVE trap disabled",
+            Log::emulator()->error("Tape SAVE: cannot open '{}' for append - SAVE trap disabled",
                                    path);
     }
     if (ok) config_.tape_save_file = path;
@@ -8842,7 +8842,7 @@ bool Emulator::rzx_refused_by_machine() const
     Log::emulator()->error(
         "RZX: cannot record on a ZX Spectrum Next. An RZX carries a snapshot of the "
         "machine it starts from, and the formats it can carry (SNA, SZX, Z80) all "
-        "describe a 48K/128K/+3 Spectrum — none holds the Next's extra RAM, NextREGs, "
+        "describe a 48K/128K/+3 Spectrum - none holds the Next's extra RAM, NextREGs, "
         "Layer 2, tilemap, sprites or Copper. Record with '--machine 48k', '128k' or "
         "'plus3'; the Next is jnext's DEFAULT machine, so this needs an explicit "
         "--machine. Playback of a Next recording an older jnext wrote still works, with "
@@ -9359,7 +9359,7 @@ void Emulator::setup_esp()
         // hand, and the answer there is to have NO server rather than to guess
         // an address: AT+CIPSERVER then answers ERROR.
         Log::esp01()->error(
-            "ESP listen address '{}' is not a numeric IP — AT+CIPSERVER will answer ERROR",
+            "ESP listen address '{}' is not a numeric IP - AT+CIPSERVER will answer ERROR",
             config_.esp_listen_address);
     }
 
@@ -9393,7 +9393,7 @@ void Emulator::setup_esp()
     // question gets answered without a debugger.
     if (config_.esp_allowed_hosts.empty()) {
         Log::esp01()->info(
-            "ESP-01 enabled on UART 0 — ANY host allowed (no --esp-allow given); "
+            "ESP-01 enabled on UART 0 - ANY host allowed (no --esp-allow given); "
             "loopback, link-local and cloud-metadata addresses are always refused");
     } else {
         std::string list;
@@ -9401,7 +9401,7 @@ void Emulator::setup_esp()
             if (!list.empty()) list += ", ";
             list += host;
         }
-        Log::esp01()->info("ESP-01 enabled on UART 0 — allowed hosts: {}", list);
+        Log::esp01()->info("ESP-01 enabled on UART 0 - allowed hosts: {}", list);
     }
     // The INBOUND posture, said separately because it is a separate direction
     // and the allowlist above has nothing to do with it (design doc §13.4).
@@ -9415,7 +9415,7 @@ void Emulator::setup_esp()
     // different thing from either of the two above and is worth saying so:
     // nothing binds it and nothing routes through it.
     Log::esp01()->info(
-        "ESP-01 reports station address {} to the guest (AT+CIFSR / AT+CIPSTA?) — "
+        "ESP-01 reports station address {} to the guest (AT+CIFSR / AT+CIPSTA?) - "
         "cosmetic; nothing binds or routes through it",
         esp_device_->station_ip());
 }
@@ -9435,7 +9435,7 @@ void Emulator::setup_joy_uart_source()
         // startup and refuses there. Reachable from a caller that builds an
         // EmulatorConfig by hand, and the answer is NO source rather than a
         // silently empty one — see the warning at exhaustion below for why.
-        Log::uart()->error("--joy-uart-rx: {} — no joystick serial source attached", error);
+        Log::uart()->error("--joy-uart-rx: {} - no joystick serial source attached", error);
         return;
     }
 
@@ -9465,7 +9465,7 @@ void Emulator::setup_joy_uart_source()
     // things that decide whether the guest hears anything at all, so they are
     // the two things worth being able to read back without a debugger.
     Log::uart()->info(
-        "joystick serial source attached to joy {} — {} byte(s) from '{}', starting after "
+        "joystick serial source attached to joy {} - {} byte(s) from '{}', starting after "
         "{} frame(s); the guest hears them only while NR 0x0B selects UART mode "
         "(bits 7+5) on that connector (bit 4)",
         joy_uart_source_->connector() + 1, count, config_.joy_uart_rx_file,
@@ -9514,7 +9514,7 @@ void Emulator::setup_joy_uart_link()
         // Unreachable from the CLI, which opens the endpoint at startup and
         // refuses there. Reachable from a caller that builds an EmulatorConfig
         // by hand, and the answer is NO cable rather than a silently dead one.
-        Log::uart()->error("joystick serial cable: {} — no cable attached", error);
+        Log::uart()->error("joystick serial cable: {} - no cable attached", error);
         return;
     }
 
@@ -9542,7 +9542,7 @@ void Emulator::setup_joy_uart_link()
     // which is not a nicety but the whole interface: nothing else tells the user
     // what to point their debugger at.
     Log::uart()->info(
-        "joystick serial cable attached to joy {} — {}; the guest hears it only "
+        "joystick serial cable attached to joy {} - {}; the guest hears it only "
         "while NR 0x0B selects UART mode (bits 7+5) on that connector (bit 4), "
         "and bit 0 picks UART 0 or UART 1. Transmit is not connector-selected "
         "(zxnext.vhd:1593, md6_joystick_connector_x2.vhd:116-117)",
@@ -9612,7 +9612,7 @@ void Emulator::setup_pi_uart()
         // port) before the machine boots; a hand-built EmulatorConfig gets NO
         // link rather than a silently dead one, and UART 1 keeps its
         // unattached loopback.
-        Log::uart()->error("Raspberry Pi serial link: {} — not attached", error);
+        Log::uart()->error("Raspberry Pi serial link: {} - not attached", error);
         return;
     }
 
@@ -9622,7 +9622,7 @@ void Emulator::setup_pi_uart()
 
     // ONE posture line, naming the FIFOs and the gate a silent Pi is behind.
     Log::uart()->info(
-        "Raspberry Pi serial link attached to UART 1 — {}; the guest reaches it only "
+        "Raspberry Pi serial link attached to UART 1 - {}; the guest reaches it only "
         "while NR 0xA0 bits 5:4 = 11 (UART 1 on GPIO 14/15, wired for a Pi), which "
         "NextPi's tools set themselves",
         pi_uart_->describe());
@@ -9780,19 +9780,19 @@ void Emulator::sync_esp_association(bool force)
         // set up to observe (GH #247).
         if (ip == esp_station_ip_configured_) {
             Log::esp01()->info(
-                "ESP-01 association REGAINED at frame {} (--esp-delayed-associate-frames) — "
+                "ESP-01 association REGAINED at frame {} (--esp-delayed-associate-frames) - "
                 "AT+CIFSR reports {} again",
                 esp_frames_, ip);
         } else {
             Log::esp01()->info(
-                "ESP-01 association REGAINED at frame {} (--esp-delayed-associate-frames) — "
+                "ESP-01 association REGAINED at frame {} (--esp-delayed-associate-frames) - "
                 "AT+CIFSR now reports {}, CHANGED from {} "
                 "(--esp-ip-address-after)",
                 esp_frames_, ip, esp_station_ip_configured_);
         }
     } else {
         Log::esp01()->info(
-            "ESP-01 association LOST at frame {} (--esp-delayed-disassociate-frames) — "
+            "ESP-01 association LOST at frame {} (--esp-delayed-disassociate-frames) - "
             "AT+CIFSR now reports {}",
             esp_frames_, esp::AtEngine::UNASSOCIATED_IP);
     }
@@ -9832,7 +9832,7 @@ void Emulator::service_esp_frame()
     // this does NOT disable the ESP.
     if (esp_note_transport_fault(esp_device_->pass_exceptions(), esp_fault_reported_)) {
         Log::esp01()->error(
-            "the ESP transport threw ({} service passes lost) — the emulated ESP has "
+            "the ESP transport threw ({} service passes lost) - the emulated ESP has "
             "stopped making progress and its worker is now idling. This is a jnext "
             "bug; please report it at https://github.com/jorgegv/jnext/issues",
             esp_device_->pass_exceptions());
@@ -13256,7 +13256,7 @@ void Emulator::save_state(StateWriter& w) const
     // StateWriter now suppresses the write and latches a sticky flag.
     if (w.overflow()) {
         Log::emulator()->error(
-            "save_state: buffer overflow — snapshot needs {} bytes but the "
+            "save_state: buffer overflow - snapshot needs {} bytes but the "
             "buffer is smaller; snapshot is truncated and NOT usable",
             w.position());
     }
@@ -13311,7 +13311,7 @@ bool Emulator::load_state(StateReader& r)
             ++state_error_generation_;   // Task 60e: fresh corruption incident
             Log::emulator()->error(
                 "load_state: state sentinel mismatch after subsystem '{}' "
-                "(#{}: got 0x{:08X}, expected 0x{:08X}{}) — snapshot desynced, "
+                "(#{}: got 0x{:08X}, expected 0x{:08X}{}) - snapshot desynced, "
                 "aborting restore",
                 name, ordinal, got, expect,
                 r.out_of_bounds() ? ", read past end of buffer" : "");
@@ -13727,7 +13727,7 @@ bool Emulator::load_state(StateReader& r)
         last_state_error_ = "buffer-truncated";
         ++state_error_generation_;   // Task 60e: fresh corruption incident
         Log::emulator()->error(
-            "load_state: read past end of snapshot buffer ({} bytes) — "
+            "load_state: read past end of snapshot buffer ({} bytes) - "
             "restore aborted", r.capacity());
         return false;
     }
@@ -13830,7 +13830,7 @@ void Emulator::refuse_rewind_into_mutation_(const char* what, uint64_t target_cy
 {
     rewind_crossing_frame_ = frame;
     Log::emulator()->error(
-        "{}: refused — it would undo a change you made from the debugger in frame {} "
+        "{}: refused - it would undo a change you made from the debugger in frame {} "
         "(replaying to cycle {} cannot reproduce it). Use Frame Back (or the slider) to "
         "that frame's start, which undoes the change, or carry on forward. See the user "
         "guide: Debugger \u25B8 Functions \u25B8 "
@@ -13864,7 +13864,7 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
     // cannot keep executing, and surface the failure to the caller.
     if (snap_cycle == UINT64_MAX) {
         Log::emulator()->error(
-            "rewind_to_cycle: snapshot restore failed — rewind aborted, "
+            "rewind_to_cycle: snapshot restore failed - rewind aborted, "
             "machine paused in a non-trustworthy state");
         // GH #278 WP3 (B3 obligation 3) — paused, NOT armed here: the caller's
         // arm (its debugger client, the window, --persistent-breakpoints) is
@@ -13939,7 +13939,7 @@ bool Emulator::step_back(int n)
         // it. This only happens if the trace was manually disabled after
         // rewind was enabled (rewind enable always switches the trace on).
         Log::emulator()->error(
-            "step_back: instruction trace log is {} — cannot locate the "
+            "step_back: instruction trace log is {} - cannot locate the "
             "target instruction; re-enable it (debugger: Debug > Enable "
             "Trace) and execute forward before stepping back",
             trace_log_.enabled() ? "empty" : "disabled");
@@ -13984,7 +13984,7 @@ bool Emulator::step_back(int n)
     // unconditionally, so the debugger reported a successful step while
     // the machine held a torn, partially-restored state.
     if (rewind_to_cycle(target_cycle) == UINT64_MAX) {
-        Log::emulator()->error("step_back: snapshot restore failed — step aborted");
+        Log::emulator()->error("step_back: snapshot restore failed - step aborted");
         return false;
     }
     return true;
@@ -14030,7 +14030,7 @@ bool Emulator::rewind_to_frame(uint32_t target_frame_num)
         // Task 60b: same propagation as above — never pause-as-successful
         // on a failed restore.
         Log::emulator()->error(
-            "rewind_to_frame: snapshot restore failed — rewind aborted, "
+            "rewind_to_frame: snapshot restore failed - rewind aborted, "
             "machine paused in a non-trustworthy state");
         debug_state_.pause();   // GH #278 WP3: paused, not armed (see rewind_to_cycle)
         return false;
