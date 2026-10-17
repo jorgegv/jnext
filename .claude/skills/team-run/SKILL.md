@@ -1,6 +1,6 @@
 ---
 name: team-run
-description: Run parallel work the owner directs in person and that does not come from the issue queue (several spikes at once, a multi-part task, a review with several lenses). The main session splits it into units, shows the plan, runs planner/implementer/reviewer agents in their own worktrees within the agent cap, has every unit independently reviewed, merges, and ends with a summary table. Use it instead of a manager agent.
+description: Run parallel work the owner directs in person and that does not come from the issue queue (several spikes at once, a multi-part task). The main session splits it into units, shows the plan, runs planner/implementer/reviewer agents in their own worktrees within the agent cap, has every unit independently reviewed, merges, and ends with a summary table. Use it instead of a manager agent.
 ---
 
 # Team run
@@ -14,7 +14,7 @@ The owner is here and directs the work. CLAUDE.md applies in full. You, the main
 
 ## Steps
 
-1. **Split** the task into units. A unit is one independent change that can be reviewed on its own. It has a measurable success criterion, a name (`<topic>-<n>`), the files it touches, and its dependencies on other units. Units that touch the same files share a branch (one commit each) or run one after another.
+1. **Split** the task into units. A unit is one independent change that can be reviewed on its own. It has a measurable success criterion, a name (`<topic>-<n>`), the files it touches, and its dependencies on other units. Units that touch the same files share one branch and worktree, and run one after another (one commit each).
 2. **Show the plan** to the owner: the units, their order, the agents each one uses, and the branch each one merges into. Wait for the go. The run dir is `~/tmp/team/<YYYY-MM-DD>-<topic>/`: the plan, one spec file per unit, briefs, reports and `decisions.md`.
 3. **Workspaces.** Per unit, a branch off the current target (`main`, or the epic branch for epic work) and a worktree via `worktree-launch`. Each reviewer gets a detached worktree of its own (`rev-<unit>`).
 4. **Dispatch** within the owner's cap: at most 4 running agents, every role counted (owner, 2026-10-11). Queue the rest. A freed slot goes to the unit nearest to landing.
@@ -22,7 +22,7 @@ The owner is here and directs the work. CLAUDE.md applies in full. You, the main
    - Brief the role agents with the unit's spec file in place of an issue. The unit name replaces `gh<N>` in their file names.
 5. **Review.** Every unit gets an independent `autorun-reviewer` with a binary APPROVE / REJECT. A REJECT goes back to the same implementer, and the same reviewer re-reviews.
 6. **Merge** on APPROVE, one unit at a time, as CLAUDE.md "Merging a completed feature/fix to `main`" says. The implementer first merges the target into its branch. Then merge, `bump-patch` after each merge to `main`, and push only as CLAUDE.md's push rule allows.
-7. **Finish** with the summary table below. Clean up the worktrees and merged branches of finished units (`worktree-launch` §Cleanup).
+7. **Finish** with the summary table below. With the owner's OK, clean up the worktrees and merged branches of finished units (`worktree-launch` §Cleanup): the standing cleanup authorization in CLAUDE.md covers closed issues only.
 
 ## Agents
 
