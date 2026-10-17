@@ -140,6 +140,7 @@ BEGIN {
     M["speed_report_test"]             = "Achieved-speed report"
     M["host_key_latch_test"]           = "Host key minimum-hold latch"
     M["sdl_window_title_test"]         = "SDL window title (version)"
+    M["quit_signal_test"]              = "SIGINT/SIGTERM quit request"
     M["frame_sequencer_test"]          = "Frame-tick sequencer (wiring)"
     M["present_count_test"]            = "Present count (widget)"
     M["esp_status_test"]               = "ESP-01 status cell (GUI)"

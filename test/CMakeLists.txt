@@ -908,6 +908,19 @@ target_include_directories(host_key_latch_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(host_key_latch_test PRIVATE ${JNEXT_SDL3_TARGET})
 add_test(NAME host_key_latch_tests COMMAND host_key_latch_test)
 
+# GH #364 — SIGINT/SIGTERM as a quit request. fork()s, and the signals under
+# test have no Windows counterpart, so POSIX-only (`# os: posix` in the
+# manifest). quit_signal.cpp is compiled in directly, like sdl_input.cpp above:
+# its only dependency is the C library, and SDL3 is linked for the QSIG-07..09
+# rows that prove the handler wins over SDL's. SDL_INIT_EVENTS only: no display.
+if(NOT WIN32)
+    add_executable(quit_signal_test platform/quit_signal_test.cpp
+                                    ${CMAKE_SOURCE_DIR}/src/platform/quit_signal.cpp)
+    target_include_directories(quit_signal_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(quit_signal_test PRIVATE ${JNEXT_SDL3_TARGET})
+    add_test(NAME quit_signal_tests COMMAND quit_signal_test)
+endif()
+
 # GH #365 — the SDL pointer-release route (src/platform/sdl_pointer_release.h)
 # driven through the REAL SdlInput::poll(), exactly like host_key_latch_test.
 # sdl_input.cpp compiled in directly; SDL_INIT_EVENTS only, so ungated.
