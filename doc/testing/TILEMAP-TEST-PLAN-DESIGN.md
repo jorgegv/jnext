@@ -191,6 +191,7 @@ is 2 bytes: tile index (byte 0) + attribute flags (byte 1).
 | TM-15 | 40-col rotation | `tm_tilemap_1(1)` | Tile rotated 90 degrees (X/Y swapped) |
 | TM-16 | 40-col rotation + X-mirror | Combined transforms | Rotation inverts effective X-mirror |
 | TM-17 | 40-col ULA-over-tile flag | `tm_tilemap_1(0)` | Per-tile ULA-over-tilemap when tm_on_top=0 |
+| TM-18 | 40-col palette offset, all 4 bits | `tm_tilemap_1(7:4)` (`tilemap.vhd:382-383`) | Columns with offsets 0..15 over one tile of pixel 5 show entries `offset * 16 + 5`, each painted its own colour; TM-12's offset 2 leaves bits 7, 6 and 4 unasserted (GH #362 perf, K1b) |
 
 VHDL transform logic (line 320-324):
 - `effective_x_mirror = tilemap_1(3) XOR tilemap_1(1)` -- rotation inverts x-mirror

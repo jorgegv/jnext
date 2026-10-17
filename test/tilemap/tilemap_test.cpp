@@ -540,6 +540,38 @@ void group2_40col() {
                    "VHDL tilemap.vhd:388 — per-tile below = attr(0) when "
                    "mode_512=0 AND tm_on_top=0");
     }
+
+    // TM-18: all four palette-offset bits. Map column c carries offset c
+    // (attr = c << 4, c = 0..15) over tile 1 filled with pixel 5, so cell c
+    // must show palette entry (c << 4) | 5. Each of those 16 entries gets
+    // its own colour, so an offset bit that is lost, moved or misread
+    // (TM-12 sets only bit 1 of it) shows as another entry's colour.
+    // VHDL: tilemap.vhd:382-383 pixel_data_standard(7:4) <= tilemap_1(7:4),
+    // (3:0) <= the pixel's nibble.
+    {
+        fresh(tm, pal, ram);
+        for (int c = 0; c < 16; ++c)
+            paint_tm_palette_entry(pal, static_cast<uint8_t>((c << 4) | 5),
+                                   static_cast<uint8_t>(0x11 * c + 0x07));
+        fill_tile_pattern(ram, DEF_DEF_BASE, 1, 5);
+        for (int c = 0; c < 16; ++c)
+            write_map2(ram, DEF_MAP_BASE, c, 0, 40, 1, static_cast<uint8_t>(c << 4));
+        tm.set_enabled(true);
+        auto s = render_line(tm, 0, ram, pal);
+        // 40-col doubled: map column c starts at dst[16 * c].
+        bool all = true;
+        for (int c = 0; c < 16; ++c)
+            all = all && s.pixels[16 * c] == pal.tilemap_colour(static_cast<uint8_t>((c << 4) | 5))
+                      && s.pixels[16 * c + 15] == pal.tilemap_colour(static_cast<uint8_t>((c << 4) | 5));
+        std::vector<uint32_t> cols;
+        for (int c = 0; c < 16; ++c)
+            cols.push_back(pal.tilemap_colour(static_cast<uint8_t>((c << 4) | 5)));
+        std::sort(cols.begin(), cols.end());
+        const bool distinct = std::unique(cols.begin(), cols.end()) == cols.end();
+        check_pred("TM-18", all && distinct,
+                   "VHDL tilemap.vhd:382-383 — attr(7:4), all 4 bits, is the "
+                   "colour index's upper nibble (offsets 0..15)");
+    }
 }
 
 // ── Group 3: 80-column mode ─────────────────────────────────────────────

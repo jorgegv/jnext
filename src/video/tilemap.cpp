@@ -607,7 +607,11 @@ void Tilemap::render_tiles_(uint32_t* dst, bool* ula_over_flags, const Ram& ram,
     uint16_t fetch_hc        = 0;
     int      cached_tile_col = -1;
     uint16_t full_tile_index = 0;
-    uint8_t  pal_offset      = 0;
+    // The row's palette bank, and the slice of it that the current tile's
+    // palette offset selects: a pixel's colour is tile_pal[pixel], one load
+    // with no index to build per pixel.
+    const uint32_t* const tm_pal = palette.tilemap_colours(palette_bank_second);
+    const uint32_t* tile_pal     = tm_pal;
     bool     rotate          = false;
     bool     eff_x_mirror    = false;   // x_mirror ^ rotate (non-rotate: == x_mirror)
     bool     pixel_below     = false;
@@ -691,7 +695,7 @@ void Tilemap::render_tiles_(uint32_t* dst, bool* ula_over_flags, const Ram& ram,
 
             if (text_mode) {
                 // Text mode: bits 7:1 = palette offset (7 bits), bit 0 = ULA-over / tile bit 8.
-                pal_offset = (attr >> 1) & 0x7F;
+                tile_pal   = tm_pal + (((attr >> 1) & 0x7F) << 1);
                 x_mirror   = false;
                 y_mirror   = false;
                 rotate     = false;
@@ -699,7 +703,7 @@ void Tilemap::render_tiles_(uint32_t* dst, bool* ula_over_flags, const Ram& ram,
             } else {
                 // Standard mode: bits 7:4 = palette offset, bit 3 = X mirror,
                 // bit 2 = Y mirror, bit 1 = rotate, bit 0 = ULA-over / tile bit 8.
-                pal_offset = (attr >> 4) & 0x0F;
+                tile_pal   = tm_pal + (((attr >> 4) & 0x0F) << 4);
                 x_mirror   = (attr & 0x08) != 0;
                 y_mirror   = (attr & 0x04) != 0;
                 rotate     = (attr & 0x02) != 0;
@@ -825,22 +829,18 @@ void Tilemap::render_tiles_(uint32_t* dst, bool* ula_over_flags, const Ram& ram,
         if (!text_mode && pixel_4bit == transp_idx)
             continue;
 
-        // Build the full 8-bit palette index.
-        // Standard: upper 4 bits from attr palette offset, lower 4 from pixel.
-        // Text mode: upper 7 bits from attr (bits 7:1), lower 1 bit from pixel.
-        uint8_t colour_idx;
-        if (text_mode) {
-            colour_idx = static_cast<uint8_t>((pal_offset << 1) | (pixel_4bit & 0x01));
-        } else {
-            colour_idx = static_cast<uint8_t>((pal_offset << 4) | (pixel_4bit & 0x0F));
-        }
-
+        // The full 8-bit palette index is the palette offset above the pixel:
+        // standard, offset (attr 7:4) << 4 | 4-bit pixel; text mode, offset
+        // (attr 7:1) << 1 | 1-bit pixel. tile_pal starts at the offset's
+        // part, and the pixel has no bit at or above it, so tile_pal[pixel]
+        // is that colour.
+        //
         // GH #168 — the palette bank comes from the CALLER's per-scanline
         // replay of NR 0x6B b4, not from the live PaletteManager selector.
         // zxnext.vhd:6826 samples nr_6b_tm_control(4) every pixel cycle into
         // tm_palette_select_0, which reaches the palette RAM address at
         // :6981, so a mid-frame flip must split the frame at that row.
-        dst[screen_x] = palette.tilemap_colour(palette_bank_second, colour_idx);
+        dst[screen_x] = tile_pal[pixel_4bit];
 
         if (ula_over_flags)
             ula_over_flags[screen_x] = pixel_below;
