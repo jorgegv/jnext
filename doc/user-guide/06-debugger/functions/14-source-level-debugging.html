@@ -3731,10 +3731,12 @@ rewind, like <strong>Step Back</strong>
 (<a href="07-backward-execution-rewind.html">Backward execution (rewind)</a>); they look for
 their target in the instructions the trace has kept.</p>
 <h2 id="breakpoints-on-a-source-line">Breakpoints on a source line<a class="headerlink" href="#breakpoints-on-a-source-line" title="Permanent link">&para;</a></h2>
-<p>In the Breakpoints panel's <strong>Add</strong> dialog, the address can be a symbol
-(<code>PlayerTick</code>), a number (<code>8000</code>, <code>$8000</code>, <code>0x8000</code>), or — for an Execute
-breakpoint — a source line, <code>file:line</code>: <code>main.bas:120</code>, or the full path
-when two files share a name. A breakpoint on a line of banked code is tied to
+<p>In the Breakpoints panel's <strong>Add</strong> dialog, the address can be a number
+(<code>8000</code>, <code>$8000</code>, <code>0x8000</code>), a symbol (<code>PlayerTick</code>), or, for an Execute
+breakpoint, a source line, <code>file:line</code>: <code>main.bas:120</code>, or the full path
+when two files share a name. A number wins over a symbol: <code>FE</code> or <code>B</code> is that
+address even when the program has a variable called <code>FE</code> or <code>B</code>. Write <code>@FE</code>
+to mean the symbol. A breakpoint on a line of banked code is tied to
 its page (shown as <code>$C000 @2E</code>): it fires only while that RAM page supplies the
 address, and the disassembly gutter shows it only then.</p>
 <p>Symbols work in the other address fields too: <strong>Breakpoints ▸ Add …</strong>

@@ -3652,7 +3652,9 @@ so breakpoint dots stay visible.</p>
   line to select just that one. <strong>Shift+click</strong> extends the selection from
   where it started, and <strong>Shift + ↑ ↓ Page Up/Down Home End</strong> do the same from
   the keyboard. <strong>Ctrl+A</strong> selects everything in the view.</li>
-<li><strong>Address</strong> box — type a hex address and press Enter to centre the view there.</li>
+<li><strong>Address</strong> box: type a hex address (<code>8000</code>, <code>$8000</code>, <code>0x8000</code>) or a loaded
+  symbol and press Enter to centre the view there. A number wins over a symbol
+  spelled like one; write <code>@name</code> to mean the symbol.</li>
 <li><strong>Go to PC</strong> re-centres on the current instruction.</li>
 <li>The scrollbar spans the whole <code>$0000</code>–<code>$FFFF</code> address space. <strong>↑ ↓</strong>,
   <strong>Page Up/Down</strong>, <strong>Home</strong> and <strong>End</strong> navigate; <strong>Enter</strong> runs to the

@@ -2855,7 +2855,8 @@ The <code>-debug</code> records (names starting <code>__C_LINE_</code>, <code>__
 are dropped by the loader, so they never name an address or resolve by name.
 <code>MapFormat::NextBuild</code> reads a NextBuild / Boriel ZX Basic <code>Memory.txt</code> (<code>8000: ._Main</code>): the shown name drops the <code>.</code> and the
 compiler's <code>_</code>, and the raw label resolves by name too. <code>SymbolTable::resolve()</code>
-turns an address field's text into an address: a symbol first, else hex.</p>
+turns an address field's text into an address: hex first (<code>4000</code>, <code>$4000</code>,
+<code>0x4000</code>), else a symbol; <code>@name</code> always means the symbol.</p>
 <h3 id="source-maps-cap-src">Source maps — CAP-SRC<a class="headerlink" href="#source-maps-cap-src" title="Permanent link">&para;</a></h3>
 <p>The backend also owns one <code>SourceMap</code> (<code>src/debug/source_map.*</code>): records of
 (RAM page, logical address) → file, line, column, filled by a format adapter —
@@ -2878,8 +2879,9 @@ records); <code>load_source_map(path, accept_mismatch)</code> checks it against 
 stores the path absolute.</p>
 <p><code>load_program_sidecars(path)</code> attaches <code>&lt;stem&gt;.Memory.txt</code> (or <code>Memory.txt</code>,
 beside a <code>.nex</code>) and <code>&lt;stem&gt;.sld</code> / <code>&lt;stem&gt;.sld.txt</code>, searching with the
-non-throwing filesystem calls; any non-directory entry counts, so an unreadable
-one is reported. Every frontend calls it after a successful <code>--load</code> or File ▸
+non-throwing filesystem calls; only a regular file counts (a FIFO would block the
+load), and one that cannot be read is reported. Both loaders refuse a file that is
+not regular, or is over 64 MB, before opening it (<code>debug/source_file.h</code>). Every frontend calls it after a successful <code>--load</code> or File ▸
 Open, and <code>load()</code> calls it for a remote client; a tape program gets no
 automatic map. Ownership is explicit (<code>Impl::StoreOwner</code>: None, Sidecar, User)
 and changes only on a successful load: a sidecar never touches the user's
