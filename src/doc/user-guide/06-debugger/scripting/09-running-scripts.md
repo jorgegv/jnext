@@ -46,7 +46,7 @@ stamps aside (and the home directory shown as `/home/user`):
 [platform] [info] Headless mode initialized
 [debugger] [info] [jds F:300 C:168290432] nothing touched the top pixel row [client 2]
 [debugger] [info] [jds F:300 C:168290432] SCRIPT EXIT 0 [client 2]
-[debugger] [info] STOP under StopPolicy::ExitNonZero — asking the loop owner to exit
+[debugger] [info] STOP under StopPolicy::ExitNonZero - asking the loop owner to exit
 [platform] [info] script requested exit 0
 [platform] [info] Headless mode shutdown
 [debugger] [info] DETACH client 2 (released its pause)
@@ -56,7 +56,7 @@ stamps aside (and the home directory shown as `/home/user`):
 - `ATTACH client 1 "script host"` and `client 2 "script engine"`: the scripts
   run as a debugger client, like DeZog or the GUI; the `[client 2]` on each of
   their lines says which.
-- `STOP under StopPolicy::ExitNonZero — asking the loop owner to exit` is the
+- `STOP under StopPolicy::ExitNonZero - asking the loop owner to exit` is the
   debugger's line for every stop of a headless run, an `exit`'s included (an
   `exit` stops the machine too). It is not the verdict.
 - **`script requested exit N` is the verdict**: the status the run ends with.
@@ -66,8 +66,8 @@ before the verdict — the [failing run of `third.jds`](01-your-first-script.md#
 
 ```
 [debugger] [warning] SCRIPT STOP: something wrote 00 into the top pixel row at 4000 at PC=0E59 FRAME=82 CYCLE=46325832 [client 2]
-[debugger] [info] STOP under StopPolicy::ExitNonZero — asking the loop owner to exit
-[debugger] [warning] STOP under StopPolicy::ExitNonZero — requesting exit 3
+[debugger] [info] STOP under StopPolicy::ExitNonZero - asking the loop owner to exit
+[debugger] [warning] STOP under StopPolicy::ExitNonZero - requesting exit 3
 [platform] [info] script requested exit 3
 ```
 
@@ -205,7 +205,7 @@ $ jnext --headless --machine 48k --script watchdog.jds --delayed-automatic-exit-
 
 ```
 [debugger] [info] SCRIPT loaded watchdog.jds: 1 rules
-[platform] [error] SCRIPT: 1 deferred actions never ran — exiting 3
+[platform] [error] SCRIPT: 1 deferred actions never ran - exiting 3
 ```
 
 A rule with no verdict — a guard that `stop`s — never counts: a guard that

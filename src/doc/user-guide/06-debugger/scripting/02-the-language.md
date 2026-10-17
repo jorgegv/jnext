@@ -266,7 +266,7 @@ More of them, as JNEXT reports them:
 [debugger] [error] SCRIPT ERROR err5.jds:2:9: unterminated string
 [debugger] [error] SCRIPT ERROR err6.jds:1:24: expected an action or `end`, found `en`
 [debugger] [error] SCRIPT ERROR fmt.jds:1:28: unknown format 'x8' (expected x2, x4 or d)
-[debugger] [error] SCRIPT ERROR strerr.jds:1:22: a string literal cannot appear inside `${…}`
+[debugger] [error] SCRIPT ERROR strerr.jds:1:22: a string literal cannot appear inside `${...}`
 ```
 
 **Run-time errors** — a division by zero, an accessor out of range, a page that
@@ -287,7 +287,7 @@ on frame 20 do log "frame 20 still runs" end
 ```
 [debugger] [info] SCRIPT loaded err4.jds: 2 rules
 [debugger] [info] [jds F:10 C:6150160] about to divide
-[debugger] [error] SCRIPT ERROR err4.jds:4:16: division by zero — rule at 2:1 disabled
+[debugger] [error] SCRIPT ERROR err4.jds:4:16: division by zero - rule at 2:1 disabled
 [debugger] [error] SCRIPT: a run-time error disabled a rule; exiting 1
 [platform] [info] script requested exit 1
 ```
