@@ -28,6 +28,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/saveable.h"
 #include "debug/debugger.h"
 #include "debug/source_file.h"
 #include "debugger/breakpoint_model.h"
@@ -40,6 +41,7 @@
 #include "debugger/source_panel.h"
 #include "debugger/watch_panel.h"
 
+#include <QAbstractButton>
 #include <QAction>
 #include <QApplication>
 #include <QComboBox>
@@ -215,6 +217,24 @@ int drive_modals(const std::function<void(QWidget*, int)>& act,
     timer.stop();
     QApplication::processEvents();
     return n;
+}
+
+/// Click the message box's `which` button; any other dialog is cancelled.
+void click_box(QWidget* w, QMessageBox::StandardButton which) {
+    if (auto* mb = qobject_cast<QMessageBox*>(w)) {
+        if (QAbstractButton* b = mb->button(which)) { b->click(); return; }
+    }
+    if (auto* d = qobject_cast<QDialog*>(w)) d->reject();
+}
+
+/// Choose `path` in a file dialog, or click OK in a message box.
+void choose_file(QWidget* w, const QString& path) {
+    if (auto* fd = qobject_cast<QFileDialog*>(w)) {
+        fd->selectFile(path);
+        static_cast<QDialog*>(fd)->accept();   // QFileDialog::accept() is protected
+        return;
+    }
+    click_box(w, QMessageBox::Ok);
 }
 
 // The disassembly panel's geometry (DisasmPanel's private constants, as
@@ -797,6 +817,174 @@ void test_edit_type_refused() {
           "shown=" + std::to_string(shown) + " reason=" + s(reason));
 }
 
+// ── T11: the Source tab's buttons ─────────────────────────────────────
+
+void test_source_buttons() {
+    const std::string dir = g_tmp->path().toStdString();
+    {
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        // With no call tracked, Out is one instruction ($8000 -> $8001);
+        // Into and Over would reach main.bas:11 at $8002.
+        if (QPushButton* out = button(sp, QStringLiteral("Out"))) out->click();
+        QApplication::processEvents();
+        check("QSRC-17", "the Out button runs a source Step Out", fx.pc() == 0x8001,
+              std::to_string(fx.pc()));
+    }
+    {
+        Fixture fx(/*rewind_frames=*/8);
+        fx.enable();
+        fx.backend->set_trace_enabled(true);
+        fx.load_map();
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        QPushButton* into = button(sp, QStringLiteral("Into"));
+        for (int i = 0; i < 3 && into; ++i) { into->click(); QApplication::processEvents(); }
+        // At main.bas:12. Back would land on sub.bas:1 ($9000); Reverse
+        // Continue rewinds to the source breakpoint on main.bas:11.
+        fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x8002,
+                                  static_cast<uint16_t>(fx.p80));
+        fx.mgr->refresh_panels();
+        const uint16_t from = fx.pc();
+        if (QPushButton* rev = button(sp, QStringLiteral("Reverse"))) rev->click();
+        QApplication::processEvents();
+        check("QSRC-18", "the Reverse button runs Reverse Continue, not Back: back to the "
+                         "breakpoint on main.bas:11",
+              from == 0x8005 && fx.pc() == 0x8002,
+              std::to_string(from) + " -> " + std::to_string(fx.pc()));
+    }
+    {
+        Fixture fx;
+        fx.enable();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        const QString sld = QString::fromStdString(fx.sld);
+        drive_modals([&](QWidget* w, int) { choose_file(w, sld); },
+                     [&]() { button(sp, QStringLiteral("Load SLD..."))->click(); });
+        check("QSRC-19", "the Load SLD button loads the chosen source map",
+              !fx.backend->source_map().empty() &&
+                  fx.backend->source_map().loaded_file() == fx.sld);
+
+        const std::string mem = dir + "/buttons.Memory.txt";
+        write_text(mem, "8005: ._Landing\n");
+        drive_modals([&](QWidget* w, int) { choose_file(w, QString::fromStdString(mem)); },
+                     [&]() { button(sp, QStringLiteral("Load Memory.txt..."))->click(); });
+        check("QSRC-20", "the Load Memory.txt button loads the chosen NextBuild symbols",
+              fx.backend->lookup_name("Landing") == std::optional<uint16_t>(0x8005));
+    }
+    {
+        // An SLD whose binary identity is not the bytes in memory: offered,
+        // and loaded only when the offer is accepted.
+        Fixture fx;
+        fx.enable();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        const std::string wrong = dir + "/wrong.sld";
+        const std::string a = std::to_string(fx.p80);
+        write_text(wrong, std::string("|SLD.data.version|1\n||program.name:other\n") +
+                              "||program.sha256:9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a\n"
+                              "||program.org:32768\n||program.size:4\n" +
+                              "main.bas|10||0" + kNextDevice + "main.bas|10||0|" + a + "|32768|T|\n");
+        bool offered = false;
+        auto run = [&](QMessageBox::StandardButton answer) {
+            drive_modals(
+                [&](QWidget* w, int) {
+                    if (auto* mb = qobject_cast<QMessageBox*>(w))
+                        if (mb->windowTitle() == QStringLiteral("Source Map Identity Mismatch")) {
+                            offered = true;
+                            click_box(w, answer);
+                            return;
+                        }
+                    choose_file(w, QString::fromStdString(wrong));
+                },
+                [&]() { button(sp, QStringLiteral("Load SLD..."))->click(); });
+        };
+        run(QMessageBox::No);
+        const bool declined = offered && fx.backend->source_map().empty();
+        offered = false;
+        run(QMessageBox::Yes);
+        check("QSRC-21", "a source map whose identity does not match is offered; No loads "
+                         "nothing, Yes loads it",
+              declined && offered && fx.backend->source_map().loaded_file() == wrong);
+    }
+    {
+        // A step on a corrupt machine asks first; No leaves it where it is.
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        fx.mgr->refresh_panels();
+        const uint8_t garbage[4] = {0, 0, 0, 0};
+        StateReader r(garbage, sizeof(garbage));
+        fx.emu.load_state(r);
+        fx.backend->load_source_map(fx.sld, false);   // the restore may have reset the view
+        fx.mgr->refresh_panels();
+        bool asked = false;
+        drive_modals(
+            [&](QWidget* w, int) {
+                if (auto* mb = qobject_cast<QMessageBox*>(w))
+                    asked = mb->windowTitle() == QStringLiteral("Machine State Corrupt");
+                click_box(w, QMessageBox::No);
+            },
+            [&]() {
+                if (QPushButton* into = button(fx.dbg()->source_panel(), QStringLiteral("Into")))
+                    into->click();
+            });
+        check("QSRC-22", "on a corrupt machine a source step asks first, and No does not step",
+              !fx.emu.last_state_error().empty() && asked && fx.pc() == 0x8000,
+              "asked=" + std::to_string(asked) + " pc=" + std::to_string(fx.pc()));
+    }
+}
+
+// The step buttons' enabled state: each condition on its own.
+void test_source_button_states() {
+    {
+        Fixture fx;
+        fx.enable();
+        fx.load_map();
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        QPushButton* into = button(sp, QStringLiteral("Into"));
+        const bool paused_on = into && into->isEnabled();
+        fx.dbg()->update_actions(/*is_paused=*/false);
+        check("QSRC-33", "with a map loaded, the forward steps are disabled while the machine runs",
+              paused_on && into && !into->isEnabled() &&
+                  !button(sp, QStringLiteral("Over"))->isEnabled() &&
+                  !button(sp, QStringLiteral("Out"))->isEnabled());
+    }
+    {
+        // Rewind holds frames, but there is no trace to find the target in.
+        Fixture fx(/*rewind_frames=*/8);
+        fx.enable();
+        fx.backend->set_trace_enabled(false);   // a rewind machine starts with it on
+        fx.load_map();
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        if (QPushButton* into = button(sp, QStringLiteral("Into"))) { into->click(); into->click(); }
+        QApplication::processEvents();
+        fx.mgr->refresh_panels();
+        check("QSRC-34", "with rewind but no trace, Back and Reverse are disabled",
+              !fx.backend->rewind_blocked() && !fx.backend->trace_enabled() &&
+                  !button(sp, QStringLiteral("Back"))->isEnabled() &&
+                  !button(sp, QStringLiteral("Reverse"))->isEnabled(),
+              "blocked=" + std::to_string(fx.backend->rewind_blocked().has_value()) +
+                  " trace=" + std::to_string(fx.backend->trace_enabled()));
+    }
+    {
+        // Trace is on, but there is no rewind to go back with.
+        Fixture fx;
+        fx.enable();
+        fx.backend->set_trace_enabled(true);
+        fx.load_map();
+        fx.mgr->refresh_panels();
+        SourcePanel* sp = fx.dbg()->source_panel();
+        check("QSRC-35", "with trace but no rewind, Back and Reverse are disabled",
+              fx.backend->rewind_blocked() && fx.backend->trace_enabled() &&
+                  !button(sp, QStringLiteral("Back"))->isEnabled() &&
+                  !button(sp, QStringLiteral("Reverse"))->isEnabled());
+    }
+}
+
 // ── C1: a refused sidecar says why ────────────────────────────────────
 
 void test_sidecar_reason() {
@@ -854,6 +1042,8 @@ int main(int argc, char** argv) {
     test_edit_type_refused();
     test_breakpoint_page_rows();
     test_sidecar_reason();
+    test_source_buttons();
+    test_source_button_states();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
