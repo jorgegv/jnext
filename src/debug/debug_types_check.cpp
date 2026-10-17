@@ -71,7 +71,7 @@ static_assert(static_cast<int>(Result::NoFrame)            ==  9, "Result::NoFra
 // The §4 preamble's set is exactly eleven values. A twelfth is a change to the
 // design document, and this row is where it gets noticed.
 static_assert(static_cast<int>(Result::Unsupported) == 10,
-              "Result has grown or shrunk: §4's set is 11 values, Ok..Unsupported");
+              "Result has grown or shrunk: section 4's set is 11 values, Ok..Unsupported");
 
 // `Expected<T>` must not cost more than the pair it is, for the scalar cases
 // that go through it per byte-range peek.
@@ -105,7 +105,7 @@ static_assert(std::is_trivially_copyable<Hit>::value, "");
 // a fifteenth kind added after `Dma` left the count at 14 and every assert here
 // kept passing. `EventKindMask` is `uint32_t`, so the mask must also have room
 // for every kind.
-static_assert(EVENT_KIND_COUNT == 14, "§4.3's table is 14 event kinds");
+static_assert(EVENT_KIND_COUNT == 14, "section 4.3's table is 14 event kinds");
 static_assert(EVENT_KIND_COUNT <= sizeof(EventKindMask) * 8,
               "EventKindMask cannot hold one bit per EventKind");
 static_assert(kind_bit(EventKind::Execute) == 0x1u, "");
@@ -183,7 +183,7 @@ static_assert((LAYER_MASK_ULA | LAYER_MASK_LAYER2 | LAYER_MASK_SPRITES |
 // eight views (the Qt panel's `VideoLayerView::Layer` is an alias of it since
 // GH #278 WP4d, which moved the render into `debugger_render.cpp`). The count is
 // the whole signal, so it is derived from `Layer::Count` and catches an append.
-static_assert(LAYER_COUNT == 8, "§4 INS-14 / the video panel have eight views");
+static_assert(LAYER_COUNT == 8, "section 4 INS-14 / the video panel have eight views");
 static_assert(static_cast<size_t>(Layer::Background) + 1 == LAYER_COUNT,
               "Layer::Count must sit immediately after the last real view");
 

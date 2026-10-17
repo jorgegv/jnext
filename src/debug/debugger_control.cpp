@@ -435,7 +435,7 @@ std::string rewind_refusal_reason(Emulator& emu, std::optional<uint32_t> frame) 
         return "an RZX recording is playing - stop it first";
     const RewindBuffer* rb = emu.rewind_buffer();
     if (!rb)
-        return "rewind is off - turn on Debug \u25B8 Rewind \u25B8 Enable Rewind and run forward";
+        return "rewind is off - turn on Debug > Rewind > Enable Rewind and run forward";
     if (rb->empty())
         return "the rewind buffer holds no frames yet - run forward first";
     if (frame) {
@@ -451,7 +451,7 @@ std::string rewind_refusal_reason(Emulator& emu, std::optional<uint32_t> frame) 
                " - use Frame Back (or the slider) to that frame's start, which undoes the "
                "change, or carry on forward";
     if (!emu.trace_log().enabled())
-        return "the instruction trace is off - turn on Debug \u25B8 Trace \u25B8 Enable Trace "
+        return "the instruction trace is off - turn on Debug > Trace > Enable Trace "
                "and run forward";
     if (emu.trace_log().size() == 0)
         return "the instruction trace is empty - run forward first";
@@ -464,7 +464,7 @@ void Debugger::Impl::explain_rewind_refusal(ClientId by, const std::string& verb
                                             const std::string& reason) {
     self->log(by, LogLevel::Warn,
               "REWIND REFUSED: " + verb + " refused: " + reason +
-                  ". See the user guide: Debugger \u25B8 Functions \u25B8 Backward execution (rewind)");
+                  ". See the user guide: Debugger > Functions > Backward execution (rewind)");
 }
 
 Result Debugger::step_back(ClientId by, uint32_t n) {

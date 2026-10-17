@@ -205,7 +205,7 @@ struct Binder {
             if (!part.expr) continue;
             const ValueType t = walk(*part.expr);
             if (t == ValueType::Str && part.fmt != Fmt::None)
-                err(part.expr->pos, "a format (x2, x4, d) applies to an integer, and this `${…}` is a string");
+                err(part.expr->pos, "a format (x2, x4, d) applies to an integer, and this `${...}` is a string");
         }
     }
 

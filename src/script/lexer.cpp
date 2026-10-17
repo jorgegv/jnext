@@ -239,7 +239,7 @@ struct Lexer {
                     if (at_end() || cur() == '\n') return fail(open, "unterminated `${`");
                     const char c = cur();
                     if (c == '"')
-                        return fail(p, "a string literal cannot appear inside `${…}`");
+                        return fail(p, "a string literal cannot appear inside `${...}`");
                     if (c == '}') break;
                     if (c == ':' && !in_fmt) {
                         in_fmt = true;
@@ -304,7 +304,7 @@ struct Lexer {
             }
             if (c == '"') {
                 if (embedded)
-                    return fail(at, "a string literal cannot appear inside `${…}`");
+                    return fail(at, "a string literal cannot appear inside `${...}`");
                 if (!lex_string()) return false;
                 continue;
             }

@@ -3801,7 +3801,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         spi_.set_flash_cs_enable(
             nextreg_.nr_03_config_mode()
             || ((nmi_source_.reset_type() & 0x04) != 0));
-        Log::emulator()->debug("NextREG 0x03 ← {:#04x}  (config_mode={})",
+        Log::emulator()->debug("NextREG 0x03 <- {:#04x}  (config_mode={})",
                               v, nextreg_.nr_03_config_mode() ? 1 : 0);
         return v;
     });
@@ -3852,7 +3852,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         const uint8_t bank = static_cast<uint8_t>(v & 0x7F);
         nextreg_.set_nr_04_romram_bank(bank);
         mmu_.set_nr_04_romram_bank(bank);
-        Log::emulator()->debug("NextREG 0x04 ← {:#04x}  (romram_bank, masked to {:#04x})", v, bank);
+        Log::emulator()->debug("NextREG 0x04 <- {:#04x}  (romram_bank, masked to {:#04x})", v, bank);
         // G149: VHDL zxnext.vhd:5878-6289 read-mux has no entry for NR 0x04
         // (write-only ROM/RAM bank latch; only consumed by the SRAM
         // address-composition path). Fall-through is (others => '0'); return
@@ -7375,7 +7375,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // Rewind implies the instruction trace: step_back() needs it to
         // locate the target instruction's cycle within a frame (Task 27 A2).
         trace_log_.set_enabled(true);
-        Log::emulator()->info("Rewind buffer: {} frames × {} bytes = {} KB",
+        Log::emulator()->info("Rewind buffer: {} frames x {} bytes = {} KB",
             cfg.rewind_buffer_frames, snap_bytes,
             (static_cast<uint64_t>(cfg.rewind_buffer_frames) * snap_bytes + 512) / 1024);
     } else {
@@ -13806,7 +13806,7 @@ void Emulator::resize_rewind_buffer(int frames)
         static_cast<size_t>(frames), snap_bytes);
     rewind_enabled_ = true;
     trace_log_.set_enabled(true);
-    Log::emulator()->info("Rewind buffer resized: {} frames × {} bytes = {} KB",
+    Log::emulator()->info("Rewind buffer resized: {} frames x {} bytes = {} KB",
         frames, snap_bytes,
         (static_cast<uint64_t>(frames) * snap_bytes + 512) / 1024);
 }
@@ -13833,7 +13833,7 @@ void Emulator::refuse_rewind_into_mutation_(const char* what, uint64_t target_cy
         "{}: refused - it would undo a change you made from the debugger in frame {} "
         "(replaying to cycle {} cannot reproduce it). Use Frame Back (or the slider) to "
         "that frame's start, which undoes the change, or carry on forward. See the user "
-        "guide: Debugger \u25B8 Functions \u25B8 "
+        "guide: Debugger > Functions > "
         "Backward execution (rewind)",
         what, frame, target_cycle);
 }

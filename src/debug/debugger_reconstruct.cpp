@@ -98,7 +98,7 @@ Result Debugger::Impl::refuse_inside_delivery(const char* verb) const {
     // verb from a handler. Logged at `error` because it is a frontend bug, and
     // an assert would compile away in the build where it ships.
     Log::debugger()->error("{}() called from inside an event delivery - refused "
-                           "(§5: a handler may not drive, rewind or replace the "
+                           "(section 5: a handler may not drive, rewind or replace the "
                            "machine it runs in)",
                            verb);
     return Result::Unsupported;

@@ -39,7 +39,7 @@ public:
                        (cur().kind == Tok::Ident && at(1).kind == Tok::Colon)) {
                 s.rules.push_back(parse_rule());
             } else {
-                fail(cur().pos, "expected `var` or a rule (`on …`), found " + describe(cur()));
+                fail(cur().pos, "expected `var` or a rule (`on ...`), found " + describe(cur()));
             }
         }
         return s;
@@ -151,7 +151,7 @@ private:
     ExprPtr parse_whole_expression_in_string() {
         ExprPtr e = parse_expr();
         if (cur().kind != Tok::Eof)
-            fail(cur().pos, "unexpected " + describe(cur()) + " inside `${…}`");
+            fail(cur().pos, "unexpected " + describe(cur()) + " inside `${...}`");
         return e;
     }
 
@@ -173,7 +173,7 @@ private:
             const SourcePos dp = take().pos;
             r.disabled = true;
             if (!(is(Tok::Ident) && at(1).kind == Tok::Colon))
-                fail(dp, "`disabled` needs a rule label: `disabled NAME: on …`");
+                fail(dp, "`disabled` needs a rule label: `disabled NAME: on ...`");
         }
         if (is(Tok::Ident) && at(1).kind == Tok::Colon) {
             r.label_pos = cur().pos;
@@ -190,7 +190,7 @@ private:
             take();
             r.when = parse_expr();
             if (is_kw("once"))
-                fail(cur().pos, "`once` must come before `when`: `on … once when … do`");
+                fail(cur().pos, "`once` must come before `when`: `on ... once when ... do`");
         }
         expect_kw("do", "to open the rule body");
         r.body = parse_actions({"end"}, r.pos);

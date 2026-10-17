@@ -1913,7 +1913,7 @@ static void bounds_rows() {
         g.frames(2);
         check("SCRIPT-EV-PRESS-FOR-ZERO", "`press … for 0` is a run-time error naming the bound; `for 1` is legal",
               ok && g.eng->runtime_errors() == 1 &&
-                  g.sink.count("`press … for` needs at least 1 frame") == 1 && !g.eng->rules()[1].dead,
+                  g.sink.count("`press ... for` needs at least 1 frame") == 1 && !g.eng->rules()[1].dead,
               g.sink.tail(2));
     }
     {

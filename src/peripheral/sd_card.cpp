@@ -351,7 +351,7 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                             sector, byte_addr);
                     }
                 } else {
-                    sd_log()->warn("CMD24 write past end of image: sector={} byte={:#010x} size={} → write-error response token",
+                    sd_log()->warn("CMD24 write past end of image: sector={} byte={:#010x} size={} -> write-error response token",
                                    sector, byte_addr, file_size_);
                 }
                 state_ = State::WRITE_RESP;
@@ -652,7 +652,7 @@ void SdCardDevice::process_command() {
         // SD_STATUS; the regular branch handles the SEND_STATUS shape,
         // which TBBlue's MMC layer expects post-CMD55 only when issued in
         // the SD-status flow — currently unused.)
-        sd_log()->debug("CMD55 not followed by recognized ACMD{} → "
+        sd_log()->debug("CMD55 not followed by recognized ACMD{} -> "
                         "falling through to regular CMD switch", cmd);
         // Fall through.
     }
@@ -690,7 +690,7 @@ void SdCardDevice::process_command() {
 }
 
 void SdCardDevice::cmd1_send_op_cond() {
-    sd_log()->debug("CMD1 SEND_OP_COND → card initialized, ready");
+    sd_log()->debug("CMD1 SEND_OP_COND -> card initialized, ready");
     initialized_ = true;
     queue_r1(0x00);  // R1: ready (not idle)
 }
@@ -719,7 +719,7 @@ void SdCardDevice::cmd1_send_op_cond() {
 // session, which a reset must NOT touch (`file_`, `file_size_`, and the
 // `read_overlay_` triple installed by the host).
 void SdCardDevice::cmd0_go_idle() {
-    sd_log()->debug("CMD0 GO_IDLE_STATE → card reset");
+    sd_log()->debug("CMD0 GO_IDLE_STATE -> card reset");
     initialized_ = false;
     // GH #94 round-2 review: CMD0 is the software reset that returns the card
     // to the idle state, so it returns the block length to its power-up value
@@ -776,7 +776,7 @@ void SdCardDevice::cmd8_send_if_cond() {
     // through to BASIC ROM (not MMC fallback) — which is NOT what we want
     // for booting to the NextZXOS welcome menu. So keep proper R7 here.
     uint8_t check = cmd_buf_[4];  // echo back check pattern
-    sd_log()->debug("CMD8 SEND_IF_COND check={:#04x} → voltage accepted", check);
+    sd_log()->debug("CMD8 SEND_IF_COND check={:#04x} -> voltage accepted", check);
     // V12-DIVMMC-03 (Pass-12 reviewer fix, 2026-05-10): R7 4-byte register
     // bits 31:28 are the command version field (`0001` per SD Physical Layer
     // Simplified Spec § 7.3.2.6 "Format R7 (Card Interface Condition)").
@@ -836,7 +836,7 @@ void SdCardDevice::cmd13_send_status() {
     // CMD13 SEND_STATUS → R2 response (2 bytes: R1 + status byte).
     // Idiom mirrors cmd58_read_ocr() — emit NCR + multi-byte response via
     // resp_buf_.  R2=0x00 means "no errors / card OK".
-    sd_log()->debug("CMD13 SEND_STATUS → R2");
+    sd_log()->debug("CMD13 SEND_STATUS -> R2");
     uint8_t r1 = initialized_ ? 0x00 : 0x01;
     // Task 26 item 1 — 2 NCR idle bytes before R1 (SD Phys Layer § 7.5.4).
     resp_buf_  = { kIdle, kIdle, r1, 0x00 };  // NCR×2 + R1 + R2
@@ -880,7 +880,7 @@ void SdCardDevice::cmd16_set_blocklen() {
     // transfer the card could perform) — is a parameter error and leaves the
     // current block length untouched.
     if (arg == 0 || arg > kBlockLen) {
-        sd_log()->debug("CMD16 SET_BLOCKLEN arg={} out of range → "
+        sd_log()->debug("CMD16 SET_BLOCKLEN arg={} out of range -> "
                         "R1 PARAMETER_ERROR (block length stays {})",
                         arg, block_len_);
         queue_r1(static_cast<uint8_t>(idle_bit | 0x40));
@@ -895,7 +895,7 @@ void SdCardDevice::cmd16_set_blocklen() {
                         "card keeps its fixed {}-byte block", arg, kBlockLen);
     } else {
         block_len_ = arg;
-        sd_log()->debug("CMD16 SET_BLOCKLEN arg={} → standard-capacity block "
+        sd_log()->debug("CMD16 SET_BLOCKLEN arg={} -> standard-capacity block "
                         "length now {}", arg, block_len_);
     }
     queue_r1(idle_bit);
@@ -915,7 +915,7 @@ void SdCardDevice::cmd17_read_single_block() {
     // on a Standard Capacity one.
     const uint64_t byte_addr = arg_to_byte_addr(arg);
     const uint64_t sector    = byte_addr / kBlockLen;
-    sd_log()->debug("CMD17 READ_SINGLE_BLOCK arg={} → byte={:#010x} "
+    sd_log()->debug("CMD17 READ_SINGLE_BLOCK arg={} -> byte={:#010x} "
                     "(sector={}, len={}, {})",
                     arg, byte_addr, sector, block_len_,
                     block_addressed() ? "block-addressed" : "byte-addressed");
@@ -933,7 +933,7 @@ void SdCardDevice::cmd17_read_single_block() {
         // that passed a SECTOR index to a byte-addressed card now sees,
         // instead of silently reading 512 bytes straddling two sectors.
         sd_log()->warn("CMD17 misaligned byte address {:#010x} for a "
-                       "{}-byte block → R1 ADDRESS_ERROR", byte_addr,
+                       "{}-byte block -> R1 ADDRESS_ERROR", byte_addr,
                        block_len_);
         queue_r1(static_cast<uint8_t>(0x20));
         return;
@@ -987,7 +987,7 @@ void SdCardDevice::cmd18_read_multiple_block() {
     // between-blocks re-prime logic.
     const uint32_t arg       = cmd_arg();
     const uint64_t byte_addr = arg_to_byte_addr(arg);  // GH #94, § 4.7.4
-    sd_log()->debug("CMD18 READ_MULTIPLE_BLOCK arg={} → byte={:#010x} "
+    sd_log()->debug("CMD18 READ_MULTIPLE_BLOCK arg={} -> byte={:#010x} "
                     "(sector={}, len={}, {})",
                     arg, byte_addr, byte_addr / kBlockLen, block_len_,
                     block_addressed() ? "block-addressed" : "byte-addressed");
@@ -1000,7 +1000,7 @@ void SdCardDevice::cmd18_read_multiple_block() {
     if (crosses_block_boundary(byte_addr)) {
         // Same READ_BLK_MISALIGN = 0 contract as CMD17 above.
         sd_log()->warn("CMD18 misaligned byte address {:#010x} for a "
-                       "{}-byte block → R1 ADDRESS_ERROR", byte_addr,
+                       "{}-byte block -> R1 ADDRESS_ERROR", byte_addr,
                        block_len_);
         queue_r1(static_cast<uint8_t>(0x20));
         return;
@@ -1044,7 +1044,7 @@ void SdCardDevice::cmd18_read_multiple_block() {
 void SdCardDevice::cmd24_write_single_block() {
     const uint32_t arg       = cmd_arg();
     const uint64_t byte_addr = arg_to_byte_addr(arg);  // GH #94, § 4.7.4
-    sd_log()->debug("CMD24 WRITE_SINGLE_BLOCK arg={} → byte={:#010x} "
+    sd_log()->debug("CMD24 WRITE_SINGLE_BLOCK arg={} -> byte={:#010x} "
                     "(sector={}, {})",
                     arg, byte_addr, byte_addr / kBlockLen,
                     block_addressed() ? "block-addressed" : "byte-addressed");
@@ -1064,7 +1064,7 @@ void SdCardDevice::cmd24_write_single_block() {
     // below.
     if (block_len_ != kBlockLen) {
         sd_log()->warn("CMD24 with a {}-byte block length: this card declares "
-                       "WRITE_BL_PARTIAL=0 → R1 PARAMETER_ERROR (no data "
+                       "WRITE_BL_PARTIAL=0 -> R1 PARAMETER_ERROR (no data "
                        "phase)", block_len_);
         queue_r1(0x40);
         return;
@@ -1073,7 +1073,7 @@ void SdCardDevice::cmd24_write_single_block() {
     if (crosses_block_boundary(byte_addr)) {
         // WRITE_BLK_MISALIGN = 0 — same contract CMD17/CMD18 enforce for
         // reads. R1 bit 5 ADDRESS_ERROR, no data phase.
-        sd_log()->warn("CMD24 misaligned byte address {:#010x} → "
+        sd_log()->warn("CMD24 misaligned byte address {:#010x} -> "
                        "R1 ADDRESS_ERROR (no data phase)", byte_addr);
         queue_r1(static_cast<uint8_t>(0x20));
         return;
@@ -1103,7 +1103,7 @@ void SdCardDevice::cmd24_write_single_block() {
     // accepted 514 wasted bytes from a misbehaving host instead of
     // rejecting at R1.
     if (byte_addr + kBlockLen > file_size_) {
-        sd_log()->warn("CMD24 write past end of image: byte={:#010x} size={} → R1 PARAMETER_ERROR (no data phase)",
+        sd_log()->warn("CMD24 write past end of image: byte={:#010x} size={} -> R1 PARAMETER_ERROR (no data phase)",
                        byte_addr, file_size_);
         queue_r1(0x40);  // R1 bit 6 = PARAMETER_ERROR
         // Do NOT set pending_write_after_r1_ — there is no data phase
@@ -1284,7 +1284,7 @@ void SdCardDevice::build_csd_v1(uint8_t csd[16]) const {
     csd[14] = 0x00;
     csd[15] = 0x01;
 
-    sd_log()->debug("CSD v1.0: C_SIZE={} C_SIZE_MULT={} READ_BL_LEN={} → "
+    sd_log()->debug("CSD v1.0: C_SIZE={} C_SIZE_MULT={} READ_BL_LEN={} -> "
                     "declared capacity {} bytes (image {} bytes)",
                     c_size, c_size_mult, kReadBlLen,
                     static_cast<uint64_t>(c_size + 1) <<
@@ -1334,7 +1334,7 @@ void SdCardDevice::build_csd_v2(uint8_t csd[16]) const {
     };
     for (int i = 0; i < 16; ++i) csd[i] = bytes[i];
 
-    sd_log()->debug("CSD v2.0: C_SIZE={} → declared capacity {} bytes "
+    sd_log()->debug("CSD v2.0: C_SIZE={} -> declared capacity {} bytes "
                     "(image {} bytes)", c_size,
                     (c_size + 1) * 512ULL * 1024ULL, file_size_);
 }
@@ -1397,7 +1397,7 @@ void SdCardDevice::cmd10_send_cid() {
 }
 
 void SdCardDevice::cmd58_read_ocr() {
-    sd_log()->debug("CMD58 READ_OCR → initialized={} HCS={}",
+    sd_log()->debug("CMD58 READ_OCR -> initialized={} HCS={}",
                     initialized_, host_supports_sdhc_ ? 1 : 0);
     // OCR: bit 31=power up complete (if initialized), bit 30=SDHC (CCS).
     //
@@ -1468,7 +1468,7 @@ void SdCardDevice::acmd41_sd_send_op_cond() {
     // byte-addressed, so this is the one place the stale value could survive
     // a change of capacity class.
     block_len_ = kBlockLen;
-    sd_log()->debug("ACMD41 SD_SEND_OP_COND arg={:#010x} HCS={} → card initialized, ready",
+    sd_log()->debug("ACMD41 SD_SEND_OP_COND arg={:#010x} HCS={} -> card initialized, ready",
                     arg, host_supports_sdhc_ ? 1 : 0);
     initialized_ = true;  // Card is now initialized
     queue_r1(0x00);  // R1: ready (not idle)

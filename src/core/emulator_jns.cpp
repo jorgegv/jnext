@@ -265,7 +265,7 @@ struct SaveVisitor {
             const char* member = blob_member(name, b.key);
             if (!member) {
                 *why = std::string("subsystem ") + name + " declares blob '" +
-                       b.key + "', which has no member name in §6.1's layout";
+                       b.key + "', which has no member name in section 6.1's layout";
                 ok = false;
                 return;
             }
@@ -562,7 +562,7 @@ struct LoadVisitor {
             const char* member = blob_member(name, b.key);
             if (!member) {
                 *why = std::string("subsystem ") + name + " declares blob '" +
-                       b.key + "', which has no member name in §6.1's layout";
+                       b.key + "', which has no member name in section 6.1's layout";
                 ok = false;
                 return;
             }

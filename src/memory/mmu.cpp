@@ -414,7 +414,7 @@ void Mmu::rebuild_ptr_body_(int slot) {
 
 void Mmu::set_page(int slot, uint8_t page) {
     if (slot < 0 || slot > 7) return;
-    Log::memory()->debug("MMU slot {} → RAM page {:#04x}", slot, page);
+    Log::memory()->debug("MMU slot {} -> RAM page {:#04x}", slot, page);
     slots_[slot] = page;
     set_nr_mmu_(slot, page);
     read_only_[slot] = false;
@@ -423,7 +423,7 @@ void Mmu::set_page(int slot, uint8_t page) {
 
 void Mmu::map_rom_physical(int slot, uint8_t rom_page) {
     if (slot < 0 || slot > 7) return;
-    Log::memory()->debug("MMU slot {} → ROM page {} (physical)", slot, rom_page);
+    Log::memory()->debug("MMU slot {} -> ROM page {} (physical)", slot, rom_page);
     slots_[slot] = rom_page;
     read_only_[slot] = true;
     // Next mode: read from SRAM pages 0..7 (ROM-in-SRAM). Non-Next: rom_.

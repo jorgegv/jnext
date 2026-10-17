@@ -485,7 +485,7 @@ ServiceHint Debugger::pump(const PumpBudget& budget) {
     // refuses the call, says so loudly, and reports the truth about the session.
     if (impl_->draining) {
         Log::debugger()->error(
-            "pump() called from inside an event delivery - refused (§5: a "
+            "pump() called from inside an event delivery - refused (section 5: a "
             "handler may not drive the machine)");
         hint.remote_attached = impl_->any_peer_connected();
         hint.paused          = impl_->ds().paused();

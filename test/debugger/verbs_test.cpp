@@ -2314,8 +2314,8 @@ struct RefusalProbe {
     /// The window shows `want`, and the log line carries it after the tag.
     bool shows(const QString& want) const {
         return status().startsWith(want) &&
-               status().contains(QStringLiteral("See the user guide: Debugger ▸ Functions "
-                                                "▸ Backward execution (rewind)")) &&
+               status().contains(QStringLiteral("See the user guide: Debugger > Functions "
+                                                "> Backward execution (rewind)")) &&
                log.has("REWIND REFUSED: " + s(want));
     }
     std::string detail() const {
