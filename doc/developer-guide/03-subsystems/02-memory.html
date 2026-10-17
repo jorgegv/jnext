@@ -2513,13 +2513,24 @@ pixel ahead of the beam (<code>layer2.vhd</code>, <code>hc_eff &lt;= hc + 1</cod
 so it is sparse: an append-only per-frame log of <code>(key, address, value)</code> in
 which each address remembers the byte its first write replaced, so an address
 that was written reads back its frame-start value, and one that never was reads
-live from <code>Ram</code> (also its frame-start value). It is disarmed at every frame
+live from <code>Ram</code> (also its frame-start value). It also keeps a bit per 16 KB SRAM
+bank that holds a written address, and Layer 2 asks it once per span
+(<code>banks_clean()</code>): a 256x192 row fetches one bank, a wide row up to eight from
+its first, and a span none of whose banks was written is read straight from
+<code>Ram</code> — the byte the replay would return. It is disarmed at every frame
 start and armed when Layer 2 is on (at frame start, or at the moment it is
 turned on); once armed it records every SRAM store, enabled or not, until the
 frame ends. The stores are <code>Mmu::write()</code>'s four (Layer 2 write-over, alt-ROM,
 config-mode, normal slot) and the debugger's page pokes
 (<code>Mmu::log_page_store()</code>), which bypass <code>write()</code>; the list and what is
-deliberately not logged are in <code>sram_beam_log.h</code>.
+deliberately not logged are in <code>sram_beam_log.h</code>. All of them go through
+<code>Mmu::sram_log_write_()</code>. It tests recording inline, so a store the log does not
+record costs that one test, and leaves the rest to one out-of-line function,
+<code>Mmu::sram_log_record_()</code>: the SRAM bound check, the tag, and the append with
+<code>SramBeamLog::record_unchecked_()</code>, which skips the log's own two checks because
+the caller has made them. The entry and slot storage keeps its size from frame
+to frame and grows, doubling, only in a cold helper, so the append is
+straight-line code.
 <code>Mmu</code> separately keeps the
 +3 floating-bus latch <code>p3_floating_bus_dat_</code>, updated on every read that
 <code>mem_contend_for_(addr)</code> says is contended — a per-page decode, not the older

@@ -206,13 +206,24 @@ pixel ahead of the beam (`layer2.vhd`, `hc_eff <= hc + 1`). The SRAM is 2 MB,
 so it is sparse: an append-only per-frame log of `(key, address, value)` in
 which each address remembers the byte its first write replaced, so an address
 that was written reads back its frame-start value, and one that never was reads
-live from `Ram` (also its frame-start value). It is disarmed at every frame
+live from `Ram` (also its frame-start value). It also keeps a bit per 16 KB SRAM
+bank that holds a written address, and Layer 2 asks it once per span
+(`banks_clean()`): a 256x192 row fetches one bank, a wide row up to eight from
+its first, and a span none of whose banks was written is read straight from
+`Ram` — the byte the replay would return. It is disarmed at every frame
 start and armed when Layer 2 is on (at frame start, or at the moment it is
 turned on); once armed it records every SRAM store, enabled or not, until the
 frame ends. The stores are `Mmu::write()`'s four (Layer 2 write-over, alt-ROM,
 config-mode, normal slot) and the debugger's page pokes
 (`Mmu::log_page_store()`), which bypass `write()`; the list and what is
-deliberately not logged are in `sram_beam_log.h`.
+deliberately not logged are in `sram_beam_log.h`. All of them go through
+`Mmu::sram_log_write_()`. It tests recording inline, so a store the log does not
+record costs that one test, and leaves the rest to one out-of-line function,
+`Mmu::sram_log_record_()`: the SRAM bound check, the tag, and the append with
+`SramBeamLog::record_unchecked_()`, which skips the log's own two checks because
+the caller has made them. The entry and slot storage keeps its size from frame
+to frame and grows, doubling, only in a cold helper, so the append is
+straight-line code.
 `Mmu` separately keeps the
 +3 floating-bus latch `p3_floating_bus_dat_`, updated on every read that
 `mem_contend_for_(addr)` says is contended — a per-page decode, not the older
