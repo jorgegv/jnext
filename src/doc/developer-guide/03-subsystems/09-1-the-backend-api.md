@@ -287,8 +287,9 @@ stores the path absolute.
 
 `load_program_sidecars(path)` attaches `<stem>.Memory.txt` (or `Memory.txt`,
 beside a `.nex`) and `<stem>.sld` / `<stem>.sld.txt`, searching with the
-non-throwing filesystem calls; any non-directory entry counts, so an unreadable
-one is reported. Every frontend calls it after a successful `--load` or File ▸
+non-throwing filesystem calls; only a regular file counts (a FIFO would block the
+load), and one that cannot be read is reported. Both loaders refuse a file that is
+not regular, or is over 64 MB, before opening it (`debug/source_file.h`). Every frontend calls it after a successful `--load` or File ▸
 Open, and `load()` calls it for a remote client; a tape program gets no
 automatic map. Ownership is explicit (`Impl::StoreOwner`: None, Sidecar, User)
 and changes only on a successful load: a sidecar never touches the user's

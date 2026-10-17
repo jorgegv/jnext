@@ -36,8 +36,8 @@
 //   SRCDBG-PATH-*    a relative map path is made absolute
 //   SRCDBG-FB-*      Back after a Frame Back goes back in time
 //
-// Rows that need POSIX file types as sidecars (a socket, a symlink, a FIFO)
-// are in source_debug_posix_test.
+// Rows that need POSIX file types as sidecars (a symlink, a FIFO) are in
+// source_debug_posix_test.
 //
 // Run: ./build/test/source_debug_test
 
@@ -47,6 +47,7 @@
 #include "debug/ram_page.h"
 #include "peripheral/divmmc.h"
 #include "debug/sld_loader.h"
+#include "debug/source_file.h"
 #include "core/saveable.h"
 
 #include <algorithm>
@@ -737,6 +738,27 @@ int main() {
                                "sidecar does not replace it",
               r.symbols == -1 && m.dbg->lookup_name("__data_crt_head") == 0x1234 &&
                   !m.dbg->lookup_name("Main"));
+    }
+    {
+        // A Memory.txt that is there and cannot be loaded: a regular file
+        // over the size cap, refused for every user, root included. Sparse,
+        // so it costs no disk.
+        Machine m;
+        write_text(own / "own3.nex", "");
+        write_text(own / "own3.Memory.txt", "8000: ._Old\n");
+        m.dbg->load_program_sidecars((own / "own3.nex").string());
+        const bool had_old = m.dbg->lookup_name("Old").has_value();
+        write_text(own / "own4.nex", "");
+        const fs::path big = own / "own4.Memory.txt";
+        write_text(big, "8000: ._New\n");
+        std::error_code ec;
+        fs::resize_file(big, SOURCE_FILE_MAX_BYTES + 1, ec);
+        const auto r = m.dbg->load_program_sidecars((own / "own4.nex").string());
+        fs::remove(big);
+        check("SRCDBG-OWN-03", "a sidecar Memory.txt that cannot be opened is reported "
+                               "unreadable, and leaves none of the previous program's "
+                               "symbols",
+              had_old && !ec && r.symbols_unreadable && !m.dbg->lookup_name("Old"));
     }
     // ── a tape program gets no automatic map ────────────────────────────
     {

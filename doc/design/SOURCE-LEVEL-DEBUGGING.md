@@ -125,8 +125,8 @@ After a successful program load every frontend calls
 `load_program_sidecars(path)` (Qt and SDL from their load tick, headless from
 `--load`, and `Debugger::load()` for a remote client). It looks for
 `<stem>.Memory.txt`, else `Memory.txt` (beside a `.nex` only), and `<stem>.sld`,
-else `<stem>.sld.txt`. Anything there that is not a directory is the sidecar:
-one that cannot be read is reported (`SidecarLoad::symbols_unreadable`), not
+else `<stem>.sld.txt`. Only a regular file is the sidecar (a FIFO would block
+the load): one that cannot be read is reported (`SidecarLoad::symbols_unreadable`), not
 mistaken for none. The search uses the non-throwing filesystem calls: a dangling
 or looping link is "no sidecar". Each outcome is logged.
 

@@ -43,14 +43,15 @@ std::string lower_extension(const std::filesystem::path& p) {
 std::optional<std::filesystem::path> nextbuild_sidecar(const std::filesystem::path& program) {
     namespace fs = std::filesystem;
     if (lower_extension(program) != ".nex") return std::nullopt;
-    // Anything there that is not a directory is the sidecar — one that cannot
-    // be read is reported, not mistaken for none. The error_code overloads: a
-    // broken or looping link is "no sidecar", never an exception.
+    // Only a regular file is the sidecar (a FIFO would block the load on
+    // open); one that cannot be read is reported, not mistaken for none. The
+    // error_code overloads: a broken or looping link is "no sidecar", never
+    // an exception.
     for (const fs::path& p : {program.parent_path() / (program.stem().string() + ".Memory.txt"),
                               program.parent_path() / "Memory.txt"}) {
         std::error_code ec;
         const auto st = fs::status(p, ec);
-        if (!ec && fs::exists(st) && !fs::is_directory(st)) return p;
+        if (!ec && fs::is_regular_file(st)) return p;
     }
     return std::nullopt;
 }

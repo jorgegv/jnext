@@ -1,12 +1,14 @@
 // Source-level debugging: the rows whose sidecar fixtures are POSIX file
-// types (a UNIX socket, a symbolic link). Windows has no sockets in the file
-// system and wine cannot create symlinks, so they live apart from
-// source_map_test and source_debug_test, whose counts are the same on every
-// OS (GH #214). IDs and assertions are those of the suites they came from.
+// types (a symbolic link, a FIFO). wine cannot create symlinks and Windows
+// has no FIFOs in the file system, so they live apart from source_map_test
+// and source_debug_test, whose counts are the same on every OS (GH #214).
 //
 //   SLD-18           load_sld_sidecar(): a looping link is refused, not thrown
 //   SRCDBG-SIDE-09   load_program_sidecars(): a looping link is no sidecar
-//   SRCDBG-OWN-03    a sidecar that is there and cannot be opened
+//   SRCDBG-SIDE-10   a FIFO named <stem>.sld is no sidecar, and the load
+//                    does not wait on it
+//   SRCDBG-SIDE-11   the same for <stem>.Memory.txt
+//   SRCDBG-SIDE-12   a FIFO loaded by hand is refused, not waited on
 //
 // A real 48K machine and a real `Debugger`, as in source_debug_test.
 //
@@ -18,14 +20,17 @@
 #include "debug/sld_loader.h"
 #include "debug/source_map.h"
 
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
-#include <sys/socket.h>
-#include <sys/un.h>
+#include <sys/stat.h>
+#include <thread>
 #include <unistd.h>
 #include "../row_id.h"
 
@@ -111,30 +116,64 @@ int main() {
                                 "exception",
               !threw && r.symbols == -1 && r.sources == -1);
     }
+    // A FIFO beside the program. Opening one for reading blocks until a writer
+    // comes, so a search that took it would hang the load. From 1.5 s on, the
+    // helper keeps opening the write end, which ends each such wait, so a row
+    // that fails reports instead of hanging the suite.
+    auto with_fifo = [&](const fs::path& fifo, auto&& load) {
+        fs::remove(fifo);
+        const bool made = ::mkfifo(fifo.c_str(), 0600) == 0;
+        std::atomic<bool> done{false};
+        std::thread unblock([fifo, &done] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+            while (!done) {
+                const int fd = ::open(fifo.c_str(), O_WRONLY | O_NONBLOCK);
+                if (fd >= 0) ::close(fd);
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+        });
+        const auto t0 = std::chrono::steady_clock::now();
+        load();
+        const auto took = std::chrono::steady_clock::now() - t0;
+        done = true;
+        unblock.join();
+        fs::remove(fifo);
+        return made && took < std::chrono::seconds(1);
+    };
     {
-        // A Memory.txt that is there and cannot be opened — a UNIX socket
-        // node, which open() refuses for every user, root included.
         Machine m;
-        write_text(own / "own3.nex", "");
-        write_text(own / "own3.Memory.txt", "8000: ._Old\n");
-        m.dbg->load_program_sidecars((own / "own3.nex").string());
-        const bool had_old = m.dbg->lookup_name("Old").has_value();
-        write_text(own / "own4.nex", "");
-        const fs::path sock = own / "own4.Memory.txt";
-        fs::remove(sock);
-        const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
-        sockaddr_un sa{};
-        sa.sun_family = AF_UNIX;
-        std::snprintf(sa.sun_path, sizeof(sa.sun_path), "%s", sock.c_str());
-        const bool made = fd >= 0 &&
-                          ::bind(fd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == 0;
-        const auto r = m.dbg->load_program_sidecars((own / "own4.nex").string());
-        if (fd >= 0) ::close(fd);
-        fs::remove(sock);
-        check("SRCDBG-OWN-03", "a sidecar Memory.txt that cannot be opened is reported "
-                               "unreadable, and leaves none of the previous program's "
-                               "symbols",
-              had_old && made && r.symbols_unreadable && !m.dbg->lookup_name("Old"));
+        write_text(own / "pipe.nex", "");
+        SourceMapLoadResult direct;
+        Debugger::SidecarLoad r;
+        const bool quick = with_fifo(own / "pipe.sld", [&] {
+            r = m.dbg->load_program_sidecars((own / "pipe.nex").string());
+            SourceMap sm;
+            direct = load_sld_sidecar(sm, (own / "pipe.nex").string());
+        });
+        check("SRCDBG-SIDE-10", "a FIFO named <stem>.sld is no sidecar, and the load "
+                                "returns within 1 s",
+              quick && r.sources == -1 && direct.error == "no adjacent SLD sidecar",
+              direct.error);
+    }
+    {
+        Machine m;
+        write_text(own / "pipe2.nex", "");
+        Debugger::SidecarLoad r;
+        const bool quick = with_fifo(own / "pipe2.Memory.txt", [&] {
+            r = m.dbg->load_program_sidecars((own / "pipe2.nex").string());
+        });
+        check("SRCDBG-SIDE-11", "a FIFO named <stem>.Memory.txt is no sidecar, and the "
+                                "load returns within 1 s",
+              quick && r.symbols == -1 && !r.symbols_unreadable);
+    }
+    {
+        SourceMap sm;
+        SourceMapLoadResult r;
+        const bool quick = with_fifo(own / "byhand.sld", [&] {
+            r = load_sld(sm, (own / "byhand.sld").string());
+        });
+        check("SRCDBG-SIDE-12", "a FIFO loaded by hand as an SLD is refused, not waited on",
+              quick && r.count == -1 && r.error == "not a regular file", r.error);
     }
 
     fs::remove_all(own);

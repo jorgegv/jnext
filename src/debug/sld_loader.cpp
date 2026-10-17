@@ -259,12 +259,13 @@ SourceMapLoadResult load_sld_sidecar(SourceMap& map,
     const fs::path stem = program.parent_path() / program.stem();
     for (const auto& suffix : {std::string(".sld"), std::string(".sld.txt")}) {
         const fs::path candidate(stem.string() + suffix);
-        // Anything there that is not a directory is the sidecar (one that
-        // cannot be read is refused with a reason). The error_code overload:
-        // a broken or looping link is "not a sidecar", never an exception.
+        // Only a regular file is the sidecar (one that cannot be read is
+        // refused with a reason): a FIFO would block the load on open. The
+        // error_code overload: a broken or looping link is "not a sidecar",
+        // never an exception.
         std::error_code ec;
         const auto st = fs::status(candidate, ec);
-        if (!ec && fs::exists(st) && !fs::is_directory(st))
+        if (!ec && fs::is_regular_file(st))
             return load_sld(map, candidate.string());
     }
     return failed("no adjacent SLD sidecar");
