@@ -10,6 +10,7 @@
 // source_debug_posix_test. Run: ./build/test/source_map_test
 
 #include "debug/sld_loader.h"
+#include "debug/source_file.h"
 #include "debug/source_map.h"
 #include "debug/symbol_table.h"
 
@@ -243,6 +244,35 @@ int main() {
         fs::current_path(before);
         check("SLD-20", "a map loaded by a relative name records its absolute path",
               fs::path(m.loaded_file()).is_absolute());
+    }
+
+    // A file over the size cap is refused before it is read. Sparse, so the
+    // fixture costs no disk.
+    {
+        const std::uintmax_t big = SOURCE_FILE_MAX_BYTES + 1;
+        const fs::path huge_sld = dir / "huge.sld";
+        write_text(huge_sld, std::string("|SLD.data.version|1\n") + "m.bas|1||0" +
+                                 kNextDevice + "m.bas|1||0|4|32768|T|\n");
+        fs::resize_file(huge_sld, big);
+        SourceMap m;
+        const auto r = load_sld(m, huge_sld.string());
+        check("SLD-22", "an SLD over the 64 MB cap is refused with its size in the reason",
+              r.count == -1 && r.error.find(std::to_string(big)) != std::string::npos &&
+                  m.size() == 0);
+
+        const fs::path huge_mem = dir / "huge.Memory.txt";
+        write_text(huge_mem, "8000: ._Big\n");
+        fs::resize_file(huge_mem, big);
+        const fs::path small_mem = dir / "small.Memory.txt";
+        write_text(small_mem, "9000: ._Kept\n");
+        SymbolTable st;
+        st.load_nextbuild_memory(small_mem.string());
+        std::string why;
+        check("NBSYM-13", "a Memory.txt over the 64 MB cap is refused with its size in the "
+                          "reason, and the loaded symbols stay",
+              st.load_nextbuild_memory(huge_mem.string(), &why) == -1 &&
+                  why.find(std::to_string(big)) != std::string::npos &&
+                  st.lookup_name("Kept") == 0x9000 && !st.lookup_name("Big"));
     }
 
     // ── NextBuild Memory.txt ────────────────────────────────────────────

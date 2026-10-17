@@ -1,5 +1,7 @@
 #include "symbol_table.h"
 
+#include "debug/source_file.h"
+
 #include <fstream>
 #include <sstream>
 #include <algorithm>
@@ -212,11 +214,17 @@ std::optional<uint16_t> parse_hex16(std::string_view text)
 
 }  // namespace
 
-int SymbolTable::load_nextbuild_memory(const std::string& path)
+int SymbolTable::load_nextbuild_memory(const std::string& path, std::string* why)
 {
-    std::ifstream file(path);
-    if (!file.is_open())
+    if (std::string problem = source_file_problem(path); !problem.empty()) {
+        if (why) *why = problem;
         return -1;
+    }
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        if (why) *why = "could not open Memory.txt file";
+        return -1;
+    }
 
     clear();
 

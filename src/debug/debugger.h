@@ -893,8 +893,9 @@ public:
 
     /// CAP-SYM — load a MAP file into the ONE table the panels, the DSL's
     /// `@name`, the servers' lookups and `--map` all read. Returns the number of
-    /// symbols loaded.
-    Expected<int> load_map(const std::string& path, MapFormat format);
+    /// symbols loaded. A refused NextBuild file sets `why` to the reason.
+    Expected<int> load_map(const std::string& path, MapFormat format,
+                           std::string* why = nullptr);
 
     /// CAP-SYM — forget them all.
     Result clear_symbols();

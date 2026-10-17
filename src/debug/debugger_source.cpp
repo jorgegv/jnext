@@ -138,14 +138,15 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
             log->info("Kept the loaded symbols '{}'; not loading '{}'",
                       impl_->symbols.loaded_file(), memory->string());
     } else if (memory) {
-        const int n = impl_->symbols.load_nextbuild_memory(memory->string());
+        std::string why;
+        const int n = impl_->symbols.load_nextbuild_memory(memory->string(), &why);
         if (n >= 0) {
             impl_->symbols_owner = Owner::Sidecar;
             out.symbols = n;
             log->info("Loaded {} NextBuild symbols from '{}'", n, memory->string());
         } else {
             out.symbols_unreadable = true;
-            log->warn("Could not read NextBuild symbols '{}'", memory->string());
+            log->warn("Could not read NextBuild symbols '{}': {}", memory->string(), why);
             if (impl_->symbols_owner == Owner::Sidecar) {
                 impl_->symbols.clear();
                 impl_->symbols_owner = Owner::None;

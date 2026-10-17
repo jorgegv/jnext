@@ -237,12 +237,12 @@ Result Debugger::set_stop_policy(StopPolicy policy) {
 // item of this package that cannot complete alone.
 // ---------------------------------------------------------------------------
 
-Expected<int> Debugger::load_map(const std::string& path, MapFormat format) {
+Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std::string* why) {
     int n = -1;
     switch (format) {
         case MapFormat::Z88dk:     n = impl_->symbols.load_z88dk_map(path); break;
         case MapFormat::Simple:    n = impl_->symbols.load_simple_map(path); break;
-        case MapFormat::NextBuild: n = impl_->symbols.load_nextbuild_memory(path); break;
+        case MapFormat::NextBuild: n = impl_->symbols.load_nextbuild_memory(path, why); break;
     }
     // A MAP the user chose replaces whatever a program's sidecar brought —
     // once it HAS: a file that cannot be read leaves the table, and so its

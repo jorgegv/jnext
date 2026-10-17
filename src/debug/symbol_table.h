@@ -33,8 +33,9 @@ public:
     /// shown without its leading `.` and, for a Boriel user name, without the
     /// single `_` the compiler adds (`._Main` names `Main`); the raw label and
     /// the label without its `.` resolve by name as well. Returns the number
-    /// of labels loaded, or -1 if the file cannot be read.
-    int load_nextbuild_memory(const std::string& path);
+    /// of labels loaded, or -1 if the file cannot be read; `why`, when given,
+    /// then says why (over the size cap, not a regular file, cannot be opened).
+    int load_nextbuild_memory(const std::string& path, std::string* why = nullptr);
 
     /// Resolve the text of an address field: a loaded symbol name first, else
     /// a hexadecimal address (`4000`, `$4000`, `0x4000`). An explicit `$` or

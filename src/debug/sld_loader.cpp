@@ -1,5 +1,6 @@
 #include "debug/sld_loader.h"
 
+#include "debug/source_file.h"
 #include "debug/source_map.h"
 
 #include <algorithm>
@@ -145,6 +146,7 @@ bool read_line(std::istream& input, std::string& line)
 
 SourceMapLoadResult load_sld(SourceMap& map, const std::string& path)
 {
+    if (std::string why = source_file_problem(path); !why.empty()) return failed(why);
     std::ifstream input(path);
     if (!input.is_open()) return failed("could not open SLD file");
 

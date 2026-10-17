@@ -589,7 +589,8 @@ void DebuggerManager::on_load_nextbuild_memory() {
     if (path.isEmpty())
         return;
 
-    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::NextBuild)) {
+    std::string why;
+    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::NextBuild, &why)) {
         QMessageBox::information(main_window_, QObject::tr("Symbols Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(dbg_.symbols().size())
@@ -597,7 +598,8 @@ void DebuggerManager::on_load_nextbuild_memory() {
         refresh_panels();
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
-            QObject::tr("Could not load NextBuild symbols from:\n%1").arg(path));
+            QObject::tr("Could not load NextBuild symbols from:\n%1\n\n%2")
+                .arg(path, QString::fromStdString(why)));
     }
 }
 

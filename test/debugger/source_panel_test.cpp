@@ -29,6 +29,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
+#include "debug/source_file.h"
 #include "debugger/breakpoint_model.h"
 #include "debugger/breakpoint_panel.h"
 #include "debugger/callstack_panel.h"
@@ -42,10 +43,12 @@
 #include <QDialog>
 #include <QDir>
 #include <QFile>
+#include <QFileDialog>
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
+#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QTabWidget>
@@ -285,6 +288,41 @@ void test_relative_map() {
 
 // ── QBPM / QBPP: page-qualified Execute breakpoints ────────────────────
 
+// C8: a Memory.txt refused when loaded by hand says why, as a sidecar does.
+void test_load_refused() {
+    Fixture fx;
+    fx.enable();
+    const std::string big = g_tmp->path().toStdString() + "/big.Memory.txt";
+    write_text(big, "8005: ._Landing\n");
+    std::error_code ec;
+    std::filesystem::resize_file(big, SOURCE_FILE_MAX_BYTES + 1, ec);   // sparse
+    QString warning;
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        QWidget* w = QApplication::activeModalWidget();
+        if (!w || !w->isVisible()) return;
+        if (auto* fd = qobject_cast<QFileDialog*>(w)) {
+            fd->selectFile(QString::fromStdString(big));
+            static_cast<QDialog*>(fd)->accept();   // QFileDialog::accept() is protected
+        } else if (auto* mb = qobject_cast<QMessageBox*>(w)) {
+            warning = mb->text();
+            mb->accept();
+        } else if (auto* d = qobject_cast<QDialog*>(w)) {
+            d->reject();
+        }
+    });
+    timer.start(1);
+    if (QPushButton* b = button(fx.dbg()->source_panel(), QStringLiteral("Load Memory.txt...")))
+        b->click();
+    timer.stop();
+    QApplication::processEvents();
+    const std::string why = "file is " + std::to_string(SOURCE_FILE_MAX_BYTES + 1) + " bytes";
+    check("QSRC-32", "a Memory.txt over the size cap loaded by hand is refused, and the "
+                     "warning gives the reason",
+          !ec && s(warning).find(why) != std::string::npos && !fx.backend->lookup_name("Landing"),
+          s(warning));
+}
+
 void test_breakpoints() {
     Fixture fx;
     fx.enable();
@@ -394,6 +432,7 @@ int main(int argc, char** argv) {
     test_source_tab();
     test_source_tab_rewind();
     test_relative_map();
+    test_load_refused();
     test_breakpoints();
     test_call_stack();
     test_address_fields();
