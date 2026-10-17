@@ -77,6 +77,8 @@ public:
     /// `sram_bytes` the size of the Ram (the address bound). Disarmed.
     void start_frame(int hc_origin, uint32_t sram_bytes) {
         for (const Slot& s : slots_) idx_[s.addr] = 0;
+        nbanks_ = (sram_bytes >> 14) + ((sram_bytes & 0x3FFFu) != 0);
+        dirty_banks_.assign((nbanks_ + 63) / 64, 0);   // a bit for every bank below sram_bytes
         slots_.clear();
         log_.clear();
         narrow_base_ = beam::phc_raw_hc(hc_origin, -1);   // fetch of column 0
@@ -94,6 +96,7 @@ public:
     /// frame (NEX load) are not logged.
     void stop() {
         for (const Slot& s : slots_) idx_[s.addr] = 0;
+        dirty_banks_.assign(dirty_banks_.size(), 0);
         std::vector<Slot>().swap(slots_);
         std::vector<Entry>().swap(log_);
         started_ = false;
@@ -118,6 +121,17 @@ public:
     /// a read can differ from the live RAM.
     bool any_writes() const { return !slots_.empty(); }
 
+    /// True when no address in the `n` 16 KB SRAM banks from bank `k0` (bank =
+    /// address >> 14) was written since arming: read() of any of them returns
+    /// the live byte, so Layer 2 may read such a span straight from the RAM.
+    /// A bank at or above sram_bytes_ is clean (record_write refuses those
+    /// addresses); every bank below it has a bit (start_frame sizes the map).
+    bool banks_clean(uint32_t k0, uint32_t n) const {
+        for (uint32_t k = k0; k - k0 < n && k < nbanks_; ++k)
+            if ((dirty_banks_[k >> 6] >> (k & 63)) & 1u) return false;
+        return true;
+    }
+
     /// Record that SRAM byte `addr` was overwritten (`prev` -> `value`) while
     /// scanline `line` (framebuffer-row space) was the beam position and `hc`
     /// the raw horizontal position. A no-op while disarmed.
@@ -129,6 +143,7 @@ public:
         if (ix == 0) {
             slots_.push_back({addr, n, n, n, 0, prev, prev});
             ix = static_cast<uint32_t>(slots_.size());
+            dirty_banks_[addr >> 20] |= uint64_t{1} << ((addr >> 14) & 63);
         } else {
             Slot& s = slots_[ix - 1];
             log_[s.last].next = n;
@@ -212,6 +227,8 @@ private:
     uint32_t                     idx_n_ = 0;
     mutable std::vector<Slot>    slots_;
     std::vector<Entry>           log_;
+    std::vector<uint64_t>        dirty_banks_;   // bit k: a slot lies in SRAM bank k (addr >> 14)
+    uint32_t                     nbanks_ = 0;    // 16 KB banks below sram_bytes_ (the map's extent)
     uint32_t                     sram_bytes_ = 0;
     int                          narrow_base_ = 0;   // raw hc of column 0's fetch, 256x192
     int                          wide_base_ = 0;     // same, 320x256 / 640x256 (may be < 0 on a bare fixture)

@@ -564,6 +564,15 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
     const SramBeamLog* const blog =
         (sram_log_ && sram_log_->started() && sram_log_->any_writes()) ? sram_log_ : nullptr;
 
+    // Each span loop below is written once and run with one of two fetches:
+    // the replay, or the plain RAM read when the log holds no write in any
+    // 16 KB bank the span can read (SramBeamLog::banks_clean). read() would
+    // return the live byte for every address of such a span and move no
+    // replay cursor, so the two fetches are the same there.
+    const auto live          = [&ram](uint32_t a, int) { return ram.read(a); };
+    const auto replay_narrow = [&](uint32_t a, int c) { return blog->read(a, blog->narrow_fetch_hc(c), ram); };
+    const auto replay_wide   = [&](uint32_t a, int c) { return blog->read(a, blog->wide_fetch_hc(c), ram); };
+
     if (resolution_ == 0) {
         // ---------------------------------------------------------------
         // 256x192 @ 8bpp (row-major)
@@ -623,47 +632,56 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             int src_y = (y + seg_sy) % 192;
             uint32_t l2_addr_base = static_cast<uint32_t>(src_y) * 256;
 
-            for (; x < x_end; ++x) {
-                // Clip X check on DESTINATION column (pre-scroll), per VHDL
-                // layer2.vhd:167 — clip uses `hc_eff`, not `x_pre`. Without
-                // this, the 8-pixel "clipped band" wanders through the
-                // display as L2 scrolls (parallax.nex bottom band exposed
-                // it: side gutters that should be black showed graphics).
-                // VHDL clip space at narrow res is 9-bit but the high bit is
-                // 0 (clip_x1_q = '0' & i_clip_x1, layer2.vhd:130) so direct
-                // 8-bit comparison against x (0..255) is faithful.
-                if (x < clip_x1_ || x > clip_x2_)
-                    continue;
+            // The span reads l2_addr_base + src_x, src_x < 256, from a row
+            // base that is a multiple of 256: one 16 KB bank (layer2.vhd:160
+            // `'0' & y & x(7:0)`, :173 bank_eff + addr(16:14)).
+            const bool slog = blog && !blog->banks_clean(
+                compute_ram_addr(seg_bank, l2_addr_base, rom_in_sram) >> 14, 1);
 
-                int src_x = (x + (seg_sx & 0xFF)) & 0xFF;
+            auto span = [&](auto fetch) {
+                for (; x < x_end; ++x) {
+                    // Clip X check on DESTINATION column (pre-scroll), per VHDL
+                    // layer2.vhd:167 — clip uses `hc_eff`, not `x_pre`. Without
+                    // this, the 8-pixel "clipped band" wanders through the
+                    // display as L2 scrolls (parallax.nex bottom band exposed
+                    // it: side gutters that should be black showed graphics).
+                    // VHDL clip space at narrow res is 9-bit but the high bit is
+                    // 0 (clip_x1_q = '0' & i_clip_x1, layer2.vhd:130) so direct
+                    // 8-bit comparison against x (0..255) is faithful.
+                    if (x < clip_x1_ || x > clip_x2_)
+                        continue;
 
-                uint32_t l2_addr = l2_addr_base + src_x;
-                uint32_t ram_addr = compute_ram_addr(seg_bank, l2_addr, rom_in_sram);
-                uint8_t pixel = blog ? blog->read(ram_addr, blog->narrow_fetch_hc(x), ram)
-                                     : ram.read(ram_addr);
+                    int src_x = (x + (seg_sx & 0xFF)) & 0xFF;
 
-                uint8_t colour_idx = static_cast<uint8_t>(
-                    ((pixel >> 4) + palette_offset_) << 4 | (pixel & 0x0F));
+                    uint32_t l2_addr = l2_addr_base + src_x;
+                    uint32_t ram_addr = compute_ram_addr(seg_bank, l2_addr, rom_in_sram);
+                    uint8_t pixel = fetch(ram_addr, x);
 
-                // Transparency: compare palette RRRGGGBB against global transparent colour.
-                if (palette.layer2_rgb8(palette_bank_second, colour_idx) == transp_rgb)
-                    continue;
+                    uint8_t colour_idx = static_cast<uint8_t>(
+                        ((pixel >> 4) + palette_offset_) << 4 | (pixel & 0x0F));
 
-                // Pixel-double: each 256-mode source pixel writes two
-                // 640-grid cells (matches VHDL's narrow-res 7 MHz output
-                // re-sampled at the compositor's 14 MHz pixel clock).
-                uint32_t argb = palette.layer2_colour(palette_bank_second, colour_idx);
-                dst[DISP_X + 2 * x]     = argb;
-                dst[DISP_X + 2 * x + 1] = argb;
-                // VHDL zxnext.vhd:7050 — palette bit 15 (NR 0x44 b7) drives
-                // layer2_priority_2 per-pixel for opaque L2 pixels. Compositor
-                // uses this to promote L2 above sprites (zxnext.vhd:7220).
-                if (priority_dst) {
-                    const bool prio = palette.layer2_priority_high(palette_bank_second, colour_idx);
-                    priority_dst[DISP_X + 2 * x]     = prio;
-                    priority_dst[DISP_X + 2 * x + 1] = prio;
+                    // Transparency: compare palette RRRGGGBB against global transparent colour.
+                    if (palette.layer2_rgb8(palette_bank_second, colour_idx) == transp_rgb)
+                        continue;
+
+                    // Pixel-double: each 256-mode source pixel writes two
+                    // 640-grid cells (matches VHDL's narrow-res 7 MHz output
+                    // re-sampled at the compositor's 14 MHz pixel clock).
+                    uint32_t argb = palette.layer2_colour(palette_bank_second, colour_idx);
+                    dst[DISP_X + 2 * x]     = argb;
+                    dst[DISP_X + 2 * x + 1] = argb;
+                    // VHDL zxnext.vhd:7050 — palette bit 15 (NR 0x44 b7) drives
+                    // layer2_priority_2 per-pixel for opaque L2 pixels. Compositor
+                    // uses this to promote L2 above sprites (zxnext.vhd:7220).
+                    if (priority_dst) {
+                        const bool prio = palette.layer2_priority_high(palette_bank_second, colour_idx);
+                        priority_dst[DISP_X + 2 * x]     = prio;
+                        priority_dst[DISP_X + 2 * x + 1] = prio;
+                    }
                 }
-            }
+            };
+            if (slog) span(replay_narrow);
+            else      span(live);
         }
     }
     else if (resolution_ == 1) {
@@ -723,39 +741,48 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             // Y scroll wraps at 256 (natural 8-bit wrap).
             uint8_t src_y = static_cast<uint8_t>(row + seg_sy);
 
-            for (; x < x_end; ++x) {
-                // Clip X on DESTINATION column (pre-scroll), per VHDL
-                // layer2.vhd:167.
-                if (x < clip_x1_eff || x > clip_x2_eff)
-                    continue;
+            // The span reads src_x * 256 + src_y with src_x <= 510 (one -320
+            // wrap of x + (scroll_x & 0x1FF)): banks k0 .. k0+7, k0 the bank
+            // of column 0 (layer2.vhd:153 and :160 `x & y`, :173 addr(16:14)).
+            const bool slog = blog && !blog->banks_clean(
+                compute_ram_addr(seg_bank, src_y, rom_in_sram) >> 14, 8);
 
-                // X scroll with wrap at 320.
-                int src_x_pre = x + (seg_sx & 0x1FF);
-                int src_x = (src_x_pre >= 320) ? (src_x_pre - 320) : src_x_pre;
+            auto span = [&](auto fetch) {
+                for (; x < x_end; ++x) {
+                    // Clip X on DESTINATION column (pre-scroll), per VHDL
+                    // layer2.vhd:167.
+                    if (x < clip_x1_eff || x > clip_x2_eff)
+                        continue;
 
-                // Column-major: addr = x * 256 + y (17-bit).
-                uint32_t l2_addr = static_cast<uint32_t>(src_x) * 256 + src_y;
-                uint32_t ram_addr = compute_ram_addr(seg_bank, l2_addr, rom_in_sram);
-                uint8_t pixel = blog ? blog->read(ram_addr, blog->wide_fetch_hc(x), ram)
-                                     : ram.read(ram_addr);
+                    // X scroll with wrap at 320.
+                    int src_x_pre = x + (seg_sx & 0x1FF);
+                    int src_x = (src_x_pre >= 320) ? (src_x_pre - 320) : src_x_pre;
 
-                uint8_t colour_idx = static_cast<uint8_t>(
-                    ((pixel >> 4) + palette_offset_) << 4 | (pixel & 0x0F));
+                    // Column-major: addr = x * 256 + y (17-bit).
+                    uint32_t l2_addr = static_cast<uint32_t>(src_x) * 256 + src_y;
+                    uint32_t ram_addr = compute_ram_addr(seg_bank, l2_addr, rom_in_sram);
+                    uint8_t pixel = fetch(ram_addr, x);
 
-                if (palette.layer2_rgb8(palette_bank_second, colour_idx) == transp_rgb)
-                    continue;
+                    uint8_t colour_idx = static_cast<uint8_t>(
+                        ((pixel >> 4) + palette_offset_) << 4 | (pixel & 0x0F));
 
-                // Pixel-double: 320 source → 640 framebuffer cells.
-                uint32_t argb = palette.layer2_colour(palette_bank_second, colour_idx);
-                dst[2 * x]     = argb;
-                dst[2 * x + 1] = argb;
-                // VHDL zxnext.vhd:7050 — see narrow-mode comment above.
-                if (priority_dst) {
-                    const bool prio = palette.layer2_priority_high(palette_bank_second, colour_idx);
-                    priority_dst[2 * x]     = prio;
-                    priority_dst[2 * x + 1] = prio;
+                    if (palette.layer2_rgb8(palette_bank_second, colour_idx) == transp_rgb)
+                        continue;
+
+                    // Pixel-double: 320 source → 640 framebuffer cells.
+                    uint32_t argb = palette.layer2_colour(palette_bank_second, colour_idx);
+                    dst[2 * x]     = argb;
+                    dst[2 * x + 1] = argb;
+                    // VHDL zxnext.vhd:7050 — see narrow-mode comment above.
+                    if (priority_dst) {
+                        const bool prio = palette.layer2_priority_high(palette_bank_second, colour_idx);
+                        priority_dst[2 * x]     = prio;
+                        priority_dst[2 * x + 1] = prio;
+                    }
                 }
-            }
+            };
+            if (slog) span(replay_wide);
+            else      span(live);
         }
     }
     else {
@@ -813,41 +840,48 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
 
             uint8_t src_y = static_cast<uint8_t>(row + seg_sy);
 
-            for (; col < col_end; ++col) {
-                // Clip X on DESTINATION column (pre-scroll), per VHDL
-                // layer2.vhd:167. Compare column byte-index directly
-                // against the doubled clip register (preserved from the
-                // pre-G104 semantics); do NOT divide.
-                if (col < clip_x1_eff || col > clip_x2_eff)
-                    continue;
+            // Banks k0 .. k0+7, as in 320x256 (the same column wrap).
+            const bool slog = blog && !blog->banks_clean(
+                compute_ram_addr(seg_bank, src_y, rom_in_sram) >> 14, 8);
 
-                int src_col_pre = col + (seg_sx & 0x1FF);
-                int src_col = (src_col_pre >= 320) ? (src_col_pre - 320) : src_col_pre;
+            auto span = [&](auto fetch) {
+                for (; col < col_end; ++col) {
+                    // Clip X on DESTINATION column (pre-scroll), per VHDL
+                    // layer2.vhd:167. Compare column byte-index directly
+                    // against the doubled clip register (preserved from the
+                    // pre-G104 semantics); do NOT divide.
+                    if (col < clip_x1_eff || col > clip_x2_eff)
+                        continue;
 
-                uint32_t l2_addr = static_cast<uint32_t>(src_col) * 256 + src_y;
-                uint32_t ram_addr = compute_ram_addr(seg_bank, l2_addr, rom_in_sram);
-                uint8_t byte = blog ? blog->read(ram_addr, blog->wide_fetch_hc(col), ram)
-                                    : ram.read(ram_addr);
+                    int src_col_pre = col + (seg_sx & 0x1FF);
+                    int src_col = (src_col_pre >= 320) ? (src_col_pre - 320) : src_col_pre;
 
-                // High nibble = left pixel.
-                uint8_t left_nib = (byte >> 4) & 0x0F;
-                uint8_t left_idx = static_cast<uint8_t>((palette_offset_ << 4) | left_nib);
-                if (palette.layer2_rgb8(palette_bank_second, left_idx) != transp_rgb) {
-                    dst[col * 2] = palette.layer2_colour(palette_bank_second, left_idx);
-                    // VHDL zxnext.vhd:7050 — per-pixel L2 priority bit.
-                    if (priority_dst)
-                        priority_dst[col * 2] = palette.layer2_priority_high(palette_bank_second, left_idx);
+                    uint32_t l2_addr = static_cast<uint32_t>(src_col) * 256 + src_y;
+                    uint32_t ram_addr = compute_ram_addr(seg_bank, l2_addr, rom_in_sram);
+                    uint8_t byte = fetch(ram_addr, col);
+
+                    // High nibble = left pixel.
+                    uint8_t left_nib = (byte >> 4) & 0x0F;
+                    uint8_t left_idx = static_cast<uint8_t>((palette_offset_ << 4) | left_nib);
+                    if (palette.layer2_rgb8(palette_bank_second, left_idx) != transp_rgb) {
+                        dst[col * 2] = palette.layer2_colour(palette_bank_second, left_idx);
+                        // VHDL zxnext.vhd:7050 — per-pixel L2 priority bit.
+                        if (priority_dst)
+                            priority_dst[col * 2] = palette.layer2_priority_high(palette_bank_second, left_idx);
+                    }
+
+                    // Low nibble = right pixel.
+                    uint8_t right_nib = byte & 0x0F;
+                    uint8_t right_idx = static_cast<uint8_t>((palette_offset_ << 4) | right_nib);
+                    if (palette.layer2_rgb8(palette_bank_second, right_idx) != transp_rgb) {
+                        dst[col * 2 + 1] = palette.layer2_colour(palette_bank_second, right_idx);
+                        if (priority_dst)
+                            priority_dst[col * 2 + 1] = palette.layer2_priority_high(palette_bank_second, right_idx);
+                    }
                 }
-
-                // Low nibble = right pixel.
-                uint8_t right_nib = byte & 0x0F;
-                uint8_t right_idx = static_cast<uint8_t>((palette_offset_ << 4) | right_nib);
-                if (palette.layer2_rgb8(palette_bank_second, right_idx) != transp_rgb) {
-                    dst[col * 2 + 1] = palette.layer2_colour(palette_bank_second, right_idx);
-                    if (priority_dst)
-                        priority_dst[col * 2 + 1] = palette.layer2_priority_high(palette_bank_second, right_idx);
-                }
-            }
+            };
+            if (slog) span(replay_wide);
+            else      span(live);
         }
     }
 }
