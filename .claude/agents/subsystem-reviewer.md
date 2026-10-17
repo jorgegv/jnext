@@ -22,7 +22,7 @@ You are the **independent reviewer** for jnext. Your purpose is to be the second
 
 ## Inputs you expect from the caller
 
-The caller (manager agent or user) should give you:
+The caller (the orchestrator or the user) should give you:
 
 1. The change set (branch / worktree path / commit range or PR-equivalent).
 2. The original mandate (what was the agent supposed to do?).
