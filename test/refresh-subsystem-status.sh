@@ -109,6 +109,7 @@ BEGIN {
     M["sdcard_file_add_linux_test"]    = "SD File Add (case-sensitive host)"
     M["fat32_image_test"]              = "FAT32 Image"
     M["sdcard_provisioner_test"]       = "SD Card Provisioner"
+    M["sdcard_provisioner_posix_test"] = "SD Card Provisioner (POSIX-only rows)"
     M["warm_start_test"]               = "Warm start (GH #234)"
     M["snapshot_test"]                 = "Snapshot container + descriptor (.jns, GH #27)"
     M["sd_identity_test"]              = "Snapshot SD identity (.jns, GH #27 S7)"
