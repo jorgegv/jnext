@@ -181,7 +181,7 @@ lvalue      ::= IDENT                              # a `var`
                                                    # REG = A B C D E H L F I R AF BC DE HL IX IY SP PC AF2 BC2 DE2 HL2
                                                    # FLAG = CF ZF SF PF HF NF
 
-expr        ::= literal | IDENT | builtin | "@" IDENT | "(" expr ")"   # builtin = the upper-case names of 2.3
+expr        ::= literal | IDENT | builtin | "@" IDENT { "." IDENT } | "(" expr ")"   # builtin = the upper-case names of 2.3
               | "mem[" expr "]" | "mem16[" expr "]"
               | "phys[" expr "," expr "]"          # (8K page, offset 0..0x1FFF)
               | "nextreg[" expr "]" | "mmu[" expr "]" | "page[" expr "]" | "stack[" expr "]"
@@ -1022,7 +1022,7 @@ the rows and the OPTIONS text in one place:
 |---|---|---|---|
 | `--script FILE` | 1 | Documented | Load a debugger script (.jds); repeatable, runs in the order given. In --headless a script `stop` or failed `assert` exits 3. |
 | `--script-key FRAME N` | 2 | Documented | Deliver script host key N (1-8) at emulated frame FRAME (headless only, repeatable). The headless form of Alt+N. |
-| `--map FILE` | 1 | Documented | Load a z88dk .map symbol table for `@symbol` in scripts and for the debugger (same as Map > Load MAP). |
+| `--map FILE` | 1 | Documented | Load a symbol table, a z88dk .map or an sjasmplus --sym/--exp file told apart by its contents, for `@symbol` in scripts and for the debugger (same as Map > Load MAP). |
 
 The man page's "Scripting" section states the user-visible keyboard change:
 **Alt+1..Alt+8 are host chords (script keys 1-8) in the Qt and SDL windows and
@@ -1501,7 +1501,7 @@ below is one §2.1 left open; none extends the language.
 |---|---|---|
 | G1 | **Line ends are whitespace.** §2.1's `NEWLINE` alternative is satisfied by treating every line end as a blank. | No construct needs one: §3 puts several actions on one line (`on frame 0 once do set AUDIO_MUTE = 0b00111 end`) and one action per line elsewhere, and no action or top-level item begins with a token that could continue an expression, so a line end never decides a parse. |
 | G2 | **The bracketed accessors are single tokens, spelled as §2.1 quotes them** — `mem[` `mem16[` `phys[` `nextreg[` `mmu[` `page[` `stack[` `changed(` `depth(` — with no space before the bracket. | It is what separates the `addr_spec` keyword `page` from the accessor `page[s]`, and the event `nextreg` from `nextreg[r]`: `on execute page[3]` is an address, `on execute page 3` a page filter. `mem [x]` is a name followed by a bracket, an error. |
-| G3 | **Every lower-case word of §2.1 is reserved** (plus the accessor stems): it, the upper-case built-in and payload names, and `CPU`/`DMA`/`COPPER` can be no variable, rule label or snapshot name. `@name` accepts any identifier, keywords included. | Case already separates built-ins from user names (§2); reserving the grammar words keeps `on io_write mask m value v` and friends unambiguous. A MAP symbol is not a keyword. |
+| G3 | **Every lower-case word of §2.1 is reserved** (plus the accessor stems): it, the upper-case built-in and payload names, and `CPU`/`DMA`/`COPPER` can be no variable, rule label or snapshot name. `@name` accepts any identifier, keywords included, or identifiers joined by `.` (an sjasmplus label such as `@main.loop`; GH #390). | Case already separates built-ins from user names (§2); reserving the grammar words keeps `on io_write mask m value v` and friends unambiguous. A MAP symbol is not a keyword. |
 | G4 | **All binary operators are left-associative, comparisons included** (`a < b < c` is `(a < b) < c`, not a chain). `not` sits below the comparisons, `&` above them — exactly §2.1's list — so `x & 0x70 == 0x10` is `(x & 0x70) == 0x10`, unlike C. | §2.1 gives levels, not associativity; left is the only reading that makes `10 - 3 - 2` equal 5. §3(f) `line.jds` relies on the `&`/`==` order. |
 | G5 | **Juxtaposed expressions** (`dump_mem a n`, `out p v`, `joystick N e`, `log indent n "…"`, `assert e "…"`): the first ends at the first token that cannot continue it. `dump_mem a -1` is therefore `dump_mem (a - 1)` with its length missing; write `dump_mem a (-1)`. | The grammar puts two `expr`s side by side; only a leading `-` can be read both ways, and the greedy binary reading is the conventional one. |
 | G6 | **Integer literals**: the prefixes are lower case as §2.1 writes them (`0x`, `0b`, `$`); at most 32 bits, the value being the 32-bit pattern (`0xFFFFFFFF` is -1); a literal running into a letter or digit it cannot use (`0X10`, `0b102`) is an error, not two tokens. | §2.1: integers are 32-bit signed. |
@@ -1777,7 +1777,7 @@ six regression rows `script-{pass,assert,stop,load-error,key,frontends}-func`.
 |---|---|
 | `--script FILE` | repeatable, loaded in the order given into ONE engine (one backend client) |
 | `--script-key FRAME N` | FRAME 0..2^31-1, N 1..8, both whole (`cli::parse_script_key`); `--headless` only — the windowed frontends refuse it at startup as they refuse `--delayed-keypress`; needs a `--script` |
-| `--map FILE` | a z88dk `.map` into the backend's one symbol table (CAP-SYM), loaded BEFORE the scripts so `@symbol` resolves; a file that cannot be loaded or holds no symbols is a startup error |
+| `--map FILE` | a z88dk `.map` or an sjasmplus `--sym` / `--exp` file (picked by its contents, GH #390) into the backend's one symbol table (CAP-SYM), loaded BEFORE the scripts so `@symbol` resolves; a file that cannot be loaded or holds no symbols is a startup error |
 
 ### J.2 `ScriptHost` (`src/script/script_host.*`)
 
