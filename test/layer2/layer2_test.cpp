@@ -1587,6 +1587,25 @@ struct L2BeamBed {
         return buf[dst_idx];
     }
     uint32_t col(uint8_t idx) const { return pal.layer2_colour(idx); }
+
+    // put() / wr() / px() at an absolute SRAM address, any 16 KB bank (bank =
+    // address >> 14), and px() with the Next SRAM layout (rom_in_sram:
+    // bank_eff = NR 0x12 + 16, layer2.vhd:172).
+    void put_sram(uint32_t a, uint8_t v) { ram.write(a, v); }
+    void wr_sram(uint32_t a, uint8_t v, int line, int hc) {
+        mmu.set_page(4, static_cast<uint8_t>(a >> 13));
+        mmu.attr_mux_set_current_line(line);
+        mmu.attr_mux_set_current_hc(hc);
+        mmu.write(static_cast<uint16_t>(0x8000u + (a & 0x1FFFu)), v);
+    }
+    uint32_t px_sram(int fb_row, int dst_idx) {
+        mmu.attr_mux_rewind_to_baseline();
+        mmu.attr_mux_apply_line(fb_row);
+        l2.rewind_to_baseline();
+        l2.apply_changes_for_line(fb_row);
+        render_row_sram(l2, ram, pal, buf, fb_row);
+        return buf[dst_idx];
+    }
 };
 } // namespace
 
@@ -1742,6 +1761,232 @@ static void test_group12_beam_fetch() {
         check("L2-BR-08", "layer2.vhd hc_eff = hc + 1 - the log restarts every "
               "frame: a frame without writes shows the RAM as it is",
               got == b.col(1), DETAIL("got=0x%08X (want 0x%08X)", got, b.col(1)));
+    }
+
+    // L2-BR-09..13: which 16 KB SRAM banks a span fetches (layer2.vhd:160
+    // address, :172-173 bank_eff + addr(16:14)). A 256x192 row reads one
+    // bank, `'0' & y & x(7:0)` with y fixed; a wide row reads x*256 + y with
+    // x up to 511, so x(8:6) picks one of eight. A write the replay must show
+    // is in the bank the span fetches, wherever else the frame wrote.
+
+    // L2-BR-09 (256x192, bank 8 = SRAM banks 8-10): a write after the beam
+    // passed row 100 (y(7:6) = 01: bank 9), between writes to banks 30 and
+    // 31, which Layer 2 does not show; row 10 (bank 8, never written) shows
+    // its byte.
+    {
+        const uint32_t a = 100u * 256u + 50u, c = 10u * 256u + 50u;
+        const int dst = DISP_X_NARROW + 2 * 50;
+        L2BeamBed b(0x00);
+        b.put(a, 2); b.put(c, 1);
+        b.begin();
+        b.wr_sram(30u * 16384u + 7u, 0x11, 5, 0);
+        b.wr(a, 3, 260, 0);
+        b.wr_sram(31u * 16384u + 7u, 0x22, 270, 0);
+        const uint32_t r100 = b.px(DISP_Y_NARROW + 100, dst);
+        const uint32_t r10  = b.px(DISP_Y_NARROW + 10, dst);
+        check("L2-BR-09", "layer2.vhd:160, 172-173: 256x192 row 100 (bank 9) "
+              "shows the old byte of a write made after the beam passed, "
+              "between writes to banks 30 and 31; row 10 (bank 8) shows its byte",
+              r100 == b.col(2) && r10 == b.col(1),
+              DETAIL("row100=0x%08X (want 0x%08X) row10=0x%08X (want 0x%08X)",
+                     r100, b.col(2), r10, b.col(1)));
+    }
+
+    // L2-BR-10 (320x256): column 300 of row 20 is x*256 + y = 76820, sub-bank
+    // 4 (bank 12); written 2 ticks after its fetch (raw hc 396) between writes
+    // to banks 30 and 31, it is old; column 10 (bank 8, never written) shows
+    // its byte.
+    {
+        const uint32_t a = 300u * 256u + 20u, c = 10u * 256u + 20u;
+        L2BeamBed b(0x10);
+        b.put(a, 2); b.put(c, 1);
+        b.begin();
+        b.wr_sram(30u * 16384u + 7u, 0x11, 5, 0);
+        b.wr(a, 3, 20, 96 + 300 + 2);
+        b.wr_sram(31u * 16384u + 7u, 0x22, 270, 0);
+        const uint32_t late = b.px(20, 2 * 300);
+        const uint32_t clean = b.px(20, 2 * 10);
+        check("L2-BR-10", "layer2.vhd:160, 172-173: 320x256 column 300 (sub-bank "
+              "4) written 2 ticks after its fetch, between writes to banks 30 "
+              "and 31, is old; column 10 (sub-bank 0) shows its byte",
+              late == b.col(2) && clean == b.col(1),
+              DETAIL("col300=0x%08X (want 0x%08X) col10=0x%08X (want 0x%08X)",
+                     late, b.col(2), clean, b.col(1)));
+    }
+
+    // L2-BR-11 (640x256, Next SRAM layout): bank_eff = NR 0x12 + 16, so byte
+    // column 100 of row 20 (sub-bank 1) is SRAM bank 8 + 16 + 1 = 25: a write
+    // 2 ticks after its fetch is old, 2 ticks before is new.
+    {
+        const uint32_t a = (8u + 16u) * 16384u + 100u * 256u + 20u;
+        L2BeamBed late(0x20), early(0x20);
+        late.put_sram(a, 0x23); early.put_sram(a, 0x23);
+        late.begin(); early.begin();
+        late.wr_sram(a, 0x32, 20, 96 + 100 + 2);
+        early.wr_sram(a, 0x32, 20, 96 + 100 - 2);
+        const bool late_old  = late.px_sram(20, 2 * 100) == late.col(2);
+        const bool early_new = early.px_sram(20, 2 * 100) == early.col(3);
+        check("L2-BR-11", "layer2.vhd:172-173: 640x256 with bank_eff = NR 0x12 "
+              "+ 16 (rom_in_sram): byte column 100 is SRAM bank 25; the left "
+              "pixel is old after its fetch, new before",
+              late_old && early_new,
+              DETAIL("late old=%d early new=%d", late_old, early_new));
+    }
+
+    // L2-BR-12 (320x256, X scroll 511): column 300's x_pre = 811 wraps to
+    // x = 491 (x(8:6) + 3), address 491*256 + 20 in sub-bank 7 (bank 15): a
+    // write 2 ticks after its fetch (raw hc 396) is old, 2 ticks before is new.
+    {
+        const uint32_t a = 491u * 256u + 20u;
+        L2BeamBed late(0x10), early(0x10);
+        for (L2BeamBed* p : {&late, &early}) {
+            p->l2.set_scroll_x_lsb(0xFF);
+            p->l2.set_scroll_x_msb(0x01);
+            p->put(a, 2);
+            p->begin();
+        }
+        late.wr(a, 3, 20, 96 + 300 + 2);
+        early.wr(a, 3, 20, 96 + 300 - 2);
+        const bool late_old  = late.px(20, 2 * 300) == late.col(2);
+        const bool early_new = early.px(20, 2 * 300) == early.col(3);
+        check("L2-BR-12", "layer2.vhd:152-153, 160, 172-173: 320x256 X scroll "
+              "511, column 300 fetches x = 491 (sub-bank 7); a write 2 ticks "
+              "after the fetch is old, 2 ticks before is new",
+              late_old && early_new,
+              DETAIL("late old=%d early new=%d", late_old, early_new));
+    }
+
+    // L2-BR-13 (256x192): NR 0x12 8 -> 0x10 at hpos 65 of display line 10, so
+    // the bank is resampled from column 67 (seg_first_col, GH #270). A write
+    // behind the beam to column 100 (bank 16) is old; in another frame one to
+    // column 20 (bank 8, before the switch) is old.
+    {
+        const int row = DISP_Y_NARROW + 10;
+        const uint32_t a_hi = 16u * 16384u + 10u * 256u + 100u;
+        const uint32_t a_lo =  8u * 16384u + 10u * 256u + 20u;
+        L2BeamBed second(0x00), first(0x00);
+        second.put_sram(a_hi, 2); first.put_sram(a_lo, 2);
+        for (L2BeamBed* p : {&second, &first}) {
+            p->begin();
+            p->l2.set_current_line(row);
+            p->l2.set_current_hpos(65);
+            p->l2.set_active_bank(0x10);
+        }
+        second.wr_sram(a_hi, 3, row, 128 + 100 + 2);
+        first.wr_sram(a_lo, 3, row, 128 + 20 + 2);
+        const uint32_t hi = second.px(row, DISP_X_NARROW + 2 * 100);
+        const uint32_t lo = first.px(row, DISP_X_NARROW + 2 * 20);
+        check("L2-BR-13", "layer2.vhd:120, 172-173: 256x192 with NR 0x12 8 -> "
+              "0x10 from column 67: a write 2 ticks after the fetch is old both "
+              "in the second span (column 100, bank 16) and the first (column 20, bank 8)",
+              hi == second.col(2) && lo == first.col(2),
+              DETAIL("col100=0x%08X (want 0x%08X) col20=0x%08X (want 0x%08X)",
+                     hi, second.col(2), lo, first.col(2)));
+    }
+
+    // L2-BR-14 (640x256, X scroll 511): L2-BR-12's case in the 4-bit mode,
+    // whose counter is also whc (layer2.vhd:147): byte column 300's x_pre =
+    // 811 wraps to x = 491 (x(8:6) + 3), address 491*256 + 20 in sub-bank 7
+    // (bank 15). A write 2 ticks after its fetch (raw hc 396) is old, 2 ticks
+    // before is new (the left pixel is the high nibble).
+    {
+        const uint32_t a = 491u * 256u + 20u;
+        L2BeamBed late(0x20), early(0x20);
+        for (L2BeamBed* p : {&late, &early}) {
+            p->l2.set_scroll_x_lsb(0xFF);
+            p->l2.set_scroll_x_msb(0x01);
+            p->put(a, 0x23);
+            p->begin();
+        }
+        late.wr(a, 0x32, 20, 96 + 300 + 2);
+        early.wr(a, 0x32, 20, 96 + 300 - 2);
+        const bool late_old  = late.px(20, 2 * 300) == late.col(2);
+        const bool early_new = early.px(20, 2 * 300) == early.col(3);
+        check("L2-BR-14", "layer2.vhd:152-153, 160, 172-173: 640x256 X scroll "
+              "511, byte column 300 fetches x = 491 (sub-bank 7); the left pixel "
+              "is old after the fetch, new before",
+              late_old && early_new,
+              DETAIL("late old=%d early new=%d", late_old, early_new));
+    }
+
+    // L2-BR-15 (640x256, no scroll): byte column 200 of row 20 is 200*256 + 20
+    // = 51220, sub-bank 3 (bank 11): a write 2 ticks after its fetch (raw hc
+    // 296) is old, 2 ticks before is new.
+    {
+        const uint32_t a = 200u * 256u + 20u;
+        L2BeamBed late(0x20), early(0x20);
+        late.put(a, 0x23); early.put(a, 0x23);
+        late.begin(); early.begin();
+        late.wr(a, 0x32, 20, 96 + 200 + 2);
+        early.wr(a, 0x32, 20, 96 + 200 - 2);
+        const bool late_old  = late.px(20, 2 * 200) == late.col(2);
+        const bool early_new = early.px(20, 2 * 200) == early.col(3);
+        check("L2-BR-15", "layer2.vhd:160, 172-173: 640x256 byte column 200 "
+              "(sub-bank 3); the left pixel is old after the fetch, new before",
+              late_old && early_new,
+              DETAIL("late old=%d early new=%d", late_old, early_new));
+    }
+
+    // L2-BR-16 / L2-BR-17 (320x256 / 640x256): L2-BR-13 in the wide modes.
+    // NR 0x12 8 -> 0x10 at hpos 65 of row 20; the bank is resampled every
+    // 7 MHz period (layer2.vhd:120) and the wide counter whc runs 32 ahead of
+    // phc (zxula_timing.vhd:476-522), so the new bank applies from column 99
+    // (seg_first_col, GH #270). A write 2 ticks after the fetch of column 20
+    // (bank 8, the first span) is old; in another frame one 2 ticks after the
+    // fetch of column 100 (x*256 + y in sub-bank 1, so SRAM bank 16 + 1 = 17,
+    // layer2.vhd:173: the second span) is old. 320x256 shows the byte, 640x256
+    // its high nibble, so the old pixel is palette entry 2 in both.
+    for (const uint8_t mode : {uint8_t{0x10}, uint8_t{0x20}}) {
+        const int row = 20;
+        const uint8_t v_old = mode == 0x10 ? 0x02 : 0x23;
+        const uint8_t v_new = mode == 0x10 ? 0x03 : 0x32;
+        const uint32_t a_lo =  8u * 16384u + 20u * 256u + 20u;
+        const uint32_t a_hi = 17u * 16384u + ((100u * 256u + 20u) & 0x3FFFu);
+        L2BeamBed second(mode), first(mode);
+        second.put_sram(a_hi, v_old); first.put_sram(a_lo, v_old);
+        for (L2BeamBed* p : {&second, &first}) {
+            p->begin();
+            p->l2.set_current_line(row);
+            p->l2.set_current_hpos(65);
+            p->l2.set_active_bank(0x10);
+        }
+        second.wr_sram(a_hi, v_new, row, 96 + 100 + 2);
+        first.wr_sram(a_lo, v_new, row, 96 + 20 + 2);
+        const uint32_t hi = second.px(row, 2 * 100);
+        const uint32_t lo = first.px(row, 2 * 20);
+        const bool ok = hi == second.col(2) && lo == first.col(2) && first.col(2) != first.col(3);
+        if (mode == 0x10)
+            check("L2-BR-16", "layer2.vhd:120, 172-173: 320x256 with NR 0x12 8 -> "
+                  "0x10 from column 99: a write 2 ticks after the fetch is old both in "
+                  "the first span (column 20, bank 8) and the second (column 100, bank 17)",
+                  ok, DETAIL("col20=0x%08X col100=0x%08X (want 0x%08X)",
+                             lo, hi, first.col(2)));
+        else
+            check("L2-BR-17", "layer2.vhd:120, 172-173: 640x256 with NR 0x12 8 -> "
+                  "0x10 from byte column 99: a write 2 ticks after the fetch is old both "
+                  "in the first span (column 20, bank 8) and the second (column 100, bank 17)",
+                  ok, DETAIL("col20=0x%08X col100=0x%08X (want 0x%08X)",
+                             lo, hi, first.col(2)));
+    }
+
+    // L2-BR-18 (320x256, Next SRAM layout): L2-BR-11's case in 320x256 —
+    // bank_eff = NR 0x12 + 16 (layer2.vhd:172), so column 100 of row 20
+    // (sub-bank 1) is SRAM bank 8 + 16 + 1 = 25: a write 2 ticks after its
+    // fetch is old, 2 ticks before is new.
+    {
+        const uint32_t a = (8u + 16u) * 16384u + 100u * 256u + 20u;
+        L2BeamBed late(0x10), early(0x10);
+        late.put_sram(a, 2); early.put_sram(a, 2);
+        late.begin(); early.begin();
+        late.wr_sram(a, 3, 20, 96 + 100 + 2);
+        early.wr_sram(a, 3, 20, 96 + 100 - 2);
+        const bool late_old  = late.px_sram(20, 2 * 100) == late.col(2);
+        const bool early_new = early.px_sram(20, 2 * 100) == early.col(3);
+        check("L2-BR-18", "layer2.vhd:172-173: 320x256 with bank_eff = NR 0x12 "
+              "+ 16 (rom_in_sram): column 100 is SRAM bank 25; old after its "
+              "fetch, new before",
+              late_old && early_new,
+              DETAIL("late old=%d early new=%d", late_old, early_new));
     }
 }
 

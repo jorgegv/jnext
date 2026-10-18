@@ -156,6 +156,14 @@ and there is deliberately no fifth layer buffer. The LoRes byte indexes the
 because that is where hardware wires it. Both 8-bit LoRes and Radastan fetch
 from bank 5 directly.
 
+Each byte is fetched at its pixel's own instant, through the `AttributeMux`
+replay (see the table under "Per-scanline state" below). All the fetches of one
+row fall in one span of bank 5, 128 bytes in 8-bit mode and 64 in Radastan, so
+`apply_lores` first asks the mux whether any byte of that span is hot (a write
+the mux has not folded into its baseline). When none is, it reads the row
+straight from the mux baseline, which is what the replay would return for every
+pixel; only a row with a hot byte pays for the per-pixel replay.
+
 ## Layer 2, tilemap, sprites
 
 These three are the Next's own additions, and each removes a specific piece of
@@ -268,6 +276,20 @@ the headers of the two classes):
 | LoRes | pixel *p* at `phc` = *p*, raw `hc` `c_min_hactive` + 1 + *p* | `zxnext.vhd:4250, 6603-6631` |
 | Layer 2 256x192 | column *X* at raw `hc` `c_min_hactive` + *X* | `layer2.vhd` `hc_eff`, `zxula_timing.vhd:510-522` |
 | Layer 2 320x256 / 640x256 | column (byte) *X* at raw `hc` `c_min_hactive` - 32 + *X* | `layer2.vhd`, `zxula_timing.vhd:476-492` |
+
+Most tilemap rows read nothing that was written during the frame, so the
+tilemap does not replay them. When neither mux holds a hot offset (a write the
+mux has not folded into its baseline), the row is drawn by a second instance of
+the same loop, `Tilemap::render_tiles_<false>`. That instance reads the mux
+baselines directly, which is what every replayed read of the row would return,
+and keeps one block per tile. A hot offset anywhere sends the row through
+`render_tiles_<true>`, the replay. Both instances come from one loop source, and
+`tilemap_test` TM-BR-11..21 and TM-BR-24 draw each mode both ways and require the
+same output. The replay, like LoRes' per-pixel read, goes through
+`AttributeMux::read_prepared_hot()`: a byte that is not hot is read inline and
+only a hot one walks its chain, out of line. The ULA keeps `read_prepared()`,
+whose walk is inlined into its column loop, since a multicolour frame reads hot
+attributes on every line.
 
 Two details there are load-bearing. Writes tagged during vblank never match a
 visible row, so `flush_remaining_changes` must drain them or they are lost

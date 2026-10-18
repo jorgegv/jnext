@@ -1,6 +1,6 @@
 ---
 name: autorun-planner
-description: Planner for a jnext autonomous run — diagnoses one GitHub issue to its root cause and writes the plan the implementer follows. Does not write the fix. Dispatched by the autonomous-run orchestrator only.
+description: Planner for a jnext autonomous run — diagnoses one GitHub issue (or one team-run unit) to its root cause and writes the plan the implementer follows. Does not write the fix. Dispatched by the main-session orchestrator only (autonomous-run or team-run).
 tools: Read, Write, Edit, Grep, Glob, Bash, Skill
 model: opus
 ---

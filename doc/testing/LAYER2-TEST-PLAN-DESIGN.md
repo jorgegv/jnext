@@ -582,7 +582,7 @@ per-line replay of the enable flag is sufficient to gate output.
 | G10-G14-01 | Layer2 set_enabled write logged with current scanline                                       | reset; start_frame; line=50 set_enabled(true); line=150 set_enabled(false)                        | enable change-log holds (50,true) and (150,false)                                       | zxnext.vhd:3916, 3924-3925 |
 | G10-G14-02 | Renderer applies enable per scanline: rows above 50 hidden; 50..149 visible; 150..end hidden| log entries as 01; render rows 0..200 with L2 content                                             | first 50 rows have no L2 pixels; rows 50-149 do; rows 150-200 do not                    | layer2.vhd:175,197-198     |
 
-### Group G12 — Beam-time fetch (L2-BR-01 … L2-BR-08, GH #362)
+### Group G12 — Beam-time fetch (L2-BR-01 … L2-BR-18, GH #362)
 
 Layer 2 requests one byte per 7 MHz tick, one pixel ahead (`layer2.vhd`
 `hc_eff <= hc + 1`; SRAM address and request toggle at `sc = "00"`). The pixel
@@ -603,6 +603,28 @@ render reads the bitmap through `SramBeamLog` at that instant. Rows are in
 | L2-BR-07 | Logging armed mid-frame | Write at row 30 (unlogged), arm, write at row 150 | Row 100 shows the row-30 value — pass | layer2.vhd hc_eff |
 | L2-BR-08 | Log restarts every frame | Frame without writes after one with | Shows the RAM as it is — pass | layer2.vhd hc_eff |
 
+L2-BR-09 … L2-BR-18 pin which 16 KB SRAM banks a span fetches: a 256x192 row
+reads one (`'0' & y & x(7:0)`, y fixed), a wide row reads x*256 + y with x up
+to 511, so x(8:6) selects one of eight from the span's first; the SRAM bank is
+`bank_eff` (NR 0x12 + 16 in the Next layout) plus addr(16:14). A write the
+replay must show lies in a bank the span fetches, whatever else the frame wrote.
+Each wide mode has its own span check, so each case is pinned in both: the last
+sub-bank under X scroll (L2-BR-12, L2-BR-14), the Next layout (L2-BR-11,
+L2-BR-18) and a mid-line NR 0x12 segment (L2-BR-16, L2-BR-17, after L2-BR-13).
+
+| ID | Title | Stimulus | Expected | VHDL cite |
+|----|-------|----------|----------|-----------|
+| L2-BR-09 | 256x192: one bank per row | Bank 8; write to row 100 (bank 9) at line 260, between writes to banks 30 and 31 | Row 100 old; row 10 (bank 8) shows its byte — pass | layer2.vhd:160, 172-173 |
+| L2-BR-10 | 320x256: sub-bank 4 of the span | Column 300 of row 20 (sub-bank 4) written 2 ticks after its fetch, between writes to banks 30 and 31 | Old; column 10 (sub-bank 0) shows its byte — pass | layer2.vhd:160, 172-173 |
+| L2-BR-11 | 640x256 in the Next SRAM layout | rom_in_sram: byte column 100 of row 20 = SRAM bank 25; write at raw hc 198 / 194 | Left pixel old / new — pass | layer2.vhd:172-173 |
+| L2-BR-12 | 320x256, X scroll past 320 | Scroll 511: column 300 fetches x = 491 (sub-bank 7); write at raw hc 398 / 394 | Old / new — pass | layer2.vhd:152-153, 160, 172-173 |
+| L2-BR-13 | Mid-line NR 0x12 (GH #270 segment) | NR 0x12 8 -> 0x10 at hpos 65 (column 67); write 2 ticks after the fetch of column 100 (bank 16), and in another frame of column 20 (bank 8) | Both old — pass | layer2.vhd:120, 172-173 |
+| L2-BR-14 | 640x256, X scroll past 320 | Scroll 511: byte column 300 fetches x = 491 (sub-bank 7); write at raw hc 398 / 394 | Left pixel old / new — pass | layer2.vhd:152-153, 160, 172-173 |
+| L2-BR-15 | 640x256: sub-bank 3 of the span | Byte column 200 of row 20 (sub-bank 3); write at raw hc 298 / 294 | Left pixel old / new — pass | layer2.vhd:160, 172-173 |
+| L2-BR-16 | 320x256, mid-line NR 0x12 | NR 0x12 8 -> 0x10 at hpos 65 (column 99); write 2 ticks after the fetch of column 20 (bank 8), and in another frame of column 100 (bank 17) | Both old — pass | layer2.vhd:120, 172-173 |
+| L2-BR-17 | 640x256, mid-line NR 0x12 | As L2-BR-16, byte columns 20 (bank 8) and 100 (bank 17) | Both left pixels old — pass | layer2.vhd:120, 172-173 |
+| L2-BR-18 | 320x256 in the Next SRAM layout | rom_in_sram: column 100 of row 20 = SRAM bank 25; write at raw hc 198 / 194 | Old / new — pass | layer2.vhd:172-173 |
+
 ## Test Case Summary
 
 | Group | Area | Tests |
@@ -610,13 +632,21 @@ render reads the bitmap through `SramBeamLog` at that instant. Rows are in
 | 1 | Reset defaults (read-back only) | 12 |
 | 2 | Resolution modes and address generation | 12 |
 | 3 | Scrolling (narrow, wide, 4-bit, wrap branches, MSB) | 12 |
-| 4 | Clip window (auto-index, NR 0x1C, coordinates, inclusivity, doubling) | 13 |
+| 4 | Clip window (auto-index, NR 0x1C, coordinates, inclusivity, doubling) | 16 |
 | 5 | Palette (offset wrap, 4-bit, palette select) | 9 |
-| 6 | Transparency (palette-RGB check, NR 0x14, clip, disable, fallback, priority gate) | 9 |
-| 7 | Bank selection and port 0x123B mapping | 16 |
+| 6 | Transparency (palette-RGB check, NR 0x14, clip, disable, fallback, priority gate) | 11 |
+| 7 | Bank selection and port 0x123B mapping | 19 |
 | 8 | Layer priority interactions at the L2 boundary | 5 |
-| 9 | Negative / boundary / retracted-tautology cases | 6 |
-| | **Total** | **94** |
+| 9 | Negative / boundary / retracted-tautology cases | 4 |
+| G10b | Per-scanline NR 0x15 replay | 2 |
+| G10c | Per-scanline clip-window replay | 2 |
+| G10d | Per-scanline NR 0x12 / NR 0x13 active-bank replay | 2 |
+| G10e | Per-scanline Layer 2 enable replay | 2 |
+| G12 | Beam-time fetch (GH #362) | 18 |
+| | **Total** | **126** |
+
+Counted from the catalogue above (2026-10-17), one per row ID. The four retired
+Group 9 rows (struck through: G9-04, G9-06, L2-G17-01, G9-G28-01) are not counted.
 
 The prior plan listed ~91 tests and reported 61/61 passing, meaning at most
 61 of the listed ~91 were ever realised as code; the gap (~30 unrealised

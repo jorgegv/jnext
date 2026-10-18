@@ -9,7 +9,7 @@ You diagnose and design. You do not write the fix. Also follow `.claude/skills/a
 
 ## Inputs (from the brief)
 
-Issue N, worktree path, run dir, epic number if any.
+Issue N (or a team-run unit: its name and spec file, which stand in for the issue), worktree path, run dir, epic number if any.
 
 ## Do
 

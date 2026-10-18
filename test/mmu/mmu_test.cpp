@@ -2477,6 +2477,127 @@ void test_cat21_nirvana_multiplex() {
               fmt("pass1=0x%02X (22) no-rewind=0x%02X (55) rewound=0x%02X (55)",
                   pass1, no_rewind, rewound));
     }
+
+    // G12-MUX-15 / -16 / -17 — GH #362 perf (K2): writes tagged (0,0). Bank 5 is
+    // a dual-port BRAM whose ULA/tilemap port reads the byte the CPU port last
+    // wrote (zxnext.vhd:6562-6578), at each fetch's own beam instant
+    // (zxula.vhd:270-303, tilemap.vhd:226-231). The frame interrupt fires at
+    // vc = c_int_v = 0 and the display at c_min_vactive = 64 (48K timing,
+    // zxula_timing.vhd:265, 269); framebuffer row 0 is wvc = 0, raw line
+    // c_min_vactive - 32 = 32 (zxula_timing.vhd:477, 498-499). So a store the
+    // interrupt makes at raw line 1 or 2 lands before every fetch of row 0 and
+    // later rows; Mmu::attr_mux_set_write_pos() tags it (0,0). The mux folds an
+    // offset's LEADING (0,0) writes into its baseline instead of chaining them:
+    //   -15: a pre-row-0 write, then an in-display write to the same byte: every
+    //        fetch before the second write's instant sees the pre-row-0 value
+    //        (in order, out of order, after a rewind), every later one the
+    //        second value. Folding the whole chain, or dropping the pre-row-0
+    //        value, fails it.
+    //   -16: a CPU write on row 0 at hc 50, then a coarse (0,0) write (a DMA
+    //        transfer later in the row): a fetch at (0,10) precedes both and
+    //        sees the frame-start byte; row 1 sees the last write. Folding a
+    //        (0,0) entry that is not at the head of its chain fails it.
+    //   -17: two pre-row-0 writes with a mid-frame pass between them (a paused
+    //        debugger panel): the frame's rows see the second, and the log keeps
+    //        both entries.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_page(2, 0x0A);
+        const uint16_t pix = 0x4000 + 0x0300;
+        const int vblank_top = 32;                  // c_min_vactive (64) - 32
+        f.mmu.write(pix, 0x11);                     // frame-start byte
+        f.mmu.attr_mux_start_frame(0, vblank_top);
+        f.mmu.attr_mux_set_write_pos(1, 100);       // raw line 1: before row 0
+        f.mmu.write(pix, 0x22);
+        f.mmu.attr_mux_end_write();
+        f.mmu.attr_mux_set_write_pos(vblank_top + 40, 200);   // row 40, hc 200
+        f.mmu.write(pix, 0x33);
+        f.mmu.attr_mux_end_write();
+        const AttributeMux& m = f.mmu.attr_mux5();
+        f.mmu.attr_mux_rewind_to_baseline();
+        f.mmu.attr_mux_apply_line(0);
+        const uint8_t row0   = m.read(0x0300, 0);
+        f.mmu.attr_mux_apply_line(40);
+        const uint8_t before = m.read(0x0300, 199);
+        const uint8_t at     = m.read(0x0300, 200);
+        const uint8_t back   = m.read(0x0300, 150);   // earlier than the read above
+        f.mmu.attr_mux_apply_line(41);
+        const uint8_t next   = m.read(0x0300, 0);
+        f.mmu.attr_mux_rewind_to_baseline();          // a second render pass
+        f.mmu.attr_mux_apply_line(40);
+        const uint8_t again  = m.read(0x0300, 199);
+        check("G12-MUX-15",
+              "a write before framebuffer row 0, then one at (40,200) to the same "
+              "byte: fetches before (40,200) see the pre-row-0 value, in order, "
+              "out of order and after a rewind; fetches at or after it the second "
+              "[zxnext.vhd:6562-6578, zxula.vhd:270-303, zxula_timing.vhd:265,269,477]",
+              row0 == 0x22 && before == 0x22 && at == 0x33 && back == 0x22 &&
+              next == 0x33 && again == 0x22,
+              fmt("@(0,0)=0x%02X (22) @(40,199)=0x%02X (22) @(40,200)=0x%02X (33) "
+                  "@(40,150)=0x%02X (22) @(41,0)=0x%02X (33) rewound @(40,199)=0x%02X (22)",
+                  row0, before, at, back, next, again));
+    }
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_page(2, 0x0A);
+        const uint16_t pix = 0x4000 + 0x0310;
+        const int vblank_top = 32;
+        f.mmu.write(pix, 0x44);                     // frame-start byte
+        f.mmu.attr_mux_start_frame(0, vblank_top);
+        f.mmu.attr_mux_set_write_pos(vblank_top + 0, 50);    // CPU, row 0, hc 50
+        f.mmu.write(pix, 0x55);
+        f.mmu.attr_mux_end_write();
+        f.mmu.attr_mux_set_current_line(0);         // then a non-CPU writer: the
+        f.mmu.attr_mux_set_current_hc(0);           // coarse tag, row 0 at hc 0
+        f.mmu.write(pix, 0x66);
+        const AttributeMux& m = f.mmu.attr_mux5();
+        f.mmu.attr_mux_rewind_to_baseline();
+        f.mmu.attr_mux_apply_line(0);
+        const uint8_t early = m.read(0x0310, 10);
+        f.mmu.attr_mux_apply_line(1);
+        const uint8_t next  = m.read(0x0310, 0);
+        check("G12-MUX-16",
+              "a CPU write at (0,50), then a coarse (0,0) write to the same byte: a "
+              "fetch at (0,10) precedes both and sees the frame-start byte, row 1 "
+              "the last write [zxnext.vhd:6562-6578, zxula.vhd:270-303, "
+              "tilemap.vhd:226-231]",
+              early == 0x44 && next == 0x66 && m.log_size() == 2,
+              fmt("@(0,10)=0x%02X (44) @(1,0)=0x%02X (66) log_size=%zu (2)",
+                  early, next, m.log_size()));
+    }
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_page(2, 0x0A);
+        const uint16_t frames = 0x5C78;             // FRAMES sysvar: bank offset 0x1C78
+        const int vblank_top = 32;
+        f.mmu.write(frames, 0x77);                  // frame-start byte
+        f.mmu.attr_mux_start_frame(0, vblank_top);
+        const AttributeMux& m = f.mmu.attr_mux5();
+        f.mmu.attr_mux_set_write_pos(1, 120);       // the frame interrupt's store
+        f.mmu.write(frames, 0x78);
+        f.mmu.attr_mux_end_write();
+        f.mmu.attr_mux_rewind_to_baseline();        // a pass over the frame so far
+        f.mmu.attr_mux_apply_line(0);
+        const uint8_t mid = m.read(0x1C78, 0);
+        f.mmu.attr_mux_set_write_pos(2, 40);        // a second store, still before row 0
+        f.mmu.write(frames, 0x79);
+        f.mmu.attr_mux_end_write();
+        f.mmu.attr_mux_rewind_to_baseline();        // the end-of-frame render
+        f.mmu.attr_mux_apply_line(0);
+        const uint8_t row0   = m.read(0x1C78, 0);
+        f.mmu.attr_mux_apply_line(191);
+        const uint8_t row191 = m.read(0x1C78, 300);
+        check("G12-MUX-17",
+              "two writes before framebuffer row 0 with a mid-frame pass between "
+              "them: the pass sees the first, the frame's rows see the second, and "
+              "the log keeps both [zxnext.vhd:6562-6578, zxula_timing.vhd:265,269,477]",
+              mid == 0x78 && row0 == 0x79 && row191 == 0x79 && m.log_size() == 2,
+              fmt("mid-frame @(0,0)=0x%02X (78) @(0,0)=0x%02X (79) @(191,300)=0x%02X (79) "
+                  "log_size=%zu (2)", mid, row0, row191, m.log_size()));
+    }
 }
 
 void test_cat3bis_shadow_screen() {
