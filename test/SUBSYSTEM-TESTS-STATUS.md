@@ -107,8 +107,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Resume Guard          |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | src/debug Qt-free lint (GH #278) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Source maps + symbols |       52 |       52 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Source debugging (backend) |       71 |       71 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source maps + symbols |       53 |       53 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source debugging (backend) |       80 |       80 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Backend (GH #276) |     1454 |     1454 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -159,7 +159,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Source panel |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **13309**| **13309**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Source panel |       67 |       67 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **13329**| **13329**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
