@@ -1129,18 +1129,27 @@ void test_session() {
     // POK-54: Apply again after the program overwrote PART of a trainer (the only way forward: the row reads Not
     // applied and Remove is refused) must not take the bytes it poked itself for the originals.
     {
-        // A code patch (0x8003) and a data byte (0x8004).
-        Rig r(MachineType::ZX48K);
-        r.load("NT\nM  8 32771 0 0\nZ  8 32772 0 0\n");
-        r.wr(0x8003, 0x35);
-        r.wr(0x8004, 0x36);
-        const std::string a1 = r.apply(0);
-        r.wr(0x8004, 0x99);   // the program rewrote the data byte
-        const bool lost = r.s->state(0) == State::NotApplied;
-        const std::string a2 = r.apply(0);
-        const std::string d = r.s->remove(0);
-        const bool pair = a1.empty() && lost && a2.empty() && d.empty() && r.rd(0x8003) == 0x35 &&
-                          r.rd(0x8004) == 0x99;
+        // Three places, the program rewriting one of them (the first, the middle, the last in turn): the other
+        // two are still our pokes.
+        std::string detail;
+        bool pair = true;
+        for (int k = 0; k < 3; ++k) {
+            Rig r(MachineType::ZX48K);
+            r.load("NT\nM  8 32771 0 0\nM  8 32772 17 0\nZ  8 32773 34 0\n");
+            for (int j = 0; j < 3; ++j) r.wr(where[j], before[j]);
+            const std::string a1 = r.apply(0);
+            r.wr(where[k], 0x99);
+            const bool lost = r.s->state(0) == State::NotApplied;
+            const std::string a2 = r.apply(0);
+            const std::string d = r.s->remove(0);
+            bool bytes = true;
+            for (int j = 0; j < 3; ++j) bytes = bytes && r.rd(where[j]) == (j == k ? 0x99 : before[j]);
+            if (!(r.ok && a1.empty() && lost && a2.empty() && d.empty() && bytes)) {
+                pair = false;
+                detail += "[k=" + std::to_string(k) + " " + a1 + "|" + a2 + "|" + d + "|" + hex(r.rd(where[0])) +
+                          hex(r.rd(where[1])) + hex(r.rd(where[2])) + "]";
+            }
+        }
 
         // An infinite-lives style trainer: a code patch and a lives counter the user chooses (value 256). The game
         // loses a life; the dialog offers the byte memory holds, and the user accepts it.
@@ -1156,14 +1165,13 @@ void test_session() {
         const std::string e = v.s->remove(0);
         const bool lives = b1.empty() && offer && *offer == 4 && lost_v && b2.empty() && e.empty() &&
                            v.rd(0x8003) == 0x35 && v.rd(36864) == 4;
-        check("POK-54", "after the program overwrote one byte of a trainer, Apply again and Remove put the byte "
-                        "still poked back to what it was BEFORE the first Apply (0x35) and leave the byte the "
-                        "program wrote as the program has it (0x99); the same for a code patch plus a lives "
+        check("POK-54", "after the program overwrote one byte of a trainer (any of three), Apply again and Remove "
+                        "put each byte still poked back to what it was BEFORE the first Apply and leave the byte "
+                        "the program wrote as the program has it (0x99); the same for a code patch plus a lives "
                         "counter, re-applied with the value the dialog offered (FEATURES / user guide 5.11: "
                         "Remove restores the bytes replaced)",
-              r.ok && v.ok && pair && lives,
-              a1 + "|" + a2 + "|" + d + "|" + hex(r.rd(0x8003)) + hex(r.rd(0x8004)) + "|" + b1 + "|" + b2 + "|" +
-                  e + "|" + hex(v.rd(0x8003)) + hex(v.rd(36864)));
+              v.ok && pair && lives,
+              detail + "|" + b1 + "|" + b2 + "|" + e + "|" + hex(v.rd(0x8003)) + hex(v.rd(36864)));
     }
 
     // POK-55: ... the older record is matched to the new one by LOCATION, so a byte at another place that merely
