@@ -7120,6 +7120,55 @@ int main() {
               dbg.poke(1, MemSpace::page(0xFE), 0, 1, src).status == Result::RefusedReadOnly);
     }
     {
+        // GH #339 -- the kinds the read arbiter NAMES (Mmu::route(): the boot ROM,
+        // the Multiface halves, the DivMMC ROM and RAM banks, the alternate ROM,
+        // the Layer 2 mapping, config mode, nothing at all) address no store a verb
+        // can reach yet. peek and poke refuse every one with Unsupported -- a
+        // MemSpace is also an IDENTITY now -- and a refused poke writes nothing and
+        // logs no MUTATE line. The control: an ordinary Page still reads.
+        auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(16);
+        Log::debugger()->sinks().push_back(ring);
+        Emulator emu; build(emu);
+        Debugger dbg(emu);
+        const MemSpace identity_only[] = {
+            MemSpace::boot_rom(),      MemSpace::multiface_rom(), MemSpace::multiface_ram(),
+            MemSpace::divmmc_rom(),    MemSpace::divmmc_ram(3),   MemSpace::alt_rom(1),
+            MemSpace::layer2(0x10),    MemSpace::config(9),       MemSpace::floating(),
+        };
+        auto machine_bytes = [&] {
+            StateWriter measure;
+            emu.save_state(measure);
+            std::vector<uint8_t> bytes(measure.position());
+            StateWriter w(bytes.data(), bytes.size());
+            emu.save_state(w);
+            return bytes;
+        };
+        const std::vector<uint8_t> before = machine_bytes();
+        const uint8_t canary = 0xA5;
+        bool peeks_refused = true, pokes_refused = true;
+        for (const MemSpace& sp : identity_only) {
+            uint8_t b = 0x77;
+            const auto pk = dbg.peek(sp, 0, 1, &b);
+            peeks_refused = peeks_refused && pk.status == Result::Unsupported && b == 0x77;
+            const auto pw = dbg.poke(1, sp, 0, 1, &canary);
+            pokes_refused = pokes_refused && pw.status == Result::Unsupported;
+        }
+        int mutates = 0;
+        for (const auto& l : ring->last_formatted())
+            if (l.find("MUTATE") != std::string::npos) ++mutates;
+        uint8_t control = 0;
+        const bool control_ok = dbg.peek(MemSpace::page(0x0A), 0, 1, &control).status == Result::Ok;
+        auto& sinks = Log::debugger()->sinks();
+        sinks.erase(std::remove(sinks.begin(), sinks.end(), ring), sinks.end());
+        check("INS-02-30", "peek and poke of each identity-only MemSpace kind (boot ROM, Multiface, "
+                           "DivMMC ROM/RAM, alt ROM, Layer 2, config, floating) are Unsupported: "
+                           "nothing read, nothing written, no MUTATE line; an ordinary Page still reads",
+              peeks_refused && pokes_refused && machine_bytes() == before && mutates == 0 && control_ok,
+              "peeks_refused=" + std::to_string(peeks_refused) + " pokes_refused=" +
+                  std::to_string(pokes_refused) + " mutates=" + std::to_string(mutates) +
+                  " control_ok=" + std::to_string(control_ok));
+    }
+    {
         // The drift guard for Mmu::nr_page_ptr(): a byte written through a slot
         // mapped to page P must be visible as page P, for an ordinary page, for a
         // bank-5 page and for a bank-7 page (the two dedicated BRAMs). A Next
