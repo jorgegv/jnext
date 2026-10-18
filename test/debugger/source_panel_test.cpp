@@ -1327,6 +1327,31 @@ void test_sidecar_reason() {
     }
 }
 
+// ── C1: a reason reported before the window exists reaches the tab ────
+
+void test_sidecar_reason_late_window() {
+    const std::string dir = g_tmp->path().toStdString();
+    Fixture fx;
+    // A program whose SLD is refused, reported while there is no debugger
+    // window yet (a program loaded from the command line).
+    write_text(dir + "/late.nex", "not really a nex");
+    write_text(dir + "/late.sld", "this is not an SLD\n");
+    fx.mgr->report_sidecars(fx.backend->load_program_sidecars(dir + "/late.nex"));
+    fx.enable();
+    fx.mgr->refresh_panels();
+    SourcePanel* sp = fx.dbg()->source_panel();
+    const QString first = sp->location_text();
+
+    // The next program has no sidecars: the tab goes back to its plain text.
+    fx.mgr->report_sidecars(fx.backend->load_program_sidecars(dir + "/clean.nex"));
+    fx.mgr->refresh_panels();
+    check("QSRC-40", "a refused sidecar's reason reported before the window exists shows in "
+                     "the Source tab built later, and a later clean load clears it",
+          first.contains(QStringLiteral("rejected: missing SLD.data.version")) &&
+              sp->location_text() == QStringLiteral("No source map loaded"),
+          s(first) + " | " + s(sp->location_text()));
+}
+
 // ── QCSP-02: the caller's page, not the target's ───────────────────────
 
 void test_call_stack_pages() {
@@ -1389,6 +1414,7 @@ int main(int argc, char** argv) {
     test_source_recentre_terms();
     test_source_running();
     test_sidecar_reason();
+    test_sidecar_reason_late_window();
     test_source_buttons();
     test_source_button_states();
     test_source_reverse_refused();
