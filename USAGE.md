@@ -1384,9 +1384,9 @@ removes them. In **--headless** and in the SDL-only window
 **--delayed-pok-frames** *N* *FILE* with **--pok-trainers** *LIST*
 applies the chosen ones *N* frames in.
 
-A line with a bank number 0 to 7 writes byte *address* mod 16384 of that
-128K RAM bank, at any address, as Fuse and ZEsarUX read it (a 48K has
-bank 0 only); a line with bank 8 to 15, which a 48K game’s file uses,
+A line with a bank number 0 to 7 and an address of 0xC000 or above
+writes that 128K RAM bank (a 48K has bank 0 only); any other line, bank
+8 to 15, which a 48K game’s file uses, or an address below 0xC000,
 writes the memory the memory map shows at that address when the trainer
 is applied. A trainer is applied whole or not at all. Keep the result
 with a snapshot (**File \> Save Snapshot…**, **--delayed-snapshot**).

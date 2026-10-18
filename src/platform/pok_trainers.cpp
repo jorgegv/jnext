@@ -279,13 +279,12 @@ Session::Session(jnext::dbg::Debugger& dbg, PokFile file, std::string path)
 bool Session::locate(const Poke& p, const Slots& slots, bool is_48k, Loc& loc,
                      std::string& why) const {
     const std::string where = "line " + std::to_string(p.line) + ": ";
-    if (p.banked()) {
-        // A banked line names a RAM bank and the offset inside it, for any address
-        // (see the header): the bank is the pair of 8K pages 2*bank and 2*bank+1,
-        // whatever the map shows at that address now.
+    if (p.banked() && p.address >= 0xC000) {
+        // Only the 0xC000 window is banked (see the header): the bank names the
+        // pair of 8K pages, whatever the map shows there now.
         if (is_48k && p.bank != 0) {
             why = where + "bank " + std::to_string(p.bank) +
-                  " is not available on a 48K (it has only bank 0)";
+                  " is not available on a 48K (only bank 0 is at 0xC000)";
             return false;
         }
         loc.page = static_cast<uint16_t>(2 * p.bank + ((p.address >> 13) & 1));

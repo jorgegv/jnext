@@ -853,30 +853,26 @@ regression row `delayed-pok-func`, which reads the trainers back from a `.scr`
 frame earlier or later flips, the `--load` order, the banked line, the usage
 errors and the Qt refusal.
 
-**Where a poke lands.** A banked line (bank 0-7) names a byte of a RAM bank
-whatever its address: NR page `2*bank + ((address >> 13) & 1)`, offset
-`address & 0x1FFF`, which is byte `address & 0x3FFF` of the 16K bank, independent
-of what is paged in (a 48K only has bank 0: port 0x7FFD is not decoded,
-NR 0x82 = 0xC0). That is how Fuse (`RAM[bank][address & 0x3FFF]`) and ZEsarUX
-index it for every address, and JNEXT follows them (GH #381).
-The CPU view alone would bank only 0xC000-0xFFFF (port 0x7FFD writes MMU6 and
-MMU7 and nothing else, `zxnext.vhd:4679-4680`; MMU2-5 keep pages 0A 0B 04 05,
-`:4613-4616`), but real files name a bank for lower addresses too, and the rule
-above gives those lines a meaning the CPU view does not. **It is not always the
-author's.** On the real 128K Starglider (loaded from its tape, snapshot at the
-title), "Infinite Missiles (Bank#0)" is `M 0 44796 2 0` / `Z 0 60367 0 0`. The
-second line lands in bank 0, on the `DEC A` that counts the missile counter down
-(it becomes a NOP). The first, read as the CPU address 0xAEFC (bank 2), is the
-operand of the `LD A,1` that resets the same counter; read as byte 0x2EFC of bank
-0, as Fuse and ZEsarUX read it, it changes an unrelated byte of bank 0 instead
-and the reset stays 1 (a bank diff of two snapshots, with and without the
-trainer, shows exactly those two bytes). So for that file the hardware reading is
-the right one and the bank-relative one misses a byte and changes another; the
-owner chose the bank-relative reading all the same (GH #381, Q2), and going back
-is the `p.address >= 0xC000` condition in `Session::locate()` plus rows POK-33,
-POK-34 and POK-57. Every other poke (bank 8-15, "ignore the bank") is the RAM page
-`Debugger::mmu_slots()` reports for the address when the trainer is applied, not
-`poke(Cpu)`, which would follow a Layer 2 write-over mapping that reads do not.
+**Where a poke lands.** Only 0xC000-0xFFFF is banked. Port 0x7FFD writes MMU6
+and MMU7 and nothing else (`zxnext.vhd:4679-4680`; MMU2-5 keep pages 0A 0B 04 05,
+`:4613-4616`), so a Multiface-level POKE with a bank number can only reach that
+bank at 0xC000 and above. A banked poke (bank 0-7) at address ≥ 0xC000 is NR page
+`2*bank + ((address >> 13) & 1)`, offset `address & 0x1FFF`, whatever is paged in
+(a 48K only has bank 0 there: port 0x7FFD is not decoded, NR 0x82 = 0xC0). Every
+other poke (bank 8-15, "ignore the bank", or an address below 0xC000) is the RAM
+page `Debugger::mmu_slots()` reports for the address when the trainer is applied,
+not `poke(Cpu)`, which would follow a Layer 2 write-over mapping that reads do not.
+Fuse and ZEsarUX index `RAM[bank][address & 0x3FFF]` for every address; that
+differs from this only for a banked line below 0xC000, a few lines in thousands
+of real files, all in trainers that also poke the banked window, and it is not
+the author's reading. On the real 128K Starglider (loaded from its tape, snapshot
+at the title), "Infinite Missiles (Bank#0)" is `M 0 44796 2 0` / `Z 0 60367 0 0`.
+The second line lands in bank 0, on the `DEC A` that counts the missile counter
+down (it becomes a NOP). The first is the CPU address 0xAEFC (bank 2), the operand
+of the `LD A,1` that resets the same counter; read as byte 0x2EFC of bank 0, as
+Fuse and ZEsarUX read it, it changes an unrelated byte of bank 0 instead and the
+reset stays 1 (a bank diff of two snapshots, with and without the trainer, shows
+exactly those two bytes).
 
 **Undo and state.** `Session::apply` resolves every poke to a location, reads
 every original **before** writing anything (so a refusal leaves memory untouched
