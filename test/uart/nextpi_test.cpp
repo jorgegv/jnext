@@ -2387,6 +2387,7 @@ static void test_nextpi_console_rows() {
             prog(5u << 20, 0);          // no length: NextPi's display says nothing for it
             nextpi::CliShortFetch fetcher({}, short_cap.f, clock);   // the uart logger
             fetched = fetcher("Fetching the NextPi checksum...", md5_url, [&](const sdcard::ProgressFn& pf) {
+                if (!pf) return false;   // no ProgressFn handed over: a failed row, not a crash
                 now = T0;
                 pf(0, 0);
                 now = T0 + std::chrono::milliseconds(1500);
