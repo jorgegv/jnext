@@ -1340,7 +1340,8 @@ int main(int argc, char* argv[]) {
         // session, so it provisions through the CLI prompts even in a Qt
         // build: popping a modal dialog out of `jnext --sdcard-file-add ...`
         // in a script would hang it with nothing to click.
-        if (!headless && sdcard_file_add_count == 0) {
+        const bool sd_gui_dialogs = !headless && sdcard_file_add_count == 0;
+        if (sd_gui_dialogs) {
             opts.confirm  = [&](const std::string& m) { return gui_prov.confirm(m); };
             opts.progress = [&](uint64_t d, uint64_t t) { return gui_prov.progress(d, t); };
             opts.busy     = [&](const std::string& p, const std::function<bool()>& w) {
@@ -1360,6 +1361,17 @@ int main(int argc, char* argv[]) {
         if (res.status == sdcard::ProvisionStatus::Ok) {
             sd_card_image = res.path;
         } else {
+#ifdef ENABLE_QT_UI
+            // GH #358: a download that stalled or failed in the GUI used to make
+            // the dialog vanish and jnext exit, the reason on stderr only, which
+            // an icon-launched user never sees. Declining is the user's own
+            // answer and needs no report.
+            if (sd_gui_dialogs && res.status == sdcard::ProvisionStatus::Failed && !res.error.empty()) {
+                Log::emulator()->error("SD-card image: {}", res.error);
+                gui_prov.warn("The SD-card image could not be installed:\n\n" + res.error +
+                              "\n\njnext cannot start without one.");
+            }
+#endif
             if (!res.error.empty())
                 std::fprintf(stderr, "error: SD-card image: %s\n", res.error.c_str());
             std::fprintf(stderr,

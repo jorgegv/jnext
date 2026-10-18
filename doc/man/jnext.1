@@ -403,8 +403,9 @@ An archive \f[CR]NextPi\-<release>.tar.gz\f[R] already in that directory
 is checked against its \f[CR].md5\f[R] beside it (fetched only if
 absent) and unpacked without downloading; a directory that cannot be
 used is reported with the missing file, in the question and in the log.
-An interrupted download is kept as
-\f[CR]NextPi\-<release>.tar.gz.part\f[R] and continues on the next run.
+An interrupted download (Cancel, a dropped connection, or 30 seconds
+without data) is kept as \f[CR]NextPi\-<release>.tar.gz.part\f[R] and
+continues on the next run.
 NextPi then takes about a minute to reach its Supervisor prompt
 (\f[CR]SUP>\f[R]).
 The release, the directory, the QEMU binary and where the Pi\(cqs sound
@@ -1170,8 +1171,9 @@ produce that patched copy on first run.
 \f[B]\-\-sdcard\-download\-confirm\f[R] skips the prompt, which is
 useful in scripts; \f[B]\-\-sdcard\-download\-force\f[R] re\-downloads
 and re\-patches a corrupted cached image.
-An interrupted download is kept (\f[CR]sn\-emulator.zip.part\f[R]) and
-continues on the next run.
+An interrupted download (Cancel, a dropped connection, or 30 seconds
+without data) is kept (\f[CR]sn\-emulator.zip.part\f[R]) and continues
+on the next run.
 An explicit \f[B]\-\-sdcard\f[R] always wins over both.
 .PP
 Note that jnext opens the image \f[B]read\-write\f[R] by default, and

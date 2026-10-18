@@ -1069,6 +1069,7 @@ my %NO_MATRIX_SECTION = (
     'window_scale_test'   => 'main-window scale/fullscreen geometry (host GUI)',
     'window_title_test'   => 'main-window title carries the version (host GUI)',
     'color_scheme_test'   => 'GUI light/dark scheme from the desktop portal (host GUI, GH #363)',
+    'sdcard_dialog_test'  => 'SD-card/NextPi download dialog through a dropped network (host GUI, GH #358)',
     'sdl_window_title_test' => 'SDL window title carries the version (host GUI)',
     'quit_signal_test' => 'SIGINT/SIGTERM as a quit request (host process behaviour; GH #364)',
 

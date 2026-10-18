@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/sdcard_provisioner.h"   // StallWatch
+
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -23,7 +25,12 @@ class QProgressDialog;
 /// one, if it created it).
 class SdcardGuiProvisioner {
 public:
+    // The clock the "Stalled" notice counts with: steady_clock::now() in
+    // production, a fake in the tests.
+    using Now = std::function<sdcard::StallWatch::Clock::time_point()>;
+
     SdcardGuiProvisioner();
+    explicit SdcardGuiProvisioner(Now now);
     ~SdcardGuiProvisioner();
 
     SdcardGuiProvisioner(const SdcardGuiProvisioner&) = delete;
@@ -33,7 +40,12 @@ public:
     bool confirm(const std::string& message);
 
     // ProgressFn seam: shows/updates a modal QProgressDialog with a bar.
-    // Returns false when the user cancels (which aborts the download).
+    // Returns false when the user cancels (which aborts the download). The
+    // backends call it at least every tick whatever the network does (the
+    // contract in core/sdcard_provisioner.h), and each call pumps the event loop,
+    // so the window stays alive through a stall. When no byte has arrived for
+    // kStallNoticeMs the label also says "Stalled: no data received for N s", the
+    // seconds counting up, until bytes come again.
     bool progress(uint64_t downloaded, uint64_t total);
 
     // BusyFn seam: run `work` (the multi-second copy+FAT32-patch) on a worker
@@ -55,8 +67,11 @@ public:
 private:
     void ensure_app();
 
+    Now now_;
     std::unique_ptr<QApplication>    temp_app_;
     std::unique_ptr<QProgressDialog> dialog_;
+    sdcard::StallWatch               watch_;       // started when the dialog is created
+    std::string                      shown_note_;  // the stall note in the label now
     bool cancelled_ = false;
     std::string title_      = "jnext - SD card image";
     std::string headline_   = "No ZX Spectrum Next SD-card image found";

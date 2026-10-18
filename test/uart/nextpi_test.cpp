@@ -37,6 +37,7 @@
 
 #include "nextpi_fixtures.h"
 #include "nextpi_support.h"
+#include "../sdcard_provisioner/range_server.h"   // PIT-43: the loopback server that goes silent
 
 #include <algorithm>
 #include <atomic>
@@ -1715,6 +1716,74 @@ static void test_nextpi_local_archive_rows() {
               fmt("fixture=%d placed=%d status=%d (%s) md5_fetches=%d checking=%d hashes=%llu inside=%llu",
                   fixture ? 1 : 0, placed ? 1 : 0, static_cast<int>(r.status), r.error.c_str(), md5_fetches, checking,
                   static_cast<unsigned long long>(total_calls), static_cast<unsigned long long>(inside)));
+    }
+
+    // -- PIT-43 - JANKO'S UNPLUGGED CABLE (GH #358 point 2), through the real backend: the archive
+    // transfer goes silent halfway (a loopback server that stops sending and holds the connection).
+    // The attempt must end with the stall reason instead of hanging, keep the half it has, and the
+    // next provision must continue from there. Only the archive goes to the network backend (with
+    // short timings); the .md5 still comes from the fake mirror.
+    {
+        FakeMirror mirror("stalled");
+        const bool fixture = mirror.add_release("1_93D", disk_a);
+        const std::string archive_bytes = slurp(mirror.dir / "NextPi-1_93D.tar.gz");
+        const std::size_t half = archive_bytes.size() / 2;
+        rs::Server srv;
+        const fs::path dir = mirror.dir / "np";
+        int confirms = 0;
+        nextpi::ProvisionOptions o = nextpi_options(mirror, dir.string(), "", confirms);
+        o.mirror = srv.url("");
+        sdcard::DownloadFn fake = mirror.download();
+        sdcard::DownloadTimings timings{200, 2000};
+        int archive_fetches = 0;
+        o.download = [&](const std::string& u, const std::string& dest, const sdcard::ProgressFn& p, std::string& e) {
+            if (u.size() > 7 && u.compare(u.size() - 7, 7, ".tar.gz") == 0) {
+                ++archive_fetches;
+                return sdcard::http_download(u, dest, p, e, timings);
+            }
+            return fake(u, dest, p, e);
+        };
+        rs::Opts so;
+        so.body = archive_bytes;
+        so.etag = "\"np1\"";
+        so.stall_after = half;
+        so.stall_ms = 8000;
+        srv.set(so);
+        const nextpi::ProvisionResult r1 = nextpi::provision(o);
+        const std::string archive = (dir / "NextPi-1_93D.tar.gz").string();
+        const std::string archive_url = srv.url("") + "/NextPi-1_93D.tar.gz";
+        uint64_t have = 0, total = 0;
+        const sdcard::PartialState state = sdcard::partial_state(archive, archive_url, have, total);
+        const bool stopped = r1.status == sdcard::ProvisionStatus::Failed &&
+                             r1.error.find("NextPi download failed: stalled: no data received for 2 s") != std::string::npos &&
+                             r1.error.find("kept and the download continues next time") != std::string::npos &&
+                             state == sdcard::PartialState::Resumable && have == half && total == archive_bytes.size();
+
+        // The network is back (the same server, healthy). The abandoned connection may still hold the
+        // single-threaded server for a few seconds (WinHTTP under wine), so give this run a long timeout.
+        rs::Opts healthy;
+        healthy.body = archive_bytes;
+        healthy.etag = "\"np1\"";
+        srv.set(healthy);
+        srv.clear_requests();
+        timings = sdcard::DownloadTimings{};
+        const nextpi::ProvisionResult r2 = nextpi::provision(o);
+        const auto reqs = srv.requests();
+        const bool resumed = r2.status == sdcard::ProvisionStatus::Ok && reqs.size() == 1 &&
+                             reqs[0].range == "bytes=" + std::to_string(half) + "-" && reqs[0].if_range == "\"np1\"" &&
+                             archive_fetches == 2 && installed_a(dir);
+        check("PIT-43",
+              "a NextPi archive transfer that goes silent halfway ends with 'NextPi download failed: stalled: no "
+              "data received for 2 s' and that the half fetched is kept and the download continues next time "
+              "(a resumable .part of exactly that half); the next provision asks for the rest with Range and "
+              "If-Range and installs (GH #358; jnext-only, no VHDL counterpart)",
+              fixture && srv.ok() && stopped && resumed,
+              fmt("fixture=%d server=%d stopped=%d (%s; state=%d have=%llu of %zu) resumed=%d (status=%d %s reqs=%zu "
+                  "range='%s' fetches=%d)",
+                  fixture ? 1 : 0, srv.ok() ? 1 : 0, stopped ? 1 : 0, r1.error.substr(0, 120).c_str(),
+                  static_cast<int>(state), static_cast<unsigned long long>(have), half, resumed ? 1 : 0,
+                  static_cast<int>(r2.status), r2.error.substr(0, 80).c_str(), reqs.size(),
+                  reqs.empty() ? "" : reqs[0].range.c_str(), archive_fetches));
     }
 }
 

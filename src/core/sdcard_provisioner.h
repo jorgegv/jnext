@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <functional>
@@ -91,9 +92,10 @@ std::vector<uint8_t> default_config_ini();
 // Progress seam: invoked periodically during a download with the number of
 // bytes downloaded so far and the total (0 if the server sent no
 // Content-Length). Both include bytes a resumed download already had on disk.
-// Returning FALSE aborts the transfer (the download then fails with "cancelled
-// by user"; the partial file is kept or removed by the rule below). May be
-// empty (no progress reporting).
+// Invoked at least every DownloadTimings::tick_ms even when nothing arrives (the
+// tick / stall / cancel contract below). Returning FALSE aborts the transfer
+// (the download then fails with "cancelled by user"; the partial file is kept or
+// removed by the rule below). May be empty (no progress reporting).
 using ProgressFn = std::function<bool(uint64_t downloaded, uint64_t total)>;
 
 // Download seam: fetch `url` into local file `dest_path`, reporting progress
@@ -109,6 +111,21 @@ using ProgressFn = std::function<bool(uint64_t downloaded, uint64_t total)>;
 // asks the server for the rest (`Range` + `If-Range`) and appends only when it
 // answers 206 for exactly that range; any other answer starts again from 0.
 // The file names, the record format and the resumability test live below, once.
+//
+// THE TICK / STALL / CANCEL CONTRACT (GH #358, a dropped network). While a
+// transfer is under way, both default backends call the ProgressFn at least
+// every `tick_ms`, WHATEVER THE NETWORK DOES: connecting, waiting for headers,
+// or a stalled body. A `false` from it ends the attempt within one tick: err
+// "cancelled by user", the partial kept or removed by the rule above. An
+// attempt that receives NO BODY BYTE for `stall_timeout_ms` (counted from the
+// start of the attempt or from the last byte) ends with err
+// stall_reason(stall_timeout_ms), "stalled: no data received for 30 s". The
+// partial is then settled by PartialDownload::fail(), so it is kept when it
+// holds bytes and the server sent a validator. The production values are
+// `tick_ms` 200 and `stall_timeout_ms` 30000 (DownloadTimings{}). The rule
+// exists once: StallWatch answers "how long since a byte arrived" for the
+// backends' timeout and for the GUI's "Stalled" notice (stall_note), and
+// download_step() is the per-tick decision both backends share.
 
 // `err` is a BARE reason — "Could not resolve hostname", "HTTP status 404" —
 // and must NOT carry a "download failed" of its own. provision_sd_card adds
@@ -238,6 +255,55 @@ private:
     FILE* f_ = nullptr;
 };
 
+// ---- The tick / stall / cancel contract (see DownloadFn above) ----------------
+struct DownloadTimings {
+    int tick_ms          = 200;     // the ProgressFn is called at least this often
+    int stall_timeout_ms = 30000;   // no body byte for this long ends the attempt
+    // Not a timing, but the same kind of knob: the most bytes ONE body read asks
+    // for (at least 1). WinHTTP reads what WinHttpQueryDataAvailable reports, up to
+    // this; libcurl sizes its own reads and ignores it. Wine never reports more than
+    // 8 KiB available, so only a test that sets it below that makes the cap bind.
+    uint32_t read_bytes  = 65536;
+};
+
+// The err of a stalled attempt: "stalled: no data received for 30 s".
+std::string stall_reason(int stall_timeout_ms);
+
+// Milliseconds since a byte count last CHANGED: any change, so also a drop to a
+// lower number (a restarted attempt). Constructed when an attempt starts (the
+// backends) or when the dialog opens (the GUI). `now` is a parameter so a test
+// can feed synthetic times.
+class StallWatch {
+public:
+    using Clock = std::chrono::steady_clock;
+    explicit StallWatch(Clock::time_point start = Clock::now()) : since_(start) {}
+    uint64_t idle_ms(uint64_t bytes, Clock::time_point now);
+
+private:
+    uint64_t last_bytes_ = 0;
+    Clock::time_point since_;
+};
+
+// The GUI's notice. "" while less than kStallNoticeMs has passed with no byte;
+// from then on it says for how long and when jnext gives up.
+constexpr int kStallNoticeMs = 5000;
+std::string stall_note(uint64_t idle_ms);
+
+// The per-tick decision both backends take after every completion and every idle
+// tick. `got` = body bytes of THIS response so far. True: go on. False: the
+// attempt is over, `err` is set and the partial settled: "cancelled by user" (the
+// ProgressFn said false; PartialDownload::cancelled()) or stall_reason() (the
+// watch ran out; PartialDownload::fail(), which adds "(after X of Y bytes)").
+bool download_step(PartialDownload& part, const ProgressFn& progress, uint64_t got,
+                   StallWatch& watch, const DownloadTimings& timings, std::string& err);
+
+// The platform backend: libcurl on Linux/macOS, WinHTTP on Windows, each keeping
+// the whole contract. Tests pass short timings; production code goes through
+// default_http_download().
+bool http_download(const std::string& url, const std::string& dest_path,
+                   const ProgressFn& progress, std::string& err,
+                   const DownloadTimings& timings);
+// http_download() with DownloadTimings{}: the DownloadFn every caller uses.
 bool default_http_download(const std::string& url, const std::string& dest_path,
                            const ProgressFn& progress, std::string& err);
 bool cli_confirm(const std::string& message);

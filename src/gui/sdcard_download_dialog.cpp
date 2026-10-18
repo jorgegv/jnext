@@ -11,8 +11,12 @@
 #include <atomic>
 #include <chrono>
 #include <thread>
+#include <utility>
 
-SdcardGuiProvisioner::SdcardGuiProvisioner() = default;
+SdcardGuiProvisioner::SdcardGuiProvisioner()
+    : SdcardGuiProvisioner(Now(sdcard::StallWatch::Clock::now)) {}
+
+SdcardGuiProvisioner::SdcardGuiProvisioner(Now now) : now_(std::move(now)) {}
 
 SdcardGuiProvisioner::~SdcardGuiProvisioner() {
     // Destroy the QWidget before the QApplication that owns the event loop.
@@ -87,6 +91,19 @@ bool SdcardGuiProvisioner::progress(uint64_t downloaded, uint64_t total) {
         dialog_->setAutoReset(false);
         dialog_->setValue(0);             // start empty, not full
         dialog_->show();
+        // Counted from HERE, not from the constructor: the confirm box before it
+        // can sit open for minutes, and that is not a stall.
+        watch_ = sdcard::StallWatch(now_());
+        shown_note_.clear();
+    }
+
+    // No byte for kStallNoticeMs: say so, and keep saying how long. The note goes
+    // when bytes arrive (the watch resets on any change of the count).
+    const std::string note = sdcard::stall_note(watch_.idle_ms(downloaded, now_()));
+    if (note != shown_note_) {
+        shown_note_ = note;
+        dialog_->setLabelText(QString::fromStdString(note.empty() ? download_label_
+                                                                  : download_label_ + "\n\n" + note));
     }
 
     if (total > 0) {
@@ -97,12 +114,13 @@ bool SdcardGuiProvisioner::progress(uint64_t downloaded, uint64_t total) {
     // value (0% at first) rather than switching to a busy bar, which some
     // styles paint as full.
 
-    // Repaint the bar during the synchronous libcurl transfer.
+    // Repaint the dialog during the synchronous transfer: this runs on every tick
+    // the backend takes, stalled or not.
     QApplication::processEvents();
 
     if (dialog_->wasCanceled()) {
         cancelled_ = true;
-        return false; // ProgressFn false → curl aborts the transfer
+        return false; // ProgressFn false -> the backend aborts the transfer
     }
     return true;
 }

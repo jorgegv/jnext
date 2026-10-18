@@ -352,14 +352,15 @@ with status 1.
     that directory is checked against its `.md5` beside it (fetched only
     if absent) and unpacked without downloading; a directory that cannot
     be used is reported with the missing file, in the question and in
-    the log. An interrupted download is kept as
-    `NextPi-<release>.tar.gz.part` and continues on the next run. NextPi
-    then takes about a minute to reach its Supervisor prompt (`SUP>`).
-    The release, the directory, the QEMU binary and where the Pi’s sound
-    goes are set under **Settings \> Preferences \> NextPi** (the
-    `[nextpi]` section of `~/.jnext/jnext.conf`); their defaults are
-    release `1_93D`, `~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and
-    the Next’s mixer.
+    the log. An interrupted download (Cancel, a dropped connection, or
+    30 seconds without data) is kept as `NextPi-<release>.tar.gz.part`
+    and continues on the next run. NextPi then takes about a minute to
+    reach its Supervisor prompt (`SUP>`). The release, the directory,
+    the QEMU binary and where the Pi’s sound goes are set under
+    **Settings \> Preferences \> NextPi** (the `[nextpi]` section of
+    `~/.jnext/jnext.conf`); their defaults are release `1_93D`,
+    `~/.jnext/nextpi`, `qemu-system-arm` on `PATH`, and the Next’s
+    mixer.
 
     On Linux and macOS the Pi’s sound reaches the Next’s mixer over I2S,
     as on the real machine: it is mixed with the beeper, the AY chips
