@@ -3873,7 +3873,7 @@ int main() {
     test_fsrc09_store_identity();
     test_fsrc10_recorded_fetch();
     test_fsrc16_none_recorded();
-    std::printf("  Group: FSRC fetch identity (GH #339) — done\n");
+    std::printf("  Group: FSRC fetch identity (GH #339) - done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %d Passed: %d Failed: %d Skipped: %zu\n",

@@ -1020,6 +1020,43 @@ int main() {
                   " first=[" + first_bad + "]");
     }
     {
+        // The call-stack tracker captures a CALL's source BEFORE the instruction runs. A CALL
+        // fetched from the DivMMC ROM (RST $08 maps it in, instant-on; the NOP at $0008 lets the
+        // overlay settle, since the tracker reads the opcode before the M1 that would map it)
+        // opens a frame whose caller is not a RAM page, although RAM page 10 is what the MMU
+        // reports for $0009.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+        m.dbg->nextreg_write(m.a, 0xB8, 0x02);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x02);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x02);
+        uint8_t* drom = m.emu.divmmc().rom_data();
+        drom[0x0008] = 0x00;                                             // NOP
+        drom[0x0009] = 0xCD; drom[0x000A] = 0x20; drom[0x000B] = 0x00;   // CALL $0020
+        drom[0x0020] = 0xC9;                                             // RET
+        m.emu.mmu().write(0x8000, 0xCF);                                 // RST $08
+        m.emu.mmu().write(0x8001, 0x00);
+        m.set_pc(0x8000);
+        (void)step_pair(m);   // RST $08: a frame from RAM into the DivMMC ROM
+        (void)step_pair(m);   // NOP at $0008
+        (void)step_pair(m);   // CALL $0020 at $0009, fetched from the DivMMC ROM
+        const auto& f = m.dbg->call_stack();
+        check("SRCDBG-ID-20", "a CALL fetched from the DivMMC ROM records a caller that is no RAM "
+                              "page, and the RST that entered it a RAM caller (MMU4 = page 4)",
+              f.size() == 2 && f[0].caller_pc == 0x8000 && f[0].caller_page == 4 &&
+                  f[0].target_pc == 0x0008 && f[0].target_page == NOT_RAM_PAGE &&
+                  f[1].caller_pc == 0x0009 && f[1].caller_page == NOT_RAM_PAGE &&
+                  f[1].target_pc == 0x0020 && f[1].target_page == NOT_RAM_PAGE,
+              [&] {
+                  std::string d = "frames=" + std::to_string(f.size());
+                  for (const auto& fr : f)
+                      d += " [" + hex(fr.caller_pc) + "->" + hex(fr.target_pc) + " cp=" +
+                           std::to_string(fr.caller_page) + " tp=" + std::to_string(fr.target_page) + "]";
+                  return d;
+              }());
+    }
+    {
         // PURE-01/02 -- asking is not doing. The prediction functions run inside the
         // guest's own execution scope, where a READ watch, a Mem subscription and the +3
         // floating-bus latch are all live, over probes that hit every overlay, and the

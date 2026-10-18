@@ -4258,7 +4258,7 @@ int main() {
     group_po();  std::printf("  §18 PriOverride G46(b)   done\n");
     group_rb();  std::printf("  §19 RAM SRAM backing     done\n");
     group_m1gate(); std::printf("  §20 C-M1 M1 gate         done\n");
-    group_pred(); std::printf("  §21 M1 prediction        done\n");
+    group_pred(); std::printf("  S21 M1 prediction        done\n");
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

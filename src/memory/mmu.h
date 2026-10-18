@@ -90,8 +90,8 @@ public:
     // `read()`, `read_m1()`, a debugger's prediction of the next fetch and the
     // instruction-fetch record all come from the SAME function below, in the
     // VHDL's order, so they cannot disagree: before this there was a second copy
-    // of the cascade (`read_not_mmu_ram`) and a hand-kept mirror of the M1 hook
-    // beside it, and nothing tied them together.
+    // of the cascade (a bool-valued "is it RAM" mirror of it) and a hand-kept
+    // mirror of the M1 hook beside that, and nothing tied them together.
     struct Route {
         jnext::dbg::MemSpace space;        ///< never Kind::Cpu
         uint16_t             offset = 0;   ///< within `space`'s store

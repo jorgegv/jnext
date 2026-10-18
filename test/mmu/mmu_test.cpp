@@ -6682,7 +6682,7 @@ void test_cat28_bank7_bram_standin() {
 }
 
 // ---------------------------------------------------------------------------
-// Cat22 -- fetch identity (GH #339): the ONE read arbiter, Mmu::route()
+// Cat32 -- fetch identity (GH #339): the ONE read arbiter, Mmu::route()
 //
 // `Mmu::route(addr)` names what supplies a CPU read -- the memory (a
 // `MemSpace`), the offset in it, the byte -- and `read()` / `read_m1()` are that
@@ -6783,8 +6783,8 @@ void check_slots_against_registers(const Mmu& mmu, const char* when, RouteCheck&
 
 }  // namespace
 
-void test_cat22_fetch_identity() {
-    set_group("Cat22 fetch identity (GH #339)");
+void test_cat32_fetch_identity() {
+    set_group("Cat32 fetch identity (GH #339)");
 
     // FSRC-01: the boot ROM answers first -- above the Multiface, DivMMC and
     // Layer 2, and above the whole SRAM arbiter -- and its 8 KB mirror through
@@ -6978,6 +6978,7 @@ void test_cat22_fetch_identity() {
         rc.expect(f.mmu, "48K: always ROM0", 0x0000, MemSpace::rom(0), 0x0000);
         f.mmu.set_machine_type(MachineType::ZXN_ISSUE2);
         f.mmu.map_128k_bank(0x10);
+        f.mmu.set_page(0, 0x20);                       // MMU0 a RAM page first, so the next write MOVES the slot
         f.mmu.set_page(0, 0xE5);                       // NR 0x50 = 0xE5: mmu_A21_A13(8)=1
         rc.expect(f.mmu, "MMU0=0xE5 falls to the legacy ROM", 0x0000, MemSpace::rom(1), 0x0000);
         check("FSRC-07",
@@ -7321,7 +7322,7 @@ int main() {
     test_cat27_l2_rom_area_gate();
     test_cat27_v11_mem_01_save_load_high_page();
     test_cat28_bank7_bram_standin();
-    test_cat22_fetch_identity();
+    test_cat32_fetch_identity();
 
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
