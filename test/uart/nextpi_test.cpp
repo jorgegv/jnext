@@ -2246,7 +2246,8 @@ static void test_nextpi_console_rows() {
             return [this](bool warning, const std::string& line) { log.emplace_back(warning, line); };
         }
         std::string text() {
-            std::fflush(f);
+            // No fflush here: a line must already be in the file when it is said (the stream is the
+            // console's, and the console flushes after each line), or a mutant that drops the flush lives.
             std::ifstream in(path, std::ios::binary);
             return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         }
