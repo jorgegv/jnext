@@ -13,8 +13,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # WHAT THE ROW READS. A .scr screenshot is the ULA screen memory, byte for byte
 # (6912 bytes), so a trainer that pokes 0x4000.. is read back from the file with
 # nothing in between: no log line, no snapshot parser. Bank 5 IS the screen on a
-# 128K, which puts a BANKED poke in the same file (bank 5, address 0x8010, is byte
-# 0x10 of bank 5: the screen's byte 16, and nowhere else).
+# 128K, which puts a BANKED poke in the same file (bank 5, address 0xC010, is byte
+# 0x10 of bank 5: the screen's byte 16; the same bank at 0x8011, below 0xC000, pokes
+# the memory map and leaves the screen's byte 17 alone).
 #
 # THE CLAIMS, each with the control that makes it mean something:
 #
@@ -27,8 +28,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   order     --load x.sna with N = 0: the load happens in the first tick, the
 #             trainer after it. A trainer applied BEFORE the load would be
 #             overwritten by the snapshot's zero.
-#   bank      headless 128K: bank 5 at 0x8010 is byte 16 of the screen (a poke
-#             through the CPU view would go to 0x8010, not to the screen).
+#   bank      headless 128K: bank 5 at 0xC010 is byte 16 of the screen; bank 5 at 0x8011, below 0xC000, is
+#             NOT byte 17 (the bank is ignored there: a bank-relative reading would put 77 in it).
 #   sdl       the same trainer and frame contract in the SDL-only window (dummy
 #             video and audio drivers), which has its own loop.
 #   refused   a usage error, or a file/list that does not check out, exits 1
@@ -47,8 +48,9 @@ if want delayed-pok-func; then
     # pokes 0x4002; trainer 3 is a bank-3 poke a 48K cannot take.
     printf 'NScreen bytes\nM  8 16384 171 0\nZ  8 16385 256 0\nNOther\nZ  8 16386 99 0\nNBank 3\nZ  3 49443 1 0\nY\n' \
         > "$dp/t.pok"
-    # Bank 5 at 0x8010: byte 0x10 of bank 5.
-    printf 'NBank 5\nZ  5 32784 55 0\nY\n' > "$dp/bank.pok"
+    # Bank 5 at 0xC010: byte 0x10 of bank 5 (the screen). Bank 5 at 0x8011 is below 0xC000: the bank is
+    # ignored and the memory map is poked (the 0x8000 RAM), so the screen's byte 17 stays 0.
+    printf 'NBank 5\nZ  5 49168 55 0\nNBelow\nZ  5 32785 77 0\nY\n' > "$dp/bank.pok"
     # A file with a malformed trainer (an address outside 16384-65535).
     printf 'NBroken\nM  8 99 1 0\nZ  8 16384 1 0\nNFine\nZ  8 16384 2 0\nY\n' > "$dp/broken.pok"
 
@@ -125,10 +127,10 @@ if want delayed-pok-func; then
         # --- bank -------------------------------------------------------------
         rc=$(dp_run headless bank --machine 128k --delayed-screenshot "$dp/bank.scr" \
                  --delayed-screenshot-frames 10 --delayed-automatic-exit-frames 14 \
-                 --delayed-pok-frames 5 "$dp/bank.pok" --pok-trainers 1)
+                 --delayed-pok-frames 5 "$dp/bank.pok" --pok-trainers 1,2)
         [[ "$rc" == 0 ]] || dp_faults+=("bank: exited $rc")
-        [[ "$(dp_bytes "$dp/bank.scr" 16 1)" == "55" ]] \
-            || dp_faults+=("bank: screen byte 16 is [$(dp_bytes "$dp/bank.scr" 16 1)], want [55] (bank 5 at 0x8010)")
+        [[ "$(dp_bytes "$dp/bank.scr" 16 2)" == "55 0" ]] \
+            || dp_faults+=("bank: screen bytes 16,17 are [$(dp_bytes "$dp/bank.scr" 16 2)], want [55 0] (bank 5 at 0xC010 and 0x8011)")
 
         # --- sdl --------------------------------------------------------------
         rc=$(dp_run sdl sdlon "${common[@]}" --delayed-screenshot "$dp/sdlon.scr" \
@@ -195,7 +197,7 @@ if want delayed-pok-func; then
             fail_row " (${#dp_faults[@]} fault(s) in --delayed-pok-frames)"
             printf '      %s\n' "${dp_faults[@]}"
         else
-            pass_row " (trainers land in the screen at frame N, not N-1; after a --load at N=0; banked at 0x8010; in headless and the SDL window; bad usage, a refused trainer, an RZX and an early exit fail the run; the Qt window refuses it)"
+            pass_row " (trainers land in the screen at frame N, not N-1; after a --load at N=0; banked at 0xC010, not at 0x8011; in headless and the SDL window; bad usage, a refused trainer, an RZX and an early exit fail the run; the Qt window refuses it)"
         fi
     fi
 fi
