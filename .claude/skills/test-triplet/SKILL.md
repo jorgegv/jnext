@@ -11,6 +11,8 @@ Run all three test layers and produce the canonical triplet line:
 
 This is the test posture that ends every jnext handover. Result is cached at `.claude/last-test-triplet.txt` so the SessionStart hook can display it next session.
 
+On `main`, the triplet plus `make unit-test-win`, `make regression-win` and a clean PGO build is the **batch gate** (CLAUDE.md merge protocol step 2). It runs after at most 3 landings, at the end of a session, and before any push. On a branch, run the targeted suites and rows plus `make unit-test` instead.
+
 **Expected counts are not restated here** — they go stale. The unit total is
 pinned per suite in `test/unit-tests.conf` and the harness refuses to run if the
 manifest and the registered suites disagree; the regression totals are pinned in

@@ -49,8 +49,9 @@ like eccentricity:
 
 What the experiment is *not* is code taken on trust. Every change goes through
 the protocol in [chapter 6](06-contributing/index.md) — its own branch and
-worktree, the full test triplet green, and an independent review by someone,
-or something, that did not write it. This guide is part of the same posture:
+worktree, its targeted tests green, an independent review by someone, or
+something, that did not write it, and the full test triplet green on `main`
+before anything is pushed. This guide is part of the same posture:
 generated code still needs a description a person can read, and no generator
 produces one as a side effect.
 

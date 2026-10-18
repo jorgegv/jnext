@@ -39,4 +39,4 @@ The owner is here and directs the work. CLAUDE.md applies in full. You, the main
 |---|---|---|---|---|---|
 ```
 
-Below it: the tests on the merged result (unit • sdl • win • FUSE • regression • regression-win), what is still open, and what needs the owner.
+Below it: the last batch gate on `main` (unit • sdl • win • FUSE • regression • regression-win) and the landings since then, what is still open, and what needs the owner.

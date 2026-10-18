@@ -70,7 +70,7 @@ JNEXT_ALLOW_MAIN_WRITE=1 git -C /home/jorgegv/src/spectrum/jnext merge --no-ff a
 JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n   # from the repo root (session cwd), so the settings.json allow rule matches
 ```
 
-The full gate must be green on each audit branch before its review (CLAUDE.md merge protocol); merge one branch at a time and bump after each merge.
+Each audit branch is gated as CLAUDE.md merge protocol step 2 says: its touched suites and rows, and `make unit-test` before its review. The full gate is the batch gate on `main`. Merge one branch at a time and bump after each merge.
 
 ## Final report to user
 
@@ -88,7 +88,7 @@ The full gate must be green on each audit branch before its review (CLAUDE.md me
 - Subsystems converged across all passes: <list>
 - Subsystems still iterating: <list>
 
-### Test triplet on main (post-merge)
+### Batch gate on main (post-merge)
 unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S
 
 ### Next pass
