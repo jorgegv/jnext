@@ -21,6 +21,7 @@
 #include "platform/pointer_capture.h"   // GH #365 --mouse-release
 #include "platform/emulator_boot.h"   // emulator_boot_machine (RZX playback)
 #include "platform/quit_signal.h"      // SIGINT/SIGTERM as a quit request (GH #364)
+#include "platform/pok_trainers.h"     // --delayed-pok-frames / --pok-trainers (GH #381)
 #include "core/screenshot.h"   // screenshot_format_for_path (GH #18)
 #include "video/renderer.h"
 #include "version.h"
@@ -33,6 +34,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -378,6 +380,14 @@ int main(int argc, char* argv[]) {
     std::vector<DelayedNmiArg> delayed_nmis;
     struct DelayedSdInsertArg { int delay; std::string image; };
     std::vector<DelayedSdInsertArg> delayed_sd_inserts;   // GH #93
+    // GH #381 (owner Q1) — --delayed-pok-frames N FILE and --pok-trainers LIST. The
+    // counts are occurrences: a repeat is refused (one POK file per run), and
+    // either option without the other is refused below the loop.
+    int         pok_frames = 0;
+    std::string pok_file;
+    int         pok_frames_count = 0;
+    std::string pok_trainers_text;
+    int         pok_trainers_count = 0;
 
     // Parse command-line arguments.
     //
@@ -1020,6 +1030,17 @@ int main(int argc, char* argv[]) {
                 delayed_sd_inserts.push_back({static_cast<int>(n), v[1]});
                 break;
             }
+            case cli::OptId::DelayedPokFrames:
+                // GH #381. N is checked here; the file and the list are read below
+                // the loop, once --help and --version have had their say.
+                if (!int_arg(arg, opt, v[0], 0, INT_MAX, pok_frames)) return 1;
+                pok_file = v[1];
+                ++pok_frames_count;
+                break;
+            case cli::OptId::PokTrainers:
+                pok_trainers_text = v[0];
+                ++pok_trainers_count;
+                break;
             case cli::OptId::RewindBufferSize:
                 if (!int_arg(arg, opt, v[0], 0, INT_MAX, rewind_buffer_frames)) return 1;
                 break;
@@ -1203,6 +1224,10 @@ int main(int argc, char* argv[]) {
               "--profile" },
             { magic_port_mode_set,          "--magic-port-mode",           magic_port_enabled,
               "--magic-port PORT" },
+            { pok_trainers_count > 0,       "--pok-trainers",              pok_frames_count > 0,
+              "--delayed-pok-frames N FILE" },
+            { pok_frames_count > 0,         "--delayed-pok-frames",        pok_trainers_count > 0,
+              "--pok-trainers LIST" },
         };
         for (const Needs& n : needs) {
             if (n.given && !n.base) {
@@ -1210,6 +1235,38 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
         }
+    }
+    // GH #381 (owner Q1) — a POK trainer file from the command line. The pair is
+    // given once; the file and the list are read NOW, so that a typo in a CI script
+    // fails at once and not after the run has gone on to its end. The Qt window
+    // has Machine > POK Trainers..., so it refuses both.
+    std::optional<jnext::pok::CliRequest> pok_request;
+    if (pok_frames_count > 0) {
+        if (pok_frames_count > 1 || pok_trainers_count > 1) {
+            fprintf(stderr, "--delayed-pok-frames and --pok-trainers can each be given once: "
+                            "one POK file per run.\n");
+            return 1;
+        }
+#ifdef ENABLE_QT_UI
+        if (!headless) {
+            fprintf(stderr, "--delayed-pok-frames is not available in the Qt window: use Machine > "
+                            "POK Trainers... (it works with --headless, and in the SDL-only build).\n");
+            return 1;
+        }
+#endif
+        std::vector<jnext::pok::Pick> picks;
+        std::string pok_err;
+        if (!jnext::pok::parse_picks(pok_trainers_text, picks, pok_err)) {
+            fprintf(stderr, "--pok-trainers: %s\n", pok_err.c_str());
+            return 1;
+        }
+        jnext::pok::CliRequest request;
+        pok_err = jnext::pok::make_cli_request(pok_file, picks, request);
+        if (!pok_err.empty()) {
+            fprintf(stderr, "--delayed-pok-frames: %s\n", pok_err.c_str());
+            return 1;
+        }
+        pok_request = std::move(request);
     }
     // GH #269 / #292 — how --sdcard-file-add, -dest and -force combine: one
     // source per run, dest optional, either order (see file_add_usage_error).
@@ -2010,6 +2067,15 @@ int main(int argc, char* argv[]) {
         }
         if (!inject_file.empty())
             app.set_pending_inject(inject_file, inject_org, inject_pc, inject_delay);
+
+        // GH #381 — --delayed-pok-frames: the headless and SDL-only loops apply it;
+        // the Qt window refused it above.
+#ifdef ENABLE_QT_UI
+        if constexpr (std::is_same_v<std::decay_t<decltype(app)>, HeadlessApp>)
+#endif
+        {
+            if (pok_request) app.set_delayed_pok(*pok_request, pok_frames);
+        }
 
         // Set up pending load (auto-detect format by extension).
         if (!load_file.empty()) {

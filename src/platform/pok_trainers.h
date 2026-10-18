@@ -58,6 +58,7 @@
 #include <vector>
 
 #include "debug/debugger.h"
+#include "platform/cli_delay.h"
 
 namespace jnext {
 namespace pok {
@@ -195,6 +196,64 @@ private:
     PokFile                       file_;
     std::string                   path_;
     std::vector<std::vector<Rec>> records_;   ///< per trainer; empty = none
+};
+
+// ---------------------------------------------------------------------------
+// From the command line (GH #381, owner decision Q1): `--delayed-pok-frames N FILE`
+// with `--pok-trainers LIST`, for the runs that have no Machine > POK Trainers...
+// window, the headless one and the SDL-only window. Same engine: a Session over the
+// loop owner's debugger backend, so the RZX refusal, the rewind wall and the MUTATE
+// lines are the same. Nothing is removed from here: a run is one-shot.
+// ---------------------------------------------------------------------------
+
+/// One entry of `--pok-trainers`: a trainer's number in the file (1 = the first
+/// `N` line) and, after `=`, the byte for its value-256 pokes.
+struct Pick {
+    size_t                 number = 0;
+    std::optional<uint8_t> value;
+};
+
+/// `1,3=9,7` -> the picks, in the order written: comma-separated entries, each `T`
+/// or `T=VALUE`, T a trainer number from 1 and VALUE 0-255, both decimal, no
+/// blanks, no trainer twice. False with an ASCII `error` naming the entry.
+bool parse_picks(std::string_view text, std::vector<Pick>& out, std::string& error);
+
+/// The file and what to apply from it, read and checked together.
+struct CliRequest {
+    std::string       path;
+    PokFile           file;
+    std::vector<Pick> picks;
+};
+
+/// Read `path` and check `picks` against it: every trainer exists and is valid,
+/// and a value is given for exactly the trainers that leave one open. "" or the
+/// reason (ASCII, names the file or the trainer); `out` is filled on success.
+std::string make_cli_request(const std::string& path, const std::vector<Pick>& picks,
+                             CliRequest& out);
+
+/// Apply the picks in order on `dbg`'s machine. "" when all are applied (a
+/// trainer whose bytes memory already holds counts: it is what was asked for),
+/// otherwise the first refusal, naming the trainer; the ones before it stay
+/// applied.
+std::string run_cli_request(jnext::dbg::Debugger& dbg, const CliRequest& request);
+
+/// What a loop owner holds for `--delayed-pok-frames`: the request and the
+/// countdown to its frame.
+class CliJob {
+public:
+    CliJob(CliRequest request, int frames);
+
+    const CliRequest& request() const { return request_; }
+    /// Not applied yet.
+    bool pending() const { return delay_.armed(); }
+    /// Once per loop tick, BEFORE that tick's frame: applies the request when its
+    /// frame has come (after `frames` frames have run), otherwise counts one. False
+    /// when the request was refused; the reason has been logged as an error.
+    bool poll(jnext::dbg::Debugger& dbg, bool refresh_60hz);
+
+private:
+    CliRequest request_;
+    cli::Delay delay_;
 };
 
 }  // namespace pok

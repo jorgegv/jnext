@@ -128,6 +128,8 @@ enum class OptId {
     DelayedNmi,
     DelayedNmiFrames,
     DelayedSdcardInsertFrames,
+    DelayedPokFrames,
+    PokTrainers,
     RewindBufferSize,
     Trace,
     CompositorTrace,
@@ -674,6 +676,26 @@ inline constexpr Option OPTIONS[] = {
       "File > Insert SD Card Image does (headless only,\n"
       "repeatable). Keeps --sdcard-readonly. Refused while an\n"
       "RZX records or plays; a refusal fails the run" },
+    // GH #381 (owner decision Q1, 2026-10-18) — a POK trainer file applied from the
+    // command line, for the runs that have no Machine > POK Trainers... window: headless and
+    // the SDL-only window. TWO rows because the arity is at most 2 (CLI-TBL-03) and because
+    // WHEN + WHICH FILE and WHICH TRAINERS (a list, with values) are different things; they
+    // are required together, and main.cpp refuses either alone. Frames only, as
+    // --delayed-sdcard-insert-frames: a pok edits a program that has to be in memory, and a
+    // count of frames is what the user finds by looking. The Qt window refuses both
+    // (main.cpp): it has the dialog.
+    { "--delayed-pok-frames", 2, Doc::Documented, OptId::DelayedPokFrames,
+      "N FILE",
+      "Apply trainers from POK file FILE after N emulated frames,\n"
+      "once the program has loaded (headless or SDL-only; the Qt\n"
+      "window has Machine > POK Trainers). Which trainers:\n"
+      "--pok-trainers, required. A refusal fails the run" },
+    { "--pok-trainers", 1, Doc::Documented, OptId::PokTrainers,
+      "LIST",
+      "The trainers --delayed-pok-frames applies: their numbers in\n"
+      "the POK file (1 = the first N line), comma-separated, each\n"
+      "T or T=VALUE. A trainer that leaves a value open (256 in\n"
+      "the file) needs T=VALUE, 0-255. E.g. 1,3=9" },
     { "--compositor-trace", 1, Doc::Documented, OptId::CompositorTrace,
       "FILE",
       "Dump per-pixel compositor trace (CSV) for one frame to FILE" },

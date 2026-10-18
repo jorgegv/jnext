@@ -488,6 +488,50 @@ void test_parser() {
                   (by_eof.trainers.empty() ? std::string("none") : by_eof.trainers[0].problem) + " | " +
                   (by_y.trainers.empty() ? std::string("none") : by_y.trainers[0].problem));
     }
+
+    // POK-60: the --pok-trainers list (GH #381, owner Q1).
+    {
+        std::vector<Pick> a, b, c, d;
+        std::string ea, eb, ec, ed;
+        const bool one = parse_picks("1", a, ea) && a.size() == 1 && a[0].number == 1 && !a[0].value;
+        const bool many = parse_picks("1,3=9,7", b, eb) && b.size() == 3 && b[0].number == 1 && !b[0].value &&
+                          b[1].number == 3 && b[1].value && *b[1].value == 9 && b[2].number == 7 && !b[2].value;
+        const bool edges = parse_picks("12=255,2=0", c, ec) && c.size() == 2 && c[0].number == 12 &&
+                           c[0].value && *c[0].value == 255 && c[1].number == 2 && c[1].value && *c[1].value == 0;
+        // The order written is the order kept (the order trainers are applied in).
+        const bool order = parse_picks("5,2,9", d, ed) && d.size() == 3 && d[0].number == 5 && d[1].number == 2 &&
+                           d[2].number == 9;
+
+        // Each bad list: refused, the error quotes the entry, and the output is left alone.
+        struct Bad { const char* text; const char* quote; };
+        const Bad bad[] = {{"", "list is empty"},       {"0", "'0'"},          {"x", "'x'"},
+                           {"1,", "entry is empty"},    {",1", "entry is empty"}, {"1,,2", "entry is empty"},
+                           {"1 ,2", "'1 '"},            {"1, 2", "' 2'"},      {"-1", "'-1'"},
+                           {"+1", "'+1'"},              {"1.5", "'1.5'"},      {"0x10", "'0x10'"},
+                           {"1=", "'1='"},              {"=5", "'=5'"},        {"1=256", "'1=256'"},
+                           {"1=x", "'1=x'"},            {"1==2", "'1==2'"},    {"1=2=3", "'1=2=3'"},
+                           {"1=-1", "'1=-1'"},          {"1000000", "'1000000'"},
+                           {"99999999999999999999", "'9999999999...'"},
+                           {"1,1", "twice"},            {"2,1,2=5", "'2=5' names trainer 2 twice"}};
+        std::string detail;
+        bool refused = true;
+        for (const Bad& x : bad) {
+            std::vector<Pick> keep(1);
+            keep[0].number = 77;
+            std::string err;
+            const bool ok = parse_picks(x.text, keep, err);
+            if (ok || keep.size() != 1 || keep[0].number != 77 || err.find(x.quote) == std::string::npos) {
+                refused = false;
+                detail += std::string("[") + x.text + " -> " + (ok ? "accepted" : err) + "]";
+            }
+        }
+        check("POK-60", "a --pok-trainers list is comma-separated entries T or T=VALUE (T a trainer number from 1, "
+                        "VALUE 0-255, decimal), kept in the order written; an empty list or entry, a zero, sign, "
+                        "blank, hex or fractional number, a missing, too large or doubled value, a trainer named "
+                        "twice (even with a value) is refused naming the entry, and leaves the output alone "
+                        "(jnext's own list syntax; owner decision Q1)",
+              one && many && edges && order && refused, detail + "|" + ea + eb + ec + ed);
+    }
 }
 
 // ── load_pok_file rows (temp files) ────────────────────────────────────────
@@ -579,6 +623,73 @@ void test_load() {
                   is_pok_path("C:\\games\\x.pOk") && !is_pok_path("x.pokx") && !is_pok_path("pok") &&
                   !is_pok_path(".po") && !is_pok_path("x.pok.txt") && !is_pok_path("") &&
                   !is_pok_path("x.tap"));
+    }
+
+    // POK-61: a --delayed-pok-frames request is read and checked against its file (GH #381, owner Q1).
+    {
+        const std::string text = std::string("NFixed\nZ  8 32771 0 53\n"
+                                             "NLives\nZ  8 32772 256 0\n"
+                                             "NBroken\nM  8 99 1 0\nZ  8 32773 1 0\n"
+                                             "NBoth\nM  8 32774 256 0\nZ  8 32775 5 0\n"
+                                             "NCaf\xE9 and a very long name that goes on past forty bytes\nZ  8 32776 256 0\n");
+        const std::string path = write("request.pok", text);
+        auto pick = [](size_t n, int v = -1) {
+            Pick p;
+            p.number = n;
+            if (v >= 0) p.value = static_cast<uint8_t>(v);
+            return p;
+        };
+        // Requests that must be accepted: the fixed trainer alone, a value trainer with its value, several.
+        CliRequest okr, okr2;
+        const std::string e1 = make_cli_request(path, {pick(1)}, okr);
+        const std::string e2 = make_cli_request(path, {pick(1), pick(2, 5), pick(4, 0)}, okr2);
+        const bool good = e1.empty() && okr.path == path && okr.file.trainers.size() == 5 && okr.picks.size() == 1 &&
+                          e2.empty() && okr2.picks.size() == 3 && okr2.picks[1].number == 2 &&
+                          okr2.picks[1].value && *okr2.picks[1].value == 5 && okr2.picks[2].number == 4;
+
+        struct Bad { std::vector<Pick> picks; std::vector<const char*> must_say; };
+        const Bad bad[] = {
+            {{pick(6)}, {"trainer 6", "has only 5 trainer(s)"}},                                   // one past the end
+            {{pick(1), pick(3)}, {"trainer 3", "('Broken')", "invalid", "line 6: address 99 is outside"}},
+            {{pick(2)}, {"trainer 2", "('Lives')", "leaves a value open", "2=VALUE"}},
+            {{pick(4)}, {"trainer 4", "('Both')", "leaves a value open", "4=VALUE"}},             // 256 and a fixed poke
+            {{pick(1, 4)}, {"trainer 1", "('Fixed')", "leaves no value open", "=4"}},
+            {{pick(1), pick(2, 5), pick(1, 0)}, {"trainer 1", "leaves no value open"}},            // the later entry
+        };
+        std::string detail;
+        bool refused = true;
+        for (const Bad& x : bad) {
+            CliRequest keep;
+            keep.path = "untouched";
+            const std::string err = make_cli_request(path, x.picks, keep);
+            bool says = !err.empty() && keep.path == "untouched";
+            for (const char* w : x.must_say) says = says && err.find(w) != std::string::npos;
+            if (!says) {
+                refused = false;
+                detail += "[" + err + "]";
+            }
+        }
+        // The name in a message is ASCII and cut: Latin-1 byte 0xE9 as \xE9, more than 40 bytes as 40 and "...".
+        CliRequest keep;
+        const std::string name_err = make_cli_request(path, {pick(5)}, keep);
+        const bool ascii_name = name_err.find("Caf\\xE9 and a very long name that goes on p...") !=
+                                    std::string::npos &&
+                                std::all_of(name_err.begin(), name_err.end(),
+                                            [](char c) { return static_cast<unsigned char>(c) < 0x80; });
+        // A file that cannot be read is the file's own error, and nothing is filled in.
+        CliRequest none;
+        none.path = "untouched";
+        const std::string missing = make_cli_request(dir + "/no-such.pok", {pick(1)}, none);
+        const std::string empty_file = make_cli_request(write("only-y.pok", "Y"), {pick(1)}, none);
+        const bool file_errors = missing.find("cannot read") != std::string::npos &&
+                                 empty_file.find("holds no trainers") != std::string::npos && none.path == "untouched";
+        check("POK-61", "make_cli_request reads the file and checks the picks against it: a fixed trainer alone, a "
+                        "value trainer with its value and several are accepted; a trainer past the end, an invalid "
+                        "one, a value trainer without a value (also one that mixes 256 with a fixed poke), a fixed "
+                        "trainer with a value are refused, naming the trainer by number and name (ASCII, cut at 40 "
+                        "bytes) and what to do, and leave the output alone; an unreadable or trainerless file "
+                        "gives the file's own error (jnext's own request rules; owner decision Q1)",
+              good && refused && ascii_name && file_errors, detail + "|" + name_err + "|" + missing + "|" + empty_file);
     }
 
     std::error_code ec;
@@ -1320,6 +1431,148 @@ void test_session() {
                         "and the file's original is used (plan section 3.2: remove logs; GH #382 for the ASCII)",
               r.ok && f.ok && found && d1.empty() && d2.empty() && one_line(recorded) && one_line(from_file),
               recorded + "|" + from_file);
+    }
+
+    // POK-62: run_cli_request applies the picks in the order given, with their values, and leaves a trainer
+    // that memory already holds (GH #381, owner Q1).
+    {
+        auto request = [](const std::string& text, std::vector<Pick> picks) {
+            CliRequest req;
+            req.path = "test.pok";
+            req.file = parse_pok(text);
+            req.picks = std::move(picks);
+            return req;
+        };
+        auto pick = [](size_t n, int v = -1) {
+            Pick p;
+            p.number = n;
+            if (v >= 0) p.value = static_cast<uint8_t>(v);
+            return p;
+        };
+        // Two trainers that poke one byte differently: the one applied LAST is what stays.
+        const std::string two = "NA\nZ  8 32780 1 0\nNB\nZ  8 32780 2 0\n";
+        Rig r12(MachineType::ZX48K), r21(MachineType::ZX48K);
+        const std::string o12 = run_cli_request(*r12.dbg, request(two, {pick(1), pick(2)}));
+        const std::string o21 = run_cli_request(*r21.dbg, request(two, {pick(2), pick(1)}));
+        const bool order = r12.ok && r21.ok && o12.empty() && o21.empty() && r12.rd(0x800C) == 2 && r21.rd(0x800C) == 1;
+
+        // A value goes to every open poke of its trainer; a fixed poke keeps its own value.
+        Rig v(MachineType::ZX48K);
+        v.wr(0x8003, 0x35);
+        const std::string ov = run_cli_request(*v.dbg, request("NFix\nZ  8 32771 0 53\nNLives\nM  8 36864 256 0\n"
+                                                              "M  8 36870 201 0\nZ  8 36900 256 0\n",
+                                                              {pick(1), pick(2, 42)}));
+        const bool values = v.ok && ov.empty() && v.rd(0x8003) == 0 && v.rd(36864) == 42 && v.rd(36870) == 201 &&
+                            v.rd(36900) == 42;
+
+        // Run it again on the same machine: the fixed trainer's bytes are already there and it is left as it is
+        // (said once on the log); the value trainer is written again. The run still succeeds.
+        std::ostringstream out;
+        auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(out);
+        sink->set_pattern("%l %v");
+        Log::platform()->sinks().push_back(sink);
+        const std::string again = run_cli_request(*v.dbg, request("NFix\nZ  8 32771 0 53\nNLives\nM  8 36864 256 0\n"
+                                                                  "M  8 36870 201 0\nZ  8 36900 256 0\n",
+                                                                  {pick(1), pick(2, 7)}));
+        Log::platform()->sinks().pop_back();
+        const std::string log = out.str();
+        const bool found = again.empty() && v.rd(0x8003) == 0 && v.rd(36864) == 7 && v.rd(36900) == 7 &&
+                           log.find("trainer 1 ('Fix') is already in memory") != std::string::npos &&
+                           log.find("applied 'Lives'") != std::string::npos &&
+                           log.find("applied 'Fix'") == std::string::npos;
+        check("POK-62", "run_cli_request applies the picks in the order given (two trainers poking one byte leave "
+                        "the last one's value, either way round), gives a trainer's value to every open poke of it, "
+                        "and a trainer whose bytes memory already holds is logged as in memory and left, the run "
+                        "still succeeding (jnext's own request rules; owner decision Q1)",
+              order && values && found, o12 + "|" + o21 + "|" + ov + "|" + again + "|" + log);
+    }
+
+    // POK-63: ... and stops at the first refusal, naming it; the ones before it stay applied.
+    {
+        auto request = [](const std::string& text, std::vector<size_t> numbers) {
+            CliRequest req;
+            req.path = "test.pok";
+            req.file = parse_pok(text);
+            for (size_t n : numbers) {
+                Pick p;
+                p.number = n;
+                req.picks.push_back(p);
+            }
+            return req;
+        };
+        Rig r(MachineType::ZX48K);
+        r.wr(0x8003, 0x5A);
+        r.wr(0x800C, 0x6B);
+        const std::string why = run_cli_request(*r.dbg, request("NA\nZ  8 32771 9 0\nNB bank\nZ  3 49443 1 0\n"
+                                                                "NC\nZ  8 32780 5 0\n", {1, 2, 3}));
+        const bool stops = r.ok && why.find("trainer 2 ('B bank')") != std::string::npos &&
+                           why.find("line 4") != std::string::npos && why.find("48K") != std::string::npos &&
+                           r.rd(0x8003) == 9 && r.rd(0x800C) == 0x6B;
+
+        // Under an RZX the backend refuses every poke, and the run says so.
+        Rig z(MachineType::ZX48K);
+        z.wr(0x8003, 0x5A);
+        z.emu->rzx_player().start(RzxRecording{});
+        const std::string rzx = run_cli_request(*z.dbg, request("NA\nZ  8 32771 9 0\n", {1}));
+        z.emu->rzx_player().stop();
+        const bool refused = rzx.find("trainer 1 ('A')") != std::string::npos && rzx.find("RZX") != std::string::npos &&
+                             z.rd(0x8003) == 0x5A;
+        check("POK-63", "run_cli_request stops at the first trainer that cannot be applied and returns the reason "
+                        "with the trainer's number and name (a bank-3 line on a 48K, an RZX that plays), the trainer "
+                        "before it stays applied and the one after it is not written (jnext's own request rules; "
+                        "owner decision Q1)",
+              stops && refused, why + "|" + rzx + "|" + hex(r.rd(0x8003)) + hex(r.rd(0x800C)));
+    }
+
+    // POK-64: CliJob counts the frames: the request is applied by the poll after N have run, once (GH #381).
+    {
+        auto job_for = [](Rig& r, const std::string& text, int frames, std::vector<size_t> numbers) {
+            CliRequest req;
+            req.path = "test.pok";
+            req.file = parse_pok(text);
+            for (size_t n : numbers) {
+                Pick p;
+                p.number = n;
+                req.picks.push_back(p);
+            }
+            (void)r;
+            return CliJob(std::move(req), frames);
+        };
+        Rig r(MachineType::ZX48K);
+        r.wr(0x8003, 0x5A);
+        CliJob j3 = job_for(r, "NA\nZ  8 32771 9 0\n", 3, {1});
+        bool early = j3.pending();
+        for (int k = 1; k <= 3; ++k) {
+            early = early && j3.poll(*r.dbg, false) && j3.pending() && r.rd(0x8003) == 0x5A;
+            (void)k;
+        }
+        const bool fires = j3.poll(*r.dbg, false) && !j3.pending() && r.rd(0x8003) == 9;
+        r.wr(0x8003, 0x99);   // the program rewrites it; a spent job must not poke it back
+        const bool once = j3.poll(*r.dbg, false) && j3.poll(*r.dbg, true) && !j3.pending() && r.rd(0x8003) == 0x99;
+
+        // 0 frames: the first poll. At 60 Hz the frame count is the same.
+        Rig z(MachineType::ZX48K);
+        z.wr(0x8003, 0x5A);
+        CliJob j0 = job_for(z, "NA\nZ  8 32771 9 0\n", 0, {1});
+        const bool now = j0.pending() && j0.poll(*z.dbg, true) && !j0.pending() && z.rd(0x8003) == 9;
+        Rig h(MachineType::ZX48K);
+        h.wr(0x8003, 0x5A);
+        CliJob j2 = job_for(h, "NA\nZ  8 32771 9 0\n", 2, {1});
+        const bool sixty = j2.poll(*h.dbg, true) && j2.poll(*h.dbg, true) && h.rd(0x8003) == 0x5A &&
+                           j2.poll(*h.dbg, true) && h.rd(0x8003) == 9;
+
+        // A refusal comes back from the poll that applies it (false), and disarms the job.
+        Rig f(MachineType::ZX48K);
+        CliJob jf = job_for(f, "NA\nZ  3 49443 1 0\n", 1, {1});
+        const bool early_ok = jf.poll(*f.dbg, false);
+        const bool refused = !jf.poll(*f.dbg, false) && !jf.pending() && jf.poll(*f.dbg, false);
+        check("POK-64", "a CliJob applies its request on the poll after N frames have counted (N = 3: not on polls "
+                        "1-3, on the 4th; N = 0: the first; the refresh rate does not matter for frames), once - a "
+                        "later poll does not poke a rewritten byte again - and a poll that applies a request that "
+                        "is refused returns false, after which the job is spent (the loop owners poll once per tick "
+                        "before the frame; owner decision Q1)",
+              r.ok && z.ok && h.ok && f.ok && early && fires && once && now && sixty && early_ok && refused,
+              hex(r.rd(0x8003)) + hex(z.rd(0x8003)) + hex(h.rd(0x8003)));
     }
 }
 

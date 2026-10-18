@@ -383,6 +383,12 @@ void SdlApp::set_delayed_screenshot_seconds(const std::string& file, int delay_s
                            Renderer::layer_mask_to_string(layer_mask));
 }
 
+void SdlApp::set_delayed_pok(jnext::pok::CliRequest request, int delay_frames) {
+    Log::platform()->info("--delayed-pok-frames: will apply {} trainer(s) of '{}' after {} frame(s)",
+                           request.picks.size(), request.path, delay_frames);
+    pok_job_.emplace(std::move(request), delay_frames);
+}
+
 void SdlApp::set_speed_percent(int percent) {
     double multiplier = percent / 100.0;
     if (multiplier < 0.1) multiplier = 0.1;
@@ -456,6 +462,12 @@ void SdlApp::run() {
         if (!emulator_start_rzx_record_when_loaded(
                 emulator_, rzx_record_file_, rzx_record_started_,
                 load_countdown_ >= 0 || inject_countdown_ >= 0))
+            exit_code_ = 1;
+
+        // GH #381 — --delayed-pok-frames: the trainers go in through the backend
+        // after this tick's load and before its frames. A refusal fails the run,
+        // like a failed load.
+        if (pok_job_ && !pok_job_->poll(*debugger_, emulator_.video_timing().refresh_60hz()))
             exit_code_ = 1;
 
         // Pace emulation against the sound card, not the wall clock: the 20 ms
@@ -658,6 +670,8 @@ void SdlApp::run() {
                     {"--inject", inject_file_, inject_countdown_ >= 0},
                     {"--rzx-record", rzx_record_file_,
                      !rzx_record_file_.empty() && !rzx_record_started_},
+                    {"--delayed-pok-frames", pok_job_ ? pok_job_->request().path : std::string(),
+                     pok_job_ && pok_job_->pending()},
                 }))
                 exit_code_ = 1;
             if (const std::size_t n = script_host_.unreached_verdicts()) {   // GH #26 WP4 (§7.3)

@@ -480,5 +480,131 @@ void Session::forget_applied() {
     for (std::vector<Rec>& r : records_) r.clear();
 }
 
+// ---------------------------------------------------------------------------
+// From the command line
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// A trainer for a message: `trainer N ('NAME')`, the name cut and escaped to ASCII.
+std::string label(size_t number, const Trainer& t) {
+    const std::string_view name = t.name;
+    return "trainer " + std::to_string(number) + " ('" +
+           ascii(name.size() > 40 ? name.substr(0, 40) : name) + (name.size() > 40 ? "..." : "") + "')";
+}
+
+}  // namespace
+
+bool parse_picks(std::string_view text, std::vector<Pick>& out, std::string& error) {
+    std::vector<Pick> picks;
+    auto fail = [&](std::string_view item, const std::string& what) {
+        error = "'" + shown(item) + "' " + what;
+        return false;
+    };
+    auto digits = [](std::string_view t) {
+        if (t.empty()) return false;
+        for (char c : t)
+            if (!is_digit(c)) return false;
+        return true;
+    };
+    if (text.empty()) {
+        error = "the list is empty";
+        return false;
+    }
+    size_t pos = 0;
+    for (;;) {
+        const size_t comma = text.find(',', pos);
+        const std::string_view item =
+            text.substr(pos, comma == std::string_view::npos ? std::string_view::npos : comma - pos);
+        if (item.empty()) {
+            error = "an entry is empty (a list is like 1,3=9,7)";
+            return false;
+        }
+        const size_t eq = item.find('=');
+        const std::string_view num = item.substr(0, eq);
+        Pick pick;
+        // to_num() saturates at 1000000, which no file can reach in 1 MiB.
+        bool ok = digits(num) && to_num(num) >= 1 && to_num(num) < 1000000;
+        if (ok) pick.number = static_cast<size_t>(to_num(num));
+        if (ok && eq != std::string_view::npos) {
+            const std::string_view val = item.substr(eq + 1);
+            ok = digits(val) && to_num(val) <= 255;
+            if (ok) pick.value = static_cast<uint8_t>(to_num(val));
+        }
+        if (!ok)
+            return fail(item, "is not T or T=VALUE (T a trainer number from 1, VALUE 0-255, "
+                              "decimal, no blanks)");
+        for (const Pick& q : picks)
+            if (q.number == pick.number)
+                return fail(item, "names trainer " + std::to_string(pick.number) + " twice");
+        picks.push_back(pick);
+        if (comma == std::string_view::npos) break;
+        pos = comma + 1;
+    }
+    out = std::move(picks);
+    return true;
+}
+
+std::string make_cli_request(const std::string& path, const std::vector<Pick>& picks,
+                             CliRequest& out) {
+    CliRequest req;
+    req.path  = path;
+    req.picks = picks;
+    std::string err;
+    if (!load_pok_file(path, req.file, err)) return err;
+    const size_t count = req.file.trainers.size();
+    for (const Pick& p : picks) {
+        if (p.number > count)
+            return "trainer " + std::to_string(p.number) + ": " + path + " has only " +
+                   std::to_string(count) + " trainer(s)";
+        const Trainer& t = req.file.trainers[p.number - 1];
+        const std::string who = label(p.number, t);
+        if (!t.problem.empty()) return who + " is invalid - " + t.problem;
+        if (t.asks_value() && !p.value)
+            return who + " leaves a value open: give it as " + std::to_string(p.number) +
+                   "=VALUE (0-255)";
+        if (!t.asks_value() && p.value)
+            return who + " leaves no value open: drop the =" + std::to_string(*p.value);
+    }
+    out = std::move(req);
+    return {};
+}
+
+std::string run_cli_request(jnext::dbg::Debugger& dbg, const CliRequest& request) {
+    Session session(dbg, request.file, request.path);
+    for (const Pick& p : request.picks) {
+        const size_t i = p.number - 1;
+        const std::string who =
+            i < request.file.trainers.size() ? label(p.number, request.file.trainers[i])
+                                             : "trainer " + std::to_string(p.number);
+        // Memory already holds this trainer's bytes (a snapshot taken with it
+        // applied, say): the run asked for them to be there, and they are.
+        if (session.state(i) == State::AppliedFound) {
+            Log::platform()->info("POK: {} is already in memory, left as it is", who);
+            continue;
+        }
+        const std::string why = session.apply(i, p.value);
+        if (!why.empty()) return who + ": " + why;
+    }
+    return {};
+}
+
+CliJob::CliJob(CliRequest request, int frames)
+    : request_(std::move(request)), delay_(cli::Delay::frames(frames)) {}
+
+bool CliJob::poll(jnext::dbg::Debugger& dbg, bool refresh_60hz) {
+    if (delay_.due()) {
+        delay_.disarm();
+        const std::string why = run_cli_request(dbg, request_);
+        if (!why.empty()) {
+            Log::platform()->error("--delayed-pok-frames: {}", why);
+            return false;
+        }
+    } else if (delay_.pending()) {
+        delay_.tick(refresh_60hz);
+    }
+    return true;
+}
+
 }  // namespace pok
 }  // namespace jnext
