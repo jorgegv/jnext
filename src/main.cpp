@@ -1349,12 +1349,12 @@ int main(int argc, char* argv[]) {
             };
         } else {
             opts.confirm  = sdcard::cli_confirm;
-            opts.progress = sdcard::cli_progress;
+            opts.progress = sdcard::make_cli_progress();
             opts.busy     = sdcard::cli_busy;
         }
 #else
         opts.confirm  = sdcard::cli_confirm;
-        opts.progress = sdcard::cli_progress;
+        opts.progress = sdcard::make_cli_progress();
         opts.busy     = sdcard::cli_busy;
 #endif
         sdcard::ProvisionResult res = sdcard::provision_sd_card(opts);
@@ -1535,8 +1535,11 @@ int main(int argc, char* argv[]) {
             };
             popts.download = sdcard::default_http_download;
             popts.confirm  = sdcard::cli_confirm;
-            popts.progress = nextpi::cli_progress;
+            popts.progress = nextpi::make_cli_progress();
             popts.busy     = nextpi::cli_busy;
+            // GH #385: with no dialog the console says what the dialog would: a release list or a
+            // checksum that takes more than a second, and any transfer that stalls.
+            popts.short_fetch = nextpi::CliShortFetch();
 #ifdef ENABLE_QT_UI
             SdcardGuiProvisioner gui_prov;   // one temporary QApplication, gone before QtApp's
             if (!headless) {
@@ -1548,8 +1551,10 @@ int main(int argc, char* argv[]) {
                     return gui_prov.busy(p, w);
                 };
                 // GH #385: the release list and the .md5 files are short fetches; the dialog
-                // appears only if one is slow. The CLI keeps none (a terminal shows the work).
-                popts.short_fetch = [&](const std::string& l, const std::function<bool(const sdcard::ProgressFn&)>& f) {
+                // appears only if one is slow (it needs the label; the console's line, set above,
+                // names the address too).
+                popts.short_fetch = [&](const std::string& l, const std::string&,
+                                        const std::function<bool(const sdcard::ProgressFn&)>& f) {
                     return gui_prov.short_fetch(l, f);
                 };
                 // A failure is shown in a dialog either way: from Preferences jnext starts

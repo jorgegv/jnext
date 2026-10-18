@@ -35,6 +35,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      stdin closed, so the question is answered No): exit 1, stderr says so as it
 #      always did, no download is attempted, and the log carries no SD-card error,
 #      because declining is the user's own answer and needs no report (main.cpp).
+#   5. a server that is reachable and SLOW (slow-http-peer.py answers the zip's request with
+#      a 404 after 7 s; the backend gives up after 30 s, so the answer comes first): with no
+#      dialog to show it, the console and the log say what the GUI's dialog would, the stalled
+#      note, 5 s in and before the failure it ends in. Run for both frontends that have no
+#      dialog, headless and the SDL-only build: each has its own wiring in main.cpp.
 # The text is matched with the carriage returns removed: spdlog writes CRLF on
 # Windows, to the log file as well.
 if want sdcard-download-fail-func; then
@@ -97,6 +102,19 @@ if want sdcard-download-fail-func; then
         [[ -s "$sf_dir/$1.log.lf" ]] || sf_fails+=("$1: the log file is empty or missing")
     }
 
+    # sf_re <name> <out|log> <ERE> <what>: a line of that output matches.
+    sf_re() {
+        grep -qE -- "$3" "$sf_dir/$1.$2.lf" || sf_fails+=("$1: $4 is not in the $2 (/$3/)")
+    }
+    # sf_before <name> <ERE a> <ERE b> <what>: in the output, a line matching a comes before one matching b.
+    sf_before() {
+        local la lb
+        la=$(grep -nE -- "$2" "$sf_dir/$1.out.lf" | head -n 1 | cut -d: -f1 || true)
+        lb=$(grep -nE -- "$3" "$sf_dir/$1.out.lf" | head -n 1 | cut -d: -f1 || true)
+        [[ -n "$la" && -n "$lb" && "$la" -lt "$lb" ]] \
+            || sf_fails+=("$1: $4 (lines '${la:-none}' and '${lb:-none}')")
+    }
+
     sf_reason='download failed: could not connect to the server ('
     sf_url_line="  URL: $sf_url"
     sf_next='  nothing was kept, so the next start downloads it from the beginning'
@@ -145,11 +163,45 @@ if want sdcard-download-fail-func; then
     sf_absent declined out "download failed" "a failed download"
     sf_not_logged declined
 
+    # 5. a slow server. The peer is bounded (it ends by itself after 60 s); no trap: the suite
+    # library owns the one EXIT handler.
+    sf_port_file="$sf_dir/slow.port"
+    sf_peer_log="$sf_dir/slow.peer.log"
+    python3 "$SCRIPT_DIR/slow-http-peer.py" "$sf_port_file" 7 404 >"$sf_peer_log" 2>&1 &
+    sf_peer=$!
+    for _ in $(seq 1 100); do
+        [[ -s "$sf_port_file" ]] && break
+        kill -0 "$sf_peer" 2>/dev/null || break
+        sleep 0.1
+    done
+    if [[ ! -s "$sf_port_file" ]]; then
+        sf_fails+=("the slow server never became ready: $(tr -d '\n' <"$sf_peer_log")")
+    else
+        sf_url="http://127.0.0.1:$(tr -d '\n' <"$sf_port_file")/sn-emulator.zip"
+        sf_stalled='Stalled: no data received for [0-9]+ s\. The network or the server may be down; jnext gives up after 30 s\.'
+        # sf_check_slow <name> <exit status>: the checks of one slow run.
+        sf_check_slow() {
+            [[ "$2" == 1 ]] || sf_fails+=("$1 exited $2, want 1")
+            sf_re "$1" out "^$sf_stalled\$" "the stalled note, the dialog's words, on a line of its own"
+            sf_re "$1" log "\[warning\] SD-card image: $sf_stalled" "the stalled note, as a warning"
+            sf_has "$1" out "error: SD-card image: download failed: the server does not have this file (HTTP 404)" "the failure the wait ends in"
+            sf_before "$1" "^$sf_stalled\$" "^error: SD-card image: download failed" "the stalled note comes before the failure it ends in"
+        }
+        rc=$(sf_run slowhl -- "$JNEXT" --headless --sdcard-download-confirm)
+        sf_check_slow slowhl "$rc"
+        if [[ -x "$JNEXT_SDL" ]]; then   # a missing binary was reported by run 2
+            rc=$(sf_run slowsdl SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy -- "$JNEXT_SDL" --sdcard-download-confirm)
+            sf_check_slow slowsdl "$rc"
+        fi
+    fi
+    kill "$sf_peer" 2>/dev/null || true
+    wait "$sf_peer" 2>/dev/null || true
+
     if [[ ${#sf_fails[@]} -eq 0 ]]; then
-        pass_row " (a refused SD-card download exits 1 naming the address, the reason in plain words and that nothing was kept: on stderr and in the log file of a headless run and of the SDL-only build, and in the log and the dialog's text of the Qt GUI; a declined download exits 1 saying so on stderr and logs no SD-card error)"
+        pass_row " (a refused SD-card download exits 1 naming the address, the reason in plain words and that nothing was kept: on stderr and in the log file of a headless run and of the SDL-only build, and in the log and the dialog's text of the Qt GUI; a declined download exits 1 saying so on stderr and logs no SD-card error; a slow server's stall is said on the console and in the log of both frontends without a dialog)"
     else
         fail_row " (${sf_fails[*]})"
-        for sf_n in headless sdl qt declined; do
+        for sf_n in headless sdl qt declined slowhl slowsdl; do
             [[ -f "$sf_dir/$sf_n.out.lf" ]] && show_output "$sf_n output" "$(cat "$sf_dir/$sf_n.out.lf")"
         done
     fi

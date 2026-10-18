@@ -83,9 +83,9 @@ public:
     bool short_fetch(const std::string& label, const std::function<bool(const sdcard::ProgressFn&)>& fetch);
 
     // A fetch quicker than this shows no dialog at all: the usual sub-second fetch
-    // must not flash one. One second is the conventional limit for a wait that
-    // needs no explanation.
-    static constexpr int kShortFetchShowMs = 1000;
+    // must not flash one. The console's line waits as long (sdcard::kShortFetchShowMs
+    // is the one definition, in the core).
+    static constexpr int kShortFetchShowMs = sdcard::kShortFetchShowMs;
 
 private:
     void ensure_app();

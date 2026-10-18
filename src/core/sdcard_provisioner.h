@@ -185,12 +185,13 @@ using ConfirmFn = std::function<bool(const std::string& message)>;
 using BusyFn = std::function<bool(const std::string& phase,
                                   const std::function<bool()>& work)>;
 
-// Short-fetch seam (GH #385): runs a SHORT fetch (a release list, a checksum) under
-// the label `label`; the GUI gives feedback only when the fetch turns out to be
-// slow. `fetch` must be called exactly once, with the ProgressFn to hand to the
-// DownloadFn, and its result is returned. May be empty: the fetch then runs with no
-// ProgressFn (the CLI, the tests).
-using ShortFetchFn = std::function<bool(const std::string& label,
+// Short-fetch seam (GH #385): runs a SHORT fetch (a release list, a checksum) from
+// `url` under the label `label`; the frontends give feedback only when the fetch turns
+// out to be slow: the GUI a dialog (it needs only the label), the console (ConsoleWait
+// below) a line naming both. `fetch` must be called exactly once, with the ProgressFn
+// to hand to the DownloadFn, and its result is returned. May be empty: the fetch then
+// runs with no ProgressFn (the tests).
+using ShortFetchFn = std::function<bool(const std::string& label, const std::string& url,
                                         const std::function<bool(const ProgressFn&)>& fetch)>;
 
 // Copy seam: byte-copy `src` to `dst`, verifying completeness. Returns true on
@@ -325,6 +326,73 @@ private:
 constexpr int kStallNoticeMs = 5000;
 std::string stall_note(uint64_t idle_ms);
 
+// ---- Feedback on the console (GH #385) ----------------------------------------
+// A GUI session tells a user who is waiting what jnext waits for: a dialog for a
+// short fetch that turns out to be slow, and after kStallNoticeMs without data the
+// "Stalled" note. The frontends with no dialog (--headless, the SDL-only build) say
+// the same in text, on stderr and in the log, with the same words. The decisions
+// (when to speak, once) are made here, once, for every fetch.
+
+// A short fetch quicker than this says nothing at all: the usual sub-second fetch
+// must not leave a line behind (the dialog: no flash). One second is the
+// conventional limit for a wait that needs no explanation.
+constexpr int kShortFetchShowMs = 1000;
+
+// The log's copy of a console line (`warning`: a stall, else information). Empty: none.
+using ConsoleLogFn = std::function<void(bool warning, const std::string& line)>;
+// The clock the console counts with. Empty: steady_clock::now(); a test passes a fake.
+using ConsoleNowFn = std::function<StallWatch::Clock::time_point()>;
+
+// What the console says while ONE transfer waits. Its tick() belongs in the transfer's
+// ProgressFn, which the backends call at least every tick whatever the network does.
+// Counted from the FIRST tick, which comes as the attempt starts, not from construction:
+// a prompt before the download can sit open for minutes and that is not a wait.
+//   - The stall note: when no byte has arrived for kStallNoticeMs, stall_note() is said
+//     once, as a warning; bytes arriving re-arm it, so a second stall speaks again.
+//   - `slow_line` (empty: none): when the transfer has been going for kShortFetchShowMs,
+//     it is said once, as information. A short fetch names what it fetches and from
+//     where; a big download has a progress display of its own and passes none.
+// A line goes to `out` on a line of its own and to `log`.
+class ConsoleWait {
+public:
+    ConsoleWait(std::FILE* out, ConsoleLogFn log, std::string slow_line = {}, ConsoleNowFn now = {});
+    // `downloaded`: body bytes so far (any change resets the stall). `line_open`: the caller
+    // has left a line unfinished on `out` (a progress line), so what is said starts a new one.
+    // True when something was said (the unfinished line is then closed).
+    bool tick(uint64_t downloaded, bool line_open = false);
+
+private:
+    void say(const std::string& line, bool warning, bool new_line_first);
+
+    std::FILE*   out_;
+    ConsoleLogFn log_;
+    std::string  slow_line_;
+    ConsoleNowFn now_;
+    bool started_ = false, slow_said_ = false, stall_said_ = false;
+    StallWatch::Clock::time_point began_;
+    StallWatch   watch_;
+};
+
+// The terminal's progress display of a download of `what`: "Downloading <what>:  45%"
+// rewritten in place (or "N MiB" when the server sent no length and `mib_if_unknown`),
+// and the console's stall note (ConsoleWait) on a line of its own. Never cancels. One per
+// download: it keeps the line state. make_cli_progress() is the SD-card image's.
+class CliProgress {
+public:
+    CliProgress(std::string what, bool mib_if_unknown, ConsoleLogFn log,
+                std::FILE* out = stderr, ConsoleNowFn now = {});
+    bool operator()(uint64_t downloaded, uint64_t total);
+
+private:
+    std::string what_;
+    bool        mib_if_unknown_;
+    std::FILE*  out_;
+    int         last_pct_ = -1;
+    uint64_t    last_mib_ = 0;
+    bool        open_ = false;   // a progress line is on `out`, not yet ended with a newline
+    ConsoleWait wait_;
+};
+
 // The per-tick decision both backends take after every completion and every idle
 // tick. `got` = body bytes of THIS response so far. True: go on. False: the
 // attempt is over, `err` is set and the partial settled: "cancelled by user" (the
@@ -343,8 +411,10 @@ bool http_download(const std::string& url, const std::string& dest_path,
 bool default_http_download(const std::string& url, const std::string& dest_path,
                            const ProgressFn& progress, std::string& err);
 bool cli_confirm(const std::string& message);
-// Lightweight textual (\r NN%) progress for the CLI/headless path.
-bool cli_progress(uint64_t downloaded, uint64_t total);
+// Lightweight textual (\r NN%) progress for the CLI/headless path, with the console's stall
+// note (GH #385): a CliProgress for the SD-card image, logging as the SD-card image.
+// `out` and `now` are for the tests.
+ProgressFn make_cli_progress(std::FILE* out = stderr, ConsoleNowFn now = {});
 // Default CLI BusyFn: prints "<phase>… " to stderr, runs `work`, then prints
 // "done"/"failed". No thread/spinner (a terminal user tolerates a short wait,
 // and the message alone shows the app is working).

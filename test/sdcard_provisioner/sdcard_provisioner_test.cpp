@@ -1732,6 +1732,280 @@ void test_failure_message_rows() {
     clean();
 }
 
+// ---------------------------------------------------------------------------
+// GH #385, the owner's addition: the frontends with no dialog (--headless, the SDL-only build) say on
+// the console and in the log what the GUI's dialog says. Oracle: the owner's decision of 2026-10-18 (a
+// short fetch that passes 1 s: a line naming what is fetched and from which address; for every fetch,
+// the stall notice after 5 s with no data, in the same words as the dialog; nothing for the usual
+// sub-second fetch), the dialog's wording (SDD-07: 'Stalled: no data received for 5 s', 'gives up after
+// 30 s') and, for the progress display, the format of the cli_progress it replaced (SD-card image
+// provisioning, commit 06a78ecfa). Time is a fake the rows move; the output goes to a file read back.
+// ---------------------------------------------------------------------------
+void test_console_rows() {
+    using C = sdcard::StallWatch::Clock;
+    const C::time_point T0 = C::time_point{} + std::chrono::seconds(1000);
+    C::time_point now = T0;
+    auto at = [&](int ms) { now = T0 + std::chrono::milliseconds(ms); };
+    const sdcard::ConsoleNowFn clock = [&] { return now; };
+
+    // One console under test: its output file, and what it handed to the log.
+    struct Cap {
+        std::string path;
+        std::FILE* f = nullptr;
+        std::vector<std::pair<bool, std::string>> log;
+        explicit Cap(const char* name) : path(tp(name)) { f = std::fopen(path.c_str(), "w+b"); }
+        ~Cap() { if (f) std::fclose(f); }
+        Cap(const Cap&) = delete;
+        Cap& operator=(const Cap&) = delete;
+        sdcard::ConsoleLogFn log_fn() {
+            return [this](bool warning, const std::string& line) { log.emplace_back(warning, line); };
+        }
+        std::string text() {
+            std::fflush(f);
+            std::ifstream in(path, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        }
+    };
+    auto has = [](const std::string& s, const std::string& sub) { return s.find(sub) != std::string::npos; };
+    using LogLines = std::vector<std::pair<bool, std::string>>;
+    const std::string kSlow = "Reading the list of NextPi releases... https://mirror.test/NextPi2/";
+    const std::string note5 = sdcard::stall_note(5000);   // the dialog's note for 5 s
+    const bool note5_ok = has(note5, "Stalled: no data received for 5 s") && has(note5, "gives up after 30 s");
+
+    // 01: the usual sub-second fetch says nothing, in the console or the log.
+    {
+        Cap cap("con01");
+        sdcard::ConsoleWait w(cap.f, cap.log_fn(), kSlow, clock);
+        bool said = false;
+        for (int ms : {0, 200, 400, 600, 800, 999}) { at(ms); said = w.tick(0) || said; }
+        check("PROV-CON-01",
+              "a short fetch that is still going at 999 ms, and ends there, says nothing: no line on the console, "
+              "none in the log, and tick() reports nothing said",
+              !said && cap.text().empty() && cap.log.empty(), cap.text());
+    }
+
+    // 02: the line naming what is fetched and from where: once, from 1000 ms.
+    {
+        Cap cap("con02");
+        sdcard::ConsoleWait w(cap.f, cap.log_fn(), kSlow, clock);
+        int first_at = -1, said_count = 0;
+        for (int ms = 0; ms <= 4800; ms += 200) {
+            at(ms);
+            if (w.tick(0)) { if (first_at < 0) first_at = ms; ++said_count; }
+        }
+        check("PROV-CON-02",
+              "a short fetch says its line, '<what> <address>', once, at the first tick 1000 ms after the fetch began "
+              "(not at 800), as information, on a line of its own and in the log, and nothing again before the stall "
+              "note is due",
+              first_at == 1000 && said_count == 1 && cap.text() == kSlow + "\n" &&
+                  cap.log == LogLines({{false, kSlow}}),
+              "first_at=" + std::to_string(first_at) + " said=" + std::to_string(said_count) + " text='" + cap.text() + "'");
+    }
+
+    // 03: the stall note: at 5 s with no data, once, the dialog's words, as a warning.
+    {
+        Cap cap("con03");
+        sdcard::ConsoleWait w(cap.f, cap.log_fn(), {}, clock);
+        int first_at = -1, said_count = 0;
+        for (int ms = 0; ms <= 29800; ms += 200) {
+            at(ms);
+            if (w.tick(0)) { if (first_at < 0) first_at = ms; ++said_count; }
+        }
+        check("PROV-CON-03",
+              "with no data for 5 s the console says the dialog's stalled note (stall_note: 'Stalled: no data received "
+              "for 5 s ... jnext gives up after 30 s') on a line of its own and in the log as a warning, at the tick "
+              "5000 ms after the start and not at 4800, and says it only once through the next 25 s of silence; a "
+              "transfer with no slow line says nothing else",
+              note5_ok && first_at == 5000 && said_count == 1 && cap.text() == note5 + "\n" &&
+                  cap.log == LogLines({{true, note5}}),
+              "first_at=" + std::to_string(first_at) + " said=" + std::to_string(said_count) + " text='" + cap.text() + "'");
+    }
+
+    // 04: bytes arriving end the stall; a later stall speaks again.
+    {
+        Cap cap("con04");
+        sdcard::ConsoleWait w(cap.f, cap.log_fn(), {}, clock);
+        int notes = 0;
+        std::vector<int> at_ms;
+        auto go = [&](int ms, uint64_t bytes) {
+            at(ms);
+            if (w.tick(bytes)) { ++notes; at_ms.push_back(ms); }
+        };
+        for (int ms = 0; ms <= 5800; ms += 200) go(ms, 0);       // stalled from 5000: one note
+        for (int ms = 6000; ms <= 10800; ms += 200) go(ms, 100);  // bytes at 6000 end it; silent again after
+        go(11000, 100);                                          // 5 s after the last change: the second note
+        check("PROV-CON-04",
+              "a stall is said once; bytes arriving end it and say nothing; 5 s after the last byte a second stall "
+              "is said again (ticks 5000 and 11000), each as the same note on a line of its own",
+              note5_ok && at_ms == std::vector<int>({5000, 11000}) && cap.text() == note5 + "\n" + note5 + "\n" &&
+                  cap.log == LogLines({{true, note5}, {true, note5}}),
+              "notes at " + std::to_string(at_ms.size()) + " ticks, text='" + cap.text() + "'");
+    }
+
+    // 05: the first tick starts the clocks, not the constructor (a prompt may sit open for minutes first).
+    {
+        Cap cap("con05");
+        at(0);
+        sdcard::ConsoleWait w(cap.f, cap.log_fn(), kSlow, clock);
+        std::vector<int> at_ms;
+        for (int ms : {60000, 60200, 60999, 61000, 61200, 64800, 65000, 65200}) {
+            at(ms);
+            if (w.tick(0)) at_ms.push_back(ms);
+        }
+        check("PROV-CON-05",
+              "the clocks start at the first tick: with the console built 60 s before it, nothing is said at that "
+              "tick; the slow line comes 1000 ms after it and the stall note 5000 ms after it",
+              note5_ok && at_ms == std::vector<int>({61000, 65000}) && cap.text() == kSlow + "\n" + note5 + "\n",
+              "text='" + cap.text() + "'");
+    }
+
+    // 06: one late tick past both limits: the line first, then the note.
+    {
+        Cap cap("con06");
+        sdcard::ConsoleWait w(cap.f, cap.log_fn(), kSlow, clock);
+        at(0);
+        const bool first = w.tick(0);
+        at(6000);
+        const bool late = w.tick(0);
+        const std::string note6 = sdcard::stall_note(6000);
+        check("PROV-CON-06",
+              "a tick that arrives 6 s late says both: the slow line, then the stall note with the true idle time "
+              "('6 s'); the first tick said nothing",
+              !first && late && has(note6, "no data received for 6 s") && cap.text() == kSlow + "\n" + note6 + "\n" &&
+                  cap.log == LogLines({{false, kSlow}, {true, note6}}),
+              "text='" + cap.text() + "'");
+    }
+
+    // 07: a line left unfinished by the caller (a progress line): what is said starts on a new line, once.
+    {
+        Cap cap("con07");
+        sdcard::ConsoleWait w(cap.f, cap.log_fn(), {}, clock);
+        at(0);
+        w.tick(0, true);
+        at(5000);
+        const bool said = w.tick(0, true);
+        const std::string a = cap.text();
+        Cap cap2("con07b");
+        sdcard::ConsoleWait w2(cap2.f, cap2.log_fn(), kSlow, clock);
+        at(0);
+        w2.tick(0, true);
+        at(6000);
+        w2.tick(0, true);
+        const std::string note6 = sdcard::stall_note(6000);
+        check("PROV-CON-07",
+              "when the caller has an unfinished line on the console what is said starts on a new line: '\\n' + note; "
+              "when a late tick says two things only the first gets the '\\n' (the line just said ended with one); "
+              "tick() reports it said something",
+              said && a == "\n" + note5 + "\n" && cap2.text() == "\n" + kSlow + "\n" + note6 + "\n",
+              "a='" + a + "' b='" + cap2.text() + "'");
+    }
+
+    // 08: the progress display keeps the format of the cli_progress it replaced.
+    {
+        Cap cap("con08");
+        at(0);
+        sdcard::CliProgress p("SD-card image", true, cap.log_fn(), cap.f, clock);
+        const bool r1 = p(0, 200), r2 = p(1, 200), r3 = p(100, 200), r4 = p(199, 200), r5 = p(200, 200);
+        check("PROV-CON-08",
+              "with a length the progress display rewrites one line '\\rDownloading SD-card image: NNN%' only when "
+              "the whole percent changes (0, then 100/200 = 50, 199/200 = 99), ends the line with a newline at 100%, "
+              "and never cancels",
+              r1 && r2 && r3 && r4 && r5 &&
+                  cap.text() == "\rDownloading SD-card image:   0%\rDownloading SD-card image:  50%"
+                                "\rDownloading SD-card image:  99%\rDownloading SD-card image: 100%\n" &&
+                  cap.log.empty(),
+              cap.text());
+    }
+
+    // 09: no length from the server: MiB for the SD-card image, nothing for NextPi.
+    {
+        Cap cap("con09a"), cap2("con09b");
+        at(0);
+        sdcard::CliProgress sd("SD-card image", true, cap.log_fn(), cap.f, clock);
+        sd(0, 0);
+        sd(5u << 20, 0);
+        sd((5u << 20) + 123, 0);
+        sd(6u << 20, 0);
+        sdcard::CliProgress np("NextPi", false, cap2.log_fn(), cap2.f, clock);
+        np(0, 0);
+        np(5u << 20, 0);
+        np(50, 100);
+        check("PROV-CON-09",
+              "with no length the SD-card image's display says 'Downloading SD-card image: N MiB' when the MiB count "
+              "changes (5, then 6; not at 0 and not within the same MiB), and NextPi's says nothing until a length "
+              "is known, then 'Downloading NextPi:  50%'",
+              cap.text() == "\rDownloading SD-card image: 5 MiB\rDownloading SD-card image: 6 MiB" &&
+                  cap2.text() == "\rDownloading NextPi:  50%",
+              "sd='" + cap.text() + "' np='" + cap2.text() + "'");
+    }
+
+    // 10: the stall note on a progress display: its own line, and the display carries on at the start of the next.
+    {
+        const std::string pre = "\rDownloading SD-card image:  50%";
+        // (a) a stall mid-line, bytes come back with a new percent, a second stall.
+        Cap a("con10a");
+        at(0);
+        sdcard::CliProgress pa("SD-card image", true, a.log_fn(), a.f, clock);
+        pa(50, 100);
+        for (int ms = 200; ms <= 4800; ms += 200) { at(ms); pa(50, 100); }
+        at(5000);
+        pa(50, 100);
+        at(5200);
+        pa(60, 100);
+        at(10200);
+        pa(60, 100);
+        const std::string want_a = pre + "\n" + note5 + "\n" + "\rDownloading SD-card image:  60%" + "\n" + note5 + "\n";
+        // (b) a stall before any line was written (no length yet): no blank line first.
+        Cap b("con10b");
+        at(0);
+        sdcard::CliProgress pb("NextPi", false, b.log_fn(), b.f, clock);
+        pb(0, 0);
+        at(5000);
+        pb(0, 0);
+        // (c) a stall after the line was ended at 100%: no blank line first.
+        Cap c("con10c");
+        at(0);
+        sdcard::CliProgress pc("NextPi", false, c.log_fn(), c.f, clock);
+        pc(100, 100);
+        at(5000);
+        pc(100, 100);
+        // (d) two notes with no new progress line between them: the second has no '\n' before it, the
+        // cursor is already at the start of a line.
+        Cap d("con10d");
+        at(0);
+        sdcard::CliProgress pd("NextPi", false, d.log_fn(), d.f, clock);
+        pd(500, 1000);
+        at(5000);
+        pd(500, 1000);
+        at(5200);
+        pd(501, 1000);   // a byte: the stall ends; still 50%, so nothing is drawn
+        at(10200);
+        pd(501, 1000);
+        check("PROV-CON-10",
+              "the stall note of a progress display goes on a line of its own after an unfinished progress line, and "
+              "the display carries on at the start of the next one; with no progress line unfinished (none drawn yet, "
+              "one ended at 100%, or a note already ended the line) there is no blank line before it",
+              note5_ok && a.text() == want_a && b.text() == note5 + "\n" &&
+                  c.text() == "\rDownloading NextPi: 100%\n" + note5 + "\n" &&
+                  d.text() == "\rDownloading NextPi:  50%\n" + note5 + "\n" + note5 + "\n" &&
+                  a.log == LogLines({{true, note5}, {true, note5}}),
+              "a='" + a.text() + "' b='" + b.text() + "' c='" + c.text() + "' d='" + d.text() + "'");
+    }
+
+    // 11: the SD-card image's own display, as main.cpp builds it (the stream and the clock are the test's).
+    {
+        Cap cap("con11");
+        at(0);
+        const sdcard::ProgressFn p = sdcard::make_cli_progress(cap.f, clock);
+        const bool r1 = p(50, 100), r2 = p(5u << 20, 0);
+        check("PROV-CON-11",
+              "make_cli_progress(), the SD-card image's display, heads its line 'Downloading SD-card image:' and, "
+              "with no length from the server, counts MiB",
+              r1 && r2 && cap.text() == "\rDownloading SD-card image:  50%\rDownloading SD-card image: 5 MiB",
+              cap.text());
+    }
+}
+
 } // namespace
 
 int main() {
@@ -2624,6 +2898,7 @@ int main() {
     test_stall_rows();
     test_reason_rows();
     test_failure_message_rows();
+    test_console_rows();
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

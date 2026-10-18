@@ -11,6 +11,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -151,17 +152,32 @@ std::string mirror_of(const ProvisionOptions& opts) {
 
 } // namespace
 
-bool cli_progress(uint64_t downloaded, uint64_t total) {
-    static int last_pct = -1;
-    if (total == 0) return true;
-    const int pct = static_cast<int>((downloaded * 100ULL) / total);
-    if (pct != last_pct) {
-        last_pct = pct;
-        std::fprintf(stderr, "\rDownloading NextPi: %3d%%", pct);
-        if (pct >= 100) std::fprintf(stderr, "\n");
-        std::fflush(stderr);
-    }
-    return true;
+namespace {
+/// The log's copy of a console line (GH #385): the uart logger, like the rest of this module.
+sdcard::ConsoleLogFn uart_console_log() {
+    return [](bool warning, const std::string& line) {
+        if (warning) Log::uart()->warn("NextPi: {}", line);
+        else         Log::uart()->info("NextPi: {}", line);
+    };
+}
+} // namespace
+
+sdcard::ProgressFn make_cli_progress(std::FILE* out, sdcard::ConsoleNowFn now) {
+    // No length from the server: nothing to show (the percentage needs one).
+    return sdcard::CliProgress("NextPi", false, uart_console_log(), out, std::move(now));
+}
+
+CliShortFetch::CliShortFetch(sdcard::ConsoleLogFn log, std::FILE* out, sdcard::ConsoleNowFn now)
+    : log_(log ? std::move(log) : uart_console_log()), out_(out), now_(std::move(now)) {}
+
+bool CliShortFetch::operator()(const std::string& label, const std::string& url,
+                               const std::function<bool(const sdcard::ProgressFn&)>& fetch) const {
+    // One ConsoleWait per fetch, shared by every copy of the ProgressFn the backend may make.
+    auto wait = std::make_shared<sdcard::ConsoleWait>(out_, log_, label + " " + url, now_);
+    return fetch([wait](uint64_t downloaded, uint64_t) {
+        wait->tick(downloaded);
+        return true;   // the console has no Cancel
+    });
 }
 
 bool cli_busy(const std::string& phase, const std::function<bool()>& work) {
@@ -529,13 +545,14 @@ ProvisionResult provision(const ProvisionOptions& opts) {
     const auto busy           = opts.busy ? opts.busy
                                           : sdcard::BusyFn([](const std::string&, const std::function<bool()>& w) { return w(); });
     // The SHORT fetches (the release list, the two .md5 files) are the only ones that go
-    // through opts.short_fetch, so a GUI can show feedback when one is slow (GH #385). The
-    // archive download is not one of them: it has opts.progress and a dialog of its own.
-    // With the seam empty a short fetch is a plain download with no ProgressFn.
+    // through opts.short_fetch, so a frontend can show feedback when one is slow (GH #385):
+    // the GUI a dialog, the console a line. The seam is told the address too. The archive
+    // download is not one of them: it has opts.progress and a display of its own. With the
+    // seam empty a short fetch is a plain download with no ProgressFn.
     const auto short_download = [&](const char* label, const std::string& url, const std::string& dest,
                                     std::string& e) {
         if (!opts.short_fetch) return download(url, dest, {}, e);
-        return opts.short_fetch(label, [&](const sdcard::ProgressFn& pf) { return download(url, dest, pf, e); });
+        return opts.short_fetch(label, url, [&](const sdcard::ProgressFn& pf) { return download(url, dest, pf, e); });
     };
     constexpr const char* kListLabel = "Reading the list of NextPi releases...";
     constexpr const char* kMd5Label  = "Fetching the NextPi checksum...";

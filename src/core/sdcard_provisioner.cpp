@@ -534,29 +534,82 @@ std::vector<uint8_t> default_config_ini() {
 //                                      Phase B: no curl/OpenSSL DLLs shipped,
 //                                      Win7-clean import set)
 
-bool cli_progress(uint64_t downloaded, uint64_t total) {
-    // Throttle to whole-percent changes to avoid flooding stderr.
-    static int last_pct = -1;
+// ---------------------------------------------------------------------------
+// Feedback on the console (GH #385): see the comment above ConsoleWait in the header.
+// ---------------------------------------------------------------------------
+ConsoleWait::ConsoleWait(std::FILE* out, ConsoleLogFn log, std::string slow_line, ConsoleNowFn now)
+    : out_(out), log_(std::move(log)), slow_line_(std::move(slow_line)),
+      now_(now ? std::move(now) : ConsoleNowFn(StallWatch::Clock::now)) {}
+
+void ConsoleWait::say(const std::string& line, bool warning, bool new_line_first) {
+    if (new_line_first) std::fputc('\n', out_);
+    std::fprintf(out_, "%s\n", line.c_str());
+    std::fflush(out_);
+    if (log_) log_(warning, line);
+}
+
+bool ConsoleWait::tick(uint64_t downloaded, bool line_open) {
+    const StallWatch::Clock::time_point now = now_();
+    if (!started_) {   // the first tick starts both clocks
+        started_ = true;
+        began_   = now;
+        watch_   = StallWatch(now);
+    }
+    bool said = false;
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - began_).count();
+    if (!slow_line_.empty() && !slow_said_ && elapsed_ms >= kShortFetchShowMs) {
+        slow_said_ = true;
+        say(slow_line_, false, line_open);
+        said = true;
+        line_open = false;   // the line just said ended with a newline
+    }
+    const uint64_t idle = watch_.idle_ms(downloaded, now);
+    if (idle < static_cast<uint64_t>(kStallNoticeMs)) {
+        stall_said_ = false;   // bytes arrived (or not long enough yet): a later stall speaks again
+    } else if (!stall_said_) {
+        stall_said_ = true;
+        say(stall_note(idle), true, line_open);
+        said = true;
+    }
+    return said;
+}
+
+CliProgress::CliProgress(std::string what, bool mib_if_unknown, ConsoleLogFn log, std::FILE* out,
+                         ConsoleNowFn now)
+    : what_(std::move(what)), mib_if_unknown_(mib_if_unknown), out_(out),
+      wait_(out, std::move(log), {}, std::move(now)) {}
+
+bool CliProgress::operator()(uint64_t downloaded, uint64_t total) {
+    // Throttle to whole-percent changes to avoid flooding the terminal.
     if (total > 0) {
         const int pct = static_cast<int>((downloaded * 100ULL) / total);
-        if (pct != last_pct) {
-            last_pct = pct;
-            std::fprintf(stderr, "\rDownloading SD-card image: %3d%%", pct);
-            if (pct >= 100) std::fprintf(stderr, "\n");
-            std::fflush(stderr);
+        if (pct != last_pct_) {
+            last_pct_ = pct;
+            std::fprintf(out_, "\rDownloading %s: %3d%%", what_.c_str(), pct);
+            if (pct >= 100) std::fprintf(out_, "\n");
+            std::fflush(out_);
+            open_ = pct < 100;
         }
-    } else {
-        // No Content-Length: show accumulated KiB every ~1 MiB.
-        static uint64_t last_mib = 0;
+    } else if (mib_if_unknown_) {
+        // No Content-Length: show accumulated MiB every ~1 MiB.
         const uint64_t mib = downloaded >> 20;
-        if (mib != last_mib) {
-            last_mib = mib;
-            std::fprintf(stderr, "\rDownloading SD-card image: %llu MiB",
+        if (mib != last_mib_) {
+            last_mib_ = mib;
+            std::fprintf(out_, "\rDownloading %s: %llu MiB", what_.c_str(),
                          static_cast<unsigned long long>(mib));
-            std::fflush(stderr);
+            std::fflush(out_);
+            open_ = true;
         }
     }
+    if (wait_.tick(downloaded, open_)) open_ = false;
     return true; // CLI progress never cancels
+}
+
+ProgressFn make_cli_progress(std::FILE* out, ConsoleNowFn now) {
+    return CliProgress("SD-card image", true, [](bool warning, const std::string& line) {
+        if (warning) Log::emulator()->warn("SD-card image: {}", line);
+        else         Log::emulator()->info("SD-card image: {}", line);
+    }, out, std::move(now));
 }
 
 bool cli_busy(const std::string& phase, const std::function<bool()>& work) {

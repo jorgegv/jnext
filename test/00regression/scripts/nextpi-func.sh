@@ -16,7 +16,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # network or a NextPi image: the first run has no QEMU on its PATH, the second
 # answers the download prompt with end-of-input.
 #
-# TWELVE FACTS (the Pi's sound is in nextpi-audio-func, which needs a stand-in QEMU
+# THIRTEEN FACTS (the Pi's sound is in nextpi-audio-func, which needs a stand-in QEMU
 # playing a tone into the audio pipe):
 #   1. --nextpi with a ready NextPi directory and no QEMU installed exits 1 and
 #      says QEMU is not found (the install hint), without booting.
@@ -54,6 +54,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #  12. (GH #385) The same, with a mirror that answers after 3 s: the slow list
 #      shows the progress dialog (the log says so), then fails with the HTTP
 #      status and the address.
+#  13. (GH #385) Headless, where there is no dialog: a mirror that answers the
+#      checksum of an archive in the folder only after 7 s makes the console and
+#      the log say what the dialog would, in order: the line naming what is
+#      fetched and from where (after 1 s), then the stalled note (after 5 s),
+#      then the question that carries on.
 # Facts 3, 4 and 10-12 run the GUI on Qt's offscreen platform, where the warning
 # dialogs are not shown (nobody could dismiss them); SdcardGuiProvisioner writes
 # the title and text it would have shown to the platform log at debug level
@@ -312,12 +317,60 @@ if want nextpi-func; then
     kill "$npeer_pid" 2>/dev/null || true
     wait "$npeer_pid" 2>/dev/null || true
 
+    # Fact 13 - no dialog (headless): the archive of fact 9 again, and a peer that answers the
+    # checksum's request with a 404 only after 7 s (the backend gives up after 30 s, so the answer
+    # comes first). The checksum is a short fetch that passes a second and then stalls: stderr
+    # and the log carry the line naming what is fetched and from where, then the stalled note,
+    # then the question; the run carries on as in fact 9 (declined, exit 0).
+    rm -rf "$np"
+    mkdir -p "$np"
+    echo junk >"$np/NextPi-1_93D.tar.gz"
+    nplog13="$TMP_DIR/nextpi-func-13.log"
+    nout13="$TMP_DIR/nextpi-func-13.out"
+    nport13="$TMP_DIR/nextpi-func-13.port"
+    npeer13="$TMP_DIR/nextpi-func-13.peer.log"
+    rm -f "$nplog13" "$nout13" "$nport13" "$npeer13"
+    python3 "$SCRIPT_DIR/slow-http-peer.py" "$nport13" 7 404 >"$npeer13" 2>&1 &
+    npeer_pid=$!
+    for _ in $(seq 1 100); do
+        [[ -s "$nport13" ]] && break
+        kill -0 "$npeer_pid" 2>/dev/null || break
+        sleep 0.1
+    done
+    if [[ ! -s "$nport13" ]]; then
+        fails+=("the slow mirror (fact 13) never became ready: $(tr -d '\n' <"$npeer13")")
+    else
+        nport=$(tr -d '\n' <"$nport13")
+        rc=0
+        JNEXT_NEXTPI_MIRROR="http://127.0.0.1:$nport" no_proxy=127.0.0.1,localhost NO_PROXY=127.0.0.1,localhost \
+            timeout --foreground --kill-after=5s 60s \
+            env PATH="$bindir:$PATH" JNEXT_EXTRA_WINEPATH="$bindir" "$JNEXT" --headless "${SD_CARD_ARGS[@]}" \
+            --nextpi --log-file "$nplog13" --delayed-automatic-exit-frames 2 </dev/null >"$nout13" 2>&1 || rc=$?
+        [[ $rc -eq 0 ]] || fails+=("--nextpi with a slow mirror (download declined) exited $rc, want 0")
+        nf_slow="Fetching the NextPi checksum... http://127.0.0.1:$nport/NextPi-1_93D.tar.gz.md5"
+        nf_stalled='Stalled: no data received for [0-9]+ s\. The network or the server may be down; jnext gives up after 30 s\.'
+        nf_text "$nf_slow" "$nout13" "the console (stderr)"
+        nf_text "NextPi: $nf_slow" "$nplog13" "--log-file"
+        nf_out13=$(tr -d '\r' <"$nout13" 2>/dev/null || true)
+        nf_log13=$(tr -d '\r' <"$nplog13" 2>/dev/null || true)
+        grep -qE -- "^$nf_stalled\$" <<<"$nf_out13" || fails+=("the console (stderr) does not carry the stalled note on a line of its own")
+        grep -qE -- "\[warning\] NextPi: $nf_stalled" <<<"$nf_log13" || fails+=("--log-file does not carry the stalled note as a warning")
+        # In order: the line, then the note, then the question.
+        nf_l1=$(grep -nF -- "$nf_slow" <<<"$nf_out13" | head -n 1 | cut -d: -f1 || true)
+        nf_l2=$(grep -nE -- "^$nf_stalled\$" <<<"$nf_out13" | head -n 1 | cut -d: -f1 || true)
+        nf_l3=$(grep -nF -- "jnext cannot check" <<<"$nf_out13" | head -n 1 | cut -d: -f1 || true)
+        [[ -n "$nf_l1" && -n "$nf_l2" && -n "$nf_l3" && "$nf_l1" -lt "$nf_l2" && "$nf_l2" -lt "$nf_l3" ]] \
+            || fails+=("the console did not say the line, the stalled note and the question in that order (lines '${nf_l1:-none}', '${nf_l2:-none}', '${nf_l3:-none}')")
+    fi
+    kill "$npeer_pid" 2>/dev/null || true
+    wait "$npeer_pid" 2>/dev/null || true
+
     if [[ -n "$conf_saved" ]]; then mv "$conf_saved" "$conf"; else rm -f "$conf"; fi
 
     rm -rf "$np"
 
     if [[ ${#fails[@]} -eq 0 ]]; then
-        pass_row " (--nextpi without QEMU exits 1 with the install hint; a declined download starts jnext without NextPi; --no-nextpi overrides the preference; a Preferences-only failure is logged and jnext runs on; with no QEMU nothing is offered or fetched; failures reach --log-file; an unusable directory, a manual unpack included, names its missing file; a failed fetch names its address and why, in the question, the log and the Qt GUI's dialogs, and a slow list shows the progress dialog)"
+        pass_row " (--nextpi without QEMU exits 1 with the install hint; a declined download starts jnext without NextPi; --no-nextpi overrides the preference; a Preferences-only failure is logged and jnext runs on; with no QEMU nothing is offered or fetched; failures reach --log-file; an unusable directory, a manual unpack included, names its missing file; a failed fetch names its address and why, in the question, the log and the Qt GUI's dialogs, a slow list shows the progress dialog, and without a dialog the console and the log say a slow checksum and its stall)"
     else
         fail_row " (${fails[*]})"
     fi
