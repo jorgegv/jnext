@@ -274,6 +274,14 @@ bool is_valid_utf8(std::string_view s) {
 Session::Session(jnext::dbg::Debugger& dbg, PokFile file, std::string path)
     : dbg_(dbg), file_(std::move(file)), path_(std::move(path)) {
     records_.resize(file_.trainers.size());
+    loads_seen_ = dbg_.program_loads();
+}
+
+void Session::drop_stale_records() const {
+    const uint64_t now = dbg_.program_loads();
+    if (now == loads_seen_) return;
+    loads_seen_ = now;
+    for (std::vector<Rec>& r : records_) r.clear();
 }
 
 bool Session::locate(const Poke& p, const Slots& slots, bool is_48k, Loc& loc,
@@ -359,6 +367,7 @@ void Session::log_done(const char* verb, const Trainer& t) const {
 }
 
 State Session::state(size_t i) const {
+    drop_stale_records();
     if (i >= file_.trainers.size()) return State::NotApplied;
     const Trainer& t = file_.trainers[i];
     if (!t.problem.empty()) return State::NotApplied;
@@ -385,6 +394,7 @@ State Session::state(size_t i) const {
 }
 
 std::string Session::apply(size_t i, std::optional<uint8_t> value) {
+    drop_stale_records();
     if (i >= file_.trainers.size()) return "no such trainer";
     const Trainer& t = file_.trainers[i];
     if (!t.problem.empty()) return t.problem;
@@ -424,6 +434,7 @@ std::string Session::apply(size_t i, std::optional<uint8_t> value) {
 }
 
 std::string Session::remove(size_t i) {
+    drop_stale_records();
     if (i >= file_.trainers.size()) return "no such trainer";
     const Trainer& t = file_.trainers[i];
     switch (state(i)) {

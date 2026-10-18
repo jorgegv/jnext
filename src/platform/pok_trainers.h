@@ -43,7 +43,9 @@
 // program that overwrites the poke makes it read "not applied" without anyone
 // being notified. A record that stops verifying is KEPT (a later removal of an
 // overlapping trainer can make it true again); `forget_applied()` drops them all,
-// and the Qt window calls it whenever the machine is rebuilt. Applying a trainer
+// and the Qt window calls it whenever the machine is rebuilt. A program loaded through
+// the backend (`Debugger::load()`: debugger, DZRP, ZRCP) drops them too, lazily: the
+// Session sees `Debugger::program_loads()` move. Applying a trainer
 // whose older record no longer verifies (the program overwrote part of it) replaces
 // that record, but a location that still holds what the older record wrote keeps
 // the older record's original: that byte is still our poke, and what it replaced is
@@ -193,10 +195,17 @@ private:
     std::string poke_byte(const Loc& loc, uint8_t v);
     void log_done(const char* verb, const Trainer& t) const;
 
-    jnext::dbg::Debugger&         dbg_;
-    PokFile                       file_;
-    std::string                   path_;
-    std::vector<std::vector<Rec>> records_;   ///< per trainer; empty = none
+    /// Drop the records when a program load through the backend (debugger, DZRP,
+    /// ZRCP: `Debugger::load()`) has replaced the program since they were made:
+    /// they describe a program that is gone. File > Load and a cold boot reach the
+    /// window's `forget_applied()` instead.
+    void drop_stale_records() const;
+
+    jnext::dbg::Debugger&                 dbg_;
+    PokFile                               file_;
+    std::string                           path_;
+    mutable std::vector<std::vector<Rec>> records_;   ///< per trainer; empty = none
+    mutable uint64_t                      loads_seen_ = 0;   ///< `Debugger::program_loads()` when last looked
 };
 
 // ---------------------------------------------------------------------------

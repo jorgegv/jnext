@@ -1571,6 +1571,53 @@ void test_session() {
               r.ok && z.ok && h.ok && f.ok && early && fires && once && now && sixty && early_ok && refused,
               hex(r.rd(0x8003)) + hex(z.rd(0x8003)) + hex(h.rd(0x8003)));
     }
+
+    // POK-65: a program loaded through the backend (a debugger, DZRP or ZRCP load) replaces what the undo records
+    // describe: the records are dropped, so Remove cannot write the old program's bytes into the new one (GH #381,
+    // review 1 note). File > Load and a cold boot reach forget_applied() through the window instead.
+    {
+        auto load_with = [](Rig& r, uint8_t new_byte, bool ok) {
+            jnext::dbg::LoopDriver d;
+            Rig* rig = &r;
+            d.load = [rig, new_byte, ok](const std::string&) { rig->wr(0x8003, new_byte); return ok; };
+            r.dbg->set_loop_driver(d);
+            return r.dbg->load(jnext::dbg::CLIENT_NONE, "other.sna");
+        };
+        // The new program happens to hold the poked byte (0x00) at once: a coincidental full match, the case
+        // that makes a stale record dangerous. The recorded original is 0x77, the file's is 0x35.
+        std::string detail;
+        bool all = true;
+        for (const bool ok : {true, false}) {
+            Rig r(MachineType::ZX48K);
+            r.load("NT\nZ  8 32771 0 53\n");
+            r.wr(0x8003, 0x77);
+            const std::string a = r.apply(0);
+            const bool before = r.s->state(0) == State::Applied;
+            const auto res = load_with(r, 0x00, ok);
+            const State st = r.s->state(0);
+            const std::string d = r.s->remove(0);
+            const bool good = r.ok && a.empty() && before && (res == jnext::dbg::Result::Ok) == ok &&
+                              st == State::AppliedFound && d.empty() && r.rd(0x8003) == 0x35;
+            if (!good) {
+                all = false;
+                detail += std::string("[ok=") + (ok ? "1" : "0") + " a=" + a + " st=" +
+                          std::to_string(static_cast<int>(st)) + " d=" + d + " byte=" + hex(r.rd(0x8003)) + "]";
+            }
+        }
+        // The control: no load, the same sequence undoes with the recorded original.
+        Rig c(MachineType::ZX48K);
+        c.load("NT\nZ  8 32771 0 53\n");
+        c.wr(0x8003, 0x77);
+        c.apply(0);
+        const std::string cd = c.s->remove(0);
+        const bool control = cd.empty() && c.rd(0x8003) == 0x77;
+        check("POK-65", "after a program load through the debugger backend (the driver reports success or failure) an "
+                        "applied trainer whose byte the new program happens to hold reads \"found in memory\", not "
+                        "applied, and Remove writes the file's original (0x35), not the byte the OLD program had "
+                        "(0x77); without a load Remove puts the recorded original back (jnext's own undo rule, "
+                        "plan D6)",
+              all && control, detail + "|" + cd + "|" + hex(c.rd(0x8003)));
+    }
 }
 
 }  // namespace

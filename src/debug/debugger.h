@@ -446,6 +446,13 @@ public:
     /// PC.
     Result load(ClientId by, const std::string& path);
 
+    /// How many `load()` calls have run the loop driver since this `Debugger` was
+    /// built, whether the loader succeeded or not. It moves exactly when a program
+    /// is replaced under the clients (a debugger, DZRP or ZRCP load); a client that
+    /// keeps bytes it saved from the old program (POK undo records) drops them when
+    /// the count changes. File > Load and a cold boot do not go through `load()`.
+    uint64_t program_loads() const;
+
     /// §4.1 — is the step machinery live? The hot loop's gate: when it is
     /// false the backend is inert and costs what today's `DebugState::armed()`
     /// costs.

@@ -3837,6 +3837,10 @@ running. These forget it, though the changes stay in memory:</p>
   of a program or snapshot, Quick Load, and a program that resets the machine
   itself. The row shows <em>applied (found in memory)</em> if memory still holds the
   bytes, <em>not applied</em> if not.</li>
+<li>A program loaded from a debugger, DZRP or ZRCP client (an IDE sending the
+  program): the trainer's bytes may still be in memory, but what they replaced
+  belonged to the old program, so the row shows <em>applied (found in memory)</em> or
+  <em>not applied</em>, never <em>applied</em>.</li>
 <li>Opening another <code>.pok</code> file.</li>
 </ul>
 <h2 id="where-a-poke-lands">Where a poke lands<a class="headerlink" href="#where-a-poke-lands" title="Permanent link">&para;</a></h2>

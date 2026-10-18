@@ -3329,7 +3329,11 @@ Apply is the way on; it replaces the record, but a location that still holds wha
 the older record wrote keeps the older record's <code>original</code> (matched by page and
 offset), because that byte is still our poke, and a location the program changed
 takes the program's byte. Without that, Remove would leave the poke in place for
-good. <code>forget_applied()</code> drops the records: <code>MainWindow::set_emulator()</code> calls
+good. A program load through the backend (a debugger, DZRP or ZRCP client:
+<code>Debugger::load()</code>, which never reaches <code>set_emulator()</code>) drops them too: the
+<code>Session</code> compares <code>Debugger::program_loads()</code>, a counter <code>load()</code> bumps whether
+the loader succeeded or not, and forgets the records when it moved (POK-65).
+<code>forget_applied()</code> drops them for the other routes: <code>MainWindow::set_emulator()</code> calls
 it, and <code>QtApp</code> calls <code>set_emulator()</code> after every machine rebuild
 (<code>boot_machine()</code>'s <code>rewire_host</code> hook), which covers menu load, Quick Load,
 Power Reset, a guest NR 0x02 reset and a machine-type change.</p>
