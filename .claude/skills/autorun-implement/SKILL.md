@@ -24,7 +24,7 @@ You implement the plan at `<run>/gh<N>-plan.md` (for a team-run unit, the plan o
 
 1. Fix, rows (literal IDs, oracle cited), manifest counts, docs (edit sources, re-render, commit both), ChangeLog line from the plan.
 2. Mutation-test your own rows: see each go red for the right reason.
-3. Gate per CLAUDE.md merge protocol step 2. Run the suites the change touches, in every configuration it can affect (SDL-only for SDL-frontend or shared platform logic; `make unit-test-win` for Win32 code, paths, sockets or processes), and the regression rows it touches (`make regression-rows`). Before each review round, run `make unit-test`. For a doc-only change, run `make docs-check` instead. No PGO build, no full `make regression` and no `make regression-win` on the branch: the batch gate on `main` runs those.
+3. Gate per CLAUDE.md merge protocol step 2. Run the suites the change touches, in every configuration it can affect (SDL-only for SDL-frontend or shared platform logic; `make unit-test-win` for Win32 code, paths, sockets or processes), and the regression rows it touches (`make regression-rows`: non-PGO Release build, no PGO training). Before each review round, run `make unit-test`. For a doc-only change, run `make docs-check` instead. No PGO build, no full `make regression` and no `make regression-win` on the branch: the batch gate on `main` runs those.
 4. Report `<run>/gh<N>-report.md`: commits, base, gate counts + load, mutation table, acceptance criteria ticked with evidence, draft close comment, open questions.
 5. Fix rounds: address every finding; append a per-finding answer to the report. Re-gate only what changed (its suites and rows), plus `make unit-test` before the re-review.
 

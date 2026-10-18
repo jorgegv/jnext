@@ -94,7 +94,7 @@ Decide; append to `<run>/decisions.md`: time, issue, decision, why, rejected alt
 ## Waits
 
 - Full regression only when 1-min load < `nproc`. Otherwise wait in a background loop (`while awk -v n=$(nproc) '{exit !($1>=n)}' /proc/loadavg; do sleep 60; done`), then retry. No foreground `sleep`, no `pgrep -f` loops. (Owner rule, 2026-10-06, for unattended runs only; overrides the `regression` skill's no-wait default.)
-- Timing row FAIL under load → wait for low load, then `make regression-confirm` (or `make regression-rows ROWS=<row>`). Record row + load.
+- Timing row FAIL under load → wait for low load, then `make regression-confirm` (or `make regression-rows ROWS=<row> ROWS_PGO=1`, the PGO binary the full run tested). Record row + load.
 
 ## Stop the run when
 

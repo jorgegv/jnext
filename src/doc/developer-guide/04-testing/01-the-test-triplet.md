@@ -36,7 +36,9 @@ the SDL-only frontend need `build/sdl-release/jnext` instead, because `SdlApp`
 is instantiated only in a build configured with `ENABLE_QT_UI=OFF`; and the
 `rewind-func` row runs `build/test/rewind_test`, which `make clean` deletes.
 Building all of them from the target is what makes "the tests ran against this
-source" true by construction rather than by discipline.
+source" true by construction rather than by discipline. (`make regression-rows`
+declares `gui-release-non-pgo` instead of `gui-release`, so a branch runs no PGO
+build; `ROWS_PGO=1` switches it back.)
 
 The rule was written after a 14-hour-old binary produced two bogus FAILs
 immediately before a version bump. Staleness cuts the other way too, and that

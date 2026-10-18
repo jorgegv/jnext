@@ -39,7 +39,7 @@ another program, or a new row nobody has tagged yet. The suite therefore reports
 host's 1-minute load average at the start and end of every run, flags each FAIL
 that happened with the load at or above `nproc`, and lists every failed row by
 name after the results. A flagged FAIL is still a FAIL — the verdict and exit
-status never change. Re-run that row solo (`make regression-rows ROWS=<row>`)
+status never change. Re-run that row solo (`make regression-rows ROWS=<row> ROWS_PGO=1`, the PGO binary the full run tested)
 before treating it as a regression, and do not dismiss it until the solo
 run passes.
 
@@ -112,8 +112,11 @@ solo-confirm path. The `timeout` in front of `xvfb-run` has no `--foreground`:
 with it a timeout orphans the Xvfb and the app.
 
 Targeted runs: `make regression-rows ROWS="<row> ..."` builds the binaries rows
-execute (gui-release, sdl-release, the unit-test build) and runs the named rows;
-the bare `regression.sh <row>...` form needs them built already.
+execute (gui-release-non-pgo, sdl-release, the unit-test build) and runs the named
+rows; the bare `regression.sh <row>...` form needs them built already. The Qt
+`jnext` is the non-PGO Release build, so a branch never trains a PGO profile
+(same code, same pixels); `ROWS_PGO=1` runs `build/gui-release` (PGO) instead.
+`make regression` and `regression-confirm` always run the PGO build.
 
 ## Platform runs: macOS and Windows under wine (GH #319)
 
@@ -301,7 +304,8 @@ before committing updated references.
 # Run all tests: the gate (prerequisites, host lock, stamp)
 make regression
 
-# Run specific tests (builds the binaries rows need; no lock, no stamp)
+# Run specific tests (builds the binaries rows need; no lock, no stamp).
+# The Qt jnext is build/gui-release-non-pgo; ROWS_PGO=1 runs the PGO build/gui-release
 make regression-rows ROWS="boot-48k palette-demo"
 
 # Re-run SOLO the rows a full run failed on a loaded host; stamp it if they pass
@@ -316,8 +320,8 @@ JNEXT_TEST_JOBS=4 make regression
 
 `bash test/00regression/regression.sh [<row>...]` is what these targets run;
 called by hand it skips their prerequisites, so use it only when
-`build/gui-release`, `build/sdl-release` and the unit-test build are already
-current.
+`build/gui-release` (or `build/gui-release-non-pgo` with `JNEXT=` pinned to it),
+`build/sdl-release` and the unit-test build are already current.
 
 ### Output
 

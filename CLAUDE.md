@@ -92,7 +92,7 @@ The single authoritative protocol for landing any implemented change on `main`:
 
 1. **Dedicated branch + worktree** off current `main` — never edit `main` directly. Each independent feature gets its own branch (so parallel agents don't trash each other). A standalone issue gets its own branch and merges to `main` when done. An **epic** gets an `epic<E>-<slug>` branch; its sub-issues branch off it and merge back into it, never into `main`, and the epic reaches `main` in one merge when finished (owner, 2026-10-06). A multi-stage issue lives on one branch until the whole issue is done and merges once; each stage is still reviewed on that branch (owner, 2026-09-24). Merge `main` into long-lived branches (epic, multi-stage) from time to time, so the final merge is not a cliff. A precedent set by an earlier session is not a decision.
 2. **Targeted tests on the branch; the full gate runs on `main`, once per batch** (owner, 2026-10-18, replacing the full gate on every branch and in every round). On the branch, the author runs what the change touches:
-   - the unit suites of the touched subsystems, in every configuration the change can affect: the Qt tree `build/`; the SDL-only tree for an SDL-frontend change or the platform logic both frontends share; the Windows tree under wine for Win32 code, paths, sockets or processes. Add the regression rows the change touches (`make regression-rows ROWS="<row> ..."`);
+   - the unit suites of the touched subsystems, in every configuration the change can affect: the Qt tree `build/`; the SDL-only tree for an SDL-frontend change or the platform logic both frontends share; the Windows tree under wine for Win32 code, paths, sockets or processes. Add the regression rows the change touches (`make regression-rows ROWS="<row> ..."`, which runs the non-PGO Release build `build/gui-release-non-pgo`; `ROWS_PGO=1` selects the PGO one);
    - before each review round, **`make unit-test`**: every Linux suite, `docs-check` and the traceability check, a few minutes with a warm ccache. The reviewer gets a tree that is green on Linux everywhere;
    - no PGO build, no full `make regression` and no `make regression-win` on the branch, unless the change is to those harnesses or to the PGO build itself.
    - **The batch gate** is the full gate, on `main`'s tip: `make clean && make gui-release`, then `make unit-test`, **`make unit-test-sdl`**, **`make unit-test-win`**, the FUSE Z80 suite (`./build/test/fuse_z80_test build/test/fuse` → 1356/1356), `make regression`, and **`make regression-win`**. No FAIL and no SKIP anywhere.
@@ -114,7 +114,7 @@ The single authoritative protocol for landing any implemented change on `main`:
      - It runs the regression suite's screenshots and the functional rows Windows can run, against the Release + LTO (non-PGO) Qt `jnext.exe` and the SDL-only `jnext.exe` under wine (extra: `dnf install mingw64-qt6-qtbase mingw64-qt6-qtsvg`).
      - It takes ~6 min under the host lock on top of warm builds. It needs 0 FAIL and 0 SKIP, prints absent rows by name (declared by `os=` in `functional_tests.conf`, never skipped), and is not stamped.
      - macOS runs in CI only (`macos-regression`).
-   - Use **`make regression`**, never bare `bash test/00regression/regression.sh`: the suite's `sdl-keypress-func` row needs `build/sdl-release`, which only the make target builds, so the bare script aborts as a harness fault. Two separate agents lost a run to this on 2026-09-25. Targeted rows likewise go through **`make regression-rows ROWS="<row> ..."`**, which builds the same binaries first (the bare script with row names is fine only when they are already built).
+   - Use **`make regression`**, never bare `bash test/00regression/regression.sh`: the suite's `sdl-keypress-func` row needs `build/sdl-release`, which only the make target builds, so the bare script aborts as a harness fault. Two separate agents lost a run to this on 2026-09-25. Targeted rows likewise go through **`make regression-rows ROWS="<row> ..."`**, which builds the same binaries first, except that the Qt `jnext` is the non-PGO Release build (`gui-release-non-pgo`: a branch runs no PGO build; `ROWS_PGO=1` for the PGO one). The bare script with row names is fine only when they are already built.
    - **A DOCUMENTATION-ONLY change runs NO code gate** (owner rule, 2026-09-27). If the branch or
      the set of changes to merge touches only documentation, run only the gates the documentation
      itself needs — normally `make docs-check` (man page + user guide + developer guide staleness),
@@ -583,7 +583,7 @@ prerequisite of the make target):
 ```bash
 make regression                      # the gate: prerequisites, host lock, stamp
 make regression-stamp-check          # is this tree covered by a green run?
-make regression-rows ROWS="<row> ..."   # targeted rows: builds the binaries; no lock, no stamp
+make regression-rows ROWS="<row> ..."   # targeted rows: builds the binaries (Qt jnext = non-PGO Release; ROWS_PGO=1 = PGO); no lock, no stamp
 make regression-confirm              # re-run SOLO a full run's loaded-host FAILs; stamp if all pass
 ```
 
@@ -644,7 +644,7 @@ rows that merely spawn short-lived processes — `subsystem-gain-func` failed
 under a three-agent load on 2026-08-09 and never reproduced solo — and a
 concurrent duplicate build once produced an `undefined reference to main`. So:
 a single regression FAIL on a loaded host is unconfirmed until that row is
-re-run SOLO (`make regression-rows ROWS=<row>`), and it is not
+re-run SOLO (`make regression-rows ROWS=<row> ROWS_PGO=1`, the PGO binary the full run tested), and it is not
 dismissed either until the solo run passes — a row that also fails solo is
 real. **Always record the row name.** The harness does the bookkeeping: it
 prints the 1-minute load at the start and the end of the run, flags each FAIL
