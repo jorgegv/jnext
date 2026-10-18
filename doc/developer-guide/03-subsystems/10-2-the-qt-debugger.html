@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2600,9 +2600,15 @@ windows cannot disagree.</p>
 Disassembly, Call Stack and Breakpoints panels read <code>symbols()</code>. A breakpoint set
 on a symbol keeps its name in the list, and a symbol any other client loads
 shows in the panels too. <code>src/debug/symbol_table.*</code> reads z88dk maps
-(<code>load_z88dk_map()</code>), plain <code>SYMBOL = $ADDR</code> lists (<code>load_simple_map()</code>) and
-NextBuild <code>Memory.txt</code> files (<code>load_nextbuild_memory()</code>); the address fields of
-the breakpoint and watch dialogs go through <code>SymbolTable::resolve()</code>.</p>
+(<code>load_z88dk_map()</code>), plain <code>SYMBOL = $ADDR</code> lists (<code>load_simple_map()</code>),
+sjasmplus <code>--sym</code> / <code>--exp</code> files (<code>load_sjasmplus_equ()</code>) and NextBuild
+<code>Memory.txt</code> files (<code>load_nextbuild_memory()</code>); the address fields of the
+breakpoint and watch dialogs go through <code>SymbolTable::resolve()</code>.</p>
+<p>The three Map &gt; Load MAP File items (Z88DK, Simple, sjasmplus) are three handlers
+in <code>DebuggerManager</code>, each calling <code>load_map()</code> and then <code>refresh_panels()</code>. The
+Breakpoints Symbol column and the Call Stack's target names are computed in the
+panels' own <code>refresh()</code>, so a load that skipped it left the previous names on a
+paused machine (rows QMAP-05 and QMAP-06).</p>
 <h2 id="source">Source<a class="headerlink" href="#source" title="Permanent link">&para;</a></h2>
 <p>The Source tab (<code>source_panel.*</code>) shows the PC's line from the backend's source
 map and carries the source-step buttons; it holds no state of its own beyond

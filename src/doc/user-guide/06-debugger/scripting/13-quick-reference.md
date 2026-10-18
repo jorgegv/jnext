@@ -46,7 +46,7 @@ end
 | `FRAME CYCLE TFRAME` | time |
 | `RAW_HC RAW_VC HC_ULA VC_ULA CVC PHC` | the raster |
 | `MACHINE AUDIO_MUTE` | 0 48K, 1 128K, 2 +3, 3 Pentagon, 4 Next; the mute mask |
-| `@name` | a MAP symbol (`; addr` or `; const`) |
+| `@name` | a MAP symbol (`; addr` or `; const`); `@main.loop` for an sjasmplus label |
 | `NAME.FIELD`, `changed(NAME, GROUP)`, `depth(NAME)` | snapshots; GROUP is `regs`, `mmu`, `iff1` or `stack0` |
 
 ## Actions
@@ -90,7 +90,7 @@ Joystick bits: 0 right, 1 left, 2 down, 3 up, 4 B (fire 1), 5 C (fire 2), 6 A,
 | Option | |
 |---|---|
 | `--script FILE` | load a script (repeatable) |
-| `--map FILE` | load a z88dk MAP for `@name` |
+| `--map FILE` | load a z88dk MAP or an sjasmplus `--sym` / `--exp` file for `@name` |
 | `--script-key FRAME N` | host key N at frame FRAME (headless) |
 | `--record-script FILE` | record the session |
 | `--delayed-automatic-exit-frames N` | the bound — and the watchdog |

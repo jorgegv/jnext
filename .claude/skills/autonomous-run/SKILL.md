@@ -51,8 +51,12 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 6. Reviewer in its own detached worktree (`git worktree add --detach ~/tmp/worktrees/rev-gh<N> gh<N>-<slug>`) → `<run>/gh<N>-review-<round>.md`. Read the FILE.
 7. REJECT → SendMessage findings to the same implementer; design-level finding → back to the same planner first. Re-review by the same reviewer. 10 rounds without APPROVE → park.
 8. APPROVE → implementer merges its target branch (§Branches) into the branch, recounts manifest counters by hand, keeps both lines in ChangeLog conflicts.
-9. Land into the target. `main`: `JNEXT_ALLOW_MAIN_WRITE=1 git merge`, then `JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n`. Epic branch: plain merge, no bump.
-10. Push (main only): CI on main idle? (`gh run list --workflow CI --limit 1`). Busy → keep landing locally, push later in one batch. `JNEXT_ALLOW_PUSH=1 git push origin main <tags…>`, ≤3 tags per push.
+9. Land into the target. `main`: `JNEXT_ALLOW_MAIN_WRITE=1 git merge`, then `JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n`; it stays local until the batch gate (step 10). Epic branch: plain merge, no bump.
+10. Batch gate, then push (main only).
+    - When: once, after all of the session's landings (no landing-count limit), and before any push.
+    - What: the batch gate (CLAUDE.md merge protocol step 2), on `main`'s tip, in `~/tmp/worktrees/main-gate`. A `regression-runner` agent runs it; that agent counts toward the cap.
+    - Green and CI on main idle (`gh run list --workflow CI --limit 1`) → `JNEXT_ALLOW_PUSH=1 git push origin main`, then all the batch's tags except the newest in one push, then the newest tag on its own (it always gets its tag event; a public release tag alone, RELEASE-PROTOCOL.md §6). CI busy → wait, then push.
+    - Red → find the landing that broke it (re-run the failing rows at each merge commit). Fix forward on a branch, or undo that merge with a new revert commit. Re-run the gate. Never push red.
 11. Close the issue (rules.md §GitHub): standalone once pushed; epic sub-issue once merged into the epic branch, noting it reaches `main` with the epic. Untestable-by-gate fix (feel, speed, host-specific) → comment, leave open for reporter confirmation.
 12. Once the issue is closed: remove both worktrees and delete the merged branch (`worktree-launch` §Cleanup). Parked issues keep theirs; anything that fails the checks is listed in the handover.
 
@@ -73,7 +77,7 @@ Between phases: check comments on milestone issues (and issues closed this run) 
 
 ## Authorized
 
-Merge of a green + APPROVED branch, `bump-patch` (private), push `main` + its tags and epic branches, close issues (finished epics included), comment on, file and edit issues, ChangeLog `Unreleased` lines, Playwright for checking web artefacts.
+Merge of an APPROVED branch (its targeted tests and `make unit-test` green), `bump-patch` (private), push `main` + its tags after a green batch gate, push epic branches, close issues (finished epics included), comment on, file and edit issues, ChangeLog `Unreleased` lines, Playwright for checking web artefacts.
 
 ## Never (owner's alone)
 
@@ -90,7 +94,7 @@ Decide; append to `<run>/decisions.md`: time, issue, decision, why, rejected alt
 ## Waits
 
 - Full regression only when 1-min load < `nproc`. Otherwise wait in a background loop (`while awk -v n=$(nproc) '{exit !($1>=n)}' /proc/loadavg; do sleep 60; done`), then retry. No foreground `sleep`, no `pgrep -f` loops. (Owner rule, 2026-10-06, for unattended runs only; overrides the `regression` skill's no-wait default.)
-- Timing row FAIL under load → wait for low load, then `make regression-confirm` (or `make regression-rows ROWS=<row>`). Record row + load.
+- Timing row FAIL under load → wait for low load, then `make regression-confirm` (or `make regression-rows ROWS=<row> ROWS_PGO=1`, the PGO binary the full run tested). Record row + load.
 
 ## Stop the run when
 
@@ -98,4 +102,4 @@ Decide; append to `<run>/decisions.md`: time, issue, decision, why, rejected alt
 - Token budget runs out.
 - A test failure cannot be explained (FAIL on a quiet host, solo, reproducible, cause unknown).
 
-On stop: finish or checkpoint agents (WIP commit + `PAUSE-NOTES.md`), merge finished sub-issues into their epic branch and push it, kill leftover gate processes, then the `handover` skill. Handover adds: landings table, `decisions.md` summary, ChangeLog lines added, parked issues with reason.
+On stop: finish or checkpoint agents (WIP commit + `PAUSE-NOTES.md`), merge finished sub-issues into their epic branch and push it, run the batch gate on `main` if anything landed since the last green one (push if green), kill leftover gate processes, then the `handover` skill. Handover adds: landings table, `decisions.md` summary, ChangeLog lines added, parked issues with reason.

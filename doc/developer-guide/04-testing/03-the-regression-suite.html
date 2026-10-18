@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2563,7 +2563,7 @@ child of the run can inherit the lock. It then waits, bounded, while the
 <code>test/regression-stamp.sh</code> records the counts, the loads and the commit under a
 key hashed from <code>git ls-tree</code> over every non-documentation path.
 <code>make regression-stamp-check</code> prints the stamp covering the current tree, which
-is how a reviewer verifies the author's run without repeating it, and
+is how a batch gate on an unchanged tree avoids repeating the run, and
 <code>make regression-ci-check</code> finds a green CI run with the same key, which is how
 a release reuses CI. Only a run with no FAIL and no SKIP is stamped, and since 2026-10-06 <code>regression.sh</code>
 itself exits 1 on a SKIP in every mode (full, named rows, <code>confirm</code>, <code>--update</code>;
@@ -2574,7 +2574,10 @@ into <code>~/.cache/jnext/tools</code> when none resolves. A run whose
 only FAILs are functional rows that failed on a loaded host is recorded as
 pending, and <code>make regression-confirm</code> re-runs exactly those rows solo; if they
 all pass the run is stamped, and the stamp names them. Targeted rows run through
-<code>make regression-rows ROWS="..."</code>, which builds the binaries they need.</p>
+<code>make regression-rows ROWS="..."</code>, which builds the binaries they need. Its Qt
+<code>jnext</code> is the non-PGO Release build (<code>build/gui-release-non-pgo</code>): a branch trains
+no PGO profile, and the same code gives the same pixels. <code>ROWS_PGO=1</code> runs the PGO
+<code>build/gui-release</code> instead; <code>make regression</code> and <code>regression-confirm</code> always do.</p>
 <h2 id="a-failure-on-a-loaded-host">A failure on a loaded host<a class="headerlink" href="#a-failure-on-a-loaded-host" title="Permanent link">&para;</a></h2>
 <p>Those two rows are examples, not the list. Rows that merely spawn short-lived
 processes have also failed under a parallel-agent load and never reproduced
@@ -2589,7 +2592,7 @@ above <code>nproc</code> on the spot, and after the results lists each failed ro
 with the load at the moment it failed, plus a warning when the run was loaded.
 None of that changes a verdict: a FAIL is still a FAIL and the exit status is
 unchanged. What it changes is the next step — re-run the row SOLO
-(<code>make regression-rows ROWS=&lt;row&gt;</code>) before treating it as a
+(<code>make regression-rows ROWS=&lt;row&gt; ROWS_PGO=1</code>, the PGO binary the full run tested) before treating it as a
 regression, and do not dismiss it until that solo run passes. The self-test
 pins the behaviour both ways (<code>HS-50..55</code>).</p>
 <h2 id="no-row-script-may-install-a-trap">No row script may install a <code>trap</code><a class="headerlink" href="#no-row-script-may-install-a-trap" title="Permanent link">&para;</a></h2>

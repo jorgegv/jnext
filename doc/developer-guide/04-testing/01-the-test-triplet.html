@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2325,13 +2325,25 @@
 
 
 <h1 id="41-the-test-triplet">4.1 The test triplet<a class="headerlink" href="#41-the-test-triplet" title="Permanent link">&para;</a></h1>
-<p>Every change that lands on <code>main</code> has to clear three layers of testing. The
-project calls them the triplet, and running them takes four commands:</p>
+<p>Every batch of changes on <code>main</code> has to clear three layers of testing before
+it is pushed. The project calls them the triplet, and running them takes four
+commands:</p>
 <pre><code class="language-console">$ make clean &amp;&amp; make gui-release
 $ make unit-test
 $ ./build/test/fuse_z80_test build/test/fuse
 $ make regression
 </code></pre>
+<p>The triplet is the core of the <strong>batch gate</strong>, which adds <code>make unit-test-sdl</code>,
+<code>make unit-test-win</code> and <code>make regression-win</code>.</p>
+<ul>
+<li><strong>When it runs:</strong> on <code>main</code>'s tip, once, after all of a work session's landings
+  and before any push.</li>
+<li><strong>On a branch, nobody runs it.</strong> The author runs the suites and regression
+  rows the change touches, plus <code>make unit-test</code> before each review. The
+  reviewer runs the targeted rows again.</li>
+<li><strong>When it is red:</strong> the failure is traced to the landing that caused it, which
+  is fixed forward or reverted, and the gate runs again. Nothing is pushed red.</li>
+</ul>
 <p>There must be no FAIL and no SKIP in any layer. A SKIP is a row that was not
 tested, so every harness exits non-zero on one, in every mode (owner decision,
 2026-10-06); the SKIP badge stays only to say what to install or fix.</p>
@@ -2344,7 +2356,9 @@ the SDL-only frontend need <code>build/sdl-release/jnext</code> instead, because
 is instantiated only in a build configured with <code>ENABLE_QT_UI=OFF</code>; and the
 <code>rewind-func</code> row runs <code>build/test/rewind_test</code>, which <code>make clean</code> deletes.
 Building all of them from the target is what makes "the tests ran against this
-source" true by construction rather than by discipline.</p>
+source" true by construction rather than by discipline. (<code>make regression-rows</code>
+declares <code>gui-release-non-pgo</code> instead of <code>gui-release</code>, so a branch runs no PGO
+build; <code>ROWS_PGO=1</code> switches it back.)</p>
 <p>The rule was written after a 14-hour-old binary produced two bogus FAILs
 immediately before a version bump. Staleness cuts the other way too, and that
 direction is worse: an old binary can equally fail to <em>contain</em> the bug a test
@@ -2410,9 +2424,9 @@ lanes; it is no longer needed for correctness, and CI passes none. Rows that
 merely spawn short-lived processes have failed under outside load too, which is
 why the suite itself flags a FAIL that happened on a loaded host.</p>
 <p>A green <code>make regression</code> on a committed tree leaves a stamp keyed on the
-tree's non-doc content, and <code>make regression-stamp-check</code> finds it: a reviewer
-checks the author's stamp and runs targeted rows instead of a second full run,
-and a fix round that changed only documentation keeps its stamp.</p>
+tree's non-doc content, and <code>make regression-stamp-check</code> finds it. A batch gate
+whose tree changed only in documentation since the last green run need not
+repeat it. Reviewers run targeted rows, never a full run.</p>
 <h2 id="what-the-triplet-does-not-prove">What the triplet does not prove<a class="headerlink" href="#what-the-triplet-does-not-prove" title="Permanent link">&para;</a></h2>
 <p>It does not prove that the emulator matches real hardware anywhere no test row
 asserts that it does; making those gaps visible is the job of the traceability

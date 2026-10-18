@@ -1131,9 +1131,11 @@ target_link_libraries(debugger_backend_test PRIVATE
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(debugger_backend_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-# SYM-14..18 (GH #352) load the committed z88dk -debug map fixtures.
+# SYM-14..18 (GH #352) load the committed z88dk -debug map fixtures; SYM-19..32
+# (GH #390) the committed sjasmplus --sym / --exp ones, SYM-29/31/32 beside a z88dk map.
 target_compile_definitions(debugger_backend_test PRIVATE
-    JNEXT_ZDEBUGMAP_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zdebugmap")
+    JNEXT_ZDEBUGMAP_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zdebugmap"
+    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
 add_test(NAME debugger_backend_tests COMMAND debugger_backend_test)
 
 # GH #219 — --persistent-breakpoints: the armed()/active() split in DebugState
@@ -1269,6 +1271,9 @@ target_link_libraries(script_events_test PRIVATE
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(script_events_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# The SCRIPT-HOST-MAP-* rows (GH #390) load the committed sjasmplus fixtures.
+target_compile_definitions(script_events_test PRIVATE
+    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
 add_test(NAME script_events_tests COMMAND script_events_test)
 
 # GH #26 WP6 (#20) — the recorder: input edges, captures, header, warnings, a
@@ -1784,6 +1789,9 @@ if(ENABLE_DEBUGGER)
         jnext_audio jnext_port jnext_peripheral jnext_input
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
     target_include_directories(debugger_verbs_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # QMAP-05 / QMAP-06 (GH #390) load the committed sjasmplus fixtures.
+    target_compile_definitions(debugger_verbs_test PRIVATE
+        JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
     add_test(NAME debugger_verbs_tests COMMAND debugger_verbs_test)
 
     # CAP-SRC — the Qt side of source-level debugging: the Source tab and its

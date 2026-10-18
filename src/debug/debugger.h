@@ -892,8 +892,11 @@ public:
     // =======================================================================
 
     /// CAP-SYM — load a MAP file into the ONE table the panels, the DSL's
-    /// `@name`, the servers' lookups and `--map` all read. Returns the number of
-    /// symbols loaded. A refused NextBuild file sets `why` to the reason.
+    /// `@name`, the servers' lookups and `--map` all read. `format` is the
+    /// dialect: z88dk, simple, NextBuild `Memory.txt`, or sjasmplus `--sym` /
+    /// `--exp` (GH #390); `Z88dkOrSjasmplus`, which `--map` uses, tells those
+    /// two by the file's first line. Returns the number of symbols loaded. A
+    /// refused NextBuild file sets `why` to the reason.
     Expected<int> load_map(const std::string& path, MapFormat format,
                            std::string* why = nullptr);
 

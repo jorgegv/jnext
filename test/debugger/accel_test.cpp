@@ -327,9 +327,11 @@ static void test_accelerators(Fixture& fx)
         // actions (window-wide shortcuts, not menu items).
         // GH #26 WP6: + the recorder's three &Script items (Re&cord Script...,
         // Capture &Screen, S&top Recording) — three more mnemonics.
+        // GH #390: + the Load MAP File popup's s&jasmplus item: one more
+        // mnemonic, J (Z and S are taken in that popup), no new popup.
         const bool as_expected = top == 6
                               && popup_scopes.size() == 9
-                              && menu_accels.size() == 38
+                              && menu_accels.size() == 39
                               && shortcuts == 19;
         // Described as what it is — a comparison against pinned sizes — not as
         // "the walk covers the whole tree", which would claim a completeness
@@ -337,7 +339,7 @@ static void test_accelerators(Fixture& fx)
         // and the counts still agree).
         check("DACC-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
-              fmt("menus=%zu (want 6), popups=%zu (want 9), mnemonics=%zu (want 38), "
+              fmt("menus=%zu (want 6), popups=%zu (want 9), mnemonics=%zu (want 39), "
                   "shortcuts=%zu (want 19)",
                   top, popup_scopes.size(), menu_accels.size(), shortcuts));
     }

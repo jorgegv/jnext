@@ -105,7 +105,7 @@ New failures vs baseline: <list or "none">
   if they pass. Any other FAIL or a SKIP is real — report it.
 - Those two are examples, not the list (GH #245): rows that spawn short-lived
   processes have also failed under load and passed solo. A FAIL on a loaded
-  host is unconfirmed until re-run SOLO (`make regression-rows ROWS=<row>`, which builds the binaries rows need;
+  host is unconfirmed until re-run SOLO (`make regression-rows ROWS=<row> ROWS_PGO=1`, which builds the binaries rows need, the PGO one the full run tested;
   `make regression-confirm` after a full run whose only FAILs were loaded-host ones), and is not dismissed until that solo run passes. Always report the
   row name. The harness prints the load at start and end, marks each FAIL that
   happened with load ≥ `nproc`, and lists the failed rows after the results.
