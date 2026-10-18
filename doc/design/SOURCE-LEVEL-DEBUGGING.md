@@ -1,8 +1,10 @@
 # Source-level debugging: design (CAP-SRC)
 
-> Status: **partly implemented** (v1.1.64). The backend capability, the SLD and `Memory.txt`
-> adapters, the Source tab and the ownership rules exist. The rest is designed here and built
-> by the sub-issues of epic #23, named `E23-NN (#NNN)` wherever a section depends on one.
+> Status: **partly implemented** (v1.1.64, plus E23-07 on the epic branch). The backend
+> capability, the SLD and `Memory.txt` adapters, the Source tab, the ownership rules, and the
+> fetch identity (one read arbiter, the current-PC prediction; section 4) exist. The rest is
+> designed here and built by the sub-issues of epic #23, named `E23-NN (#NNN)` wherever a
+> section depends on one.
 > The sections below describe the target. Section 3.3 lists, mechanism by mechanism, what the
 > tree does today and which sub-issue changes it; a symbol the tree does not have yet is
 > introduced by the sub-issue named beside it. `OD-n` are the owner decisions recorded on #23.
@@ -285,16 +287,19 @@ D1 to D4 are epic #23's design requirements (its acceptance criteria 1 to 4). Ea
 with how it is met.
 
 **D1. History records what the fetch did; the current PC is predicted by the same function.**
-One arbiter, `Mmu::route(addr) const`, returns the `FetchSource` and the physical offset. It is
-the only place the priority order lives (section 4.2), and `read()` becomes
-`byte_at(route(addr), addr)`. The CPU's opcode read goes through `Mmu::read_m1(pc)`, which
-stores the result in `last_m1_`. A trace entry takes it after the instruction ran; a call
-frame's caller identity is the CALL's recorded fetch and its target identity the target's first
-M1. The Source tab and `source_location()` predict the next M1 with
-`route_with(addr, divmmc_active, mf_active)`, fed by `DivMmc::active_on_m1()` and a const
-`Multiface::would_latch_on_m1(pc)`; `route()` is `route_with()` with the live values, so the
-prediction cannot drift from the fetch. Built by E23-07 (#339) (the arbiter, `read_m1`, the
-prediction) and E23-08 (#340) (trace entries and call frames). Check (epic acceptance 1): no
+One arbiter, `Mmu::route(addr) const`, returns a `Route`: the `FetchSource`, the offset within
+its store, and the byte pointer. It is the only place the priority order lives (section 4.2),
+and `read()` is that route plus one side-effect tail. The CPU's opcode read goes through
+`Mmu::read_m1(pc)`, which stores the result in `last_m1_` (read back by `Mmu::last_m1()`). A
+trace entry takes it after the instruction ran; a call frame's caller identity is the CALL's
+recorded fetch and its target identity the target's first M1 (E23-08). The Source tab and
+`source_location()` predict the next M1 with `route_with(addr, divmmc_active, mf_active)`, fed
+by `DivMmc::active_on_m1()` and a const `Multiface::would_latch_on_m1(pc)`
+(`Emulator::predict_fetch(pc)`); `route()` is `route_with()` with the live values, one body, so
+the prediction cannot drift from the fetch. Built: the arbiter, `read_m1` and the prediction by
+E23-07 (#339). To build: trace entries and call frames take the recorded value in E23-08
+(#340); until then the trace flag and the call frames' pages are still predicted before the
+instruction runs (section 4.3). Check (epic acceptance 1): no
 prediction of the M1 overlay outside `route_with`, `active_on_m1` and `would_latch_on_m1`;
 SRCDBG-ID-17 (an instruction that remaps its own slot keeps its recorded identity).
 
@@ -322,17 +327,18 @@ record, a source-line breakpoint and a history entry each carry one, compared ex
 replaces `NOT_RAM_PAGE` and `EventFilter::page_ram_only`. The plain `EventFilter::page`, which
 DZRP long breakpoints (`bank+1`) and the DSL `page` keyword use, keeps comparing
 `Mmu::get_effective_page(slot)` and nothing more: a protocol-level qualifier, not the identity
-(section 4.5). Built by E23-07 (#339) (the type), E23-09 (#341) (breakpoints on it, with one
-predicate) and this document, E23-02 (#334). Check (epic acceptance 4): SRCBP-02 (a page
-number is not an identity), SRCBP-05 (the legacy meaning pinned).
+(section 4.5). The type is built (E23-07 (#339)); `NOT_RAM_PAGE` and `page_ram_only` survive
+until the consumers move: the source map (E23-06 (#338)), history (E23-08) and breakpoints
+(E23-09 (#341), with one predicate). This document is E23-02 (#334). Check (epic acceptance 4):
+SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned).
 
 ### 3.3 Implementation status
 
-| Mechanism | Today (v1.1.64) | Design | Changed by |
+| Mechanism | Today (v1.1.64 plus E23-07) | Design | Changed by |
 |---|---|---|---|
-| Fetch identity at the PC | `Emulator::fetch_not_mmu_ram()` predicts the next M1 through `DivMmc::active_on_m1()`, a copy of the `Multiface` and `Mmu::read_not_mmu_ram()`; `Debugger::source_page()` returns a RAM page or `NOT_RAM_PAGE` (`debug/ram_page.h`) | 4.2, 4.4 | E23-07 (#339) |
-| Identity in history | `TraceLog` keeps a flag per entry beside `TraceEntry` (`not_ram_`), predicted just before the instruction runs; Back reads `te.mmu[slot]`, `rom_slots` and the flag | 4.3 | E23-08 (#340) |
-| Identity in call frames | `CallFrame::caller_page` and `target_page` (`uint8_t`; `NOT_RAM_PAGE` for ROM or an overlay) | 4.3 | E23-08 (#340) |
+| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The source map, the trace and the breakpoint gate still take a RAM page through `ram_page_of()` (`debug/ram_page.h`), `NOT_RAM_PAGE` for any other kind | 4.1, 4.2, 4.4 | E23-07 (#339) |
+| Identity in history | `TraceLog` keeps a flag per entry beside `TraceEntry` (`not_ram_`), predicted just before the instruction runs by `Emulator::predict_instruction_()` (the bytes the CPU will fetch, so the flag and the trace bytes follow the M1 overlay); Back reads `te.mmu[slot]`, `rom_slots` and the flag. `Mmu::last_m1()` records the fetch but nothing reads it yet | 4.3 | E23-08 (#340) |
+| Identity in call frames | `CallFrame::caller_page` and `target_page` (`uint8_t`; `NOT_RAM_PAGE` for ROM or an overlay), from the same prediction; the call-stack opcode bytes follow the M1 overlay | 4.3 | E23-08 (#340) |
 | Source map | exact (page, address) to one `SourceLocation`, a duplicate replaces; `lookup` returns a copy; `resolve()` returns the first start, by exact path or unique basename; an unqualified-record fallback that no adapter feeds (SLD records always name a page) | 5 | E23-06 (#338) |
 | Breakpoint qualifier | `EventFilter::page` plus `page_ram_only` (`Event::fetch_not_ram`); the predicate sits in three places: `EventTable::filter_matches()`, `Debugger::probe_execute()`, `history_stop_at()` | 4.5, 8.1 | E23-09 (#341) |
 | Lifetime | `sidecar_attach_cycle`; `machine_replaced()` drops the sidecar stores at once on a reset or a state from outside the rewind ring; a rewind rechecks by the clock | 6 | E23-10 (#342) |
@@ -364,14 +370,43 @@ that the CPU's reads go through first (the boot ROM, the Multiface, DivMMC, the 
 mapping, the alternate ROM and config-mode routing) replace the MMU's page without changing
 it. One identity, used everywhere CAP-SRC matches code, answers it.
 
+Implemented by E23-07 (#339) on the epic branch: 4.1, 4.2 and 4.4 describe the tree; 4.3
+(recording), 4.5 (breakpoints) and 4.6 (presenting) are still plans.
+
 ### 4.1 `FetchSource`
 
-`FetchSource` is `MemSpace` (`src/debug/inspect.h`, INS-02) extended (OD-13) with the overlays
-that `Mmu::read()` serves before the MMU: `BootRom`, `MultifaceRom`, `MultifaceRam`,
-`DivMmcRom`, `DivMmcRam{bank}`, `AltRom{i}`, `Layer2{page}` and config-mode routing. It keeps
-the kinds `MemSpace` has: `Page{n}`, which is RAM page n (0 to 223) and nothing else, and
-`Rom{i}`. `Cpu`, the live view, is never a fetch source. Equality is exact (kind and index).
-E23-07 (#339) names and encodes the kinds.
+`FetchSource` is `MemSpace` (INS-02) extended (OD-13) with the overlays that `Mmu::read()` serves
+before the MMU, and the type moved to `src/debug/mem_space.h` (std headers only, so `mmu.h` can
+return it without reaching the published `inspect.h`, which re-exports it).
+`using FetchSource = MemSpace` names the role; it is one type. The kinds, in enum order, with
+the index each carries:
+
+| Kind | Index | Supplies |
+|---|---|---|
+| `Cpu` (0) | none | the live view; never a fetch source and never a route result |
+| `Page` (1) | MMU page n, 0 to 223 | RAM page n and nothing else |
+| `Rom` (2) | 0 to 3 (`sram_rom`) | a 16 KB ROM image |
+| `BootRom` (3) | 0 | the 8 KB boot ROM, mirrored through 0x0000-0x3FFF |
+| `MultifaceRom` (4), `MultifaceRam` (5) | 0 | the two Multiface halves (a13 = 0 and 1) |
+| `DivMmcRom` (6) | 0 | the DivMMC ROM |
+| `DivMmcRam` (7) | bank 0 to 15 (3 at page 0 under MAPRAM) | a DivMMC RAM bank |
+| `AltRom` (8) | `sram_alt_128_n`: 0 = Alt ROM0 128K, 1 = Alt ROM1 48K | the alternate-ROM read override |
+| `Layer2` (9) | `layer2_active_page` (8 bits) | the Layer 2 read mapping |
+| `Config` (10) | NR 0x04 (a 16 KB bank) | the config-mode window onto SRAM |
+| `Floating` (11) | 0 | nothing: the read returns the floating bus (jnext: 0xFF) |
+
+The kinds 3 to 11 are identity-only: `peek` and `poke` refuse them with `Result::Unsupported`
+(one total switch, so `-Werror=switch` makes a future kind a compile error there); E23-21
+(#351) adds `peek(DivMmcRam)` with its own rows. Every route result has `kind <= 15` and
+`index <= 0xFF` (mmu_test FSRC-09 and static_asserts), which leaves room for the 12-bit packing
+that E23-08 needs.
+
+Equality is exact (kind and index) and by decode path, not by physical store. `Layer2{p}` and
+`Page{p}` share SRAM for every p outside 0x0A, 0x0B and 0x0E, and `DivMmcRam{b}`, `Config{b}`,
+the Multiface and alt-ROM windows alias SRAM pages that some `Page{}` also reaches; they stay
+distinct, because the VHDL reaches them by different routes and a view that shows which one
+answered must not collapse them. Canonicalising by physical page was rejected: it loses the
+BRAM/SRAM and decode-path facts that E23-22 shows.
 
 - Why not `NOT_RAM_PAGE`: it lumps ROM, DivMMC RAM and the Multiface into one value, and a
   z88dk dot command runs from DivMMC RAM, so its records would match any overlay.
@@ -381,10 +416,25 @@ E23-07 (#339) names and encodes the kinds.
   (`zxnext.vhd:3100-3107`).
 - Every arm `Mmu::read()` has gets a kind. The VHDL's expansion-bus ROMCS arm
   (`zxnext.vhd:3108`) has none, because jnext models no expansion-bus device.
+- Why `Floating`: no SRAM answers for a slot 2 to 7 holding an MMU page of 0xE0 or more
+  (`zxnext.vhd:3060-3061`) or a Layer 2 page of 0xE0 or more (`3101-3102`), and such a page
+  names memory that does not exist (`Page{0xE5}` would be a "RAM page" the SRAM never answers).
+  It is not RAM, so `ram_page_of()` and the trace flag say `NOT_RAM_PAGE` for it, where they
+  said page 0xE0 to 0xFE before. The name `None` was rejected: X11 defines it as a macro.
 
 ### 4.2 One arbiter
 
-`Mmu::route(addr) const` (D1) is the only place the priority order lives. The VHDL's order for
+`Mmu::route(addr) const` (D1) is the only place the priority order lives; it returns a `Route`
+(`space`, `offset` within the space's store, `ptr` to the byte, null when the bus floats).
+`route_with(addr, divmmc_active, mf_active)` is the same body with the two overlays that an M1
+itself switches given by the caller. The body is one template, `Mmu::route_bits_<Live>()`
+(always inline; a packed 32-bit identity, kind in the low 16 bits and index in the high 16):
+the live form asks the DivMMC and the Multiface lazily, only for 0x0000-0x3FFF and only when
+the boot ROM has not answered, so a read makes no more calls than the old cascade did, and
+the two answers of `route_with()` cost nothing. The rare arms (Multiface, DivMMC, Layer 2, alt
+ROM, config mode) are built out of line; a slot's own source is cached as `slot_space_[8]`,
+written at the places that write `read_ptr_[]` and rebuilt by `load_state()`. The DivMMC's
+ROM/RAM/bank decode exists once, in `DivMmc::overlay_at()`. The VHDL's order for
 0 to 16K is the boot ROM, the Multiface, DivMMC, the Layer 2 mapping, the MMU, config mode,
 the expansion-bus ROMCS, then ROM, which the alternate ROM replaces (`zxnext.vhd:2933-2950`);
 16K to 48K is the Layer 2 mapping and then the MMU, and 48K to 64K the MMU. The arms: boot ROM
@@ -394,8 +444,21 @@ Layer 2 3100, alternate ROM 3116.
 The VHDL arbiter takes the access direction as an input (`zxnext.vhd:3077`: the Layer 2
 mapping uses its read enable on a read and its write enable on a write; `3078`: the
 alternate-ROM decode). So any later write-side identity (E23-25) comes from the same function,
-given the direction, never from a second copy of the order. If inlining misses the bench
-threshold (4.7), the fallback goes to the owner, never to a second arbiter.
+given the direction, never from a second copy of the order. `write_landed()` keeps its own
+cascade for now, because write arbitration has other rules (read-only slots, the Layer 2 write
+enable, the alt-ROM write-over). If inlining misses the bench threshold (4.7), the fallback
+goes to the owner, never to a second arbiter.
+
+`read()` is the route followed by ONE side-effect tail, `finish_read_()`, for every source: the
++3 floating-bus latch on every contended access (`zxnext.vhd:4498-4509` latches whatever
+supplied `cpu_di`; an overlay read over a contended page used to miss it) and the READ
+watchpoint (the boot-ROM and floating reads used to miss it). `read_m1(pc)` is the same read
+that also stores the route's identity in `last_m1_`; `read_fetch(pc)` is the same read with no
+record (4.4). The CPU core's default `MemoryInterface::read_m1()` and `read_fetch()` are plain
+reads, so every stub memory is unaffected. `last_m1()` names the first opcode byte of the last
+instruction fetched; an accepted INT or NMI and an intercepted esxdos call fetch nothing and
+leave the previous value, so pair it with `Z80Cpu::fetched_opcode_last_execute()`. It is
+`MemSpace::cpu()` ("none recorded") after construction, `reset()` and `load_state()`.
 
 ### 4.3 Recorded identity (E23-08 (#340))
 
@@ -416,13 +479,58 @@ for the very fetch that hits them. The hold carried from the previous M1 decides
 DivMMC still answers: the fetch after a 0x1FF8-0x1FFF unmap is RAM again while DivMMC still
 reads as mapped. The Multiface latches on the 0x0066 fetch.
 
-So the answer is a prediction, but of the same function: `route_with(addr, divmmc_active,
-mf_active)`, with the DivMMC decision from `DivMmc::active_on_m1()` (it shares its entry-point
-decode with `check_automap()`) and the Multiface decision from the const
-`Multiface::would_latch_on_m1(pc)`, which replaces the copy of the whole Multiface that the
-tree makes today. `Debugger::source_page()` returns the predicted `FetchSource`;
-`Emulator::fetch_not_mmu_ram()` and `Mmu::read_not_mmu_ram()` are deleted. A prediction has no
-side effects: rows compare the whole machine state before and after.
+So the answer is a prediction, but of the same function: `Emulator::predict_fetch(pc)` is
+`route_with(pc, divmmc_active, mf_active).space`, the two answers coming from
+`Emulator::predict_m1_overlays_(pc)`: the DivMMC decision from `DivMmc::active_on_m1()` (it
+shares its entry-point decode with `check_automap()`), asked only when `automap_m1_may_react(pc)`,
+and the Multiface decision from the const `Multiface::would_latch_on_m1(pc)`, which replaced
+the copy of the whole Multiface that the tree made before. The arbiter inputs the automap
+decode needs (`sram_pre_override(2)`, `(0)` with config mode, the alt-ROM read enable and
+`sram_alt_128_n`) exist once, in `Emulator::m1_automap_gates_(pc, mf_active)`, which the
+`on_m1_prefetch` hook and the prediction both call; the hand-kept mirror of the hook is gone.
+`Debugger::source_page()` returns the predicted `FetchSource`; `Emulator::fetch_not_mmu_ram()`
+and `Mmu::read_not_mmu_ram()` are deleted (`TraceLog::fetch_not_mmu_ram()` and its `not_ram_` flag
+stay until E23-08). A prediction has no side effects: rows compare the
+whole machine state before and after (PURE-01, with PURE-02 as the control).
+
+**Fetch view and data view.** DivMMC's `automap` is not one value across an instruction
+(`divmmc.vhd:124-148`). `automap_hold` loads on every M1 (MREQ and M1 low) from that M1's entry
+terms and the previous hold; `automap_held` takes it on the first MREQ-high after the fetch; the
+instant terms are latched only while M1 is low. So the opcode fetch sees `held OR instant`
+(`DivMmc::is_active()`), and every bus cycle after it sees the hold that fetch loaded
+(`DivMmc::is_active_after_fetch()`, `active_with_hold(hold)` for a hold other than the live
+one). Consequences, all pinned by rows:
+
+- A delayed entry's own operands come from the DivMMC ROM although the opcode came from RAM;
+  an instruction in the 0x1FF8-0x1FFF unmap window fetches from the DivMMC and reads its
+  operands, and writes, from RAM.
+- `Mmu::read()` and the write path are the data view. `Mmu::read_m1()` and
+  `Mmu::read_fetch()` (and the FUSE core's re-read of the opcode, `MemoryInterface::read_fetch`)
+  are the fetch view.
+- The inner bytes of a prefix are M1s of their own, with their own decode: CB and ED one more,
+  DD and FD the DD/FD bytes and the opcode that ends them, and one more after an ED.
+  `Z80Cpu::fetch_prefix_chain_()` runs the `on_m1_prefetch` decode at each M1's address and
+  reads the byte once into a buffer that the core and the look-aheads read back. The `d` and
+  `op` of `DD CB d op` are data reads, not M1s.
+- `DivMmc::is_nmi_hold()` follows the post-fetch hold (`o_disable_nmi = automap or button_nmi`,
+  `divmmc.vhd:148-151`): the instruction at a delayed entry disables the NMI, and the one that
+  unmaps releases it.
+
+**The debugger reads what the CPU runs.** `Emulator::predict_instruction_(pc)` returns the first
+four bytes of the instruction about to execute with the route of its opcode fetch: the same
+chain, each M1 byte under the overlay its own M1 selects (the hold chained with
+`DivMmc::hold_after_m1()`), the operands under what the last M1 left. The trace bytes, the
+instruction-length reader, the trace flag and the call-stack opcode bytes and caller page use
+it, so the esxdos `RST $08` entry and the delayed NMI entry trace the bytes the CPU executed,
+not the bytes of the map before the M1. The length reader and the disassembler give the true
+length of a redundant DD/FD chain (`byte_count` may exceed 4; the first four bytes are kept in
+`opcode_bytes[4]` and `bytes[4]`), bounded at 64 prefixes; a longer run is its own `DB $DD`
+line.
+
+Two limits, stated: `predict_instruction_` predicts the first four bytes only, so an M1 chain
+past four bytes is predicted for its first four; and no production code reads `Mmu::last_m1()`
+yet (the `source_debug_test` rows compare it with the prediction for every fetched
+instruction; E23-08 records it into history).
 
 ### 4.5 Canonical and legacy
 
@@ -454,7 +562,8 @@ formatter's inverse (the breakpoint dialog, the project file, imports). Spelling
 upper-case `[A-Z0-9]` only, with no whitespace and no `:` (a ghidra address-space name is
 split at the last `:`; skoolkit file names). E23-22 fixes them. The list on #360 (`P0E`,
 `ROM0` to `ROM3`, `ALTROM0`, `ALTROM1`, `DIVROM`, `DIVRAM3`, `MFROM`, `MFRAM`, `BOOT`, `L2P12`,
-`CFG` plus the page) is provisional until E23-07 and E23-08 have landed.
+`CFG` plus the page) is provisional until E23-08 has landed; E23-07 fixed the kinds and indices
+(4.1).
 
 **Remote protocols** (owner decision on #360, 2026-10-18). Each carries as much of the identity
 as its existing vocabulary allows, and none is extended: no new commands, codes or fields on a
@@ -474,10 +583,14 @@ protocol jnext does not own. E23-22 works out the exact values.
 ### 4.7 Cost
 
 Nothing new runs with the debugger off except `read()`'s restructuring onto `route()`, which
-E23-07 (#339) gates on `make bench` (non-PGO A/B on a quiet host; at most 1% on the boot and
-game benches). With the trace on, the identity is stored per M1; with the call stack on, per
-frame; an armed `Execute` subscription is evaluated only for its address (the existing per-page
-bitmap). E23-07 and E23-08 record the numbers.
+E23-07 (#339) gated on `make bench` (non-PGO A/B on a quiet host; the plan was at most 1% on the
+boot and game benches). Measured on the non-PGO build: `boot-nextzxos` +1.1% to +1.9% cycles,
+`boot-48k` inside the noise; the shipped PGO build was measured faster than the PGO build
+before. The owner accepted the non-PGO figure after one attempt to recover it (a shared
+out-of-line body for `read`, `read_m1` and `read_fetch` was slower, +4% cycles).
+`read_m1()` costs one load and one store more than `read()`. With the trace on, the identity is
+stored per M1; with the call stack on, per frame; an armed `Execute` subscription is evaluated
+only for its address (the existing per-page bitmap). E23-08 records its numbers.
 
 ## 5. The source map and the backend API
 
@@ -502,8 +615,10 @@ at file:line" (G3; `main.c:14` in the fixture, the line of `int main(void)`). Tw
 at the same position when the primary locations of the ranges under them have equal file, line
 and column.
 
-E23-06 (#338) builds the store on a placeholder 16-bit page key and fixes its interface;
-E23-07 (#339) only swaps the key for `FetchSource`.
+E23-06 (#338) builds the store on a placeholder 16-bit page key and fixes its interface. E23-07
+(#339) gave `source_page()` the `FetchSource` but left the store's key alone: `source_location()`
+still looks up `ram_page_of(source_page(addr))`, and that bridge goes with the key swap to
+`FetchSource` (E23-06, when it merges after E23-07, or E23-09).
 
 ### 5.2 The backend verbs (CAP-SRC, `debug/debugger.h`)
 
@@ -512,7 +627,7 @@ E23-07 (#339) only swaps the key for `FetchSource`.
 | `load_source_map(path, accept_identity_mismatch)` | load a source map by hand; refused on a parse error, or on an identity mismatch unless accepted; the path is stored absolute | accepts `.map` (E23-13 (#344)) |
 | `clear_source_map()`, `source_map()` | the store | |
 | `source_location(addr)`, `source_location()` | the position of `addr` or of the PC | the primary location and all the others, by pointer (E23-06 (#338)) |
-| `source_page(addr)`, `effective_page(addr)` | the RAM page that supplies `addr` (or `NOT_RAM_PAGE`); the MMU's page | `source_page` returns the `FetchSource` (E23-07); `effective_page` stays, as the MMU's page for the legacy qualifier |
+| `source_page(addr)`, `effective_page(addr)` | the `FetchSource` that supplies the M1 at `addr` (done, E23-07); the MMU's page | `effective_page` stays, as the MMU's page for the legacy qualifier |
 | `load_program_sidecars(path)` | attach a loaded program's `Memory.txt` and SLD (section 6) | `<stem>.map` (E23-13); lifetime (E23-10 (#342)) |
 | `source_step(by, kind)` | `Into`, `Over`, `Out`, `Back`, `ReverseContinue` (section 7) | ranges (E23-06); recorded identity (E23-08 (#340)) |
 | `load_map(path, MapFormat::NextBuild)` | `Memory.txt` by hand (CAP-SYM gains a format) | |
@@ -1024,11 +1139,16 @@ and in history, sidecar ownership and failure paths, the lifetime rows, every st
 `debugger_source_panel_test` (the Source tab, page-qualified model rows and gutter, the Call
 Stack column, symbol address fields), `rewind_call_stack_test` (the tracker across rewind),
 `debugger_backend_test` (SYM-14 to SYM-18, the `-debug` map symbols; INS-13-15, the 56-byte
-`TraceEntry`), and the functional rows `nextbuild-symbols-func` and `source-map-func`.
+`TraceEntry`; INS-02-30, `peek`/`poke` refuse the identity-only kinds), and the functional rows
+`nextbuild-symbols-func` and `source-map-func`. E23-07 (#339) added FSRC-01 to FSRC-16 (the
+arbiter's order, one row per arm, and `read()` equal to its route; `mmu_test` and
+`mmu_integration_test`), MF-M1G-07 (`multiface_test`), DM-PRED-01 (`divmmc_test`) and
+SRCDBG-ID-09 to SRCDBG-ID-50 (`source_debug_test`: the prediction against the recorded fetch,
+the fetch and data views, the prefix chains, the trace bytes, the call stack).
 
 **Planned.** `z88dk_map_test` (E23-13), `z88dk_lis_test` (E23-17), the fixture-hash row
-Z88FIX-01 (E23-12), new rows in `mmu_test`, `multiface_test` and `divmmc_test` (E23-07), and the
-functional rows `source-map-func` (a looked-up line, E23-15) and `z88dk-source-func` (E23-15).
+Z88FIX-01 (E23-12), and the functional rows `source-map-func` (a looked-up line, E23-15) and
+`z88dk-source-func` (E23-15).
 
 **Oracles.**
 
