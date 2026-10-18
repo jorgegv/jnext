@@ -1717,6 +1717,21 @@ int main() {
                                       std::to_string(m.dbg->instruction_length(0x8000)));
         }
         {
+            // Memory full of DD / FD bytes (or the address space wrapping onto one) must not recurse
+            // once per byte: the chain is bounded at 64 redundant prefixes, the next prefix byte is a
+            // line of its own (DB $DD), so one line is 65 bytes long.
+            auto all_dd = [](uint16_t) -> uint8_t { return 0xDD; };
+            auto all_fd = [](uint16_t) -> uint8_t { return 0xFD; };
+            const DisasmLine a = disasm_one(0x1234, all_dd);
+            const DisasmLine b = disasm_one(0x0000, all_fd);
+            check("SRCDBG-ID-50", "a run of DD or FD bytes disassembles to one bounded line (65 bytes, "
+                                  "ending in DB) and instruction_length agrees",
+                  a.byte_count == 65 && b.byte_count == 65 && instruction_length(0x1234, all_dd) == 65 &&
+                      std::string(a.mnemonic) == "DB $DD" && std::string(b.mnemonic) == "DB $FD",
+                  "counts " + std::to_string(a.byte_count) + "/" + std::to_string(b.byte_count) + " '" +
+                      a.mnemonic + "'");
+        }
+        {
             // The Multiface's 0x0066 latch across a prefix chain: CB at $0065 (RAM), the M1 of the inner
             // byte at $0066 latches the armed Multiface (multiface.vhd:169-186), so that byte is the
             // Multiface ROM's 3F (SRL A) and the trace shows CB 3F; RAM's 07 (RLC A) is not run.
