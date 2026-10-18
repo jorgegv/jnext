@@ -3699,7 +3699,7 @@ stamps aside (and the home directory shown as <code>/home/user</code>):</p>
 [platform] [info] Headless mode initialized
 [debugger] [info] [jds F:300 C:168290432] nothing touched the top pixel row [client 2]
 [debugger] [info] [jds F:300 C:168290432] SCRIPT EXIT 0 [client 2]
-[debugger] [info] STOP under StopPolicy::ExitNonZero — asking the loop owner to exit
+[debugger] [info] STOP under StopPolicy::ExitNonZero - asking the loop owner to exit
 [platform] [info] script requested exit 0
 [platform] [info] Headless mode shutdown
 [debugger] [info] DETACH client 2 (released its pause)
@@ -3709,7 +3709,7 @@ stamps aside (and the home directory shown as <code>/home/user</code>):</p>
 <li><code>ATTACH client 1 "script host"</code> and <code>client 2 "script engine"</code>: the scripts
   run as a debugger client, like DeZog or the GUI; the <code>[client 2]</code> on each of
   their lines says which.</li>
-<li><code>STOP under StopPolicy::ExitNonZero — asking the loop owner to exit</code> is the
+<li><code>STOP under StopPolicy::ExitNonZero - asking the loop owner to exit</code> is the
   debugger's line for every stop of a headless run, an <code>exit</code>'s included (an
   <code>exit</code> stops the machine too). It is not the verdict.</li>
 <li><strong><code>script requested exit N</code> is the verdict</strong>: the status the run ends with.</li>
@@ -3717,8 +3717,8 @@ stamps aside (and the home directory shown as <code>/home/user</code>):</p>
 <p>When the run ends because of a <code>stop</code> or a failed check, a warning says so
 before the verdict — the <a href="01-your-first-script.html#3-make-a-check-that-can-fail">failing run of <code>third.jds</code></a>:</p>
 <pre><code>[debugger] [warning] SCRIPT STOP: something wrote 00 into the top pixel row at 4000 at PC=0E59 FRAME=82 CYCLE=46325832 [client 2]
-[debugger] [info] STOP under StopPolicy::ExitNonZero — asking the loop owner to exit
-[debugger] [warning] STOP under StopPolicy::ExitNonZero — requesting exit 3
+[debugger] [info] STOP under StopPolicy::ExitNonZero - asking the loop owner to exit
+[debugger] [warning] STOP under StopPolicy::ExitNonZero - requesting exit 3
 [platform] [info] script requested exit 3
 </code></pre>
 <p>A run that ends with its own <code>exit</code> has no such warning.</p>
@@ -3845,7 +3845,7 @@ end
 <pre><code class="language-console">$ jnext --headless --machine 48k --script watchdog.jds --delayed-automatic-exit-frames 100
 </code></pre>
 <pre><code>[debugger] [info] SCRIPT loaded watchdog.jds: 1 rules
-[platform] [error] SCRIPT: 1 deferred actions never ran — exiting 3
+[platform] [error] SCRIPT: 1 deferred actions never ran - exiting 3
 </code></pre>
 <p>A rule with no verdict — a guard that <code>stop</code>s — never counts: a guard that
 never trips is a pass. So a pure guard script passes when the automatic exit

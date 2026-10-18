@@ -30,7 +30,7 @@ struct ScriptHost::HostListener : dbg::Listener {
         // own line is neutral, since it cannot know — GH #26 WP9).
         if (host.dbg_ && !host.requested_)
             host.dbg_->log(dbg::CLIENT_NONE, dbg::LogLevel::Warn,
-                           "STOP under StopPolicy::ExitNonZero — requesting exit " + std::to_string(code));
+                           "STOP under StopPolicy::ExitNonZero - requesting exit " + std::to_string(code));
         host.request(code);
     }
     void on_log(dbg::LogLevel, const std::string& text) override { host.capture(text); }
@@ -264,7 +264,7 @@ bool ScriptHost::stop_recording() {
         error("RECORD: " + why);
         return false;
     }
-    remember("RECORD: wrote " + recorder_->path() + " — " + std::to_string(recorder_->edges()) +
+    remember("RECORD: wrote " + recorder_->path() + " - " + std::to_string(recorder_->edges()) +
              " input edges, " + std::to_string(recorder_->captures()) + " captures");
     return true;
 }

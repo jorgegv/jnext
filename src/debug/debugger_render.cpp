@@ -61,7 +61,7 @@ namespace {
 
 /// Rows in every `render_layer()` view: the framebuffer's height.
 constexpr int RENDER_ROWS = Renderer::FB_HEIGHT;
-static_assert(RENDER_ROWS == 256, "the eight views are 256 rows (design-qt §3.7)");
+static_assert(RENDER_ROWS == 256, "the eight views are 256 rows (design-qt section 3.7)");
 
 // ---------------------------------------------------------------------------
 // Per-scanline state replay (mirrors Renderer::render_frame)

@@ -90,10 +90,10 @@ static_assert(kRegMapSize == 36, "DZRP register numbers run 0..35");
 const char* unsupported_hint(std::uint8_t id) {
     switch (id) {
         case CMD_SET_BREAKPOINTS:
-            return "CMD_SET_BREAKPOINTS: jnext is a normal-mode remote — use DeZog's "
+            return "CMD_SET_BREAKPOINTS: jnext is a normal-mode remote - use DeZog's "
                    "remoteType \"cspect\" or \"dzrp\", not \"zxnext\"";
         case CMD_RESTORE_MEM:
-            return "CMD_RESTORE_MEM: jnext is a normal-mode remote — use DeZog's "
+            return "CMD_RESTORE_MEM: jnext is a normal-mode remote - use DeZog's "
                    "remoteType \"cspect\" or \"dzrp\", not \"zxnext\"";
         case CMD_EXEC_ASM:
             return "CMD_EXEC_ASM: jnext has no scratch execution context to run it in";
@@ -404,7 +404,7 @@ void DzrpServer::drop_temporaries() {
 // ---------------------------------------------------------------------------
 
 void DzrpServer::protocol_error(Connection& c, const std::string& why) {
-    Log::debugger()->warn("dzrp: protocol error from {}: {} — closing the connection",
+    Log::debugger()->warn("dzrp: protocol error from {}: {} - closing the connection",
                           c.peer(), why);
     // Nothing more is read from a closing connection, and T follows with
     // `on_disconnect()`, which resets the parser.
@@ -432,7 +432,7 @@ void DzrpServer::execute(const Command& cmd) {
         return;
     }
     if (def->session && cid_ == CLIENT_NONE) {
-        Log::debugger()->warn("dzrp: {} before CMD_INIT — refused (no session to attribute it to)",
+        Log::debugger()->warn("dzrp: {} before CMD_INIT - refused (no session to attribute it to)",
                               def->name);
         reply(cmd.seq);
         return;
@@ -444,7 +444,7 @@ void DzrpServer::execute(const Command& cmd) {
         return;
     }
     if (def->legacy && client_version_[0] == 2 && client_version_[1] >= 2) {
-        Log::debugger()->debug("dzrp: {} was removed in DZRP 2.2.0 — served as legacy to a "
+        Log::debugger()->debug("dzrp: {} was removed in DZRP 2.2.0 - served as legacy to a "
                                "{}.{}.{} client",
                                def->name, client_version_[0], client_version_[1],
                                client_version_[2]);
@@ -486,7 +486,7 @@ void DzrpServer::cmd_init(const Command& cmd) {
         // five) renegotiates on the client it already has.
         const auto a = dbg_.attach(ClientInfo{client, ClientKind::Dzrp});
         if (!a) {
-            Log::debugger()->warn("dzrp: CMD_INIT from {} — attach refused: {}", client,
+            Log::debugger()->warn("dzrp: CMD_INIT from {} - attach refused: {}", client,
                                   result_name(a.status));
             finish(1);
             return;
@@ -506,7 +506,7 @@ void DzrpServer::cmd_init(const Command& cmd) {
     // paused machine is left exactly as it is (design §4.1).
     if (!dbg_.state().paused) dbg_.pause(cid_);
 
-    Log::debugger()->info("dzrp: CMD_INIT from \"{}\" (DZRP {}.{}.{}) — client {}; answering "
+    Log::debugger()->info("dzrp: CMD_INIT from \"{}\" (DZRP {}.{}.{}) - client {}; answering "
                           "DZRP {}.{}.{}",
                           client, client_version_[0], client_version_[1], client_version_[2],
                           cid_, DZRP_VERSION_MAJOR, DZRP_VERSION_MINOR, DZRP_VERSION_PATCH);
@@ -553,7 +553,7 @@ void DzrpServer::cmd_set_register(const Command& cmd) {
     const std::uint16_t value = le16(cmd.payload, 1);
     const int           reg   = index < kRegMapSize ? kRegMap[index] : kNoReg;
     if (reg == kNoReg) {
-        Log::debugger()->warn("dzrp: CMD_SET_REGISTER with unknown register number {} — ignored",
+        Log::debugger()->warn("dzrp: CMD_SET_REGISTER with unknown register number {} - ignored",
                               index);
     } else if (const Result r = dbg_.set_register(cid_, static_cast<RegId>(reg), value);
                r != Result::Ok) {
@@ -622,7 +622,7 @@ void DzrpServer::cmd_read_mem_blocks(const Command& cmd) {
     const std::vector<std::uint8_t>& p = cmd.payload;
     if ((p.size() - 4) % 4 != 0) {
         Log::debugger()->warn("dzrp: malformed CMD_READ_MEM_BLOCKS: {} bytes of blocks, not a "
-                              "multiple of 4 — nothing read",
+                              "multiple of 4 - nothing read",
                               p.size() - 4);
         reply(cmd.seq);
         return;
@@ -633,7 +633,7 @@ void DzrpServer::cmd_read_mem_blocks(const Command& cmd) {
         // The command's own cap, applied to the reply: a 16 MiB command could
         // otherwise ask for 4M blocks of 64 KB each.
         Log::debugger()->warn("dzrp: CMD_READ_MEM_BLOCKS asks for {} bytes, over the {}-byte "
-                              "maximum — nothing read",
+                              "maximum - nothing read",
                               total, MAX_PAYLOAD_BYTES - 1);
         reply(cmd.seq);
         return;
@@ -643,7 +643,7 @@ void DzrpServer::cmd_read_mem_blocks(const Command& cmd) {
         (static_cast<std::uint32_t>(p[3]) << 24);
     if (resp_length != total + 1)
         Log::debugger()->debug("dzrp: CMD_READ_MEM_BLOCKS resp_length {} but the blocks make {} "
-                               "— the blocks are served",
+                               "- the blocks are served",
                                resp_length, total + 1);
 
     std::vector<std::uint8_t> out(total);
@@ -731,7 +731,7 @@ void DzrpServer::cmd_read_bank_mem(const Command& cmd) {
 
     if (size > 0 && served == 0) {
         Log::debugger()->warn("dzrp: CMD_READ_BANK_MEM bank {} offset 0x{:04X} size {}: nothing "
-                              "to serve there — empty reply",
+                              "to serve there - empty reply",
                               bank, offset, size);
     }
     out.resize(served);
@@ -747,7 +747,7 @@ void DzrpServer::cmd_write_bank_mem(const Command& cmd) {
     const std::size_t   n      = cmd.payload.size() - 3;
     if (n > 0) {
         if (bank > 223) {
-            Log::debugger()->warn("dzrp: CMD_WRITE_BANK_MEM to bank {} refused: {} — nothing "
+            Log::debugger()->warn("dzrp: CMD_WRITE_BANK_MEM to bank {} refused: {} - nothing "
                                   "written",
                                   bank, bank >= 0xFE ? "ROM is read-only" : "no such bank");
         } else {
@@ -815,14 +815,14 @@ void DzrpServer::cmd_set_nextregs(const Command& cmd) {
     const std::vector<std::uint8_t>& p = cmd.payload;
     if (p.size() % 2 != 0) {
         Log::debugger()->warn("dzrp: malformed CMD_SET_NEXTREGS: payload is {} bytes, not "
-                              "register/value pairs — nothing written",
+                              "register/value pairs - nothing written",
                               p.size());
         reply(cmd.seq);
         return;
     }
     for (std::size_t at = 0; at < p.size(); at += 2) {
         if (const Result r = dbg_.nextreg_write(cid_, p[at], p[at + 1]); r != Result::Ok) {
-            Log::debugger()->warn("dzrp: CMD_SET_NEXTREGS NR 0x{:02X} refused: {} — {} of {} "
+            Log::debugger()->warn("dzrp: CMD_SET_NEXTREGS NR 0x{:02X} refused: {} - {} of {} "
                                   "pairs written",
                                   p[at], result_name(r), at / 2, p.size() / 2);
             break;
@@ -875,7 +875,7 @@ void DzrpServer::cmd_loopback(const Command& cmd) {
         // DZRP has no error field here — the reply IS the data — so an
         // oversize payload is declined with an empty echo and a warn line
         // (dezogif_ng conformance C18: decline in-band, keep serving).
-        Log::debugger()->warn("dzrp: CMD_LOOPBACK of {} bytes exceeds the {}-byte maximum — "
+        Log::debugger()->warn("dzrp: CMD_LOOPBACK of {} bytes exceeds the {}-byte maximum - "
                               "not echoed",
                               cmd.payload.size(), LOOPBACK_MAX_BYTES);
         reply(cmd.seq);
@@ -912,7 +912,7 @@ void DzrpServer::cmd_continue(const Command& cmd) {
         // "At the moment there are no plans to implement 'step-over' or
         // 'step-out' alternate commands. Only 0 is implemented." (spec) — and
         // "the remote MIGHT execute the alternate command": treated as 0.
-        Log::debugger()->info("dzrp: CMD_CONTINUE alternate command {} is not implemented — "
+        Log::debugger()->info("dzrp: CMD_CONTINUE alternate command {} is not implemented - "
                               "running with the breakpoints instead",
                               p[6]);
     }
@@ -1075,7 +1075,7 @@ void DzrpServer::cmd_get_sprites(const Command& cmd) {
         const std::size_t clamped = index >= jnext::dbg::SPRITE_COUNT
                                         ? 0
                                         : jnext::dbg::SPRITE_COUNT - index;
-        Log::debugger()->warn("dzrp: CMD_GET_SPRITES {} from {} runs past sprite 127 — "
+        Log::debugger()->warn("dzrp: CMD_GET_SPRITES {} from {} runs past sprite 127 - "
                               "clamped to {}",
                               count, index, clamped);
         count = clamped;
@@ -1099,7 +1099,7 @@ void DzrpServer::cmd_get_sprite_patterns(const Command& cmd) {
     constexpr std::size_t kPatterns = jnext::dbg::PATTERN_RAM_BYTES / 256;
     if (index + count > kPatterns) {
         const std::size_t clamped = index >= kPatterns ? 0 : kPatterns - index;
-        Log::debugger()->warn("dzrp: CMD_GET_SPRITE_PATTERNS {} from {} runs past pattern 63 — "
+        Log::debugger()->warn("dzrp: CMD_GET_SPRITE_PATTERNS {} from {} runs past pattern 63 - "
                               "clamped to {}",
                               count, index, clamped);
         count = clamped;
@@ -1199,7 +1199,7 @@ void DzrpServer::cmd_read_state(const Command& cmd) {
     if (r != Result::Ok) {
         Log::debugger()->warn("dzrp: CMD_READ_STATE refused: {}{}", result_name(r),
                               r == Result::NotAtFrameBoundary
-                                  ? " — the machine stopped mid-frame; a state can be saved "
+                                  ? " - the machine stopped mid-frame; a state can be saved "
                                     "after a manual pause"
                                   : "");
         reply(cmd.seq);

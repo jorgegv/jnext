@@ -423,10 +423,10 @@ void NextReg::apply_nr_03_config_mode_transition(uint8_t low3) {
     //                          CURRENT config_mode at write time per line 5137)
     const uint8_t t = low3 & 0x07;
     if (t == 0x07) {
-        if (!nr_03_config_mode_) Log::nextreg()->debug("NR 0x03: config_mode ← 1 (write bits 111)");
+        if (!nr_03_config_mode_) Log::nextreg()->debug("NR 0x03: config_mode <- 1 (write bits 111)");
         nr_03_config_mode_ = true;
     } else if (t != 0x00) {
-        if (nr_03_config_mode_) Log::nextreg()->debug("NR 0x03: config_mode ← 0 (write bits {:03b})", t);
+        if (nr_03_config_mode_) Log::nextreg()->debug("NR 0x03: config_mode <- 0 (write bits {:03b})", t);
         nr_03_config_mode_ = false;
     }
     // t == 0x00: no change

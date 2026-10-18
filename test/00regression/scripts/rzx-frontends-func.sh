@@ -69,7 +69,7 @@ if want rzx-frontends-func; then
     }
     # rf_saved_frames <log>: N from "RZX: recording saved — N frames", or empty.
     rf_saved_frames() {
-        grep -oP 'RZX: recording saved — \K[0-9]+(?= frames)' "$1" | head -1 || true
+        grep -oP 'RZX: recording saved - \K[0-9]+(?= frames)' "$1" | head -1 || true
     }
 
     # --- truth + control ---------------------------------------------------
@@ -95,7 +95,7 @@ if want rzx-frontends-func; then
             [[ "$ctl_diff" -gt 0 && "$ctl_diff" -lt 999999 ]] \
                 || rf_faults+=("truth does not differ from a plain boot (png_diff=$ctl_diff): the replayed key proves nothing")
         fi
-        started="RZX: playback started — $rf_frames frames"
+        started="RZX: playback started - $rf_frames frames"
 
         for fe in headless qt sdl; do
             # play: frame count, completion, and the replayed picture.
@@ -133,7 +133,7 @@ if want rzx-frontends-func; then
             else
                 log="$rf_dir/$fe-made-play.log"
                 rc=$(rf_run headless "$log" --rzx-play "$out" --delayed-automatic-exit-frames 60)
-                [[ "$rc" == 0 ]] && grep -qF "RZX: playback started — $n frames" "$log" \
+                [[ "$rc" == 0 ]] && grep -qF "RZX: playback started - $n frames" "$log" \
                     && grep -qF "RZX: playback complete (all frames consumed)" "$log" \
                     || rf_faults+=("$fe --rzx-record: its $n-frame file does not play back to completion (rc=$rc)")
             fi

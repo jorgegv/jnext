@@ -430,14 +430,14 @@ Result rewind_failure(const Emulator& emu, uint64_t gen_before) {
 // rewind_to_frame() target, or empty for a step back.
 std::string rewind_refusal_reason(Emulator& emu, std::optional<uint32_t> frame) {
     if (emu.rzx_recorder().is_recording())
-        return "an RZX recording is being made — stop it first";
+        return "an RZX recording is being made - stop it first";
     if (emu.rzx_player().is_playing())
-        return "an RZX recording is playing — stop it first";
+        return "an RZX recording is playing - stop it first";
     const RewindBuffer* rb = emu.rewind_buffer();
     if (!rb)
-        return "rewind is off — turn on Debug \u25B8 Rewind \u25B8 Enable Rewind and run forward";
+        return "rewind is off - turn on Debug > Rewind > Enable Rewind and run forward";
     if (rb->empty())
-        return "the rewind buffer holds no frames yet — run forward first";
+        return "the rewind buffer holds no frames yet - run forward first";
     if (frame) {
         if (*frame < rb->oldest_frame_num() || *frame > rb->newest_frame_num())
             return "frame " + std::to_string(*frame) + " is not in the rewind buffer (it holds "
@@ -448,13 +448,13 @@ std::string rewind_refusal_reason(Emulator& emu, std::optional<uint32_t> frame) 
     if (const auto f = emu.last_rewind_crossing_frame())
         return "it would undo a change you made from the debugger in frame " +
                std::to_string(*f) +
-               " — use Frame Back (or the slider) to that frame's start, which undoes the "
+               " - use Frame Back (or the slider) to that frame's start, which undoes the "
                "change, or carry on forward";
     if (!emu.trace_log().enabled())
-        return "the instruction trace is off — turn on Debug \u25B8 Trace \u25B8 Enable Trace "
+        return "the instruction trace is off - turn on Debug > Trace > Enable Trace "
                "and run forward";
     if (emu.trace_log().size() == 0)
-        return "the instruction trace is empty — run forward first";
+        return "the instruction trace is empty - run forward first";
     return "the rewind could not be done";
 }
 
@@ -464,7 +464,7 @@ void Debugger::Impl::explain_rewind_refusal(ClientId by, const std::string& verb
                                             const std::string& reason) {
     self->log(by, LogLevel::Warn,
               "REWIND REFUSED: " + verb + " refused: " + reason +
-                  ". See the user guide: Debugger \u25B8 Functions \u25B8 Backward execution (rewind)");
+                  ". See the user guide: Debugger > Functions > Backward execution (rewind)");
 }
 
 Result Debugger::step_back(ClientId by, uint32_t n) {

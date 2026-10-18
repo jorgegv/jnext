@@ -329,7 +329,7 @@ inline constexpr Option OPTIONS[] = {
       "baud, and only while NR 0x0B selects UART mode (bits 7+5)\n"
       "on this cable's connector (bit 4); bit 0 picks UART 0 or 1.\n"
       "Bytes sent while the guest is not listening are LOST, as on\n"
-      "the wire — schedule them with --joy-uart-rx-delay-frames" },
+      "the wire - schedule them with --joy-uart-rx-delay-frames" },
     { "--joy-uart-rx-delay-frames", 1, Doc::Documented, OptId::JoyUartRxDelayFrames,
       "N",
       "Hold the --joy-uart-rx stream for N frames before the first\n"
@@ -418,7 +418,7 @@ inline constexpr Option OPTIONS[] = {
       "",
       "Disable all sound output (beeper, AY/YM x3, DAC/\n"
       "Covox/Specdrum). No audio device is opened, and the\n"
-      "emulator skips PSG/mixer sample synthesis entirely —\n"
+      "emulator skips PSG/mixer sample synthesis entirely -\n"
       "can measurably speed up CPU-bound runs. Tape loading\n"
       "(EAR input) is unaffected." },
     { "--inject", 1, Doc::Documented, OptId::Inject,

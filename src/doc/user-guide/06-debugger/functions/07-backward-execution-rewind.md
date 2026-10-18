@@ -43,7 +43,7 @@ window's status bar says why for ten seconds, and the same line goes to the
 log, for example:
 
 ```
-Step Back refused: it would undo a change you made from the debugger in frame 12 — use Frame Back (or the slider) to that frame's start, which undoes the change, or carry on forward. See the user guide: Debugger ▸ Functions ▸ Backward execution (rewind)
+Step Back refused: it would undo a change you made from the debugger in frame 12 - use Frame Back (or the slider) to that frame's start, which undoes the change, or carry on forward. See the user guide: Debugger > Functions > Backward execution (rewind)
 ```
 
 | The message says | What to do |

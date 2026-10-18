@@ -41,7 +41,7 @@ bool SdlApp::init(int argc, char* argv[]) {
     // when audio init genuinely fails below.
     if (!(config_set_ && config_.silent)) {
         if (!audio_.init()) {
-            Log::platform()->warn("Audio init failed — continuing without sound");
+            Log::platform()->warn("Audio init failed - continuing without sound");
         }
         // GH #155 — the band's estimate envelope is the opened device's buffer.
         pacing_band_.envelope_ms = audio_.pacing_envelope_ms();
@@ -655,7 +655,7 @@ void SdlApp::run() {
                 }))
                 exit_code_ = 1;
             if (const std::size_t n = script_host_.unreached_verdicts()) {   // GH #26 WP4 (§7.3)
-                Log::platform()->error("SCRIPT: {} deferred actions never ran — exiting 3", n);
+                Log::platform()->error("SCRIPT: {} deferred actions never ran - exiting 3", n);
                 if (exit_code_ == 0) exit_code_ = 3;
             }
             running_ = false;

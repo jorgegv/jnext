@@ -136,11 +136,11 @@ std::vector<uint8_t> SnaSaver::save(Emulator& emu, std::string* error) {
         if (classic_window_intact(mmu, bank_c000, found)) return {};
         return "SNA saver: the RAM this machine has mapped at 0x4000-0xFFFF is not the map "
                "an '.sna' describes (bank 5, bank 2, then bank "
-               + std::to_string(bank_c000) + ") — " + found
+               + std::to_string(bank_c000) + ") - " + found
                + ". EXTENDED PAGING is the usual cause: port 0xDFFD composes bits 6:3 of the "
                  "bank at 0xC000 (zxnext.vhd:3763-3766), and an SNA's extended header carries "
                  "only 0x7FFD, so the snapshot would come back with a different bank mapped "
-                 "and any bank above 7 nowhere in the file at all. Use '.jns' — '.szx' has no "
+                 "and any bank above 7 nowhere in the file at all. Use '.jns' - '.szx' has no "
                  "field for 0xDFFD either.";
     };
 
@@ -170,7 +170,7 @@ std::vector<uint8_t> SnaSaver::save(Emulator& emu, std::string* error) {
             const uint8_t p1ffd = mmu.port_1ffd();
             if (p1ffd & 0x01) {
                 return refuse(
-                    "SNA saver: this +3 is in SPECIAL PAGING (port 0x1FFD bit 0) — four RAM "
+                    "SNA saver: this +3 is in SPECIAL PAGING (port 0x1FFD bit 0) - four RAM "
                     "banks and no ROM across the whole address space. The '.sna' format has "
                     "no 0x1FFD byte and defines its three blocks as banks 5, 2 and the bank "
                     "paged at 0xC000, which is not that layout. Use '.szx', which carries "
@@ -191,7 +191,7 @@ std::vector<uint8_t> SnaSaver::save(Emulator& emu, std::string* error) {
         case MachineType::ZXN_ISSUE2:
         default:
             return refuse(
-                "SNA saver: the '.sna' format cannot represent a ZX Spectrum Next — it "
+                "SNA saver: the '.sna' format cannot represent a ZX Spectrum Next - it "
                 "describes a 48K/128K Spectrum, with none of the Next's extra RAM, "
                 "NextREGs or video hardware (--machine 48k|128k|plus3|pentagon). "
                 "Use '.jns' for a Next-native snapshot instead.");

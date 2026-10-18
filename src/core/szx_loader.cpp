@@ -96,7 +96,7 @@ bool SzxLoader::parse_z80r(const uint8_t* data, uint32_t size)
     regs_.halted = (data[34] & 0x02) != 0;
 
     have_z80r_ = true;
-    Log::emulator()->debug("SZX: Z80R — PC={:#06x} SP={:#06x} AF={:#06x} IM={}",
+    Log::emulator()->debug("SZX: Z80R - PC={:#06x} SP={:#06x} AF={:#06x} IM={}",
                            regs_.PC, regs_.SP, regs_.AF, regs_.IM);
     return true;
 }
@@ -114,7 +114,7 @@ bool SzxLoader::parse_spcr(const uint8_t* data, uint32_t size)
     spcr_.port_fe   = data[3];
 
     have_spcr_ = true;
-    Log::emulator()->debug("SZX: SPCR — border={} 7FFD={:#04x} 1FFD={:#04x} FE={:#04x}",
+    Log::emulator()->debug("SZX: SPCR - border={} 7FFD={:#04x} 1FFD={:#04x} FE={:#04x}",
                            spcr_.border, spcr_.port_7ffd, spcr_.port_1ffd, spcr_.port_fe);
     return true;
 }
@@ -228,7 +228,7 @@ bool SzxLoader::load_from_buffer(const std::vector<uint8_t>& buf, const std::str
     machine_id_    = buf[6];
     flags_         = buf[7];
 
-    Log::emulator()->info("SZX: loading '{}' — version={}.{} machine_id={} flags={:#04x}",
+    Log::emulator()->info("SZX: loading '{}' - version={}.{} machine_id={} flags={:#04x}",
                           path, major_version_, minor_version_, machine_id_, flags_);
 
     // Iterate chunks
@@ -368,7 +368,7 @@ bool SzxLoader::apply(Emulator& emu) const
     regs.halted = regs_.halted;
     cpu.set_registers(regs);
 
-    Log::emulator()->debug("SZX: registers set — PC={:#06x} SP={:#06x} AF={:#06x} IM={}",
+    Log::emulator()->debug("SZX: registers set - PC={:#06x} SP={:#06x} AF={:#06x} IM={}",
                           regs_.PC, regs_.SP, regs_.AF, regs_.IM);
 
     return true;

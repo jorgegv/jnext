@@ -33,7 +33,7 @@ bool TapLoader::load(const std::string& path) {
         return false;
     }
 
-    Log::emulator()->info("TAP: loaded '{}' — {} blocks", path, blocks_.size());
+    Log::emulator()->info("TAP: loaded '{}' - {} blocks", path, blocks_.size());
 
     // Log block details
     for (size_t i = 0; i < blocks_.size(); ++i) {
@@ -50,9 +50,9 @@ bool TapLoader::load(const std::string& path) {
                 case 2: type_str = "Character array"; break;
                 case 3: type_str = "Bytes"; break;
             }
-            Log::emulator()->debug("  block {}: Header — {} \"{}\"", i, type_str, name);
+            Log::emulator()->debug("  block {}: Header - {} \"{}\"", i, type_str, name);
         } else {
-            Log::emulator()->debug("  block {}: Data — {} bytes (flag={:#04x})",
+            Log::emulator()->debug("  block {}: Data - {} bytes (flag={:#04x})",
                                    i, b.data.size(), b.flag);
         }
     }
@@ -140,7 +140,7 @@ bool TapLoader::handle_ld_bytes_trap(Emulator& emu) {
         regs.DE = 0;
     } else {
         // VERIFY mode: compare data (just succeed without actually comparing)
-        Log::emulator()->debug("TAP: verify mode — auto-passing");
+        Log::emulator()->debug("TAP: verify mode - auto-passing");
         regs.IX = static_cast<uint16_t>(dest + length);
         regs.DE = 0;
     }

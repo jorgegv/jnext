@@ -840,11 +840,11 @@ static void stop_rows() {
         const auto r = g.eng->rules();
         const auto sub = g.subs();
         check("SCRIPT-EV-RUNTIME", "a run-time error disables its rule's subscription (the next write does "
-                                   "not enter it), logs `SCRIPT ERROR file:L:C: … — rule … disabled`, and "
+                                   "not enter it), logs `SCRIPT ERROR file:L:C: … - rule … disabled`, and "
                                    "exits 1 ONCE, at the frame edge, not at the failing delivery",
               ok && r.size() == 1 && r[0].dead && r[0].hits == 1 && g.eng->runtime_errors() == 1 &&
                   !sub.empty() && !sub[0].enabled &&
-                  g.sink.count("SCRIPT ERROR rt.jds:2:39: division by zero — rule at 2:1 disabled") == 1 &&
+                  g.sink.count("SCRIPT ERROR rt.jds:2:39: division by zero - rule at 2:1 disabled") == 1 &&
                   exits_at_second_write == 0 && g.host_exits == std::vector<int>{1} && !g.paused(),
               "at2=" + std::to_string(exits_at_second_write) + " " + g.sink.tail());
     }
@@ -1913,7 +1913,7 @@ static void bounds_rows() {
         g.frames(2);
         check("SCRIPT-EV-PRESS-FOR-ZERO", "`press … for 0` is a run-time error naming the bound; `for 1` is legal",
               ok && g.eng->runtime_errors() == 1 &&
-                  g.sink.count("`press … for` needs at least 1 frame") == 1 && !g.eng->rules()[1].dead,
+                  g.sink.count("`press ... for` needs at least 1 frame") == 1 && !g.eng->rules()[1].dead,
               g.sink.tail(2));
     }
     {
@@ -2146,8 +2146,8 @@ static void exit_rows() {
         // GH #26 WP9 — the exit-3 WARNING is logged only when the exit taken is
         // the stop's: a script's own `exit` run (which stops the machine too)
         // no longer prints a warning contradicting its verdict.
-        const std::string warn = "STOP under StopPolicy::ExitNonZero — requesting exit 3";
-        const std::string info = "STOP under StopPolicy::ExitNonZero — asking the loop owner to exit";
+        const std::string warn = "STOP under StopPolicy::ExitNonZero - requesting exit 3";
+        const std::string info = "STOP under StopPolicy::ExitNonZero - asking the loop owner to exit";
         using jnext::dbg::LogLevel;
         // Every line at Warn in the run, whatever its text: a passing run must
         // have none (the user-visible symptom was a `[warning]` on `exit 0`).

@@ -2533,7 +2533,7 @@ a stack, so nested entries pair with their own exits. <code>changed(NAME, regs)<
 error, never a silent drop. <code>depth()</code> of an empty stack is 0, not an error.</p>
 <p>Run-time failures (division by zero, an address out of range, an empty stack)
 throw <code>EvalError</code> with the failing node's position. The engine catches it,
-disables the rule and logs <code>SCRIPT ERROR file:L:C: … — rule X disabled</code>.</p>
+disables the rule and logs <code>SCRIPT ERROR file:L:C: … - rule X disabled</code>.</p>
 <h2 id="the-expression-compiler-as-a-library">The expression compiler as a library<a class="headerlink" href="#the-expression-compiler-as-a-library" title="Permanent link">&para;</a></h2>
 <p><code>expr_compiler.h</code> is the stable surface other frontends call, and it names no
 AST type:</p>

@@ -354,7 +354,7 @@ void DebuggerManager::warn_state_corrupt(const QString& op) {
     const QString sub = QString::fromStdString(incident->subsystem);
     if (main_window_->statusBar()) {
         main_window_->statusBar()->showMessage(
-            QObject::tr("%1 failed: snapshot restore desynced at '%2' — machine "
+            QObject::tr("%1 failed: snapshot restore desynced at '%2' - machine "
                         "state is corrupt; reset to recover").arg(op, sub), 10000);
     }
     QMessageBox::warning(
@@ -363,7 +363,7 @@ void DebuggerManager::warn_state_corrupt(const QString& op) {
         QObject::tr("%1 could not restore the machine snapshot (subsystem '%2' "
                     "desynced).\n\nThe machine is now in a corrupt, partially-"
                     "restored state and has been paused. Resuming may crash or "
-                    "behave unpredictably — reset the machine (Machine ▸ Power "
+                    "behave unpredictably - reset the machine (Machine ▸ Power "
                     "Reset) to recover cleanly.").arg(op, sub));
 }
 

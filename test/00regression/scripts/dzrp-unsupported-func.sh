@@ -34,7 +34,7 @@ if want dzrp-unsupported-func; then
                 || fails+=("no warn line for command $id")
         done
         for name in CMD_SET_BORDER CMD_WRITE_BANK; do
-            grep -aq "\[debug\] dzrp: $name was removed in DZRP 2.2.0 — served as legacy to a 2.2.0 client" "$log" \
+            grep -aq "\[debug\] dzrp: $name was removed in DZRP 2.2.0 - served as legacy to a 2.2.0 client" "$log" \
                 || fails+=("no 'served as legacy' line for $name")
         done
         if grep -aqE "unsupported DZRP command (5|12) " "$log"; then
