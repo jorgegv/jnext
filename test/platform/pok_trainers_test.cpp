@@ -453,6 +453,41 @@ void test_parser() {
               names && utf8_ok, std::string(names ? "names ok" : "names differ") +
                                     (utf8_ok ? ", utf8 ok" : ", utf8 differs"));
     }
+
+    // POK-24: a trainer that is wrong in several places reports the FIRST one (the line to fix first). The
+    // fixtures put a different problem on each line, so the line named says which one was kept.
+    {
+        const PokFile pokes = parse_pok("NA\nM 8 99 1 0\nM 8 32768 300 0\nZ 8 99999 1 0\nNB\nZ 8 32768 1 0\n");
+        const PokFile mixed = parse_pok("NC\nM 8 32768 1\nXyz\nZ 8 32768 1 0\nND\nZ 8 32768 1 0\n");
+        check("POK-24", "a trainer with several bad lines reports the first: three bad poke lines name line 2 (the "
+                        "address), and a bad poke line followed by an unknown line names the poke line "
+                        "(jnext policy, plan D9: the trainer keeps its first problem); the next trainer is valid",
+              pokes.trainers.size() == 2 &&
+                  pokes.trainers[0].problem == "line 2: address 99 is outside 16384-65535" &&
+                  pokes.trainers[1].problem.empty() && mixed.trainers.size() == 2 &&
+                  mixed.trainers[0].problem == "line 2: expected 4 numbers (bank address value original)" &&
+                  mixed.trainers[1].problem.empty(),
+              (pokes.trainers.empty() ? std::string("no trainer") : pokes.trainers[0].problem) + " | " +
+                  (mixed.trainers.empty() ? std::string("no trainer") : mixed.trainers[0].problem));
+    }
+
+    // POK-25: ... and a trainer that is already invalid keeps that problem when the next N, the Y or the end of
+    // the file cuts it off - those say "no poke lines" / "without its Z" only for a trainer with no other problem.
+    {
+        const PokFile by_n = parse_pok("NA\nM 8 99 1 0\nNB\nZ 8 32768 1 0\n");        // no poke survived
+        const PokFile by_eof = parse_pok("NA\nM 8 99 1 0\nM 8 32768 1 0\n");           // a good poke after it
+        const PokFile by_y = parse_pok("NA\nM 8 99 1 0\nM 8 32768 1 0\nY\n");
+        const std::string want = "line 2: address 99 is outside 16384-65535";
+        check("POK-25", "a trainer cut off by the next N, by the end of the file or by Y after a bad poke line keeps "
+                        "that line's problem, whether or not a good poke followed it (jnext policy, plan D9: "
+                        "the trainer keeps its first problem)",
+              by_n.trainers.size() == 2 && by_n.trainers[0].problem == want && by_n.trainers[1].problem.empty() &&
+                  by_eof.trainers.size() == 1 && by_eof.trainers[0].problem == want &&
+                  by_y.trainers.size() == 1 && by_y.trainers[0].problem == want,
+              (by_n.trainers.empty() ? std::string("none") : by_n.trainers[0].problem) + " | " +
+                  (by_eof.trainers.empty() ? std::string("none") : by_eof.trainers[0].problem) + " | " +
+                  (by_y.trainers.empty() ? std::string("none") : by_y.trainers[0].problem));
+    }
 }
 
 // ── load_pok_file rows (temp files) ────────────────────────────────────────
@@ -972,6 +1007,241 @@ void test_session() {
               r.ok && refused.find("32768") != std::string::npos && refused.find("ROM") != std::string::npos &&
                   r.rd(0xC000) == 0x6B,
               refused + "|" + hex(r.rd(0xC000)));
+    }
+
+    // The next rows sweep a trainer's locations one at a time: a rule that must hold for EVERY location is
+    // otherwise satisfied by checking the first only, or the last only, when the fixture breaks one place.
+    const uint16_t where[3]   = {0x8003, 0x8004, 0x8005};   // 32771..32773
+    const uint8_t  before[3]  = {0x35, 0x36, 0x37};         // what the test puts there first (53, 54, 55)
+    const uint8_t  poked[3]   = {0x00, 0x11, 0x22};         // what the trainers below write (0, 17, 34)
+    const char*    tag[3]     = {"M", "M", "Z"};
+
+    // POK-50: a trainer reads Applied only while EVERY location it wrote still holds its poke.
+    {
+        std::string detail;
+        bool all = true;
+        for (int k = 0; k < 3; ++k) {
+            Rig r(MachineType::ZX48K);
+            r.load("NT\nM  8 32771 0 0\nM  8 32772 17 0\nZ  8 32773 34 0\n");
+            for (int j = 0; j < 3; ++j) r.wr(where[j], before[j]);
+            const std::string a = r.apply(0);
+            const bool applied = a.empty() && r.s->state(0) == State::Applied;
+            r.wr(where[k], 0x99);   // the program overwrote location k alone
+            const bool lost = r.s->state(0) == State::NotApplied;
+            const std::string d = r.s->remove(0);
+            bool bytes = true;
+            for (int j = 0; j < 3; ++j) bytes = bytes && r.rd(where[j]) == (j == k ? 0x99 : poked[j]);
+            if (!(r.ok && applied && lost && d == "not applied" && bytes)) {
+                all = false;
+                detail += "[k=" + std::to_string(k) + " a=" + a + " applied=" + std::to_string(applied) +
+                          " lost=" + std::to_string(lost) + " d=" + d + " bytes=" + std::to_string(bytes) + "]";
+            }
+        }
+        check("POK-50", "a three-location trainer is Applied only while all three bytes hold their pokes: with any "
+                        "ONE of them overwritten (first, middle or last) it reads Not applied, Remove says \"not "
+                        "applied\" and writes nothing (plan section 3.2: Applied = a record whose every location "
+                        "holds its final)",
+              all, detail);
+    }
+
+    // POK-51: ... and a trainer is "found in memory" only when EVERY location holds its poke.
+    {
+        std::string detail;
+        bool all = true;
+        for (int k = 0; k < 3; ++k) {
+            Rig r(MachineType::ZX48K);
+            r.load("NT\nM  8 32771 0 53\nM  8 32772 17 54\nZ  8 32773 34 55\n");
+            for (int j = 0; j < 3; ++j) r.wr(where[j], poked[j]);
+            const bool whole = r.s->state(0) == State::AppliedFound;   // control: the fixture is a complete trainer
+            r.wr(where[k], 0x99);
+            const bool partial = r.s->state(0) == State::NotApplied;
+            const std::string a = r.apply(0);   // so it applies, rather than "already applied"
+            bool landed = a.empty() && r.s->state(0) == State::Applied;
+            for (int j = 0; j < 3; ++j) landed = landed && r.rd(where[j]) == poked[j];
+            if (!(r.ok && whole && partial && landed)) {
+                all = false;
+                detail += "[k=" + std::to_string(k) + " whole=" + std::to_string(whole) + " partial=" +
+                          std::to_string(partial) + " a=" + a + "]";
+            }
+        }
+        check("POK-51", "memory that holds all three bytes of a trainer reads \"found in memory\"; with any ONE of "
+                        "them different it reads Not applied and Apply goes ahead (plan section 3.2: AppliedFound "
+                        "= every location holds its final)",
+              all, detail);
+    }
+
+    // POK-52: ... and a trainer found in memory is removable only if EVERY poke gives its original.
+    {
+        std::string detail;
+        bool all = true;
+        const char* orig_text[3] = {"53", "54", "55"};
+        const char* poke_text[3] = {"0", "17", "34"};
+        for (int k = -1; k < 3; ++k) {   // k = the poke whose original the file leaves out; -1 = none (control)
+            std::string text = "NT\n";
+            for (int j = 0; j < 3; ++j)
+                text += std::string(tag[j]) + "  8 " + std::to_string(32771 + j) + " " + poke_text[j] + " " +
+                        (j == k ? "0" : orig_text[j]) + "\n";
+            Rig r(MachineType::ZX48K);
+            r.load(text);
+            for (int j = 0; j < 3; ++j) r.wr(where[j], poked[j]);
+            const bool found = r.s->state(0) == State::AppliedFound;
+            const std::string d = r.s->remove(0);
+            bool ok;
+            if (k < 0) {
+                ok = d.empty();
+                for (int j = 0; j < 3; ++j) ok = ok && r.rd(where[j]) == before[j];
+            } else {
+                ok = d.find("line " + std::to_string(k + 2)) != std::string::npos &&
+                     d.find(std::to_string(32771 + k)) != std::string::npos &&
+                     r.s->state(0) == State::AppliedFound;
+                for (int j = 0; j < 3; ++j) ok = ok && r.rd(where[j]) == poked[j];
+            }
+            if (!(r.ok && found && ok)) {
+                all = false;
+                detail += "[k=" + std::to_string(k) + " found=" + std::to_string(found) + " d=" + d + "]";
+            }
+        }
+        check("POK-52", "removing a trainer found in memory is refused when ANY of its pokes (first, middle or "
+                        "last) gives no original value: the refusal names that line and address and nothing is "
+                        "written; with every original given it writes them all (WoS POKformat.txt: a non-zero "
+                        "original is \"used to remove a POKE\"; one that is 0 \"cannot be handled\")",
+              all, detail);
+    }
+
+    // POK-53: a trainer with a bad line is never applied, even though the pokes that did parse are in memory.
+    {
+        Rig r(MachineType::ZX48K);
+        r.load("NBad\nM  8 99 1 0\nZ  8 32772 1 5\n");   // line 2 is out of range; line 3 parsed, with an original
+        r.wr(0x8004, 1);
+        const Trainer& t = r.s->file().trainers[0];
+        const bool fixture = !t.problem.empty() && t.pokes.size() == 1 && t.pokes[0].original == 5;
+        const State st = r.s->state(0);
+        const std::string d = r.s->remove(0);
+        const std::string a = r.apply(0);
+        check("POK-53", "a trainer that is invalid reads Not applied although the one poke that parsed is in memory "
+                        "and gives an original: Remove says \"not applied\", Apply says why it is invalid, and "
+                        "the byte is not touched (plan section 3.2: an invalid trainer is never applied)",
+              r.ok && fixture && st == State::NotApplied && d == "not applied" && a == t.problem &&
+                  r.rd(0x8004) == 1,
+              d + "|" + a + "|" + hex(r.rd(0x8004)));
+    }
+
+    // POK-54: Apply again after the program overwrote PART of a trainer (the only way forward: the row reads Not
+    // applied and Remove is refused) must not take the bytes it poked itself for the originals.
+    {
+        // A code patch (0x8003) and a data byte (0x8004).
+        Rig r(MachineType::ZX48K);
+        r.load("NT\nM  8 32771 0 0\nZ  8 32772 0 0\n");
+        r.wr(0x8003, 0x35);
+        r.wr(0x8004, 0x36);
+        const std::string a1 = r.apply(0);
+        r.wr(0x8004, 0x99);   // the program rewrote the data byte
+        const bool lost = r.s->state(0) == State::NotApplied;
+        const std::string a2 = r.apply(0);
+        const std::string d = r.s->remove(0);
+        const bool pair = a1.empty() && lost && a2.empty() && d.empty() && r.rd(0x8003) == 0x35 &&
+                          r.rd(0x8004) == 0x99;
+
+        // An infinite-lives style trainer: a code patch and a lives counter the user chooses (value 256). The game
+        // loses a life; the dialog offers the byte memory holds, and the user accepts it.
+        Rig v(MachineType::ZX48K);
+        v.load("NLives\nM  8 32771 0 0\nZ  8 36864 256 0\n");
+        v.wr(0x8003, 0x35);
+        v.wr(36864, 0x11);
+        const std::string b1 = v.apply(0, 5);
+        v.wr(36864, 4);
+        const std::optional<uint8_t> offer = v.s->value_default(0);
+        const bool lost_v = v.s->state(0) == State::NotApplied;
+        const std::string b2 = v.apply(0, offer);
+        const std::string e = v.s->remove(0);
+        const bool lives = b1.empty() && offer && *offer == 4 && lost_v && b2.empty() && e.empty() &&
+                           v.rd(0x8003) == 0x35 && v.rd(36864) == 4;
+        check("POK-54", "after the program overwrote one byte of a trainer, Apply again and Remove put the byte "
+                        "still poked back to what it was BEFORE the first Apply (0x35) and leave the byte the "
+                        "program wrote as the program has it (0x99); the same for a code patch plus a lives "
+                        "counter, re-applied with the value the dialog offered (FEATURES / user guide 5.11: "
+                        "Remove restores the bytes replaced)",
+              r.ok && v.ok && pair && lives,
+              a1 + "|" + a2 + "|" + d + "|" + hex(r.rd(0x8003)) + hex(r.rd(0x8004)) + "|" + b1 + "|" + b2 + "|" +
+                  e + "|" + hex(v.rd(0x8003)) + hex(v.rd(36864)));
+    }
+
+    // POK-55: ... the older record is matched to the new one by LOCATION, so a byte at another place that merely
+    // holds the same value is the program's.
+    {
+        // Three places in one page whose bytes the program rotated: each holds ANOTHER place's poke.
+        Rig r(MachineType::ZX48K);
+        r.load("NR\nM  8 32771 1 0\nM  8 32772 2 0\nZ  8 32773 3 0\n");
+        for (int j = 0; j < 3; ++j) r.wr(where[j], before[j]);
+        const std::string a1 = r.apply(0);
+        r.wr(where[0], 2);
+        r.wr(where[1], 3);
+        r.wr(where[2], 1);
+        const std::string a2 = r.apply(0);
+        const std::string d = r.s->remove(0);
+        const bool rotated = a1.empty() && a2.empty() && d.empty() && r.rd(where[0]) == 2 &&
+                             r.rd(where[1]) == 3 && r.rd(where[2]) == 1;
+
+        // The map moved between the two Applies: a bank-8 poke at 0xC123 follows what is paged in, and the other
+        // bank holds, by chance, the byte the first Apply wrote.
+        Rig m(MachineType::ZX128K);
+        m.load("NMoved\nM  8 49443 66 0\nZ  8 32771 0 0\n");
+        m.bank(1);
+        m.wrp(2, 0x123, 0x21);   // bank 1 low half = 0xC123 while bank 1 is paged
+        m.wr(0x8003, 0x35);
+        const std::string b1 = m.apply(0);
+        m.wr(0x8003, 0x99);      // the program overwrote the code byte
+        m.bank(4);
+        m.wrp(8, 0x123, 66);     // bank 4 low half: the value the first Apply wrote into bank 1
+        const bool lost = m.s->state(0) == State::NotApplied;
+        const std::string b2 = m.apply(0);
+        const std::string e = m.s->remove(0);
+        const bool moved = b1.empty() && lost && b2.empty() && e.empty() && m.rdp(8, 0x123) == 66 &&
+                           m.rd(0x8003) == 0x99;
+        check("POK-55", "the record an Apply replaces is matched to the new one by place: three places whose "
+                        "bytes were rotated (each holds another's poke) come back as the program had them, and "
+                        "after the memory map moved a byte of the new place that equals the old poke is the "
+                        "program's and is left alone (plan section 3.2; user guide 5.11)",
+              r.ok && m.ok && rotated && moved,
+              a1 + "|" + a2 + "|" + d + "|" + hex(r.rd(where[0])) + hex(r.rd(where[1])) + hex(r.rd(where[2])) +
+                  "|" + b1 + "|" + b2 + "|" + e + "|" + hex(m.rdp(8, 0x123)) + hex(m.rd(0x8003)));
+    }
+
+    // POK-56: Remove logs too, one ASCII line, by either route (a recorded undo, or a trainer found in memory).
+    {
+        auto remove_logged = [](Rig& r, std::string& d) {
+            std::ostringstream out;
+            auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(out);
+            sink->set_pattern("%l %v");
+            Log::platform()->sinks().push_back(sink);
+            d = r.s->remove(0);
+            Log::platform()->sinks().pop_back();
+            return out.str();
+        };
+        const std::string file = std::string("NCaf\xE9 \xC2\xA3\nZ  8 32771 0 53\n");
+        Rig r(MachineType::ZX48K);
+        r.load(file);
+        r.wr(0x8003, 0x35);
+        r.apply(0);
+        std::string d1, d2;
+        const std::string recorded = remove_logged(r, d1);
+        Rig f(MachineType::ZX48K);
+        f.load(file);
+        f.wr(0x8003, 0x00);   // memory holds the poke, and the session has no record of putting it there
+        const bool found = f.s->state(0) == State::AppliedFound;
+        const std::string from_file = remove_logged(f, d2);
+        auto one_line = [](const std::string& text) {
+            return std::count(text.begin(), text.end(), '\n') == 1 &&
+                   text.find("removed") != std::string::npos &&
+                   text.find("Caf\\xE9 \\xC2\\xA3") != std::string::npos &&
+                   std::all_of(text.begin(), text.end(),
+                               [](char c) { return static_cast<unsigned char>(c) < 0x80; });
+        };
+        check("POK-56", "removing a trainer logs exactly one line saying it was removed, with the name escaped as "
+                        "\\xHH, both when the session recorded the undo and when the trainer was found in memory "
+                        "and the file's original is used (plan section 3.2: remove logs; GH #382 for the ASCII)",
+              r.ok && f.ok && found && d1.empty() && d2.empty() && one_line(recorded) && one_line(from_file),
+              recorded + "|" + from_file);
     }
 }
 

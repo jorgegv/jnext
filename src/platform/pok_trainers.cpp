@@ -398,8 +398,18 @@ std::string Session::apply(size_t i, std::optional<uint8_t> value) {
     // Every original was read by resolve(), before the first byte is written.
     const std::vector<uint8_t> fin = finals(t, plan, value);
     std::vector<Rec> recs;
-    for (size_t j = 0; j < plan.locs.size(); ++j)
-        recs.push_back(Rec{plan.locs[j], plan.locs[j].byte, fin[j]});
+    for (size_t j = 0; j < plan.locs.size(); ++j) {
+        Rec rec{plan.locs[j], plan.locs[j].byte, fin[j]};
+        // This Apply replaces an older record of the trainer (the program overwrote part of it, so it reads Not
+        // applied and Remove is refused: Apply is the only way on). A place that still holds what that record
+        // wrote has not been touched since: the byte there is our own poke, and what it replaced is the older
+        // record's original - taking the byte for the original would leave the poke in memory for good. A place
+        // the program changed holds the program's byte, which is what Remove puts back.
+        for (const Rec& old : records_[i])
+            if (old.loc.page == rec.loc.page && old.loc.off == rec.loc.off && old.final_ == rec.loc.byte)
+                rec.original = old.original;
+        recs.push_back(rec);
+    }
 
     // Once every location has resolved, the one thing that can refuse a poke is an
     // RZX recording or playback, and it refuses every poke alike: if the first byte

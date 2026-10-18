@@ -752,7 +752,7 @@ target_link_libraries(snapshot_machine_test PRIVATE
 target_include_directories(snapshot_machine_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME snapshot_machine_tests COMMAND snapshot_machine_test)
 
-# GH #381 — POK trainer files: the .pok parser and the session that applies and
+# GH #381 - POK trainer files: the .pok parser and the session that applies and
 # removes trainers through the debugger backend (src/platform/pok_trainers.*).
 # No Qt (so it runs in the SDL-only and the Windows builds too); a real Emulator
 # and Debugger, built like debugger_backend_test (no ROM, no SD image).
@@ -1424,7 +1424,7 @@ if(ENABLE_QT_UI)
     target_include_directories(nex_v13_dialog_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME nex_v13_dialog_tests COMMAND nex_v13_dialog_test)
 
-    # GH #381 — Machine > POK Trainers...: the real menu action, file picker,
+    # GH #381 - Machine > POK Trainers...: the real menu action, file picker,
     # trainers dialog and value prompt over a real MainWindow and 48K machine.
     # The decisions (where a poke lands, undo, states) are pok_trainers_test's,
     # without Qt; this pins the wiring on top. Same offscreen-QPA idiom as

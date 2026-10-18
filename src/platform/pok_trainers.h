@@ -40,7 +40,11 @@
 // program that overwrites the poke makes it read "not applied" without anyone
 // being notified. A record that stops verifying is KEPT (a later removal of an
 // overlapping trainer can make it true again); `forget_applied()` drops them all,
-// and the Qt window calls it whenever the machine is rebuilt.
+// and the Qt window calls it whenever the machine is rebuilt. Applying a trainer
+// whose older record no longer verifies (the program overwrote part of it) replaces
+// that record, but a location that still holds what the older record wrote keeps
+// the older record's original: that byte is still our poke, and what it replaced is
+// what a removal must put back.
 // ---------------------------------------------------------------------------
 
 #include <array>
@@ -126,7 +130,10 @@ public:
     /// Poke trainer `i`. `value` is the byte for the pokes whose value is 256 and
     /// is required exactly when `asks_value()`. Returns "" when applied, otherwise
     /// why not. ATOMIC: every location is resolved and every original read before
-    /// the first byte is written, so a refusal leaves memory untouched.
+    /// the first byte is written, so a refusal leaves memory untouched. The
+    /// original recorded for a location is the byte there now - except where an
+    /// older record of the trainer wrote the byte that is still there: then it is
+    /// that record's original (see the banner).
     std::string apply(size_t i, std::optional<uint8_t> value);
 
     /// Undo trainer `i`. Applied: the recorded originals go back to the recorded
