@@ -532,9 +532,12 @@ static void lex_rows() {
         const LexResult range  = lex("@main.loop..@main");
         const LexResult under  = lex("@_.first");
         const LexResult local  = lex("@main._tmp");
-        check("LEX-26", "`@name` joins identifiers with `.` only before a letter or `_`: `@gfx.draw.loop` and "
-                        "`@main._tmp` are one symbol, `@main.loop..@main` a symbol, `..` and a symbol, `@a.1` "
-                        "and `@a.` keep their `.`",
+        // A part after the `.` may be one letter: a struct field `pos.x`, `a.b.c`.
+        const LexResult field  = lex("@pos.x");
+        const LexResult single = lex("@a.b.c");
+        check("LEX-26", "`@name` joins identifiers with `.` only before a letter or `_`: `@gfx.draw.loop`, "
+                        "`@main._tmp`, `@pos.x` and `@a.b.c` (one-letter parts) are one symbol, "
+                        "`@main.loop..@main` a symbol, `..` and a symbol, `@a.1` and `@a.` keep their `.`",
               !dotted.error && dotted.tokens.size() == 2 && dotted.tokens[0].kind == Tok::Symbol &&
                   dotted.tokens[0].text == "gfx.draw.loop" &&
                   !range.error && range.tokens.size() == 4 && range.tokens[0].text == "main.loop" &&
@@ -544,8 +547,13 @@ static void lex_rows() {
                   kinds("@a.1") == std::vector<Tok>{Tok::Symbol, Tok::Dot, Tok::Int, Tok::Eof} &&
                   kinds("@a.") == std::vector<Tok>{Tok::Symbol, Tok::Dot, Tok::Eof} &&
                   !under.error && under.tokens.size() == 2 && under.tokens[0].text == "_.first" &&
-                  !local.error && local.tokens.size() == 2 && local.tokens[0].text == "main._tmp",
-              dstr(dotted.error) + dstr(range.error) + dstr(under.error) + dstr(local.error));
+                  !local.error && local.tokens.size() == 2 && local.tokens[0].text == "main._tmp" &&
+                  !field.error && field.tokens.size() == 2 && field.tokens[0].kind == Tok::Symbol &&
+                  field.tokens[0].text == "pos.x" &&
+                  !single.error && single.tokens.size() == 2 && single.tokens[0].kind == Tok::Symbol &&
+                  single.tokens[0].text == "a.b.c",
+              dstr(dotted.error) + dstr(range.error) + dstr(under.error) + dstr(local.error) +
+                  dstr(field.error) + dstr(single.error));
     }
 }
 

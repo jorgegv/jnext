@@ -2293,14 +2293,26 @@ static void test_map_load() {
         bad.after_file_accept = [gone_path]() { QFile::remove(QString::fromStdString(gone_path)); };
         if (sjasm) sjasm->trigger();
         bad.timer.stop();
+        const size_t after_bad = fx.backend->symbols().size();
+
+        // A readable file with no entry is a successful load of zero, as for the
+        // other two items (QMAP-02, QMAP-04): sjasmplus writes a 0-byte --exp when
+        // nothing is EXPORTed. It replaces the table, so this one runs last.
+        const std::string empty_path = write_file("empty_sjasmplus.exp", "");
+        Modals empty;
+        empty.file_path = QString::fromStdString(empty_path);
+        if (sjasm) sjasm->trigger();
+        empty.timer.stop();
 
         const Modals::Seen* okb = ok.first("box");
         const Modals::Seen* badb = bad.first("box");
+        const Modals::Seen* emptyb = empty.first("box");
         const Modals::Seen* dlg = ok.first("file");
         check("QMAP-05",
               "sjasmplus Format...: a file dialog for *.sym and *.exp; a real --sym loads (\"MAP Loaded\" / "
               "\"Loaded 14 symbols\"), dotted names resolve and the first label at an address names it; a "
-              "file that cannot be read gives \"Load Failed\" and keeps the table",
+              "file that cannot be read gives \"Load Failed\" and keeps the table; a 0-byte --exp loads "
+              "zero (\"MAP Loaded\" / \"Loaded 0 symbols\") and empties it",
               sjasm && dlg && dlg->title == "Load sjasmplus Symbol File" &&
                   dlg->filters == "sjasmplus Symbol Files (*.sym *.exp);;All Files (*)" &&
                   okb && okb->title == "MAP Loaded" &&
@@ -2310,8 +2322,12 @@ static void test_map_load() {
                   kept == 14 && badb && badb->title == "Load Failed" &&
                   badb->text == QStringLiteral("Could not load MAP file:\n%1")
                                     .arg(QString::fromStdString(gone_path)) &&
-                  fx.backend->symbols().size() == 14,
-              fmt("ok: %s bad: %s table=%zu", ok.describe().c_str(), bad.describe().c_str(),
+                  after_bad == 14 && emptyb && emptyb->title == "MAP Loaded" &&
+                  emptyb->text == QStringLiteral("Loaded 0 symbols from:\n%1")
+                                      .arg(QString::fromStdString(empty_path)) &&
+                  fx.backend->symbols().size() == 0,
+              fmt("ok: %s bad: %s table after bad=%zu; empty: %s table after=%zu", ok.describe().c_str(),
+                  bad.describe().c_str(), after_bad, empty.describe().c_str(),
                   fx.backend->symbols().size()));
     }
 
