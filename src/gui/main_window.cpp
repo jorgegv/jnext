@@ -354,8 +354,6 @@ MainWindow::~MainWindow() {
     // that does, the same contract as the DebuggerManager destructor.
     if (debugger_ && pause_client_ != jnext::dbg::CLIENT_NONE)
         debugger_->detach(pause_client_);
-    // GH #381 — the dialog is a child and dies after the session below it.
-    if (pok_dialog_) pok_dialog_->set_session(nullptr);
 }
 
 void MainWindow::set_emulator(Emulator* emu) {
@@ -1511,14 +1509,12 @@ bool MainWindow::open_pok_file(const QString& path) {
         if (!unattended_) QMessageBox::warning(this, tr("POK Trainers"), msg);
         return false;
     }
-    // The dialog must not hold the session it is about to lose.
-    if (pok_dialog_) pok_dialog_->set_session(nullptr);
     pok_ = std::make_unique<jnext::pok::Session>(*debugger_, std::move(file), path.toStdString());
     if (!pok_dialog_) {
-        pok_dialog_ = new PokDialog(this);
-        connect(pok_dialog_, &PokDialog::open_file_requested, this, &MainWindow::on_pok_open);
+        pok_dialog_ = std::make_unique<PokDialog>(this);
+        connect(pok_dialog_.get(), &PokDialog::open_file_requested, this, &MainWindow::on_pok_open);
     }
-    pok_dialog_->set_session(pok_.get());
+    pok_dialog_->set_session(pok_.get());   // straight away: the old session is gone
     if (pok_dialog_->isVisible()) {
         pok_dialog_->raise();
         pok_dialog_->activateWindow();

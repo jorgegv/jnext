@@ -267,6 +267,8 @@ void test_buttons() {
     f.ok = f.ok && f.win.open_pok_file(QString::fromStdString(fixture_pok()));
     QPushButton* apply = f.button("apply");
     QPushButton* remove = f.button("remove");
+    // The first trainer is selected when the dialog opens: Apply is ready at once.
+    const bool preselected = apply && remove && apply->isEnabled() && !remove->isEnabled();
     f.select(3);   // the invalid one
     const bool invalid_off = apply && remove && !apply->isEnabled() && !remove->isEnabled();
     f.select(0);
@@ -274,9 +276,11 @@ void test_buttons() {
     if (apply) apply->click();
     const bool applied = apply && remove && !apply->isEnabled() && remove->isEnabled();
     check("PKD-04", "Apply and Remove are both disabled on an invalid trainer; on a fresh one only Apply is "
-                    "enabled; on an applied one only Remove is",
-          f.ok && invalid_off && fresh && applied,
-          std::to_string(invalid_off) + std::to_string(fresh) + std::to_string(applied));
+                    "enabled, and the first trainer is already selected when the dialog opens; on an applied "
+                    "one only Remove is",
+          f.ok && preselected && invalid_off && fresh && applied,
+          std::to_string(preselected) + std::to_string(invalid_off) + std::to_string(fresh) +
+              std::to_string(applied));
 }
 
 void test_load_failure() {

@@ -261,17 +261,18 @@ void test_parser() {
     // POK-06
     {
         const PokFile f = parse_pok("NA\nZ 8 16383 1 0\nNB\nZ 8 16384 1 0\nNC\nZ 8 65535 1 0\nND\nZ 8 65536 1 0\n"
-                                    "NE\nZ 8 99999999999999999999 1 0\n");
+                                    "NE\nZ 8 99999999999999999999 1 0\nNF\nZ 8 4294983680 1 0\n");
         check("POK-06", "addresses 16384 and 65535 are valid, 16383 and 65536 invalidate their trainers, "
                         "naming their lines, and so does a number too long for any integer, shown cut short "
                         "(WoS POKformat.txt: address 16384-65535)",
-              f.trainers.size() == 5 &&
+              f.trainers.size() == 6 &&
                   f.trainers[0].problem == "line 2: address 16383 is outside 16384-65535" &&
                   f.trainers[1].problem.empty() && f.trainers[2].problem.empty() &&
                   f.trainers[3].problem == "line 8: address 65536 is outside 16384-65535" &&
-                  f.trainers[4].problem == "line 10: address 9999999999... is outside 16384-65535",
-              f.trainers.size() == 5 ? f.trainers[0].problem + " | " + f.trainers[4].problem
-                                     : std::string("not 5 trainers"));
+                  f.trainers[4].problem == "line 10: address 9999999999... is outside 16384-65535" &&
+                  f.trainers[5].problem == "line 12: address 4294983680 is outside 16384-65535",
+              f.trainers.size() == 6 ? f.trainers[4].problem + " | " + f.trainers[5].problem
+                                     : std::string("not 6 trainers"));
     }
 
     // POK-07
@@ -441,8 +442,11 @@ void test_parser() {
                            f.trainers[2].name.empty() && f.trainers[2].problem.empty();
         const bool utf8_ok = is_valid_utf8(utf8) && is_valid_utf8("") && is_valid_utf8("\xE2\x82\xAC") &&
                              is_valid_utf8("plain ASCII") && !is_valid_utf8("Caf\xE9") &&
-                             !is_valid_utf8("\xC0\x80") && !is_valid_utf8("\xED\xA0\x80") &&
-                             !is_valid_utf8("\xF4\x90\x80\x80") && !is_valid_utf8("\xE2\x82");
+                             !is_valid_utf8("\xC0\x80") && !is_valid_utf8("\xE0\x80\x80") &&
+                             !is_valid_utf8("\xED\xA0\x80") && !is_valid_utf8("\xF0\x80\x80\x80") &&
+                             !is_valid_utf8("\xF4\x90\x80\x80") && !is_valid_utf8("\xF5\x80\x80\x80") &&
+                             !is_valid_utf8("\xFF") && !is_valid_utf8("\xE2\x82") &&
+                             !is_valid_utf8("\xC3") && is_valid_utf8("\xF0\x9F\x98\x80");
         check("POK-18", "a 45-byte name and a name with UTF-8 bytes (\\xC2\\xA3) are kept byte for byte, and an "
                         "empty name is a name (the survey: 4446 names over 30 bytes, 138 with UTF-8); "
                         "is_valid_utf8 follows RFC 3629",
@@ -569,10 +573,13 @@ void test_session() {
         const std::string a = r.apply(0);
         const bool applied = a.empty() && r.rd(0x8003) == 0x00 && r.s->state(0) == State::Applied;
         const std::string d = r.s->remove(0);
+        const bool restored = r.rd(0x8003) == 0x35 && r.s->state(0) == State::NotApplied;
+        r.wr(0x8003, 0x00);   // the program writes the poked value itself: that is no applied trainer of ours
+        const bool found = r.s->state(0) == State::AppliedFound;
         check("POK-30", "on a 48K a bank-8 poke lands at its address in the memory map (0x8000 is page 04, "
-                        "zxnext.vhd:4613-4616) and Remove restores the byte it replaced",
-              r.ok && applied && d.empty() && r.rd(0x8003) == 0x35 && r.s->state(0) == State::NotApplied,
-              a + "|" + d + "|" + hex(r.rd(0x8003)));
+                        "zxnext.vhd:4613-4616) and Remove restores the byte it replaced and forgets the undo "
+                        "record (the poked value in memory afterwards reads \"found\", not \"applied\")",
+              r.ok && applied && d.empty() && restored && found, a + "|" + d + "|" + hex(r.rd(0x8003)));
     }
 
     // POK-31: a banked poke at 0xC000+ reaches its bank whatever is paged in, on every 128K-class machine.
@@ -786,12 +793,21 @@ void test_session() {
         const std::string a = r.apply(0, 42);
         const bool landed = r.rd(36864) == 42 && r.rd(36870) == 201 && r.rd(36900) == 42;
         r.s->forget_applied();   // a value the user typed cannot be found again in memory
+        // Nor is one found where memory happens to hold the fixed pokes and zero for the open ones.
+        Rig z(MachineType::ZX48K);
+        z.load("NLives\nM  8 36864 256 0\nM  8 36870 201 0\nZ  8 36900 256 0\n");
+        z.wr(36864, 0);
+        z.wr(36870, 201);
+        z.wr(36900, 0);
+        const bool not_found = z.s->state(0) == State::NotApplied &&
+                               z.apply(0).find("asks for a value") != std::string::npos;
         check("POK-41", "a trainer with value-256 pokes refuses to apply without a value and writes nothing; "
                         "with 42 every value-256 poke gets 42 and the fixed poke keeps its own 201; once the "
-                        "undo records are forgotten it reads Not applied, as the value is unknown (WoS "
+                        "undo records are forgotten it reads Not applied, as the value is unknown, and so "
+                        "does one whose open pokes happen to hold zero (WoS "
                         "POKformat.txt: 256 = ask the user; the survey: 362 trainers with 2+ such pokes)",
               r.ok && without.find("asks for a value") != std::string::npos && nothing && a.empty() &&
-                  landed && r.s->state(0) == State::NotApplied,
+                  landed && r.s->state(0) == State::NotApplied && not_found,
               without + "|" + a + "|" + hex(r.rd(36864)) + hex(r.rd(36870)) + hex(r.rd(36900)));
     }
 

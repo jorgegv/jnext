@@ -454,8 +454,10 @@ private:
     // GH #381 - the POK file open in Machine > POK Trainers... and the dialog
     // showing it. The session outlives resets (set_emulator() makes it forget
     // its undo records) and is replaced when another file is opened.
+    // Declared in this order on purpose: the dialog holds a pointer to the
+    // session, so it must be destroyed first (members die in reverse order).
     std::unique_ptr<jnext::pok::Session> pok_;
-    PokDialog* pok_dialog_ = nullptr;
+    std::unique_ptr<PokDialog> pok_dialog_;
     RebootCallback   reboot_callback_;
     ConfirmRestartCallback confirm_restart_callback_;
     EspConfigCallback esp_config_callback_;

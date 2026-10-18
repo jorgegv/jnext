@@ -184,7 +184,6 @@ PokFile parse_pok(std::string_view text) {
         } else if (tag == 'Y') {
             break;
         } else if (open) {
-            last_line = lineno;
             fail(lineno, unexpected(static_cast<unsigned char>(tag)));
         } else {
             out.problems.push_back(at(lineno, unexpected(static_cast<unsigned char>(tag))));
