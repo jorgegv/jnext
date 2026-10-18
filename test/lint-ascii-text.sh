@@ -397,6 +397,10 @@ self_test() {
     fx LAT-A27 "A:1"     src/t.cpp "char16_t c = u'${BS}" "${EM}';"             # ... and an LF splice inside a character literal
     fx LAT-A28 "A:1"     src/t.cpp "char q = '${BS}\"'; f(\"${EM}\");"          # an escaped quote in a character literal opens no string
     fx LAT-A29 "A:3"     src/t.cpp "char16_t c = u'${BS}" "x';" "f(\"${EM}\");" # the line count survives a splice inside a character literal
+    fx LAT-A30 "A:1"     src/t.cpp "char16_t c = u'${BS}u2014';"                # an escape inside a character literal is decoded
+    fx LAT-A31 "A:1"     src/t.cpp "f(\"a ${BS}xE2${BS}x80${BS}x94 b\");"             # byte escapes after text in the same literal
+    fx LAT-A32 "A:2"     src/t.cpp "const char* s = \"a\"" "    \"${EM}\";"         # the line end right after a literal is counted
+    fx LAT-A33 "A:1"     src/t.cpp "const char* s = \"a\"\"${EM}\";"             # adjacent literals with no space between them
     # Rule A is not excused by a declaration, and the declaration is not stale for it.
     CONF_TEXT=$(printf 'src/t.cpp\ta %s b\treason\n' "$EM")
     fx LAT-A12 "A:1"     src/t.cpp "f(\"a ${EM} b\");"
