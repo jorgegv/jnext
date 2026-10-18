@@ -934,8 +934,8 @@ void test_alt_reset_keys() {
         const bool plain_requested = emu.take_hard_reset_request();
         check("H380-06", "With an emulator attached, Alt+F1 and Meta+Alt+F1 request no reset of either "
                          "kind and do not quit, and F1 alone requests the hard reset and does not quit",
-              rt0 == 0b100 && !alt_requested && rt_alt == rt0 && fired_alt == 0 &&
-                  plain_requested && watch.fired == 0,
+              watch.quit != nullptr && rt0 == 0b100 && !alt_requested && rt_alt == rt0 &&
+                  fired_alt == 0 && plain_requested && watch.fired == 0,
               watch.detail() + " alt_f1_hard_requested=" + (alt_requested ? "1" : "0") +
                   " plain_f1_hard_requested=" + (plain_requested ? "1" : "0") +
                   " rt0=" + std::to_string(rt0) + " rt_after_alt=" + std::to_string(rt_alt) +
