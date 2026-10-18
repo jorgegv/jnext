@@ -101,7 +101,7 @@ if want quick-snapshot-sdl-func; then
                 xdotool windowactivate --sync "$wid" 2>/dev/null || true
                 tap() { xdotool key "$1" 2>/dev/null || true; sleep 0.5; }
                 case "$mode" in
-                    empty|load|load2) tap alt+shift+F9 ;;
+                    empty|load|load2|loadts) tap alt+shift+F9 ;;
                     keep1) tap alt+shift+F5 ;;
                     typeafter) tap alt+shift+F9; sleep 5; tap b; tap 5; tap Return ;;
                     # GH #386: the chord and the keys behind it in ONE burst (no
