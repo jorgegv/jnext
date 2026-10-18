@@ -2693,6 +2693,10 @@ frontend and to script handlers, under one contract.</p>
 <td>refused: <code>RefusedReadOnly</code></td>
 </tr>
 <tr>
+<td><code>poke</code> of a space only the read arbiter names (<code>boot_rom()</code>, <code>multiface_rom()</code>, <code>multiface_ram()</code>, <code>divmmc_rom()</code>, <code>divmmc_ram(b)</code>, <code>alt_rom(i)</code>, <code>layer2(p)</code>, <code>config(b)</code>, <code>floating()</code>)</td>
+<td>refused: <code>Unsupported</code>, nothing written, no <code>MUTATE</code> line</td>
+</tr>
+<tr>
 <td><code>set_mmu_slot</code></td>
 <td>through the NR 0x50+slot handler, so page 0xFF on slot 0 or 1 re-engages legacy ROM paging as the guest's <code>NEXTREG</code> does</td>
 </tr>

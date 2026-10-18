@@ -735,6 +735,28 @@ CM1-01 fails; dropping the FF-state terms → CM1-04/05/06 fail; weakening
 the retn-delay wrapper's pending term → DM-RETN-PROPER-01 (here) and
 MF-G48-06 (nmi_test) fail.
 
+## GH #339 — the M1 prediction (DM-PRED-01)
+
+`DivMmc::active_on_m1(pc, gates...)` answers, without changing any state, what
+`is_active()` will be once `check_automap(pc, true, gates...)` has run for an M1
+at `pc`: `held` (the previous M1's hold, divmmc.vhd:141) or an instant-on entry
+point of this M1 (:148), conmem (:94), the automap disabled by `nr_0a_4`
+(`divmmc_automap_reset`, zxnext.vhd:4112; divmmc.vhd:126) and the port enable
+(`rom_en and i_en`, :98). Its first consumer is `Emulator::predict_fetch()`, the
+debugger's prediction of the next opcode fetch. Five of its eight arms had no
+row of their own.
+
+Row in `test/divmmc/divmmc_test.cpp` §21 (suite 154 → 155):
+
+| ID | Test | Notes |
+|----|------|-------|
+| DM-PRED-01 | `active_on_m1` equals `is_active()` after `check_automap` on a copy, for every state the product reaches | Nine entry configurations (RST 0x08 instant and delayed on the main and ROM3 paths, every RST, the NMI entry with the button latched, a tape trap, the $3Dxx wildcard, the unmap range over a delayed entry) x seven M1 histories x the eight settings of {port io, nr_0a bit 4, conmem} applied after the history x ten pcs x all sixteen gate tuples = 80 640 probes; the row also asserts it visited delayed-on, conmem, automap-disabled, port-io-off, NMI instant-on, held promotion and unmap (divmmc.vhd:94-99,107-148; zxnext.vhd:2892-2908) |
+
+Mutation results: `held || instant || delayed`, dropping the conmem arm, the
+`!enabled_` arm, the port-io arm, or decoding with `button_nmi = false` each
+turn DM-PRED-01 red, and the SRCDBG-ID-09..12 and 18 rows in
+`source_debug_test` with it.
+
 ## GH #196 Phase 1.3 — "Extra coverage" table dropped (2026-08-01)
 
 `doc/testing/TRACEABILITY-MATRIX.md`'s DivMMC+SPI section carried a

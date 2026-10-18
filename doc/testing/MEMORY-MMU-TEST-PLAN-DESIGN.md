@@ -1209,11 +1209,47 @@ TAG-08 and TAG-09 write more of it).
 | L2LOG-TAG-09 | A frame that outgrows the log's storage, then a re-init (layer2.vhd:177-188) | 16 384 addresses of bank 8 written at rows 20 and 40 (32 768 entries); `sram_log_stop()`; next frame 3 writes | Every address: frame-start, first and second value at rows 10/30/50; after the stop the log is empty and off; the next frame replays its 3 writes, the rest read live — pass |
 | L2LOG-TAG-10 | Render passes interleaved with writes in one frame (layer2.vhd:177-188) | A written at (30, 0); one pass reads it at (50, 100); A written at (45, 0); passes read it at (50, 100), (40, 100), (20, 100) | 0x22 first, then 0x33, 0x22 and the frame-start 0x11: no pass changes what a later one reads — pass |
 
-**Total: 211 test cases across 31 categories.** Counted from the catalogue
-above (2026-10-17), one per row ID: 230 rows, less the 19 struck through, which
+### Category 32: Fetch identity — the one read arbiter (GH #339)
+
+`Mmu::route(addr)` is the single function that decides what supplies a CPU read,
+in the VHDL's order (boot ROM, Multiface, DivMMC ROM/RAM, Layer 2, alt ROM,
+config, the slot's own source), and returns it as a `MemSpace`, an offset in that
+store and the byte. `read()`, `read_m1()` and the debugger's prediction of the
+next opcode fetch are all that function. Every expected value is derived from
+`zxnext.vhd`, never from the C++. FSRC-01..08 and 11..15 are in `mmu_test`
+(a bare `Mmu` with a `DivMmc` and a `Multiface`, Next mode, Ram 2 MB); FSRC-09,
+10 and 16 are in `mmu_integration_test` (a real `Emulator`, so the DivMMC and
+Multiface backings are the production ones). The memory map the oracle resolves
+stores from: SRAM `0x000000` ROM, `0x010000` DivMMC ROM (page 0x08), `0x014000`
+Multiface (pages 0x0A/0x0B), `0x018000` Alt ROM0 and `0x01C000` Alt ROM1
+(pages 0x0C-0x0F), `0x020000` DivMMC RAM (pages 0x10-0x1F), `0x040000` Spectrum
+RAM (zxnext.vhd:2920-2927); MMU page `n` is SRAM page `n + 0x20` (:2964) except
+the bank-5 / bank-7 BRAMs (pages 0x0A/0x0B/0x0E, :2961-2962, :6562, :6670).
+
+| ID | Test | Setup | Expected |
+|----|------|-------|----------|
+| FSRC-01 | The boot ROM answers first, mirrored, and gives way | `set_boot_rom(8 KB)` with the Multiface active, DivMMC conmem and the Layer 2 read mapping on | `route(0x0000)` BootRom 0, `0x2000` the same byte (mirror), `0x3FFF` BootRom 0x1FFF, `0x4000` Page{0x0A}; boot ROM off: MultifaceRom (zxnext.vhd:1856-1857, 3199-3204, 3030-3035) |
+| FSRC-02 | The Multiface is above DivMMC and Layer 2; `route_with` takes the overlays as given | Multiface armed and latched, DivMMC conmem bank 5, Layer 2 read segment 00 | `0x0000-0x1FFF` MultifaceRom, `0x2000-0x3FFF` MultifaceRam, `0x4000` Page{0x0A}; `route_with(0x0000, false, false)` Layer2{0x10}, `(0x0000, false, true)` MultifaceRom (zxnext.vhd:3030-3035, 2933-2950) |
+| FSRC-03 | DivMMC ROM over an MMU RAM page and over Layer 2; port enable | MMU0 = 0x20, E3 = 0x80, Layer 2 read on | DivMmcRom 0 / 0x1FFF; `set_port_io_enable(false)`: Layer2{0x10} (:3043, 3084-3090, 3100; divmmc.vhd:94,98) |
+| FSRC-04 | DivMMC RAM bank, and bank 3 under MAPRAM | E3 = 0x85, then 0xC5 | `0x2000` DivMmcRam{5}; MAPRAM: `0x0000` DivMmcRam{3} (divmmc.vhd:95-96,99; :3092-3093) |
+| FSRC-05 | Layer 2 page arithmetic | NR 0x12 = 9; port 0x123B 0x04 (segment 00), 0xC4 (segment 11), offset register 2, map_shadow with NR 0x13 = 11 | segment 00: Layer2{0x12}/{0x13} at 0x0000/0x2000, 0x4000 not mapped; segment 11: {0x14} {0x16} {0x17} at 0x4000/0x8000/0xA000, 0xC000 never; offset 2: {0x16}; shadow bank: {0x16}, {0x18} (zxnext.vhd:2966-2969, 3065, 3077, 3100) |
+| FSRC-06 | Alternate ROM read override | NR 0x8C = 0x80 with 7FFD 0x00/0x10, 0xA0 (lock_rom1), 0xC0 (write-over), 48K, config mode, MMU0 RAM | AltRom{0} / AltRom{1}; 0xA0 AltRom{1}; 0xC0 the live ROM; 48K AltRom{1}; config mode Config{9}; RAM Page{0x20} (zxnext.vhd:2981-3008, 3037, 3050, 3078, 3116-3122) |
+| FSRC-07 | Legacy ROM by machine type and locks | Next 7FFD 0x00/0x10, NR 0x8C 0x20/0x10, +3 1FFD/7FFD, 48K, NR 0x50 = 0xE5 | Rom{0} / Rom{1} (slot 1 at offset 0x2000+), lock_rom1 Rom{1}, lock_rom0 only Rom{0}, +3 Rom{3} then Rom{2}, 48K Rom{0}, MMU0 = 0xE5 Rom{sram_rom} (zxnext.vhd:2981-3008, 3037, 3052) |
+| FSRC-08 | The per-slot cache follows every mapping entry point | `set_page` of 0x00/0x0A/0x0B/0x0E/0x20/0xDF on every slot; then each public mapping entry point (set_page, map_rom, 128K and +3 paging normal and special, ports DFFD/EFF7, NR 0x8E/0x8F/0x8C, machine type, per-slot legacy ROM, ROM-in-SRAM, reset, load_state) from a state holding RAM, 0xE5 and ROM slots | all eight slots equal the VHDL derivation from the MMU registers: Page below 0xE0, Rom{sram_rom} on slots 0/1, Floating on slots 2-7 (zxnext.vhd:2952-2964, 3037, 3052, 3060) |
+| FSRC-09 | `route()` names the store the FPGA memory map assigns (the lockstep oracle) | 14 configurations (boot ROM; legacy and 7FFD ROM; BRAM and floating pages; DivMMC ROM/RAM/MAPRAM; Multiface; Layer 2 incl. bank 5; alternate ROM; config; +3 and 48K standalone), every store filled with its own signature | all 64 K addresses: same byte pointer as the store the oracle resolves, `peek` equal to it, kind <= 15, index <= 0xFF, all eleven kinds reached (zxnext.vhd:2920-2927, 2964, 2971, 3031, 3045, 3085, 3093, 3117, 6562, 6670) |
+| FSRC-10 | The fetch records its source | DivMMC RST $08 instant, `RST $08` at 0x8000, two instructions | `last_m1` Page{4} after the RST, DivMmcRom after the instruction at 0x0008; equal to the prediction before each (zxnext.vhd:4611-4618, 2892; divmmc.vhd:148) |
+| FSRC-11 | Config mode | NR 0x03 config on, NR 0x04 = 9; then + conmem; + Layer 2; MMU0 RAM | Config{9} (offset 0x2000 at slot 1), DivMmcRom, Layer2, Page{0x20} (zxnext.vhd:3044-3050, 3037, 3084, 3100) |
+| FSRC-12 | Nothing answers | `set_page(3, 0xE5)` and `0xFF`; NR 0x12 = 0x6E segment 11 | `0x6000` Floating with no byte; Layer 2 sum 0x6F is Layer2{0xDE}, sum 0x70 Floating (zxnext.vhd:3060-3061, 2971, 3101-3102) |
+| FSRC-13 | The +3 floating-bus latch captures every contended read (R1) | +3 timing, MMU page 0x08 under Layer 2, DivMMC conmem and the Multiface; controls: page 0x10, plain RAM | latch equals the byte read in the three overlay cases and the plain control, unchanged over a non-contended page (zxnext.vhd:4489-4493, 4498-4509) |
+| FSRC-14 | The latch captures every contended write, a dropped one included (R1) | Layer 2 write-over, DivMMC RAM, Multiface RAM, a DivMMC ROM write the arbiter drops | latch equals the byte written in every contended case, unchanged over a non-contended page (zxnext.vhd:4498-4509) |
+| FSRC-15 | A READ watch fires on boot-ROM and floating reads (R2) | persistent breakpoints, READ watches at 0x0010 (boot ROM) and 0x6000 (MMU3 = 0xE5); `GuestExecutionScope` | both reads raise `data_bp_hit`, so does a RAM read; a `peek` of either does not |
+| FSRC-16 | `last_m1` is "none recorded" after reset and state load | an Emulator: construct, execute, `Mmu::reset`, execute, NMI slot, save, execute, `load_state` | `MemSpace::cpu()` fresh, set by an instruction, cleared by reset and by load, kept over an accepted NMI (no opcode fetched) |
+
+**Total: 227 test cases across 32 categories.** Counted from the catalogue
+above (2026-10-18), one per row ID: 246 rows, less the 19 struck through, which
 are retired or, for CON-01 … CON-11, re-homed to the Contention plan (P7F-11,
 P1F-07, EF7-06, CON-01 … CON-12b, BOOT-FDC-01 … BOOT-FDC-03). Category 11.x
-counts as one of the 31; there is no Category 27.
+counts as one of the 32; there is no Category 27.
 
 ## Test Approach
 
