@@ -589,8 +589,10 @@ regression-rows: unit-test-build $(ROWS_BUILD) sdl-release z88dk-gdb
 	@# build. JNEXT is pinned explicitly: regression.sh's own search prefers
 	@# build/gui-release/jnext whenever that exists, which would silently
 	@# test a stale PGO binary lying around in the tree.
+	@# The recipe overrides a JNEXT set by the caller; to pin another binary run the bare script.
 	@# A targeted run never takes the host lock and never stamps.
 	@[ -n "$(ROWS)" ] || { printf "$(BADGE_FAIL) FAIL $(RESET) name the rows: make regression-rows ROWS=\"row-a row-b\" [ROWS_PGO=1]\n"; exit 2; }
+	@printf "regression-rows: Qt jnext = build/$(ROWS_BUILD)/jnext\n"
 	JNEXT=$(CURDIR)/build/$(ROWS_BUILD)/jnext bash test/00regression/regression.sh $(ROWS)
 
 # Re-run SOLO the rows a full run failed on a loaded host; stamp the run if all pass
