@@ -149,13 +149,20 @@ bool ScriptHost::start(dbg::Debugger& dbg, const ScriptHostOptions& opt) {
     dbg.pump(dbg::PumpBudget{});
 
     if (!opt.map_file.empty()) {
-        const auto n = dbg.load_map(opt.map_file, dbg::MapFormat::Z88dk);
+        // The file's CONTENTS pick the loader, not its name: sjasmplus names
+        // its files freely (`--sym=<filename>`), and z88dk's assembler writes
+        // a `.sym` of its own, in the map format (GH #390).
+        const auto format = SymbolTable::is_sjasmplus_equ_file(opt.map_file)
+                                ? dbg::MapFormat::SjasmplusEqu
+                                : dbg::MapFormat::Z88dk;
+        const auto n = dbg.load_map(opt.map_file, format);
         if (!n) {
             error("--map " + opt.map_file + ": cannot be loaded (" + dbg::result_name(n.status) + ")");
             return false;
         }
         if (n.value == 0) {
-            error("--map " + opt.map_file + ": no symbols found (a z88dk .map is expected)");
+            error("--map " + opt.map_file +
+                  ": no symbols found (a z88dk .map or an sjasmplus --sym/--exp file is expected)");
             return false;
         }
         dbg.log(dbg::CLIENT_NONE, dbg::LogLevel::Info,

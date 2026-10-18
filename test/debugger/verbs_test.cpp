@@ -2124,7 +2124,7 @@ static void test_map_load() {
 
     Fixture fx;
     if (!fx.ok) {
-        for (const char* id : {"QMAP-01", "QMAP-02", "QMAP-03", "QMAP-04"})
+        for (const char* id : {"QMAP-01", "QMAP-02", "QMAP-03", "QMAP-04", "QMAP-05", "QMAP-06"})
             check(id, "fixture", false);
         return;
     }
@@ -2269,6 +2269,100 @@ static void test_map_load() {
               asm_text.contains("LD HL,_buffer") && target == "_sub" && sym_col == "_main",
               fmt("asm has LD HL,_buffer=%d target='%s' symbol='%s'",
                   asm_text.contains("LD HL,_buffer"), s(target).c_str(), s(sym_col).c_str()));
+    }
+
+    {
+        // GH #390 -- the third item, sjasmplus Format (--sym, --exp)..., on a
+        // real sjasmplus file (test/fixtures/sjasmequ/README.md): 16 entries
+        // name 14 addresses, which is what the box counts (symbols().size(),
+        // as for the other two items).
+        const std::string path = JNEXT_SJASMEQU_DIR "/equlabels.sym";
+        Modals ok;
+        ok.file_path = QString::fromStdString(path);
+        QAction* sjasm = item_named(load_menu, "sjasmplus Format (--sym, --exp)...");
+        if (sjasm) sjasm->trigger();
+        ok.timer.stop();
+        const auto gw = fx.backend->lookup_name("gfx.draw");
+        const auto bank = fx.backend->lookup(0xC000);
+        const size_t kept = fx.backend->symbols().size();
+
+        // A file that cannot be read: "Load Failed", the table untouched.
+        const std::string gone_path = write_file("gone_sjasmplus.sym", "X: EQU 0x00001234\n");
+        Modals bad;
+        bad.file_path = QString::fromStdString(gone_path);
+        bad.after_file_accept = [gone_path]() { QFile::remove(QString::fromStdString(gone_path)); };
+        if (sjasm) sjasm->trigger();
+        bad.timer.stop();
+
+        const Modals::Seen* okb = ok.first("box");
+        const Modals::Seen* badb = bad.first("box");
+        check("QMAP-05",
+              "sjasmplus Format...: a real --sym loads (\"MAP Loaded\" / \"Loaded 14 symbols\"), "
+              "dotted names resolve and the first label at an address names it; a file that "
+              "cannot be read gives \"Load Failed\" and keeps the table",
+              sjasm && okb && okb->title == "MAP Loaded" &&
+                  okb->text == QStringLiteral("Loaded 14 symbols from:\n%1")
+                                   .arg(QString::fromStdString(path)) &&
+                  gw == std::optional<uint16_t>(0x8016) && bank == std::optional<std::string>("banked") &&
+                  kept == 14 && badb && badb->title == "Load Failed" &&
+                  badb->text == QStringLiteral("Could not load MAP file:\n%1")
+                                    .arg(QString::fromStdString(gone_path)) &&
+                  fx.backend->symbols().size() == 14,
+              fmt("ok: %s bad: %s table=%zu", ok.describe().c_str(), bad.describe().c_str(),
+                  fx.backend->symbols().size()));
+    }
+
+    {
+        // GH #390 (R-1) -- every Map > Load MAP File item refreshes the panels.
+        // The Breakpoints panel computes its Symbol column in refresh(), so a
+        // load that did not refresh left the PREVIOUS name on a paused machine.
+        // A machine of its own, paused, with an Execute breakpoint at $8000
+        // before the loads; the cell is read right after each load returns,
+        // with no step and no other refresh, against the backend's own name.
+        Fixture f6;
+        if (f6.ok) {
+            f6.load(PROG, {0x18, 0xFE});                      // JR $
+            f6.regs(PROG);
+            f6.enable();
+            DebuggerWindow* d6 = f6.dbg();
+            QMenu* menu6 = submenu_named(menu_named(d6->menuBar(), "Map"), "Load MAP File");
+            f6.mgr->breakpoints().add(BreakpointModel::Execute, 0x8000);
+            auto cell = [&]() {
+                QString out = QStringLiteral("<no row>");
+                if (auto* t = d6->breakpoint_panel()->findChild<QTableWidget*>())
+                    for (int r = 0; r < t->rowCount(); ++r)
+                        if (t->item(r, 2) && t->item(r, 2)->text() == "$8000" && t->item(r, 3))
+                            out = t->item(r, 3)->text();
+                return out;
+            };
+            auto backend_name = [&]() {
+                const auto n = f6.backend->lookup(0x8000);
+                return n ? QString::fromStdString(*n) : QStringLiteral("<none>");
+            };
+            auto load = [&](const char* item, const std::string& file) {
+                Modals m;
+                m.file_path = QString::fromStdString(file);
+                if (QAction* a = item_named(menu6, item)) a->trigger();
+                m.timer.stop();
+            };
+            const QString before = cell();
+            load("Z88DK Format...", write_file("q6_z88dk.map", "_qz = $8000 ; addr, public\n"));
+            const QString z = cell(), zb = backend_name();
+            load("Simple Format (48K ROM)...", write_file("q6_simple.map", "QS = $8000\n"));
+            const QString sm = cell(), sb = backend_name();
+            load("sjasmplus Format (--sym, --exp)...", std::string(JNEXT_SJASMEQU_DIR "/equlabels.sym"));
+            const QString j = cell(), jb = backend_name();
+            check("QMAP-06",
+                  "each Map > Load MAP File item (Z88DK, Simple, sjasmplus) refreshes the panels: the "
+                  "Breakpoints Symbol cell of a breakpoint at $8000 shows the new name at once",
+                  before.isEmpty() && z == "_qz" && zb == "_qz" && sm == "QS" && sb == "QS" &&
+                      j == "main" && jb == "main",
+                  fmt("before='%s' z88dk='%s'/'%s' simple='%s'/'%s' sjasmplus='%s'/'%s'",
+                      s(before).c_str(), s(z).c_str(), s(zb).c_str(), s(sm).c_str(), s(sb).c_str(),
+                      s(j).c_str(), s(jb).c_str()));
+        } else {
+            check("QMAP-06", "fixture", false);
+        }
     }
 }
 

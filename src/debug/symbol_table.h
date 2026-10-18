@@ -14,7 +14,7 @@ public:
     /// Load symbols from a Z88DK .map file. "; addr" lines are the symbols
     /// (named by address and by name); "; const" lines go to a separate
     /// NAME-ONLY table (GH #26 WP7 / #279): `lookup_name()` resolves them —
-    /// `@__data_crt_head` in a script, a ZRCP or GDB name — but `lookup()`,
+    /// `@__data_crt_head` in a script, a GDB name - but `lookup()`,
     /// `symbols()` and therefore the disassembler never see them, so a value
     /// that is a size or a section bound never names an address.
     /// The `-debug` records (names starting `__C_LINE_`, `__ASM_LINE_` or
@@ -36,6 +36,27 @@ public:
     /// of labels loaded, or -1 if the file cannot be read; `why`, when given,
     /// then says why (over the size cap, not a regular file, cannot be opened).
     int load_nextbuild_memory(const std::string& path, std::string* why = nullptr);
+
+    /// Load labels from an sjasmplus `--sym` or `--exp` file (GH #390): lines
+    /// of the form `NAME: EQU 0x0000ABCD`, exactly as sjasmplus writes them
+    /// (a trailing CR, from its Windows build, is dropped); any other line is
+    /// skipped. The file carries no type and no page, so every entry is a
+    /// label (named by address and by name) whatever the source declared it
+    /// with: a label, an EQU, a DEFL, a struct size or a field offset. A value
+    /// above 0xFFFF, or a negative one (sjasmplus writes it as 0x80000000 and
+    /// up), does not fit the 16-bit table and is skipped. The first occurrence
+    /// wins for an address and, apart, for a name; the count is the entries
+    /// accepted, duplicates included. Returns it, or -1 if the file cannot be
+    /// opened (then the table is untouched).
+    int load_sjasmplus_equ(const std::string& path);
+
+    /// Is this file an sjasmplus `--sym` / `--exp` file? True when its FIRST
+    /// line is an EQU line as `load_sjasmplus_equ()` reads it, whatever the
+    /// value (a real `--sym` may open with a negative one). False for an empty
+    /// file or one that cannot be opened. `--map` uses it to pick the loader
+    /// by contents: sjasmplus's file names are free (`--sym=<filename>`), and
+    /// z88dk's assembler writes a `.sym` of its own, in the map format.
+    static bool is_sjasmplus_equ_file(const std::string& path);
 
     /// Resolve the text of an address field: a hexadecimal address first
     /// (`4000`, `$4000`, `0x4000`), else a loaded symbol name. A typed `FE`

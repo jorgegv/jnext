@@ -196,7 +196,11 @@ struct Lexer {
         Token t;
         t.kind = Tok::Symbol;
         t.pos  = at;
-        while (!at_end() && is_ident_char(cur())) {
+        // A `.` continues the name only when a letter or `_` follows it: an
+        // sjasmplus label is `main.loop`, `gfx.draw.loop` (GH #390). `..` stays
+        // the range operator (`@a..@b`), and `@a.1` or a last `.` end the name
+        // as before.
+        while (!at_end() && (is_ident_char(cur()) || (cur() == '.' && is_ident_start(peek())))) {
             t.text.push_back(cur());
             adv();
         }

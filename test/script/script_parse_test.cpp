@@ -523,6 +523,27 @@ static void lex_rows() {
           kinds("<< >> == != <= >= < > =") ==
               std::vector<Tok>{Tok::Shl, Tok::Shr, Tok::Eq, Tok::Ne, Tok::Le, Tok::Ge, Tok::Lt,
                                Tok::Gt, Tok::Assign, Tok::Eof});
+    {
+        // GH #390 -- an sjasmplus label is `main.loop`, `gfx.draw.loop`, `_.first`.
+        // A `.` joins identifiers into one symbol only when a letter or `_`
+        // follows it: `..` is still the range operator, and `@a.1` and a last `.`
+        // end the name.
+        const LexResult dotted = lex("@gfx.draw.loop");
+        const LexResult range  = lex("@main.loop..@main");
+        const LexResult under  = lex("@_.first");
+        check("LEX-26", "`@name` joins identifiers with `.` only before a letter or `_`: `@gfx.draw.loop` is one "
+                        "symbol, `@main.loop..@main` a symbol, `..` and a symbol, `@a.1` and `@a.` keep their `.`",
+              !dotted.error && dotted.tokens.size() == 2 && dotted.tokens[0].kind == Tok::Symbol &&
+                  dotted.tokens[0].text == "gfx.draw.loop" &&
+                  !range.error && range.tokens.size() == 4 && range.tokens[0].text == "main.loop" &&
+                  range.tokens[2].text == "main" &&
+                  kinds("@main.loop..@main") ==
+                      std::vector<Tok>{Tok::Symbol, Tok::DotDot, Tok::Symbol, Tok::Eof} &&
+                  kinds("@a.1") == std::vector<Tok>{Tok::Symbol, Tok::Dot, Tok::Int, Tok::Eof} &&
+                  kinds("@a.") == std::vector<Tok>{Tok::Symbol, Tok::Dot, Tok::Eof} &&
+                  !under.error && under.tokens.size() == 2 && under.tokens[0].text == "_.first",
+              dstr(dotted.error) + dstr(range.error) + dstr(under.error));
+    }
 }
 
 // ── Comments ───────────────────────────────────────────────────────────────
@@ -1424,6 +1445,30 @@ static void eval_state_rows(Emulator& emu) {
               "error at the `@`",
               loaded && E_is("@MY_SYM", 0x9000) && E_is("mem[@MY_SYM]", 0xAB) && !bad.ok &&
                   one_err_at(bad.errors, 1, 1, "unknown symbol `@NOPE`"),
+              dstr(bad.errors));
+    }
+    {
+        // GH #390 -- the same lookup for a dotted name (an sjasmplus module or
+        // local label). This replaces the table the row above loaded: nothing
+        // after it reads `MY_SYM`.
+        char path[] = "/tmp/jnext_script_parse_XXXXXX";
+        const int fd = mkstemp(path);
+        bool loaded = false;
+        if (fd >= 0) {
+            close(fd);
+            {
+                std::ofstream f(path);
+                f << "gfx.draw.loop = $8018\nmain.loop = $8006\n";
+            }
+            const auto r = g_dbg->load_map(path, jnext::dbg::MapFormat::Simple);
+            loaded = r.status == jnext::dbg::Result::Ok && r.value == 2;
+            std::remove(path);
+        }
+        const EvalResult bad = E("@gfx.nope");
+        check("EVAL-SYMBOL-DOTTED", "a dotted `@module.label` resolves through the symbol table like any other "
+                                    "name, in an expression too; an unknown dotted one is an error at the `@`",
+              loaded && E_is("@gfx.draw.loop", 0x8018) && E_is("@main.loop + 1", 0x8007) && !bad.ok &&
+                  one_err_at(bad.errors, 1, 1, "unknown symbol `@gfx.nope`"),
               dstr(bad.errors));
     }
     check("EVAL-PC-NONE", "with no event, PC is the CPU's PC", E_is("PC", 0x8000));

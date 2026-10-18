@@ -212,7 +212,73 @@ std::optional<uint16_t> parse_hex16(std::string_view text)
     return static_cast<uint16_t>(value);
 }
 
+// One sjasmplus `--sym` / `--exp` line (GH #390): `NAME: EQU 0x0000ABCD`, the
+// exact text of its WriteLabelEquValue() (sjasm/sjio.cpp), plus the CR its
+// Windows build adds (the files are opened in text mode). This is the ONE
+// definition of an EQU line: the loader and the format detector both use it,
+// so they cannot disagree about what a line is. The value keeps all 32 bits
+// (sjasmplus writes a negative one as 0xFFFFFFFF); the loader decides which
+// values fit an address.
+struct EquLine {
+    std::string name;
+    uint32_t    value;
+};
+
+std::optional<EquLine> parse_equ_line(std::string_view line)
+{
+    if (!line.empty() && line.back() == '\r')
+        line.remove_suffix(1);
+    constexpr std::string_view kSeparator = ": EQU 0x";
+    const auto sep = line.find(kSeparator);
+    if (sep == 0 || sep == std::string_view::npos)
+        return std::nullopt;
+    const std::string_view name = line.substr(0, sep);
+    if (name.find_first_of(" \t:") != std::string_view::npos)
+        return std::nullopt;
+    // The value is the whole rest of the line: hex digits only, at least one.
+    const std::string_view hex = line.substr(sep + kSeparator.size());
+    uint32_t value = 0;
+    const auto [end, ec] = std::from_chars(hex.data(), hex.data() + hex.size(), value, 16);
+    if (ec != std::errc{} || end != hex.data() + hex.size())
+        return std::nullopt;
+    return EquLine{std::string(name), value};
+}
+
 }  // namespace
+
+int SymbolTable::load_sjasmplus_equ(const std::string& path)
+{
+    std::ifstream file(path);
+    if (!file.is_open())
+        return -1;
+
+    clear();
+
+    int count = 0;
+    std::string line;
+    while (std::getline(file, line)) {
+        const auto equ = parse_equ_line(line);
+        if (!equ || equ->value > 0xFFFF)
+            continue;
+        const auto addr = static_cast<uint16_t>(equ->value);
+
+        // First occurrence wins, as in the MAP loaders: an address keeps its
+        // first name, a name its first address, each independently.
+        addr_to_name_.emplace(addr, equ->name);
+        name_to_addr_.emplace(equ->name, addr);
+        ++count;
+    }
+
+    loaded_file_ = path;
+    return count;
+}
+
+bool SymbolTable::is_sjasmplus_equ_file(const std::string& path)
+{
+    std::ifstream file(path);
+    std::string line;
+    return std::getline(file, line) && parse_equ_line(line).has_value();
+}
 
 int SymbolTable::load_nextbuild_memory(const std::string& path, std::string* why)
 {

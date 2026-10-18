@@ -89,6 +89,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 #include <tuple>
 #include <memory>
 #include <fstream>
@@ -8413,6 +8414,214 @@ int main() {
                   dbg.lookup_name("__debug_framepointer") && dbg.lookup_name("l_debug_push_frame") &&
                   dbg.lookup_name("l_debug_pop_frame"),
               std::to_string(dbgmap.value) + " vs " + std::to_string(plainmap.value));
+    }
+    {
+        // GH #390 -- sjasmplus --sym / --exp (`NAME: EQU 0x0000ABCD`). The oracle
+        // is the fixture: what sjasmplus v1.23.1 really writes for equlabels.asm,
+        // and the CRLF twin its Windows build writes (test/fixtures/sjasmequ/
+        // README.md). Every name and address below is read off those files'
+        // lines, never off the loader. The files carry no type and no page, so
+        // every in-range entry is a label; a value above 0xFFFF (PASTTOP) or
+        // negative (NEG, 0xFFFFFFFF) does not fit the 16-bit table.
+        using jnext::dbg::MapFormat;
+        struct WantName { const char* name; uint16_t addr; };
+        struct WantAddr { uint16_t addr; const char* name; };
+        // equlabels.sym lines 3-18, sorted by name as sjasmplus writes them.
+        static const WantName kSym[] = {
+            {"SCREEN", 0x4000},        {"SCRSIZE", 0x1B00},   {"TOPADDR", 0xFFFF},  {"banked", 0xC000},
+            {"counter", 0x0006},       {"gfx.draw", 0x8016},  {"gfx.draw.loop", 0x8018},
+            {"main", 0x8000},          {"main.loop", 0x8006}, {"other_bank", 0xC000}, {"point", 0x0002},
+            {"point.x", 0x0000},       {"point.y", 0x0001},   {"pos", 0x8014},      {"pos.x", 0x8014},
+            {"pos.y", 0x8015},
+        };
+        // The names those 16 lines give each ADDRESS: the first line to reach it
+        // (0x8014 is pos, not pos.x; 0xC000 is banked, not other_bank).
+        static const WantAddr kSymAt[] = {
+            {0x0000, "point.x"}, {0x0001, "point.y"}, {0x0002, "point"},   {0x0006, "counter"},
+            {0x1B00, "SCRSIZE"}, {0x4000, "SCREEN"},  {0x8000, "main"},    {0x8006, "main.loop"},
+            {0x8014, "pos"},     {0x8015, "pos.y"},   {0x8016, "gfx.draw"}, {0x8018, "gfx.draw.loop"},
+            {0xC000, "banked"},  {0xFFFF, "TOPADDR"},
+        };
+        auto wrong_names = [](const Debugger& d, const WantName* w, size_t n) {
+            std::string bad;
+            for (size_t i = 0; i < n; ++i) {
+                const auto a = d.lookup_name(w[i].name);
+                if (!a || *a != w[i].addr) bad += std::string(w[i].name) + " ";
+            }
+            return bad;
+        };
+        auto wrong_addrs = [](const Debugger& d, const WantAddr* w, size_t n) {
+            std::string bad;
+            for (size_t i = 0; i < n; ++i) {
+                const auto s = d.lookup(w[i].addr);
+                if (!s || *s != w[i].name) bad += hex(w[i].addr) + " ";
+            }
+            return bad;
+        };
+        constexpr size_t kSymN = sizeof(kSym) / sizeof(kSym[0]);
+        constexpr size_t kSymAtN = sizeof(kSymAt) / sizeof(kSymAt[0]);
+
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const auto r = dbg.load_map(JNEXT_SJASMEQU_DIR "/equlabels.sym", MapFormat::SjasmplusEqu);
+            const std::string bad = wrong_names(dbg, kSym, kSymN);
+            check("SYM-19", "a real sjasmplus --sym loads 16 entries (18 lines, minus PASTTOP and NEG) and each "
+                            "resolves BY NAME, local, module and struct-field names included "
+                            "(main.loop, gfx.draw.loop, point.x)",
+                  r.status == Result::Ok && r.value == 16 && bad.empty() &&
+                      dbg.symbols().resolve("main.loop") == std::optional<uint16_t>(0x8006) &&
+                      dbg.symbols().resolve("@gfx.draw") == std::optional<uint16_t>(0x8016),
+                  std::to_string(r.value) + " bad: " + bad);
+        }
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            (void)dbg.load_map(JNEXT_SJASMEQU_DIR "/equlabels.sym", MapFormat::SjasmplusEqu);
+            const std::string bad = wrong_addrs(dbg, kSymAt, kSymAtN);
+            check("SYM-20", "and each ADDRESS is named by the first line to reach it: pos (not pos.x) at 0x8014, "
+                            "banked (not other_bank) at 0xC000, TOPADDR at 0xFFFF; 16 entries name 14 addresses",
+                  bad.empty() && dbg.symbols().size() == 14, bad + std::to_string(dbg.symbols().size()));
+        }
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const auto r = dbg.load_map(JNEXT_SJASMEQU_DIR "/equlabels.sym", MapFormat::SjasmplusEqu);
+            check("SYM-21", "a value past 16 bits (PASTTOP 0x00010000) or negative (NEG 0xFFFFFFFF) is skipped, "
+                            "not truncated: neither resolves, and neither names 0x0000 or 0xFFFF",
+                  r.status == Result::Ok && r.value == 16 && !dbg.lookup_name("PASTTOP") &&
+                      !dbg.lookup_name("NEG") && dbg.lookup(0x0000) == std::optional<std::string>("point.x") &&
+                      dbg.lookup(0xFFFF) == std::optional<std::string>("TOPADDR"));
+        }
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            (void)dbg.load_map(JNEXT_SJASMEQU_DIR "/equlabels.sym", MapFormat::SjasmplusEqu);
+            // 0xA000: LD BC,0x1B00 (01 00 1B) then CALL 0x8016 (CD 16 80).
+            const uint8_t code[] = {0x01, 0x00, 0x1B, 0xCD, 0x16, 0x80};
+            for (size_t i = 0; i < sizeof(code); ++i) emu.mmu().write(static_cast<uint16_t>(0xA000 + i), code[i]);
+            const auto dis = dbg.disassemble(0xA000, 2, &dbg.symbols());
+            const std::string l1 = dis[0].mnemonic, l2 = dis[1].mnemonic;
+            check("SYM-22", "the names show in the disassembly: LD BC,0x1B00 reads SCRSIZE (a constant names its "
+                            "value) and CALL 0x8016 reads gfx.draw",
+                  l1.find("SCRSIZE") != std::string::npos && l1.find("1B00") == std::string::npos &&
+                      l2.find("gfx.draw") != std::string::npos && l2.find("8016") == std::string::npos,
+                  l1 + " / " + l2);
+        }
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const auto r = dbg.load_map(JNEXT_SJASMEQU_DIR "/equlabels.exp", MapFormat::SjasmplusEqu);
+            // equlabels.exp lines 1-15, in EXPORT order. `draw` is the name the
+            // EXPORT spells (inside MODULE gfx), with gfx.draw's value.
+            static const WantName kExp[] = {
+                {"counter", 0x0005}, {"draw", 0x8016},       {"main", 0x8000},    {"main.loop", 0x8006},
+                {"gfx.draw", 0x8016}, {"SCREEN", 0x4000},    {"SCRSIZE", 0x1B00}, {"TOPADDR", 0xFFFF},
+                {"pos.y", 0x8015},   {"point.y", 0x0001},    {"banked", 0xC000},  {"other_bank", 0xC000},
+            };
+            const std::string bad = wrong_names(dbg, kExp, sizeof(kExp) / sizeof(kExp[0]));
+            check("SYM-23", "a real sjasmplus --exp loads 13 entries (15 lines, minus PASTTOP and NEG; counter is "
+                            "written twice) and each name resolves, under the name EXPORT spelled",
+                  r.status == Result::Ok && r.value == 13 && bad.empty() && !dbg.lookup_name("PASTTOP") &&
+                      !dbg.lookup_name("NEG"),
+                  std::to_string(r.value) + " bad: " + bad);
+        }
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            (void)dbg.load_map(JNEXT_SJASMEQU_DIR "/equlabels.exp", MapFormat::SjasmplusEqu);
+            check("SYM-24", "in --exp the first line wins, as in a MAP: counter is 5 (line 1, not line 2's 6), "
+                            "6 still names itself, 0x8016 is draw (line 3) not gfx.draw (line 6); 13 entries "
+                            "name 11 addresses",
+                  dbg.lookup_name("counter") == std::optional<uint16_t>(0x0005) &&
+                      dbg.lookup(0x0006) == std::optional<std::string>("counter") &&
+                      dbg.lookup(0x8016) == std::optional<std::string>("draw") &&
+                      dbg.lookup(0xC000) == std::optional<std::string>("banked") &&
+                      dbg.symbols().size() == 11,
+                  std::to_string(dbg.symbols().size()));
+        }
+        {
+            // sjasmplus's Windows build opens both files in text mode, so every
+            // line ends CRLF. Positive control first: the two fixtures really
+            // differ in that, read in BINARY so the CRs survive on Windows too.
+            auto bytes = [](const char* path) {
+                std::ifstream f(path, std::ios::binary);
+                return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            };
+            auto count_of = [](const std::string& s, const char* needle) {
+                size_t n = 0;
+                for (size_t at = s.find(needle); at != std::string::npos; at = s.find(needle, at + 1)) ++n;
+                return n;
+            };
+            const std::string lf = bytes(JNEXT_SJASMEQU_DIR "/equlabels.sym");
+            const std::string crlf = bytes(JNEXT_SJASMEQU_DIR "/equlabels-win.sym");
+            const bool control = count_of(crlf, "\r\n") == 18 && count_of(lf, "\r") == 0 && !lf.empty();
+            Emulator emu; build(emu);
+            Debugger a(emu), b(emu);
+            const auto ra = a.load_map(JNEXT_SJASMEQU_DIR "/equlabels.sym", MapFormat::SjasmplusEqu);
+            const auto rb = b.load_map(JNEXT_SJASMEQU_DIR "/equlabels-win.sym", MapFormat::SjasmplusEqu);
+            check("SYM-25", "the CRLF --sym of the Windows build loads as its LF twin: 16 entries, the same table, "
+                            "and no name carries a CR",
+                  control && ra.status == Result::Ok && rb.status == Result::Ok && ra.value == 16 &&
+                      rb.value == 16 && a.symbols().symbols() == b.symbols().symbols() &&
+                      wrong_names(b, kSym, kSymN).empty(),
+                  "control=" + std::to_string(control) + " " + std::to_string(rb.value) + " bad: " +
+                      wrong_names(b, kSym, kSymN));
+        }
+        {
+            // Not a format claim: what a line must look like to count. Each
+            // rejected line breaks `NAME: EQU 0x<hex>` in one way.
+            const std::string path = tmp_file("gh390_lines", ".sym");
+            {
+                std::ofstream f(path);
+                f << "plain = $8000 ; addr, public, , m, code_user, m.asm:1\n"   // a z88dk map line
+                     "; a comment\n"
+                     "\n"
+                     "NOCOLON EQU 0x00001111\n"
+                     "NOSPACE:EQU 0x0000AAAA\n"
+                     "NOEQU: 0x0000BBBB\n"
+                     "NOVALUE: EQU\n"
+                     "EMPTYHEX: EQU 0x\n"
+                     "NOPREFIX: EQU 00002222\n"
+                     "BADHEX: EQU 0x0000G333\n"
+                     "TRAILING: EQU 0x00004444 x\n"
+                     ": EQU 0x00005555\n"
+                     "two words: EQU 0x00006666\n"
+                     "TOOBIG: EQU 0x100000000\n"
+                     "good: EQU 0x00001234\n"
+                     "short: EQU 0x5\n";
+            }
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const auto r = dbg.load_map(path, MapFormat::SjasmplusEqu);
+            std::string resolved;   // the names that must NOT resolve, if any does
+            for (const char* n : {"plain", "NOCOLON", "NOSPACE", "NOEQU", "NOVALUE", "EMPTYHEX", "NOPREFIX",
+                                  "BADHEX", "TRAILING", "two words", "TOOBIG"})
+                if (dbg.lookup_name(n)) resolved += std::string(n) + " ";
+            std::string named;      // the addresses that must name nothing, if any does
+            for (unsigned a : {0x0000u, 0x1111u, 0x2222u, 0x4444u, 0x5555u, 0x6666u, 0x8000u, 0xAAAAu, 0xBBBBu})
+                if (dbg.lookup(static_cast<uint16_t>(a))) named += hex(a) + " ";
+            check("SYM-26", "only a line of exactly `NAME: EQU 0x<hex>` counts: a comment, a blank, a z88dk line, "
+                            "a missing colon, space, EQU, 0x or value, bad hex, trailing text, an empty or "
+                            "spaced name and a value past 32 bits are skipped; a short value is read as a number",
+                  r.status == Result::Ok && r.value == 2 && dbg.symbols().size() == 2 &&
+                      dbg.lookup_name("good") == std::optional<uint16_t>(0x1234) &&
+                      dbg.lookup_name("short") == std::optional<uint16_t>(0x0005) && resolved.empty() &&
+                      named.empty(),
+                  std::to_string(r.value) + " resolved: " + resolved + "named: " + named);
+            std::remove(path.c_str());
+        }
+        {
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            const auto first = dbg.load_map(JNEXT_SJASMEQU_DIR "/equlabels.sym", MapFormat::SjasmplusEqu);
+            const auto gone = dbg.load_map("/nonexistent/none.sym", MapFormat::SjasmplusEqu);
+            check("SYM-27", "a file that cannot be opened is refused and the table is kept, as for the other "
+                            "formats",
+                  first.status == Result::Ok && gone.status == Result::RefusedUnavailable &&
+                      dbg.lookup_name("main") == std::optional<uint16_t>(0x8000) && dbg.symbols().size() == 14,
+                  std::string(jnext::dbg::result_name(gone.status)) + " " + std::to_string(dbg.symbols().size()));
+        }
     }
 
     // =======================================================================

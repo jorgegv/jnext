@@ -2237,6 +2237,75 @@ static void host_rows() {
               g.sink.tail(4));
     }
     {
+        // GH #390 -- --map takes an sjasmplus --sym too, told apart from a z88dk
+        // map by its CONTENTS. The fixture is what sjasmplus really writes for
+        // equlabels.asm (test/fixtures/sjasmequ/README.md). Its first line is
+        // `NEG: EQU 0xFFFFFFFF`, too big for an address but still the mark of
+        // the format. main = 0x8000 is PROG; main.loop = 0x8006 (32774) and
+        // gfx.draw.loop = 0x8018 (32792) are read off the fixture's lines.
+        HostRig g;
+        ScriptHostOptions o;
+        o.map_file = JNEXT_SJASMEQU_DIR "/equlabels.sym";
+        o.scripts  = {tmp_file("sjasm.jds",
+                               "on execute @main once do log \"M ${@main.loop} ${@gfx.draw.loop}\" end\n")};
+        const bool ok = g.start(o);
+        g.run(1);
+        check("SCRIPT-HOST-MAP-SJASM", "--map takes an sjasmplus --sym (16 entries), and a script names its dotted "
+                                       "labels: `@main.loop` is 32774, `@gfx.draw.loop` 32792",
+              ok && g.sink.count("--map " + o.map_file + ": 16 symbols") == 1 &&
+                  g.sink.count("M 32774 32792") == 1,
+              g.sink.tail(4));
+    }
+    {
+        HostRig g;
+        ScriptHostOptions o;
+        o.map_file = JNEXT_SJASMEQU_DIR "/equlabels.exp";
+        const bool ok = g.start(o);
+        HostRig h;
+        ScriptHostOptions p;
+        p.map_file = JNEXT_SJASMEQU_DIR "/equlabels-win.sym";
+        const bool ok2 = h.start(p);
+        check("SCRIPT-HOST-MAP-EXP", "--map takes an sjasmplus --exp (13 entries, `counter` its first value, 5) "
+                                     "and the CRLF --sym its Windows build writes (16 entries)",
+              ok && g.sink.count("--map " + o.map_file + ": 13 symbols") == 1 &&
+                  g.dbg->lookup_name("counter") == std::optional<uint16_t>(5) && ok2 &&
+                  h.sink.count("--map " + p.map_file + ": 16 symbols") == 1 &&
+                  h.dbg->lookup_name("main.loop") == std::optional<uint16_t>(0x8006),
+              g.sink.tail(2) + h.sink.tail(2));
+    }
+    {
+        // The CONTENTS decide, never the name: z88dk's assembler writes a
+        // `.sym` in the map format (z80asm -s), and sjasmplus names its files
+        // freely (--sym=<filename>).
+        HostRig g;
+        ScriptHostOptions o;
+        o.map_file = tmp_file("prog.sym", "_main_loop                      = $8000 ; addr, local, , main, , main.c:12\n");
+        const bool ok = g.start(o);
+        const std::vector<uint8_t> exp = read_file(JNEXT_SJASMEQU_DIR "/equlabels.exp");
+        HostRig h;
+        ScriptHostOptions p;
+        p.map_file = tmp_file("prog.map", std::string(exp.begin(), exp.end()));
+        const bool ok2 = h.start(p);
+        check("SCRIPT-HOST-MAP-CONTENT", "a z88dk-format `prog.sym` loads as z88dk (1 entry) and an sjasmplus "
+                                         "`prog.map` as sjasmplus (13 entries): the name decides nothing",
+              !exp.empty() && ok && g.sink.count("--map " + o.map_file + ": 1 symbols") == 1 &&
+                  g.dbg->lookup_name("_main_loop") == std::optional<uint16_t>(0x8000) && ok2 &&
+                  h.sink.count("--map " + p.map_file + ": 13 symbols") == 1,
+              g.sink.tail(2) + h.sink.tail(2));
+    }
+    {
+        // sjasmplus writes a 0-byte --exp when nothing is EXPORTed.
+        HostRig g;
+        ScriptHostOptions o;
+        o.map_file = tmp_file("empty.exp", "");
+        const bool ok = g.start(o);
+        check("SCRIPT-HOST-MAP-NONE", "an empty --exp has no symbols: a failed start that names both formats "
+                                      "--map reads",
+              !ok && g.sink.count("--map " + o.map_file + ": no symbols found (a z88dk .map or an sjasmplus "
+                                  "--sym/--exp file is expected)") == 1,
+              g.sink.tail(2));
+    }
+    {
         HostRig g;
         ScriptHostOptions o;
         o.scripts = {tmp_file("good.jds", "on frame 0 do log \"G\" end\n"),

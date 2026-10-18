@@ -732,6 +732,8 @@ enum class MapFormat : uint8_t {
     Simple,
     /// NextBuild / Boriel ZX Basic `Memory.txt`: `8000: ._Main` lines.
     NextBuild,
+    /// sjasmplus `--sym` / `--exp`: `NAME: EQU 0x0000ABCD` lines.
+    SjasmplusEqu,
 };
 
 /// INS-20 — one bit per 16-bit PC, set when that address has been executed.
