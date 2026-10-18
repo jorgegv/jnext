@@ -850,9 +850,9 @@ int main() {
         fs::resize_file(big, SOURCE_FILE_MAX_BYTES + 1, ec);
         const auto r = m.dbg->load_program_sidecars((own / "own4.nex").string());
         fs::remove(big);
-        check("SRCDBG-OWN-03", "a sidecar Memory.txt that cannot be opened is reported "
-                               "unreadable, and leaves none of the previous program's "
-                               "symbols",
+        check("SRCDBG-OWN-03", "a sidecar Memory.txt that cannot be loaded (over the size "
+                               "cap) is reported unreadable, and leaves none of the "
+                               "previous program's symbols",
               had_old && !ec && r.symbols_unreadable && !m.dbg->lookup_name("Old"));
         const std::string why = "own4.Memory.txt' rejected: file is " +
                                 std::to_string(SOURCE_FILE_MAX_BYTES + 1) + " bytes";
