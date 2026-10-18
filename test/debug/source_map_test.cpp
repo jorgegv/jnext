@@ -328,8 +328,11 @@ int main() {
               st.lookup_name("core.alias_at_same_address") == 0xACB5);
         check("NBSYM-07", "a CRLF line loads",
               st.lookup(0xC735) == std::optional<std::string>("RespawnPlayer"));
-        check("NBSYM-08", "an unreadable file is -1",
-              SymbolTable().load_nextbuild_memory((dir / "missing.txt").string()) == -1);
+        std::string why08;
+        check("NBSYM-08", "an unreadable file is -1, and the reason is \"could not open "
+                          "Memory.txt file\"",
+              SymbolTable().load_nextbuild_memory((dir / "missing.txt").string(), &why08) == -1 &&
+                  why08 == "could not open Memory.txt file");
 
         check("NBSYM-09", "resolve(): a symbol name", st.resolve(" RespawnPlayer ") == 0xC735);
         check("NBSYM-10", "resolve(): bare hex, $ and 0x",
