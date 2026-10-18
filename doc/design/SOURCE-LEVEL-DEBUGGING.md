@@ -140,8 +140,8 @@ fixture; the others are from the planning builds.
 - G5. sccz80 `-debug` changes the program: `l_debug_push_frame` and `l_debug_pop_frame` in
   every function (fixture: `_main` at $8C73 without `-debug`, $8C92 with it). The program
   debugged is the `-debug` build, and steps run through the helpers, which have no lines.
-- G6. 2.4 only: sdcc line information exists only as `.lis` comments (`--c-code-in-asm`), so sdcc
-  on 2.4 needs the listing adapter (E23-17).
+- G6. 2.4 only: sdcc line information exists only as `.lis` comments (`--c-code-in-asm`), so
+  sdcc on 2.4 needs the listing adapter (E23-17).
 - G7. Optimisation moves code across lines, and the default `-SO2` is already optimised (sdcc,
   2.4): the `while(1)` back-jump sits under `return 0; }` at `-SO2` and under line 26 at `-SO0`.
   sdcc emits an out-of-line copy of a `static inline` in each module that includes it, so
@@ -161,8 +161,8 @@ fixture; the others are from the planning builds.
 - G11. The CDB records are `__CDBINFO__` symbols in the `-debug` map (sccz80; sdcc and 80cc on
   master): the input for C variables (#353).
 - G12. 2.4 only (reworked on master, eb1a9b1299, 2026-04-18): sdcc `-debug` fails to assemble
-  (`defc Gcounter0_00==.`; z88dk's own issue 3172), so again the sdcc lines of 2.4 come from the
-  listings only.
+  (`defc Gcounter0_00==.`; z88dk's own issue 3172), so again the sdcc lines of 2.4 come from
+  the listings only.
 
 **Master since 2.4** (all in 39421a01cd):
 
@@ -277,17 +277,18 @@ M1. The Source tab and `source_location()` predict the next M1 with
 `route_with(addr, divmmc_active, mf_active)`, fed by `DivMmc::active_on_m1()` and a const
 `Multiface::would_latch_on_m1(pc)`; `route()` is `route_with()` with the live values, so the
 prediction cannot drift from the fetch. Built by E23-07 (#339) (the arbiter, `read_m1`, the
-prediction) and E23-08 (#340) (trace entries and call frames). Check: no prediction of the M1
-overlay outside `route_with`, `active_on_m1` and `would_latch_on_m1`; SRCDBG-ID-17 (an
-instruction that remaps its own slot keeps its recorded identity).
+prediction) and E23-08 (#340) (trace entries and call frames). Check (epic acceptance 1): no
+prediction of the M1 overlay outside `route_with`, `active_on_m1` and `would_latch_on_m1`;
+SRCDBG-ID-17 (an instruction that remaps its own slot keeps its recorded identity).
 
 **D2. The source map is range-aware and many-to-many.** A record covers its start up to an
 extent the adapter gives (section 9); ranges may overlap, and an address may have several
 locations. `lookup(space, addr)` returns all of them with a primary (the shortest range; on a
-tie the record emitted last, which is the highest line, G3). `resolve("file:line")` returns
-every start; a zero-width line resolves through its alias or refuses with "no code at
-file:line". Built by E23-06 (#338), with the z88dk extents in E23-13 (#344) and E23-17 (#348).
-Check: SRCRNG-01 to SRCRNG-09, Z88MAP-02, Z88MAP-05.
+tie the record emitted last, which for a z88dk map is the highest line, G3).
+`resolve("file:line")` returns every start; a zero-width line resolves through its alias or
+refuses with "no code at file:line". Built by E23-06 (#338), with the z88dk extents in E23-13
+(#344) and E23-17 (#348). Check (epic acceptance 2): SRCRNG-01 to SRCRNG-09, Z88MAP-02,
+Z88MAP-05.
 
 **D3. Every record says which memory it describes, and the bytes are checked.** No adapter
 emits an unqualified record, and the store has no "matches every bank" fallback (E23-06
@@ -295,7 +296,8 @@ emits an unqualified record, and the store has no "matches every bank" fallback 
 value (section 9.4; E23-13 (#344)). A map with a program identity is compared with memory when
 it is attached, and again after any machine replacement that is not a same-generation rewind
 (section 6; E23-10 (#342)): an SLD by its SHA-256 records, a z88dk map by the linker's section
-binaries over every line range. Check: Z88MAP-08 to Z88MAP-11, Z88MAP-14.
+binaries over every line range. Check (epic acceptance 3): Z88MAP-08 to Z88MAP-11,
+Z88MAP-14.
 
 **D4. One canonical page identity; the legacy page qualifier stays for the protocols that use
 it.** The identity is `FetchSource`, `MemSpace` extended with the overlays (OD-13). A source
@@ -304,8 +306,8 @@ replaces `NOT_RAM_PAGE` and `EventFilter::page_ram_only`. The plain `EventFilter
 DZRP long breakpoints (`bank+1`) and the DSL `page` keyword use, keeps comparing
 `Mmu::get_effective_page(slot)` and nothing more: a protocol-level qualifier, not the identity
 (section 4.5). Built by E23-07 (#339) (the type), E23-09 (#341) (breakpoints on it, with one
-predicate) and this document, E23-02 (#334). Check: SRCBP-02 (a page number is not an
-identity), SRCBP-05 (the legacy meaning pinned).
+predicate) and this document, E23-02 (#334). Check (epic acceptance 4): SRCBP-02 (a page
+number is not an identity), SRCBP-05 (the legacy meaning pinned).
 
 ### 3.3 Implementation status
 
@@ -409,11 +411,12 @@ side effects: rows compare the whole machine state before and after.
 
 The canonical identity is the one that every source record, source-line breakpoint and history
 entry carries (D4). The plain `EventFilter::page` stays, as a protocol-level qualifier and not
-the identity, for the protocols that use it: DZRP long breakpoints (`bank+1`; a bank byte other
-than 0 becomes `Execute{addr, addr, page = bank}`, `dzrp-frontend.md:402`) and the DSL `page`
-keyword (`dsl-frontend.md:286`). It compares `Mmu::get_effective_page(slot)` and nothing more,
-so it still fires on a ROM-mapped slot whose effective page matches (SRCBP-05). `dzrp-frontend.md` stays frozen as a design record, and the
-developer guide says which meaning is canonical (E23-09 (#341)).
+the identity, for the protocols that use it: DZRP long breakpoints (`bank+1`; a bank byte
+other than 0 becomes `Execute{addr, addr, page = bank}`, `dzrp-frontend.md:402`) and the DSL
+`page` keyword (`dsl-frontend.md:286`). It compares `Mmu::get_effective_page(slot)` and
+nothing more, so it still fires on a ROM-mapped slot whose effective page matches (SRCBP-05).
+`dzrp-frontend.md` stays frozen as a design record, and the developer guide says which meaning
+is canonical (E23-09 (#341)).
 
 A GUI breakpoint dialog that gets a page field uses `FetchSource` and E23-22's text form (4.6),
 so a breakpoint set there and one set on a source line mean the same (#372). A space-qualified
@@ -474,11 +477,11 @@ bitmap). E23-07 and E23-08 record the numbers.
 `lookup(space, addr)` returns every range that contains `addr` in `space`. The primary
 location is the shortest range; on a tie the record the adapter emitted last wins. The z88dk
 adapter emits equal starts in ascending line order, so the highest line owns the address
-(DeZog's rule, G3). It returns pointers into the store, not copies. `resolve("file:line")` returns every
-range start of the location. The file matches the exact path, else a unique suffix of whole
-path components (a basename is the one-component case, today's rule; `ain.c` never matches
-`main.c`). A zero-width line resolves through its alias or refuses with "no code at
-file:line" (G3; `main.c:14` in the fixture). Two locations are the same position when file,
+(DeZog's rule, G3). It returns pointers into the store, not copies. `resolve("file:line")`
+returns every range start of the location. The file matches the exact path, else a unique
+suffix of whole path components (a basename is the one-component case, today's rule; `ain.c`
+never matches `main.c`). A zero-width line resolves through its alias or refuses with "no code
+at file:line" (G3; `main.c:14` in the fixture). Two locations are the same position when file,
 line and column of their primary locations are equal.
 
 E23-06 (#338) builds the store on a placeholder 16-bit page key and fixes its interface;
@@ -789,8 +792,8 @@ occurrence, so line 18 gets both of its ranges; for an asm file, its own line nu
 space comes from the `SECTION` line by 9.4's rules. There is one `.lis` per source (z88dk
 writes `main.c.lis`, `util.c.lis`), found beside the map or by a glob. With a `-debug` map
 present, its C lines are cross-checked against the listing and the listing wins, because it is
-exact and has every occurrence: the reverse of DeZog, which prefers the map. The listing is the
-only per-line asm source and the only sdcc line source on 2.4 (G6, G12).
+exact and has every occurrence: the reverse of DeZog, which takes its C lines from the map.
+The listing is the only per-line asm source and the only sdcc line source on 2.4 (G6, G12).
 
 ### 9.6 `.cdb` / `.adb` (E23-20 (#350), OD-2)
 
@@ -864,10 +867,10 @@ UI, and the rule for a name already used at another key are E23-24's.
 
 - **SLD `L`** (E23-23): `page >= 0` gives (`Page{page}`, `value & 0xFFFF`). `page = -1` gives
   an unpaged label ("stay unpaged", #375), and a name-only value when the value does not fit
-  16 bits (an EQU can be 32-bit). sjasmplus writes -1 for every `EQU` without an explicit page,
-  address constants included (2.1), so the format cannot tell an address from a constant;
-  making them labels agrees with the `--sym` file, which lists the EQU constants too. A record with no
-  main label (a module marker) names nothing.
+  16 bits (an EQU can be 32-bit). sjasmplus writes -1 for every `EQU` without an explicit
+  page, address constants included (2.1), so the format cannot tell an address from a
+  constant; making them labels agrees with the `--sym` file, which lists the EQU constants
+  too. A record with no main label (a module marker) names nothing.
 - **z88dk map `; addr` symbols** (E23-23): the space by 9.4's derivation, the same as the map's
   source records, so that one file has one derivation for both stores. `; const` stays
   name-only.
@@ -961,13 +964,13 @@ assembles again.
 ## 13. Tests
 
 **Suites today.** `source_map_test` (the SLD and `Memory.txt` adapters, the store),
-`source_debug_test` (the backend on a real machine: loading and identity, fetch identity now and
-in history, sidecar ownership and failure paths, the lifetime rows, every step kind),
-`source_debug_posix_test` (`# os: posix`: the link and FIFO fixtures), `debugger_source_panel_test`
-(the Source tab, page-qualified model rows and gutter, the Call Stack column, symbol address
-fields), `rewind_call_stack_test` (the tracker across rewind), `debugger_backend_test` (SYM-14 to
-SYM-18, the `-debug` map symbols; INS-13-15, the 56-byte `TraceEntry`), and the functional rows
-`nextbuild-symbols-func` and `source-map-func`.
+`source_debug_test` (the backend on a real machine: loading and identity, fetch identity now
+and in history, sidecar ownership and failure paths, the lifetime rows, every step kind),
+`source_debug_posix_test` (`# os: posix`: the link and FIFO fixtures),
+`debugger_source_panel_test` (the Source tab, page-qualified model rows and gutter, the Call
+Stack column, symbol address fields), `rewind_call_stack_test` (the tracker across rewind),
+`debugger_backend_test` (SYM-14 to SYM-18, the `-debug` map symbols; INS-13-15, the 56-byte
+`TraceEntry`), and the functional rows `nextbuild-symbols-func` and `source-map-func`.
 
 **Planned.** `z88dk_map_test` (E23-13), `z88dk_lis_test` (E23-17), the fixture-hash row
 Z88FIX-01 (E23-12), new rows in `mmu_test`, `multiface_test` and `divmmc_test` (E23-07), and the
