@@ -1068,9 +1068,9 @@ and `nextpi-func` facts 10-12 read of a dialog.
 The short fetches. The NextPi release list of `latest` and the two `.md5` fetches
 are tiny, so they passed no `ProgressFn`, and on a dead network the window showed
 nothing for the 30 s the backend waits. `ShortFetchFn` (`nextpi::ProvisionOptions::
-short_fetch`) wraps exactly those three, with a label each, and hands the fetch the
-`ProgressFn` it should give the `DownloadFn`; the archive download is not wrapped
-and keeps `opts.progress` (`PIT-51`). The Qt build's `SdcardGuiProvisioner::short_fetch`
+short_fetch`) wraps exactly those three, with a label and the address each, and hands
+the fetch the `ProgressFn` it should give the `DownloadFn`; the archive download is
+not wrapped and keeps `opts.progress` (`PIT-51`). The Qt build's `SdcardGuiProvisioner::short_fetch`
 pumps the event loop on every call, shows nothing for the first
 `kShortFetchShowMs` (1000 ms, so a quick fetch does not flash a dialog), and then
 shows the same dialog as the archive, built and refreshed by the same code (title,
@@ -1080,5 +1080,32 @@ touched, so the archive download that follows is not aborted. All of it counts o
 the helper's `now_()`, so `SDD-06..08` run on a clock the test owns, and `SDD-09`
 runs the whole thing through the real backend and a silent server on the production
 clock. `nextpi-func` fact 12 shows it in the real binary against a mirror that
-answers after 3 s. The CLI has no short-fetch seam: a terminal shows the process
-running, and the failure, with its address, arrives within the stall timeout.
+answers after 3 s.
+
+The console. The frontends with no dialog (`--headless`, the SDL-only build) say the
+same things as text, on stderr and in the log, in the dialog's words (GH #385). One
+class decides: `sdcard::ConsoleWait` is made for one transfer and ticked by its
+`ProgressFn`, which the backends call at least every 200 ms whatever the network does.
+When no byte has arrived for `kStallNoticeMs` (5 s) it says `stall_note()`, the
+dialog's own text, once, on a line of its own on stderr and as a warning in the log,
+and again if bytes come and a new stall begins. With a `slow_line` it also says that
+line once, as information, when the transfer has gone on for `kShortFetchShowMs`; a
+quicker transfer says nothing at all. The limit is the dialog's, defined once in the
+core. A `ConsoleWait` counts from its first tick, not from its construction: the
+prompt before a download can sit open for minutes. `nextpi::CliShortFetch` is the
+console's `ShortFetchFn`: one `ConsoleWait` per fetch, its line `<label> <address>`,
+logged on the `uart` logger like the rest of the module. `sdcard::CliProgress` is the
+terminal's progress display of a download, the `\rDownloading ...  45%` line that
+`cli_progress` and the NextPi twin drew, now one class with the heading and the
+no-length rule as arguments (the SD-card image counts MiB, NextPi says nothing) and
+the stall note, which starts a new line when a progress line was left unfinished.
+`make_cli_progress()` makes the SD-card image's and `nextpi::make_cli_progress()`
+NextPi's; `main.cpp` wires them, and `CliShortFetch`, where there is no dialog. The
+clock, the stream and the log's copy are parameters, so `PROV-CON-01..11` and
+`PIT-52..56` run all of it on a fake clock and read the stream back as a file; the
+real binary is shown by `sdcard-download-fail-func` fact 5 (both frontends without
+a dialog, each with its own wiring in `main.cpp`) and `nextpi-func` fact 13, against
+a server that answers after 7 s. What no row can show is the NextPi archive's own
+display being wired in `main.cpp`: its download needs 22 GB free, which the
+regression suite cannot assume, so that one assignment is covered only by the
+classes it uses.

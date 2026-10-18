@@ -3708,7 +3708,11 @@ start.</p>
 how long; after 30 seconds without data JNEXT stops waiting and says why. Cancel works at any
 time.</p>
 <p>Checking the mirror (the list of releases, the checksum) shows the same progress dialog, stall
-notice included, when it takes more than a second. When any of these fails, JNEXT says which
+notice included, when it takes more than a second. Without the dialog (<code>--headless</code>, or a build
+with no Qt window) a check that takes more than a second prints one line on the terminal and in
+the log, naming what it is doing and the address (<code>Fetching the NextPi checksum...</code> and the
+address of the checksum), and any download that gets no data for five seconds prints the same
+stalled notice as the dialog; a quick check prints nothing. When any of these fails, JNEXT says which
 address it was fetching, what went wrong in plain words (with the error code after it) and what
 it does next, and in the graphical version the message is in a dialog whose text can be selected
 and copied: try the address in a web browser to see whether the mirror can be reached at all.</p>

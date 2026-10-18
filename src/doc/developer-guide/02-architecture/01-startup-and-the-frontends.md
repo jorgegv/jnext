@@ -65,7 +65,8 @@ startup fails outright — every ROM except the FPGA boot ROM is read out of tha
 image, exactly as on real hardware, so there is no machine to run without one.
 A failed download is reported with the address it was fetching, a reason in plain
 words and what happens next: in a dialog in the Qt GUI (a NextPi failure too, also
-with `--nextpi`, which then exits) and on stderr and in the log otherwise.
+with `--nextpi`, which then exits) and on stderr and in the log otherwise. A fetch that
+is slow or stalls says so the same way: a dialog, or lines on stderr and in the log.
 
 ## Choosing a frontend
 
