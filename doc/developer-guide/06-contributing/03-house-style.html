@@ -2418,7 +2418,8 @@ bar message or a dialog text with a glyph such as <code>◄</code>. Declare it i
 <code>test/lint-ascii-text.conf</code> as the file, the literal exactly as written and the
 reason, separated by tabs. A declaration that no longer matches a literal fails
 the lint, so editing the text means editing its line. Bytes written as <code>\x</code> or
-octal escapes are data, not text, and are never flagged.</p>
+octal escapes are data, not text, so they never count for rule B; an em dash
+spelled that way is still rule A.</p>
 <p>What the lint cannot see is stated in its header: text built at run time, an em
 dash split across adjacent literals, and files that are not C or C++. User
 data is the residual that stays: a path with an accent, a file name or text from

@@ -171,25 +171,27 @@ verdict on the real tree is trusted at all:
   fixture of must-not-flag comment and identifier lines, and refuses with exit 2
   if either count is off. The harness self-test also runs it against a
   throwaway tree to prove it fails on a stray `.detach()` (GH #328).
-- `test/lint-ascii-text.sh` embeds a perl lexer for string and character literals
-  and checks it against one fixture file per case, each named in the script by
-  its ID (`LAT-A01` and on). The em dash must be flagged in a plain, a `u8`, an
-  `L`, a raw (multi-line) and an escaped literal (a `u` or `U` escape,
-  `\xE2\x80\x94`, `\342\200\224`), and at the line the literal starts on even
-  after a block comment and a raw string, and a declaration must not excuse it.
-  It must not be flagged in a `//` or `/* */` comment (a `//` comment spliced
-  by a trailing backslash included), in a raw string that merely spells the
-  escape, behind an escaped backslash, or next to a digit separator such as
+- `test/lint-ascii-text.sh` embeds a perl lexer for string and character
+  literals and checks it against one fixture file per case, each named in the
+  script by its ID (`LAT-A01` and on). The em dash must be flagged in a plain, a
+  `u8`, an `L`, a raw (multi-line) and an escaped literal (a `u` or `U` escape,
+  `\xE2\x80\x94`, `\342\200\224`), in a string or character literal spliced over
+  a line end by a backslash (LF or CRLF), and at the line the literal starts on
+  even after a block comment and a raw string, and a declaration must not excuse
+  it. It must not be flagged in a `//` or `/* */` comment (a `//` comment
+  spliced by a trailing backslash included), in a raw string that merely spells
+  the escape, behind an escaped backslash, or next to a digit separator such as
   `28'000'000`. Other non-ASCII text is flagged as raw UTF-8 and as an escape,
-  an invalid UTF-8 byte included, but not as `\x` byte escapes (binary
-  payloads) and not under `src/esp01/test/`; it is excused by exactly the
-  declared (path, literal) pair, a declaration that matches nothing fails, and
-  a malformed conf exits 2. A miscount refuses with exit 2 and names the
-  fixture. The harness self-test then runs the real lint against throwaway
-  trees (HS-97a to HS-97h): wired to `unit-test` and `regression`, red on a raw
-  and on an escaped em dash, green when the only em dashes are in comments, red
-  on an arrow, green once declared, red on a stale declaration, and the
-  `src/esp01/test/` boundary between the two rules (GH #382).
+  an invalid UTF-8 byte included, but not as `\x` byte escapes (binary payloads)
+  and not under `src/esp01/test/` itself (`src/esp01/src/` and a sibling such as
+  `src/esp01/testing/` are flagged); it is excused by exactly the declared
+  (path, literal) pair, a declaration that matches nothing fails even when it is
+  the only finding, and a malformed conf exits 2. A miscount refuses with exit 2
+  and names the fixture. The harness self-test then runs the real lint against
+  throwaway trees (HS-97a to HS-97h): wired to `unit-test` and `regression`, red
+  on a raw and on an escaped em dash, green when the only em dashes are in
+  comments, red on an arrow, green once declared, red on a stale declaration,
+  and the `src/esp01/test/` boundary between the two rules (GH #382).
 - `test/00regression/lint-traps.sh` carries **86 pinned cases: 57 that must
   flag and 29 that must not.** There is one fixture file per case,
   deliberately, because a combined fixture still passed when a case was lost,
