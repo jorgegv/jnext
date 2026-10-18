@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.69</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.69</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2365,7 +2365,7 @@
   <span class="md-ellipsis">
     
   
-    Symbols from Z88DK MAP files
+    Symbols from MAP files
   
 
     
@@ -4495,10 +4495,12 @@ input change is written as the frame it landed on, each Alt + 8 (or
 <strong>--script-key</strong> <em>FRAME</em> <code>8</code>) captures the screen, and <em>FILE</em> is
 written when jnext exits. Works in every frontend.</dd>
 <dt><strong>--map</strong> <em>FILE</em></dt>
-<dd>Load a z88dk <code>.map</code> symbol table, so a script can name an address as
-<code>@symbol</code>, and the debugger shows the names (the same table <strong>Map &gt;
-Load MAP</strong> fills). A file that cannot be loaded, or holds no
-symbols, is a startup error.</dd>
+<dd>Load a symbol table, a z88dk <code>.map</code> or an sjasmplus <code>--sym</code> or
+<code>--exp</code> file, told apart by its contents (z88dk’s assembler also
+writes a <code>.sym</code>, in the map format), so a script can name an address
+as <code>@symbol</code> (an sjasmplus label is <code>@main.loop</code>), and the debugger
+shows the names (the same table <strong>Map &gt; Load MAP</strong> fills). A file
+that cannot be loaded, or holds no symbols, is a startup error.</dd>
 <dt><strong>--magic-port</strong> <em>PORT</em></dt>
 <dd>Enable the magic debug port at <em>PORT</em> (hex, <code>0x</code> prefix optional,
 for example <code>0x00FF</code>).</dd>

@@ -9,12 +9,16 @@ before you start:
 2. **A branch**, taken off current `main` and given its own worktree. Never
    `main` itself, and one branch per independent change, so that parallel work
    cannot collide.
-3. **The full test triplet green on that branch** — a clean rebuild, then the
-   unit suites, the FUSE Z80 opcode suite, and the screenshot and functional
-   regression suite. No FAIL anywhere.
+3. **Targeted tests green on that branch** — the suites and regression rows the
+   change touches, and `make unit-test` before review. The full test triplet (a
+   clean rebuild, the unit suites, the FUSE Z80 opcode suite and the regression
+   suite, with their Windows runs) runs on `main` after the merge. It runs once
+   per work session's batch of landings, before anything is pushed. No FAIL
+   anywhere.
 4. **An independent review**, by someone who did not write the change. The
    verdict is binary: APPROVE or REJECT.
-5. **The merge**, followed immediately by a patch version bump.
+5. **The merge**, followed immediately by a patch version bump. The push waits
+   for the batch's full triplet.
 
 The bar for steps 3 and 4 is deliberately high, and it is fairer to say so here
 than to let a contributor discover it in review. A pull request must ship tests

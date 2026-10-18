@@ -18,6 +18,7 @@ code comments, so there is one place to check when a link rots or a spec moves.
 | Boot sequence (authoritative)                                                      | <https://wiki.specnext.dev/Boot_Sequence>                                   |
 | TBBlue firmware source (GPLv3) — `TBBLUE.FW` / `TBBLUE.TBU`, the IPL + boot module | <https://gitlab.com/thesmog358/tbblue/-/tree/master>                        |
 | TBBlue machine-config boot files (`config.ini` / `menu.ini` / `menu.def`)          | <https://gitlab.com/thesmog358/tbblue/-/blob/master/docs/config/config.txt> |
+| ZX Next FPGA core, branch `30204` (core 3.02.04: the Pi debug control); see [the analysis](analysis/FPGA-CORE-3.02.04-PI-DEBUG-CONTROL.md) | <https://gitlab.com/SpectrumNext/ZX_Spectrum_Next_FPGA/-/tree/30204> |
 
 ## File formats
 
@@ -57,6 +58,9 @@ is easy to get wrong and jnext did:
 | nextpi-sandbox — the QEMU `raspi0` set-up (kernel command line, USB audio) jnext's launcher follows | <https://github.com/vmorilla/nextpi-sandbox> |
 | Wireshark extcap — the named-pipe server (`CreateNamedPipe`, duplex, byte mode) a child opens with `fopen("wb")` on Windows; the precedent for the Pi audio pipe (GH #331) | <https://gitlab.com/wireshark/wireshark/-/blob/master/extcap.c> |
 | QEMU for Windows — builds `qemu-system-arm.exe` that the Windows NextPi launcher runs (install hint, GH #316) | <https://qemu.weilnetz.de/w64/> |
+| QEMU Raspberry Pi boards: the implemented and missing devices of `raspi0` (SPI controller implemented) | <https://www.qemu.org/docs/master/system/arm/raspi.html> |
+| QEMU's BCM2835 SPI0 model, `hw/ssi/bcm2835_spi.c`: polled and interrupt transfers; DMA and LoSSI unimplemented | <https://gitlab.com/qemu-project/qemu/-/blob/master/hw/ssi/bcm2835_spi.c> |
+| heise on QEMU 9.0: SPI and I2C controllers added for every Raspberry Pi model | <https://heise.de/-9697761> |
 
 ## Source-level debugging: toolchains and interop formats
 

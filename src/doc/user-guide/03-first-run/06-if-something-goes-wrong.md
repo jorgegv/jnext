@@ -12,6 +12,11 @@ an explicit `--sdcard`. It downloads the distribution again and builds a new
 working copy from it, so **any files you saved on the card are lost**. It also
 discards a half-finished download and starts the download again from the beginning.
 
+The message that says the download failed names the address JNEXT was fetching.
+If that address does not download in a web browser on the same computer either,
+the cause is the network or the server, not JNEXT: check the connection, a
+proxy or firewall, and try again later.
+
 **The boot menu's ZX81 entry stops on `zx81.rom...error reading!`.** Your
 working copy was prepared by an earlier version of JNEXT, before it doubled
 that ROM (see [Letting JNEXT fetch one](02-letting-jnext-fetch-one.md)).

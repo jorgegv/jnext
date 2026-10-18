@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.69</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.69</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2232,12 +2232,16 @@ before you start:</p>
 <li><strong>A branch</strong>, taken off current <code>main</code> and given its own worktree. Never
    <code>main</code> itself, and one branch per independent change, so that parallel work
    cannot collide.</li>
-<li><strong>The full test triplet green on that branch</strong> — a clean rebuild, then the
-   unit suites, the FUSE Z80 opcode suite, and the screenshot and functional
-   regression suite. No FAIL anywhere.</li>
+<li><strong>Targeted tests green on that branch</strong> — the suites and regression rows the
+   change touches, and <code>make unit-test</code> before review. The full test triplet (a
+   clean rebuild, the unit suites, the FUSE Z80 opcode suite and the regression
+   suite, with their Windows runs) runs on <code>main</code> after the merge. It runs once
+   per work session's batch of landings, before anything is pushed. No FAIL
+   anywhere.</li>
 <li><strong>An independent review</strong>, by someone who did not write the change. The
    verdict is binary: APPROVE or REJECT.</li>
-<li><strong>The merge</strong>, followed immediately by a patch version bump.</li>
+<li><strong>The merge</strong>, followed immediately by a patch version bump. The push waits
+   for the batch's full triplet.</li>
 </ol>
 <p>The bar for steps 3 and 4 is deliberately high, and it is fairer to say so here
 than to let a contributor discover it in review. A pull request must ship tests

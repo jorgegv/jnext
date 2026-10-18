@@ -21,7 +21,7 @@ Run these in parallel:
 
 ## Triplet check
 
-If `.claude/last-test-triplet.txt` is missing OR older than the latest commit, ask the user whether to run the full triplet now (the `regression-runner` agent or `/test-triplet` command). If they say no, note "triplet not freshly verified" in the memo.
+The end of a session is when the batch gate runs (CLAUDE.md merge protocol step 2). If anything landed on `main` since the last green batch gate, run it now on `main`'s tip (the `regression-runner` agent), and push if it is green. If there is no time for it (the owner is leaving now), write "batch gate not run; N landings unpushed" in the memo. If `.claude/last-test-triplet.txt` is missing OR older than the latest commit and nothing landed, ask the user whether to run the full triplet; if they say no, note "triplet not freshly verified" in the memo.
 
 ## Memo content
 

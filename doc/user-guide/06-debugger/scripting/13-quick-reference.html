@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.69</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.69</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2367,7 +2367,7 @@
   <span class="md-ellipsis">
     
   
-    Symbols from Z88DK MAP files
+    Symbols from MAP files
   
 
     
@@ -3846,7 +3846,7 @@ end
 </tr>
 <tr>
 <td><code>@name</code></td>
-<td>a MAP symbol (<code>; addr</code> or <code>; const</code>)</td>
+<td>a MAP symbol (<code>; addr</code> or <code>; const</code>); <code>@main.loop</code> for an sjasmplus label</td>
 </tr>
 <tr>
 <td><code>NAME.FIELD</code>, <code>changed(NAME, GROUP)</code>, <code>depth(NAME)</code></td>
@@ -3947,7 +3947,7 @@ delete</code>.</p>
 </tr>
 <tr>
 <td><code>--map FILE</code></td>
-<td>load a z88dk MAP for <code>@name</code></td>
+<td>load a z88dk MAP or an sjasmplus <code>--sym</code> / <code>--exp</code> file for <code>@name</code></td>
 </tr>
 <tr>
 <td><code>--script-key FRAME N</code></td>

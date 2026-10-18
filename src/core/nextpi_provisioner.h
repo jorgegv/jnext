@@ -94,10 +94,31 @@ bool extract_boot_files(const std::string& image_path, const std::string& boot_d
                         std::string& err);
 
 /// Terminal progress and busy messages for the NextPi download, worded for it
-/// (sdcard::cli_progress / cli_busy say "SD-card image" and "a few seconds";
-/// unpacking NextPi's 15 GB image takes about a minute).
-bool cli_progress(uint64_t downloaded, uint64_t total);
+/// (sdcard::make_cli_progress / cli_busy say "SD-card image" and "a few seconds";
+/// unpacking NextPi's 15 GB image takes about a minute). The progress also says
+/// the stall note once no data has arrived for 5 s (sdcard::ConsoleWait, GH #385),
+/// on stderr and in the log (the uart logger). `out` and `now` are for the tests.
+sdcard::ProgressFn make_cli_progress(std::FILE* out = stderr, sdcard::ConsoleNowFn now = {});
 bool cli_busy(const std::string& phase, const std::function<bool()>& work);
+
+/// The console's ShortFetchFn (GH #385): for the frontends with no dialog (--headless,
+/// the SDL-only build). A short fetch that takes a second says what it fetches and from
+/// where ("<label> <url>"), and one that stalls says so, with the dialog's words, on
+/// stderr and in the log (the uart logger, as the rest of this module logs); a quicker
+/// one says nothing. A fresh sdcard::ConsoleWait for each fetch, so every one counts
+/// from its own start. All three parameters are for the tests: the log's copy of a line
+/// (empty: the uart logger), the stream (stderr) and the clock (steady_clock).
+class CliShortFetch {
+public:
+    explicit CliShortFetch(sdcard::ConsoleLogFn log = {}, std::FILE* out = stderr, sdcard::ConsoleNowFn now = {});
+    bool operator()(const std::string& label, const std::string& url,
+                    const std::function<bool(const sdcard::ProgressFn&)>& fetch) const;
+
+private:
+    sdcard::ConsoleLogFn log_;
+    std::FILE*           out_;
+    sdcard::ConsoleNowFn now_;
+};
 
 struct ProvisionOptions {
     std::string dir;                      ///< "" → default_dir()
@@ -107,6 +128,12 @@ struct ProvisionOptions {
     sdcard::ConfirmFn  confirm;           ///< defaults to sdcard::cli_confirm
     sdcard::ProgressFn progress;          ///< download progress (may be empty)
     sdcard::BusyFn     busy;              ///< wraps check + unpack (may be empty)
+    /// Wraps the SHORT fetches only (the release list of "latest", the two .md5
+    /// ones), so a frontend can show feedback when one is slow: the GUI a dialog,
+    /// the console a line (CliShortFetch). It is told the label and the address of
+    /// each. The archive download is not wrapped, it has `progress`. Empty: no
+    /// feedback (the tests; GH #385).
+    sdcard::ShortFetchFn short_fetch;
     /// Free bytes needed before downloading; a test seam (production: ~22 GB).
     uint64_t           space_needed = 22ull * 1024 * 1024 * 1024;
 };

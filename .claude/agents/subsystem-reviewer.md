@@ -73,9 +73,9 @@ Before approving, run (or confirm the author ran) on the changed branch / worktr
 - `LANG=C make unit-test`
 - `LANG=C make unit-test-sdl`
 - `./build/test/fuse_z80_test build/test/fuse`
-- the regression: do NOT re-run the full suite (GH #295). Run `LANG=C make regression-stamp-check` in your own worktree of the branch — it prints the author's green stamp when the tree's non-doc content is the one they tested — and run the TARGETED rows the change touches, `LANG=C make regression-rows ROWS="<row> ..."` (it builds the binaries the rows run). Mutations and diagnosis use targeted rows only. No matching stamp = the gate is not met = REJECT; it is the author's run to do, not yours.
+- the regression: do NOT run the full suite (GH #295). Run the TARGETED rows the change touches, `LANG=C make regression-rows ROWS="<row> ..."` (it builds the binaries the rows run; the Qt `jnext` is the non-PGO Release build, `ROWS_PGO=1` for the PGO one). Mutations and diagnosis use targeted rows only. A branch has no full-run stamp: the full gate is the batch gate on `main` (CLAUDE.md merge protocol step 2), not the author's or yours.
 
-unit N/N, sdl N/N, FUSE 1356/1356, and a stamp with `fail=0 skip=0` (or a `confirmed_solo=` line naming loaded-host FAILs that passed solo); totals come from the conf files, not from this text. Any new FAIL = REJECT.
+unit N/N, sdl N/N where the change can affect the SDL-only build, FUSE 1356/1356, and the targeted rows green. Totals come from the conf files, not from this text. Any new FAIL = REJECT.
 
 ## What to escalate to the user (not approve unilaterally)
 

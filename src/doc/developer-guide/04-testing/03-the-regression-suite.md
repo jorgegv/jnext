@@ -163,7 +163,7 @@ child of the run can inherit the lock. It then waits, bounded, while the
 `test/regression-stamp.sh` records the counts, the loads and the commit under a
 key hashed from `git ls-tree` over every non-documentation path.
 `make regression-stamp-check` prints the stamp covering the current tree, which
-is how a reviewer verifies the author's run without repeating it, and
+is how a batch gate on an unchanged tree avoids repeating the run, and
 `make regression-ci-check` finds a green CI run with the same key, which is how
 a release reuses CI. Only a run with no FAIL and no SKIP is stamped, and since 2026-10-06 `regression.sh`
 itself exits 1 on a SKIP in every mode (full, named rows, `confirm`, `--update`;
@@ -174,7 +174,10 @@ into `~/.cache/jnext/tools` when none resolves. A run whose
 only FAILs are functional rows that failed on a loaded host is recorded as
 pending, and `make regression-confirm` re-runs exactly those rows solo; if they
 all pass the run is stamped, and the stamp names them. Targeted rows run through
-`make regression-rows ROWS="..."`, which builds the binaries they need.
+`make regression-rows ROWS="..."`, which builds the binaries they need. Its Qt
+`jnext` is the non-PGO Release build (`build/gui-release-non-pgo`): a branch trains
+no PGO profile, and the same code gives the same pixels. `ROWS_PGO=1` runs the PGO
+`build/gui-release` instead; `make regression` and `regression-confirm` always do.
 
 ## A failure on a loaded host
 
@@ -192,7 +195,7 @@ above `nproc` on the spot, and after the results lists each failed row by name
 with the load at the moment it failed, plus a warning when the run was loaded.
 None of that changes a verdict: a FAIL is still a FAIL and the exit status is
 unchanged. What it changes is the next step — re-run the row SOLO
-(`make regression-rows ROWS=<row>`) before treating it as a
+(`make regression-rows ROWS=<row> ROWS_PGO=1`, the PGO binary the full run tested) before treating it as a
 regression, and do not dismiss it until that solo run passes. The self-test
 pins the behaviour both ways (`HS-50..55`).
 

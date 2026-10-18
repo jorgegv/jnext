@@ -89,7 +89,20 @@
 //   PROV-SANDBOX-01..03  GH #271 — a download failure inside a Flatpak sandbox
 //                  carries a note naming the sandbox as the likely cause;
 //                  outside one it does not; and a NON-download failure never
-//                  carries it even inside a sandbox.
+//                  carries it even inside a sandbox. (GH #385 moved -02's expected
+//                  text: the message now also names the address and what happens
+//                  next; the invariant, nothing after those lines outside a sandbox,
+//                  is still pinned by exact equality.)
+//   PROV-REASON-01..05  GH #385 - a failure reads in plain words: the HTTP status
+//                  classes (RFC 9110 section 15) (01), the nine wordings of
+//                  net_reason (02), the platform backend's own codes sorted into
+//                  them (03: libcurl-errors(3) / winhttp.h), the same words from
+//                  libcurl and WinHTTP for an error status through the REAL backend
+//                  (04: the twin-agreement row), and an unusable address (05).
+//   PROV-MSG-01..06  GH #385 - the message provision_sd_card builds: what failed,
+//                  why, "URL: <the address asked for>", what happens next, for each
+//                  state of the partial (01-03), a download that is no zip (04),
+//                  the shape itself (05) and the sandbox note coming last (06).
 //   PROV-UNZIP-01  Extract a STORED entry from a crafted zip.
 //   PROV-UNZIP-02  Extract a DEFLATED entry from a crafted zip.
 //   PROV-UNZIP-03  Missing entry → false.
@@ -1250,10 +1263,12 @@ void test_stall_rows() {
     // that accepts, reads the request and closes without answering (the headers wait), (b) nothing listening at all
     // (the connect). The stall rows above only see "nothing arrives". The oracles are the transports' documented
     // codes, not this code's output. libcurl (libcurl-errors(3)): CURLE_GOT_NOTHING, the server returned nothing, for
-    // (a) and CURLE_COULDNT_CONNECT for (b), each compared as libcurl's own text for the code. WinHTTP (winhttp.h):
-    // ERROR_WINHTTP_CANNOT_CONNECT, 12029, for (b), which winhttp_error() also names. What WinHTTP calls (a) is the
-    // OS's own business (wine says 12152, ERROR_WINHTTP_INVALID_SERVER_RESPONSE), so there any ERROR_WINHTTP_* code
-    // passes; the small number of WINHTTP_ASYNC_RESULT::dwResult, the id of the API that failed, does not.
+    // (a) and CURLE_COULDNT_CONNECT for (b), each compared as the plain wording of GH #385 followed by "(curl error
+    // N: " libcurl's own text for the code ")". WinHTTP (winhttp.h): ERROR_WINHTTP_CANNOT_CONNECT, 12029, for (b), in
+    // the same plain wording followed by "(WinHTTP error 12029)". What WinHTTP calls (a) is the OS's own business
+    // (wine says 12152, ERROR_WINHTTP_INVALID_SERVER_RESPONSE), so there any ERROR_WINHTTP_* code passes, with the
+    // wording of the kind it belongs to (it closed the connection without answering, or the connection was lost);
+    // the small number of WINHTTP_ASYNC_RESULT::dwResult, the id of the API that failed, does not.
     {
         rs::Server srv;
         if (!srv.ok()) {
@@ -1276,15 +1291,24 @@ void test_stall_rows() {
                 const bool ok = sdcard::http_download(url, dest, {}, err, {200, 5000});
                 const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
 #ifdef _WIN32
-                // winhttp_error("transfer", dwError) = "transfer[: <name>] (WinHTTP error <dwError>)": the stage and
-                // the failing completion's own code
-                const std::string tag = "(WinHTTP error ";
+                // transport_reason(dwError) = "<plain wording> (WinHTTP error <dwError>)": the failing completion's
+                // own code, in the wording of its kind
+                const std::string tag = " (WinHTTP error ";
                 const size_t code_at = err.find(tag);
                 const long code = code_at == std::string::npos ? 0 : std::atol(err.c_str() + code_at + tag.size());
-                const bool own_reason = refused ? err == "transfer: cannot connect (WinHTTP error 12029)"
-                                                : (err.rfind("transfer", 0) == 0 && code > 12000 && code < 12200);
+                const std::string suffix = " (WinHTTP error " + std::to_string(code) + ")";
+                const bool own_reason =
+                    refused ? err == "could not connect to the server (WinHTTP error 12029)"
+                            : (code > 12000 && code < 12200 &&
+                               (err == "the server closed the connection without answering" + suffix ||
+                                err == "the connection to the server was lost" + suffix));
 #else
-                const bool own_reason = err == curl_easy_strerror(refused ? CURLE_COULDNT_CONNECT : CURLE_GOT_NOTHING);
+                const CURLcode want = refused ? CURLE_COULDNT_CONNECT : CURLE_GOT_NOTHING;
+                const bool own_reason =
+                    err == std::string(refused ? "could not connect to the server"
+                                               : "the server closed the connection without answering") +
+                               " (curl error " + std::to_string(static_cast<int>(want)) + ": " +
+                               curl_easy_strerror(want) + ")";
 #endif
                 detail += std::string(name) + ": ok=" + std::to_string(ok) + " t=" + num(secs) + "s err='" + err + "' ";
                 return !ok && secs < 2.0 && own_reason && err.rfind("stalled:", 0) != 0 && !exists(dest) &&
@@ -1296,10 +1320,12 @@ void test_stall_rows() {
             check("PROV-STALL-09",
                   "a server that closes the connection without answering, and a port nothing listens on, each end "
                   "the attempt in under 2 s (the stall timeout is 5 s) with the transport's own reason, never "
-                  "'stalled:', and leave no dest, .part or record; the reason is libcurl's text for "
-                  "CURLE_GOT_NOTHING (the close) and CURLE_COULDNT_CONNECT (the refused port), and on WinHTTP "
-                  "'transfer' with an ERROR_WINHTTP_* code (12001-12199) for the close and exactly "
-                  "'transfer: cannot connect (WinHTTP error 12029)' for the refused port",
+                  "'stalled:', and leave no dest, .part or record; the reason is libcurl's code and text for "
+                  "CURLE_GOT_NOTHING (the close) and CURLE_COULDNT_CONNECT (the refused port), each in the plain "
+                  "wording of GH #385 ('the server closed the connection without answering', 'could not connect to "
+                  "the server') followed by '(curl error N: <libcurl's text>)'; on WinHTTP an ERROR_WINHTTP_* code "
+                  "(12001-12199) in the wording of its kind for the close and exactly 'could not connect to the "
+                  "server (WinHTTP error 12029)' for the refused port",
                   closed && refused, detail);
         }
     }
@@ -1344,6 +1370,649 @@ void test_stall_rows() {
                   "ok=" + std::to_string(ok) + " err='" + err + "' biggest_step=" + std::to_string(biggest) +
                       " steps=" + std::to_string(steps) + " exact=" + std::to_string(slurp(dest) == body));
         }
+    }
+}
+
+
+// GH #385 - a failed download names the address, says why in plain words and what happens next.
+//
+// Oracles (jnext policy, no VHDL): the owner's #385 text ("show the URL ... so it can be checked by
+// other means", "show a clear reason for the failure"); RFC 9110 section 15 for the HTTP status
+// classes; libcurl-errors(3) and winhttp.h for what each transport code means. The wordings are the
+// plan's table (gh385-plan.md section 1 and 3), written out below as literals so that no row reads
+// its expectation from the code under test.
+void test_reason_rows() {
+    namespace fs = std::filesystem;
+    jtp::set_env("no_proxy", "127.0.0.1,localhost");
+    jtp::set_env("NO_PROXY", "127.0.0.1,localhost");
+    using NF = sdcard::NetFailure;
+
+    const char* const kNameNotFound   = "the server's name could not be found";
+    const char* const kCannotConnect  = "could not connect to the server";
+    const char* const kTimedOut       = "the server did not answer in time";
+    const char* const kConnectionLost = "the connection to the server was lost";
+    const char* const kNoAnswer       = "the server closed the connection without answering";
+    const char* const kTls            = "the secure connection to the server failed";
+    const char* const kBadAddress     = "the address is not a valid http or https URL";
+    const char* const kRedirect       = "the server's redirect could not be followed";
+    const char* const kOther          = "the transfer failed";
+
+    // 01: the HTTP status classes. RFC 9110: 401 15.5.2, 403 15.5.4, 404 15.5.5, 410 15.5.11, other 4xx
+    // 15.5, 5xx 15.6; 599 is the last 5xx, 600 is no status class at all.
+    {
+        struct Case { long status; const char* want; };
+        const Case cases[] = {
+            {404, "the server does not have this file (HTTP 404)"},
+            {410, "the server does not have this file (HTTP 410)"},
+            {401, "the server refused access (HTTP 401)"},
+            {403, "the server refused access (HTTP 403)"},
+            {500, "the server reported an error (HTTP 500)"},
+            {503, "the server reported an error (HTTP 503)"},
+            {599, "the server reported an error (HTTP 599)"},
+            {400, "the server refused the request (HTTP 400)"},
+            {429, "the server refused the request (HTTP 429)"},
+            {600, "the server refused the request (HTTP 600)"},
+        };
+        std::string bad;
+        for (const Case& c : cases) {
+            const std::string got = sdcard::http_status_reason(c.status);
+            if (got != c.want) bad += " [" + std::to_string(c.status) + " gave '" + got + "']";
+        }
+        check("PROV-REASON-01",
+              "an HTTP error status reads in plain words with the status in parentheses: 404 and 410 'the server "
+              "does not have this file', 401 and 403 'the server refused access', 500 503 599 'the server reported "
+              "an error', 400 429 600 'the server refused the request' (RFC 9110 section 15)",
+              bad.empty(), bad);
+    }
+
+    // 02: every failure kind has exactly one wording, followed by the backend's own code in parentheses.
+    {
+        struct Case { NF kind; const char* words; };
+        const Case cases[] = {
+            {NF::NameNotFound, kNameNotFound}, {NF::CannotConnect, kCannotConnect}, {NF::TimedOut, kTimedOut},
+            {NF::ConnectionLost, kConnectionLost}, {NF::NoAnswer, kNoAnswer}, {NF::Tls, kTls},
+            {NF::BadAddress, kBadAddress}, {NF::Redirect, kRedirect}, {NF::Other, kOther},
+        };
+        std::string bad;
+        for (const Case& c : cases) {
+            const std::string got = sdcard::net_reason(c.kind, "X 1: raw text");
+            if (got != std::string(c.words) + " (X 1: raw text)")
+                bad += " [kind " + std::to_string(static_cast<int>(c.kind)) + " gave '" + got + "']";
+        }
+        check("PROV-REASON-02",
+              "net_reason gives each of the nine failure kinds exactly its plain wording followed by the backend's "
+              "own text in parentheses (the issue's 'the server did not answer in time' is the TimedOut one)",
+              bad.empty(), bad);
+    }
+
+    // 03: the platform backend sorts its own codes into those kinds. Every mapped code of this platform, and
+    // codes that are not mapped.
+    {
+        std::string bad;
+#ifdef _WIN32
+        // winhttp.h: 12007 NAME_NOT_RESOLVED, 12029 CANNOT_CONNECT, 12002 TIMEOUT (wine reports a timeout as
+        // WSAETIMEDOUT, 10060), 12030 CONNECTION_ERROR, 12152 INVALID_SERVER_RESPONSE, the ten secure-channel
+        // codes, 12005 INVALID_URL, 12006 UNRECOGNIZED_SCHEME, 12156 REDIRECT_FAILED; 12004 INTERNAL_ERROR is none.
+        struct Case { long code; const char* words; };
+        std::vector<Case> cases = {
+            {12007, kNameNotFound}, {12029, kCannotConnect}, {12002, kTimedOut}, {10060, kTimedOut},
+            {12030, kConnectionLost}, {12152, kNoAnswer}, {12005, kBadAddress}, {12006, kBadAddress},
+            {12156, kRedirect}, {12004, kOther}, {0, kOther},
+        };
+        for (long tls : {12037L, 12038L, 12044L, 12045L, 12057L, 12157L, 12169L, 12170L, 12175L, 12179L})
+            cases.push_back({tls, kTls});
+        for (const Case& c : cases) {
+            const std::string got = sdcard::transport_reason(c.code);
+            if (got != std::string(c.words) + " (WinHTTP error " + std::to_string(c.code) + ")")
+                bad += " [" + std::to_string(c.code) + " gave '" + got + "']";
+        }
+#else
+        // libcurl-errors(3): the meanings of the CURLcodes, by their names.
+        struct Case { CURLcode code; const char* words; };
+        std::vector<Case> cases = {
+            {CURLE_UNSUPPORTED_PROTOCOL, kBadAddress}, {CURLE_URL_MALFORMAT, kBadAddress},
+            {CURLE_COULDNT_RESOLVE_PROXY, kNameNotFound}, {CURLE_COULDNT_RESOLVE_HOST, kNameNotFound},
+            {CURLE_COULDNT_CONNECT, kCannotConnect}, {CURLE_GOT_NOTHING, kNoAnswer},
+            {CURLE_HTTP2, kConnectionLost}, {CURLE_PARTIAL_FILE, kConnectionLost}, {CURLE_SEND_ERROR, kConnectionLost},
+            {CURLE_RECV_ERROR, kConnectionLost}, {CURLE_HTTP2_STREAM, kConnectionLost},
+            {CURLE_OPERATION_TIMEDOUT, kTimedOut}, {CURLE_TOO_MANY_REDIRECTS, kRedirect},
+            {CURLE_SSL_CONNECT_ERROR, kTls}, {CURLE_SSL_CERTPROBLEM, kTls}, {CURLE_SSL_CIPHER, kTls},
+            {CURLE_PEER_FAILED_VERIFICATION, kTls}, {CURLE_SSL_CACERT_BADFILE, kTls}, {CURLE_SSL_ISSUER_ERROR, kTls},
+            {CURLE_SSL_PINNEDPUBKEYNOTMATCH, kTls}, {CURLE_SSL_INVALIDCERTSTATUS, kTls},
+            // None of the kinds: a write error is ours, not the network's; a 'weird server reply' is an answer
+            // (an unparseable one), so 'closed the connection without answering' would be untrue of it.
+            {CURLE_WRITE_ERROR, kOther}, {CURLE_WEIRD_SERVER_REPLY, kOther}, {CURLE_OUT_OF_MEMORY, kOther},
+        };
+        for (const Case& c : cases) {
+            const std::string got = sdcard::transport_reason(c.code);
+            const std::string want = std::string(c.words) + " (curl error " + std::to_string(static_cast<int>(c.code)) +
+                                     ": " + curl_easy_strerror(c.code) + ")";
+            if (got != want) bad += " [" + std::to_string(static_cast<int>(c.code)) + " gave '" + got + "']";
+        }
+#endif
+        check("PROV-REASON-03",
+              "the platform backend sorts every transport code it knows into the right plain wording, followed by "
+              "its own code and text ('(curl error N: <libcurl's text>)' / '(WinHTTP error N)'), and a code it does "
+              "not know reads 'the transfer failed'",
+              bad.empty(), bad);
+    }
+
+    // 04: THE TWIN-AGREEMENT ROW. A server that answers an error status through the REAL backend: libcurl (which
+    // stops at CURLOPT_FAILONERROR and used to say only 'HTTP response code said error') and WinHTTP (which said
+    // 'HTTP status 404') now read the same, on both platforms. 400 is the lowest status FAILONERROR fails on, so
+    // it is the one that tells the curl twin's 'status of 400 or more' from 'more than 400'.
+    {
+        std::string bad;
+        const struct { int status; const char* want; } cases[] = {
+            {404, "the server does not have this file (HTTP 404)"},
+            {503, "the server reported an error (HTTP 503)"},
+            {400, "the server refused the request (HTTP 400)"},
+        };
+        for (const auto& c : cases) {
+            rs::Server srv;
+            if (!srv.ok()) { bad += " [cannot listen on 127.0.0.1]"; continue; }
+            rs::Opts o;
+            o.status = c.status;
+            srv.set(o);
+            const std::string dir = g_tmpdir + "/reason-" + std::to_string(c.status);
+            std::error_code ec;
+            fs::remove_all(dir, ec);
+            fs::create_directories(dir, ec);
+            const std::string dest = dir + "/dest.bin";
+            std::string err;
+            const bool ok = sdcard::http_download(srv.url(), dest, {}, err, {200, 5000});
+            const bool left = fs::exists(dest, ec) || fs::exists(sdcard::partial_path(dest), ec) ||
+                              fs::exists(sdcard::resume_record_path(dest), ec);
+            if (ok || err != c.want || left)
+                bad += " [" + std::to_string(c.status) + ": ok=" + std::to_string(ok) + " err='" + err +
+                       "' leftovers=" + std::to_string(left) + "]";
+        }
+        check("PROV-REASON-04",
+              "through the real backend (libcurl on Linux and macOS, WinHTTP under wine) a loopback server that "
+              "answers 404 fails with exactly 'the server does not have this file (HTTP 404)', one that answers "
+              "503 with exactly 'the server reported an error (HTTP 503)' and one that answers 400 with exactly "
+              "'the server refused the request (HTTP 400)': the same words on both transports; no dest, .part or "
+              "record is left",
+              bad.empty(), bad);
+    }
+
+    // 05: an address no transport can use, through the real backend (no network: it fails before any socket): a
+    // scheme it does not know and no address at all. The code that follows the words is the transport's own.
+    // libcurl-errors(3): 1 CURLE_UNSUPPORTED_PROTOCOL, 3 CURLE_URL_MALFORMAT. winhttp.h: WinHttpCrackUrl gives
+    // 12006 ERROR_WINHTTP_UNRECOGNIZED_SCHEME for a scheme that is not http or https; an address that cannot even
+    // be widened is the twin's own 12005 ERROR_WINHTTP_INVALID_URL (the plan: gh385-plan.md section 2).
+    {
+        const std::string dir = g_tmpdir + "/reason-url";
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        fs::create_directories(dir, ec);
+        struct Case { const char* url; std::string want; };
+#ifdef _WIN32
+        const Case cases[] = {
+            {"xyzzy://nowhere", std::string(kBadAddress) + " (WinHTTP error 12006)"},
+            {"", std::string(kBadAddress) + " (WinHTTP error 12005)"},
+        };
+#else
+        const Case cases[] = {
+            {"xyzzy://nowhere", std::string(kBadAddress) + " (curl error 1: " +
+                                    curl_easy_strerror(CURLE_UNSUPPORTED_PROTOCOL) + ")"},
+            {"", std::string(kBadAddress) + " (curl error 3: " + curl_easy_strerror(CURLE_URL_MALFORMAT) + ")"},
+        };
+#endif
+        std::string bad;
+        for (const Case& c : cases) {
+            std::string err;
+            const bool ok = sdcard::http_download(c.url, dir + "/dest.bin", {}, err, {200, 5000});
+            if (ok || err != c.want)
+                bad += " ['" + std::string(c.url) + "': ok=" + std::to_string(ok) + " err='" + err + "']";
+        }
+        check("PROV-REASON-05",
+              "the real backend given an address it cannot use, a scheme it does not know ('xyzzy://nowhere') or no "
+              "address at all, fails at once with 'the address is not a valid http or https URL' followed by "
+              "exactly its own code (libcurl error 1 and 3; WinHTTP error 12006 and 12005) and text, and no 'bad "
+              "URL: ' of its own: the caller names the URL",
+              bad.empty(), bad);
+    }
+}
+
+// GH #385 - the message provision_sd_card builds. A stub plays the backend (so the reason is a literal the
+// row owns); the shape is the plan's catalogue: "<what>: <reason>\n  URL: <url>\n  <what happens next>".
+void test_failure_message_rows() {
+    namespace fs = std::filesystem;
+    const std::string kUrl = "http://127.0.0.1:1/fixture.zip";
+    const std::string sddir = sdcard::default_sdcard_dir();
+    const std::string zip = sddir + "/sn-emulator.zip";
+    auto clean = [&] {
+        for (const std::string& f : {sdcard::default_sdcard_image_path(), sdcard::default_sdcard_raw_image_path(),
+                                     sdcard::default_sdcard_raw_image_path() + ".sha256"})
+            std::remove(f.c_str());
+        sdcard::discard_partial(zip);
+        std::remove(zip.c_str());
+    };
+    const std::string none = tp("no-such-flatpak-info-msg");
+    const std::string marker = tp("fake-flatpak-info-msg");
+    write_file(marker, {'x'});
+    // A stub download: leaves `have` bytes of a `total`-byte partial for its url (0: nothing), then fails
+    // with `why`.
+    auto failing = [](uint64_t have, uint64_t total, const char* why, std::string& seen_url) {
+        return [have, total, why, &seen_url](const std::string& url, const std::string& dest,
+                                             const sdcard::ProgressFn&, std::string& err) {
+            seen_url = url;
+            if (have > 0) {
+                write_file(sdcard::partial_path(dest), std::vector<uint8_t>(static_cast<std::size_t>(have), 'p'));
+                sdcard::ResumeInfo ri;
+                ri.url = url;
+                ri.validator_kind = "etag";
+                ri.validator = "\"v1\"";
+                ri.total = total;
+                sdcard::write_resume_info(dest, ri);
+            }
+            err = why;
+            return false;
+        };
+    };
+    const std::string kFirst = "download failed: stub: no route\n  URL: " + kUrl + "\n  ";
+    const std::string kNothing = "nothing was kept, so the next start downloads it from the beginning";
+
+    // 01: nothing kept.
+    {
+        clean();
+        jtp::set_env("JNEXT_SDCARD_DISTRO_URL", kUrl.c_str());
+        std::string seen;
+        sdcard::ProvisionOptions o;
+        o.auto_confirm = true;
+        o.sandbox_marker = none;
+        o.download = failing(0, 0, "stub: no route", seen);
+        const auto r = sdcard::provision_sd_card(o);
+        jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
+        check("PROV-MSG-01",
+              "a failed SD-card download reads 'download failed: <reason>', then 'URL: ' with exactly the address the "
+              "download was asked for, then 'nothing was kept, so the next start downloads it from the beginning' "
+              "when no partial was left (three lines, nothing else)",
+              r.status == sdcard::ProvisionStatus::Failed && seen == kUrl && r.error == kFirst + kNothing, r.error);
+    }
+
+    // 02: a resumable partial is left (2000 of 5000 bytes, a record for this address).
+    {
+        clean();
+        jtp::set_env("JNEXT_SDCARD_DISTRO_URL", kUrl.c_str());
+        std::string seen;
+        sdcard::ProvisionOptions o;
+        o.auto_confirm = true;
+        o.sandbox_marker = none;
+        o.download = failing(2000, 5000, "connection closed after 2000 of 5000 bytes", seen);
+        const auto r = sdcard::provision_sd_card(o);
+        jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
+        clean();
+        check("PROV-MSG-02",
+              "when the failed SD-card download left a resumable partial (2000 of 5000 bytes with a record for the "
+              "address) the third line says 'the part fetched so far is kept and the next start continues it'",
+              r.status == sdcard::ProvisionStatus::Failed &&
+                  r.error == "download failed: connection closed after 2000 of 5000 bytes\n  URL: " + kUrl +
+                                 "\n  the part fetched so far is kept and the next start continues it",
+              r.error);
+    }
+
+    // 03: a complete partial is left (5000 of 5000 bytes): only its rename failed.
+    {
+        clean();
+        jtp::set_env("JNEXT_SDCARD_DISTRO_URL", kUrl.c_str());
+        std::string seen;
+        sdcard::ProvisionOptions o;
+        o.auto_confirm = true;
+        o.sandbox_marker = none;
+        o.download = failing(5000, 5000, "cannot move the partial: Permission denied", seen);
+        const auto r = sdcard::provision_sd_card(o);
+        jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
+        clean();
+        check("PROV-MSG-03",
+              "when the failed SD-card download left a COMPLETE partial the third line says 'the complete download is "
+              "kept and the next start uses it'",
+              r.status == sdcard::ProvisionStatus::Failed &&
+                  r.error == "download failed: cannot move the partial: Permission denied\n  URL: " + kUrl +
+                                 "\n  the complete download is kept and the next start uses it",
+              r.error);
+    }
+
+    // 04: the download works but is not a zip (a captive portal's page): the address is named, and the download
+    // is removed.
+    {
+        clean();
+        jtp::set_env("JNEXT_SDCARD_DISTRO_URL", kUrl.c_str());
+        sdcard::ProvisionOptions o;
+        o.auto_confirm = true;
+        o.sandbox_marker = marker;   // even inside a sandbox: the network plainly worked
+        o.download = [](const std::string&, const std::string& dest, const sdcard::ProgressFn&, std::string&) {
+            write_file(dest, std::vector<uint8_t>(64, 'x'));
+            return true;
+        };
+        const auto r = sdcard::provision_sd_card(o);
+        jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
+        const bool gone = !file_exists(zip);
+        clean();
+        check("PROV-MSG-04",
+              "a download that is not a zip fails with 'unzip failed: EOCD not found (not a zip?)', the address it "
+              "came from and 'the download was removed, so the next start downloads it from the beginning'; the "
+              "zip is gone",
+              r.status == sdcard::ProvisionStatus::Failed && gone &&
+                  r.error == "unzip failed: EOCD not found (not a zip?)\n  URL: " + kUrl +
+                                 "\n  the download was removed, so the next start downloads it from the beginning",
+              r.error);
+    }
+
+    // 05: the shape itself, with no provisioner around it.
+    {
+        const std::string with_next = sdcard::fetch_failure("w", "u", "r", "n");
+        const std::string no_next = sdcard::fetch_failure("w", "u", "r", "");
+        check("PROV-MSG-05",
+              "fetch_failure joins what, reason, address and next as 'w: r', '  URL: u', '  n' on three lines; with "
+              "nothing to say next it is exactly 'w: r' and '  URL: u', with no trailing newline",
+              with_next == "w: r\n  URL: u\n  n" && no_next == "w: r\n  URL: u", with_next + " | " + no_next);
+    }
+
+    // 06: inside a Flatpak sandbox the note still comes LAST, after the three lines.
+    {
+        clean();
+        jtp::set_env("JNEXT_SDCARD_DISTRO_URL", kUrl.c_str());
+        std::string seen;
+        sdcard::ProvisionOptions o;
+        o.auto_confirm = true;
+        o.sandbox_marker = marker;
+        o.download = failing(0, 0, "stub: no route", seen);
+        const auto r = sdcard::provision_sd_card(o);
+        jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
+        const std::string head = kFirst + kNothing + "\n  note: jnext is running inside a Flatpak sandbox";
+        check("PROV-MSG-06",
+              "inside a Flatpak sandbox the failure keeps its three lines and the sandbox note comes after them, "
+              "last",
+              r.status == sdcard::ProvisionStatus::Failed && r.error.compare(0, head.size(), head) == 0 &&
+                  r.error.find("--share=network") != std::string::npos,
+              r.error);
+    }
+    clean();
+}
+
+// ---------------------------------------------------------------------------
+// GH #385, the owner's addition: the frontends with no dialog (--headless, the SDL-only build) say on
+// the console and in the log what the GUI's dialog says. Oracle: the owner's decision of 2026-10-18 (a
+// short fetch that passes 1 s: a line naming what is fetched and from which address; for every fetch,
+// the stall notice after 5 s with no data, in the same words as the dialog; nothing for the usual
+// sub-second fetch), the dialog's wording (SDD-07: 'Stalled: no data received for 5 s', 'gives up after
+// 30 s') and, for the progress display, the format of the cli_progress it replaced (SD-card image
+// provisioning, commit 06a78ecfa). Time is a fake the rows move; the output goes to a file read back.
+// ---------------------------------------------------------------------------
+void test_console_rows() {
+    using C = sdcard::StallWatch::Clock;
+    const C::time_point T0 = C::time_point{} + std::chrono::seconds(1000);
+    C::time_point now = T0;
+    auto at = [&](int ms) { now = T0 + std::chrono::milliseconds(ms); };
+    const sdcard::ConsoleNowFn clock = [&] { return now; };
+
+    // One console under test: its output file, and what it handed to the log.
+    struct Cap {
+        std::string path;
+        std::FILE* f = nullptr;
+        std::vector<std::pair<bool, std::string>> log;
+        explicit Cap(const char* name) : path(tp(name)) { f = std::fopen(path.c_str(), "w+b"); }
+        ~Cap() { if (f) std::fclose(f); }
+        Cap(const Cap&) = delete;
+        Cap& operator=(const Cap&) = delete;
+        sdcard::ConsoleLogFn log_fn() {
+            return [this](bool warning, const std::string& line) { log.emplace_back(warning, line); };
+        }
+        std::string text() {
+            // No fflush here: a line must already be in the file when it is said (the stream is the
+            // console's, and the console flushes after each line), or a mutant that drops the flush lives.
+            std::ifstream in(path, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        }
+    };
+    auto has = [](const std::string& s, const std::string& sub) { return s.find(sub) != std::string::npos; };
+    using LogLines = std::vector<std::pair<bool, std::string>>;
+    const std::string kSlow = "Reading the list of NextPi releases... https://mirror.test/NextPi2/";
+    const std::string note5 = sdcard::stall_note(5000);   // the dialog's note for 5 s
+    const bool note5_ok = has(note5, "Stalled: no data received for 5 s") && has(note5, "gives up after 30 s");
+
+    // 01: the usual sub-second fetch says nothing, in the console or the log.
+    {
+        Cap cap("con01");
+        sdcard::ConsoleWait w(cap.f, cap.log_fn(), kSlow, clock);
+        bool said = false;
+        for (int ms : {0, 200, 400, 600, 800, 999}) { at(ms); said = w.tick(0) || said; }
+        check("PROV-CON-01",
+              "a short fetch that is still going at 999 ms, and ends there, says nothing: no line on the console, "
+              "none in the log, and tick() reports nothing said",
+              !said && cap.text().empty() && cap.log.empty(), cap.text());
+    }
+
+    // 02: the line naming what is fetched and from where: once, from 1000 ms.
+    {
+        Cap cap("con02");
+        sdcard::ConsoleWait w(cap.f, cap.log_fn(), kSlow, clock);
+        int first_at = -1, said_count = 0;
+        for (int ms = 0; ms <= 4800; ms += 200) {
+            at(ms);
+            if (w.tick(0)) { if (first_at < 0) first_at = ms; ++said_count; }
+        }
+        check("PROV-CON-02",
+              "a short fetch says its line, '<what> <address>', once, at the first tick 1000 ms after the fetch began "
+              "(not at 800), as information, on a line of its own and in the log, and nothing again before the stall "
+              "note is due",
+              first_at == 1000 && said_count == 1 && cap.text() == kSlow + "\n" &&
+                  cap.log == LogLines({{false, kSlow}}),
+              "first_at=" + std::to_string(first_at) + " said=" + std::to_string(said_count) + " text='" + cap.text() + "'");
+    }
+
+    // 03: the stall note: at 5 s with no data, once, the dialog's words, as a warning.
+    {
+        Cap cap("con03");
+        sdcard::ConsoleWait w(cap.f, cap.log_fn(), {}, clock);
+        int first_at = -1, said_count = 0;
+        for (int ms = 0; ms <= 29800; ms += 200) {
+            at(ms);
+            if (w.tick(0)) { if (first_at < 0) first_at = ms; ++said_count; }
+        }
+        check("PROV-CON-03",
+              "with no data for 5 s the console says the dialog's stalled note (stall_note: 'Stalled: no data received "
+              "for 5 s ... jnext gives up after 30 s') on a line of its own and in the log as a warning, at the tick "
+              "5000 ms after the start and not at 4800, and says it only once through the next 25 s of silence; a "
+              "transfer with no slow line says nothing else",
+              note5_ok && first_at == 5000 && said_count == 1 && cap.text() == note5 + "\n" &&
+                  cap.log == LogLines({{true, note5}}),
+              "first_at=" + std::to_string(first_at) + " said=" + std::to_string(said_count) + " text='" + cap.text() + "'");
+    }
+
+    // 04: bytes arriving end the stall; a later stall speaks again.
+    {
+        Cap cap("con04");
+        sdcard::ConsoleWait w(cap.f, cap.log_fn(), {}, clock);
+        int notes = 0;
+        std::vector<int> at_ms;
+        auto go = [&](int ms, uint64_t bytes) {
+            at(ms);
+            if (w.tick(bytes)) { ++notes; at_ms.push_back(ms); }
+        };
+        for (int ms = 0; ms <= 5800; ms += 200) go(ms, 0);       // stalled from 5000: one note
+        for (int ms = 6000; ms <= 10800; ms += 200) go(ms, 100);  // bytes at 6000 end it; silent again after
+        go(11000, 100);                                          // 5 s after the last change: the second note
+        check("PROV-CON-04",
+              "a stall is said once; bytes arriving end it and say nothing; 5 s after the last byte a second stall "
+              "is said again (ticks 5000 and 11000), each as the same note on a line of its own",
+              note5_ok && at_ms == std::vector<int>({5000, 11000}) && cap.text() == note5 + "\n" + note5 + "\n" &&
+                  cap.log == LogLines({{true, note5}, {true, note5}}),
+              "notes at " + std::to_string(at_ms.size()) + " ticks, text='" + cap.text() + "'");
+    }
+
+    // 05: the first tick starts the clocks, not the constructor (a prompt may sit open for minutes first).
+    {
+        Cap cap("con05");
+        at(0);
+        sdcard::ConsoleWait w(cap.f, cap.log_fn(), kSlow, clock);
+        std::vector<int> at_ms;
+        for (int ms : {60000, 60200, 60999, 61000, 61200, 64800, 65000, 65200}) {
+            at(ms);
+            if (w.tick(0)) at_ms.push_back(ms);
+        }
+        check("PROV-CON-05",
+              "the clocks start at the first tick: with the console built 60 s before it, nothing is said at that "
+              "tick; the slow line comes 1000 ms after it and the stall note 5000 ms after it",
+              note5_ok && at_ms == std::vector<int>({61000, 65000}) && cap.text() == kSlow + "\n" + note5 + "\n",
+              "text='" + cap.text() + "'");
+    }
+
+    // 06: one late tick past both limits: the line first, then the note.
+    {
+        Cap cap("con06");
+        sdcard::ConsoleWait w(cap.f, cap.log_fn(), kSlow, clock);
+        at(0);
+        const bool first = w.tick(0);
+        at(6000);
+        const bool late = w.tick(0);
+        const std::string note6 = sdcard::stall_note(6000);
+        check("PROV-CON-06",
+              "a tick that arrives 6 s late says both: the slow line, then the stall note with the true idle time "
+              "('6 s'); the first tick said nothing",
+              !first && late && has(note6, "no data received for 6 s") && cap.text() == kSlow + "\n" + note6 + "\n" &&
+                  cap.log == LogLines({{false, kSlow}, {true, note6}}),
+              "text='" + cap.text() + "'");
+    }
+
+    // 07: a line left unfinished by the caller (a progress line): what is said starts on a new line, once.
+    {
+        Cap cap("con07");
+        sdcard::ConsoleWait w(cap.f, cap.log_fn(), {}, clock);
+        at(0);
+        w.tick(0, true);
+        at(5000);
+        const bool said = w.tick(0, true);
+        const std::string a = cap.text();
+        Cap cap2("con07b");
+        sdcard::ConsoleWait w2(cap2.f, cap2.log_fn(), kSlow, clock);
+        at(0);
+        w2.tick(0, true);
+        at(6000);
+        w2.tick(0, true);
+        const std::string note6 = sdcard::stall_note(6000);
+        check("PROV-CON-07",
+              "when the caller has an unfinished line on the console what is said starts on a new line: '\\n' + note; "
+              "when a late tick says two things only the first gets the '\\n' (the line just said ended with one); "
+              "tick() reports it said something",
+              said && a == "\n" + note5 + "\n" && cap2.text() == "\n" + kSlow + "\n" + note6 + "\n",
+              "a='" + a + "' b='" + cap2.text() + "'");
+    }
+
+    // 08: the progress display keeps the format of the cli_progress it replaced.
+    {
+        Cap cap("con08");
+        at(0);
+        sdcard::CliProgress p("SD-card image", true, cap.log_fn(), cap.f, clock);
+        const bool r1 = p(0, 200), r2 = p(1, 200), r3 = p(100, 200), r4 = p(199, 200), r5 = p(200, 200);
+        check("PROV-CON-08",
+              "with a length the progress display rewrites one line '\\rDownloading SD-card image: NNN%' only when "
+              "the whole percent changes (0, then 100/200 = 50, 199/200 = 99), ends the line with a newline at 100%, "
+              "and never cancels",
+              r1 && r2 && r3 && r4 && r5 &&
+                  cap.text() == "\rDownloading SD-card image:   0%\rDownloading SD-card image:  50%"
+                                "\rDownloading SD-card image:  99%\rDownloading SD-card image: 100%\n" &&
+                  cap.log.empty(),
+              cap.text());
+    }
+
+    // 09: no length from the server: MiB for the SD-card image, nothing for NextPi.
+    {
+        Cap cap("con09a"), cap2("con09b");
+        at(0);
+        sdcard::CliProgress sd("SD-card image", true, cap.log_fn(), cap.f, clock);
+        sd(0, 0);
+        sd(5u << 20, 0);
+        sd((5u << 20) + 123, 0);
+        sd(6u << 20, 0);
+        sdcard::CliProgress np("NextPi", false, cap2.log_fn(), cap2.f, clock);
+        np(0, 0);
+        np(5u << 20, 0);
+        np(50, 100);
+        check("PROV-CON-09",
+              "with no length the SD-card image's display says 'Downloading SD-card image: N MiB' when the MiB count "
+              "changes (5, then 6; not at 0 and not within the same MiB), and NextPi's says nothing until a length "
+              "is known, then 'Downloading NextPi:  50%'",
+              cap.text() == "\rDownloading SD-card image: 5 MiB\rDownloading SD-card image: 6 MiB" &&
+                  cap2.text() == "\rDownloading NextPi:  50%",
+              "sd='" + cap.text() + "' np='" + cap2.text() + "'");
+    }
+
+    // 10: the stall note on a progress display: its own line, and the display carries on at the start of the next.
+    {
+        const std::string pre = "\rDownloading SD-card image:  50%";
+        // (a) a stall mid-line, bytes come back with a new percent, a second stall.
+        Cap a("con10a");
+        at(0);
+        sdcard::CliProgress pa("SD-card image", true, a.log_fn(), a.f, clock);
+        pa(50, 100);
+        for (int ms = 200; ms <= 4800; ms += 200) { at(ms); pa(50, 100); }
+        at(5000);
+        pa(50, 100);
+        at(5200);
+        pa(60, 100);
+        at(10200);
+        pa(60, 100);
+        const std::string want_a = pre + "\n" + note5 + "\n" + "\rDownloading SD-card image:  60%" + "\n" + note5 + "\n";
+        // (b) a stall before any line was written (no length yet): no blank line first.
+        Cap b("con10b");
+        at(0);
+        sdcard::CliProgress pb("NextPi", false, b.log_fn(), b.f, clock);
+        pb(0, 0);
+        at(5000);
+        pb(0, 0);
+        // (c) a stall after the line was ended at 100%: no blank line first.
+        Cap c("con10c");
+        at(0);
+        sdcard::CliProgress pc("NextPi", false, c.log_fn(), c.f, clock);
+        pc(100, 100);
+        at(5000);
+        pc(100, 100);
+        // (d) two notes with no new progress line between them: the second has no '\n' before it, the
+        // cursor is already at the start of a line.
+        Cap d("con10d");
+        at(0);
+        sdcard::CliProgress pd("NextPi", false, d.log_fn(), d.f, clock);
+        pd(500, 1000);
+        at(5000);
+        pd(500, 1000);
+        at(5200);
+        pd(501, 1000);   // a byte: the stall ends; still 50%, so nothing is drawn
+        at(10200);
+        pd(501, 1000);
+        // (e) a stall after the "N MiB" line of a download with no length: that line is unfinished too.
+        Cap e("con10e");
+        at(0);
+        sdcard::CliProgress pe("SD-card image", true, e.log_fn(), e.f, clock);
+        pe(5u << 20, 0);
+        at(5000);
+        pe(5u << 20, 0);
+        check("PROV-CON-10",
+              "the stall note of a progress display goes on a line of its own after an unfinished progress line, and "
+              "the display carries on at the start of the next one; with no progress line unfinished (none drawn yet, "
+              "one ended at 100%, or a note already ended the line) there is no blank line before it; the "
+              "'N MiB' line of a download with no length is an unfinished line too",
+              note5_ok && a.text() == want_a && b.text() == note5 + "\n" &&
+                  c.text() == "\rDownloading NextPi: 100%\n" + note5 + "\n" &&
+                  d.text() == "\rDownloading NextPi:  50%\n" + note5 + "\n" + note5 + "\n" &&
+                  e.text() == "\rDownloading SD-card image: 5 MiB\n" + note5 + "\n" &&
+                  a.log == LogLines({{true, note5}, {true, note5}}),
+              "a='" + a.text() + "' b='" + b.text() + "' c='" + c.text() + "' d='" + d.text() + "' e='" + e.text() + "'");
+    }
+
+    // 11: the SD-card image's own display, as main.cpp builds it (the stream and the clock are the test's).
+    {
+        Cap cap("con11");
+        at(0);
+        const sdcard::ProgressFn p = sdcard::make_cli_progress(cap.f, clock);
+        const bool r1 = p(50, 100), r2 = p(5u << 20, 0);
+        check("PROV-CON-11",
+              "make_cli_progress(), the SD-card image's display, heads its line 'Downloading SD-card image:' and, "
+              "with no length from the server, counts MiB",
+              r1 && r2 && cap.text() == "\rDownloading SD-card image:  50%\rDownloading SD-card image: 5 MiB",
+              cap.text());
     }
 }
 
@@ -1993,9 +2662,13 @@ int main() {
         o2.download       = failing_dl;
         o2.sandbox_marker = tp("no-such-flatpak-info");
         auto r2 = sdcard::provision_sd_card(o2);
+        // GH #385: the message now names the address and what happens next (three lines); the
+        // invariant this row guards is unchanged and still pinned by EXACT equality: nothing
+        // follows them outside a sandbox.
         check("PROV-SANDBOX-02", "no note outside a sandbox",
               r2.status == sdcard::ProvisionStatus::Failed &&
-              r2.error == "download failed: Could not resolve hostname",
+              r2.error == "download failed: Could not resolve hostname\n  URL: " + std::string(sdcard::kDistroUrl) +
+                              "\n  nothing was kept, so the next start downloads it from the beginning",
               r2.error);
 
         // 03: inside a sandbox, but the DOWNLOAD SUCCEEDED and a later step
@@ -2233,6 +2906,9 @@ int main() {
 
     test_resume_rows();
     test_stall_rows();
+    test_reason_rows();
+    test_failure_message_rows();
+    test_console_rows();
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
