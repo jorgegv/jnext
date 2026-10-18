@@ -206,4 +206,287 @@ labels). #352 fixed it in v1.1.45: `load_z88dk_map` skips `__C_LINE_`, `__ASM_LI
 symbols only. #390 loads them as unpaged labels (section 10.4); it lands on `main` on its own,
 as #352 did (OD-10), and reaches the epic through merges of `main`.
 
+## 3. Architecture
+
+### 3.1 Layers
+
+Three layers, with dependencies pointing inward:
+
+1. **Format adapters** know file formats and nothing else (section 9). Each parses a whole
+   input and replaces its store only on success.
+2. **Neutral stores** know neither a file format nor Qt nor the emulator: the backend's
+   `SymbolTable` (CAP-SYM) and `SourceMap` (`src/debug/source_map.*`), and the stores the epic
+   adds (user annotations, per-space coverage, later a `VariableStore`).
+3. **Consumers** read the stores through the `jnext::dbg::Debugger` backend
+   ([DEBUG-SUBSYSTEM-ARCHITECTURE.md](DEBUG-SUBSYSTEM-ARCHITECTURE.md)): the CAP-SRC verbs, the
+   stepping engine, the Qt panels, the DSL, the GDB, DZRP and ZRCP servers, the exporters.
+
+Each store is one backend instance, so every frontend (Qt, SDL, headless, the remote servers,
+scripts) sees the same source map and symbols.
+
+```
+  files                       machine
+    |                           |
+    v                           v
+  adapters                    Mmu::route() --> FetchSource {kind, index}
+    | ranges, labels,             recorded by the real M1 into trace entries and call frames;
+    | program identity            predicted for the current PC by the same function
+    v                           |
+  stores <----------------------+   every range, label and breakpoint is compared with it, exactly
+    |
+    v
+  Debugger backend (CAP-SRC, CAP-SYM) --> Qt panels, stepping engine, DSL, GDB / DZRP / ZRCP, exporters
+```
+
+| Input | Adapter | Fills | State |
+|---|---|---|---|
+| `prog.sld` `T` records | SLD | `SourceMap` | done; ranges in E23-06 (#338) |
+| `prog.sld` `L` records | SLD labels | `SymbolTable` | E23-23 (#375) |
+| `Memory.txt` | NextBuild symbols | `SymbolTable` | done |
+| `prog.map` (`-m`) | z88dk map symbols | `SymbolTable` | done (#352) |
+| `prog.map` (`-m -debug`) | z88dk debug map | `SourceMap`, `SymbolTable` | E23-13 (#344) |
+| `*.lis` and `prog.map` | z88dk listings | `SourceMap` | E23-17 (#348) |
+| `prog_<GROUP>.bin` | program identity | `SourceMap` | E23-13 (#344) |
+| `--sym` / `--exp` files | EQU symbols | `SymbolTable` | #390 |
+| `.cdb` / `.adb` | CDB | `SourceMap` | E23-20 (#350), if the files exist |
+| project file | annotations reader and writer | user annotations | E23-24 (#387) |
+| `__CDBINFO__` records | CDB variables | `VariableStore` | follow-up epic #353 |
+
+### 3.2 The four design requirements
+
+D1 to D4 are epic #23's design requirements (its acceptance criteria 1 to 4). Each is stated
+with how it is met.
+
+**D1. History records what the fetch did; the current PC is predicted by the same function.**
+One arbiter, `Mmu::route(addr) const`, returns the `FetchSource` and the physical offset. It is
+the only place the priority order lives (section 4.2), and `read()` becomes
+`byte_at(route(addr), addr)`. The CPU's opcode read goes through `Mmu::read_m1(pc)`, which
+stores the result in `last_m1_`. A trace entry takes it after the instruction ran; a call
+frame's caller identity is the CALL's recorded fetch and its target identity the target's first
+M1. The Source tab and `source_location()` predict the next M1 with
+`route_with(addr, divmmc_active, mf_active)`, fed by `DivMmc::active_on_m1()` and a const
+`Multiface::would_latch_on_m1(pc)`; `route()` is `route_with()` with the live values, so the
+prediction cannot drift from the fetch. Built by E23-07 (#339) (the arbiter, `read_m1`, the
+prediction) and E23-08 (#340) (trace entries and call frames). Check: no prediction of the M1
+overlay outside `route_with`, `active_on_m1` and `would_latch_on_m1`; SRCDBG-ID-17 (an
+instruction that remaps its own slot keeps its recorded identity).
+
+**D2. The source map is range-aware and many-to-many.** A record covers its start up to an
+extent the adapter gives (section 9); ranges may overlap, and an address may have several
+locations. `lookup(space, addr)` returns all of them with a primary (the shortest range; on a
+tie the record emitted last, which is the highest line, G3). `resolve("file:line")` returns
+every start; a zero-width line resolves through its alias or refuses with "no code at
+file:line". Built by E23-06 (#338), with the z88dk extents in E23-13 (#344) and E23-17 (#348).
+Check: SRCRNG-01 to SRCRNG-09, Z88MAP-02, Z88MAP-05.
+
+**D3. Every record says which memory it describes, and the bytes are checked.** No adapter
+emits an unqualified record, and the store has no "matches every bank" fallback (E23-06
+(#338)). The z88dk adapter derives the space from the section name first, then from a 24-bit
+value (section 9.4; E23-13 (#344)). A map with a program identity is compared with memory when
+it is attached, and again after any machine replacement that is not a same-generation rewind
+(section 6; E23-10 (#342)): an SLD by its SHA-256 records, a z88dk map by the linker's section
+binaries over every line range. Check: Z88MAP-08 to Z88MAP-11, Z88MAP-14.
+
+**D4. One canonical page identity; the legacy page qualifier stays for the protocols that use
+it.** The identity is `FetchSource`, `MemSpace` extended with the overlays (OD-13). A source
+record, a source-line breakpoint and a history entry each carry one, compared exactly, and it
+replaces `NOT_RAM_PAGE` and `EventFilter::page_ram_only`. The plain `EventFilter::page`, which
+DZRP long breakpoints (`bank+1`) and the DSL `page` keyword use, keeps comparing
+`Mmu::get_effective_page(slot)` and nothing more: a protocol-level qualifier, not the identity
+(section 4.5). Built by E23-07 (#339) (the type), E23-09 (#341) (breakpoints on it, with one
+predicate) and this document, E23-02 (#334). Check: SRCBP-02 (a page number is not an
+identity), SRCBP-05 (the legacy meaning pinned).
+
+### 3.3 Implementation status
+
+| Mechanism | Today (v1.1.64) | Design | Changed by |
+|---|---|---|---|
+| Fetch identity at the PC | `Emulator::fetch_not_mmu_ram()` predicts the next M1 through `DivMmc::active_on_m1()`, a copy of the `Multiface` and `Mmu::read_not_mmu_ram()`; `Debugger::source_page()` returns a RAM page or `NOT_RAM_PAGE` (`debug/ram_page.h`) | 4.2, 4.4 | E23-07 (#339) |
+| Identity in history | `TraceLog` keeps a flag per entry beside `TraceEntry` (`not_ram_`), predicted just before the instruction runs; Back reads `te.mmu[slot]`, `rom_slots` and the flag | 4.3 | E23-08 (#340) |
+| Identity in call frames | `CallFrame::caller_page` and `target_page` (`uint8_t`; `NOT_RAM_PAGE` for ROM or an overlay) | 4.3 | E23-08 (#340) |
+| Source map | exact (page, address) to one `SourceLocation`, a duplicate replaces; `lookup` returns a copy; `resolve()` returns the first start, by exact path or unique basename; an unqualified-record fallback that no adapter feeds (SLD records always name a page) | 5 | E23-06 (#338) |
+| Breakpoint qualifier | `EventFilter::page` plus `page_ram_only` (`Event::fetch_not_ram`); the predicate sits in three places: `EventTable::filter_matches()`, `Debugger::probe_execute()`, `history_stop_at()` | 4.5, 8.1 | E23-09 (#341) |
+| Lifetime | `sidecar_attach_cycle`; the sidecar stores are dropped at once on a reset or a state from outside the rewind ring; a rewind rechecks by the clock | 6 | E23-10 (#342) |
+| z88dk | the map gives symbols only (`load_z88dk_map` skips the three debug prefixes, #352) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
+| Symbols | `SymbolTable` keyed by the 16-bit address; no page | 10 | E23-23 (#375); EQU files: #390 |
+| User labels and comments | none | 10 | E23-24 (#387) |
+| Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
+| Source steps in menus and keys | Source tab buttons only | 8.2 | E23-05 (#337) |
+| Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; no click-to-break, Run to Line, location list or selection sync | 8.2 | E23-16 (#347) |
+| Remote and script surface | GDB `monitor sym`; no `monitor src`, no DSL `file:line` | 8.3 | E23-15 (#346) |
+| The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
+| C stepping on real z88dk code | none | 7 | E23-14 (#345) |
+| Dot commands | none | 9.4 | E23-21 (#351) |
+| `.cdb` / `.adb` | none | 9.6 | E23-20 (#350) |
+| Fixtures | `test/fixtures/zdebugmap/` (trimmed 2.4 sccz80 maps, #352) | 2.3, 13 | E23-12 (#343) |
+| skoolkit / ghidra | none | 11.2 | E23-26 (#389) |
+
+Done: E23-01, E23-03 and E23-04 (v1.1.64: the backend capability, the SLD and `Memory.txt`
+adapters, the Source tab, ownership, the sidecar refusal reasons, the cut-down lifetime
+above); #332 (v1.1.46: the call-stack tracker follows rewind); #352 (v1.1.45). The epic closes
+with E23-19 (#349). A sub-issue that lands updates its row here, not the prose.
+
+## 4. Which memory supplied the instruction
+
+A source record describes code built for one memory, so the question a lookup must answer is
+"which memory supplied this instruction". The MMU's page number alone does not answer it: a
+ROM-mapped slot reports a page number from the same range as the RAM pages, and the overlays
+that the CPU's reads go through first (the boot ROM, the Multiface, DivMMC, the Layer 2 read
+mapping, the alternate ROM and config-mode routing) replace the MMU's page without changing
+it. One identity, used everywhere CAP-SRC matches code, answers it.
+
+### 4.1 `FetchSource`
+
+`FetchSource` is `MemSpace` (`src/debug/inspect.h`, INS-02) extended (OD-13) with the overlays
+that `Mmu::read()` serves before the MMU: `BootRom`, `MultifaceRom`, `MultifaceRam`,
+`DivMmcRom`, `DivMmcRam{bank}`, `AltRom{i}`, `Layer2{page}` and config-mode routing. It keeps
+the kinds `MemSpace` has: `Page{n}`, which is RAM page n (0 to 223) and nothing else, and
+`Rom{i}`. `Cpu`, the live view, is never a fetch source. Equality is exact (kind and index).
+E23-07 (#339) names and encodes the kinds.
+
+- Why not `NOT_RAM_PAGE`: it lumps ROM, DivMMC RAM and the Multiface into one value, and a
+  z88dk dot command runs from DivMMC RAM, so its records would match any overlay.
+- Why `Layer2{page}` is a kind of its own: the mapping is RAM, but not the slot's page, and
+  for banks 5 and 7 not even the same memory. The MMU reads the dedicated BRAM for pages 0x0A,
+  0x0B and 0x0E (`zxnext.vhd:2961-2962`, `3039-3041`); the Layer 2 arm forces the SRAM copy
+  (`zxnext.vhd:3100-3107`).
+- Every arm `Mmu::read()` has gets a kind. The VHDL's expansion-bus ROMCS arm
+  (`zxnext.vhd:3108`) has none, because jnext models no expansion-bus device.
+
+### 4.2 One arbiter
+
+`Mmu::route(addr) const` (D1) is the only place the priority order lives. The VHDL's order for
+0 to 16K is the boot ROM, the Multiface, DivMMC, the Layer 2 mapping, the MMU, config mode,
+the expansion-bus ROMCS, then ROM, which the alternate ROM replaces (`zxnext.vhd:2933-2950`);
+16K to 48K is the Layer 2 mapping and then the MMU, and 48K to 64K the MMU. The arms: boot ROM
+1856, Multiface (in the pre-arbiter) 3030, config mode 3044, DivMMC ROM and RAM 3084 and 3092,
+Layer 2 3100, alternate ROM 3116.
+
+The VHDL arbiter takes the access direction as an input (`zxnext.vhd:3077`: the Layer 2
+mapping uses its read enable on a read and its write enable on a write; `3078`: the
+alternate-ROM decode). So any later write-side identity (E23-25) comes from the same function,
+given the direction, never from a second copy of the order. If inlining misses the bench
+threshold (4.7), the fallback goes to the owner, never to a second arbiter.
+
+### 4.3 Recorded identity (E23-08 (#340))
+
+A trace entry stores the `FetchSource` of its own M1 as a kind plus an 8-bit index (a 4-bit
+index cannot name pages 16 to 223). The bytes come from narrowing `TraceEntry::opcode_len` to
+`uint8_t` (OD-4 (a)), so `TraceEntry` stays 56 bytes, which INS-13-15 pins. The parallel
+`not_ram_` vector goes, and with it its resize and ring-wrap hazards. `CallFrame` gains the
+caller's and the target's identity (`caller_space`, `target_space`): the caller's is the CALL's
+recorded fetch, the target's is filled at the target's first M1. Back and Reverse Continue
+match history by the recorded identity, and the trace export prints it. ZRCP `cpu-history` and
+DZRP history are not affected.
+
+### 4.4 The current-PC prediction (E23-07 (#339))
+
+The Source tab, `source_location()` and the breakpoint gate ask about an M1 that has not
+happened yet, and the M1 itself switches overlays. DivMMC's instant-on entry points map DivMMC
+for the very fetch that hits them. The hold carried from the previous M1 decides whether
+DivMMC still answers: the fetch after a 0x1FF8-0x1FFF unmap is RAM again while DivMMC still
+reads as mapped. The Multiface latches on the 0x0066 fetch.
+
+So the answer is a prediction, but of the same function: `route_with(addr, divmmc_active,
+mf_active)`, with the DivMMC decision from `DivMmc::active_on_m1()` (it shares its entry-point
+decode with `check_automap()`) and the Multiface decision from the const
+`Multiface::would_latch_on_m1(pc)`, which replaces the copy of the whole Multiface that the
+tree makes today. `Debugger::source_page()` returns the predicted `FetchSource`;
+`Emulator::fetch_not_mmu_ram()` and `Mmu::read_not_mmu_ram()` are deleted. A prediction has no
+side effects: rows compare the whole machine state before and after.
+
+### 4.5 Canonical and legacy
+
+The canonical identity is the one that every source record, source-line breakpoint and history
+entry carries (D4). The plain `EventFilter::page` stays for the protocols that use it: DZRP
+long breakpoints (a bank byte other than 0 becomes `Execute{addr, addr, page = bank}`,
+`dzrp-frontend.md:402`) and the DSL `page` keyword (`dsl-frontend.md:286`). It compares
+`Mmu::get_effective_page(slot)` and nothing more, so it still fires on a ROM-mapped slot whose
+effective page matches (SRCBP-05). `dzrp-frontend.md` stays frozen as a design record, and the
+developer guide says which meaning is canonical (E23-09 (#341)).
+
+A GUI breakpoint dialog that gets a page field uses `FetchSource` and E23-22's text form (4.6),
+so a breakpoint set there and one set on a source line mean the same (#372). A space-qualified
+breakpoint has no faithful `.jds` spelling until the DSL has a `FetchSource` form, so a saver
+of GUI breakpoints as `.jds` (#376) refuses or flags one and never writes it as `page N`: that
+would also match ROM or an overlay with that number, which is what SRCBP-02 pins.
+
+### 4.6 Presenting the identity (E23-22 (#360))
+
+One formatter over the identity serves every view (disassembly, memory, MMU, trace and
+history, call stack, breakpoints, stack, watches): a friendly form and a switchable physical
+form. For the MMU pages 0x0A, 0x0B and 0x0E it shows the BRAM that the CPU fetch used, and the
+SRAM copy only where the Layer 2 mapping reaches it.
+
+**The text form is a stable, serialisable name**, because the project file (10.5) and the
+exports (11.2) key on it. There is one spelling per identity, and a parser that is the
+formatter's inverse (the breakpoint dialog, the project file, imports). Spellings are
+upper-case `[A-Z0-9]` only, with no whitespace and no `:` (a ghidra address-space name is
+split at the last `:`; skoolkit file names). E23-22 fixes them. The list on #360 (`P0E`,
+`ROM0` to `ROM3`, `ALTROM0`, `ALTROM1`, `DIVROM`, `DIVRAM3`, `MFROM`, `MFRAM`, `BOOT`, `L2P12`,
+`CFG` plus the page) is provisional until E23-07 and E23-08 are merged.
+
+**Remote protocols** (owner decision on #360, 2026-10-18). Each carries as much of the identity
+as its existing vocabulary allows, and none is extended: no new commands, codes or fields on a
+protocol jnext does not own. E23-22 works out the exact values.
+
+- DZRP: the slot banks that `CMD_GET_REGISTERS` already sends, from which DeZog builds its long
+  addresses, each filled with the most precise value DZRP defines (a RAM page 0 to 223, or 0xFF
+  for ROM). DZRP has no value for which ROM, DivMMC or Layer 2 mapping backs a slot.
+- ZRCP: ZEsarUX's full spelling. In `get-memory-pages`: `O<n>` (which ROM page), `A<page>`,
+  `RO` and `SR<n>` in config mode, and `DIV` for a paged-in DivMMC (jnext prints only `RO` and
+  `A<page>` today). In the `MMU=` field of `get-registers`: a value of 0x8000 or more is a ROM
+  half, as DeZog reads it. Nothing finer (a DivMMC RAM page, a Layer 2 mapping) has a ZRCP
+  spelling.
+- GDB: `monitor` commands are the stub's own, so the full identity text goes into the existing
+  `monitor mmu` output. No new command.
+
+### 4.7 Cost
+
+Nothing new runs with the debugger off except `read()`'s restructuring onto `route()`, which
+E23-07 (#339) gates on `make bench` (non-PGO A/B on a quiet host; at most 1% on the boot and
+game benches). With the trace on, the identity is stored per M1; with the call stack on, per
+frame; an armed `Execute` subscription is evaluated only for its address (the existing per-page
+bitmap). E23-07 and E23-08 record the numbers.
+
+## 5. The source map and the backend API
+
+### 5.1 The store (D2)
+
+- `files[]`: the paths as the build spelled them, interned, with a cache of resolved paths.
+- `locations[]`: `{file, line, column (0 = none), function (optional)}`. A format without
+  columns writes 0; sccz80 and 80cc give the function, sdcc writes `x`.
+- `ranges[]`: `{space, lo, hi_excl, location}`, sorted by (space, lo); overlaps are allowed.
+- `by_line`: (file, line) to range indices (several, disjoint). `aliases`: (file, line) to a
+  range, for the zero-width lines of G3.
+- An optional program identity (9.7).
+
+`lookup(space, addr)` returns every range that contains `addr` in `space`. The primary
+location is the shortest range; on a tie the record the adapter emitted last wins (the highest
+line, G3). It returns pointers into the store, not copies. `resolve("file:line")` returns every
+range start of the location. The file matches the exact path, else a unique suffix of whole
+path components (a basename is the one-component case, today's rule; `ain.c` never matches
+`main.c`). A zero-width line resolves through its alias or refuses with "no code at
+file:line" (G3; `main.c:14` in the fixture). Two locations are the same position when file,
+line and column of their primary locations are equal.
+
+E23-06 (#338) builds the store on a placeholder 16-bit page key and fixes its interface;
+E23-07 (#339) only swaps the key for `FetchSource`.
+
+### 5.2 The backend verbs (CAP-SRC, `debug/debugger.h`)
+
+| Verb | Meaning | Changes in |
+|---|---|---|
+| `load_source_map(path, accept_identity_mismatch)` | load a source map by hand; refused on a parse error, or on an identity mismatch unless accepted; the path is stored absolute | accepts `.map` (E23-13 (#344)) |
+| `clear_source_map()`, `source_map()` | the store | |
+| `source_location(addr)`, `source_location()` | the position of `addr` or of the PC | the primary location and all the others, by pointer (E23-06 (#338)) |
+| `source_page(addr)`, `effective_page(addr)` | the RAM page that supplies `addr` (or `NOT_RAM_PAGE`); the MMU's page | `source_page` returns the `FetchSource` (E23-07); `effective_page` stays, as the MMU's page for the legacy qualifier |
+| `load_program_sidecars(path)` | attach a loaded program's `Memory.txt` and SLD (section 6) | `<stem>.map` (E23-13); lifetime (E23-10 (#342)) |
+| `source_step(by, kind)` | `Into`, `Over`, `Out`, `Back`, `ReverseContinue` (section 7) | ranges (E23-06); recorded identity (E23-08 (#340)) |
+| `load_map(path, MapFormat::NextBuild)` | `Memory.txt` by hand (CAP-SYM gains a format) | |
+| `--source-map FILE` (command line) | a source map at startup | new (OD-15, E23-13) |
+
+`debugger.h` is a frozen public header: the sub-issue that needs an addition makes it, under
+the owner decisions recorded on #23 and #378.
+
 <!-- CONTINUE -->
