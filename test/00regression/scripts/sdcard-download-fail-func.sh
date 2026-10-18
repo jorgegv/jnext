@@ -72,6 +72,12 @@ if want sdcard-download-fail-func; then
     sf_has() {
         grep -qF -- "$3" "$sf_dir/$1.$2.lf" || sf_fails+=("$1: $4 is not in the $2 ('$3')")
     }
+    # sf_once <name>: the failure is logged ONCE (the Qt GUI logs it itself and must not log it again).
+    sf_once() {
+        local n
+        n=$(grep -cF '[error] SD-card image: ' "$sf_dir/$1.log.lf" || true)
+        [[ "$n" == 1 ]] || sf_fails+=("$1: the failure is logged $n times in the log, want once")
+    }
 
     sf_reason='download failed: could not connect to the server ('
     sf_url_line="  URL: $sf_url"
@@ -86,6 +92,7 @@ if want sdcard-download-fail-func; then
     sf_has headless log "SD-card image: $sf_reason" "the reason in plain words"
     sf_has headless log "$sf_url_line" "the address"
     sf_has headless log "$sf_next" "what happens next"
+    sf_once headless
 
     # 2. the SDL-only build
     if [[ ! -x "$JNEXT_SDL" ]]; then
@@ -99,6 +106,7 @@ if want sdcard-download-fail-func; then
         sf_has sdl log "SD-card image: $sf_reason" "the reason in plain words"
         sf_has sdl log "$sf_url_line" "the address"
         sf_has sdl log "$sf_next" "what happens next"
+        sf_once sdl
     fi
 
     # 3. the Qt GUI, offscreen: the dialog is not shown, its text is logged at debug level
@@ -109,6 +117,7 @@ if want sdcard-download-fail-func; then
     sf_has qt log "dialog not shown on the offscreen platform: jnext - SD card image: The SD-card image could not be installed:" "the dialog's title and text"
     sf_has qt log "$sf_url_line" "the address"
     sf_has qt log "$sf_next" "what happens next"
+    sf_once qt
 
     if [[ ${#sf_fails[@]} -eq 0 ]]; then
         pass_row " (a refused SD-card download exits 1 naming the address, the reason in plain words and that nothing was kept: on stderr and in the log file of a headless run and of the SDL-only build, and in the log and the dialog's text of the Qt GUI)"

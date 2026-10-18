@@ -1959,17 +1959,36 @@ static void test_nextpi_failure_rows() {
         nextpi::ProvisionOptions ob = nextpi_options(mirror, dir_b.string(), "", asked_b, false);
         ob.confirm = [&](const std::string& m) { ++asked_b; message_b = m; return false; };
         (void)nextpi::provision(ob);
+        // (c) no .md5 beside the archive, and the mirror's is fetched fine but holds no checksum (a captive
+        // portal's page): the reason is that, not a transport failure.
+        const fs::path dir_c = mirror.dir / "np_htmlmd5";
+        const bool placed_c = place(mirror, dir_c, "1_93D", false);
+        std::string message_c;
+        int asked_c = 0;
+        nextpi::ProvisionOptions oc = nextpi_options(mirror, dir_c.string(), "", asked_c, false);
+        oc.download = [&](const std::string& u, const std::string& dest, const sdcard::ProgressFn& p, std::string& e) {
+            if (ends_with(u, ".md5")) { std::ofstream(dest) << "<html><body>Please log in</body></html>\n"; return true; }
+            return real(u, dest, p, e);
+        };
+        oc.confirm = [&](const std::string& m) { ++asked_c; message_c = m; return false; };
+        (void)nextpi::provision(oc);
+        const std::string archive_c = (dir_c / "NextPi-1_93D.tar.gz").string();
         check("PIT-47",
               "the question about an archive that cannot be checked says 'jnext cannot check <archive>: there is no "
-              "MD5 beside it, and the mirror's could not be used: <reason>', 'URL: ' with exactly the .md5 address, "
-              "and a blank line; the note about a wrong local .md5 ends '): it is incomplete or damaged.' and a "
-              "blank line (GH #385; jnext-only, no VHDL counterpart)",
-              fixture && placed_a && placed_b && asked_a == 1 && asked_b == 1 &&
+              "MD5 beside it, and the mirror's could not be used: <reason>' (the transport's, or 'the file holds no "
+              "MD5' for a page without a checksum), 'URL: ' with exactly the .md5 address, and a blank line; the "
+              "note about a wrong local .md5 ends '): it is incomplete or damaged.' and a blank line (GH #385; "
+              "jnext-only, no VHDL counterpart)",
+              fixture && placed_a && placed_b && placed_c && asked_a == 1 && asked_b == 1 && asked_c == 1 &&
                   message_a.find("jnext cannot check " + archive_a +
                                  ": there is no MD5 beside it, and the mirror's could not be used: stub: no route\n"
                                  "  URL: " + md5_url + "\n\n") != std::string::npos &&
-                  message_b.find("): it is incomplete or damaged.\n\n") != std::string::npos,
-              fmt("fixture=%d a='%.300s' b='%.300s'", fixture ? 1 : 0, message_a.c_str(), message_b.c_str()));
+                  message_b.find("): it is incomplete or damaged.\n\n") != std::string::npos &&
+                  message_c.find("jnext cannot check " + archive_c +
+                                 ": there is no MD5 beside it, and the mirror's could not be used: the file holds no MD5\n"
+                                 "  URL: " + md5_url + "\n\n") != std::string::npos,
+              fmt("fixture=%d a='%.300s' b='%.300s' c='%.300s'", fixture ? 1 : 0, message_a.c_str(), message_b.c_str(),
+                  message_c.c_str()));
     }
 
     // -- PIT-48 - "latest": the release list cannot be read. Nothing installed: an error. Something
@@ -2115,19 +2134,41 @@ static void test_nextpi_failure_rows() {
         (void)nextpi::provision(ob);
         const bool wrapped_b = events == std::vector<std::string>({"fetch:" + label_md5, "question"}) &&
                                got_pf_b[md5_url];
+
+        // (c) no short_fetch seam (the CLI): the short fetches get no ProgressFn at all, the archive keeps the
+        // progress option, as before.
+        FakeMirror mc("fail51c");
+        const bool fixture_c = mc.add_release("1_100", disk_b);
+        const std::string list_c = mc.url() + "/";
+        const std::string md5_c = mc.url() + "/NextPi-1_100.tar.gz.md5";
+        const std::string tgz_c = mc.url() + "/NextPi-1_100.tar.gz";
+        std::map<std::string, bool> got_pf_c;
+        int progress_c = 0, confirms_c = 0;
+        nextpi::ProvisionOptions oc = nextpi_options(mc, (mc.dir / "np").string(), "latest", confirms_c);
+        sdcard::DownloadFn real_c = mc.download();
+        oc.download = [&](const std::string& u, const std::string& dest, const sdcard::ProgressFn& p, std::string& e) {
+            got_pf_c[u] = static_cast<bool>(p);
+            return real_c(u, dest, p, e);
+        };
+        oc.progress = [&](uint64_t, uint64_t) { ++progress_c; return true; };
+        const nextpi::ProvisionResult rc = nextpi::provision(oc);
+        const bool unwrapped_c = rc.status == sdcard::ProvisionStatus::Ok && got_pf_c.count(list_c) &&
+                                 got_pf_c.count(md5_c) && !got_pf_c[list_c] && !got_pf_c[md5_c] && got_pf_c[tgz_c] &&
+                                 progress_c >= 1;
         check("PIT-51",
               "provision() hands exactly the short fetches to ProvisionOptions::short_fetch, with these labels and "
               "the ProgressFn it was handed passed on to the download: the release list of 'latest' ('Reading the "
               "list of NextPi releases...') and the .md5 before a download ('Fetching the NextPi checksum...'), and "
               "the .md5 that checks an archive already in the folder, before the question; the archive download "
-              "is not wrapped and keeps the progress option (GH #385; jnext-only, no VHDL counterpart)",
+              "is not wrapped and keeps the progress option; with no short_fetch (the CLI) the short fetches get no "
+              "ProgressFn at all (GH #385; jnext-only, no VHDL counterpart)",
               fixture_a && ra.status == sdcard::ProvisionStatus::Ok && ra.release == "1_100" && wrapped_a &&
-                  archive_not_wrapped && fixture_b && placed_b && wrapped_b,
+                  archive_not_wrapped && fixture_b && placed_b && wrapped_b && fixture_c && unwrapped_c,
               fmt("a: status=%d labels=%zu short=%d short_pf=%d progress=%d at_archive=%d wrapped=%d archive_ok=%d (%s) "
-                  "b: events=%zu wrapped=%d",
+                  "b: events=%zu wrapped=%d c: status=%d unwrapped=%d progress=%d",
                   static_cast<int>(ra.status), labels_a.size(), short_calls, short_pf_calls, progress_calls,
                   short_calls_at_archive, wrapped_a ? 1 : 0, archive_not_wrapped ? 1 : 0, ra.error.c_str(),
-                  events.size(), wrapped_b ? 1 : 0));
+                  events.size(), wrapped_b ? 1 : 0, static_cast<int>(rc.status), unwrapped_c ? 1 : 0, progress_c));
     }
 }
 

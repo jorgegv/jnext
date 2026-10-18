@@ -243,6 +243,13 @@ if want nextpi-func; then
         || fails+=("--nextpi in the Qt GUI without QEMU did not say on stderr that QEMU is not found")
     nf_text "dialog not shown on the offscreen platform: jnext - NextPi: NextPi could not be started:" "$nplog10" "the Qt GUI's log (--nextpi)"
     nf_text "jnext exits, because --nextpi asked for it." "$nplog10" "the Qt GUI's log (--nextpi)"
+    # ...and the same failure from Preferences alone says jnext starts without NextPi (exit 0, fact 4).
+    nplog10b="$TMP_DIR/nextpi-func-10b.log"
+    rm -f "$nplog10b"
+    gui_run --log-level platform=debug --log-file "$nplog10b"
+    [[ $rc -eq 0 ]] || fails+=("a Preferences-only NextPi that cannot start exited $rc, want 0 (dialog run)")
+    nf_text "dialog not shown on the offscreen platform: jnext - NextPi: NextPi could not be started:" "$nplog10b" "the Qt GUI's log (Preferences)"
+    nf_text "jnext starts without it." "$nplog10b" "the Qt GUI's log (Preferences)"
 
     # Facts 11 and 12 — "latest" in the Qt GUI with the release already installed and a mirror whose
     # list cannot be read. gui_latest <mirror> <log>: the stand-in QEMU on the PATH, so that NextPi
