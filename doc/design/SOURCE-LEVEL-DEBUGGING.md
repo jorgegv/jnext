@@ -527,7 +527,10 @@ headless and SDL.
 after the load call returns, and neither the tape loader nor the backend has a point at which
 "the program has loaded" (a program may also run, and change its own image, before any check
 could match). This holds for every source format, the source half of `<stem>.map` included; its
-symbol half attaches. A tape's map is loaded by hand once the program is in memory.
+symbol half attaches. A tape's map is loaded by hand once the program is in memory. **Open,
+settled in E23-23 (#375):** once z88dk symbols are paged by the rules of 9.4, rule 4 (the MMU
+mapping with the program in memory) has no load point for a tape program either, so E23-23
+states when the symbols of a tape's `<stem>.map` take their spaces.
 
 ### 6.3 Ownership
 
