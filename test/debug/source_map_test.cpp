@@ -268,7 +268,7 @@ int main() {
         fs::resize_file(huge_sld, big);
         SourceMap m;
         const auto r = load_sld(m, huge_sld.string());
-        check("SLD-22", "an SLD over the 64 MB cap is refused with its size in the reason",
+        check("SLD-22", "an SLD over the 64 MiB cap is refused with its size in the reason",
               r.count == -1 && r.error.find(std::to_string(big)) != std::string::npos &&
                   m.size() == 0);
 
@@ -280,11 +280,23 @@ int main() {
         SymbolTable st;
         st.load_nextbuild_memory(small_mem.string());
         std::string why;
-        check("NBSYM-13", "a Memory.txt over the 64 MB cap is refused with its size in the "
+        check("NBSYM-13", "a Memory.txt over the 64 MiB cap is refused with its size in the "
                           "reason, and the loaded symbols stay",
               st.load_nextbuild_memory(huge_mem.string(), &why) == -1 &&
                   why.find(std::to_string(big)) != std::string::npos &&
                   st.lookup_name("Kept") == 0x9000 && !st.lookup_name("Big"));
+
+        // The cap is inclusive: a file of exactly SOURCE_FILE_MAX_BYTES is
+        // not over it, and one byte more is.
+        const fs::path edge = dir / "edge.sld";
+        write_text(edge, "|SLD.data.version|1\n");
+        fs::resize_file(edge, SOURCE_FILE_MAX_BYTES);
+        const bool at_cap = source_file_problem(edge.string()).empty();
+        fs::resize_file(edge, big);
+        const std::string over = source_file_problem(edge.string());
+        check("SLD-23", "a file of exactly the 64 MiB cap passes the size check, one byte "
+                        "more is refused with its size",
+              at_cap && over.find(std::to_string(big)) != std::string::npos);
     }
 
     // ── NextBuild Memory.txt ────────────────────────────────────────────
