@@ -3039,7 +3039,7 @@ static void review_m2_rows() {
 // memory writes themselves, and a repeated CMD_INIT on the same session, do not.
 
 static void program_replaced_rows() {
-    Rig rig;
+    Rig rig(MachineType::ZXN_ISSUE2);        // CMD_WRITE_BANK is a Next command
     const std::uint64_t n0 = rig.dbg->program_loads();
     Dz c(rig);
     const std::uint64_t n_connect = rig.dbg->program_loads();   // a connection that says nothing touches nothing
@@ -3048,14 +3048,16 @@ static void program_replaced_rows() {
     c.init();                                                    // a renegotiation on the same session
     const std::uint64_t n_again = rig.dbg->program_loads();
     c.cmd(CMD_WRITE_MEM, bytes({0}) + u16s(0x9000) + bytes({0x77}));   // the program arriving as plain writes
+    const Resp wb = c.cmd(CMD_WRITE_BANK, bytes({14}) + pattern(DZRP_BANK_BYTES, 14));   // the legacy bank loader
     const std::uint64_t n_write = rig.dbg->program_loads();
     c.cmd(CMD_CLOSE);
     c.init();                                                    // the next session: the next program
     const std::uint64_t n_next = rig.dbg->program_loads();
     check("DZRP-LOAD-01", "CMD_INIT of a new DZRP session counts as a program replaced "
                           "(Debugger::program_loads() +1): not the bare connection, not a repeated CMD_INIT on the "
-                          "same session, not CMD_WRITE_MEM, but the next session again (POK undo records, GH #381)",
-          n_connect == n0 && n_init == n0 + 1 && n_again == n_init && n_write == n_init && n_next == n_init + 1,
+                          "same session, not CMD_WRITE_MEM / CMD_WRITE_BANK, but the next session again (POK undo records, GH #381)",
+          n_connect == n0 && n_init == n0 + 1 && n_again == n_init && n_write == n_init && n_next == n_init + 1 &&
+              wb.payload == bytes({0, 0}),
           std::to_string(n0) + " " + std::to_string(n_connect) + " " + std::to_string(n_init) + " " +
               std::to_string(n_again) + " " + std::to_string(n_write) + " " + std::to_string(n_next));
 }
