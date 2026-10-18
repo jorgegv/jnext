@@ -7,9 +7,22 @@
 // z80_instruction_length — returns the byte length of the instruction at addr
 // ---------------------------------------------------------------------------
 
+// A DD/FD in front of an opcode the index registers do not touch (another DD/FD, an ED, a plain
+// instruction) is a one-byte prefix that does nothing: the core backs up and runs the next byte as
+// an instruction of its own (FUSE z80_ddfd.c default), so the length is 1 + that instruction's.
+// `depth` bounds a chain of them in memory.
+static int instruction_length(uint16_t addr, uint8_t (*read)(void* ctx, uint16_t addr),
+                              void* ctx, int depth);
+
 int z80_instruction_length(uint16_t addr,
                            uint8_t (*read)(void* ctx, uint16_t addr),
                            void* ctx)
+{
+    return instruction_length(addr, read, ctx, 0);
+}
+
+static int instruction_length(uint16_t addr, uint8_t (*read)(void* ctx, uint16_t addr),
+                              void* ctx, int depth)
 {
     uint8_t op = read(ctx, addr);
 
@@ -100,8 +113,9 @@ int z80_instruction_length(uint16_t addr,
             case 0x36:
                 return 4;
             default:
-                // Unrecognized: treat prefix as NOP, instruction is 2 bytes
-                return 2;
+                // Not an indexable opcode: the prefix is a no-op byte in front of an instruction.
+                if (depth >= 64) return 2;
+                return 1 + instruction_length(static_cast<uint16_t>(addr + 1), read, ctx, depth + 1);
         }
     }
 

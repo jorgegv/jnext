@@ -1670,10 +1670,34 @@ int main() {
             const auto& t = m.emu.trace_log();
             const TraceEntry& e = t.at(t.size() - 1);
             check("SRCDBG-ID-46", "DD ED xx with xx at an instant DivMMC entry: xx is the ROM's A0 - LDI "
-                                  "runs (BC = 0) and the trace shows DD ED A0",
+                                  "runs (BC = 0) and the trace shows DD ED A0, three bytes long",
                   m.emu.cpu().get_registers().BC == 0 && m.pc() == 0x0009 && e.opcode_bytes[0] == 0xDD &&
-                      e.opcode_bytes[1] == 0xED && e.opcode_bytes[2] == 0xA0,
+                      e.opcode_bytes[1] == 0xED && e.opcode_bytes[2] == 0xA0 && e.opcode_len == 3,
                   "BC=" + hex(m.emu.cpu().get_registers().BC) + " " + m.where() + " bytes=" + hex(e.opcode_bytes[0]) + hex(e.opcode_bytes[1]) + hex(e.opcode_bytes[2]));
+        }
+        {
+            // A redundant DD/FD is a one-byte prefix in front of an instruction of its own (FUSE
+            // z80_ddfd.c default: back up and re-dispatch), so the trace's length is the chain's:
+            // DD DD LD A,n and DD FD LD IY,nn, plain RAM at $8000.
+            Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+            const uint8_t prog[] = {0xDD, 0xDD, 0x3E, 0x55,         // DD DD LD A,$55
+                                    0xDD, 0xFD, 0x21, 0x34, 0x12};   // DD FD LD IY,$1234
+            for (size_t i = 0; i < sizeof prog; ++i)
+                m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+            m.dbg->set_trace_enabled(true);
+            m.set_pc(0x8000);
+            (void)step_pair(m);
+            const auto& t = m.emu.trace_log();
+            const TraceEntry first = t.at(t.size() - 1);
+            const bool a_ok = (m.dbg->registers().AF >> 8) == 0x55 && m.pc() == 0x8004;
+            (void)step_pair(m);
+            const TraceEntry& second = t.at(t.size() - 1);
+            check("SRCDBG-ID-48", "redundant DD/FD prefixes: the trace's length is what the CPU runs "
+                                  "(DD DD LD A,n = 4, DD FD LD IY,nn = 5)",
+                  a_ok && first.opcode_len == 4 && second.opcode_len == 5 && m.pc() == 0x8009 &&
+                      m.dbg->registers().IY == 0x1234,
+                  "len " + std::to_string(first.opcode_len) + "/" + std::to_string(second.opcode_len) +
+                      " " + m.where());
         }
         {
             // The Multiface's 0x0066 latch across a prefix chain: CB at $0065 (RAM), the M1 of the inner
