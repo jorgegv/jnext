@@ -268,12 +268,15 @@ struct GutterView {
         QApplication::sendEvent(panel, &ev);
         QApplication::processEvents();
     }
-    /// Right-click the top line and trigger `wanted` from the popup.
-    void context_pick(const QString& wanted) {
+    /// Right-click the top line and trigger `wanted` from the popup; `before`
+    /// runs once the popup is open and before the pick (the view may move on
+    /// in between).
+    void context_pick(const QString& wanted, const std::function<void()>& before = {}) {
         QTimer timer;
         QObject::connect(&timer, &QTimer::timeout, [&]() {
             auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
             if (!menu) return;
+            if (before) before();
             for (QAction* a : menu->actions())
                 if (a->text() == wanted) a->trigger();
             menu->close();
@@ -679,6 +682,43 @@ void test_gutter() {
                          "draws the source breakpoint under it",
               left && g.red_dot());
         g.panel->set_paused(true);
+        m.clear_all();
+    }
+    {
+        // A click on an empty line while running shows its dot at once: the
+        // panel does not re-disassemble then, so the click's own patch of the
+        // drawn line is the only thing that can.
+        GutterView g(*fx.backend, m);
+        g.panel->refresh();
+        g.panel->set_paused(false);
+        const bool none_before = !g.red_dot();
+        g.click_gutter();
+        const bool added = m.rows().size() == 1 && m.rows()[0].addr == 0x8005;
+        check("QSRC-38", "while running, a gutter click on an empty line draws its "
+                         "breakpoint at once",
+              none_before && added && g.red_dot());
+        g.panel->set_paused(true);
+        m.clear_all();
+    }
+    {
+        // The pick follows the line the menu was opened on, even when the view
+        // has moved on by then (a scroll or a bank switch): the entry drawn at
+        // that index is no longer that line, so the page is asked of the MMU.
+        GutterView g(*fx.backend, m);
+        m.add(BreakpointModel::Execute, 0x8005, page);
+        g.panel->refresh();
+        auto* sb = g.panel->findChild<QScrollBar*>();
+        g.context_pick(QStringLiteral("Toggle Breakpoint"), [&]() {
+            if (sb) sb->setValue(0xC000);
+            QApplication::processEvents();
+        });
+        std::string left;
+        for (const auto& r : m.rows())
+            left += " " + s(r.addr_text);
+        check("QSRC-39", "the context menu's Toggle Breakpoint after the view moved on "
+                         "removes the source breakpoint of the line it was opened on, and "
+                         "adds nothing",
+              m.rows().empty(), "rows left:" + left);
         m.clear_all();
     }
     {
