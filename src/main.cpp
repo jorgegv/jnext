@@ -1361,6 +1361,7 @@ int main(int argc, char* argv[]) {
         if (res.status == sdcard::ProvisionStatus::Ok) {
             sd_card_image = res.path;
         } else {
+            bool logged = false;
 #ifdef ENABLE_QT_UI
             // GH #358: a download that stalled or failed in the GUI used to make
             // the dialog vanish and jnext exit, the reason on stderr only, which
@@ -1370,8 +1371,13 @@ int main(int argc, char* argv[]) {
                 Log::emulator()->error("SD-card image: {}", res.error);
                 gui_prov.warn("The SD-card image could not be installed:\n\n" + res.error +
                               "\n\njnext cannot start without one.");
+                logged = true;
             }
 #endif
+            // GH #385: every other frontend (headless, SDL, --sdcard-file-add) printed the
+            // reason to stderr and nowhere else, so a run with --log-file kept no trace of it.
+            if (!logged && res.status == sdcard::ProvisionStatus::Failed && !res.error.empty())
+                Log::emulator()->error("SD-card image: {}", res.error);
             if (!res.error.empty())
                 std::fprintf(stderr, "error: SD-card image: %s\n", res.error.c_str());
             std::fprintf(stderr,
@@ -1541,12 +1547,20 @@ int main(int argc, char* argv[]) {
                 popts.busy     = [&](const std::string& p, const std::function<bool()>& w) {
                     return gui_prov.busy(p, w);
                 };
-                if (!req.asked_on_cli)   // from Preferences: say so, and carry on
-                    report = [&](const std::string& m) {
-                        Log::uart()->error("NextPi: {}", m);
-                        gui_prov.warn("NextPi could not be started:\n\n" + m +
-                                      "\n\njnext starts without it.");
-                    };
+                // GH #385: the release list and the .md5 files are short fetches; the dialog
+                // appears only if one is slow. The CLI keeps none (a terminal shows the work).
+                popts.short_fetch = [&](const std::string& l, const std::function<bool(const sdcard::ProgressFn&)>& f) {
+                    return gui_prov.short_fetch(l, f);
+                };
+                // A failure is shown in a dialog either way: from Preferences jnext starts
+                // without NextPi, from --nextpi it exits (and says so on stderr too).
+                report = [&](const std::string& m) {
+                    Log::uart()->error("NextPi: {}", m);
+                    if (req.asked_on_cli) std::fprintf(stderr, "error: NextPi: %s\n", m.c_str());
+                    gui_prov.warn("NextPi could not be started:\n\n" + m +
+                                  (req.asked_on_cli ? "\n\njnext exits, because --nextpi asked for it."
+                                                    : "\n\njnext starts without it."));
+                };
             }
 #endif
             std::string error, qemu_path, qemu_img_path;
@@ -1557,7 +1571,14 @@ int main(int argc, char* argv[]) {
             else
                 res.error = error;
             if (res.status == sdcard::ProvisionStatus::Ok) {
-                if (!res.warning.empty()) Log::uart()->warn("NextPi: {}", res.warning);
+                if (!res.warning.empty()) {
+                    Log::uart()->warn("NextPi: {}", res.warning);
+#ifdef ENABLE_QT_UI
+                    // GH #385: "latest" could not read the mirror's list and carries on with the
+                    // release it has. Only the log said so; a GUI user is told too.
+                    if (!headless) gui_prov.warn("NextPi:\n\n" + res.warning);
+#endif
+                }
                 spec.dir = res.dir;
                 pi_qemu  = std::make_unique<PiQemu>();
                 if (!pi_qemu->start(spec, error)) pi_qemu.reset();

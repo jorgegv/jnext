@@ -107,6 +107,10 @@ struct ProvisionOptions {
     sdcard::ConfirmFn  confirm;           ///< defaults to sdcard::cli_confirm
     sdcard::ProgressFn progress;          ///< download progress (may be empty)
     sdcard::BusyFn     busy;              ///< wraps check + unpack (may be empty)
+    /// Wraps the SHORT fetches only (the release list of "latest", the two .md5
+    /// ones), so a GUI can show feedback when one is slow; the archive download
+    /// is not wrapped, it has `progress`. Empty: no feedback (GH #385).
+    sdcard::ShortFetchFn short_fetch;
     /// Free bytes needed before downloading; a test seam (production: ~22 GB).
     uint64_t           space_needed = 22ull * 1024 * 1024 * 1024;
 };

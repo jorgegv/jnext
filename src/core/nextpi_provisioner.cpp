@@ -528,6 +528,17 @@ ProvisionResult provision(const ProvisionOptions& opts) {
     const auto confirm        = opts.confirm ? opts.confirm : sdcard::ConfirmFn(sdcard::cli_confirm);
     const auto busy           = opts.busy ? opts.busy
                                           : sdcard::BusyFn([](const std::string&, const std::function<bool()>& w) { return w(); });
+    // The SHORT fetches (the release list, the two .md5 files) are the only ones that go
+    // through opts.short_fetch, so a GUI can show feedback when one is slow (GH #385). The
+    // archive download is not one of them: it has opts.progress and a dialog of its own.
+    // With the seam empty a short fetch is a plain download with no ProgressFn.
+    const auto short_download = [&](const char* label, const std::string& url, const std::string& dest,
+                                    std::string& e) {
+        if (!opts.short_fetch) return download(url, dest, {}, e);
+        return opts.short_fetch(label, [&](const sdcard::ProgressFn& pf) { return download(url, dest, pf, e); });
+    };
+    constexpr const char* kListLabel = "Reading the list of NextPi releases...";
+    constexpr const char* kMd5Label  = "Fetching the NextPi checksum...";
     std::error_code ec;
     // Did the user (or an earlier install) already put something here? The
     // provisioner's own fetch files do not count: a lone archive is explained by
@@ -566,21 +577,22 @@ ProvisionResult provision(const ProvisionOptions& opts) {
     std::string target = wanted;
     if (wanted == kLatest) {
         const std::string listing = (fs::path(dir) / ".listing.html").string();
+        const std::string list_url = mirror + "/";
         std::string err;
-        const bool ok = download(mirror + "/", listing, {}, err);
+        const bool ok = short_download(kListLabel, list_url, listing, err);
         const std::vector<std::string> releases = ok ? parse_release_listing(read_file(listing)) : std::vector<std::string>{};
         fs::remove(listing, ec);
         if (releases.empty()) {
-            const std::string why = ok ? "no NextPi release listed at " + mirror
-                                       : "cannot reach " + mirror + ": " + err;
+            const std::string what = "cannot read the list of NextPi releases";
+            const std::string why  = ok ? "the page lists no NextPi release" : err;
             if (!current.empty()) {
                 res.status  = sdcard::ProvisionStatus::Ok;
                 res.dir     = dir;
                 res.release = current;
-                res.warning = why + "; using the installed NextPi " + current;
+                res.warning = sdcard::fetch_failure(what, list_url, why, "jnext uses the installed NextPi " + current);
                 return res;
             }
-            res.error = why;
+            res.error = sdcard::fetch_failure(what, list_url, why, "nothing was downloaded");
             return res;
         }
         target = *std::max_element(releases.begin(), releases.end(),
@@ -609,6 +621,7 @@ ProvisionResult provision(const ProvisionOptions& opts) {
     };
 
     const std::string archive_url = mirror + "/" + archive_name;
+    const std::string md5_url     = archive_url + ".md5";
     uint64_t part_have = 0, part_total = 0;
     auto gb = [](uint64_t b) {
         char t[32];
@@ -640,14 +653,15 @@ ProvisionResult provision(const ProvisionOptions& opts) {
         std::string expected = md5_in(read_file(md5_path));
         std::string expected_from = md5_path;
         if (expected.empty()) {
-            if (download(mirror + "/" + archive_name + ".md5", md5_path, {}, err)) {
+            if (short_download(kMd5Label, md5_url, md5_path, err)) {
                 expected = md5_in(read_file(md5_path));
-                expected_from = mirror + "/" + archive_name + ".md5";
-                if (expected.empty()) err = md5_path + ": no MD5 in it";
+                expected_from = md5_url;
+                if (expected.empty()) err = "the file holds no MD5";
             }
             if (expected.empty())
-                archive_note = "jnext cannot check " + archive + ": no MD5 beside it and " + mirror +
-                               " gave none: " + err;
+                archive_note = sdcard::fetch_failure("jnext cannot check " + archive +
+                                                         ": there is no MD5 beside it, and the mirror's could not be used",
+                                                     md5_url, err, "");
         }
         if (!expected.empty()) {
             std::string actual;
@@ -659,7 +673,7 @@ ProvisionResult provision(const ProvisionOptions& opts) {
             } else {
                 archive_note = archive + " does not match its MD5 (" +
                                (actual.empty() ? std::string("unreadable") : actual) + ", expected " +
-                               expected + " from " + expected_from + "): it is incomplete or damaged";
+                               expected + " from " + expected_from + "): it is incomplete or damaged.";
             }
         }
         if (!archive_note.empty()) Log::uart()->warn("NextPi: {}", archive_note);
@@ -679,7 +693,7 @@ ProvisionResult provision(const ProvisionOptions& opts) {
             msg << "A previous download of NextPi " << target << " stopped after " << gb(part_have) << " of "
                 << gb(part_total) << " (in " << sdcard::partial_path(archive) << "); jnext continues it from there.\n\n";
         if (!reason.empty()) msg << "NextPi in this folder cannot be used: " << reason << ".\n\n";
-        if (!archive_note.empty()) msg << archive_note << ".\n\n";
+        if (!archive_note.empty()) msg << archive_note << "\n\n";
         if (current.empty()) {
             msg << "NextPi is the software that runs on the Raspberry Pi of the Spectrum "
                    "Next, and it is not installed yet.\n\n"
@@ -712,8 +726,9 @@ ProvisionResult provision(const ProvisionOptions& opts) {
                 res.status  = sdcard::ProvisionStatus::Ok;
                 res.dir     = dir;
                 res.release = current;
-                res.warning = "kept the installed NextPi " + current + " (" + target + " not " +
-                              (reuse ? "installed" : "downloaded") + ")";
+                // The user's own answer: logged, never a warning (GH #385), so no dialog follows it.
+                Log::uart()->info("NextPi: kept the installed NextPi {} ({} not {})", current, target,
+                                  reuse ? "installed" : "downloaded");
                 return res;
             }
             res.status = sdcard::ProvisionStatus::Declined;
@@ -732,14 +747,15 @@ ProvisionResult provision(const ProvisionOptions& opts) {
     if (!reuse) {
         // The checksum first: it is tiny, and a release name the mirror does not
         // have fails here rather than after a long download.
-        if (!download(mirror + "/" + archive_name + ".md5", md5_path, {}, err)) {
-            res.error = "NextPi " + target + ": cannot download " + archive_name + ".md5 from " + mirror +
-                        ": " + err;
+        const std::string md5_what = "cannot fetch the MD5 checksum of NextPi " + target;
+        if (!short_download(kMd5Label, md5_url, md5_path, err)) {
+            res.error = sdcard::fetch_failure(md5_what, md5_url, err, "the NextPi download did not start");
             return res;
         }
         const std::string expected = md5_in(read_file(md5_path));
         if (expected.empty()) {
-            res.error = md5_path + ": no MD5 in it";
+            res.error = sdcard::fetch_failure(md5_what, md5_url, "the file holds no MD5",
+                                              "the NextPi download did not start");
             return res;
         }
         // An archive that checks out against the mirror's MD5 is reused.
@@ -758,25 +774,31 @@ ProvisionResult provision(const ProvisionOptions& opts) {
             // complete file (GH #358) leaves it for the next run's MD5 check.
             if (!download(archive_url, archive, opts.progress, err)) {
                 uint64_t h2 = 0, t2 = 0;
-                res.error = "NextPi download failed: " + err;
+                std::string next;
                 switch (sdcard::partial_state(archive, archive_url, h2, t2)) {
                 case sdcard::PartialState::Resumable:
-                    res.error += "; the " + gb(h2) + " fetched so far are kept and the download continues next time";
+                    next = "the " + gb(h2) + " fetched so far are kept and the download continues next time";
                     break;
                 case sdcard::PartialState::Complete:
-                    res.error += "; the complete download is kept in " + sdcard::partial_path(archive) +
-                                 " and is used next time";
+                    next = "the complete download is kept in " + sdcard::partial_path(archive) +
+                           " and is used next time";
                     break;
-                default: break;
+                default:
+                    next = "nothing was kept, so it is downloaded from the beginning next time";
+                    break;
                 }
+                res.error = sdcard::fetch_failure("NextPi download failed", archive_url, err, next);
                 return res;
             }
             std::string actual;
             busy("Checking the NextPi download", [&] { actual = md5_file(archive); return actual == expected; });
             if (actual != expected) {
                 fs::remove(archive, ec);
-                res.error = archive + ": MD5 mismatch (got " + (actual.empty() ? std::string("nothing") : actual) +
-                            ", expected " + expected + "): the download is corrupt and was removed; try again";
+                res.error = sdcard::fetch_failure(
+                    "NextPi download failed", archive_url,
+                    "the download does not match its MD5 (got " +
+                        (actual.empty() ? std::string("nothing") : actual) + ", expected " + expected + ")",
+                    "the corrupt download was removed, so it is downloaded from the beginning next time");
                 return res;
             }
         }
