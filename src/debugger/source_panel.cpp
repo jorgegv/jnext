@@ -133,6 +133,13 @@ void SourcePanel::show_message(const QString& message)
     highlighted_line_ = 0;
 }
 
+void SourcePanel::show_running()
+{
+    location_label_->setText(tr("Running"));
+    editor_->setExtraSelections({});
+    highlighted_line_ = 0;
+}
+
 void SourcePanel::update_buttons(bool paused)
 {
     const bool mapped = dbg_ && !dbg_->source_map().empty();
@@ -153,7 +160,10 @@ void SourcePanel::refresh()
     if (!dbg_) return;
     const bool paused = dbg_->state().paused;
     update_buttons(paused);
-    if (!paused) return;
+    if (!paused) {
+        show_running();
+        return;
+    }
 
     if (dbg_->source_map().empty()) {
         show_message(load_problem_.isEmpty()

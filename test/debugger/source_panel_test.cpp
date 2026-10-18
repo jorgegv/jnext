@@ -1201,6 +1201,35 @@ void test_source_recentre_terms() {
               std::to_string(v_file) + " reload " + std::to_string(v_reload));
 }
 
+// ── C4: while the machine runs the Source tab says so ─────────────────
+
+void test_source_running() {
+    Fixture fx;
+    fx.enable();
+    fx.load_map();
+    fx.mgr->refresh_panels();
+    SourcePanel* sp = fx.dbg()->source_panel();
+    auto* editor = sp->findChild<QPlainTextEdit*>();
+    const bool stopped = sp->highlighted_line() == 10 && editor &&
+                         !editor->extraSelections().isEmpty();
+
+    // Running: the last stop's line is not where the machine is.
+    fx.backend->run(jnext::dbg::CLIENT_NONE);
+    sp->refresh();
+    const QString running = sp->location_text();
+    const bool cleared = sp->highlighted_line() == 0 && editor &&
+                         editor->extraSelections().isEmpty();
+
+    // The next stop shows its line again.
+    fx.backend->pause(jnext::dbg::CLIENT_NONE);
+    sp->refresh();
+    check("QSRC-43", "while the machine runs the Source tab says Running and drops the "
+                     "highlight of the last stop; the next pause shows the line again",
+          stopped && running == QStringLiteral("Running") && cleared &&
+              sp->highlighted_line() == 10 && sp->location_text().startsWith("main.bas:10"),
+          s(running) + " | " + s(sp->location_text()));
+}
+
 // ── C1: a refused sidecar says why ────────────────────────────────────
 
 void test_sidecar_reason() {
@@ -1291,6 +1320,7 @@ int main(int argc, char** argv) {
     test_source_hex();
     test_source_scroll();
     test_source_recentre_terms();
+    test_source_running();
     test_sidecar_reason();
     test_source_buttons();
     test_source_button_states();

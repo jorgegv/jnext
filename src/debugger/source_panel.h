@@ -49,6 +49,9 @@ signals:
 private:
     QString resolve_source_file(const std::string& source_name) const;
     void show_message(const QString& message);
+    /// While the machine runs there is no current line: say so, and drop the
+    /// highlight of the last stop.
+    void show_running();
 
     const jnext::dbg::Debugger* dbg_ = nullptr;
     QLabel* location_label_ = nullptr;
