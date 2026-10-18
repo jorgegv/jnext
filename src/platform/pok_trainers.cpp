@@ -402,12 +402,12 @@ std::string Session::apply(size_t i, std::optional<uint8_t> value) {
     for (size_t j = 0; j < plan.locs.size(); ++j)
         recs.push_back(Rec{plan.locs[j], plan.locs[j].byte, fin[j]});
 
-    for (size_t j = 0; j < recs.size(); ++j) {
-        why = poke_byte(recs[j].loc, recs[j].final_);
-        if (!why.empty()) {
-            for (size_t k = 0; k < j; ++k) poke_byte(recs[k].loc, recs[k].original);
-            return why;
-        }
+    // Once every location has resolved, the one thing that can refuse a poke is an
+    // RZX recording or playback, and it refuses every poke alike: if the first byte
+    // lands they all do, and a refusal leaves memory as it was.
+    for (const Rec& r : recs) {
+        why = poke_byte(r.loc, r.final_);
+        if (!why.empty()) return why;
     }
     records_[i] = std::move(recs);
     log_done("applied", t);

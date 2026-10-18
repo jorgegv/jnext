@@ -33,9 +33,12 @@
 #include <QApplication>
 #include <QDialog>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QInputDialog>
+#include <QLabel>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QStatusBar>
 #include <QString>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -106,10 +109,11 @@ struct Fixture {
         win.set_debugger(backend.get());
         win.set_emulator(&emu);
         win.set_load_file_callback([this](const std::string& f, bool) { loaded.push_back(f); });
-        // 0x8003: the poke of "Infinite lives" is 0x00; 0x8004 and 0x8005: 0x01.
+        // 0x8003: the poke of "Infinite lives" is 0x00; 0x8004 to 0x8006: 0x01.
         emu.mmu().write(0x8003, 0x35);
         emu.mmu().write(0x8004, 0x77);
         emu.mmu().write(0x8005, 0x78);
+        emu.mmu().write(0x8006, 0x79);
         // The two addresses of the value trainer.
         emu.mmu().write(36864, 0x11);
         emu.mmu().write(36900, 0x33);
@@ -165,14 +169,15 @@ void click_ok(QWidget* w) {
         if (QAbstractButton* b = mb->button(QMessageBox::Ok)) b->click();
 }
 
-/// The test file most rows share: four trainers, one with a name in UTF-8, one
-/// in Latin-1, one invalid.
+/// The test file most rows share: five trainers, one with a name in UTF-8, one
+/// in Latin-1, one invalid, one without a name.
 std::string fixture_pok() {
     return write_file("shared.pok",
                       std::string("NInfinite lives\nZ  8 32771 0 53\n"            // lines 1-2
                                   "NMoney (\xC2\xA3") + "50)\nZ  8 32772 1 0\n" +   // 3-4, UTF-8
                           "NCaf\xE9\nZ  8 32773 1 0\n"                              // 5-6, Latin-1
-                          "NBroken\nZ  8 99 1 0\nY\n");                             // 7-8
+                          "NBroken\nZ  8 99 1 0\n"                                   // 7-8
+                          "N\nZ  8 32774 1 0\nY\n");                                 // 9-10, no name
 }
 
 /// A trainer that leaves two values open.
@@ -192,11 +197,13 @@ void test_listing() {
     const QString money = QStringLiteral("Money (") + QChar(0x00A3) + QStringLiteral("50)");
     const QString cafe = QStringLiteral("Caf") + QChar(0x00E9);
     check("PKD-01", "open_pok_file shows the trainers dialog with every trainer in file order; a UTF-8 name and a "
-                    "Latin-1 name both display as text; an invalid trainer reads \"invalid - line N: ...\" "
-                    "(WoS POKformat.txt: a name is bytes of the file)",
-          opened && d && d->isVisible() && t && t->topLevelItemCount() == 4 &&
+                    "Latin-1 name both display as text; an invalid trainer reads \"invalid - line N: ...\"; "
+                    "a trainer without a name is shown as \"(no name)\" (WoS POKformat.txt: a name is bytes "
+                    "of the file)",
+          opened && d && d->isVisible() && t && t->topLevelItemCount() == 5 &&
               f.name(0) == QStringLiteral("Infinite lives") && f.name(1) == money && f.name(2) == cafe &&
-              f.name(3) == QStringLiteral("Broken") && f.status(0) == QStringLiteral("not applied") &&
+              f.name(3) == QStringLiteral("Broken") && f.name(4) == QStringLiteral("(no name)") &&
+              f.status(0) == QStringLiteral("not applied") && f.status(4) == QStringLiteral("not applied") &&
               f.status(3) == QStringLiteral("invalid - line 8: address 99 is outside 16384-65535"),
           f.name(1).toStdString() + "|" + f.name(2).toStdString() + "|" + f.status(3).toStdString());
 }
@@ -298,10 +305,14 @@ void test_file_load() {
     const std::string path = fixture_pok();
     f.win.handle_load_path(QString::fromStdString(path));
     QApplication::processEvents();
-    check("PKD-06", "File > Load of a .pok opens the trainers dialog on that file and does not ask for a cold boot "
-                    "(before this a .pok fell to the NEX route, which reset the machine and then failed)",
-          f.ok && f.dialog() && f.dialog()->isVisible() && f.tree() && f.tree()->topLevelItemCount() == 4 &&
-              f.loaded.empty(),
+    // The extension is matched in any case.
+    Fixture upper;
+    upper.win.handle_load_path(QString::fromStdString(write_file("UPPER.POK", "NT\nZ 8 32771 0 53\n")));
+    QApplication::processEvents();
+    check("PKD-06", "File > Load of a .pok (or .POK) opens the trainers dialog on that file and does not ask for a "
+                    "cold boot (before this a .pok fell to the NEX route, which reset the machine and then failed)",
+          f.ok && f.dialog() && f.dialog()->isVisible() && f.tree() && f.tree()->topLevelItemCount() == 5 &&
+              f.loaded.empty() && upper.dialog() && upper.dialog()->isVisible() && upper.loaded.empty(),
           std::to_string(f.loaded.size()) + " load callbacks");
 }
 
@@ -359,10 +370,12 @@ void test_menu_action() {
         [&]() { if (action) action->trigger(); });
     QApplication::processEvents();
     check("PKD-09", "Machine > POK Trainers... with no file open asks for one in a file dialog, and the file chosen "
-                    "opens the trainers dialog on its trainers",
+                    "opens the trainers dialog on its trainers; the folder it came from is remembered for the "
+                    "next picker",
           f.ok && action && pickers > 0 && f.dialog() && f.dialog()->isVisible() && f.tree() &&
-              f.tree()->topLevelItemCount() == 4,
-          std::to_string(pickers) + " pickers");
+              f.tree()->topLevelItemCount() == 5 &&
+              f.win.app_config().data().last_load_dir == QFileInfo(QString::fromStdString(path)).absolutePath(),
+          std::to_string(pickers) + " pickers " + f.win.app_config().data().last_load_dir.toStdString());
 }
 
 void test_rebuilt_machine() {
@@ -378,6 +391,115 @@ void test_rebuilt_machine() {
                     "dialog says so: the applied trainer reads \"applied (found in memory)\"",
           f.ok && applied && f.status(0) == QStringLiteral("applied (found in memory)"),
           f.status(0).toStdString());
+}
+
+/// A file-dialog answerer for drive_modals: picks `path` in the first QFileDialog.
+std::function<void(QWidget*)> pick_file(const std::string& path, int* pickers) {
+    return [path, pickers](QWidget* w) {
+        if (auto* fd = qobject_cast<QFileDialog*>(w)) {
+            ++*pickers;
+            fd->selectFile(QString::fromStdString(path));
+            static_cast<QDialog*>(fd)->accept();   // QFileDialog::accept() is protected
+        }
+    };
+}
+
+void test_file_problems() {
+    // PKD-11
+    Fixture f;
+    std::string junk = "NOk\nZ  8 32771 0 53\n";
+    for (int i = 0; i < 25; ++i) junk += "junk\n";
+    f.ok = f.ok && f.win.open_pok_file(QString::fromStdString(write_file("junk.pok", junk)));
+    QLabel* label = f.dialog() ? f.dialog()->findChild<QLabel*>(QStringLiteral("problems")) : nullptr;
+    const QStringList lines = label ? label->text().split(QLatin1Char('\n')) : QStringList();
+    Fixture clean;
+    clean.ok = clean.ok && clean.win.open_pok_file(QString::fromStdString(value_pok()));
+    QLabel* none = clean.dialog() ? clean.dialog()->findChild<QLabel*>(QStringLiteral("problems")) : nullptr;
+    check("PKD-11", "the lines of a file that belong to no trainer are listed with their line numbers, twenty at "
+                    "most and then \"and N more\"; a file without any shows no list",
+          f.ok && label && label->isVisible() && lines.size() == 21 &&
+              lines.first() == QStringLiteral("line 3: unexpected line (starts with 'j')") &&
+              lines.last() == QStringLiteral("and 5 more") && none && !none->isVisible(),
+          QString::number(lines.size()).toStdString());
+}
+
+void test_open_button() {
+    // PKD-12
+    Fixture f;
+    f.ok = f.ok && f.win.open_pok_file(QString::fromStdString(fixture_pok()));
+    const std::string other = value_pok();
+    int pickers = 0;
+    QPushButton* open = f.button("open");
+    drive_modals(pick_file(other, &pickers), [&]() { if (open) open->click(); });
+    QApplication::processEvents();
+    QLabel* path = f.dialog() ? f.dialog()->findChild<QLabel*>(QStringLiteral("path")) : nullptr;
+    const bool replaced = pickers > 0 && f.tree() && f.tree()->topLevelItemCount() == 1 &&
+                          f.name(0) == QStringLiteral("Lives") && path &&
+                          path->text() == QString::fromStdString(other);
+    // Closed, then opened again from the menu: the file is still there, and nothing is asked.
+    if (f.dialog()) f.dialog()->reject();
+    QAction* action = nullptr;
+    for (QAction* a : f.win.findChildren<QAction*>())
+        if (a->text() == QStringLiteral("POK T&rainers...")) action = a;
+    int asked = 0;
+    drive_modals(pick_file(other, &asked), [&]() { if (action) action->trigger(); });
+    QApplication::processEvents();
+    check("PKD-12", "the dialog's Open POK File... button asks for another file and shows its trainers instead; "
+                    "closed and reopened from the Machine menu it shows that file again without asking",
+          f.ok && open && replaced && action && asked == 0 && f.dialog() && f.dialog()->isVisible() &&
+              f.tree() && f.tree()->topLevelItemCount() == 1,
+          std::to_string(pickers) + " " + std::to_string(asked));
+}
+
+void test_no_machine() {
+    // PKD-13
+    MainWindow bare;   // no emulator, no debugger
+    const bool opened = bare.open_pok_file(QString::fromStdString(fixture_pok()));
+    check("PKD-13", "a window that has no machine yet cannot open a POK file: open_pok_file returns false and "
+                    "creates no dialog",
+          !opened && !bare.findChild<QDialog*>(QStringLiteral("pok_trainers_dialog")));
+}
+
+void test_unattended() {
+    // PKD-14
+    Fixture f;
+    f.win.set_unattended(true);
+    const std::string only_y = write_file("only-y2.pok", "Y\n");
+    bool opened = true;
+    const int boxes = drive_modals(
+        [&](QWidget* w) { click_ok(w); },   // a dialog nobody is there to answer would block the run
+        [&]() { opened = f.win.open_pok_file(QString::fromStdString(only_y)); });
+    check("PKD-14", "in an unattended run (nobody to answer a dialog) a POK file that cannot be used is reported in "
+                    "the status bar and opens no dialog",
+          f.ok && !opened && boxes == 0 &&
+              f.win.statusBar()->currentMessage().startsWith(QStringLiteral("Cannot load POK file")),
+          f.win.statusBar()->currentMessage().toStdString());
+}
+
+void test_unplaceable_value() {
+    // PKD-15
+    Fixture f;
+    f.ok = f.ok && f.win.open_pok_file(QString::fromStdString(
+                       write_file("far.pok", "NFar\nZ  3 49443 256 0\n")));   // bank 3: not on a 48K
+    f.select(0);
+    QPushButton* apply = f.button("apply");
+    QString shown;
+    bool prompted = false;
+    drive_modals(
+        [&](QWidget* w) {
+            if (auto* in = qobject_cast<QInputDialog*>(w)) {
+                prompted = true;
+                in->reject();
+            } else if (auto* mb = qobject_cast<QMessageBox*>(w)) {
+                shown = mb->text();
+                click_ok(w);
+            }
+        },
+        [&]() { if (apply) apply->click(); });
+    check("PKD-15", "a trainer that asks for a value but has a poke that cannot land (bank 3 on a 48K) shows why "
+                    "instead of asking for the value",
+          f.ok && apply && !prompted && shown.contains(QStringLiteral("48K")) && f.rd(0xC123) == 0,
+          shown.toStdString());
 }
 
 }  // namespace
@@ -403,6 +525,11 @@ int main(int argc, char** argv) {
     test_refusal_shown();
     test_menu_action();
     test_rebuilt_machine();
+    test_file_problems();
+    test_open_button();
+    test_no_machine();
+    test_unattended();
+    test_unplaceable_value();
 
     std::error_code ec;
     std::filesystem::remove_all(g_dir, ec);

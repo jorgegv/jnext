@@ -219,11 +219,16 @@ void test_parser() {
     // POK-03
     {
         const PokFile f = parse_pok("NT\nM8 32771 0 53\nZ8 32772 1 0\n");
+        const PokFile tabs = parse_pok("NTabbed\t \nM8 32771 0 53\nZ\t8\t32772 \t 1 0 \t\n");
         check("POK-03", "no space between the tag and the bank parses (WoS POKformat.txt: \"theoretically no "
-                        "space\" there)",
+                        "space\" there); so do tabs between the fields, blanks after the last one, and "
+                        "blanks after a name, which are trimmed",
               f.trainers.size() == 1 && f.trainers[0].problem.empty() && f.trainers[0].pokes.size() == 2 &&
                   poke_is(f.trainers[0].pokes[0], 8, 32771, 0, 53, 2) &&
-                  poke_is(f.trainers[0].pokes[1], 8, 32772, 1, 0, 3));
+                  poke_is(f.trainers[0].pokes[1], 8, 32772, 1, 0, 3) &&
+                  tabs.trainers.size() == 1 && tabs.trainers[0].name == "Tabbed" &&
+                  tabs.trainers[0].problem.empty() && tabs.trainers[0].pokes.size() == 2 &&
+                  poke_is(tabs.trainers[0].pokes[1], 8, 32772, 1, 0, 3));
     }
 
     // POK-04
@@ -255,15 +260,18 @@ void test_parser() {
 
     // POK-06
     {
-        const PokFile f = parse_pok("NA\nZ 8 16383 1 0\nNB\nZ 8 16384 1 0\nNC\nZ 8 65535 1 0\nND\nZ 8 65536 1 0\n");
+        const PokFile f = parse_pok("NA\nZ 8 16383 1 0\nNB\nZ 8 16384 1 0\nNC\nZ 8 65535 1 0\nND\nZ 8 65536 1 0\n"
+                                    "NE\nZ 8 99999999999999999999 1 0\n");
         check("POK-06", "addresses 16384 and 65535 are valid, 16383 and 65536 invalidate their trainers, "
-                        "naming their lines (WoS POKformat.txt: address 16384-65535)",
-              f.trainers.size() == 4 &&
+                        "naming their lines, and so does a number too long for any integer, shown cut short "
+                        "(WoS POKformat.txt: address 16384-65535)",
+              f.trainers.size() == 5 &&
                   f.trainers[0].problem == "line 2: address 16383 is outside 16384-65535" &&
                   f.trainers[1].problem.empty() && f.trainers[2].problem.empty() &&
-                  f.trainers[3].problem == "line 8: address 65536 is outside 16384-65535",
-              f.trainers.size() == 4 ? f.trainers[0].problem + " | " + f.trainers[3].problem
-                                     : std::string("not 4 trainers"));
+                  f.trainers[3].problem == "line 8: address 65536 is outside 16384-65535" &&
+                  f.trainers[4].problem == "line 10: address 9999999999... is outside 16384-65535",
+              f.trainers.size() == 5 ? f.trainers[0].problem + " | " + f.trainers[4].problem
+                                     : std::string("not 5 trainers"));
     }
 
     // POK-07
@@ -425,16 +433,19 @@ void test_parser() {
     {
         const std::string long_name = "Aliens always start at top of each level.";
         const std::string utf8 = std::string("Money (\xC2\xA3") + "50)";
-        const PokFile f = parse_pok("N" + long_name + "!!!!\nZ 8 32768 1 0\nN" + utf8 + "\nZ 8 32768 1 0\n");
-        const bool names = f.trainers.size() == 2 &&
+        const PokFile f = parse_pok("N" + long_name + "!!!!\nZ 8 32768 1 0\nN" + utf8 +
+                                    "\nZ 8 32768 1 0\nN\nZ 8 32768 1 0\n");
+        const bool names = f.trainers.size() == 3 &&
                            f.trainers[0].name == long_name + "!!!!" && f.trainers[0].name.size() == 45 &&
-                           f.trainers[1].name == utf8;
+                           f.trainers[1].name == utf8 &&
+                           f.trainers[2].name.empty() && f.trainers[2].problem.empty();
         const bool utf8_ok = is_valid_utf8(utf8) && is_valid_utf8("") && is_valid_utf8("\xE2\x82\xAC") &&
                              is_valid_utf8("plain ASCII") && !is_valid_utf8("Caf\xE9") &&
                              !is_valid_utf8("\xC0\x80") && !is_valid_utf8("\xED\xA0\x80") &&
                              !is_valid_utf8("\xF4\x90\x80\x80") && !is_valid_utf8("\xE2\x82");
-        check("POK-18", "a 45-byte name and a name with UTF-8 bytes (\\xC2\\xA3) are kept byte for byte (the "
-                        "survey: 4446 names over 30 bytes, 138 with UTF-8); is_valid_utf8 follows RFC 3629",
+        check("POK-18", "a 45-byte name and a name with UTF-8 bytes (\\xC2\\xA3) are kept byte for byte, and an "
+                        "empty name is a name (the survey: 4446 names over 30 bytes, 138 with UTF-8); "
+                        "is_valid_utf8 follows RFC 3629",
               names && utf8_ok, std::string(names ? "names ok" : "names differ") +
                                     (utf8_ok ? ", utf8 ok" : ", utf8 differs"));
     }
@@ -454,11 +465,16 @@ void test_load() {
     // POK-19
     {
         const std::string missing = dir + "/does-not-exist.pok";
-        PokFile f;
-        std::string err;
+        PokFile f, g;
+        std::string err, err_dir;
         const bool ok = load_pok_file(missing, f, err);
-        check("POK-19", "a path that cannot be read fails with an error that names the file",
-              !ok && err.find(missing) != std::string::npos && err.find("cannot read") != std::string::npos, err);
+        const bool dir_ok = load_pok_file(dir, g, err_dir);   // a directory is no file
+        check("POK-19", "a path that cannot be read (missing, or a directory) fails with an error that names "
+                        "the file",
+              !ok && err.find(missing) != std::string::npos && err.find("cannot read") != std::string::npos &&
+                  !dir_ok && err_dir.find(dir) != std::string::npos &&
+                  err_dir.find("cannot read") != std::string::npos,
+              err + " | " + err_dir);
     }
 
     // POK-20
@@ -478,12 +494,18 @@ void test_load() {
     // POK-21
     {
         const std::string only_y = write("only-y.pok", "Y");
-        PokFile f;
-        std::string err;
+        const std::string junk = write("junk.pok", "hello\n");
+        PokFile f, g;
+        std::string err, err_junk;
         const bool ok = load_pok_file(only_y, f, err);
+        const bool junk_ok = load_pok_file(junk, g, err_junk);
         check("POK-21", "a file with no trainer (here only Y; 5 of the 8710 real files are such) fails with "
-                        "\"holds no trainers\"",
-              !ok && err.find("holds no trainers") != std::string::npos, err);
+                        "\"holds no trainers\"; one that is not a POK file at all says so and quotes its first "
+                        "unexpected line",
+              !ok && err.find("holds no trainers") != std::string::npos && !junk_ok &&
+                  err_junk.find("holds no trainers") != std::string::npos &&
+                  err_junk.find("line 1: unexpected line (starts with 'h')") != std::string::npos,
+              err + " | " + err_junk);
     }
 
     // POK-22
@@ -500,6 +522,15 @@ void test_load() {
                   f.trainers[0].problem == "line 2: address 99 is outside 16384-65535" && loaded_valid &&
                   g.trainers.size() == 2 && g.trainers[0].problem.empty(),
               err + " | " + err_valid);
+    }
+
+    // POK-23
+    {
+        check("POK-23", "is_pok_path matches the extension .pok in any case, and nothing else",
+              is_pok_path("a.pok") && is_pok_path("A.POK") && is_pok_path("dir/x.Pok") &&
+                  is_pok_path("C:\\games\\x.pOk") && !is_pok_path("x.pokx") && !is_pok_path("pok") &&
+                  !is_pok_path(".po") && !is_pok_path("x.pok.txt") && !is_pok_path("") &&
+                  !is_pok_path("x.tap"));
     }
 
     std::error_code ec;
@@ -596,19 +627,24 @@ void test_session() {
     // POK-33: a banked poke BELOW 0xC000 is the current map, not bank*0x4000 + (address & 0x3FFF).
     {
         Rig r(MachineType::ZX128K);
-        r.load("NStarglider\nM  0 44796 2 0\nZ  0 60367 0 0\n");
+        r.load("NStarglider\nM  0 44796 2 0\nM  0 49151 5 0\nM  0 49152 6 0\nZ  0 60367 0 0\n");
         r.bank(4);
         r.wrp(5, 0x0EFC, 0x77);   // 0xAEFC in the map: bank 2, high half
         r.wrp(1, 0x0EFC, 0x66);   // where bank 0 + (44796 & 0x3FFF) would land
         r.wrp(1, 0x0BCF, 0x55);   // bank 0 at 0xEBCF
+        r.wrp(5, 0x1FFF, 0x99);   // 0xBFFF, the last byte below the banked window
+        r.wrp(0, 0x0000, 0x98);   // bank 0 at 0xC000, the first byte of it
+        r.wrp(8, 0x0000, 0x97);   // bank 4 at 0xC000, which IS paged in
         const std::string a = r.apply(0);
         check("POK-33", "a bank-0 poke at 44796 (below 0xC000) lands at 0xAEFC of the current map (page 05) and "
-                        "leaves the bank-0 byte at that offset alone; the bank-0 poke at 60367 reaches bank 0 "
-                        "(page 1) although bank 4 is paged (only 0xC000+ is banked, zxnext.vhd:4613-4616, "
-                        ":4679-4680)",
+                        "leaves the bank-0 byte at that offset alone; so does one at 0xBFFF; the bank-0 pokes "
+                        "at 0xC000 and 60367 reach bank 0 (page 0, page 1) although bank 4 is paged (only "
+                        "0xC000+ is banked, zxnext.vhd:4613-4616, :4679-4680)",
               r.ok && a.empty() && r.rd(44796) == 2 && r.rdp(5, 0x0EFC) == 2 && r.rdp(1, 0x0EFC) == 0x66 &&
-                  r.rdp(1, 0x0BCF) == 0,
-              a + "|" + hex(r.rd(44796)) + "|" + hex(r.rdp(1, 0x0EFC)) + "|" + hex(r.rdp(1, 0x0BCF)));
+                  r.rdp(1, 0x0BCF) == 0 && r.rdp(5, 0x1FFF) == 5 && r.rdp(0, 0x0000) == 6 &&
+                  r.rdp(8, 0x0000) == 0x97 && r.rd(0xC000) == 0x97,
+              a + "|" + hex(r.rd(44796)) + "|" + hex(r.rdp(1, 0x0EFC)) + "|" + hex(r.rdp(1, 0x0BCF)) + "|" +
+                  hex(r.rdp(5, 0x1FFF)) + "|" + hex(r.rdp(0, 0)) + "|" + hex(r.rdp(8, 0)));
     }
 
     // POK-34: 48K has bank 0 at 0xC000 and nothing else; a refusal writes nothing.
@@ -671,12 +707,18 @@ void test_session() {
         const bool untouched = r.rd(0x8003) == 0x35 && r.s->state(0) == State::NotApplied;
         r.emu->rzx_player().stop();
         const std::string again = r.apply(0);
+        r.emu->rzx_player().start(RzxRecording{});
+        const std::string stuck = r.s->remove(0);   // the undo is an edit too
+        const bool still = r.rd(0x8003) == 0x00 && r.s->state(0) == State::Applied;
+        r.emu->rzx_player().stop();
+        const std::string undone = r.s->remove(0);
         check("POK-37", "while an RZX plays, Apply is refused with a reason that says RZX and writes nothing; "
-                        "once it stops the same trainer applies (a memory edit would diverge the recording: "
+                        "once it stops the same trainer applies; Remove is refused the same way while one "
+                        "plays and keeps the trainer applied (a memory edit would diverge the recording: "
                         "the backend's poke refuses under RZX)",
               r.ok && refused.find("RZX") != std::string::npos && untouched && again.empty() &&
-                  r.rd(0x8003) == 0x00,
-              refused + "|" + again + "|" + hex(r.rd(0x8003)));
+                  stuck.find("RZX") != std::string::npos && still && undone.empty() && r.rd(0x8003) == 0x35,
+              refused + "|" + again + "|" + stuck + "|" + undone + "|" + hex(r.rd(0x8003)));
     }
 
     // POK-38: state is derived from memory.
@@ -698,17 +740,23 @@ void test_session() {
     // POK-39: after the undo records are dropped, memory still shows the trainer, and the file's original is used.
     {
         Rig r(MachineType::ZX48K);
-        r.load("NT\nZ  8 32771 0 53\n");
+        r.load("NT\nZ  8 32771 0 53\nNU\nM  8 32780 7 11\nZ  8 32780 0 99\n");
         r.wr(0x8003, 0x77);   // not the file's original (53 = 0x35)
+        r.wr(0x800C, 0x66);
         r.apply(0);
+        r.apply(1);
         r.s->forget_applied();
-        const bool found = r.s->state(0) == State::AppliedFound;
+        const bool found = r.s->state(0) == State::AppliedFound && r.s->state(1) == State::AppliedFound;
+        const std::string twice = r.s->apply(0, std::nullopt);
         const std::string d = r.s->remove(0);
-        check("POK-39", "after forget_applied() a trainer whose bytes are in memory reads \"found in memory\", "
-                        "and Remove writes the file's original value (WoS POKformat.txt: a non-zero original "
-                        "is \"used to remove a POKE\" from a game already POKEd)",
-              r.ok && found && d.empty() && r.rd(0x8003) == 0x35 && r.s->state(0) == State::NotApplied,
-              d + "|" + hex(r.rd(0x8003)));
+        const std::string d1 = r.s->remove(1);
+        check("POK-39", "after forget_applied() a trainer whose bytes are in memory reads \"found in memory\" "
+                        "and cannot be applied again, and Remove writes the file's original value - for an "
+                        "address poked twice the first poke's (WoS POKformat.txt: a non-zero original is "
+                        "\"used to remove a POKE\" from a game already POKEd)",
+              r.ok && found && twice == "already applied" && d.empty() && r.rd(0x8003) == 0x35 &&
+                  r.s->state(0) == State::NotApplied && d1.empty() && r.rd(0x800C) == 11,
+              twice + "|" + d + "|" + d1 + "|" + hex(r.rd(0x8003)) + "|" + hex(r.rd(0x800C)));
     }
 
     // POK-40: no original in the file, no removal.
@@ -736,11 +784,14 @@ void test_session() {
         const std::string without = r.apply(0);
         const bool nothing = r.rd(36864) == 0x11 && r.rd(36870) == 0x22 && r.rd(36900) == 0x33;
         const std::string a = r.apply(0, 42);
+        const bool landed = r.rd(36864) == 42 && r.rd(36870) == 201 && r.rd(36900) == 42;
+        r.s->forget_applied();   // a value the user typed cannot be found again in memory
         check("POK-41", "a trainer with value-256 pokes refuses to apply without a value and writes nothing; "
-                        "with 42 every value-256 poke gets 42 and the fixed poke keeps its own 201 (WoS "
+                        "with 42 every value-256 poke gets 42 and the fixed poke keeps its own 201; once the "
+                        "undo records are forgotten it reads Not applied, as the value is unknown (WoS "
                         "POKformat.txt: 256 = ask the user; the survey: 362 trainers with 2+ such pokes)",
               r.ok && without.find("asks for a value") != std::string::npos && nothing && a.empty() &&
-                  r.rd(36864) == 42 && r.rd(36870) == 201 && r.rd(36900) == 42,
+                  landed && r.s->state(0) == State::NotApplied,
               without + "|" + a + "|" + hex(r.rd(36864)) + hex(r.rd(36870)) + hex(r.rd(36900)));
     }
 
@@ -750,11 +801,13 @@ void test_session() {
         r.load("NLives\nM  8 36864 256 77\nZ  8 36900 256 0\nNFar\nZ  3 49443 256 0\n");
         r.wr(36864, 5);
         const std::optional<uint8_t> d = r.s->value_default(0);
+        const std::string why = r.s->apply(1, std::nullopt);   // what the dialog shows instead of a prompt
         check("POK-42", "the value offered for a value-256 trainer is the byte memory holds at its first such "
                         "poke (here 5, not the file's original 77); a location that cannot be resolved (bank "
-                        "3 on a 48K) offers nothing",
-              r.ok && d && *d == 5 && !r.s->value_default(1).has_value(),
-              d ? hex(*d) : std::string("none"));
+                        "3 on a 48K) offers nothing, and Apply then says why rather than asking for a value",
+              r.ok && d && *d == 5 && !r.s->value_default(1).has_value() &&
+                  why.find("48K") != std::string::npos,
+              (d ? hex(*d) : std::string("none")) + "|" + why);
     }
 
     // POK-43: an SRAM page that does not respond is not RAM.
@@ -871,10 +924,29 @@ void test_session() {
         const std::string none = r.s->remove(0);
         const std::string invalid = r.apply(1);
         check("POK-48", "Apply on an applied trainer says \"already applied\", Remove on one that is not applied "
-                        "says \"not applied\", and Apply on an invalid trainer says why it is invalid",
+                        "says \"not applied\", Apply on an invalid trainer says why it is invalid, and a "
+                        "trainer number the file does not have is refused",
               r.ok && twice == "already applied" && none == "not applied" &&
-                  invalid == "line 4: address 99 is outside 16384-65535",
+                  invalid == "line 4: address 99 is outside 16384-65535" &&
+                  r.apply(99) == "no such trainer" && r.s->remove(99) == "no such trainer" &&
+                  r.s->state(99) == State::NotApplied && !r.s->value_default(99).has_value(),
               twice + "|" + none + "|" + invalid);
+
+    }
+
+    // POK-49: a slot the map shows as ROM is not RAM to poke.
+    {
+        Rig r(MachineType::ZX48K);
+        r.load("NT\nM  8 49152 2 0\nZ  8 32768 1 0\n");
+        r.wr(0xC000, 0x6B);
+        r.emu->mmu().map_rom(4, 0);   // 0x8000-0x9FFF is ROM now
+        const std::string refused = r.apply(0);
+        check("POK-49", "a poke at an address the memory map shows as ROM is refused naming the address and the "
+                        "ROM, and the trainer's other poke is not written (ROM ignores writes; a recorded "
+                        "original would be a lie)",
+              r.ok && refused.find("32768") != std::string::npos && refused.find("ROM") != std::string::npos &&
+                  r.rd(0xC000) == 0x6B,
+              refused + "|" + hex(r.rd(0xC000)));
     }
 }
 
