@@ -280,7 +280,7 @@ z88dk one: `SymbolTable::load_z88dk_or_sjasmplus()` reads the file once, into
 memory, and its first line (an EQU line or not) decides. By contents, because
 sjasmplus names its files freely and z88dk's assembler writes a `.sym` of its
 own, in the map format; and in one read, because `--map <(cmd)` is a pipe, which
-a second open would find drained (rows SYM-19 to SYM-30, SCRIPT-HOST-MAP-*, and
+a second open would find drained (rows SYM-19 to SYM-32, SCRIPT-HOST-MAP-*, and
 the functional row `script-map-pipe-func`).
 
 ### Source maps — CAP-SRC
