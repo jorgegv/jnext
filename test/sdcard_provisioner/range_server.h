@@ -68,6 +68,7 @@ struct Opts {
     bool silent = false;                // read the request, send nothing at all, hold the connection open
     int stall_ms = 8000;                // how long stall_after / silent hold it (ends early: client closes, ~Server)
     int status = 0;                     // >0: answer every request with this status, Content-Length: 0, no body (GH #385)
+    std::string raw;                    // non-empty: answer every request with these bytes verbatim, then close (GH #385)
 };
 
 class Server {
@@ -197,6 +198,7 @@ private:
             send_all(c, "HTTP/1.1 " + std::to_string(o.status) + " Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
             return;
         }
+        if (!o.raw.empty()) { send_all(c, o.raw); return; }
         if (!r.range.empty() && o.fail_ranged_status > 0) {
             send_all(c, "HTTP/1.1 " + std::to_string(o.fail_ranged_status) +
                             " Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");

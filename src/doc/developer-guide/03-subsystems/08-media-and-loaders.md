@@ -1037,15 +1037,19 @@ function). A proxy that will not open the tunnel (its answer to `CONNECT` is not
 answered HTTP 403 to the connection request)`, whatever code libcurl gave the
 failure (8.18: 22 for a 4xx or 5xx, 56 for a 3xx). WinHTTP takes its proxy from the
 machine's settings, never from the environment, so the case exists only on libcurl.
-The stall reason, `cancelled by user` and the other reasons that were already
-plain are unchanged, as are the declared residuals (`curl_easy_init failed`, which
-the user cannot act on). `PROV-REASON-01..05` pin the wordings, `04` on both
-transports (it fails on both with the old text) and `05` the transport's own code
-for an address it cannot use; `PROV-REASON-06` puts a refusing proxy in front of
-libcurl through `https_proxy`, which is why it lives in the POSIX-only sibling suite
-`sdcard_provisioner_posix_test`; `PROV-MSG-*` and `PIT-44..50` the messages,
-`PROV-SANDBOX-02` and `PROV-STALL-09` moved to the new text with their invariants
-intact.
+libcurl also gives its codes 1 and 3 (unsupported protocol, malformed URL) to a reply
+it cannot use after connecting (not HTTP, or a redirect to a scheme or URL it cannot
+follow); only with no connection made (`CURLINFO_NUM_CONNECTS` 0) is that the
+address's fault, so only then is it worded as one. The stall reason, `cancelled by
+user` and the other reasons that were already plain are unchanged, as are the
+declared residuals (`curl_easy_init failed`, which the user cannot act on).
+`PROV-REASON-01..05` pin the wordings, `04` on both transports (it fails on both
+with the old text) and `05` the transport's own code for an address it cannot use;
+`PROV-REASON-06` and `07` put a refusing proxy, and a server whose reply libcurl
+cannot use, in front of the real libcurl backend, which is why they live in the
+POSIX-only sibling suite `sdcard_provisioner_posix_test`; `PROV-MSG-*` and
+`PIT-44..50` the messages, `PROV-SANDBOX-02` and `PROV-STALL-09` moved to the new
+text with their invariants intact.
 
 Where the message goes. `main.cpp` logs a failed SD-card provisioning in every
 frontend (headless and the SDL-only build printed it to stderr and nowhere else) and

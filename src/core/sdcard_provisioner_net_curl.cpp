@@ -87,9 +87,16 @@ NetFailure curl_kind(CURLcode c) {
 }
 } // namespace
 
+namespace {
+// libcurl's own code and text, the part of a reason that follows the plain words.
+std::string curl_raw(CURLcode c) {
+    return "curl error " + std::to_string(static_cast<int>(c)) + ": " + curl_easy_strerror(c);
+}
+} // namespace
+
 std::string transport_reason(long code) {
     const CURLcode c = static_cast<CURLcode>(code);
-    return net_reason(curl_kind(c), "curl error " + std::to_string(code) + ": " + curl_easy_strerror(c));
+    return net_reason(curl_kind(c), curl_raw(c));
 }
 
 namespace {
@@ -99,11 +106,17 @@ namespace {
 // 2xx) leaves the transfer with no response status of its own, and the code libcurl gives for it
 // depends on the answer (8.18 measured: 22 for a 4xx or 5xx, 56 for a 3xx); the proxy's answer is the
 // reason, whichever code came with it. `proxy_code` is CURLINFO_HTTP_CONNECTCODE, 0 when there was none.
-std::string failure_reason(CURLcode rc, long http_code, long proxy_code) {
+// Codes 1 (unsupported protocol) and 3 (malformed URL) are about the ADDRESS only when libcurl never
+// got as far as connecting (`connects`, CURLINFO_NUM_CONNECTS, is 0); after a connection they are about
+// what the server sent, a reply that is not HTTP or a redirect to something libcurl cannot use, and
+// saying "the address is not a valid http or https URL" of a good one would be untrue.
+std::string failure_reason(CURLcode rc, long http_code, long proxy_code, long connects) {
     if (rc == CURLE_HTTP_RETURNED_ERROR && http_code >= 400) return http_status_reason(http_code);
     if (proxy_code >= 300)
         return net_reason(NetFailure::CannotConnect,
                           "the proxy answered HTTP " + std::to_string(proxy_code) + " to the connection request");
+    if ((rc == CURLE_UNSUPPORTED_PROTOCOL || rc == CURLE_URL_MALFORMAT) && connects > 0)
+        return net_reason(NetFailure::Other, curl_raw(rc));
     return transport_reason(rc);
 }
 } // namespace
@@ -219,9 +232,10 @@ Outcome attempt_download(const std::string& url, const std::string& dest, const 
         while (const CURLMsg* msg = curl_multi_info_read(multi, &queued))
             if (msg->msg == CURLMSG_DONE) rc = msg->data.result;
     }
-    long http_code = 0, proxy_code = 0;
+    long http_code = 0, proxy_code = 0, connects = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
     curl_easy_getinfo(curl, CURLINFO_HTTP_CONNECTCODE, &proxy_code);   // an HTTP proxy's answer to CONNECT
+    curl_easy_getinfo(curl, CURLINFO_NUM_CONNECTS, &connects);         // connections made (none is reused: one handle per attempt)
     curl_multi_remove_handle(multi, curl);   // an unfinished transfer: its connection is closed
     curl_easy_cleanup(curl);
     curl_multi_cleanup(multi);
@@ -247,7 +261,7 @@ Outcome attempt_download(const std::string& url, const std::string& dest, const 
         return Outcome::Failed;
     }
     if (rc != CURLE_OK) {
-        err = failure_reason(rc, http_code, proxy_code);
+        err = failure_reason(rc, http_code, proxy_code, connects);
         part.fail(err, rc == CURLE_PARTIAL_FILE);
         return Outcome::Failed;
     }
