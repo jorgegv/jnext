@@ -440,6 +440,12 @@ void SdlApp::run() {
                                              [this](MachineType t) { config_.type = t; })) {
                 Log::platform()->error("load: failed to load '{}'", load_file_);
                 exit_code_ = 1;   // a failed load exits non-zero (as headless)
+            } else {
+                // CAP-SRC — the program's own symbols and source map, if any.
+                // A refused one is reported, not only in the debugger's log.
+                const auto sidecars = debugger_->load_program_sidecars(load_file_);
+                if (!sidecars.problem.empty())
+                    Log::platform()->warn("load: {}", sidecars.problem);
             }
             load_countdown_ = -1;  // done
         } else if (load_countdown_ > 0) {

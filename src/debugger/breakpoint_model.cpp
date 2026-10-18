@@ -29,13 +29,17 @@ uint16_t port_mask_for(uint16_t addr) { return addr <= 0x00FF ? 0x00FF : 0xFFFF;
 // The subscription one GUI breakpoint is: a single address, no condition, no
 // handler, not once, the Stop action (REQ-qt-13d). READ_WRITE is ONE row with
 // both access bits (REQ-qt-13c).
-Subscription sub_for(int type, uint16_t addr) {
+Subscription sub_for(int type, uint16_t addr, uint16_t page) {
     Subscription s;
     s.action = jnext::dbg::Action::Stop;
     switch (type) {
         case BreakpointModel::Execute:
-            s.kind      = EventKind::Execute;
-            s.filter.lo = s.filter.hi = addr;
+            s.kind        = EventKind::Execute;
+            s.filter.lo   = s.filter.hi = addr;
+            s.filter.page = page;   // CAP-SRC; PAGE_ANY = a logical breakpoint
+            // A page here names RAM (a source line's): never match ROM or an
+            // overlay that happens to carry the same page number.
+            s.filter.page_ram_only = page != jnext::dbg::PAGE_ANY;
             break;
         case BreakpointModel::Read:
         case BreakpointModel::Write:
@@ -63,9 +67,11 @@ Subscription sub_for(int type, uint16_t addr) {
 int type_of(const SubscriptionInfo& si) {
     const auto& f = si.filter;
     if (si.has_condition || si.has_handler || si.once ||
-        si.action != jnext::dbg::Action::Stop || f.page != jnext::dbg::PAGE_ANY ||
+        si.action != jnext::dbg::Action::Stop ||
         !f.pages.empty() || f.source != jnext::dbg::EventSource::Any)
         return -1;
+    // A page qualifier is expressible on an Execute breakpoint only (CAP-SRC).
+    if (f.page != jnext::dbg::PAGE_ANY && si.kind != EventKind::Execute) return -1;
     switch (si.kind) {
         case EventKind::Execute:
             return f.lo == f.hi ? BreakpointModel::Execute : -1;
@@ -140,9 +146,12 @@ void BreakpointModel::publish_() {
         r.own     = si.owner == client_ && r.type >= 0;
         const bool port = si.kind == EventKind::Port;
         r.addr = port ? si.filter.port_value : si.filter.lo;
+        r.page = si.kind == EventKind::Execute ? si.filter.page : jnext::dbg::PAGE_ANY;
         if (r.type >= 0) {
             r.type_text = QString::fromLatin1(kTypeNames[r.type]);
-            r.addr_text = QString::asprintf("$%04X", r.addr);
+            r.addr_text = r.page == jnext::dbg::PAGE_ANY
+                              ? QString::asprintf("$%04X", r.addr)
+                              : QString::asprintf("$%04X @%02X", r.addr, r.page);
         } else {
             r.type_text = kind_text(si);
             if (port)
@@ -195,28 +204,30 @@ void BreakpointModel::sync() {
     publish_();
 }
 
-const BreakpointModel::Row* BreakpointModel::find_own_(int type, uint16_t addr) const {
+const BreakpointModel::Row* BreakpointModel::find_own_(int type, uint16_t addr,
+                                                       uint16_t page) const {
     for (const Row& r : rows_)
-        if (r.own && r.type == type && r.addr == addr) return &r;
+        if (r.own && r.type == type && r.addr == addr && r.page == page) return &r;
     return nullptr;
 }
 
-void BreakpointModel::add(int type, uint16_t addr) {
+void BreakpointModel::add(int type, uint16_t addr, uint16_t page) {
     if (type < Execute || type > IoWrite) return;
-    if (find_own_(type, addr)) return;
-    dbg_.subscribe(client_, sub_for(type, addr));
+    if (type != Execute) page = jnext::dbg::PAGE_ANY;
+    if (find_own_(type, addr, page)) return;
+    dbg_.subscribe(client_, sub_for(type, addr, page));
     publish_();
 }
 
-void BreakpointModel::remove(int type, uint16_t addr) {
-    const Row* r = find_own_(type, addr);
+void BreakpointModel::remove(int type, uint16_t addr, uint16_t page) {
+    const Row* r = find_own_(type, addr, page);
     if (!r) return;
     dbg_.unsubscribe(client_, r->id);
     publish_();
 }
 
-void BreakpointModel::set_enabled(int type, uint16_t addr, bool enabled) {
-    const Row* r = find_own_(type, addr);
+void BreakpointModel::set_enabled(int type, uint16_t addr, bool enabled, uint16_t page) {
+    const Row* r = find_own_(type, addr, page);
     if (!r || r->enabled == enabled) return;
     dbg_.set_enabled(client_, r->id, enabled);
     publish_();
@@ -230,8 +241,8 @@ void BreakpointModel::clear_all() {
     publish_();
 }
 
-bool BreakpointModel::exists(int type, uint16_t addr) const {
-    return find_own_(type, addr) != nullptr;
+bool BreakpointModel::exists(int type, uint16_t addr, uint16_t page) const {
+    return find_own_(type, addr, page) != nullptr;
 }
 
 bool BreakpointModel::pc_exists(uint16_t addr) const {
@@ -241,6 +252,16 @@ bool BreakpointModel::pc_exists(uint16_t addr) const {
 bool BreakpointModel::pc_live(uint16_t addr) const {
     const Row* r = find_own_(Execute, addr);
     return r && r->live;
+}
+
+bool BreakpointModel::pc_marked(uint16_t addr, uint16_t page) const {
+    return find_own_(Execute, addr) || find_own_(Execute, addr, page);
+}
+
+bool BreakpointModel::pc_marked_live(uint16_t addr, uint16_t page) const {
+    const Row* any = find_own_(Execute, addr);
+    const Row* on  = find_own_(Execute, addr, page);
+    return (any && any->live) || (on && on->live);
 }
 
 bool BreakpointModel::master_enabled() const { return dbg_.master_enabled(); }

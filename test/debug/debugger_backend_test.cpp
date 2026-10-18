@@ -2606,6 +2606,52 @@ static void b4_hosting_rows() {
                   c.ok && !c.paused_magic && c.png && !c.no_shot_error && c.exit == 0,
               "paused[" + show(p) + "] control[" + show(c) + "]");
     }
+    {
+        // CAP-SRC (#336 C1): a program whose source map is refused: the
+        // frontend says why at warn, not only the debugger's own log. A 48K
+        // .sna (PC $8000 on the stack at $8000, JR $ there) and, beside it, a
+        // file named .sld that is not an SLD.
+        const std::string sna = tmp_file("hsrc_refused", ".sna");
+        const std::string sld = sna.substr(0, sna.size() - 4) + ".sld";
+        {
+            std::vector<uint8_t> img(27 + 0xC000, 0);
+            img[23] = 0xFE; img[24] = 0x7F;               // SP = $7FFE
+            img[27 + 0x3FFE] = 0x00; img[27 + 0x3FFF] = 0x80;   // PC = $8000
+            img[27 + 0x4000] = 0x18; img[27 + 0x4001] = 0xFE;   // $8000: JR $
+            std::ofstream(sna, std::ios::binary)
+                .write(reinterpret_cast<const char*>(img.data()),
+                       static_cast<std::streamsize>(img.size()));
+            std::ofstream(sld) << "this is not an SLD\n";
+        }
+        auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(64);
+        Log::platform()->sinks().push_back(ring);
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        HeadlessApp app;
+        app.set_config(cfg);
+        const bool ok = app.init(0, nullptr);
+        app.set_pending_load(sna, 0);
+        app.set_delayed_exit(3);
+        app.run();
+        app.shutdown();
+        // The message names the .sld file, compared by its file name: the
+        // directory is spelled as the loader composed it ("/tmp" + "\\" + name
+        // on Windows), not as this test wrote it.
+        const std::string sld_name = sld.substr(sld.find_last_of("/\\") + 1);
+        bool warned = false;
+        for (const auto& l : ring->last_formatted())
+            if (l.find("warn") != std::string::npos &&
+                l.find("--load: source map '") != std::string::npos &&
+                l.find(sld_name + "' rejected: missing SLD.data.version") != std::string::npos)
+                warned = true;
+        Log::platform()->sinks().pop_back();
+        std::remove(sna.c_str());
+        std::remove(sld.c_str());
+        check("HSRC-01", "HeadlessApp: --load of a program whose SLD sidecar is refused warns "
+                         "with the reason, naming the .sld file, and the load still succeeds",
+              ok && warned && app.exit_code() == 0,
+              "warned=" + std::to_string(warned) + " exit=" + std::to_string(app.exit_code()));
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

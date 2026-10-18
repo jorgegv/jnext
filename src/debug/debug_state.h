@@ -468,6 +468,12 @@ public:
     void notify_machine_replaced() {
         if (machine_replaced_) machine_replaced_();
     }
+    /// CAP-SRC - true while `RewindBuffer::restore_nearest()` puts a snapshot
+    /// back: the machine returns to a point of its own recorded history, it is
+    /// not reset or replaced by another one. The machine-replaced hook reads it
+    /// to tell the two apart.
+    bool restoring_from_rewind() const { return restoring_from_rewind_; }
+    void set_restoring_from_rewind(bool v) { restoring_from_rewind_ = v; }
 
     /// THE MEMORY-WATCH GATE the eight `Mmu` sites read, in place of
     /// has_any_watchpoints(). One byte load, a shift and a test (§6.1); it
@@ -710,6 +716,7 @@ private:
     std::function<bool(uint16_t)> execute_gate_;
     std::function<void(jnext::dbg::LatchEntry&, const uint64_t*)> stamp_common_;
     std::function<void()> machine_replaced_;
+    bool restoring_from_rewind_ = false;
     bool event_boundary_work_ = false;
     bool ring_nonempty_       = false;
     bool cycle_armed_         = false;

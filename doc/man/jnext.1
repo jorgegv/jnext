@@ -82,6 +82,15 @@ If the header says \f[CR]file_handle\f[R] 0, jnext does what the
 Next\(cqs own loader does: it loads only the declared banks, ignores the
 trailing bytes and starts the program.
 More than 16 KB of ignored bytes also logs a warning.
+.PP
+The debugger\(cqs source map and symbols attach from beside the program:
+\f[I]NAME\f[R]\f[CR].sld\f[R] (or \f[I]NAME\f[R]\f[CR].sld.txt\f[R]), an
+sjasmplus source map, beside any program but a tape, and
+\f[I]NAME\f[R]\f[CR].Memory.txt\f[R] (or \f[CR]Memory.txt\f[R]),
+NextBuild / Boriel ZX Basic symbols, beside a \f[CR].nex\f[R].
+A map given with \f[B]\-\-map\f[R] or loaded by hand is kept over them.
+An SLD built for another binary, or a file over 64 MiB, is refused, with
+the reason in the log.
 .RE
 .TP
 \f[B]\-\-nex\-args\f[R] \f[I]LINE\f[R]
