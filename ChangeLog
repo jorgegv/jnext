@@ -9,6 +9,9 @@
 - The captured mouse can be released with Ctrl+Alt (default), a middle click or Esc: Preferences > Input, `--mouse-release`
 - Source-level debugging: SLD and NextBuild Memory.txt maps attach beside a program; Source tab, source-line steps, `file:line` breakpoints (Qt debugger)
 
+### Developer Features
+- Debugger labels from sjasmplus --sym and --exp files (Map menu, --map); scripts name them as @module.label
+
 ### Bug Fixes
 - NextPi checks that QEMU is installed before offering its 6 GB download
 - Windows: NextPi's finished 6 GB download was deleted as "missing"; files over 4 GB are now recognised

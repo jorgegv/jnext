@@ -2367,7 +2367,7 @@
   <span class="md-ellipsis">
     
   
-    Symbols from Z88DK MAP files
+    Symbols from MAP files
   
 
     
@@ -3918,10 +3918,12 @@ address 0x5C78, because slot 2 (0x4000..0x5FFF) holds page 0x0A.</p>
 on write 0x8000..(@__data_crt_head - 1) do …
 set mem[@patch_byte] = 0x5A
 </code></pre>
-<p><code>@name</code> is the address of a symbol from a z88dk <code>.map</code> file, loaded with
-<code>--map FILE</code> or <strong>Map ▸ Load MAP File ▸ Z88DK Format...</strong> — the same table the
-debugger's disassembly uses. Symbols are resolved <strong>when the script loads</strong>: an
-unknown one is an error then, never a 0 at run time.</p>
+<p><code>@name</code> is the address of a symbol from a loaded MAP file: a z88dk <code>.map</code>, an
+sjasmplus <code>--sym</code> or <code>--exp</code> file, a simple map or NextBuild's <code>Memory.txt</code>,
+loaded with <code>--map FILE</code> (a z88dk <code>.map</code> or an sjasmplus file, told apart by
+its contents) or <strong>Map ▸ Load MAP File</strong> — the same table the debugger's
+disassembly uses. Symbols are resolved <strong>when the script loads</strong>: an unknown one
+is an error then, never a 0 at run time.</p>
 <pre><code>[debugger] [error] SCRIPT ERROR err3.jds:1:12: unknown symbol `@no_such_symbol` (not in any loaded MAP)
 </code></pre>
 <p>Both kinds of z88dk MAP entry can be named: <code>; addr</code> entries (labels) and <code>;
@@ -3930,7 +3932,10 @@ const</code> entries — compile-time constants such as the section bounds
 resolves as <code>@name</code> but never names an address in the disassembly. A name the
 MAP defines twice takes its first definition, and a name that is both a label
 and a constant is the label.</p>
-<p>The name after <code>@</code> can be any identifier, keywords included (<code>@start</code>).</p>
+<p>The name after <code>@</code> can be any identifier, keywords included (<code>@start</code>), or
+identifiers joined by dots, the way sjasmplus names a local or a module label:
+<code>@main.loop</code>, <code>@gfx.draw.loop</code>, <code>@point.x</code>. A <code>.</code> joins only when a letter or
+<code>_</code> follows it, so a range such as <code>@main.loop..@main</code> is still a range.</p>
 <h2 id="reading-something-that-is-not-there">Reading something that is not there<a class="headerlink" href="#reading-something-that-is-not-there" title="Permanent link">&para;</a></h2>
 <p>An accessor out of range is a run-time error, which switches the rule off:</p>
 <pre><code>on frame 51 do log &quot;mmu[8]=${mmu[8]}&quot; end

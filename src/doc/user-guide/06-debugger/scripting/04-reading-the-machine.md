@@ -133,10 +133,12 @@ on write 0x8000..(@__data_crt_head - 1) do …
 set mem[@patch_byte] = 0x5A
 ```
 
-`@name` is the address of a symbol from a z88dk `.map` file, loaded with
-`--map FILE` or **Map ▸ Load MAP File ▸ Z88DK Format...** — the same table the
-debugger's disassembly uses. Symbols are resolved **when the script loads**: an
-unknown one is an error then, never a 0 at run time.
+`@name` is the address of a symbol from a loaded MAP file: a z88dk `.map`, an
+sjasmplus `--sym` or `--exp` file, a simple map or NextBuild's `Memory.txt`,
+loaded with `--map FILE` (a z88dk `.map` or an sjasmplus file, told apart by
+its contents) or **Map ▸ Load MAP File** — the same table the debugger's
+disassembly uses. Symbols are resolved **when the script loads**: an unknown one
+is an error then, never a 0 at run time.
 
 ```
 [debugger] [error] SCRIPT ERROR err3.jds:1:12: unknown symbol `@no_such_symbol` (not in any loaded MAP)
@@ -149,7 +151,10 @@ resolves as `@name` but never names an address in the disassembly. A name the
 MAP defines twice takes its first definition, and a name that is both a label
 and a constant is the label.
 
-The name after `@` can be any identifier, keywords included (`@start`).
+The name after `@` can be any identifier, keywords included (`@start`), or
+identifiers joined by dots, the way sjasmplus names a local or a module label:
+`@main.loop`, `@gfx.draw.loop`, `@point.x`. A `.` joins only when a letter or
+`_` follows it, so a range such as `@main.loop..@main` is still a range.
 
 ## Reading something that is not there
 

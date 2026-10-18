@@ -963,10 +963,12 @@ each Alt + 8 (or **--script-key** *FRAME* `8`) captures the screen, and
 *FILE* is written when jnext exits. Works in every frontend.
 
 **--map** *FILE*  
-Load a z88dk `.map` symbol table, so a script can name an address as
-`@symbol`, and the debugger shows the names (the same table **Map \>
-Load MAP** fills). A file that cannot be loaded, or holds no symbols, is
-a startup error.
+Load a symbol table, a z88dk `.map` or an sjasmplus `--sym` or `--exp`
+file, told apart by its contents (z88dk’s assembler also writes a
+`.sym`, in the map format), so a script can name an address as `@symbol`
+(an sjasmplus label is `@main.loop`), and the debugger shows the names
+(the same table **Map \> Load MAP** fills). A file that cannot be
+loaded, or holds no symbols, is a startup error.
 
 **--magic-port** *PORT*  
 Enable the magic debug port at *PORT* (hex, `0x` prefix optional, for
@@ -2047,8 +2049,8 @@ the Qt6 UI, so it needs a GUI build (`make gui-release` or
   file. Off by default; enable with **--trace**, the debugger’s Enable
   Trace menu item, or implicitly by enabling rewind, which needs it for
   Step Back
-- **Symbol table** - Z88DK MAP files; symbols appear inline in the
-  disassembly and in watches
+- **Symbol table** - Z88DK MAP files and sjasmplus `--sym` / `--exp`
+  files; symbols appear inline in the disassembly and in watches
 - **Backwards execution (rewind)** - frame-snapshot ring buffer, with
   Step Back, Frame Back and a rewind slider. Opt-in, because rewind
   takes a full-machine snapshot every frame: start jnext with
