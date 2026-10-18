@@ -1227,6 +1227,8 @@
       
         
       
+        
+      
     
     
     
@@ -1543,6 +1545,34 @@
     
   
     5.10 NextPi on the Raspberry Pi
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="11-pok-trainers.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.11 POK trainers
   
 
     
@@ -3573,7 +3603,10 @@ jnext game.sna
 <code>.z80</code>, <code>.tap</code>, <code>.tzx</code>, <code>.wav</code> and <code>.rzx</code> are all understood. (<code>.jns</code> is
 JNEXT's own whole-machine snapshot; see <a href="09-snapshots.html">5.9 Snapshots</a>, which also says
 which machine each snapshot format loads as.) A bare filename is
-exactly the same as <code>--load FILE</code>; you cannot use both at once.</p>
+exactly the same as <code>--load FILE</code>; you cannot use both at once. A <code>.pok</code> is not
+a program but a list of cheats for the one that is running: in the window it
+opens the trainers dialog (<a href="11-pok-trainers.html">5.11 POK trainers</a>), and on the
+command line it is refused.</p>
 <p>A NEX <strong>V1.3</strong> file can declare a buffer for an argument line, and <code>--nex-args</code>
 fills it:</p>
 <pre><code>jnext --load game.nex --nex-args &quot;level 3&quot;
@@ -3600,7 +3633,9 @@ entry, <strong>Tape &gt; Open Tape File…</strong> (Alt+T), covered in
 <a href="05-recording-and-playback.html">5.5</a>. A file that cannot be loaded — missing,
 truncated, or not the format its extension says — gets a warning dialog naming
 it, from either menu and from <strong>File &gt; Play RZX Recording…</strong>; the log says
-what was wrong with it.</p>
+what was wrong with it. A file whose extension JNEXT does not know and that is
+not a NEX file is refused in the same way, before anything is reset, so the
+game you were playing is still there.</p>
 <p>A program loaded either way brings its debugging files with it when they sit
 beside it: <code>game.sld</code> (an sjasmplus source map) and, for a <code>.nex</code>,
 <code>game.Memory.txt</code> (NextBuild / Boriel ZX Basic symbols). See

@@ -1161,6 +1161,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#pok-trainers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        POK trainers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#media-out" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2387,9 +2398,9 @@ nothing inside it can write a PNG. These loaders exist because a <em>developer</
 needs a way in and a way out, so they are host-side conveniences that reach
 directly into the emulator's RAM, registers and MMU rather than going through
 any bus the guest can see.</p>
-<p>Everything under this heading lives in <code>src/core/</code>, is driven from the frontend
-(a CLI flag at startup, a menu item later) and drives <code>Emulator</code> — never the
-reverse. Only two things here are hardware the guest could tell apart from the
+<p>Everything under this heading except the POK trainers (below) lives in
+<code>src/core/</code>, is driven from the frontend (a CLI flag at startup, a menu item
+later) and drives <code>Emulator</code> — never the reverse. Only two things here are hardware the guest could tell apart from the
 real article: the real-time tape signal, which arrives on the EAR line exactly
 as an analogue tape would, and the SD card's SPI transport, which is a device
 the guest's own driver talks to. Both are called out below.</p>
@@ -2467,6 +2478,13 @@ the guest's own driver talks to. Both are called out below.</p>
 <td>—</td>
 <td><code>Emulator::inject_binary</code></td>
 <td><code>--inject</code> + <code>--inject-org</code>/<code>--inject-pc</code></td>
+</tr>
+<tr>
+<td><code>.pok</code></td>
+<td>yes</td>
+<td>—</td>
+<td><code>platform/pok_trainers.*</code>, <code>gui/pok_dialog.*</code></td>
+<td>Not a loader: a list of trainers applied to the machine that is already running, through the debugger backend; Qt window only (see POK trainers)</td>
 </tr>
 </tbody>
 </table>
@@ -3220,6 +3238,63 @@ allows — is not an option they offer. A file from elsewhere that does continue
 from a second snapshot (FUSE writes one for an inserted snapshot) is played up
 to it: <code>rzx::parse()</code> stops there and counts the rest in
 <code>RzxRecording::later_snapshots</code>, and <code>load_rzx()</code> warns.</p>
+<h2 id="pok-trainers">POK trainers<a class="headerlink" href="#pok-trainers" title="Permanent link">&para;</a></h2>
+<p>A <code>.pok</code> file (the World of Spectrum format: <code>N</code> name, <code>M</code>/<code>Z</code> pokes of
+<code>bank address value original</code>, <code>Y</code> end) is a list of cheats for one game. It is
+the one input here that is not loaded into a fresh machine: it edits the machine
+that is running, so it is written as a <strong>client of the debugger backend</strong>
+(<code>jnext::pok</code>, <code>src/platform/pok_trainers.*</code>, namespace <code>jnext::pok</code>) and holds no
+<code>Emulator*</code>. Every read is <code>Debugger::peek</code> and every write is
+<code>Debugger::poke(CLIENT_NONE, MemSpace::page(p), ...)</code>, which is what gives the
+trainers, with no code of their own, the RZX refusal (a recording would diverge),
+the rewind wall (<code>note_mutation()</code>: Step Back across a trainer is refused, as for
+any debugger edit), the beam-replay logging of a page store (<code>log_page_store()</code>)
+and a <code>MUTATE</code> line per byte. A second write path (a direct <code>Mmu</code> or <code>Ram</code> store)
+would lose each of those; do not add one.</p>
+<p>The module has no Qt, so <code>pok_trainers_test</code> runs in <code>make unit-test</code>,
+<code>unit-test-sdl</code> and <code>unit-test-win</code>. The Qt side is <code>gui/pok_dialog.*</code> (a view
+of a <code>Session</code>) and <code>MainWindow::open_pok_file()</code>, the seam both Machine ▸ POK
+Trainers… and File ▸ Load of a <code>.pok</code> end in; <code>pok_dialog_test</code> drives the real
+menu action, file picker, dialog and value prompt. There is <strong>no CLI flag</strong> and
+<code>--load x.pok</code> keeps its "unsupported file extension" refusal: the SDL-only and
+headless builds have no menus, and a script (<code>set mem[a]</code>, <code>set phys[p, o]</code>,
+<code>save_snapshot</code>) already does what a trainer does in every frontend; the
+recipe is in the user guide (5.11).</p>
+<p><strong>Where a poke lands.</strong> Only 0xC000-0xFFFF is banked. Port 0x7FFD writes MMU6
+and MMU7 and nothing else (<code>zxnext.vhd:4679-4680</code>; MMU2-5 keep pages 0A 0B 04 05,
+<code>:4613-4616</code>), so a Multiface-level POKE with a bank number can only reach that
+bank at 0xC000 and above. A banked poke (bank 0-7) at address ≥ 0xC000 is NR page
+<code>2*bank + ((address &gt;&gt; 13) &amp; 1)</code>, offset <code>address &amp; 0x1FFF</code>, whatever is paged in
+(a 48K only has bank 0 there: port 0x7FFD is not decoded, NR 0x82 = 0xC0). Every
+other poke (bank 8-15, "ignore the bank", or an address below 0xC000) is the RAM
+page <code>Debugger::mmu_slots()</code> reports for the address when the trainer is applied,
+not <code>poke(Cpu)</code>, which would follow a Layer 2 write-over mapping that reads do not.
+Fuse and ZEsarUX index <code>RAM[bank][address &amp; 0x3FFF]</code> for every address; that
+differs from this only for a banked line below 0xC000, a few lines in thousands
+of real files, all in trainers that also poke the banked window.</p>
+<p><strong>Undo and state.</strong> <code>Session::apply</code> resolves every poke to a location, reads
+every original <strong>before</strong> writing anything (so a refusal leaves memory untouched
+and a trainer that pokes one address twice restores the byte from before the
+trainer), writes the last value of each location, and keeps <code>{location, original,
+final}</code> per trainer. <code>remove</code> writes those originals back to those locations,
+whatever is paged in by then. <code>state()</code> is <strong>derived from memory, never stored</strong>:
+Applied needs a record whose bytes all still hold; AppliedFound is a trainer with
+no value left open whose bytes are all in memory with no record (removable only
+if every poke gives a non-zero <code>original</code>). A record that stops verifying is kept,
+because removing an overlapping trainer can make it true again. <code>forget_applied()</code>
+drops the records: <code>MainWindow::set_emulator()</code> calls it, and <code>QtApp</code> calls
+<code>set_emulator()</code> after every machine rebuild (<code>boot_machine()</code>'s <code>rewire_host</code>
+hook), which covers menu load, Quick Load, Power Reset, a guest NR 0x02 reset and
+a machine-type change.</p>
+<p><strong>File &gt; Load.</strong> <code>handle_load_path()</code> sends a <code>.pok</code> to <code>open_pok_file()</code> before
+any cold boot. The same function now also refuses, before the cold boot, a file
+that would route to the NEX loader (an extension nothing owns) but has no <code>Next</code>
+prologue (<code>NexLoader::probe_version()</code>), which <code>NexLoader::load()</code> would refuse
+anyway: before, the session was reset and then the load failed.</p>
+<p>The suites: <code>pok_trainers_test</code> (POK-01..23 the parser and <code>load_pok_file</code>,
+POK-30..49 the session, each bank-to-page row citing <code>zxnext.vhd</code> and asserting
+bytes the test placed itself) and <code>pok_dialog_test</code> (PKD-01..15); File &gt; Load's
+refusal is <code>preferences_apply_test</code> PA-24e/f.</p>
 <h2 id="media-out">Media out<a class="headerlink" href="#media-out" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

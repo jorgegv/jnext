@@ -1653,7 +1653,7 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
 **THE KEYBOARD** below).
 
 **File**
-:   Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Insert SD Card
+:   Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX; a .pok opens POK Trainers instead, without a reset), Insert SD Card
     Image / Eject SD Card (see **CHANGING THE CARD WHILE RUNNING**), Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX / Stop
     RZX, Save Screenshot (Alt+S), Quick Screenshot (Alt+K), Save Snapshot
     (Alt+Shift+S), Quick Save Snapshot (Alt+Shift+F5), Quick Load Snapshot (Alt+Shift+F9)
@@ -1681,7 +1681,9 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
     or a load made while paused stays paused),
     Machine Type (48K / 128K / +3 / Next), CPU Speed (3.5 / 7 /
     14 / 28 MHz - the Next's own clock), Emulator Speed (0.5x / 1x / 2x / 4x /
-    custom % - the host-side throttle).
+    custom % - the host-side throttle), POK Trainers... (open a .pok trainer
+    file and apply or remove its trainers - infinite lives and the like - on the
+    running machine; a snapshot saved afterwards keeps them).
 
 **Input**
 :   Joy 1 Source (port 0x1F) and Joy 2 Source (port 0x37), each selecting what

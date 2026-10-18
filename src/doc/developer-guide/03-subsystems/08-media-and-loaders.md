@@ -8,9 +8,9 @@ needs a way in and a way out, so they are host-side conveniences that reach
 directly into the emulator's RAM, registers and MMU rather than going through
 any bus the guest can see.
 
-Everything under this heading lives in `src/core/`, is driven from the frontend
-(a CLI flag at startup, a menu item later) and drives `Emulator` — never the
-reverse. Only two things here are hardware the guest could tell apart from the
+Everything under this heading except the POK trainers (below) lives in
+`src/core/`, is driven from the frontend (a CLI flag at startup, a menu item
+later) and drives `Emulator` — never the reverse. Only two things here are hardware the guest could tell apart from the
 real article: the real-time tape signal, which arrives on the EAR line exactly
 as an analogue tape would, and the SD card's SPI transport, which is a device
 the guest's own driver talks to. Both are called out below.
@@ -28,6 +28,7 @@ the guest's own driver talks to. Both are called out below.
 | `.wav` | yes | yes | `wav_loader.*`, `tape_recorder.*` | Read: real-time only, no fast path. Write: the tape-out signal, 8-bit mono 44100 Hz |
 | `.rzx` | yes | yes | `rzx_player.*`, `rzx_recorder.*` | Input recording, not state |
 | raw binary | yes | — | `Emulator::inject_binary` | `--inject` + `--inject-org`/`--inject-pc` |
+| `.pok` | yes | — | `platform/pok_trainers.*`, `gui/pok_dialog.*` | Not a loader: a list of trainers applied to the machine that is already running, through the debugger backend; Qt window only (see POK trainers) |
 
 Format selection is by **file extension**: for `--load` in `src/main.cpp`
 around line 890, and again in the GUI's file dialogs and in the headless
@@ -792,6 +793,70 @@ allows — is not an option they offer. A file from elsewhere that does continue
 from a second snapshot (FUSE writes one for an inserted snapshot) is played up
 to it: `rzx::parse()` stops there and counts the rest in
 `RzxRecording::later_snapshots`, and `load_rzx()` warns.
+
+## POK trainers
+
+A `.pok` file (the World of Spectrum format: `N` name, `M`/`Z` pokes of
+`bank address value original`, `Y` end) is a list of cheats for one game. It is
+the one input here that is not loaded into a fresh machine: it edits the machine
+that is running, so it is written as a **client of the debugger backend**
+(`jnext::pok`, `src/platform/pok_trainers.*`, namespace `jnext::pok`) and holds no
+`Emulator*`. Every read is `Debugger::peek` and every write is
+`Debugger::poke(CLIENT_NONE, MemSpace::page(p), ...)`, which is what gives the
+trainers, with no code of their own, the RZX refusal (a recording would diverge),
+the rewind wall (`note_mutation()`: Step Back across a trainer is refused, as for
+any debugger edit), the beam-replay logging of a page store (`log_page_store()`)
+and a `MUTATE` line per byte. A second write path (a direct `Mmu` or `Ram` store)
+would lose each of those; do not add one.
+
+The module has no Qt, so `pok_trainers_test` runs in `make unit-test`,
+`unit-test-sdl` and `unit-test-win`. The Qt side is `gui/pok_dialog.*` (a view
+of a `Session`) and `MainWindow::open_pok_file()`, the seam both Machine ▸ POK
+Trainers… and File ▸ Load of a `.pok` end in; `pok_dialog_test` drives the real
+menu action, file picker, dialog and value prompt. There is **no CLI flag** and
+`--load x.pok` keeps its "unsupported file extension" refusal: the SDL-only and
+headless builds have no menus, and a script (`set mem[a]`, `set phys[p, o]`,
+`save_snapshot`) already does what a trainer does in every frontend; the
+recipe is in the user guide (5.11).
+
+**Where a poke lands.** Only 0xC000-0xFFFF is banked. Port 0x7FFD writes MMU6
+and MMU7 and nothing else (`zxnext.vhd:4679-4680`; MMU2-5 keep pages 0A 0B 04 05,
+`:4613-4616`), so a Multiface-level POKE with a bank number can only reach that
+bank at 0xC000 and above. A banked poke (bank 0-7) at address ≥ 0xC000 is NR page
+`2*bank + ((address >> 13) & 1)`, offset `address & 0x1FFF`, whatever is paged in
+(a 48K only has bank 0 there: port 0x7FFD is not decoded, NR 0x82 = 0xC0). Every
+other poke (bank 8-15, "ignore the bank", or an address below 0xC000) is the RAM
+page `Debugger::mmu_slots()` reports for the address when the trainer is applied,
+not `poke(Cpu)`, which would follow a Layer 2 write-over mapping that reads do not.
+Fuse and ZEsarUX index `RAM[bank][address & 0x3FFF]` for every address; that
+differs from this only for a banked line below 0xC000, a few lines in thousands
+of real files, all in trainers that also poke the banked window.
+
+**Undo and state.** `Session::apply` resolves every poke to a location, reads
+every original **before** writing anything (so a refusal leaves memory untouched
+and a trainer that pokes one address twice restores the byte from before the
+trainer), writes the last value of each location, and keeps `{location, original,
+final}` per trainer. `remove` writes those originals back to those locations,
+whatever is paged in by then. `state()` is **derived from memory, never stored**:
+Applied needs a record whose bytes all still hold; AppliedFound is a trainer with
+no value left open whose bytes are all in memory with no record (removable only
+if every poke gives a non-zero `original`). A record that stops verifying is kept,
+because removing an overlapping trainer can make it true again. `forget_applied()`
+drops the records: `MainWindow::set_emulator()` calls it, and `QtApp` calls
+`set_emulator()` after every machine rebuild (`boot_machine()`'s `rewire_host`
+hook), which covers menu load, Quick Load, Power Reset, a guest NR 0x02 reset and
+a machine-type change.
+
+**File > Load.** `handle_load_path()` sends a `.pok` to `open_pok_file()` before
+any cold boot. The same function now also refuses, before the cold boot, a file
+that would route to the NEX loader (an extension nothing owns) but has no `Next`
+prologue (`NexLoader::probe_version()`), which `NexLoader::load()` would refuse
+anyway: before, the session was reset and then the load failed.
+
+The suites: `pok_trainers_test` (POK-01..23 the parser and `load_pok_file`,
+POK-30..49 the session, each bank-to-page row citing `zxnext.vhd` and asserting
+bytes the test placed itself) and `pok_dialog_test` (PKD-01..15); File > Load's
+refusal is `preferences_apply_test` PA-24e/f.
 
 ## Media out
 

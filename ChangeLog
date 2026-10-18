@@ -8,6 +8,7 @@
 - NextPi and SD-card image downloads continue where they stopped instead of starting over
 - The captured mouse can be released with Ctrl+Alt (default), a middle click or Esc: Preferences > Input, `--mouse-release`
 - Source-level debugging: SLD and NextBuild Memory.txt maps attach beside a program; Source tab, source-line steps, `file:line` breakpoints (Qt debugger)
+- POK trainer files: Machine > POK Trainers... applies and removes infinite-lives style pokes; save the result as a snapshot
 
 ### Bug Fixes
 - NextPi checks that QEMU is installed before offering its 6 GB download
@@ -20,7 +21,7 @@
 - SD-card and NextPi downloads no longer freeze when the network drops: the dialog says stalled; 30 s without data stops it
 
 ### Contributors in this release
-- @pavero01, @janko-jj, @jattree
+- @pavero01, @janko-jj, @jattree, @jsmolina
 
 ## v1.1.51 (2026-10-13)
 

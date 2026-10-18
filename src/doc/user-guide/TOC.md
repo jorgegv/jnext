@@ -77,6 +77,13 @@ session as subsections.
   what deliberately does not, the SD-card identity check and why a snapshot
   may complain, and why a `.jns` is not to be shared. Added 2026-09-25
   (GH #27); `.jns` did not exist when the TOC was agreed.
+- **5.10 NextPi on the Raspberry Pi** — a real NextPi run under QEMU and
+  connected to the Next's second UART: turning it on, the settings, and what
+  to do when nothing arrives. Added after the TOC was agreed.
+- **5.11 POK trainers** — opening a `.pok` file, applying and removing its
+  trainers on the running machine, what each status means, where a poke lands
+  per machine, the value prompt, what is forgotten on a reset, and the script
+  recipe for builds without the window. Added 2026-10-18 (GH #381).
 
 ## 6. The debugger
 
