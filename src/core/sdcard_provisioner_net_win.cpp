@@ -129,9 +129,9 @@ struct AsyncState {
     std::atomic<DWORD> last{0};    // WINHTTP_CALLBACK_STATUS_* of the latest completion
     std::atomic<DWORD> value{0};   // DATA_AVAILABLE: bytes available; READ_COMPLETE: bytes read
     std::atomic<DWORD> error{0};   // REQUEST_ERROR: dwError
-    std::vector<char> buf = std::vector<char>(1 << 16);   // the read buffer
+    std::vector<char> buf;         // the read buffer: DownloadTimings::read_bytes (64 KiB in production)
     std::wstring headers;          // SendRequest's extra headers, valid until SENDREQUEST_COMPLETE
-    AsyncState() = default;
+    explicit AsyncState(size_t read_bytes) : buf(read_bytes ? read_bytes : 1) {}
     AsyncState(const AsyncState&) = delete;
     AsyncState& operator=(const AsyncState&) = delete;
     ~AsyncState() { if (ev) CloseHandle(ev); }
@@ -265,7 +265,7 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
     // The state, then the callback, BEFORE any asynchronous call. If either
     // cannot be installed no HANDLE_CLOSING will come, and ~AsyncRequest frees
     // the state itself.
-    req.st = new AsyncState;
+    req.st = new AsyncState(timings.read_bytes);
     if (!req.st->ev) return transport_fail(winhttp_error("event", GetLastError()), false);
     DWORD_PTR ctx = reinterpret_cast<DWORD_PTR>(req.st);
     if (!WinHttpSetOption(req.h, WINHTTP_OPTION_CONTEXT_VALUE, &ctx, sizeof(ctx)) ||
@@ -347,7 +347,9 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
 
     // The body, sized by what WinHTTP says is available: a fixed 64 KiB read
     // would sit waiting to fill its buffer under wine, so the bytes that arrived
-    // before a stall never reached the .part. n == 0 is the end of the body.
+    // before a stall never reached the .part. n == 0 is the end of the body. A read
+    // never asks for more than the buffer holds; wine reports at most 8 KiB
+    // available, so only a buffer smaller than that (PROV-STALL-10) reaches the clamp.
     for (;;) {
         if (!WinHttpQueryDataAvailable(req.h, nullptr))
             return transport_fail(winhttp_error("read", GetLastError()), false);

@@ -35,7 +35,7 @@
 //                  discarded; a 206 with a wrong total is distrusted; a kept
 //                  partial survives a failed resumed attempt; an empty 200 body;
 //                  the SD prompt's continuation note; header-name case.
-//   PROV-STALL-01..08  GH #358 point 2 - a dropped network, through the REAL backend
+//   PROV-STALL-01..10  GH #358 point 2 - a dropped network, through the REAL backend
 //                  (libcurl; WinHTTP under wine) against a loopback server that goes
 //                  silent mid-transfer (range_server.h: stall_after, silent, stall_ms).
 //                  Oracle: the tick / stall / cancel contract in sdcard_provisioner.h
@@ -46,8 +46,14 @@
 //                  the next call resumes it (02); Cancel works DURING a stall (03); a
 //                  server that never answers is a stall too (04); a slow transfer that
 //                  is alive is never cut (05); the pure rule and the production numbers
-//                  (06, 08); the SD-card path says it (07). The NextPi twin is PIT-43,
-//                  the GUI side SDD-01..04 (test/gui/sdcard_dialog_test.cpp).
+//                  (06, 08); the SD-card path says it (07). Review round 1: a transport
+//                  failure (a server that closes the connection unanswered) ends the
+//                  attempt at once with the transport's own reason, never as a stall
+//                  (09: pins the WinHTTP asynchronous REQUEST_ERROR path); a WinHTTP read
+//                  never asks for more than DownloadTimings::read_bytes (10: wine reports
+//                  at most 8 KiB available, so the row lowers the cap to make it bind).
+//                  The NextPi twin is PIT-43, the GUI side SDD-01..04
+//                  (test/gui/sdcard_dialog_test.cpp).
 //   PROV-CONF-01   No image + declined confirm → Declined; no download.
 //   PROV-CONF-02   Confirm accepted + download seam fails → Failed; seam ran.
 //   PROV-PROG-01   The ProvisionOptions.progress seam is forwarded into the
@@ -1141,12 +1147,13 @@ void test_stall_rows() {
                           has(n5, "Stalled: no data received for 5 s") && has(n5, "gives up after 30 s") &&
                           has(n12, "Stalled: no data received for 12 s") && has(n12, "gives up after 30 s");
         const sdcard::DownloadTimings def;
-        const bool nums = def.tick_ms == 200 && def.stall_timeout_ms == 30000 && sdcard::kStallNoticeMs == 5000;
+        const bool nums = def.tick_ms == 200 && def.stall_timeout_ms == 30000 && def.read_bytes == 65536 &&
+                          sdcard::kStallNoticeMs == 5000;
         check("PROV-STALL-06",
               "StallWatch counts from the last CHANGE of the byte count (a drop resets it too); the stall reason "
               "reads 'stalled: no data received for N s'; the GUI note is empty under 5 s and from 5 s says how "
               "long and that jnext gives up after 30 s; the production numbers are tick 200 ms, stall 30 s, "
-              "notice 5 s",
+              "read 64 KiB, notice 5 s",
               watch && reason && note && nums,
               "watch=" + std::to_string(watch) + " reason=" + std::to_string(reason) + " note=" + std::to_string(note) +
                   " nums=" + std::to_string(nums));
@@ -1228,6 +1235,81 @@ void test_stall_rows() {
                   "ok=" + std::to_string(ok) + " t=" + num(secs) + "s err='" + err + "' calls_at_stall=" +
                       std::to_string(seen.count_at(100000, 300000)) + " max_gap=" + num(gap) + "s part=" +
                       std::to_string(slurp(sdcard::partial_path(dest)).size()));
+        }
+    }
+
+    // 09: a transport failure is not a stall: a server that closes the connection without answering ends the
+    // attempt at once with the transport's own reason. (Under WinHTTP that is a REQUEST_ERROR completion; the
+    // stall rows above only see "nothing arrives", which is a different path.)
+    {
+        rs::Server srv;
+        if (!srv.ok()) {
+            check("PROV-STALL-09", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
+        } else {
+            const std::string dest = dest_in("i");
+            rs::Opts o;
+            o.body = body;
+            o.etag = kEtag;
+            o.close_immediately = true;   // accept, read the request, close: no answer
+            srv.set(o);
+            std::string err;
+            const Clk::time_point t0 = Clk::now();
+            const bool ok = sdcard::http_download(srv.url(), dest, {}, err, {200, 5000});
+            const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
+#ifdef _WIN32
+            const bool own_reason = err.rfind("transfer", 0) == 0;   // winhttp_error("transfer", code)
+#else
+            const bool own_reason = !err.empty();                    // libcurl's own text for the closed connection
+#endif
+            check("PROV-STALL-09",
+                  "a server that closes the connection without answering ends the attempt in under 2 s (the stall "
+                  "timeout is 5 s) with the transport's own reason - 'transfer ... (WinHTTP error N)' on WinHTTP, "
+                  "libcurl's text otherwise - never 'stalled:', and leaves no dest, .part or record",
+                  !ok && secs < 2.0 && own_reason && err.rfind("stalled:", 0) != 0 && !exists(dest) &&
+                      !exists(sdcard::partial_path(dest)) && !exists(sdcard::resume_record_path(dest)),
+                  "ok=" + std::to_string(ok) + " t=" + num(secs) + "s err='" + err + "'");
+        }
+    }
+
+    // 10: WinHTTP never reads more than DownloadTimings::read_bytes in one go. Wine reports at most 8192 bytes
+    // available, so with the production 64 KiB the clamp of a read to the buffer never binds; lowered to 1000 it
+    // binds on nearly every read. libcurl sizes its own reads and ignores the knob: there the row is a plain
+    // byte-exact download.
+    {
+        rs::Server srv;
+        if (!srv.ok()) {
+            check("PROV-STALL-10", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
+        } else {
+            const std::string dest = dest_in("j");
+            rs::Opts o;
+            o.body = body;
+            o.etag = kEtag;
+            srv.set(o);
+            Seen seen;
+            std::string err;
+            sdcard::DownloadTimings t;
+            t.read_bytes = 1000;
+            const bool ok = sdcard::http_download(srv.url(), dest, seen.fn(), err, t);
+            // One ProgressFn step between two different byte counts = one read.
+            uint64_t prev = 0, biggest = 0, steps = 0;
+            for (const Seen::Call& c : seen.calls) {
+                if (c.d == prev) continue;
+                biggest = std::max(biggest, c.d > prev ? c.d - prev : prev - c.d);
+                prev = c.d;
+                ++steps;
+            }
+#ifdef _WIN32
+            const bool capped = biggest == 1000;   // never more, and the 8 KiB wine offers was cut to it
+#else
+            const bool capped = true;
+#endif
+            check("PROV-STALL-10",
+                  "a download with DownloadTimings::read_bytes lowered to 1000 ends with exactly the body; on WinHTTP "
+                  "no single read (ProgressFn step) is larger than 1000 and the largest is exactly 1000 (wine offers "
+                  "up to 8192 at a time, so the clamp to the buffer binds); libcurl ignores the knob",
+                  ok && slurp(dest) == body && capped,
+                  "ok=" + std::to_string(ok) + " err='" + err + "' biggest_step=" + std::to_string(biggest) +
+                      " steps=" + std::to_string(steps) + " exact=" + std::to_string(slurp(dest) == body));
         }
     }
 }

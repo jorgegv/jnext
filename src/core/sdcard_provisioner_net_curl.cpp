@@ -15,12 +15,14 @@
 // whole-file #ifdef pair keeps file(GLOB_RECURSE) in src/core/CMakeLists.txt
 // correct on every platform: exactly one twin has content per build.
 //
-// The transfer runs on libcurl's MULTI interface: curl_easy_perform with an
-// XFERINFO callback is called by libcurl about once a second at best, and
-// nothing at all while the network is silent, so the window would repaint at
-// 1 Hz and a stall could not be named. Here the loop wakes every tick. (A file://
-// URL, a test seam and the Flatpak build's source, is read by libcurl inside one
-// curl_multi_perform call: no ticks, nothing to cancel, and it needs none.)
+// The transfer runs on libcurl's MULTI interface. curl_easy_perform with an
+// XFERINFO callback is called often while data flows but slows to about one call
+// a second when nothing arrives (libcurl's documentation of
+// CURLOPT_XFERINFOFUNCTION; measured here: 1.00 s gaps through a 15 s stall), so
+// the window repainted at about 1 Hz through a stall and nothing named it. Here
+// the loop wakes every tick. (A file:// URL, a test seam and the Flatpak build's
+// source, is read by libcurl inside one curl_multi_perform call: no ticks,
+// nothing to cancel, and it needs none.)
 #ifndef _WIN32
 
 #include "core/sdcard_provisioner.h"

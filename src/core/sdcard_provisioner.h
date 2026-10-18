@@ -257,6 +257,11 @@ private:
 struct DownloadTimings {
     int tick_ms          = 200;     // the ProgressFn is called at least this often
     int stall_timeout_ms = 30000;   // no body byte for this long ends the attempt
+    // Not a timing, but the same kind of knob: the most bytes ONE body read asks
+    // for. WinHTTP reads what WinHttpQueryDataAvailable reports, up to this;
+    // libcurl sizes its own reads and ignores it. Wine never reports more than
+    // 8 KiB available, so only a test that sets it below that makes the cap bind.
+    uint32_t read_bytes  = 65536;
 };
 
 // The err of a stalled attempt: "stalled: no data received for 30 s".

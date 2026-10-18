@@ -12,10 +12,11 @@
 // calls SdcardGuiProvisioner::progress(), which pumps the event loop. The
 // backends now call it at least every 200 ms whatever the network does, and the
 // dialog says "Stalled: no data received for N s" once no byte has arrived for
-// 5 s. These rows pin the dialog's half (SDD-01, SDD-02), the composition with a
-// real backend and a real silent server (SDD-03), and that a failed SD-card
-// download is reported to a GUI user instead of the window silently vanishing
-// (SDD-04).
+// 5 s. These rows pin the dialog's half on a clock the test owns (SDD-01, SDD-02),
+// the composition with a real backend, a real silent server and the PRODUCTION
+// clock - the pump keeps running through the stall and the dialog really says
+// "Stalled" (SDD-03) - and that a failed SD-card download is reported to a GUI
+// user instead of the window silently vanishing (SDD-04).
 //
 // WHAT THIS CANNOT SHOW. Windows' own hung-window detection (IsHungAppWindow,
 // five seconds without a PeekMessage) and the Qt dialog on top of WinHTTP: this
@@ -44,6 +45,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -183,7 +185,7 @@ void test_through_the_backend() {
     o.body = body;
     o.etag = "\"v1\"";
     o.stall_after = 100000;   // 100000 of 300000 bytes, then silence
-    o.stall_ms = 8000;
+    o.stall_ms = 20000;       // the click below ends it long before
     srv.set(o);
 
     const std::string dir = jtp::make_temp_dir("jnext_sdd_");
@@ -194,20 +196,27 @@ void test_through_the_backend() {
     const Clk::time_point t0 = Clk::now();
     double first_at = -1, click_at = -1;
     bool visible = false;
+    std::string label_at_click;
     std::vector<double> fires;
     QTimer ticker;   // an application timer: it only fires if the event loop is pumped
     QObject::connect(&ticker, &QTimer::timeout, [&] { fires.push_back(since(t0)); });
     ticker.start(50);
-    QTimer::singleShot(1500, [&] {
+    // The user gives up 6.5 s into the stall: past the 5 s the notice needs, well short of the 10 s the
+    // backend below waits. What the label says at that moment is what they were reading.
+    QTimer click;
+    click.setSingleShot(true);
+    QObject::connect(&click, &QTimer::timeout, [&] {
         click_at = since(t0);
+        label_at_click = label();
         click_cancel();
     });
     sdcard::ProgressFn pf = [&](uint64_t d, uint64_t t) {
         const bool go = gui.progress(d, t);
-        if (d == 100000 && first_at < 0) {
+        if (d == 100000 && first_at < 0) {   // the last byte has arrived: the stall begins
             first_at = since(t0);
             QProgressDialog* dlg = the_dialog();
             visible = dlg && dlg->isVisible();
+            click.start(6500);
         }
         return go;
     };
@@ -225,16 +234,24 @@ void test_through_the_backend() {
         prev = f;
     }
     sdcard::ResumeInfo ri;
+    // The production clock's notice: "Stalled: no data received for N s", N counted from the last byte.
+    const std::string key = "Stalled: no data received for ";
+    const size_t key_at = label_at_click.find(key);
+    const int shown_s = key_at == std::string::npos ? -1 : std::atoi(label_at_click.c_str() + key_at + key.size());
     check("SDD-03",
           "through the real backend and a server that goes silent after 100000 of 300000 bytes, with the helper "
-          "wired as main.cpp wires it: the dialog is visible, an application timer keeps firing (at least 5 "
-          "times, never 800 ms apart) between the first call at 100000 bytes and the click on Cancel, and the "
-          "call returns within 1 s of the click saying 'cancelled by user' with the 100000 bytes kept",
+          "wired as main.cpp wires it (the real clock): the dialog is visible, an application timer keeps firing "
+          "(at least 5 times, never 800 ms apart) between the first call at 100000 bytes and the click on Cancel "
+          "6.5 s later, the label the user was reading at the click says 'Stalled: no data received for N s' "
+          "with N from 5 to 8 and 'gives up after 30 s', and the call returns within 1 s of the click saying "
+          "'cancelled by user' with the 100000 bytes kept",
           !ok && visible && first_at >= 0 && click_at > first_at && n >= 5 && gap <= 0.8 &&
+              shown_s >= 5 && shown_s <= 8 && has(label_at_click, "gives up after 30 s") &&
               returned_at - click_at <= 1.0 && err == "cancelled by user" &&
               slurp(sdcard::partial_path(dest)) == body.substr(0, 100000) && sdcard::read_resume_info(dest, ri),
           "ok=" + std::to_string(ok) + " visible=" + std::to_string(visible) + " first_at=" + std::to_string(first_at) +
               " click_at=" + std::to_string(click_at) + " fires=" + std::to_string(n) + " max_gap=" + std::to_string(gap) +
+              " label_at_click='" + label_at_click + "' shown_s=" + std::to_string(shown_s) +
               " returned_after_click=" + std::to_string(returned_at - click_at) + " err='" + err + "' part=" +
               std::to_string(slurp(sdcard::partial_path(dest)).size()));
     std::error_code ec;
