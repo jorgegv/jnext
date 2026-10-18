@@ -580,7 +580,7 @@ regression-rows: unit-test-build $(ROWS_BUILD) sdl-release z88dk-gdb
 	@# GH #295: the targeted run a reviewer, a mutation or a diagnosis uses
 	@# instead of a full one. The three prerequisites are the binaries rows
 	@# execute (the Qt jnext, build/sdl-release/jnext for sdl-keypress-func,
-	@# build/test/* for rewind-func and friends) — the same set `regression`
+	@# build/test/* for rewind-func and friends), the same set `regression`
 	@# declares, minus the gates that only a full run needs.
 	@# The Qt jnext is build/gui-release-non-pgo (owner, 2026-10-18): a branch
 	@# runs no PGO build, whose training re-runs after every code change. It is
