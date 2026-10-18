@@ -16,12 +16,15 @@ Load a symbol table with **Map ▸ Load MAP File**, which offers three formats:
   `;` for comments.
 - **sjasmplus Format (--sym, --exp)…** — the symbol file sjasmplus writes with
   `--sym=FILE` or `--exp=FILE`, lines such as `main.loop: EQU 0x00008006`.
-  `--sym` lists every label, sorted by name; `--exp` only the labels the source
-  `EXPORT`s, in the order it exports them. The names are sjasmplus's full ones
-  (`main.loop`, `gfx.draw`). The file records no type, so every entry is a
-  label: an `EQU` size or a struct field offset names an address too (a
-  disassembled `LD BC,$1B00` can read `LD BC,SCRSIZE`), and `EXPORT` is how you
-  choose what is loaded. A value above `0xFFFF`, or a negative one, is ignored.
+  `--sym` lists every label (sorted by name from sjasmplus 1.21.1, in another
+  order before); `--exp` only the labels the source `EXPORT`s, in the order it
+  exports them. The `--sym` of sjasmplus 1.17.0 and older, which spells the
+  keyword in lower case (`main.loop: equ 0x00008006`), loads as well. The names
+  are sjasmplus's full ones (`main.loop`, `gfx.draw`). The file records no
+  type, so every entry is a label: an `EQU` size or a struct field offset names
+  an address too (a disassembled `LD BC,$1B00` can read `LD BC,SCRSIZE`), and
+  `EXPORT` is how you choose what is loaded. A value above `0xFFFF`, or a
+  negative one, is ignored.
   The file records no memory bank either: of two labels at one address in
   different banks the first names the address, and both resolve by name. A
   Windows file, with CRLF line ends, loads as it is.

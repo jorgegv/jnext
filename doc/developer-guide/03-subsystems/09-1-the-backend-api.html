@@ -2860,15 +2860,21 @@ turns an address field's text into an address: hex first (<code>4000</code>, <co
 <code>0x4000</code>), else a symbol; <code>@name</code> always means the symbol.</p>
 <p><code>MapFormat::SjasmplusEqu</code> (GH #390) reads the lines <code>NAME: EQU 0x0000ABCD</code> that
 sjasmplus's <code>WriteLabelEquValue()</code> writes to <code>--sym</code> and <code>--exp</code>, with the CR its
-Windows build adds. The file has no type and no page, so every entry is a label,
-an <code>EQU</code> size or a struct field offset included. A value past 0xFFFF, or
-negative (written 0x80000000 and up), does not fit the 16-bit table and is
-skipped; the first line at an address wins, and, apart, the first for a name.
-<code>parse_equ_line()</code> in <code>symbol_table.cpp</code> is the one definition of such a line.
-<code>SymbolTable::is_sjasmplus_equ_file()</code> (the file's first line is one) is how
-<code>--map</code> picks between this loader and the z88dk one: by contents, because
+Windows build adds. The <code>--sym</code> of sjasmplus 1.17.0 and earlier
+(<code>CLabelTable::DumpSymbols()</code>) wrote the keyword in lower case,
+<code>NAME: equ 0x0000ABCD</code>, and the loader takes both spellings, exactly. The file
+has no type and no page, so every entry is a label, an <code>EQU</code> size or a struct
+field offset included. A value past 0xFFFF, or negative (written 0x80000000 and
+up), does not fit the 16-bit table and is skipped; the first line at an address
+wins, and, apart, the first for a name. <code>parse_equ_line()</code> in <code>symbol_table.cpp</code>
+is the one definition of such a line.
+<code>MapFormat::Z88dkOrSjasmplus</code> is how <code>--map</code> picks between this loader and the
+z88dk one: <code>SymbolTable::load_z88dk_or_sjasmplus()</code> reads the file once, into
+memory, and its first line (an EQU line or not) decides. By contents, because
 sjasmplus names its files freely and z88dk's assembler writes a <code>.sym</code> of its
-own, in the map format (rows SYM-19 to SYM-27, SCRIPT-HOST-MAP-*).</p>
+own, in the map format; and in one read, because <code>--map &lt;(cmd)</code> is a pipe, which
+a second open would find drained (rows SYM-19 to SYM-30, SCRIPT-HOST-MAP-*, and
+the functional row <code>script-map-pipe-func</code>).</p>
 <h3 id="source-maps-cap-src">Source maps — CAP-SRC<a class="headerlink" href="#source-maps-cap-src" title="Permanent link">&para;</a></h3>
 <p>The backend also owns one <code>SourceMap</code> (<code>src/debug/source_map.*</code>): records of
 (RAM page, logical address) → file, line, column, filled by a format adapter —

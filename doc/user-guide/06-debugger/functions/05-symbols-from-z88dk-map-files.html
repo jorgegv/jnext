@@ -3592,12 +3592,15 @@
   <code>;</code> for comments.</li>
 <li><strong>sjasmplus Format (--sym, --exp)…</strong> — the symbol file sjasmplus writes with
   <code>--sym=FILE</code> or <code>--exp=FILE</code>, lines such as <code>main.loop: EQU 0x00008006</code>.
-  <code>--sym</code> lists every label, sorted by name; <code>--exp</code> only the labels the source
-  <code>EXPORT</code>s, in the order it exports them. The names are sjasmplus's full ones
-  (<code>main.loop</code>, <code>gfx.draw</code>). The file records no type, so every entry is a
-  label: an <code>EQU</code> size or a struct field offset names an address too (a
-  disassembled <code>LD BC,$1B00</code> can read <code>LD BC,SCRSIZE</code>), and <code>EXPORT</code> is how you
-  choose what is loaded. A value above <code>0xFFFF</code>, or a negative one, is ignored.
+  <code>--sym</code> lists every label (sorted by name from sjasmplus 1.21.1, in another
+  order before); <code>--exp</code> only the labels the source <code>EXPORT</code>s, in the order it
+  exports them. The <code>--sym</code> of sjasmplus 1.17.0 and older, which spells the
+  keyword in lower case (<code>main.loop: equ 0x00008006</code>), loads as well. The names
+  are sjasmplus's full ones (<code>main.loop</code>, <code>gfx.draw</code>). The file records no
+  type, so every entry is a label: an <code>EQU</code> size or a struct field offset names
+  an address too (a disassembled <code>LD BC,$1B00</code> can read <code>LD BC,SCRSIZE</code>), and
+  <code>EXPORT</code> is how you choose what is loaded. A value above <code>0xFFFF</code>, or a
+  negative one, is ignored.
   The file records no memory bank either: of two labels at one address in
   different banks the first names the address, and both resolve by name. A
   Windows file, with CRLF line ends, loads as it is.</li>

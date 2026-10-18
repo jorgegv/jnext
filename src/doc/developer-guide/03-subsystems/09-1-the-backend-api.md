@@ -267,15 +267,21 @@ turns an address field's text into an address: hex first (`4000`, `$4000`,
 
 `MapFormat::SjasmplusEqu` (GH #390) reads the lines `NAME: EQU 0x0000ABCD` that
 sjasmplus's `WriteLabelEquValue()` writes to `--sym` and `--exp`, with the CR its
-Windows build adds. The file has no type and no page, so every entry is a label,
-an `EQU` size or a struct field offset included. A value past 0xFFFF, or
-negative (written 0x80000000 and up), does not fit the 16-bit table and is
-skipped; the first line at an address wins, and, apart, the first for a name.
-`parse_equ_line()` in `symbol_table.cpp` is the one definition of such a line.
-`SymbolTable::is_sjasmplus_equ_file()` (the file's first line is one) is how
-`--map` picks between this loader and the z88dk one: by contents, because
+Windows build adds. The `--sym` of sjasmplus 1.17.0 and earlier
+(`CLabelTable::DumpSymbols()`) wrote the keyword in lower case,
+`NAME: equ 0x0000ABCD`, and the loader takes both spellings, exactly. The file
+has no type and no page, so every entry is a label, an `EQU` size or a struct
+field offset included. A value past 0xFFFF, or negative (written 0x80000000 and
+up), does not fit the 16-bit table and is skipped; the first line at an address
+wins, and, apart, the first for a name. `parse_equ_line()` in `symbol_table.cpp`
+is the one definition of such a line.
+`MapFormat::Z88dkOrSjasmplus` is how `--map` picks between this loader and the
+z88dk one: `SymbolTable::load_z88dk_or_sjasmplus()` reads the file once, into
+memory, and its first line (an EQU line or not) decides. By contents, because
 sjasmplus names its files freely and z88dk's assembler writes a `.sym` of its
-own, in the map format (rows SYM-19 to SYM-27, SCRIPT-HOST-MAP-*).
+own, in the map format; and in one read, because `--map <(cmd)` is a pipe, which
+a second open would find drained (rows SYM-19 to SYM-30, SCRIPT-HOST-MAP-*, and
+the functional row `script-map-pipe-func`).
 
 ### Source maps — CAP-SRC
 
