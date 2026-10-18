@@ -615,7 +615,7 @@ ProgressFn make_cli_progress(std::FILE* out, ConsoleNowFn now) {
 bool cli_busy(const std::string& phase, const std::function<bool()>& work) {
     // Print the phase (no trailing newline yet) so the terminal shows work is
     // in progress, then run it and finish the line with the outcome. When a
-    // download preceded this, cli_progress ends its bar with a newline only in
+    // download preceded this, CliProgress ends its bar with a newline only in
     // the Content-Length branch (the common case for the distro URL); the rare
     // no-Content-Length path would leave this appended to the "N MiB" line — a
     // cosmetic wart, not a correctness issue.

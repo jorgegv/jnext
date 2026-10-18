@@ -1982,15 +1982,24 @@ void test_console_rows() {
         pd(501, 1000);   // a byte: the stall ends; still 50%, so nothing is drawn
         at(10200);
         pd(501, 1000);
+        // (e) a stall after the "N MiB" line of a download with no length: that line is unfinished too.
+        Cap e("con10e");
+        at(0);
+        sdcard::CliProgress pe("SD-card image", true, e.log_fn(), e.f, clock);
+        pe(5u << 20, 0);
+        at(5000);
+        pe(5u << 20, 0);
         check("PROV-CON-10",
               "the stall note of a progress display goes on a line of its own after an unfinished progress line, and "
               "the display carries on at the start of the next one; with no progress line unfinished (none drawn yet, "
-              "one ended at 100%, or a note already ended the line) there is no blank line before it",
+              "one ended at 100%, or a note already ended the line) there is no blank line before it; the "
+              "'N MiB' line of a download with no length is an unfinished line too",
               note5_ok && a.text() == want_a && b.text() == note5 + "\n" &&
                   c.text() == "\rDownloading NextPi: 100%\n" + note5 + "\n" &&
                   d.text() == "\rDownloading NextPi:  50%\n" + note5 + "\n" + note5 + "\n" &&
+                  e.text() == "\rDownloading SD-card image: 5 MiB\n" + note5 + "\n" &&
                   a.log == LogLines({{true, note5}, {true, note5}}),
-              "a='" + a.text() + "' b='" + b.text() + "' c='" + c.text() + "' d='" + d.text() + "'");
+              "a='" + a.text() + "' b='" + b.text() + "' c='" + c.text() + "' d='" + d.text() + "' e='" + e.text() + "'");
     }
 
     // 11: the SD-card image's own display, as main.cpp builds it (the stream and the clock are the test's).
