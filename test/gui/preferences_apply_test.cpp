@@ -68,6 +68,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <cmath>
 #include <string>
@@ -1016,6 +1017,29 @@ void test_snapshot_load_refusal()
     f.win.handle_load_path(write("badscld.szx", bad));
     check("PA-24d", "File > Load of a .szx the table accepts but the loader cannot parse requests no cold boot",
           loaded.empty(), loaded.empty() ? std::string("none") : loaded[0]);
+
+    // PA-24e/f: GH #381 (RF-1). An extension nothing owns routes to the NEX loader, which wants the
+    // 8-byte prologue "Next" + version (NEX file format, doc/REFERENCES.md; nex_loader.cpp
+    // probe_version), so a file without it cannot load: refused BEFORE the cold boot, naming the formats.
+    // The control is a real NEX header under an odd extension: it still loads.
+    loaded.clear();
+    const std::string notes = "just some notes, no NEX header\n";
+    f.win.handle_load_path(write("notes.txt", std::vector<uint8_t>(notes.begin(), notes.end())));
+    const QString refusal = f.win.statusBar()->currentMessage();
+    check("PA-24e", "File > Load of a file with no NEX header and no known extension requests no cold boot "
+                    "and the refusal names the formats and POK Trainers",
+          loaded.empty() && refusal.startsWith(QStringLiteral("Cannot load ")) &&
+              refusal.contains(QStringLiteral(".rzx")) && refusal.contains(QStringLiteral("POK Trainers")),
+          (loaded.empty() ? std::string("none") : loaded[0]) + " | " + refusal.toStdString());
+
+    loaded.clear();
+    std::vector<uint8_t> odd(512, 0);
+    std::memcpy(odd.data(), "NextV1.2", 8);
+    const QString oddpath = write("game.bin", odd);
+    f.win.handle_load_path(oddpath);
+    check("PA-24f", "control: File > Load of a NEX V1.2 header under an unknown extension IS requested",
+          loaded.size() == 1 && loaded[0] == oddpath.toStdString(),
+          loaded.empty() ? std::string("none") : loaded[0]);
 
     qunsetenv("JNEXT_CONFIG_DIR");
 }
