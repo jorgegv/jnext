@@ -11,10 +11,10 @@
 // with identical contracts: the failure wording documented there (transport_reason
 // sorts the CURLcode into the same kinds the WinHTTP twin sorts its codes into, so
 // both say the same words; an HTTP error status says the same through
-// http_status_reason), the partial-file contract documented there (`<dest>.part` kept for
-// resuming) and the tick / stall / cancel one (the ProgressFn is called at least
-// every tick whatever the network does; false aborts with "cancelled by user";
-// no body byte for the stall timeout ends the attempt). The
+// http_status_reason), the partial-file contract documented there (`<dest>.part`
+// kept for resuming) and the tick / stall / cancel one (the ProgressFn is called at
+// least every tick whatever the network does; false aborts with "cancelled by
+// user"; no body byte for the stall timeout ends the attempt). The
 // whole-file #ifdef pair keeps file(GLOB_RECURSE) in src/core/CMakeLists.txt
 // correct on every platform: exactly one twin has content per build.
 //
