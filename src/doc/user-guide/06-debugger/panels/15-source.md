@@ -9,11 +9,18 @@ or NextBuild symbols by hand. The steps are available while the machine is
 paused and a source map is loaded; **Back** and **Reverse** also need the trace
 log and rewind.
 
-Under them, a line naming the position — `main.bas:120  $8A3C  page 2e`, or
+Under them, a line naming the position — `main.bas:120  $8A3C  page 2E`, or
 `ROM or overlay` when no RAM page supplies the address — and
 the source file with that line highlighted. When the PC is in code with no
 source record (the compiler's runtime, a library, the ROM) the line says so;
 use the disassembly there.
+
+While the machine runs the tab says **Running**; the next pause shows the line
+again. While it is paused you can scroll the file: the view goes back to the
+current line when the PC moves (a step, a rewind, another map) and not before.
+When a program's source map was found and refused, the tab says why in place of
+"No source map loaded" (`source map 'game.sld' rejected: …`), and so do the
+status bar and the log.
 
 The source file is found from the name the map records: as it is, if absolute,
 else relative to the map's own directory or one of its parents (the map's

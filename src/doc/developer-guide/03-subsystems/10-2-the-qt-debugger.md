@@ -206,7 +206,11 @@ the breakpoint and watch dialogs go through `SymbolTable::resolve()`.
 
 The Source tab (`source_panel.*`) shows the PC's line from the backend's source
 map and carries the source-step buttons; it holds no state of its own beyond
-the loaded file and its modification time. Its buttons are not menu items and
+the loaded file and its modification time, where the view was last put, and the
+sidecar reason `report_sidecars()` gave it. `refresh()` runs on every tick while
+the machine is paused, so it moves the cursor and centres only when the line or
+the PC changed or the text was loaded since (a user who scrolled stays put);
+while the machine runs it says "Running" and drops the highlight. Its buttons are not menu items and
 have no key binding: the menu tree and the bindings are pinned by
 `debugger_accel_test` and `debugger_keymap_test`. `BreakpointModel` lists an
 Execute subscription with a page qualifier as the GUI's own row (`Row::page`);

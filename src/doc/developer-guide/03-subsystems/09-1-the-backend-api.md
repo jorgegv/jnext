@@ -290,16 +290,35 @@ stores the path absolute.
 beside a `.nex`) and `<stem>.sld` / `<stem>.sld.txt`, searching with the
 non-throwing filesystem calls; only a regular file counts (a FIFO would block the
 load), and one that cannot be read is reported. Both loaders refuse a file that is
-not regular, or is over 64 MB, before opening it (`debug/source_file.h`). Every frontend calls it after a successful `--load` or File ▸
+not regular, or is over 64 MiB, before opening it (`debug/source_file.h`). Every frontend calls it after a successful `--load` or File ▸
 Open, and `load()` calls it for a remote client; a tape program gets no
 automatic map. Ownership is explicit (`Impl::StoreOwner`: None, Sidecar, User)
 and changes only on a successful load: a sidecar never touches the user's
 store, and a previous program's sidecar data is replaced or cleared — also when
 the new sidecar cannot be read. The attach records the clock
-(`Impl::sidecar_attach_cycle`); the machine-replaced hook raises
-`sidecar_recheck`, and `recheck_sidecars()` — run by `pump()` and by every
-reader of the stores — drops sidecar-owned stores when the clock is now before
-the attach point.
+(`Impl::sidecar_attach_cycle`). The machine-replaced hook
+(`Impl::machine_replaced()`, which the cold-boot re-application runs too, since
+a rebuilt machine has no hook while it initialises) drops the sidecar-owned
+stores at once for a reset, a cold boot or any state that does not come from the
+rewind ring (`DebugState::restoring_from_rewind()` is false): another program
+may be in the machine, whatever its clock says. `RewindBuffer::restore_nearest()`
+sets that flag around its `load_state()`; such a restore stays in this program's
+history, so it only raises `sidecar_recheck`, and `recheck_sidecars()` — run by
+`pump()` and by every reader of the stores — drops the stores when the clock is
+now before the attach point. A program the guest loads for itself (the NextZXOS
+browser, `LOAD ""`) is invisible to the backend, so its predecessor's sidecars
+stay until a reset or a load. The user's stores are never touched by any of this.
+
+`SidecarLoad::problem` is the one-line account of what was found and refused:
+`NextBuild symbols '<file>' rejected: <reason>` and/or `source map '<file>'
+rejected: <reason>` (the file found, not the program), the two joined by `"; "`,
+empty when nothing was refused. `load_program_sidecars()` fills it and also logs
+each refusal. The frontends show it: the headless and SDL loops at warn
+(`--load: <problem>`), and the Qt `DebuggerManager::report_sidecars()` in the
+log, in the main window's status bar for ten seconds and in the Source tab in
+place of "No source map loaded" (kept in `sidecar_problem_`, so a window built
+later shows it too, and replaced by the next load's result, empty when clean).
+A remote `load()` fills it and nobody reads it yet.
 
 `source_step(by, kind)` steps by statement. `Into`, `Over` and `Out` run
 `Emulator::debugger_step()` in a loop, as many Steps, until the mapped position

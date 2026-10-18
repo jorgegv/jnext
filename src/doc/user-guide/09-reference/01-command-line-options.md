@@ -79,8 +79,8 @@ with status 1.
     map, beside any program but a tape, and *NAME*`.Memory.txt` (or
     `Memory.txt`), NextBuild / Boriel ZX Basic symbols, beside a `.nex`.
     A map given with **--map** or loaded by hand is kept over them. An
-    SLD built for another binary, or a file over 64 MB, is refused, with
-    the reason in the log.
+    SLD built for another binary, or a file over 64 MiB, is refused,
+    with the reason in the log.
 
 **--nex-args** *LINE*
 :   Argument line for a NEX **V1.3** program. *LINE* is placed, verbatim

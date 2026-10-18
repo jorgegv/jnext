@@ -22,12 +22,20 @@ for:
 
 Each one found is loaded and named in the log (`Loaded 2 NextBuild symbols
 from …`, `Loaded 812 SLD source traces from …`). This happens in every
-frontend, with or without the debugger window open. Loading the next program
-replaces them, or clears them if it has none, so a map never describes the
-wrong program; so does rewinding (or restoring a state) to a point before the
-program was loaded. A tape (`.tap`, `.tzx`, `.wav`) is not attached
-automatically: its program is not in memory until the tape has loaded, so load
-its source map by hand (below) once it has.
+frontend, with or without the debugger window open, but only the Qt debugger
+shows them: with `--headless`, and in the SDL-only build, they are attached
+and logged and nothing reads them yet.
+
+They belong to the program that was loaded with them. Loading the next program
+replaces them, or clears them if it has none. They are also dropped when the
+machine is reset, when a state is restored from a snapshot, a bookmark or a
+remote debugger, and when you rewind to a point before the program was loaded
+(rewinding to a point after it keeps them). A program loaded from inside the
+machine, such as one chosen in the NextZXOS browser or a NEX that loads
+another, is not seen by JNEXT: load its source map by hand (below). A tape
+(`.tap`, `.tzx`, `.wav`) is not attached automatically: its program is not in
+memory until the tape has loaded, so load its source map by hand (below) once
+it has.
 
 Symbols or a source map you loaded by hand (below), or a MAP
 given with `--map`, are kept instead: they are your choice, not the program's.
@@ -42,6 +50,11 @@ records, which other SLD readers ignore). An SLD found beside a program whose
 bytes in memory do not match is **rejected** — it belongs to another build.
 One loaded by hand that does not match asks first, because a running
 program may have changed variables stored inside its own image since it started.
+
+A sidecar that is found and refused, for any reason (an SLD built for another
+binary, a file that is not an SLD, not a regular file, or over 64 MiB), says
+why: the reason is in the log, in the main window's status bar for ten
+seconds, and in the Source tab in place of "No source map loaded".
 
 ## Banked code
 
@@ -73,6 +86,9 @@ See [Source](../panels/15-source.md). Its buttons step by statement:
 - **Reverse** — rewind to the most recent source statement with an Execute
   breakpoint on it.
 
+These buttons are the only way to source-step: there is no menu entry or
+keyboard shortcut for them.
+
 While a step runs, breakpoints, watchpoints, the magic breakpoint and debugger
 script rules act exactly as they do when the program runs: a breakpoint stops
 the step, a script's `log` rule logs and lets it carry on. A step that never
@@ -97,5 +113,7 @@ to mean the symbol. A breakpoint on a line of banked code is tied to
 its page (shown as `$C000 @2E`): it fires only while that RAM page supplies the
 address, and the disassembly gutter shows it only then.
 
-Symbols work in the other address fields too: **Breakpoints ▸ Add …**
-dialogs and **Watches ▸ Add** (a watch added by name is labelled with it).
+**Breakpoints ▸ Add Execute Breakpoint…** takes `file:line` too. Symbols work
+in the other address fields: the other **Breakpoints ▸ Add …** dialogs,
+**Watches ▸ Add** (a watch added by name is labelled with it) and the Go to
+Address box of the Disassembly and Memory panels.
