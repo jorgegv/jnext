@@ -90,6 +90,36 @@ Yie Ar Kung-Fu is **inconclusive**: it is a 48K game file naming bank 3, which a
 bitmap-looking bytes, so neither reading can be confirmed. So the evidence is one
 trainer (Starglider), which favours D2, and nothing for Rule A.
 
+## Did ZEsarUX copy Fuse?
+
+Facts, each checked in the sources:
+
+- Fuse added POK files in 1.1.0, released 2013-05-19 (`ChangeLog`: "Add support
+  for POK files (Sergio Baldovi)"). ZEsarUX added them in 3.1, 2 October 2015
+  (`src/Changelog`: "Added loading pokes from .POK files" and "Added Pokeing to
+  128k machine (bank, address, value)").
+- Fuse, `pokefinder/pokemem.c:407-413`: `RAM[bank][address & 0x3fff]`; on a 48K it
+  writes `RAM[bank]` anyway. ZEsarUX, `util_poke` (`src/utils.c:14188`):
+  `direccion & 16383` into `ram_mem_table[banco]` on a 128K-class machine, but it
+  REFUSES any banked line (bank < 8) on a 48K. The code is structurally different,
+  so it is not a code copy.
+- The World of Spectrum `POKformat.txt` defines bits 0-2 as the bank and bit 3 as
+  "ignore the bank", says the POKEs are "the famous multiface POKEs", and is silent
+  on how an address below 0xC000 maps into a bank. ESPeccy indexes the bank
+  unmasked (a third variant).
+
+The orchestrator's opinion (2026-10-18, not a finding): copying cannot be shown,
+and the code says it was not copied. Converging on the same rule is unsurprising
+either way: reading "bank + address" as "bank + offset within the bank" is the
+natural reading, and Fuse was the open-source reference. Neither emulator is
+wrong against the spec text, which is silent; but the spec's own origin (Multiface
+pokes, which a user typed as CPU addresses with the needed page in the 0xC000
+slot) fits Rule D2. The difference went unnoticed because it touches 22 of 63112
+corpus pokes, all in trainers that also poke 0xC000+, and the Starglider case
+still "works" under Rule A (the second line alone gives infinite missiles). So
+Rule A is best seen as a reasonable but untested interpretation that two
+emulators share, not as a bug ZEsarUX inherited.
+
 ## Decision
 
 2026-10-18, owner, after seeing both rules and the Starglider evidence: **Rule D2**.
