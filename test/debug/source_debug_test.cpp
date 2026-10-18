@@ -86,7 +86,7 @@ static void check(const char* id, const char* desc, bool cond,
         ++g_pass;
     } else {
         ++g_fail;
-        std::printf("  FAIL %s: %s%s%s\n", id, desc, detail.empty() ? "" : " — ",
+        std::printf("  FAIL %s: %s%s%s\n", id, desc, detail.empty() ? "" : " - ",
                     detail.c_str());
     }
 }

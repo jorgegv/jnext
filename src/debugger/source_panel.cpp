@@ -175,7 +175,7 @@ void SourcePanel::refresh()
 
     const QString source_path = resolve_source_file(location->file);
     if (source_path.isEmpty()) {
-        show_message(tr("%1:%2 — source file not found")
+        show_message(tr("%1:%2 - source file not found")
                          .arg(QString::fromStdString(location->file))
                          .arg(location->line));
         return;

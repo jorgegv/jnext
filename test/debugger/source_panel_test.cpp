@@ -1041,9 +1041,8 @@ void test_source_messages() {
         fx.backend->load_source_map(gone, false);
         fx.mgr->refresh_panels();
         SourcePanel* sp = fx.dbg()->source_panel();
-        check("QSRC-25", "a mapped line whose file cannot be found says so",
-              sp->location_text().startsWith(QStringLiteral("nowhere.bas:10")) &&
-                  sp->location_text().endsWith(QStringLiteral("source file not found")),
+        check("QSRC-25", "a mapped line whose file cannot be found says so, in ASCII",
+              sp->location_text() == QStringLiteral("nowhere.bas:10 - source file not found"),
               s(sp->location_text()));
     }
 }
