@@ -10,10 +10,13 @@
 // SP2-era; BCrypt is Vista-era), and the SDL-only build pins
 // _WIN32_WINNT=0x0601 so any post-Win7 API would fail to COMPILE, not load.
 //
-// This file implements the same three functions as the POSIX twin
-// (sdcard_provisioner_net_curl.cpp): http_download, sha256_hex, sha256_file,
-// same contracts, same error semantics: the partial-file contract documented in
-// sdcard_provisioner.h (`<dest>.part` kept for resuming) and the tick / stall /
+// This file implements the same four functions as the POSIX twin
+// (sdcard_provisioner_net_curl.cpp): http_download, transport_reason, sha256_hex,
+// sha256_file, same contracts, same error semantics: the failure wording documented
+// in sdcard_provisioner.h (transport_reason sorts the WinHTTP error into the same
+// kinds the libcurl twin sorts its CURLcode into, so both say the same words; an
+// HTTP error status says the same through http_status_reason), the partial-file
+// contract documented there (`<dest>.part` kept for resuming) and the tick / stall /
 // cancel one (the ProgressFn at least every tick whatever the network does;
 // false aborts with "cancelled by user"; no body byte for the stall timeout ends
 // the attempt). The decisions (append / truncate / retry, the record, the
@@ -92,23 +95,34 @@ std::wstring widen(const std::string& s) {
     return w;
 }
 
-// Human-readable-ish WinHTTP failure: name the codes a user can act on, keep
-// the rest numeric (all are documented ERROR_WINHTTP_* values).
-std::string winhttp_error(const char* stage, DWORD code) {
-    const char* name = nullptr;
+// What a transport failure says (GH #385): the WinHTTP / Win32 error sorted into
+// the shared kinds of net_reason, so WinHTTP and libcurl say the same words. The
+// names are winhttp.h's. Wine reports a timeout as WSAETIMEDOUT (10060), not as
+// ERROR_WINHTTP_TIMEOUT; both are a timeout.
+NetFailure winhttp_kind(DWORD code) {
+    constexpr DWORD kWsaTimedOut = 10060;   // WSAETIMEDOUT, spelled out: no winsock header here
+    if (code == kWsaTimedOut) return NetFailure::TimedOut;
     switch (code) {
-        case ERROR_WINHTTP_NAME_NOT_RESOLVED:   name = "name not resolved"; break;
-        case ERROR_WINHTTP_CANNOT_CONNECT:      name = "cannot connect"; break;
-        case ERROR_WINHTTP_TIMEOUT:             name = "timed out"; break;
-        case ERROR_WINHTTP_CONNECTION_ERROR:    name = "connection aborted"; break;
-        case ERROR_WINHTTP_SECURE_FAILURE:      name = "TLS/certificate failure"; break;
-        case ERROR_WINHTTP_REDIRECT_FAILED:     name = "redirect failed"; break;
-        default: break;
+    case ERROR_WINHTTP_NAME_NOT_RESOLVED:           return NetFailure::NameNotFound;
+    case ERROR_WINHTTP_CANNOT_CONNECT:              return NetFailure::CannotConnect;
+    case ERROR_WINHTTP_TIMEOUT:                     return NetFailure::TimedOut;
+    case ERROR_WINHTTP_CONNECTION_ERROR:            return NetFailure::ConnectionLost;
+    case ERROR_WINHTTP_INVALID_SERVER_RESPONSE:     return NetFailure::NoAnswer;
+    case ERROR_WINHTTP_SECURE_CERT_DATE_INVALID:
+    case ERROR_WINHTTP_SECURE_CERT_CN_INVALID:
+    case ERROR_WINHTTP_CLIENT_AUTH_CERT_NEEDED:
+    case ERROR_WINHTTP_SECURE_INVALID_CA:
+    case ERROR_WINHTTP_SECURE_CERT_REV_FAILED:
+    case ERROR_WINHTTP_SECURE_CHANNEL_ERROR:
+    case ERROR_WINHTTP_SECURE_INVALID_CERT:
+    case ERROR_WINHTTP_SECURE_CERT_REVOKED:
+    case ERROR_WINHTTP_SECURE_FAILURE:
+    case ERROR_WINHTTP_SECURE_CERT_WRONG_USAGE:     return NetFailure::Tls;
+    case ERROR_WINHTTP_INVALID_URL:
+    case ERROR_WINHTTP_UNRECOGNIZED_SCHEME:         return NetFailure::BadAddress;
+    case ERROR_WINHTTP_REDIRECT_FAILED:             return NetFailure::Redirect;
+    default:                                        return NetFailure::Other;
     }
-    std::string e = stage;
-    if (name) e += std::string(": ") + name;
-    e += " (WinHTTP error " + std::to_string(code) + ")";
-    return e;
 }
 
 // RAII for the session and connect handles: every early return closes them.
@@ -219,7 +233,9 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
     uc.lpszExtraInfo     = extra.data();
     uc.dwExtraInfoLength = static_cast<DWORD>(extra.size() - 1);
     if (wurl.empty() || !WinHttpCrackUrl(wurl.c_str(), 0, 0, &uc)) {
-        err = "bad URL: " + url;
+        // The caller names the URL (GH #385); here is only why it is no address.
+        const DWORD why = wurl.empty() ? ERROR_WINHTTP_INVALID_URL : GetLastError();
+        err = net_reason(NetFailure::BadAddress, "WinHTTP error " + std::to_string(why));
         part.fail(err, false);
         return Outcome::Failed;
     }
@@ -229,7 +245,7 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
     if (object.empty()) object = L"/";
 
     // From here every failure is a transport one: settle the partial (kept
-    // when it holds bytes and a validator) and report a bare reason.
+    // when it holds bytes and a validator) and report its reason in plain words.
     auto transport_fail = [&](const std::string& why, bool clean_eof) {
         err = why;
         part.fail(err, clean_eof);
@@ -239,7 +255,7 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
     WinHttpHandle ses;
     ses.h = WinHttpOpen(L"jnext-sdcard-provisioner", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                         WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, WINHTTP_FLAG_ASYNC);
-    if (!ses.h) return transport_fail(winhttp_error("open", GetLastError()), false);
+    if (!ses.h) return transport_fail(transport_reason(GetLastError()), false);
 
     // resolve / connect / send = 30 s (curl CONNECTTIMEOUT 30). The receive
     // timeout is only a BACKSTOP, 30 s behind the stall timeout the wait loop
@@ -255,24 +271,24 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
 
     WinHttpHandle con;
     con.h = WinHttpConnect(ses.h, host.data(), uc.nPort, 0);
-    if (!con.h) return transport_fail(winhttp_error("connect", GetLastError()), false);
+    if (!con.h) return transport_fail(transport_reason(GetLastError()), false);
 
     AsyncRequest req;
     req.h = WinHttpOpenRequest(con.h, L"GET", object.c_str(), nullptr, WINHTTP_NO_REFERER,
                                WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0);
-    if (!req.h) return transport_fail(winhttp_error("request", GetLastError()), false);
+    if (!req.h) return transport_fail(transport_reason(GetLastError()), false);
 
     // The state, then the callback, BEFORE any asynchronous call. If either
     // cannot be installed no HANDLE_CLOSING will come, and ~AsyncRequest frees
     // the state itself.
     req.st = new AsyncState(timings.read_bytes);
-    if (!req.st->ev) return transport_fail(winhttp_error("event", GetLastError()), false);
+    if (!req.st->ev) return transport_fail(transport_reason(GetLastError()), false);
     DWORD_PTR ctx = reinterpret_cast<DWORD_PTR>(req.st);
     if (!WinHttpSetOption(req.h, WINHTTP_OPTION_CONTEXT_VALUE, &ctx, sizeof(ctx)) ||
         WinHttpSetStatusCallback(req.h, status_cb,
                                  WINHTTP_CALLBACK_FLAG_ALL_COMPLETIONS | WINHTTP_CALLBACK_FLAG_HANDLES,
                                  0) == WINHTTP_INVALID_STATUS_CALLBACK)
-        return transport_fail(winhttp_error("callback", GetLastError()), false);
+        return transport_fail(transport_reason(GetLastError()), false);
     req.callback_owns_state = true;   // from here the callback frees it, on HANDLE_CLOSING
     AsyncState& st = *req.st;
 
@@ -300,11 +316,11 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
     };
     // wait_for() mapped to an Outcome; false = return `out` now.
     Outcome out = Outcome::Failed;
-    auto await = [&](DWORD want, const char* stage) {
+    auto await = [&](DWORD want) {
         switch (wait_for(want)) {
         case Wait::Done:  return true;
         case Wait::Ended: out = Outcome::Failed; return false;
-        case Wait::Error: out = transport_fail(winhttp_error(stage, st.error.load()), false); return false;
+        case Wait::Error: out = transport_fail(transport_reason(st.error.load()), false); return false;
         }
         return false;
     };
@@ -316,11 +332,11 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
     if (!WinHttpSendRequest(req.h, st.headers.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : st.headers.c_str(),
                             st.headers.empty() ? 0 : static_cast<DWORD>(-1L),
                             WINHTTP_NO_REQUEST_DATA, 0, 0, ctx))
-        return transport_fail(winhttp_error("transfer", GetLastError()), false);
-    if (!await(WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE, "transfer")) return out;
+        return transport_fail(transport_reason(GetLastError()), false);
+    if (!await(WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE)) return out;
     if (!WinHttpReceiveResponse(req.h, nullptr))
-        return transport_fail(winhttp_error("transfer", GetLastError()), false);
-    if (!await(WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE, "transfer")) return out;
+        return transport_fail(transport_reason(GetLastError()), false);
+    if (!await(WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE)) return out;
 
     HttpResponseInfo resp;
     {
@@ -328,7 +344,7 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
         DWORD status_sz = sizeof(status);
         if (!WinHttpQueryHeaders(req.h, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
                                  WINHTTP_HEADER_NAME_BY_INDEX, &status, &status_sz, WINHTTP_NO_HEADER_INDEX))
-            return transport_fail(winhttp_error("status", GetLastError()), false);
+            return transport_fail(transport_reason(GetLastError()), false);
         resp.status = static_cast<long>(status);
         resp.content_range = query_header(req.h, WINHTTP_QUERY_CONTENT_RANGE);
         resp.etag          = query_header(req.h, WINHTTP_QUERY_ETAG);
@@ -352,14 +368,14 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
     // available, so only a buffer smaller than that (PROV-STALL-10) reaches the clamp.
     for (;;) {
         if (!WinHttpQueryDataAvailable(req.h, nullptr))
-            return transport_fail(winhttp_error("read", GetLastError()), false);
-        if (!await(WINHTTP_CALLBACK_STATUS_DATA_AVAILABLE, "read")) return out;
+            return transport_fail(transport_reason(GetLastError()), false);
+        if (!await(WINHTTP_CALLBACK_STATUS_DATA_AVAILABLE)) return out;
         const DWORD avail = st.value.load();
         if (avail == 0) break;   // end of body
         const DWORD n = avail < st.buf.size() ? avail : static_cast<DWORD>(st.buf.size());
         if (!WinHttpReadData(req.h, st.buf.data(), n, nullptr))
-            return transport_fail(winhttp_error("read", GetLastError()), false);
-        if (!await(WINHTTP_CALLBACK_STATUS_READ_COMPLETE, "read")) return out;
+            return transport_fail(transport_reason(GetLastError()), false);
+        if (!await(WINHTTP_CALLBACK_STATUS_READ_COMPLETE)) return out;
         const DWORD got = st.value.load();
         if (!part.write(st.buf.data(), got)) return transport_fail("write error on " + partial_path(dest_path), false);
         got_total += got;
@@ -374,6 +390,11 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
 }
 
 } // namespace
+
+std::string transport_reason(long code) {
+    const DWORD c = static_cast<DWORD>(code);
+    return net_reason(winhttp_kind(c), "WinHTTP error " + std::to_string(c));
+}
 
 bool http_download(const std::string& url, const std::string& dest_path,
                    const ProgressFn& progress, std::string& err, const DownloadTimings& timings) {

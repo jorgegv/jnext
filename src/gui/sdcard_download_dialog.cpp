@@ -1,5 +1,6 @@
 #include "gui/sdcard_download_dialog.h"
 #include "gui/desktop_color_scheme.h"
+#include "core/log.h"
 
 #include <QApplication>
 #include <QEventLoop>
@@ -62,13 +63,67 @@ void SdcardGuiProvisioner::set_texts(const std::string& title, const std::string
     download_label_ = download_label;
 }
 
+std::unique_ptr<QMessageBox> SdcardGuiProvisioner::warning_box(const std::string& title,
+                                                               const std::string& message) {
+    auto box = std::make_unique<QMessageBox>(QMessageBox::Warning, QString::fromStdString(title),
+                                             QString::fromStdString(message), QMessageBox::Ok);
+    // The address in a failure message is there to be copied into a browser. Qt's
+    // message-box default is style dependent (links only on the "Windows" style),
+    // so it is set here.
+    box->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    return box;
+}
+
 void SdcardGuiProvisioner::warn(const std::string& message) {
     ensure_app();
     // On the offscreen platform nobody can see a dialog, let alone dismiss
     // one, and a modal warning would hold startup forever. The callers log
-    // the same message before warning, so it is not lost.
-    if (QGuiApplication::platformName() == QLatin1String("offscreen")) return;
-    QMessageBox::warning(nullptr, QString::fromStdString(title_), QString::fromStdString(message));
+    // the same message before warning, so it is not lost; the debug line says
+    // that this call was reached and with what, which is all a regression row
+    // can see of a dialog.
+    if (QGuiApplication::platformName() == QLatin1String("offscreen")) {
+        Log::platform()->debug("dialog not shown on the offscreen platform: {}: {}", title_, message);
+        return;
+    }
+    warning_box(title_, message)->exec();
+}
+
+std::unique_ptr<QProgressDialog> SdcardGuiProvisioner::make_download_dialog(const std::string& label) {
+    // Fixed 0..10000 range (int-based; scaled so multi-GB totals don't
+    // overflow). Starting with a real range + value 0 shows an EMPTY bar
+    // on the first frame - a (0,0) "busy" range paints as a FULL bar in
+    // several Qt styles until the first real total arrives.
+    auto dlg = std::make_unique<QProgressDialog>(QString::fromStdString(label),
+                                                 QStringLiteral("Cancel"), 0, 10000);
+    dlg->setWindowTitle(QStringLiteral("jnext - Downloading"));
+    dlg->setWindowModality(Qt::ApplicationModal);
+    dlg->setMinimumDuration(0);   // show immediately
+    dlg->setAutoClose(false);
+    dlg->setAutoReset(false);
+    dlg->setValue(0);             // start empty, not full
+    dlg->show();
+    return dlg;
+}
+
+void SdcardGuiProvisioner::refresh_download_dialog(QProgressDialog& dlg, const std::string& label,
+                                                   sdcard::StallWatch& watch, std::string& shown_note,
+                                                   sdcard::StallWatch::Clock::time_point now,
+                                                   uint64_t downloaded, uint64_t total) {
+    // No byte for kStallNoticeMs: say so, and keep saying how long. The note goes
+    // when bytes arrive (the watch resets on any change of the count).
+    const std::string note = sdcard::stall_note(watch.idle_ms(downloaded, now));
+    if (note != shown_note) {
+        shown_note = note;
+        dlg.setLabelText(QString::fromStdString(note.empty() ? label : label + "\n\n" + note));
+    }
+
+    if (total > 0) {
+        const int value = static_cast<int>((downloaded * 10000ULL) / total);
+        dlg.setValue(value);
+    }
+    // total == 0 (Content-Length not yet known): leave the bar at its current
+    // value (0% at first) rather than switching to a busy bar, which some
+    // styles paint as full.
 }
 
 bool SdcardGuiProvisioner::progress(uint64_t downloaded, uint64_t total) {
@@ -77,42 +132,14 @@ bool SdcardGuiProvisioner::progress(uint64_t downloaded, uint64_t total) {
     if (cancelled_) return false; // already cancelled: keep aborting
 
     if (!dialog_) {
-        // Fixed 0..10000 range (int-based; scaled so multi-GB totals don't
-        // overflow). Starting with a real range + value 0 shows an EMPTY bar
-        // on the first frame — a (0,0) "busy" range paints as a FULL bar in
-        // several Qt styles until the first real total arrives.
-        dialog_ = std::make_unique<QProgressDialog>(
-            QString::fromStdString(download_label_),
-            QStringLiteral("Cancel"), 0, 10000);
-        dialog_->setWindowTitle(QStringLiteral("jnext - Downloading"));
-        dialog_->setWindowModality(Qt::ApplicationModal);
-        dialog_->setMinimumDuration(0);   // show immediately
-        dialog_->setAutoClose(false);
-        dialog_->setAutoReset(false);
-        dialog_->setValue(0);             // start empty, not full
-        dialog_->show();
+        dialog_ = make_download_dialog(download_label_);
         // Counted from HERE, not from the constructor: the confirm box before it
         // can sit open for minutes, and that is not a stall.
         watch_ = sdcard::StallWatch(now_());
         shown_note_.clear();
     }
 
-    // No byte for kStallNoticeMs: say so, and keep saying how long. The note goes
-    // when bytes arrive (the watch resets on any change of the count).
-    const std::string note = sdcard::stall_note(watch_.idle_ms(downloaded, now_()));
-    if (note != shown_note_) {
-        shown_note_ = note;
-        dialog_->setLabelText(QString::fromStdString(note.empty() ? download_label_
-                                                                  : download_label_ + "\n\n" + note));
-    }
-
-    if (total > 0) {
-        const int value = static_cast<int>((downloaded * 10000ULL) / total);
-        dialog_->setValue(value);
-    }
-    // total == 0 (Content-Length not yet known): leave the bar at its current
-    // value (0% at first) rather than switching to a busy bar, which some
-    // styles paint as full.
+    refresh_download_dialog(*dialog_, download_label_, watch_, shown_note_, now_(), downloaded, total);
 
     // Repaint the dialog during the synchronous transfer: this runs on every tick
     // the backend takes, stalled or not.
@@ -123,6 +150,45 @@ bool SdcardGuiProvisioner::progress(uint64_t downloaded, uint64_t total) {
         return false; // ProgressFn false -> the backend aborts the transfer
     }
     return true;
+}
+
+bool SdcardGuiProvisioner::short_fetch(const std::string& label,
+                                       const std::function<bool(const sdcard::ProgressFn&)>& fetch) {
+    ensure_app();
+
+    // GH #385. The release list and the checksums are tiny, so on a healthy network
+    // they are over before anyone could read a dialog; on a dead one the window used
+    // to show nothing for the 30 s the backend waits. So: nothing is shown for the
+    // first kShortFetchShowMs, then the same dialog the archive gets, with its stall
+    // notice and Cancel. Everything is counted on now_(), so a test owns the clock.
+    const sdcard::StallWatch::Clock::time_point began = now_();
+    sdcard::StallWatch watch(began);   // its own: the fetch's idle time counts from its start
+    std::unique_ptr<QProgressDialog> dlg;
+    std::string shown_note;
+    bool cancelled = false;            // this fetch's alone: progress()'s latch is not touched
+
+    const sdcard::ProgressFn pf = [&](uint64_t downloaded, uint64_t total) {
+        const sdcard::StallWatch::Clock::time_point now = now_();
+        const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - began).count();
+        if (!dlg && elapsed_ms >= kShortFetchShowMs) {
+            dlg = make_download_dialog(label);
+            Log::platform()->debug("progress dialog shown for a slow fetch: {}", label);
+        }
+        if (dlg) refresh_download_dialog(*dlg, label, watch, shown_note, now, downloaded, total);
+        // The session keeps answering, dialog or not: every backend tick comes through here.
+        QApplication::processEvents();
+        if (dlg && dlg->wasCanceled()) cancelled = true;
+        return !cancelled;   // false -> the backend ends the attempt with "cancelled by user"
+    };
+
+    const bool ok = fetch(pf);
+
+    if (dlg) {
+        // Gone before whatever comes next: the question, a warning, the archive's own dialog.
+        dlg.reset();
+        QApplication::processEvents();
+    }
+    return ok;
 }
 
 bool SdcardGuiProvisioner::busy(const std::string& phase,

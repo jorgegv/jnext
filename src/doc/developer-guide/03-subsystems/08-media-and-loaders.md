@@ -1142,3 +1142,98 @@ that number. The error side is pinned the same way: `PROV-STALL-09` makes a serv
 close without answering and a port refuse the connection, one per stage of the
 asynchronous sequence, and requires the transport's own reason at once, never a
 stall.
+
+What a failed fetch says is the callers' business, once (GH #385). Every failure of
+a fetch is built by `sdcard::fetch_failure(what, url, reason, next)`: `<what>:
+<reason>`, then `  URL: <url>` (exactly the string handed to the `DownloadFn`, one
+variable per fetch, so it can be pasted into a browser), then `  <what happens
+next>` (the part is kept, nothing was kept, the download was removed); nine call
+sites, two in `sdcard_provisioner.cpp` and seven in `nextpi_provisioner.cpp`, and
+nothing else builds one. The backends hand up a reason in plain words and no
+framing: `net_reason(kind, raw)` gives each `NetFailure` kind its one wording and
+appends the backend's own code and text in parentheses, `http_status_reason(status)`
+does the same for an HTTP error status (RFC 9110 section 15), and each twin defines
+`transport_reason(code)` (like `http_download`), which sorts its codes into the
+kinds: a `CURLcode` for libcurl, an `ERROR_WINHTTP_*` for WinHTTP, wine's
+`WSAETIMEDOUT` as a timeout. So the two say the same words for the same failure.
+libcurl's `CURLOPT_FAILONERROR` turns any HTTP status of 400 or more into one
+generic code, so that twin reads the status off the transfer, and a 404 reads the
+same as on WinHTTP (where `PartialDownload::begin` says it, through the same
+function). A proxy that will not open the tunnel (its answer to `CONNECT` is not a
+2xx) leaves the transfer with no response status at all, so that twin also reads
+`CURLINFO_HTTP_CONNECTCODE` and says `could not connect to the server (the proxy
+answered HTTP 403 to the connection request)`, whatever code libcurl gave the
+failure (8.18: 22 for a 4xx or 5xx, 56 for a 3xx). WinHTTP takes its proxy from the
+machine's settings, never from the environment, so the case exists only on libcurl.
+libcurl also gives its codes 1 and 3 (unsupported protocol, malformed URL) to a reply
+it cannot use after connecting (not HTTP, or a redirect to a scheme or URL it cannot
+follow); only with no connection made (`CURLINFO_NUM_CONNECTS` 0) is that the
+address's fault, so only then is it worded as one. The stall reason, `cancelled by
+user` and the other reasons that were already plain are unchanged, as are the
+declared residuals (`curl_easy_init failed`, which the user cannot act on).
+`PROV-REASON-01..05` pin the wordings, `04` on both transports (it fails on both
+with the old text) and `05` the transport's own code for an address it cannot use;
+`PROV-REASON-06` and `07` put a refusing proxy, and a server whose reply libcurl
+cannot use, in front of the real libcurl backend, which is why they live in the
+POSIX-only sibling suite `sdcard_provisioner_posix_test`; `PROV-MSG-*` and
+`PIT-44..50` the messages, `PROV-SANDBOX-02` and `PROV-STALL-09` moved to the new
+text with their invariants intact.
+
+Where the message goes. `main.cpp` logs a failed SD-card provisioning in every
+frontend (headless and the SDL-only build printed it to stderr and nowhere else) and
+shows it in a dialog in the Qt GUI; a failed NextPi start is reported in a dialog
+in the Qt GUI whether it came from Preferences (jnext starts without it) or from
+`--nextpi` (it also prints to stderr and exits 1); and the warning that `latest`
+could not read the mirror's list is a dialog too, not only a log line. A declined
+release change is the user's own answer and is logged, not a warning.
+`SdcardGuiProvisioner::warn` shows a `QMessageBox` built by `warning_box`, whose
+text is selectable by mouse whatever the widget style (the "Windows" style's
+default is links only, so the address could not be copied). On the offscreen
+platform nothing is shown (nobody could dismiss it); the title and the text go to
+the `platform` logger at debug level, and that line is what `sdcard-download-fail-func`
+and `nextpi-func` facts 10-12 read of a dialog.
+
+The short fetches. The NextPi release list of `latest` and the two `.md5` fetches
+are tiny, so they passed no `ProgressFn`, and on a dead network the window showed
+nothing for the 30 s the backend waits. `ShortFetchFn` (`nextpi::ProvisionOptions::
+short_fetch`) wraps exactly those three, with a label and the address each, and hands
+the fetch the `ProgressFn` it should give the `DownloadFn`; the archive download is
+not wrapped and keeps `opts.progress` (`PIT-51`). The Qt build's `SdcardGuiProvisioner::short_fetch`
+pumps the event loop on every call, shows nothing for the first
+`kShortFetchShowMs` (1000 ms, so a quick fetch does not flash a dialog), and then
+shows the same dialog as the archive, built and refreshed by the same code (title,
+empty bar, `Stalled` notice from 5 s, Cancel); it is gone when the fetch returns.
+Its Cancel ends that fetch only: the `cancelled_` latch of `progress()` is not
+touched, so the archive download that follows is not aborted. All of it counts on
+the helper's `now_()`, so `SDD-06..08` run on a clock the test owns, and `SDD-09`
+runs the whole thing through the real backend and a silent server on the production
+clock. `nextpi-func` fact 12 shows it in the real binary against a mirror that
+answers after 3 s.
+
+The console. The frontends with no dialog (`--headless`, the SDL-only build) say the
+same things as text, on stderr and in the log, in the dialog's words (GH #385). One
+class decides: `sdcard::ConsoleWait` is made for one transfer and ticked by its
+`ProgressFn`, which the backends call at least every 200 ms whatever the network does.
+When no byte has arrived for `kStallNoticeMs` (5 s) it says `stall_note()`, the
+dialog's own text, once, on a line of its own on stderr and as a warning in the log,
+and again if bytes come and a new stall begins. With a `slow_line` it also says that
+line once, as information, when the transfer has gone on for `kShortFetchShowMs`; a
+quicker transfer says nothing at all. The limit is the dialog's, defined once in the
+core. A `ConsoleWait` counts from its first tick, not from its construction: the
+prompt before a download can sit open for minutes. `nextpi::CliShortFetch` is the
+console's `ShortFetchFn`: one `ConsoleWait` per fetch, its line `<label> <address>`,
+logged on the `uart` logger like the rest of the module. `sdcard::CliProgress` is the
+terminal's progress display of a download, the `\rDownloading ...  45%` line that
+`cli_progress` and the NextPi twin drew, now one class with the heading and the
+no-length rule as arguments (the SD-card image counts MiB, NextPi says nothing) and
+the stall note, which starts a new line when a progress line was left unfinished.
+`make_cli_progress()` makes the SD-card image's and `nextpi::make_cli_progress()`
+NextPi's; `main.cpp` wires them, and `CliShortFetch`, where there is no dialog. The
+clock, the stream and the log's copy are parameters, so `PROV-CON-01..11` and
+`PIT-52..56` run all of it on a fake clock and read the stream back as a file; the
+real binary is shown by `sdcard-download-fail-func` fact 5 (both frontends without
+a dialog, each with its own wiring in `main.cpp`) and `nextpi-func` fact 13, against
+a server that answers after 8 s. What no row can show is the NextPi archive's own
+display being wired in `main.cpp`: its download needs 22 GB free, which the
+regression suite cannot assume, so that one assignment is covered only by the
+classes it uses.

@@ -267,7 +267,7 @@ PartialDownload::Begin PartialDownload::begin(const HttpResponseInfo& r, std::st
     begun_ = true;
     if (r.status == 416 && ranged_) { discard_partial(dest_); return Begin::Retry; }
     if (r.status >= 400) {
-        err = "HTTP status " + std::to_string(r.status);
+        err = http_status_reason(r.status);
         cancelled();
         return Begin::Error;
     }
@@ -423,6 +423,41 @@ bool default_http_download(const std::string& url, const std::string& dest_path,
     return http_download(url, dest_path, progress, err, DownloadTimings{});
 }
 
+// ---------------------------------------------------------------------------
+// What a failed fetch says (GH #385): see the comment above net_reason in the
+// header. The wordings live here, once, for both backends and every caller.
+// ---------------------------------------------------------------------------
+std::string net_reason(NetFailure kind, const std::string& raw) {
+    const char* words = "the transfer failed";
+    switch (kind) {
+    case NetFailure::NameNotFound:   words = "the server's name could not be found"; break;
+    case NetFailure::CannotConnect:  words = "could not connect to the server"; break;
+    case NetFailure::TimedOut:       words = "the server did not answer in time"; break;
+    case NetFailure::ConnectionLost: words = "the connection to the server was lost"; break;
+    case NetFailure::NoAnswer:       words = "the server closed the connection without answering"; break;
+    case NetFailure::Tls:            words = "the secure connection to the server failed"; break;
+    case NetFailure::BadAddress:     words = "the address is not a valid http or https URL"; break;
+    case NetFailure::Redirect:       words = "the server's redirect could not be followed"; break;
+    case NetFailure::Other:          break;
+    }
+    return std::string(words) + " (" + raw + ")";
+}
+
+std::string http_status_reason(long status) {
+    const char* words = "the server refused the request";
+    if (status == 404 || status == 410) words = "the server does not have this file";
+    else if (status == 401 || status == 403) words = "the server refused access";
+    else if (status >= 500 && status <= 599) words = "the server reported an error";
+    return std::string(words) + " (HTTP " + std::to_string(status) + ")";
+}
+
+std::string fetch_failure(const std::string& what, const std::string& url,
+                          const std::string& reason, const std::string& next) {
+    std::string m = what + ": " + reason + "\n  URL: " + url;
+    if (!next.empty()) m += "\n  " + next;
+    return m;
+}
+
 std::string default_state_dir() { return config_dir(); }
 std::string default_sdcard_dir() {
     return config_dir() + "/sdcard";
@@ -499,35 +534,88 @@ std::vector<uint8_t> default_config_ini() {
 //                                      Phase B: no curl/OpenSSL DLLs shipped,
 //                                      Win7-clean import set)
 
-bool cli_progress(uint64_t downloaded, uint64_t total) {
-    // Throttle to whole-percent changes to avoid flooding stderr.
-    static int last_pct = -1;
+// ---------------------------------------------------------------------------
+// Feedback on the console (GH #385): see the comment above ConsoleWait in the header.
+// ---------------------------------------------------------------------------
+ConsoleWait::ConsoleWait(std::FILE* out, ConsoleLogFn log, std::string slow_line, ConsoleNowFn now)
+    : out_(out), log_(std::move(log)), slow_line_(std::move(slow_line)),
+      now_(now ? std::move(now) : ConsoleNowFn(StallWatch::Clock::now)) {}
+
+void ConsoleWait::say(const std::string& line, bool warning, bool new_line_first) {
+    if (new_line_first) std::fputc('\n', out_);
+    std::fprintf(out_, "%s\n", line.c_str());
+    std::fflush(out_);
+    if (log_) log_(warning, line);
+}
+
+bool ConsoleWait::tick(uint64_t downloaded, bool line_open) {
+    const StallWatch::Clock::time_point now = now_();
+    if (!started_) {   // the first tick starts both clocks
+        started_ = true;
+        began_   = now;
+        watch_   = StallWatch(now);
+    }
+    bool said = false;
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - began_).count();
+    if (!slow_line_.empty() && !slow_said_ && elapsed_ms >= kShortFetchShowMs) {
+        slow_said_ = true;
+        say(slow_line_, false, line_open);
+        said = true;
+        line_open = false;   // the line just said ended with a newline
+    }
+    const uint64_t idle = watch_.idle_ms(downloaded, now);
+    if (idle < static_cast<uint64_t>(kStallNoticeMs)) {
+        stall_said_ = false;   // bytes arrived (or not long enough yet): a later stall speaks again
+    } else if (!stall_said_) {
+        stall_said_ = true;
+        say(stall_note(idle), true, line_open);
+        said = true;
+    }
+    return said;
+}
+
+CliProgress::CliProgress(std::string what, bool mib_if_unknown, ConsoleLogFn log, std::FILE* out,
+                         ConsoleNowFn now)
+    : what_(std::move(what)), mib_if_unknown_(mib_if_unknown), out_(out),
+      wait_(out, std::move(log), {}, std::move(now)) {}
+
+bool CliProgress::operator()(uint64_t downloaded, uint64_t total) {
+    // Throttle to whole-percent changes to avoid flooding the terminal.
     if (total > 0) {
         const int pct = static_cast<int>((downloaded * 100ULL) / total);
-        if (pct != last_pct) {
-            last_pct = pct;
-            std::fprintf(stderr, "\rDownloading SD-card image: %3d%%", pct);
-            if (pct >= 100) std::fprintf(stderr, "\n");
-            std::fflush(stderr);
+        if (pct != last_pct_) {
+            last_pct_ = pct;
+            std::fprintf(out_, "\rDownloading %s: %3d%%", what_.c_str(), pct);
+            if (pct >= 100) std::fprintf(out_, "\n");
+            std::fflush(out_);
+            open_ = pct < 100;
         }
-    } else {
-        // No Content-Length: show accumulated KiB every ~1 MiB.
-        static uint64_t last_mib = 0;
+    } else if (mib_if_unknown_) {
+        // No Content-Length: show accumulated MiB every ~1 MiB.
         const uint64_t mib = downloaded >> 20;
-        if (mib != last_mib) {
-            last_mib = mib;
-            std::fprintf(stderr, "\rDownloading SD-card image: %llu MiB",
+        if (mib != last_mib_) {
+            last_mib_ = mib;
+            std::fprintf(out_, "\rDownloading %s: %llu MiB", what_.c_str(),
                          static_cast<unsigned long long>(mib));
-            std::fflush(stderr);
+            std::fflush(out_);
+            open_ = true;
         }
     }
+    if (wait_.tick(downloaded, open_)) open_ = false;
     return true; // CLI progress never cancels
+}
+
+ProgressFn make_cli_progress(std::FILE* out, ConsoleNowFn now) {
+    return CliProgress("SD-card image", true, [](bool warning, const std::string& line) {
+        if (warning) Log::emulator()->warn("SD-card image: {}", line);
+        else         Log::emulator()->info("SD-card image: {}", line);
+    }, out, std::move(now));
 }
 
 bool cli_busy(const std::string& phase, const std::function<bool()>& work) {
     // Print the phase (no trailing newline yet) so the terminal shows work is
     // in progress, then run it and finish the line with the outcome. When a
-    // download preceded this, cli_progress ends its bar with a newline only in
+    // download preceded this, CliProgress ends its bar with a newline only in
     // the Content-Length branch (the common case for the distro URL); the rare
     // no-Content-Length path would leave this appended to the "N MiB" line — a
     // cosmetic wart, not a correctness issue.
@@ -892,15 +980,17 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             return r;
         }
 
+        // A failed fetch names the address, the reason in plain words and what
+        // happens next (GH #385); the sandbox note, when there is one, comes last.
         if (!download(distro_url, zip_tmp, opts.progress, err)) {
             r.status = ProvisionStatus::Failed;
             uint64_t h2 = 0, t2 = 0;
             const PartialState ps = partial_state(zip_tmp, distro_url, h2, t2);
-            if (ps == PartialState::Resumable)
-                err += "; the part fetched so far is kept and the next start continues it";
-            else if (ps == PartialState::Complete)
-                err += "; the complete download is kept and the next start uses it";
-            r.error  = "download failed: " + err + sandbox_network_note(opts);
+            const char* next =
+                ps == PartialState::Resumable ? "the part fetched so far is kept and the next start continues it"
+              : ps == PartialState::Complete  ? "the complete download is kept and the next start uses it"
+              : "nothing was kept, so the next start downloads it from the beginning";
+            r.error  = fetch_failure("download failed", distro_url, err, next) + sandbox_network_note(opts);
             return r;
         }
 
@@ -909,7 +999,8 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             std::remove(zip_tmp.c_str());
             std::remove(raw.c_str()); // never trust a partial raw
             r.status = ProvisionStatus::Failed;
-            r.error  = "unzip failed: " + err;
+            r.error  = fetch_failure("unzip failed", distro_url, err,
+                                     "the download was removed, so the next start downloads it from the beginning");
             return r;
         }
         std::remove(zip_tmp.c_str());

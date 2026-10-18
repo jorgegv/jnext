@@ -6,14 +6,18 @@
 // imports PathCchRemoveFileSpec (Windows 8+), which was the single import
 // keeping the SDL-only bundle off Windows 7.
 //
-// Both twins implement the same three functions declared in
-// sdcard_provisioner.h (http_download, sha256_hex, sha256_file) with identical
-// contracts: the partial-file contract documented there (`<dest>.part` kept for
-// resuming) and the tick / stall / cancel one (the ProgressFn is called at least
-// every tick whatever the network does; false aborts with "cancelled by user";
-// no body byte for the stall timeout ends the attempt). The
-// whole-file #ifdef pair keeps file(GLOB_RECURSE) in src/core/CMakeLists.txt
-// correct on every platform: exactly one twin has content per build.
+// Both twins implement the same four functions declared in
+// sdcard_provisioner.h (http_download, transport_reason, sha256_hex, sha256_file)
+// with identical contracts: the failure wording documented there (transport_reason
+// sorts the CURLcode into the same kinds the WinHTTP twin sorts its codes into, so
+// both say the same words; an HTTP error status says the same through
+// http_status_reason; only this twin names a proxy that refuses the tunnel), the
+// partial-file contract documented there (`<dest>.part` kept for resuming) and the
+// tick / stall / cancel one (the ProgressFn is called at least every tick whatever
+// the network does; false aborts with "cancelled by user"; no body byte for the
+// stall timeout ends the attempt). The whole-file #ifdef pair keeps
+// file(GLOB_RECURSE) in src/core/CMakeLists.txt correct on every platform: exactly
+// one twin has content per build.
 //
 // The transfer runs on libcurl's MULTI interface. curl_easy_perform with an
 // XFERINFO callback is called often while data flows but slows to about one call
@@ -38,6 +42,84 @@
 #include <vector>
 
 namespace sdcard {
+
+// ---------------------------------------------------------------------------
+// What a transport failure says (GH #385): the CURLcode sorted into the shared
+// kinds of net_reason, so libcurl and WinHTTP say the same words. The meanings
+// are libcurl-errors(3); only codes libcurl 7.66 already has are named, because
+// the packaged targets include older distributions.
+// ---------------------------------------------------------------------------
+namespace {
+NetFailure curl_kind(CURLcode c) {
+    switch (c) {
+    case CURLE_UNSUPPORTED_PROTOCOL:
+    case CURLE_URL_MALFORMAT:
+        return NetFailure::BadAddress;
+    case CURLE_COULDNT_RESOLVE_PROXY:
+    case CURLE_COULDNT_RESOLVE_HOST:
+        return NetFailure::NameNotFound;
+    case CURLE_COULDNT_CONNECT:
+        return NetFailure::CannotConnect;
+    case CURLE_GOT_NOTHING:
+        return NetFailure::NoAnswer;
+    case CURLE_HTTP2:
+    case CURLE_PARTIAL_FILE:
+    case CURLE_SEND_ERROR:
+    case CURLE_RECV_ERROR:
+    case CURLE_HTTP2_STREAM:
+        return NetFailure::ConnectionLost;
+    case CURLE_OPERATION_TIMEDOUT:
+        return NetFailure::TimedOut;
+    case CURLE_SSL_CONNECT_ERROR:
+    case CURLE_SSL_CERTPROBLEM:
+    case CURLE_SSL_CIPHER:
+    case CURLE_PEER_FAILED_VERIFICATION:
+    case CURLE_SSL_CACERT_BADFILE:
+    case CURLE_SSL_ISSUER_ERROR:
+    case CURLE_SSL_PINNEDPUBKEYNOTMATCH:
+    case CURLE_SSL_INVALIDCERTSTATUS:
+        return NetFailure::Tls;
+    case CURLE_TOO_MANY_REDIRECTS:
+        return NetFailure::Redirect;
+    default:
+        return NetFailure::Other;
+    }
+}
+} // namespace
+
+namespace {
+// libcurl's own code and text, the part of a reason that follows the plain words.
+std::string curl_raw(CURLcode c) {
+    return "curl error " + std::to_string(static_cast<int>(c)) + ": " + curl_easy_strerror(c);
+}
+} // namespace
+
+std::string transport_reason(long code) {
+    const CURLcode c = static_cast<CURLcode>(code);
+    return net_reason(curl_kind(c), curl_raw(c));
+}
+
+namespace {
+// The reason of a transfer libcurl reported as failed (GH #385). CURLOPT_FAILONERROR turns an HTTP
+// status of 400 or more into one generic code that loses the status, so it is read off the transfer:
+// a 404 says 404, like WinHTTP. A proxy that will not open the tunnel (its answer to CONNECT is not a
+// 2xx) leaves the transfer with no response status of its own, and the code libcurl gives for it
+// depends on the answer (8.18 measured: 22 for a 4xx or 5xx, 56 for a 3xx); the proxy's answer is the
+// reason, whichever code came with it. `proxy_code` is CURLINFO_HTTP_CONNECTCODE, 0 when there was none.
+// Codes 1 (unsupported protocol) and 3 (malformed URL) are about the ADDRESS only when libcurl never
+// got as far as connecting (`connects`, CURLINFO_NUM_CONNECTS, is 0); after a connection they are about
+// what the server sent, a reply that is not HTTP or a redirect to something libcurl cannot use, and
+// saying "the address is not a valid http or https URL" of a good one would be untrue.
+std::string failure_reason(CURLcode rc, long http_code, long proxy_code, long connects) {
+    if (rc == CURLE_HTTP_RETURNED_ERROR && http_code >= 400) return http_status_reason(http_code);
+    if (proxy_code >= 300)
+        return net_reason(NetFailure::CannotConnect,
+                          "the proxy answered HTTP " + std::to_string(proxy_code) + " to the connection request");
+    if ((rc == CURLE_UNSUPPORTED_PROTOCOL || rc == CURLE_URL_MALFORMAT) && connects > 0)
+        return net_reason(NetFailure::Other, curl_raw(rc));
+    return transport_reason(rc);
+}
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Download (default impl uses libcurl — no shell-out)
@@ -150,8 +232,10 @@ Outcome attempt_download(const std::string& url, const std::string& dest, const 
         while (const CURLMsg* msg = curl_multi_info_read(multi, &queued))
             if (msg->msg == CURLMSG_DONE) rc = msg->data.result;
     }
-    long http_code = 0;
+    long http_code = 0, proxy_code = 0, connects = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    curl_easy_getinfo(curl, CURLINFO_HTTP_CONNECTCODE, &proxy_code);   // an HTTP proxy's answer to CONNECT
+    curl_easy_getinfo(curl, CURLINFO_NUM_CONNECTS, &connects);         // connections made (none is reused: one handle per attempt)
     curl_multi_remove_handle(multi, curl);   // an unfinished transfer: its connection is closed
     curl_easy_cleanup(curl);
     curl_multi_cleanup(multi);
@@ -177,7 +261,7 @@ Outcome attempt_download(const std::string& url, const std::string& dest, const 
         return Outcome::Failed;
     }
     if (rc != CURLE_OK) {
-        err = curl_easy_strerror(rc);
+        err = failure_reason(rc, http_code, proxy_code, connects);
         part.fail(err, rc == CURLE_PARTIAL_FILE);
         return Outcome::Failed;
     }
