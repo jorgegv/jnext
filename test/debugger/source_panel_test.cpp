@@ -30,6 +30,7 @@
 #include "core/emulator_config.h"
 #include "core/saveable.h"
 #include "debug/debugger.h"
+#include "debug/ram_page.h"
 #include "debug/source_file.h"
 #include "debugger/breakpoint_model.h"
 #include "debugger/breakpoint_panel.h"
@@ -60,6 +61,7 @@
 #include <QMouseEvent>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScrollBar>
 #include <QStatusBar>
 #include <QTabWidget>
@@ -1047,6 +1049,45 @@ void test_source_messages() {
     }
 }
 
+// ── N2: hex in the Source tab is upper case ──────────────────────────
+
+void test_source_hex() {
+    Fixture fx;
+    fx.enable();
+    // A RAM address whose page number has a letter in its hex ("0A", "2E"...),
+    // and whose own hex has letters too.
+    uint16_t addr = 0;
+    uint8_t page = 0;
+    for (uint32_t a = 0x4000; a < 0x10000 && !addr; a += 0x2000) {
+        const uint8_t pg = fx.backend->source_page(static_cast<uint16_t>(a));
+        if (pg != NOT_RAM_PAGE && QString::asprintf("%02X", pg).contains(QRegularExpression("[A-F]"))) {
+            addr = static_cast<uint16_t>(a | 0x0BCD);
+            page = pg;
+        }
+    }
+    const std::string path = g_tmp->path().toStdString() + "/hex.sld";
+    write_text(path, std::string("|SLD.data.version|1\nmain.bas|10||0") + kNextDevice +
+                         "main.bas|10||0|" + std::to_string(page) + "|" + std::to_string(addr) +
+                         "|T|\n");
+    fx.backend->load_source_map(path, false);
+    Z80Registers r = fx.emu.cpu().get_registers();
+    r.PC = addr;
+    fx.emu.cpu().set_registers(r);
+    fx.mgr->refresh_panels();
+    SourcePanel* sp = fx.dbg()->source_panel();
+    const QString want = QString::asprintf("main.bas:10  $%04X  page %02X", addr, page);
+    const QString mapped = sp->location_text();
+    r.PC = static_cast<uint16_t>(addr + 1);
+    fx.emu.cpu().set_registers(r);
+    fx.mgr->refresh_panels();
+    const QString want_unmapped =
+        QString::asprintf("$%04X (page %02X): no source mapping; use the disassembly", addr + 1, page);
+    check("QSRC-44", "the Source tab prints the PC and the page in upper-case hex, mapped "
+                     "or not",
+          addr != 0 && mapped == want && sp->location_text() == want_unmapped,
+          s(mapped) + " | " + s(sp->location_text()) + " | want " + s(want));
+}
+
 // ── C1: a refused sidecar says why ────────────────────────────────────
 
 void test_sidecar_reason() {
@@ -1134,6 +1175,7 @@ int main(int argc, char** argv) {
     test_gutter();
     test_edit_type_refused();
     test_breakpoint_page_rows();
+    test_source_hex();
     test_sidecar_reason();
     test_source_buttons();
     test_source_button_states();

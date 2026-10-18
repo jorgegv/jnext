@@ -164,12 +164,14 @@ void SourcePanel::refresh()
 
     const uint16_t pc = dbg_->registers().PC;
     const uint8_t page = dbg_->source_page(pc);
+    // Upper-case hex, as the rest of the debugger and the user guide print it.
+    const QString pc_text = QString::asprintf("%04X", pc);
     const QString where = page == NOT_RAM_PAGE ? tr("ROM or overlay")
-                                               : tr("page %1").arg(page, 2, 16, QLatin1Char('0'));
+                                               : tr("page %1").arg(QString::asprintf("%02X", page));
     const auto location = dbg_->source_location(pc);
     if (!location) {
         show_message(tr("$%1 (%2): no source mapping; use the disassembly")
-                         .arg(pc, 4, 16, QLatin1Char('0')).arg(where));
+                         .arg(pc_text).arg(where));
         return;
     }
 
@@ -197,7 +199,7 @@ void SourcePanel::refresh()
     location_label_->setText(tr("%1:%2  $%3  %4")
                                  .arg(QString::fromStdString(location->file))
                                  .arg(location->line)
-                                 .arg(pc, 4, 16, QLatin1Char('0'))
+                                 .arg(pc_text)
                                  .arg(where));
     const QTextBlock block = editor_->document()->findBlockByNumber(location->line - 1);
     if (!block.isValid()) {
