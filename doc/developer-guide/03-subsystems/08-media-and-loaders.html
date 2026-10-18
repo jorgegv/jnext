@@ -3255,23 +3255,56 @@ would lose each of those; do not add one.</p>
 <code>unit-test-sdl</code> and <code>unit-test-win</code>. The Qt side is <code>gui/pok_dialog.*</code> (a view
 of a <code>Session</code>) and <code>MainWindow::open_pok_file()</code>, the seam both Machine ▸ POK
 Trainers… and File ▸ Load of a <code>.pok</code> end in; <code>pok_dialog_test</code> drives the real
-menu action, file picker, dialog and value prompt. There is <strong>no CLI flag</strong> and
-<code>--load x.pok</code> keeps its "unsupported file extension" refusal: the SDL-only and
-headless builds have no menus, and a script (<code>set mem[a]</code>, <code>set phys[p, o]</code>,
-<code>save_snapshot</code>) already does what a trainer does in every frontend; the
-recipe is in the user guide (5.11).</p>
-<p><strong>Where a poke lands.</strong> Only 0xC000-0xFFFF is banked. Port 0x7FFD writes MMU6
-and MMU7 and nothing else (<code>zxnext.vhd:4679-4680</code>; MMU2-5 keep pages 0A 0B 04 05,
-<code>:4613-4616</code>), so a Multiface-level POKE with a bank number can only reach that
-bank at 0xC000 and above. A banked poke (bank 0-7) at address ≥ 0xC000 is NR page
-<code>2*bank + ((address &gt;&gt; 13) &amp; 1)</code>, offset <code>address &amp; 0x1FFF</code>, whatever is paged in
-(a 48K only has bank 0 there: port 0x7FFD is not decoded, NR 0x82 = 0xC0). Every
-other poke (bank 8-15, "ignore the bank", or an address below 0xC000) is the RAM
-page <code>Debugger::mmu_slots()</code> reports for the address when the trainer is applied,
-not <code>poke(Cpu)</code>, which would follow a Layer 2 write-over mapping that reads do not.
-Fuse and ZEsarUX index <code>RAM[bank][address &amp; 0x3FFF]</code> for every address; that
-differs from this only for a banked line below 0xC000, a few lines in thousands
-of real files, all in trainers that also poke the banked window.</p>
+menu action, file picker, dialog and value prompt. <code>--load x.pok</code> keeps its
+"unsupported file extension" refusal: a <code>.pok</code> is not a program. The runs that
+have no window (headless, and the SDL-only window) take one through two options,
+<code>--delayed-pok-frames N FILE</code> and <code>--pok-trainers LIST</code> (below); a script
+(<code>set mem[a]</code>, <code>set phys[p, o]</code>, <code>save_snapshot</code>) still does what the options do
+not, and the recipe is in the user guide (5.11).</p>
+<p><strong>From the command line.</strong> Two rows in <code>cli_options.h</code>, not one, because the
+table's arity is at most 2 (CLI-TBL-03) and because "when, and which file" and
+"which trainers" are different things; <code>main.cpp</code> refuses either without the
+other, or either twice. The parse arms only store. Below the loop <code>main()</code>
+reads and checks everything that can be checked before the machine exists, so a
+typo in a CI script fails at once with status 1: <code>parse_picks()</code> turns the list
+(<code>1,3=9,7</code>: a trainer number from 1, optionally <code>=VALUE</code>) into <code>Pick</code>s,
+<code>make_cli_request()</code> loads the file and checks the picks against it (the trainer
+exists and is valid, a value is given exactly for a trainer that leaves one
+open) into a <code>CliRequest</code>. The Qt window has the dialog, so <code>main()</code> refuses the
+options there (<code>#ifdef ENABLE_QT_UI</code>, not headless). <code>configure_and_run</code> hands
+the request to <code>HeadlessApp::set_delayed_pok()</code> or <code>SdlApp::set_delayed_pok()</code>;
+<code>QtApp</code> has none, and <code>if constexpr</code> leaves the call out of its instantiation.</p>
+<p>Each of the two loops holds a <code>jnext::pok::CliJob</code>: the request and a
+<code>cli::Delay::frames(N)</code>. <code>poll()</code> runs once per tick, after that tick's <code>--load</code>,
+<code>--inject</code> and <code>--rzx-record</code> handling and before its frame, so <code>--load x.sna</code>
+with N = 0 applies the trainers right after the snapshot is in, and one frame
+after N have run. When due it calls <code>run_cli_request()</code>: a fresh <code>Session</code> over
+the loop owner's debugger backend (the same write path, so the same RZX refusal,
+rewind wall and <code>MUTATE</code> lines), <code>apply()</code> for each pick in the order written,
+stopping at the first refusal with the trainer's number and name in the reason;
+a trainer that <code>state()</code> already reports as found in memory is logged and left.
+A refusal makes <code>poll()</code> return false, which the loop turns into
+<code>exit_code_ = 1</code>, and a job still pending when the automatic exit fires is
+listed in <code>auto_exit_finds_no_deferred_work()</code>, so neither can end in a quiet
+exit 0. Nothing is removed from here: a run is one-shot. The rows are POK-60..64
+(the list, the request, the run, the refusal, the job's counting) and the
+regression row <code>delayed-pok-func</code>, which reads the trainers back from a <code>.scr</code>
+(the ULA screen memory, byte for byte) in both loops, with the controls that a
+frame earlier or later flips, the <code>--load</code> order, the banked line, the usage
+errors and the Qt refusal.</p>
+<p><strong>Where a poke lands.</strong> A banked line (bank 0-7) names a byte of a RAM bank
+whatever its address: NR page <code>2*bank + ((address &gt;&gt; 13) &amp; 1)</code>, offset
+<code>address &amp; 0x1FFF</code>, which is byte <code>address &amp; 0x3FFF</code> of the 16K bank, independent
+of what is paged in (a 48K only has bank 0: port 0x7FFD is not decoded,
+NR 0x82 = 0xC0). That is how Fuse (<code>RAM[bank][address &amp; 0x3FFF]</code>) and ZEsarUX
+index it for every address, and JNEXT follows them (GH #381).
+The CPU view alone would bank only 0xC000-0xFFFF (port 0x7FFD writes MMU6 and
+MMU7 and nothing else, <code>zxnext.vhd:4679-4680</code>; MMU2-5 keep pages 0A 0B 04 05,
+<code>:4613-4616</code>), but real files name a bank for lower addresses too (Starglider's
+"Infinite Missiles (Bank#0)" has <code>M 0 44796</code>), and those lines mean nothing in
+that view. Every other poke (bank 8-15, "ignore the bank") is the RAM page
+<code>Debugger::mmu_slots()</code> reports for the address when the trainer is applied, not
+<code>poke(Cpu)</code>, which would follow a Layer 2 write-over mapping that reads do not.</p>
 <p><strong>Undo and state.</strong> <code>Session::apply</code> resolves every poke to a location, reads
 every original <strong>before</strong> writing anything (so a refusal leaves memory untouched
 and a trainer that pokes one address twice restores the byte from before the
@@ -3298,12 +3331,13 @@ has no <code>Next</code> prologue (<code>NexLoader::probe_version()</code>), whi
 would refuse anyway: before, the session was reset and then the load failed. The
 reason follows the case: a <code>.nex</code> is "not a NEX file" and nothing more, and only
 an extension nothing owns is told the list of formats and where a <code>.pok</code> goes.</p>
-<p>The suites: <code>pok_trainers_test</code> (POK-01..25 the parser and <code>load_pok_file</code>,
-POK-30..56 the session, each bank-to-page row citing <code>zxnext.vhd</code> and asserting
-bytes the test placed itself; the rows that sweep a trainer's locations one at a
-time, POK-50..52, are there so that a rule meant for every location cannot pass
-by checking the first) and <code>pok_dialog_test</code> (PKD-01..16); File &gt; Load's
-refusal is <code>preferences_apply_test</code> PA-24e/f/g.</p>
+<p>The suites: <code>pok_trainers_test</code> (POK-01..25 and POK-60 the parser, the list and
+<code>load_pok_file</code>, POK-30..57 and POK-61..64 the session and the command-line
+request, each bank-to-page row citing <code>zxnext.vhd</code> or the other emulators'
+indexing and asserting bytes the test placed itself; the rows that sweep a
+trainer's locations one at a time, POK-50..52, are there so that a rule meant for
+every location cannot pass by checking the first) and <code>pok_dialog_test</code>
+(PKD-01..16); File &gt; Load's refusal is <code>preferences_apply_test</code> PA-24e/f/g.</p>
 <h2 id="media-out">Media out<a class="headerlink" href="#media-out" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

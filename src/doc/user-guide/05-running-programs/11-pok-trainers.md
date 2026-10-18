@@ -138,10 +138,52 @@ Latin-1 otherwise, which covers both kinds of file in circulation.
 
 ## Without the window
 
-The window is part of the Qt build. The SDL-only build and the headless runs
-have no menus, and `--load game.pok` is refused. What a trainer does is a
-handful of writes, and a [debugger script](../06-debugger/scripting/index.md)
-does them in any build:
+The window is part of the Qt build. The SDL-only build's window and the headless
+runs have no menus, and `--load game.pok` is refused. Two options apply a `.pok`
+file there:
+
+- `--delayed-pok-frames N FILE` applies trainers from `FILE` after `N` emulated
+  frames, once the program has loaded. Frames are counted from the start of the
+  run, 50 to an emulated second.
+- `--pok-trainers LIST` says which ones: their numbers in the file, 1 for the
+  first `N` line, comma-separated, each `T` or `T=VALUE`. A trainer that asks
+  for a value (a `256` in the file) needs `T=VALUE`, 0 to 255; any other trainer
+  takes none. `1,3=9,7` applies trainer 1, trainer 3 with the value 9, and
+  trainer 7, in that order.
+
+```console
+$ jnext --headless --machine 48k game.tap \
+      --delayed-pok-frames 1200 game.pok --pok-trainers 1,3=9 \
+      --delayed-snapshot trained.sna --delayed-snapshot-frames 1210 \
+      --delayed-automatic-exit-frames 1300
+```
+
+The numbers are the order of the `N` lines in the file (`grep -n '^N' game.pok`
+lists them), and the log names each trainer as it is applied. Pick the frame by
+when the game has reached the point you want: a tape takes a few hundred frames
+to load, and a `--delayed-screenshot` at a guessed frame shows where it is. With
+a snapshot, `--delayed-pok-frames 0` applies the trainers in the first frame,
+right after the snapshot has loaded.
+
+Everything that can be checked is checked before the machine starts, and a
+failure exits with status 1: a file that cannot be read, is larger than 1 MiB or
+has no trainer; a number that names a trainer the file does not have or one
+whose lines are malformed; a value missing for a trainer that asks for one, or
+given to one that does not; either option without the other, or given twice
+(one file per run). The Qt window refuses both options, since it has the
+trainers window.
+
+The trainers go in by the same path as the window's **Apply**: every write is a
+`MUTATE` line in the log, a trainer is applied whole or not at all, a bank-3
+line on a 48K or an address that is ROM in the current memory map is refused,
+and so is anything while an RZX is recorded or played. A refusal, or an
+automatic exit that comes before the frame, makes the run exit non-zero once it
+ends, and the trainers before the refused one stay applied. A trainer whose
+bytes memory already holds, from a snapshot saved with it, is left as it is.
+
+For anything the options do not do (undoing a trainer later, applying at several
+moments, a condition), a [debugger script](../06-debugger/scripting/index.md)
+does the writes in any build:
 
 ```
 ; "Infinite lives": Z  8 32771 0 53   (bank 8 = the memory map; value 0)

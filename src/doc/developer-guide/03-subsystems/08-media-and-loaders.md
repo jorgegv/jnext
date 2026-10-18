@@ -813,11 +813,45 @@ The module has no Qt, so `pok_trainers_test` runs in `make unit-test`,
 `unit-test-sdl` and `unit-test-win`. The Qt side is `gui/pok_dialog.*` (a view
 of a `Session`) and `MainWindow::open_pok_file()`, the seam both Machine ▸ POK
 Trainers… and File ▸ Load of a `.pok` end in; `pok_dialog_test` drives the real
-menu action, file picker, dialog and value prompt. There is **no CLI flag** and
-`--load x.pok` keeps its "unsupported file extension" refusal: the SDL-only and
-headless builds have no menus, and a script (`set mem[a]`, `set phys[p, o]`,
-`save_snapshot`) already does what a trainer does in every frontend; the
-recipe is in the user guide (5.11).
+menu action, file picker, dialog and value prompt. `--load x.pok` keeps its
+"unsupported file extension" refusal: a `.pok` is not a program. The runs that
+have no window (headless, and the SDL-only window) take one through two options,
+`--delayed-pok-frames N FILE` and `--pok-trainers LIST` (below); a script
+(`set mem[a]`, `set phys[p, o]`, `save_snapshot`) still does what the options do
+not, and the recipe is in the user guide (5.11).
+
+**From the command line.** Two rows in `cli_options.h`, not one, because the
+table's arity is at most 2 (CLI-TBL-03) and because "when, and which file" and
+"which trainers" are different things; `main.cpp` refuses either without the
+other, or either twice. The parse arms only store. Below the loop `main()`
+reads and checks everything that can be checked before the machine exists, so a
+typo in a CI script fails at once with status 1: `parse_picks()` turns the list
+(`1,3=9,7`: a trainer number from 1, optionally `=VALUE`) into `Pick`s,
+`make_cli_request()` loads the file and checks the picks against it (the trainer
+exists and is valid, a value is given exactly for a trainer that leaves one
+open) into a `CliRequest`. The Qt window has the dialog, so `main()` refuses the
+options there (`#ifdef ENABLE_QT_UI`, not headless). `configure_and_run` hands
+the request to `HeadlessApp::set_delayed_pok()` or `SdlApp::set_delayed_pok()`;
+`QtApp` has none, and `if constexpr` leaves the call out of its instantiation.
+
+Each of the two loops holds a `jnext::pok::CliJob`: the request and a
+`cli::Delay::frames(N)`. `poll()` runs once per tick, after that tick's `--load`,
+`--inject` and `--rzx-record` handling and before its frame, so `--load x.sna`
+with N = 0 applies the trainers right after the snapshot is in, and one frame
+after N have run. When due it calls `run_cli_request()`: a fresh `Session` over
+the loop owner's debugger backend (the same write path, so the same RZX refusal,
+rewind wall and `MUTATE` lines), `apply()` for each pick in the order written,
+stopping at the first refusal with the trainer's number and name in the reason;
+a trainer that `state()` already reports as found in memory is logged and left.
+A refusal makes `poll()` return false, which the loop turns into
+`exit_code_ = 1`, and a job still pending when the automatic exit fires is
+listed in `auto_exit_finds_no_deferred_work()`, so neither can end in a quiet
+exit 0. Nothing is removed from here: a run is one-shot. The rows are POK-60..64
+(the list, the request, the run, the refusal, the job's counting) and the
+regression row `delayed-pok-func`, which reads the trainers back from a `.scr`
+(the ULA screen memory, byte for byte) in both loops, with the controls that a
+frame earlier or later flips, the `--load` order, the banked line, the usage
+errors and the Qt refusal.
 
 **Where a poke lands.** A banked line (bank 0-7) names a byte of a RAM bank
 whatever its address: NR page `2*bank + ((address >> 13) & 1)`, offset
@@ -861,12 +895,13 @@ would refuse anyway: before, the session was reset and then the load failed. The
 reason follows the case: a `.nex` is "not a NEX file" and nothing more, and only
 an extension nothing owns is told the list of formats and where a `.pok` goes.
 
-The suites: `pok_trainers_test` (POK-01..25 the parser and `load_pok_file`,
-POK-30..56 the session, each bank-to-page row citing `zxnext.vhd` and asserting
-bytes the test placed itself; the rows that sweep a trainer's locations one at a
-time, POK-50..52, are there so that a rule meant for every location cannot pass
-by checking the first) and `pok_dialog_test` (PKD-01..16); File > Load's
-refusal is `preferences_apply_test` PA-24e/f/g.
+The suites: `pok_trainers_test` (POK-01..25 and POK-60 the parser, the list and
+`load_pok_file`, POK-30..57 and POK-61..64 the session and the command-line
+request, each bank-to-page row citing `zxnext.vhd` or the other emulators'
+indexing and asserting bytes the test placed itself; the rows that sweep a
+trainer's locations one at a time, POK-50..52, are there so that a rule meant for
+every location cannot pass by checking the first) and `pok_dialog_test`
+(PKD-01..16); File > Load's refusal is `preferences_apply_test` PA-24e/f/g.
 
 ## Media out
 

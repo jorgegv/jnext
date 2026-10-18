@@ -949,6 +949,45 @@ An empty \f[I]FILE\f[R] is rejected.
 Repeatable.
 Requires \f[B]\-\-headless\f[R].
 .TP
+\f[B]\-\-delayed\-pok\-frames\f[R] \f[I]N\f[R] \f[I]FILE\f[R]
+Apply trainers from the POK file \f[I]FILE\f[R] after \f[I]N\f[R]
+emulated frames, once the program has loaded.
+This is how a \f[CR].pok\f[R] file is used in the runs that have no
+\f[B]Machine > POK Trainers\&...\f[R] window: \f[B]\-\-headless\f[R] and
+the SDL\-only build\(cqs window (see \f[B]POK TRAINERS\f[R] under
+LOADING PROGRAMS).
+The trainers are the ones \f[B]\-\-pok\-trainers\f[R] names, which this
+requires.
+\f[I]N\f[R] counts frames from the start of the run, 50 to an emulated
+second, and a tape takes many; the trainers are written through the
+debugger\(cqs memory path, exactly as the window\(cqs \f[B]Apply\f[R]
+writes them.
+Given once.
+The file and the list are checked before the machine starts, and a run
+that fails the check exits 1 without starting: \f[I]FILE\f[R]
+unreadable, larger than 1 MiB or without a trainer, a listed trainer the
+file does not have or whose lines are malformed, a value missing or
+given where none is open.
+Later, the run exits non\-zero if a trainer cannot be applied \- an
+address that is ROM in the current memory map, a bank the machine does
+not have, an RZX recording or playback \- and then the trainers before
+it stay applied; and if the automatic exit comes first.
+The Qt window refuses the option; with \f[B]\-\-headless\f[R] every
+build accepts it.
+.TP
+\f[B]\-\-pok\-trainers\f[R] \f[I]LIST\f[R]
+The trainers \f[B]\-\-delayed\-pok\-frames\f[R] applies: their numbers
+in the POK file (1 is the first \f[CR]N\f[R] line), comma\-separated, no
+blanks, each \f[I]T\f[R] or \f[I]T\f[R]\f[CR]=\f[R]\f[I]VALUE\f[R].
+A trainer that leaves a value open (a \f[CR]256\f[R] in the file,
+\(lqLives\(rq without saying how many) needs
+\f[I]T\f[R]\f[CR]=\f[R]\f[I]VALUE\f[R], \f[I]VALUE\f[R] 0 to 255, which
+goes everywhere the trainer leaves one open; any other trainer takes
+none.
+\f[CR]1,3=9,7\f[R] applies trainers 1, 3 (with 9) and 7, in that order.
+A trainer whose bytes memory already holds is left as it is.
+Requires \f[B]\-\-delayed\-pok\-frames\f[R].
+.TP
 \f[B]\-\-compositor\-trace\f[R] \f[I]FILE\f[R]
 Dump a per\-pixel compositor trace (CSV) for one frame.
 .TP
@@ -1501,6 +1540,25 @@ Every other call goes to the code at \f[CR]$0008\f[R] as usual.
 It is meant for programs run without NextZXOS: with NextZXOS booted, it
 answers those calls in front of NextZXOS\(cqs own esxDOS, and
 NextZXOS\(cqs file commands stop working.
+.SS POK trainers
+A \f[CR].pok\f[R] file (the World of Spectrum trainer format: named
+cheats, each a few bytes to write) is not a program: it changes the one
+that is running, so \f[B]\-\-load\f[R] refuses it.
+The Qt window opens it from \f[B]Machine > POK Trainers\&...\f[R] or
+\f[B]File > Load\f[R], lists its trainers, applies and removes them.
+In \f[B]\-\-headless\f[R] and in the SDL\-only window
+\f[B]\-\-delayed\-pok\-frames\f[R] \f[I]N\f[R] \f[I]FILE\f[R] with
+\f[B]\-\-pok\-trainers\f[R] \f[I]LIST\f[R] applies the chosen ones
+\f[I]N\f[R] frames in.
+.PP
+A line with a bank number 0 to 7 writes byte \f[I]address\f[R] mod 16384
+of that 128K RAM bank, at any address, as Fuse and ZEsarUX read it (a
+48K has bank 0 only); a line with bank 8 to 15, which a 48K game\(cqs
+file uses, writes the memory the memory map shows at that address when
+the trainer is applied.
+A trainer is applied whole or not at all.
+Keep the result with a snapshot (\f[B]File > Save Snapshot\&...\f[R],
+\f[B]\-\-delayed\-snapshot\f[R]).
 .SH JNEXT SNAPSHOTS
 A \f[CR].jns\f[R] file is jnext\(cqs own whole\-machine snapshot, and
 the only format that can represent a ZX Spectrum Next: \f[CR].sna\f[R]
@@ -2977,6 +3035,16 @@ jnext \-\-headless \-\-machine 48k \(rs
     \-\-sdcard \(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img \(rs
     \-\-delayed\-screenshot /tmp/test.png \(rs
     \-\-delayed\-screenshot\-frames 200 \-\-delayed\-automatic\-exit 5
+.EE
+.PP
+Apply trainers 1 and 3 (this one with the value 9) of a POK file 1200
+frames into a tape load, and keep the result as a snapshot:
+.IP
+.EX
+jnext \-\-headless \-\-machine 48k game.tap \(rs
+    \-\-delayed\-pok\-frames 1200 game.pok \-\-pok\-trainers 1,3=9 \(rs
+    \-\-delayed\-snapshot trained.sna \-\-delayed\-snapshot\-frames 1210 \(rs
+    \-\-delayed\-automatic\-exit\-frames 1300
 .EE
 .PP
 Capture Layer 2 on its own, then the ULA and sprites together:

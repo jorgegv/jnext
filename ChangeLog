@@ -8,7 +8,7 @@
 - NextPi and SD-card image downloads continue where they stopped instead of starting over
 - The captured mouse can be released with Ctrl+Alt (default), a middle click or Esc: Preferences > Input, `--mouse-release`
 - Source-level debugging: SLD and NextBuild Memory.txt maps attach beside a program; Source tab, source-line steps, `file:line` breakpoints (Qt debugger)
-- POK trainer files: Machine > POK Trainers... applies and removes infinite-lives style pokes; save the result as a snapshot
+- POK trainer files: Machine > POK Trainers... applies and removes pokes; --delayed-pok-frames/--pok-trainers do it headless and SDL-only
 
 ### Bug Fixes
 - NextPi checks that QEMU is installed before offering its 6 GB download

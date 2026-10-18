@@ -3841,7 +3841,7 @@ running. These forget it, though the changes stay in memory:</p>
 </ul>
 <h2 id="where-a-poke-lands">Where a poke lands<a class="headerlink" href="#where-a-poke-lands" title="Permanent link">&para;</a></h2>
 <p>Each line of a <code>.pok</code> carries a <strong>bank</strong> number as well as an address. JNEXT
-follows the hardware:</p>
+reads it the way Fuse and ZEsarUX do:</p>
 <table>
 <thead>
 <tr>
@@ -3855,27 +3855,24 @@ follows the hardware:</p>
 <td>the RAM the memory map shows at that address <strong>at the moment you press Apply</strong></td>
 </tr>
 <tr>
-<td>bank <strong>0-7</strong>, address <strong>0xC000-0xFFFF</strong></td>
-<td>that 16 KB bank, whatever is paged in there</td>
-</tr>
-<tr>
-<td>bank <strong>0-7</strong>, address <strong>below 0xC000</strong></td>
-<td>the bank is ignored, as for 8-15: only the top 16 KB of the address space is banked, so this is the memory map again</td>
+<td>bank <strong>0-7</strong></td>
+<td>byte <em>address</em> mod 16384 of that 16 KB RAM bank, <strong>whatever the address is</strong> and whatever is paged in: a line for bank 3 at address 49443 (0xC123) is byte 0x0123 of bank 3, and so is one for bank 3 at 0x4123 or 0x8123</td>
 </tr>
 </tbody>
 </table>
 <p>Banks 0-7 are the 128K RAM banks, so they work on the 128K, +3, Pentagon and the
-Next. On a <strong>48K</strong> the only bank that exists at 0xC000 is bank 0; a trainer with
-a line naming another bank is refused, with a message. A trainer whose lines say
+Next. On a <strong>48K</strong> the only bank is bank 0, the RAM at 0xC000; a trainer with a
+line naming another bank is refused, with a message. A trainer whose lines say
 bank 8 writes into whatever bank the game has paged in at that moment, so apply
 it while the game is running normally.</p>
+<p>Real files do name a bank for an address below 0xC000: Starglider's "Infinite
+Missiles (Bank#0)" has a line for bank 0 at address 44796 (0xAEFC). A 128K
+program pages only 0xC000-0xFFFF, so the memory map has no bank 0 there and the
+line means byte 0x2EFC of bank 0, which is where it goes.</p>
 <p>A trainer is applied <strong>all or nothing</strong>. If one of its pokes cannot land (an
 address that is ROM in the current memory map, a bank the machine does not
 have, a slot with nothing mapped) the trainer is refused with a message naming
 the line, and none of its bytes are written.</p>
-<p>Other emulators, Fuse for one, index inside the named bank for every address.
-The two only differ for a bank number on a line below 0xC000, which is rare in
-the files in circulation.</p>
 <h2 id="things-that-stop-it">Things that stop it<a class="headerlink" href="#things-that-stop-it" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>An RZX recording is playing or being made.</strong> A change the recording does
@@ -3899,10 +3896,47 @@ refused with a message.</p>
 <p>A trainer's name is shown as UTF-8 text when the bytes are valid UTF-8 and as
 Latin-1 otherwise, which covers both kinds of file in circulation.</p>
 <h2 id="without-the-window">Without the window<a class="headerlink" href="#without-the-window" title="Permanent link">&para;</a></h2>
-<p>The window is part of the Qt build. The SDL-only build and the headless runs
-have no menus, and <code>--load game.pok</code> is refused. What a trainer does is a
-handful of writes, and a <a href="../06-debugger/scripting/index.html">debugger script</a>
-does them in any build:</p>
+<p>The window is part of the Qt build. The SDL-only build's window and the headless
+runs have no menus, and <code>--load game.pok</code> is refused. Two options apply a <code>.pok</code>
+file there:</p>
+<ul>
+<li><code>--delayed-pok-frames N FILE</code> applies trainers from <code>FILE</code> after <code>N</code> emulated
+  frames, once the program has loaded. Frames are counted from the start of the
+  run, 50 to an emulated second.</li>
+<li><code>--pok-trainers LIST</code> says which ones: their numbers in the file, 1 for the
+  first <code>N</code> line, comma-separated, each <code>T</code> or <code>T=VALUE</code>. A trainer that asks
+  for a value (a <code>256</code> in the file) needs <code>T=VALUE</code>, 0 to 255; any other trainer
+  takes none. <code>1,3=9,7</code> applies trainer 1, trainer 3 with the value 9, and
+  trainer 7, in that order.</li>
+</ul>
+<pre><code class="language-console">$ jnext --headless --machine 48k game.tap \
+      --delayed-pok-frames 1200 game.pok --pok-trainers 1,3=9 \
+      --delayed-snapshot trained.sna --delayed-snapshot-frames 1210 \
+      --delayed-automatic-exit-frames 1300
+</code></pre>
+<p>The numbers are the order of the <code>N</code> lines in the file (<code>grep -n '^N' game.pok</code>
+lists them), and the log names each trainer as it is applied. Pick the frame by
+when the game has reached the point you want: a tape takes a few hundred frames
+to load, and a <code>--delayed-screenshot</code> at a guessed frame shows where it is. With
+a snapshot, <code>--delayed-pok-frames 0</code> applies the trainers in the first frame,
+right after the snapshot has loaded.</p>
+<p>Everything that can be checked is checked before the machine starts, and a
+failure exits with status 1: a file that cannot be read, is larger than 1 MiB or
+has no trainer; a number that names a trainer the file does not have or one
+whose lines are malformed; a value missing for a trainer that asks for one, or
+given to one that does not; either option without the other, or given twice
+(one file per run). The Qt window refuses both options, since it has the
+trainers window.</p>
+<p>The trainers go in by the same path as the window's <strong>Apply</strong>: every write is a
+<code>MUTATE</code> line in the log, a trainer is applied whole or not at all, a bank-3
+line on a 48K or an address that is ROM in the current memory map is refused,
+and so is anything while an RZX is recorded or played. A refusal, or an
+automatic exit that comes before the frame, makes the run exit non-zero once it
+ends, and the trainers before the refused one stay applied. A trainer whose
+bytes memory already holds, from a snapshot saved with it, is left as it is.</p>
+<p>For anything the options do not do (undoing a trainer later, applying at several
+moments, a condition), a <a href="../06-debugger/scripting/index.html">debugger script</a>
+does the writes in any build:</p>
 <pre><code>; &quot;Infinite lives&quot;: Z  8 32771 0 53   (bank 8 = the memory map; value 0)
 ; Pick the frame by when the game has reached the point you want.
 on frame 2000 once do
@@ -3913,7 +3947,7 @@ on frame 2003 once do exit 0 end
 </code></pre>
 <pre><code class="language-console">$ jnext --headless --machine 48k --load game.tap --script trainer.jds
 </code></pre>
-<p>For a line with a bank 0-7 at 0xC000 or above, write to the physical page
+<p>For a line with a bank 0-7, whatever its address, write to the physical page
 (<a href="../06-debugger/scripting/08-changing-the-machine.html">Changing the machine</a>):
 page <code>2*bank + ((address &gt;&gt; 13) &amp; 1)</code>, offset <code>address &amp; 0x1FFF</code>. The line
 <code>Z  3 49443 90 0</code> (bank 3, address 49443, value 90) becomes:</p>

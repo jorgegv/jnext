@@ -3651,9 +3651,9 @@ error and non-zero exit follow when the automatic exit fires before any other
 deferred work has happened: a <code>--load</code> still waiting out its boot delay (a
 <code>.tzx</code> or <code>.wav</code> waits 100 frames for BASIC), an <code>--inject</code> with
 <code>--inject-delay</code>, an <code>--rzx-record</code> waiting for that load, a
-<code>--delayed-keypress</code> or <code>--delayed-nmi</code> still to come, a <code>--joy-uart-rx</code>
-stream still in its start delay, or an edge of a scheduled ESP outage. The log
-names each one:</p>
+<code>--delayed-keypress</code> or <code>--delayed-nmi</code> still to come, a <code>--delayed-pok-frames</code>
+trainer file still to be applied, a <code>--joy-uart-rx</code> stream still in its start
+delay, or an edge of a scheduled ESP outage. The log names each one:</p>
 <pre><code class="language-console">$ jnext --headless --machine 48k --load game.tzx --delayed-automatic-exit-frames 5
 ...
 [platform] [error] --load: 'game.tzx' never happened - --delayed-automatic-exit
