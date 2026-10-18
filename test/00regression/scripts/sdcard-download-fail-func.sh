@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# One functional test of the regression suite. Sourced by regression.sh (the
+# driver); also directly executable — the lib then self-initializes and
+# standalone_summary prints the totals.
+# shellcheck source=test/00regression/test-functions.inc
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
+
+# sdcard-download-fail-func: a failed SD-card download names the address that
+# failed, says why in plain words and what happens next, in every frontend
+# (GH #385, reported by @Nitrowing in #384: "show the URL ... so it can be
+# checked by other means", "show a clear reason for the failure").
+#
+# WHY A FUNCTIONAL ROW. The message itself is pinned by sdcard_provisioner_test
+# (PROV-MSG-*, PROV-REASON-*) and the dialog's wiring by sdcard_dialog_test, but
+# only the real binary shows that main.cpp hands the message to the places a
+# user looks: stderr AND the log file in a headless run and in the SDL-only
+# build (which logged nothing before: the failure went to stderr alone), and the
+# log plus the warning dialog in the Qt GUI. The dialog itself cannot be shown on
+# the offscreen platform (nobody could dismiss it), so SdcardGuiProvisioner::warn()
+# writes the title and the text it WOULD have shown to the platform log at debug
+# level; that line is what the third run reads.
+#
+# THE SCENARIO needs no network and no SD image: the distribution URL
+# ($JNEXT_SDCARD_DISTRO_URL, the provisioner's test seam) is a port nothing
+# listens on, so the connection is refused at once, and the run's config directory
+# is empty, so there is nothing to boot and the download is attempted. The
+# download is confirmed on the command line.
+#   1. headless: exit 1; stderr and the log file both carry the reason in plain
+#      words, the address, and that nothing was kept;
+#   2. the SDL-only build: the same;
+#   3. the Qt GUI on the offscreen platform: exit 1, the log carries the error and
+#      the dialog's text with the address.
+# The text is matched with the carriage returns removed: spdlog writes CRLF on
+# Windows, to the log file as well.
+if want sdcard-download-fail-func; then
+    begin_func sdcard-download-fail-func
+
+    sf_dir="$TMP_DIR/sdcard-download-fail"
+    rm -rf "$sf_dir"
+    mkdir -p "$sf_dir"
+    sf_url="http://127.0.0.1:1/sn-emulator.zip"
+    sf_fails=()
+
+    # sf_run <name> <extra env...> -- <jnext> <args...>: one run on a config
+    # directory of its own (empty: no SD image), output in $sf_dir/<name>.out
+    # (stdout and stderr, CR removed), the log in $sf_dir/<name>.log (CR removed);
+    # prints the exit status.
+    sf_run() {
+        local name=$1 rc=0
+        shift
+        local -a sf_env=()
+        while [[ $1 != -- ]]; do sf_env+=("$1"); shift; done
+        shift
+        rm -rf "$sf_dir/$name-cfg" "$sf_dir/$name.out" "$sf_dir/$name.log"
+        mkdir -p "$sf_dir/$name-cfg"
+        timeout --foreground --kill-after=5s 60s \
+            env JNEXT_CONFIG_DIR="$sf_dir/$name-cfg" JNEXT_SDCARD_DISTRO_URL="$sf_url" \
+            no_proxy=127.0.0.1,localhost NO_PROXY=127.0.0.1,localhost "${sf_env[@]}" \
+            "$@" --sdcard-download-confirm --log-file "$sf_dir/$name.log" \
+            </dev/null >"$sf_dir/$name.out" 2>&1 || rc=$?
+        # Windows writes CRLF; the match is on the text.
+        tr -d '\r' <"$sf_dir/$name.out" >"$sf_dir/$name.out.lf"
+        if [[ -f "$sf_dir/$name.log" ]]; then
+            tr -d '\r' <"$sf_dir/$name.log" >"$sf_dir/$name.log.lf"
+        else
+            : >"$sf_dir/$name.log.lf"
+        fi
+        echo "$rc"
+    }
+    # sf_has <name> <out|log> <fixed text> <what>: the text is in that output.
+    sf_has() {
+        grep -qF -- "$3" "$sf_dir/$1.$2.lf" || sf_fails+=("$1: $4 is not in the $2 ('$3')")
+    }
+
+    sf_reason='download failed: could not connect to the server ('
+    sf_url_line="  URL: $sf_url"
+    sf_next='  nothing was kept, so the next start downloads it from the beginning'
+
+    # 1. headless
+    rc=$(sf_run headless -- "$JNEXT" --headless)
+    [[ "$rc" == 1 ]] || sf_fails+=("headless exited $rc, want 1")
+    sf_has headless out "error: SD-card image: $sf_reason" "the reason in plain words"
+    sf_has headless out "$sf_url_line" "the address"
+    sf_has headless out "$sf_next" "what happens next"
+    sf_has headless log "SD-card image: $sf_reason" "the reason in plain words"
+    sf_has headless log "$sf_url_line" "the address"
+    sf_has headless log "$sf_next" "what happens next"
+
+    # 2. the SDL-only build
+    if [[ ! -x "$JNEXT_SDL" ]]; then
+        sf_fails+=("SDL-only binary not built: $JNEXT_SDL; run 'make sdl-release'")
+    else
+        rc=$(sf_run sdl SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy -- "$JNEXT_SDL")
+        [[ "$rc" == 1 ]] || sf_fails+=("the SDL-only build exited $rc, want 1")
+        sf_has sdl out "error: SD-card image: $sf_reason" "the reason in plain words"
+        sf_has sdl out "$sf_url_line" "the address"
+        sf_has sdl out "$sf_next" "what happens next"
+        sf_has sdl log "SD-card image: $sf_reason" "the reason in plain words"
+        sf_has sdl log "$sf_url_line" "the address"
+        sf_has sdl log "$sf_next" "what happens next"
+    fi
+
+    # 3. the Qt GUI, offscreen: the dialog is not shown, its text is logged at debug level
+    rc=$(sf_run qt QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy -- "$JNEXT" --log-level platform=debug)
+    [[ "$rc" == 1 ]] || sf_fails+=("the Qt GUI exited $rc, want 1")
+    sf_has qt out "error: SD-card image: $sf_reason" "the reason in plain words"
+    sf_has qt log "SD-card image: $sf_reason" "the reason in plain words"
+    sf_has qt log "dialog not shown on the offscreen platform: jnext - SD card image: The SD-card image could not be installed:" "the dialog's title and text"
+    sf_has qt log "$sf_url_line" "the address"
+    sf_has qt log "$sf_next" "what happens next"
+
+    if [[ ${#sf_fails[@]} -eq 0 ]]; then
+        pass_row " (a refused SD-card download exits 1 naming the address, the reason in plain words and that nothing was kept: on stderr and in the log file of a headless run and of the SDL-only build, and in the log and the dialog's text of the Qt GUI)"
+    else
+        fail_row " (${sf_fails[*]})"
+        for sf_n in headless sdl qt; do
+            [[ -f "$sf_dir/$sf_n.out.lf" ]] && show_output "$sf_n output" "$(cat "$sf_dir/$sf_n.out.lf")"
+        done
+    fi
+    rm -rf "$sf_dir"
+fi
+
+[[ "${BASH_SOURCE[0]}" != "$0" ]] || standalone_summary
