@@ -12,17 +12,17 @@
 #   test   C++ under test/: one row per discovered subdirectory, plus one for the
 #          files directly in test/.
 #   tools  everything else that is code: shell, Python, Perl, build files (Makefile,
-#          CMakeLists.txt, *.cmake, *.mk, CI workflows, Dockerfiles, the rpm spec),
-#          Z80 asm, and the C-family (C, C#, JS, and the C++ outside src/ and test/).
+#          CMakeLists.txt, *.cmake, *.mk, CI workflows, Dockerfiles, the rpm spec and
+#          the Flatpak manifest), Z80 asm, BASIC source, and the C-family (C, C#, JS, and the C++ outside src/ and test/).
 #          Rows are split by top-level directory, discovered.
 #
 # All three read `git ls-files` only, so build trees, caches and untracked scratch
 # files never count. Not counted: third_party/, the generated renders (doc/man,
 # doc/user-guide, doc/developer-guide), vendored third-party code (NextSync, three.js;
 # see the exclusions below) and documentation, data and assets (doc/ ROM
-# disassemblies, *.md, images, the tokenised tools/debug/*.bas). demo/dapr-nexlib+tests
+# disassemblies, *.md, images, the tokenised BASIC output tools/debug/g46b-dump.bas). demo/dapr-nexlib+tests
 # is imported and modified in-tree, so it counts. Comment markers: # for shell,
-# Python, Perl and build files (plus @# -# +# for make recipes), ; for asm, and
+# Python, Perl and build files (plus @# -# +# for make recipes), ; for asm, REM for BASIC, and
 # // /* * for the C-family.
 #
 # The row list is DISCOVERED, never written down: a new subsystem or a new tracked
@@ -48,6 +48,8 @@ BOLD=$(printf '%b' "$BOLD"); CYAN=$(printf '%b' "$CYAN"); RESET=$(printf '%b' "$
 count_c()    { xargs -0 -r grep -h -v '^[[:space:]]*$' | grep -v '^[[:space:]]*//' | grep -v '^[[:space:]]*/\*' | grep -v '^[[:space:]]*\*' | wc -l; }
 count_hash() { xargs -0 -r grep -h -v '^[[:space:]]*$' | grep -v '^[[:space:]]*#' | wc -l; }
 count_semi() { xargs -0 -r grep -h -v '^[[:space:]]*$' | grep -v '^[[:space:]]*;' | wc -l; }
+# BASIC source: "<line number> REM ..." is a comment. -I skips a tokenised (binary) .bas.
+count_bas()  { xargs -0 -r grep -I -h -v '^[[:space:]]*$' | grep -v -E '^[[:space:]]*[0-9]*[[:space:]]*REM([[:space:]]|$)' | wc -l; }
 # Make recipe comments are written "<TAB>@# ..." (also -# and +#): the prefix is not code.
 count_make() { xargs -0 -r grep -h -v '^[[:space:]]*$' | grep -v '^[[:space:]]*[@+-]*#' | wc -l; }
 
@@ -108,7 +110,8 @@ group "shell"  count_hash '(\.sh$|^test/.*\.inc$)' 1
 group "python" count_hash '\.py$' 1
 group "perl"   count_hash '\.(pl|pm)$' 1
 # Build files: Makefiles, CMake, Debian rules, CI workflows, Dockerfiles, the rpm spec.
-group "build"  count_make '((^|/)(Makefile|GNUmakefile|CMakeLists\.txt)$|\.(cmake|mk)$|^packaging/debian/rules$|^\.github/workflows/.*\.ya?ml$|^docker/Dockerfile\.|\.spec$)' 1
+group "build"  count_make '((^|/)(Makefile|GNUmakefile|CMakeLists\.txt)$|\.(cmake|mk)$|^packaging/debian/rules$|^\.github/workflows/.*\.ya?ml$|^packaging/flatpak/.*\.ya?ml$|^docker/Dockerfile\.|\.spec$)' 1
+group "basic" count_bas '\.bas$' 1
 group "z80 asm" count_semi '^(demo|test)/.*\.asm$' 1
 # C-family: C, C#, JS, demo .inc (z88dk #pragma headers) and the C++ outside src/ and
 # test/ (those two are the first sections). Any other top-level directory is included.
