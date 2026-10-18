@@ -2634,11 +2634,15 @@ static void b4_hosting_rows() {
         app.set_delayed_exit(3);
         app.run();
         app.shutdown();
+        // The message names the .sld file, compared by its file name: the
+        // directory is spelled as the loader composed it ("/tmp" + "\\" + name
+        // on Windows), not as this test wrote it.
+        const std::string sld_name = sld.substr(sld.find_last_of("/\\") + 1);
         bool warned = false;
         for (const auto& l : ring->last_formatted())
             if (l.find("warn") != std::string::npos &&
-                l.find("--load: source map '" + sld + "' rejected: missing SLD.data.version") !=
-                    std::string::npos)
+                l.find("--load: source map '") != std::string::npos &&
+                l.find(sld_name + "' rejected: missing SLD.data.version") != std::string::npos)
                 warned = true;
         Log::platform()->sinks().pop_back();
         std::remove(sna.c_str());
