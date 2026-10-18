@@ -174,7 +174,10 @@ into `~/.cache/jnext/tools` when none resolves. A run whose
 only FAILs are functional rows that failed on a loaded host is recorded as
 pending, and `make regression-confirm` re-runs exactly those rows solo; if they
 all pass the run is stamped, and the stamp names them. Targeted rows run through
-`make regression-rows ROWS="..."`, which builds the binaries they need.
+`make regression-rows ROWS="..."`, which builds the binaries they need. Its Qt
+`jnext` is the non-PGO Release build (`build/gui-release-non-pgo`): a branch trains
+no PGO profile, and the same code gives the same pixels. `ROWS_PGO=1` runs the PGO
+`build/gui-release` instead; `make regression` and `regression-confirm` always do.
 
 ## A failure on a loaded host
 
@@ -192,7 +195,7 @@ above `nproc` on the spot, and after the results lists each failed row by name
 with the load at the moment it failed, plus a warning when the run was loaded.
 None of that changes a verdict: a FAIL is still a FAIL and the exit status is
 unchanged. What it changes is the next step — re-run the row SOLO
-(`make regression-rows ROWS=<row>`) before treating it as a
+(`make regression-rows ROWS=<row> ROWS_PGO=1`, the PGO binary the full run tested) before treating it as a
 regression, and do not dismiss it until that solo run passes. The self-test
 pins the behaviour both ways (`HS-50..55`).
 
