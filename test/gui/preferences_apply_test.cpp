@@ -1041,6 +1041,35 @@ void test_snapshot_load_refusal()
           loaded.size() == 1 && loaded[0] == oddpath.toStdString(),
           loaded.empty() ? std::string("none") : loaded[0]);
 
+    // PA-24g: GH #381 review F3. The same refusal for a file that DOES carry the NEX extension but is not a
+    // NEX (a saved web page; a name that does not exist): the reason says it is not a NEX file and does not
+    // call the extension unknown or point at POK Trainers, which would contradict the name. The reason is
+    // the text after the path, so a path that happens to contain such a word cannot matter.
+    loaded.clear();
+    const std::string html = "<html><body>404 Not Found</body></html>\n";
+    const std::vector<uint8_t> page(html.begin(), html.end());
+    std::string detail;
+    bool nex_ok = true;
+    for (const QString& p : {write("game.nex", page), write("PAGE.NEX", page),
+                             home.path() + QStringLiteral("/missing.nex")}) {
+        f.win.handle_load_path(p);
+        const QString shown = f.win.statusBar()->currentMessage();
+        const QString reason = shown.mid(shown.indexOf(p) + p.size());
+        const bool says = shown.startsWith(QStringLiteral("Cannot load ")) && shown.indexOf(p) >= 0 &&
+                          reason.contains(QStringLiteral("not a NEX file")) &&
+                          reason.contains(QStringLiteral("\"Next\" header")) &&
+                          !reason.contains(QStringLiteral("extension")) &&
+                          !reason.contains(QStringLiteral("POK")) && !reason.contains(QStringLiteral(".pok"));
+        if (!says) {
+            nex_ok = false;
+            detail += "[" + shown.toStdString() + "]";
+        }
+    }
+    check("PA-24g", "File > Load of a .nex (any case, present or missing) that has no NEX header requests no cold "
+                    "boot and says it is not a NEX file, without calling its extension unknown or mentioning "
+                    ".pok (NEX file format: a NEX starts with \"Next\"; doc/REFERENCES.md)",
+          loaded.empty() && nex_ok, (loaded.empty() ? std::string("none") : loaded[0]) + " " + detail);
+
     qunsetenv("JNEXT_CONFIG_DIR");
 }
 

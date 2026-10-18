@@ -1588,14 +1588,19 @@ void MainWindow::handle_load_path(const QString& path) {
     if (emulator_load_routes_to_nex(file)) {
         uint8_t ver_bcd = 0;
         char    ver[5]  = {0};
-        // GH #381 (RF-1) - a file with an extension nothing owns falls to the NEX
-        // loader, which wants the "Next" prologue probe_version() looks for: a
-        // file without it cannot load (NexLoader::load refuses the same magic),
-        // so say so BEFORE the cold boot throws the session away for it.
+        // GH #381 (RF-1) - a .nex, or a file with an extension nothing owns, falls
+        // to the NEX loader, which wants the "Next" prologue probe_version() looks
+        // for: a file without it cannot load (NexLoader::load refuses the same
+        // magic), so say so BEFORE the cold boot throws the session away for it.
+        // The reason follows the case: a .nex is just not a NEX file (a saved web
+        // page, say), and "its extension is not one JNEXT loads" or a hint about
+        // .pok would contradict its name; only the other extensions get those.
         if (!NexLoader::probe_version(file, ver_bcd, ver)) {
-            refuse_jns(path, tr("it is not a NEX file and its extension is not one JNEXT loads "
-                                "(.nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx); a .pok "
-                                "trainer file opens from Machine > POK Trainers"));
+            refuse_jns(path, snapshot_file_ext(file) == "nex"
+                ? tr("it is not a NEX file (it does not start with the \"Next\" header)")
+                : tr("it is not a NEX file and its extension is not one JNEXT loads "
+                     "(.nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx); a .pok "
+                     "trainer file opens from Machine > POK Trainers"));
             return;
         }
         if (nex_version_needs_v13_optin(ver_bcd)) {
