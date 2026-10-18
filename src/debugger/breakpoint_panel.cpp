@@ -1,5 +1,6 @@
 #include "debugger/breakpoint_panel.h"
 #include "debug/debugger.h"
+#include "debug/ram_page.h"
 #include "debug/symbol_table.h"
 
 #include <QVBoxLayout>
@@ -181,7 +182,7 @@ void BreakpointPanel::refresh()
             !dbg_->source_map().empty()) {
             const uint8_t page = e.page != jnext::dbg::PAGE_ANY
                                      ? static_cast<uint8_t>(e.page)
-                                     : dbg_->source_page(e.addr);
+                                     : ram_page_of(dbg_->source_page(e.addr));
             if (const auto src = dbg_->source_map().lookup(page, e.addr))
                 sym = QString::fromStdString(src->file) + ":" + QString::number(src->line);
         }

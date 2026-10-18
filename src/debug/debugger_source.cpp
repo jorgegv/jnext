@@ -109,15 +109,14 @@ uint8_t Debugger::effective_page(uint16_t addr) const {
     return impl_->emu.mmu().get_effective_page(addr >> 13);
 }
 
-uint8_t Debugger::source_page(uint16_t addr) const {
-    return impl_->emu.fetch_not_mmu_ram(addr) ? NOT_RAM_PAGE
-                                              : impl_->emu.mmu().get_effective_page(addr >> 13);
+MemSpace Debugger::source_page(uint16_t addr) const {
+    return impl_->emu.predict_fetch(addr);
 }
 
 std::optional<SourceLocation> Debugger::source_location(uint16_t addr) const {
     impl_->recheck_sidecars();
     if (impl_->source_map.empty()) return std::nullopt;
-    return impl_->source_map.lookup(source_page(addr), addr);
+    return impl_->source_map.lookup(ram_page_of(source_page(addr)), addr);
 }
 
 std::optional<SourceLocation> Debugger::source_location() const {

@@ -240,6 +240,7 @@ frontend and to script handlers, under one contract.
 | `poke(MemSpace::cpu(), …)` | through `Mmu::write` on the live map: overlays honoured (DivMMC, Multiface, Layer 2 write-over, alternate-ROM write-over, config-mode SRAM), ROM ignored, per-scanline change logs and the attribute mux updated |
 | `poke(MemSpace::page(p), …)` | the physical page, whatever is mapped over it |
 | `poke(MemSpace::rom(i), …)` | refused: `RefusedReadOnly` |
+| `poke` of a space only the read arbiter names (`boot_rom()`, `multiface_rom()`, `multiface_ram()`, `divmmc_rom()`, `divmmc_ram(b)`, `alt_rom(i)`, `layer2(p)`, `config(b)`, `floating()`) | refused: `Unsupported`, nothing written, no `MUTATE` line |
 | `set_mmu_slot` | through the NR 0x50+slot handler, so page 0xFF on slot 0 or 1 re-engages legacy ROM paging as the guest's `NEXTREG` does |
 | `nextreg_write` | the register's own write handler, synchronously, side effects included |
 | `port_out` | dispatched like the guest's `OUT` |

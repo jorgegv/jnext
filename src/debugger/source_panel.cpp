@@ -173,7 +173,7 @@ void SourcePanel::refresh()
     }
 
     const uint16_t pc = dbg_->registers().PC;
-    const uint8_t page = dbg_->source_page(pc);
+    const uint8_t page = ram_page_of(dbg_->source_page(pc));
     // Upper-case hex, as the rest of the debugger and the user guide print it.
     const QString pc_text = QString::asprintf("%04X", pc);
     const QString where = page == NOT_RAM_PAGE ? tr("ROM or overlay")

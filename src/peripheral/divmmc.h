@@ -83,12 +83,30 @@ public:
                        bool sram_alt_128_n = false);
 
     /// What `is_active()` would be for the opcode fetch of an M1 at `pc`
-    /// if `check_automap(pc, true, ...)` ran with these gates — instant-on
+    /// if `check_automap(pc, true, ...)` ran with these gates - instant-on
     /// entry points and a hold from the previous M1 (an unmap at
-    /// 0x1FF8-0x1FFF included) — WITHOUT changing any state. A debugger asks
-    /// this before the instruction runs to know what will supply it.
+    /// 0x1FF8-0x1FFF included) - WITHOUT changing any state. A debugger asks
+    /// this before the instruction runs to know what will supply it. The
+    /// previous M1's hold is `hold_in`: the live `automap_hold_` for the first
+    /// M1 of an instruction, `hold_after_m1()` of the one before for an inner
+    /// M1 of a prefix chain.
     bool active_on_m1(uint16_t pc, bool sram_pre_override_2, bool sram_pre_override_0,
-                      bool sram_altrom_en_read, bool sram_alt_128_n) const;
+                      bool sram_altrom_en_read, bool sram_alt_128_n, bool hold_in) const;
+    bool active_on_m1(uint16_t pc, bool sram_pre_override_2, bool sram_pre_override_0,
+                      bool sram_altrom_en_read, bool sram_alt_128_n) const {
+        return active_on_m1(pc, sram_pre_override_2, sram_pre_override_0,
+                            sram_altrom_en_read, sram_alt_128_n, automap_hold_);
+    }
+
+    /// The `hold` the M1 at `pc` loads (divmmc.vhd:128-131) given the previous
+    /// M1's `hold_in`, WITHOUT changing any state: what `automap_held` becomes
+    /// after the opcode byte. Same gates as `active_on_m1()`.
+    bool hold_after_m1(uint16_t pc, bool sram_pre_override_2, bool sram_pre_override_0,
+                       bool sram_altrom_en_read, bool sram_alt_128_n, bool hold_in) const;
+
+    /// The overlay for a bus cycle that is no M1, with `hold` as the latest M1
+    /// left it: `is_active_after_fetch()` for a hold other than the live one.
+    bool active_with_hold(bool hold) const { return port_io_enable_ && (conmem_ || hold); }
 
     /// Task 27 C-M1 — per-M1 fast-path gate for the production caller
     /// (Emulator's `on_m1_prefetch` lambda). Returns true when a
@@ -202,6 +220,19 @@ public:
     /// instruction at 0x0046 because DivMMC ROM never overlays.
     bool is_active() const { return port_io_enable_ && (conmem_ || automap_active_); }
 
+    /// What the overlay is for every bus cycle AFTER the opcode fetch of the
+    /// current M1 (operand reads and writes, DMA, the debugger's live reads).
+    /// `automap_held` takes `automap_hold` on the first MREQ-high after the
+    /// fetch (divmmc.vhd:139-143), so from then on `automap` is the new hold,
+    /// not the fetch-time `held OR instant_on` that `is_active()` answers: a
+    /// delayed-on entry's own operands already come from the DivMMC, and the
+    /// operands of a fetch in the unmap range already come from RAM. The
+    /// instant terms are gone by then: their `_q` latches clear when M1_n goes
+    /// high (zxnext.vhd:4116-4125). `automap_hold_` is cleared by every path
+    /// that clears `automap_active_` (reset, disable, RETN), so it is the
+    /// whole answer when the automap is enabled and quiescent.
+    bool is_active_after_fetch() const { return port_io_enable_ && (conmem_ || automap_hold_); }
+
     /// Returns true if DivMMC ROM should be mapped at slot 0.
     /// (active AND page0 AND NOT mapram)
     bool is_rom_mapped() const { return is_active() && !mapram_; }
@@ -213,6 +244,19 @@ public:
     /// Returns true if the address is read-only in the DivMMC overlay.
     /// Slot 0 is always read-only.  RAM bank 3 is read-only when mapram is set.
     bool is_read_only(uint16_t addr) const;
+
+    /// What the overlay serves at `addr` (0x0000-0x3FFF), decoded ONCE from
+    /// divmmc.vhd:88-101: the ROM at page 0 unless MAPRAM, RAM bank 3 at page 0
+    /// under MAPRAM, the selected bank at page 1. `read()` is `*ptr`, and
+    /// `Mmu::route()` names the source from the same three fields, so the
+    /// selection exists in one place. Whether the overlay is ACTIVE is the
+    /// caller's question (`is_active()`); `addr` must be below 0x4000.
+    struct Overlay {
+        bool           ram;   ///< false: the ROM (page 0, MAPRAM clear)
+        uint8_t        bank;  ///< the RAM bank when `ram`, else 0
+        const uint8_t* ptr;   ///< the byte at `addr`
+    };
+    Overlay overlay_at(uint16_t addr) const;
 
     /// Read a byte from the DivMMC overlay (addr 0x0000-0x3FFF).
     uint8_t read(uint16_t addr) const;
@@ -362,16 +406,15 @@ public:
     // before reflecting the assertion, so the MF latch could spuriously
     // arm during that one-M1 window.
     //
-    // Post-fix uses `automap_active_`, which `check_automap` computes per
-    // step 4 as `automap_held_ || instant_match` — precisely VHDL line 148.
-    // The boot path doesn't exercise this exact race (the MF integration
-    // gates fire later in the priority arbiter), but the divergence is a
-    // real VHDL-faithfulness gap and the corrected accessor lets the
-    // discriminative regression test (NM-10 in divmmc_test.cpp) pin the
-    // post-fix shape without disturbing existing NM-08 (which uses two
-    // M1 fetches before sampling, so held has already caught up to active
-    // in the steady state).
-    bool is_nmi_hold() const { return automap_active_ || button_nmi_; }
+    // Pass-11 used `automap_active_`, the fetch-time `held OR instant_on`. GH #339
+    // moves it to `automap_hold_`: this is sampled AFTER the instruction (the
+    // Emulator's NMI feedback runs after `cpu_.execute()`), and from the first
+    // MREQ-high after the opcode byte `automap` is the hold that M1 loaded
+    // (divmmc.vhd:139-143, 148), instant matches included (a hit loads the
+    // hold too). So the instruction at a delayed entry already disables the
+    // NMI (the fetch-time value said not yet), and the one that unmaps already
+    // releases it (it said still held). Rows NM-10 (instant), SRCDBG-ID-29 and ID-30.
+    bool is_nmi_hold() const { return automap_hold_ || button_nmi_; }
     // VHDL port 0xE3 bit 7 is the CONMEM force-map flag; exposed here
     // for `NmiSource::set_divmmc_conmem()` arbitration at VHDL:2098.
     bool is_conmem() const { return conmem_; }

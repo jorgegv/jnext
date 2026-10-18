@@ -2368,11 +2368,54 @@ into the binary.</p>
 <code>ptr[addr &amp; 0x1FFF]</code> with no branching on page numbers at all. A read-only slot
 gets a null write pointer; an unmapped slot gets null on both sides and reads
 back 0xFF, which is the floating bus.</p>
-<p>That fast path is the <em>last</em> thing <code>read()</code> and <code>write()</code> do. Above it sits a
-priority cascade transcribing the VHDL SRAM arbiter (<code>zxnext.vhd:3029-3132</code>),
-and its order is load-bearing: boot-ROM overlay, Multiface window, DivMMC
-window, Layer 2 read-over/write-over, alt-ROM override, config-mode routing
-(NR 0x03 / NR 0x04), and only then the dispatch pointer.</p>
+<p>That fast path is the <em>last</em> arm of one arbiter, <code>Mmu::route(addr)</code>: the single
+function that decides what supplies a CPU read, transcribing the VHDL decode
+order (<code>zxnext.vhd:2937-2945</code>, the SRAM arbiter <code>:3029-3132</code> and the <code>cpu_di</code> mux
+<code>:1856-1870</code>). Its order is load-bearing: boot-ROM overlay (above the whole SRAM
+arbiter), Multiface window, DivMMC ROM and RAM, Layer 2 read-over, alt-ROM
+override, config-mode routing (NR 0x03 / NR 0x04), and only then the slot's own
+pointer. It returns a <code>Route</code>: the <code>MemSpace</code> that supplied the byte, the offset
+within that store, and the byte's address (null when nothing answers, which reads
+back 0xFF). The spaces are <code>Page{n}</code> (an MMU RAM page, or on the Next the bank-5 /
+bank-7 BRAM pages), <code>Rom{i}</code>, <code>BootRom</code>, <code>MultifaceRom</code> / <code>MultifaceRam</code>,
+<code>DivMmcRom</code> / <code>DivMmcRam{bank}</code>, <code>AltRom{i}</code>, <code>Layer2{page}</code>, <code>Config{bank}</code> and
+<code>Floating</code>. Equality is by decode path, not by physical store: <code>Layer2{p}</code> and
+<code>Page{p}</code> share external SRAM for most <code>p</code> and stay different spaces.</p>
+<p><code>route_with(addr, divmmc_active, mf_active)</code> is the same body asked about an M1
+that has not happened yet, with the two overlays that M1 itself can switch
+(DivMMC's automap, the Multiface's 0x0066 fetch) given instead of read: it is how
+a debugger predicts the source of the next opcode fetch
+(<code>Emulator::predict_fetch()</code>), and it cannot disagree with <code>read()</code> because it is
+<code>read()</code>'s function. The write path keeps its own cascade, because write
+arbitration has rules the read side does not (read-only halves, the Layer 2 write
+enable, alt-ROM write-over).</p>
+<p><code>read()</code> and <code>read_m1()</code> are <code>route()</code> followed by one side-effect tail for every
+source: the byte (0xFF for a null pointer), the +3 floating-bus latch and the
+READ watchpoint. <code>read_m1()</code> is the opcode fetch of <code>Z80Cpu::execute()</code>; it also
+records what supplied the first opcode byte, readable as <code>last_m1()</code>. That record
+is <code>MemSpace::cpu()</code>, "none recorded", after <code>reset()</code> and <code>load_state()</code> until
+the next fetch, and an accepted INT or NMI, which fetch nothing
+(<code>Z80Cpu::fetched_opcode_last_execute()</code> is false), leave it as it was.</p>
+<p>A DivMMC entry point makes the fetch and the bus cycles after it see different
+memory (<code>divmmc.vhd:128-148</code>): <code>automap_held</code> takes <code>automap_hold</code> on the first
+MREQ-high after the opcode byte, so a delayed-on entry's own operands already
+come from the DivMMC, and those of an instruction in the 0x1FF8-0x1FFF unmap
+range already come from RAM. <code>read_m1()</code> and <code>read_fetch()</code> (a prefix's inner
+byte; no record) route with the fetch view, <code>DivMmc::is_active()</code>; <code>read()</code> and
+the write path use <code>DivMmc::is_active_after_fetch()</code>. Every byte of a prefix chain
+is an M1 of its own (it loads the hold again), so <code>Z80Cpu::fetch_prefix_chain_()</code>
+runs the <code>on_m1_prefetch</code> decode at each inner address and reads that byte once
+into <code>s_fetch_buf</code>; the FUSE core's re-reads of the M1 bytes are served from it.
+The <code>d</code> and <code>op</code> of <code>DD CB d op</code> are no M1 (<code>t80n.vhd:414-417, 1755-1761</code>): plain
+data reads. The debugger's reads of the instruction about to run follow the same
+split (<code>Emulator::predict_instruction_()</code>: each M1 byte under the overlay its own
+M1 selects, the DivMMC hold chained from one M1 to the next with
+<code>DivMmc::active_on_m1()</code> / <code>hold_after_m1()</code>, the rest under
+<code>DivMmc::active_with_hold()</code>), pure, through <code>route_with()</code>.</p>
+<p>The identity of a slot's own source is cached beside the pointer: <code>slot_space_[8]</code>
+is written wherever <code>read_ptr_[slot]</code> is (<code>rebuild_ptr_body_()</code> and
+<code>map_rom_physical()</code>), rebuilt by <code>load_state()</code>, never serialised. Deriving it
+per fetch would cost more than the cache, which is one load.</p>
 <p>Two page-number spaces coexist here and are easy to confuse. <code>nr_mmu_[8]</code> holds
 the register-visible NR 0x50–0x57 value, including the 0xFF sentinel that means
 "this slot is under legacy ROM paging"; <code>slots_[8]</code> holds the physical SRAM page
@@ -2422,7 +2465,14 @@ into ROM space.</p>
 with the MF window sitting above DivMMC. The automap decision is not made here:
 <code>Emulator</code>'s <code>on_m1_prefetch</code> closure computes the VHDL <code>sram_pre_override</code>
 priority bits (<code>Mmu::sram_pre_override_divmmc_eligible()</code> and
-<code>sram_pre_override_romcs_priority()</code>) and hands them to <code>DivMmc</code>.</p>
+<code>sram_pre_override_romcs_priority()</code>), through <code>Emulator::m1_automap_gates_()</code>,
+and hands them to <code>DivMmc</code>. <code>predict_fetch()</code> calls the same function, so the
+prediction and the hook cannot use different inputs. The DivMMC window's own
+decode (ROM at page 0 unless MAPRAM, bank 3 at page 0 under MAPRAM, the selected
+bank at page 1) exists once, in <code>DivMmc::overlay_at()</code>; <code>DivMmc::read()</code> and the
+arbiter both use it. <code>DivMmc::active_on_m1()</code> and <code>Multiface::would_latch_on_m1()</code>
+answer, without changing anything, what each overlay will be for an M1 at a given
+pc.</p>
 <h2 id="bank-5-and-bank-7">Bank 5 and bank 7<a class="headerlink" href="#bank-5-and-bank-7" title="Permanent link">&para;</a></h2>
 <p><code>bank5_vram_</code> (16 KB) and <code>bank7_bram_</code> (8 KB) are plain <code>std::array</code> members of
 <code>Mmu</code>, standing in for the VHDL <code>dpram2</code> instances <code>bank5_ram</code> and <code>bank7_ram</code>
@@ -2533,9 +2583,12 @@ relies on (recording, and the address inside the SRAM) are the caller's. The
 entry and slot storage keeps its size from frame to frame and grows, doubling,
 only in a cold helper, so the append is straight-line code.
 <code>Mmu</code> separately keeps the
-+3 floating-bus latch <code>p3_floating_bus_dat_</code>, updated on every read that
-<code>mem_contend_for_(addr)</code> says is contended — a per-page decode, not the older
-per-16 KB mirror.</p>
++3 floating-bus latch <code>p3_floating_bus_dat_</code>, updated on every read and write
+that <code>mem_contend_for_(addr)</code> says is contended — a per-page decode, not the
+older per-16 KB mirror — whatever supplied the byte: an overlay read, a Layer 2
+write-over and a write the arbiter drops all move it, because in the VHDL the
+latch sits on the MREQ cycle and not on the SRAM arbiter
+(<code>zxnext.vhd:4498-4509</code>).</p>
 <p>Finally, <code>Mmu::reset(bool hard)</code> distinguishes the two VHDL reset domains: a
 soft reset preserves the alt-ROM bits, the contention-disable bit and the 7FFD
 paging lock, all of which the VHDL clears only on the hard <code>reset</code> signal.</p>

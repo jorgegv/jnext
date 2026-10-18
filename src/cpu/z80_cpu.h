@@ -28,6 +28,20 @@ public:
     virtual ~MemoryInterface() = default;
     virtual uint8_t read(uint16_t addr) = 0;
     virtual void write(uint16_t addr, uint8_t val) = 0;
+
+    /// The opcode fetch (M1) of an instruction: a read that a memory with a
+    /// notion of "what supplied this byte" can record (`Mmu::read_m1()` keeps it
+    /// as `last_m1()`). The default is a plain read, so every stub memory in the
+    /// tree is unaffected. Called once per instruction for its first opcode
+    /// byte, after `on_m1_prefetch`; GH #339.
+    virtual uint8_t read_m1(uint16_t addr) { return read(addr); }
+
+    /// An opcode byte of the instruction being fetched that is not its first
+    /// (a prefix's inner byte) or that the core fetches again: a read as the
+    /// FETCH sees the memory, which a DivMMC entry point makes differ from the
+    /// bus cycles after the fetch (`Mmu::read_fetch()`). Records nothing. The
+    /// default is a plain read.
+    virtual uint8_t read_fetch(uint16_t addr) { return read(addr); }
 };
 
 class IoInterface {
@@ -382,6 +396,12 @@ private:
     //                      used.
     // `mutable` because `save_state` is const and marshals into them; nothing
     // else in the class reads or writes them.
+    /// GH #339 - the M1 bytes of the instruction being executed (z80_cpu.cpp,
+    /// s_fetch_buf): fetch the inner bytes of a prefix chain, each after the
+    /// automap decode of its own M1, and read one back.
+    void    fetch_prefix_chain_(uint16_t pc, uint8_t opcode);
+    uint8_t chain_byte_(uint16_t addr);
+
     mutable int32_t  ser_ei_grace_      = -1;
     mutable uint8_t  ser_iff2_read_     = 0;
     mutable uint32_t ser_int_first_rel_ = 0;

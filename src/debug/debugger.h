@@ -951,12 +951,15 @@ public:
     /// CAP-SRC — the physical 8K page the MMU maps behind logical `addr` now.
     uint8_t effective_page(uint16_t addr) const;
 
-    /// CAP-SRC — the RAM page an instruction at `addr` would be fetched from
-    /// now, or NOT_RAM_PAGE (debug/ram_page.h) when a ROM slot or an overlay
-    /// (boot ROM, Multiface, DivMMC, Layer 2 read mapping) supplies it. This,
-    /// not `effective_page()`, is what source records are matched against:
-    /// ROM and RAM page numbers overlap.
-    uint8_t source_page(uint16_t addr) const;
+    /// CAP-SRC - what an instruction at `addr` would be fetched from NOW, as a
+    /// `MemSpace` (GH #339; `Emulator::predict_fetch()`): `Page{n}` when the
+    /// MMU's RAM page `n` supplies it, `Rom{i}` for a ROM slot, and the overlay
+    /// or special source otherwise (boot ROM, Multiface, DivMMC ROM or RAM, the
+    /// Layer 2 read mapping, the alternate ROM, config mode, or nothing). This,
+    /// not `effective_page()`, is what source records are matched against: ROM
+    /// and RAM page numbers overlap. `ram_page_of()` (debug/ram_page.h) is the
+    /// page-keyed view, `NOT_RAM_PAGE` for anything but `Page`.
+    MemSpace source_page(uint16_t addr) const;
 
     /// CAP-SRC — attach the debug sidecars of a program that was just loaded:
     /// `<stem>.Memory.txt` (or `Memory.txt`) beside a `.nex` for symbols, and

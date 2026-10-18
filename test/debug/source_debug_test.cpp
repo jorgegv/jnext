@@ -45,6 +45,7 @@
 #include "core/emulator_config.h"
 #include "debug/call_stack.h"
 #include "debug/debugger.h"
+#include "debug/event_table.h"
 #include "debug/ram_page.h"
 #include "peripheral/divmmc.h"
 #include "platform/emulator_boot.h"
@@ -68,6 +69,7 @@ using jnext::dbg::Action;
 using jnext::dbg::ClientId;
 using jnext::dbg::Debugger;
 using jnext::dbg::EventKind;
+using jnext::dbg::MemSpace;
 using jnext::dbg::PauseReason;
 using jnext::dbg::ResetKind;
 using jnext::dbg::Result;
@@ -170,6 +172,32 @@ static Subscription execute_stop(uint16_t addr) {
     s.filter.lo = s.filter.hi = addr;
     s.action = Action::Stop;
     return s;
+}
+
+// GH #339: one instruction's fetch, as predicted BEFORE it (the debugger's
+// `source_page(pc)`) and as recorded BY it (`Mmu::last_m1()`).
+struct FetchPair {
+    uint16_t pc = 0;
+    MemSpace predicted;
+    MemSpace recorded;
+    bool     fetched = false;   // false for an accepted NMI/INT: no opcode was fetched
+};
+
+static FetchPair step_pair(Machine& m) {
+    FetchPair f;
+    f.pc        = m.pc();
+    f.predicted = m.dbg->source_page(f.pc);
+    m.dbg->step_into(m.a);
+    f.recorded  = m.emu.mmu().last_m1();
+    f.fetched   = m.emu.cpu().fetched_opcode_last_execute();
+    return f;
+}
+
+static std::string pair_str(const FetchPair& f) {
+    return "pc=" + hex(f.pc) + " predicted=" + std::to_string(unsigned(f.predicted.kind)) + "/" +
+           std::to_string(unsigned(f.predicted.index)) + " recorded=" +
+           std::to_string(unsigned(f.recorded.kind)) + "/" + std::to_string(unsigned(f.recorded.index)) +
+           (f.fetched ? "" : " (no opcode fetched)");
 }
 
 int main() {
@@ -551,7 +579,7 @@ int main() {
                                 "x.asm|7||0|" + std::to_string(rom_page) + "|1|T|\n");
         m.dbg->load_source_map(rom_sld.string(), false);
         check("SRCDBG-ID-01", "code in a ROM slot is not the RAM page with its page number",
-              m.dbg->source_page(0x0001) == NOT_RAM_PAGE && !m.dbg->source_location(0x0001));
+              m.dbg->source_page(0x0001) == MemSpace::rom(0) && !m.dbg->source_location(0x0001));
 
         // A page-qualified Execute matches page numbers alone (DZRP, the DSL);
         // one marked page_ram_only (a source breakpoint) refuses the ROM.
@@ -575,12 +603,14 @@ int main() {
         // mapping overlays it, when the fetch comes from Layer 2 instead.
         Machine m(false, MachineType::ZXN_ISSUE2);
         m.dbg->nextreg_write(m.a, 0x50, 10);
-        const bool ram = m.dbg->source_page(0x0010) == 10;
+        const bool ram = m.dbg->source_page(0x0010) == MemSpace::page(10);
         m.dbg->port_out(m.a, 0x123B, 0x04);   // Layer 2 read mapping, low 16K
-        const bool overlaid = m.dbg->source_page(0x0010) == NOT_RAM_PAGE;
+        // NR 0x12 resets to bank 8 and the segment is 00, so the page is
+        // layer2_active_page = (8 + 0) << 1 | cpu_a(13) = 0x10 (zxnext.vhd:2966-2969).
+        const bool overlaid = m.dbg->source_page(0x0010) == MemSpace::layer2(0x10);
         m.dbg->port_out(m.a, 0x123B, 0x00);
         check("SRCDBG-ID-03", "a RAM page under the Layer 2 read mapping is not that page",
-              ram && overlaid && m.dbg->source_page(0x0010) == 10);
+              ram && overlaid && m.dbg->source_page(0x0010) == MemSpace::page(10));
     }
     {
         // History: a ROM entry of the trace is not the RAM page its number
@@ -615,7 +645,7 @@ int main() {
         // record on page 10 at $0001 is not what ran there.
         Machine m(/*rewind=*/true, MachineType::ZXN_ISSUE2);
         m.dbg->nextreg_write(m.a, 0x50, 10);
-        const unsigned p8 = m.dbg->source_page(0x8000);
+        const unsigned p8 = ram_page_of(m.dbg->source_page(0x8000));
         m.emu.mmu().write(0x8000, 0xC3);
         m.emu.mmu().write(0x8001, 0x00);
         m.emu.mmu().write(0x8002, 0x00);
@@ -659,7 +689,7 @@ int main() {
         r.AF = 0x0000;
         m.emu.cpu().set_registers(r);
         const bool mapped_now = m.emu.divmmc().is_active();
-        const bool predicted = m.dbg->source_page(0x0000) == NOT_RAM_PAGE;
+        const bool predicted = m.dbg->source_page(0x0000) == MemSpace::divmmc_rom();
         Subscription bp = execute_stop(0x0000);
         bp.filter.page = 10;
         bp.filter.page_ram_only = true;
@@ -706,13 +736,1170 @@ int main() {
         r.PC = 0x0000;
         m.emu.cpu().set_registers(r);
         m.dbg->step_into(m.a);                    // the JP, from DivMMC
-        const bool at = m.pc() == 0x1FF8 && m.dbg->source_page(0x1FF8) == NOT_RAM_PAGE;
+        const bool at = m.pc() == 0x1FF8 && m.dbg->source_page(0x1FF8) == MemSpace::divmmc_rom();
         m.dbg->step_into(m.a);                    // the NOP at $1FF8 arms the unmap
         const bool still_mapped = m.emu.divmmc().is_active();
         check("SRCDBG-ID-08", "after a fetch in the unmap range the NEXT fetch is RAM "
                               "again, foreseen while DivMMC still reads as mapped",
-              at && m.pc() == 0x1FF9 && still_mapped && m.dbg->source_page(0x1FF9) == 10,
+              at && m.pc() == 0x1FF9 && still_mapped &&
+                  m.dbg->source_page(0x1FF9) == MemSpace::page(10),
               m.where());
+    }
+
+    // ── GH #339: the prediction IS the recorded fetch ───────────────────
+    //
+    // `source_page(pc)` is asked BEFORE an instruction; `Mmu::last_m1()` is what its
+    // fetch recorded AFTER. They are one function (Mmu::route_with / route) evaluated
+    // at two moments, and the rows below make the DivMMC and Multiface paths between
+    // the moments agree -- the delayed-on hold, conmem, automap disabled, the port
+    // enable, the NMI entry, the boot ROM, DivMMC RAM, the Multiface -- with the
+    // expected values derived from the VHDL, not from either side.
+    {
+        // D2, the delayed-on entry: RST $08 with NR 0xBA bit 1 clear is HELD for the
+        // next M1 (divmmc.vhd:128-131 hold, :141 held, :148 automap; zxnext.vhd:2894
+        // delayed_on), so the fetch AT $0008 is still RAM page 10 and the one after
+        // it, at $0009, comes from the DivMMC ROM.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+        m.dbg->nextreg_write(m.a, 0xB8, 0x02);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x02);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x00);    // delayed
+        m.emu.mmu().write(0x0008, 0x00);           // RAM page 10: NOP
+        m.emu.divmmc().rom_data()[9] = 0x00;       // DivMMC ROM $0009: NOP
+        m.emu.mmu().write(0x8000, 0xCF);           // RST $08
+        m.emu.mmu().write(0x8001, 0x00);
+        m.set_pc(0x8000);
+        (void)step_pair(m);                        // the RST
+        const FetchPair a = step_pair(m);          // $0008
+        const FetchPair b = step_pair(m);          // $0009
+        check("SRCDBG-ID-09", "a delayed-on DivMMC entry maps at the NEXT M1: the fetch at $0008 "
+                              "is RAM page 10, the one at $0009 the DivMMC ROM, each predicted "
+                              "exactly as the fetch records it",
+              a.pc == 0x0008 && a.predicted == MemSpace::page(10) && a.recorded == MemSpace::page(10) &&
+                  b.pc == 0x0009 && b.predicted == MemSpace::divmmc_rom() &&
+                  b.recorded == MemSpace::divmmc_rom(),
+              pair_str(a) + " " + pair_str(b));
+    }
+    {
+        // D4, conmem: port 0xE3 bit 7 maps the DivMMC with the automap DISABLED
+        // (NR 0x0A bit 4 clear): conmem is not gated by automap_reset
+        // (zxnext.vhd:4112 gates `automap`, divmmc.vhd:94 takes conmem OR automap).
+        // At $0010 (an RST candidate) and at $0100 (no entry point at all).
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x00);
+        m.dbg->port_out(m.a, 0xE3, 0x80);
+        m.emu.divmmc().rom_data()[0x10] = 0x00;
+        m.emu.divmmc().rom_data()[0x100] = 0x00;
+        const bool armed = m.emu.divmmc().conmem() && !m.emu.divmmc().nr_0a_4_enable();
+        m.set_pc(0x0010);
+        const FetchPair a = step_pair(m);
+        m.set_pc(0x0100);
+        const FetchPair b = step_pair(m);
+        check("SRCDBG-ID-10", "conmem maps the DivMMC ROM with the automap disabled, at an RST "
+                              "candidate and at a pc that is no entry point, predicted as recorded",
+              armed && a.predicted == MemSpace::divmmc_rom() && a.recorded == MemSpace::divmmc_rom() &&
+                  b.predicted == MemSpace::divmmc_rom() && b.recorded == MemSpace::divmmc_rom(),
+              pair_str(a) + " " + pair_str(b));
+    }
+    {
+        // D5, automap disabled: RST $00 is an INSTANT entry, but NR 0x0A bit 4 is
+        // clear, so `divmmc_automap_reset` holds `automap` at 0 (zxnext.vhd:4112;
+        // divmmc.vhd:126,148). The control is the same machine with the bit set.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x00);
+        m.dbg->nextreg_write(m.a, 0xB8, 0x01);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x01);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x01);
+        m.set_pc(0x0000);
+        const FetchPair off = step_pair(m);
+        Machine c(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        c.dbg->nextreg_write(c.a, 0x50, 10);
+        c.dbg->nextreg_write(c.a, 0x0A, 0x10);
+        c.dbg->nextreg_write(c.a, 0xB8, 0x01);
+        c.dbg->nextreg_write(c.a, 0xB9, 0x01);
+        c.dbg->nextreg_write(c.a, 0xBA, 0x01);
+        c.set_pc(0x0000);
+        const FetchPair on = step_pair(c);
+        check("SRCDBG-ID-11", "an instant DivMMC entry does not map while NR 0x0A bit 4 is clear "
+                              "(and does when it is set), predicted as recorded",
+              off.predicted == MemSpace::page(10) && off.recorded == MemSpace::page(10) &&
+                  on.predicted == MemSpace::divmmc_rom() && on.recorded == MemSpace::divmmc_rom(),
+              pair_str(off) + " " + pair_str(on));
+    }
+    {
+        // D6, port_divmmc_io_en: conmem is set, but NR 0x83 bit 0 clear makes
+        // `o_divmmc_rom_en <= rom_en and i_en` low (divmmc.vhd:98; the bit is
+        // internal_port_enable(8), zxnext.vhd:2412). The control keeps the port on.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->port_out(m.a, 0xE3, 0x80);
+        m.dbg->nextreg_write(m.a, 0x83, 0xFE);
+        m.set_pc(0x0010);
+        const bool io_off = !m.emu.divmmc().port_io_enable() && m.emu.divmmc().conmem();
+        const FetchPair off = step_pair(m);
+        Machine c(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        c.dbg->nextreg_write(c.a, 0x50, 10);
+        c.dbg->port_out(c.a, 0xE3, 0x80);
+        c.set_pc(0x0010);
+        const FetchPair on = step_pair(c);
+        check("SRCDBG-ID-12", "conmem maps nothing while the DivMMC port enable (NR 0x83 bit 0) is "
+                              "clear, and the DivMMC ROM when it is set, predicted as recorded",
+              io_off && off.predicted == MemSpace::page(10) && off.recorded == MemSpace::page(10) &&
+                  on.predicted == MemSpace::divmmc_rom() && on.recorded == MemSpace::divmmc_rom(),
+              pair_str(off) + " " + pair_str(on));
+    }
+    {
+        // U1, the boot ROM answers above the whole arbiter, DivMMC conmem included
+        // (zxnext.vhd:1856-1857, the cpu_di mux).
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        const std::vector<uint8_t> nops(0x2000, 0x00);
+        m.emu.mmu().set_boot_rom(nops.data(), nops.size());
+        m.dbg->port_out(m.a, 0xE3, 0x80);
+        m.set_pc(0x0010);
+        const FetchPair p = step_pair(m);
+        check("SRCDBG-ID-13", "the boot ROM supplies a fetch over DivMMC conmem, predicted as recorded",
+              m.emu.divmmc().conmem() && p.predicted == MemSpace::boot_rom() &&
+                  p.recorded == MemSpace::boot_rom(),
+              pair_str(p));
+    }
+    {
+        // U6, DivMMC RAM: bank 5 at $2000-$3FFF while conmem is set (divmmc.vhd:95-96,99;
+        // zxnext.vhd:3092-3093), with an instruction in it at $3000.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->port_out(m.a, 0xE3, 0x85);
+        m.emu.divmmc().ram_data()[5 * 0x2000 + 0x1000] = 0x00;   // NOP
+        m.set_pc(0x3000);
+        const FetchPair p = step_pair(m);
+        check("SRCDBG-ID-14", "a fetch from DivMMC RAM names the bank, predicted as recorded",
+              p.predicted == MemSpace::divmmc_ram(5) && p.recorded == MemSpace::divmmc_ram(5),
+              pair_str(p));
+    }
+    {
+        // The Multiface's 0x0066 fetch: unarmed, $0066 is whatever the MMU maps; once the
+        // button has armed the NMI (nmi_active), the fetch at $0066 itself latches
+        // mf_enable and comes from the Multiface ROM, which `predict` must say BEFORE the
+        // instruction runs (multiface.vhd:169,176,186; zxnext.vhd:3030).
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.emu.multiface().set_enabled(true);
+        m.emu.ram().page_ptr(0x0A)[0x66] = 0x00;   // Multiface ROM $0066: NOP (SRAM page 0x0A)
+        m.set_pc(0x0066);
+        const FetchPair unarmed = step_pair(m);
+        m.set_pc(0x0066);
+        m.emu.multiface().button_press();
+        const FetchPair armed = step_pair(m);
+        check("SRCDBG-ID-15", "the Multiface ROM is foreseen at $0066 only once the NMI is armed, "
+                              "and the fetch records it",
+              unarmed.predicted == unarmed.recorded && unarmed.predicted != MemSpace::multiface_rom() &&
+                  armed.predicted == MemSpace::multiface_rom() &&
+                  armed.recorded == MemSpace::multiface_rom(),
+              pair_str(unarmed) + " " + pair_str(armed));
+    }
+    {
+        // The DivMMC's NMI entry: NR 0xBB bit 1 (instant) with the NMI button latched
+        // in the DivMMC (divmmc.vhd:120,148; zxnext.vhd:2907). Without the latch the
+        // fetch at $0066 is RAM page 10.
+        auto machine = [](bool button) {
+            auto m = std::make_unique<Machine>(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+            m->dbg->nextreg_write(m->a, 0x50, 10);
+            m->dbg->nextreg_write(m->a, 0x0A, 0x10);
+            m->dbg->nextreg_write(m->a, 0xBB, 0x02);
+            m->emu.divmmc().rom_data()[0x66] = 0x00;
+            m->emu.divmmc().set_button_nmi(button);
+            m->set_pc(0x0066);
+            return m;
+        };
+        auto armed = machine(true);
+        const FetchPair a = step_pair(*armed);
+        auto control = machine(false);
+        const FetchPair c = step_pair(*control);
+        check("SRCDBG-ID-18", "the DivMMC NMI entry maps at $0066 once the button is latched "
+                              "(instant), and not before, predicted as recorded",
+              a.predicted == MemSpace::divmmc_rom() && a.recorded == MemSpace::divmmc_rom() &&
+                  c.predicted == MemSpace::page(10) && c.recorded == MemSpace::page(10),
+              pair_str(a) + " " + pair_str(c));
+    }
+    {
+        // A guest tour: every phase is real Z80 code the machine runs, between host actions
+        // only where the hardware has no guest-visible way (the boot ROM, config mode, the
+        // NMI request). Every step that fetched an opcode must have been predicted as
+        // the fetch recorded it, and the tour must have VISITED each source and crossed each
+        // transition: an instant and a delayed (held) DivMMC entry, the unmap range, a
+        // guest port write (E3, 123B), a guest NEXTREG, a RETN clearing the Multiface.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        auto& emu = m.emu;
+        auto put = [&](uint16_t at, std::initializer_list<uint8_t> bytes) {
+            uint16_t a = at;
+            for (uint8_t b : bytes) emu.mmu().write(a++, b);
+        };
+        // Stores the phases use. MMU0 = RAM page 10 (BRAM5) for the first phases.
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        emu.mmu().write(0x0000, 0xC9);                          // RET   RAM page 10 $0000 (phase 3)
+        emu.mmu().write(0x0010, 0x00);                          // NOP   RAM page 10 $0010 (phase 1b)
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);                  // DivMMC automap on
+        m.dbg->nextreg_write(m.a, 0xB8, 0x06);                  // RST $08 and RST $10 are entries
+        m.dbg->nextreg_write(m.a, 0xB9, 0x06);                  //   on the main path
+        m.dbg->nextreg_write(m.a, 0xBA, 0x02);                  //   $08 instant, $10 delayed
+        m.dbg->nextreg_write(m.a, 0xBB, 0x40);                  // the unmap range
+        uint8_t* drom = emu.divmmc().rom_data();
+        drom[0x0008] = 0xC3; drom[0x0009] = 0xF8; drom[0x000A] = 0x1F;   // JP $1FF8
+        drom[0x0011] = 0xC3; drom[0x0012] = 0xF8; drom[0x0013] = 0x1F;   // JP $1FF8
+        drom[0x1FF8] = 0xC9;                                    // RET
+        emu.divmmc().ram_data()[5 * 0x2000 + 0x1000] = 0xC9;    // RET   DivMMC RAM bank 5 $3000
+        emu.ram().page_ptr(0x30)[0] = 0xC9;                     // RET   Layer 2 page 0x10 ($0000)
+        emu.ram().page_ptr(0x0C)[0] = 0xC9;                     // RET   Alt ROM0 $0000
+        emu.ram().page_ptr(0x00)[0x38] = 0xC9;                  // RET   ROM0 $0038
+        emu.ram().page_ptr(0x00)[0x00] = 0xC9;                  // RET   ROM0/Config $0000
+        emu.ram().page_ptr(0x0A)[0x66] = 0xED;                  // RETN  Multiface ROM $0066
+        emu.ram().page_ptr(0x0A)[0x67] = 0x45;
+        emu.multiface().set_enabled(true);
+
+        put(0x8000, {0xCF, 0x00});                                              // RST $08 / NOP
+        put(0x8040, {0xD7, 0x00});                                              // RST $10 / NOP
+        put(0x8080, {0x3E, 0x85, 0xD3, 0xE3, 0xCD, 0x00, 0x30, 0xAF, 0xD3, 0xE3, 0x00});
+        put(0x80C0, {0xED, 0x91, 0x50, 0x0A, 0xCD, 0x00, 0x00, 0xED, 0x91, 0x50, 0xFF, 0x00});
+        put(0x8100, {0x01, 0x3B, 0x12, 0x3E, 0x04, 0xED, 0x79, 0xCD, 0x00, 0x00, 0xAF, 0xED, 0x79, 0x00});
+        put(0x8140, {0xED, 0x91, 0x8C, 0x80, 0xCD, 0x00, 0x00, 0xED, 0x91, 0x8C, 0x00, 0x00});
+        put(0x8180, {0xCD, 0x38, 0x00, 0x00});
+        put(0x81C0, {0x00, 0x00});
+        put(0x8200, {0xCD, 0x00, 0x00, 0x00});
+        put(0x8240, {0xCD, 0x00, 0x00, 0x00});
+
+        unsigned visited = 0;
+        long fetches = 0, mismatches = 0;
+        std::string first_bad;
+        auto run = [&](uint16_t pc, int steps) {
+            m.set_pc(pc);
+            for (int i = 0; i < steps; ++i) {
+                const FetchPair f = step_pair(m);
+                if (!f.fetched) continue;               // an accepted NMI/INT fetches no opcode
+                ++fetches;
+                visited |= 1u << static_cast<unsigned>(f.recorded.kind);
+                if (f.predicted != f.recorded) {
+                    ++mismatches;
+                    if (first_bad.empty()) first_bad = "pc=" + hex(f.pc) + " " + pair_str(f);
+                }
+            }
+        };
+        run(0x8000, 4);                                 // RST $08 (instant) / JP / RET (unmap) / NOP
+        run(0x8040, 5);                                 // RST $10 (delayed) / NOP / JP (held) / RET / NOP
+        run(0x8080, 6);                                 // OUT E3 conmem, CALL DivMMC RAM, RET, OUT E3
+        m.dbg->nextreg_write(m.a, 0x50, 0xFF);          // MMU0 back to the legacy ROM
+        run(0x80C0, 4);                                 // NEXTREG $50 -> RAM, CALL, RET, NEXTREG $50,$FF
+        run(0x8100, 7);                                 // OUT 123B Layer 2, CALL, RET, OUT 123B
+        run(0x8140, 4);                                 // NEXTREG $8C alt ROM, CALL, RET, NEXTREG $8C
+        run(0x8180, 2);                                 // CALL $0038 / RET (legacy ROM)
+        emu.multiface().button_press();                 // the NMI button
+        emu.cpu().request_nmi();
+        run(0x81C0, 3);                                 // NMI slot, RETN at $0066, NOP back in RAM
+        std::vector<uint8_t> boot(0x2000, 0x00);
+        boot[0] = 0xC9;
+        emu.mmu().set_boot_rom(boot.data(), boot.size());
+        run(0x8200, 3);                                 // CALL $0000 / RET from the boot ROM
+        emu.mmu().set_boot_rom_enabled(false);
+        emu.mmu().set_config_mode(true);
+        run(0x8240, 3);                                 // CALL $0000 / RET from the config window
+        emu.mmu().set_config_mode(false);
+
+        const unsigned wanted =
+            (1u << unsigned(MemSpace::Kind::Page)) | (1u << unsigned(MemSpace::Kind::Rom)) |
+            (1u << unsigned(MemSpace::Kind::BootRom)) | (1u << unsigned(MemSpace::Kind::MultifaceRom)) |
+            (1u << unsigned(MemSpace::Kind::DivMmcRom)) | (1u << unsigned(MemSpace::Kind::DivMmcRam)) |
+            (1u << unsigned(MemSpace::Kind::Layer2)) | (1u << unsigned(MemSpace::Kind::AltRom)) |
+            (1u << unsigned(MemSpace::Kind::Config));
+        check("SRCDBG-ID-19", "a guest tour of every fetch source (RAM, ROM, boot ROM, Multiface, "
+                              "DivMMC ROM and RAM, Layer 2, alternate ROM, config) across the "
+                              "transitions that switch them: every fetch predicted as recorded",
+              mismatches == 0 && fetches == 40 && (visited & wanted) == wanted,
+              "fetches=" + std::to_string(fetches) + " mismatches=" + std::to_string(mismatches) +
+                  " visited=" + std::to_string(visited) + " wanted=" + std::to_string(wanted) +
+                  " first=[" + first_bad + "]");
+    }
+    {
+        // The call-stack tracker captures a CALL's source BEFORE the instruction runs. A CALL
+        // fetched from the DivMMC ROM (RST $08 maps it in, instant-on; the NOP at $0008 lets the
+        // overlay settle, since the tracker reads the opcode before the M1 that would map it)
+        // opens a frame whose caller is not a RAM page, although RAM page 10 is what the MMU
+        // reports for $0009.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+        m.dbg->nextreg_write(m.a, 0xB8, 0x02);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x02);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x02);
+        uint8_t* drom = m.emu.divmmc().rom_data();
+        drom[0x0008] = 0x00;                                             // NOP
+        drom[0x0009] = 0xCD; drom[0x000A] = 0x20; drom[0x000B] = 0x00;   // CALL $0020
+        drom[0x0020] = 0xC9;                                             // RET
+        m.emu.mmu().write(0x8000, 0xCF);                                 // RST $08
+        m.emu.mmu().write(0x8001, 0x00);
+        m.set_pc(0x8000);
+        (void)step_pair(m);   // RST $08: a frame from RAM into the DivMMC ROM
+        (void)step_pair(m);   // NOP at $0008
+        (void)step_pair(m);   // CALL $0020 at $0009, fetched from the DivMMC ROM
+        const auto& f = m.dbg->call_stack();
+        check("SRCDBG-ID-20", "a CALL fetched from the DivMMC ROM records a caller that is no RAM "
+                              "page, and the RST that entered it a RAM caller (MMU4 = page 4)",
+              f.size() == 2 && f[0].caller_pc == 0x8000 && f[0].caller_page == 4 &&
+                  f[0].target_pc == 0x0008 && f[0].target_page == NOT_RAM_PAGE &&
+                  f[1].caller_pc == 0x0009 && f[1].caller_page == NOT_RAM_PAGE &&
+                  f[1].target_pc == 0x0020 && f[1].target_page == NOT_RAM_PAGE,
+              [&] {
+                  std::string d = "frames=" + std::to_string(f.size());
+                  for (const auto& fr : f)
+                      d += " [" + hex(fr.caller_pc) + "->" + hex(fr.target_pc) + " cp=" +
+                           std::to_string(fr.caller_page) + " tp=" + std::to_string(fr.target_page) + "]";
+                  return d;
+              }());
+    }
+    {
+        // The debugger's reads of the instruction about to run happen BEFORE the M1 that maps the
+        // DivMMC in, so they must go through the overlay that M1 selects (divmmc.vhd:124-148;
+        // zxnext.vhd:3084): a CALL fetched straight away at the entry point is a CALL from the
+        // DivMMC ROM, its bytes are the ROM's (not RAM page 10's zeros), and the tracker opens a
+        // second frame. ID-22 is the instant entry (the CALL at $0008), ID-23 the delayed one
+        // (RAM at $0008, the CALL at $0009 - the first fetch the DivMMC supplies).
+        struct Case { const char* id; uint8_t ba; uint16_t call_at; };
+        for (const Case& c : {Case{"SRCDBG-ID-22", 0x02, 0x0008}, Case{"SRCDBG-ID-23", 0x00, 0x0009}}) {
+            Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+            m.dbg->nextreg_write(m.a, 0x50, 10);
+            m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+            m.dbg->nextreg_write(m.a, 0xB8, 0x02);
+            m.dbg->nextreg_write(m.a, 0xB9, 0x02);
+            m.dbg->nextreg_write(m.a, 0xBA, c.ba);
+            uint8_t* drom = m.emu.divmmc().rom_data();
+            drom[c.call_at] = 0xCD; drom[c.call_at + 1] = 0x20; drom[c.call_at + 2] = 0x00;  // CALL $0020
+            drom[0x0020] = 0xC9;                                                            // RET
+            m.emu.mmu().write(0x0008, 0x00);          // RAM page 10: NOP (the delayed case runs it)
+            m.emu.mmu().write(0x8000, 0xCF);          // RST $08
+            m.emu.mmu().write(0x8001, 0x00);
+            m.dbg->set_trace_enabled(true);
+            m.dbg->set_call_stack_enabled(true);
+            m.set_pc(0x8000);
+            (void)step_pair(m);                                   // RST $08
+            if (c.call_at != 0x0008) (void)step_pair(m);          // the NOP at $0008 (held entry)
+            (void)step_pair(m);                                   // the CALL, fetched from the DivMMC ROM
+            const auto& f = m.dbg->call_stack();
+            const auto& t = m.emu.trace_log();
+            const TraceEntry& e = t.at(t.size() - 1);
+            check(c.id, c.ba == 0x02
+                      ? "an instant DivMMC entry: a CALL fetched directly at $0008 is traced with the "
+                        "DivMMC ROM's bytes (CD 20 00) and opens its own frame"
+                      : "a delayed DivMMC entry: a CALL fetched directly at $0009 is traced with the "
+                        "DivMMC ROM's bytes (CD 20 00) and opens its own frame",
+                  e.pc == c.call_at && e.opcode_bytes[0] == 0xCD && e.opcode_bytes[1] == 0x20 &&
+                      e.opcode_bytes[2] == 0x00 && e.opcode_len == 3 &&
+                      t.fetch_not_mmu_ram(t.size() - 1) && f.size() == 2 &&
+                      f[1].caller_pc == c.call_at && f[1].target_pc == 0x0020,
+                  [&] {
+                      char b[96];
+                      std::snprintf(b, sizeof b, "pc=%04X bytes=%02X %02X %02X len=%d frames=%zu",
+                                    e.pc, e.opcode_bytes[0], e.opcode_bytes[1], e.opcode_bytes[2],
+                                    e.opcode_len, f.size());
+                      return std::string(b);
+                  }());
+        }
+    }
+    {
+        // The first instruction after a fetch in the DivMMC unmap range comes from RAM again
+        // (divmmc.vhd:128-148, the unmap releases `automap` for the NEXT M1), while DivMMC still
+        // reads as mapped before it: the trace's bytes are RAM page 10's, not the ROM's.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+        m.dbg->nextreg_write(m.a, 0xB8, 0x01);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x01);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x01);
+        m.dbg->nextreg_write(m.a, 0xBB, 0x40);   // unmap at 0x1FF8-0x1FFF
+        m.emu.mmu().write(0x1FF9, 0x3E);          // RAM page 10: LD A,$77
+        m.emu.mmu().write(0x1FFA, 0x77);
+        uint8_t* drom = m.emu.divmmc().rom_data();
+        drom[0] = 0xC3; drom[1] = 0xF8; drom[2] = 0x1F;   // JP $1FF8
+        drom[0x1FF8] = 0x00;                               // NOP
+        drom[0x1FF9] = 0x06; drom[0x1FFA] = 0x55;          // LD B,$55: the ROM's, not run
+        m.dbg->set_trace_enabled(true);
+        m.set_pc(0x0000);
+        (void)step_pair(m);                       // the JP, from DivMMC
+        (void)step_pair(m);                       // the NOP at $1FF8 arms the unmap
+        (void)step_pair(m);                       // $1FF9: RAM again
+        const auto& t = m.emu.trace_log();
+        const TraceEntry& e = t.at(t.size() - 1);
+        check("SRCDBG-ID-24", "the first instruction after the DivMMC unmap range is traced with "
+                              "RAM's bytes (3E 77), not the ROM it was mapped over",
+              e.pc == 0x1FF9 && e.opcode_bytes[0] == 0x3E && e.opcode_bytes[1] == 0x77 &&
+                  e.opcode_len == 2 && !t.fetch_not_mmu_ram(t.size() - 1),
+              [&] {
+                  char b[96];
+                  std::snprintf(b, sizeof b, "pc=%04X bytes=%02X %02X len=%d", e.pc,
+                                e.opcode_bytes[0], e.opcode_bytes[1], e.opcode_len);
+                  return std::string(b);
+              }());
+    }
+    {
+        // The Multiface's 0x0066 fetch, armed: the instruction is the Multiface ROM's
+        // (multiface.vhd:169,176,186), and so are the bytes the trace shows for it.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.emu.multiface().set_enabled(true);
+        m.emu.mmu().write(0x0066, 0x00);           // RAM page 10: NOP
+        m.emu.ram().page_ptr(0x0A)[0x66] = 0x3E;   // Multiface ROM $0066: LD A,$42
+        m.emu.ram().page_ptr(0x0A)[0x67] = 0x42;
+        m.dbg->set_trace_enabled(true);
+        m.set_pc(0x0066);
+        m.emu.multiface().button_press();
+        (void)step_pair(m);
+        const auto& t = m.emu.trace_log();
+        const TraceEntry& e = t.at(t.size() - 1);
+        check("SRCDBG-ID-25", "an armed Multiface fetch at $0066 is traced with the Multiface "
+                              "ROM's bytes (3E 42), not RAM's",
+              e.pc == 0x0066 && e.opcode_bytes[0] == 0x3E && e.opcode_bytes[1] == 0x42 &&
+                  e.opcode_len == 2 && t.fetch_not_mmu_ram(t.size() - 1),
+              [&] {
+                  char b[96];
+                  std::snprintf(b, sizeof b, "pc=%04X bytes=%02X %02X len=%d", e.pc,
+                                e.opcode_bytes[0], e.opcode_bytes[1], e.opcode_len);
+                  return std::string(b);
+              }());
+    }
+    {
+        // A delayed-on entry maps the DivMMC for the rest of the instruction at the entry point:
+        // `automap_held` takes `automap_hold` on the first MREQ-high after the opcode fetch
+        // (divmmc.vhd:128-131,139-143,148), so the OPERANDS of the instruction at $0008 are
+        // already the DivMMC ROM's while its opcode byte was RAM's (ID-09).
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+        m.dbg->nextreg_write(m.a, 0xB8, 0x02);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x02);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x00);    // delayed
+        m.emu.mmu().write(0x0008, 0x2A);           // RAM page 10: LD HL,($9000)
+        m.emu.mmu().write(0x0009, 0x00);
+        m.emu.mmu().write(0x000A, 0x90);
+        uint8_t* drom = m.emu.divmmc().rom_data();
+        drom[0x0009] = 0x00; drom[0x000A] = 0xA0;  // the ROM's operands: ($A000)
+        m.emu.mmu().write(0x9000, 0xAA); m.emu.mmu().write(0x9001, 0xBB);
+        m.emu.mmu().write(0xA000, 0xCC); m.emu.mmu().write(0xA001, 0xDD);
+        m.emu.mmu().write(0x8000, 0xCF);           // RST $08
+        m.dbg->set_trace_enabled(true);
+        m.set_pc(0x8000);
+        (void)step_pair(m);                        // the RST
+        (void)step_pair(m);                        // LD HL,(nn) at $0008
+        const auto& t = m.emu.trace_log();
+        const TraceEntry& e = t.at(t.size() - 1);
+        check("SRCDBG-ID-26", "a delayed DivMMC entry: the instruction at $0008 takes its opcode "
+                              "from RAM and its operands from the DivMMC ROM (HL = $DDCC, not $BBAA), "
+                              "and the trace shows those bytes (2A 00 A0)",
+              m.dbg->registers().HL == 0xDDCC && m.pc() == 0x000B && e.pc == 0x0008 &&
+                  e.opcode_bytes[0] == 0x2A && e.opcode_bytes[1] == 0x00 &&
+                  e.opcode_bytes[2] == 0xA0 && e.opcode_len == 3 && !t.fetch_not_mmu_ram(t.size() - 1),
+              "HL=" + hex(m.dbg->registers().HL) + " " + m.where());
+    }
+    {
+        // The unmap is the mirror image: the fetch in 0x1FF8-0x1FFF still comes from the DivMMC
+        // ROM (held is 1 at that M1), and `hold` drops during it, so its operands are RAM's.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+        m.dbg->nextreg_write(m.a, 0xB8, 0x01);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x01);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x01);
+        m.dbg->nextreg_write(m.a, 0xBB, 0x40);    // unmap at 0x1FF8-0x1FFF
+        m.emu.mmu().write(0x1FF9, 0x00);           // RAM page 10: operands ($9000)
+        m.emu.mmu().write(0x1FFA, 0x90);
+        uint8_t* drom = m.emu.divmmc().rom_data();
+        drom[0] = 0xC3; drom[1] = 0xF8; drom[2] = 0x1F;   // JP $1FF8
+        drom[0x1FF8] = 0x3A;                               // LD A,(nn)
+        drom[0x1FF9] = 0x00; drom[0x1FFA] = 0xA0;          // the ROM's operands: ($A000)
+        m.emu.mmu().write(0x9000, 0xAA);
+        m.emu.mmu().write(0xA000, 0xCC);
+        m.dbg->set_trace_enabled(true);
+        m.set_pc(0x0000);
+        (void)step_pair(m);                        // the JP, from DivMMC
+        (void)step_pair(m);                        // LD A,(nn) at $1FF8
+        const auto& t = m.emu.trace_log();
+        const TraceEntry& e = t.at(t.size() - 1);
+        check("SRCDBG-ID-27", "the instruction at $1FF8 takes its opcode from the DivMMC ROM and "
+                              "its operands from RAM (A = $AA, not $CC), and the trace shows "
+                              "those bytes (3A 00 90)",
+              (m.dbg->registers().AF >> 8) == 0xAA && m.pc() == 0x1FFB && e.pc == 0x1FF8 &&
+                  e.opcode_bytes[0] == 0x3A && e.opcode_bytes[1] == 0x00 &&
+                  e.opcode_bytes[2] == 0x90 && e.opcode_len == 3 && t.fetch_not_mmu_ram(t.size() - 1),
+              "AF=" + hex(m.dbg->registers().AF) + " " + m.where());
+    }
+    {
+        // Writes follow the same view: the store of a delayed-entry instruction at $0008 lands
+        // after the fetch, so it meets the DivMMC ROM (read-only, divmmc.vhd:88-101) and is lost;
+        // RAM page 10 keeps its zero.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+        m.dbg->nextreg_write(m.a, 0xB8, 0x02);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x02);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x00);    // delayed
+        m.emu.mmu().write(0x0008, 0x32);           // RAM page 10: LD ($0100),A
+        m.emu.mmu().write(0x0009, 0x00);
+        m.emu.mmu().write(0x000A, 0x01);
+        uint8_t* drom = m.emu.divmmc().rom_data();
+        drom[0x0009] = 0x00; drom[0x000A] = 0x01;  // the ROM's operands are the same
+        m.emu.mmu().write(0x8000, 0xCF);           // RST $08
+        m.set_pc(0x8000);
+        (void)step_pair(m);                        // the RST
+        (void)step_pair(m);                        // LD ($0100),A at $0008, A = $FF
+        const Mmu::Route under = m.emu.mmu().route_with(0x0100, false, false);   // RAM page 10, DivMMC off
+        const uint8_t ram_byte = under.ptr ? *under.ptr : 0xEE;
+        check("SRCDBG-ID-28", "a delayed DivMMC entry: the store of the instruction at $0008 meets "
+                              "the DivMMC ROM (read-only), RAM page 10 keeps its zero",
+              m.pc() == 0x000B && ram_byte == 0x00 && drom[0x0100] == 0x00,
+              "pc=" + hex(m.pc()) + " ram=" + hex(ram_byte));
+    }
+    {
+        // Every M1 loads the DivMMC `hold` (divmmc.vhd:127-131) and `automap_held` takes it on
+        // the first MREQ-high after the opcode byte (:139-143), so the INNER byte of a prefixed
+        // instruction, itself an M1, already sees the hold the opcode byte loaded; the d and op of
+        // DD CB d op are no M1 (t80n.vhd:414-417, 1755-1761) and see it too. A delayed-on entry
+        // therefore runs a prefixed instruction whose prefix is RAM's and whose inner byte is the
+        // DivMMC ROM's, and the unmap window the other way round (ID-31..33); the trace and the
+        // call stack read what the CPU executes.
+        auto delayed = [](uint8_t b8, uint8_t ba) {
+            auto m = std::make_unique<Machine>(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+            m->dbg->nextreg_write(m->a, 0x50, 10);
+            m->dbg->nextreg_write(m->a, 0x0A, 0x10);
+            m->dbg->nextreg_write(m->a, 0xB8, b8);
+            m->dbg->nextreg_write(m->a, 0xB9, b8);
+            m->dbg->nextreg_write(m->a, 0xBA, ba);
+            return m;
+        };
+        auto set_regs = [](Machine& m, uint8_t a, uint16_t ix) {
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.AF = static_cast<uint16_t>((a << 8) | (r.AF & 0xFF));
+            r.IX = ix;
+            m.emu.cpu().set_registers(r);
+        };
+        auto dump = [](const TraceEntry& e) {
+            char b[96];
+            std::snprintf(b, sizeof b, "pc=%04X bytes=%02X %02X %02X %02X len=%d", e.pc, e.opcode_bytes[0],
+                          e.opcode_bytes[1], e.opcode_bytes[2], e.opcode_bytes[3], e.opcode_len);
+            return std::string(b);
+        };
+        {
+            // P1: RST $08 delayed; RAM CB 07 (RLC A) at $0008, DivMMC ROM 3F (SRL A) at $0009.
+            auto mp = delayed(0x02, 0x00);
+            Machine& m = *mp;
+            m.emu.mmu().write(0x0008, 0xCB); m.emu.mmu().write(0x0009, 0x07);
+            m.emu.divmmc().rom_data()[0x0009] = 0x3F;
+            m.emu.mmu().write(0x8000, 0xCF);
+            set_regs(m, 0x81, 0);
+            m.dbg->set_trace_enabled(true);
+            m.set_pc(0x8000);
+            (void)step_pair(m); (void)step_pair(m);
+            const auto& t = m.emu.trace_log();
+            const TraceEntry& e = t.at(t.size() - 1);
+            check("SRCDBG-ID-31", "a delayed DivMMC entry: CB at $0008 is RAM's and its inner byte at "
+                                  "$0009 the DivMMC ROM's - the CPU runs SRL A (A = $40) and the trace "
+                                  "shows CB 3F",
+                  (m.dbg->registers().AF >> 8) == 0x40 && m.pc() == 0x000A && e.pc == 0x0008 &&
+                      e.opcode_bytes[0] == 0xCB && e.opcode_bytes[1] == 0x3F && e.opcode_len == 2,
+                  "A=" + hex(m.dbg->registers().AF >> 8) + " " + dump(e));
+        }
+        {
+            // P2: DD CB d op at the delayed entry: DD is RAM's, CB (inner M1), d and op the ROM's.
+            auto mp = delayed(0x02, 0x00);
+            Machine& m = *mp;
+            const uint8_t ram[] = {0xDD, 0xCB, 0x05, 0x06};          // RLC (IX+5)
+            for (int i = 0; i < 4; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x0008 + i), ram[i]);
+            uint8_t* drom = m.emu.divmmc().rom_data();
+            drom[0x0009] = 0xCB; drom[0x000A] = 0x07; drom[0x000B] = 0x0E;   // RRC (IX+7)
+            m.emu.mmu().write(0x8000, 0xCF);
+            m.emu.mmu().write(0xA005, 0x01); m.emu.mmu().write(0xA007, 0x01);
+            set_regs(m, 0, 0xA000);
+            m.dbg->set_trace_enabled(true);
+            m.set_pc(0x8000);
+            (void)step_pair(m); (void)step_pair(m);
+            const auto& t = m.emu.trace_log();
+            const TraceEntry& e = t.at(t.size() - 1);
+            check("SRCDBG-ID-32", "a delayed DivMMC entry: DD at $0008 is RAM's, CB, d and op are the "
+                                  "DivMMC ROM's - the CPU runs RRC (IX+7) and the trace shows DD CB 07 0E",
+                  m.emu.mmu().read(0xA007) == 0x80 && m.emu.mmu().read(0xA005) == 0x01 &&
+                      m.pc() == 0x000C && e.opcode_bytes[0] == 0xDD && e.opcode_bytes[1] == 0xCB &&
+                      e.opcode_bytes[2] == 0x07 && e.opcode_bytes[3] == 0x0E && e.opcode_len == 4,
+                  "(IX+7)=" + hex(m.emu.mmu().read(0xA007)) + " " + dump(e));
+        }
+        {
+            // P3: the unmap window: CB at $1FF8 is the DivMMC ROM's, the inner byte at $1FF9 RAM's.
+            auto mp = delayed(0x01, 0x01);
+            Machine& m = *mp;
+            m.dbg->nextreg_write(m.a, 0xBB, 0x40);
+            m.emu.mmu().write(0x1FF9, 0x3F);          // RAM: SRL A
+            uint8_t* drom = m.emu.divmmc().rom_data();
+            drom[0] = 0xC3; drom[1] = 0xF8; drom[2] = 0x1F;   // JP $1FF8
+            drom[0x1FF8] = 0xCB; drom[0x1FF9] = 0x07;          // RLC A (not run)
+            set_regs(m, 0x81, 0);
+            m.dbg->set_trace_enabled(true);
+            m.set_pc(0x0000);
+            (void)step_pair(m); (void)step_pair(m);
+            const auto& t = m.emu.trace_log();
+            const TraceEntry& e = t.at(t.size() - 1);
+            check("SRCDBG-ID-33", "the unmap window: CB at $1FF8 is the DivMMC ROM's and its inner byte "
+                                  "at $1FF9 RAM's - the CPU runs SRL A (A = $40), the trace shows CB 3F",
+                  (m.dbg->registers().AF >> 8) == 0x40 && m.pc() == 0x1FFA && e.pc == 0x1FF8 &&
+                      e.opcode_bytes[0] == 0xCB && e.opcode_bytes[1] == 0x3F && e.opcode_len == 2,
+                  "A=" + hex(m.dbg->registers().AF >> 8) + " " + dump(e));
+        }
+        {
+            // The DivMMC NMI entry (NR 0xBB = $CD: bit 0, DELAYED, is the reset value): enENNextZX's
+            // ROM 0-2 hold ED 45 at $0066 and the DivMMC ROM has F1 ED 45 at $0067, so the hardware
+            // runs ED F1 (an 8 T NOP) from the ROM and the DivMMC's own RETN at $0068; not the ROM's.
+            Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+            m.dbg->nextreg_write(m.a, 0x50, 10);
+            m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+            m.emu.mmu().write(0x0066, 0xED); m.emu.mmu().write(0x0067, 0x45);
+            uint8_t* drom = m.emu.divmmc().rom_data();
+            drom[0x0067] = 0xF1; drom[0x0068] = 0xED; drom[0x0069] = 0x45;
+            m.emu.mmu().write(0xFF00, 0x34); m.emu.mmu().write(0xFF01, 0x12);
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.SP = 0xFF00;
+            m.emu.cpu().set_registers(r);
+            m.emu.divmmc().set_button_nmi(true);
+            m.dbg->set_trace_enabled(true);
+            m.set_pc(0x0066);
+            (void)step_pair(m);
+            const bool nop_at_68 = m.pc() == 0x0068 && m.dbg->registers().SP == 0xFF00;
+            const auto& t = m.emu.trace_log();
+            const TraceEntry e = t.at(t.size() - 1);
+            (void)step_pair(m);                       // the DivMMC's RETN
+            check("SRCDBG-ID-34", "the DivMMC NMI entry is delayed: ED at $0066 is the ROM's, F1 at $0067 "
+                                  "the DivMMC's (an 8 T NOP, the trace shows ED F1), then the DivMMC's "
+                                  "RETN at $0068 returns",
+                  nop_at_68 && e.opcode_bytes[0] == 0xED && e.opcode_bytes[1] == 0xF1 &&
+                      m.pc() == 0x1234 && m.dbg->registers().SP == 0xFF02,
+                  "after ED F1: " + std::string(nop_at_68 ? "pc=0068" : "pc/sp off") + " " + dump(e) +
+                      " final pc=" + hex(m.pc()));
+        }
+        {
+            // A prefix whose inner byte lands on an INSTANT entry point: the inner M1 runs its own
+            // decode (zxnext.vhd:4116-4125 latches the instant terms while M1_n is low), so the byte
+            // at $0008 is the DivMMC ROM's (3F, SRL A) although the CB before it is RAM's.
+            auto mp = delayed(0x02, 0x02);
+            Machine& m = *mp;
+            m.emu.mmu().write(0x0007, 0xCB); m.emu.mmu().write(0x0008, 0x07);
+            m.emu.divmmc().rom_data()[0x0008] = 0x3F;
+            set_regs(m, 0x81, 0);
+            m.dbg->set_trace_enabled(true);
+            m.set_pc(0x0007);
+            (void)step_pair(m);
+            const auto& t = m.emu.trace_log();
+            const TraceEntry& e = t.at(t.size() - 1);
+            check("SRCDBG-ID-35", "a prefix whose inner byte is an instant DivMMC entry: the inner M1 "
+                                  "maps the DivMMC itself - SRL A (A = $40), the trace shows CB 3F",
+                  (m.dbg->registers().AF >> 8) == 0x40 && m.pc() == 0x0009 && e.pc == 0x0007 &&
+                      e.opcode_bytes[0] == 0xCB && e.opcode_bytes[1] == 0x3F && e.opcode_len == 2,
+                  "A=" + hex(m.dbg->registers().AF >> 8) + " " + dump(e));
+        }
+        {
+            // conmem: the DivMMC ROM is mapped for every cycle, the operand bytes included.
+            Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+            m.dbg->nextreg_write(m.a, 0x50, 10);
+            m.dbg->nextreg_write(m.a, 0x0A, 0x00);
+            m.dbg->port_out(m.a, 0xE3, 0x80);
+            uint8_t* drom = m.emu.divmmc().rom_data();
+            drom[0x0100] = 0x3A; drom[0x0101] = 0x00; drom[0x0102] = 0x90;   // LD A,($9000)
+            m.emu.mmu().write(0x9000, 0x5A);
+            m.dbg->set_trace_enabled(true);
+            m.set_pc(0x0100);
+            (void)step_pair(m);
+            const auto& t = m.emu.trace_log();
+            const TraceEntry& e = t.at(t.size() - 1);
+            check("SRCDBG-ID-36", "conmem: the trace shows the DivMMC ROM's operand bytes (3A 00 90)",
+                  m.emu.divmmc().conmem() && (m.dbg->registers().AF >> 8) == 0x5A &&
+                      e.opcode_bytes[0] == 0x3A && e.opcode_bytes[1] == 0x00 &&
+                      e.opcode_bytes[2] == 0x90 && e.opcode_len == 3,
+                  dump(e));
+        }
+        {
+            // The call-stack tracker reads the same bytes the CPU runs: a CALL in RAM at a delayed
+            // $0008 takes its operands from the DivMMC ROM (target $0030, not the RAM's $0020), and
+            // its caller is RAM page 10.
+            auto mp = delayed(0x02, 0x00);
+            Machine& m = *mp;
+            m.emu.mmu().write(0x0008, 0xCD); m.emu.mmu().write(0x0009, 0x20); m.emu.mmu().write(0x000A, 0x00);
+            uint8_t* drom = m.emu.divmmc().rom_data();
+            drom[0x0008] = 0x00; drom[0x0009] = 0x30; drom[0x000A] = 0x00;
+            m.emu.mmu().write(0x8000, 0xCF);
+            m.dbg->set_call_stack_enabled(true);
+            m.set_pc(0x8000);
+            (void)step_pair(m); (void)step_pair(m);
+            const auto& f = m.dbg->call_stack();
+            check("SRCDBG-ID-37", "a CALL in RAM at a delayed DivMMC entry: its frame has the caller page "
+                                  "RAM page 10 and the target the DivMMC ROM's operands ($0030)",
+                  m.pc() == 0x0030 && f.size() == 2 && f[1].caller_pc == 0x0008 &&
+                      f[1].caller_page == 10 && f[1].target_pc == 0x0030,
+                  [&] {
+                      std::string d = "pc=" + hex(m.pc()) + " frames=" + std::to_string(f.size());
+                      if (f.size() > 1)
+                          d += " [" + hex(f[1].caller_pc) + "->" + hex(f[1].target_pc) +
+                               " cp=" + std::to_string(f[1].caller_page) + "]";
+                      return d;
+                  }());
+        }
+        {
+            // The NMI feedback is sampled after the instruction: the one at a delayed entry already
+            // disables the NMI (the hold is loaded), the one that unmaps already releases it
+            // (divmmc.vhd:139-143,150).
+            auto mp = delayed(0x02, 0x00);
+            Machine& m = *mp;
+            m.emu.mmu().write(0x8000, 0xCF);
+            m.set_pc(0x8000);
+            (void)step_pair(m);
+            const bool before = m.emu.divmmc().is_nmi_hold();
+            (void)step_pair(m);                       // the instruction at $0008
+            check("SRCDBG-ID-29", "the instruction at a delayed DivMMC entry disables the NMI "
+                                  "(is_nmi_hold) once it has been fetched, not before",
+                  !before && m.emu.divmmc().is_nmi_hold(),
+                  std::string(before ? "held already" : "not held yet") +
+                      (m.emu.divmmc().is_nmi_hold() ? ", held after" : ", not held after"));
+            auto up = delayed(0x01, 0x01);
+            Machine& u = *up;
+            u.dbg->nextreg_write(u.a, 0xBB, 0x40);
+            uint8_t* drom = u.emu.divmmc().rom_data();
+            drom[0] = 0xC3; drom[1] = 0xF8; drom[2] = 0x1F;   // JP $1FF8
+            drom[0x1FF8] = 0x00;
+            u.set_pc(0x0000);
+            (void)step_pair(u);
+            const bool mapped = u.emu.divmmc().is_nmi_hold();
+            (void)step_pair(u);                       // the NOP at $1FF8 unmaps
+            check("SRCDBG-ID-30", "the instruction that unmaps the DivMMC releases the NMI hold "
+                                  "(is_nmi_hold) once it has been fetched",
+                  mapped && !u.emu.divmmc().is_nmi_hold(),
+                  std::string(mapped ? "held before" : "not held before") +
+                      (u.emu.divmmc().is_nmi_hold() ? ", held after" : ", released after"));
+        }
+    }
+    {
+        // Each inner byte of a prefix chain is an M1 with its own decode: a prefix at $0007 and an
+        // inner byte at $0008, a DELAYED entry, is still RAM's (the hold it loads reaches the cycles
+        // AFTER that fetch, divmmc.vhd:127-143), while the DivMMC ROM byte at $0008 differs. What the
+        // CPU's M1 callback, the Z80N dispatch, the magic-breakpoint test and the IncDecZ latch see
+        // for that byte is the RAM's (ID-38..42).
+        auto setup = [](uint8_t b8) {
+            auto m = std::make_unique<Machine>(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+            m->dbg->nextreg_write(m->a, 0x50, 10);
+            m->dbg->nextreg_write(m->a, 0x0A, 0x10);
+            m->dbg->nextreg_write(m->a, 0xB8, b8);
+            m->dbg->nextreg_write(m->a, 0xB9, b8);
+            m->dbg->nextreg_write(m->a, 0xBA, 0x00);   // delayed
+            m->emu.divmmc().rom_data()[0x0008] = 0x00;  // the DivMMC ROM's byte, never the one wanted
+            return m;
+        };
+        struct Seen { uint16_t pc; uint8_t b; };
+        auto spy = [](Machine& m, std::vector<Seen>& log) {
+            auto orig = m.emu.cpu().on_m1_cycle;
+            m.emu.cpu().on_m1_cycle = [&log, orig](uint16_t pc, uint8_t b) {
+                log.push_back({pc, b});
+                if (orig) orig(pc, b);
+            };
+        };
+        auto saw = [](const std::vector<Seen>& log, uint16_t pc, uint8_t b) {
+            for (const Seen& s : log) if (s.pc == pc && s.b == b) return true;
+            return false;
+        };
+        auto set_regs = [](Machine& m, uint16_t af, uint16_t bc, bool incdecz) {
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.AF = af; r.BC = bc; r.IncDecZ = incdecz ? 1 : 0;
+            m.emu.cpu().set_registers(r);
+        };
+        {
+            auto mp = setup(0x02);
+            Machine& m = *mp;
+            m.emu.mmu().write(0x0007, 0xED); m.emu.mmu().write(0x0008, 0x23);   // SWAPNIB
+            set_regs(m, 0x1200, 0, false);
+            m.dbg->set_trace_enabled(true);
+            m.set_pc(0x0007);
+            (void)step_pair(m);
+            const auto& t = m.emu.trace_log();
+            const TraceEntry& e = t.at(t.size() - 1);
+            check("SRCDBG-ID-38", "ED at $0007 with its Z80N opcode at a delayed DivMMC entry ($0008): "
+                                  "the byte is RAM's, SWAPNIB runs (A = $21) and the trace shows ED 23",
+                  (m.dbg->registers().AF >> 8) == 0x21 && m.pc() == 0x0009 &&
+                      e.opcode_bytes[0] == 0xED && e.opcode_bytes[1] == 0x23 && e.opcode_len == 2,
+                  "A=" + hex(m.dbg->registers().AF >> 8) + " " + m.where());
+        }
+        {
+            // The mirror: the inner byte INSIDE the unmap window. The instruction at $1FF7 is the
+            // DivMMC ROM's (held), its inner byte at $1FF8 still is (the hold the first M1 loaded
+            // reaches an M1 as `held`), and only the cycles after that fetch are RAM's.
+            auto mp = setup(0x01);
+            Machine& m = *mp;
+            m.dbg->nextreg_write(m.a, 0xBA, 0x01);
+            m.dbg->nextreg_write(m.a, 0xBB, 0x40);
+            m.emu.mmu().write(0x1FF8, 0x3F);          // RAM: SRL A, never run
+            uint8_t* drom = m.emu.divmmc().rom_data();
+            drom[0] = 0xC3; drom[1] = 0xF7; drom[2] = 0x1F;   // JP $1FF7
+            drom[0x1FF7] = 0xCB; drom[0x1FF8] = 0x07;          // RLC A
+            set_regs(m, 0x8100, 0, false);
+            m.dbg->set_trace_enabled(true);
+            m.set_pc(0x0000);
+            (void)step_pair(m); (void)step_pair(m);
+            const auto& t = m.emu.trace_log();
+            const TraceEntry& e = t.at(t.size() - 1);
+            check("SRCDBG-ID-43", "CB at $1FF7 with its inner byte inside the unmap window: the byte is "
+                                  "the DivMMC ROM's (RLC A, A = $03), and so is the trace's (CB 07)",
+                  (m.dbg->registers().AF >> 8) == 0x03 && m.pc() == 0x1FF9 && e.pc == 0x1FF7 &&
+                      e.opcode_bytes[0] == 0xCB && e.opcode_bytes[1] == 0x07 && e.opcode_len == 2,
+                  "A=" + hex(m.dbg->registers().AF >> 8) + " " + m.where());
+        }
+        {
+            // DD CB d op across the unmap: DD at $1FF7 and CB at $1FF8 are the DivMMC ROM's (the CB
+            // M1 loads the released hold), d and op at $1FF9/$1FFA are plain data reads of RAM.
+            auto mp = setup(0x01);
+            Machine& m = *mp;
+            m.dbg->nextreg_write(m.a, 0xBA, 0x01);
+            m.dbg->nextreg_write(m.a, 0xBB, 0x40);
+            m.emu.mmu().write(0x1FF9, 0x05); m.emu.mmu().write(0x1FFA, 0x06);   // RAM: RLC (IX+5)
+            uint8_t* drom = m.emu.divmmc().rom_data();
+            drom[0] = 0xC3; drom[1] = 0xF7; drom[2] = 0x1F;   // JP $1FF7
+            drom[0x1FF7] = 0xDD; drom[0x1FF8] = 0xCB;
+            drom[0x1FF9] = 0x07; drom[0x1FFA] = 0x0E;          // RRC (IX+7), not run
+            m.emu.mmu().write(0xA005, 0x01); m.emu.mmu().write(0xA007, 0x01);
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.IX = 0xA000;
+            m.emu.cpu().set_registers(r);
+            m.dbg->set_trace_enabled(true);
+            m.set_pc(0x0000);
+            (void)step_pair(m); (void)step_pair(m);
+            const auto& t = m.emu.trace_log();
+            const TraceEntry& e = t.at(t.size() - 1);
+            check("SRCDBG-ID-44", "DD CB d op across the unmap: d and op are no M1, they come from RAM "
+                                  "(RLC (IX+5)) and the trace shows DD CB 05 06",
+                  m.emu.mmu().read(0xA005) == 0x02 && m.emu.mmu().read(0xA007) == 0x01 &&
+                      m.pc() == 0x1FFB && e.opcode_bytes[0] == 0xDD && e.opcode_bytes[1] == 0xCB &&
+                      e.opcode_bytes[2] == 0x05 && e.opcode_bytes[3] == 0x06 && e.opcode_len == 4,
+                  "(IX+5)=" + hex(m.emu.mmu().read(0xA005)) + " " + m.where());
+        }
+        {
+            auto mp = setup(0x02);
+            Machine& m = *mp;
+            std::vector<Seen> log;
+            spy(m, log);
+            m.emu.mmu().write(0x0007, 0xCB); m.emu.mmu().write(0x0008, 0x07);   // RLC A
+            set_regs(m, 0x8100, 0, false);
+            m.set_pc(0x0007);
+            (void)step_pair(m);
+            check("SRCDBG-ID-39", "CB at $0007, its inner byte at a delayed DivMMC entry: the M1 callback "
+                                  "sees RAM's 07 at $0008, and RLC A runs",
+                  saw(log, 0x0008, 0x07) && !saw(log, 0x0008, 0x00) && (m.dbg->registers().AF >> 8) == 0x03,
+                  "A=" + hex(m.dbg->registers().AF >> 8));
+        }
+        {
+            auto mp = setup(0x02);
+            Machine& m = *mp;
+            std::vector<Seen> log;
+            spy(m, log);
+            m.emu.mmu().write(0x0007, 0xDD); m.emu.mmu().write(0x0008, 0x0B);   // DD DEC BC
+            set_regs(m, 0, 0x0001, true);
+            m.set_pc(0x0007);
+            (void)step_pair(m);
+            check("SRCDBG-ID-40", "DD at $0007, DEC BC at a delayed DivMMC entry: the M1 callback sees "
+                                  "RAM's 0B and IncDecZ follows BC (0)",
+                  saw(log, 0x0008, 0x0B) && !saw(log, 0x0008, 0x00) &&
+                      m.emu.cpu().get_registers().BC == 0 && m.emu.cpu().get_registers().IncDecZ == 0,
+                  "BC=" + hex(m.emu.cpu().get_registers().BC) +
+                      " IncDecZ=" + std::to_string(m.emu.cpu().get_registers().IncDecZ));
+        }
+        {
+            auto mp = setup(0x02);
+            Machine& m = *mp;
+            std::vector<Seen> log;
+            spy(m, log);
+            m.emu.mmu().write(0x0006, 0xDD); m.emu.mmu().write(0x0007, 0xED);
+            m.emu.mmu().write(0x0008, 0xA0);                                   // DD ED LDI
+            set_regs(m, 0, 0x0001, true);
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.HL = 0x9000; r.DE = 0x9100;
+            m.emu.cpu().set_registers(r);
+            m.set_pc(0x0006);
+            (void)step_pair(m);
+            check("SRCDBG-ID-41", "DD ED at $0006/$0007, LDI at a delayed DivMMC entry: the M1 callback "
+                                  "sees RAM's A0 at $0008 and IncDecZ follows BC (0)",
+                  saw(log, 0x0008, 0xA0) && !saw(log, 0x0008, 0x00) &&
+                      m.emu.cpu().get_registers().BC == 0 && m.emu.cpu().get_registers().IncDecZ == 0,
+                  "BC=" + hex(m.emu.cpu().get_registers().BC) +
+                      " IncDecZ=" + std::to_string(m.emu.cpu().get_registers().IncDecZ));
+        }
+        {
+            // The M1 of the byte after an ED inside a DD/FD chain loads the hold like any other
+            // (divmmc.vhd:127-131): `DD ED A0` at $0006 with the A0 at a delayed entry ($0008) is
+            // RAM's, and the NEXT instruction, at $0009, is the DivMMC ROM's (LD A,$77), not RAM's NOP.
+            auto mp = setup(0x02);
+            Machine& m = *mp;
+            m.emu.mmu().write(0x0006, 0xDD); m.emu.mmu().write(0x0007, 0xED);
+            m.emu.mmu().write(0x0008, 0xA0);                                   // DD ED LDI
+            uint8_t* drom = m.emu.divmmc().rom_data();
+            drom[0x0009] = 0x3E; drom[0x000A] = 0x77;                          // LD A,$77
+            set_regs(m, 0, 0x0001, true);
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.HL = 0x9000; r.DE = 0x9100;
+            m.emu.cpu().set_registers(r);
+            m.set_pc(0x0006);
+            (void)step_pair(m);                       // DD ED LDI
+            (void)step_pair(m);                       // the instruction at $0009
+            check("SRCDBG-ID-45", "DD ED xx with xx at a delayed DivMMC entry: that M1 loads the hold, "
+                                  "so the next instruction is the DivMMC ROM's (LD A,$77, PC = $000B)",
+                  (m.dbg->registers().AF >> 8) == 0x77 && m.pc() == 0x000B,
+                  "A=" + hex(m.dbg->registers().AF >> 8) + " " + m.where());
+        }
+        {
+            // The predictor follows the chain past the first inner byte: `DD ED xx` with xx at an
+            // INSTANT entry ($0008): the third M1 maps the DivMMC itself (zxnext.vhd:4116-4125), so xx
+            // is the ROM's A0 (LDI) and the trace shows DD ED A0; RAM's 00 at $0008 is not executed.
+            auto mp = setup(0x02);
+            Machine& m = *mp;
+            m.dbg->nextreg_write(m.a, 0xBA, 0x02);   // instant
+            m.emu.mmu().write(0x0006, 0xDD); m.emu.mmu().write(0x0007, 0xED);
+            m.emu.divmmc().rom_data()[0x0008] = 0xA0;
+            set_regs(m, 0, 0x0001, true);
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.HL = 0x9000; r.DE = 0x9100;
+            m.emu.cpu().set_registers(r);
+            m.dbg->set_trace_enabled(true);
+            m.set_pc(0x0006);
+            (void)step_pair(m);
+            const auto& t = m.emu.trace_log();
+            const TraceEntry& e = t.at(t.size() - 1);
+            check("SRCDBG-ID-46", "DD ED xx with xx at an instant DivMMC entry: xx is the ROM's A0 - LDI "
+                                  "runs (BC = 0) and the trace shows DD ED A0, three bytes long",
+                  m.emu.cpu().get_registers().BC == 0 && m.pc() == 0x0009 && e.opcode_bytes[0] == 0xDD &&
+                      e.opcode_bytes[1] == 0xED && e.opcode_bytes[2] == 0xA0 && e.opcode_len == 3,
+                  "BC=" + hex(m.emu.cpu().get_registers().BC) + " " + m.where() + " bytes=" + hex(e.opcode_bytes[0]) + hex(e.opcode_bytes[1]) + hex(e.opcode_bytes[2]));
+        }
+        {
+            // A redundant DD/FD is a one-byte prefix in front of an instruction of its own (FUSE
+            // z80_ddfd.c default: back up and re-dispatch), so the trace's length is the chain's:
+            // DD DD LD A,n and DD FD LD IY,nn, plain RAM at $8000.
+            Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+            const uint8_t prog[] = {0xDD, 0xDD, 0x3E, 0x55,         // DD DD LD A,$55
+                                    0xDD, 0xFD, 0x21, 0x34, 0x12};   // DD FD LD IY,$1234
+            for (size_t i = 0; i < sizeof prog; ++i)
+                m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+            m.dbg->set_trace_enabled(true);
+            m.set_pc(0x8000);
+            (void)step_pair(m);
+            const auto& t = m.emu.trace_log();
+            const TraceEntry first = t.at(t.size() - 1);
+            const bool a_ok = (m.dbg->registers().AF >> 8) == 0x55 && m.pc() == 0x8004;
+            (void)step_pair(m);
+            const TraceEntry& second = t.at(t.size() - 1);
+            check("SRCDBG-ID-48", "redundant DD/FD prefixes: the trace's length is what the CPU runs "
+                                  "(DD DD LD A,n = 4, DD FD LD IY,nn = 5)",
+                  a_ok && first.opcode_len == 4 && second.opcode_len == 5 && m.pc() == 0x8009 &&
+                      m.dbg->registers().IY == 0x1234,
+                  "len " + std::to_string(first.opcode_len) + "/" + std::to_string(second.opcode_len) +
+                      " " + m.where());
+        }
+        {
+            // The disassembler's length is the true one for a redundant-prefix chain: ZRCP's
+            // cpu-step-over runs to pc + instruction_length(), the panel and the ZRCP disassembler
+            // advance by byte_count; a clamp at 4 lands in the middle of `DD FD LD IY,nn`.
+            Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+            const uint8_t prog[] = {0xDD, 0xFD, 0x21, 0x34, 0x12, 0x00};   // DD FD LD IY,$1234 ; NOP
+            for (size_t i = 0; i < sizeof prog; ++i)
+                m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+            const auto lines = m.dbg->disassemble(0x8000, 2, nullptr);
+            check("SRCDBG-ID-49", "DD FD LD IY,nn: the disassembler's byte_count and the debugger's "
+                                  "instruction_length are 5, and the next line starts at $8005",
+                  lines.size() == 2 && lines[0].byte_count == 5 && lines[0].bytes[3] == 0x34 &&
+                      m.dbg->instruction_length(0x8000) == 5 && lines[1].addr == 0x8005,
+                  lines.empty() ? std::string("no lines")
+                                : "count=" + std::to_string(lines[0].byte_count) + " len=" +
+                                      std::to_string(m.dbg->instruction_length(0x8000)));
+        }
+        {
+            // Memory full of DD / FD bytes (or the address space wrapping onto one) must not recurse
+            // once per byte: the chain is bounded at 64 redundant prefixes, the next prefix byte is a
+            // line of its own (DB $DD), so one line is 65 bytes long.
+            auto all_dd = [](uint16_t) -> uint8_t { return 0xDD; };
+            auto all_fd = [](uint16_t) -> uint8_t { return 0xFD; };
+            const DisasmLine a = disasm_one(0x1234, all_dd);
+            const DisasmLine b = disasm_one(0x0000, all_fd);
+            check("SRCDBG-ID-50", "a run of DD or FD bytes disassembles to one bounded line (65 bytes, "
+                                  "ending in DB) and instruction_length agrees",
+                  a.byte_count == 65 && b.byte_count == 65 && instruction_length(0x1234, all_dd) == 65 &&
+                      std::string(a.mnemonic) == "DB $DD" && std::string(b.mnemonic) == "DB $FD",
+                  "counts " + std::to_string(a.byte_count) + "/" + std::to_string(b.byte_count) + " '" +
+                      a.mnemonic + "'");
+        }
+        {
+            // The Multiface's 0x0066 latch across a prefix chain: CB at $0065 (RAM), the M1 of the inner
+            // byte at $0066 latches the armed Multiface (multiface.vhd:169-186), so that byte is the
+            // Multiface ROM's 3F (SRL A) and the trace shows CB 3F; RAM's 07 (RLC A) is not run.
+            Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+            m.dbg->nextreg_write(m.a, 0x50, 10);
+            m.emu.multiface().set_enabled(true);
+            m.emu.mmu().write(0x0065, 0xCB); m.emu.mmu().write(0x0066, 0x07);
+            m.emu.ram().page_ptr(0x0A)[0x66] = 0x3F;   // Multiface ROM $0066: SRL A
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.AF = 0x8100;
+            m.emu.cpu().set_registers(r);
+            m.emu.multiface().button_press();
+            m.dbg->set_trace_enabled(true);
+            m.set_pc(0x0065);
+            (void)step_pair(m);
+            const auto& t = m.emu.trace_log();
+            const TraceEntry& e = t.at(t.size() - 1);
+            check("SRCDBG-ID-47", "CB at $0065, its inner byte at $0066 latching an armed Multiface: the "
+                                  "byte is the Multiface ROM's (SRL A, A = $40) and the trace shows CB 3F",
+                  (m.dbg->registers().AF >> 8) == 0x40 && e.pc == 0x0065 && e.opcode_bytes[0] == 0xCB &&
+                      e.opcode_bytes[1] == 0x3F && e.opcode_len == 2,
+                  "A=" + hex(m.dbg->registers().AF >> 8) + " " + m.where());
+        }
+        {
+            auto mp = setup(0x02);
+            Machine& m = *mp;
+            int hits = 0;
+            m.emu.cpu().on_magic_breakpoint = [&hits](uint16_t) { ++hits; return true; };
+            m.emu.mmu().write(0x0007, 0xDD); m.emu.mmu().write(0x0008, 0x01);   // DD 01: magic
+            m.set_pc(0x0007);
+            (void)step_pair(m);
+            check("SRCDBG-ID-42", "DD 01 with the 01 at a delayed DivMMC entry: RAM's byte, so the magic "
+                                  "breakpoint fires",
+                  hits == 1 && m.pc() == 0x0009, "hits=" + std::to_string(hits) + " " + m.where());
+        }
+    }
+    {
+        // The live gate (execute_gate, run while a machine RUNS with an Execute subscription) takes
+        // the same prediction as probe_execute (ID-02, ID-06): at an instant DivMMC entry the fetch
+        // at $0000 is the DivMMC ROM's, so a page_ram_only subscription on RAM page 10 there is
+        // refused and a plain page qualifier, which compares numbers alone, still matches.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+        m.dbg->nextreg_write(m.a, 0xB8, 0x01);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x01);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x01);
+        m.emu.divmmc().rom_data()[0] = 0x3C;      // INC A
+        m.emu.divmmc().rom_data()[1] = 0xC9;      // RET
+        m.emu.mmu().write(0x0000, 0x00);          // RAM page 10: NOP
+        m.emu.mmu().write(0x8000, 0xCD);          // CALL $0000
+        m.emu.mmu().write(0x8001, 0x00);
+        m.emu.mmu().write(0x8002, 0x00);
+        m.set_pc(0x8000);
+        int ram_only_hits = 0, plain_hits = 0;
+        Subscription ram_only;
+        ram_only.kind = EventKind::Execute;
+        ram_only.filter.lo = ram_only.filter.hi = 0x0000;
+        ram_only.filter.page = 10;
+        ram_only.filter.page_ram_only = true;
+        ram_only.action = Action::Continue;
+        ram_only.handler = [&ram_only_hits](const jnext::dbg::Event&, Debugger&) {
+            ++ram_only_hits;
+            return Action::Continue;
+        };
+        Subscription plain = ram_only;
+        plain.filter.page_ram_only = false;
+        plain.handler = [&plain_hits](const jnext::dbg::Event&, Debugger&) {
+            ++plain_hits;
+            return Action::Continue;
+        };
+        m.dbg->subscribe(m.a, ram_only);
+        m.dbg->subscribe(m.a, plain);
+        m.dbg->run(m.a);
+        m.emu.run_frame();
+        check("SRCDBG-ID-21", "while running, an Execute gate at an instant DivMMC entry refuses a "
+                              "page_ram_only subscription on the RAM page there and delivers the plain "
+                              "page-qualified one",
+              ram_only_hits == 0 && plain_hits >= 1,
+              "ram_only=" + std::to_string(ram_only_hits) + " plain=" + std::to_string(plain_hits));
+    }
+    {
+        // PURE-01/02 -- asking is not doing. The prediction functions run inside the
+        // guest's own execution scope, where a READ watch, a Mem subscription and the +3
+        // floating-bus latch are all live, over probes that hit every overlay, and the
+        // machine must not notice: the whole save-state stream (memory, Mmu incl. the
+        // latch, the DivMMC and Multiface state machines, NextREGs) is byte-identical,
+        // no watchpoint fired, nothing entered the CAP-EVT ring. PURE-02 is the control:
+        // ONE guest read of an address in the same fixture moves all three, so PURE-01
+        // cannot be passing because nothing in the fixture is live.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        auto& emu = m.emu;
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+        m.dbg->nextreg_write(m.a, 0xB8, 0xFF);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x0F);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x03);
+        m.dbg->nextreg_write(m.a, 0xBB, 0xFF);
+        emu.divmmc().set_button_nmi(true);
+        emu.multiface().set_enabled(true);
+        emu.multiface().button_press();
+        m.dbg->port_out(m.a, 0x123B, 0xC4);
+        emu.mmu().set_machine_timing(MachineTimingMode::TimingPlus3);
+        m.dbg->nextreg_write(m.a, 0x52, 0x08);                  // MMU2 = 0x08: contended
+        emu.ram().page_ptr(0x32)[0] = 0xC7;                     // Layer 2 at $4000: bank 8 + segment 1 = page 0x12, SRAM 0x32
+        emu.mmu().set_p3_floating_bus_dat(0x3C);
+        const uint16_t probes[] = {0x0000, 0x0008, 0x0066, 0x1FF8, 0x3D00, 0x4000, 0x8000};
+        for (uint16_t p : probes) emu.debug_state().breakpoints().add_watchpoint(p, WatchType::READ);
+        Subscription sub;
+        sub.kind = EventKind::Mem;
+        sub.access = Access::Read;
+        sub.filter.lo = 0x0000;
+        sub.filter.hi = 0xFFFF;
+        sub.action = Action::Continue;
+        m.dbg->subscribe(m.a, sub);
+
+        auto stream = [&] {
+            StateWriter measure;
+            emu.save_state(measure);
+            std::vector<uint8_t> bytes(measure.position());
+            StateWriter w(bytes.data(), bytes.size());
+            emu.save_state(w);
+            return bytes;
+        };
+        auto ring = [&] { return emu.debug_state().event_table()->size(); };
+        const std::vector<uint8_t> before = stream();
+        const size_t ring_before = ring();
+        uint32_t sink = 0;
+        {
+            DebugState::GuestExecutionScope guest(emu.debug_state());
+            for (uint16_t p : probes) {
+                sink += m.dbg->source_page(p).index;
+                sink += emu.predict_fetch(p).index;
+                sink += emu.mmu().route(p).offset;
+                for (int t = 0; t < 4; ++t)
+                    sink += emu.mmu().route_with(p, (t & 1) != 0, (t & 2) != 0).offset;
+                sink += emu.multiface().would_latch_on_m1(p) ? 1u : 0u;
+                for (int g = 0; g < 4; ++g)
+                    sink += emu.divmmc().active_on_m1(p, (g & 1) != 0, (g & 2) != 0, false, false) ? 1u : 0u;
+            }
+        }
+        const std::vector<uint8_t> after = stream();
+        const bool untouched = before == after && !emu.debug_state().data_bp_hit() &&
+                               ring() == ring_before && emu.mmu().p3_floating_bus_dat() == 0x3C;
+        check("SRCDBG-PURE-01", "source_page, predict_fetch, route, route_with, would_latch_on_m1 and "
+                                "active_on_m1 over every overlay, inside the guest's scope with watches "
+                                "armed, change nothing: the save stream, the latch, the watch flag and "
+                                "the event ring are as they were",
+              untouched,
+              "sink=" + std::to_string(sink) + " stream_equal=" + std::to_string(before == after) +
+                  " hit=" + std::to_string(emu.debug_state().data_bp_hit()) + " ring=" +
+                  std::to_string(ring_before) + "->" + std::to_string(ring()) + " latch=" +
+                  hex(emu.mmu().p3_floating_bus_dat()));
+
+        uint8_t byte = 0;
+        {
+            DebugState::GuestExecutionScope guest(emu.debug_state());
+            byte = emu.mmu().read(0x4000);
+        }
+        const std::vector<uint8_t> moved = stream();
+        const bool latch_moved = emu.mmu().p3_floating_bus_dat() == 0xC7;
+        check("SRCDBG-PURE-02", "control for PURE-01: ONE guest read of $4000 in the same fixture moves "
+                                "the floating-bus latch, raises the watchpoint and enters the event "
+                                "ring, and the save stream sees it",
+              byte == 0xC7 && latch_moved && emu.debug_state().data_bp_hit() && ring() > ring_before &&
+                  moved != before,
+              "byte=" + hex(byte) + " latch=" + hex(emu.mmu().p3_floating_bus_dat()) + " hit=" +
+                  std::to_string(emu.debug_state().data_bp_hit()) + " ring=" + std::to_string(ring()) +
+                  " stream_equal=" + std::to_string(moved == before));
     }
 
     // ── a step ends at DI:HALT, and within its frame budget ─────────────

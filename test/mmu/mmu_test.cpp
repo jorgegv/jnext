@@ -24,6 +24,8 @@
 #include "memory/ram.h"
 #include "memory/rom.h"
 #include "memory/contention.h"
+#include "peripheral/divmmc.h"
+#include "peripheral/multiface.h"
 #include "core/nex_loader.h"
 #include "core/nex_saver.h"
 #include "core/szx_saver.h"
@@ -6679,6 +6681,597 @@ void test_cat28_bank7_bram_standin() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Cat32 -- fetch identity (GH #339): the ONE read arbiter, Mmu::route()
+//
+// `Mmu::route(addr)` names what supplies a CPU read -- the memory (a
+// `MemSpace`), the offset in it, the byte -- and `read()` / `read_m1()` are that
+// answer plus one side-effect tail. Every expected value below is derived from
+// the VHDL (zxnext.vhd, cited per row), never from the C++: the memory map is
+// :2920-2927, the decode order :2937-2945, the early decode :3029-3066, the SRAM
+// arbiter :3084-3132 and the cpu_di mux :1856-1870.
+//
+// The fixture is a Next: Ram 2 MB, ROM in SRAM, a DivMMC and a Multiface wired
+// the way Emulator::init wires them, config mode off and no boot ROM unless a
+// row turns them on. MMU0..7 are the reset values (0xFF 0xFF 0x0A 0x0B 0x04
+// 0x05 0x00 0x01), NR 0x12 (Layer 2 bank) is 8.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+using jnext::dbg::MemSpace;
+
+struct RouteFx {
+    Ram       ram;
+    Rom       rom;
+    Mmu       mmu;
+    DivMmc    dm;
+    Multiface mf;
+
+    RouteFx() : ram(), rom(), mmu(ram, rom) {
+        mmu.reset();
+        mmu.set_rom_in_sram(true);          // a Next
+        dm.reset();
+        dm.set_enabled(true);               // port_divmmc_io_en
+        dm.set_nr_0a_4_enable(true);        // nr_0a_divmmc_automap_en
+        mf.set_enabled(true);               // port_multiface_io_en
+        mmu.set_divmmc(&dm);
+        mmu.set_multiface(&mf);
+    }
+    // mf_mem_en: the button arms the NMI, the 0x0066 fetch latches mf_enable
+    // (multiface.vhd:135-148, :169-176).
+    void mf_on() {
+        mf.button_press();
+        mf.on_m1(0x0066, true);
+    }
+    void divmmc_conmem(uint8_t e3 = 0x80) { dm.write_control(e3); }
+};
+
+std::string route_str(const Mmu::Route& r) {
+    char b[64];
+    std::snprintf(b, sizeof(b), "kind%u:idx%u@%04X%s", unsigned(r.space.kind),
+                  unsigned(r.space.index), unsigned(r.offset), r.ptr ? "" : "(no byte)");
+    return b;
+}
+
+// Collects the first few disagreements of one row, so a failure says WHICH.
+struct RouteCheck {
+    bool        ok = true;
+    std::string why;
+    void expect(const Mmu& mmu, const char* what, uint16_t addr, MemSpace sp, uint16_t off) {
+        const Mmu::Route r = mmu.route(addr);
+        if (r.space == sp && r.offset == off) return;
+        ok = false;
+        if (why.size() < 400)
+            why += fmt("%s: route(%04X)=%s want kind%u:idx%u@%04X; ", what, addr,
+                       route_str(r).c_str(), unsigned(sp.kind), unsigned(sp.index), off);
+    }
+    void expect_nothing(const Mmu& mmu, const char* what, uint16_t addr) {
+        const Mmu::Route r = mmu.route(addr);
+        if (r.space == MemSpace::floating() && r.ptr == nullptr) return;
+        ok = false;
+        if (why.size() < 400)
+            why += fmt("%s: route(%04X)=%s want floating with no byte; ", what, addr,
+                       route_str(r).c_str());
+    }
+};
+
+// The VHDL derivation of one slot's source from the MMU REGISTERS alone
+// (zxnext.vhd:2952-2964 mem_active_page -> mmu_A21_A13(8); :3037-3043 and
+// :3059-3065 a page below 0xE0 is that page; :3052 slots 0/1 on a page >= 0xE0
+// fall to the legacy ROM, `sram_rom` of it; :3060-3061 slots 2-7 there have no
+// SRAM at all).
+MemSpace derive_slot_source(const Mmu& mmu, int slot) {
+    const uint8_t n = mmu.get_nr_page(slot);
+    if (n < 0xE0) return MemSpace::page(n);
+    if (slot < 2) return MemSpace::rom(mmu.current_sram_rom());
+    return MemSpace::floating();
+}
+
+// All eight slots against the derivation, at an address that is neither the
+// first nor the last byte of its slot. A ROM slot's half is cpu_a(13).
+void check_slots_against_registers(const Mmu& mmu, const char* when, RouteCheck& rc) {
+    for (int s = 0; s < 8; ++s) {
+        const MemSpace want = derive_slot_source(mmu, s);
+        const uint16_t off  = static_cast<uint16_t>(
+            (want.kind == MemSpace::Kind::Rom ? (s & 1) * 0x2000 : 0) + 0x123);
+        char what[64];
+        std::snprintf(what, sizeof(what), "%s slot%d", when, s);
+        rc.expect(mmu, what, static_cast<uint16_t>(s * 0x2000 + 0x123), want, off);
+    }
+}
+
+}  // namespace
+
+void test_cat32_fetch_identity() {
+    set_group("Cat32 fetch identity (GH #339)");
+
+    // FSRC-01: the boot ROM answers first -- above the Multiface, DivMMC and
+    // Layer 2, and above the whole SRAM arbiter -- and its 8 KB mirror through
+    // the 16 KB window. VHDL zxnext.vhd:1856-1857 (cpu_a(15:14)="00" and
+    // bootrom_en, tested before any SRAM source) and :3199-3204 (cpu_a(12:0)).
+    {
+        RouteFx f;
+        std::vector<uint8_t> blob(0x2000);
+        for (size_t i = 0; i < blob.size(); ++i) blob[i] = static_cast<uint8_t>(0x80 ^ (i * 7));
+        f.mmu.set_boot_rom(blob.data(), blob.size());
+        f.mf_on();
+        f.divmmc_conmem(0x80);
+        f.mmu.set_l2_port(0x04, 8);                    // Layer 2 read mapping, segment 00
+        RouteCheck rc;
+        rc.expect(f.mmu, "first byte", 0x0000, MemSpace::boot_rom(), 0x0000);
+        rc.expect(f.mmu, "mirror of byte 0", 0x2000, MemSpace::boot_rom(), 0x0000);
+        rc.expect(f.mmu, "last byte of the window", 0x3FFF, MemSpace::boot_rom(), 0x1FFF);
+        rc.expect(f.mmu, "above the window", 0x4000, MemSpace::page(0x0A), 0x0000);
+        const Mmu::Route r = f.mmu.route(0x3FFF);
+        rc.ok = rc.ok && r.ptr && *r.ptr == blob[0x1FFF];
+        f.mmu.set_boot_rom_enabled(false);
+        rc.expect(f.mmu, "boot ROM off: the Multiface is next", 0x0000, MemSpace::multiface_rom(), 0x0000);
+        check("FSRC-01",
+              "the boot ROM is served first (above Multiface, DivMMC, Layer 2), mirrored through "
+              "0x0000-0x3FFF, and gives way to the Multiface when disabled -- VHDL zxnext.vhd:1856-1857, "
+              "3199-3204, 3030-3035",
+              rc.ok, rc.why);
+    }
+
+    // FSRC-02: the Multiface is above DivMMC and Layer 2 -- its mf_mem_en forces
+    // sram_pre_override to "000" (divmmc & layer 2 & romcs all gone) and maps
+    // SRAM page 0x0A (ROM, cpu_a(13)=0) / 0x0B (RAM, cpu_a(13)=1) over 0x0000-
+    // 0x3FFF only. VHDL zxnext.vhd:3030-3035 (+ :2933-2950).
+    {
+        RouteFx f;
+        f.mf_on();
+        f.divmmc_conmem(0x85);                         // conmem, bank 5
+        f.mmu.set_l2_port(0x04, 8);
+        RouteCheck rc;
+        rc.expect(f.mmu, "MF ROM first byte", 0x0000, MemSpace::multiface_rom(), 0x0000);
+        rc.expect(f.mmu, "MF ROM last byte", 0x1FFF, MemSpace::multiface_rom(), 0x1FFF);
+        rc.expect(f.mmu, "MF RAM first byte", 0x2000, MemSpace::multiface_ram(), 0x0000);
+        rc.expect(f.mmu, "MF RAM last byte", 0x3FFF, MemSpace::multiface_ram(), 0x1FFF);
+        rc.expect(f.mmu, "above the window", 0x4000, MemSpace::page(0x0A), 0x0000);
+        // route_with() answers for the cycle it is TOLD about, not for the live overlays:
+        // with the Multiface and DivMMC given as off for an M1 (the live Multiface is on),
+        // the low half is Layer 2's, and with the Multiface given as on it is the Multiface's.
+        const Mmu::Route off = f.mmu.route_with(0x0000, false, false);
+        const Mmu::Route mfp = f.mmu.route_with(0x0000, false, true);
+        if (!(off.space == MemSpace::layer2(0x10) && mfp.space == MemSpace::multiface_rom())) {
+            rc.ok = false;
+            rc.why += "route_with: off=" + route_str(off) + " mf=" + route_str(mfp) + "; ";
+        }
+        check("FSRC-02",
+              "an active Multiface supplies 0x0000-0x3FFF (ROM half below 0x2000, RAM half above) over "
+              "DivMMC conmem and the Layer 2 read mapping, and nothing above 0x3FFF; route_with() takes "
+              "the Multiface and DivMMC as given, not as live -- VHDL zxnext.vhd:3030-3035, 2933-2950",
+              rc.ok, rc.why);
+    }
+
+    // FSRC-03: DivMMC ROM beats an MMU RAM page (override "110", :3043) and
+    // Layer 2 (the DivMMC arm :3084 precedes :3100); with port_divmmc_io_en low
+    // `o_divmmc_rom_en <= rom_en and i_en` (divmmc.vhd:98) is low and Layer 2 is
+    // next. NR 0x12 is 8, segment 00: layer2_active_page = (8+0)<<1 | cpu_a(13).
+    {
+        RouteFx f;
+        f.mmu.set_page(0, 0x20);                       // MMU0 is a RAM page
+        f.divmmc_conmem(0x80);
+        f.mmu.set_l2_port(0x04, 8);
+        RouteCheck rc;
+        rc.expect(f.mmu, "DivMMC ROM first byte", 0x0000, MemSpace::divmmc_rom(), 0x0000);
+        rc.expect(f.mmu, "DivMMC ROM last byte", 0x1FFF, MemSpace::divmmc_rom(), 0x1FFF);
+        f.dm.set_port_io_enable(false);
+        rc.expect(f.mmu, "port io off: Layer 2", 0x0000, MemSpace::layer2(0x10), 0x0000);
+        check("FSRC-03",
+              "DivMMC ROM (conmem) is served over an MMU RAM page and over Layer 2, and Layer 2 takes "
+              "over when port_divmmc_io_en is low -- VHDL zxnext.vhd:3043, 3084-3090, 3100; divmmc.vhd:94,98",
+              rc.ok, rc.why);
+    }
+
+    // FSRC-04: DivMMC RAM is the selected bank at page 1 and, under MAPRAM,
+    // bank 3 at page 0 (ram_bank <= X"3" when page0). divmmc.vhd:95-96,99; :3092-3093.
+    {
+        RouteFx f;
+        f.divmmc_conmem(0x85);                         // conmem, bank 5
+        RouteCheck rc;
+        rc.expect(f.mmu, "page 1 first byte", 0x2000, MemSpace::divmmc_ram(5), 0x0000);
+        rc.expect(f.mmu, "page 1 last byte", 0x3FFF, MemSpace::divmmc_ram(5), 0x1FFF);
+        rc.expect(f.mmu, "page 0 without MAPRAM is the ROM", 0x0000, MemSpace::divmmc_rom(), 0x0000);
+        f.divmmc_conmem(0xC5);                         // conmem + MAPRAM, bank 5
+        rc.expect(f.mmu, "MAPRAM: page 0 is bank 3", 0x0000, MemSpace::divmmc_ram(3), 0x0000);
+        rc.expect(f.mmu, "MAPRAM: page 0 last byte", 0x1FFF, MemSpace::divmmc_ram(3), 0x1FFF);
+        rc.expect(f.mmu, "MAPRAM: page 1 is bank 5", 0x2000, MemSpace::divmmc_ram(5), 0x0000);
+        check("FSRC-04",
+              "DivMMC RAM: the control register's bank at 0x2000-0x3FFF, and bank 3 at 0x0000-0x1FFF "
+              "under MAPRAM -- VHDL divmmc.vhd:95-96,99; zxnext.vhd:3092-3093",
+              rc.ok, rc.why);
+    }
+
+    // FSRC-05: Layer 2 -- the page is ((bank + offset_pre + offset) << 1) | cpu_a(13),
+    // bank = NR 0x12 (NR 0x13 under map_shadow), offset_pre = segment, or
+    // cpu_a(15:14) when the segment is "11", offset = the port 0x123B offset
+    // register; the low half is mapped in every segment, 0x4000-0xBFFF only at
+    // "11" (:3065), 0xC000+ never. VHDL zxnext.vhd:2966-2969, :3065, :3077, :3100.
+    {
+        RouteFx f;
+        RouteCheck rc;
+        f.mmu.set_l2_port(0x04, 9);                    // (a) read mapping, segment 00, NR 0x12 = 9
+        rc.expect(f.mmu, "(a) 0x0000", 0x0000, MemSpace::layer2(0x12), 0x0000);
+        rc.expect(f.mmu, "(a) 0x2000", 0x2000, MemSpace::layer2(0x13), 0x0000);
+        rc.expect(f.mmu, "(a) 0x4000 is not mapped at segment 00", 0x4000, MemSpace::page(0x0A), 0x0000);
+        f.mmu.set_l2_port(0xC4, 9);                    // (b) segment 11
+        rc.expect(f.mmu, "(b) 0x4000", 0x4000, MemSpace::layer2(0x14), 0x0000);
+        rc.expect(f.mmu, "(b) 0x8000", 0x8000, MemSpace::layer2(0x16), 0x0000);
+        rc.expect(f.mmu, "(b) 0xA000", 0xA000, MemSpace::layer2(0x17), 0x0000);
+        rc.expect(f.mmu, "(b) 0xC000 is never mapped", 0xC000, MemSpace::page(0x00), 0x0000);
+        f.mmu.set_l2_port(0x12, 9);                    // (c) offset register = 2 (bit 4 set)
+        f.mmu.set_l2_port(0xC4, 9);                    //     then segment 11 again
+        rc.expect(f.mmu, "(c) offset 2 at 0x0000", 0x0000, MemSpace::layer2(0x16), 0x0000);
+        f.mmu.set_l2_port(0x10, 9);                    // (d) offset back to 0
+        f.mmu.set_l2_shadow_bank(11);                  //     NR 0x13 = 11
+        f.mmu.set_l2_port(0xCC, 9);                    //     map_shadow, rd_en, segment 11
+        rc.expect(f.mmu, "(d) shadow bank at 0x0000", 0x0000, MemSpace::layer2(0x16), 0x0000);
+        rc.expect(f.mmu, "(d) shadow bank at 0x4000", 0x4000, MemSpace::layer2(0x18), 0x0000);
+        check("FSRC-05",
+              "Layer 2 read mapping: layer2_active_page = ((bank + offset_pre + offset) << 1) | cpu_a(13) "
+              "for segment 00 and 11, the offset register and the shadow bank; the high half only at "
+              "segment 11, never above 0xBFFF -- VHDL zxnext.vhd:2966-2969, 3065, 3077, 3100",
+              rc.ok, rc.why);
+    }
+
+    // FSRC-06: the alternate ROM read override, selected by sram_alt_128_n
+    // (:2981-3008) and taken only on a ROM-mapped slot 0/1 with config mode off:
+    // `sram_altrom_en` for a read needs override(0), alt_en and NOT alt_rw (:3078).
+    {
+        RouteFx f;
+        RouteCheck rc;
+        f.mmu.map_128k_bank(0x00);
+        f.mmu.set_nr_8c(0x80);                         // alt ROM on, read-visible
+        rc.expect(f.mmu, "7FFD=0x00: Alt ROM0 (128k)", 0x0000, MemSpace::alt_rom(0), 0x0000);
+        rc.expect(f.mmu, "7FFD=0x00: second half", 0x2000, MemSpace::alt_rom(0), 0x2000);
+        f.mmu.map_128k_bank(0x10);
+        rc.expect(f.mmu, "7FFD=0x10: Alt ROM1 (48k)", 0x0000, MemSpace::alt_rom(1), 0x0000);
+        f.mmu.map_128k_bank(0x00);
+        f.mmu.set_nr_8c(0xA0);                         // + lock_rom1
+        rc.expect(f.mmu, "lock_rom1: Alt ROM1", 0x0000, MemSpace::alt_rom(1), 0x0000);
+        f.mmu.set_nr_8c(0xC0);                         // alt_en + alt_rw: write-over, reads fall through
+        rc.expect(f.mmu, "alt_rw: the live ROM", 0x0000, MemSpace::rom(0), 0x0000);
+        f.mmu.set_nr_8c(0x80);
+        f.mmu.set_machine_type(MachineType::ZX48K);
+        rc.expect(f.mmu, "48K: sram_alt_128_n = not(not lock_rom1 and lock_rom0) = 1",
+                  0x0000, MemSpace::alt_rom(1), 0x0000);
+        f.mmu.set_machine_type(MachineType::ZXN_ISSUE2);
+        f.mmu.set_config_mode(true);
+        f.mmu.set_nr_04_romram_bank(9);
+        rc.expect(f.mmu, "config mode: override(0)=0, no alt ROM", 0x0000, MemSpace::config(9), 0x0000);
+        f.mmu.set_config_mode(false);
+        f.mmu.set_page(0, 0x20);
+        rc.expect(f.mmu, "MMU0 is RAM: override \"110\", no alt ROM", 0x0000, MemSpace::page(0x20), 0x0000);
+        check("FSRC-06",
+              "alternate ROM read override: Alt ROM0/1 by sram_alt_128_n (7FFD bit 4, the locks, 48K), "
+              "not in write-over mode, not in config mode, not over an MMU RAM page -- VHDL zxnext.vhd:"
+              "2981-3008, 3037, 3050, 3078, 3116-3122",
+              rc.ok, rc.why);
+    }
+
+    // FSRC-07: legacy ROM -- `sram_pre_A21_A13 <= "000000" & sram_rom & cpu_a(13)`
+    // (:3052); sram_rom by machine type (:2981-3008); an MMU page >= 0xE0 on slot
+    // 0/1 falls to it (:3037).
+    {
+        RouteFx f;
+        RouteCheck rc;
+        f.mmu.map_128k_bank(0x00);
+        rc.expect(f.mmu, "Next 7FFD=0x00 slot 0", 0x0000, MemSpace::rom(0), 0x0000);
+        rc.expect(f.mmu, "Next 7FFD=0x00 slot 1 is the second half", 0x2000, MemSpace::rom(0), 0x2000);
+        f.mmu.map_128k_bank(0x10);
+        rc.expect(f.mmu, "Next 7FFD=0x10", 0x0000, MemSpace::rom(1), 0x0000);
+        rc.expect(f.mmu, "Next 7FFD=0x10 slot 1", 0x3FFF, MemSpace::rom(1), 0x3FFF);
+        f.mmu.set_nr_8c(0x20);                         // lock_rom1
+        rc.expect(f.mmu, "lock_rom1 wins over 7FFD=0x00", 0x0000, MemSpace::rom(1), 0x0000);
+        f.mmu.set_nr_8c(0x10);                         // lock_rom0 only
+        rc.expect(f.mmu, "lock_rom0 only: ROM0 although 7FFD selects 1", 0x0000, MemSpace::rom(0), 0x0000);
+        f.mmu.set_nr_8c(0x00);
+        f.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        f.mmu.map_plus3_bank(0x04);                    // 1FFD bit 2 with 7FFD bit 4 = 1 -> ROM 3
+        rc.expect(f.mmu, "+3 1FFD=0x04 7FFD=0x10: ROM3", 0x0000, MemSpace::rom(3), 0x0000);
+        f.mmu.map_128k_bank(0x00);
+        rc.expect(f.mmu, "+3 1FFD=0x04 alone: ROM2", 0x0000, MemSpace::rom(2), 0x0000);
+        f.mmu.map_plus3_bank(0x00);
+        f.mmu.set_machine_type(MachineType::ZX48K);
+        rc.expect(f.mmu, "48K: always ROM0", 0x0000, MemSpace::rom(0), 0x0000);
+        f.mmu.set_machine_type(MachineType::ZXN_ISSUE2);
+        f.mmu.map_128k_bank(0x10);
+        f.mmu.set_page(0, 0x20);                       // MMU0 a RAM page first, so the next write MOVES the slot
+        f.mmu.set_page(0, 0xE5);                       // NR 0x50 = 0xE5: mmu_A21_A13(8)=1
+        rc.expect(f.mmu, "MMU0=0xE5 falls to the legacy ROM", 0x0000, MemSpace::rom(1), 0x0000);
+        check("FSRC-07",
+              "legacy ROM: Rom{sram_rom} with the half from cpu_a(13): 7FFD bit 4 on a Next, the NR 0x8C "
+              "locks over it, 1FFD bit 2 : 7FFD bit 4 on a +3, ROM0 on a 48K, and an MMU page >= 0xE0 on "
+              "slot 0 -- VHDL zxnext.vhd:2981-3008, 3037, 3052",
+              rc.ok, rc.why);
+    }
+
+    // FSRC-08: slot_space_[] is derived state kept beside read_ptr_[]; it must
+    // follow EVERY way a slot's source can change. Part A: set_page() of every
+    // page class on every slot. Part B: after each public mapping entry point all
+    // eight slots equal the VHDL derivation from the MMU registers
+    // (derive_slot_source above), from a state that already holds RAM, 0xE5 and
+    // ROM slots so a missed write shows as a STALE identity.
+    {
+        RouteCheck rc;
+        {
+            const uint8_t pages[] = {0x00, 0x0A, 0x0B, 0x0E, 0x20, 0xDF};
+            RouteFx f;
+            for (int s = 0; s < 8; ++s)
+                for (uint8_t n : pages) {
+                    f.mmu.set_page(s, n);
+                    char what[48];
+                    std::snprintf(what, sizeof(what), "set_page(%d,%02X)", s, n);
+                    rc.expect(f.mmu, what, static_cast<uint16_t>(s * 0x2000 + 0x123),
+                              MemSpace::page(n), 0x0123);
+                }
+        }
+        struct Entry { const char* name; void (*act)(RouteFx&); };
+        static const Entry entries[] = {
+            {"set_page RAM",        [](RouteFx& f) { f.mmu.set_page(2, 0x30); f.mmu.set_page(0, 0x21); }},
+            {"set_page 0xE5 slot 5", [](RouteFx& f) { f.mmu.set_page(5, 0xE5); }},
+            {"set_page 0xE5 slot 0", [](RouteFx& f) { f.mmu.set_page(0, 0xE5); }},
+            {"set_page 0xFF slot 4", [](RouteFx& f) { f.mmu.set_page(4, 0xFF); }},
+            {"map_rom",             [](RouteFx& f) { f.mmu.map_rom(0, static_cast<uint8_t>(f.mmu.current_sram_rom() * 2)); }},
+            {"map_128k_bank rom",   [](RouteFx& f) { f.mmu.map_128k_bank(0x10); }},
+            {"map_128k_bank ram",   [](RouteFx& f) { f.mmu.map_128k_bank(0x03); }},
+            {"map_plus3_bank rom",  [](RouteFx& f) { f.mmu.set_machine_type(MachineType::ZX_PLUS3);
+                                                      f.mmu.map_plus3_bank(0x04); f.mmu.map_128k_bank(0x10); }},
+            {"map_plus3_bank special 1", [](RouteFx& f) { f.mmu.map_plus3_bank(0x01); }},
+            {"map_plus3_bank special 7", [](RouteFx& f) { f.mmu.map_plus3_bank(0x07); }},
+            {"leave special paging", [](RouteFx& f) { f.mmu.map_plus3_bank(0x07); f.mmu.map_plus3_bank(0x00); }},
+            {"write_port_dffd",     [](RouteFx& f) { f.mmu.write_port_dffd(0x03); }},
+            {"write_port_eff7",     [](RouteFx& f) { f.mmu.write_port_eff7(0x08); f.mmu.map_128k_bank(0x00); }},
+            {"write_nr_8e",         [](RouteFx& f) { f.mmu.write_nr_8e(0x5B); }},
+            {"write_nr_8f",         [](RouteFx& f) { f.mmu.write_nr_8f(0x02); }},
+            {"set_nr_8c lock",      [](RouteFx& f) { f.mmu.set_nr_8c(0x20); }},
+            {"set_machine_type 48K", [](RouteFx& f) { f.mmu.set_machine_type(MachineType::ZX48K); }},
+            {"engage_legacy slot 0", [](RouteFx& f) { f.mmu.engage_legacy_rom_paging_slot(0); }},
+            {"engage_legacy slot 1", [](RouteFx& f) { f.mmu.set_page(1, 0x31); f.mmu.engage_legacy_rom_paging_slot(1); }},
+            {"set_rom_in_sram",     [](RouteFx& f) { f.mmu.set_rom_in_sram(false); f.mmu.set_rom_in_sram(true); }},
+            {"reset",               [](RouteFx& f) { f.mmu.reset(); }},
+            {"load_state",          [](RouteFx& f) {
+                 // A state saved from a differently mapped Mmu, restored over this one.
+                 RouteFx g;
+                 g.mmu.set_page(3, 0x33); g.mmu.set_page(5, 0xE5); g.mmu.map_128k_bank(0x10);
+                 g.mmu.set_page(0, 0x22);
+                 StateWriter measure; g.mmu.save_state(measure);
+                 std::vector<uint8_t> snap(measure.position());
+                 StateWriter w(snap.data(), snap.size()); g.mmu.save_state(w);
+                 StateReader r(snap.data(), snap.size()); f.mmu.load_state(r); }},
+        };
+        for (const Entry& e : entries) {
+            RouteFx f;
+            // A state with RAM in slot 0/2/3, 0xE5 in slot 5 and the rest at reset,
+            // so an entry point that forgets to refresh a slot leaves it WRONG.
+            f.mmu.set_page(0, 0x21);
+            f.mmu.set_page(3, 0x30);
+            f.mmu.set_page(5, 0xE5);
+            e.act(f);
+            check_slots_against_registers(f.mmu, e.name, rc);
+        }
+        check("FSRC-08",
+              "the cached source of every slot follows set_page, map_rom, 128K and +3 paging (normal and "
+              "special), ports DFFD/EFF7, NR 0x8E/0x8F/0x8C, machine type, per-slot legacy ROM, ROM-in-SRAM, "
+              "reset and load_state: all eight slots equal the VHDL derivation from the MMU registers "
+              "(Page below 0xE0, Rom{sram_rom} on slot 0/1, Floating on slots 2-7) -- VHDL zxnext.vhd:"
+              "2952-2964, 3037, 3052, 3060",
+              rc.ok, rc.why);
+    }
+
+    // FSRC-11: config mode (nr_03_config_mode) routes a ROM-mapped slot 0/1 to
+    // SRAM page (nr_04 << 1) | cpu_a(13) (:3044-3050), below the DivMMC (:3084)
+    // and Layer 2 (:3100) arms and above nothing but the legacy ROM; an MMU RAM
+    // page beats it (:3037).
+    {
+        RouteFx f;
+        RouteCheck rc;
+        f.mmu.set_config_mode(true);
+        f.mmu.set_nr_04_romram_bank(9);
+        rc.expect(f.mmu, "config slot 0", 0x0000, MemSpace::config(9), 0x0000);
+        rc.expect(f.mmu, "config slot 1 is the second half", 0x2000, MemSpace::config(9), 0x2000);
+        rc.expect(f.mmu, "config does not reach 0x4000", 0x4000, MemSpace::page(0x0A), 0x0000);
+        f.divmmc_conmem(0x80);
+        rc.expect(f.mmu, "+ conmem: DivMMC ROM", 0x0000, MemSpace::divmmc_rom(), 0x0000);
+        f.divmmc_conmem(0x00);
+        f.mmu.set_l2_port(0x04, 8);
+        rc.expect(f.mmu, "+ Layer 2 read: Layer 2", 0x0000, MemSpace::layer2(0x10), 0x0000);
+        f.mmu.set_l2_port(0x00, 8);
+        f.mmu.set_page(0, 0x20);
+        rc.expect(f.mmu, "MMU0 RAM: the page", 0x0000, MemSpace::page(0x20), 0x0000);
+        check("FSRC-11",
+              "config mode: Config{nr_04} with a 16 KB offset on a ROM-mapped slot, below DivMMC and Layer 2 "
+              "and below an MMU RAM page -- VHDL zxnext.vhd:3044-3050, 3037, 3084, 3100",
+              rc.ok, rc.why);
+    }
+
+    // FSRC-12: nothing answers. Slots 2-7 holding an MMU page >= 0xE0 have
+    // mmu_A21_A13(8)=1, so sram_pre_active is low (:3060-3061); a Layer 2 page
+    // whose SUM bits 6:4 are "111" has layer2_A21_A13(8)=1 and sram_active low
+    // (:2971, :3101-3102). A Layer 2 page below that is a real page.
+    {
+        RouteFx f;
+        RouteCheck rc;
+        f.mmu.set_page(3, 0xE5);
+        rc.expect_nothing(f.mmu, "MMU3=0xE5", 0x6000);
+        f.mmu.set_page(3, 0xFF);
+        rc.expect_nothing(f.mmu, "MMU3=0xFF", 0x6000);
+        f.mmu.set_l2_port(0xC4, 0x6E);                 // NR 0x12 = 0x6E, segment 11
+        rc.expect(f.mmu, "Layer 2 sum 0x6F is a page", 0x4000, MemSpace::layer2(0xDE), 0x0000);
+        rc.expect_nothing(f.mmu, "Layer 2 sum 0x70", 0x8000);
+        check("FSRC-12",
+              "no memory answers on slots 2-7 holding an MMU page >= 0xE0 or under a Layer 2 page whose "
+              "bank sum is >= 0x70: Floating with no byte; sum 0x6F is Layer2{0xDE} -- VHDL zxnext.vhd:"
+              "3060-3061, 2971, 3101-3102",
+              rc.ok, rc.why);
+    }
+
+    // FSRC-13 (R1, reads): p3_floating_bus_dat captures cpu_di on EVERY MREQ read
+    // with mem_contend='1' (the MMU page of the slot, :4489-4493), whatever the
+    // arbiter picked to drive cpu_di (:4498-4509). With +3 timing the contended
+    // pages are page(3)='1' with page(7:4)=0, so MMU page 0x08 contends and 0x10
+    // does not. The latch used to move only when the final MMU/ROM arm answered.
+    {
+        RouteCheck rc;
+        auto contended_read = [&](RouteFx& f, const char* what, uint16_t addr, uint8_t want_byte,
+                                  bool expect_latch) {
+            f.mmu.set_machine_timing(MachineTimingMode::TimingPlus3);
+            f.mmu.set_p3_floating_bus_dat(0x3C);
+            const uint8_t v = f.mmu.read(addr);
+            const uint8_t latch = f.mmu.p3_floating_bus_dat();
+            const uint8_t want_latch = expect_latch ? want_byte : 0x3C;
+            if (v != want_byte || latch != want_latch) {
+                rc.ok = false;
+                rc.why += fmt("%s: read=%02X (want %02X) latch=%02X (want %02X); ", what, v, want_byte,
+                              latch, want_latch);
+            }
+        };
+        {
+            RouteFx f;                                  // Layer 2 over contended MMU2
+            f.ram.page_ptr(0x28)[0] = 0x11;             // MMU page 0x08
+            f.ram.page_ptr(0x34)[0] = 0xC7;             // Layer 2 page 0x14 (bank 9, segment 11, 0x4000)
+            f.mmu.set_page(2, 0x08);
+            f.mmu.set_l2_port(0xC4, 9);
+            contended_read(f, "Layer 2 over MMU2=0x08", 0x4000, 0xC7, true);
+        }
+        {
+            RouteFx f;                                  // DivMMC conmem over contended MMU0
+            f.ram.page_ptr(0x28)[0] = 0x11;
+            f.dm.rom_data()[0] = 0x5A;
+            f.mmu.set_page(0, 0x08);
+            f.divmmc_conmem(0x80);
+            contended_read(f, "DivMMC ROM over MMU0=0x08", 0x0000, 0x5A, true);
+        }
+        {
+            RouteFx f;                                  // Multiface over contended MMU0
+            std::vector<uint8_t> mfrom(0x2000, 0xFF);
+            mfrom[0] = 0xA6;
+            f.mf.load_rom_bytes(mfrom.data(), mfrom.size());
+            f.ram.page_ptr(0x28)[0] = 0x11;
+            f.mmu.set_page(0, 0x08);
+            f.mf_on();
+            contended_read(f, "Multiface ROM over MMU0=0x08", 0x0000, 0xA6, true);
+        }
+        {
+            RouteFx f;                                  // control: the same overlay over a NON-contended page
+            f.ram.page_ptr(0x30)[0] = 0x11;             // MMU page 0x10
+            f.ram.page_ptr(0x34)[0] = 0xC8;
+            f.mmu.set_page(2, 0x10);
+            f.mmu.set_l2_port(0xC4, 9);
+            contended_read(f, "Layer 2 over MMU2=0x10 (not contended)", 0x4000, 0xC8, false);
+        }
+        {
+            RouteFx f;                                  // positive control: the plain contended read
+            f.ram.page_ptr(0x28)[0] = 0x11;
+            f.mmu.set_page(2, 0x08);
+            contended_read(f, "plain MMU2=0x08", 0x4000, 0x11, true);
+        }
+        check("FSRC-13",
+              "the +3 floating-bus latch captures the byte of every contended read -- a Layer 2, DivMMC or "
+              "Multiface read over a contended page included -- and nothing over a page that does not "
+              "contend -- VHDL zxnext.vhd:4489-4493, 4498-4509",
+              rc.ok, rc.why);
+    }
+
+    // FSRC-14 (R1, writes): the same process latches cpu_do on every MREQ WRITE
+    // with mem_contend='1' (:4498-4509), including a write the arbiter drops (a
+    // ROM half) -- the process sits on the MREQ cycle, not on the SRAM arbiter.
+    {
+        RouteCheck rc;
+        auto contended_write = [&](RouteFx& f, const char* what, uint16_t addr, uint8_t val,
+                                   bool want_landed, bool expect_latch) {
+            f.mmu.set_machine_timing(MachineTimingMode::TimingPlus3);
+            f.mmu.set_p3_floating_bus_dat(0x3C);
+            const bool landed = f.mmu.write_landed(addr, val);
+            const uint8_t latch = f.mmu.p3_floating_bus_dat();
+            const uint8_t want_latch = expect_latch ? val : 0x3C;
+            if (landed != want_landed || latch != want_latch) {
+                rc.ok = false;
+                rc.why += fmt("%s: landed=%d (want %d) latch=%02X (want %02X); ", what, landed,
+                              want_landed, latch, want_latch);
+            }
+        };
+        {
+            RouteFx f;                                  // Layer 2 write-over a contended MMU2
+            f.mmu.set_page(2, 0x08);
+            f.mmu.set_l2_port(0xC1, 9);                 // write mapping, segment 11
+            contended_write(f, "Layer 2 write-over MMU2=0x08", 0x4000, 0xB1, true, true);
+        }
+        {
+            RouteFx f;                                  // DivMMC RAM over a contended MMU1
+            f.mmu.set_page(1, 0x08);
+            f.divmmc_conmem(0x81);                      // conmem, bank 1
+            contended_write(f, "DivMMC RAM over MMU1=0x08", 0x2000, 0xB2, true, true);
+        }
+        {
+            RouteFx f;                                  // Multiface RAM over a contended MMU1
+            f.mmu.set_page(1, 0x08);
+            f.mf_on();
+            contended_write(f, "Multiface RAM over MMU1=0x08", 0x2000, 0xB3, true, true);
+        }
+        {
+            RouteFx f;                                  // a write the arbiter DROPS (DivMMC ROM half)
+            f.mmu.set_page(0, 0x08);
+            f.divmmc_conmem(0x80);
+            contended_write(f, "dropped DivMMC ROM write over MMU0=0x08", 0x0000, 0xB4, false, true);
+        }
+        {
+            RouteFx f;                                  // control: a DivMMC RAM write over a page that does not contend
+            f.mmu.set_page(1, 0x10);
+            f.divmmc_conmem(0x81);
+            contended_write(f, "DivMMC RAM over MMU1=0x10 (not contended)", 0x2000, 0xB5, true, false);
+        }
+        {
+            RouteFx f;                                  // positive control: the plain contended write
+            f.mmu.set_page(2, 0x08);
+            contended_write(f, "plain MMU2=0x08", 0x4000, 0xB6, true, true);
+        }
+        check("FSRC-14",
+              "the +3 floating-bus latch captures the byte of every contended write -- a Layer 2 write-over, "
+              "DivMMC RAM, Multiface RAM and a write the arbiter drops included -- and nothing over a page "
+              "that does not contend -- VHDL zxnext.vhd:4489-4493, 4498-4509",
+              rc.ok, rc.why);
+    }
+
+    // FSRC-15 (R2): a READ watchpoint is raised by the CPU's read of an address
+    // whatever answers it. The boot ROM and a floating read used to return before
+    // the watch gate (every write raised the write watch). A debugger peek never
+    // raises one, even inside the guest's execution scope.
+    {
+        RouteFx f;
+        DebugState ds;
+        f.mmu.set_debug_state(&ds);
+        ds.set_persistent_breakpoints(true);           // armed() without a client
+        std::vector<uint8_t> boot(0x2000, 0x42);
+        f.mmu.set_boot_rom(boot.data(), boot.size());
+        f.mmu.set_page(3, 0xE5);
+        ds.breakpoints().add_watchpoint(0x0010, WatchType::READ);
+        ds.breakpoints().add_watchpoint(0x6000, WatchType::READ);
+        auto fired = [&](uint16_t addr, bool peek) {
+            ds.set_data_bp_hit(false);
+            DebugState::GuestExecutionScope guest(ds);
+            if (peek) (void)f.mmu.peek(addr); else (void)f.mmu.read(addr);
+            return ds.data_bp_hit();
+        };
+        const bool boot_read   = fired(0x0010, false);
+        const bool float_read  = fired(0x6000, false);
+        const bool boot_peek   = fired(0x0010, true);
+        const bool float_peek  = fired(0x6000, true);
+        f.mmu.set_page(3, 0x30);
+        const bool ram_read    = fired(0x6000, false);     // positive control
+        check("FSRC-15",
+              "a READ watchpoint fires on a boot-ROM read and on a floating-bus read (MMU page >= 0xE0), "
+              "as it does on a RAM read, and a peek of either fires none -- the watch gate sits after "
+              "every source (VHDL: the CPU's MREQ read cycle, zxnext.vhd:1856-1870, 3060-3061)",
+              boot_read && float_read && ram_read && !boot_peek && !float_peek,
+              fmt("boot_read=%d float_read=%d ram_read=%d boot_peek=%d float_peek=%d", boot_read,
+                  float_read, ram_read, boot_peek, float_peek));
+    }
+}
+
+
 int main() {
     std::printf("MMU/Memory Compliance Test Runner (Phase 2 rewrite)\n");
     std::printf("====================================================\n\n");
@@ -6729,6 +7322,7 @@ int main() {
     test_cat27_l2_rom_area_gate();
     test_cat27_v11_mem_01_save_load_high_page();
     test_cat28_bank7_bram_standin();
+    test_cat32_fetch_identity();
 
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

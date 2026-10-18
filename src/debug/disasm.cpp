@@ -9,6 +9,12 @@ static DisasmLine disasm_cb(uint16_t addr, DisasmReadFn const& read_fn);
 static DisasmLine disasm_ed(uint16_t addr, DisasmReadFn const& read_fn);
 static DisasmLine disasm_ddfd(uint16_t addr, DisasmReadFn const& read_fn, uint8_t prefix);
 
+// How many redundant DD/FD prefixes deep disasm_ddfd() -> disasm_one() -> disasm_ddfd() is. Memory
+// full of 0xDD (or the 64 KiB address space wrapping onto itself) would otherwise recurse once per
+// byte, without end. Past kMaxPrefixChain the next prefix byte is shown as a line of its own.
+static constexpr int kMaxPrefixChain = 64;
+static thread_local int s_prefix_chain = 0;
+
 // ---------------------------------------------------------------------------
 // Helper: read a 16-bit little-endian word
 // ---------------------------------------------------------------------------
@@ -755,12 +761,20 @@ static DisasmLine disasm_ddfd(uint16_t addr, DisasmReadFn const& read_fn, uint8_
 
     // If we reach here, the DD/FD prefix is ignored and the opcode is treated
     // as its unprefixed equivalent. Disassemble from addr+1 and adjust.
+    if (s_prefix_chain >= kMaxPrefixChain) {
+        char b[16];
+        std::snprintf(b, sizeof b, "DB $%02X", prefix);
+        return make_line(addr, 1, read_fn, b);
+    }
+    ++s_prefix_chain;
     DisasmLine inner = disasm_one(static_cast<uint16_t>(addr + 1), read_fn);
+    --s_prefix_chain;
     // Rebuild with the prefix byte included
     DisasmLine result;
     result.addr = addr;
+    // The TRUE length: a redundant-prefix chain (DD FD LD IY,nn) is 5 bytes or more, and step-over,
+    // the panel and the ZRCP disassembler advance by it. Only the displayed bytes[] stop at 4.
     result.byte_count = inner.byte_count + 1;
-    if (result.byte_count > 4) result.byte_count = 4; // safety clamp
     result.bytes[0] = prefix;
     for (int i = 0; i < inner.byte_count && i < 3; i++) {
         result.bytes[i + 1] = inner.bytes[i];

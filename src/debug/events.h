@@ -305,9 +305,10 @@ struct Event {
     uint16_t phys_page = 0;
     /// `Execute`: the opcode at `pc` comes from an overlay (boot ROM,
     /// Multiface, DivMMC, Layer 2 read mapping) or a ROM-mapped slot, not
-    /// from the RAM page `phys_page` names (`Emulator::fetch_not_mmu_ram()`,
-    /// predicted for this M1, DivMMC's instant entry points included). ROM
-    /// and RAM page numbers overlap, so a page alone cannot say which.
+    /// from the RAM page `phys_page` names (`Emulator::predict_fetch()` is not
+    /// a `MemSpace::Kind::Page`, predicted for this M1, DivMMC's instant entry
+    /// points included). ROM and RAM page numbers overlap, so a page alone
+    /// cannot say which.
     bool fetch_not_ram = false;
     /// `Port`: the full 16-bit port. Masking is the filter's job, not the
     /// payload's — the payload always carries what the guest actually put on

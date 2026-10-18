@@ -4098,6 +4098,142 @@ static void group_m1gate() {
     }
 }
 
+// ── §21  GH #339 -- the M1 prediction (DivMmc::active_on_m1) ──────────
+//
+// active_on_m1() answers, without changing anything, what is_active() will be
+// once check_automap(pc, true, gates...) has run for an M1 at `pc`. Its first
+// consumer is a debugger naming the source of the NEXT opcode fetch before the
+// instruction runs (Emulator::predict_fetch()); five of its eight arms had no
+// row of their own (review A of GH #339: D2 delayed-on, D4 conmem, D5 automap
+// disabled, D6 port io off, and the NMI instant-on at 0x0066).
+//
+// ORACLE. check_automap() is the model of divmmc.vhd:107-148 (and
+// zxnext.vhd:2892-2908 for the entry decode); the prediction is checked against
+// what that model leaves behind on a COPY of the same state, over the whole
+// product of
+//   * nine entry configurations (NR 0xB8-0xBB): RST 0x08 instant / delayed on
+//     the main path and on the ROM3 path, every RST entry at once, the NMI
+//     entry with the button latched, a tape trap, the $3Dxx wildcard, the
+//     auto-unmap range over a delayed entry;
+//   * seven histories of prior M1s (an entry, a plain pc, the unmap range, in
+//     the orders that reach every automap flip-flop state);
+//   * the eight settings of {port_divmmc_io_en, nr_0a bit 4, conmem}, applied
+//     AFTER the history so an armed machine can be switched off under it;
+//   * ten pcs and all sixteen gate tuples.
+// and then asserted to have VISITED the classes the arms exist for, so a
+// constant answer cannot pass.
+static void group_pred() {
+    set_group("21. M1 prediction (GH #339)");
+
+    struct Cfg {
+        uint8_t  b8, b9, ba, bb;   // NR 0xB8, 0xB9, 0xBA, 0xBB
+        bool     rom3;             // rom3_active (the ROM3 selector the Mmu feeds)
+        bool     button;           // the NMI button latched before the history
+        uint16_t entry;            // the pc this configuration traps
+        bool     instant_at_entry; // the entry's own M1 maps it (an instant-on)
+    };
+    static const Cfg cfgs[] = {
+        {0x02, 0x02, 0x02, 0x00, false, false, 0x0008, true },   // RST 0x08, main path, instant
+        {0x02, 0x02, 0x00, 0x00, false, false, 0x0008, false},   // RST 0x08, main path, delayed
+        {0x02, 0x00, 0x02, 0x00, true,  false, 0x0008, true },   // RST 0x08, ROM3 path, instant
+        {0x02, 0x00, 0x00, 0x00, true,  false, 0x0008, false},   // RST 0x08, ROM3 path, delayed
+        {0xFF, 0xFF, 0xFF, 0x00, false, false, 0x0010, true },   // every RST entry, instant
+        {0x00, 0x00, 0x00, 0x03, false, true,  0x0066, true },   // NMI @0x0066, button latched
+        {0x00, 0x00, 0x00, 0x04, true,  false, 0x04C6, false},   // tape trap 0x04C6 (ROM3, delayed)
+        {0x00, 0x00, 0x00, 0x80, true,  false, 0x3D00, true },   // $3Dxx wildcard (ROM3, instant)
+        {0x02, 0x02, 0x00, 0x40, false, false, 0x0008, false},   // delayed entry + auto-unmap range
+    };
+    // 0 = the config's entry pc, 1 = a plain pc, 2 = the auto-unmap range.
+    struct Hist { int n; int step[2]; };
+    static const Hist hists[] = {
+        {0, {0, 0}}, {1, {0, 0}}, {2, {0, 1}}, {2, {0, 2}}, {1, {2, 0}}, {1, {1, 0}}, {2, {1, 0}},
+    };
+    static constexpr uint16_t pcs[] = {
+        0x0000, 0x0008, 0x0010, 0x0066, 0x04C6, 0x1FF8, 0x1FFF, 0x2000, 0x3D00, 0x8000,
+    };
+    static constexpr uint16_t kPlain = 0x8000, kUnmap = 0x1FF8;
+
+    long probes = 0, mismatches = 0;
+    long w_delayed = 0, w_conmem = 0, w_disabled = 0, w_portio_off = 0,
+         w_nmi_instant = 0, w_held_promotion = 0, w_unmap_drop = 0, w_true = 0, w_false = 0;
+    std::string first_bad;
+
+    for (const Cfg& c : cfgs) {
+        for (const Hist& h : hists) {
+            for (int sw = 0; sw < 8; ++sw) {
+                const bool port_io = (sw & 1) != 0, nr0a4 = (sw & 2) != 0, conmem = (sw & 4) != 0;
+                DivMmc base;
+                base.reset();
+                base.set_enabled(true);
+                base.set_nr_0a_4_enable(true);
+                base.set_entry_points_0(c.b8);
+                base.set_entry_valid_0(c.b9);
+                base.set_entry_timing_0(c.ba);
+                base.set_entry_points_1(c.bb);
+                base.set_rom3_active(c.rom3);
+                if (c.button) base.set_button_nmi(true);
+                for (int i = 0; i < h.n; ++i) {
+                    const uint16_t pc = h.step[i] == 0 ? c.entry : h.step[i] == 1 ? kPlain : kUnmap;
+                    base.check_automap(pc, true, true, true, false, false);
+                }
+                // The switches go on AFTER the history, so a machine armed by it
+                // can be switched off underneath (divmmc.vhd:108,126,139 clear).
+                base.set_port_io_enable(port_io);
+                base.set_nr_0a_4_enable(nr0a4);
+                base.write_control(conmem ? 0x80 : 0x00);
+
+                const bool pre_pending = base.automap_hold() && !base.automap_held() &&
+                                         !base.automap_active();
+                const bool pre_live    = base.automap_hold() || base.automap_held();
+                const bool on          = base.port_io_enable() && base.is_enabled();
+                bool had_unmap = false;
+                for (int i = 0; i < h.n; ++i) had_unmap = had_unmap || h.step[i] == 2;
+
+                for (uint16_t pc : pcs) {
+                    for (int g = 0; g < 16; ++g) {
+                        const bool o2 = (g & 1) != 0, o0 = (g & 2) != 0, ae = (g & 4) != 0, a128 = (g & 8) != 0;
+                        DivMmc model = base;                       // the model runs on a copy
+                        model.check_automap(pc, true, o2, o0, ae, a128);
+                        const bool expect = model.is_active();
+                        const bool got    = base.active_on_m1(pc, o2, o0, ae, a128);
+                        ++probes;
+                        if (got != expect) {
+                            ++mismatches;
+                            if (first_bad.empty())
+                                first_bad = fmt("cfg[%d] hist[%d] sw=%d pc=%04X gates=%d expect=%d got=%d",
+                                                int(&c - cfgs), int(&h - hists), sw, pc, g, expect, got);
+                        }
+                        expect ? ++w_true : ++w_false;
+                        // Witness classes, from the pre-state and the MODEL's answer only.
+                        if (expect && pre_pending && on && !conmem) ++w_delayed;          // D2
+                        if (expect && conmem && port_io) ++w_conmem;                      // D4
+                        if (!expect && port_io && !nr0a4 && !conmem && pc == c.entry &&
+                            c.instant_at_entry && h.n == 0) ++w_disabled;                 // D5
+                        if (!expect && !port_io && base.conmem()) ++w_portio_off;         // D6
+                        if (expect && pc == 0x0066 && base.button_nmi() && on && !conmem &&
+                            (c.bb & 0x02)) ++w_nmi_instant;                               // residual
+                        if (expect && pre_live && on && !conmem && pc == kPlain) ++w_held_promotion;
+                        if (!expect && had_unmap && on && !conmem && pc == kPlain) ++w_unmap_drop;
+                    }
+                }
+            }
+        }
+    }
+
+    check("DM-PRED-01",
+          "active_on_m1(pc, gates) equals is_active() after check_automap(pc, true, gates) on a "
+          "copy, over entry configs x M1 histories x {port io, nr_0a b4, conmem} x pcs x all 16 "
+          "gate tuples, and the product visits delayed-on, conmem, automap-disabled, port-io-off, "
+          "NMI instant-on, held promotion and unmap (divmmc.vhd:94-99,107-148; zxnext.vhd:2892-2908)",
+          mismatches == 0 && probes > 0 && w_delayed > 0 && w_conmem > 0 && w_disabled > 0 &&
+              w_portio_off > 0 && w_nmi_instant > 0 && w_held_promotion > 0 && w_unmap_drop > 0 &&
+              w_true > 0 && w_false > 0,
+          fmt("probes=%ld mismatches=%ld first=[%s] witnesses delayed=%ld conmem=%ld disabled=%ld "
+              "portio_off=%ld nmi_instant=%ld held_promotion=%ld unmap_drop=%ld true=%ld false=%ld",
+              probes, mismatches, first_bad.c_str(), w_delayed, w_conmem, w_disabled, w_portio_off,
+              w_nmi_instant, w_held_promotion, w_unmap_drop, w_true, w_false));
+}
+
 int main() {
     std::printf("DivMMC + SPI Compliance Tests (rewritten Task 1 Wave 2)\n");
     std::printf("======================================================\n\n");
@@ -4122,6 +4258,7 @@ int main() {
     group_po();  std::printf("  §18 PriOverride G46(b)   done\n");
     group_rb();  std::printf("  §19 RAM SRAM backing     done\n");
     group_m1gate(); std::printf("  §20 C-M1 M1 gate         done\n");
+    group_pred(); std::printf("  S21 M1 prediction        done\n");
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

@@ -64,6 +64,16 @@ client that created it may change or remove.
 | `MemSpace::page(p)` | the physical 8 KB page `p`, numbered as NR 0x50-0x57 numbers it (0..223), regardless of any overlay. 0xFE and 0xFF, the ROM sentinels, answer `InvalidPage` |
 | `MemSpace::rom(i)` | the 16 KB ROM image `i` (0..3), read-only |
 
+`MemSpace` is also the answer to *what supplied this byte*: the read arbiter
+(`Mmu::route()`) names its source with the same type, so it carries nine more
+kinds that only the arbiter produces: `boot_rom()`, `multiface_rom()`,
+`multiface_ram()`, `divmmc_rom()`, `divmmc_ram(bank)`, `alt_rom(i)`,
+`layer2(page)`, `config(bank)` and `floating()` (nothing answers). `peek` and
+`poke` of one of them answer `Unsupported` and write nothing, until a consumer
+adds the access with its own rows. The type lives in `debug/mem_space.h`
+(standard headers only, so the core's `memory/mmu.h` can return it), and
+`FetchSource` is its name in the role of an opcode fetch's source.
+
 A client never composes a space from a slot's page number. On the Next a ROM
 slot's `effective_page` is an un-shifted SRAM page index, outside `page()`'s
 numbering. So `mmu_slots()` returns each slot's complete backing store as
@@ -289,14 +299,18 @@ The backend also owns one `SourceMap` (`src/debug/source_map.*`): records of
 (RAM page, logical address) → file, line, column, filled by a format adapter —
 `load_sld()` in `src/debug/sld_loader.*` reads sjasmplus SLD v1 — and replaced
 only by a complete, successful load. Matching uses one identity everywhere:
-`source_page(addr)` is the MMU's page when RAM supplies the opcode fetch at
-`addr`, else `NOT_RAM_PAGE` (`debug/ram_page.h`), decided by
-`Emulator::fetch_not_mmu_ram()`: a side-effect-free prediction of that M1,
+`source_page(addr)` is a `MemSpace`, from `Emulator::predict_fetch()`: a
+side-effect-free prediction of what supplies the opcode fetch at `addr`,
 including what the M1 itself switches (DivMMC's instant entry points and the
 hold from the previous M1 via `DivMmc::active_on_m1()`, the Multiface at
-0x0066), then `Mmu::read_not_mmu_ram(addr, divmmc, multiface)` for the rest
-(ROM slot, boot ROM, Layer 2 read mapping, alt-ROM, config mode). `SourceMap::lookup(NOT_RAM_PAGE, addr)` matches
-only an unqualified record. The trace records the same flag beside each entry
+0x0066 via `Multiface::would_latch_on_m1()`), then `Mmu::route_with()` for the
+rest (ROM slot, boot ROM, Layer 2 read mapping, alt-ROM, config mode). It is
+`Page{n}` when the MMU's RAM page `n` supplies it. The page-keyed consumers read
+it through `ram_page_of()` (`debug/ram_page.h`): the page, else `NOT_RAM_PAGE`,
+and `SourceMap::lookup(NOT_RAM_PAGE, addr)` matches
+only an unqualified record. After the instruction, `Mmu::last_m1()` is what its
+fetch actually recorded: the prediction and the record are one function evaluated
+before and after, and the tests compare them for every fetch of a guest tour. The trace records the same flag beside each entry
 (`TraceLog::fetch_not_mmu_ram()`; `TraceEntry` itself stays 56 bytes), call
 frames record each side's identity, and an `Execute` filter with
 `page_ram_only` matches only a fetch from that RAM page (`Event::fetch_not_ram`);
