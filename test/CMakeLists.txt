@@ -284,7 +284,7 @@ endif()
 # test-support binary.
 add_executable(nextpi_qemu_stub uart/nextpi_qemu_stub.cpp)
 target_link_libraries(nextpi_qemu_stub PRIVATE esp01)
-add_executable(nextpi_test uart/nextpi_test.cpp uart/nextpi_support.cpp)
+add_executable(nextpi_test uart/nextpi_test.cpp uart/nextpi_support.cpp uart/nextpi_log_capture.cpp)
 target_link_libraries(nextpi_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video
     jnext_audio jnext_port jnext_peripheral jnext_input

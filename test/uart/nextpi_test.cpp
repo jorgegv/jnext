@@ -2055,7 +2055,9 @@ static void test_nextpi_failure_rows() {
               fmt("fixture=%d got=%s error='%s'", fixture ? 1 : 0, got.c_str(), r.error.c_str()));
     }
 
-    // -- PIT-50 - the user declines a release change: it is their own answer, not a warning.
+    // -- PIT-50 - the user declines a release change: it is their own answer, not a warning. It is said in
+    // the log (the uart logger, info), so it is not lost: 'not downloaded' when the other release would have
+    // been fetched, 'not installed' when its archive was already in the folder.
     {
         FakeMirror mirror("fail50");
         const bool fixture = mirror.add_release("1_93D", disk_a) && mirror.add_release("1_100", disk_b);
@@ -2063,16 +2065,47 @@ static void test_nextpi_failure_rows() {
         int confirms = 0;
         const nextpi::ProvisionResult first = nextpi::provision(nextpi_options(mirror, dir.string(), "1_93D", confirms));
         mirror.fetched.clear();
-        const nextpi::ProvisionResult r = nextpi::provision(nextpi_options(mirror, dir.string(), "1_100", confirms, false));
+        std::string logged;
+        nextpi::ProvisionResult r;
+        {
+            nxs::UartLogCapture log;
+            r = nextpi::provision(nextpi_options(mirror, dir.string(), "1_100", confirms, false));
+            logged = log.text();
+        }
+        // The same, with the other release's archive (and its .md5) already in the folder.
+        FakeMirror mirror_b("fail50b");
+        const bool fixture_b = mirror_b.add_release("1_93D", disk_a) && mirror_b.add_release("1_100", disk_b);
+        const fs::path dir_b = mirror_b.dir / "np";
+        int confirms_b = 0;
+        const nextpi::ProvisionResult first_b =
+            nextpi::provision(nextpi_options(mirror_b, dir_b.string(), "1_93D", confirms_b));
+        const bool placed_b = place(mirror_b, dir_b, "1_100", true);
+        mirror_b.fetched.clear();
+        std::string logged_b;
+        nextpi::ProvisionResult rb;
+        {
+            nxs::UartLogCapture log;
+            rb = nextpi::provision(nextpi_options(mirror_b, dir_b.string(), "1_100", confirms_b, false));
+            logged_b = log.text();
+        }
         check("PIT-50",
               "declining the change from an installed NextPi to another release keeps the installed one with an "
-              "EMPTY warning (the answer is the user's own, so no dialog follows it) and downloads nothing "
-              "(GH #385; jnext-only, no VHDL counterpart)",
+              "EMPTY warning (the answer is the user's own, so no dialog follows it) and downloads nothing; the log "
+              "says 'kept the installed NextPi 1_93D (1_100 not downloaded)', or 'not installed' when the other "
+              "release's archive was already in the folder (GH #385; jnext-only, no VHDL counterpart)",
               fixture && first.status == sdcard::ProvisionStatus::Ok && confirms == 2 &&
                   r.status == sdcard::ProvisionStatus::Ok && r.release == "1_93D" && r.warning.empty() &&
-                  r.error.empty() && mirror.fetched.empty(),
-              fmt("fixture=%d status=%d release=%s warning='%s' fetched=%zu confirms=%d", fixture ? 1 : 0,
-                  static_cast<int>(r.status), r.release.c_str(), r.warning.c_str(), mirror.fetched.size(), confirms));
+                  r.error.empty() && mirror.fetched.empty() &&
+                  logged.find("NextPi: kept the installed NextPi 1_93D (1_100 not downloaded)") != std::string::npos &&
+                  fixture_b && first_b.status == sdcard::ProvisionStatus::Ok && placed_b &&
+                  rb.status == sdcard::ProvisionStatus::Ok && rb.release == "1_93D" && rb.warning.empty() &&
+                  rb.error.empty() &&
+                  logged_b.find("NextPi: kept the installed NextPi 1_93D (1_100 not installed)") != std::string::npos,
+              fmt("fixture=%d status=%d release=%s warning='%s' fetched=%zu confirms=%d log='%.120s' | b: fixture=%d "
+                  "placed=%d status=%d release=%s warning='%s' log='%.120s'",
+                  fixture ? 1 : 0, static_cast<int>(r.status), r.release.c_str(), r.warning.c_str(),
+                  mirror.fetched.size(), confirms, logged.c_str(), fixture_b ? 1 : 0, placed_b ? 1 : 0,
+                  static_cast<int>(rb.status), rb.release.c_str(), rb.warning.c_str(), logged_b.c_str()));
     }
 
     // -- PIT-51 - the short fetches (the release list of "latest", the .md5 before a download, the .md5 of
