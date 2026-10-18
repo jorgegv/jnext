@@ -8,13 +8,19 @@
 #          one row for the files directly in src/ (main.cpp).
 #   test   C++ under test/: one row per discovered subdirectory, plus one for the
 #          files directly in test/.
-#   tools  everything else that is code, from `git ls-files` so build trees and
-#          caches never count: shell, Python, Perl, build files (Makefile,
-#          CMakeLists.txt, *.cmake, *.mk), demo programs, and the C/C++ outside
-#          the two sections above (tools/, test/*.c fixtures). Rows are split by
-#          top-level directory, discovered. Not counted: third_party/ and the
-#          generated renders (doc/man, doc/user-guide, doc/developer-guide), plus
-#          documentation, data and assets (doc/ ROM disassemblies, *.md, images).
+#   tools  everything else that is code: shell, Python, Perl, build files (Makefile,
+#          CMakeLists.txt, *.cmake, *.mk, CI workflows, Dockerfiles, the rpm spec),
+#          Z80 asm, and the C-family (C, C#, JS, and the C++ outside src/ and test/).
+#          Rows are split by top-level directory, discovered.
+#
+# All three read `git ls-files` only, so build trees, caches and untracked scratch
+# files never count. Not counted: third_party/, the generated renders (doc/man,
+# doc/user-guide, doc/developer-guide), vendored third-party code (NextSync, three.js;
+# see the exclusions below) and documentation, data and assets (doc/ ROM
+# disassemblies, *.md, images, the tokenised tools/debug/*.bas). demo/dapr-nexlib+tests
+# is imported and modified in-tree, so it counts. Comment markers: # for shell,
+# Python, Perl and build files (plus @# -# +# for make recipes), ; for asm, and
+# // /* * for the C-family.
 #
 # The row list is DISCOVERED, never written down: a new subsystem or a new tracked
 # script needs no edit here and cannot silently go uncounted.
@@ -39,68 +45,72 @@ BOLD=$(printf '%b' "$BOLD"); CYAN=$(printf '%b' "$CYAN"); RESET=$(printf '%b' "$
 count_c()    { xargs -0 -r grep -h -v '^[[:space:]]*$' | grep -v '^[[:space:]]*//' | grep -v '^[[:space:]]*/\*' | grep -v '^[[:space:]]*\*' | wc -l; }
 count_hash() { xargs -0 -r grep -h -v '^[[:space:]]*$' | grep -v '^[[:space:]]*#' | wc -l; }
 count_semi() { xargs -0 -r grep -h -v '^[[:space:]]*$' | grep -v '^[[:space:]]*;' | wc -l; }
+# Make recipe comments are written "<TAB>@# ..." (also -# and +#): the prefix is not code.
+count_make() { xargs -0 -r grep -h -v '^[[:space:]]*$' | grep -v '^[[:space:]]*[@+-]*#' | wc -l; }
 
 # Table buffer: kind (row|sub|sep|total), label, count.
 K=(); L=(); N=()
 add() { K+=("$1"); L+=("$2"); N+=("$3"); }
 
-# Files on the build side that are counted in a section by `find`, as a NUL list.
-cpp_files() { # dir [maxdepth]
-    if [ $# -eq 2 ]; then find "$1" -maxdepth "$2" -type f \( -name '*.cpp' -o -name '*.h' \) -print0
-    else find "$1" -type f \( -name '*.cpp' -o -name '*.h' \) -print0; fi
-}
+# Every section reads ONE list: the tracked files (git ls-files, NUL-separated), so
+# untracked scratch files never count and names with spaces survive. Excluded:
+#   third_party/ and the generated renders (doc/man, doc/user-guide, doc/developer-guide);
+#   test/00regression/nextsync/: NextSync by Jari Komppa, vendored unmodified, third-party
+#     software under test (its README says so);
+#   the vendored three.js bundle, by explicit path so that adding "cjs" to a
+#     pattern below can never pull 54k lines of third-party code in.
+TRACKED=$(mktemp); trap 'rm -f "$TRACKED"' EXIT
+git ls-files -z -- . ':!third_party' ':!doc/man' ':!doc/user-guide' ':!doc/developer-guide' \
+    ':!test/00regression/nextsync' \
+    ':!demo/dapr-nexlib+tests/interactive/test11isometric/scripts/three.cjs' > "$TRACKED" \
+    || { echo "kloc-count: git ls-files failed" >&2; exit 1; }
+[ -s "$TRACKED" ] || { echo "kloc-count: empty tracked-file list" >&2; exit 1; }
 
-section_cpp() { # section-name root
-    local name=$1 root=$2 sub=0 dir n
-    add sep "" ""
-    for dir in $(find "$root" -mindepth 1 -maxdepth 1 -type d | sort); do
-        n=$(cpp_files "$dir" | count_c)
-        [ "$n" -gt 0 ] || continue
-        add row "$dir" "$n"; sub=$((sub + n))
-    done
-    n=$(cpp_files "$root" 1 | count_c)
-    if [ "$n" -gt 0 ]; then add row "$root (top-level files)" "$n"; sub=$((sub + n)); fi
-    add sub "$name subtotal" "$sub"
-    TOTAL=$((TOTAL + sub))
+# The row key of a path (awk, via ENVIRON so no backslash is interpreted): depth 1 =
+# first component ("." for root files); depth 2 = first two ("src/." for files directly
+# in src/).
+KEYAWK='{ n = split($0, a, "/");
+          if (D == 1) k = (n == 1) ? "." : a[1];
+          else        k = (n <= 2) ? a[1] "/." : a[1] "/" a[2]; }'
+
+SUB=0
+# group <label> <counter> <PCRE over the whole path> <depth>: one row per key.
+group() {
+    local label=$1 counter=$2 re=$3 depth=$4 key lab n
+    while IFS= read -r key; do
+        n=$(grep -zP -- "$re" "$TRACKED" \
+            | K=$key awk -v D="$depth" -v RS='\0' -v ORS='\0' "$KEYAWK"' k == ENVIRON["K"]' \
+            | $counter)
+        if [ "$depth" = 1 ]; then
+            if [ "$key" = "." ]; then lab="$label (root files)"; else lab="$label $key/"; fi
+        else
+            case $key in */.) lab="${key%/.} (top-level files)" ;; *) lab=$key ;; esac
+        fi
+        # Zero rows exist only for a pattern that matched, so a 0 is a real 0 line count
+        # (e.g. a file of comments), never a skipped row.
+        add row "$lab" "$n"; SUB=$((SUB + n))
+    done < <(grep -zP -- "$re" "$TRACKED" | awk -v D="$depth" -v RS='\0' "$KEYAWK"' { print k }' | LC_ALL=C sort -u)
 }
 
 TOTAL=0
-section_cpp "src" src
-section_cpp "test" test
+section() { add sep "" ""; SUB=0; }
+section_end() { add sub "$1 subtotal" "$SUB"; TOTAL=$((TOTAL + SUB)); }
 
-# --- tools: tracked, non-C++-in-src/test code ----------------------------------
-TRACKED=$(mktemp); trap 'rm -f "$TRACKED"' EXIT
-git ls-files -z -- . ':!third_party' ':!doc/man' ':!doc/user-guide' ':!doc/developer-guide' > "$TRACKED"
+section; group "" count_c '^src/.*\.(cpp|h)$' 2;  section_end "src"
+section; group "" count_c '^test/.*\.(cpp|h)$' 2; section_end "test"
 
-# group <label> <counter> <ere over the whole path>: one row per top-level dir.
-tools_sub=0
-group() {
-    local label=$1 counter=$2 re=$3 top n
-    local list; list=$(grep -zP -- "$re" "$TRACKED" | tr '\0' '\n' | awk -F/ '{print (NF==1) ? "." : $1}' | sort -u)
-    for top in $list; do
-        if [ "$top" = "." ]; then
-            n=$(grep -zP -- "$re" "$TRACKED" | grep -zvP '/' | $counter)
-            add row "$label (root files)" "$n"
-        else
-            n=$(grep -zP -- "$re" "$TRACKED" | grep -zP -- "^$top/" | $counter)
-            add row "$label $top/" "$n"
-        fi
-        tools_sub=$((tools_sub + n))
-    done
-}
-
-add sep "" ""
-group "shell"  count_hash '(\.sh$|^test/.*\.inc$)'
-group "python" count_hash '\.py$'
-group "perl"   count_hash '\.(pl|pm)$'
-group "build"  count_hash '((^|/)(Makefile|GNUmakefile|CMakeLists\.txt)$|\.(cmake|mk)$|^packaging/debian/rules$)'
-group "z80 asm" count_semi '^(demo|test)/.*\.asm$'
-# C/C++/JS: demo programs, tools/ and fixtures. Excludes the .cpp/.h under src/ and
-# test/ already counted above (any other top-level directory is included); the demo
-# .inc files are z88dk #pragma headers.
-group "c/c++/js" count_c '(\.(c|cc|hpp|js)$|^demo/.*\.inc$|^(?!(src|test)/).*\.(cpp|h)$)'
-add sub "tools subtotal" "$tools_sub"
-TOTAL=$((TOTAL + tools_sub))
+# --- tools: everything else that is code ---------------------------------------
+section
+group "shell"  count_hash '(\.sh$|^test/.*\.inc$)' 1
+group "python" count_hash '\.py$' 1
+group "perl"   count_hash '\.(pl|pm)$' 1
+# Build files: Makefiles, CMake, Debian rules, CI workflows, Dockerfiles, the rpm spec.
+group "build"  count_make '((^|/)(Makefile|GNUmakefile|CMakeLists\.txt)$|\.(cmake|mk)$|^packaging/debian/rules$|^\.github/workflows/.*\.ya?ml$|^docker/Dockerfile\.|\.spec$)' 1
+group "z80 asm" count_semi '^(demo|test)/.*\.asm$' 1
+# C-family: C, C#, JS, demo .inc (z88dk #pragma headers) and the C++ outside src/ and
+# test/ (those two are the first sections). Any other top-level directory is included.
+group "c-family" count_c '(\.(c|cc|hpp|js|cs)$|^demo/.*\.inc$|^(?!(src|test)/).*\.(cpp|h)$)' 1
+section_end "tools"
 add total "TOTAL" "$TOTAL"
 
 # --- print ---------------------------------------------------------------------
