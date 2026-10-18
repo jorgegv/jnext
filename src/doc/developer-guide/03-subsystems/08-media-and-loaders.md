@@ -1031,12 +1031,21 @@ kinds: a `CURLcode` for libcurl, an `ERROR_WINHTTP_*` for WinHTTP, wine's
 libcurl's `CURLOPT_FAILONERROR` turns any HTTP status of 400 or more into one
 generic code, so that twin reads the status off the transfer, and a 404 reads the
 same as on WinHTTP (where `PartialDownload::begin` says it, through the same
-function). The stall reason, `cancelled by user` and the other reasons that were
-already plain are unchanged, as are the declared residuals (`curl_easy_init
-failed`, which the user cannot act on). `PROV-REASON-01..05` pin the wordings, `04`
-on both transports (it fails on both with the old text), `PROV-MSG-*` and
-`PIT-44..50` the messages, `PROV-SANDBOX-02` and `PROV-STALL-09` moved to the new
-text with their invariants intact.
+function). A proxy that will not open the tunnel (its answer to `CONNECT` is not a
+2xx) leaves the transfer with no response status at all, so that twin also reads
+`CURLINFO_HTTP_CONNECTCODE` and says `could not connect to the server (the proxy
+answered HTTP 403 to the connection request)`, whatever code libcurl gave the
+failure (8.18: 22 for a 4xx or 5xx, 56 for a 3xx). WinHTTP takes its proxy from the
+machine's settings, never from the environment, so the case exists only on libcurl.
+The stall reason, `cancelled by user` and the other reasons that were already
+plain are unchanged, as are the declared residuals (`curl_easy_init failed`, which
+the user cannot act on). `PROV-REASON-01..05` pin the wordings, `04` on both
+transports (it fails on both with the old text) and `05` the transport's own code
+for an address it cannot use; `PROV-REASON-06` puts a refusing proxy in front of
+libcurl through `https_proxy`, which is why it lives in the POSIX-only sibling suite
+`sdcard_provisioner_posix_test`; `PROV-MSG-*` and `PIT-44..50` the messages,
+`PROV-SANDBOX-02` and `PROV-STALL-09` moved to the new text with their invariants
+intact.
 
 Where the message goes. `main.cpp` logs a failed SD-card provisioning in every
 frontend (headless and the SDL-only build printed it to stderr and nowhere else) and

@@ -1499,12 +1499,14 @@ void test_reason_rows() {
 
     // 04: THE TWIN-AGREEMENT ROW. A server that answers an error status through the REAL backend: libcurl (which
     // stops at CURLOPT_FAILONERROR and used to say only 'HTTP response code said error') and WinHTTP (which said
-    // 'HTTP status 404') now read the same, on both platforms.
+    // 'HTTP status 404') now read the same, on both platforms. 400 is the lowest status FAILONERROR fails on, so
+    // it is the one that tells the curl twin's 'status of 400 or more' from 'more than 400'.
     {
         std::string bad;
         const struct { int status; const char* want; } cases[] = {
             {404, "the server does not have this file (HTTP 404)"},
             {503, "the server reported an error (HTTP 503)"},
+            {400, "the server refused the request (HTTP 400)"},
         };
         for (const auto& c : cases) {
             rs::Server srv;
@@ -1527,34 +1529,49 @@ void test_reason_rows() {
         }
         check("PROV-REASON-04",
               "through the real backend (libcurl on Linux and macOS, WinHTTP under wine) a loopback server that "
-              "answers 404 fails with exactly 'the server does not have this file (HTTP 404)' and one that answers "
-              "503 with exactly 'the server reported an error (HTTP 503)': the same words on both transports; no "
-              "dest, .part or record is left",
+              "answers 404 fails with exactly 'the server does not have this file (HTTP 404)', one that answers "
+              "503 with exactly 'the server reported an error (HTTP 503)' and one that answers 400 with exactly "
+              "'the server refused the request (HTTP 400)': the same words on both transports; no dest, .part or "
+              "record is left",
               bad.empty(), bad);
     }
 
-    // 05: an address no transport can use, through the real backend (no network: it fails before any socket).
+    // 05: an address no transport can use, through the real backend (no network: it fails before any socket): a
+    // scheme it does not know and no address at all. The code that follows the words is the transport's own.
+    // libcurl-errors(3): 1 CURLE_UNSUPPORTED_PROTOCOL, 3 CURLE_URL_MALFORMAT. winhttp.h: WinHttpCrackUrl gives
+    // 12006 ERROR_WINHTTP_UNRECOGNIZED_SCHEME for a scheme that is not http or https; an address that cannot even
+    // be widened is the twin's own 12005 ERROR_WINHTTP_INVALID_URL (the plan: gh385-plan.md section 2).
     {
         const std::string dir = g_tmpdir + "/reason-url";
         std::error_code ec;
         fs::remove_all(dir, ec);
         fs::create_directories(dir, ec);
-        std::string err;
-        const bool ok = sdcard::http_download("xyzzy://nowhere", dir + "/dest.bin", {}, err, {200, 5000});
+        struct Case { const char* url; std::string want; };
 #ifdef _WIN32
-        const std::string head = std::string(kBadAddress) + " (WinHTTP error ";
-        bool shape = err.size() > head.size() + 1 && err.compare(0, head.size(), head) == 0 && err.back() == ')';
-        for (std::size_t i = head.size(); shape && i + 1 < err.size(); ++i)
-            shape = err[i] >= '0' && err[i] <= '9';
+        const Case cases[] = {
+            {"xyzzy://nowhere", std::string(kBadAddress) + " (WinHTTP error 12006)"},
+            {"", std::string(kBadAddress) + " (WinHTTP error 12005)"},
+        };
 #else
-        const bool shape = err == std::string(kBadAddress) + " (curl error 1: " +
-                                      curl_easy_strerror(CURLE_UNSUPPORTED_PROTOCOL) + ")";
+        const Case cases[] = {
+            {"xyzzy://nowhere", std::string(kBadAddress) + " (curl error 1: " +
+                                    curl_easy_strerror(CURLE_UNSUPPORTED_PROTOCOL) + ")"},
+            {"", std::string(kBadAddress) + " (curl error 3: " + curl_easy_strerror(CURLE_URL_MALFORMAT) + ")"},
+        };
 #endif
+        std::string bad;
+        for (const Case& c : cases) {
+            std::string err;
+            const bool ok = sdcard::http_download(c.url, dir + "/dest.bin", {}, err, {200, 5000});
+            if (ok || err != c.want)
+                bad += " ['" + std::string(c.url) + "': ok=" + std::to_string(ok) + " err='" + err + "']";
+        }
         check("PROV-REASON-05",
-              "the real backend given an address with a scheme it cannot use ('xyzzy://nowhere') fails at once with "
-              "'the address is not a valid http or https URL' followed by its own code and text, and no 'bad URL: "
-              "' of its own: the caller names the URL",
-              !ok && shape, "ok=" + std::to_string(ok) + " err='" + err + "'");
+              "the real backend given an address it cannot use, a scheme it does not know ('xyzzy://nowhere') or no "
+              "address at all, fails at once with 'the address is not a valid http or https URL' followed by "
+              "exactly its own code (libcurl error 1 and 3; WinHTTP error 12006 and 12005) and text, and no 'bad "
+              "URL: ' of its own: the caller names the URL",
+              bad.empty(), bad);
     }
 }
 

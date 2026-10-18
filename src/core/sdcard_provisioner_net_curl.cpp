@@ -11,12 +11,13 @@
 // with identical contracts: the failure wording documented there (transport_reason
 // sorts the CURLcode into the same kinds the WinHTTP twin sorts its codes into, so
 // both say the same words; an HTTP error status says the same through
-// http_status_reason), the partial-file contract documented there (`<dest>.part`
-// kept for resuming) and the tick / stall / cancel one (the ProgressFn is called at
-// least every tick whatever the network does; false aborts with "cancelled by
-// user"; no body byte for the stall timeout ends the attempt). The
-// whole-file #ifdef pair keeps file(GLOB_RECURSE) in src/core/CMakeLists.txt
-// correct on every platform: exactly one twin has content per build.
+// http_status_reason; only this twin names a proxy that refuses the tunnel), the
+// partial-file contract documented there (`<dest>.part` kept for resuming) and the
+// tick / stall / cancel one (the ProgressFn is called at least every tick whatever
+// the network does; false aborts with "cancelled by user"; no body byte for the
+// stall timeout ends the attempt). The whole-file #ifdef pair keeps
+// file(GLOB_RECURSE) in src/core/CMakeLists.txt correct on every platform: exactly
+// one twin has content per build.
 //
 // The transfer runs on libcurl's MULTI interface. curl_easy_perform with an
 // XFERINFO callback is called often while data flows but slows to about one call
@@ -90,6 +91,22 @@ std::string transport_reason(long code) {
     const CURLcode c = static_cast<CURLcode>(code);
     return net_reason(curl_kind(c), "curl error " + std::to_string(code) + ": " + curl_easy_strerror(c));
 }
+
+namespace {
+// The reason of a transfer libcurl reported as failed (GH #385). CURLOPT_FAILONERROR turns an HTTP
+// status of 400 or more into one generic code that loses the status, so it is read off the transfer:
+// a 404 says 404, like WinHTTP. A proxy that will not open the tunnel (its answer to CONNECT is not a
+// 2xx) leaves the transfer with no response status of its own, and the code libcurl gives for it
+// depends on the answer (8.18 measured: 22 for a 4xx or 5xx, 56 for a 3xx); the proxy's answer is the
+// reason, whichever code came with it. `proxy_code` is CURLINFO_HTTP_CONNECTCODE, 0 when there was none.
+std::string failure_reason(CURLcode rc, long http_code, long proxy_code) {
+    if (rc == CURLE_HTTP_RETURNED_ERROR && http_code >= 400) return http_status_reason(http_code);
+    if (proxy_code >= 300)
+        return net_reason(NetFailure::CannotConnect,
+                          "the proxy answered HTTP " + std::to_string(proxy_code) + " to the connection request");
+    return transport_reason(rc);
+}
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Download (default impl uses libcurl — no shell-out)
@@ -202,8 +219,9 @@ Outcome attempt_download(const std::string& url, const std::string& dest, const 
         while (const CURLMsg* msg = curl_multi_info_read(multi, &queued))
             if (msg->msg == CURLMSG_DONE) rc = msg->data.result;
     }
-    long http_code = 0;
+    long http_code = 0, proxy_code = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    curl_easy_getinfo(curl, CURLINFO_HTTP_CONNECTCODE, &proxy_code);   // an HTTP proxy's answer to CONNECT
     curl_multi_remove_handle(multi, curl);   // an unfinished transfer: its connection is closed
     curl_easy_cleanup(curl);
     curl_multi_cleanup(multi);
@@ -229,10 +247,7 @@ Outcome attempt_download(const std::string& url, const std::string& dest, const 
         return Outcome::Failed;
     }
     if (rc != CURLE_OK) {
-        // FAILONERROR turns an HTTP status >= 400 into one generic code that loses
-        // the status; it is read off the transfer so a 404 says 404, like WinHTTP.
-        err = (rc == CURLE_HTTP_RETURNED_ERROR && http_code >= 400) ? http_status_reason(http_code)
-                                                                    : transport_reason(rc);
+        err = failure_reason(rc, http_code, proxy_code);
         part.fail(err, rc == CURLE_PARTIAL_FILE);
         return Outcome::Failed;
     }

@@ -425,6 +425,14 @@ add_executable(sdcard_provisioner_test sdcard_provisioner/sdcard_provisioner_tes
 target_link_libraries(sdcard_provisioner_test PRIVATE jnext_core ZLIB::ZLIB)
 target_include_directories(sdcard_provisioner_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sdcard_provisioner_tests COMMAND sdcard_provisioner_test)
+# The rows that need libcurl's own behaviour (a proxy put in front of it through the
+# environment, which the WinHTTP twin has no counterpart of): POSIX only (GH #385).
+if(NOT WIN32)
+    add_executable(sdcard_provisioner_posix_test sdcard_provisioner/sdcard_provisioner_posix_test.cpp)
+    target_link_libraries(sdcard_provisioner_posix_test PRIVATE jnext_core)
+    target_include_directories(sdcard_provisioner_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_provisioner_posix_tests COMMAND sdcard_provisioner_posix_test)
+endif()
 
 # Warm-start tests (GH #234): the on-disk state cache — paths, round trip and
 # the four keys that invalidate it — plus the NextZXOS-residency criterion that
