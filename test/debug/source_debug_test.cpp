@@ -43,6 +43,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "debug/call_stack.h"
 #include "debug/debugger.h"
 #include "debug/ram_page.h"
 #include "peripheral/divmmc.h"
@@ -1045,6 +1046,24 @@ int main() {
                               "physical pages",
               f.size() == 1 && f[0].caller_pc == 0x8002 && f[0].caller_page == p80 &&
                   f[0].target_pc == 0x9000 && f[0].target_page == p90);
+    }
+    {
+        // An interrupt taken in the slot right after the tracker was enabled:
+        // no opcode was captured before it, so the caller's page is not known.
+        // That is NOT_RAM_PAGE, never RAM page 0 (which would show page 0's
+        // line as the caller). With a capture, the frame has its page.
+        CallStack cs;
+        cs.set_enabled(true);
+        cs.on_interrupt(0x8000, 0x0038, 0xFF00, CallType::INT, p90);
+        cs.on_instruction_pre(0x8002, 0xFF00, 0x00, 0x00, 0x00, p80);
+        cs.on_interrupt(0x8002, 0x0038, 0xFEFE, CallType::INT, p90);
+        const auto& f = cs.frames();
+        check("SRCDBG-CS-02", "an interrupt in the slot right after the tracker is enabled "
+                              "records no RAM page for its caller; one after a capture "
+                              "records the captured page",
+              f.size() == 2 && f[0].caller_pc == 0x8000 && f[0].caller_page == NOT_RAM_PAGE &&
+                  f[0].target_page == p90 && f[1].caller_pc == 0x8002 &&
+                  f[1].caller_page == p80);
     }
 
     fs::remove_all(dir);

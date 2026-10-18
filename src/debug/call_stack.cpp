@@ -85,8 +85,10 @@ void CallStack::on_interrupt(uint16_t caller_pc, uint16_t target_pc, uint16_t ne
                              CallType type, uint8_t target_page) {
     if (!enabled_) return;
     // The pre-slot capture was taken at the interrupted PC, so its page is
-    // the caller's even though the opcode it read did not run.
-    const uint8_t caller_page = have_pre_ ? pre_page_ : 0;
+    // the caller's even though the opcode it read did not run. With none (the
+    // tracker was enabled after the slot began) the page is not known, and 0
+    // is a real RAM page.
+    const uint8_t caller_page = have_pre_ ? pre_page_ : NOT_RAM_PAGE;
     have_pre_ = false;   // the captured opcode did not run in this slot
     push_frame(caller_pc, target_pc, new_sp, type, caller_page, target_page);
 }
