@@ -23,6 +23,7 @@ class BreakpointPanel;
 class MmuPanel;
 class StackPanel;
 class CallStackPanel;
+class SourcePanel;
 class QPushButton;
 class QSplitter;
 class QTabWidget;
@@ -99,6 +100,8 @@ public:
     MemoryPanel* memory_panel() { return memory_panel_; }
     /// GH #26 WP5 — the Script tab.
     ScriptPanel* script_panel() { return script_panel_; }
+    /// CAP-SRC — the Source tab.
+    SourcePanel* source_panel() { return source_panel_; }
     /// GH #26 WP5 — the eight script host-key actions (Alt+1..Alt+8), index
     /// 0..7 for keys 1..8. Not menu items: window-wide shortcuts, the
     /// `run_to_cursor_action_` pattern. Null before set_debugger_manager().
@@ -132,9 +135,12 @@ private:
     /// GH #215 — Execute is the ordinary PC breakpoint, reached first; it has
     /// its own dialog title and menu entry.
     void show_add_exec_bp_dialog();
-    /// Modal "Address (hex):" prompt shared by both of the above. Returns false
-    /// when the user cancels or types something that is not hex.
-    bool prompt_bp_address(const QString& title, uint16_t& addr);
+    /// Modal address prompt shared by both of the above: a number or a symbol,
+    /// and with a non-null `page` a source line `file:line` too, which comes
+    /// back with the page its record names (PAGE_ANY for a plain address).
+    /// Text that resolves to nothing keeps the dialog open with a message.
+    /// Returns false only when the user cancels.
+    bool prompt_bp_address(const QString& title, uint16_t& addr, uint16_t* page = nullptr);
     void show_rewind_buffer_size_dialog();
     void update_trace_indicator();
     void update_rewind_ui();
@@ -187,6 +193,7 @@ private:
     MmuPanel* mmu_panel_ = nullptr;
     StackPanel* stack_panel_ = nullptr;
     CallStackPanel* callstack_panel_ = nullptr;
+    SourcePanel* source_panel_ = nullptr;
     ScriptPanel* script_panel_ = nullptr;   // GH #26 WP5
     QAction* script_key_actions_[8] = {};    // GH #26 WP5
 

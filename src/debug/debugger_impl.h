@@ -45,6 +45,25 @@ struct Debugger::Impl {
     /// CAP-SYM — THE symbol table: the panels' `@name`, the servers' lookups
     /// and `--map` all read this one, per §4.7. There is no other.
     SymbolTable symbols;
+    /// CAP-SRC — the source map, and who filled each store: a program's
+    /// sidecar (the program's, replaced or cleared when the next program
+    /// loads) or the user (a MAP or SLD loaded by hand, `--map`: never
+    /// touched by a sidecar). Tracked explicitly: an empty-looking store can
+    /// still be the user's (a MAP of `; const` lines only).
+    enum class StoreOwner : uint8_t { None, Sidecar, User };
+    SourceMap   source_map;
+    StoreOwner  symbols_owner = StoreOwner::None;
+    StoreOwner  sources_owner = StoreOwner::None;
+    /// A sidecar belongs to the program loaded at `sidecar_attach_cycle`.
+    /// Every machine replacement (a rewind, a state load, a reset) raises
+    /// `sidecar_recheck`; `recheck_sidecars()` — run by `pump()` and by every
+    /// reader of the two stores before it reads — drops the sidecar stores
+    /// when the machine now stands before that load. Deferred, not done in
+    /// the hook: a rewind restores a snapshot and THEN replays forward, so
+    /// only the landing point says where the machine is.
+    uint64_t    sidecar_attach_cycle = 0;
+    bool        sidecar_recheck      = false;
+    void recheck_sidecars();
 
     /// SES-04 — what a `Stop` action does here. Held by the backend, set by the
     /// loop owner. `Pause` is the Qt default; a headless loop owner sets

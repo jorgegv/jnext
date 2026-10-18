@@ -130,7 +130,10 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     ds().set_event_hooks([this]() { return drain_boundary(); },
                          [this](uint16_t pc) { return execute_gate(pc); });
     ds().set_machine_replaced_hook(
-        [this]() { arm(PauseReason::Kind::None, CLIENT_NONE); });
+        [this]() {
+            arm(PauseReason::Kind::None, CLIENT_NONE);
+            sidecar_recheck = true;   // CAP-SRC: see recheck_sidecars()
+        });
 
     //     THE MASTER SWITCH'S LEGACY MIRROR (GH #278 WP4c). The switch is the
     //     `EventTable`'s and survived; the rebuilt `BreakpointSet` starts with
@@ -505,6 +508,8 @@ Result Debugger::load(ClientId by, const std::string& path) {
     // no replay from the ring reproduces. (A cold boot builds a new, empty ring.)
     if (loaded) impl_->note_mutation();
     if (reconstructed) impl_->notify_reset(ResetKind::Hard);
+    // CAP-SRC — the program's own symbols and source map, if it has them.
+    if (loaded) load_program_sidecars(path);
     return loaded ? Result::Ok : Result::RefusedUnavailable;
 }
 

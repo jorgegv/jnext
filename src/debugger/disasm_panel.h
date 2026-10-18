@@ -9,6 +9,7 @@
 #include <vector>
 #include "debug/disasm.h"
 #include "debug/disasm_text.h"
+#include "debug/events.h"
 
 class QAction;
 class BreakpointModel;
@@ -135,6 +136,9 @@ private:
     void set_selection(uint16_t addr, bool extend);
     bool line_selected(uint16_t addr) const;
     void navigate_to_address(const QString& text);
+    /// The gutter click and the context menu's Toggle Breakpoint: remove the
+    /// Execute breakpoint drawn at `addr`, or add a logical one.
+    void toggle_breakpoint(uint16_t addr, int line);
     static uint16_t extract_immediate16(const char* mnemonic);
 
     const jnext::dbg::Debugger* dbg_;
@@ -155,6 +159,10 @@ private:
         /// on. The gutter draws a filled dot for live and a hollow ring for
         /// suspended, so the two are never confused for one another.
         bool breakpoint_live;
+        /// The page the line was drawn with (`source_page`). While running
+        /// the panel is not redrawn, so a click must act on what it shows,
+        /// not on what is mapped by then.
+        uint16_t page = jnext::dbg::PAGE_ANY;
     };
     std::vector<DisasmEntry> entries_;
     int selected_line_ = -1;

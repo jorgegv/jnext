@@ -1,6 +1,7 @@
 #include "debugger/memory_panel.h"
 #include "qt/palette_tint_qt.h"   // GH #363
 #include "debug/debugger.h"
+#include "debug/symbol_table.h"
 
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -41,7 +42,6 @@ void MemoryPanel::create_ui() {
 
     addr_input_ = new QLineEdit(this);
     addr_input_->setPlaceholderText("$0000");
-    addr_input_->setMaxLength(6);
     addr_input_->setMaximumWidth(80);
     QFont mono("Monospace", 10);
     mono.setStyleHint(QFont::Monospace);
@@ -49,12 +49,11 @@ void MemoryPanel::create_ui() {
     top_bar->addWidget(addr_input_);
 
     connect(addr_input_, &QLineEdit::returnPressed, this, [this]() {
-        QString text = addr_input_->text().trimmed();
-        if (text.startsWith('$')) text = text.mid(1);
-        if (text.startsWith("0x", Qt::CaseInsensitive)) text = text.mid(2);
-        bool ok = false;
-        uint16_t addr = text.toUInt(&ok, 16);
-        if (ok) navigate_to_address(addr);
+        // An address (`4000`, `$4000`, `0x4000`) or a symbol, as every other
+        // address field takes it (SymbolTable::resolve, OD-12).
+        const std::string text = addr_input_->text().trimmed().toStdString();
+        const auto addr = dbg_ ? dbg_->symbols().resolve(text) : SymbolTable().resolve(text);
+        if (addr) navigate_to_address(*addr);
     });
 
     page_selector_ = new QComboBox(this);
