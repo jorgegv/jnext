@@ -874,6 +874,22 @@ the CLI winning (`quick_snapshot_keep_cli`). The debugger keymap refuses
 Alt+Shift+F5/F9 by name (`validate_combo`).
 The SDL chord predicate is `platform/quick_snapshot_chord.h`; the Qt chords are
 the two QAction shortcuts in `main_window.cpp`.
+Both frontends hand the request to the key `Router` (`on_host_action()`, GH #386)
+instead of acting in the key callback, so a chord takes its turn behind the keys
+typed before it, keys typed during or after it reach the loaded machine, and
+`SdlApp::service_quick_requests()` / `QtApp::TickEffects::post_frames()` call
+`action_done()` however the action ended (see the input subsystem chapter).
+The cost of the stall is the Tier-2 content stamp, a SHA-256 of the WHOLE SD
+image on the UI thread: one pass per save, two per load (the probe, then the load
+itself; the Qt Quick Load passes `jns_probed` so `handle_load_path()` does not
+repeat the probe). It scales with the card size (about 0.5-2 s for 1 GB) and every
+digest logs `snapshot: digested SD image '<path>' (<MB> MB) in <ms> ms`, so a
+user can see what the freeze was. The digest is eager by design (the snapshot
+format's section 11.3 and `sd_snapshot_identity.h`, "cost, stated rather than
+hidden"), and a probe without it would wrongly accept a snapshot taken
+mid-transfer (section 11.3, last row of the restore matrix). The freeze
+itself (the digest on the UI thread, which grows with the card) is kept as
+designed and tracked in GH #396.
 
 Video recording needs **FFmpeg on the host**. jnext writes raw ARGB frames and
 raw stereo PCM to temporary files during the run, so the hot loop pays no

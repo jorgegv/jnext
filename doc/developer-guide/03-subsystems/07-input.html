@@ -2563,11 +2563,41 @@ in the machine-side class, plus a stated policy.</p>
   are dropped rather than queued, because SDL forwards them and Qt does not.</p>
 <p>Real hardware has neither problem — it scans at membrane rate and merges
   nothing — so neither policy is a fidelity claim about the Next; both are
-  compensation for jnext delivering host input once per frame. One residue is
-  deliberately left: two taps of the <em>same</em> key inside one gap still reach the
-  guest as one continuous press, since separating them needs a released frame
-  between the presses, which halves the drain rate for a case no human hand can
-  produce.</p>
+  compensation for jnext delivering host input once per frame.</p>
+<p><strong>Nothing is lost</strong> holds for the <em>matrix</em>, and it is not enough for the
+  <em>guest</em> (GH #386). <code>48.rom</code>'s <code>KEYBOARD</code> routine keeps two key sets (<code>KSTATE</code>
+  at <code>$5C00</code> and <code>$5C04</code>): every interrupt decrements each busy set's counter and
+  frees it at 0 (<code>0x02C6-0x02D6</code>), a new key needs a free set (with none, <code>RET Z</code>
+  at <code>0x02F0</code> throws it away), a new key's counter is set to 5 (<code>LD (HL),$05</code> at
+  <code>0x02F4</code>), and the same key seen again while its set is busy is a repeat
+  (<code>K-REPEAT</code>, <code>0x0310</code>), not a keystroke. The same bytes are in the 128, +3 and
+  Next ROMs. A backlog replayed one keystroke per frame therefore lost the third
+  distinct key and every repeated one inside the ROM, even though each had been
+  shown to a frame. The router now spaces what <em>it</em> schedules:
+  <code>TAP_SPACING_FRAMES</code> (5) after a <strong>stretched tap</strong> (a press whose release
+  arrived before any frame saw it, so jnext, not the host, picks the length and
+  the next key's time), applied to <em>queued</em> presses only. A press that arrives on
+  an idle router keeps the host's own timing, so games and ordinary typing pay
+  nothing; the price is that a backlog drains at 10 keys/s at 50 FPS. Two taps of
+  the same key in one gap are now two keystrokes (the old "#120 residue"). The
+  spacing counts frames (<code>on_tick_end(frames)</code>), never ticks, and <code>attach()</code> and
+  <code>release_all()</code> forget it.</p>
+<p><strong>Host actions are barriers in the same queue</strong> (GH #386). A Quick Save or
+  Quick Load is requested through <code>Router::on_host_action(fn)</code>: it runs once every
+  keystroke typed before it has been shown to a frame and released, and every host
+  event typed after it queues until the frontend calls <code>action_done()</code>. <code>fn</code> only
+  raises the request (a flag; <code>QtApp::pending_quick_</code>, <code>SdlApp::quick_*_requested_</code>),
+  and the tick services it, so nothing saves or cold-boots from inside the router.
+  The user's order is kept on both sides: the save no longer overtakes the keys
+  before it, and keys typed behind a Quick Load survive its cold boot, because
+  <code>attach()</code> keeps the queue when a barrier is up (everything in it was typed
+  after the action, so it belongs to the new machine). <code>release_all()</code> drops the
+  queued keys but keeps queued actions, so a focus loss does not cancel a save the
+  user asked for. After a snapshot load wipes the matrix, <code>Router::reassert()</code>
+  puts back the keys the router holds (the four frontend load sites call it), so
+  the guest matrix is exactly what the host holds through the router. The
+  Quick Save/Load stall is the whole-card SHA-256 (see media and loaders); the
+  keys typed during it are delivered afterwards, in order.</p>
 <p><code>Router::release_all()</code> is the third policy, and it answers a different
   question: <strong>what if the key-up never arrives at all?</strong> A Qt popup and a focus
   change both take the keyboard away mid-keystroke, and the key-up then goes to

@@ -3886,6 +3886,11 @@ boot, then the load. A <code>.jns</code> you save into that folder yourself coun
   the Spectrum's Caps Shift, so it is held down for the program while you press
   the chord.</li>
 <li>Only <code>.jns</code> is used: it is the one format that can hold a whole machine.</li>
+<li>Keys you type while a quick save or load is in progress are not lost: they are
+  delivered afterwards, in the order you typed them, and a quick save waits for
+  the keys you typed before it. The machine freezes for a moment while it reads
+  the SD card image to identify it, which grows with the size of the image; the
+  log shows each such pass as "digested SD image".</li>
 </ul>
 <h2 id="loading">Loading<a class="headerlink" href="#loading" title="Permanent link">&para;</a></h2>
 <p>Drop the file on the command line, or <strong>File ▸ Load NEX File…</strong> (Alt+O) — the
