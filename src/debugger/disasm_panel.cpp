@@ -21,6 +21,7 @@
 #include <QKeySequence>
 
 #include "debug/debugger.h"
+#include "debug/ram_page.h"
 #include "debug/symbol_table.h"
 #include "debugger/watch_panel.h"
 
@@ -169,7 +170,7 @@ void DisasmPanel::toggle_breakpoint(uint16_t addr, int line)
     const bool shown = line >= 0 && line < static_cast<int>(entries_.size()) &&
                        entries_[line].line.addr == addr;
     const uint16_t page = shown ? entries_[line].page
-                        : dbg_  ? dbg_->source_page(addr)
+                        : dbg_  ? ram_page_of(dbg_->source_page(addr))
                                 : jnext::dbg::PAGE_ANY;
     if (bps->pc_exists(addr))
         bps->remove(BreakpointModel::Execute, addr);
@@ -254,7 +255,7 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
         // hollow ring for a breakpoint that is only the first.
         // CAP-SRC — a breakpoint set on a source line of banked code is
         // qualified with its page: drawn only while that page is mapped here.
-        const uint16_t page   = dbg_ ? dbg_->source_page(cur) : jnext::dbg::PAGE_ANY;
+        const uint16_t page   = dbg_ ? ram_page_of(dbg_->source_page(cur)) : jnext::dbg::PAGE_ANY;
         entry.has_breakpoint  = bps && bps->pc_marked(cur, page);
         entry.breakpoint_live = bps && bps->pc_marked_live(cur, page);
         entry.page            = page;

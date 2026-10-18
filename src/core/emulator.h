@@ -823,15 +823,22 @@ public:
     CallStack&    call_stack(){ return call_stack_; }
     const CallStack& call_stack() const { return call_stack_; }
 
-    /// Will the opcode fetch at `pc` — the next M1 there — come from an
-    /// overlay or a ROM slot rather than the MMU's RAM page? Predicted
-    /// without side effects, INCLUDING what the M1 itself switches: DivMMC's
-    /// instant-on entry points and the hold carried from the previous M1 (so
-    /// the fetch after a 0x1FF8-0x1FFF unmap is RAM again), and the
-    /// Multiface's 0x0066 fetch. The trace, the call-stack tracker and the
-    /// debugger's source lookups and breakpoints all ask this, so they name
-    /// what actually supplies the instruction.
-    bool fetch_not_mmu_ram(uint16_t pc) const;
+    /// What WILL supply the opcode fetch at `pc` — the next M1 there — named as
+    /// a `MemSpace` (GH #339): `Page{n}` for the MMU's RAM page, `Rom{i}` for a
+    /// ROM slot, and the overlay or special source otherwise (`BootRom`,
+    /// `MultifaceRom/Ram`, `DivMmcRom/Ram`, `Layer2`, `AltRom`, `Config`,
+    /// `Floating`). Predicted without side effects, INCLUDING what the M1 itself
+    /// switches: DivMMC's instant-on entry points and the hold carried from the
+    /// previous M1 (so the fetch after a 0x1FF8-0x1FFF unmap is RAM again), and
+    /// the Multiface's 0x0066 fetch.
+    ///
+    /// It is `Mmu::route_with()` — the arbiter `read()` itself uses — asked
+    /// with the two M1 answers, so the prediction and what the fetch records
+    /// (`Mmu::last_m1()`) are one function evaluated before and after the
+    /// instruction. The trace, the call-stack tracker and the debugger's source
+    /// lookups and breakpoints all ask this, so they name what actually
+    /// supplies the instruction.
+    jnext::dbg::MemSpace predict_fetch(uint16_t pc) const;
     Renderer&     renderer()  { return renderer_; }
     Profiler&     profiler()  { return profiler_; }
     const Profiler& profiler() const { return profiler_; }
@@ -2484,6 +2491,22 @@ private:
     /// the ring (latched before `init()` runs, so it carries the pre-reset cycle)
     /// and must survive the transition it reports.
     void debug_after_machine_transition_(bool discard_ring);
+
+    /// The four arbiter bits DivMMC's automap decode needs for an M1 at `pc`
+    /// (zxnext.vhd:3137-3138): `sram_pre_override(2)`, `sram_pre_override(0)`
+    /// (which folds in config mode), `sram_altrom_en` for a read, and
+    /// `sram_alt_128_n`. `mf_active` is the Multiface's `mf_mem_en` as it is
+    /// BEFORE that M1's own 0x0066 latch. The `on_m1_prefetch` hook feeds them
+    /// to `DivMmc::check_automap()`, and `predict_fetch()` to
+    /// `DivMmc::active_on_m1()`: ONE function, so the prediction cannot use
+    /// inputs the hook did not.
+    struct M1AutomapGates {
+        bool override_2;
+        bool override_0;
+        bool altrom_en_read;
+        bool alt_128_n;
+    };
+    M1AutomapGates m1_automap_gates_(uint16_t pc, bool mf_active) const;
 
     /// GH #276 B2 §4.3 — latch `Scanline` / `Frame` / `IntAck` / `Nmi` /
     /// `Magic`. Out of line, each behind its own `has_kind()` gate.

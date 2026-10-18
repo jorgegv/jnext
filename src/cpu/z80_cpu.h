@@ -28,6 +28,13 @@ public:
     virtual ~MemoryInterface() = default;
     virtual uint8_t read(uint16_t addr) = 0;
     virtual void write(uint16_t addr, uint8_t val) = 0;
+
+    /// The opcode fetch (M1) of an instruction: a read that a memory with a
+    /// notion of "what supplied this byte" can record (`Mmu::read_m1()` keeps it
+    /// as `last_m1()`). The default is a plain read, so every stub memory in the
+    /// tree is unaffected. Called once per instruction for its first opcode
+    /// byte, after `on_m1_prefetch`; GH #339.
+    virtual uint8_t read_m1(uint16_t addr) { return read(addr); }
 };
 
 class IoInterface {

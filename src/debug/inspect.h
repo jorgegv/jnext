@@ -58,6 +58,7 @@
 #include "debug/call_stack.h"    // CallFrame, CallType  (INS-12)
 #include "debug/disasm.h"        // DisasmLine, DisasmReadFn  (INS-11)
 #include "debug/events.h"        // ClientId, EventId, Access  (CTL-13's PauseReason)
+#include "debug/mem_space.h"     // MemSpace  (INS-02; GH #339)
 #include "debug/raster_state.h"  // RasterState  (INS-06)
 #include "debug/result.h"
 #include "debug/trace.h"         // TraceEntry  (INS-13)
@@ -97,70 +98,11 @@ struct ConstU32s {
 
 // ---------------------------------------------------------------------------
 // INS-02 — memory spaces
+//
+// `MemSpace` itself lives in `debug/mem_space.h` (std headers only), because
+// `memory/mmu.h` returns it from the read arbiter and may not include this
+// published header (GH #339). It is included above and re-exported from here.
 // ---------------------------------------------------------------------------
-
-/// WHICH memory a `peek` / `poke` addresses, index included (§4.2 INS-02).
-///
-/// The index is PART OF THE SPACE, not something a caller composes from
-/// `SlotInfo`'s other fields. Round 4 of the design review caught both the Qt
-/// and the DZRP frontend about to build a space out of `effective_page +
-/// is_rom`, which is wrong on the Next: a ROM slot's `effective_page` is an
-/// un-shifted `ram_` page index (0..7), outside `Page{}`'s NR 0x50-0x57 number
-/// space entirely. So `SlotInfo::space` hands the complete answer over
-/// (REQ-qt-31).
-struct MemSpace {
-    enum class Kind : uint8_t {
-        /// The live CPU mapping, overlays included (DivMMC, Multiface,
-        /// Layer 2). `index` unused. Reads go through `Mmu::peek()` — NO
-        /// floating-bus latch update (F1).
-        Cpu = 0,
-        /// A physical 8 K page, `index` = the NR 0x50-0x57 page number
-        /// (0..223). The backend does the VHDL routing (`to_sram_page`, page
-        /// 0x0E → the bank-7 BRAM buffer); 0xFE / 0xFF are the ROM sentinels
-        /// and refuse with `Result::InvalidPage`. Addresses the physical page
-        /// REGARDLESS of any overlay mapped over a slot — that is the point of
-        /// the slot view (design-qt QMP-06).
-        Page,
-        /// A 16 KB ROM image, `index` 0..3, addresses 0..0x3FFF within it.
-        /// Read-only: `poke` refuses with `Result::RefusedReadOnly`. On a
-        /// `rom_in_sram_` machine (Next mode) it is SRAM pages `2·index` and
-        /// `2·index+1`; on 48K/128K/+3 it is the `Rom` object's image (48K has
-        /// 1, 128K 2, +3 4). The NR 0x8C alt-ROM LOCK bits (5:4) are folded
-        /// into the ROM select, so `Rom{0..3}` covers every image legacy
-        /// paging can select. The NR 0x8C bit-7 ALTERNATE ROM itself is NOT
-        /// among them: with bit 7 set and bit 6 clear the CPU reads slots 0/1
-        /// from SRAM pages 12-15 (the alt-ROM read override in `Mmu::read`),
-        /// an overlay like DivMMC's — `Cpu` sees it, no `Rom{}` does. (This
-        /// comment said the overrides made `Rom{0..3}` complete; that held for
-        /// the lock bits only — corrected, comment only, GH #12.)
-        Rom,
-    };
-
-    Kind kind = Kind::Cpu;
-
-    /// ONE WIDTH FOR EVERY PAGE NUMBER IN THIS API: `uint16_t`, the same as
-    /// `Event::phys_page` and `EventFilter::page` / `EventFilter::pages`. A page
-    /// number crosses between them constantly (a `Mem` delivery's `phys_page`
-    /// handed straight to `MemSpace::page()` to peek what was written), and a
-    /// narrower type here would put a silent narrowing conversion on every one
-    /// of those hops. Valid NR 0x50-0x57 numbers are 0..223 and the ROM
-    /// sentinels are 0xFE / 0xFF, so the value range needs only 8 bits; the
-    /// width is for the seam, not the range.
-    uint16_t index = 0;
-
-    static constexpr MemSpace cpu();
-    static constexpr MemSpace page(uint16_t p);
-    static constexpr MemSpace rom(uint16_t i);
-};
-
-constexpr MemSpace MemSpace::cpu() { return MemSpace{Kind::Cpu, 0}; }
-constexpr MemSpace MemSpace::page(uint16_t p) { return MemSpace{Kind::Page, p}; }
-constexpr MemSpace MemSpace::rom(uint16_t i) { return MemSpace{Kind::Rom, i}; }
-
-constexpr bool operator==(MemSpace a, MemSpace b) {
-    return a.kind == b.kind && (a.kind == MemSpace::Kind::Cpu || a.index == b.index);
-}
-constexpr bool operator!=(MemSpace a, MemSpace b) { return !(a == b); }
 
 /// INS-02 — the two page numbers NR 0x50-0x57 uses as the VHDL ROM sentinel. A
 /// `MemSpace::page()` naming either refuses with `Result::InvalidPage`.

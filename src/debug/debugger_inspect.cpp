@@ -68,8 +68,49 @@ std::string space_name(MemSpace space, uint32_t addr) {
             std::snprintf(buf, sizeof(buf), "mem rom%u:0x%04X",
                           static_cast<unsigned>(space.index), addr);
             break;
+        // The identity-only kinds (GH #339) are refused before anything can be
+        // mutated, so no MUTATE line is ever written for one; they are listed so
+        // this switch stays total and `-Werror=switch` notices the next kind.
+        case MemSpace::Kind::BootRom:
+        case MemSpace::Kind::MultifaceRom:
+        case MemSpace::Kind::MultifaceRam:
+        case MemSpace::Kind::DivMmcRom:
+        case MemSpace::Kind::DivMmcRam:
+        case MemSpace::Kind::AltRom:
+        case MemSpace::Kind::Layer2:
+        case MemSpace::Kind::Config:
+        case MemSpace::Kind::Floating:
+            std::snprintf(buf, sizeof(buf), "mem kind%u:%u:0x%04X",
+                          static_cast<unsigned>(space.kind),
+                          static_cast<unsigned>(space.index), addr);
+            break;
     }
     return buf;
+}
+
+/// Kinds the read arbiter NAMES (`Mmu::route()`, GH #339) that no verb accesses
+/// yet: `peek` and `poke` refuse them with `Result::Unsupported` until a
+/// consumer adds the access with its own rows (E23-21 adds DivMmcRam). One total
+/// switch, no `default`, so `-Werror=switch` makes a new kind a compile error
+/// here instead of a silent fall-through into a store it does not address.
+bool identity_only(MemSpace::Kind kind) {
+    switch (kind) {
+        case MemSpace::Kind::Cpu:
+        case MemSpace::Kind::Page:
+        case MemSpace::Kind::Rom:
+            return false;
+        case MemSpace::Kind::BootRom:
+        case MemSpace::Kind::MultifaceRom:
+        case MemSpace::Kind::MultifaceRam:
+        case MemSpace::Kind::DivMmcRom:
+        case MemSpace::Kind::DivMmcRam:
+        case MemSpace::Kind::AltRom:
+        case MemSpace::Kind::Layer2:
+        case MemSpace::Kind::Config:
+        case MemSpace::Kind::Floating:
+            return true;
+    }
+    return true;
 }
 
 /// INS-15's `PaletteId` superset -> the hardware enum, with `UlaActive`
@@ -261,6 +302,19 @@ Expected<size_t> Debugger::peek(MemSpace space, uint32_t addr, size_t n,
                 buf[done] = p[addr + done];
             return Expected<size_t>{done == n ? Result::Ok : Result::RefusedUnavailable, done};
         }
+        // The identity-only kinds (GH #339): named by the read arbiter, accessed
+        // by no verb yet. Listed one by one (no `default`) so `-Werror=switch`
+        // flags the next kind added to `MemSpace::Kind`.
+        case MemSpace::Kind::BootRom:
+        case MemSpace::Kind::MultifaceRom:
+        case MemSpace::Kind::MultifaceRam:
+        case MemSpace::Kind::DivMmcRom:
+        case MemSpace::Kind::DivMmcRam:
+        case MemSpace::Kind::AltRom:
+        case MemSpace::Kind::Layer2:
+        case MemSpace::Kind::Config:
+        case MemSpace::Kind::Floating:
+            return make_refused<size_t>(Result::Unsupported);
     }
     return make_refused<size_t>(Result::Unsupported);
 }
@@ -273,6 +327,10 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
         return make_refused<size_t>(Result::RefusedRzx);
 
     Emulator& emu = impl_->emu;
+
+    // An identity-only kind (GH #339) names no store a verb can write: refused
+    // BEFORE anything is written or logged, like every refusal below.
+    if (identity_only(space.kind)) return make_refused<size_t>(Result::Unsupported);
 
     // ROM is read-only in both spellings: `Rom{}` by kind, and a ROM-class page
     // under `Page{}` by its sentinel. Refused BEFORE anything is written, so a

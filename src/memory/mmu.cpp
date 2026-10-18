@@ -127,6 +127,10 @@ void Mmu::reset(bool hard) {
         bank7_bram_.fill(0);
     }
 
+    // GH #339 — "none recorded": the fetch record belongs to the machine that
+    // made it, and a reset starts a new run of instructions.
+    last_m1_ = jnext::dbg::MemSpace::cpu();
+
     paging_locked_ = false;
     contention_disabled_ = false;
     port_dffd_reg_ = 0;
@@ -256,6 +260,7 @@ void Mmu::notify_slot_remapped_(int slot) {
 }
 
 void Mmu::rebuild_ptr_body_(int slot) {
+    using jnext::dbg::MemSpace;
     uint8_t page = slots_[slot];
     // GH #92 — default: reads wait at 28 MHz (external SRAM asserts
     // sram_req, zxnext.vhd:3154+3175). The branches below clear the flag
@@ -273,12 +278,15 @@ void Mmu::rebuild_ptr_body_(int slot) {
             // to_sram_page shift. Other machines use the separate rom_ buffer.
             read_ptr_[slot] = rom_in_sram_ ? ram_.page_ptr(page) : rom_.page_ptr(page);
             write_ptr_[slot] = nullptr;
+            // GH #339: `page` is the ROM-area index (0..7); 16 KB image page>>1.
+            slot_space_[slot] = MemSpace::rom(page >> 1);
         } else {
             read_ptr_[slot] = nullptr;
             write_ptr_[slot] = nullptr;
             // GH #92: MMU<i>=0xFF in slots 2..7 → mmu_A21_A13(8)='1' →
             // sram_pre_active='0' (zxnext.vhd:3061) — no sram_req, no wait.
             sram_read_wait28_[slot] = 0;
+            slot_space_[slot] = MemSpace::floating();
         }
     } else {
         // VHDL floating-bus / inactive-slot gate (zxnext.vhd:2964 +
@@ -318,6 +326,7 @@ void Mmu::rebuild_ptr_body_(int slot) {
                 // GH #92: mmu_A21_A13(8)='1' → sram_pre_active='0'
                 // (zxnext.vhd:3061) — no sram_req, no 28 MHz read wait.
                 sram_read_wait28_[slot] = 0;
+                slot_space_[slot] = MemSpace::floating();   // GH #339
             } else {
                 // Slot 0/1: legacy ROM (sram_rom-derived). Mirror
                 // engage_legacy_rom_paging_slot() but without touching
@@ -363,6 +372,7 @@ void Mmu::rebuild_ptr_body_(int slot) {
                 // verbatim NR-write value (e.g. 0xE5) for read-back
                 // (zxnext.vhd:6075-6082).
                 slots_[slot] = rom_page;
+                slot_space_[slot] = MemSpace::rom(sram_rom);   // GH #339
             }
             return;
         }
@@ -385,6 +395,7 @@ void Mmu::rebuild_ptr_body_(int slot) {
             // appears nowhere in the 28 MHz wait expression at :3175
             // (only sram_req_t and cpu_bank5_sched do) — reads never wait.
             sram_read_wait28_[slot] = 0;
+            slot_space_[slot] = MemSpace::page(page);   // GH #339: Page{0x0E}
             return;
         }
         // Bank 5 (pages 0x0A/0x0B) is a dedicated 16K dual-port VRAM on
@@ -403,12 +414,14 @@ void Mmu::rebuild_ptr_body_(int slot) {
                             + ((page & 1) ? 0x2000 : 0);
             read_ptr_[slot]  = half;
             write_ptr_[slot] = half;
+            slot_space_[slot] = MemSpace::page(page);   // GH #339: Page{0x0A/0x0B}
             return;
         }
         // RAM slot: apply VHDL mmu_A21_A13 shift (Next mode) via to_sram_page.
         uint8_t* p = ram_.page_ptr(to_sram_page(page));
         read_ptr_[slot] = p;
         write_ptr_[slot] = p;
+        slot_space_[slot] = MemSpace::page(page);       // GH #339
     }
 }
 
@@ -432,6 +445,9 @@ void Mmu::map_rom_physical(int slot, uint8_t rom_page) {
     // GH #92: legacy ROM is served from external SRAM (zxnext.vhd:3052,
     // sram_pre_active='1' at :3053) — reads wait at 28 MHz.
     sram_read_wait28_[slot] = 1;
+    // GH #339: the half is rom_page & 1, which every production caller makes
+    // cpu_a(13) (sram_rom * 2 + slot).
+    slot_space_[slot] = jnext::dbg::MemSpace::rom(rom_page >> 1);
     // Leaves nr_mmu_[slot] unchanged; callers update it as needed.
     // reset() seeds 0xFF (VHDL ROM sentinel); legacy paging callers
     // (map_128k_bank / map_plus3_bank) overwrite with physical page.
@@ -1138,20 +1154,25 @@ void Mmu::load_state(StateReader& r)
     // results were overwritten by the second and nothing in between consulted
     // a pointer.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
+
+    // GH #339 — the fetch record is not state: a restore starts with none, so
+    // nothing reads the previous machine's last fetch as this one's.
+    last_m1_ = jnext::dbg::MemSpace::cpu();
 }
 
 // ---------------------------------------------------------------------------
 // DivMMC overlay helpers (out-of-line to avoid circular include)
 // ---------------------------------------------------------------------------
 
-bool Mmu::divmmc_read(uint16_t addr, uint8_t& val) const {
-    if (!divmmc_->is_active()) return false;
-    val = divmmc_->read(addr);
+bool Mmu::divmmc_route_(uint16_t addr, bool check_active, Route& r) const {
+    if (check_active && !divmmc_->is_active()) return false;
+    // The decode is DivMmc's (divmmc.vhd:88-101, once); this only names it.
+    const DivMmc::Overlay o = divmmc_->overlay_at(addr);
+    r.space  = o.ram ? jnext::dbg::MemSpace::divmmc_ram(o.bank)
+                     : jnext::dbg::MemSpace::divmmc_rom();
+    r.offset = addr & 0x1FFF;
+    r.ptr    = o.ptr;
     return true;
-}
-
-bool Mmu::divmmc_is_active_() const {
-    return divmmc_->is_active();
 }
 
 bool Mmu::divmmc_write(uint16_t addr, uint8_t val, bool& landed) {
@@ -1179,14 +1200,15 @@ bool Mmu::mf_overlay_active_() const {
     return multiface_->is_mem_active();
 }
 
-uint8_t Mmu::mf_rom_byte_(uint16_t addr) const {
-    // 8 KB MF ROM at 0x0000-0x1FFF.
-    return multiface_->rom_data()[addr];
-}
-
-uint8_t Mmu::mf_ram_byte_(uint16_t addr) const {
-    // 8 KB MF RAM at 0x2000-0x3FFF.
-    return multiface_->ram_data()[addr - 0x2000];
+void Mmu::mf_route_(uint16_t addr, Route& r) const {
+    // 8 KB MF ROM at 0x0000-0x1FFF, 8 KB MF RAM at 0x2000-0x3FFF (cpu_a(13)
+    // selects the half, zxnext.vhd:3031).
+    const bool ram = addr >= 0x2000;
+    r.space  = ram ? jnext::dbg::MemSpace::multiface_ram()
+                   : jnext::dbg::MemSpace::multiface_rom();
+    r.offset = addr & 0x1FFF;
+    r.ptr    = (ram ? static_cast<const uint8_t*>(multiface_->ram_data())
+                    : multiface_->rom_data()) + r.offset;
 }
 
 void Mmu::mf_ram_write_(uint16_t addr, uint8_t val) {
@@ -1210,11 +1232,12 @@ void Mmu::mf_ram_write_(uint16_t addr, uint8_t val) {
 // slot serves, resolved through legacy paging, which is the number
 // `MemSpace::page()`, `SlotInfo::nr_page` and DZRP's `bank+1` watchpoints all
 // mean, and the number the slot mask itself is built from. STATED LIMITATION:
-// for an access served by a DivMMC, Multiface or Layer 2 OVERLAY the byte does
-// not come from that page at all — those stores are outside the page-number
-// space entirely — so `phys_page` names what the MMU maps, not what answered.
-// Reporting the overlay's private offset would be a page number that no filter,
-// and no `peek(Page{})`, can address.
+// for an access served by a DivMMC, Multiface or Layer 2 OVERLAY, the boot ROM,
+// or nothing at all (a floating read) the byte does not come from that page at
+// all — those stores are outside the page-number space entirely — so `phys_page`
+// names what the MMU maps, not what answered. Reporting the overlay's private
+// offset would be a page number that no filter, and no `peek(Page{})`, can
+// address. (`Mmu::route()` names what answered, as a `MemSpace`.)
 // ---------------------------------------------------------------------------
 
 void Mmu::watch_read_(uint16_t addr, uint8_t val) {

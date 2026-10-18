@@ -615,23 +615,23 @@ int DivMmc::ram_page_for(uint16_t addr) const {
     return bank_;  // slot 1 → selected bank
 }
 
+// divmmc.vhd:88-101: `rom_en` is page 0 (conmem or automap) with MAPRAM clear,
+// `ram_en` is page 0 with MAPRAM or page 1, and `ram_bank` is 3 at page 0 and
+// the control register's bits 3:0 at page 1 (ram_page_for()).
+DivMmc::Overlay DivMmc::overlay_at(uint16_t addr) const {
+    const uint16_t off = addr & 0x1FFF;
+    if (addr < 0x2000 && !mapram_) {
+        // Normal: the DivMMC ROM
+        return Overlay{false, 0, rom_data() + off};
+    }
+    // MAPRAM at page 0: RAM page 3; page 1: the selected RAM bank
+    const uint8_t bank = static_cast<uint8_t>(ram_page_for(addr));
+    return Overlay{true, bank, ram_data() + bank * kRamPageSize + off};
+}
+
 uint8_t DivMmc::read(uint16_t addr) const {
     if (addr >= 0x4000) return 0xFF;  // outside DivMMC range
-
-    bool page0 = (addr < 0x2000);
-
-    if (page0) {
-        if (mapram_) {
-            // mapram: read from RAM page 3
-            return ram_data()[3 * kRamPageSize + (addr & 0x1FFF)];
-        } else {
-            // Normal: read from DivMMC ROM
-            return rom_data()[addr & 0x1FFF];
-        }
-    } else {
-        // Slot 1: read from selected RAM bank
-        return ram_data()[bank_ * kRamPageSize + (addr & 0x1FFF)];
-    }
+    return *overlay_at(addr).ptr;
 }
 
 bool DivMmc::write(uint16_t addr, uint8_t val) {

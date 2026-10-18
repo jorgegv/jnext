@@ -219,7 +219,7 @@ std::vector<EventId> Debugger::probe_execute(uint16_t pc) const {
     ev.frame     = frame_tag(impl_->emu);
     ev.pc        = pc;
     ev.phys_page = impl_->emu.mmu().get_effective_page(pc >> 13);
-    ev.fetch_not_ram = impl_->emu.fetch_not_mmu_ram(pc);
+    ev.fetch_not_ram = impl_->emu.predict_fetch(pc).kind != MemSpace::Kind::Page;
 
     DebugState::InspectionScope scope(impl_->ds());
     for (const auto& e : impl_->events.entries()) {
@@ -613,7 +613,7 @@ bool Debugger::Impl::execute_gate(uint16_t pc) {
     ev.frame     = frame_tag(emu);
     ev.pc        = pc;
     ev.phys_page = emu.mmu().get_effective_page(pc >> 13);
-    ev.fetch_not_ram = emu.fetch_not_mmu_ram(pc);
+    ev.fetch_not_ram = emu.predict_fetch(pc).kind != MemSpace::Kind::Page;
 
     events.clear_hits();
     bool stop = false;

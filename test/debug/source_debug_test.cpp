@@ -68,6 +68,7 @@ using jnext::dbg::Action;
 using jnext::dbg::ClientId;
 using jnext::dbg::Debugger;
 using jnext::dbg::EventKind;
+using jnext::dbg::MemSpace;
 using jnext::dbg::PauseReason;
 using jnext::dbg::ResetKind;
 using jnext::dbg::Result;
@@ -551,7 +552,7 @@ int main() {
                                 "x.asm|7||0|" + std::to_string(rom_page) + "|1|T|\n");
         m.dbg->load_source_map(rom_sld.string(), false);
         check("SRCDBG-ID-01", "code in a ROM slot is not the RAM page with its page number",
-              m.dbg->source_page(0x0001) == NOT_RAM_PAGE && !m.dbg->source_location(0x0001));
+              m.dbg->source_page(0x0001) == MemSpace::rom(0) && !m.dbg->source_location(0x0001));
 
         // A page-qualified Execute matches page numbers alone (DZRP, the DSL);
         // one marked page_ram_only (a source breakpoint) refuses the ROM.
@@ -575,12 +576,14 @@ int main() {
         // mapping overlays it, when the fetch comes from Layer 2 instead.
         Machine m(false, MachineType::ZXN_ISSUE2);
         m.dbg->nextreg_write(m.a, 0x50, 10);
-        const bool ram = m.dbg->source_page(0x0010) == 10;
+        const bool ram = m.dbg->source_page(0x0010) == MemSpace::page(10);
         m.dbg->port_out(m.a, 0x123B, 0x04);   // Layer 2 read mapping, low 16K
-        const bool overlaid = m.dbg->source_page(0x0010) == NOT_RAM_PAGE;
+        // NR 0x12 resets to bank 8 and the segment is 00, so the page is
+        // layer2_active_page = (8 + 0) << 1 | cpu_a(13) = 0x10 (zxnext.vhd:2966-2969).
+        const bool overlaid = m.dbg->source_page(0x0010) == MemSpace::layer2(0x10);
         m.dbg->port_out(m.a, 0x123B, 0x00);
         check("SRCDBG-ID-03", "a RAM page under the Layer 2 read mapping is not that page",
-              ram && overlaid && m.dbg->source_page(0x0010) == 10);
+              ram && overlaid && m.dbg->source_page(0x0010) == MemSpace::page(10));
     }
     {
         // History: a ROM entry of the trace is not the RAM page its number
@@ -615,7 +618,7 @@ int main() {
         // record on page 10 at $0001 is not what ran there.
         Machine m(/*rewind=*/true, MachineType::ZXN_ISSUE2);
         m.dbg->nextreg_write(m.a, 0x50, 10);
-        const unsigned p8 = m.dbg->source_page(0x8000);
+        const unsigned p8 = ram_page_of(m.dbg->source_page(0x8000));
         m.emu.mmu().write(0x8000, 0xC3);
         m.emu.mmu().write(0x8001, 0x00);
         m.emu.mmu().write(0x8002, 0x00);
@@ -659,7 +662,7 @@ int main() {
         r.AF = 0x0000;
         m.emu.cpu().set_registers(r);
         const bool mapped_now = m.emu.divmmc().is_active();
-        const bool predicted = m.dbg->source_page(0x0000) == NOT_RAM_PAGE;
+        const bool predicted = m.dbg->source_page(0x0000) == MemSpace::divmmc_rom();
         Subscription bp = execute_stop(0x0000);
         bp.filter.page = 10;
         bp.filter.page_ram_only = true;
@@ -706,12 +709,13 @@ int main() {
         r.PC = 0x0000;
         m.emu.cpu().set_registers(r);
         m.dbg->step_into(m.a);                    // the JP, from DivMMC
-        const bool at = m.pc() == 0x1FF8 && m.dbg->source_page(0x1FF8) == NOT_RAM_PAGE;
+        const bool at = m.pc() == 0x1FF8 && m.dbg->source_page(0x1FF8) == MemSpace::divmmc_rom();
         m.dbg->step_into(m.a);                    // the NOP at $1FF8 arms the unmap
         const bool still_mapped = m.emu.divmmc().is_active();
         check("SRCDBG-ID-08", "after a fetch in the unmap range the NEXT fetch is RAM "
                               "again, foreseen while DivMMC still reads as mapped",
-              at && m.pc() == 0x1FF9 && still_mapped && m.dbg->source_page(0x1FF9) == 10,
+              at && m.pc() == 0x1FF9 && still_mapped &&
+                  m.dbg->source_page(0x1FF9) == MemSpace::page(10),
               m.where());
     }
 

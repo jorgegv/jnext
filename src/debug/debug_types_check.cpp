@@ -278,6 +278,28 @@ static_assert(MemSpace::page(5) != MemSpace::page(6), "");
 static_assert(MemSpace::rom(1) != MemSpace::page(1), "");
 // `Cpu` ignores the index, so two default-constructed CPU spaces are equal.
 static_assert(MemSpace::cpu() == MemSpace{}, "");
+// GH #339 -- the kinds the read arbiter names. Every one fits 4 bits (and an
+// arbiter index 8), so a (kind, index) pair packs into 12 bits; Cpu, Page and Rom
+// keep the values they have always had.
+static_assert(static_cast<unsigned>(MemSpace::Kind::Cpu) == 0 &&
+              static_cast<unsigned>(MemSpace::Kind::Page) == 1 &&
+              static_cast<unsigned>(MemSpace::Kind::Rom) == 2, "");
+static_assert(static_cast<unsigned>(MemSpace::Kind::Floating) <= 15,
+              "an arbiter kind must fit the 4 bits of the 12-bit packing");
+static_assert(MemSpace::boot_rom().kind == MemSpace::Kind::BootRom, "");
+static_assert(MemSpace::divmmc_ram(5).kind == MemSpace::Kind::DivMmcRam &&
+              MemSpace::divmmc_ram(5).index == 5, "");
+static_assert(MemSpace::floating().kind == MemSpace::Kind::Floating, "");
+// Equality is by decode path: the same number under another kind is another
+// space, and so is the same kind under another number.
+static_assert(MemSpace::divmmc_ram(5) != MemSpace::page(5), "");
+static_assert(MemSpace::layer2(0x10) != MemSpace::page(0x10), "");
+static_assert(MemSpace::config(3) != MemSpace::rom(3), "");
+static_assert(MemSpace::alt_rom(0) != MemSpace::alt_rom(1), "");
+static_assert(MemSpace::multiface_rom() != MemSpace::multiface_ram(), "");
+static_assert(MemSpace::divmmc_ram(5) == MemSpace::divmmc_ram(5), "");
+// `FetchSource` is the role, not a second type.
+static_assert(std::is_same<FetchSource, MemSpace>::value, "");
 // One width for every page number that crosses between these types, so no hop
 // narrows: MemSpace::index, Event::phys_page and EventFilter::page agree.
 static_assert(std::is_same<decltype(MemSpace::index), decltype(Event::phys_page)>::value,

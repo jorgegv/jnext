@@ -698,7 +698,7 @@ void test_gutter() {
         GutterView g(*fx.backend, m);
         if (auto* sb = g.panel->findChild<QScrollBar*>()) sb->setValue(0);
         const uint16_t rom = fx.backend->effective_page(0);
-        const uint16_t fetch = fx.backend->source_page(0);
+        const uint16_t fetch = ram_page_of(fx.backend->source_page(0));
         m.add(BreakpointModel::Execute, 0x0000, rom);
         g.panel->refresh();
         QApplication::processEvents();
@@ -1193,7 +1193,7 @@ void test_source_hex() {
     uint16_t addr = 0;
     uint8_t page = 0;
     for (uint32_t a = 0x4000; a < 0x10000 && !addr; a += 0x2000) {
-        const uint8_t pg = fx.backend->source_page(static_cast<uint16_t>(a));
+        const uint8_t pg = ram_page_of(fx.backend->source_page(static_cast<uint16_t>(a)));
         if (pg != NOT_RAM_PAGE && QString::asprintf("%02X", pg).contains(QRegularExpression("[A-F]"))) {
             addr = static_cast<uint16_t>(a | 0x0BCD);
             page = pg;

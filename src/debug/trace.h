@@ -52,8 +52,9 @@ public:
 
     /// Record one instruction execution. `fetch_not_mmu_ram`: the opcode came
     /// from an overlay or a ROM-mapped slot rather than the RAM page in
-    /// `entry.mmu[pc >> 13]` (`Emulator::fetch_not_mmu_ram()`, predicted
-    /// for this instruction's M1 just before it runs). Kept beside the
+    /// `entry.mmu[pc >> 13]` (`Emulator::predict_fetch()` is not a
+    /// `MemSpace::Kind::Page`, predicted for this instruction's M1 just before
+    /// it runs; E23-08 records the fetch itself instead). Kept beside the
     /// entry, not in it: `TraceEntry`'s layout is published (56 bytes).
     void record(const TraceEntry& entry, bool fetch_not_mmu_ram = false);
 

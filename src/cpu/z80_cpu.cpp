@@ -937,7 +937,7 @@ int Z80Cpu::execute() {
     // the opcode read, matching real hardware combinatorial decode.
     if (on_m1_prefetch) on_m1_prefetch(pc);
 
-    uint8_t  opcode = mem_.read(pc);
+    uint8_t  opcode = mem_.read_m1(pc);   // GH #339: the fetch records what supplied it
     slot_kind_ = SlotKind::Opcode;   // past every early return; the CPU read PC itself
 
     if (opcode == 0xED) {

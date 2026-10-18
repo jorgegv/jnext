@@ -1025,35 +1025,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // override bits) are consumed ONLY by check_automap, so hoisting
         // their computation inside the gate is behaviour-preserving.
         if (divmmc_.automap_m1_may_react(pc)) {
-            // G46(b) — compute the VHDL `sram_pre_override(2)` and `(0)`
-            // priority-arbiter bits for this M1 fetch so DivMmc::check_automap
-            // can apply the gates from zxnext.vhd:3137-3138 (i_automap_active
+            // G46(b) — the VHDL `sram_pre_override(2)` and `(0)` priority-
+            // arbiter bits for this M1 fetch, so DivMmc::check_automap can
+            // apply the gates from zxnext.vhd:3137-3138 (i_automap_active
             // = sram_divmmc_automap_en, i_automap_rom3_active =
-            // sram_divmmc_automap_rom3_en). Without these gates jnext fires
+            // sram_divmmc_automap_rom3_en), and the two alt-ROM terms of the
+            // same composite (GH #282). Without these gates jnext fires
             // the ROM3-conditional AUTOMAP trap during the NextZXOS supervisor's
             // config_mode window and gets stuck in the boot loop tracked as
-            // G46(b). VHDL inputs:
-            //   * mf_mem_en       — Multiface::is_mem_active()
-            //   * nr_03_config_mode — NextReg::nr_03_config_mode()
-            //   * mmu_A21_A13(8)  — Mmu::slot_in_rom_area(slot)
-            const bool mf_active = multiface_.is_mem_active();
-            const bool config_mode = nextreg_.nr_03_config_mode();
-            const bool sram_pre_override_2 =
-                mmu_.sram_pre_override_divmmc_eligible(pc, mf_active);
-            const bool sram_pre_override_0 =
-                mmu_.sram_pre_override_romcs_priority(pc, mf_active,
-                                                      config_mode);
-            // GH #282 — the last factor of zxnext.vhd:3138 is a MUX
-            // between `sram_pre_alt_128_n` (while the altrom override
-            // owns the read) and `sram_pre_rom3` (while it does not).
-            // Both are pure functions of live MMU state, so they are
-            // computed here per-M1 alongside the override bits rather
-            // than cached through a feeder — there is no seam to miss.
+            // G46(b). They are computed by m1_automap_gates_(), which
+            // predict_fetch() calls too (GH #339) — one copy of the inputs.
+            // The Multiface state passed is the one BEFORE this M1's own latch
+            // (multiface_.on_m1 runs below), as it always was.
+            const M1AutomapGates g = m1_automap_gates_(pc, multiface_.is_mem_active());
             divmmc_.check_automap(pc, true,
-                                  sram_pre_override_2,
-                                  sram_pre_override_0,
-                                  mmu_.sram_altrom_en_on_read(),
-                                  mmu_.sram_alt_128_n());
+                                  g.override_2,
+                                  g.override_0,
+                                  g.altrom_en_read,
+                                  g.alt_128_n);
         }
         // m1 / mreq are both true during the M1 prefetch M-cycle.
         nmi_source_.observe_m1_fetch(pc, true, true);
@@ -10641,7 +10630,8 @@ uint64_t Emulator::step_one_instruction()
                     return static_cast<Mmu*>(ctx)->read(a);
                 },
                 &mmu_);
-            trace_log_.record(te, fetch_not_mmu_ram(regs.PC));
+            trace_log_.record(te, predict_fetch(regs.PC).kind !=
+                                      jnext::dbg::MemSpace::Kind::Page);
         }
         // P0 boot probe trap detector: when the CPU enters the
         // post-soft-reset $0000/$0001 spin, dump the trace ring while
@@ -10679,9 +10669,7 @@ uint64_t Emulator::step_one_instruction()
             uint8_t op1 = mmu_.read(regs2.PC + 1);
             uint8_t op2 = mmu_.read(regs2.PC + 2);
             call_stack_.on_instruction_pre(regs2.PC, regs2.SP, op0, op1, op2,
-                                           fetch_not_mmu_ram(regs2.PC)
-                                               ? NOT_RAM_PAGE
-                                               : mmu_.get_effective_page(regs2.PC >> 13));
+                                           ram_page_of(predict_fetch(regs2.PC)));
         }
 
         // GH #203 — Step Out. Nothing is READ here, deliberately: only SP is
@@ -10836,9 +10824,7 @@ uint64_t Emulator::step_one_instruction()
         // waiting at PC would otherwise be recorded as taken.
         if (call_stack_.enabled()) {
             const Z80Registers& post = cpu_.registers();
-            const uint8_t post_page = fetch_not_mmu_ram(post.PC)
-                                          ? NOT_RAM_PAGE
-                                          : mmu_.get_effective_page(post.PC >> 13);
+            const uint8_t post_page = ram_page_of(predict_fetch(post.PC));
             switch (cpu_.last_slot_kind()) {
                 case Z80Cpu::SlotKind::Int:
                     call_stack_.on_interrupt(pc_pre_exec, post.PC, post.SP, CallType::INT,
@@ -14182,26 +14168,40 @@ void Emulator::debug_latch_reset(bool hard)
     debug_state_.latch_event(e);
 }
 
-bool Emulator::fetch_not_mmu_ram(uint16_t pc) const
+Emulator::M1AutomapGates Emulator::m1_automap_gates_(uint16_t pc, bool mf_active) const
 {
-    // Mirrors the on_m1_prefetch lambda in init(): the same gate, the same
-    // arbiter inputs, the DivMMC decision before the Multiface's — asked of
-    // const predictors instead of the state machines themselves.
+    // VHDL inputs of the :3137-3138 gates:
+    //   * mf_mem_en         - Multiface::is_mem_active()
+    //   * nr_03_config_mode - NextReg::nr_03_config_mode()
+    //   * mmu_A21_A13(8)    - Mmu::slot_in_rom_area(slot)
+    // GH #282 - the last factor of zxnext.vhd:3138 is a MUX between
+    // `sram_pre_alt_128_n` (while the altrom override owns the read) and
+    // `sram_pre_rom3` (while it does not). Both are pure functions of live MMU
+    // state, so they are computed per M1 alongside the override bits rather than
+    // cached through a feeder - there is no seam to miss.
+    const bool config_mode = nextreg_.nr_03_config_mode();
+    return M1AutomapGates{
+        mmu_.sram_pre_override_divmmc_eligible(pc, mf_active),
+        mmu_.sram_pre_override_romcs_priority(pc, mf_active, config_mode),
+        mmu_.sram_altrom_en_on_read(),
+        mmu_.sram_alt_128_n()};
+}
+
+jnext::dbg::MemSpace Emulator::predict_fetch(uint16_t pc) const
+{
+    // The on_m1_prefetch hook in init(), asked of const predictors instead of
+    // the state machines themselves: the same gate, the same arbiter inputs
+    // (m1_automap_gates_), the DivMMC decision before the Multiface's. What the
+    // M1 does not touch stays live (`is_active()`), exactly as in the hook.
     bool divmmc_active = divmmc_.is_active();
-    bool mf_active     = multiface_.is_mem_active();
     if (divmmc_.automap_m1_may_react(pc)) {
-        const bool config_mode = nextreg_.nr_03_config_mode();
-        divmmc_active = divmmc_.active_on_m1(
-            pc, mmu_.sram_pre_override_divmmc_eligible(pc, mf_active),
-            mmu_.sram_pre_override_romcs_priority(pc, mf_active, config_mode),
-            mmu_.sram_altrom_en_on_read(), mmu_.sram_alt_128_n());
+        const M1AutomapGates g = m1_automap_gates_(pc, multiface_.is_mem_active());
+        divmmc_active = divmmc_.active_on_m1(pc, g.override_2, g.override_0,
+                                             g.altrom_en_read, g.alt_128_n);
     }
-    if (pc == 0x0066) {
-        Multiface m1 = multiface_;   // the 0x0066 M1 may latch mf_enable
-        m1.on_m1(pc, /*mreq_low=*/true);
-        mf_active = m1.is_mem_active();
-    }
-    return mmu_.read_not_mmu_ram(pc, divmmc_active, mf_active);
+    // The Multiface's 0x0066 fetch may latch mf_enable (multiface.vhd:169-186):
+    // asked of the object, not of a copy of its 16 KB.
+    return mmu_.route_with(pc, divmmc_active, multiface_.would_latch_on_m1(pc)).space;
 }
 
 void Emulator::debug_after_machine_transition_(bool discard_ring)

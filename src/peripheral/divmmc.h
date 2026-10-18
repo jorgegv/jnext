@@ -214,6 +214,19 @@ public:
     /// Slot 0 is always read-only.  RAM bank 3 is read-only when mapram is set.
     bool is_read_only(uint16_t addr) const;
 
+    /// What the overlay serves at `addr` (0x0000-0x3FFF), decoded ONCE from
+    /// divmmc.vhd:88-101: the ROM at page 0 unless MAPRAM, RAM bank 3 at page 0
+    /// under MAPRAM, the selected bank at page 1. `read()` is `*ptr`, and
+    /// `Mmu::route()` names the source from the same three fields, so the
+    /// selection exists in one place. Whether the overlay is ACTIVE is the
+    /// caller's question (`is_active()`); `addr` must be below 0x4000.
+    struct Overlay {
+        bool           ram;   ///< false: the ROM (page 0, MAPRAM clear)
+        uint8_t        bank;  ///< the RAM bank when `ram`, else 0
+        const uint8_t* ptr;   ///< the byte at `addr`
+    };
+    Overlay overlay_at(uint16_t addr) const;
+
     /// Read a byte from the DivMMC overlay (addr 0x0000-0x3FFF).
     uint8_t read(uint16_t addr) const;
 
