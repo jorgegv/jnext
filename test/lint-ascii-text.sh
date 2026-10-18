@@ -439,6 +439,13 @@ self_test() {
     CONF_TEXT=$(printf 'src/t.cpp\ta %s b\treason\n' "$ARR")       # one literal declared, one not
     fx LAT-B17 "B:2:U+2192" src/t.cpp "f(\"a ${ARR} b\");" "g(\"c ${ARR} d\");"
     fx LAT-B18 "B:1:U+25B8" src/t.cpp "f(\"${BS}u25b8\");"
+    # The rule B scope: src/esp01/test/ alone is outside it (LAT-B06); its neighbours are not.
+    fx LAT-B19 "B:1:U+2192" src/esp01/src/t.cpp     "f(\"a ${ARR} b\");"
+    fx LAT-B20 "B:1:U+2192" src/esp01/testing/t.cpp "f(\"a ${ARR} b\");"
+    # A stale declaration is a violation by itself: nothing else is wrong in this tree.
+    fxrc LAT-B21 1 "$(printf 'src/t.cpp\ta %s b\treason\n' "$ARR")"
+    # The exclusion is anchored at the root of src/: the same words deeper down are not excluded.
+    fx LAT-B22 "B:1:U+2192" src/gui/src/esp01/test/t.cpp "f(\"a ${ARR} b\");"
 
     rm -rf "$ST_DIR"
     if [[ "$bad" -ne 0 ]]; then
