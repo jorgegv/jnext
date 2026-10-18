@@ -151,11 +151,9 @@ bool ScriptHost::start(dbg::Debugger& dbg, const ScriptHostOptions& opt) {
     if (!opt.map_file.empty()) {
         // The file's CONTENTS pick the loader, not its name: sjasmplus names
         // its files freely (`--sym=<filename>`), and z88dk's assembler writes
-        // a `.sym` of its own, in the map format (GH #390).
-        const auto format = SymbolTable::is_sjasmplus_equ_file(opt.map_file)
-                                ? dbg::MapFormat::SjasmplusEqu
-                                : dbg::MapFormat::Z88dk;
-        const auto n = dbg.load_map(opt.map_file, format);
+        // a `.sym` of its own, in the map format (GH #390). One backend call
+        // reads the file once, so `--map <(cmd)` (a pipe) works.
+        const auto n = dbg.load_map(opt.map_file, dbg::MapFormat::Z88dkOrSjasmplus);
         if (!n) {
             error("--map " + opt.map_file + ": cannot be loaded (" + dbg::result_name(n.status) + ")");
             return false;

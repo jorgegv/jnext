@@ -732,8 +732,13 @@ enum class MapFormat : uint8_t {
     Simple,
     /// NextBuild / Boriel ZX Basic `Memory.txt`: `8000: ._Main` lines.
     NextBuild,
-    /// sjasmplus `--sym` / `--exp`: `NAME: EQU 0x0000ABCD` lines.
+    /// sjasmplus `--sym` / `--exp`: `NAME: EQU 0x0000ABCD` lines (`equ` in a
+    /// `--sym` written by sjasmplus 1.17.0 or earlier).
     SjasmplusEqu,
+    /// `--map`: a z88dk map or an sjasmplus `--sym` / `--exp`, told by the
+    /// file's FIRST line, in ONE read of the file (a pipe cannot be opened
+    /// twice). GH #390.
+    Z88dkOrSjasmplus,
 };
 
 /// INS-20 — one bit per 16-bit PC, set when that address has been executed.

@@ -2274,6 +2274,24 @@ static void host_rows() {
               g.sink.tail(2) + h.sink.tail(2));
     }
     {
+        // sjasmplus 1.17.0 and every release before it write the keyword of a
+        // --sym in lower case (`SCREEN: equ 0x00004000`, the fixture's first
+        // line): --map picks it by its contents all the same. `@pos.y` is a
+        // name whose part after the dot is ONE letter; 0x8015 is 32789.
+        HostRig g;
+        ScriptHostOptions o;
+        o.map_file = JNEXT_SJASMEQU_DIR "/equlabels-v1.17.sym";
+        o.scripts  = {tmp_file("v117.jds",
+                               "on execute @main once do log \"V ${@main.loop} ${@pos.y}\" end\n")};
+        const bool ok = g.start(o);
+        g.run(1);
+        check("SCRIPT-HOST-MAP-V117", "--map takes the --sym of sjasmplus 1.17.0 (the keyword `equ` in lower "
+                                      "case; 16 entries), and `@main.loop` is 32774, `@pos.y` 32789",
+              ok && g.sink.count("--map " + o.map_file + ": 16 symbols") == 1 &&
+                  g.sink.count("V 32774 32789") == 1,
+              g.sink.tail(4));
+    }
+    {
         // The CONTENTS decide, never the name: z88dk's assembler writes a
         // `.sym` in the map format (z80asm -s), and sjasmplus names its files
         // freely (--sym=<filename>).

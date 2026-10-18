@@ -241,6 +241,7 @@ Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std:
         case MapFormat::Simple:    n = impl_->symbols.load_simple_map(path); break;
         case MapFormat::NextBuild: n = impl_->symbols.load_nextbuild_memory(path, why); break;
         case MapFormat::SjasmplusEqu: n = impl_->symbols.load_sjasmplus_equ(path); break;
+        case MapFormat::Z88dkOrSjasmplus: n = impl_->symbols.load_z88dk_or_sjasmplus(path); break;
     }
     // A MAP the user chose replaces whatever a program's sidecar brought —
     // once it HAS: a file that cannot be read leaves the table, and so its

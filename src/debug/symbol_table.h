@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <iosfwd>
 #include <string>
 #include <map>
 #include <optional>
@@ -39,7 +40,8 @@ public:
 
     /// Load labels from an sjasmplus `--sym` or `--exp` file (GH #390): lines
     /// of the form `NAME: EQU 0x0000ABCD`, exactly as sjasmplus writes them
-    /// (a trailing CR, from its Windows build, is dropped); any other line is
+    /// (a `--sym` of sjasmplus 1.17.0 or earlier spells the keyword `equ`; a
+    /// trailing CR, from its Windows build, is dropped); any other line is
     /// skipped. The file carries no type and no page, so every entry is a
     /// label (named by address and by name) whatever the source declared it
     /// with: a label, an EQU, a DEFL, a struct size or a field offset. A value
@@ -50,13 +52,18 @@ public:
     /// opened (then the table is untouched).
     int load_sjasmplus_equ(const std::string& path);
 
-    /// Is this file an sjasmplus `--sym` / `--exp` file? True when its FIRST
-    /// line is an EQU line as `load_sjasmplus_equ()` reads it, whatever the
-    /// value (a real `--sym` may open with a negative one). False for an empty
-    /// file or one that cannot be opened. `--map` uses it to pick the loader
-    /// by contents: sjasmplus's file names are free (`--sym=<filename>`), and
-    /// z88dk's assembler writes a `.sym` of its own, in the map format.
-    static bool is_sjasmplus_equ_file(const std::string& path);
+    /// Load a z88dk `.map` or an sjasmplus `--sym` / `--exp` file, whichever it
+    /// is, told by the file's FIRST line: an sjasmplus EQU line (whatever its
+    /// value: a real `--sym` may open with a negative one) makes it
+    /// `load_sjasmplus_equ()`'s, anything else, an empty file included,
+    /// `load_z88dk_map()`'s. `--map` uses it, because the file's name cannot
+    /// say: sjasmplus's are free (`--sym=<filename>`), and z88dk's assembler
+    /// writes a `.sym` of its own, in the map format. The file is opened and
+    /// read ONCE: `--map <(cmd)` is a pipe, which cannot be opened a second
+    /// time, and a first look that read the first line would take what it
+    /// buffered with it. The result is that of the loader it picks, -1
+    /// included (the file cannot be opened; the table is then untouched).
+    int load_z88dk_or_sjasmplus(const std::string& path);
 
     /// Resolve the text of an address field: a hexadecimal address first
     /// (`4000`, `$4000`, `0x4000`), else a loaded symbol name. A typed `FE`
@@ -87,6 +94,12 @@ public:
     const std::string& loaded_file() const { return loaded_file_; }
 
 private:
+    /// The line loops of the z88dk and sjasmplus loaders, on a stream that is
+    /// already open: they add to the table and return the number of entries.
+    /// Opening, `clear()` and `loaded_file_` are the callers'.
+    int read_z88dk_map(std::istream& file);
+    int read_sjasmplus_equ(std::istream& file);
+
     std::map<uint16_t, std::string> addr_to_name_;
     std::map<std::string, uint16_t> name_to_addr_;
     /// Z88DK "; const" values, consulted by `lookup_name()` only.

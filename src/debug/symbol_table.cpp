@@ -15,7 +15,13 @@ int SymbolTable::load_z88dk_map(const std::string& path)
         return -1;
 
     clear();
+    const int count = read_z88dk_map(file);
+    loaded_file_ = path;
+    return count;
+}
 
+int SymbolTable::read_z88dk_map(std::istream& file)
+{
     int count = 0;
     std::string line;
 
@@ -116,7 +122,6 @@ int SymbolTable::load_z88dk_map(const std::string& path)
         ++count;
     }
 
-    loaded_file_ = path;
     return count;
 }
 
@@ -215,10 +220,14 @@ std::optional<uint16_t> parse_hex16(std::string_view text)
 // One sjasmplus `--sym` / `--exp` line (GH #390): `NAME: EQU 0x0000ABCD`, the
 // exact text of its WriteLabelEquValue() (sjasm/sjio.cpp), plus the CR its
 // Windows build adds (the files are opened in text mode). This is the ONE
-// definition of an EQU line: the loader and the format detector both use it,
-// so they cannot disagree about what a line is. The value keeps all 32 bits
-// (sjasmplus writes a negative one as 0xFFFFFFFF); the loader decides which
-// values fit an address.
+// definition of an EQU line: the loader and the first-line check that picks it
+// in load_z88dk_or_sjasmplus() both use it, so they cannot disagree about what
+// a line is. The value keeps all 32 bits (sjasmplus writes a negative one as
+// 0xFFFFFFFF); the loader decides which values fit an address. sjasmplus has
+// written the keyword two ways: `EQU`, by `--exp` always and by `--sym` from
+// v1.18.0 (both through WriteLabelEquValue), and `equ` by the `--sym` writer of
+// v1.17.0 and every release before it (CLabelTable::DumpSymbols). Those two,
+// exactly, and no other case or spacing.
 struct EquLine {
     std::string name;
     uint32_t    value;
@@ -228,20 +237,23 @@ std::optional<EquLine> parse_equ_line(std::string_view line)
 {
     if (!line.empty() && line.back() == '\r')
         line.remove_suffix(1);
-    constexpr std::string_view kSeparator = ": EQU 0x";
-    const auto sep = line.find(kSeparator);
-    if (sep == 0 || sep == std::string_view::npos)
-        return std::nullopt;
-    const std::string_view name = line.substr(0, sep);
-    if (name.find_first_of(" \t:") != std::string_view::npos)
-        return std::nullopt;
-    // The value is the whole rest of the line: hex digits only, at least one.
-    const std::string_view hex = line.substr(sep + kSeparator.size());
-    uint32_t value = 0;
-    const auto [end, ec] = std::from_chars(hex.data(), hex.data() + hex.size(), value, 16);
-    if (ec != std::errc{} || end != hex.data() + hex.size())
-        return std::nullopt;
-    return EquLine{std::string(name), value};
+    constexpr std::string_view kSeparators[] = {": EQU 0x", ": equ 0x"};
+    for (const std::string_view separator : kSeparators) {
+        const auto sep = line.find(separator);
+        if (sep == 0 || sep == std::string_view::npos)
+            continue;
+        const std::string_view name = line.substr(0, sep);
+        if (name.find_first_of(" \t:") != std::string_view::npos)
+            continue;
+        // The value is the whole rest of the line: hex digits only, at least one.
+        const std::string_view hex = line.substr(sep + separator.size());
+        uint32_t value = 0;
+        const auto [end, ec] = std::from_chars(hex.data(), hex.data() + hex.size(), value, 16);
+        if (ec != std::errc{} || end != hex.data() + hex.size())
+            continue;
+        return EquLine{std::string(name), value};
+    }
+    return std::nullopt;
 }
 
 }  // namespace
@@ -253,7 +265,13 @@ int SymbolTable::load_sjasmplus_equ(const std::string& path)
         return -1;
 
     clear();
+    const int count = read_sjasmplus_equ(file);
+    loaded_file_ = path;
+    return count;
+}
 
+int SymbolTable::read_sjasmplus_equ(std::istream& file)
+{
     int count = 0;
     std::string line;
     while (std::getline(file, line)) {
@@ -269,15 +287,29 @@ int SymbolTable::load_sjasmplus_equ(const std::string& path)
         ++count;
     }
 
-    loaded_file_ = path;
     return count;
 }
 
-bool SymbolTable::is_sjasmplus_equ_file(const std::string& path)
+int SymbolTable::load_z88dk_or_sjasmplus(const std::string& path)
 {
     std::ifstream file(path);
-    std::string line;
-    return std::getline(file, line) && parse_equ_line(line).has_value();
+    if (!file.is_open())
+        return -1;
+
+    // ONE read of the file, kept in memory: the first line picks the loader,
+    // which then reads every line, that one included. A second open would find
+    // a pipe (`--map <(cmd)`) already drained by the first.
+    std::ostringstream all;
+    all << file.rdbuf();
+    const std::string content = all.str();
+    const bool sjasmplus =
+        parse_equ_line(std::string_view(content).substr(0, content.find('\n'))).has_value();
+    std::istringstream text(content);
+
+    clear();
+    const int count = sjasmplus ? read_sjasmplus_equ(text) : read_z88dk_map(text);
+    loaded_file_ = path;
+    return count;
 }
 
 int SymbolTable::load_nextbuild_memory(const std::string& path, std::string* why)
