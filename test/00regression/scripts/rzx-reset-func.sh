@@ -67,7 +67,7 @@ if want rzx-reset-func; then
                     --rzx-record "$out" --delayed-automatic-exit-frames 300)
             ended=$(grep -oP "RZX: the power-on reset ends the recording to '\Q$out\E' after \K[0-9]+" \
                         "$log" | head -1 || true)
-            saved=$(grep -oP "RZX: recording saved — \K[0-9]+(?= frames to '\Q$out\E')" \
+            saved=$(grep -oP "RZX: recording saved - \K[0-9]+(?= frames to '\Q$out\E')" \
                         "$log" | head -1 || true)
             magic=$(xxd -l 4 -p "$out" 2>/dev/null || true)
             if [[ "$rc" != 0 || -z "$ended" || "$saved" != "$ended" || "$magic" != "525a5821" ]]; then
@@ -76,7 +76,7 @@ if want rzx-reset-func; then
             fi
             log="$rr_dir/$fe-play.log"
             rc=$(rr_run headless "$log" --rzx-play "$out" --delayed-automatic-exit-frames 20)
-            [[ "$rc" == 0 ]] && grep -qF "RZX: playback started — $saved frames" "$log" \
+            [[ "$rc" == 0 ]] && grep -qF "RZX: playback started - $saved frames" "$log" \
                 || rr_faults+=("$fe: its $saved-frame file does not play back (rc=$rc)")
 
             # lost: the write fails at the reset.

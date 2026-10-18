@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include "core/sha256.h"   // sha256_hex, sha256_file
+
 /// SD-card image provisioning (Task 27).
 ///
 /// jnext needs a NextZXOS SD image to boot. Historically `--sdcard FILE` was
@@ -315,13 +317,6 @@ bool cli_busy(const std::string& phase, const std::function<bool()>& work);
 // short/incomplete copy (removing the partial destination).
 bool default_copy_file(const std::string& src, const std::string& dst,
                        std::string& err);
-
-// SHA256 helpers (OpenSSL EVP on Linux/macOS, BCrypt/CNG on Windows — same
-// per-platform split as the download above). `sha256_hex` digests an
-// in-memory buffer; `sha256_file` digests a whole file. Both return a
-// lowercase hex string ("" on error, e.g. the file cannot be read).
-std::string sha256_hex(const std::vector<uint8_t>& bytes);
-std::string sha256_file(const std::string& path);
 
 // Extract a single named entry (matched by basename, case-insensitive) from
 // the zip file `zip_path` into `out_path`. Supports stored (method 0) and

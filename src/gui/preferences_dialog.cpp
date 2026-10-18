@@ -172,7 +172,7 @@ QWidget* PreferencesDialog::build_startup_tab() {
     form->addRow(QString(), crt_check_);
 
     silent_check_ = new QCheckBox(tr("Start muted (no audio output)"), tab);
-    silent_check_->setToolTip(tr("Applies on next launch — there is no live audio-device toggle."));
+    silent_check_->setToolTip(tr("Applies on next launch - there is no live audio-device toggle."));
     form->addRow(QString(), silent_check_);
 
     tape_fast_check_ = new QCheckBox(tr("Tape fast-load by default"), tab);
@@ -358,7 +358,7 @@ QWidget* PreferencesDialog::build_network_tab() {
             esp_hosts_edit_, &QPlainTextEdit::setEnabled);
 
     auto* note = new QLabel(
-        tr("An EMPTY list places no restriction on the host name — the guest "
+        tr("An EMPTY list places no restriction on the host name - the guest "
            "may name any host. Listing hosts narrows that.\n\n"
            "Connections to loopback, link-local and cloud-metadata addresses "
            "are always refused; your own LAN is reachable.\n\n"
@@ -443,7 +443,7 @@ QWidget* PreferencesDialog::build_nextpi_tab() {
         tr("the Next's mixer (default); \"host\": this computer's default output"));
     nextpi_audio_combo_->setToolTip(
         tr("Where the Pi's sound goes. Empty: into the Next's mixer, as on the "
-           "real machine — NextREG 0xA2 controls it, and recordings include it. "
+           "real machine - NextREG 0xA2 controls it, and recordings include it. "
            "\"host\": straight to this computer's default output. "
            "Or a QEMU audio driver to play it straight to this computer, "
            "\"none\" to mute it, or wav:FILE to record it on its own."));
@@ -643,7 +643,7 @@ QWidget* PreferencesDialog::build_debug_keys_tab(
     if (!key_issues.empty()) {
         QStringList lines;
         for (const auto& i : key_issues) {
-            lines << tr("%1 = %2 \u2014 %3")
+            lines << tr("%1 = %2 - %3")
                          .arg(QString::fromStdString(i.action_id).toHtmlEscaped(),
                               QString::fromStdString(i.text).toHtmlEscaped(),
                               QString::fromStdString(i.reason).toHtmlEscaped());
@@ -759,7 +759,7 @@ void PreferencesDialog::on_key_captured(int index, jnext::dbgkeys::Combo combo) 
     // starting a recording. The collision is named, with both outcomes.
     if (const HostChord* h = find_host_chord(host_chords_, combo)) {
         key_message_->setText(
-            tr("\"%1\" is now %2 — but the emulator window already uses %2 for "
+            tr("\"%1\" is now %2 - but the emulator window already uses %2 for "
                "\"%3\". It will work in the debugger window; in the emulator "
                "window %2 still does \"%3\".")
                 .arg(tr(info(target).label),

@@ -307,7 +307,7 @@ bool find_in_directory(std::ifstream& f, const Fat32Geom& g,
         if (++steps > max_chain_len) {
             Log::emulator()->error(
                 "sd_rom_extractor: directory cluster chain longer than "
-                "total FAT entries ({} > {}) — malformed/cyclic FAT",
+                "total FAT entries ({} > {}) - malformed/cyclic FAT",
                 steps, max_chain_len);
             return false;
         }

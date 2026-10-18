@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.59</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.64</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.59</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.64</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1672,6 +1672,8 @@
       
         
       
+        
+      
     
     
     
@@ -2113,6 +2115,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../panels/15-source.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2132,6 +2162,8 @@
       
         
           
+        
+      
         
       
         
@@ -2560,6 +2592,34 @@
     
   
     Debugger scripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/14-source-level-debugging.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Source-level debugging
   
 
     
@@ -3957,7 +4017,7 @@ on frame 1 do log &quot;${ADDR}&quot; end
 [debugger] [error] SCRIPT ERROR err5.jds:2:9: unterminated string
 [debugger] [error] SCRIPT ERROR err6.jds:1:24: expected an action or `end`, found `en`
 [debugger] [error] SCRIPT ERROR fmt.jds:1:28: unknown format 'x8' (expected x2, x4 or d)
-[debugger] [error] SCRIPT ERROR strerr.jds:1:22: a string literal cannot appear inside `${…}`
+[debugger] [error] SCRIPT ERROR strerr.jds:1:22: a string literal cannot appear inside `${...}`
 </code></pre>
 <p><strong>Run-time errors</strong> — a division by zero, an accessor out of range, a page that
 cannot be read, a refused change to the machine — <strong>switch the rule off</strong>,
@@ -3973,7 +4033,7 @@ on frame 20 do log &quot;frame 20 still runs&quot; end
 </code></pre>
 <pre><code>[debugger] [info] SCRIPT loaded err4.jds: 2 rules
 [debugger] [info] [jds F:10 C:6150160] about to divide
-[debugger] [error] SCRIPT ERROR err4.jds:4:16: division by zero — rule at 2:1 disabled
+[debugger] [error] SCRIPT ERROR err4.jds:4:16: division by zero - rule at 2:1 disabled
 [debugger] [error] SCRIPT: a run-time error disabled a rule; exiting 1
 [platform] [info] script requested exit 1
 </code></pre>

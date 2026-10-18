@@ -364,8 +364,8 @@ void VideoLayerView::render_to_image(int vc)
         title_ = showing_bank7 ? QStringLiteral("ULA shadow (bank 7)")
                                : QStringLiteral("ULA primary (bank 5)");
         title_ += (showing_bank7 == live_bank7)
-                    ? QStringLiteral(" — LIVE: the ULA is reading this bank")
-                    : QString(" — NOT live: the ULA is reading bank %1")
+                    ? QStringLiteral(" - LIVE: the ULA is reading this bank")
+                    : QString(" - NOT live: the ULA is reading bank %1")
                           .arg(live_bank7 ? 7 : 5);
     }
 }

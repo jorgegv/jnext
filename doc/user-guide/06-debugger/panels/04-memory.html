@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.59</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.64</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.59</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.64</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1674,6 +1674,8 @@
       
         
       
+        
+      
     
     
     
@@ -2125,6 +2127,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="15-source.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2144,6 +2174,8 @@
       
         
           
+        
+      
         
       
         
@@ -2572,6 +2604,34 @@
     
   
     Debugger scripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/14-source-level-debugging.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Source-level debugging
   
 
     
@@ -3520,8 +3580,9 @@
 <p>A hex editor over the address space: address, sixteen bytes in two groups of
 eight, and the ASCII rendering.</p>
 <ul>
-<li>The <strong>Addr</strong> box takes a hex address (<code>5800</code>, <code>$5800</code> or <code>0x5800</code>) and centres
-  the view on it.</li>
+<li>The <strong>Addr</strong> box takes a hex address (<code>5800</code>, <code>$5800</code> or <code>0x5800</code>) or a
+  loaded symbol (<code>@name</code> when the name looks like a number) and centres the
+  view on it.</li>
 <li>The <strong>page selector</strong> chooses the window. <code>CPU View</code> shows the whole 64K as
   the CPU sees it — paged-in DivMMC, Multiface or Layer 2 memory included.
   <code>Slot 0</code>–<code>Slot 7</code> show the 8K <strong>page</strong> mapped in that slot (its label names

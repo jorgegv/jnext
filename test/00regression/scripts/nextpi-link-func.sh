@@ -59,10 +59,10 @@ if want nextpi-link-func; then
         if [[ "$exe" == .exe ]]; then
             port=$(grep -oP 'port=\K[0-9]+' "$bindir/args" 2>/dev/null | head -n1 || true)
             [[ -n "$port" ]] || fails+=("QEMU was not given a listening port (no port= in its arguments)")
-            grep -q "Raspberry Pi serial link attached to UART 1 — TCP 127.0.0.1:$port;" <<<"$out" \
+            grep -q "Raspberry Pi serial link attached to UART 1 - TCP 127.0.0.1:$port;" <<<"$out" \
                 || fails+=("the serial link was not attached over TCP 127.0.0.1:${port:-?}")
         else
-            grep -q 'Raspberry Pi serial link attached to UART 1 — FIFO pair ' <<<"$out" \
+            grep -q 'Raspberry Pi serial link attached to UART 1 - FIFO pair ' <<<"$out" \
                 || fails+=("the serial link was not attached over the FIFO pair")
             grep -q '^pipe,id=pi,path=' "$bindir/args" 2>/dev/null \
                 || fails+=("QEMU was not given the pipe chardev")

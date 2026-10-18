@@ -9,6 +9,7 @@
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QComboBox>
+#include <QLabel>
 #include <QLineEdit>
 #include <QString>
 
@@ -128,9 +129,9 @@ bool WatchPanel::show_watch_dialog(const QString& title, uint16_t& addr,
     auto* form = new QFormLayout(&dlg);
 
     auto* addr_edit = new QLineEdit(&dlg);
-    addr_edit->setPlaceholderText("e.g. 4000 or $4000");
+    addr_edit->setPlaceholderText("e.g. 4000, $4000 or a symbol");
     addr_edit->setText(QString::asprintf("%04X", addr));
-    form->addRow(tr("Address (hex):"), addr_edit);
+    form->addRow(tr("Address or symbol:"), addr_edit);
 
     auto* label_edit = new QLineEdit(&dlg);
     label_edit->setPlaceholderText("(optional)");
@@ -144,22 +145,45 @@ bool WatchPanel::show_watch_dialog(const QString& title, uint16_t& addr,
     type_combo->setCurrentIndex(type);
     form->addRow(tr("Type:"), type_combo);
 
+    // Why OK did not close the dialog. Hidden until there is a reason.
+    auto* error = new QLabel(&dlg);
+    error->setObjectName(QStringLiteral("watch_dialog_error"));
+    error->setWordWrap(true);
+    error->setStyleSheet(QStringLiteral("color: #c00000;"));
+    error->hide();
+    form->addRow(error);
+
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     form->addRow(buttons);
 
-    if (dlg.exec() != QDialog::Accepted) return false;
-
-    QString addr_text = addr_edit->text().trimmed();
-    if (addr_text.startsWith('$')) addr_text = addr_text.mid(1);
-    if (addr_text.startsWith("0x", Qt::CaseInsensitive)) addr_text = addr_text.mid(2);
-
-    bool ok = false;
-    addr = static_cast<uint16_t>(addr_text.toUInt(&ok, 16));
-    if (!ok) return false;
+    // CAP-SYM: hex ($ / 0x prefixes optional), else a loaded symbol name;
+    // `@name` forces the symbol (OD-12).
+    // OK on text that names neither shows the dialog again with the reason; it
+    // never returns as if cancelled, so an entry is never silently dropped.
+    // Only Cancel gives up.
+    std::string entered;
+    std::optional<uint16_t> resolved;
+    while (dlg.exec() == QDialog::Accepted) {
+        entered = addr_edit->text().trimmed().toStdString();
+        resolved = dbg_ ? dbg_->symbols().resolve(entered) : SymbolTable().resolve(entered);
+        if (resolved) break;
+        error->setText(tr("Not an address or symbol: %1").arg(addr_edit->text().trimmed()));
+        error->show();
+    }
+    if (!resolved) return false;
+    addr = *resolved;
 
     label = label_edit->text().trimmed().toStdString();
+    // Labelled only when the text named the symbol it resolved to: `BEEF`
+    // typed as a number is not the variable `BEEF`.
+    if (label.empty() && dbg_) {
+        std::string name = entered;
+        if (!name.empty() && name.front() == '@')
+            name = QString::fromStdString(name.substr(1)).trimmed().toStdString();
+        if (dbg_->lookup_name(name) == resolved) label = name;
+    }
     type = type_combo->currentIndex();
     return true;
 }

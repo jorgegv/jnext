@@ -19,7 +19,7 @@ jnext --joy-uart-pty --load yourprogram.nex
 JNEXT allocates a pseudo-terminal and prints the device to open:
 
 ```
-joystick serial cable attached to joy 2 — pty /dev/pts/7; ...
+joystick serial cable attached to joy 2 - pty /dev/pts/7; ...
 ```
 
 Point your serial client at `/dev/pts/7` and you are connected. It is an

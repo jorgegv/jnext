@@ -67,6 +67,8 @@
 #include "platform/host_key_latch.h"
 #include "platform/host_key_wiring.h"
 #include "platform/sdl_input.h"
+#include "platform/sdl_pointer_release.h"
+#include "platform/sdl_reset_keys.h"
 #include "platform/quick_snapshot_chord.h"
 
 #include <algorithm>
@@ -292,6 +294,92 @@ void sdl_tick(GuestRouter& r, GuestView& g, const Calls& poll_batch, int frames)
     for (int i = 0; i < frames; ++i) g.run_frame();
     r.on_tick_end(frames);
 }
+
+// --- SdlApp's F1 / F4 key surface (GH #380) --------------------------------
+// The REAL code under test, end to end: a real SdlInput::poll() over real SDL
+// events, the real sdl_pointer_release::wire_release_host_keys, a real
+// QuickChordTracker and the real sdl_reset_keys::on_press. Only what SdlApp
+// does AROUND them is restated, in SdlApp's order (sdl_app.cpp init(), the key
+// callback): the tracker sees the key first, a press of F1/F4 goes to on_press,
+// the F-key releases are swallowed, the rest reaches the key Router.
+struct AltF4Emu {
+    int hard = 0, soft = 0;
+    void on_hotkey_f1_hard_reset() { ++hard; }
+    void on_hotkey_f4_soft_reset() { ++soft; }
+};
+
+struct AltF4Router {
+    int keys = 0;     // every key event that reached the Router
+    int fkeys = 0;    // ... of which F1 or F4 (a host hotkey must never get here)
+    void on_host_key(SDL_Scancode sc, bool)
+    {
+        ++keys;
+        if (sc == SDL_SCANCODE_F1 || sc == SDL_SCANCODE_F4) ++fkeys;
+    }
+    void release_all() {}
+};
+
+struct AltF4Rig {
+    SdlInput                      in;
+    pointer_capture::ReleaseFilter filter;
+    jnext::QuickChordTracker      chords;
+    AltF4Emu                      emu;
+    AltF4Router                   router;
+    bool                          captured = false;
+    SDL_Keymod                    mods = SDL_KMOD_NONE;   // what SDL_GetModState() reports
+    int                           quits = 0;
+    bool                          pushed = true;          // every SDL_PushEvent succeeded
+
+    explicit AltF4Rig(pointer_capture::ReleaseMethod m = pointer_capture::ReleaseMethod::CtrlAlt)
+    {
+        SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
+        filter.set_method(m);
+        sdl_pointer_release::wire_release_host_keys(
+            in, router, filter,
+            [this]() { return mods; },
+            [this]() { return captured; },
+            [this](bool on) { captured = on; },
+            [this](SDL_Scancode sc, bool pressed) {
+                chords.on_key(static_cast<int>(sc), pressed);
+                if (pressed && sdl_reset_keys::on_press(emu, sc, chords)) return;
+                if (!pressed && (sc == SDL_SCANCODE_F1 || sc == SDL_SCANCODE_F4)) return;
+                router.on_host_key(sc, pressed);
+            });
+        in.on_quit = [this]() { ++quits; };
+    }
+
+    /// Push the events and poll() them: the host's whole batch, then the next
+    /// iteration of SdlApp's run() loop (`if (!input_.poll()) break;`). SDL ends a
+    /// poll cycle at a sentinel event, and an event pushed DURING the cycle (the
+    /// QUIT on_press raises) lands behind it: it is delivered by the NEXT poll().
+    /// So the batch is polled twice. That also lets a row that expects NO quit
+    /// see a stray one, which a single poll() would leave unread behind the
+    /// sentinel. Returns the last poll()'s result; `pushed` records whether
+    /// every SDL_PushEvent succeeded (a push that silently failed would read
+    /// exactly like a missing route).
+    bool batch(const std::vector<std::pair<SDL_Scancode, bool>>& keys)
+    {
+        for (const auto& k : keys) {
+            SDL_Event ev{};
+            ev.type = k.second ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+            ev.key.scancode = k.first;
+            pushed = SDL_PushEvent(&ev) && pushed;
+        }
+        bool more = in.poll();
+        if (more) more = in.poll();
+        return more;
+    }
+
+    std::string state(bool more) const
+    {
+        return "more=" + std::to_string((int)more) + " quits=" + std::to_string(quits) +
+               " hard=" + std::to_string(emu.hard) + " soft=" + std::to_string(emu.soft) +
+               " router_keys=" + std::to_string(router.keys) +
+               " router_fkeys=" + std::to_string(router.fkeys) +
+               " captured=" + std::to_string((int)captured) +
+               " pushed=" + std::to_string((int)pushed);
+    }
+};
 
 }  // namespace
 
@@ -1816,6 +1904,152 @@ int main()
             check("HKL-QS-11", "Shift counts per side, and Alt+F5 without Shift is not Quick Save",
                   held == QuickChord::Save && noshift == QuickChord::None);
         }
+    }
+
+    // --- HKL-AF4: Alt+F4 quits, and F1/F4 never reset with Alt held (GH #380) --
+    // No VHDL oracle for the host layer: the oracle is the owner's decision
+    // (2026-10-17): with Alt held neither F1 nor F4 is a reset, Alt+F4 quits
+    // through the normal quit path whether or not the mouse is captured, and the
+    // plain keys are untouched. VHDL only for what a PLAIN F1 / F4 do:
+    // zxnext.vhd:6340 hotkey_hard_reset (F1), :6343 hotkey_soft_reset (F4).
+    // Driven through the real SdlInput::poll() over real SDL events (like HKW-04
+    // and sdl_pointer_release_test), so only the events subsystem is needed. A
+    // failed SDL_Init fails every row; it never skips them.
+    {
+        using namespace pointer_capture;
+        constexpr SDL_Scancode F1 = SDL_SCANCODE_F1, F4 = SDL_SCANCODE_F4;
+        constexpr SDL_Scancode LALT = SDL_SCANCODE_LALT, RALT = SDL_SCANCODE_RALT,
+                               LCTRL = SDL_SCANCODE_LCTRL, LSHIFT = SDL_SCANCODE_LSHIFT,
+                               LGUI = SDL_SCANCODE_LGUI;
+        const bool sdl_ok = SDL_Init(SDL_INIT_EVENTS);
+        const std::string sdl_err =
+            sdl_ok ? std::string() : std::string("SDL_Init(EVENTS) failed: ") + SDL_GetError();
+
+        // 01 — the case where SDL_GetModState() would already read "no Alt":
+        // the whole chord in one poll batch.
+        bool ok01 = false; std::string d01 = sdl_err;
+        if (sdl_ok) {
+            AltF4Rig r;
+            const bool more = r.batch({{LALT, true}, {F4, true}, {F4, false}, {LALT, false}});
+            ok01 = r.pushed && r.quits == 1 && !more && r.emu.hard == 0 && r.emu.soft == 0 &&
+                   r.router.fkeys == 0 && r.router.keys == 2;
+            d01 = r.state(more);
+        }
+        check("HKL-AF4-01", "Alt+F4 quits through SDL_EVENT_QUIT: on_quit runs once and the loop's "
+                            "next poll() returns false; no reset; F4 never reaches the Router",
+              sdl_ok && ok01, d01);
+
+        // 02 — right Alt, and Alt with each other modifier.
+        bool ok02 = sdl_ok; std::string d02 = sdl_err;
+        if (sdl_ok) {
+            struct Set { const char* name; std::vector<SDL_Scancode> mods; };
+            const Set sets[] = {{"RALT", {RALT}}, {"LCTRL+LALT", {LCTRL, LALT}},
+                                {"LALT+LSHIFT", {LALT, LSHIFT}}, {"LALT+LGUI", {LALT, LGUI}}};
+            d02.clear();
+            for (const Set& st : sets) {
+                std::vector<std::pair<SDL_Scancode, bool>> ev;
+                for (SDL_Scancode m : st.mods) ev.emplace_back(m, true);
+                ev.emplace_back(F4, true);
+                ev.emplace_back(F4, false);
+                for (SDL_Scancode m : st.mods) ev.emplace_back(m, false);
+                AltF4Rig r;
+                const bool more = r.batch(ev);
+                const bool one = r.pushed && r.quits == 1 && !more && r.emu.hard == 0 &&
+                                 r.emu.soft == 0 && r.router.fkeys == 0;
+                ok02 = ok02 && one;
+                d02 += std::string(st.name) + ":" + (one ? "ok" : r.state(more)) + " ";
+            }
+        }
+        check("HKL-AF4-02", "F4 with right Alt, or with Alt plus Ctrl, Shift or GUI, also quits",
+              ok02, d02);
+
+        // 03 — Alt+F1: nothing. Left or right Alt, alone or with each other modifier,
+        // the F1 twin of 02 ("whatever else is held"): a fresh rig per set.
+        bool ok03 = sdl_ok; std::string d03 = sdl_err;
+        if (sdl_ok) {
+            struct Set { const char* name; std::vector<SDL_Scancode> mods; };
+            const Set sets[] = {{"LALT", {LALT}}, {"RALT", {RALT}}, {"LCTRL+LALT", {LCTRL, LALT}},
+                                {"LALT+LSHIFT", {LALT, LSHIFT}}, {"LALT+LGUI", {LALT, LGUI}}};
+            d03.clear();
+            for (const Set& st : sets) {
+                std::vector<std::pair<SDL_Scancode, bool>> ev;
+                for (SDL_Scancode m : st.mods) ev.emplace_back(m, true);
+                ev.emplace_back(F1, true);
+                ev.emplace_back(F1, false);
+                for (SDL_Scancode m : st.mods) ev.emplace_back(m, false);
+                AltF4Rig r;
+                const bool more = r.batch(ev);
+                const bool none = r.pushed && more && r.quits == 0 && r.emu.hard == 0 &&
+                                  r.emu.soft == 0 && r.router.fkeys == 0 &&
+                                  r.router.keys == 2 * static_cast<int>(st.mods.size());
+                ok03 = ok03 && none;
+                d03 += std::string(st.name) + ":" + (none ? "ok" : r.state(more)) + " ";
+            }
+        }
+        check("HKL-AF4-03", "Alt+F1, with left or right Alt or with Alt plus Ctrl, Shift or GUI, "
+                            "neither resets nor quits, and F1 never reaches the Router",
+              ok03, d03);
+
+        // 04 — the positive control for 01-03: plain F1 and F4 still reset. One key
+        // at a time, so each is told apart from the other: counting both together
+        // would pass with the two dispatches swapped.
+        bool ok04 = false; std::string d04 = sdl_err;
+        if (sdl_ok) {
+            AltF4Rig r;
+            const bool more_f1 = r.batch({{F1, true}, {F1, false}});
+            const int hard_after_f1 = r.emu.hard, soft_after_f1 = r.emu.soft;
+            const bool more = r.batch({{F4, true}, {F4, false}});
+            ok04 = r.pushed && more_f1 && more && r.quits == 0 && hard_after_f1 == 1 &&
+                   soft_after_f1 == 0 && r.emu.hard == 1 && r.emu.soft == 1 &&
+                   r.router.fkeys == 0 && r.router.keys == 0;
+            d04 = r.state(more) + " after_F1:hard=" + std::to_string(hard_after_f1) +
+                  " soft=" + std::to_string(soft_after_f1);
+        }
+        check("HKL-AF4-04", "Without Alt, F1 hard-resets and F4 soft-resets, once each, and neither "
+                            "quits",
+              sdl_ok && ok04, d04);
+
+        // 05 — only Alt held AT THE PRESS counts, and only Alt: Ctrl, Shift or GUI
+        // alone leave F1 and F4 as they were (the SDL frontend never tested them).
+        bool ok05 = false; std::string d05 = sdl_err;
+        if (sdl_ok) {
+            AltF4Rig r;
+            const bool m1 = r.batch({{LALT, true}, {LALT, false}, {F4, true}, {F4, false}});
+            const bool m2 = r.batch({{F4, true}, {LALT, true}, {F4, false}, {LALT, false}});
+            const bool m3 = r.batch({{LCTRL, true}, {F4, true}, {F4, false}, {LCTRL, false}});
+            const bool m4 = r.batch({{LSHIFT, true}, {F1, true}, {F1, false}, {LSHIFT, false}});
+            const bool m5 = r.batch({{LGUI, true}, {F4, true}, {F4, false}, {LGUI, false}});
+            ok05 = r.pushed && m1 && m2 && m3 && m4 && m5 && r.quits == 0 && r.emu.soft == 4 &&
+                   r.emu.hard == 1 && r.router.fkeys == 0;
+            d05 = r.state(m5) + " m1..m4=" + std::to_string((int)m1) + std::to_string((int)m2) +
+                  std::to_string((int)m3) + std::to_string((int)m4);
+        }
+        check("HKL-AF4-05", "Only Alt held at the F4 press counts: Alt released before F4, or pressed "
+                            "after it, gives the soft reset and no quit, and Ctrl, Shift or GUI alone "
+                            "change nothing about F1 and F4",
+              sdl_ok && ok05, d05);
+
+        // 06 — mouse captured, under every release method.
+        bool ok06 = sdl_ok; std::string d06 = sdl_err;
+        if (sdl_ok) {
+            d06.clear();
+            for (ReleaseMethod m : {ReleaseMethod::CtrlAlt, ReleaseMethod::MiddleClick,
+                                    ReleaseMethod::Esc}) {
+                AltF4Rig r(m);
+                r.captured = true;
+                r.mods = SDL_KMOD_LALT;   // what SDL_GetModState() says while Alt is down
+                const bool more = r.batch({{LALT, true}, {F4, true}, {F4, false}, {LALT, false}});
+                const bool one = r.pushed && r.quits == 1 && !more && r.captured &&
+                                 r.emu.soft == 0 && r.emu.hard == 0 && r.router.fkeys == 0;
+                ok06 = ok06 && one;
+                d06 += std::string(release_method_name(m)) + ":" + (one ? "ok" : r.state(more)) + " ";
+            }
+        }
+        check("HKL-AF4-06", "With the mouse captured, Alt+F4 quits under every release method "
+                            "(ctrl-alt, middle-click, esc) and does not release the capture",
+              ok06, d06);
+
+        if (sdl_ok) SDL_Quit();
     }
 
     std::printf("\n====================================================\n");

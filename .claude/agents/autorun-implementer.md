@@ -1,6 +1,6 @@
 ---
 name: autorun-implementer
-description: Implementer for a jnext autonomous run — carries out a planner's plan on an issue branch, gates it, reports. Dispatched by the autonomous-run orchestrator only.
+description: Implementer for a jnext autonomous run — carries out a planner's plan (or a team-run unit spec) on its branch, gates it, reports. Dispatched by the main-session orchestrator only (autonomous-run or team-run).
 tools: Read, Write, Edit, Grep, Glob, Bash, Skill
 model: sonnet
 ---

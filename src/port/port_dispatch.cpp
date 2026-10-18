@@ -135,15 +135,15 @@ uint8_t PortDispatch::read_dispatch_(uint16_t port) const {
     const bool trace_on = Log::port()->should_log(spdlog::level::trace);
     if (best) {
         uint8_t val = best->read(port);
-        if (trace_on) Log::port()->trace("IN  port={:#06x} → {:#04x}", port, val);
+        if (trace_on) Log::port()->trace("IN  port={:#06x} -> {:#04x}", port, val);
         return val;
     }
     if (default_read_) {
         uint8_t val = default_read_(port);
-        if (trace_on) Log::port()->trace("IN  port={:#06x} → {:#04x} (default/floating)", port, val);
+        if (trace_on) Log::port()->trace("IN  port={:#06x} -> {:#04x} (default/floating)", port, val);
         return val;
     }
-    if (trace_on) Log::port()->trace("IN  port={:#06x} → 0xFF (unhandled)", port);
+    if (trace_on) Log::port()->trace("IN  port={:#06x} -> 0xFF (unhandled)", port);
     return 0xFF;
 }
 
@@ -157,7 +157,7 @@ void PortDispatch::write(uint16_t port, uint8_t val) {
 
     // Guarded for the same reason as read() above; write() peaks at 154k/s.
     if (Log::port()->should_log(spdlog::level::trace))
-        Log::port()->trace("OUT port={:#06x} ← {:#04x}", port, val);
+        Log::port()->trace("OUT port={:#06x} <- {:#04x}", port, val);
     for (const auto& obs : io_observers_) obs(port, /*is_read=*/false);
     // Most-specific-match-wins, with decline fall-through: a handler whose
     // hardware decode gate (io_en) is off may call decline_write() to have

@@ -7,6 +7,7 @@
 - Linux: the GUI follows the desktop's light/dark preference, switching live; `JNEXT_COLOR_SCHEME` forces either
 - NextPi and SD-card image downloads continue where they stopped instead of starting over
 - The captured mouse can be released with Ctrl+Alt (default), a middle click or Esc: Preferences > Input, `--mouse-release`
+- Source-level debugging: SLD and NextBuild Memory.txt maps attach beside a program; Source tab, source-line steps, `file:line` breakpoints (Qt debugger)
 
 ### Bug Fixes
 - NextPi checks that QEMU is installed before offering its 6 GB download
@@ -14,10 +15,12 @@
 - NextPi uses an archive already in its folder, and says which file or check rejected an existing setup
 - SIGTERM and Ctrl-C end JNEXT cleanly, finishing recordings, with the signal's exit status; the Qt GUI ignored them
 - Tilemap, LoRes and Layer 2 no longer show memory written after the beam passed; fixes torn scrolling (Pixel Wheels)
+- Windows: log and console messages no longer show garbage such as ÔÇö; JNEXT's own text is now plain ASCII
+- Alt+F4 quits JNEXT, also with the mouse captured, instead of resetting the machine; Alt+F1 no longer hard-resets
 - SD-card and NextPi downloads no longer freeze when the network drops: the dialog says stalled; 30 s without data stops it
 
 ### Contributors in this release
-- @pavero01, @janko-jj
+- @pavero01, @janko-jj, @jattree
 
 ## v1.1.51 (2026-10-13)
 

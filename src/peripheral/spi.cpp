@@ -157,7 +157,7 @@ void SpiMaster::write_cs(uint8_t val) {
     }
 
     if (decoded != cs_) {
-        spi_log()->debug("CS change {:#04x} → {:#04x} (raw={:#04x}, SD card {})",
+        spi_log()->debug("CS change {:#04x} -> {:#04x} (raw={:#04x}, SD card {})",
                          cs_, decoded, val, (decoded & 0x01) ? "deselected" : "SELECTED");
         // Notify devices that lost chip select (CS went from low to high)
         for (int i = 0; i < kMaxDevices; ++i) {
@@ -218,7 +218,7 @@ uint8_t SpiMaster::read_data() {
     if (dev) {
         rx_data_ = dev->send();
         if (spi_log()->should_log(spdlog::level::debug))
-            spi_log()->debug("read → returning prev={:#04x}, new rx={:#04x}",
+            spi_log()->debug("read -> returning prev={:#04x}, new rx={:#04x}",
                              prev, rx_data_);
     } else {
         rx_data_ = 0xFF;

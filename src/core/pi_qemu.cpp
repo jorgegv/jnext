@@ -127,7 +127,7 @@ bool PiQemu::check_dir(const std::string& dir, std::string& error) {
     for (const char* rel : needed) {
         std::error_code ec;
         if (!fs::exists(fs::path(dir) / rel, ec)) {
-            error = (fs::path(dir) / rel).string() + " missing — the NextPi directory is "
+            error = (fs::path(dir) / rel).string() + " missing - the NextPi directory is "
                     "incomplete; remove it and jnext downloads NextPi again";
             return false;
         }
@@ -198,7 +198,7 @@ std::vector<char*> c_strings(std::vector<std::string>& v) {
 }
 
 const std::string kInstallHint =
-    " not found — install QEMU (macOS: brew install qemu; Fedora: dnf install "
+    " not found - install QEMU (macOS: brew install qemu; Fedora: dnf install "
     "qemu-system-arm qemu-img; Debian/Ubuntu: apt install qemu-system-arm qemu-utils)";
 
 /// `name` as an executable path: itself when it contains a '/', else the

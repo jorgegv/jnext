@@ -97,8 +97,8 @@ Result Debugger::Impl::refuse_inside_delivery(const char* verb) const {
     // will change if the caller waits — §5 says there is no such thing as this
     // verb from a handler. Logged at `error` because it is a frontend bug, and
     // an assert would compile away in the build where it ships.
-    Log::debugger()->error("{}() called from inside an event delivery — refused "
-                           "(§5: a handler may not drive, rewind or replace the "
+    Log::debugger()->error("{}() called from inside an event delivery - refused "
+                           "(section 5: a handler may not drive, rewind or replace the "
                            "machine it runs in)",
                            verb);
     return Result::Unsupported;
@@ -129,8 +129,7 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     ds().set_event_table(&events);
     ds().set_event_hooks([this]() { return drain_boundary(); },
                          [this](uint16_t pc) { return execute_gate(pc); });
-    ds().set_machine_replaced_hook(
-        [this]() { arm(PauseReason::Kind::None, CLIENT_NONE); });
+    ds().set_machine_replaced_hook([this]() { machine_replaced(); });
 
     //     THE MASTER SWITCH'S LEGACY MIRROR (GH #278 WP4c). The switch is the
     //     `EventTable`'s and survived; the rebuilt `BreakpointSet` starts with
@@ -182,7 +181,12 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     //     breakpoint would report `User` and silently swallow it — which is
     //     exactly right for an UNOWNED pause (below), and why (4) re-arms `User`
     //     only for an owned one.
-    arm(PauseReason::Kind::None, CLIENT_NONE);
+    //
+    //     CAP-SRC: the hook also drops the previous program's sidecars (a
+    //     rebuilt machine is not the program they describe), so a cold boot
+    //     needs it as much as a reset does. A program loaded by this very
+    //     verb attaches its own afterwards (`Debugger::load()`).
+    machine_replaced();
 
     // (4) RULE 3 — "paused stays paused, running stays running". A fresh
     //     `Emulator` is always running, so only the paused direction needs an
@@ -505,6 +509,8 @@ Result Debugger::load(ClientId by, const std::string& path) {
     // no replay from the ring reproduces. (A cold boot builds a new, empty ring.)
     if (loaded) impl_->note_mutation();
     if (reconstructed) impl_->notify_reset(ResetKind::Hard);
+    // CAP-SRC — the program's own symbols and source map, if it has them.
+    if (loaded) load_program_sidecars(path);
     return loaded ? Result::Ok : Result::RefusedUnavailable;
 }
 

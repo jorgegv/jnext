@@ -118,5 +118,5 @@ error — it is how a rule asks.
 
 ```
 [debugger] [info] [jds F:5 C:3354640] depth 0
-[debugger] [error] SCRIPT ERROR snaperr.jds:3:5: `unsnap`: snapshot stack `s` is empty — rule at 1:1 disabled
+[debugger] [error] SCRIPT ERROR snaperr.jds:3:5: `unsnap`: snapshot stack `s` is empty - rule at 1:1 disabled
 ```

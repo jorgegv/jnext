@@ -243,7 +243,7 @@ static void set_loading_screen_display(Emulator& emu, NexScreenKind kind, uint8_
     emu.nextreg().write(0x15, d.nr_15);
     emu.port().out(static_cast<uint16_t>((static_cast<uint16_t>(d.port_ff) << 8) | 0x00FF),
                    d.port_ff);
-    Log::emulator()->debug("NEX: loading screen displayed — $123B={:#04x} NR$15={:#04x} $FF={:#04x}",
+    Log::emulator()->debug("NEX: loading screen displayed - $123B={:#04x} NR$15={:#04x} $FF={:#04x}",
                            d.port_123b, d.nr_15, d.port_ff);
 }
 
@@ -467,7 +467,7 @@ bool NexLoader::load(const std::string& path)
     if (header_.num_banks != declared_banks) {
         Log::emulator()->warn(
             "NEX: '{}' header num_banks={} disagrees with the bank bitmap ({} bank(s) present); "
-            "num_banks is decorative — loading the banks the bitmap declares and hoping for the best.",
+            "num_banks is decorative - loading the banks the bitmap declares and hoping for the best.",
             path, header_.num_banks, declared_banks);
     }
     size_t screen_bytes = 0;
@@ -509,7 +509,7 @@ bool NexLoader::load(const std::string& path)
         }
         Log::emulator()->warn(
             "NEX: '{}' header banks_offset={} disagrees with the {} bytes of blocks its header "
-            "describes; trusting the header and skipping the {} intervening byte(s) — they are "
+            "describes; trusting the header and skipping the {} intervening byte(s) - they are "
             "presumably a block type this loader does not know",
             path, header_.banks_offset, derived_bank_offset,
             header_.banks_offset - derived_bank_offset);
@@ -521,7 +521,7 @@ bool NexLoader::load(const std::string& path)
     payload_offset_ = expected_size;
     if (file_size < expected_size) {
         Log::emulator()->error(
-            "NEX: '{}' is truncated — file is {} bytes, header describes {} bytes",
+            "NEX: '{}' is truncated - file is {} bytes, header describes {} bytes",
             path, file_size, expected_size);
         return false;
     }
@@ -543,7 +543,7 @@ bool NexLoader::load(const std::string& path)
             } else {
                 checksum_status_ = NexChecksum::Invalid;
                 Log::emulator()->error(
-                    "NEX: '{}' CRC-32C MISMATCH — header says {:#010x}, file computes {:#010x}; "
+                    "NEX: '{}' CRC-32C MISMATCH - header says {:#010x}, file computes {:#010x}; "
                     "the file is corrupt or was modified. Loading anyway (the reference loader "
                     "does not check this field).",
                     path, header_.crc32c, computed);
@@ -565,7 +565,7 @@ bool NexLoader::load(const std::string& path)
     const bool ignored_payload = file_size > expected_size + 16384 && !keep_open;
     if (ignored_payload) {
         Log::emulator()->warn(
-            "NEX: '{}' is an extended NEX file — {} bytes follow the {} bank(s) its header "
+            "NEX: '{}' is an extended NEX file - {} bytes follow the {} bank(s) its header "
             "describes (file {} bytes, expected {}), but its file_handle is 0, so the file is "
             "closed after loading. Loading only the declared banks and ignoring the trailing "
             "bytes, as nexload does.",
@@ -594,7 +594,7 @@ bool NexLoader::load(const std::string& path)
             path, file_size - expected_size);
     }
 
-    Log::emulator()->info("NEX: loaded '{}' — version={:.4s} banks={} screen_flags={:#04x} "
+    Log::emulator()->info("NEX: loaded '{}' - version={:.4s} banks={} screen_flags={:#04x} "
                           "pc={:#06x} sp={:#06x} entry_bank={} border={}",
                           path, header_.version, header_.num_banks, header_.screen_flags,
                           header_.pc, header_.sp, header_.entry_bank, header_.border_colour);
@@ -1064,7 +1064,7 @@ bool NexLoader::apply(Emulator& emu) const
         // seeds the Layer 2 and Sprite palettes), but their side effect on
         // NR 0x43 is observable and was being left at $30 (issue #173).
         nr.write(0x43, 0x00);
-        Log::emulator()->debug("NEX: V1.3 — seeded tilemap palette with the ULA classic "
+        Log::emulator()->debug("NEX: V1.3 - seeded tilemap palette with the ULA classic "
                                "palette (nexload2.asm:830-836), NR 0x43 back to 0 "
                                "(nexload2.asm:847)");
     }
@@ -1489,7 +1489,7 @@ bool NexLoader::apply(Emulator& emu) const
 
     if (header_.pc == 0) {
         Log::emulator()->debug(
-            "NEX: PC=0 (load-only) — entry register state not established");
+            "NEX: PC=0 (load-only) - entry register state not established");
     } else {
         auto regs = cpu.get_registers();
         regs.PC     = header_.pc;
@@ -1679,11 +1679,11 @@ bool NexLoader::apply(Emulator& emu) const
         // broken". Warn rather than stay silent for the converse reason — a
         // program silently reading an empty line looks like a program bug.
         if (!v13) {
-            Log::emulator()->warn("NEX: --nex-args ignored — only V1.3 declares a CLI buffer, and "
+            Log::emulator()->warn("NEX: --nex-args ignored - only V1.3 declares a CLI buffer, and "
                                   "this file is '{}' (offsets 148/150 are reserved space there)",
                                   std::string(header_.version, 4));
         } else {
-            Log::emulator()->warn("NEX: --nex-args ignored — this V1.3 file declares no CLI buffer "
+            Log::emulator()->warn("NEX: --nex-args ignored - this V1.3 file declares no CLI buffer "
                                   "(header address {:#06x}, size {})",
                                   header_.cli_buffer_addr, header_.cli_buffer_size);
         }
@@ -1729,7 +1729,7 @@ bool NexLoader::apply(Emulator& emu) const
         mmu.set_page(7, pre_entry_slot7);
         emu.set_cpu_parked(true);
         Log::emulator()->info(
-            "NEX: header PC=0 — load-only file, not executing "
+            "NEX: header PC=0 - load-only file, not executing "
             "(nexload.asm:581 .returnToBasic); $C000 restored to pages {},{} and "
             "the CPU parked with the loaded state",
             pre_entry_slot6, pre_entry_slot7);

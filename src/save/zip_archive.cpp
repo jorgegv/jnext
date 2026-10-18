@@ -160,7 +160,7 @@ bool valid_member_path(const std::string& path, std::string& why) {
         return false;
     }
     if (path.size() > kMaxPathLen) {
-        why = "member path " + quoted(path.substr(0, 40)) + "… is " +
+        why = "member path " + quoted(path.substr(0, 40)) + "... is " +
               u64s(path.size()) + " bytes, over the " + u64s(kMaxPathLen) +
               "-byte limit";
         return false;

@@ -985,7 +985,7 @@ static void host_rows() {
                               "capture_screen, stop_recording logs what it wrote",
               a && !a2 && c && s && !host.recording() && std::filesystem::exists(g_dir + "gui.jds") &&
                   has(all, "RECORD " + g_dir + "gui2.jds: already recording to " + g_dir + "gui.jds") &&
-                  has(all, "RECORD: wrote " + g_dir + "gui.jds — 0 input edges, 1 captures"),
+                  has(all, "RECORD: wrote " + g_dir + "gui.jds - 0 input edges, 1 captures"),
               all);
     }
 }

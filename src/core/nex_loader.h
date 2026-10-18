@@ -508,6 +508,6 @@ private:
         104, 105, 106, 107, 108, 109, 110, 111
     };
     static_assert(sizeof(kBankOrder) / sizeof(kBankOrder[0]) == kTotalBankSlots,
-                  "kBankOrder must have exactly kTotalBankSlots (112) entries — "
+                  "kBankOrder must have exactly kTotalBankSlots (112) entries - "
                   "loading-bar 'd' positions are kBankOrder indices (G156)");
 };

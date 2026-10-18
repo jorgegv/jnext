@@ -82,6 +82,14 @@ public:
                        bool sram_altrom_en_read = false,
                        bool sram_alt_128_n = false);
 
+    /// What `is_active()` would be for the opcode fetch of an M1 at `pc`
+    /// if `check_automap(pc, true, ...)` ran with these gates — instant-on
+    /// entry points and a hold from the previous M1 (an unmap at
+    /// 0x1FF8-0x1FFF included) — WITHOUT changing any state. A debugger asks
+    /// this before the instruction runs to know what will supply it.
+    bool active_on_m1(uint16_t pc, bool sram_pre_override_2, bool sram_pre_override_0,
+                      bool sram_altrom_en_read, bool sram_alt_128_n) const;
+
     /// Task 27 C-M1 — per-M1 fast-path gate for the production caller
     /// (Emulator's `on_m1_prefetch` lambda). Returns true when a
     /// `check_automap(pc, /*is_m1=*/true, …)` call could change ANY
@@ -411,6 +419,12 @@ public:
     void describe_state(jnext::save::StateDesc& d);
 
 private:
+    bool rom3_path_eligible_(bool sram_pre_override_2, bool sram_pre_override_0,
+                             bool sram_altrom_en_read, bool sram_alt_128_n) const;
+    void decode_m1_(uint16_t pc, bool sram_pre_override_2, bool sram_pre_override_0,
+                    bool sram_altrom_en_read, bool sram_alt_128_n, bool button_nmi,
+                    bool& instant_match, bool& delayed_match, bool& off_match) const;
+
     // NA-03: the effective enable is (port_io_enable_ AND nr_0a_4_enable_).
     // set_enabled() writes both for back-compat; the split setters write
     // only one flag each.  apply_enabled_transition_() recomputes enabled_

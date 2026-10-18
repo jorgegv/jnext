@@ -206,10 +206,12 @@ struct Fixture {
 };
 
 // The File > Quit action, located by its untranslated text (the same way
-// host_hotkey_test and DebuggerManager locate theirs).
+// host_hotkey_test and DebuggerManager locate theirs). The text BEFORE a tab:
+// since GH #380 the label carries an accelerator column after one
+// ("&Quit\tAlt+Q; Alt+F4").
 QAction* quit_action(MainWindow& w) {
     for (QAction* a : w.findChildren<QAction*>())
-        if (a->text() == QStringLiteral("&Quit")) return a;
+        if (a->text().section(QLatin1Char('\t'), 0, 0) == QStringLiteral("&Quit")) return a;
     return nullptr;
 }
 

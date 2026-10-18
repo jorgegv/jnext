@@ -61,7 +61,7 @@ $ jnext --headless --machine 48k --script mut.jds
 [debugger] [info] MUTATE audio mute mask 0x0 -> 0x7 by 2
 [debugger] [info] [jds F:150 C:84424784] AUDIO_MUTE is 7
 [debugger] [info] [jds F:151 C:84983872] FRAMES is 1 one frame later
-[debugger] [error] SCRIPT ERROR mut.jds:11:5: `set` at 0000: 0 of 1 byte(s) landed (the rest is read-only) — rule at 9:1 disabled
+[debugger] [error] SCRIPT ERROR mut.jds:11:5: `set` at 0000: 0 of 1 byte(s) landed (the rest is read-only) - rule at 9:1 disabled
 [debugger] [error] SCRIPT: a run-time error disabled a rule; exiting 1
 [platform] [info] script requested exit 1
 ```
@@ -133,8 +133,8 @@ does exactly that.
   allowed (see [`reset`](03-events.md#interrupt-nmi-reset)):
 
 ```
-[debugger] [error] nextreg_write() called from inside an event delivery — refused (§5: a handler may not drive, rewind or replace the machine it runs in)
-[debugger] [error] SCRIPT ERROR softreset.jds:2:5: `set nextreg[]` was refused (unsupported) — rule at 1:1 disabled
+[debugger] [error] nextreg_write() called from inside an event delivery - refused (section 5: a handler may not drive, rewind or replace the machine it runs in)
+[debugger] [error] SCRIPT ERROR softreset.jds:2:5: `set nextreg[]` was refused (unsupported) - rule at 1:1 disabled
 ```
 
 - **Change the machine during an RZX recording or playback**: the recording

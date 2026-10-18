@@ -61,7 +61,7 @@ namespace {
 
 /// Rows in every `render_layer()` view: the framebuffer's height.
 constexpr int RENDER_ROWS = Renderer::FB_HEIGHT;
-static_assert(RENDER_ROWS == 256, "the eight views are 256 rows (design-qt §3.7)");
+static_assert(RENDER_ROWS == 256, "the eight views are 256 rows (design-qt section 3.7)");
 
 // ---------------------------------------------------------------------------
 // Per-scanline state replay (mirrors Renderer::render_frame)
@@ -85,12 +85,14 @@ static_assert(RENDER_ROWS == 256, "the eight views are 256 rows (design-qt §3.7
 // construction, equal to the last entry in its change log (every write both
 // mutates the live register and appends a log entry).  So rewind → apply rows
 // 0..FB_HEIGHT-1 → flush-remaining walks the cursor to the end of the log and
-// leaves every live register exactly where it started; the render cursors are
-// reset by the next render_frame's rewind anyway.  It is the same round trip
-// render_frame performs once per frame — no more, no less.  The Qt panel only
-// ever does it while the emulator is PAUSED (VideoLayerView::refresh() draws a
-// placeholder instead while running), so there is no concurrent emulation to
-// perturb.
+// leaves every live register exactly where it started.  The next render_frame's
+// rewind resets the render cursors, except SramBeamLog's, which it no longer
+// touches (GH #362 perf, K7): its read() restarts a slot lazily, so the cursors
+// this pass leaves change no later read (SramBeamLog::rewind_to_baseline()).
+// It is the same round trip render_frame performs once per frame — no more,
+// no less.  The Qt panel only ever does it while the emulator is PAUSED
+// (VideoLayerView::refresh() draws a placeholder instead while running), so
+// there is no concurrent emulation to perturb.
 
 void replay_rewind(Emulator& emu)
 {

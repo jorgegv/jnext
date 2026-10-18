@@ -795,7 +795,7 @@ int main() {
     // `esp01` spdlog logger is registered and reachable from --log-level — is
     // tested where it lives, in test/esp/esp_uart_adapter_test.cpp.
     {
-        check("SEAM-01", "the default threshold is info — the module's own quiet default",
+        check("SEAM-01", "the default threshold is info - the module's own quiet default",
               log_threshold() == LogLevel::Info);
         check("SEAM-02", "every level has distinct, non-'unknown' text",
               std::string(log_level_text(LogLevel::Trace)) != std::string(log_level_text(LogLevel::Debug)) &&
@@ -1149,7 +1149,7 @@ int main() {
                   t->begin_connect("127.0.0.1", peer.port(), Protocol::Udp, 0));
             check("UDPT-02",
                   "...and completes through poll() alone, never passing through Connecting "
-                  "— a datagram connect has no handshake to wait for",
+                  "- a datagram connect has no handshake to wait for",
                   pump_until(*t, TransportState::Connected));
 
             const std::string req(48, '\x11');
@@ -1161,7 +1161,7 @@ int main() {
 
             std::uint8_t rx[2048];
             check("UDPT-05",
-                  "recv() with nothing pending returns 0 and stays Connected — UDP has no "
+                  "recv() with nothing pending returns 0 and stays Connected - UDP has no "
                   "EOF, so a quiet socket must not close the connection",
                   t->recv(rx, sizeof(rx)) == 0 && t->state() == TransportState::Connected);
 
@@ -1219,7 +1219,7 @@ int main() {
                 after.assign(reinterpret_cast<char*>(rx), n);
             }
             check("UDPT-13",
-                  "a zero-length datagram is not an end of stream — the connection survives "
+                  "a zero-length datagram is not an end of stream - the connection survives "
                   "it and still delivers what comes after",
                   alive && after == "AFTER-EMPTY" &&
                       t->state() == TransportState::Connected);
@@ -1269,7 +1269,7 @@ int main() {
                 bound = peer.receive_one(1000) == "P";
             }
             check("UDPT-10",
-                  "AT+CIPSTART's <local port> really binds — the peer sees that source port",
+                  "AT+CIPSTART's <local port> really binds - the peer sees that source port",
                   bound && peer.peer_source_port() == want);
 
             auto t2 = make_socket_transport(loopback_ok());
@@ -1857,7 +1857,7 @@ int main() {
         check("IPP-03", "an IPv6 literal parses, elision and all",
               parse_ip("::1", ip) && ip.family == IpFamily::V6 && ip.bytes[15] == 1);
         check("IPP-04",
-              "a NAME is refused rather than resolved — a bind address that could "
+              "a NAME is refused rather than resolved - a bind address that could "
               "depend on DNS is one that could change under the user",
               !parse_ip("localhost", ip));
         check("IPP-05", "so is an empty string", !parse_ip("", ip));
@@ -1908,7 +1908,7 @@ int main() {
                 std::uint8_t idle[64];
                 check("LSN-21",
                       "recv() on the accepted transport with nothing pending returns 0 "
-                      "at once and stays Connected — the accepted socket really is "
+                      "at once and stays Connected - the accepted socket really is "
                       "non-blocking",
                       accepted->recv(idle, sizeof(idle)) == 0 &&
                           accepted->state() == TransportState::Connected);
@@ -2018,7 +2018,7 @@ int main() {
                 const int through_lan = dial(lan, local->port());
                 check("LSN-19",
                       "a listener bound to 127.0.0.1 is NOT reachable through this "
-                      "host's LAN address — the default really confines it",
+                      "host's LAN address - the default really confines it",
                       through_lan < 0);
                 if (through_lan >= 0) net_close(through_lan);
             } else {
@@ -2076,7 +2076,7 @@ int main() {
             r->begin("127.0.0.1");
             r->poll();
             check("RSLV-04",
-                  "a literal the policy denies FAILS rather than being echoed back — the "
+                  "a literal the policy denies FAILS rather than being echoed back - the "
                   "command cannot launder a refused address",
                   r->state() == ResolveState::Failed &&
                       r->denial_reason() != DenyReason::None); }
@@ -2213,7 +2213,7 @@ int main() {
                 destroy_ms = since_ms(t0);
             }
             check("RSLV-11",
-                  "destroying a resolver mid-lookup returns immediately — one shared_ptr "
+                  "destroying a resolver mid-lookup returns immediately - one shared_ptr "
                   "dropped, no join, nothing to wait for",
                   destroy_ms >= 0 && destroy_ms < 100);
             fake_dns::gate.store(true); }
@@ -2239,7 +2239,7 @@ int main() {
         // all about this: `-f` is an ordinary argv element that `ping` reads as
         // flood-ping. The implementation also passes `--`, but Windows `ping`
         // has no `--`, so on that platform this check is the ONLY defence.
-        check("PHOST-06", "a leading '-' is refused — it would be an OPTION, not a host",
+        check("PHOST-06", "a leading '-' is refused - it would be an OPTION, not a host",
               !plausible_ping_host("-f"));
         check("PHOST-07", "...including a long-form option", !plausible_ping_host("--flood"));
         // SHELL metacharacters are inert against an argv array, and refused
@@ -2249,7 +2249,7 @@ int main() {
               !plausible_ping_host("$(id)") && !plausible_ping_host("`id`"));
         check("PHOST-10", "a pipe or redirect is refused",
               !plausible_ping_host("a|b") && !plausible_ping_host("a>b"));
-        check("PHOST-11", "an embedded space is refused — it would split into two argv words",
+        check("PHOST-11", "an embedded space is refused - it would split into two argv words",
               !plausible_ping_host("two words"));
         check("PHOST-12", "an embedded NUL truncates nothing, because the whole string is "
               "checked and the NUL itself is refused",
@@ -2374,7 +2374,7 @@ int main() {
         // until this row looked at WHY it failed. The same trap as PICMP-05.
         check("SNTPR-01",
               "a server the address policy denies FAILS *on the policy*, without a datagram "
-              "being sent — an NTP server is not an exception to the rule the rest of this "
+              "being sent - an NTP server is not an exception to the rule the rest of this "
               "surface follows",
               accepted && settled && c->state() == SntpState::Failed &&
                   c->last_error().find("policy") != std::string::npos);

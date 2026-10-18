@@ -18,7 +18,9 @@ so breakpoint dots stay visible.
   line to select just that one. **Shift+click** extends the selection from
   where it started, and **Shift + ↑ ↓ Page Up/Down Home End** do the same from
   the keyboard. **Ctrl+A** selects everything in the view.
-- **Address** box — type a hex address and press Enter to centre the view there.
+- **Address** box: type a hex address (`8000`, `$8000`, `0x8000`) or a loaded
+  symbol and press Enter to centre the view there. A number wins over a symbol
+  spelled like one; write `@name` to mean the symbol.
 - **Go to PC** re-centres on the current instruction.
 - The scrollbar spans the whole `$0000`–`$FFFF` address space. **↑ ↓**,
   **Page Up/Down**, **Home** and **End** navigate; **Enter** runs to the

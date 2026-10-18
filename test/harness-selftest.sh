@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=201  # HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=209  # HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -793,6 +793,62 @@ out_t=$(timeout --kill-after=5s "${INVOKE_TIMEOUT}s" bash "$PROJECT_DIR/test/lin
 check "HS-96d" "...and fails on a stray .detach() under test/ alone (the lint scans test/, not only src/)" 1 $rc_t "$out_t" \
     "test/stray_test.cpp:1"
 check "HS-96c" "...and exits 0 on the tree holding only the sanctioned twin" 0 $rc_clean "$out_clean" "clean"
+
+# ------------- the ASCII-text lint must stay wired AND must fire (GH #382)
+# Same exposure as HS-96. test/lint-ascii-text.sh self-tests its lexer on every run, but
+# nothing else proves it is still REACHED from both entry points, or that its verdict still
+# turns red on a tree with an em dash, or other non-ASCII text, in a string literal. The
+# rows below run the real lint against throwaway trees (its optional root argument). Every
+# non-ASCII byte and every backslash-u escape is built with printf, so this file needs
+# neither.
+ASCII_CMD_RE='^[[:space:]]*bash[[:space:]]+test/lint-ascii-text\.sh'
+at_u=n; grep -qE "$ASCII_CMD_RE" <<<"$dry"     && at_u=y
+at_r=n; grep -qE "$ASCII_CMD_RE" <<<"$dry_reg" && at_r=y
+check "HS-97a" "the ASCII-text lint is wired to unit-test AND regression (GH #382)" 0 0 \
+    "unit=$at_u regression=$at_r" "unit=y" "regression=y"
+
+AT="$T/ascii-tree"
+EMD=$(printf '\342\200\224')        # U+2014
+BSL='\'
+ascii_lint() { timeout --kill-after=5s "${INVOKE_TIMEOUT}s" bash "$PROJECT_DIR/test/lint-ascii-text.sh" "$AT" 2>&1; }
+rm -rf "$AT"; mkdir -p "$AT/src" "$AT/test"
+printf 'void f() { g("x %s y"); }\n' "$EMD" > "$AT/src/a.cpp"
+out_a=$(ascii_lint); rc_a=$?
+check "HS-97b" "the ASCII-text lint fails, naming file and line, on an em dash in a string literal (GH #382)" 1 $rc_a "$out_a" \
+    "src/a.cpp:1" "em dash"
+rm -f "$AT/src/a.cpp"
+printf 'void f() { g("x %su2014 y"); }\n' "$BSL" > "$AT/src/b.cpp"
+out_b=$(ascii_lint); rc_b=$?
+check "HS-97c" "...and on the escaped spelling of it alone, which no byte search sees" 1 $rc_b "$out_b" \
+    "src/b.cpp:1"
+rm -f "$AT/src/b.cpp"
+printf '// x %s y\n/* %s */\nvoid f() { g("x - y"); }\n' "$EMD" "$EMD" > "$AT/src/c.cpp"
+out_c=$(ascii_lint); rc_c=$?
+check "HS-97d" "...and exits 0 on a tree whose only em dashes are in comments" 0 $rc_c "$out_c" "clean"
+# Rule B (other non-ASCII text in product sources) and its declarations. Rule B stops at
+# src/esp01/test/, rule A does not: HS-97h pins both halves of that boundary.
+ARW=$(printf '\342\206\222')        # U+2192
+rm -f "$AT/src/c.cpp"
+printf 'void f() { g("a %s b"); }\n' "$ARW" > "$AT/src/d.cpp"
+out_e=$(ascii_lint); rc_e=$?
+check "HS-97e" "the ASCII-text lint fails, naming file and line, on other non-ASCII text in a literal (GH #382)" 1 $rc_e "$out_e" \
+    "src/d.cpp:1" "non-ASCII U+2192"
+printf 'src/d.cpp\ta %s b\tfixture\n' "$ARW" > "$AT/test/lint-ascii-text.conf"
+out_f=$(ascii_lint); rc_f=$?
+check "HS-97f" "...and passes once test/lint-ascii-text.conf declares exactly that literal" 0 $rc_f "$out_f" "clean"
+printf 'src/d.cpp\ta %s c\tfixture\n' "$ARW" > "$AT/test/lint-ascii-text.conf"
+out_g=$(ascii_lint); rc_g=$?
+check "HS-97g" "...and fails, naming the conf line, when a declaration matches no literal in its file" 1 $rc_g "$out_g" \
+    "test/lint-ascii-text.conf:1" "src/d.cpp:1"
+rm -rf "$AT"; mkdir -p "$AT/src/esp01/test" "$AT/test"
+printf 'void t() { check("X", "a %s b"); }\n' "$EMD" > "$AT/src/esp01/test/t.cpp"
+out_h1=$(ascii_lint)
+em=$(grep -c 'src/esp01/test/t.cpp:1: em dash' <<<"$out_h1" || true)
+printf 'void t() { check("X", "a %s b"); }\n' "$ARW" > "$AT/src/esp01/test/t.cpp"
+out_h2=$(ascii_lint); rc_h2=$?
+arrow=$(grep -c 'non-ASCII' <<<"$out_h2" || true)
+check "HS-97h" "rule A covers src/esp01/test/ (an em dash there fails) and rule B does not (an arrow there passes)" 0 $rc_h2 \
+    "em=$em arrow=$arrow" "em=1" "arrow=0"
 
 # ------------- worktree-bootstrap must not call an unprovisioned tree "ready" (GH #149)
 # `git worktree add` does not populate submodules, so a fresh worktree has an EMPTY
@@ -2334,10 +2390,10 @@ check "HS-90e" "the control: an explicit full os= list on one row is accepted (c
 plat_tree "$T/pt-ok" windows windows
 out=$(run_plat "$T/pt-ok" "$REG_FUNC"); rc=$?
 check "HS-91a" "a platform preflight names the target and the admitted / absent row counts" 0 $rc "$out" \
-    "platform windows: 136 functional rows run, 24 declared absent"
+    "platform windows: 138 functional rows run, 24 declared absent"
 plat_tree "$T/pt-mac" macos macos
 out=$(run_plat "$T/pt-mac" "$REG_FUNC"); rc=$?
-check "HS-91b" "...macOS runs 139 and declares 21 absent" 0 $rc "$out" "platform macos: 139 functional rows run, 21 declared absent"
+check "HS-91b" "...macOS runs 141 and declares 21 absent" 0 $rc "$out" "platform macos: 141 functional rows run, 21 declared absent"
 plat_tree "$T/pt-none" windows windows; sed -i '/^JNEXT_TARGET_OS/d' "$T/pt-none/s/CMakeCache.txt"
 out=$(run_plat "$T/pt-none" "$REG_FUNC"); rc=$?
 check "HS-91c" "a build tree without JNEXT_TARGET_OS is a refusal naming it, not an assumed OS" 2 $rc "$out" "HARNESS FAULT" "JNEXT_TARGET_OS"
@@ -2360,12 +2416,12 @@ out=$(run_plat "$T/pt-ok" "$REG_FUNC" magic-bp-func); rc=$?
 check "HS-92b" "...and a named admitted row is accepted" 0 $rc "$out" "preflight OK"
 
 # per-OS pins, both directions
-sed 's/^# expect-windows: 136$/# expect-windows: 135/' "$REG_FUNC" > "$T/pin-lo.conf"
+sed 's/^# expect-windows: 138$/# expect-windows: 137/' "$REG_FUNC" > "$T/pin-lo.conf"
 out=$(run_preflight "$REG_CONF" "$T/pin-lo.conf"); rc=$?
-check "HS-93a" "a Windows pin one too low is a refusal naming the OS" 2 $rc "$out" "HARNESS FAULT" "windows" "expect-windows: 135"
-sed 's/^# expect-macos: 139$/# expect-macos: 140/' "$REG_FUNC" > "$T/pin-hi.conf"
+check "HS-93a" "a Windows pin one too low is a refusal naming the OS" 2 $rc "$out" "HARNESS FAULT" "windows" "expect-windows: 137"
+sed 's/^# expect-macos: 141$/# expect-macos: 142/' "$REG_FUNC" > "$T/pin-hi.conf"
 out=$(run_preflight "$REG_CONF" "$T/pin-hi.conf"); rc=$?
-check "HS-93b" "a macOS pin one too high is a refusal" 2 $rc "$out" "HARNESS FAULT" "macos" "expect-macos: 140"
+check "HS-93b" "a macOS pin one too high is a refusal" 2 $rc "$out" "HARNESS FAULT" "macos" "expect-macos: 142"
 grep -v '^# expect-macos:' "$REG_FUNC" > "$T/pin-none.conf"
 out=$(run_preflight "$REG_CONF" "$T/pin-none.conf"); rc=$?
 check "HS-93c" "os= tags without the per-OS pin are a refusal" 2 $rc "$out" "HARNESS FAULT" "No '# expect-macos: N' pin"

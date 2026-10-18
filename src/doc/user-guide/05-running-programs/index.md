@@ -48,6 +48,11 @@ truncated, or not the format its extension says — gets a warning dialog naming
 it, from either menu and from **File > Play RZX Recording…**; the log says
 what was wrong with it.
 
+A program loaded either way brings its debugging files with it when they sit
+beside it: `game.sld` (an sjasmplus source map) and, for a `.nex`,
+`game.Memory.txt` (NextBuild / Boriel ZX Basic symbols). See
+[Source-level debugging](../06-debugger/functions/14-source-level-debugging.md).
+
 ![JNEXT running, with NextZXOS booted](../img/gui-main-window.png)
 
 The toolbar buttons are, from the left: **Power Reset**, **Soft Reset**,

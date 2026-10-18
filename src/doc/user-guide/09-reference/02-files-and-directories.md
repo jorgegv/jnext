@@ -11,6 +11,11 @@ Everything JNEXT keeps for you lives under `~/.jnext`.
 | `~/.jnext/snapshots/`                      | Where **File ▸ Quick Save Snapshot** writes and **Quick Load Snapshot** reads the newest `.jns` ([5.9 Snapshots](../05-running-programs/09-snapshots.md#quick-save-and-quick-load)). Created on the first save. Quick Save keeps the newest 20 files it made (`--quick-snapshot-keep`). |
 | `~/.jnext/screenshots/`                    | Where **File ▸ Quick Screenshot** writes, unless Preferences says otherwise ([5.3 Display](../05-running-programs/03-display.md)). Created on the first capture. |
 
+Beside a program you load, JNEXT also reads the debugger's files when they are
+there: `NAME.sld` or `NAME.sld.txt` (a source map) and, for a `.nex`,
+`NAME.Memory.txt` or `Memory.txt` (symbols). It never writes them. See
+[Source-level debugging](../06-debugger/functions/14-source-level-debugging.md).
+
 Two rules worth remembering:
 
 - **Command-line options always beat saved settings.** A flag on the command

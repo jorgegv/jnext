@@ -984,7 +984,7 @@ void Uart::attach_device(int channel, UartDevice* device) {
             // bytes are gone by the time the mux comes back.
             if (channels_[channel].device_isolated()) {
                 uart_log()->debug(
-                    "ch{} device RX {:#04x} dropped — joystick-UART mux owns the channel",
+                    "ch{} device RX {:#04x} dropped - joystick-UART mux owns the channel",
                     channel, byte);
                 return;
             }
@@ -1133,7 +1133,7 @@ void Uart::describe_state(jnext::save::StateDesc& d)
     int32_t select = select_;
     d.i32("select", select);
     if (select != 0 && select != 1) {
-        uart_log()->error("Uart: snapshot selects channel {} — the hardware "
+        uart_log()->error("Uart: snapshot selects channel {} - the hardware "
                           "has two", select);
         d.fail("uart.select is neither of the two UART channels (0 or 1)");
     } else {

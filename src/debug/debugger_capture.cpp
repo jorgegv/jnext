@@ -264,7 +264,7 @@ void Debugger::Impl::service_captures() {
             if (!found) capture_failures.emplace_back(by, 1);
         }
         self->log(by, ok ? LogLevel::Info : LogLevel::Error,
-                  what + (ok ? " written" : " NOT written — see the error above"));
+                  what + (ok ? " written" : " NOT written - see the error above"));
     }
 
     if (took || rearm) arm_capture_head();

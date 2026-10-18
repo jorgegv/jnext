@@ -5,8 +5,9 @@
 A hex editor over the address space: address, sixteen bytes in two groups of
 eight, and the ASCII rendering.
 
-- The **Addr** box takes a hex address (`5800`, `$5800` or `0x5800`) and centres
-  the view on it.
+- The **Addr** box takes a hex address (`5800`, `$5800` or `0x5800`) or a
+  loaded symbol (`@name` when the name looks like a number) and centres the
+  view on it.
 - The **page selector** chooses the window. `CPU View` shows the whole 64K as
   the CPU sees it — paged-in DivMMC, Multiface or Layer 2 memory included.
   `Slot 0`–`Slot 7` show the 8K **page** mapped in that slot (its label names

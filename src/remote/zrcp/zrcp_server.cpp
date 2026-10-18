@@ -522,7 +522,7 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
     {"snapshot-save", nullptr, "name",
      "Saves the machine as an in-memory snapshot of this session under name (at most 8; a "
      "name saved again is replaced). Divergence from ZEsarUX: nothing is written to disk (the "
-     "jnext GUI saves .jns files), and the machine must be stopped at a frame boundary — "
+     "jnext GUI saves .jns files), and the machine must be stopped at a frame boundary - "
      "pause it while running; a stop at a breakpoint is mid-frame",
      CommandClass::Served, &ZrcpServer::cmd_snapshot_save},
     U("speech-empty-fifo", nullptr),
@@ -635,7 +635,7 @@ void ZrcpServer::on_connect(Connection& c) {
     // mutation is attributed to a client (SES-01), so the attach is here.
     const auto a = dbg_.attach(ClientInfo{"ZRCP client " + c.peer(), ClientKind::Zrcp});
     if (!a) {
-        Log::debugger()->warn("zrcp: attach refused for {}: {} — closing", c.peer(),
+        Log::debugger()->warn("zrcp: attach refused for {}: {} - closing", c.peer(),
                               result_name(a.status));
         c.write(std::string("Error. The jnext debugger refused the session\n"));
         c.close();
@@ -677,7 +677,7 @@ ServiceStep ZrcpServer::on_service(Connection& c) {
     if (!take_line(line)) {
         if (rx_.size() > kMaxLine) {
             Log::debugger()->warn("zrcp: a command line from {} passed {} bytes with no newline "
-                                  "— refused and discarded",
+                                  "- refused and discarded",
                                   c.peer(), kMaxLine);
             rx_.clear();
             discard_to_eol_ = true;

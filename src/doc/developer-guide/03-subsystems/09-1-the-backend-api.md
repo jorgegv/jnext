@@ -238,7 +238,7 @@ when the verb runs.
 `step_back` and `rewind_to_frame` log one `Warn` line to every listener:
 
 ```
-REWIND REFUSED: Step Back refused: the instruction trace is off — turn on Debug ▸ Trace ▸ Enable Trace and run forward. See the user guide: Debugger ▸ Functions ▸ Backward execution (rewind)
+REWIND REFUSED: Step Back refused: the instruction trace is off - turn on Debug > Trace > Enable Trace and run forward. See the user guide: Debugger > Functions > Backward execution (rewind)
 ```
 
 The verb is `Step Back` or `Rewind to frame N`, and the reason is read from the
@@ -259,6 +259,81 @@ name-only table: `lookup_name()` resolves them, and `lookup(addr)` never names a
 address after a constant.
 The `-debug` records (names starting `__C_LINE_`, `__ASM_LINE_` or `__CDBINFO__`)
 are dropped by the loader, so they never name an address or resolve by name.
+`MapFormat::NextBuild` reads a NextBuild / Boriel ZX Basic `Memory.txt` (`8000: ._Main`): the shown name drops the `.` and the
+compiler's `_`, and the raw label resolves by name too. `SymbolTable::resolve()`
+turns an address field's text into an address: hex first (`4000`, `$4000`,
+`0x4000`), else a symbol; `@name` always means the symbol.
+
+### Source maps — CAP-SRC
+
+The backend also owns one `SourceMap` (`src/debug/source_map.*`): records of
+(RAM page, logical address) → file, line, column, filled by a format adapter —
+`load_sld()` in `src/debug/sld_loader.*` reads sjasmplus SLD v1 — and replaced
+only by a complete, successful load. Matching uses one identity everywhere:
+`source_page(addr)` is the MMU's page when RAM supplies the opcode fetch at
+`addr`, else `NOT_RAM_PAGE` (`debug/ram_page.h`), decided by
+`Emulator::fetch_not_mmu_ram()`: a side-effect-free prediction of that M1,
+including what the M1 itself switches (DivMMC's instant entry points and the
+hold from the previous M1 via `DivMmc::active_on_m1()`, the Multiface at
+0x0066), then `Mmu::read_not_mmu_ram(addr, divmmc, multiface)` for the rest
+(ROM slot, boot ROM, Layer 2 read mapping, alt-ROM, config mode). `SourceMap::lookup(NOT_RAM_PAGE, addr)` matches
+only an unqualified record. The trace records the same flag beside each entry
+(`TraceLog::fetch_not_mmu_ram()`; `TraceEntry` itself stays 56 bytes), call
+frames record each side's identity, and an `Execute` filter with
+`page_ram_only` matches only a fetch from that RAM page (`Event::fetch_not_ram`);
+without it the page qualifier compares numbers alone, as DZRP and the DSL use it.
+An SLD may carry a SHA-256 of the program's bytes (`||program.*` comment
+records); `load_source_map(path, accept_mismatch)` checks it against memory and
+stores the path absolute.
+
+`load_program_sidecars(path)` attaches `<stem>.Memory.txt` (or `Memory.txt`,
+beside a `.nex`) and `<stem>.sld` / `<stem>.sld.txt`, searching with the
+non-throwing filesystem calls; only a regular file counts (a FIFO would block the
+load), and one that cannot be read is reported. Both loaders refuse a file that is
+not regular, or is over 64 MiB, before opening it (`debug/source_file.h`). Every frontend calls it after a successful `--load` or File ▸
+Open, and `load()` calls it for a remote client; a tape program gets no
+automatic map. Ownership is explicit (`Impl::StoreOwner`: None, Sidecar, User)
+and changes only on a successful load: a sidecar never touches the user's
+store, and a previous program's sidecar data is replaced or cleared — also when
+the new sidecar cannot be read. The attach records the clock
+(`Impl::sidecar_attach_cycle`). The machine-replaced hook
+(`Impl::machine_replaced()`, which the cold-boot re-application runs too, since
+a rebuilt machine has no hook while it initialises) drops the sidecar-owned
+stores at once for a reset, a cold boot or any state that does not come from the
+rewind ring (`DebugState::restoring_from_rewind()` is false): another program
+may be in the machine, whatever its clock says. `RewindBuffer::restore_nearest()`
+sets that flag around its `load_state()`; such a restore stays in this program's
+history, so it only raises `sidecar_recheck`, and `recheck_sidecars()` — run by
+`pump()` and by every reader of the stores — drops the stores when the clock is
+now before the attach point. A program the guest loads for itself (the NextZXOS
+browser, `LOAD ""`) is invisible to the backend, so its predecessor's sidecars
+stay until a reset or a load. The user's stores are never touched by any of this.
+
+`SidecarLoad::problem` is the one-line account of what was found and refused:
+`NextBuild symbols '<file>' rejected: <reason>` and/or `source map '<file>'
+rejected: <reason>` (the file found, not the program), the two joined by `"; "`,
+empty when nothing was refused. `load_program_sidecars()` fills it and also logs
+each refusal. The frontends show it: the headless loop at warn
+(`--load: <problem>`), the SDL loop likewise (`load: <problem>`), and the Qt
+`DebuggerManager::report_sidecars()` in the
+log, in the main window's status bar for ten seconds and in the Source tab in
+place of "No source map loaded" (kept in `sidecar_problem_`, so a window built
+later shows it too, and replaced by the next load's result, empty when clean).
+A remote `load()` fills it and nobody reads it yet.
+
+`source_step(by, kind)` steps by statement. `Into`, `Over` and `Out` run
+`Emulator::debugger_step()` in a loop, as many Steps, until the mapped position
+changes (and, for Over / Out, the call-stack depth allows). `debugger_step()`
+delivers no `Execute` event, so between instructions the loop gives each next PC
+`run_frame()`'s delivery itself — `DebugState::should_break()`, then
+`run_execute_gate()` under a `GuestExecutionScope` — so handlers run and a
+`Stop` records its hit and `once`; a handler that moves the PC makes the loop
+re-evaluate the boundary at the new PC without a second delivery. It also stops on any latched event stop, at a
+HALT with IFF1 clear, after `SOURCE_STEP_LIMIT` instructions or after
+`SOURCE_STEP_FRAME_LIMIT` frames. `Back` and `ReverseContinue` search the trace
+for entries before the current cycle (a Frame Back leaves newer ones), derive
+each entry's identity from `mmu[]`, `rom_slots` and the overlay flag, and hand
+the count to `step_back()`, so they inherit its refusals.
 
 ### Coverage and the trace
 
@@ -298,6 +373,7 @@ internals directly, through the pointers the constructor publishes into
 | `debugger_session.cpp` | clients, listeners, services, `pump()`, the stop policy |
 | `debugger_reconstruct.cpp` | the loop driver, `reset(Hard)`, `load()`, the cold-boot notifications and the reconstruct contract |
 | `debugger_capture.cpp` | screenshots, bookmarks, `save_snapshot` |
+| `debugger_source.cpp` | CAP-SRC: the source map, program sidecars, `source_step()` |
 | `debugger_render.cpp` | `render_layer()` |
 | `event_table.*` | `EventTable`: subscriptions, cheap filters, the latch ring, the delivery history |
 | `inspect.cpp`, `result.cpp` | the free functions of `inspect.h` (`key_name_to_matrix()`, `rrrgggbb_to_argb()`, `rgb333_to_argb()`) and `result_name()` |

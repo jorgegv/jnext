@@ -1081,6 +1081,35 @@ target_link_libraries(step_out_test PRIVATE
 target_include_directories(step_out_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME step_out_tests COMMAND step_out_test)
 
+# CAP-SRC — source-level debugging: the source-map and compiler-symbol
+# adapters (pure), and the backend's store, sidecars and source steps, which
+# drive a real machine like step_out_test.
+add_executable(source_map_test debug/source_map_test.cpp)
+target_link_libraries(source_map_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(source_map_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME source_map_tests COMMAND source_map_test)
+add_executable(source_debug_test debug/source_debug_test.cpp)
+target_link_libraries(source_debug_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(source_debug_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME source_debug_tests COMMAND source_debug_test)
+# The rows whose sidecar fixtures are POSIX file types (a socket, a symlink,
+# a FIFO): Windows has none of them, so they live apart (GH #214).
+if(NOT WIN32)
+    add_executable(source_debug_posix_test debug/source_debug_posix_test.cpp)
+    target_link_libraries(source_debug_posix_test PRIVATE
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(source_debug_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME source_debug_posix_tests COMMAND source_debug_posix_test)
+endif()
+
 # GH #276 B1 — the jnext::dbg::Debugger backend: the control verbs, the
 # inspection/mutation surface, F1 (Mmu::peek) and F2 (the frame counter). Drives
 # a real machine through run_frame() exactly as the frontends do, so it links the
@@ -1748,6 +1777,20 @@ if(ENABLE_DEBUGGER)
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
     target_include_directories(debugger_verbs_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME debugger_verbs_tests COMMAND debugger_verbs_test)
+
+    # CAP-SRC — the Qt side of source-level debugging: the Source tab and its
+    # step buttons, page-qualified Execute breakpoints in the model and panel,
+    # the Call Stack's source column, and symbols in address fields. Drives
+    # the real manager and window like debugger_verbs_test.
+    add_executable(debugger_source_panel_test debugger/source_panel_test.cpp)
+    set_target_properties(debugger_source_panel_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_source_panel_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(debugger_source_panel_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_source_panel_tests COMMAND debugger_source_panel_test)
 
     # Debugger menu-reachability test (GH #215 — the Breakpoints menu offered
     # every breakpoint type EXCEPT Execute, and the main window's Debug menu

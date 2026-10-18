@@ -14,8 +14,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Rewind call stack     |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       83 |       83 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Memory/MMU            |      262 |      262 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Memory/MMU (int)      |      121 |      121 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Memory/MMU            |      265 |      265 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Memory/MMU (int)      |      124 |      124 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      379 |      379 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub           |      185 |      185 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -26,7 +26,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Phantom Typist        |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC + Interrupts      |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC (integration)     |       88 |       88 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Layer 2               |      161 |      161 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Layer 2               |      171 |      171 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART + I2C/RTC        |      104 |      104 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       42 |       42 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (POSIX-only rows) |       49 |       49 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -78,7 +78,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Frame-tick sequencer (wiring) |      116 |      116 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tick-delivery stats   |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Achieved-speed report |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Host key minimum-hold latch |      139 |      139 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Host key minimum-hold latch |      145 |      145 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SDL Pointer Release (GH #365) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SDL window title (version) |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SIGINT/SIGTERM quit request |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -95,9 +95,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Snapshot IM latch (NR 0xC0) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | snapshot_machine_test |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "snapshot_machine_test" to the label map in refresh-subsystem-status.sh. |
 | DMA                   |      185 |      185 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Tilemap               |       98 |       98 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Tilemap               |      113 |      113 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap raster splits |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
-| LoRes                 |       51 |       51 |      0 |       0 |    100% | 🟢 All tests pass. |
+| LoRes                 |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
 | LoRes (integration)   |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI Source Pipeline   |       77 |       77 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI (integration)     |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -107,7 +107,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Resume Guard          |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | src/debug Qt-free lint (GH #278) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Backend (GH #276) |     1453 |     1453 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source maps + symbols |       53 |       53 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source debugging (backend) |       80 |       80 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source debugging (POSIX file types) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Backend (GH #276) |     1454 |     1454 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger I/O Watchpoints |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger BP Enable/Disable |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -132,7 +135,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | RZX Menus             |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI load-failure dialogs |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Esc/BREAK + fullscreen routing |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Host hotkeys on Alt (Ctrl to guest) |       65 |       65 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Host hotkeys on Alt (Ctrl to guest) |       72 |       72 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Main-window menu mnemonics |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Main-window Pause (Alt+U, Pause key) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Joystick controller picker (Input menu, Preferences) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -157,6 +160,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Disasm Copy  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Panels (GH #278) |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Verbs (GH #278) |       73 |       73 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **13101**| **13101**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Source panel |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **13358**| **13358**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.

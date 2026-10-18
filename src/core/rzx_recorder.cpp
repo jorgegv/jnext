@@ -37,7 +37,7 @@ bool RzxRecorder::start(const std::string& output_path) {
     current_in_values_.clear();
     recording_ = true;
     frame_started_ = false;
-    Log::emulator()->info("RZX: recording started — output: {}", output_path);
+    Log::emulator()->info("RZX: recording started - output: {}", output_path);
     return true;
 }
 
@@ -48,7 +48,7 @@ bool RzxRecorder::stop() {
 
     bool ok = rzx::write(output_path_, rec_);
     if (ok) {
-        Log::emulator()->info("RZX: recording saved — {} frames to '{}'",
+        Log::emulator()->info("RZX: recording saved - {} frames to '{}'",
                               rec_.frames.size(), output_path_);
     } else {
         Log::emulator()->error("RZX: failed to write '{}'", output_path_);

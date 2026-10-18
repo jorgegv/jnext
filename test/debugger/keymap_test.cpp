@@ -464,11 +464,12 @@ void test_preferences_tab() {
 // THE FINDING, AND WHY THE ANSWER IS NOT "REFUSE IT".
 //
 // Conflict detection covers the twelve debugger actions. It does NOT cover the
-// chords the EMULATOR window already binds, and four of those survive every
+// chords the EMULATOR window already binds, and five of those survive every
 // refusal rule. Measured, not listed by hand — DKH-01 harvests them:
 //
 //     Ctrl+F5  Record MPEG4 Video...      F4   Soft Reset
 //     Ctrl+F6  Stop MPEG4 Recording       F11  Fullscreen
+//     Alt+F4   Quit  (GH #380, next to Alt+Q)
 //
 // Bind Run to Ctrl+F5 and, in the EMULATOR window, the recording starts and Run
 // never fires. That is real, and the first cut of this feature said nothing
@@ -492,7 +493,7 @@ void test_preferences_tab() {
 void test_host_chord_enumeration() {
     MainWindowFixture fx;
     if (!fx.ok) {
-        check("DKH-01", "the emulator window's bindable chords are exactly the four known",
+        check("DKH-01", "the emulator window's bindable chords are exactly the five known",
               false, "fixture failed");
         return;
     }
@@ -507,9 +508,9 @@ void test_host_chord_enumeration() {
                    .arg(QString::fromStdString(render_combo(h.combo)), h.label);
     got.sort();
     const QString want =
-        QStringLiteral("Ctrl+F5=Record MPEG4 Video...|Ctrl+F6=Stop MPEG4 Recording|"
+        QStringLiteral("Alt+F4=Quit|Ctrl+F5=Record MPEG4 Video...|Ctrl+F6=Stop MPEG4 Recording|"
                        "F11=Fullscreen|F4=Soft Reset");
-    check("DKH-01", "the emulator window's bindable chords are exactly the four known",
+    check("DKH-01", "the emulator window's bindable chords are exactly the five known",
           got.join(QStringLiteral("|")) == want, got.join(QStringLiteral("|")).toStdString());
 }
 

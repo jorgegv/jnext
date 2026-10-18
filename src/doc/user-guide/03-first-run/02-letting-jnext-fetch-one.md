@@ -10,7 +10,7 @@ No SD-card image was found at ~/.jnext/.
 Download the NextZXOS official distribution image and install it there? [y/N]
 ```
 
-In the graphical version the same question appears as a dialog titled **jnext —
+In the graphical version the same question appears as a dialog titled **jnext -
 SD card image**. Answer yes and JNEXT will:
 
 1. Download the official distribution archive and unpack the SD-card image from

@@ -1534,8 +1534,8 @@ int main(int argc, char* argv[]) {
 #ifdef ENABLE_QT_UI
             SdcardGuiProvisioner gui_prov;   // one temporary QApplication, gone before QtApp's
             if (!headless) {
-                gui_prov.set_texts("jnext — NextPi", "NextPi image not found",
-                                   "jnext — Preparing NextPi", "Downloading NextPi…");
+                gui_prov.set_texts("jnext - NextPi", "NextPi image not found",
+                                   "jnext - Preparing NextPi", "Downloading NextPi…");
                 popts.confirm  = [&](const std::string& m) { return gui_prov.confirm(m); };
                 popts.progress = [&](uint64_t d, uint64_t t) { return gui_prov.progress(d, t); };
                 popts.busy     = [&](const std::string& p, const std::function<bool()>& w) {
@@ -2037,7 +2037,7 @@ int main(int argc, char* argv[]) {
                     if (NexLoader::probe_version(load_file, ver_bcd, ver) &&
                         nex_version_needs_v13_optin(ver_bcd)) {
                         fprintf(stderr,
-                                "--load: '%s' is NEX version %s — NEX V1.3 is an experimental "
+                                "--load: '%s' is NEX version %s - NEX V1.3 is an experimental "
                                 "format and is not supported in any way.\n"
                                 "Pass --experimental-nex-v1.3 to load it anyway (unsupported; "
                                 "V1.0-V1.2 files load normally).\n",

@@ -103,7 +103,7 @@ bool EspGatedTransport::begin_connect(const std::string& host, std::uint16_t por
         // security event. It stays a `warn` on a logger whose default level is
         // `info`, so it is emitted unless the user explicitly silences esp01.
         Log::esp01()->warn(
-            "REFUSED connection to {}:{} — host is not in the --esp-allow list",
+            "REFUSED connection to {}:{} - host is not in the --esp-allow list",
             host, port);
         log_.push({EspEvent::Kind::Refused, host, port, "not in the allowlist"});
         // "Request rejected", per the interface contract — the engine turns
@@ -228,7 +228,7 @@ bool EspGatedResolver::begin(const std::string& host) {
         // Straight to jnext's logger, for the reason `EspGatedTransport` gives:
         // a security event must not be silenced by a seam threshold that exists
         // to save formatting work.
-        Log::esp01()->warn("REFUSED lookup of '{}' — host is not in the --esp-allow list", host);
+        Log::esp01()->warn("REFUSED lookup of '{}' - host is not in the --esp-allow list", host);
         log_.push({EspEvent::Kind::Refused, host, 0, "not in the allowlist"});
         // TRUE, not false. See the class comment: a rejected request would
         // answer bare `ERROR` where a failed one answers `DNS Fail` + `ERROR`,
@@ -278,7 +278,7 @@ bool EspGatedPinger::begin(const std::string& host) {
         ++refusals_;
         blocked_       = true;
         refused_error_ = "host is not in the --esp-allow list";
-        Log::esp01()->warn("REFUSED ping of '{}' — host is not in the --esp-allow list", host);
+        Log::esp01()->warn("REFUSED ping of '{}' - host is not in the --esp-allow list", host);
         log_.push({EspEvent::Kind::Refused, host, 0, "not in the allowlist"});
         // TRUE, not false — see the class comment. A rejected request answers a
         // bare ERROR where a real failure answers `+timeout` + ERROR, and that
@@ -324,7 +324,7 @@ bool EspGatedSntp::begin(const std::string& server) {
         ++refusals_;
         blocked_       = true;
         refused_error_ = "host is not in the --esp-allow list";
-        Log::esp01()->warn("REFUSED SNTP query to '{}' — host is not in the --esp-allow list",
+        Log::esp01()->warn("REFUSED SNTP query to '{}' - host is not in the --esp-allow list",
                            server);
         log_.push({EspEvent::Kind::Refused, server, 0, "not in the allowlist"});
         return true;  // accepted-then-failed, as elsewhere on this surface

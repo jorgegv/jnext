@@ -16,6 +16,7 @@
 #include "debugger/mmu_panel.h"
 #include "debugger/stack_panel.h"
 #include "debugger/callstack_panel.h"
+#include "debugger/source_panel.h"
 
 #include "debugger/debugger_manager.h"
 #include "debug/debugger.h"
@@ -213,6 +214,22 @@ void DebuggerWindow::closeEvent(QCloseEvent* event) {
 void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     debugger_mgr_ = mgr;
     if (script_panel_ && mgr) script_panel_->set_host(mgr->script_host());   // GH #26 WP5
+    if (source_panel_ && mgr) {
+        connect(source_panel_, &SourcePanel::step_into_requested,
+                mgr, &DebuggerManager::on_source_step_into);
+        connect(source_panel_, &SourcePanel::step_over_requested,
+                mgr, &DebuggerManager::on_source_step_over);
+        connect(source_panel_, &SourcePanel::step_out_requested,
+                mgr, &DebuggerManager::on_source_step_out);
+        connect(source_panel_, &SourcePanel::step_back_requested,
+                mgr, &DebuggerManager::on_source_step_back);
+        connect(source_panel_, &SourcePanel::reverse_continue_requested,
+                mgr, &DebuggerManager::on_source_reverse_continue);
+        connect(source_panel_, &SourcePanel::load_sld_requested,
+                mgr, &DebuggerManager::on_load_sld);
+        connect(source_panel_, &SourcePanel::load_symbols_requested,
+                mgr, &DebuggerManager::on_load_nextbuild_memory);
+    }
 
     // Create the menu bar with debug actions.
     create_menus();
@@ -295,7 +312,7 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     rewind_toolbar_ = new QToolBar(tr("Rewind"), this);
     rewind_toolbar_->setMovable(false);
 
-    auto* rewind_label = new QLabel(tr("  \u23EE Rewind — Frame: "), this);
+    auto* rewind_label = new QLabel(tr("  \u23EE Rewind - Frame: "), this);
     rewind_toolbar_->addWidget(rewind_label);
 
     rewind_slider_ = new QSlider(Qt::Horizontal, this);
@@ -769,6 +786,9 @@ void DebuggerWindow::update_actions(bool is_paused) {
     const bool can_step_back = can_rewind && dbg->trace_enabled();
     if (step_back_action_) step_back_action_->setEnabled(can_step_back);
     if (rewind_jump_btn_)  rewind_jump_btn_->setEnabled(can_rewind);
+    // Only the Source tab's buttons: its text is refreshed once per pause, by
+    // refresh_panels(), which also runs this.
+    if (source_panel_)     source_panel_->update_buttons(is_paused);
 }
 
 // GH #312 — fold an older <config-dir>/Debugger.conf into jnext.conf [debugger]
@@ -1228,6 +1248,10 @@ void DebuggerWindow::create_panels() {
     // manager's, handed over in set_debugger_manager().
     script_panel_ = new ScriptPanel();
     tab_widget_->addTab(script_panel_, tr("Script"));
+    // CAP-SRC — the source view and its steps (the manager wires the buttons
+    // in set_debugger_manager()).
+    source_panel_ = new SourcePanel(&dbg_);
+    tab_widget_->addTab(source_panel_, tr("Source"));
 
     tab_widget_->setMinimumWidth(380);
 
@@ -1323,17 +1347,28 @@ void DebuggerWindow::create_panels() {
 
 void DebuggerWindow::activate_follow_pc() {
     if (disasm_panel_) disasm_panel_->activate_follow_pc();
+    if (source_panel_) source_panel_->follow_pc();
 }
 
-bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr) {
+bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr,
+                                       uint16_t* page) {
     QDialog dlg(this);
     dlg.setWindowTitle(title);
     dlg.setMinimumWidth(400);
 
     auto* form = new QFormLayout(&dlg);
     auto* addr_edit = new QLineEdit(&dlg);
-    addr_edit->setPlaceholderText("e.g. 4000 or $4000");
-    form->addRow(tr("Address (hex):"), addr_edit);
+    addr_edit->setPlaceholderText(page ? "e.g. 4000, $4000, a symbol or file.bas:12"
+                                       : "e.g. 4000, $4000 or a symbol");
+    form->addRow(page ? tr("Address, symbol or file:line:") : tr("Address or symbol:"),
+                 addr_edit);
+
+    auto* error = new QLabel(&dlg);
+    error->setObjectName(QStringLiteral("bp_dialog_error"));
+    error->setWordWrap(true);
+    error->setStyleSheet(QStringLiteral("color: #c00000;"));
+    error->hide();
+    form->addRow(error);
 
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
@@ -1341,15 +1376,32 @@ bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr) {
     connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     form->addRow(buttons);
 
-    if (dlg.exec() != QDialog::Accepted) return false;
-
-    QString addr_text = addr_edit->text().trimmed();
-    if (addr_text.startsWith('$')) addr_text = addr_text.mid(1);
-    if (addr_text.startsWith("0x", Qt::CaseInsensitive)) addr_text = addr_text.mid(2);
-
-    bool ok = false;
-    addr = static_cast<uint16_t>(addr_text.toUInt(&ok, 16));
-    return ok;
+    // Text that resolves to nothing shows the dialog again with the reason;
+    // only Cancel gives up.
+    while (dlg.exec() == QDialog::Accepted) {
+        const std::string text = addr_edit->text().trimmed().toStdString();
+        // CAP-SYM: hex ($ / 0x prefixes optional), else a loaded symbol name;
+        // `@name` forces the symbol (OD-12).
+        if (const auto resolved = dbg_.symbols().resolve(text)) {
+            addr = *resolved;
+            if (page) *page = jnext::dbg::PAGE_ANY;
+            return true;
+        }
+        // CAP-SRC: a source line keeps the page its record names, as in the
+        // Breakpoints panel's Add dialog.
+        if (page) {
+            if (const auto src = dbg_.source_map().resolve(text)) {
+                addr = src->address;
+                *page = src->page ? *src->page : jnext::dbg::PAGE_ANY;
+                return true;
+            }
+        }
+        error->setText((page ? tr("Not an address, symbol or source line: %1")
+                             : tr("Not an address or symbol: %1"))
+                           .arg(addr_edit->text().trimmed()));
+        error->show();
+    }
+    return false;
 }
 
 void DebuggerWindow::show_add_data_bp_dialog(int type) {
@@ -1375,9 +1427,10 @@ void DebuggerWindow::show_add_data_bp_dialog(int type) {
 // this site remembering to repaint it.
 void DebuggerWindow::show_add_exec_bp_dialog() {
     uint16_t addr = 0;
-    if (!prompt_bp_address(tr("Add Execute Breakpoint"), addr)) return;
+    uint16_t page = jnext::dbg::PAGE_ANY;
+    if (!prompt_bp_address(tr("Add Execute Breakpoint"), addr, &page)) return;
 
-    if (BreakpointModel* m = breakpoint_model()) m->add(BreakpointModel::Execute, addr);
+    if (BreakpointModel* m = breakpoint_model()) m->add(BreakpointModel::Execute, addr, page);
 }
 
 void DebuggerWindow::refresh_panels() {
@@ -1395,5 +1448,6 @@ void DebuggerWindow::refresh_panels() {
     if (callstack_panel_) callstack_panel_->refresh();
     if (breakpoint_panel_) breakpoint_panel_->refresh();
     if (script_panel_) script_panel_->refresh();
+    if (source_panel_) source_panel_->refresh();
     update_rewind_ui();
 }

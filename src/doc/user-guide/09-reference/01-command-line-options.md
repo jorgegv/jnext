@@ -74,6 +74,14 @@ with status 1.
     loads only the declared banks, ignores the trailing bytes and starts
     the program. More than 16 KB of ignored bytes also logs a warning.
 
+    The debugger’s source map and symbols attach from beside the
+    program: *NAME*`.sld` (or *NAME*`.sld.txt`), an sjasmplus source
+    map, beside any program but a tape, and *NAME*`.Memory.txt` (or
+    `Memory.txt`), NextBuild / Boriel ZX Basic symbols, beside a `.nex`.
+    A map given with **--map** or loaded by hand is kept over them. An
+    SLD built for another binary, or a file over 64 MiB, is refused,
+    with the reason in the log.
+
 **--nex-args** *LINE*
 :   Argument line for a NEX **V1.3** program. *LINE* is placed, verbatim
     and zero-terminated, in the CLI buffer the file’s header declares

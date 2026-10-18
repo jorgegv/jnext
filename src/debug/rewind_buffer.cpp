@@ -62,7 +62,7 @@ void RewindBuffer::take_snapshot(const Emulator& emu, uint64_t frame_cycle, uint
     // letting a later rewind feed a garbled snapshot into load_state.
     if (w.overflow() || w.position() != snapshot_bytes_) {
         Log::emulator()->error(
-            "rewind: snapshot size mismatch (wrote {} bytes, slot is {}) — "
+            "rewind: snapshot size mismatch (wrote {} bytes, slot is {}) - "
             "snapshot dropped{}",
             w.position(), snapshot_bytes_,
             full ? "; oldest snapshot destroyed by the aborted write" : "");
@@ -142,14 +142,27 @@ uint64_t RewindBuffer::restore_nearest(uint64_t target_cycle, Emulator& emu) con
 
     const Slot& s = slots_[best];
     StateReader r(s.data, snapshot_bytes_);
-    if (!emu.load_state(r)) {
+    // This load puts the machine back to a point of its own recorded history:
+    // the debugger's machine-replaced hook asks, to tell it from a reset or a
+    // state brought in from outside the ring.
+    struct RingRestore {
+        DebugState& ds;
+        explicit RingRestore(DebugState& d) : ds(d) { ds.set_restoring_from_rewind(true); }
+        ~RingRestore() { ds.set_restoring_from_rewind(false); }
+    };
+    bool loaded;
+    {
+        const RingRestore ring_restore(emu.debug_state());
+        loaded = emu.load_state(r);
+    }
+    if (!loaded) {
         // Task 60b: the snapshot failed sentinel/bounds verification.
         // Emulator::load_state already logged the failing subsystem; the
         // machine is partially restored and NOT trustworthy (documented
         // limitation — no rollback). Report failure instead of a cycle
         // value that claims success.
         Log::emulator()->error(
-            "rewind: restore of snapshot @cycle {} failed verification — "
+            "rewind: restore of snapshot @cycle {} failed verification - "
             "machine state is not trustworthy", s.frame_cycle);
         return UINT64_MAX;
     }

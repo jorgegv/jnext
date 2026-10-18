@@ -485,7 +485,7 @@ ServiceHint Debugger::pump(const PumpBudget& budget) {
     // refuses the call, says so loudly, and reports the truth about the session.
     if (impl_->draining) {
         Log::debugger()->error(
-            "pump() called from inside an event delivery — refused (§5: a "
+            "pump() called from inside an event delivery - refused (section 5: a "
             "handler may not drive the machine)");
         hint.remote_attached = impl_->any_peer_connected();
         hint.paused          = impl_->ds().paused();
@@ -497,6 +497,8 @@ ServiceHint Debugger::pump(const PumpBudget& budget) {
     // rendered, and no command below has touched the machine yet — a `poke`
     // later in this drain must not change the `.SCR` of a frame that has ended.
     impl_->service_captures();
+    // CAP-SRC — sidecars of a program the machine has been rewound past.
+    impl_->recheck_sidecars();
 
     // THE DRAIN. §4.8 SES-03 and §9: "a queued command chain is drained in one
     // `pump` while paused, `pump(0)` while running services exactly one".

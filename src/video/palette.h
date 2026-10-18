@@ -378,6 +378,13 @@ public:
         return tilemap_argb_[bank_second ? 1 : 0][idx];
     }
 
+    /// The same bank's 256 colours in index order: tilemap_colours(b)[i] is
+    /// tilemap_colour(b, i). Lets the tilemap resolve a row's bank and each
+    /// tile's palette offset once, then index the slice per pixel (GH #362).
+    const uint32_t* tilemap_colours(bool bank_second) const {
+        return tilemap_argb_[bank_second ? 1 : 0].data();
+    }
+
     /// Same lookup on the LIVE NR 0x6B b4 bank. For non-render callers
     /// (tests, save-state diagnostics) only — see the bank-taking overload.
     uint32_t tilemap_colour(uint8_t idx) const {

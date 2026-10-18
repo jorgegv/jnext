@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.59</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.64</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.59</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.64</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1672,6 +1672,8 @@
       
         
       
+        
+      
     
     
     
@@ -2113,6 +2115,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../panels/15-source.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2132,6 +2162,8 @@
       
         
           
+        
+      
         
       
         
@@ -2560,6 +2592,34 @@
     
   
     Debugger scripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/14-source-level-debugging.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Source-level debugging
   
 
     
@@ -3710,7 +3770,7 @@ on frame 160 do exit 0 end
 [debugger] [info] MUTATE audio mute mask 0x0 -&gt; 0x7 by 2
 [debugger] [info] [jds F:150 C:84424784] AUDIO_MUTE is 7
 [debugger] [info] [jds F:151 C:84983872] FRAMES is 1 one frame later
-[debugger] [error] SCRIPT ERROR mut.jds:11:5: `set` at 0000: 0 of 1 byte(s) landed (the rest is read-only) — rule at 9:1 disabled
+[debugger] [error] SCRIPT ERROR mut.jds:11:5: `set` at 0000: 0 of 1 byte(s) landed (the rest is read-only) - rule at 9:1 disabled
 [debugger] [error] SCRIPT: a run-time error disabled a rule; exiting 1
 [platform] [info] script requested exit 1
 </code></pre>
@@ -3781,8 +3841,8 @@ does exactly that.</p>
   hard reset (NR 0x02 bit 1) is carried out by JNEXT after the rule, and is
   allowed (see <a href="03-events.html#interrupt-nmi-reset"><code>reset</code></a>):</li>
 </ul>
-<pre><code>[debugger] [error] nextreg_write() called from inside an event delivery — refused (§5: a handler may not drive, rewind or replace the machine it runs in)
-[debugger] [error] SCRIPT ERROR softreset.jds:2:5: `set nextreg[]` was refused (unsupported) — rule at 1:1 disabled
+<pre><code>[debugger] [error] nextreg_write() called from inside an event delivery - refused (section 5: a handler may not drive, rewind or replace the machine it runs in)
+[debugger] [error] SCRIPT ERROR softreset.jds:2:5: `set nextreg[]` was refused (unsupported) - rule at 1:1 disabled
 </code></pre>
 <ul>
 <li><strong>Change the machine during an RZX recording or playback</strong>: the recording
