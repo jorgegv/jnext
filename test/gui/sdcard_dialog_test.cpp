@@ -359,7 +359,7 @@ void test_short_fetch_dialog_and_stall() {
     const bool ret = gui.short_fetch(kShortLabel, [&](const sdcard::ProgressFn& pf) {
         for (int ms = 0; ms <= 6000; ms += 200) {
             offset = milliseconds(ms);
-            pf(0, 0);   // no byte, ever
+            if (pf) pf(0, 0);   // no byte, ever
             QProgressDialog* d = the_dialog();
             snaps.push_back({ms, d != nullptr, d && d->isVisible(), d && d->isModal(),
                              d ? d->windowTitle().toStdString() : std::string(),
@@ -402,11 +402,11 @@ void test_short_fetch_cancel_is_local() {
     const bool ret = gui.short_fetch("Fetching the NextPi checksum...", [&](const sdcard::ProgressFn& pf) {
         for (int ms = 0; ms <= 2000; ms += 200) {
             offset = milliseconds(ms);
-            still_true_before = pf(0, 0) && still_true_before;
+            still_true_before = (pf ? pf(0, 0) : false) && still_true_before;
         }
         clicked = click_cancel();   // 2000 ms: the user gives up on the checksum
         offset = milliseconds(2200);
-        next_false = !pf(0, 0);
+        next_false = pf ? !pf(0, 0) : false;
         return !next_false;         // the backend would end with "cancelled by user"
     });
     // The checksum is over; the archive download goes on to its own dialog, and the click does not reach it.
