@@ -105,8 +105,9 @@ install, and every row takes its values from them.
 
 **What each output carries.**
 
-- `prog.map` (`-m`): linked, absolute 16-bit addresses and the section name (`PAGE_20`,
-  `BANK_10`); no lines. jnext reads it today for symbols.
+- `prog.map` (`-m`): linked, absolute addresses (16-bit; 24-bit for a classic `BANK_n`
+  section, see 72ea9d221b below) and the section name (`PAGE_20`, `BANK_10`); no lines. jnext
+  reads it today for symbols.
 - `prog.map` (`-m -debug`): adds `__C_LINE_<n>_<enc>` (the start of C line n),
   `__ASM_LINE_<n>_<enc>` (labelled asm lines only; fixture: `asmfn.asm:5` at $8D65) and
   `__CDBINFO__` records. sccz80 only on 2.4; sdcc and 80cc on master.
