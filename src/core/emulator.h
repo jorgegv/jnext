@@ -2513,16 +2513,18 @@ private:
     /// Multiface's 0x0066 latch. `predict_fetch()` and `peek_fetch_byte_()`
     /// both start from this one answer.
     struct M1Overlays {
-        bool divmmc;
+        bool divmmc;       ///< for the opcode fetch itself
         bool mf;
+        bool divmmc_data;  ///< for the bus cycles after it (the operand bytes)
     };
     M1Overlays predict_m1_overlays_(uint16_t pc) const;
 
-    /// The byte a fetch cycle at `addr` would receive under `o`: pure (no
-    /// +3 floating-bus latch, no watchpoint). The debugger's reads of the
-    /// instruction about to execute (trace bytes, call-stack opcodes) use this,
-    /// so they see the overlay the M1 will select, not the pre-M1 mapping.
-    uint8_t peek_fetch_byte_(uint16_t addr, M1Overlays o) const;
+    /// The byte at `addr` of the instruction about to execute under `o`: pure
+    /// (no +3 floating-bus latch, no watchpoint). The opcode byte (`first`)
+    /// sees the overlay the M1 selects; the bytes after it see what it leaves
+    /// behind (a delayed DivMMC entry's operands are already the DivMMC's).
+    /// The debugger's trace and call-stack reads use this, not the pre-M1 map.
+    uint8_t peek_fetch_byte_(uint16_t addr, M1Overlays o, bool first) const;
 
     /// GH #276 B2 §4.3 — latch `Scanline` / `Frame` / `IntAck` / `Nmi` /
     /// `Magic`. Out of line, each behind its own `has_kind()` gate.

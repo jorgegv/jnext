@@ -90,6 +90,14 @@ public:
     bool active_on_m1(uint16_t pc, bool sram_pre_override_2, bool sram_pre_override_0,
                       bool sram_altrom_en_read, bool sram_alt_128_n) const;
 
+    /// What `is_active_after_fetch()` would be once the M1 at `pc` has
+    /// fetched its opcode: the `hold` that M1 loads (instant, delayed and rom3
+    /// matches, or the previous hold minus an unmap), same gates as
+    /// `active_on_m1()`, WITHOUT changing any state. A debugger asks this for
+    /// the OPERAND bytes of the instruction it is about to run.
+    bool active_after_m1_fetch(uint16_t pc, bool sram_pre_override_2, bool sram_pre_override_0,
+                               bool sram_altrom_en_read, bool sram_alt_128_n) const;
+
     /// Task 27 C-M1 — per-M1 fast-path gate for the production caller
     /// (Emulator's `on_m1_prefetch` lambda). Returns true when a
     /// `check_automap(pc, /*is_m1=*/true, …)` call could change ANY
@@ -201,6 +209,19 @@ public:
     /// causing the firmware to infinite-loop on the `OUT (0xE3), A`
     /// instruction at 0x0046 because DivMMC ROM never overlays.
     bool is_active() const { return port_io_enable_ && (conmem_ || automap_active_); }
+
+    /// What the overlay is for every bus cycle AFTER the opcode fetch of the
+    /// current M1 (operand reads and writes, DMA, the debugger's live reads).
+    /// `automap_held` takes `automap_hold` on the first MREQ-high after the
+    /// fetch (divmmc.vhd:139-143), so from then on `automap` is the new hold,
+    /// not the fetch-time `held OR instant_on` that `is_active()` answers: a
+    /// delayed-on entry's own operands already come from the DivMMC, and the
+    /// operands of a fetch in the unmap range already come from RAM. The
+    /// instant terms are gone by then: their `_q` latches clear when M1_n goes
+    /// high (zxnext.vhd:4116-4125). `automap_hold_` is cleared by every path
+    /// that clears `automap_active_` (reset, disable, RETN), so it is the
+    /// whole answer when the automap is enabled and quiescent.
+    bool is_active_after_fetch() const { return port_io_enable_ && (conmem_ || automap_hold_); }
 
     /// Returns true if DivMMC ROM should be mapped at slot 0.
     /// (active AND page0 AND NOT mapram)

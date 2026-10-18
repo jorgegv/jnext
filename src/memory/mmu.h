@@ -304,8 +304,17 @@ public:
     // identity - a prediction made before the instruction can only be compared
     // with it, never stand in for it (GH #339 D1). One load and one store more
     // than `read()`; the CPU's other bus cycles stay on `read()`.
+    // A fetch-side read that is not the first byte: a prefix's inner opcode
+    // and the core's own re-read of the opcode. Same view as read_m1() - the
+    // overlay as the M1 selected it, not as it stands for the bus cycles
+    // after it (the DivMMC's `hold`, see DivMmc::is_active_after_fetch()) -
+    // and no record.
+    uint8_t read_fetch(uint16_t addr) override {
+        return finish_read_(addr, route_bits_<true>(addr, false, false, /*fetch=*/true));
+    }
+
     uint8_t read_m1(uint16_t addr) override {
-        const RouteBits r = route_bits_<true>(addr, false, false);
+        const RouteBits r = route_bits_<true>(addr, false, false, /*fetch=*/true);
         last_m1_ = r.space;
         return finish_read_(addr, r);
     }
@@ -1618,7 +1627,8 @@ private:
     // Pure. Nothing here writes, latches or raises a watchpoint.
     template <bool Live>
     [[gnu::always_inline]] inline RouteBits route_bits_(uint16_t addr, bool divmmc_active,
-                                                       bool mf_active) const {
+                                                       bool mf_active,
+                                                       bool fetch = false) const {
         using jnext::dbg::MemSpace;
         if (addr < 0x4000) {
             // VHDL zxnext.vhd:1856 - gate on cpu_a(15:14)="00" (16 KB window).
@@ -1641,7 +1651,7 @@ private:
             // the config-mode arm below. The activity test is a tiny function the
             // linker inlines, so a ROM-area read with the DivMMC idle (nearly all
             // of them) pays a few compares; the route is built only when active.
-            if (divmmc_ && (Live ? divmmc_is_active_() : divmmc_active))
+            if (divmmc_ && (Live ? divmmc_is_active_(fetch) : divmmc_active))
                 return divmmc_route_(addr);
         }
         // Layer 2 read-over: redirect reads to L2 RAM banks. VHDL arbiter at
@@ -2116,7 +2126,7 @@ private:
     /// Is the DivMMC overlay on right now? A one-line function, here and not in
     /// the header only because DivMmc is incomplete in this one (the linker
     /// inlines it into read()).
-    bool divmmc_is_active_() const;
+    bool divmmc_is_active_(bool fetch) const;
     /// The DivMMC arm of route_bits_() for an ACTIVE overlay: the route from
     /// `DivMmc::overlay_at()`.
     RouteBits divmmc_route_(uint16_t addr) const;

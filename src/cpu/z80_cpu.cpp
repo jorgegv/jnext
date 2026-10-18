@@ -289,7 +289,7 @@ extern "C" {
 // Raw memory read — no timing, no contention.  Used for opcode fetches
 // where contend_read() already handled the timing.
 libspectrum_byte fuse_z80_readbyte_raw(libspectrum_word address) {
-    return s_mem->read(address);
+    return s_mem->read_fetch(address);
 }
 
 // Data memory read — adds contention + 3 T-states, matching original FUSE
@@ -941,7 +941,7 @@ int Z80Cpu::execute() {
     slot_kind_ = SlotKind::Opcode;   // past every early return; the CPU read PC itself
 
     if (opcode == 0xED) {
-        uint8_t ext = mem_.read(static_cast<uint16_t>(pc + 1));
+        uint8_t ext = mem_.read_fetch(static_cast<uint16_t>(pc + 1));
 
         // Magic breakpoint: ED FF (ZEsarUX/Spectaculator convention)
         if (ext == 0xFF && on_magic_breakpoint) {
@@ -1108,7 +1108,7 @@ int Z80Cpu::execute() {
 
     // Magic breakpoint: DD 01 (CSpect convention)
     if (opcode == 0xDD) {
-        uint8_t ext = mem_.read(static_cast<uint16_t>(pc + 1));
+        uint8_t ext = mem_.read_fetch(static_cast<uint16_t>(pc + 1));
         if (ext == 0x01 && on_magic_breakpoint) {
             if (on_magic_breakpoint(pc)) {
                 // Advance PC past DD 01 (acts as 2-byte NOP)
@@ -1163,7 +1163,7 @@ int Z80Cpu::execute() {
             // before we got here in practice).
             uint16_t walk_pc = static_cast<uint16_t>((pc + 1) & 0xFFFF);
             for (int hop = 0; hop < 64; ++hop) {
-                uint8_t b = mem_.read(walk_pc);
+                uint8_t b = mem_.read_fetch(walk_pc);
                 on_m1_cycle(walk_pc, b);
                 if (b == 0xDD || b == 0xFD) {
                     walk_pc = static_cast<uint16_t>((walk_pc + 1) & 0xFFFF);
@@ -1174,7 +1174,7 @@ int Z80Cpu::execute() {
                     // FUSE main switch does contend_read(PC, 4)).
                     uint16_t ed_inner_pc =
                         static_cast<uint16_t>((walk_pc + 1) & 0xFFFF);
-                    uint8_t ed_inner = mem_.read(ed_inner_pc);
+                    uint8_t ed_inner = mem_.read_fetch(ed_inner_pc);
                     on_m1_cycle(ed_inner_pc, ed_inner);
                 }
                 // CB inside DD/FD chain: only the CB itself is M1; the
@@ -1185,7 +1185,7 @@ int Z80Cpu::execute() {
             }
         } else if (opcode == 0xCB) {
             // Plain CB <op>: inner byte is M1.
-            uint8_t inner = mem_.read(static_cast<uint16_t>((pc + 1) & 0xFFFF));
+            uint8_t inner = mem_.read_fetch(static_cast<uint16_t>((pc + 1) & 0xFFFF));
             on_m1_cycle(static_cast<uint16_t>((pc + 1) & 0xFFFF), inner);
         }
     }
@@ -1248,7 +1248,7 @@ int Z80Cpu::execute() {
     if (opcode == 0xDD || opcode == 0xFD) {
         uint16_t walk_pc = static_cast<uint16_t>((pc + 1) & 0xFFFF);
         for (int hop = 0; hop < 64; ++hop) {
-            uint8_t b = mem_.read(walk_pc);
+            uint8_t b = mem_.read_fetch(walk_pc);
             if (b == 0xDD || b == 0xFD) {
                 walk_pc = static_cast<uint16_t>((walk_pc + 1) & 0xFFFF);
                 continue;
@@ -1256,7 +1256,7 @@ int Z80Cpu::execute() {
             // Found the inner (non-prefix) opcode.
             inner_opcode = b;
             if (b == 0xED) {
-                uint8_t ext = mem_.read(
+                uint8_t ext = mem_.read_fetch(
                     static_cast<uint16_t>((walk_pc + 1) & 0xFFFF));
                 if ((ext == 0xA0) || (ext == 0xA8) || (ext == 0xB0) ||
                     (ext == 0xB8) || (ext == 0xA1) || (ext == 0xA9) ||

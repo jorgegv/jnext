@@ -1166,6 +1166,96 @@ int main() {
               }());
     }
     {
+        // A delayed-on entry maps the DivMMC for the rest of the instruction at the entry point:
+        // `automap_held` takes `automap_hold` on the first MREQ-high after the opcode fetch
+        // (divmmc.vhd:128-131,139-143,148), so the OPERANDS of the instruction at $0008 are
+        // already the DivMMC ROM's while its opcode byte was RAM's (ID-09).
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+        m.dbg->nextreg_write(m.a, 0xB8, 0x02);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x02);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x00);    // delayed
+        m.emu.mmu().write(0x0008, 0x2A);           // RAM page 10: LD HL,($9000)
+        m.emu.mmu().write(0x0009, 0x00);
+        m.emu.mmu().write(0x000A, 0x90);
+        uint8_t* drom = m.emu.divmmc().rom_data();
+        drom[0x0009] = 0x00; drom[0x000A] = 0xA0;  // the ROM's operands: ($A000)
+        m.emu.mmu().write(0x9000, 0xAA); m.emu.mmu().write(0x9001, 0xBB);
+        m.emu.mmu().write(0xA000, 0xCC); m.emu.mmu().write(0xA001, 0xDD);
+        m.emu.mmu().write(0x8000, 0xCF);           // RST $08
+        m.dbg->set_trace_enabled(true);
+        m.set_pc(0x8000);
+        (void)step_pair(m);                        // the RST
+        (void)step_pair(m);                        // LD HL,(nn) at $0008
+        const auto& t = m.emu.trace_log();
+        const TraceEntry& e = t.at(t.size() - 1);
+        check("SRCDBG-ID-26", "a delayed DivMMC entry: the instruction at $0008 takes its opcode "
+                              "from RAM and its operands from the DivMMC ROM (HL = $DDCC, not $BBAA), "
+                              "and the trace shows those bytes (2A 00 A0)",
+              m.dbg->registers().HL == 0xDDCC && m.pc() == 0x000B && e.pc == 0x0008 &&
+                  e.opcode_bytes[0] == 0x2A && e.opcode_bytes[1] == 0x00 &&
+                  e.opcode_bytes[2] == 0xA0 && !t.fetch_not_mmu_ram(t.size() - 1),
+              "HL=" + hex(m.dbg->registers().HL) + " " + m.where());
+    }
+    {
+        // The unmap is the mirror image: the fetch in 0x1FF8-0x1FFF still comes from the DivMMC
+        // ROM (held is 1 at that M1), and `hold` drops during it, so its operands are RAM's.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+        m.dbg->nextreg_write(m.a, 0xB8, 0x01);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x01);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x01);
+        m.dbg->nextreg_write(m.a, 0xBB, 0x40);    // unmap at 0x1FF8-0x1FFF
+        m.emu.mmu().write(0x1FF9, 0x00);           // RAM page 10: operands ($9000)
+        m.emu.mmu().write(0x1FFA, 0x90);
+        uint8_t* drom = m.emu.divmmc().rom_data();
+        drom[0] = 0xC3; drom[1] = 0xF8; drom[2] = 0x1F;   // JP $1FF8
+        drom[0x1FF8] = 0x3A;                               // LD A,(nn)
+        drom[0x1FF9] = 0x00; drom[0x1FFA] = 0xA0;          // the ROM's operands: ($A000)
+        m.emu.mmu().write(0x9000, 0xAA);
+        m.emu.mmu().write(0xA000, 0xCC);
+        m.dbg->set_trace_enabled(true);
+        m.set_pc(0x0000);
+        (void)step_pair(m);                        // the JP, from DivMMC
+        (void)step_pair(m);                        // LD A,(nn) at $1FF8
+        const auto& t = m.emu.trace_log();
+        const TraceEntry& e = t.at(t.size() - 1);
+        check("SRCDBG-ID-27", "the instruction at $1FF8 takes its opcode from the DivMMC ROM and "
+                              "its operands from RAM (A = $AA, not $CC), and the trace shows "
+                              "those bytes (3A 00 90)",
+              (m.dbg->registers().AF >> 8) == 0xAA && m.pc() == 0x1FFB && e.pc == 0x1FF8 &&
+                  e.opcode_bytes[0] == 0x3A && e.opcode_bytes[1] == 0x00 &&
+                  e.opcode_bytes[2] == 0x90 && t.fetch_not_mmu_ram(t.size() - 1),
+              "AF=" + hex(m.dbg->registers().AF) + " " + m.where());
+    }
+    {
+        // Writes follow the same view: the store of a delayed-entry instruction at $0008 lands
+        // after the fetch, so it meets the DivMMC ROM (read-only, divmmc.vhd:88-101) and is lost;
+        // RAM page 10 keeps its zero.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+        m.dbg->nextreg_write(m.a, 0xB8, 0x02);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x02);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x00);    // delayed
+        m.emu.mmu().write(0x0008, 0x32);           // RAM page 10: LD ($0100),A
+        m.emu.mmu().write(0x0009, 0x00);
+        m.emu.mmu().write(0x000A, 0x01);
+        uint8_t* drom = m.emu.divmmc().rom_data();
+        drom[0x0009] = 0x00; drom[0x000A] = 0x01;  // the ROM's operands are the same
+        m.emu.mmu().write(0x8000, 0xCF);           // RST $08
+        m.set_pc(0x8000);
+        (void)step_pair(m);                        // the RST
+        (void)step_pair(m);                        // LD ($0100),A at $0008, A = $FF
+        const uint8_t* ram10 = m.emu.ram().page_ptr(0x0A);
+        check("SRCDBG-ID-28", "a delayed DivMMC entry: the store of the instruction at $0008 meets "
+                              "the DivMMC ROM (read-only), RAM page 10 keeps its zero",
+              m.pc() == 0x000B && ram10[0x0100] == 0x00 && drom[0x0100] == 0x00,
+              "pc=" + hex(m.pc()) + " ram=" + hex(ram10[0x0100]));
+    }
+    {
         // The live gate (execute_gate, run while a machine RUNS with an Execute subscription) takes
         // the same prediction as probe_execute (ID-02, ID-06): at an instant DivMMC entry the fetch
         // at $0000 is the DivMMC ROM's, so a page_ram_only subscription on RAM page 10 there is

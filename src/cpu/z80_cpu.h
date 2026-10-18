@@ -35,6 +35,13 @@ public:
     /// tree is unaffected. Called once per instruction for its first opcode
     /// byte, after `on_m1_prefetch`; GH #339.
     virtual uint8_t read_m1(uint16_t addr) { return read(addr); }
+
+    /// An opcode byte of the instruction being fetched that is not its first
+    /// (a prefix's inner byte) or that the core fetches again: a read as the
+    /// FETCH sees the memory, which a DivMMC entry point makes differ from the
+    /// bus cycles after the fetch (`Mmu::read_fetch()`). Records nothing. The
+    /// default is a plain read.
+    virtual uint8_t read_fetch(uint16_t addr) { return read(addr); }
 };
 
 class IoInterface {

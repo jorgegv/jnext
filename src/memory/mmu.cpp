@@ -1164,8 +1164,8 @@ void Mmu::load_state(StateReader& r)
 // DivMMC overlay helpers (out-of-line to avoid circular include)
 // ---------------------------------------------------------------------------
 
-bool Mmu::divmmc_is_active_() const {
-    return divmmc_->is_active();
+bool Mmu::divmmc_is_active_(bool fetch) const {
+    return fetch ? divmmc_->is_active() : divmmc_->is_active_after_fetch();
 }
 
 Mmu::RouteBits Mmu::divmmc_route_(uint16_t addr) const {
@@ -1227,7 +1227,7 @@ Mmu::RouteBits Mmu::config_route_(uint16_t addr) const {
 }
 
 bool Mmu::divmmc_write(uint16_t addr, uint8_t val, bool& landed) {
-    if (!divmmc_->is_active()) return false;
+    if (!divmmc_->is_active_after_fetch()) return false;
     landed = divmmc_->write(addr, val);
     return true;
 }

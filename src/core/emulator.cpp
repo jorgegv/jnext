@@ -10627,15 +10627,16 @@ uint64_t Emulator::step_one_instruction()
             const M1Overlays m1o = predict_m1_overlays_(regs.PC);
             for (int i = 0; i < 4; ++i)
                 te.opcode_bytes[i] = peek_fetch_byte_(
-                    static_cast<uint16_t>(regs.PC + i), m1o);
+                    static_cast<uint16_t>(regs.PC + i), m1o, i == 0);
             // Captureless lambda decays to a raw function pointer — no
             // per-instruction std::function construction (Task 27 A2).
-            struct FetchCtx { const Emulator* emu; M1Overlays o; } fctx{this, m1o};
+            struct FetchCtx { const Emulator* emu; M1Overlays o; uint16_t pc; }
+                fctx{this, m1o, regs.PC};
             te.opcode_len = z80_instruction_length(
                 regs.PC,
                 [](void* ctx, uint16_t a) {
                     const FetchCtx* c = static_cast<const FetchCtx*>(ctx);
-                    return c->emu->peek_fetch_byte_(a, c->o);
+                    return c->emu->peek_fetch_byte_(a, c->o, a == c->pc);
                 },
                 &fctx);
             trace_log_.record(te, mmu_.route_with(regs.PC, m1o.divmmc, m1o.mf)
@@ -10676,9 +10677,9 @@ uint64_t Emulator::step_one_instruction()
             const Z80Registers& regs2 = cpu_.registers();
             // Through the overlay the M1 selects, like the trace record above.
             const M1Overlays m1o = predict_m1_overlays_(regs2.PC);
-            uint8_t op0 = peek_fetch_byte_(regs2.PC, m1o);
-            uint8_t op1 = peek_fetch_byte_(static_cast<uint16_t>(regs2.PC + 1), m1o);
-            uint8_t op2 = peek_fetch_byte_(static_cast<uint16_t>(regs2.PC + 2), m1o);
+            uint8_t op0 = peek_fetch_byte_(regs2.PC, m1o, true);
+            uint8_t op1 = peek_fetch_byte_(static_cast<uint16_t>(regs2.PC + 1), m1o, false);
+            uint8_t op2 = peek_fetch_byte_(static_cast<uint16_t>(regs2.PC + 2), m1o, false);
             call_stack_.on_instruction_pre(
                 regs2.PC, regs2.SP, op0, op1, op2,
                 ram_page_of(mmu_.route_with(regs2.PC, m1o.divmmc, m1o.mf).space));
@@ -14206,14 +14207,17 @@ Emulator::M1Overlays Emulator::predict_m1_overlays_(uint16_t pc) const
     // (m1_automap_gates_), the DivMMC decision before the Multiface's. What the
     // M1 does not touch stays live (`is_active()`), exactly as in the hook.
     bool divmmc_active = divmmc_.is_active();
+    bool divmmc_data = divmmc_.is_active_after_fetch();
     if (divmmc_.automap_m1_may_react(pc)) {
         const M1AutomapGates g = m1_automap_gates_(pc, multiface_.is_mem_active());
         divmmc_active = divmmc_.active_on_m1(pc, g.override_2, g.override_0,
                                              g.altrom_en_read, g.alt_128_n);
+        divmmc_data = divmmc_.active_after_m1_fetch(pc, g.override_2, g.override_0,
+                                                    g.altrom_en_read, g.alt_128_n);
     }
     // The Multiface's 0x0066 fetch may latch mf_enable (multiface.vhd:169-186):
     // asked of the object, not of a copy of its 16 KB.
-    return M1Overlays{divmmc_active, multiface_.would_latch_on_m1(pc)};
+    return M1Overlays{divmmc_active, multiface_.would_latch_on_m1(pc), divmmc_data};
 }
 
 jnext::dbg::MemSpace Emulator::predict_fetch(uint16_t pc) const
@@ -14222,10 +14226,10 @@ jnext::dbg::MemSpace Emulator::predict_fetch(uint16_t pc) const
     return mmu_.route_with(pc, o.divmmc, o.mf).space;
 }
 
-uint8_t Emulator::peek_fetch_byte_(uint16_t addr, M1Overlays o) const
+uint8_t Emulator::peek_fetch_byte_(uint16_t addr, M1Overlays o, bool first) const
 {
     // A floating route answers 0xFF, as finish_read_() does.
-    const Mmu::Route r = mmu_.route_with(addr, o.divmmc, o.mf);
+    const Mmu::Route r = mmu_.route_with(addr, first ? o.divmmc : o.divmmc_data, o.mf);
     return r.ptr ? *r.ptr : 0xFF;
 }
 
