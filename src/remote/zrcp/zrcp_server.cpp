@@ -2584,6 +2584,9 @@ void ZrcpServer::cmd_load_binary(const Cmd& c) {
     // The CPU view wraps at FFFFH; a write to ROM lands nowhere (as ZEsarUX, and
     // as write-memory: `RefusedReadOnly` is silent). Any other refusal — an RZX
     // recording, a corrupt machine — is said, with what had landed by then.
+    // A load-binary is a program (or a part of one) going into memory: the POK
+    // undo records describe what was there before (GH #381), so a load that landed
+    // a byte counts. (A refusal can only come on the first chunk: nothing landed.)
     std::size_t landed = 0;
     for (std::size_t off = 0; off < bytes.size(); off += 0x10000) {
         const std::size_t n = std::min<std::size_t>(0x10000, bytes.size() - off);
@@ -2594,6 +2597,7 @@ void ZrcpServer::cmd_load_binary(const Cmd& c) {
                          " (" + std::to_string(landed) + " bytes loaded)");
         landed += w.value;
     }
+    if (landed > 0) dbg_.note_program_replaced();
     reply("");
 }
 

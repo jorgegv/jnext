@@ -2416,7 +2416,9 @@ drive three classes that share no base class. They implement the same informal
 interface — <code>set_config</code>, <code>init</code>, <code>run</code>, <code>shutdown</code>, <code>emulator</code>, <code>exit_code</code> —
 and the handful of steps that genuinely belong to only one of them are guarded
 with <code>if constexpr</code> on the deduced type. <code>--delayed-snapshot</code> wiring is
-<code>HeadlessApp</code>-only that way, and some GUI plumbing is <code>QtApp</code>-only.</p>
+<code>HeadlessApp</code>-only that way, <code>--delayed-pok-frames</code> is <code>HeadlessApp</code>- and
+<code>SdlApp</code>-only (the Qt window refuses it in <code>main()</code>), and some GUI plumbing is
+<code>QtApp</code>-only.</p>
 <p>Most of the <code>set_*</code> calls in that body come <em>after</em> <code>init()</code>, because they
 only make sense once the machine exists. So a frontend must act on what they
 request in <code>run()</code> or in its frame loop, and never read the value back inside
@@ -2575,7 +2577,8 @@ as an idle one. And a capture that was requested but never taken makes the
 process exit non-zero rather than quietly writing nothing, so a broken test run
 cannot pass by producing no output. The same holds for any other work the
 command line deferred — a <code>--load</code> or <code>--inject</code> still waiting, a keypress, an
-NMI, a recording, a serial stream or ESP outage edge still to come — when the
+NMI, a POK trainer file, a recording, a serial stream or ESP outage edge still to
+come — when the
 automatic exit fires first: each frontend asks <code>auto_exit_finds_no_deferred_work()</code>
 (<code>src/platform/auto_exit.h</code>) at that moment. See <a href="05-save-state-and-rewind.html">2.5</a> and
 <a href="../04-testing/03-the-regression-suite.html">4.3 The regression suite</a>.</p>

@@ -833,6 +833,37 @@ with status 1.
     if the automatic exit comes first. An empty *FILE* is rejected.
     Repeatable. Requires **--headless**.
 
+**--delayed-pok-frames** *N* *FILE*
+:   Apply trainers from the POK file *FILE* after *N* emulated frames,
+    once the program has loaded. This is how a `.pok` file is used in
+    the runs that have no **Machine \> POK Trainers…** window:
+    **--headless** and the SDL-only build’s window (see **POK TRAINERS**
+    under LOADING PROGRAMS). The trainers are the ones
+    **--pok-trainers** names, which this requires. *N* counts frames
+    from the start of the run (50 a second on a 50 Hz machine), and a
+    tape takes many; the trainers are written through the debugger’s
+    memory path, exactly as the window’s **Apply** writes them. Given
+    once. The file and the list are checked before the machine starts,
+    and a run that fails the check exits 1 without starting: *FILE*
+    unreadable, larger than 1 MiB or without a trainer, a listed trainer
+    the file does not have or whose lines are malformed, a value missing
+    or given where none is open. Later, the run exits non-zero if a
+    trainer cannot be applied - an address that is ROM in the current
+    memory map, a bank the machine does not have, an RZX recording or
+    playback - and then the trainers before it stay applied; and if the
+    automatic exit comes first. The Qt window refuses the option; with
+    **--headless** every build accepts it.
+
+**--pok-trainers** *LIST*
+:   The trainers **--delayed-pok-frames** applies: their numbers in the
+    POK file (1 is the first `N` line), comma-separated, no blanks, each
+    *T* or *T*`=`*VALUE*. A trainer that leaves a value open (a `256` in
+    the file, “Lives” without saying how many) needs *T*`=`*VALUE*,
+    *VALUE* 0 to 255, which goes everywhere the trainer leaves one open;
+    any other trainer takes none. `1,3=9,7` applies trainers 1, 3
+    (with 9) and 7, in that order. A trainer whose bytes memory already
+    holds is left as it is. Requires **--delayed-pok-frames**.
+
 **--compositor-trace** *FILE*
 :   Dump a per-pixel compositor trace (CSV) for one frame.
 

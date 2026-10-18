@@ -8,6 +8,7 @@
 - NextPi and SD-card image downloads continue where they stopped instead of starting over
 - The captured mouse can be released with Ctrl+Alt (default), a middle click or Esc: Preferences > Input, `--mouse-release`
 - Source-level debugging: SLD and NextBuild Memory.txt maps attach beside a program; Source tab, source-line steps, `file:line` breakpoints (Qt debugger)
+- POK trainer files: Machine > POK Trainers... applies and removes pokes; --delayed-pok-frames/--pok-trainers do it headless and SDL-only
 
 ### Developer Features
 - Debugger labels from sjasmplus --sym and --exp files (Map menu, --map); scripts name them as @module.label
@@ -24,7 +25,7 @@
 - Failed SD-card and NextPi downloads name the address that failed, say why in plain words and what was kept
 
 ### Contributors in this release
-- @pavero01, @janko-jj, @jattree, @Nitrowing
+- @pavero01, @janko-jj, @jattree, @jsmolina, @Nitrowing
 
 ## v1.1.51 (2026-10-13)
 

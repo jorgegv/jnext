@@ -68,6 +68,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <cmath>
 #include <string>
@@ -1016,6 +1017,58 @@ void test_snapshot_load_refusal()
     f.win.handle_load_path(write("badscld.szx", bad));
     check("PA-24d", "File > Load of a .szx the table accepts but the loader cannot parse requests no cold boot",
           loaded.empty(), loaded.empty() ? std::string("none") : loaded[0]);
+
+    // PA-24e/f: GH #381 (RF-1). An extension nothing owns routes to the NEX loader, which wants the
+    // 8-byte prologue "Next" + version (NEX file format, doc/REFERENCES.md; nex_loader.cpp
+    // probe_version), so a file without it cannot load: refused BEFORE the cold boot, naming the formats.
+    // The control is a real NEX header under an odd extension: it still loads.
+    loaded.clear();
+    const std::string notes = "just some notes, no NEX header\n";
+    f.win.handle_load_path(write("notes.txt", std::vector<uint8_t>(notes.begin(), notes.end())));
+    const QString refusal = f.win.statusBar()->currentMessage();
+    check("PA-24e", "File > Load of a file with no NEX header and no known extension requests no cold boot "
+                    "and the refusal names the formats and POK Trainers",
+          loaded.empty() && refusal.startsWith(QStringLiteral("Cannot load ")) &&
+              refusal.contains(QStringLiteral(".rzx")) && refusal.contains(QStringLiteral("POK Trainers")),
+          (loaded.empty() ? std::string("none") : loaded[0]) + " | " + refusal.toStdString());
+
+    loaded.clear();
+    std::vector<uint8_t> odd(512, 0);
+    std::memcpy(odd.data(), "NextV1.2", 8);
+    const QString oddpath = write("game.bin", odd);
+    f.win.handle_load_path(oddpath);
+    check("PA-24f", "control: File > Load of a NEX V1.2 header under an unknown extension IS requested",
+          loaded.size() == 1 && loaded[0] == oddpath.toStdString(),
+          loaded.empty() ? std::string("none") : loaded[0]);
+
+    // PA-24g: GH #381 review F3. The same refusal for a file that DOES carry the NEX extension but is not a
+    // NEX (a saved web page; a name that does not exist): the reason says it is not a NEX file and does not
+    // call the extension unknown or point at POK Trainers, which would contradict the name. The reason is
+    // the text after the path, so a path that happens to contain such a word cannot matter.
+    loaded.clear();
+    const std::string html = "<html><body>404 Not Found</body></html>\n";
+    const std::vector<uint8_t> page(html.begin(), html.end());
+    std::string detail;
+    bool nex_ok = true;
+    for (const QString& p : {write("game.nex", page), write("PAGE.NEX", page),
+                             home.path() + QStringLiteral("/missing.nex")}) {
+        f.win.handle_load_path(p);
+        const QString shown = f.win.statusBar()->currentMessage();
+        const QString reason = shown.mid(shown.indexOf(p) + p.size());
+        const bool says = shown.startsWith(QStringLiteral("Cannot load ")) && shown.indexOf(p) >= 0 &&
+                          reason.contains(QStringLiteral("not a NEX file")) &&
+                          reason.contains(QStringLiteral("\"Next\" header")) &&
+                          !reason.contains(QStringLiteral("extension")) &&
+                          !reason.contains(QStringLiteral("POK")) && !reason.contains(QStringLiteral(".pok"));
+        if (!says) {
+            nex_ok = false;
+            detail += "[" + shown.toStdString() + "]";
+        }
+    }
+    check("PA-24g", "File > Load of a .nex (any case, present or missing) that has no NEX header requests no cold "
+                    "boot and says it is not a NEX file, without calling its extension unknown or mentioning "
+                    ".pok (NEX file format: a NEX starts with \"Next\"; doc/REFERENCES.md)",
+          loaded.empty() && nex_ok, (loaded.empty() ? std::string("none") : loaded[0]) + " " + detail);
 
     qunsetenv("JNEXT_CONFIG_DIR");
 }

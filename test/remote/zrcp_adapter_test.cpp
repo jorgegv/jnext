@@ -4545,6 +4545,49 @@ static void wp5_load_rows() {
                               "refused, never a silent success",
               none == reply_of("Error. Unknown file format"), esc(none));
     }
+    {
+        // GH #381: the POK undo records describe the program under the machine, so
+        // a program going in counts (Debugger::program_loads()); plain memory
+        // writes, a load that landed nothing and a refused one do not.
+        const std::string bin = zrcp_tmp("pokld", ".bin");
+        {
+            std::FILE* f = std::fopen(bin.c_str(), "wb");
+            const std::uint8_t b[] = {0x11, 0x22};
+            std::fwrite(b, 1, 2, f);
+            std::fclose(f);
+        }
+        Rig rig;
+        jnext::dbg::LoopDriver d;
+        d.load = [](const std::string&) { return false; };
+        rig.dbg->set_loop_driver(d);
+        Zc  c(rig);
+        const std::uint64_t n0 = rig.dbg->program_loads();
+        c.cmd("write-memory 36864 1 2 3");
+        c.cmd("write-memory-raw 36870 0a0b");
+        const std::uint64_t n_write = rig.dbg->program_loads();
+        c.cmd("load-binary " + bin + " 36864 0");
+        const std::uint64_t n_bin = rig.dbg->program_loads();
+        c.cmd("load-binary " + bin + " 0 0");               // into ROM: nothing lands
+        c.cmd("load-binary /nonexistent/zrcp.bin 36864 0");  // no file
+        const std::uint64_t n_none = rig.dbg->program_loads();
+        {
+            RzxOn rzx(rig.emu);
+            c.cmd("load-binary " + bin + " 36864 0");        // refused: nothing lands
+        }
+        const std::uint64_t n_rzx = rig.dbg->program_loads();
+        c.cmd("smartload broken.nex");                       // the driver refuses
+        const std::uint64_t n_sl = rig.dbg->program_loads();
+        std::remove(bin.c_str());
+        check("ZRCP-LOAD-06", "load-binary that lands bytes counts as a program load "
+                              "(Debugger::program_loads() +1): write-memory, write-memory-raw, a "
+                              "load into ROM, a missing file and a load refused by an RZX session "
+                              "do not; smartload does, even when the driver refuses it (POK undo "
+                              "records, GH #381)",
+              n_write == n0 && n_bin == n0 + 1 && n_none == n_bin && n_rzx == n_bin &&
+                  n_sl == n_bin + 1,
+              std::to_string(n0) + " " + std::to_string(n_write) + " " + std::to_string(n_bin) + " " +
+                  std::to_string(n_none) + " " + std::to_string(n_rzx) + " " + std::to_string(n_sl));
+    }
 }
 
 static void wp5_snapshot_rows() {
