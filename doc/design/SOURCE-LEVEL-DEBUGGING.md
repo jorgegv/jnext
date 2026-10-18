@@ -28,7 +28,8 @@ and on master; sdcc and 80cc on master); a Source tab with a menu and keys, clic
 and Run to Line; Into / Over / Out / Back / Reverse Continue; `file:line` breakpoints with
 several locations; banked code; correct behaviour across rewind, state loads and resets;
 `monitor src` and DSL `file:line`. It works at the default `-SO2`, with documented
-mis-attributions (OD-7). Cut 1 is E23-00 to E23-16; the close-out is E23-19 (#349).
+mis-attributions (OD-7). Cut 1 is E23-00 to E23-16; the close-out is E23-19 (#349). The
+z88dk support follows the owner's rules of section 2.3.
 
 **After cut 1, in the epic.** Per-line asm in z88dk projects and sdcc lines on 2.4, E23-17
 (#348); `.cdb`/`.adb` input, E23-20 (#350, OD-2); dot commands, E23-21 (#351, OD-14); the
@@ -54,7 +55,9 @@ after the header `|SLD.data.version|1` (sjasmplus 1.23.1, "Source Level Debuggin
 - `L`, a label. `page >= 0` is the memory page of a 16-bit address; `page = -1` means "value
   is not memory address". An `EQU` without an explicit page is exported with -1, an address
   constant included; `=` and `DEFL` are not exported at all.
-- `F` and `D` (deprecated, parsed as `L`) and `K` (a keyword comment).
+- `F` and `D` (deprecated, parsed as `L`) and `K` (a keyword comment). Version 1.23.1 still
+  writes an `F` or `D` record beside the `L` record of the same label (observed 2026-10-18),
+  so reading `L` alone sees each label once.
 
 Today only `Z` and `T` are read and the other types are skipped; E23-23 (#375) reads `L`
 (section 10.4). The optional binary identity travels in comment records other readers ignore:
@@ -102,8 +105,8 @@ install, and every row takes its values from them.
 - `prog.map` (`-m`): linked, absolute 16-bit addresses and the section name (`PAGE_20`,
   `BANK_10`); no lines. jnext reads it today for symbols.
 - `prog.map` (`-m -debug`): adds `__C_LINE_<n>_<enc>` (the start of C line n),
-  `__ASM_LINE_<n>_<enc>` (labelled asm lines only) and `__CDBINFO__` records. sccz80 only on
-  2.4; sdcc and 80cc on master.
+  `__ASM_LINE_<n>_<enc>` (labelled asm lines only; fixture: `asmfn.asm:5` at $8D65) and
+  `__CDBINFO__` records. sccz80 only on 2.4; sdcc and 80cc on master.
 - `<src>.lis` (`--list`): every assembled line with its bytes, at module- and
   section-relative addresses; sccz80 `C_LINE` directives (every occurrence); sdcc
   `;file:line:` comments, only with `--c-code-in-asm`; `SECTION` lines; no page.
@@ -138,10 +141,10 @@ fixture; the others are from the planning builds.
   every function (fixture: `_main` at $8C73 without `-debug`, $8C92 with it). The program
   debugged is the `-debug` build, and steps run through the helpers, which have no lines.
 - G6. 2.4 only: sdcc line information exists only as `.lis` comments (`--c-code-in-asm`).
-- G7. Optimisation moves code across lines, and the default `-SO2` is already optimised: the
-  `while(1)` back-jump sits under `return 0; }` at `-SO2` and under line 26 at `-SO0`. sdcc
-  emits an out-of-line copy of a `static inline` in each module that includes it, so `util.h:7`
-  is two ranges in two modules (2.4, sdcc): one line, many addresses.
+- G7. Optimisation moves code across lines, and the default `-SO2` is already optimised (sdcc,
+  2.4): the `while(1)` back-jump sits under `return 0; }` at `-SO2` and under line 26 at `-SO0`.
+  sdcc emits an out-of-line copy of a `static inline` in each module that includes it, so
+  `util.h:7` is two ranges in two modules: one line, many addresses.
 - G8. Banked code takes its page from the section name on newlib: `PAGE_20` is page 20, and
   `BANK_10` is the 8K pages 20 and 21. Addresses are logical and 16-bit, so without the
   section every bank's $C000 is the same address: D3's hazard (section 9.4).
@@ -225,17 +228,20 @@ Each store is one backend instance, so every frontend (Qt, SDL, headless, the re
 scripts) sees the same source map and symbols.
 
 ```
-  files                       machine
-    |                           |
-    v                           v
-  adapters                    Mmu::route() --> FetchSource {kind, index}
-    | ranges, labels,             recorded by the real M1 into trace entries and call frames;
-    | program identity            predicted for the current PC by the same function
-    v                           |
-  stores <----------------------+   every range, label and breakpoint is compared with it, exactly
+  files                          machine
+    |                              |
+    v                              v
+  adapters                       Mmu::route() --> FetchSource {kind, index}
+    |  ranges, labels,             - recorded by the real M1 into trace entries and call frames
+    |  program identity            - predicted for the current PC by the same function
+    v                              |
+  stores <-------------------------+  every range, label and breakpoint is compared with it, exactly
     |
     v
-  Debugger backend (CAP-SRC, CAP-SYM) --> Qt panels, stepping engine, DSL, GDB / DZRP / ZRCP, exporters
+  Debugger backend (CAP-SRC, CAP-SYM)
+    |
+    v
+  Qt panels, stepping engine, DSL, GDB / DZRP / ZRCP servers, exporters
 ```
 
 | Input | Adapter | Fills | State |
@@ -306,7 +312,7 @@ identity), SRCBP-05 (the legacy meaning pinned).
 | Identity in call frames | `CallFrame::caller_page` and `target_page` (`uint8_t`; `NOT_RAM_PAGE` for ROM or an overlay) | 4.3 | E23-08 (#340) |
 | Source map | exact (page, address) to one `SourceLocation`, a duplicate replaces; `lookup` returns a copy; `resolve()` returns the first start, by exact path or unique basename; an unqualified-record fallback that no adapter feeds (SLD records always name a page) | 5 | E23-06 (#338) |
 | Breakpoint qualifier | `EventFilter::page` plus `page_ram_only` (`Event::fetch_not_ram`); the predicate sits in three places: `EventTable::filter_matches()`, `Debugger::probe_execute()`, `history_stop_at()` | 4.5, 8.1 | E23-09 (#341) |
-| Lifetime | `sidecar_attach_cycle`; the sidecar stores are dropped at once on a reset or a state from outside the rewind ring; a rewind rechecks by the clock | 6 | E23-10 (#342) |
+| Lifetime | `sidecar_attach_cycle`; `machine_replaced()` drops the sidecar stores at once on a reset or a state from outside the rewind ring; a rewind rechecks by the clock | 6 | E23-10 (#342) |
 | z88dk | the map gives symbols only (`load_z88dk_map` skips the three debug prefixes, #352) | 9.4, 9.5 | E23-13 (#344), E23-17 (#348) |
 | Symbols | `SymbolTable` keyed by the 16-bit address; no page | 10 | E23-23 (#375); EQU files: #390 |
 | User labels and comments | none | 10 | E23-24 (#387) |
@@ -322,8 +328,8 @@ identity), SRCBP-05 (the legacy meaning pinned).
 | skoolkit / ghidra | none | 11.2 | E23-26 (#389) |
 
 Done: E23-01, E23-03 and E23-04 (v1.1.64: the backend capability, the SLD and `Memory.txt`
-adapters, the Source tab, ownership, the sidecar refusal reasons, the cut-down lifetime
-above); #332 (v1.1.46: the call-stack tracker follows rewind); #352 (v1.1.45). The epic closes
+adapters, the Source tab, ownership, the sidecar refusal reasons, the clock-based
+lifetime); #332 (v1.1.46: the call-stack tracker follows rewind); #352 (v1.1.45). The epic closes
 with E23-19 (#349). A sub-issue that lands updates its row here, not the prose.
 
 ## 4. Which memory supplied the instruction
@@ -398,11 +404,11 @@ side effects: rows compare the whole machine state before and after.
 ### 4.5 Canonical and legacy
 
 The canonical identity is the one that every source record, source-line breakpoint and history
-entry carries (D4). The plain `EventFilter::page` stays for the protocols that use it: DZRP
-long breakpoints (a bank byte other than 0 becomes `Execute{addr, addr, page = bank}`,
-`dzrp-frontend.md:402`) and the DSL `page` keyword (`dsl-frontend.md:286`). It compares
-`Mmu::get_effective_page(slot)` and nothing more, so it still fires on a ROM-mapped slot whose
-effective page matches (SRCBP-05). `dzrp-frontend.md` stays frozen as a design record, and the
+entry carries (D4). The plain `EventFilter::page` stays, as a protocol-level qualifier and not
+the identity, for the protocols that use it: DZRP long breakpoints (`bank+1`; a bank byte other
+than 0 becomes `Execute{addr, addr, page = bank}`, `dzrp-frontend.md:402`) and the DSL `page`
+keyword (`dsl-frontend.md:286`). It compares `Mmu::get_effective_page(slot)` and nothing more,
+so it still fires on a ROM-mapped slot whose effective page matches (SRCBP-05). `dzrp-frontend.md` stays frozen as a design record, and the
 developer guide says which meaning is canonical (E23-09 (#341)).
 
 A GUI breakpoint dialog that gets a page field uses `FetchSource` and E23-22's text form (4.6),
@@ -682,4 +688,300 @@ allows, and none is extended.
 Sidecars attach and log in both (done, v1.1.64). `monitor src` gives them a reader (E23-15),
 and `source-map-func` asserts a looked-up line instead of a log line.
 
-<!-- CONTINUE -->
+## 9. Adapter contract
+
+### 9.1 The contract
+
+An adapter turns one file format into the neutral stores and nothing else. It emits:
+
+- source ranges `{space, lo, hi_excl, location}`, **every one with a space**: no unqualified
+  record, and no "matches every bank" fallback in the store (D3);
+- optionally a program identity;
+- symbols (section 10).
+
+It **parses the whole input and fails with a reason before replacing a store.** For a source
+half that is strict: any malformed record refuses the half, and the reason names the line. The
+symbol-only loaders keep the MAP rule: a file that cannot be opened, is not a regular file or
+is over the size cap is refused with a reason, and inside a readable file a line that is not a
+symbol line is skipped (a z88dk map is mostly lines that are not symbols). A file that fills
+two stores (a z88dk map) is two independent transactions, each reported: a map whose line
+records are refused still gives its symbols, as v1.1.45 does today.
+
+**Extents** (D2). Each adapter gives every record its extent:
+
+- SLD: to the next record in the same space, capped at the 8K page end.
+- z88dk map: to the next line start in the same space, or the next `addr` symbol of a different
+  module, or start + 0x400, or the 8K page end, whichever is first. This is DeZog's rule
+  (`z88dklabelparserv2.ts`, `addCLineDebugInfo`, `MAX_C_LINE_SIZE = 0x400`): library code has
+  no lines and must not inherit a module's last C line.
+- `.lis`: exact, from the bytes column.
+
+The stepping engine, the panels and history read ranges, spaces and the primary and "also"
+locations. A new format is therefore supported only once this section states its extent and
+space rules.
+
+### 9.2 SLD v1
+
+The `T` records become ranges (E23-06 (#338)). The SLD page becomes `Page{n}`, since SLD's
+device model is RAM pages; a record on a ROM device is out of scope. The adapter's FIFO, size
+cap and short-SHA-256 fixes are done (E23-03, v1.1.64).
+
+### 9.3 `Memory.txt`
+
+Symbols only, with no page (10.4).
+
+### 9.4 z88dk `-debug` map (E23-13 (#344))
+
+Input: `prog.map`. One read fills both stores: symbols through `load_z88dk_map`, and ranges from
+`__C_LINE_` and `__ASM_LINE_`. The parser accepts the three location forms of 2.3 (the same
+that DeZog's `z88dkmapfile.ts` accepts). Lines in an empty section are dropped (G2).
+
+**Space derivation**, in this order. The section name comes first, because the meaning of a
+24-bit value changed between z88dk versions. The section families are those of z88dk's memory
+maps (newlib `libsrc/_DEVELOPMENT/target/zxn/crt_memory_map.inc`, classic
+`lib/target/zxn/classic/memory_map.asm`); a `<KIND>` is `CODE`, `RODATA`, `DATA` or `BSS`.
+
+1. Section `PAGE_<n>` (newlib) or `<KIND>_PAGE_<n>` (classic): `Page{n}`.
+2. Section `BANK_<n>`, `BANK_<n>_L` or `BANK_<n>_H` (newlib) or `<KIND>_<n>`, `<KIND>_<n>_L`,
+   `<KIND>_<n>_H` (classic): `page = 2n + h + ((addr16 - ORG) >> 13)`. `ORG` is the section's
+   `CRT_ORG_BANK_<n>[_L|_H]`, read from the map's `CRT_ORG_*` const; `h` is 1 for the `_H`
+   sections, the upper 8K of the 16K bank (as z88dk's `appmake` places them), and 0 otherwise.
+   Only the low 16 bits of a 24-bit value are used.
+3. A value above 0xFFFF in a section with no number: bits 16 to 23 are the 8K page, and the
+   upper 8K of an even page adds 1 (DeZog's rule, right for classic after 72ea9d221b). In a
+   numbered section the same bits must agree with rules 1 and 2, or the map is refused with a
+   reason. This rule exists only if E23-12 (#343) can produce a real classic `+zxn` fixture;
+   otherwise a 24-bit value outside a numbered section is refused with a reason, and the rule
+   waits for a fixture.
+4. Any other section (`CODE`, `code_*`, the main program): the RAM page the MMU maps at that
+   slot with the program in memory. For a NEX that is banks 5, 2 and 0, the pages 10, 11, 4, 5,
+   0 and 1 for $4000-$FFFF, so $8000-$9FFF is `Page{4}`. A map read before the program is in
+   memory (`--map`, `--source-map`) takes its rule-4 spaces at the program load, not when it is
+   read: `--map` is read when the script host starts, before the `--load` countdown applies
+   the program.
+5. A DivMMC dot command (org $2000): `DivMmcRam{bank}` (E23-21 (#351), OD-14). The z88dk
+   memory maps define `DIV_<n>` sections (newlib and classic); E23-21 establishes how a dot
+   command's sections map to it.
+
+**Zero-width lines** (G3). A line whose address equals the next line's start is an alias of
+that line if both are in the same function: sccz80 and 80cc give the function; for sdcc, which
+writes `x`, the test is the same module and no function-entry `addr` symbol of another
+function at that address. Otherwise the line has no code (`main.c:14` in the fixture). Toolchain
+mis-attributions are reported as the map says (G4 on 2.4, master sdcc's `util.h:9`).
+
+**Loading.** `<stem>.map` is a sidecar per 6.1 (OD-5). A user `--map` keeps the user's symbols
+and still attaches the source half. By hand, Load Source Map... accepts `.map`, and the command
+line takes `--source-map FILE` (OD-15). The user guide gets "Debugging z88dk C programs" (build
+flags per compiler and z88dk version, and the G4, G5 and G7 limits) from E23-13 and E23-19.
+
+### 9.5 z88dk `.lis` and map (E23-17 (#348))
+
+Relocation is per (module, section piece): offset = map(label) - lis(label), re-anchored at
+each label (DeZog's `z88dkMapOffset`). Then every instruction is a range of its byte length.
+The line source is, for sccz80, `C_LINE`; for sdcc, the `;file:line:` comments, every
+occurrence, so line 18 gets both of its ranges; for an asm file, its own line numbers. The
+space comes from the `SECTION` line by 9.4's rules. There is one `.lis` per source (z88dk
+writes `main.c.lis`, `util.c.lis`), found beside the map or by a glob. With a `-debug` map
+present, its C lines are cross-checked against the listing and the listing wins, because it is
+exact and has every occurrence: the reverse of DeZog, which prefers the map. The listing is the
+only per-line asm source and the only sdcc line source on 2.4 (G6, G12).
+
+### 9.6 `.cdb` / `.adb` (E23-20 (#350), OD-2)
+
+Neither tree produced a standalone file in the planning builds. E23-20 establishes whether
+sdcc's own `--debug` path can produce them through zcc on either install, and with which flags.
+If it can, the adapter follows this contract (spaces by 9.4); if not, E23-20 closes with the
+evidence (commands, z88dk commits, outputs).
+
+### 9.7 Program identity
+
+- SLD: the optional SHA-256 records (64 hex digits; a short one is refused; done).
+- z88dk: the section binaries `prog_<GROUP>.bin`, compared with memory over every line range
+  through `MemSpace` peeks of the range's own space. A bank that is not mapped is still
+  checked, and data sections are not compared (a program changes its variables). No binaries
+  means unverified: the map attaches and the log says so (OD-6).
+- The `.lis` bytes are a secondary check only: references to other modules are unrelocated in
+  a listing (`cd0000`), so they verify only the bytes the listing marks as final.
+
+### 9.8 Symbol adapters and pages
+
+See 10.4.
+
+## 10. Symbols and user annotations
+
+The page-aware symbol table (E23-23 (#375)) and the user-owned label and comment store
+(E23-24 (#387)) are designed together, on the owner model the stores already have (none,
+sidecar, user), so that neither needs a retrofit.
+
+### 10.1 The key
+
+A label is keyed by a `FetchSource` and a 16-bit logical address, the same key the source
+ranges use. There are three kinds of entry:
+
+- a paged label: (space, address) to a name;
+- an unpaged label: address to a name, for a format that names no page. It matches that address
+  in any space, as every label does today;
+- a name-only value: name to value, which never names an address (z88dk `; const`, #279; an SLD
+  `L` value above 0xFFFF).
+
+A page mapped into a slot other than the one its labels were made for shows no labels there,
+as with source records (section 12).
+
+### 10.2 Two layers, on the existing owner model
+
+The **toolchain layer** is the `SymbolTable` as today: one owner for the whole store
+(`Impl::StoreOwner`: None, Sidecar, User), filled only by a complete load (a sidecar, `--map`,
+Load MAP), cleared by `clear_symbols()`, under the lifetime of section 6. The **user layer**
+(E23-24) is a separate backend store of user labels and comments. It is always user-owned;
+only its own verbs (add, rename and remove a label; set or clear a comment) and loading a
+project file change it, and loading replaces it whole and transactionally; a sidecar load, a
+hand load of a MAP, `clear_symbols()`, a reset, a state load and a rewind never touch it. Both
+layers live in `Debugger::Impl` beside the `SourceMap`, and frontends reach them only through
+`Debugger`.
+
+### 10.3 One reader
+
+By address, `(space, addr)`: the user label, else the toolchain paged label, else the
+toolchain unpaged label. By name: the user layer, then the toolchain layer, giving the entry's
+key. Every consumer goes through it (disassembly lines and operands, Call Stack, Breakpoints,
+trace export, the address fields' `resolve()` with OD-12, the DSL's `@name`, GDB `monitor sym`,
+ZRCP names), and no panel merges the layers itself.
+
+The disassembly asks with each line's identity (the PC line predicted, other lines by the live
+`route()`, history entries recorded: E23-22's view rules) and names an operand address by the
+space that supplies it now. A paged name gives its space to a consumer that can carry one (an
+Execute breakpoint or `on execute @name` stops only in that space, as a source-line breakpoint
+does); a consumer that cannot gets the 16-bit address (4.6's rule). The verbs' signatures, the
+UI, and the rule for a name already used at another key are E23-24's.
+
+### 10.4 Page rules per adapter
+
+- **SLD `L`** (E23-23): `page >= 0` gives (`Page{page}`, `value & 0xFFFF`). `page = -1` gives
+  an unpaged label ("stay unpaged", #375), and a name-only value when the value does not fit
+  16 bits (an EQU can be 32-bit). sjasmplus writes -1 for every `EQU` without an explicit page,
+  address constants included (2.1), so the format cannot tell an address from a constant;
+  making them labels agrees with the `--sym` file, which lists the EQU constants too. A record with no
+  main label (a module marker) names nothing.
+- **z88dk map `; addr` symbols** (E23-23): the space by 9.4's derivation, the same as the map's
+  source records, so that one file has one derivation for both stores. `; const` stays
+  name-only.
+- **Simple map, `Memory.txt`, sjasmplus `--sym` and `--exp` files (#390)**: unpaged.
+- **User entries**: always paged, by the identity of the line they were added on or, for an
+  import, by the rule of 11.2.
+
+### 10.5 The project file (E23-24; "plain text, decided in the design doc", #387)
+
+- Extension `.jdp`; UTF-8; LF written, CRLF accepted; a line starting with `#` is a comment;
+  blank lines are ignored.
+- The first other line is `jnext-annotations 1` (format and version); anything else is refused.
+- Records, one per line, fields separated by one space:
+  `label <SPACE> $<ADDR> <NAME>` and `comment <SPACE> $<ADDR> <TEXT>`. `<SPACE>` is the
+  identity's text form (4.6); `<ADDR>` is four upper-case hex digits; `<NAME>` is one token with
+  no whitespace; `<TEXT>` is the rest of the line, with `\\` for a backslash and `\n` for a
+  line break. At most one label and one comment per key.
+- Written sorted by (space, address, record kind), so that it diffs well in a repository.
+- Read strictly, by the adapter contract: the whole file is validated, an error names the
+  line, and only then is the user layer replaced. An unknown record kind or version is refused.
+- Opened and saved by the user (a menu action); never attached automatically beside a program;
+  not part of `.jns`.
+
+## 11. Coverage and reverse-engineering interop
+
+### 11.1 Coverage (E23-25 (#388)): opt-in and benchmarked
+
+Coverage is off by default. When on, it records executed, read and written bytes per space
+(`FetchSource`: RAM pages, ROM, the overlays). The execute side comes from the recorded fetch
+identity (E23-08); the read and write sides from the same arbiter, given the access direction
+(4.2). It is shown in the disassembly and memory panels, with clear and reset, and it is
+E23-26's automatic code/data map. Off must cost nothing measurable; off and on are measured with
+`make bench` (non-PGO, A/B, quiet host) and the numbers are recorded in the sub-issue. E23-25
+decides and pins the rewind rule (no double count), and whether INS-20's logical bitset stays
+beside it.
+
+### 11.2 skoolkit and ghidra (E23-26 (#389)): how a page identity maps into each format
+
+Export writes what the disassembly shows (the user layer over the toolchain layer); import
+creates user entries only (E23-24). Each writer is proved by its foreign reader (skoolkit's
+tools, ghidra's script), never by jnext's own importer.
+
+- **ghidra.** The export is a symbol file for Ghidra's `ImportSymbolsScript.py`: one label per
+  line, `NAME ADDRESS l`. The script splits a line on whitespace and reads a name, an address
+  and an optional `f` or `l`; it carries no comments and no code/data map. `ADDRESS` is
+  `0x<hex>` for an unpaged label and `<TAG>:0x<hex>` for a label with a space, `<TAG>` being the
+  space's text form (4.6). In ghidra `<TAG>` names an address space: an overlay block the user
+  creates for that page's bytes at the logical range it was mapped at. (The script's header
+  lists `ADDRESS_SPACE:0x1234abcd` among its address forms, `AbstractAddressSpace.getAddress()`
+  splits `NAME:offset` at the last `:` and accepts `0x`, and an overlay's address space normally
+  carries the block's name.) This is read from the source, not run; E23-26's foreign-reader row
+  proves it with ghidra itself. Import reads the same lines: a `<TAG>:` prefix gives the space,
+  and an address without one takes the space that supplies it at import (the live `route()`).
+- **skoolkit.** One control file per space. A control file describes one 64K memory view with
+  16-bit addresses, and skoolkit's only bank notion is the `@bank=0-7` directive, the 128K RAM
+  bank at $C000-$FFFF (SkoolKit 9.1 and later), which names neither the Next's 224 8K pages nor
+  ROM and the overlays. Each file's name carries its `<TAG>` (unpaged labels get a file of
+  their own), and its first line is `# jnext space <TAG>`, a control-file comment that skoolkit
+  ignores. `sna2skool.py -c` may be repeated, so a view of several spaces is several files. By
+  default `sna2skool.py` reads every `<input-stem>*.ctl` beside its input, which would merge
+  spaces that share addresses, so E23-26 names the files so that a default pickup cannot do
+  that. Labels are `@ <addr> label=<NAME>` directives, comments are instruction or mid-block
+  comments, and the code/data map is block directives from coverage (E23-26 picks them). Import
+  takes the space from the header comment, else from the file name's `<TAG>`, else from the
+  live mapping at import. A control file regenerated by skoolkit loses its comments.
+
+### 11.3 Out of scope
+
+Owner decision on #378: a built-in Z80N assembler, and a native export of source that
+assembles again.
+
+## 12. Non-goals and known limits
+
+- C variables, types and scopes: the follow-up epic #353 (OD-9); the CDB records of G11 are its
+  input.
+- Executing a source step in the background: a step is synchronous and bounded (OD-11).
+- Editing source; a built-in Z80N assembler; a native export of source that assembles again
+  (11.3).
+- Data watchpoints qualified by bank: DZRP's `bank+1` watchpoints use the legacy qualifier (4.5).
+- **Code that moves.** A record describes where its code was built to run. Code copied at run
+  time to another address or page (a driver copied out of a bank into low RAM, as Cobra's audio
+  driver is), or a page mapped into another slot, has no record where it actually runs and
+  shows as unmapped there; labels behave the same (10.1). Producing records for the copy is the
+  build's job (an SLD for the copy's `DISP`). The SLD binary identity likewise covers only
+  `org..org+size`.
+- Toolchain mis-attributions (G4 on 2.4, master sdcc's `util.h:9`, G7) are shown as the
+  toolchain wrote them, with the primary line and the "also" list (OD-7), and documented in the
+  user guide.
+- Tapes and programs the guest loads for itself (6.2, 6.6).
+
+## 13. Tests
+
+**Suites today.** `source_map_test` (the SLD and `Memory.txt` adapters, the store),
+`source_debug_test` (the backend on a real machine: loading and identity, fetch identity now and
+in history, sidecar ownership and failure paths, the lifetime rows, every step kind),
+`source_debug_posix_test` (`# os: posix`: the link and FIFO fixtures), `debugger_source_panel_test`
+(the Source tab, page-qualified model rows and gutter, the Call Stack column, symbol address
+fields), `rewind_call_stack_test` (the tracker across rewind), `debugger_backend_test` (SYM-14 to
+SYM-18, the `-debug` map symbols; INS-13-15, the 56-byte `TraceEntry`), and the functional rows
+`nextbuild-symbols-func` and `source-map-func`.
+
+**Planned.** `z88dk_map_test` (E23-13), `z88dk_lis_test` (E23-17), the fixture-hash row
+Z88FIX-01 (E23-12), new rows in `mmu_test`, `multiface_test` and `divmmc_test` (E23-07), and the
+functional rows `source-map-func` (a looked-up line, E23-15) and `z88dk-source-func` (E23-15).
+
+**Oracles.**
+
+- The stores and the adapters have no VHDL counterpart: the oracle is the format's
+  documentation, the fixture output and the rules of this document.
+- The fetch identity is VHDL-oracled (the lines in 4.1 and 4.2).
+- C stepping is checked against `z88dk-gdb` on the same fixture (E23-14).
+- Every writer (11.2) is checked against a foreign reader.
+- The project file has no foreign reader, so its rows assert the written bytes against 10.5, not
+  only a round trip.
+- z88dk fixtures are our own sources, generated on both installs and committed with the z88dk
+  commit and the command; every row that depends on compiler output names its install (2.3);
+  a row checks the fixtures' recorded hashes, since CI has no z88dk.
+
+**Row IDs are global**: the duplicate-ID gate refuses a reuse. IDs written into a sub-issue's
+text before v1.1.64 may be taken already (`SRCDBG-CS-02`, `SRCDBG-STEP-17`, `SRCDBG-SIDE-12`,
+`QBPM-11` and `QSRC-28` to `QSRC-33` are in the tree), so each sub-issue checks its IDs against
+the tree.
+
