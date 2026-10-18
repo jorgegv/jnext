@@ -284,10 +284,12 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
         return make_refused<size_t>(Result::RefusedReadOnly);
 
     size_t done = 0;
-    const uint8_t old_first = n > 0
-        ? (space.kind == MemSpace::Kind::Cpu
-               ? emu.mmu().peek(static_cast<uint16_t>(addr & 0xFFFF))
-               : 0)
+    // The byte the MUTATE line says was replaced (§4.2a `<old> -> <new>`). The Cpu
+    // space reads it here; a Page is read in its branch below, once it is known to
+    // exist (GH #381: a poke(Page) used to log 0 for every old byte, so a trainer
+    // that changed 0x35 to 0x00 read "0x0 -> 0x0", as if nothing had happened).
+    uint8_t old_first = n > 0 && space.kind == MemSpace::Kind::Cpu
+        ? emu.mmu().peek(static_cast<uint16_t>(addr & 0xFFFF))
         : 0;
 
     if (space.kind == MemSpace::Kind::Cpu) {
@@ -357,6 +359,7 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
         // for the tilemap / LoRes / Layer 2 beam replays (coarse tag): log it
         // before it lands.
         const uint8_t page = static_cast<uint8_t>(space.index);
+        if (n > 0 && addr < PAGE_BYTES) old_first = p[addr];
         for (; done < n && addr + done < PAGE_BYTES; ++done) {
             emu.mmu().log_page_store(page, static_cast<uint16_t>(addr + done),
                                      p + addr + done, buf[done]);

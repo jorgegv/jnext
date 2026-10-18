@@ -8660,6 +8660,18 @@ int main() {
         check("MUTLOG-05", "a READ emits no MUTATE line",
               ring->last_formatted().size() == after_write);
 
+        // §4.2a `MUTATE <what> <old> -> <new> by <client>`: a poke(Page) names the byte it
+        // REPLACED. GH #381 found it logging 0 for every page write, so a POK trainer that changed
+        // 0x35 to 0x00 read "0x0 -> 0x0", as if nothing had happened. Page 4 is 0x8000 on a 48K.
+        uint8_t planted = 0x35, written = 0x00;
+        dbg.poke(2, MemSpace::page(0x04), 0x0003, 1, &planted);
+        dbg.poke(9, MemSpace::page(0x04), 0x0003, 1, &written);
+        const auto page_lines = ring->last_formatted();
+        check("MUTLOG-06", "a one-byte poke(Page) logs the byte it replaced, not 0 (page 4 held 0x35)",
+              !page_lines.empty() &&
+                  page_lines.back().find("MUTATE mem page4:0x0003 0x35 -> 0x0 by 9") != std::string::npos,
+              page_lines.empty() ? std::string("no MUTATE line") : page_lines.back());
+
         Log::debugger()->sinks().pop_back();
     }
 
