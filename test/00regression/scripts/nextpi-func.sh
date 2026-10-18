@@ -211,7 +211,7 @@ if want nextpi-func; then
         grep -qF -- "$1" <<<"$lf" || fails+=("$3 does not carry '$1'")
     }
 
-    # Fact 9 — an archive in the folder (junk is enough: the check never reads it) with no
+    # Fact 9 - an archive in the folder (junk is enough: the check never reads it) with no
     # .md5 beside it and a mirror that refuses the connection: the question and the log say
     # what could not be checked, why in plain words, and the address of the checksum.
     rm -rf "$np"
@@ -233,7 +233,7 @@ if want nextpi-func; then
         nf_text "$nf_t" "$nplog9" "--log-file"
     done
 
-    # Fact 10 — --nextpi in the Qt GUI with no QEMU: exit 1, the reason on stderr, and the dialog
+    # Fact 10 - --nextpi in the Qt GUI with no QEMU: exit 1, the reason on stderr, and the dialog
     # (its text, since the offscreen platform shows none) says jnext exits.
     nplog10="$TMP_DIR/nextpi-func-10.log"
     rm -f "$nplog10"
@@ -251,7 +251,7 @@ if want nextpi-func; then
     nf_text "dialog not shown on the offscreen platform: jnext - NextPi: NextPi could not be started:" "$nplog10b" "the Qt GUI's log (Preferences)"
     nf_text "jnext starts without it." "$nplog10b" "the Qt GUI's log (Preferences)"
 
-    # Facts 11 and 12 — "latest" in the Qt GUI with the release already installed and a mirror whose
+    # Facts 11 and 12 - "latest" in the Qt GUI with the release already installed and a mirror whose
     # list cannot be read. gui_latest <mirror> <log>: the stand-in QEMU on the PATH, so that NextPi
     # is tried at all.
     gui_latest() {
@@ -271,7 +271,7 @@ if want nextpi-func; then
             --log-level platform=debug --log-file "$2" --delayed-automatic-exit 3 </dev/null 2>&1) || rc=$?
     }
 
-    # Fact 11 — the mirror refuses at once.
+    # Fact 11 - the mirror refuses at once.
     nplog11="$TMP_DIR/nextpi-func-11.log"
     gui_latest "http://127.0.0.1:1" "$nplog11"
     [[ $rc -eq 0 ]] || fails+=("'latest' with an unreachable mirror and NextPi installed exited $rc, want 0")
@@ -280,7 +280,7 @@ if want nextpi-func; then
     nf_text "  jnext uses the installed NextPi 1_93D" "$nplog11" "the Qt GUI's log ('latest', refused)"
     nf_text "dialog not shown on the offscreen platform: jnext - NextPi: NextPi:" "$nplog11" "the Qt GUI's log ('latest', refused)"
 
-    # Fact 12 — the mirror is slow: a peer that answers every request with a 404 after 3 s.
+    # Fact 12 - the mirror is slow: a peer that answers every request with a 404 after 3 s.
     nplog12="$TMP_DIR/nextpi-func-12.log"
     nport12="$TMP_DIR/nextpi-func-12.port"
     npeer12="$TMP_DIR/nextpi-func-12.peer.log"
