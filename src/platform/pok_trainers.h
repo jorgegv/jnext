@@ -22,17 +22,19 @@
 // byte the game holds there (0 = not given), "used to remove a POKE" from a game
 // that was already POKEd.
 //
-// WHERE A POKE LANDS (decisions D2, D3 of the GH #381 plan). Only 0xC000-0xFFFF
-// is banked: port 0x7FFD writes MMU6/MMU7 and nothing else (zxnext.vhd:4679-4680;
-// MMU2-5 keep pages 0A 0B 04 05, :4613-4616), so a Multiface-level POKE with a
-// bank number can only ever reach that bank at 0xC000 and above.
-//   - bank 0-7 and address >= 0xC000: page 2*bank + ((address >> 13) & 1), offset
-//     address & 0x1FFF, whatever is paged in. On a 48K only bank 0 exists there.
-//   - anything else (bank 8-15, or an address below 0xC000, whose bank field has
-//     no effect): the RAM page the memory map shows at that address RIGHT NOW.
-// Fuse and ZEsarUX index `RAM[bank][address & 0x3FFF]` for every address; that
-// differs on the few real pokes of the second kind and is deliberately not
-// followed.
+// WHERE A POKE LANDS (decision D3 of the GH #381 plan; D2 was reversed by the
+// owner on 2026-10-18, Q2).
+//   - bank 0-7, ANY address: the byte `address & 0x3FFF` of that 16K RAM bank,
+//     i.e. NR page 2*bank + ((address >> 13) & 1), offset address & 0x1FFF,
+//     whatever is paged in. A 48K only has bank 0.
+//   - bank 8-15 ("ignore the bank"): the RAM page the memory map shows at that
+//     address RIGHT NOW.
+// This is what Fuse (`RAM[bank][address & 0x3FFF]`) and ZEsarUX do for every
+// address, and the owner asked for the same (Q2). Real files do name a bank for an
+// address below 0xC000: Starglider's "Infinite Missiles (Bank#0)" has `M 0 44796`.
+// The CPU does not bank those addresses (port 0x7FFD writes MMU6/MMU7 only,
+// zxnext.vhd:4679-4680; MMU2-5 keep pages 0A 0B 04 05, :4613-4616), so for them
+// the line is read as "byte N of bank b", not as a CPU-view address.
 //
 // UNDO (D5, D6). `apply` records, per location it writes, the byte it replaced,
 // and `remove` writes exactly those bytes back to exactly those locations. Whether

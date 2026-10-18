@@ -88,28 +88,28 @@ running. These forget it, though the changes stay in memory:
 ## Where a poke lands
 
 Each line of a `.pok` carries a **bank** number as well as an address. JNEXT
-follows the hardware:
+reads it the way Fuse and ZEsarUX do:
 
 | The line says | It writes to |
 |---|---|
 | bank **8-15** (the format's "ignore the bank", always used for 48K games) | the RAM the memory map shows at that address **at the moment you press Apply** |
-| bank **0-7**, address **0xC000-0xFFFF** | that 16 KB bank, whatever is paged in there |
-| bank **0-7**, address **below 0xC000** | the bank is ignored, as for 8-15: only the top 16 KB of the address space is banked, so this is the memory map again |
+| bank **0-7** | byte *address* mod 16384 of that 16 KB RAM bank, **whatever the address is** and whatever is paged in: a line for bank 3 at address 49443 (0xC123) is byte 0x0123 of bank 3, and so is one for bank 3 at 0x4123 or 0x8123 |
 
 Banks 0-7 are the 128K RAM banks, so they work on the 128K, +3, Pentagon and the
-Next. On a **48K** the only bank that exists at 0xC000 is bank 0; a trainer with
-a line naming another bank is refused, with a message. A trainer whose lines say
+Next. On a **48K** the only bank is bank 0, the RAM at 0xC000; a trainer with a
+line naming another bank is refused, with a message. A trainer whose lines say
 bank 8 writes into whatever bank the game has paged in at that moment, so apply
 it while the game is running normally.
+
+Real files do name a bank for an address below 0xC000: Starglider's "Infinite
+Missiles (Bank#0)" has a line for bank 0 at address 44796 (0xAEFC). A 128K
+program pages only 0xC000-0xFFFF, so the memory map has no bank 0 there and the
+line means byte 0x2EFC of bank 0, which is where it goes.
 
 A trainer is applied **all or nothing**. If one of its pokes cannot land (an
 address that is ROM in the current memory map, a bank the machine does not
 have, a slot with nothing mapped) the trainer is refused with a message naming
 the line, and none of its bytes are written.
-
-Other emulators, Fuse for one, index inside the named bank for every address.
-The two only differ for a bank number on a line below 0xC000, which is rare in
-the files in circulation.
 
 ## Things that stop it
 
@@ -157,7 +157,7 @@ on frame 2003 once do exit 0 end
 $ jnext --headless --machine 48k --load game.tap --script trainer.jds
 ```
 
-For a line with a bank 0-7 at 0xC000 or above, write to the physical page
+For a line with a bank 0-7, whatever its address, write to the physical page
 ([Changing the machine](../06-debugger/scripting/08-changing-the-machine.md)):
 page `2*bank + ((address >> 13) & 1)`, offset `address & 0x1FFF`. The line
 `Z  3 49443 90 0` (bank 3, address 49443, value 90) becomes:

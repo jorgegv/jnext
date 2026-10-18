@@ -675,45 +675,115 @@ void test_session() {
               r.ok && bank5 && bank7, a5 + "|" + a7 + "|" + hex(r.rd(0x4123)) + "|" + hex(r.rd(0xC123)));
     }
 
-    // POK-33: a banked poke BELOW 0xC000 is the current map, not bank*0x4000 + (address & 0x3FFF).
+    // POK-33: a banked poke names a byte of a RAM bank for ANY address, as Fuse and ZEsarUX read it (the owner's
+    // decision of 2026-10-18, GH #381 Q2): bank*0x4000 + (address & 0x3FFF), below 0xC000 too.
     {
         Rig r(MachineType::ZX128K);
         r.load("NStarglider\nM  0 44796 2 0\nM  0 49151 5 0\nM  0 49152 6 0\nZ  0 60367 0 0\n");
         r.bank(4);
-        r.wrp(5, 0x0EFC, 0x77);   // 0xAEFC in the map: bank 2, high half
-        r.wrp(1, 0x0EFC, 0x66);   // where bank 0 + (44796 & 0x3FFF) would land
-        r.wrp(1, 0x0BCF, 0x55);   // bank 0 at 0xEBCF
-        r.wrp(5, 0x1FFF, 0x99);   // 0xBFFF, the last byte below the banked window
-        r.wrp(0, 0x0000, 0x98);   // bank 0 at 0xC000, the first byte of it
+        r.wrp(5, 0x0EFC, 0x77);   // 0xAEFC in the memory map (page 05): not where a bank-0 line goes
+        r.wrp(5, 0x1FFF, 0x99);   // 0xBFFF in the memory map
+        r.wrp(1, 0x0EFC, 0x66);   // bank 0 + (44796 & 0x3FFF): page 1, offset 0x0EFC
+        r.wrp(1, 0x1FFF, 0x44);   // bank 0 + (49151 & 0x3FFF): the last byte of the bank
+        r.wrp(0, 0x0000, 0x98);   // bank 0 + (49152 & 0x3FFF): the first byte of the bank
+        r.wrp(1, 0x0BCF, 0x55);   // bank 0 + (60367 & 0x3FFF): page 1, offset 0x0BCF
         r.wrp(8, 0x0000, 0x97);   // bank 4 at 0xC000, which IS paged in
         const std::string a = r.apply(0);
-        check("POK-33", "a bank-0 poke at 44796 (below 0xC000) lands at 0xAEFC of the current map (page 05) and "
-                        "leaves the bank-0 byte at that offset alone; so does one at 0xBFFF; the bank-0 pokes "
-                        "at 0xC000 and 60367 reach bank 0 (page 0, page 1) although bank 4 is paged (only "
-                        "0xC000+ is banked, zxnext.vhd:4613-4616, :4679-4680)",
-              r.ok && a.empty() && r.rd(44796) == 2 && r.rdp(5, 0x0EFC) == 2 && r.rdp(1, 0x0EFC) == 0x66 &&
-                  r.rdp(1, 0x0BCF) == 0 && r.rdp(5, 0x1FFF) == 5 && r.rdp(0, 0x0000) == 6 &&
-                  r.rdp(8, 0x0000) == 0x97 && r.rd(0xC000) == 0x97,
-              a + "|" + hex(r.rd(44796)) + "|" + hex(r.rdp(1, 0x0EFC)) + "|" + hex(r.rdp(1, 0x0BCF)) + "|" +
-                  hex(r.rdp(5, 0x1FFF)) + "|" + hex(r.rdp(0, 0)) + "|" + hex(r.rdp(8, 0)));
+        const bool landed = r.rdp(1, 0x0EFC) == 2 && r.rdp(1, 0x1FFF) == 5 && r.rdp(0, 0x0000) == 6 &&
+                            r.rdp(1, 0x0BCF) == 0;
+        const bool left = r.rdp(5, 0x0EFC) == 0x77 && r.rdp(5, 0x1FFF) == 0x99 && r.rd(44796) == 0x77 &&
+                          r.rd(0xBFFF) == 0x99 && r.rdp(8, 0x0000) == 0x97 && r.rd(0xC000) == 0x97;
+        const std::string d = r.s->remove(0);
+        const bool back = r.rdp(1, 0x0EFC) == 0x66 && r.rdp(1, 0x1FFF) == 0x44 && r.rdp(0, 0x0000) == 0x98 &&
+                          r.rdp(1, 0x0BCF) == 0x55;
+        check("POK-33", "bank-0 pokes at 44796 and 49151 (below 0xC000) write bank 0 at offsets 0x2EFC and 0x3FFF "
+                        "(page 1, 0x0EFC / 0x1FFF), the ones at 49152 and 60367 at offsets 0 and 0x2BCF; the "
+                        "memory-map bytes at those addresses (page 05) and the bank paged in at 0xC000 (bank 4) "
+                        "are not touched, and Remove puts the four bytes back (Fuse pokemem.c "
+                        "RAM[bank][address & 0x3FFF]; ZEsarUX ram_mem_table[bank] + (address & 16383); owner "
+                        "decision Q2)",
+              r.ok && a.empty() && landed && left && d.empty() && back,
+              a + "|" + d + "|" + hex(r.rdp(1, 0x0EFC)) + hex(r.rdp(1, 0x1FFF)) + hex(r.rdp(0, 0)) +
+                  hex(r.rdp(1, 0x0BCF)) + "|" + hex(r.rdp(5, 0x0EFC)) + hex(r.rdp(5, 0x1FFF)) + hex(r.rdp(8, 0)));
     }
 
-    // POK-34: 48K has bank 0 at 0xC000 and nothing else; a refusal writes nothing.
+    // POK-57: ... for every window of the address space and every bank, on a 128K and on the Next.
+    {
+        // address, bank: banks that are NOT what the memory map shows there (5 at 0x4000, 2 at 0x8000), so a poke
+        // through the map would land elsewhere. The target is spelled as a byte of the 128 KB RAM image, as the other
+        // emulators index it: bank*0x4000 + (address & 0x3FFF), in 8K pages.
+        struct Case { int address, bank; };
+        const Case cases[] = {{0x4000, 1}, {0x5FFF, 3}, {0x6000, 7}, {0x7FFF, 0},
+                              {0x8000, 4}, {0x9FFF, 6}, {0xA000, 1}, {0xBFFF, 3}};
+        std::string detail;
+        bool all = true;
+        for (MachineType t : {MachineType::ZX128K, MachineType::ZXN_ISSUE2}) {
+            Rig r(t);
+            std::string text;
+            for (size_t i = 0; i < 8; ++i)
+                text += "NC" + std::to_string(i) + "\nZ  " + std::to_string(cases[i].bank) + " " +
+                        std::to_string(cases[i].address) + " " + std::to_string(0xA0 + i) + " 0\n";
+            r.load(text);
+            for (size_t i = 0; i < 8; ++i) {
+                const unsigned lin = static_cast<unsigned>(cases[i].bank) * 0x4000u +
+                                     static_cast<unsigned>(cases[i].address & 0x3FFF);
+                r.wrp(lin / 0x2000, lin % 0x2000, static_cast<uint8_t>(0x11 + i));
+                r.wr(static_cast<uint16_t>(cases[i].address), 0x5A);   // the memory map's byte there
+            }
+            for (size_t i = 0; i < 8; ++i) {
+                const unsigned lin = static_cast<unsigned>(cases[i].bank) * 0x4000u +
+                                     static_cast<unsigned>(cases[i].address & 0x3FFF);
+                const std::string a = r.apply(i);
+                const bool landed = a.empty() && r.rdp(lin / 0x2000, lin % 0x2000) == 0xA0 + i &&
+                                    r.rd(static_cast<uint16_t>(cases[i].address)) == 0x5A;
+                const std::string d = r.s->remove(i);
+                const bool back = d.empty() && r.rdp(lin / 0x2000, lin % 0x2000) == 0x11 + i;
+                if (!(landed && back)) {
+                    all = false;
+                    detail += "[" + std::string(t == MachineType::ZX128K ? "128K" : "Next") + " " +
+                              hex(static_cast<unsigned>(cases[i].address >> 8)) + " bank " +
+                              std::to_string(cases[i].bank) + " a=" + a + " d=" + d + " got=" +
+                              hex(r.rdp(lin / 0x2000, lin % 0x2000)) + " map=" +
+                              hex(r.rd(static_cast<uint16_t>(cases[i].address))) + "]";
+                }
+            }
+            all = all && r.ok;
+        }
+        // A 48K has bank 0 only, and it is the RAM at 0xC000 whatever the address says.
+        Rig k(MachineType::ZX48K);
+        k.load("NT\nZ  0 32771 201 0\n");
+        k.wr(0x8003, 0x35);
+        k.wrp(0, 0x0003, 0x6B);
+        const std::string ka = k.apply(0);
+        const bool k_ok = k.ok && ka.empty() && k.rdp(0, 0x0003) == 201 && k.rd(0xC003) == 201 &&
+                          k.rd(0x8003) == 0x35;
+        check("POK-57", "on a 128K and on the Next a bank b poke at any address of 0x4000-0xBFFF (the edges of "
+                        "every 8K page of it, banks 0, 1, 3, 4, 6, 7) writes byte address & 0x3FFF of bank b, "
+                        "the memory-map byte there is untouched and Remove puts the bank byte back; on a 48K a "
+                        "bank-0 poke at 0x8003 is byte 3 of the 0xC000 RAM (Fuse pokemem.c "
+                        "RAM[bank][address & 0x3FFF]; ZEsarUX; owner decision Q2)",
+              all && k_ok, detail + "|" + ka + "|" + hex(k.rd(0xC003)) + hex(k.rd(0x8003)));
+    }
+
+    // POK-34: 48K has bank 0 and nothing else, at any address; a refusal writes nothing.
     {
         Rig r(MachineType::ZX48K);
-        r.load("NT\nM  8 32771 0 0\nZ  3 49443 0 0\nNU\nZ  0 49443 7 0\n");
+        r.load("NT\nM  8 32771 0 0\nZ  3 49443 0 0\nNU\nZ  0 49443 7 0\nNV\nZ  3 32771 1 0\n");
         r.wr(0x8003, 0x5A);
         r.wr(0xC123, 0x6B);
         const std::string refused = r.apply(0);
         const bool atomic = r.rd(0x8003) == 0x5A;
         const std::string second = r.apply(1);
+        const std::string below = r.apply(2);   // bank 3 at an address below 0xC000: the bank does not exist either
         check("POK-34", "on a 48K a bank-3 poke is refused naming its line and the 48K, and the trainer's other "
-                        "poke is not written either; bank 0 at 0xC000 is the 48K's own RAM and is written "
-                        "(0x7FFD is not decoded: port_7ffd_io_en, zxnext.vhd:2399, :2593; NR 0x82 = 0xC0)",
+                        "poke is not written either; so is one whose address is below 0xC000; bank 0 at 0xC000 is "
+                        "the 48K's own RAM and is written (0x7FFD is not decoded: port_7ffd_io_en, "
+                        "zxnext.vhd:2399, :2593; NR 0x82 = 0xC0)",
               r.ok && refused.find("line 3") != std::string::npos &&
                   refused.find("48K") != std::string::npos && atomic && second.empty() &&
-                  r.rd(0xC123) == 7,
-              refused + "|" + second + "|" + hex(r.rd(0x8003)) + "|" + hex(r.rd(0xC123)));
+                  r.rd(0xC123) == 7 && below.find("line 7") != std::string::npos &&
+                  below.find("48K") != std::string::npos && r.rd(0x8003) == 0x5A,
+              refused + "|" + second + "|" + below + "|" + hex(r.rd(0x8003)) + "|" + hex(r.rd(0xC123)));
     }
 
     // POK-35: undo goes back to where the trainer wrote, not to wherever the map points then.
