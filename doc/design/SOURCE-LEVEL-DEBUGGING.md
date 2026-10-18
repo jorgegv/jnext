@@ -678,9 +678,15 @@ today. Clicking a Source tab line toggles its group (E23-16).
   the tab.
 - **Menu and keys** (E23-05 (#337)): a Debug > Source submenu (Step Into, Over, Out, Back,
   Reverse Continue, Load Source Map..., Load Symbols (Memory.txt)...), each action bindable in
-  Debug > Change Keys, with Shift+F7, Shift+F8 and Shift+F6 as the defaults for Into, Over and
-  Out (OD-17). The owner approved changing the pinned menu tree and key bindings
-  (`debugger_accel_test` DACC-05, `debugger_keymap_test`).
+  Settings > Preferences... > Debugger Keys like the other debugger actions
+  (`src/debug/debug_keymap.cpp`). The owner approved changing the pinned menu tree and key
+  bindings (`debugger_accel_test` DACC-05, `debugger_keymap_test`). OD-17 gives source Into,
+  Over and Out the defaults Shift+F7, Shift+F8 and Shift+F6, but Step Back and Frame Back
+  already have Shift+F7 and Shift+F6 (user guide, "Changing the keys"). When two defaults
+  clash, the keymap keeps the action listed first in Preferences and leaves the other
+  unbound, so either the two OD-17 defaults or the two documented ones must change. That is
+  the owner's call: E23-05 takes it to the owner before it binds any key, and this document
+  does not decide it.
 - **Source tab completion** (E23-16 (#347)): click a line number to toggle its source
   breakpoint group; Run to Line (a transient group, then Continue); the current-line marker; the
   "also:" list of the other locations at the PC (OD-7); selection sync between the Source tab
