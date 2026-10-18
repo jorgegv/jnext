@@ -1,7 +1,8 @@
 # 4.1 The test triplet
 
-Every change that lands on `main` has to clear three layers of testing. The
-project calls them the triplet, and running them takes four commands:
+Every batch of changes on `main` has to clear three layers of testing before
+it is pushed. The project calls them the triplet, and running them takes four
+commands:
 
 ```console
 $ make clean && make gui-release
@@ -9,6 +10,17 @@ $ make unit-test
 $ ./build/test/fuse_z80_test build/test/fuse
 $ make regression
 ```
+
+The triplet is the core of the **batch gate**, which adds `make unit-test-sdl`,
+`make unit-test-win` and `make regression-win`.
+
+- **When it runs:** on `main`'s tip, after at most three landings, at the end of
+  a work session, and before any push.
+- **On a branch, nobody runs it.** The author runs the suites and regression
+  rows the change touches, plus `make unit-test` before each review. The
+  reviewer runs the targeted rows again.
+- **When it is red:** the failure is traced to the landing that caused it, which
+  is fixed forward or reverted, and the gate runs again. Nothing is pushed red.
 
 There must be no FAIL and no SKIP in any layer. A SKIP is a row that was not
 tested, so every harness exits non-zero on one, in every mode (owner decision,
@@ -108,9 +120,9 @@ merely spawn short-lived processes have failed under outside load too, which is
 why the suite itself flags a FAIL that happened on a loaded host.
 
 A green `make regression` on a committed tree leaves a stamp keyed on the
-tree's non-doc content, and `make regression-stamp-check` finds it: a reviewer
-checks the author's stamp and runs targeted rows instead of a second full run,
-and a fix round that changed only documentation keeps its stamp.
+tree's non-doc content, and `make regression-stamp-check` finds it. A batch gate
+whose tree changed only in documentation since the last green run need not
+repeat it. Reviewers run targeted rows, never a full run.
 
 ## What the triplet does not prove
 

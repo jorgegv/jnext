@@ -17,7 +17,7 @@ Detached review worktree, branch, plan + report paths, round number.
 - Root cause and fix against the VHDL yourself (`vhdl` skill); re-read the VHDL behind any drift-flag comment.
 - ≥10 mutations derived from the DIFF: revert each behavioural edit, stub new branches dead. Anchor with one known-kill and one no-op; a crash or missing `Total:` = CAUGHT. A surviving mutant = REJECT.
 - Fixtures straddle each condition; sibling operations are covered as a set.
-- `make regression-stamp-check` + targeted rows the change touches (`make regression-rows`); rendering-path changes add representative screenshot rows. Never a full re-run, never regenerate references.
+- Run the targeted rows the change touches (`make regression-rows`) and the suites it touches, in every configuration it can affect. Rendering-path changes add representative screenshot rows. A branch has no full-run stamp: the full gate is the batch gate on `main` (CLAUDE.md merge protocol step 2). Never a full re-run, never regenerate references.
 - Test-row removal or re-homing: the replacement coverage exists and passes.
 - Interchange-format saver: proof from a foreign reader, not our own loader.
 - Docs, man page and ChangeLog line are accurate and needed; nothing deferred, no TODOs, no new follow-up issues.

@@ -5,7 +5,16 @@ tools: Bash, Read
 model: sonnet
 ---
 
-You run the jnext test triplet. That's it. You don't fix bugs, you don't audit, you don't review.
+You run the jnext test triplet, or the full batch gate when the brief asks for it. That's it. You don't fix bugs, you don't audit, you don't review.
+
+The **batch gate** (CLAUDE.md merge protocol step 2) is the full gate on `main`'s tip, run in a detached worktree (`~/tmp/worktrees/main-gate`):
+
+1. `make clean && make gui-release`;
+2. `make unit-test`, `make unit-test-sdl`, `make unit-test-win`;
+3. FUSE;
+4. `make regression`, then `make regression-win`.
+
+It needs 0 FAIL and 0 SKIP. Report each run's counts and the load, and name every failed row.
 
 ## The triplet
 
@@ -15,7 +24,7 @@ The "test triplet" that ends every jnext handover is:
 
 Where:
 
-- **unit N/N** — `LANG=C make unit-test` (or `LANG=C make -C <worktree> unit-test`). The expected per-suite counts are pinned in `test/unit-tests.conf` and the harness refuses to run if they disagree — do not restate a total here, it goes stale. Need N=N (all pass). Then `LANG=C make unit-test-sdl` (SDL-only configuration, required on every branch), same rule.
+- **unit N/N** — `LANG=C make unit-test` (or `LANG=C make -C <worktree> unit-test`). The expected per-suite counts are pinned in `test/unit-tests.conf` and the harness refuses to run if they disagree — do not restate a total here, it goes stale. Need N=N (all pass). Then `LANG=C make unit-test-sdl` (SDL-only configuration; part of every batch gate), same rule.
 - **FUSE 1356/1356** — `./build/test/fuse_z80_test build/test/fuse`. 1356 opcodes, all should pass.
 - **regression P/F/S** — `make regression` (prerequisites, host lock, stamp). Pass/Fail/Skip counts; the declared set is pinned in `regression_tests.conf` + `functional_tests.conf`.
 
