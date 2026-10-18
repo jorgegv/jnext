@@ -1238,40 +1238,53 @@ void test_stall_rows() {
         }
     }
 
-    // 09: a transport failure is not a stall: a server that closes the connection without answering ends the
-    // attempt at once with the transport's own reason. (Under WinHTTP that is a REQUEST_ERROR completion; the
-    // stall rows above only see "nothing arrives", which is a different path.)
+    // 09: a transport failure is not a stall: it ends the attempt at once with the transport's own reason. Two
+    // ways to fail, one per stage of the asynchronous WinHTTP sequence that reports it as a REQUEST_ERROR
+    // completion: (a) a server that accepts, reads the request and closes without answering (the headers wait),
+    // (b) nothing listening at all (the connect). The stall rows above only see "nothing arrives".
     {
         rs::Server srv;
         if (!srv.ok()) {
             check("PROV-STALL-09", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
         } else {
-            const std::string dest = dest_in("i");
             rs::Opts o;
             o.body = body;
             o.etag = kEtag;
             o.close_immediately = true;   // accept, read the request, close: no answer
             srv.set(o);
-            std::string err;
-            const Clk::time_point t0 = Clk::now();
-            const bool ok = sdcard::http_download(srv.url(), dest, {}, err, {200, 5000});
-            const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
+            std::string gone_url;
+            {
+                rs::Server gone;   // its port is free again once it is destroyed: connection refused
+                gone_url = gone.url();
+            }
+            auto fails_at_once = [&](const std::string& url, const char* name, std::string& detail) {
+                const std::string dest = dest_in(name);
+                std::string err;
+                const Clk::time_point t0 = Clk::now();
+                const bool ok = sdcard::http_download(url, dest, {}, err, {200, 5000});
+                const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
 #ifdef _WIN32
-            // winhttp_error("transfer", dwError): the stage, and the failing completion's own non-zero code
-            const std::string tag = "(WinHTTP error ";
-            const size_t code_at = err.find(tag);
-            const bool own_reason = err.rfind("transfer", 0) == 0 && code_at != std::string::npos &&
-                                    std::atoi(err.c_str() + code_at + tag.size()) != 0;
+                // winhttp_error("transfer", dwError): the stage, and the failing completion's own non-zero code
+                const std::string tag = "(WinHTTP error ";
+                const size_t code_at = err.find(tag);
+                const bool own_reason = err.rfind("transfer", 0) == 0 && code_at != std::string::npos &&
+                                        std::atoi(err.c_str() + code_at + tag.size()) != 0;
 #else
-            const bool own_reason = !err.empty();                    // libcurl's own text for the closed connection
+                const bool own_reason = !err.empty();   // libcurl's own text for the closed / refused connection
 #endif
+                detail += std::string(name) + ": ok=" + std::to_string(ok) + " t=" + num(secs) + "s err='" + err + "' ";
+                return !ok && secs < 2.0 && own_reason && err.rfind("stalled:", 0) != 0 && !exists(dest) &&
+                       !exists(sdcard::partial_path(dest)) && !exists(sdcard::resume_record_path(dest));
+            };
+            std::string detail;
+            const bool closed = fails_at_once(srv.url(), "closed", detail);
+            const bool refused = fails_at_once(gone_url, "refused", detail);
             check("PROV-STALL-09",
-                  "a server that closes the connection without answering ends the attempt in under 2 s (the stall "
-                  "timeout is 5 s) with the transport's own reason - 'transfer ... (WinHTTP error N)', N not 0, on "
-                  "WinHTTP, libcurl's text otherwise - never 'stalled:', and leaves no dest, .part or record",
-                  !ok && secs < 2.0 && own_reason && err.rfind("stalled:", 0) != 0 && !exists(dest) &&
-                      !exists(sdcard::partial_path(dest)) && !exists(sdcard::resume_record_path(dest)),
-                  "ok=" + std::to_string(ok) + " t=" + num(secs) + "s err='" + err + "'");
+                  "a server that closes the connection without answering, and a port nothing listens on, each end "
+                  "the attempt in under 2 s (the stall timeout is 5 s) with the transport's own reason - "
+                  "'transfer ... (WinHTTP error N)', N not 0, on WinHTTP, libcurl's text otherwise - never "
+                  "'stalled:', and leave no dest, .part or record",
+                  closed && refused, detail);
         }
     }
 
