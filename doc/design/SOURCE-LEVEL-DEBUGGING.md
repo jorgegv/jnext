@@ -153,9 +153,11 @@ every reader of the stores perform before reading — deferred because a rewind
 restores a snapshot and then replays forward, so only where it lands counts. If
 the machine now stands BEFORE the attach point, the sidecar stores are dropped:
 in that history the program has not been loaded. Stores the user loaded are
-never dropped this way. A program loaded from inside the machine (the NextZXOS
-browser, a chain-loading NEX) is not seen by the backend; the map is reloaded by
-hand. (The full lifetime model is E23-10's.)
+never dropped this way. A program the guest loads for itself (the NextZXOS
+browser, `LOAD ""`) is not seen by the backend; the map is reloaded by hand. A
+sibling NEX run under `--esxdos-stub` (`.RUN`) is a load like any other: the
+loop owner cold-boots with it, which drops the old sidecars, and attaches the new
+program's. (The full lifetime model is E23-10's.)
 
 **Identity.** A sidecar SLD whose identity does not match the program in memory
 is rejected and logged. A map loaded by hand that does not match is offered

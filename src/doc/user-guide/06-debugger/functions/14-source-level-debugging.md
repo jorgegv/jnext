@@ -31,12 +31,14 @@ They belong to the program that was loaded with them. Loading the next program
 replaces them, or clears them if it has none. They are also dropped when the
 machine is reset, when a state is restored from a snapshot, a bookmark or a
 remote debugger, and when you rewind to a point before the program was loaded
-(rewinding to a point after it keeps them). A program loaded from inside the
-machine, such as one chosen in the NextZXOS browser or a NEX that loads
-another, is not seen by JNEXT: load its source map by hand (below). A tape
-(`.tap`, `.tzx`, `.wav`) is not attached automatically: its program is not in
-memory until the tape has loaded, so load its source map by hand (below) once
-it has.
+(rewinding to a point after it keeps them). A program the guest loads for
+itself, such as one chosen in the NextZXOS browser or started with `LOAD ""`,
+is not seen by JNEXT: load its source map by hand (below). With
+`--esxdos-stub`, a `.RUN` of a sibling NEX is a load like any other: the
+machine cold-boots with it, which drops the old ones, and the new program's
+are attached. A tape (`.tap`, `.tzx`, `.wav`) is not attached automatically:
+its program is not in memory until the tape has loaded, so load its source map
+by hand (below) once it has.
 
 Symbols or a source map you loaded by hand (below), or a MAP
 given with `--map`, are kept instead: they are your choice, not the program's.
