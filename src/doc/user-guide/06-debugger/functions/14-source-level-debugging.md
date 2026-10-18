@@ -23,8 +23,9 @@ for:
 Each one found is loaded and named in the log (`Loaded 2 NextBuild symbols
 from …`, `Loaded 812 SLD source traces from …`). This happens in every
 frontend, with or without the debugger window open, but only the Qt debugger
-shows them: with `--headless`, and in the SDL-only build, they are attached
-and logged and nothing reads them yet.
+shows the source map: with `--headless`, and in the SDL-only build, it is
+attached and logged and nothing reads it yet (a remote debugger can still look
+up the symbols).
 
 They belong to the program that was loaded with them. Loading the next program
 replaces them, or clears them if it has none. They are also dropped when the
