@@ -52,7 +52,7 @@
 // while assuming the debugger was always there: H115-19 and H115-25 (View >
 // Debugger, inside main_window.cpp's `#ifdef`) and H115-29 (FEATURES.md names
 // the disassembly panel's Ctrl+A / Ctrl+C and rewind's Shift+F6 / Shift+F7).
-// Every one of the 45 rows runs in BOTH configurations — the row count is
+// Every row runs in BOTH configurations — the row count is
 // pinned in test/unit-tests.conf and a vanishing row is a harness failure —
 // and the three above assert the property their configuration actually has.
 // The default build is byte-for-byte unaffected.
@@ -915,30 +915,46 @@ void test_alt_reset_keys() {
     QApplication::processEvents();
     disarm_actions(w3);
 
-    // H380-06 — Alt+F1 requests no hard reset; plain F1 still does (zxnext.vhd:6340
-    // hotkey_hard_reset -> :6371 nr_02_hard_reset, unconditional).
-    {
-        emu.take_hard_reset_request();                        // start clean
-        type_key(w3, Qt::Key_F1, {kAlt});
-        const bool alt_requested = emu.take_hard_reset_request();
-        type_key(w3, Qt::Key_F1, {});
-        const bool plain_requested = emu.take_hard_reset_request();
-        check("H380-06", "With an emulator attached, Alt+F1 requests no hard reset, and F1 alone does",
-              !alt_requested && plain_requested,
-              std::string("alt_f1_requested=") + (alt_requested ? "1" : "0") +
-                  " plain_f1_requested=" + (plain_requested ? "1" : "0"));
-    }
-
-    // H380-07 — the Alt variants of F4 quit and start no soft reset; plain F4 does.
-    // Observed in the reset_type FSM, which only a strobed soft reset advances:
-    // zxnext.vhd:1736 `'0' & rt(2) & (rt(1) or rt(0))`, so 100 -> 010.
+    // H380-06 - Alt+F1 does nothing at all: no hard reset, no soft reset and no
+    // Quit (Quit is F4's), alone or with Meta (only a testFlag(Alt) refuses both;
+    // Shift and Ctrl were refused before). Plain F1 still requests the hard reset
+    // (zxnext.vhd:6340 hotkey_hard_reset -> :6371 nr_02_hard_reset, unconditional)
+    // and does not quit. The soft-reset witness is reset_type(), as in H380-07; it
+    // must read 100 first, or "unchanged" would prove nothing.
     {
         QuitWatch watch(w3);
+        emu.take_hard_reset_request();                        // start clean
+        const uint8_t rt0 = emu.nmi_source().reset_type();
+        type_key(w3, Qt::Key_F1, {kAlt});
+        type_key(w3, Qt::Key_F1, {kMeta, kAlt});
+        const bool alt_requested = emu.take_hard_reset_request();
+        const uint8_t rt_alt = emu.nmi_source().reset_type();
+        const int fired_alt = watch.fired;
+        type_key(w3, Qt::Key_F1, {});
+        const bool plain_requested = emu.take_hard_reset_request();
+        check("H380-06", "With an emulator attached, Alt+F1 and Meta+Alt+F1 request no reset of either "
+                         "kind and do not quit, and F1 alone requests the hard reset and does not quit",
+              rt0 == 0b100 && !alt_requested && rt_alt == rt0 && fired_alt == 0 &&
+                  plain_requested && watch.fired == 0,
+              watch.detail() + " alt_f1_hard_requested=" + (alt_requested ? "1" : "0") +
+                  " plain_f1_hard_requested=" + (plain_requested ? "1" : "0") +
+                  " rt0=" + std::to_string(rt0) + " rt_after_alt=" + std::to_string(rt_alt) +
+                  " quits_after_alt=" + std::to_string(fired_alt));
+    }
+
+    // H380-07 - the Alt variants of F4 quit and start no reset of either kind; plain
+    // F4 soft-resets. The soft reset is observed in the reset_type FSM, which only a
+    // strobed soft reset advances: zxnext.vhd:1736 `'0' & rt(2) & (rt(1) or rt(0))`,
+    // so 100 -> 010. The hard reset is the request flag the frontend polls.
+    {
+        QuitWatch watch(w3);
+        emu.take_hard_reset_request();                        // start clean
         const uint8_t rt0 = emu.nmi_source().reset_type();
         type_key(w3, Qt::Key_F4, {kAlt});
         type_key(w3, Qt::Key_F4, {kCtrl, kAlt});
         type_key(w3, Qt::Key_F4, {kMeta, kAlt});
         const uint8_t rt_alt = emu.nmi_source().reset_type();
+        const bool alt_hard = emu.take_hard_reset_request();
         const int fired = watch.fired;
         type_key(w3, Qt::Key_F4, {});                 // the Soft Reset QAction's F4
         const uint8_t rt_plain = emu.nmi_source().reset_type();
@@ -950,13 +966,14 @@ void test_alt_reset_keys() {
         w3.menuBar()->show();
         const uint8_t rt_plain_hidden = emu.nmi_source().reset_type();
         check("H380-07", "With an emulator attached, Alt+F4, Ctrl+Alt+F4 and Meta+Alt+F4 trigger File "
-                         "> Quit and start no soft reset, and F4 alone soft-resets and does not quit, "
-                         "menu bar shown or hidden",
-              watch.quit != nullptr && rt0 == 0b100 && rt_alt == 0b100 && fired == 3 &&
+                         "> Quit and start no soft or hard reset, and F4 alone soft-resets and does "
+                         "not quit, menu bar shown or hidden",
+              watch.quit != nullptr && rt0 == 0b100 && rt_alt == 0b100 && !alt_hard && fired == 3 &&
                   rt_plain == 0b010 && rt_plain_hidden == 0b001 && watch.fired == 3 &&
                   watch.f4_to_guest == 0,
               watch.detail() + " rt0=" + std::to_string(rt0) + " rt_after_alt=" +
-                  std::to_string(rt_alt) + " rt_after_plain=" + std::to_string(rt_plain) +
+                  std::to_string(rt_alt) + " alt_f4_hard_requested=" + (alt_hard ? "1" : "0") +
+                  " rt_after_plain=" + std::to_string(rt_plain) +
                   " rt_after_plain_hidden=" + std::to_string(rt_plain_hidden));
     }
 }
