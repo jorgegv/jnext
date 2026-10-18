@@ -801,10 +801,10 @@ for each `<KIND>` (`CODE`, `RODATA`, `DATA` or `BSS`), `<KIND>_PAGE_<n>`, `<KIND
    for `_H` and at `(org & 0x3fff) + 0xc000` for the rest: a byte of a plain bank is at bank
    offset `addr16 & 0x3fff`, whatever the ORG. For a bank, a page computed from the distance
    to the ORG is wrong when the ORG is not 16K-aligned (`BANK_10` at $E000 starts in page 21,
-   not 20). Checked on 2026-10-18 by scratch builds on 2.4 and on the latest install (newlib, sccz80,
-   one function): in `BANK_10` at ORG $C000 or $D000 it is in page 20, at $E000 or $A000 in
-   page 21; in `BANK_10_L` (ORG $C000) in page 20; in `BANK_10_H` (ORG $E000 or $C000) in
-   page 21.
+   not 20). Checked on 2026-10-18 by scratch builds on 2.4 and on the latest install (newlib,
+   sccz80, one function): in `BANK_10` at ORG $C000 or $D000 it is in page 20, at $E000 or
+   $A000 in page 21; in `BANK_10_L` (ORG $C000) in page 20; in `BANK_10_H` (ORG $E000 or
+   $C000) in page 21.
 3. A value above 0xFFFF in a section whose name has no number (none of z88dk's standard memory
    maps has one; a user memory map can): bits 16 to 23 are the 8K page, and the upper 8K of an
    even page adds 1 (DeZog's rule, right for classic after 72ea9d221b). This rule exists only
