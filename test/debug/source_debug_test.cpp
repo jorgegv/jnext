@@ -1700,6 +1700,23 @@ int main() {
                       " " + m.where());
         }
         {
+            // The disassembler's length is the true one for a redundant-prefix chain: ZRCP's
+            // cpu-step-over runs to pc + instruction_length(), the panel and the ZRCP disassembler
+            // advance by byte_count; a clamp at 4 lands in the middle of `DD FD LD IY,nn`.
+            Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+            const uint8_t prog[] = {0xDD, 0xFD, 0x21, 0x34, 0x12, 0x00};   // DD FD LD IY,$1234 ; NOP
+            for (size_t i = 0; i < sizeof prog; ++i)
+                m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+            const auto lines = m.dbg->disassemble(0x8000, 2, nullptr);
+            check("SRCDBG-ID-49", "DD FD LD IY,nn: the disassembler's byte_count and the debugger's "
+                                  "instruction_length are 5, and the next line starts at $8005",
+                  lines.size() == 2 && lines[0].byte_count == 5 && lines[0].bytes[3] == 0x34 &&
+                      m.dbg->instruction_length(0x8000) == 5 && lines[1].addr == 0x8005,
+                  lines.empty() ? std::string("no lines")
+                                : "count=" + std::to_string(lines[0].byte_count) + " len=" +
+                                      std::to_string(m.dbg->instruction_length(0x8000)));
+        }
+        {
             // The Multiface's 0x0066 latch across a prefix chain: CB at $0065 (RAM), the M1 of the inner
             // byte at $0066 latches the armed Multiface (multiface.vhd:169-186), so that byte is the
             // Multiface ROM's 3F (SRL A) and the trace shows CB 3F; RAM's 07 (RLC A) is not run.

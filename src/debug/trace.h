@@ -12,7 +12,8 @@ struct TraceEntry {
     uint16_t af2, bc2, de2, hl2; // alternate register set
     uint16_t ix, iy, sp;
     uint8_t  opcode_bytes[4]; // raw bytes
-    int      opcode_len;      // 1-4
+    int      opcode_len;      // the instruction's true length: 1-4, more for a DD/FD prefix
+                              // chain (opcode_bytes holds the first 4)
 
     // GH #276 B4 — §4.2 INS-13 / REQ-zrcp-08: what DeZog's ZRCP reverse-step
     // parser reads from a `cpu-history` entry and asserts on when absent

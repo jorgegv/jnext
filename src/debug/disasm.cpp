@@ -759,8 +759,9 @@ static DisasmLine disasm_ddfd(uint16_t addr, DisasmReadFn const& read_fn, uint8_
     // Rebuild with the prefix byte included
     DisasmLine result;
     result.addr = addr;
+    // The TRUE length: a redundant-prefix chain (DD FD LD IY,nn) is 5 bytes or more, and step-over,
+    // the panel and the ZRCP disassembler advance by it. Only the displayed bytes[] stop at 4.
     result.byte_count = inner.byte_count + 1;
-    if (result.byte_count > 4) result.byte_count = 4; // safety clamp
     result.bytes[0] = prefix;
     for (int i = 0; i < inner.byte_count && i < 3; i++) {
         result.bytes[i + 1] = inner.bytes[i];

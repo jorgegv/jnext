@@ -546,7 +546,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         x += ADDR_WIDTH;
         painter.setPen(palette_tint::ink(palette(), QColor(150, 150, 150)));
         QString bytes_str;
-        for (int b = 0; b < entry.line.byte_count; ++b) {
+        for (int b = 0; b < entry.line.byte_count && b < 4; ++b) {   // bytes[] holds 4
             if (b > 0) bytes_str += ' ';
             bytes_str += QString::asprintf("%02X", entry.line.bytes[b]);
         }

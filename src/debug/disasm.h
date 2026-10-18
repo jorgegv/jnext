@@ -5,8 +5,8 @@
 
 struct DisasmLine {
     uint16_t addr;           // address of instruction
-    uint8_t  bytes[4];       // raw bytes (max 4 for standard Z80; DDCB/FDCB can be 4)
-    int      byte_count;     // 1-4
+    uint8_t  bytes[4];       // the first (up to) 4 raw bytes, for display
+    int      byte_count;     // the instruction's true length: 1-4, more for a DD/FD prefix chain
     char     mnemonic[64];   // null-terminated mnemonic string
 };
 
