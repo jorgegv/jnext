@@ -957,19 +957,20 @@ backend calls `SdcardGuiProvisioner::progress`, which pumps the event loop: the
 cadence is the backends' business, not a worker thread's. The rule exists once.
 `StallWatch` answers "how long since the byte count last changed", `download_step`
 is the per-tick decision both backends take (report, honour a cancel, test the
-watch), `DownloadTimings` carries the two numbers (tests pass short ones to
-`http_download`; `default_http_download` forwards the production pair), and the
-dialog uses the same watch for its notice: once 5 s (`kStallNoticeMs`) pass with no
-byte its label gains `Stalled: no data received for N s`, the seconds counting up
+watch), `DownloadTimings` carries the two numbers and the WinHTTP read size (tests
+pass short ones to `http_download`; `default_http_download` forwards the production
+values), and the dialog uses the same watch for its notice: once 5 s
+(`kStallNoticeMs`) pass with no byte its label gains `Stalled: no data received for N s`, the seconds counting up
 and the note gone when bytes arrive. The dialog's watch starts when it opens, so a
 slow answer to the confirm box is not a stall.
 
 The libcurl twin runs the transfer on the multi interface: `curl_multi_perform`,
 `download_step`, then `curl_multi_poll` for one tick. With the easy interface the
-progress callback fires about once a second at best and not at all while nothing
-arrives, so the window repainted at 1 Hz and a stall could not be named;
-`CURLOPT_LOW_SPEED_*` is gone because its moving average overshot (120 s set, 126 s
-measured) and a second mechanism would be a second message. `curl_multi_poll` needs
+progress callback is frequent while data flows but slows to about one call a second
+when nothing arrives (libcurl documents it; 1.00 s gaps measured through a 15 s
+stall), so the window repainted at about 1 Hz through a stall and nothing named the
+stall; `CURLOPT_LOW_SPEED_*` is gone because its moving average overshot (120 s set,
+126 s measured) and a second mechanism would be a second message. `curl_multi_poll` needs
 libcurl 7.66, which every packaged target exceeds. A `file://` URL (a test seam,
 and the Flatpak build) is read inside one `curl_multi_perform` call and has no
 ticks. The WinHTTP twin is asynchronous (`WINHTTP_FLAG_ASYNC`) because the contract
@@ -987,8 +988,9 @@ abort returns at once while WinHTTP may still be completing a read into that buf
 and nothing touches the state after `WinHttpCloseHandle`. The callback only stores
 atomics and signals (no logging, no globals) and is declared `CALLBACK`, which the
 i686 builds need. Reads are sized by `WinHttpQueryDataAvailable`, so every byte that
-arrived reaches the `.part`; the receive timeout is only a backstop 30 s behind the
-stall timeout.
+arrived reaches the `.part`, and a read never asks for more than the buffer holds
+(`DownloadTimings::read_bytes`, 64 KiB); the receive timeout is only a backstop 30 s
+behind the stall timeout.
 
 Under wine the rows (`PROV-STALL-*`, `PIT-43`) show the tick cadence, the stall, the
 cancel and the resume on the WinHTTP backend; they cannot show four things. Windows'
@@ -1002,5 +1004,13 @@ it until data, EOF, the server's close or the backstop (measured 58 s), so a row
 abandons a connection builds its own server and lets its destructor close it; the
 caller's result and timing are the same, only the abandoned socket lives longer. And
 TLS under asynchronous WinHTTP, and the read-fill semantics and error codes of real
-Windows (wine fills the buffer and reports a read timeout as 10060): the rows use
-plain `http` on loopback, and https to the real mirrors is exercised only by use.
+Windows (wine fills the buffer, reports a read timeout as 10060 and never reports
+more than 8 KiB available: measured over the whole provisioner suite, 8192 at most):
+the rows use plain `http` on loopback, and https to the real mirrors is exercised
+only by use. How much real Windows reports available is therefore not observable
+here; the clamp of a read to the buffer binds under wine only because `PROV-STALL-10`
+lowers `read_bytes` to 1000, and the buffer is the one limit that does not depend on
+that number. The error side is pinned the same way: `PROV-STALL-09` makes a server
+close without answering and a port refuse the connection, one per stage of the
+asynchronous sequence, and requires the transport's own reason at once, never a
+stall.
