@@ -860,6 +860,32 @@ int main() {
                                "its size over the cap",
               r.problem.find(why) != std::string::npos, r.problem);
     }
+    {
+        // Both sidecars refused in one load: the second reason is appended to
+        // the first with "; " (symbols first, then the source map), not
+        // written over it.
+        Machine m;
+        write_text(own / "own5.nex", "");
+        const fs::path big = own / "own5.Memory.txt";
+        write_text(big, "8000: ._Big\n");
+        std::error_code ec;
+        fs::resize_file(big, SOURCE_FILE_MAX_BYTES + 1, ec);
+        write_text(own / "own5.sld", "this is not an SLD\n");
+        const auto r = m.dbg->load_program_sidecars((own / "own5.nex").string());
+        fs::remove(big);
+        const size_t sep = r.problem.find("; ");
+        const std::string head = r.problem.substr(0, sep);
+        const std::string tail = sep == std::string::npos ? std::string() : r.problem.substr(sep + 2);
+        check("SRCDBG-OWN-05", "a program whose Memory.txt and SLD are both refused reports "
+                               "both: the symbols' reason, then \"; \", then the source map's",
+              !ec && sep != std::string::npos && head.rfind("NextBuild symbols '", 0) == 0 &&
+                  head.find("own5.Memory.txt' rejected: file is " +
+                            std::to_string(SOURCE_FILE_MAX_BYTES + 1) + " bytes") !=
+                      std::string::npos &&
+                  tail.rfind("source map '", 0) == 0 &&
+                  tail.find("own5.sld' rejected: missing SLD.data.version") != std::string::npos,
+              r.problem);
+    }
     // ── a tape program gets no automatic map ────────────────────────────
     {
         Machine m;
