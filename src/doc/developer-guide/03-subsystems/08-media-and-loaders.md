@@ -861,9 +861,20 @@ NR 0x82 = 0xC0). That is how Fuse (`RAM[bank][address & 0x3FFF]`) and ZEsarUX
 index it for every address, and JNEXT follows them (GH #381).
 The CPU view alone would bank only 0xC000-0xFFFF (port 0x7FFD writes MMU6 and
 MMU7 and nothing else, `zxnext.vhd:4679-4680`; MMU2-5 keep pages 0A 0B 04 05,
-`:4613-4616`), but real files name a bank for lower addresses too (Starglider's
-"Infinite Missiles (Bank#0)" has `M 0 44796`), and those lines mean nothing in
-that view. Every other poke (bank 8-15, "ignore the bank") is the RAM page
+`:4613-4616`), but real files name a bank for lower addresses too, and the rule
+above gives those lines a meaning the CPU view does not. **It is not always the
+author's.** On the real 128K Starglider (loaded from its tape, snapshot at the
+title), "Infinite Missiles (Bank#0)" is `M 0 44796 2 0` / `Z 0 60367 0 0`: the
+second line lands on `3D` (`DEC A`) in `LD A,(0x5628) / AND A / JR Z / DEC A /
+LD (0x5628),A` in bank 0, the missile counter; the first, read as the CPU
+address 0xAEFC (bank 2), is the `01` operand of `LD A,1 / LD (0x5628),A`, the
+counter's reset. Read as bank 0 offset 0x2EFC, as Fuse and ZEsarUX read it, it
+changes `47` in bank 0 instead (a bank diff of the two snapshots shows exactly
+those two bytes). So for that file the hardware reading is the right one and the
+bank-relative one misses a byte and changes another; the owner chose the
+bank-relative reading all the same (GH #381, Q2), and going back is the
+`p.address >= 0xC000` condition in `Session::locate()` plus rows POK-33, POK-34
+and POK-57. Every other poke (bank 8-15, "ignore the bank") is the RAM page
 `Debugger::mmu_slots()` reports for the address when the trainer is applied, not
 `poke(Cpu)`, which would follow a Layer 2 write-over mapping that reads do not.
 

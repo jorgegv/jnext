@@ -101,10 +101,15 @@ line naming another bank is refused, with a message. A trainer whose lines say
 bank 8 writes into whatever bank the game has paged in at that moment, so apply
 it while the game is running normally.
 
-Real files do name a bank for an address below 0xC000: Starglider's "Infinite
-Missiles (Bank#0)" has a line for bank 0 at address 44796 (0xAEFC). A 128K
-program pages only 0xC000-0xFFFF, so the memory map has no bank 0 there and the
-line means byte 0x2EFC of bank 0, which is where it goes.
+Real files do name a bank for an address below 0xC000. The 128K Starglider's
+"Infinite Missiles (Bank#0)" has a line for bank 0 at address 44796 (0xAEFC); JNEXT
+writes byte 0x2EFC of bank 0 for it, as Fuse and ZEsarUX do. Be aware that in that
+file the byte the game uses is the one the CPU sees at 0xAEFC, which is in bank 2
+(it is the `1` of an `LD A,1` that sets the missile counter), so that line misses
+it and changes a byte of bank 0 instead; the trainer's other line, at 60367,
+lands where it should, and the missiles still never run out. A [debugger
+script](#without-the-window) can poke the CPU address, `set mem[44796] = 2`, when
+that matters.
 
 A trainer is applied **all or nothing**. If one of its pokes cannot land (an
 address that is ROM in the current memory map, a bank the machine does not
@@ -160,10 +165,12 @@ $ jnext --headless --machine 48k game.tap \
 
 The numbers are the order of the `N` lines in the file (`grep -n '^N' game.pok`
 lists them), and the log names each trainer as it is applied. Pick the frame by
-when the game has reached the point you want: a tape takes a few hundred frames
-to load, and a `--delayed-screenshot` at a guessed frame shows where it is. With
-a snapshot, `--delayed-pok-frames 0` applies the trainers in the first frame,
-right after the snapshot has loaded.
+when the game has reached the point you want, and look with a
+`--delayed-screenshot` at a guessed frame: a tape loaded with the fast loader is
+ready after a few hundred frames (the 48K Starglider shows its menu at 150), one
+loaded in real time (`--tape-realtime`) takes as many frames as it has seconds
+of tape times 50. With a snapshot, `--delayed-pok-frames 0` applies the
+trainers in the first frame, right after the snapshot has loaded.
 
 Everything that can be checked is checked before the machine starts, and a
 failure exits with status 1: a file that cannot be read, is larger than 1 MiB or

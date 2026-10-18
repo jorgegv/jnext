@@ -34,7 +34,9 @@
 // address below 0xC000: Starglider's "Infinite Missiles (Bank#0)" has `M 0 44796`.
 // The CPU does not bank those addresses (port 0x7FFD writes MMU6/MMU7 only,
 // zxnext.vhd:4679-4680; MMU2-5 keep pages 0A 0B 04 05, :4613-4616), so for them
-// the line is read as "byte N of bank b", not as a CPU-view address.
+// the line is read as "byte N of bank b", not as a CPU-view address. CAUTION, from
+// the real game (developer guide 3.8): in that very file the CPU-view reading is
+// the one the game's code supports, so for it the first line misses its byte.
 //
 // UNDO (D5, D6). `apply` records, per location it writes, the byte it replaced,
 // and `remove` writes exactly those bytes back to exactly those locations. Whether
