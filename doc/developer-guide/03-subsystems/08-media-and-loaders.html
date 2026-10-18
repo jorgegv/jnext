@@ -3311,7 +3311,9 @@ down (it becomes a NOP). The first is the CPU address 0xAEFC (bank 2), the opera
 of the <code>LD A,1</code> that resets the same counter; read as byte 0x2EFC of bank 0, as
 Fuse and ZEsarUX read it, it changes an unrelated byte of bank 0 instead and the
 reset stays 1 (a bank diff of two snapshots, with and without the trainer, shows
-exactly those two bytes).</p>
+exactly those two bytes).
+The decision, the evidence and what would reopen it are in
+<code>doc/analysis/POK-BANKED-POKES-BELOW-C000.md</code>.</p>
 <p><strong>Undo and state.</strong> <code>Session::apply</code> resolves every poke to a location, reads
 every original <strong>before</strong> writing anything (so a refusal leaves memory untouched
 and a trainer that pokes one address twice restores the byte from before the

@@ -873,6 +873,8 @@ of the `LD A,1` that resets the same counter; read as byte 0x2EFC of bank 0, as
 Fuse and ZEsarUX read it, it changes an unrelated byte of bank 0 instead and the
 reset stays 1 (a bank diff of two snapshots, with and without the trainer, shows
 exactly those two bytes).
+The decision, the evidence and what would reopen it are in
+`doc/analysis/POK-BANKED-POKES-BELOW-C000.md`.
 
 **Undo and state.** `Session::apply` resolves every poke to a location, reads
 every original **before** writing anything (so a refusal leaves memory untouched

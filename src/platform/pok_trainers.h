@@ -35,6 +35,7 @@
 // followed: on the real 128K Starglider "Infinite Missiles (Bank#0)" has `M 0 44796`
 // for the CPU address 0xAEFC (the operand of the missile counter's `LD A,1`), and
 // the bank-relative reading changes another byte instead (developer guide 3.8).
+// Decision record and evidence: doc/analysis/POK-BANKED-POKES-BELOW-C000.md.
 //
 // UNDO (D5, D6). `apply` records, per location it writes, the byte it replaced,
 // and `remove` writes exactly those bytes back to exactly those locations. Whether
