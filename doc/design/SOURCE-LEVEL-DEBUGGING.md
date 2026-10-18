@@ -132,9 +132,12 @@ fixture; the others are from the planning builds.
   headers, `util.h`, declarations; fixture: `main.c:0`, `util.h:13`). They are dropped, keyed
   on the empty section.
 - G3. Several lines share one address (fixture: 16 and 17 at $8C95, 24 and 25 at $8D12,
-  `util.c` 5 and 6 at $8D38), some across functions (fixture: line 14 is `square`'s closing
-  brace and line 15 is `main`'s opening brace, both at $8C92). The function field tells a
-  zero-width line of the previous function from the line that owns the address.
+  `util.c` 5 and 6 at $8D38), some across functions (fixture: line 14, `int main(void)`,
+  carries `square`'s scope and line 15, `main`'s opening brace, carries `main`'s; both are at
+  $8C92, because sccz80 closes a function's scope on the line where it reads the next
+  declaration: the 2.4 listing, rebuilt on 2026-10-18, emits `C_LINE 14,"main.c::square::0::1"`
+  after `square`'s `ret`). The function field tells a zero-width line of the previous
+  function from the line that owns the address.
 - G4. 2.4 only (fixed on master by 1621b2a128, 2026-01-14): sccz80 attributes part of a
   statement to the next line (fixture: line 19 at $8CB5, line 20 at $8CBE; on master line 20
   starts at $8CCD). A property of the toolchain: documented for 2.4 users, never repaired by an
