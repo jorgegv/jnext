@@ -8716,6 +8716,78 @@ int main() {
                       std::string(jnext::dbg::result_name(none.status)) + " " + std::to_string(none.value));
             std::remove(empty.c_str());
         }
+        {
+            // The rule behind --map's pick, which the user guide and
+            // symbol_table.h both promise: the FIRST line alone says which
+            // dialect a file is, and no other line votes. SYM-29 loads real
+            // files that are wholly one dialect; these straddle the rule, the
+            // way a hand-edited or concatenated copy does: the real
+            // equlabels.sym behind something else, or in front of a real z88dk
+            // map. The z88dk names and addresses are read off nodebug.map.
+            const std::string eq  = bytes(JNEXT_SJASMEQU_DIR "/equlabels.sym");
+            const std::string map = bytes(JNEXT_ZDEBUGMAP_DIR "/nodebug.map");
+            static const WantName kMap[] = {
+                {"_asm_bump", 0x8D30}, {"_counter", 0x8F22}, {"_main", 0x8C73},
+                {"_square", 0x8C5F},   {"_table", 0x8F23},   {"_util_twice", 0x8D06},
+            };
+            constexpr size_t kMapN = sizeof(kMap) / sizeof(kMap[0]);
+            // Positive controls: the pieces are what the cases below say they are,
+            // 18 EQU lines opening with one, and 6 z88dk lines with none.
+            const bool control = count_of(eq, ": EQU 0x") == 18 && eq.rfind("NEG: EQU 0xFFFFFFFF\n", 0) == 0 &&
+                                 count_of(map, "; addr") == 6 && count_of(map, "EQU") == 0;
+            // The names of `w` that resolve: a table that must NOT hold them.
+            auto present = [](const Debugger& d, const WantName* w, size_t n) {
+                std::string found;
+                for (size_t i = 0; i < n; ++i)
+                    if (d.lookup_name(w[i].name)) found += std::string(w[i].name) + " ";
+                return found;
+            };
+            Emulator emu; build(emu);
+            Debugger dbg(emu);
+            auto load_text = [&](const std::string& text) {
+                const std::string path = tmp_file("gh390_first", ".sym");
+                { std::ofstream f(path, std::ios::binary); f << text; }
+                const auto r = dbg.load_map(path, MapFormat::Z88dkOrSjasmplus);
+                std::remove(path.c_str());
+                return r;
+            };
+
+            // A first line that is not an EQU line: a z88dk map to its end, the
+            // 18 EQU lines behind it or not.
+            struct Z88dkFirst { const char* what; std::string text; bool has_map; };
+            const Z88dkFirst kZ88dkFirst[] = {
+                {"comment",   "; my labels, edited by hand\n" + eq, false},
+                {"blank",     "\n" + eq,                            false},
+                {"z88dk map", map + eq,                             true},
+            };
+            std::string bad_z88dk;
+            for (const Z88dkFirst& c : kZ88dkFirst) {
+                const auto r = load_text(c.text);
+                const size_t want = c.has_map ? kMapN : 0;
+                if (r.status != Result::Ok || r.value != static_cast<int>(want) || dbg.symbols().size() != want ||
+                    !present(dbg, kSym, kSymN).empty() || (c.has_map && !wrong_names(dbg, kMap, kMapN).empty()))
+                    bad_z88dk += std::string(c.what) + " ";
+            }
+            check("SYM-31", "a file whose FIRST line is not an sjasmplus EQU line is a z88dk map to its end, "
+                            "however many EQU lines follow: behind a ; comment or a blank line the 18 lines of "
+                            "equlabels.sym load nothing (Ok, 0, empty table), behind a real z88dk map only its "
+                            "6 entries load",
+                  control && bad_z88dk.empty(),
+                  "control=" + std::to_string(control) + " bad: " + bad_z88dk);
+
+            // A first line that IS an EQU line: sjasmplus's to its end, a z88dk
+            // map behind it (the last lines of the file) never read.
+            const auto r = load_text(eq + map);
+            const std::string bad_names = wrong_names(dbg, kSym, kSymN);
+            const std::string bad_addrs = wrong_addrs(dbg, kSymAt, kSymAtN);
+            check("SYM-32", "a file whose FIRST line is an sjasmplus EQU line is read as sjasmplus to its end, "
+                            "whatever follows: equlabels.sym with a real z88dk map behind it loads its 16 "
+                            "entries naming 14 addresses, and not one of the map's 6 names resolves",
+                  control && r.status == Result::Ok && r.value == 16 && bad_names.empty() && bad_addrs.empty() &&
+                      dbg.symbols().size() == 14 && present(dbg, kMap, kMapN).empty(),
+                  "control=" + std::to_string(control) + " " + std::to_string(r.value) + " names: " + bad_names +
+                      "addrs: " + bad_addrs + "map names: " + present(dbg, kMap, kMapN));
+        }
     }
 
     // =======================================================================

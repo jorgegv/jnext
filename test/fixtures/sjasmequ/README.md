@@ -48,7 +48,9 @@ under the name the EXPORT spells, `draw`), and two labels at `$C000` in differen
     b173a9e8706d3e51703a3c8b1dbadaded32c0a548424d62fb1e6e9629981baf4  equlabels-win.sym
     8552020715a79737fe059fb49daec12b1b307105bd297985c09b1c9b753621ce  equlabels-v1.17.sym
 
-Rows: `SYM-19`..`SYM-30` in `test/debug/debugger_backend_test.cpp`,
+Rows: `SYM-19`..`SYM-32` in `test/debug/debugger_backend_test.cpp` (`SYM-31` and `SYM-32` glue
+`equlabels.sym` to a comment, a blank line or `../zdebugmap/nodebug.map` to pin that the first line picks
+the loader),
 `SCRIPT-HOST-MAP-SJASM`, `-EXP`, `-V117`, `-CONTENT` in `test/script/script_events_test.cpp`,
 `QMAP-05`, `QMAP-06` in `test/debugger/verbs_test.cpp`, and the functional row
 `script-map-pipe-func` (`test/00regression/scripts/`), which feeds `equlabels.sym` to `--map`
