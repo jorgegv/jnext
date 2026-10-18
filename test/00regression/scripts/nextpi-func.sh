@@ -55,7 +55,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      shows the progress dialog (the log says so), then fails with the HTTP
 #      status and the address.
 #  13. (GH #385) Headless, where there is no dialog: a mirror that answers the
-#      checksum of an archive in the folder only after 7 s makes the console and
+#      checksum of an archive in the folder only after 8 s makes the console and
 #      the log say what the dialog would, in order: the line naming what is
 #      fetched and from where (after 1 s), then the stalled note (after 5 s),
 #      then the question that carries on.
@@ -318,7 +318,7 @@ if want nextpi-func; then
     wait "$npeer_pid" 2>/dev/null || true
 
     # Fact 13 - no dialog (headless): the archive of fact 9 again, and a peer that answers the
-    # checksum's request with a 404 only after 7 s (the backend gives up after 30 s, so the answer
+    # checksum's request with a 404 only after 8 s (the backend gives up after 30 s, so the answer
     # comes first). The checksum is a short fetch that passes a second and then stalls: stderr
     # and the log carry the line naming what is fetched and from where, then the stalled note,
     # then the question; the run carries on as in fact 9 (declined, exit 0).
@@ -330,7 +330,7 @@ if want nextpi-func; then
     nport13="$TMP_DIR/nextpi-func-13.port"
     npeer13="$TMP_DIR/nextpi-func-13.peer.log"
     rm -f "$nplog13" "$nout13" "$nport13" "$npeer13"
-    python3 "$SCRIPT_DIR/slow-http-peer.py" "$nport13" 7 404 >"$npeer13" 2>&1 &
+    python3 "$SCRIPT_DIR/slow-http-peer.py" "$nport13" 8 404 >"$npeer13" 2>&1 &
     npeer_pid=$!
     for _ in $(seq 1 100); do
         [[ -s "$nport13" ]] && break

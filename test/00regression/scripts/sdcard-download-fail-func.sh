@@ -36,7 +36,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      always did, no download is attempted, and the log carries no SD-card error,
 #      because declining is the user's own answer and needs no report (main.cpp).
 #   5. a server that is reachable and SLOW (slow-http-peer.py answers the zip's request with
-#      a 404 after 7 s; the backend gives up after 30 s, so the answer comes first): with no
+#      a 404 after 8 s; the backend gives up after 30 s, so the answer comes first): with no
 #      dialog to show it, the console and the log say what the GUI's dialog would, the stalled
 #      note, 5 s in and before the failure it ends in. Run for both frontends that have no
 #      dialog, headless and the SDL-only build: each has its own wiring in main.cpp.
@@ -167,7 +167,7 @@ if want sdcard-download-fail-func; then
     # library owns the one EXIT handler.
     sf_port_file="$sf_dir/slow.port"
     sf_peer_log="$sf_dir/slow.peer.log"
-    python3 "$SCRIPT_DIR/slow-http-peer.py" "$sf_port_file" 7 404 >"$sf_peer_log" 2>&1 &
+    python3 "$SCRIPT_DIR/slow-http-peer.py" "$sf_port_file" 8 404 >"$sf_peer_log" 2>&1 &
     sf_peer=$!
     for _ in $(seq 1 100); do
         [[ -s "$sf_port_file" ]] && break

@@ -1105,7 +1105,7 @@ clock, the stream and the log's copy are parameters, so `PROV-CON-01..11` and
 `PIT-52..56` run all of it on a fake clock and read the stream back as a file; the
 real binary is shown by `sdcard-download-fail-func` fact 5 (both frontends without
 a dialog, each with its own wiring in `main.cpp`) and `nextpi-func` fact 13, against
-a server that answers after 7 s. What no row can show is the NextPi archive's own
+a server that answers after 8 s. What no row can show is the NextPi archive's own
 display being wired in `main.cpp`: its download needs 22 GB free, which the
 regression suite cannot assume, so that one assignment is covered only by the
 classes it uses.
