@@ -55,6 +55,9 @@ PGO_PROFILE_ABS   = $(CURDIR)/$(PGO_PROFILE_DIR)
 # `make bench` measures the non-PGO build: its speed does not move with a
 # retrained profile, so it is the one to compare two code changes with.
 BENCH_BUILD      ?= gui-release-non-pgo
+# `make regression-rows` runs the NON-PGO Release build (no training run on a
+# branch); ROWS_PGO=1 selects the shipped PGO build, `make regression`'s binary.
+ROWS_BUILD        = $(if $(filter 1,$(ROWS_PGO)),gui-release,gui-release-non-pgo)
 # The FUSE suite's case count (test/fuse/tests.in), pinned for fuse-pgo and for
 # the Windows PGO builds' FUSE-under-wine gate (tools/pgo-build.sh).
 FUSE_CASES        = 1356
@@ -191,7 +194,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
-       kloc-count regression regression-win regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
+       kloc-count kloc-count-detailed regression regression-win regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-diagrams read-devguide \
@@ -572,16 +575,25 @@ regression: lint-makefile-help lint-thread-detach lint-ascii-text regression-doc
 	@# prerequisites above, so it is not the gate.
 	JNEXT_REGRESSION_STAMP=1 bash test/00regression/regression.sh
 
-# Run named regression rows (ROWS="a-func b-func") after building the binaries they run
-regression-rows: unit-test-build gui-release sdl-release z88dk-gdb
+# Run named regression rows (ROWS="a-func b-func") on the non-PGO Release build; ROWS_PGO=1 for the PGO one
+regression-rows: unit-test-build $(ROWS_BUILD) sdl-release z88dk-gdb
 	@# GH #295: the targeted run a reviewer, a mutation or a diagnosis uses
 	@# instead of a full one. The three prerequisites are the binaries rows
-	@# execute (build/gui-release/jnext, build/sdl-release/jnext for
-	@# sdl-keypress-func, build/test/* for rewind-func and friends) — the same
-	@# set `regression` declares, minus the gates that only a full run needs.
+	@# execute (the Qt jnext, build/sdl-release/jnext for sdl-keypress-func,
+	@# build/test/* for rewind-func and friends), the same set `regression`
+	@# declares, minus the gates that only a full run needs.
+	@# The Qt jnext is build/gui-release-non-pgo (owner, 2026-10-18): a branch
+	@# runs no PGO build, whose training re-runs after every code change. It is
+	@# the same code, so the rows see the same pixels. ROWS_PGO=1 runs
+	@# build/gui-release instead, for a row whose answer depends on the PGO
+	@# build. JNEXT is pinned explicitly: regression.sh's own search prefers
+	@# build/gui-release/jnext whenever that exists, which would silently
+	@# test a stale PGO binary lying around in the tree.
+	@# The recipe overrides a JNEXT set by the caller; to pin another binary run the bare script.
 	@# A targeted run never takes the host lock and never stamps.
-	@[ -n "$(ROWS)" ] || { printf "$(BADGE_FAIL) FAIL $(RESET) name the rows: make regression-rows ROWS=\"row-a row-b\"\n"; exit 2; }
-	bash test/00regression/regression.sh $(ROWS)
+	@[ -n "$(ROWS)" ] || { printf "$(BADGE_FAIL) FAIL $(RESET) name the rows: make regression-rows ROWS=\"row-a row-b\" [ROWS_PGO=1]\n"; exit 2; }
+	@printf "regression-rows: Qt jnext = build/$(ROWS_BUILD)/jnext\n"
+	JNEXT=$(CURDIR)/build/$(ROWS_BUILD)/jnext bash test/00regression/regression.sh $(ROWS)
 
 # Re-run SOLO the rows a full run failed on a loaded host; stamp the run if all pass
 regression-confirm: unit-test-build gui-release sdl-release z88dk-gdb
@@ -1184,36 +1196,15 @@ worktree-bootstrap:
 		printf "$(BOLD)worktree-bootstrap: not ready yet — see the item(s) above.$(RESET)\n"; \
 	fi
 
-# Count lines of code (excluding comments and blanks), per directory and total
+# Count lines of code (no comments or blanks): src, test and tools, one row each plus the total
 kloc-count:
-	@# The subsystem list is DISCOVERED, not written down: every top-level
-	@# directory under src/ that holds sources, plus test/. Adding a subsystem
-	@# needs no edit here and — the point — cannot silently go uncounted. The
-	@# old hard-coded list had already lost src/profiler, and its `if [ -d ]`
-	@# guard made an unlisted directory and a deleted one look identical: both
-	@# printed nothing. A directory with no .cpp/.h (src/doc, src/save) is
-	@# skipped by the same rule that finds the others, so there is no list of
-	@# exceptions to maintain either.
-	@#
-	@# A module shipping its own suite (src/esp01/test — GH #25) counts that
-	@# suite under the module, not under test/: the proof ships with the code.
-	@#
-	@# `grep -h` is load-bearing. With several files grep prefixes every output
-	@# line with `filename:`, anchoring the following ^-patterns against the
-	@# path instead of the code — so the three comment filters matched NOTHING
-	@# and this target counted comments for as long as it existed, while its
-	@# own header claimed otherwise. Reported total 165,897 -> 105,803.
-	printf "\n$(BOLD)Lines of code (excluding comments and blank lines):$(RESET)\n\n"
-	total=0; \
-	for dir in $$(find src -mindepth 1 -maxdepth 1 -type d | sort) test; do \
-		files=$$(find "$$dir" -name '*.cpp' -o -name '*.h'); \
-		if [ -n "$$files" ]; then \
-			count=$$(echo "$$files" | xargs grep -h -v '^\s*$$' | grep -v '^\s*//' | grep -v '^\s*/\*' | grep -v '^\s*\*' | wc -l); \
-			printf "  $(CYAN)$(BOLD)%-30s$(RESET) %6d\n" "$$dir" "$$count"; \
-			total=$$((total + count)); \
-		fi; \
-	done; \
-	printf "\n  $(BOLD)%-30s %6d$(RESET)\n\n" "TOTAL" "$$total"
+	@# The counting logic (and the DISCOVERED row list, never a hard-coded subsystem
+	@# list) lives in tools/kloc-count.sh, shared with kloc-count-detailed.
+	@BOLD='$(BOLD)' CYAN='$(CYAN)' RESET='$(RESET)' tools/kloc-count.sh
+
+# Count lines of code (no comments or blanks): every src/ and test/ subdirectory and every tools category
+kloc-count-detailed:
+	@BOLD='$(BOLD)' CYAN='$(CYAN)' RESET='$(RESET)' tools/kloc-count.sh --detailed
 
 # Regenerate the man page, USAGE.md and the guide's option page (needs pandoc)
 docs-man:

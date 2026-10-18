@@ -693,6 +693,9 @@ void DebuggerWindow::create_menus() {
     connect(z88dk_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_map_z88dk);
     QAction* simple_action = load_map_menu->addAction(tr("&Simple Format (48K ROM)..."));
     connect(simple_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_map_simple);
+    // GH #390 -- J: Z and S are taken in this popup.
+    QAction* sjasmplus_action = load_map_menu->addAction(tr("s&jasmplus Format (--sym, --exp)..."));
+    connect(sjasmplus_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_map_sjasmplus);
 
     // --- Breakpoints menu ---
     QMenu* bp_menu = bar->addMenu(tr("&Breakpoints"));

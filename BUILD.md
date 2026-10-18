@@ -173,7 +173,8 @@ targets: build variants, per-variant `-run`/`-clean`, tests, packaging, versioni
 | `make gui-clean` | Remove the GUI build directories |
 | `make unit-test-clean` | Remove the `build/` directory |
 | `make clean` | Remove all build directories |
-| `make kloc-count` | Lines of code per directory |
+| `make kloc-count` | Lines of code (no comments or blank lines): src, test and tools, with a complete total |
+| `make kloc-count-detailed` | The same count per directory and language |
 | `make version` | Show the current version |
 | `make bump-patch` / `bump-minor` / `bump-major` / `bump` | Bump the version, commit, tag (`bump` = `bump-minor`) |
 

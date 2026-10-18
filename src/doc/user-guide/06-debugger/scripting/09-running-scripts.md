@@ -5,7 +5,7 @@
 | Option | Does |
 |---|---|
 | `--script FILE` | load a script. Repeat it for more: they load, and their rules run, in the order given |
-| `--map FILE` | load a z88dk `.map` symbol table first, so scripts can say `@name` (the same table **Map ▸ Load MAP File** fills) |
+| `--map FILE` | load a symbol table first, so scripts can say `@name`: a z88dk `.map` or an sjasmplus `--sym` / `--exp` file, told apart by its contents (the same table **Map ▸ Load MAP File** fills) |
 | `--script-key FRAME N` | raise host key *N* (1 to 8) at the edge of frame *FRAME* — headless only, repeatable |
 | `--record-script FILE` | [record the session](10-recording-and-replaying.md) as a replay script |
 

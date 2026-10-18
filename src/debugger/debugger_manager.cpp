@@ -561,6 +561,7 @@ void DebuggerManager::on_load_map_z88dk() {
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(dbg_.symbols().size())
                 .arg(path));
+        refresh_panels();   // GH #390: the Breakpoints / Call Stack names are computed there
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
             QObject::tr("Could not load MAP file:\n%1").arg(path));
@@ -579,6 +580,26 @@ void DebuggerManager::on_load_map_simple() {
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(dbg_.symbols().size())
                 .arg(path));
+        refresh_panels();
+    } else {
+        QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
+            QObject::tr("Could not load MAP file:\n%1").arg(path));
+    }
+}
+
+void DebuggerManager::on_load_map_sjasmplus() {
+    QString path = QFileDialog::getOpenFileName(
+        main_window_, QObject::tr("Load sjasmplus Symbol File"), QString(),
+        QObject::tr("sjasmplus Symbol Files (*.sym *.exp);;All Files (*)"));
+    if (path.isEmpty())
+        return;
+
+    if (dbg_.load_map(path.toStdString(), jnext::dbg::MapFormat::SjasmplusEqu)) {
+        QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
+            QObject::tr("Loaded %1 symbols from:\n%2")
+                .arg(dbg_.symbols().size())
+                .arg(path));
+        refresh_panels();
     } else {
         QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
             QObject::tr("Could not load MAP file:\n%1").arg(path));

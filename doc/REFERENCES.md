@@ -18,6 +18,7 @@ code comments, so there is one place to check when a link rots or a spec moves.
 | Boot sequence (authoritative)                                                      | <https://wiki.specnext.dev/Boot_Sequence>                                   |
 | TBBlue firmware source (GPLv3) — `TBBLUE.FW` / `TBBLUE.TBU`, the IPL + boot module | <https://gitlab.com/thesmog358/tbblue/-/tree/master>                        |
 | TBBlue machine-config boot files (`config.ini` / `menu.ini` / `menu.def`)          | <https://gitlab.com/thesmog358/tbblue/-/blob/master/docs/config/config.txt> |
+| ZX Next FPGA core, branch `30204` (core 3.02.04: the Pi debug control); see [the analysis](analysis/FPGA-CORE-3.02.04-PI-DEBUG-CONTROL.md) | <https://gitlab.com/SpectrumNext/ZX_Spectrum_Next_FPGA/-/tree/30204> |
 
 ## File formats
 
@@ -57,6 +58,21 @@ is easy to get wrong and jnext did:
 | nextpi-sandbox — the QEMU `raspi0` set-up (kernel command line, USB audio) jnext's launcher follows | <https://github.com/vmorilla/nextpi-sandbox> |
 | Wireshark extcap — the named-pipe server (`CreateNamedPipe`, duplex, byte mode) a child opens with `fopen("wb")` on Windows; the precedent for the Pi audio pipe (GH #331) | <https://gitlab.com/wireshark/wireshark/-/blob/master/extcap.c> |
 | QEMU for Windows — builds `qemu-system-arm.exe` that the Windows NextPi launcher runs (install hint, GH #316) | <https://qemu.weilnetz.de/w64/> |
+| QEMU Raspberry Pi boards: the implemented and missing devices of `raspi0` (SPI controller implemented) | <https://www.qemu.org/docs/master/system/arm/raspi.html> |
+| QEMU's BCM2835 SPI0 model, `hw/ssi/bcm2835_spi.c`: polled and interrupt transfers; DMA and LoSSI unimplemented | <https://gitlab.com/qemu-project/qemu/-/blob/master/hw/ssi/bcm2835_spi.c> |
+| heise on QEMU 9.0: SPI and I2C controllers added for every Raspberry Pi model | <https://heise.de/-9697761> |
+
+## Source-level debugging: toolchains and interop formats
+
+Cited by tool, version and file path in [SOURCE-LEVEL-DEBUGGING.md](design/SOURCE-LEVEL-DEBUGGING.md).
+
+| Reference                                                                    | URL                                                      |
+|------------------------------------------------------------------------------|----------------------------------------------------------|
+| z88dk - the `-debug` map, `.lis` listings, `z88dk-gdb`, `appmake` (`src/appmake/zxn.c`) and the zxn memory maps (newlib `crt_memory_map.inc`: `libsrc/_DEVELOPMENT/target/zxn/` in 2.4, `libsrc/newlib/target/zxn/` on master; classic `lib/target/zxn/classic/memory_map.asm`) | <https://github.com/z88dk/z88dk> |
+| DeZog - its z88dk parsers (`src/labels/z88dklabelparserv2.ts`, `z88dkmapfile.ts`) are the oracle for the line-extent rule; read on master, 2026-10-18 (the files as last changed in 558d057877 and f3bb0f5f18; the latest release, v3.7.0 of 2025-12-19, predates both) | <https://github.com/maziac/DeZog> |
+| sjasmplus - the SLD format v1 (`docs/documentation.xml`, chapter "Source Level Debugging (SLD) data", read at v1.23.1) and the `--sym` / `--exp` EQU files | <https://github.com/z00m128/sjasmplus> |
+| SkoolKit - control files (`sphinx/source/control-files.rst`), `sna2skool.py` (`commands.rst`) and the `@bank` directive (`asm.rst`), read on master after release 10.1 | <https://github.com/skoolkid/skoolkit> |
+| Ghidra - `Ghidra/Extensions/Jython/ghidra_scripts/ImportSymbolsScript.py`, the symbol import that the ghidra export targets | <https://github.com/NationalSecurityAgency/ghidra> |
 
 ## Emulators used as oracles / comparison
 

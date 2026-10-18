@@ -3,6 +3,7 @@
 // its own so <windows.h> never reaches the suite's, which includes the
 // emulator's headers (the rule src/core/win_process.cpp states for the product).
 #pragma once
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -71,6 +72,22 @@ public:
 
 private:
     long number_ = -1;
+};
+
+/// The lines the `uart` logger writes while the object lives (the NextPi provisioner logs through it): a
+/// sink on a stream is added to the logger and taken off again. Defined in a translation unit of its own,
+/// nextpi_log_capture.cpp, because spdlog's `fmt` namespace clashes with the suite's own `fmt()` helper.
+class UartLogCapture {
+public:
+    UartLogCapture();
+    ~UartLogCapture();
+    UartLogCapture(const UartLogCapture&)            = delete;
+    UartLogCapture& operator=(const UartLogCapture&) = delete;
+    std::string text() const;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace nxs

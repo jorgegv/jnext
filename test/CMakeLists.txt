@@ -284,7 +284,7 @@ endif()
 # test-support binary.
 add_executable(nextpi_qemu_stub uart/nextpi_qemu_stub.cpp)
 target_link_libraries(nextpi_qemu_stub PRIVATE esp01)
-add_executable(nextpi_test uart/nextpi_test.cpp uart/nextpi_support.cpp)
+add_executable(nextpi_test uart/nextpi_test.cpp uart/nextpi_support.cpp uart/nextpi_log_capture.cpp)
 target_link_libraries(nextpi_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video
     jnext_audio jnext_port jnext_peripheral jnext_input
@@ -425,6 +425,14 @@ add_executable(sdcard_provisioner_test sdcard_provisioner/sdcard_provisioner_tes
 target_link_libraries(sdcard_provisioner_test PRIVATE jnext_core ZLIB::ZLIB)
 target_include_directories(sdcard_provisioner_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sdcard_provisioner_tests COMMAND sdcard_provisioner_test)
+# The rows that need libcurl's own behaviour (a proxy put in front of it through the
+# environment, which the WinHTTP twin has no counterpart of): POSIX only (GH #385).
+if(NOT WIN32)
+    add_executable(sdcard_provisioner_posix_test sdcard_provisioner/sdcard_provisioner_posix_test.cpp)
+    target_link_libraries(sdcard_provisioner_posix_test PRIVATE jnext_core)
+    target_include_directories(sdcard_provisioner_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_provisioner_posix_tests COMMAND sdcard_provisioner_posix_test)
+endif()
 
 # Warm-start tests (GH #234): the on-disk state cache — paths, round trip and
 # the four keys that invalidate it — plus the NextZXOS-residency criterion that
@@ -1123,9 +1131,11 @@ target_link_libraries(debugger_backend_test PRIVATE
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(debugger_backend_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-# SYM-14..18 (GH #352) load the committed z88dk -debug map fixtures.
+# SYM-14..18 (GH #352) load the committed z88dk -debug map fixtures; SYM-19..32
+# (GH #390) the committed sjasmplus --sym / --exp ones, SYM-29/31/32 beside a z88dk map.
 target_compile_definitions(debugger_backend_test PRIVATE
-    JNEXT_ZDEBUGMAP_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zdebugmap")
+    JNEXT_ZDEBUGMAP_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/zdebugmap"
+    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
 add_test(NAME debugger_backend_tests COMMAND debugger_backend_test)
 
 # GH #219 — --persistent-breakpoints: the armed()/active() split in DebugState
@@ -1261,6 +1271,9 @@ target_link_libraries(script_events_test PRIVATE
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(script_events_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# The SCRIPT-HOST-MAP-* rows (GH #390) load the committed sjasmplus fixtures.
+target_compile_definitions(script_events_test PRIVATE
+    JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
 add_test(NAME script_events_tests COMMAND script_events_test)
 
 # GH #26 WP6 (#20) — the recorder: input edges, captures, header, warnings, a
@@ -1776,6 +1789,9 @@ if(ENABLE_DEBUGGER)
         jnext_audio jnext_port jnext_peripheral jnext_input
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
     target_include_directories(debugger_verbs_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # QMAP-05 / QMAP-06 (GH #390) load the committed sjasmplus fixtures.
+    target_compile_definitions(debugger_verbs_test PRIVATE
+        JNEXT_SJASMEQU_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmequ")
     add_test(NAME debugger_verbs_tests COMMAND debugger_verbs_test)
 
     # CAP-SRC — the Qt side of source-level debugging: the Source tab and its

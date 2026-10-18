@@ -103,12 +103,14 @@ _Reviewed at commit `<sha>` on `<date>`. Verdict: **APPROVE / REJECT**._
   including any owner sign-offs this document requires), the PR is merged
   immediately — the contributor is never asked to confirm the merge.
 - **Push the merge commit before closing anything** (owner decision,
-  2026-07-26): after the local merge + bump, push `main` to origin FIRST, then
+  2026-07-26): after the local merge + bump and a green batch gate on `main`
+  (CLAUDE.md merge protocol, step 2), push `main` to origin FIRST, then
   close the linked issue. Never close the PR manually — GitHub flips a still-open
   PR to **merged** when the pushed merge reaches the base branch; a hand-closed
   PR shows "closed" (rejected-looking) forever. This is the standing
   authorization to push the merge commit of a PR landing; tags still follow the
   usual batching rules and may follow later.
-- The rest of the landing flow (branch, green test triplet, independent review,
-  bump) follows [../CLAUDE.md](../CLAUDE.md) → "Merging a completed feature/fix
-  to `main`".
+- The rest of the landing flow follows [../CLAUDE.md](../CLAUDE.md) → "Merging
+  a completed feature/fix to `main`": a branch, targeted tests and
+  `make unit-test` green, an independent review, the merge and its bump, then
+  the batch gate on `main` before the push.

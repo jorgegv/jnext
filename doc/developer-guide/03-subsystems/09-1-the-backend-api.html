@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.69</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.69</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2853,8 +2853,9 @@ reason in its status bar. <code>RefusedCorrupt</code> logs no reason line: the c
 incident is reported on its own.</p>
 <h3 id="symbols-cap-sym">Symbols — CAP-SYM<a class="headerlink" href="#symbols-cap-sym" title="Permanent link">&para;</a></h3>
 <p>There is one symbol table, and the backend owns it. <code>load_map(path, format)</code>
-reads a z88dk map (<code>MapFormat::Z88dk</code>) or a plain <code>SYMBOL = $ADDR</code> list
-(<code>MapFormat::Simple</code>); <code>clear_symbols</code>, <code>lookup(addr)</code>, <code>lookup_name(name)</code> and
+reads a z88dk map (<code>MapFormat::Z88dk</code>), a plain <code>SYMBOL = $ADDR</code> list
+(<code>MapFormat::Simple</code>) or an sjasmplus <code>--sym</code> / <code>--exp</code> file
+(<code>MapFormat::SjasmplusEqu</code>); <code>clear_symbols</code>, <code>lookup(addr)</code>, <code>lookup_name(name)</code> and
 <code>symbols()</code> read it. The Qt panels, the DSL's <code>@name</code>, the GDB server's
 <code>monitor sym</code> and <code>--map</code> all read this table, so a symbol loaded by one client
 shows in every other. A z88dk map's <code>; const</code> lines go into a separate
@@ -2866,6 +2867,23 @@ are dropped by the loader, so they never name an address or resolve by name.
 compiler's <code>_</code>, and the raw label resolves by name too. <code>SymbolTable::resolve()</code>
 turns an address field's text into an address: hex first (<code>4000</code>, <code>$4000</code>,
 <code>0x4000</code>), else a symbol; <code>@name</code> always means the symbol.</p>
+<p><code>MapFormat::SjasmplusEqu</code> (GH #390) reads the lines <code>NAME: EQU 0x0000ABCD</code> that
+sjasmplus's <code>WriteLabelEquValue()</code> writes to <code>--sym</code> and <code>--exp</code>, with the CR its
+Windows build adds. The <code>--sym</code> of sjasmplus 1.17.0 and earlier
+(<code>CLabelTable::DumpSymbols()</code>) wrote the keyword in lower case,
+<code>NAME: equ 0x0000ABCD</code>, and the loader takes both spellings, exactly. The file
+has no type and no page, so every entry is a label, an <code>EQU</code> size or a struct
+field offset included. A value past 0xFFFF, or negative (written 0x80000000 and
+up), does not fit the 16-bit table and is skipped; the first line at an address
+wins, and, apart, the first for a name. <code>parse_equ_line()</code> in <code>symbol_table.cpp</code>
+is the one definition of such a line.
+<code>MapFormat::Z88dkOrSjasmplus</code> is how <code>--map</code> picks between this loader and the
+z88dk one: <code>SymbolTable::load_z88dk_or_sjasmplus()</code> reads the file once, into
+memory, and its first line (an EQU line or not) decides. By contents, because
+sjasmplus names its files freely and z88dk's assembler writes a <code>.sym</code> of its
+own, in the map format; and in one read, because <code>--map &lt;(cmd)</code> is a pipe, which
+a second open would find drained (rows SYM-19 to SYM-32, SCRIPT-HOST-MAP-*, and
+the functional row <code>script-map-pipe-func</code>).</p>
 <h3 id="source-maps-cap-src">Source maps — CAP-SRC<a class="headerlink" href="#source-maps-cap-src" title="Permanent link">&para;</a></h3>
 <p>The backend also owns one <code>SourceMap</code> (<code>src/debug/source_map.*</code>): records of
 (RAM page, logical address) → file, line, column, filled by a format adapter —
