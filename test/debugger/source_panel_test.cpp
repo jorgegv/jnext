@@ -617,6 +617,32 @@ void test_address_fields() {
           std::to_string(start) + " " + std::to_string(by_number) + " " + std::to_string(by_name));
 }
 
+// ── C3: a watch is labelled only with the symbol its text named ───────
+
+void test_watch_labels() {
+    Fixture fx;
+    fx.enable();
+    const std::string mem = g_tmp->path().toStdString() + "/labels.Memory.txt";
+    write_text(mem, "8005: ._Landing\n9000: ._BEEF\n");
+    fx.backend->load_map(mem, jnext::dbg::MapFormat::NextBuild);
+    WatchPanel* wp = fx.dbg() ? fx.dbg()->watch_panel() : nullptr;
+    // A number that is also the address of a symbol; hex spelled like a symbol
+    // that sits elsewhere; and, as the control, the symbol typed by name.
+    const bool seen = wp &&
+        answer_modal(QStringLiteral("8005"), [&]() { wp->on_add_watch(); }) &&
+        answer_modal(QStringLiteral("BEEF"), [&]() { wp->on_add_watch(); }) &&
+        answer_modal(QStringLiteral("Landing"), [&]() { wp->on_add_watch(); });
+    check("QADR-08", "a watch typed as a number is not labelled with the symbol at that "
+                     "address, BEEF typed as hex watches $BEEF and not the symbol BEEF, and "
+                     "the symbol typed by name is labelled with it",
+          seen && cell(wp, 0, 0) == QStringLiteral("$8005") && cell(wp, 0, 1).isEmpty() &&
+              cell(wp, 1, 0) == QStringLiteral("$BEEF") && cell(wp, 1, 1).isEmpty() &&
+              cell(wp, 2, 0) == QStringLiteral("$8005") &&
+              cell(wp, 2, 1) == QStringLiteral("Landing"),
+          s(cell(wp, 0, 0)) + "/" + s(cell(wp, 0, 1)) + " " + s(cell(wp, 1, 0)) + "/" +
+              s(cell(wp, 1, 1)) + " " + s(cell(wp, 2, 0)) + "/" + s(cell(wp, 2, 1)));
+}
+
 // ── B2: the gutter removes the breakpoint it draws ─────────────────────
 
 void test_gutter() {
@@ -1406,6 +1432,7 @@ int main(int argc, char** argv) {
     test_breakpoints();
     test_call_stack();
     test_address_fields();
+    test_watch_labels();
     test_gutter();
     test_edit_type_refused();
     test_breakpoint_page_rows();
