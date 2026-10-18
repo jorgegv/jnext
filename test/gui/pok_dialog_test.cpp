@@ -148,7 +148,8 @@ struct Fixture {
 /// Closes a dialog no row is waiting for. Nothing in this suite leaves one up on
 /// purpose: if a defect raises one outside a drive_modals() window, its nested
 /// event loop would hang the whole suite. Closing it lets the row fail instead,
-/// and says so.
+/// and says so. The interval is long on purpose: a row that answers its own
+/// dialog does so within milliseconds, so a dialog still up after seconds is stuck.
 class ModalGuard {
 public:
     ModalGuard() {
@@ -160,7 +161,7 @@ public:
                 w->close();
             }
         });
-        timer_.start(500);
+        timer_.start(3000);
     }
 
 private:
