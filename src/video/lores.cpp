@@ -39,7 +39,14 @@ bool Lores::beam_prepare() const
 uint8_t Lores::read_bank5(uint16_t addr, Ram& ram, int phc) const
 {
     const uint16_t off = static_cast<uint16_t>(addr & 0x3FFF);
-    if (mux5_ && mux5_->started()) return mux5_->read_prepared(off, mux5_->phc_hc(phc));
+    if (mux5_ && mux5_->started()) {
+        // read_prepared_hot() for its split (the non-hot read inline, the
+        // chain walk out of line); LoRes has no use for the flag, as each
+        // byte is read at its own pixel's instant. `off` < 0x4000, the mux's
+        // size (Mmu::attr_mux5()).
+        bool hot = false;
+        return mux5_->read_prepared_hot(off, mux5_->phc_hc(phc), hot);
+    }
     if (bank5_vram_) return bank5_vram_[off];
     return ram.read(10u * 8192u + off);
 }

@@ -45,7 +45,7 @@ Load `verification-discipline`; it is the evidence standard.
 
 ## Agents and tokens
 
-- ≤3 running agents, all roles combined; slot split in SKILL.md.
+- ≤4 running agents, all roles combined; slot split in SKILL.md.
 - No commit-watch Monitors, no per-event chatter; rely on completion notifications.
 - Batch requests to a resumed agent (each resume re-reads 400-800k tokens).
 - Silent >30 min: read the report file, check liveness (`ps`, load), then nudge. File mtimes are not liveness.

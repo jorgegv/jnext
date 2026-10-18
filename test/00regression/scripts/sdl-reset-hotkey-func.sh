@@ -21,6 +21,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # ONE RUN. 48K BASIC; F2 pressed as a key-delivery witness, then F1 once the
 # machine is up, then digits typed into the rebooted machine, then a capture.
 #
+# GH #380: F1 here is a PLAIN F1 (xdotool keycode 67). With Alt held F1 and F4 no
+# longer reset (src/platform/sdl_reset_keys.h), and `xdotool key F1` carries an
+# Alt_L under the Xvfb keymap, so the name would press Alt+F1 and cold boot nothing.
+#
 # THE WITNESS COMES FIRST, AND IT IS NOT F1. F2 cycles the window scale 2->3->4
 # (sdl_app.cpp:120-125 -> SdlDisplay::set_scale, sdl_display.cpp:60-69), which
 # changes the X window's geometry — something xdotool can read WITHOUT the
@@ -122,7 +126,11 @@ if want sdl-reset-hotkey-func; then
                 xdotool getwindowgeometry --shell "$wid" 2>/dev/null \
                     | sed -n "s/^\(WIDTH\|HEIGHT\)=/after_\1=/p" >>"$geom" || true
 
-                xdotool key F1 2>/dev/null || true
+                # GH #380 — a PLAIN F1 is the raw keycode 67, not the name: under this
+                # keymap `xdotool key F1` sends Alt_L with it (measured with an XRecord
+                # listener: press 64, press 67 with state 0x0008, release 64, release 67),
+                # so it is really Alt+F1, which is no longer a reset.
+                xdotool key 67 2>/dev/null || true
                 # THE CRITICAL MARGIN, AND A KNOWN REAL-TIME-PACED ONE — leave
                 # it generous. The digits below must land at the K cursor of the
                 # REBOOTED machine, which is up by emulated frame 150 (3 s at

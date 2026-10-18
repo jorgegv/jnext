@@ -52,7 +52,7 @@
 // while assuming the debugger was always there: H115-19 and H115-25 (View >
 // Debugger, inside main_window.cpp's `#ifdef`) and H115-29 (FEATURES.md names
 // the disassembly panel's Ctrl+A / Ctrl+C and rewind's Shift+F6 / Shift+F7).
-// Every one of the 45 rows runs in BOTH configurations — the row count is
+// Every row runs in BOTH configurations — the row count is
 // pinned in test/unit-tests.conf and a vanishing row is a harness failure —
 // and the three above assert the property their configuration actually has.
 // The default build is byte-for-byte unaffected.
@@ -189,9 +189,12 @@ std::string matrix_detail(const Keyboard& kb, int row, int col) {
     return buf;
 }
 
+// Compares the text BEFORE a tab: an action may carry its own accelerator column
+// after one. File > Quit does since GH #380 ("&Quit\tAlt+Q; Alt+F4"), and not
+// finding it would leave it un-disarmed, so Alt+Q would really quit the suite.
 QAction* find_action(MainWindow& w, const char* text) {
     for (QAction* a : w.findChildren<QAction*>())
-        if (a->text() == QString::fromUtf8(text)) return a;
+        if (a->text().section(QLatin1Char('\t'), 0, 0) == QString::fromUtf8(text)) return a;
     return nullptr;
 }
 
@@ -748,6 +751,234 @@ void test_quick_snapshot_chords(MainWindow& w) {
 }
 
 // ---------------------------------------------------------------------------
+// Group 3f — GH #380: Alt+F4 quits, and F1 / F4 never reset with Alt held
+// ---------------------------------------------------------------------------
+//
+// Reported on Windows: Alt+F4 closed jnext with the mouse free and did nothing
+// with it captured. Wherever a platform does not take Alt+F4 itself, it reached
+// keyPressEvent, whose F1 / F4 host hotkeys excluded only Shift and Ctrl, so it
+// soft-reset the machine instead.
+//
+// There is no VHDL for the host layer: the oracle is the owner's decision
+// (2026-10-17). (1) Alt+F4 is a SECOND shortcut of File > Quit, next to Alt+Q,
+// shown in the menu, and any F4 with Alt held quits whatever else is held and
+// with the mouse captured or not. (2) F1 and F4 do not reset with Alt held.
+// VHDL only for what the PLAIN keys do: zxnext.vhd:6340 hotkey_hard_reset (F1),
+// :6343 hotkey_soft_reset (F4).
+//
+// Two routes lead into the SAME File > Quit action, and the rows tell them
+// apart. An exact Alt+F4 in an active window is taken by the shortcut map
+// (H380-02). Everything no shortcut matches — the variants (H380-03), the menu
+// bar hidden in fullscreen (H380-04) — reaches the F4 case of keyPressEvent.
+// Quit is disarmed (disarm_actions) and a recorder stands in for its handler.
+
+const char* const QUIT_TEXT = "&Quit";
+
+/// A key press with the given modifier KEYS held, the way a user types it:
+/// each modifier key-down carries the modifiers already down, then `key`,
+/// processEvents(), then everything released in reverse. Same shape as the
+/// hand-written sequences of H115-20..44.
+struct HeldMod { Qt::Key key; Qt::KeyboardModifier mod; };
+
+void type_key(MainWindow& w, Qt::Key key, std::initializer_list<HeldMod> held) {
+    Qt::KeyboardModifiers mods = Qt::NoModifier;
+    for (const HeldMod& m : held) { send(w, m.key, mods, true); mods |= m.mod; }
+    send(w, key, mods, true);
+    QApplication::processEvents();
+    send(w, key, mods, false);
+    const std::vector<HeldMod> order(held);
+    for (auto it = order.rbegin(); it != order.rend(); ++it) {
+        mods &= ~Qt::KeyboardModifiers(it->mod);
+        send(w, it->key, mods, false);
+    }
+}
+
+constexpr HeldMod kAlt   {Qt::Key_Alt,     Qt::AltModifier};
+constexpr HeldMod kCtrl  {Qt::Key_Control, Qt::ControlModifier};
+constexpr HeldMod kShift {Qt::Key_Shift,   Qt::ShiftModifier};
+constexpr HeldMod kMeta  {Qt::Key_Meta,    Qt::MetaModifier};
+
+/// Counts File > Quit activations and the F4 events (press or release) that
+/// reach the guest, for as long as it lives.
+struct QuitWatch {
+    MainWindow& w;
+    QAction*    quit;
+    int         fired = 0;
+    int         f4_to_guest = 0;
+
+    explicit QuitWatch(MainWindow& win) : w(win), quit(find_action(win, QUIT_TEXT)) {
+        if (quit) QObject::connect(quit, &QAction::triggered, [this]() { ++fired; });
+        w.set_key_callback([this](SDL_Scancode sc, bool) {
+            if (sc == SDL_SCANCODE_F4) ++f4_to_guest;
+        });
+    }
+    ~QuitWatch() {
+        if (quit) QObject::disconnect(quit, nullptr, nullptr, nullptr);
+        w.set_key_callback(nullptr);
+    }
+    std::string detail() const {
+        return std::string(quit ? "" : "no Quit action; ") + "fired=" + std::to_string(fired) +
+               " f4_to_guest=" + std::to_string(f4_to_guest);
+    }
+};
+
+void test_alt_f4_quit(MainWindow& w) {
+    // H380-01 — the binding and the label. QMenu draws only the PRIMARY
+    // shortcut unless the text carries its own accelerator column after a tab
+    // (qmenu.cpp initStyleOption), so the label must name both: "the menu shows
+    // it". Alt+Q stays first (H115-14); the column is NativeText, which on the
+    // platforms this suite runs on reads like the portable text.
+    {
+        QAction* q = find_action(w, QUIT_TEXT);
+        QStringList got;
+        if (q)
+            for (const QKeySequence& ks : q->shortcuts())
+                got << ks.toString(QKeySequence::PortableText);
+        const QString column = q ? q->text().section(QLatin1Char('\t'), 1) : QString();
+        check("H380-01", "File > Quit carries Alt+Q then Alt+F4, and its menu label shows both",
+              q != nullptr && got == QStringList({"Alt+Q", "Alt+F4"}) &&
+                  column == QStringLiteral("Alt+Q; Alt+F4"),
+              q ? ("shortcuts=" + got.join(',') + " column='" + column + "'").toStdString()
+                : "action not found");
+    }
+
+    // H380-02 — an exact Alt+F4, menu bar visible: the shortcut map takes it.
+    {
+        QuitWatch watch(w);
+        type_key(w, Qt::Key_F4, {kAlt});
+        check("H380-02", "Alt+F4 activates File > Quit, and no F4 press or release reaches the guest",
+              watch.quit != nullptr && watch.fired == 1 && watch.f4_to_guest == 0, watch.detail());
+    }
+
+    // H380-03 — the variants no shortcut binds: keyPressEvent takes them. Ctrl+Alt
+    // is what AltGr sends on Windows.
+    {
+        QuitWatch watch(w);
+        type_key(w, Qt::Key_F4, {kCtrl, kAlt});
+        type_key(w, Qt::Key_F4, {kAlt, kShift});
+        type_key(w, Qt::Key_F4, {kMeta, kAlt});
+        check("H380-03", "Ctrl+Alt+F4, Alt+Shift+F4 and Meta+Alt+F4 each trigger File > Quit from "
+                         "keyPressEvent (no shortcut binds them), and no F4 reaches the guest",
+              watch.quit != nullptr && watch.fired == 3 && watch.f4_to_guest == 0, watch.detail());
+    }
+
+    // H380-04 — fullscreen hides the menu bar, and a shortcut of an action that
+    // lives only in a hidden menu never matches (the H115-42..44 premise): the
+    // key falls to keyPressEvent, which must still quit.
+    {
+        w.menuBar()->hide();
+        QuitWatch watch(w);
+        type_key(w, Qt::Key_F4, {kAlt});
+        w.menuBar()->show();
+        check("H380-04", "With the menu bar hidden (fullscreen), Alt+F4 still triggers File > Quit, "
+                         "and no F4 reaches the guest",
+              watch.quit != nullptr && watch.fired == 1 && watch.f4_to_guest == 0, watch.detail());
+    }
+
+    // H380-05 — captured. The default release method is Ctrl+Alt
+    // (pointer_capture.h ReleaseFilter), so Alt+F4 must neither be swallowed by
+    // the capture nor release it. Capture through the real Input > Capture Mouse
+    // action, as window_title_test does, and put it back afterwards.
+    {
+        QAction* cap = find_action(w, "Capture &Mouse");
+        if (cap) { cap->trigger(); QApplication::processEvents(); }
+        const bool captured_before = cap && cap->isChecked();
+        QuitWatch watch(w);
+        type_key(w, Qt::Key_F4, {kAlt});
+        const bool captured_after = cap && cap->isChecked();
+        if (cap && cap->isChecked()) { cap->trigger(); QApplication::processEvents(); }
+        check("H380-05", "With the mouse captured, Alt+F4 still triggers File > Quit and does not "
+                         "release the capture",
+              captured_before && watch.quit != nullptr && watch.fired == 1 &&
+                  watch.f4_to_guest == 0 && captured_after,
+              watch.detail() + " captured_before=" + (captured_before ? "1" : "0") +
+                  " captured_after=" + (captured_after ? "1" : "0"));
+    }
+}
+
+// H380-06 / H380-07 need a window WITH an emulator: the F1 / F4 hotkeys do
+// nothing without one. Built as the w2 block of main() builds its own, on a
+// 48K machine (HK-CFG-02: its cold boot leaves nr_03_config_mode clear, so the
+// plain F4 passes the zxnext.vhd:6370 gate).
+void test_alt_reset_keys() {
+    Emulator emu;
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZX48K;
+    cfg.rewind_buffer_frames = 0;
+    emu.init(cfg);
+    jnext::dbg::Debugger backend(emu);
+    MainWindow w3;
+    w3.set_debugger(&backend);
+    w3.set_emulator(&emu);
+    w3.show();
+    w3.activateWindow();
+    QApplication::processEvents();
+    disarm_actions(w3);
+
+    // H380-06 - Alt+F1 does nothing at all: no hard reset, no soft reset and no
+    // Quit (Quit is F4's), alone or with Meta (only a testFlag(Alt) refuses both;
+    // Shift and Ctrl were refused before). Plain F1 still requests the hard reset
+    // (zxnext.vhd:6340 hotkey_hard_reset -> :6371 nr_02_hard_reset, unconditional)
+    // and does not quit. The soft-reset witness is reset_type(), as in H380-07; it
+    // must read 100 first, or "unchanged" would prove nothing.
+    {
+        QuitWatch watch(w3);
+        emu.take_hard_reset_request();                        // start clean
+        const uint8_t rt0 = emu.nmi_source().reset_type();
+        type_key(w3, Qt::Key_F1, {kAlt});
+        type_key(w3, Qt::Key_F1, {kMeta, kAlt});
+        const bool alt_requested = emu.take_hard_reset_request();
+        const uint8_t rt_alt = emu.nmi_source().reset_type();
+        const int fired_alt = watch.fired;
+        type_key(w3, Qt::Key_F1, {});
+        const bool plain_requested = emu.take_hard_reset_request();
+        check("H380-06", "With an emulator attached, Alt+F1 and Meta+Alt+F1 request no reset of either "
+                         "kind and do not quit, and F1 alone requests the hard reset and does not quit",
+              watch.quit != nullptr && rt0 == 0b100 && !alt_requested && rt_alt == rt0 &&
+                  fired_alt == 0 && plain_requested && watch.fired == 0,
+              watch.detail() + " alt_f1_hard_requested=" + (alt_requested ? "1" : "0") +
+                  " plain_f1_hard_requested=" + (plain_requested ? "1" : "0") +
+                  " rt0=" + std::to_string(rt0) + " rt_after_alt=" + std::to_string(rt_alt) +
+                  " quits_after_alt=" + std::to_string(fired_alt));
+    }
+
+    // H380-07 - the Alt variants of F4 quit and start no reset of either kind; plain
+    // F4 soft-resets. The soft reset is observed in the reset_type FSM, which only a
+    // strobed soft reset advances: zxnext.vhd:1736 `'0' & rt(2) & (rt(1) or rt(0))`,
+    // so 100 -> 010. The hard reset is the request flag the frontend polls.
+    {
+        QuitWatch watch(w3);
+        emu.take_hard_reset_request();                        // start clean
+        const uint8_t rt0 = emu.nmi_source().reset_type();
+        type_key(w3, Qt::Key_F4, {kAlt});
+        type_key(w3, Qt::Key_F4, {kCtrl, kAlt});
+        type_key(w3, Qt::Key_F4, {kMeta, kAlt});
+        const uint8_t rt_alt = emu.nmi_source().reset_type();
+        const bool alt_hard = emu.take_hard_reset_request();
+        const int fired = watch.fired;
+        type_key(w3, Qt::Key_F4, {});                 // the Soft Reset QAction's F4
+        const uint8_t rt_plain = emu.nmi_source().reset_type();
+        // The same plain F4 with the menu bar hidden (fullscreen): no shortcut
+        // matches, so it reaches keyPressEvent's F4 case, which must still soft-reset
+        // and must not read it as a quit (010 -> 001).
+        w3.menuBar()->hide();
+        type_key(w3, Qt::Key_F4, {});
+        w3.menuBar()->show();
+        const uint8_t rt_plain_hidden = emu.nmi_source().reset_type();
+        check("H380-07", "With an emulator attached, Alt+F4, Ctrl+Alt+F4 and Meta+Alt+F4 trigger File "
+                         "> Quit and start no soft or hard reset, and F4 alone soft-resets and does "
+                         "not quit, menu bar shown or hidden",
+              watch.quit != nullptr && rt0 == 0b100 && rt_alt == 0b100 && !alt_hard && fired == 3 &&
+                  rt_plain == 0b010 && rt_plain_hidden == 0b001 && watch.fired == 3 &&
+                  watch.f4_to_guest == 0,
+              watch.detail() + " rt0=" + std::to_string(rt0) + " rt_after_alt=" +
+                  std::to_string(rt_alt) + " alt_f4_hard_requested=" + (alt_hard ? "1" : "0") +
+                  " rt_after_plain=" + std::to_string(rt_plain) +
+                  " rt_after_plain_hidden=" + std::to_string(rt_plain_hidden));
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Group 4 — the Alt namespace has no ambiguous binding
 // ---------------------------------------------------------------------------
 
@@ -831,7 +1062,7 @@ QStringList chords_in(const QString& text) {
 
 // H115-28 — every modifier chord appearing in a QAction's user-visible text,
 // tooltip or status tip must name a REAL binding. Two tiers:
-//   * the action has its own shortcut  -> the chord must BE that shortcut;
+//   * the action has its own shortcut  -> the chord must BE one of its shortcuts;
 //   * the action has none (a toolbar twin of a menu action, like the bug
 //     button) -> the chord must at least be bound by some live action.
 // The second tier is what catches the tooltip defect: after the migration
@@ -840,13 +1071,20 @@ void test_ui_strings(MainWindow& w2, const QStringList& live) {
     QStringList bad;
     for (QAction* a : w2.findChildren<QAction*>()) {
         const QString own = seq_of(a);
+        // Any of the action's OWN shortcuts, not only the primary (GH #380: File >
+        // Quit names Alt+Q and Alt+F4). A chord the action does not bind still
+        // fails, whichever other action binds it.
+        QStringList own_all;
+        for (const QKeySequence& ks : a->shortcuts())
+            own_all << ks.toString(QKeySequence::PortableText);
         for (const QString& src : {a->text(), a->toolTip(), a->statusTip()}) {
             for (const QString& c : chords_in(src)) {
-                const bool ok = own.isEmpty() ? live.contains(c) : (c == own);
+                const bool ok = own.isEmpty() ? live.contains(c) : own_all.contains(c);
                 if (!ok)
                     bad << (a->text() + " says " + c +
                             (own.isEmpty() ? " but nothing binds it"
-                                           : " but it is bound to " + own));
+                                           : " but it is bound to " +
+                                                 own_all.join(QStringLiteral(" / "))));
             }
         }
     }
@@ -1287,10 +1525,12 @@ int main(int argc, char** argv) {
     test_preferences_chord(w);
     test_quick_screenshot_chord(w);
     test_quick_snapshot_chords(w);
+    test_alt_f4_quit(w);
     test_alt_namespace(w);
     test_menu_focus(w);
     test_stranded_alt();
     test_script_keys(w);
+    test_alt_reset_keys();
 
     // Group 5 needs a SECOND window, with an emulator attached: the Debug button
     // whose tooltip regressed lives on the debug toolbar, and MainWindow only
