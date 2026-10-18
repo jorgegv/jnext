@@ -8589,6 +8589,7 @@ int main() {
                      "NOCOLON EQU 0x00001111\n"
                      "NOSPACE:EQU 0x0000AAAA\n"
                      "NOEQU: 0x0000BBBB\n"
+                     "MIXED: Equ 0x0000EEEE\n"                // only EQU and equ are sjasmplus's
                      "NOVALUE: EQU\n"
                      "tab\tname: EQU 0x0000CCCC\n"
                      "a:b: EQU 0x0000DDDD\n"
@@ -8606,17 +8607,17 @@ int main() {
             Debugger dbg(emu);
             const auto r = dbg.load_map(path, MapFormat::SjasmplusEqu);
             std::string resolved;   // the names that must NOT resolve, if any does
-            for (const char* n : {"plain", "NOCOLON", "NOSPACE", "NOEQU", "NOVALUE", "tab\tname", "a:b",
+            for (const char* n : {"plain", "NOCOLON", "NOSPACE", "NOEQU", "MIXED", "NOVALUE", "tab\tname", "a:b",
                                   "EMPTYHEX", "NOPREFIX", "BADHEX", "TRAILING", "two words", "TOOBIG"})
                 if (dbg.lookup_name(n)) resolved += std::string(n) + " ";
             std::string named;      // the addresses that must name nothing, if any does
             for (unsigned a : {0x0000u, 0x1111u, 0x2222u, 0x4444u, 0x5555u, 0x6666u, 0x8000u, 0xAAAAu, 0xBBBBu,
-                               0xCCCCu, 0xDDDDu})
+                               0xCCCCu, 0xDDDDu, 0xEEEEu})
                 if (dbg.lookup(static_cast<uint16_t>(a))) named += hex(a) + " ";
-            check("SYM-26", "only a line of exactly `NAME: EQU 0x<hex>` counts: a comment, a blank, a z88dk line, "
-                            "a missing colon, space, EQU, 0x or value, bad hex, trailing text, an empty name, a "
-                            "name with a space, a tab or a colon, and a value past 32 bits are skipped; a short "
-                            "value is read as a number",
+            check("SYM-26", "only a line of exactly `NAME: EQU 0x<hex>` (or `equ`, as sjasmplus 1.17.0 writes it) "
+                            "counts: a comment, a blank, a z88dk line, a missing colon, space, EQU, 0x or value, "
+                            "`Equ`, bad hex, trailing text, an empty name, a name with a space, a tab or a colon, "
+                            "and a value past 32 bits are skipped; a short value is read as a number",
                   r.status == Result::Ok && r.value == 2 && dbg.symbols().size() == 2 &&
                       dbg.lookup_name("good") == std::optional<uint16_t>(0x1234) &&
                       dbg.lookup_name("short") == std::optional<uint16_t>(0x0005) && resolved.empty() &&
