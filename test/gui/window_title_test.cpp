@@ -129,8 +129,8 @@ int main(int argc, char** argv)
                   : std::string("no \"Capture &Mouse\" action"));
 
     // ── WTQ-05 — the capture status-bar message names the chord ─────
-    check("WTQ-05", "the status bar says \"Mouse captured — Ctrl+Alt to release\" (no unexpanded %1)",
-          capture && captured_message == QStringLiteral("Mouse captured — Ctrl+Alt to release"),
+    check("WTQ-05", "the status bar says \"Mouse captured - Ctrl+Alt to release\" (no unexpanded %1)",
+          capture && captured_message == QStringLiteral("Mouse captured - Ctrl+Alt to release"),
           "message='" + captured_message.toStdString() + "'");
 
     // ── WTQ-06 — the Capture Mouse status tip names the chord ───────

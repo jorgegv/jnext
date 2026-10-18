@@ -39,7 +39,7 @@ void Profiler::shutdown() {
 
 bool Profiler::write_to_file(const std::string& path) const {
     if (!entries_) {
-        Log::emulator()->warn("profiler: write_to_file('{}') with no data — "
+        Log::emulator()->warn("profiler: write_to_file('{}') with no data - "
                               "profiler was never initialised", path);
         return false;
     }

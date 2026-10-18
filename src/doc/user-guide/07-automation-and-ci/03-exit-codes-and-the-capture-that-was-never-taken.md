@@ -63,7 +63,7 @@ names each one:
 ```console
 $ jnext --headless --machine 48k --load game.tzx --delayed-automatic-exit-frames 5
 ...
-[platform] [error] --load: 'game.tzx' never happened — --delayed-automatic-exit
+[platform] [error] --load: 'game.tzx' never happened - --delayed-automatic-exit
   fired first. Exiting non-zero.
 $ echo $?
 1

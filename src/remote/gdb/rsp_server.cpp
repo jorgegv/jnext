@@ -186,7 +186,7 @@ void GdbServer::on_connect(Connection& c) {
     parser_.reset();
     const auto a = dbg_.attach(ClientInfo{"GDB RSP client (" + c.peer() + ")", ClientKind::GdbRsp});
     if (!a) {
-        Log::debugger()->warn("gdb: client from {} refused — attach failed: {}", c.peer(),
+        Log::debugger()->warn("gdb: client from {} refused - attach failed: {}", c.peer(),
                               result_name(a.status));
         c.close();
         return;
@@ -312,7 +312,7 @@ void GdbServer::reply(const std::string& body) {
 // (RSP). Logged at debug with the raw packet, so a user can see what their
 // client wanted (§2 row 33).
 void GdbServer::unsupported(const std::string& body) {
-    Log::debugger()->debug("gdb: unsupported packet \"{}\" — empty reply", printable(body));
+    Log::debugger()->debug("gdb: unsupported packet \"{}\" - empty reply", printable(body));
     reply("");
 }
 
@@ -322,7 +322,7 @@ void GdbServer::pause_first() {
         // machine stopped, so it has already consumed some packet as the reply
         // to its `c`/`i`/`?`. Answering later would put a `T` where it expects
         // this packet's reply (review round 1).
-        Log::debugger()->debug("gdb: inspection packet while a stop reply is owed — "
+        Log::debugger()->debug("gdb: inspection packet while a stop reply is owed - "
                                "the client counts the machine stopped; reply abandoned");
         owed_ = Owed::None;
         pending_.reset();
@@ -573,7 +573,7 @@ void GdbServer::pkt_step_over(const std::string& body) {
 // `D` (reply OK) and `k` (no reply) — CAP-SES-01 detach, then close. The
 // socket closes after the reply is flushed (T's linger).
 void GdbServer::pkt_detach(bool reply_ok) {
-    Log::debugger()->info("gdb: client {} {}", cid_, reply_ok ? "detached (D)" : "sent 'k' — detached");
+    Log::debugger()->info("gdb: client {} {}", cid_, reply_ok ? "detached (D)" : "sent 'k' - detached");
     Connection* c = conn_;
     end_session();
     if (reply_ok) reply("OK");

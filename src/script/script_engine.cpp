@@ -363,7 +363,7 @@ std::vector<Subscription> ScriptEngine::subscriptions_for(Unit& u, RuleRec& rec,
             if (!ev.page_lo && (lo >> 13) != (hi >> 13) && mentions_page_equality(r.when.get()))
                 warnings.push_back(Diagnostic{r.when->pos,
                     "`PAGE ==` over a range wider than one 8K slot evaluates the condition on every "
-                    "access in it; the `page` filter (`… page P`) is matched in the backend"});
+                    "access in it; the `page` filter (`... page P`) is matched in the backend"});
             finish(s);
             break;
         }
@@ -542,7 +542,7 @@ void ScriptEngine::runtime_error(RuleRec& r, const Diagnostic& d) {
     r.dead = true;
     ++runtime_errors_;
     for (dbg::EventId id : r.subs) dbg_.set_enabled(cid_, id, false);
-    log(dbg::LogLevel::Error, "SCRIPT ERROR " + r.unit->file + ":" + d.to_string() + " — rule " +
+    log(dbg::LogLevel::Error, "SCRIPT ERROR " + r.unit->file + ":" + d.to_string() + " - rule " +
                                   rule_name(*r.rule) + " disabled");
     mark_failure(1, "a run-time error in " + rule_name(*r.rule));
     error_exit_pending_ = true;
@@ -559,7 +559,7 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
         if (!rewind_warned_ && d.rewind_enabled()) {
             rewind_warned_ = true;
             log(dbg::LogLevel::Warn, "SCRIPT: a script mutates the machine while the rewind buffer is on; "
-                                     "a rewind into a mutated span is refused (§2.7)");
+                                     "a rewind into a mutated span is refused (section 2.7)");
         }
     };
     auto refused = [&](SourcePos p, const std::string& what, Result res) {
@@ -713,7 +713,7 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
                 // arrows, Backspace, Esc; level only (WP6, Appendix L).
                 if (const int ext = ext_key_id(name); ext >= 0) {
                     if (a.kind == ActionKind::Press && a.e1)
-                        fail(a.e1->pos, "`press … for` takes a matrix key, not `" + name + "`");
+                        fail(a.e1->pos, "`press ... for` takes a matrix key, not `" + name + "`");
                     refused(a.pos, "`press`/`release`",
                             d.set_extended_key(cid_, ext, a.kind == ActionKind::Press));
                     break;
@@ -722,7 +722,7 @@ void ScriptEngine::exec(RuleRec& r, const std::vector<Action>& body, const Event
                 if (!key_of(name, k)) fail(a.s1->pos, "unknown key `" + name + "`");
                 if (a.kind == ActionKind::Press && a.e1) {
                     const int32_t n = eval_int(*a.e1, ctx);
-                    if (n < 1) fail(a.e1->pos, "`press … for` needs at least 1 frame");
+                    if (n < 1) fail(a.e1->pos, "`press ... for` needs at least 1 frame");
                     const auto q = d.press_key(cid_, k, n);
                     refused(a.pos, "`press`", q.status);
                 } else {

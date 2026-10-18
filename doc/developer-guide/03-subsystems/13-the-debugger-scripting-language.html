@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.62</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.63</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.62</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.63</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2533,7 +2533,7 @@ a stack, so nested entries pair with their own exits. <code>changed(NAME, regs)<
 error, never a silent drop. <code>depth()</code> of an empty stack is 0, not an error.</p>
 <p>Run-time failures (division by zero, an address out of range, an empty stack)
 throw <code>EvalError</code> with the failing node's position. The engine catches it,
-disables the rule and logs <code>SCRIPT ERROR file:L:C: … — rule X disabled</code>.</p>
+disables the rule and logs <code>SCRIPT ERROR file:L:C: … - rule X disabled</code>.</p>
 <h2 id="the-expression-compiler-as-a-library">The expression compiler as a library<a class="headerlink" href="#the-expression-compiler-as-a-library" title="Permanent link">&para;</a></h2>
 <p><code>expr_compiler.h</code> is the stable surface other frontends call, and it names no
 AST type:</p>

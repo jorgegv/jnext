@@ -117,7 +117,7 @@ bool WavLoader::load(const std::string& path)
     filename_ = (slash != std::string::npos) ? path.substr(slash + 1) : path;
     uint32_t frames = total_frames();
     double duration = (sample_rate_ > 0) ? static_cast<double>(frames) / sample_rate_ : 0.0;
-    Log::emulator()->info("WAV: loaded '{}' — {}ch {}Hz {}bit, {} samples ({:.1f}s)",
+    Log::emulator()->info("WAV: loaded '{}' - {}ch {}Hz {}bit, {} samples ({:.1f}s)",
                           path, channels_, sample_rate_, bits_per_sample_, frames, duration);
     return true;
 }

@@ -244,7 +244,7 @@ int main()
         // --- LOGHOT-01: matched-handler read still logs when trace is ON ------
         plog->set_level(spdlog::level::trace);
         pd.read(0x00FE);
-        int matched = count_lines("IN  port=0x00fe \xe2\x86\x92 0xa5");
+        int matched = count_lines("IN  port=0x00fe -> 0xa5");
         std::snprintf(detail, sizeof(detail),
                       "matched-handler IN lines=%d want 1 (a suppressing guard gives 0)",
                       matched);
@@ -273,7 +273,7 @@ int main()
 
         // --- LOGHOT-04: write ---------------------------------------------------
         pd.write(0x00FE, 0x07);
-        int wrote = count_lines("OUT port=0x00fe \xe2\x86\x90 0x07");
+        int wrote = count_lines("OUT port=0x00fe <- 0x07");
         std::snprintf(detail, sizeof(detail), "OUT lines=%d want 1", wrote);
         check("LOGHOT-04", "PortDispatch::write logs at trace", wrote == 1, detail);
 
@@ -568,7 +568,7 @@ int main()
         SpiMaster spi;
         drive(spi);
         const std::initializer_list<const char*> sites = {
-            "write tx=0x11, rx=0xee", "read \xe2\x86\x92 returning prev=0xee"};
+            "write tx=0x11, rx=0xee", "read -> returning prev=0xee"};
         check("LOGHOT-22", "SPI write_data and read_data each log their per-byte "
               "debug line at debug", all_seen(t, sites), counts(t, sites));
 

@@ -238,7 +238,7 @@ when the verb runs.
 `step_back` and `rewind_to_frame` log one `Warn` line to every listener:
 
 ```
-REWIND REFUSED: Step Back refused: the instruction trace is off — turn on Debug ▸ Trace ▸ Enable Trace and run forward. See the user guide: Debugger ▸ Functions ▸ Backward execution (rewind)
+REWIND REFUSED: Step Back refused: the instruction trace is off - turn on Debug > Trace > Enable Trace and run forward. See the user guide: Debugger > Functions > Backward execution (rewind)
 ```
 
 The verb is `Step Back` or `Rewind to frame N`, and the reason is read from the

@@ -568,7 +568,7 @@ void Keyboard::set_matrix_bit(int row, int col, bool pressed) {
     // auto-type step (a press and a release, doubled for a shifted pair):
     // `run_frame` ticks the auto-type FSM once per frame, not per instruction.
     if (row < 0 || row > 7 || col < 0 || col > 4) {
-        Log::input()->warn("Key matrix [{},{}] out of range — ignored", row, col);
+        Log::input()->warn("Key matrix [{},{}] out of range - ignored", row, col);
         return;
     }
     Log::input()->trace("Key matrix [{},{}] {}", row, col, pressed ? "pressed" : "released");
@@ -599,7 +599,7 @@ size_t Keyboard::queue_auto_type(const std::vector<AutoKey>& keys) {
     // here on be silently dropped for being oversized. The cap is on the
     // UNION of what every producer queued, since it is one queue.
     if (keys.size() > room) {
-        Log::input()->error("Auto-type: {} keystrokes exceeds the {} cap — "
+        Log::input()->error("Auto-type: {} keystrokes exceeds the {} cap - "
                             "sequence truncated ({} queued behind {} already queued)",
                             keys.size(), MAX_AUTO_TYPE_KEYS, n, auto_queue_.size());
     }
@@ -887,7 +887,7 @@ void Keyboard::describe_state(jnext::save::StateDesc& d)
         // detail composed at run time would dangle. Which of the sixteen slots
         // it was goes to the log, where a formatted string is safe.
         Log::input()->error("Keyboard: auto-type slot {} ('{}') holds "
-                            "[{},{}]+[{},{}] — {}",
+                            "[{},{}]+[{},{}] - {}",
                             bad_slot, kAutoKeys[bad_slot][0],
                             slots[bad_slot][0], slots[bad_slot][1],
                             slots[bad_slot][2], slots[bad_slot][3], bad);

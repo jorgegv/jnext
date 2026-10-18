@@ -72,7 +72,7 @@ constexpr std::size_t TARGET_XML_BYTES = sizeof(TARGET_XML) - 1;
 constexpr std::size_t TARGET_XML_MAX_BYTES = 1022;
 
 static_assert(TARGET_XML_BYTES <= TARGET_XML_MAX_BYTES,
-              "target.xml above 1022 bytes segfaults z88dk-gdb v2.4 (design §1.2, §7.1)");
+              "target.xml above 1022 bytes segfaults z88dk-gdb v2.4 (design section 1.2, section 7.1)");
 
 /// Registers in the document, in `g` order: `p`/`P` number n is entry n.
 constexpr int REG_COUNT = 14;

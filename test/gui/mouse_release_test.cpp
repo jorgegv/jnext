@@ -204,8 +204,8 @@ int main(int argc, char** argv)
         check("MRQ-10a", "esc: the captured title starts with the base title and says Esc to release mouse",
               title.startsWith(base) && title.contains(QStringLiteral("Esc to release mouse")),
               title.toStdString());
-        check("MRQ-10b", "esc: the status bar reads exactly 'Mouse captured — Esc to release'",
-              f.win.statusBar()->currentMessage() == QStringLiteral("Mouse captured — Esc to release"),
+        check("MRQ-10b", "esc: the status bar reads exactly 'Mouse captured - Esc to release'",
+              f.win.statusBar()->currentMessage() == QStringLiteral("Mouse captured - Esc to release"),
               f.win.statusBar()->currentMessage().toStdString());
         Fixture g(RM::MiddleClick);
         const QString tip = g.capture ? g.capture->statusTip() : QString();

@@ -250,7 +250,7 @@ bool VideoRecorder::stop()
     if (!have_audio) {
         Log::emulator()->info(
             "VideoRecorder: no audio was captured (--silent, or a source with "
-            "no output) — encoding video-only");
+            "no output) - encoding video-only");
     }
 
     // FFmpeg is invoked with -y, so this request explicitly replaces its

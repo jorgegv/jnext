@@ -28,10 +28,10 @@ bool Z80Loader::load(const std::string& path)
     }
 
     if (header_.version == 1) {
-        Log::emulator()->info("Z80: loaded v1 '{}' — PC={:#06x} SP={:#06x}",
+        Log::emulator()->info("Z80: loaded v1 '{}' - PC={:#06x} SP={:#06x}",
                                path, header_.PC, header_.SP);
     } else {
-        Log::emulator()->info("Z80: loaded v{} '{}' — PC={:#06x} SP={:#06x} hardware_mode={} "
+        Log::emulator()->info("Z80: loaded v{} '{}' - PC={:#06x} SP={:#06x} hardware_mode={} "
                                "is_128k={} pages={}",
                                header_.version, path, header_.PC, header_.SP,
                                header_.hardware_mode, header_.is_128k, pages_.size());
@@ -55,7 +55,7 @@ bool Z80Loader::apply(Emulator& emu) const
         // comment in Z80Loader::apply_ram_to_mmu() (z80_loader.h).
         Log::emulator()->error(
             "Z80: no RAM pages matched the expected page-number set ({}) for "
-            "hardware_mode={} ({} page(s) parsed) — refusing to report a "
+            "hardware_mode={} ({} page(s) parsed) - refusing to report a "
             "successful load with zero bytes written",
             header_.is_128k ? "3..10" : "4, 5, 8", header_.hardware_mode, pages_.size());
         return false;
@@ -100,7 +100,7 @@ bool Z80Loader::apply(Emulator& emu) const
     regs.halted = false;
     emu.cpu().set_registers(regs);
 
-    Log::emulator()->debug("Z80: CPU set — PC={:#06x} SP={:#06x} AF={:#06x} IM={}",
+    Log::emulator()->debug("Z80: CPU set - PC={:#06x} SP={:#06x} AF={:#06x} IM={}",
                             regs.PC, regs.SP, regs.AF, regs.IM);
 
     emu.port().out(0x00FE, header_.border & 0x07);

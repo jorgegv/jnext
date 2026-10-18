@@ -151,7 +151,7 @@ void SdlAudio::queue_pcm(const int16_t* pcm, int frames)
         overflow_warned_ = true;
         Log::platform()->warn(
             "audio ring overflow: dropped {} stereo pairs (ring {} pairs); "
-            "this should be impossible — please report it",
+            "this should be impossible - please report it",
             frames - accepted, audio_fill::RING_CAPACITY_PAIRS);
     }
 }

@@ -417,7 +417,7 @@ NativeSocket open_listener(const IpAddress& ip, std::uint16_t port,
                      reinterpret_cast<const char*>(&exclusive), sizeof(exclusive)) != 0) {
         hardening_warning = "SO_EXCLUSIVEADDRUSE could not be set: " +
                             wsa_text(::WSAGetLastError()) +
-                            " — another local process may be able to bind this port";
+                            " - another local process may be able to bind this port";
     }
 
     sockaddr_storage sa{};

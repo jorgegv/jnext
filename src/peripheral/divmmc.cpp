@@ -573,7 +573,7 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1,
 
     if (automap_active_ != prev_active || automap_hold_ != prev_hold) {
         divmmc_log()->debug(
-            "automap @PC={:#06x}: hold={}→{} held={} active={}→{} "
+            "automap @PC={:#06x}: hold={}->{} held={} active={}->{} "
             "(instant={} delayed={} off={})",
             pc, prev_hold, automap_hold_, automap_held_,
             prev_active, automap_active_,

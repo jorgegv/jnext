@@ -680,7 +680,7 @@ static void server_rows() {
         check("XPT-SRV-20", "a LISTENER fault is logged once and stops listening; the "
                             "connected client carries on",
               !r.srv->listening() && r.srv->port() == 0 &&
-                  log.count("xpt: listener on 127.0.0.1:49152 failed — listener exploded") == 1 &&
+                  log.count("xpt: listener on 127.0.0.1:49152 failed - listener exploded") == 1 &&
                   p->take() == "pong\n");
     }
     {
@@ -694,7 +694,7 @@ static void server_rows() {
                             "listener's reason, logged, nothing listening",
               !ok && srv.last_error() == "address already in use" && !srv.listening() &&
                   srv.port() == 0 &&
-                  log.count("xpt: cannot listen on 127.0.0.1:7777 — address already in use") ==
+                  log.count("xpt: cannot listen on 127.0.0.1:7777 - address already in use") ==
                       1 &&
                   srv.service_once(0) == ServiceStep::Idle);
     }

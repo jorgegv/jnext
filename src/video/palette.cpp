@@ -506,9 +506,9 @@ void PaletteManager::log_change(const PaletteChange& c)
     } else if (!overflow_warned_) {
         Log::video()->warn(
             "PaletteManager: change-log sanity bound hit at line {} ({} "
-            "writes in one frame — runaway-write bug?); further palette "
+            "writes in one frame - runaway-write bug?); further palette "
             "writes this frame will not be per-scanline. GH #110 / "
-            "TASK-PER-SCANLINE-PALETTE-PLAN.md §Q1.",
+            "TASK-PER-SCANLINE-PALETTE-PLAN.md section Q1.",
             current_line_, MAX_CHANGES_PER_FRAME);
         overflow_warned_ = true;
     }

@@ -52,7 +52,7 @@ inline bool auto_exit_finds_no_deferred_work(const Emulator& emu,
     for (const DeferredWork& w : work) {
         if (!w.pending) continue;
         Log::platform()->error(
-            "{}: '{}' never happened — --delayed-automatic-exit fired first. "
+            "{}: '{}' never happened - --delayed-automatic-exit fired first. "
             "Exiting non-zero.", w.option, w.what);
         ok = false;
     }

@@ -310,7 +310,7 @@ private:
     void require_live() const {
         if (live_ == LIVE) return;
         std::fprintf(stderr, "FATAL: a row drove a FakeTransport the engine has already "
-                             "deleted — observe it through close_tally (GH #241)\n");
+                             "deleted - observe it through close_tally (GH #241)\n");
         std::abort();
     }
 
@@ -854,7 +854,7 @@ int main() {
     {   Rig r;
         r.send("ATE1\r\n"); r.drain();
         check_eq("AT-04",
-                 "ATE1 is NOT echoed — echo was still off while its own bytes arrived",
+                 "ATE1 is NOT echoed - echo was still off while its own bytes arrived",
                  r.take(), "\r\nOK\r\n");
         check("AT-04b", "...but echo is now really on", r.eng.echo_enabled());
         r.send("AT\r\n"); r.drain();
@@ -873,7 +873,7 @@ int main() {
         // down: the DEFAULT is what nextsync depends on, and MUX-01 asserts it
         // is still 0.
         check_eq("AT-06",
-                 "AT+CIPMUX=1 is accepted (GH #210) — it was refused until server mode "
+                 "AT+CIPMUX=1 is accepted (GH #210) - it was refused until server mode "
                  "had a consumer",
                  r.take(), "\r\nOK\r\n"); }
     {   Rig r; r.send("AT+CIPCLOSE\r\n"); r.drain();
@@ -887,7 +887,7 @@ int main() {
         check_eq("AT-09", "an unsupported command answers ERROR", r.take(), "\r\nERROR\r\n"); }
     {   Rig r;
         r.send("\n"); r.drain();
-        check_eq("AT-10", "a bare LF produces nothing — it is only ever the CR's partner",
+        check_eq("AT-10", "a bare LF produces nothing - it is only ever the CR's partner",
                  r.take(), "");
         r.send("ATE1\r\n"); r.drain(); r.take();
         r.send("\n"); r.drain();
@@ -908,7 +908,7 @@ int main() {
         check_eq("AT-12", "an overlong line answers exactly one ERROR", r.take(),
                  "\r\nERROR\r\n");
         check("AT-12b",
-              "...and is REFUSED WHOLE — its truncated prefix, a valid CIPSTART, is never run",
+              "...and is REFUSED WHOLE - its truncated prefix, a valid CIPSTART, is never run",
               r.tr.begin_calls == 0); }
     {   Rig r; r.send("AT+UART_CUR=1152000,8,1,0,0\r\n"); r.drain();
         check_eq("AT-13", "nextsync's baud switch is acknowledged", r.take(), "\r\nOK\r\n");
@@ -930,7 +930,7 @@ int main() {
         r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n");
         r.drain();
         check_eq("CON-01",
-                 "AT+CIPSTART answers NOTHING until the transport settles — there is no "
+                 "AT+CIPSTART answers NOTHING until the transport settles - there is no "
                  "synchronous connect to answer from",
                  r.take(), "");
         check("CON-01b", "...and the engine reports it is waiting", r.eng.awaiting_connect());
@@ -944,7 +944,7 @@ int main() {
         r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n");
         r.settle();
         check_eq("CON-03",
-                 "a failed connect answers ERROR only — never FAIL, never CLOSED for a "
+                 "a failed connect answers ERROR only - never FAIL, never CLOSED for a "
                  "connection that never existed",
                  r.take(), "\r\nERROR\r\n");
         check("CON-03b", "...and the engine is not connected", !r.eng.connected()); }
@@ -961,7 +961,7 @@ int main() {
         Rig r;
         r.send("AT+CIPSTART=\"SSL\",\"example.test\",2048\r\n");
         r.settle();
-        check_eq("CON-05", "SSL is still refused — it still has no consumer", r.take(),
+        check_eq("CON-05", "SSL is still refused - it still has no consumer", r.take(),
                  "\r\nERROR\r\n");
         check("CON-05b", "...and no connect was ever started", r.tr.begin_calls == 0); }
     {   Rig r;
@@ -972,7 +972,7 @@ int main() {
                  "a second CIPSTART while connected answers ERROR, not 'ALREADY CONNECTED'",
                  r.take(), "\r\nERROR\r\n");
         check("CON-06b",
-              "...and is rejected by the ENGINE — the transport is never asked a second time",
+              "...and is rejected by the ENGINE - the transport is never asked a second time",
               r.tr.begin_calls == 1); }
     {   Rig r;  // Type-ahead during a connect must not be lost or reordered.
         r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n");
@@ -1048,7 +1048,7 @@ int main() {
         r.send("AT+CIPSEND=3\r\n");
         r.drain();
         check_eq("SEND-01",
-                 "AT+CIPSEND answers \\r\\nOK\\r\\n> — TRAILING SPACE INCLUDED; three "
+                 "AT+CIPSEND answers \\r\\nOK\\r\\n> - TRAILING SPACE INCLUDED; three "
                  "parsers busy-wait on this with no timeout",
                  r.take(), "\r\nOK\r\n> ");
         check("SEND-01b", "...and 3 payload bytes are outstanding",
@@ -1089,7 +1089,7 @@ int main() {
         check("SEND-04c", "...delivering the payload", r.tr.sent == "xyz"); }
     {   Rig r;
         r.send("AT+CIPSEND=1\r\n"); r.drain();
-        check_eq("SEND-05", "AT+CIPSEND with no connection answers ERROR — and no prompt, "
+        check_eq("SEND-05", "AT+CIPSEND with no connection answers ERROR - and no prompt, "
                             "which would hang the guest waiting to send",
                  r.take(), "\r\nERROR\r\n"); }
     {   Rig r;
@@ -1209,7 +1209,7 @@ int main() {
         }
         seen = r.take();
         check("IPD-07",
-              "once the header starts, every byte-slot delivers a byte — no gap can open "
+              "once the header starts, every byte-slot delivers a byte - no gap can open "
               "inside +IPD,<len>:",
               !gap_after_plus);
         check("IPD-07b", "...and the header arrived intact", seen == "\r\n+IPD,4:QQQQ"); }
@@ -1272,7 +1272,7 @@ int main() {
         r.settle();
         const std::string reply = r.take();
         check_eq("UDP-01",
-                 "AT+CIPSTART=\"UDP\" answers CONNECT then OK — newt reads ONE line and "
+                 "AT+CIPSTART=\"UDP\" answers CONNECT then OK - newt reads ONE line and "
                  "demands it start with CONNECT",
                  reply, "CONNECT\r\n\r\nOK\r\n");
         // Stated as the property rather than as a substring of the literal
@@ -1282,7 +1282,7 @@ int main() {
         // gives up without ever sending its request. `CONNECT` is a status
         // line, not a result code; the blank line belongs to the OK after it.
         check_eq("UDP-01c",
-                 "...and the FIRST CRLF-terminated line is CONNECT itself — no leading CRLF, "
+                 "...and the FIRST CRLF-terminated line is CONNECT itself - no leading CRLF, "
                  "or newt's one-line read sees an empty line and gives up",
                  reply.substr(0, reply.find('\n') + 1), "CONNECT\r\n");
         check("UDP-01b", "...and the engine is connected", r.eng.connected());
@@ -1304,7 +1304,7 @@ int main() {
     {   Rig r;
         r.send("AT+CIPSTART=\"UDP\",\"time.test\",123,4567,0\r\n");
         r.settle();
-        check_eq("UDP-05", "<mode> 0 — the fixed peer every client uses — is accepted",
+        check_eq("UDP-05", "<mode> 0 - the fixed peer every client uses - is accepted",
                  r.take(), "CONNECT\r\n\r\nOK\r\n"); }
     {   Rig r;
         r.send("AT+CIPSTART=\"UDP\",\"time.test\",123,4567,1\r\n");
@@ -1364,7 +1364,7 @@ int main() {
         r.tr.queue_datagram_from_peer("TWO");
         r.settle();
         check_eq("UDP-12",
-                 "two datagrams are framed as two +IPDs — merging them would hand the guest "
+                 "two datagrams are framed as two +IPDs - merging them would hand the guest "
                  "a message boundary that never existed",
                  r.take(), "\r\n+IPD,3:ONE\r\n+IPD,3:TWO"); }
     {   // THE newt BUG, REPRODUCED EXACTLY. `uart_tx_bin` is
@@ -1380,7 +1380,7 @@ int main() {
         r.settle();
         check_eq("UDP-13",
                  "a stray byte left over from a guest that overran its own CIPSEND does NOT "
-                 "hold the +IPD back — it cannot become an AT command",
+                 "hold the +IPD back - it cannot become an AT command",
                  r.take(), "\r\nSEND OK\r\n\r\n+IPD,4:PONG");
         check("UDP-13b", "...and only the declared 3 bytes were transmitted",
               r.tr.sent_datagrams.size() == 1 && r.tr.sent_datagrams[0] == "XYZ");
@@ -1462,7 +1462,7 @@ int main() {
         r.eng.poll();
         r.eng.tick(BYTE_TICKS, BYTE_TICKS);
         check("PACE-04",
-              "idle time banks no credit — otherwise a quiet link would burst at unbounded "
+              "idle time banks no credit - otherwise a quiet link would burst at unbounded "
               "speed the instant data arrived",
               r.guest.size() == 1); }
     {   // The rate follows the LIVE prescaler, which is what makes .ESPBAUD
@@ -1597,7 +1597,7 @@ int main() {
               s.find("+CIFSR:STAIP,\"0.0.0.0\"\r\n") != std::string::npos);
         check("ASSOC-05", "...and the real address appears nowhere in the reply",
               s.find(AtEngine::STA_IP) == std::string::npos);
-        check("ASSOC-06", "...while the STAMAC line is untouched — the MAC is the radio's own",
+        check("ASSOC-06", "...while the STAMAC line is untouched - the MAC is the radio's own",
               s.find(std::string("STAMAC,\"") + AtEngine::STA_MAC + "\"") != std::string::npos);
         check("ASSOC-07", "...and the reply still ends in the exact OK framing",
               s.size() >= 6 && s.compare(s.size() - 6, 6, "\r\nOK\r\n") == 0); }
@@ -1607,7 +1607,7 @@ int main() {
         r.send("AT+CIFSR\r\n"); r.drain();
         const std::string s = r.take();
         check("ASSOC-08",
-              "re-associating restores the SAME address — a short outage does not move it",
+              "re-associating restores the SAME address - a short outage does not move it",
               s.find(std::string("STAIP,\"") + AtEngine::STA_IP + "\"") != std::string::npos); }
     {   // §16.3: the guest is not what took the network away, so nothing the
         // guest can send brings it back. AT+RST is the one command that resets
@@ -1644,7 +1644,7 @@ int main() {
         Rig r;
         r.eng.set_associated(false);
         r.connect();
-        check("ASSOC-13", "a connection still opens while unassociated — traffic is not modelled",
+        check("ASSOC-13", "a connection still opens while unassociated - traffic is not modelled",
               r.eng.connected()); }
 
     // ══ Group G3 — the configurable station address (GH #246 §16.5) ═════
@@ -1775,7 +1775,7 @@ int main() {
         check("TRACE-02", "...and the close",
               quiet.find("closed by the guest") != std::string::npos);
         check("TRACE-03",
-              "...and NOTHING else — no AT chatter, no prompt, no +IPD, no pacing",
+              "...and NOTHING else - no AT chatter, no prompt, no +IPD, no pacing",
               quiet.find("AT <-") == std::string::npos &&
                   quiet.find("AT ->") == std::string::npos &&
                   quiet.find("+IPD framing") == std::string::npos &&
@@ -1796,7 +1796,7 @@ int main() {
               dbg.find("payload complete: 2 byte(s)") != std::string::npos);
         check("TRACE-07", "...and the +IPD framing decision is traced",
               dbg.find("+IPD framing 2 byte(s)") != std::string::npos);
-        check("TRACE-08", "...but per-byte pacing is not — that is trace level",
+        check("TRACE-08", "...but per-byte pacing is not - that is trace level",
               dbg.find("paced") == std::string::npos);
 
         const std::string trc = capture(LogLevel::Trace, [] {
@@ -2010,7 +2010,7 @@ int main() {
         const std::string reset_reply = "\r\nOK\r\n\r\nWIFI CONNECTED\r\n\r\nWIFI GOT IP\r\n";
         for (unsigned char c : std::string("AT+CIPSTART=\"TCP\",\"example.test\",80\r\n"))
             esp.receive(c);
-        check("STALL-01a", "nothing has been delivered yet — no tick() has run", guest.empty());
+        check("STALL-01a", "nothing has been delivered yet - no tick() has run", guest.empty());
 
         esp.start();
         for (int i = 0; i < 5000 && !tr.in_poll.load(); ++i)
@@ -2300,7 +2300,7 @@ int main() {
 
     {   Rig r;
         check("MUX-01",
-              "the power-on default is CIPMUX=0 — no command can correct a wrong "
+              "the power-on default is CIPMUX=0 - no command can correct a wrong "
               "default at run time, so this is the value nextsync depends on",
               !r.eng.cipmux()); }
     {   Rig r;
@@ -2315,7 +2315,7 @@ int main() {
         r.tr.queue_from_peer("hello");
         r.settle();
         check_eq("MUX-10",
-                 "a CIPMUX=0 session still sees the unmultiplexed +IPD,<len>: — the one "
+                 "a CIPMUX=0 session still sees the unmultiplexed +IPD,<len>: - the one "
                  "thing GH #210 could have broken silently",
                  r.take(), "\r\n+IPD,5:hello"); }
     {   // The other side of the same guard, on the SAME outbound connection.
@@ -2346,7 +2346,7 @@ int main() {
         r.tr.peer_closes();
         r.settle();
         check_eq("MUX-13",
-                 "and its CLOSED stays unprefixed — NXtel matches a 5-byte 'OSED\\r' "
+                 "and its CLOSED stays unprefixed - NXtel matches a 5-byte 'OSED\\r' "
                  "window",
                  r.take(), "\r\nCLOSED\r\n"); }
     {   // THE GUEST-INITIATED CLOSE TAKES THE SAME DECISION, which it did not
@@ -2370,9 +2370,9 @@ int main() {
                  r.take(), "\r\n0,CLOSED\r\n\r\nOK\r\n"); }
 
     {   Rig r; r.send("AT+CIPMUX=2\r\n"); r.drain();
-        check_eq("MUX-03", "AT+CIPMUX=2 is not a mode — ERROR", r.take(), "\r\nERROR\r\n"); }
+        check_eq("MUX-03", "AT+CIPMUX=2 is not a mode - ERROR", r.take(), "\r\nERROR\r\n"); }
     {   Rig r; r.send("AT+CIPMUX=\r\n"); r.drain();
-        check_eq("MUX-04", "AT+CIPMUX with no argument — ERROR", r.take(), "\r\nERROR\r\n"); }
+        check_eq("MUX-04", "AT+CIPMUX with no argument - ERROR", r.take(), "\r\nERROR\r\n"); }
 
     {   // Real firmware: "This mode can only be changed after all connections
         // are disconnected". The peer was promised one framing and cannot
@@ -2396,7 +2396,7 @@ int main() {
         r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
         r.send("AT+CIPMUX=0\r\n"); r.drain();
         check_eq("MUX-07",
-                 "AT+CIPMUX=0 is refused while the server is listening — a server is a "
+                 "AT+CIPMUX=0 is refused while the server is listening - a server is a "
                  "promise of multiplexed framing to whoever connects next",
                  r.take(), "\r\nERROR\r\n");
         check("MUX-07b", "...and the server is still up", r.eng.server_listening()); }
@@ -2438,7 +2438,7 @@ int main() {
     {   Rig r;
         r.send("AT+CIPMUX=1\r\n"); r.drain(); r.take();
         r.send("AT+CIPSERVER=2,4000\r\n"); r.drain();
-        check_eq("SRV-06", "mode 2 does not exist — ERROR", r.take(), "\r\nERROR\r\n"); }
+        check_eq("SRV-06", "mode 2 does not exist - ERROR", r.take(), "\r\nERROR\r\n"); }
     {   // A BIND FAILURE MUST NEVER WIDEN ANYTHING. The engine has one answer
         // available and it is `ERROR`; there is no second port and no second
         // address to try, which is the whole consequence of design doc §13.4.
@@ -2448,7 +2448,7 @@ int main() {
         r.send("AT+CIPSERVER=1,4000\r\n"); r.drain();
         check_eq("SRV-07", "a bind failure answers ERROR", r.take(), "\r\nERROR\r\n");
         check("SRV-07b", "...and leaves nothing listening", !r.eng.server_listening());
-        check("SRV-07c", "...having tried exactly once — no retry, no fallback port",
+        check("SRV-07c", "...having tried exactly once - no retry, no fallback port",
               r.lsn.open_calls == 1); }
     {   Rig r;
         r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.drain(); r.take();
@@ -2494,7 +2494,7 @@ int main() {
         r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.drain(); r.take();
         r.send("AT+RST\r\n"); r.drain(); r.take();
         check("SRV-13",
-              "AT+RST closes the server — a listening port that outlived the module "
+              "AT+RST closes the server - a listening port that outlived the module "
               "that opened it is how this leaks",
               !r.eng.server_listening() && r.lsn.close_calls == 1); }
 
@@ -2535,7 +2535,7 @@ int main() {
         r.settle(); r.take();
         r.send("AT+CIPSEND=5\r\n"); r.drain();
         check_eq("SRV-17",
-                 "the single-connection AT+CIPSEND=<len> form is ERROR under CIPMUX=1 — "
+                 "the single-connection AT+CIPSEND=<len> form is ERROR under CIPMUX=1 - "
                  "the argument list is read from the MODE, never sniffed from the text",
                  r.take(), "\r\nERROR\r\n"); }
     {   Rig r;
@@ -2587,7 +2587,7 @@ int main() {
         add_inbound(r.lsn);
         r.settle(); r.take();
         r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n"); r.settle();
-        check_eq("SRV-22", "an inbound connection never takes slot 0 — AT+CIPSTART still "
+        check_eq("SRV-22", "an inbound connection never takes slot 0 - AT+CIPSTART still "
                  "works while a peer is connected",
                  r.take(), "\r\nOK\r\n");
         check("SRV-22b", "...and both connections are live",
@@ -2619,7 +2619,7 @@ int main() {
         r.settle(); r.take();
         r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n"); r.settle();
         check_eq("SRV-24",
-                 "slot 0's transport survives its own connection closing — a reconnect "
+                 "slot 0's transport survives its own connection closing - a reconnect "
                  "after CLOSED still works",
                  r.take(), "\r\nOK\r\n"); }
     {   Rig r;
@@ -2684,7 +2684,7 @@ int main() {
                  "\r\n3,CLOSED\r\n\r\nOK\r\n");
         r.send("AT+CIPCLOSE=1\r\n"); r.settle();
         check_eq("CLS-05", "...and the first", r.take(), "\r\n1,CLOSED\r\n\r\nOK\r\n");
-        check("CLS-05b", "so four wedged peers can all be freed — the exhaustion this "
+        check("CLS-05b", "so four wedged peers can all be freed - the exhaustion this "
               "command exists for", r.eng.inbound_connections() == 0 &&
               closes[0] == 1 && closes[1] == 1 && closes[2] == 1 && closes[3] == 1); }
 
@@ -2792,7 +2792,7 @@ int main() {
         check_eq("CLS-15", "AT+CIPCLOSE=0 closes the outbound connection with the same "
                  "bytes the bare spelling emits", r.take(), "\r\n0,CLOSED\r\n\r\nOK\r\n");
         r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n"); r.settle();
-        check_eq("CLS-15b", "...and slot 0's BORROWED transport survives it — a reconnect "
+        check_eq("CLS-15b", "...and slot 0's BORROWED transport survives it - a reconnect "
                  "still works", r.take(), "\r\nOK\r\n"); }
 
     {   // The race the recovery path actually runs into: the peer drops while
@@ -2817,7 +2817,7 @@ int main() {
         check_eq("CLS-17", "and once the peer close HAS been announced...", r.take(),
                  "\r\n1,CLOSED\r\n");
         r.send("AT+CIPCLOSE=1\r\n"); r.settle();
-        check_eq("CLS-17b", "...closing the same id again is ERROR — the slot is already "
+        check_eq("CLS-17b", "...closing the same id again is ERROR - the slot is already "
                  "back in the pool", r.take(), "\r\nERROR\r\n"); }
 
     {   // Buffered-but-unframed peer data dies with a guest-requested close.
@@ -2839,7 +2839,7 @@ int main() {
         check_eq("CLS-18", "a command line in flight holds the +IPD back, so the peer's "
                  "bytes really are buffered when the close arrives", r.take(), "");
         r.send("\r\n"); r.settle(); r.settle();
-        check_eq("CLS-18b", "...and they are discarded with the connection — no +IPD "
+        check_eq("CLS-18b", "...and they are discarded with the connection - no +IPD "
                  "follows the CLOSED", r.take(), "\r\n1,CLOSED\r\n\r\nOK\r\n"); }
     {   Rig r;
         r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
@@ -2847,7 +2847,7 @@ int main() {
         r.settle(); r.take();
         r.send("AT+CIPCLOSE=1\r\n"); r.settle(); r.take();
         r.send("AT+CIPSEND=1,4\r\n"); r.settle();
-        check_eq("CLS-19", "AT+CIPSEND to a closed id is ERROR — the slot is gone, not "
+        check_eq("CLS-19", "AT+CIPSEND to a closed id is ERROR - the slot is gone, not "
                  "merely idle", r.take(), "\r\nERROR\r\n"); }
 
     {   // THE FAILURE THE COMMAND EXISTS FOR, end to end. Four peers wedge
@@ -2918,7 +2918,7 @@ int main() {
                  "\r\n+CIPSTO:10\r\n\r\nOK\r\n"); }
     {   Rig r; serve(r);
         r.send("AT+CIPSTO=0\r\n"); r.drain();
-        check_eq("STO-03", "0 — \"it will never timeout\" — is a legal setting, not a "
+        check_eq("STO-03", "0 - \"it will never timeout\" - is a legal setting, not a "
                  "refusal", r.take(), "\r\nOK\r\n");
         r.send("AT+CIPSTO?\r\n"); r.drain();
         check_eq("STO-03b", "...and reads back as 0", r.take(), "\r\n+CIPSTO:0\r\n\r\nOK\r\n"); }
@@ -2968,7 +2968,7 @@ int main() {
         r.send("AT+CIPSTO=7200\r\n"); r.drain(); r.take();
         r.send("AT+RST\r\n"); r.drain(); r.take();
         r.send("AT+CIPSTO?\r\n"); r.drain();
-        check_eq("STO-10", "the value does not survive AT+RST — the command does not "
+        check_eq("STO-10", "the value does not survive AT+RST - the command does not "
                  "persist to flash", r.take(), "\r\n+CIPSTO:180\r\n\r\nOK\r\n");
         r.send("AT+CIPSTO=900\r\n"); r.drain();
         check_eq("STO-10c", "...and the restart re-arms the refusal: the server went with "
@@ -3038,7 +3038,7 @@ int main() {
                  r.take(), "\r\n1,CONNECT\r\n");
         r.advance(100000);  // well past the 7200 s ceiling of the setting form
         r.settle(); r.settle();
-        check_eq("STO-13b", "...nor 100 000 seconds later — 0 really is never", r.take(), "");
+        check_eq("STO-13b", "...nor 100 000 seconds later - 0 really is never", r.take(), "");
         check("STO-13c", "...and the socket was left alone",
               r.eng.inbound_connections() == 1 && closes == 0); }
     {   // CLIENT SILENCE IS WHAT ARMS IT — the requirement's wording, and the
@@ -3063,7 +3063,7 @@ int main() {
         check("STO-14c", "...and really still connected", r.eng.inbound_connections() == 1);
         r.advance(11);
         r.settle();
-        check_eq("STO-14d", "...and it is the SILENCE that is measured — 31 s after the last "
+        check_eq("STO-14d", "...and it is the SILENCE that is measured - 31 s after the last "
                  "byte it goes", r.take(), "\r\n1,CLOSED\r\n"); }
     {   // AT+CIPSTO is the TCP *SERVER* timeout. Slot 0 is the guest's own
         // outbound connection and no server ever accepted into it
@@ -3113,7 +3113,7 @@ int main() {
         Rig r;
         r.send("AT+CIPSTO=180\r\n"); r.drain();
         check_eq("STO-17", "even the module's own default value is refused with no server "
-                 "— it is the precondition, not the number", r.take(), "\r\nERROR\r\n"); }
+                 "- it is the precondition, not the number", r.take(), "\r\nERROR\r\n"); }
     {   // NOT A HARDWARE MEASUREMENT — a deliberate choice, recorded as
         // simplification (9e). The probe issued AT+CIPMUX=1 and AT+CIPSERVER=1
         // together, so what a real module answers HERE is unknown. Gating on
@@ -3122,14 +3122,14 @@ int main() {
         // CIPMUX, this is the row that changes.
         Rig r;
         r.send("AT+CIPMUX=1\r\n"); r.drain(); r.take();
-        check_eq("STO-18", "AT+CIPMUX=1 alone does NOT unlock it — this module gates on the "
+        check_eq("STO-18", "AT+CIPMUX=1 alone does NOT unlock it - this module gates on the "
                  "listener (choice, not measurement)", [&]{
                      r.send("AT+CIPSTO=1800\r\n"); r.drain(); return r.take(); }(),
                  "\r\nERROR\r\n");
         r.send("AT+CIPSERVER=1,4000\r\n"); r.drain(); r.take();
         r.send("AT+CIPSTO=1800\r\n"); r.drain();
         check_eq("STO-18b", "...and the server coming up is what unlocks it, in the same "
-                 "session — the hardware sequence exactly", r.take(), "\r\nOK\r\n");
+                 "session - the hardware sequence exactly", r.take(), "\r\nOK\r\n");
         check("STO-18c", "...with the value really taken", r.eng.server_timeout() == 1800); }
     {   // Symmetry: stopping the server puts it back to refusing. Follows from
         // reading the precondition as "a server is running"; likewise
@@ -3209,7 +3209,7 @@ int main() {
     {   Rig r; r.send("AT+CWMODE=1\r\n"); r.drain();
         check_eq("CWM-02", "AT+CWMODE=1 answers OK (readme:238)", r.take(), "\r\nOK\r\n"); }
     {   Rig r; r.send("AT+CWMODE=3\r\nAT+CWMODE?\r\n"); r.drain();
-        check_eq("CWM-03", "station+AP is accepted and reported back — the mode the Next's "
+        check_eq("CWM-03", "station+AP is accepted and reported back - the mode the Next's "
                  "own OTA instructions use (readme:553)", r.take(),
                  "\r\nOK\r\n\r\n+CWMODE:3\r\n\r\nOK\r\n"); }
     {   Rig r; r.send("AT+CWMODE=3\r\n"); r.drain(); r.take();
@@ -3235,7 +3235,7 @@ int main() {
         check("CWM-09", "going back to station mode restores the address",
               r.take().find("STAIP,\"192.168.1.50\"") != std::string::npos); }
     {   Rig r; r.send("AT+CWMODE=0\r\n"); r.drain();
-        check_eq("CWM-10", "mode 0 does not exist — ERROR", r.take(), "\r\nERROR\r\n"); }
+        check_eq("CWM-10", "mode 0 does not exist - ERROR", r.take(), "\r\nERROR\r\n"); }
     {   Rig r; r.send("AT+CWMODE=4\r\n"); r.drain();
         check_eq("CWM-11", "nor does mode 4", r.take(), "\r\nERROR\r\n"); }
     {   Rig r; r.send("AT+CWMODE=x\r\n"); r.drain();
@@ -3245,17 +3245,17 @@ int main() {
         // v2.3.0.0 documents the `=?` form of no command at all, so its reply
         // would have to be invented.
         Rig r; r.send("AT+CWMODE=?\r\n"); r.drain();
-        check_eq("CWM-13", "the =? test form is refused — no version documents its reply",
+        check_eq("CWM-13", "the =? test form is refused - no version documents its reply",
                  r.take(), "\r\nERROR\r\n"); }
     {   Rig r; r.send("AT+CWMODE=2\r\nAT+RST\r\n"); r.drain(); r.take();
         r.send("AT+CWMODE?\r\n"); r.drain();
-        check_eq("CWM-14", "AT+RST restores station mode — a STATED deviation from 1.x, where "
+        check_eq("CWM-14", "AT+RST restores station mode - a STATED deviation from 1.x, where "
                  "the bare command persists, taken so AT+RST's WIFI GOT IP is never a lie",
                  r.take(), "\r\n+CWMODE:1\r\n\r\nOK\r\n"); }
 
     // ── AT+CWJAP (set form) ────────────────────────────────────────────
     {   Rig r; r.send("AT+CWJAP=\"wifinetwork\",\"password\"\r\n"); r.drain();
-        check_eq("CWJ-01", "joining answers the two WIFI URCs and then OK — the readme's "
+        check_eq("CWJ-01", "joining answers the two WIFI URCs and then OK - the readme's "
                  "\"CONNECTED and GOT IP\"", r.take(),
                  "\r\nWIFI CONNECTED\r\n\r\nWIFI GOT IP\r\n\r\nOK\r\n"); }
     {   Rig r; r.send("AT+CWJAP=\"wifinetwork\",\"password\"\r\n"); r.drain(); r.take();
@@ -3268,7 +3268,7 @@ int main() {
         // is the module's own synthetic one. A join must therefore succeed for
         // any name at all.
         Rig r; r.send("AT+CWJAP=\"some other network\",\"hunter2\"\r\n"); r.drain();
-        check_eq("CWJ-03", "any SSID is accepted — jnext's network is synthetic, so no name "
+        check_eq("CWJ-03", "any SSID is accepted - jnext's network is synthetic, so no name "
                  "is more reachable than another", r.take(),
                  "\r\nWIFI CONNECTED\r\n\r\nWIFI GOT IP\r\n\r\nOK\r\n"); }
     {   Rig r; r.send("AT+CWJAP=wifinetwork,password\r\n"); r.drain();
@@ -3291,7 +3291,7 @@ int main() {
         check_eq("CWJ-06", "the =? test form is refused here too", r.take(), "\r\nERROR\r\n"); }
     {   Rig r; r.send("AT+CWJAP=\"other\",\"pw\"\r\nAT+RST\r\n"); r.drain(); r.take();
         r.send("AT+CWJAP?\r\n"); r.drain();
-        check_eq("CWJ-07", "AT+RST forgets the guest's SSID — this module has no flash",
+        check_eq("CWJ-07", "AT+RST forgets the guest's SSID - this module has no flash",
                  r.take(),
                  "\r\n+CWJAP:\"JNextWifiHost\",\"02:00:00:00:00:01\",1,-55\r\n\r\nOK\r\n"); }
 
@@ -3312,12 +3312,12 @@ int main() {
         check("CWL-03", "...and so do its channel and RSSI",
               lap.find("-55") != std::string::npos && jap.find(",1,-55") != std::string::npos); }
     {   Rig r; r.send("AT+CWLAPX\r\n"); r.drain();
-        check_eq("CWL-04", "AT+CWLAP is an exact entry — trailing text is not swallowed",
+        check_eq("CWL-04", "AT+CWLAP is an exact entry - trailing text is not swallowed",
                  r.take(), "\r\nERROR\r\n"); }
 
     // ── AT+CWQAP ───────────────────────────────────────────────────────
     {   Rig r; r.send("AT+CWQAP\r\n"); r.drain();
-        check_eq("CWQ-01", "leaving the AP emits WIFI DISCONNECT — the ONE exception to the "
+        check_eq("CWQ-01", "leaving the AP emits WIFI DISCONNECT - the ONE exception to the "
                  "never-emit list, because the guest asked for it", r.take(),
                  "\r\nWIFI DISCONNECT\r\n\r\nOK\r\n"); }
     {   Rig r; r.send("AT+CWQAP\r\n"); r.drain(); r.take();
@@ -3347,7 +3347,7 @@ int main() {
         // exactly this; these two rows are why it cannot come back.
         Rig r; r.eng.set_associated(false);
         r.send("AT+CWJAP?\r\n"); r.drain();
-        check("CWQ-07", "a HOST outage does NOT make the join query say No AP — only the "
+        check("CWQ-07", "a HOST outage does NOT make the join query say No AP - only the "
               "guest's own AT+CWQAP does",
               r.take().find("+CWJAP:\"JNextWifiHost\"") != std::string::npos); }
     {   Rig r; r.eng.set_associated(false);
@@ -3385,10 +3385,10 @@ int main() {
     // ── AT+CIPMODE — refuse a CHANGE, not the command ──────────────────
     {   Rig r; r.send("AT+CIPMODE=0\r\n"); r.drain();
         check_eq("CPM-01", "AT+CIPMODE=0 asks for the mode jnext is permanently in, so it "
-                 "succeeds — refusing the status quo failed a defensive client for nothing",
+                 "succeeds - refusing the status quo failed a defensive client for nothing",
                  r.take(), "\r\nOK\r\n"); }
     {   Rig r; r.send("AT+CIPMODE=1\r\n"); r.drain();
-        check_eq("CPM-02", "passthrough is still refused — it has no consumer and would "
+        check_eq("CPM-02", "passthrough is still refused - it has no consumer and would "
                  "suspend every framing guarantee in design doc §5.2", r.take(),
                  "\r\nERROR\r\n"); }
     {   Rig r; r.send("AT+CIPMODE?\r\n"); r.drain();
@@ -3442,7 +3442,7 @@ int main() {
         r.settle(); r.take();
         r.send("AT+CIPSTATUS\r\n"); r.drain();
         const std::string st = r.take();
-        check("CSTAT-08", "an accepted link is reported as id 1 — never id 0, which stays the "
+        check("CSTAT-08", "an accepted link is reported as id 1 - never id 0, which stays the "
               "guest's own outbound slot (design doc §13.7a)",
               st.find("+CIPSTATUS:1,") != std::string::npos);
         check("CSTAT-09", "...with tetype 1, marking it as one the module SERVES rather than "
@@ -3462,7 +3462,7 @@ int main() {
         check_eq("CSTAT-11", "a HOST outage reports status 5, exactly as AT+CIFSR reports no "
                  "address in the same state", r.take(), "\r\nSTATUS:5\r\n\r\nOK\r\n"); }
     {   Rig r; r.send("AT+CIPSTATUSX\r\n"); r.drain();
-        check_eq("CSTAT-06", "AT+CIPSTATUS is an exact entry — trailing text is not swallowed",
+        check_eq("CSTAT-06", "AT+CIPSTATUS is an exact entry - trailing text is not swallowed",
                  r.take(), "\r\nERROR\r\n"); }
     {   // The one collision worth pinning: `AT+CIPSTA?` is an exact entry whose
         // 9th character is `?` where this command's is `T`, so neither can
@@ -3492,7 +3492,7 @@ int main() {
     {   Rig r; parse_ip("93.184.216.34", r.rsv.answer);
         r.send("AT+CIPDOMAIN=\"example.test\"\r\n"); r.drain();
         check_eq("DOM-02",
-                 "AT+CIPDOMAIN answers NOTHING from its own dispatch — the address is not "
+                 "AT+CIPDOMAIN answers NOTHING from its own dispatch - the address is not "
                  "knowable yet",
                  r.take(), "");
         r.settle();
@@ -3515,7 +3515,7 @@ int main() {
         Rig b; b.rsv.fail_with_policy = true;
         b.send("AT+CIPDOMAIN=\"metadata.test\"\r\n"); b.settle();
         check_eq("DOM-05",
-                 "a POLICY refusal is byte-identical to a DNS miss — the guest cannot use "
+                 "a POLICY refusal is byte-identical to a DNS miss - the guest cannot use "
                  "this command as an allowlist or address-policy oracle",
                  b.take(), a.take()); }
 
@@ -3536,7 +3536,7 @@ int main() {
         // path that leaves the module, so its bound is worth pinning exactly.
         Rig r; parse_ip("10.0.0.1", r.rsv.answer);
         r.send("AT+CIPDOMAIN=\"" + std::string(63, 'a') + "\"\r\n"); r.settle();
-        check_eq("DOM-10", "a 63-byte name is accepted — the longest the manual allows",
+        check_eq("DOM-10", "a 63-byte name is accepted - the longest the manual allows",
                  r.take(), "\r\n+CIPDOMAIN:10.0.0.1\r\n\r\nOK\r\n"); }
     {   Rig r;
         r.send("AT+CIPDOMAIN=\"" + std::string(64, 'a') + "\"\r\n"); r.drain();
@@ -3560,7 +3560,7 @@ int main() {
         r.settle();
         const std::string out = r.take();
         check("DOM-13",
-              "a hostname containing a forged +CIPDOMAIN reply cannot inject it — the "
+              "a hostname containing a forged +CIPDOMAIN reply cannot inject it - the "
               "answer is built from the resolved address, never from the name",
               out.find("6.6.6.6") == std::string::npos); }
 
@@ -3583,7 +3583,7 @@ int main() {
         r.settle();
         check_eq("DOM-14",
                  "a name carrying 8-bit and NUL bytes produces only the ordinary failure "
-                 "reply — no crash, no echo, nothing extra",
+                 "reply - no crash, no echo, nothing extra",
                  r.take(), "\r\nDNS Fail\r\n\r\nERROR\r\n");
         check("DOM-14b", "...and the resolver was handed the name WHOLE, NUL included",
               r.rsv.last_host == name); }
@@ -3655,7 +3655,7 @@ int main() {
     {   Rig r; parse_ip("1.2.3.4", r.rsv.answer);
         r.send("AT+CWQAP\r\n"); r.drain(); r.take();             // left the AP
         r.send("AT+CIPDOMAIN=\"example.test\"\r\n"); r.settle();
-        check_eq("DOM-24", "and the same after AT+CWQAP — no AP, no name server",
+        check_eq("DOM-24", "and the same after AT+CWQAP - no AP, no name server",
                  r.take(), "\r\nERROR\r\n");
         check("DOM-24b", "...resolver untouched here too", r.rsv.begins == 0); }
 
@@ -3669,7 +3669,7 @@ int main() {
         r.eng.set_associated(false);
         r.send("AT+CIPDOMAIN=\"example.test\"\r\n"); r.settle();
         check_eq("DOM-25",
-                 "a HOST outage does NOT refuse a lookup — only the guest's own "
+                 "a HOST outage does NOT refuse a lookup - only the guest's own "
                  "AT+CWMODE=2 / AT+CWQAP do",
                  r.take(), "\r\n+CIPDOMAIN:1.2.3.4\r\n\r\nOK\r\n"); }
 
@@ -3744,7 +3744,7 @@ int main() {
         Rig r; r.png.rtt = 5;
         r.eng.set_associated(false);
         r.send("AT+PING=\"example.test\"\r\n"); r.settle();
-        check_eq("PING-09", "a HOST outage does NOT refuse a ping — only the guest's own "
+        check_eq("PING-09", "a HOST outage does NOT refuse a ping - only the guest's own "
                  "AT+CWMODE=2 / AT+CWQAP do", r.take(), "\r\n+5\r\n\r\nOK\r\n"); }
 
     {   Rig r; r.send("AT+PING=example.test\r\n"); r.drain();
@@ -3756,8 +3756,8 @@ int main() {
     {   Rig r; r.png.refuse_begin = true;
         r.send("AT+PING=\"-f\"\r\n"); r.drain();
         check_eq("PING-13",
-                 "a host the pinger refuses — a leading '-' would be an OPTION, not a host "
-                 "— answers ERROR from dispatch",
+                 "a host the pinger refuses - a leading '-' would be an OPTION, not a host "
+                 "- answers ERROR from dispatch",
                  r.take(), "\r\nERROR\r\n"); }
     {   Rig r; r.png.rtt = 1;
         r.send("AT+PING=\"" + std::string(63, 'a') + "\"\r\n"); r.settle();
@@ -3772,7 +3772,7 @@ int main() {
         Rig r; r.png.fail = true;
         r.send("AT+PING=\"a\r\n+999\r\n\r\nOK\r\n\"\r\n"); r.settle();
         check("PING-16",
-              "a host containing a forged +<time> reply cannot inject it — the answer is "
+              "a host containing a forged +<time> reply cannot inject it - the answer is "
               "built from the measured RTT, never from the host string",
               r.take().find("+999") == std::string::npos); }
 
@@ -3831,7 +3831,7 @@ int main() {
         }
         esp.stop();
         check_eq("PWORK-01",
-                 "the THREADED wrapper services a ping — a hook added only to poll() would "
+                 "the THREADED wrapper services a ping - a hook added only to poll() would "
                  "never run for any real consumer, and this is the only row that looks",
                  guest, "\r\n+21\r\n\r\nOK\r\n"); }
 
@@ -3850,7 +3850,7 @@ int main() {
               r.take().find("+CIPSNTPCFG:1,8,") != std::string::npos); }
     {   Rig r; r.send("AT+CIPSNTPCFG=1\r\n"); r.drain();
         check_eq("SCFG-03",
-                 "enabling with NO timezone is refused — the manual makes it required there",
+                 "enabling with NO timezone is refused - the manual makes it required there",
                  r.take(), "\r\nERROR\r\n"); }
     {   Rig r; r.send("AT+CIPSNTPCFG=0\r\n"); r.drain();
         check_eq("SCFG-04", "disabling needs no timezone", r.take(), "\r\nOK\r\n"); }
@@ -3876,7 +3876,7 @@ int main() {
               r.take().find("\"a.ntp.test\",\"b.ntp.test\"") != std::string::npos); }
     {   Rig r; r.send("AT+CIPSNTPCFG=1,0,unquoted.test\r\n"); r.drain();
         check_eq("SCFG-12",
-                 "an unquoted server is REFUSED rather than ignored — a guest that named one "
+                 "an unquoted server is REFUSED rather than ignored - a guest that named one "
                  "and was not told must not end up querying a different server",
                  r.take(), "\r\nERROR\r\n"); }
     {   Rig r; r.send("AT+CIPSNTPCFG=1,0,\"a;rm -rf b\"\r\n"); r.drain();
@@ -3887,7 +3887,7 @@ int main() {
 
     {   Rig r; r.send("AT+CIPSNTPTIME?\r\n"); r.settle();
         check_eq("STIME-01",
-                 "with SNTP disabled the module reports the epoch and asks nobody — a guest "
+                 "with SNTP disabled the module reports the epoch and asks nobody - a guest "
                  "polling for a sane year keeps polling, which ERROR would not allow",
                  r.take(), "\r\n+CIPSNTPTIME:Thu Jan 01 00:00:00 1970\r\n\r\nOK\r\n");
         check("STIME-01b", "...and no query was made", r.snt.begins == 0); }
@@ -3957,7 +3957,7 @@ int main() {
         }
         esp.stop();
         check("PWORK-02",
-              "the THREADED wrapper services an SNTP query too — its own hook, its own row",
+              "the THREADED wrapper services an SNTP query too - its own hook, its own row",
               guest.find("+CIPSNTPTIME:Thu Aug 04 14:48:05 2016") != std::string::npos); }
 
     std::printf("\n======================================================\n");

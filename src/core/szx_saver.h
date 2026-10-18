@@ -115,7 +115,7 @@ public:
         if (banks.empty()) {
             if (error) {
                 *error = "SzxSaver::build(): unsupported chMachineId " + std::to_string(machine_id)
-                       + " — .szx can only represent 48K (1), 128K (2), +2A (4) or "
+                       + " - .szx can only represent 48K (1), 128K (2), +2A (4) or "
                          "+3 (5); refusing rather than truncating or lying in the header.";
             }
             return {};

@@ -80,7 +80,7 @@ bool SdcardGuiProvisioner::progress(uint64_t downloaded, uint64_t total) {
         dialog_ = std::make_unique<QProgressDialog>(
             QString::fromStdString(download_label_),
             QStringLiteral("Cancel"), 0, 10000);
-        dialog_->setWindowTitle(QStringLiteral("jnext — Downloading"));
+        dialog_->setWindowTitle(QStringLiteral("jnext - Downloading"));
         dialog_->setWindowModality(Qt::ApplicationModal);
         dialog_->setMinimumDuration(0);   // show immediately
         dialog_->setAutoClose(false);

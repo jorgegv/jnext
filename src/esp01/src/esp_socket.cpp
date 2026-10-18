@@ -302,7 +302,7 @@ private:
         release();
         last_error_ = std::move(why);
         state_      = TransportState::Failed;
-        log_error("{}:{} — {}", host_, port_, last_error_);
+        log_error("{}:{} - {}", host_, port_, last_error_);
     }
 
     /// A peer that had already SERVED US BYTES terminated the connection with
@@ -346,7 +346,7 @@ private:
     /// `received_` is the whole of what the peer's TCP managed to deliver.
     void note_peer_reset() {
         log_warn("connection to {}:{} was RESET by the peer after {} byte(s) received "
-                 "(TCP RST, not an orderly close) — everything it delivered has been "
+                 "(TCP RST, not an orderly close) - everything it delivered has been "
                  "handed on; anything it had not yet sent is lost",
                  host_, port_, received_);
         release();
@@ -371,7 +371,7 @@ private:
             std::string            err;
             if (net::resolve(host_, /*numeric_only=*/true, literal, err) &&
                 !literal.empty()) {
-                log_debug("'{}' is a numeric address — no DNS lookup", host_);
+                log_debug("'{}' is a numeric address - no DNS lookup", host_);
                 connect_to_resolved(literal);
             } else {
                 start_async_resolve();
@@ -530,7 +530,7 @@ public:
         // place in the module where a socket OPTION — not a socket operation —
         // gets a line of its own.
         if (!hardening_warning.empty())
-            log_warn("listening socket for {}:{} is not fully hardened — {}",
+            log_warn("listening socket for {}:{} is not fully hardened - {}",
                      to_string(bind_), port, hardening_warning);
         if (s == net::kInvalidSocket) {
             last_error_ = err;
@@ -538,7 +538,7 @@ public:
             // asked for and did not get is exactly as user-visible an event as
             // a connection that was refused, and it must never be inferred from
             // the absence of a line.
-            log_warn("cannot listen on {}:{} — {}", to_string(bind_), port, err);
+            log_warn("cannot listen on {}:{} - {}", to_string(bind_), port, err);
             return false;
         }
         sock_ = s;
@@ -586,7 +586,7 @@ public:
             // listener that kept failing every poll forever would be the worse
             // of the two silences.
             last_error_ = err;
-            log_error("accept failed on {}:{} — {}; no longer listening",
+            log_error("accept failed on {}:{} - {}; no longer listening",
                       to_string(bind_), port_, err);
             drop_socket();
             return;
@@ -697,7 +697,7 @@ public:
         std::vector<IpAddress> literal;
         std::string            err;
         if (net::resolve(host_, /*numeric_only=*/true, literal, err) && !literal.empty()) {
-            log_debug("'{}' is a numeric address — no DNS lookup", host_);
+            log_debug("'{}' is a numeric address - no DNS lookup", host_);
             finish(literal);
             return true;
         }

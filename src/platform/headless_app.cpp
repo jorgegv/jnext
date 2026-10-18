@@ -982,7 +982,7 @@ void HeadlessApp::run() {
             // its verdict: an `exit` / `compare_scr` that never ran, or a
             // deferred action still queued, is a failed run, never a 0.
             if (const std::size_t n = script_host_.unreached_verdicts()) {
-                Log::platform()->error("SCRIPT: {} deferred actions never ran — exiting 3", n);
+                Log::platform()->error("SCRIPT: {} deferred actions never ran - exiting 3", n);
                 if (exit_code_ == 0) exit_code_ = 3;
             }
             running_ = false;

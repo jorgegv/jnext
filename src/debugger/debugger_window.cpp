@@ -312,7 +312,7 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     rewind_toolbar_ = new QToolBar(tr("Rewind"), this);
     rewind_toolbar_->setMovable(false);
 
-    auto* rewind_label = new QLabel(tr("  \u23EE Rewind — Frame: "), this);
+    auto* rewind_label = new QLabel(tr("  \u23EE Rewind - Frame: "), this);
     rewind_toolbar_->addWidget(rewind_label);
 
     rewind_slider_ = new QSlider(Qt::Horizontal, this);

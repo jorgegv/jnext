@@ -1570,10 +1570,10 @@ static void test_view_titles(Emulator& emu) {
     check("DVP-TITLE-01",
           "the ULA view titles say which bank the ULA is reading, both ways round",
           bank7 && bank5
-              && p7 == QString::fromUtf8("ULA primary (bank 5) — NOT live: the ULA is reading bank 7")
-              && s7 == QString::fromUtf8("ULA shadow (bank 7) — LIVE: the ULA is reading this bank")
-              && p5 == QString::fromUtf8("ULA primary (bank 5) — LIVE: the ULA is reading this bank")
-              && s5 == QString::fromUtf8("ULA shadow (bank 7) — NOT live: the ULA is reading bank 5"),
+              && p7 == QString::fromUtf8("ULA primary (bank 5) - NOT live: the ULA is reading bank 7")
+              && s7 == QString::fromUtf8("ULA shadow (bank 7) - LIVE: the ULA is reading this bank")
+              && p5 == QString::fromUtf8("ULA primary (bank 5) - LIVE: the ULA is reading this bank")
+              && s5 == QString::fromUtf8("ULA shadow (bank 7) - NOT live: the ULA is reading bank 5"),
           fmt("premise=%d/%d | %s | %s | %s | %s", int(bank7), int(bank5),
               p7.toUtf8().constData(), s7.toUtf8().constData(),
               p5.toUtf8().constData(), s5.toUtf8().constData()));

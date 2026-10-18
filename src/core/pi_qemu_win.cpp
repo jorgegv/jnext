@@ -26,7 +26,7 @@ namespace fs = std::filesystem;
 namespace {
 
 const std::string kInstallHint =
-    " not found — install QEMU for Windows (https://qemu.weilnetz.de/w64/) and either add its "
+    " not found - install QEMU for Windows (https://qemu.weilnetz.de/w64/) and either add its "
     "folder to PATH or set the QEMU binary under Settings > Preferences > NextPi";
 
 /// A narrow string as the wide one the filesystem layer would make of it, so a

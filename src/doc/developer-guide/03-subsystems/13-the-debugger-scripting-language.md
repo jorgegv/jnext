@@ -94,7 +94,7 @@ error, never a silent drop. `depth()` of an empty stack is 0, not an error.
 
 Run-time failures (division by zero, an address out of range, an empty stack)
 throw `EvalError` with the failing node's position. The engine catches it,
-disables the rule and logs `SCRIPT ERROR file:L:C: … — rule X disabled`.
+disables the rule and logs `SCRIPT ERROR file:L:C: … - rule X disabled`.
 
 ## The expression compiler as a library
 

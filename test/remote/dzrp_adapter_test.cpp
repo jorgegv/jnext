@@ -895,7 +895,7 @@ static void session_rows() {
         Log::debugger()->set_level(level);
         check("DZRP-SES-12", "a legacy command from a 2.2 client is logged at debug as removed in "
                              "2.2.0 and still served; from a 2.1 client it is not remarked on",
-              log.count("CMD_SET_BORDER was removed in DZRP 2.2.0 — served as legacy to a 2.2.0 "
+              log.count("CMD_SET_BORDER was removed in DZRP 2.2.0 - served as legacy to a 2.2.0 "
                         "client") == 1 &&
                   log.count("was removed in DZRP 2.2.0") == 1 &&
                   rig_new.emu.ula().get_border() == 1 && rig_old.emu.ula().get_border() == 1);
@@ -1725,7 +1725,7 @@ static void nextreg_port_rows() {
         check("DZRP-NR-07", "under an RZX playback CMD_SET_NEXTREGS writes nothing and says so "
                             "ONCE, with how far it got",
               r.len == 1 && rig.dbg->nextreg_peek(0x14) == 0x5A &&
-                  log.count("CMD_SET_NEXTREGS NR 0x14 refused: refused_rzx — 0 of 2 pairs "
+                  log.count("CMD_SET_NEXTREGS NR 0x14 refused: refused_rzx - 0 of 2 pairs "
                             "written") == 1 &&
                   log.count("CMD_SET_NEXTREGS NR 0x4A") == 0);
     }
@@ -2799,8 +2799,8 @@ static void sprite_rows() {
           g01.payload == attrs(0) + attrs(1) && attrs(0) == bytes({0x11, 0x12, 0x13, 0x14, 0x15}) &&
               g127.payload == attrs(127) && g127.payload.size() == 5 &&
               gcl.payload == attrs(126) + attrs(127) && g128.len == 1 &&
-              log.count("CMD_GET_SPRITES 5 from 126 runs past sprite 127 — clamped to 2") == 1 &&
-              log.count("CMD_GET_SPRITES 1 from 128 runs past sprite 127 — clamped to 0") == 1,
+              log.count("CMD_GET_SPRITES 5 from 126 runs past sprite 127 - clamped to 2") == 1 &&
+              log.count("CMD_GET_SPRITES 1 from 128 runs past sprite 127 - clamped to 0") == 1,
           hex(g01.payload));
 
     std::vector<std::uint8_t> pat(768);
