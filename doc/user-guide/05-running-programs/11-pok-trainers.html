@@ -3807,7 +3807,10 @@ takes no keys until you close it.</p>
 when you press <strong>Apply</strong> or <strong>Remove</strong>, select a row, or the machine is rebuilt.
 If the game has overwritten a poked byte (a level change that resets the lives
 counter, say), the next refresh shows <em>not applied</em>, and <strong>Remove</strong> says so
-instead of writing.</p>
+instead of writing. Press <strong>Apply</strong> again to poke it back: <strong>Remove</strong> then
+undoes the whole trainer, putting every byte the game had not touched back to
+what it was before the first <strong>Apply</strong>, and leaving a byte the game itself
+changed as the game has it.</p>
 <h3 id="trainers-that-ask-for-a-value">Trainers that ask for a value<a class="headerlink" href="#trainers-that-ask-for-a-value" title="Permanent link">&para;</a></h3>
 <p>Some trainers leave a number open: "Lives" without saying how many. <strong>Apply</strong>
 then asks for it, offering the byte memory holds at the first such place (the

@@ -841,22 +841,31 @@ whatever is paged in by then. `state()` is **derived from memory, never stored**
 Applied needs a record whose bytes all still hold; AppliedFound is a trainer with
 no value left open whose bytes are all in memory with no record (removable only
 if every poke gives a non-zero `original`). A record that stops verifying is kept,
-because removing an overlapping trainer can make it true again. `forget_applied()`
-drops the records: `MainWindow::set_emulator()` calls it, and `QtApp` calls
-`set_emulator()` after every machine rebuild (`boot_machine()`'s `rewire_host`
-hook), which covers menu load, Quick Load, Power Reset, a guest NR 0x02 reset and
-a machine-type change.
+because removing an overlapping trainer can make it true again. When the program
+has overwritten part of a trainer it reads Not applied and Remove is refused, so
+Apply is the way on; it replaces the record, but a location that still holds what
+the older record wrote keeps the older record's `original` (matched by page and
+offset), because that byte is still our poke, and a location the program changed
+takes the program's byte. Without that, Remove would leave the poke in place for
+good. `forget_applied()` drops the records: `MainWindow::set_emulator()` calls
+it, and `QtApp` calls `set_emulator()` after every machine rebuild
+(`boot_machine()`'s `rewire_host` hook), which covers menu load, Quick Load,
+Power Reset, a guest NR 0x02 reset and a machine-type change.
 
 **File > Load.** `handle_load_path()` sends a `.pok` to `open_pok_file()` before
 any cold boot. The same function now also refuses, before the cold boot, a file
-that would route to the NEX loader (an extension nothing owns) but has no `Next`
-prologue (`NexLoader::probe_version()`), which `NexLoader::load()` would refuse
-anyway: before, the session was reset and then the load failed.
+that would route to the NEX loader (a `.nex`, or an extension nothing owns) but
+has no `Next` prologue (`NexLoader::probe_version()`), which `NexLoader::load()`
+would refuse anyway: before, the session was reset and then the load failed. The
+reason follows the case: a `.nex` is "not a NEX file" and nothing more, and only
+an extension nothing owns is told the list of formats and where a `.pok` goes.
 
-The suites: `pok_trainers_test` (POK-01..23 the parser and `load_pok_file`,
-POK-30..49 the session, each bank-to-page row citing `zxnext.vhd` and asserting
-bytes the test placed itself) and `pok_dialog_test` (PKD-01..15); File > Load's
-refusal is `preferences_apply_test` PA-24e/f.
+The suites: `pok_trainers_test` (POK-01..25 the parser and `load_pok_file`,
+POK-30..56 the session, each bank-to-page row citing `zxnext.vhd` and asserting
+bytes the test placed itself; the rows that sweep a trainer's locations one at a
+time, POK-50..52, are there so that a rule meant for every location cannot pass
+by checking the first) and `pok_dialog_test` (PKD-01..16); File > Load's
+refusal is `preferences_apply_test` PA-24e/f/g.
 
 ## Media out
 

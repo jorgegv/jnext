@@ -3281,20 +3281,29 @@ whatever is paged in by then. <code>state()</code> is <strong>derived from memor
 Applied needs a record whose bytes all still hold; AppliedFound is a trainer with
 no value left open whose bytes are all in memory with no record (removable only
 if every poke gives a non-zero <code>original</code>). A record that stops verifying is kept,
-because removing an overlapping trainer can make it true again. <code>forget_applied()</code>
-drops the records: <code>MainWindow::set_emulator()</code> calls it, and <code>QtApp</code> calls
-<code>set_emulator()</code> after every machine rebuild (<code>boot_machine()</code>'s <code>rewire_host</code>
-hook), which covers menu load, Quick Load, Power Reset, a guest NR 0x02 reset and
-a machine-type change.</p>
+because removing an overlapping trainer can make it true again. When the program
+has overwritten part of a trainer it reads Not applied and Remove is refused, so
+Apply is the way on; it replaces the record, but a location that still holds what
+the older record wrote keeps the older record's <code>original</code> (matched by page and
+offset), because that byte is still our poke, and a location the program changed
+takes the program's byte. Without that, Remove would leave the poke in place for
+good. <code>forget_applied()</code> drops the records: <code>MainWindow::set_emulator()</code> calls
+it, and <code>QtApp</code> calls <code>set_emulator()</code> after every machine rebuild
+(<code>boot_machine()</code>'s <code>rewire_host</code> hook), which covers menu load, Quick Load,
+Power Reset, a guest NR 0x02 reset and a machine-type change.</p>
 <p><strong>File &gt; Load.</strong> <code>handle_load_path()</code> sends a <code>.pok</code> to <code>open_pok_file()</code> before
 any cold boot. The same function now also refuses, before the cold boot, a file
-that would route to the NEX loader (an extension nothing owns) but has no <code>Next</code>
-prologue (<code>NexLoader::probe_version()</code>), which <code>NexLoader::load()</code> would refuse
-anyway: before, the session was reset and then the load failed.</p>
-<p>The suites: <code>pok_trainers_test</code> (POK-01..23 the parser and <code>load_pok_file</code>,
-POK-30..49 the session, each bank-to-page row citing <code>zxnext.vhd</code> and asserting
-bytes the test placed itself) and <code>pok_dialog_test</code> (PKD-01..15); File &gt; Load's
-refusal is <code>preferences_apply_test</code> PA-24e/f.</p>
+that would route to the NEX loader (a <code>.nex</code>, or an extension nothing owns) but
+has no <code>Next</code> prologue (<code>NexLoader::probe_version()</code>), which <code>NexLoader::load()</code>
+would refuse anyway: before, the session was reset and then the load failed. The
+reason follows the case: a <code>.nex</code> is "not a NEX file" and nothing more, and only
+an extension nothing owns is told the list of formats and where a <code>.pok</code> goes.</p>
+<p>The suites: <code>pok_trainers_test</code> (POK-01..25 the parser and <code>load_pok_file</code>,
+POK-30..56 the session, each bank-to-page row citing <code>zxnext.vhd</code> and asserting
+bytes the test placed itself; the rows that sweep a trainer's locations one at a
+time, POK-50..52, are there so that a rule meant for every location cannot pass
+by checking the first) and <code>pok_dialog_test</code> (PKD-01..16); File &gt; Load's
+refusal is <code>preferences_apply_test</code> PA-24e/f/g.</p>
 <h2 id="media-out">Media out<a class="headerlink" href="#media-out" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

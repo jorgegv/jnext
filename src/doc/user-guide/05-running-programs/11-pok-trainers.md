@@ -46,7 +46,10 @@ The status is worked out from memory, never remembered. The list is refreshed
 when you press **Apply** or **Remove**, select a row, or the machine is rebuilt.
 If the game has overwritten a poked byte (a level change that resets the lives
 counter, say), the next refresh shows *not applied*, and **Remove** says so
-instead of writing.
+instead of writing. Press **Apply** again to poke it back: **Remove** then
+undoes the whole trainer, putting every byte the game had not touched back to
+what it was before the first **Apply**, and leaving a byte the game itself
+changed as the game has it.
 
 ### Trainers that ask for a value
 
