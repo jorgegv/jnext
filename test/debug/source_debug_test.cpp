@@ -1249,11 +1249,12 @@ int main() {
         m.set_pc(0x8000);
         (void)step_pair(m);                        // the RST
         (void)step_pair(m);                        // LD ($0100),A at $0008, A = $FF
-        const uint8_t* ram10 = m.emu.ram().page_ptr(0x0A);
+        const Mmu::Route under = m.emu.mmu().route_with(0x0100, false, false);   // RAM page 10, DivMMC off
+        const uint8_t ram_byte = under.ptr ? *under.ptr : 0xEE;
         check("SRCDBG-ID-28", "a delayed DivMMC entry: the store of the instruction at $0008 meets "
                               "the DivMMC ROM (read-only), RAM page 10 keeps its zero",
-              m.pc() == 0x000B && ram10[0x0100] == 0x00 && drom[0x0100] == 0x00,
-              "pc=" + hex(m.pc()) + " ram=" + hex(ram10[0x0100]));
+              m.pc() == 0x000B && ram_byte == 0x00 && drom[0x0100] == 0x00,
+              "pc=" + hex(m.pc()) + " ram=" + hex(ram_byte));
     }
     {
         // The live gate (execute_gate, run while a machine RUNS with an Execute subscription) takes
