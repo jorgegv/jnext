@@ -2,6 +2,7 @@
 
 #include <QWidget>
 
+#include <cstdint>
 #include <string>
 
 class QLabel;
@@ -61,4 +62,10 @@ private:
     qint64 loaded_mtime_ = -1;
     int highlighted_line_ = 0;
     QString load_problem_;
+    // Where the view was last put: the cursor is moved and centred only when
+    // the line or the PC differ, or the text was loaded since (refresh() runs
+    // on every tick while paused, and must not undo the user's scrolling).
+    bool placed_ = false;
+    int placed_line_ = 0;
+    uint16_t placed_pc_ = 0;
 };

@@ -1088,6 +1088,119 @@ void test_source_hex() {
           s(mapped) + " | " + s(sp->location_text()) + " | want " + s(want));
 }
 
+// ── B-F5: a paused Source tab can be scrolled ─────────────────────────
+
+void test_source_scroll() {
+    Fixture fx;
+    fx.enable();
+    const std::string dir = g_tmp->path().toStdString();
+    std::string long_bas;
+    for (int i = 1; i <= 400; ++i) long_bas += "REM line " + std::to_string(i) + "\n";
+    write_text(dir + "/long.bas", long_bas);
+    const std::string a = std::to_string(fx.p80);
+    write_text(dir + "/long.sld",
+               std::string("|SLD.data.version|1\nlong.bas|10||0") + kNextDevice +
+                   "long.bas|10||0|" + a + "|32768|T|\n" +
+                   "long.bas|11||0|" + a + "|32770|T|\n");
+    fx.backend->load_source_map(dir + "/long.sld", false);
+    fx.mgr->refresh_panels();
+    SourcePanel* sp = fx.dbg()->source_panel();
+    auto* editor = sp->findChild<QPlainTextEdit*>();
+    QScrollBar* bar = editor ? editor->verticalScrollBar() : nullptr;
+    if (!bar) { check("QSRC-42", "Source editor", false); return; }
+    const bool placed = sp->highlighted_line() == 10;
+
+    // The user scrolls away from the line; the window refreshes every panel on
+    // every tick while paused.
+    bar->setValue(360);
+    const int scrolled = bar->value();
+    fx.mgr->refresh_panels();
+    QApplication::processEvents();
+    const int after_tick = bar->value();
+
+    // A step to another statement puts the view on its line again.
+    if (QPushButton* into = button(sp, QStringLiteral("Into"))) into->click();
+    QApplication::processEvents();
+    const int after_step = bar->value();
+    check("QSRC-42", "a paused tick leaves a scrolled Source tab where the user put it, and "
+                     "a step puts the view on the new line",
+          placed && scrolled >= 300 && after_tick == scrolled &&
+              sp->highlighted_line() == 11 && after_step < 100,
+          "scrolled " + std::to_string(scrolled) + " after tick " + std::to_string(after_tick) +
+              " after step " + std::to_string(after_step) + " line " +
+              std::to_string(sp->highlighted_line()));
+}
+
+// The view is put on the highlighted line again whenever any one of its
+// inputs changes: the PC alone, the line alone, the file alone, or the text
+// being reloaded. Each is isolated from the others here.
+void test_source_recentre_terms() {
+    Fixture fx;
+    fx.enable();
+    const std::string dir = g_tmp->path().toStdString();
+    std::string long_bas, long2_bas;
+    for (int i = 1; i <= 400; ++i) {
+        long_bas += "REM line " + std::to_string(i) + "\n";
+        long2_bas += "PRINT " + std::to_string(i) + "\n";
+    }
+    write_text(dir + "/long.bas", long_bas);
+    write_text(dir + "/long2.bas", long2_bas);
+    const std::string a = std::to_string(fx.p80);
+    auto map = [&](const std::string& name, const std::string& records) {
+        const std::string path = dir + "/" + name;
+        write_text(path, std::string("|SLD.data.version|1\nx|1||0") + kNextDevice + records);
+        return path;
+    };
+    // $8000 and $8001 are both line 10 of long.bas; later maps put $8001 on
+    // another line of the same file, then on the same line of another file.
+    const std::string map_a = map("terms-a.sld", "long.bas|10||0|" + a + "|32768|T|\n" +
+                                                   "long.bas|10||0|" + a + "|32769|T|\n");
+    const std::string map_b = map("terms-b.sld", "long.bas|300||0|" + a + "|32769|T|\n");
+    const std::string map_c = map("terms-c.sld", "long2.bas|300||0|" + a + "|32769|T|\n");
+    fx.backend->load_source_map(map_a, false);
+    fx.mgr->refresh_panels();
+    SourcePanel* sp = fx.dbg()->source_panel();
+    auto* editor = sp->findChild<QPlainTextEdit*>();
+    QScrollBar* bar = editor ? editor->verticalScrollBar() : nullptr;
+    if (!bar) { check("QSRC-45", "Source editor", false); return; }
+    auto tick = [&]() { fx.mgr->refresh_panels(); QApplication::processEvents(); };
+
+    // Only the PC changes: one instruction on, the same line.
+    bar->setValue(360);
+    fx.backend->step_into(jnext::dbg::CLIENT_NONE);
+    tick();
+    const bool pc_only = fx.pc() == 0x8001 && sp->highlighted_line() == 10 && bar->value() < 100;
+    const int v_pc = bar->value();
+
+    // Only the line: the same file and PC, another map.
+    bar->setValue(0);
+    fx.backend->load_source_map(map_b, false);
+    tick();
+    const bool line_only = sp->highlighted_line() == 300 && bar->value() > 250;
+    const int v_line = bar->value();
+
+    // Only the file: the same line and PC.
+    bar->setValue(0);
+    fx.backend->load_source_map(map_c, false);
+    tick();
+    const bool file_only = sp->highlighted_line() == 300 && bar->value() > 250;
+    const int v_file = bar->value();
+
+    // Only the text: reloaded because it changed on disk.
+    const std::string long2 = dir + "/long2.bas";
+    namespace fs = std::filesystem;
+    fs::last_write_time(long2, fs::last_write_time(long2) + std::chrono::seconds(5));
+    bar->setValue(0);
+    tick();
+    const bool reloaded = bar->value() > 250;
+    const int v_reload = bar->value();
+    check("QSRC-45", "the Source tab centres the line again when only the PC, only the line, "
+                     "only the file or only the text changed",
+          pc_only && line_only && file_only && reloaded,
+          "pc " + std::to_string(v_pc) + " line " + std::to_string(v_line) + " file " +
+              std::to_string(v_file) + " reload " + std::to_string(v_reload));
+}
+
 // ── C1: a refused sidecar says why ────────────────────────────────────
 
 void test_sidecar_reason() {
@@ -1176,6 +1289,8 @@ int main(int argc, char** argv) {
     test_edit_type_refused();
     test_breakpoint_page_rows();
     test_source_hex();
+    test_source_scroll();
+    test_source_recentre_terms();
     test_sidecar_reason();
     test_source_buttons();
     test_source_button_states();

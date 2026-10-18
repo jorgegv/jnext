@@ -194,6 +194,7 @@ void SourcePanel::refresh()
         editor_->setPlainText(QString::fromUtf8(file.readAll()));
         loaded_source_ = source_path;
         loaded_mtime_ = mtime;
+        placed_ = false;   // a new text, or another file, starts at its top
     }
 
     location_label_->setText(tr("%1:%2  $%3  %4")
@@ -215,7 +216,15 @@ void SourcePanel::refresh()
     selection.format.setForeground(editor_->palette().highlightedText());
     selection.format.setProperty(QTextFormat::FullWidthSelection, true);
     editor_->setExtraSelections({selection});
-    editor_->setTextCursor(selection.cursor);
-    editor_->centerCursor();
+    // Placed only when something moved. This runs on every tick while paused,
+    // and centring again each time would snap the view back to the line
+    // whenever the user scrolled away from it.
+    if (!placed_ || location->line != placed_line_ || pc != placed_pc_) {
+        editor_->setTextCursor(selection.cursor);
+        editor_->centerCursor();
+        placed_ = true;
+        placed_line_ = location->line;
+        placed_pc_ = pc;
+    }
     highlighted_line_ = location->line;
 }
