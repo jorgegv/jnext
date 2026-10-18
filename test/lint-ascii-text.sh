@@ -394,6 +394,9 @@ self_test() {
     fx LAT-A24 "A:1 A:2" src/t.cpp "f(\"${EM}\");${CR}" "g(\"${EM}\");${CR}"
     fx LAT-A25 "A:1"     src/t.cpp "f(\"abc ${BS}${CR}" "${EM} def\");${CR}"      # a CRLF splice inside a string literal
     fx LAT-A26 "A:1"     src/t.cpp "char16_t c = u'${BS}${CR}" "${EM}';${CR}"    # ... and inside a character literal
+    fx LAT-A27 "A:1"     src/t.cpp "char16_t c = u'${BS}" "${EM}';"             # ... and an LF splice inside a character literal
+    fx LAT-A28 "A:1"     src/t.cpp "char q = '${BS}\"'; f(\"${EM}\");"          # an escaped quote in a character literal opens no string
+    fx LAT-A29 "A:3"     src/t.cpp "char16_t c = u'${BS}" "x';" "f(\"${EM}\");" # the line count survives a splice inside a character literal
     # Rule A is not excused by a declaration, and the declaration is not stale for it.
     CONF_TEXT=$(printf 'src/t.cpp\ta %s b\treason\n' "$EM")
     fx LAT-A12 "A:1"     src/t.cpp "f(\"a ${EM} b\");"
@@ -413,6 +416,7 @@ self_test() {
     fx LAT-N12 ""        src/t.cpp "// continued ${BS}${CR}" "f(\"${EM}\");${CR}"
     fx LAT-N13 ""        src/t.cpp "// the \"${EM}\" glyph, quoted inside a comment"
     fx LAT-N14 ""        src/t.cpp "/* the \"${EM}\" glyph," "   quoted inside a comment */"
+    fx LAT-N15 ""        src/t.cpp "char c = 'a'; // a ${EM} b"                 # a character literal ends at its closing quote
 
     # Rule B, the declarations, and the conf itself.
     fx LAT-B01 "B:1:U+2192" src/t.cpp "f(\"a ${ARR} b\");"
