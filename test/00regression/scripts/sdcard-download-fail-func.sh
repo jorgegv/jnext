@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One functional test of the regression suite. Sourced by regression.sh (the
-# driver); also directly executable — the lib then self-initializes and
+# driver); also directly executable - the lib then self-initializes and
 # standalone_summary prints the totals.
 # shellcheck source=test/00regression/test-functions.inc
 set -euo pipefail
@@ -30,7 +30,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      words, the address, and that nothing was kept;
 #   2. the SDL-only build: the same;
 #   3. the Qt GUI on the offscreen platform: exit 1, the log carries the error and
-#      the dialog's text with the address.
+#      the dialog's text with the address;
+#   4. the opposite side: the user DECLINES the download (no --sdcard-download-confirm,
+#      stdin closed, so the question is answered No): exit 1, stderr says so as it
+#      always did, no download is attempted, and the log carries no SD-card error,
+#      because declining is the user's own answer and needs no report (main.cpp).
 # The text is matched with the carriage returns removed: spdlog writes CRLF on
 # Windows, to the log file as well.
 if want sdcard-download-fail-func; then
@@ -43,9 +47,10 @@ if want sdcard-download-fail-func; then
     sf_fails=()
 
     # sf_run <name> <extra env...> -- <jnext> <args...>: one run on a config
-    # directory of its own (empty: no SD image), output in $sf_dir/<name>.out
-    # (stdout and stderr, CR removed), the log in $sf_dir/<name>.log (CR removed);
-    # prints the exit status.
+    # directory of its own (empty: no SD image), stdin closed (a question is
+    # answered No), output in $sf_dir/<name>.out (stdout and stderr, CR removed),
+    # the log in $sf_dir/<name>.log (CR removed); prints the exit status. The
+    # download is confirmed by the caller, with --sdcard-download-confirm.
     sf_run() {
         local name=$1 rc=0
         shift
@@ -57,7 +62,7 @@ if want sdcard-download-fail-func; then
         timeout --foreground --kill-after=5s 60s \
             env JNEXT_CONFIG_DIR="$sf_dir/$name-cfg" JNEXT_SDCARD_DISTRO_URL="$sf_url" \
             no_proxy=127.0.0.1,localhost NO_PROXY=127.0.0.1,localhost "${sf_env[@]}" \
-            "$@" --sdcard-download-confirm --log-file "$sf_dir/$name.log" \
+            "$@" --log-file "$sf_dir/$name.log" \
             </dev/null >"$sf_dir/$name.out" 2>&1 || rc=$?
         # Windows writes CRLF; the match is on the text.
         tr -d '\r' <"$sf_dir/$name.out" >"$sf_dir/$name.out.lf"
@@ -79,12 +84,25 @@ if want sdcard-download-fail-func; then
         [[ "$n" == 1 ]] || sf_fails+=("$1: the failure is logged $n times in the log, want once")
     }
 
+    # sf_absent <name> <out|log> <fixed text> <what>: the text is NOT in that output.
+    sf_absent() {
+        ! grep -qF -- "$3" "$sf_dir/$1.$2.lf" || sf_fails+=("$1: $4 is in the $2 ('$3')")
+    }
+    # sf_not_logged <name>: nothing was logged as an SD-card error, in a log that is not empty
+    # (a log file that was never written would pass the count without proving anything).
+    sf_not_logged() {
+        local n
+        n=$(grep -cF '[error] SD-card image: ' "$sf_dir/$1.log.lf" || true)
+        [[ "$n" == 0 ]] || sf_fails+=("$1: $n SD-card errors in the log, want none")
+        [[ -s "$sf_dir/$1.log.lf" ]] || sf_fails+=("$1: the log file is empty or missing")
+    }
+
     sf_reason='download failed: could not connect to the server ('
     sf_url_line="  URL: $sf_url"
     sf_next='  nothing was kept, so the next start downloads it from the beginning'
 
     # 1. headless
-    rc=$(sf_run headless -- "$JNEXT" --headless)
+    rc=$(sf_run headless -- "$JNEXT" --headless --sdcard-download-confirm)
     [[ "$rc" == 1 ]] || sf_fails+=("headless exited $rc, want 1")
     sf_has headless out "error: SD-card image: $sf_reason" "the reason in plain words"
     sf_has headless out "$sf_url_line" "the address"
@@ -98,7 +116,7 @@ if want sdcard-download-fail-func; then
     if [[ ! -x "$JNEXT_SDL" ]]; then
         sf_fails+=("SDL-only binary not built: $JNEXT_SDL; run 'make sdl-release'")
     else
-        rc=$(sf_run sdl SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy -- "$JNEXT_SDL")
+        rc=$(sf_run sdl SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy -- "$JNEXT_SDL" --sdcard-download-confirm)
         [[ "$rc" == 1 ]] || sf_fails+=("the SDL-only build exited $rc, want 1")
         sf_has sdl out "error: SD-card image: $sf_reason" "the reason in plain words"
         sf_has sdl out "$sf_url_line" "the address"
@@ -110,7 +128,7 @@ if want sdcard-download-fail-func; then
     fi
 
     # 3. the Qt GUI, offscreen: the dialog is not shown, its text is logged at debug level
-    rc=$(sf_run qt QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy -- "$JNEXT" --log-level platform=debug)
+    rc=$(sf_run qt QT_QPA_PLATFORM=offscreen SDL_AUDIODRIVER=dummy -- "$JNEXT" --log-level platform=debug --sdcard-download-confirm)
     [[ "$rc" == 1 ]] || sf_fails+=("the Qt GUI exited $rc, want 1")
     sf_has qt out "error: SD-card image: $sf_reason" "the reason in plain words"
     sf_has qt log "SD-card image: $sf_reason" "the reason in plain words"
@@ -119,11 +137,19 @@ if want sdcard-download-fail-func; then
     sf_has qt log "$sf_next" "what happens next"
     sf_once qt
 
+    # 4. declined: the question is answered No (stdin is closed), so nothing is downloaded and
+    # nothing is a failure to report. stderr keeps saying so; the log gets no SD-card error.
+    rc=$(sf_run declined -- "$JNEXT" --headless)
+    [[ "$rc" == 1 ]] || sf_fails+=("the declined run exited $rc, want 1")
+    sf_has declined out "error: SD-card image: download declined by user" "the decline"
+    sf_absent declined out "download failed" "a failed download"
+    sf_not_logged declined
+
     if [[ ${#sf_fails[@]} -eq 0 ]]; then
-        pass_row " (a refused SD-card download exits 1 naming the address, the reason in plain words and that nothing was kept: on stderr and in the log file of a headless run and of the SDL-only build, and in the log and the dialog's text of the Qt GUI)"
+        pass_row " (a refused SD-card download exits 1 naming the address, the reason in plain words and that nothing was kept: on stderr and in the log file of a headless run and of the SDL-only build, and in the log and the dialog's text of the Qt GUI; a declined download exits 1 saying so on stderr and logs no SD-card error)"
     else
         fail_row " (${sf_fails[*]})"
-        for sf_n in headless sdl qt; do
+        for sf_n in headless sdl qt declined; do
             [[ -f "$sf_dir/$sf_n.out.lf" ]] && show_output "$sf_n output" "$(cat "$sf_dir/$sf_n.out.lf")"
         done
     fi
