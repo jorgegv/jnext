@@ -45,6 +45,7 @@
 #include "core/emulator_config.h"
 #include "debug/call_stack.h"
 #include "debug/debugger.h"
+#include "debug/event_table.h"
 #include "debug/ram_page.h"
 #include "peripheral/divmmc.h"
 #include "platform/emulator_boot.h"
@@ -171,6 +172,32 @@ static Subscription execute_stop(uint16_t addr) {
     s.filter.lo = s.filter.hi = addr;
     s.action = Action::Stop;
     return s;
+}
+
+// GH #339: one instruction's fetch, as predicted BEFORE it (the debugger's
+// `source_page(pc)`) and as recorded BY it (`Mmu::last_m1()`).
+struct FetchPair {
+    uint16_t pc = 0;
+    MemSpace predicted;
+    MemSpace recorded;
+    bool     fetched = false;   // false for an accepted NMI/INT: no opcode was fetched
+};
+
+static FetchPair step_pair(Machine& m) {
+    FetchPair f;
+    f.pc        = m.pc();
+    f.predicted = m.dbg->source_page(f.pc);
+    m.dbg->step_into(m.a);
+    f.recorded  = m.emu.mmu().last_m1();
+    f.fetched   = m.emu.cpu().fetched_opcode_last_execute();
+    return f;
+}
+
+static std::string pair_str(const FetchPair& f) {
+    return "pc=" + hex(f.pc) + " predicted=" + std::to_string(unsigned(f.predicted.kind)) + "/" +
+           std::to_string(unsigned(f.predicted.index)) + " recorded=" +
+           std::to_string(unsigned(f.recorded.kind)) + "/" + std::to_string(unsigned(f.recorded.index)) +
+           (f.fetched ? "" : " (no opcode fetched)");
 }
 
 int main() {
@@ -717,6 +744,368 @@ int main() {
               at && m.pc() == 0x1FF9 && still_mapped &&
                   m.dbg->source_page(0x1FF9) == MemSpace::page(10),
               m.where());
+    }
+
+    // ── GH #339: the prediction IS the recorded fetch ───────────────────
+    //
+    // `source_page(pc)` is asked BEFORE an instruction; `Mmu::last_m1()` is what its
+    // fetch recorded AFTER. They are one function (Mmu::route_with / route) evaluated
+    // at two moments, and the rows below make the DivMMC and Multiface paths between
+    // the moments agree -- the delayed-on hold, conmem, automap disabled, the port
+    // enable, the NMI entry, the boot ROM, DivMMC RAM, the Multiface -- with the
+    // expected values derived from the VHDL, not from either side.
+    {
+        // D2, the delayed-on entry: RST $08 with NR 0xBA bit 1 clear is HELD for the
+        // next M1 (divmmc.vhd:128-131 hold, :141 held, :148 automap; zxnext.vhd:2894
+        // delayed_on), so the fetch AT $0008 is still RAM page 10 and the one after
+        // it, at $0009, comes from the DivMMC ROM.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+        m.dbg->nextreg_write(m.a, 0xB8, 0x02);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x02);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x00);    // delayed
+        m.emu.mmu().write(0x0008, 0x00);           // RAM page 10: NOP
+        m.emu.divmmc().rom_data()[9] = 0x00;       // DivMMC ROM $0009: NOP
+        m.emu.mmu().write(0x8000, 0xCF);           // RST $08
+        m.emu.mmu().write(0x8001, 0x00);
+        m.set_pc(0x8000);
+        (void)step_pair(m);                        // the RST
+        const FetchPair a = step_pair(m);          // $0008
+        const FetchPair b = step_pair(m);          // $0009
+        check("SRCDBG-ID-09", "a delayed-on DivMMC entry maps at the NEXT M1: the fetch at $0008 "
+                              "is RAM page 10, the one at $0009 the DivMMC ROM, each predicted "
+                              "exactly as the fetch records it",
+              a.pc == 0x0008 && a.predicted == MemSpace::page(10) && a.recorded == MemSpace::page(10) &&
+                  b.pc == 0x0009 && b.predicted == MemSpace::divmmc_rom() &&
+                  b.recorded == MemSpace::divmmc_rom(),
+              pair_str(a) + " " + pair_str(b));
+    }
+    {
+        // D4, conmem: port 0xE3 bit 7 maps the DivMMC with the automap DISABLED
+        // (NR 0x0A bit 4 clear): conmem is not gated by automap_reset
+        // (zxnext.vhd:4112 gates `automap`, divmmc.vhd:94 takes conmem OR automap).
+        // At $0010 (an RST candidate) and at $0100 (no entry point at all).
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x00);
+        m.dbg->port_out(m.a, 0xE3, 0x80);
+        m.emu.divmmc().rom_data()[0x10] = 0x00;
+        m.emu.divmmc().rom_data()[0x100] = 0x00;
+        const bool armed = m.emu.divmmc().conmem() && !m.emu.divmmc().nr_0a_4_enable();
+        m.set_pc(0x0010);
+        const FetchPair a = step_pair(m);
+        m.set_pc(0x0100);
+        const FetchPair b = step_pair(m);
+        check("SRCDBG-ID-10", "conmem maps the DivMMC ROM with the automap disabled, at an RST "
+                              "candidate and at a pc that is no entry point, predicted as recorded",
+              armed && a.predicted == MemSpace::divmmc_rom() && a.recorded == MemSpace::divmmc_rom() &&
+                  b.predicted == MemSpace::divmmc_rom() && b.recorded == MemSpace::divmmc_rom(),
+              pair_str(a) + " " + pair_str(b));
+    }
+    {
+        // D5, automap disabled: RST $00 is an INSTANT entry, but NR 0x0A bit 4 is
+        // clear, so `divmmc_automap_reset` holds `automap` at 0 (zxnext.vhd:4112;
+        // divmmc.vhd:126,148). The control is the same machine with the bit set.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x00);
+        m.dbg->nextreg_write(m.a, 0xB8, 0x01);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x01);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x01);
+        m.set_pc(0x0000);
+        const FetchPair off = step_pair(m);
+        Machine c(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        c.dbg->nextreg_write(c.a, 0x50, 10);
+        c.dbg->nextreg_write(c.a, 0x0A, 0x10);
+        c.dbg->nextreg_write(c.a, 0xB8, 0x01);
+        c.dbg->nextreg_write(c.a, 0xB9, 0x01);
+        c.dbg->nextreg_write(c.a, 0xBA, 0x01);
+        c.set_pc(0x0000);
+        const FetchPair on = step_pair(c);
+        check("SRCDBG-ID-11", "an instant DivMMC entry does not map while NR 0x0A bit 4 is clear "
+                              "(and does when it is set), predicted as recorded",
+              off.predicted == MemSpace::page(10) && off.recorded == MemSpace::page(10) &&
+                  on.predicted == MemSpace::divmmc_rom() && on.recorded == MemSpace::divmmc_rom(),
+              pair_str(off) + " " + pair_str(on));
+    }
+    {
+        // D6, port_divmmc_io_en: conmem is set, but NR 0x83 bit 0 clear makes
+        // `o_divmmc_rom_en <= rom_en and i_en` low (divmmc.vhd:98; the bit is
+        // internal_port_enable(8), zxnext.vhd:2412). The control keeps the port on.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->port_out(m.a, 0xE3, 0x80);
+        m.dbg->nextreg_write(m.a, 0x83, 0xFE);
+        m.set_pc(0x0010);
+        const bool io_off = !m.emu.divmmc().port_io_enable() && m.emu.divmmc().conmem();
+        const FetchPair off = step_pair(m);
+        Machine c(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        c.dbg->nextreg_write(c.a, 0x50, 10);
+        c.dbg->port_out(c.a, 0xE3, 0x80);
+        c.set_pc(0x0010);
+        const FetchPair on = step_pair(c);
+        check("SRCDBG-ID-12", "conmem maps nothing while the DivMMC port enable (NR 0x83 bit 0) is "
+                              "clear, and the DivMMC ROM when it is set, predicted as recorded",
+              io_off && off.predicted == MemSpace::page(10) && off.recorded == MemSpace::page(10) &&
+                  on.predicted == MemSpace::divmmc_rom() && on.recorded == MemSpace::divmmc_rom(),
+              pair_str(off) + " " + pair_str(on));
+    }
+    {
+        // U1, the boot ROM answers above the whole arbiter, DivMMC conmem included
+        // (zxnext.vhd:1856-1857, the cpu_di mux).
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        const std::vector<uint8_t> nops(0x2000, 0x00);
+        m.emu.mmu().set_boot_rom(nops.data(), nops.size());
+        m.dbg->port_out(m.a, 0xE3, 0x80);
+        m.set_pc(0x0010);
+        const FetchPair p = step_pair(m);
+        check("SRCDBG-ID-13", "the boot ROM supplies a fetch over DivMMC conmem, predicted as recorded",
+              m.emu.divmmc().conmem() && p.predicted == MemSpace::boot_rom() &&
+                  p.recorded == MemSpace::boot_rom(),
+              pair_str(p));
+    }
+    {
+        // U6, DivMMC RAM: bank 5 at $2000-$3FFF while conmem is set (divmmc.vhd:95-96,99;
+        // zxnext.vhd:3092-3093), with an instruction in it at $3000.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->port_out(m.a, 0xE3, 0x85);
+        m.emu.divmmc().ram_data()[5 * 0x2000 + 0x1000] = 0x00;   // NOP
+        m.set_pc(0x3000);
+        const FetchPair p = step_pair(m);
+        check("SRCDBG-ID-14", "a fetch from DivMMC RAM names the bank, predicted as recorded",
+              p.predicted == MemSpace::divmmc_ram(5) && p.recorded == MemSpace::divmmc_ram(5),
+              pair_str(p));
+    }
+    {
+        // The Multiface's 0x0066 fetch: unarmed, $0066 is whatever the MMU maps; once the
+        // button has armed the NMI (nmi_active), the fetch at $0066 itself latches
+        // mf_enable and comes from the Multiface ROM, which `predict` must say BEFORE the
+        // instruction runs (multiface.vhd:169,176,186; zxnext.vhd:3030).
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.emu.multiface().set_enabled(true);
+        m.emu.ram().page_ptr(0x0A)[0x66] = 0x00;   // Multiface ROM $0066: NOP (SRAM page 0x0A)
+        m.set_pc(0x0066);
+        const FetchPair unarmed = step_pair(m);
+        m.set_pc(0x0066);
+        m.emu.multiface().button_press();
+        const FetchPair armed = step_pair(m);
+        check("SRCDBG-ID-15", "the Multiface ROM is foreseen at $0066 only once the NMI is armed, "
+                              "and the fetch records it",
+              unarmed.predicted == unarmed.recorded && unarmed.predicted != MemSpace::multiface_rom() &&
+                  armed.predicted == MemSpace::multiface_rom() &&
+                  armed.recorded == MemSpace::multiface_rom(),
+              pair_str(unarmed) + " " + pair_str(armed));
+    }
+    {
+        // The DivMMC's NMI entry: NR 0xBB bit 1 (instant) with the NMI button latched
+        // in the DivMMC (divmmc.vhd:120,148; zxnext.vhd:2907). Without the latch the
+        // fetch at $0066 is RAM page 10.
+        auto machine = [](bool button) {
+            auto m = std::make_unique<Machine>(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+            m->dbg->nextreg_write(m->a, 0x50, 10);
+            m->dbg->nextreg_write(m->a, 0x0A, 0x10);
+            m->dbg->nextreg_write(m->a, 0xBB, 0x02);
+            m->emu.divmmc().rom_data()[0x66] = 0x00;
+            m->emu.divmmc().set_button_nmi(button);
+            m->set_pc(0x0066);
+            return m;
+        };
+        auto armed = machine(true);
+        const FetchPair a = step_pair(*armed);
+        auto control = machine(false);
+        const FetchPair c = step_pair(*control);
+        check("SRCDBG-ID-18", "the DivMMC NMI entry maps at $0066 once the button is latched "
+                              "(instant), and not before, predicted as recorded",
+              a.predicted == MemSpace::divmmc_rom() && a.recorded == MemSpace::divmmc_rom() &&
+                  c.predicted == MemSpace::page(10) && c.recorded == MemSpace::page(10),
+              pair_str(a) + " " + pair_str(c));
+    }
+    {
+        // A guest tour: every phase is real Z80 code the machine runs, between host actions
+        // only where the hardware has no guest-visible way (the boot ROM, config mode, the
+        // NMI request). Every step that fetched an opcode must have been predicted as
+        // the fetch recorded it, and the tour must have VISITED each source and crossed each
+        // transition: an instant and a delayed (held) DivMMC entry, the unmap range, a
+        // guest port write (E3, 123B), a guest NEXTREG, a RETN clearing the Multiface.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        auto& emu = m.emu;
+        auto put = [&](uint16_t at, std::initializer_list<uint8_t> bytes) {
+            uint16_t a = at;
+            for (uint8_t b : bytes) emu.mmu().write(a++, b);
+        };
+        // Stores the phases use. MMU0 = RAM page 10 (BRAM5) for the first phases.
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        emu.mmu().write(0x0000, 0xC9);                          // RET   RAM page 10 $0000 (phase 3)
+        emu.mmu().write(0x0010, 0x00);                          // NOP   RAM page 10 $0010 (phase 1b)
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);                  // DivMMC automap on
+        m.dbg->nextreg_write(m.a, 0xB8, 0x06);                  // RST $08 and RST $10 are entries
+        m.dbg->nextreg_write(m.a, 0xB9, 0x06);                  //   on the main path
+        m.dbg->nextreg_write(m.a, 0xBA, 0x02);                  //   $08 instant, $10 delayed
+        m.dbg->nextreg_write(m.a, 0xBB, 0x40);                  // the unmap range
+        uint8_t* drom = emu.divmmc().rom_data();
+        drom[0x0008] = 0xC3; drom[0x0009] = 0xF8; drom[0x000A] = 0x1F;   // JP $1FF8
+        drom[0x0011] = 0xC3; drom[0x0012] = 0xF8; drom[0x0013] = 0x1F;   // JP $1FF8
+        drom[0x1FF8] = 0xC9;                                    // RET
+        emu.divmmc().ram_data()[5 * 0x2000 + 0x1000] = 0xC9;    // RET   DivMMC RAM bank 5 $3000
+        emu.ram().page_ptr(0x30)[0] = 0xC9;                     // RET   Layer 2 page 0x10 ($0000)
+        emu.ram().page_ptr(0x0C)[0] = 0xC9;                     // RET   Alt ROM0 $0000
+        emu.ram().page_ptr(0x00)[0x38] = 0xC9;                  // RET   ROM0 $0038
+        emu.ram().page_ptr(0x00)[0x00] = 0xC9;                  // RET   ROM0/Config $0000
+        emu.ram().page_ptr(0x0A)[0x66] = 0xED;                  // RETN  Multiface ROM $0066
+        emu.ram().page_ptr(0x0A)[0x67] = 0x45;
+        emu.multiface().set_enabled(true);
+
+        put(0x8000, {0xCF, 0x00});                                              // RST $08 / NOP
+        put(0x8040, {0xD7, 0x00});                                              // RST $10 / NOP
+        put(0x8080, {0x3E, 0x85, 0xD3, 0xE3, 0xCD, 0x00, 0x30, 0xAF, 0xD3, 0xE3, 0x00});
+        put(0x80C0, {0xED, 0x91, 0x50, 0x0A, 0xCD, 0x00, 0x00, 0xED, 0x91, 0x50, 0xFF, 0x00});
+        put(0x8100, {0x01, 0x3B, 0x12, 0x3E, 0x04, 0xED, 0x79, 0xCD, 0x00, 0x00, 0xAF, 0xED, 0x79, 0x00});
+        put(0x8140, {0xED, 0x91, 0x8C, 0x80, 0xCD, 0x00, 0x00, 0xED, 0x91, 0x8C, 0x00, 0x00});
+        put(0x8180, {0xCD, 0x38, 0x00, 0x00});
+        put(0x81C0, {0x00, 0x00});
+        put(0x8200, {0xCD, 0x00, 0x00, 0x00});
+        put(0x8240, {0xCD, 0x00, 0x00, 0x00});
+
+        unsigned visited = 0;
+        long fetches = 0, mismatches = 0;
+        std::string first_bad;
+        auto run = [&](uint16_t pc, int steps) {
+            m.set_pc(pc);
+            for (int i = 0; i < steps; ++i) {
+                const FetchPair f = step_pair(m);
+                if (!f.fetched) continue;               // an accepted NMI/INT fetches no opcode
+                ++fetches;
+                visited |= 1u << static_cast<unsigned>(f.recorded.kind);
+                if (f.predicted != f.recorded) {
+                    ++mismatches;
+                    if (first_bad.empty()) first_bad = "pc=" + hex(f.pc) + " " + pair_str(f);
+                }
+            }
+        };
+        run(0x8000, 4);                                 // RST $08 (instant) / JP / RET (unmap) / NOP
+        run(0x8040, 5);                                 // RST $10 (delayed) / NOP / JP (held) / RET / NOP
+        run(0x8080, 6);                                 // OUT E3 conmem, CALL DivMMC RAM, RET, OUT E3
+        m.dbg->nextreg_write(m.a, 0x50, 0xFF);          // MMU0 back to the legacy ROM
+        run(0x80C0, 4);                                 // NEXTREG $50 -> RAM, CALL, RET, NEXTREG $50,$FF
+        run(0x8100, 7);                                 // OUT 123B Layer 2, CALL, RET, OUT 123B
+        run(0x8140, 4);                                 // NEXTREG $8C alt ROM, CALL, RET, NEXTREG $8C
+        run(0x8180, 2);                                 // CALL $0038 / RET (legacy ROM)
+        emu.multiface().button_press();                 // the NMI button
+        emu.cpu().request_nmi();
+        run(0x81C0, 3);                                 // NMI slot, RETN at $0066, NOP back in RAM
+        std::vector<uint8_t> boot(0x2000, 0x00);
+        boot[0] = 0xC9;
+        emu.mmu().set_boot_rom(boot.data(), boot.size());
+        run(0x8200, 3);                                 // CALL $0000 / RET from the boot ROM
+        emu.mmu().set_boot_rom_enabled(false);
+        emu.mmu().set_config_mode(true);
+        run(0x8240, 3);                                 // CALL $0000 / RET from the config window
+        emu.mmu().set_config_mode(false);
+
+        const unsigned wanted =
+            (1u << unsigned(MemSpace::Kind::Page)) | (1u << unsigned(MemSpace::Kind::Rom)) |
+            (1u << unsigned(MemSpace::Kind::BootRom)) | (1u << unsigned(MemSpace::Kind::MultifaceRom)) |
+            (1u << unsigned(MemSpace::Kind::DivMmcRom)) | (1u << unsigned(MemSpace::Kind::DivMmcRam)) |
+            (1u << unsigned(MemSpace::Kind::Layer2)) | (1u << unsigned(MemSpace::Kind::AltRom)) |
+            (1u << unsigned(MemSpace::Kind::Config));
+        check("SRCDBG-ID-19", "a guest tour of every fetch source (RAM, ROM, boot ROM, Multiface, "
+                              "DivMMC ROM and RAM, Layer 2, alternate ROM, config) across the "
+                              "transitions that switch them: every fetch predicted as recorded",
+              mismatches == 0 && fetches == 40 && (visited & wanted) == wanted,
+              "fetches=" + std::to_string(fetches) + " mismatches=" + std::to_string(mismatches) +
+                  " visited=" + std::to_string(visited) + " wanted=" + std::to_string(wanted) +
+                  " first=[" + first_bad + "]");
+    }
+    {
+        // PURE-01/02 -- asking is not doing. The prediction functions run inside the
+        // guest's own execution scope, where a READ watch, a Mem subscription and the +3
+        // floating-bus latch are all live, over probes that hit every overlay, and the
+        // machine must not notice: the whole save-state stream (memory, Mmu incl. the
+        // latch, the DivMMC and Multiface state machines, NextREGs) is byte-identical,
+        // no watchpoint fired, nothing entered the CAP-EVT ring. PURE-02 is the control:
+        // ONE guest read of an address in the same fixture moves all three, so PURE-01
+        // cannot be passing because nothing in the fixture is live.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        auto& emu = m.emu;
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+        m.dbg->nextreg_write(m.a, 0xB8, 0xFF);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x0F);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x03);
+        m.dbg->nextreg_write(m.a, 0xBB, 0xFF);
+        emu.divmmc().set_button_nmi(true);
+        emu.multiface().set_enabled(true);
+        emu.multiface().button_press();
+        m.dbg->port_out(m.a, 0x123B, 0xC4);
+        emu.mmu().set_machine_timing(MachineTimingMode::TimingPlus3);
+        m.dbg->nextreg_write(m.a, 0x52, 0x08);                  // MMU2 = 0x08: contended
+        emu.ram().page_ptr(0x32)[0] = 0xC7;                     // Layer 2 at $4000: bank 8 + segment 1 = page 0x12, SRAM 0x32
+        emu.mmu().set_p3_floating_bus_dat(0x3C);
+        const uint16_t probes[] = {0x0000, 0x0008, 0x0066, 0x1FF8, 0x3D00, 0x4000, 0x8000};
+        for (uint16_t p : probes) emu.debug_state().breakpoints().add_watchpoint(p, WatchType::READ);
+        Subscription sub;
+        sub.kind = EventKind::Mem;
+        sub.access = Access::Read;
+        sub.filter.lo = 0x0000;
+        sub.filter.hi = 0xFFFF;
+        sub.action = Action::Continue;
+        m.dbg->subscribe(m.a, sub);
+
+        auto stream = [&] {
+            StateWriter measure;
+            emu.save_state(measure);
+            std::vector<uint8_t> bytes(measure.position());
+            StateWriter w(bytes.data(), bytes.size());
+            emu.save_state(w);
+            return bytes;
+        };
+        auto ring = [&] { return emu.debug_state().event_table()->size(); };
+        const std::vector<uint8_t> before = stream();
+        const size_t ring_before = ring();
+        uint32_t sink = 0;
+        {
+            DebugState::GuestExecutionScope guest(emu.debug_state());
+            for (uint16_t p : probes) {
+                sink += m.dbg->source_page(p).index;
+                sink += emu.predict_fetch(p).index;
+                sink += emu.mmu().route(p).offset;
+                for (int t = 0; t < 4; ++t)
+                    sink += emu.mmu().route_with(p, (t & 1) != 0, (t & 2) != 0).offset;
+                sink += emu.multiface().would_latch_on_m1(p) ? 1u : 0u;
+                for (int g = 0; g < 4; ++g)
+                    sink += emu.divmmc().active_on_m1(p, (g & 1) != 0, (g & 2) != 0, false, false) ? 1u : 0u;
+            }
+        }
+        const std::vector<uint8_t> after = stream();
+        const bool untouched = before == after && !emu.debug_state().data_bp_hit() &&
+                               ring() == ring_before && emu.mmu().p3_floating_bus_dat() == 0x3C;
+        check("SRCDBG-PURE-01", "source_page, predict_fetch, route, route_with, would_latch_on_m1 and "
+                                "active_on_m1 over every overlay, inside the guest's scope with watches "
+                                "armed, change nothing: the save stream, the latch, the watch flag and "
+                                "the event ring are as they were",
+              untouched,
+              "sink=" + std::to_string(sink) + " stream_equal=" + std::to_string(before == after) +
+                  " hit=" + std::to_string(emu.debug_state().data_bp_hit()) + " ring=" +
+                  std::to_string(ring_before) + "->" + std::to_string(ring()) + " latch=" +
+                  hex(emu.mmu().p3_floating_bus_dat()));
+
+        uint8_t byte = 0;
+        {
+            DebugState::GuestExecutionScope guest(emu.debug_state());
+            byte = emu.mmu().read(0x4000);
+        }
+        const std::vector<uint8_t> moved = stream();
+        const bool latch_moved = emu.mmu().p3_floating_bus_dat() == 0xC7;
+        check("SRCDBG-PURE-02", "control for PURE-01: ONE guest read of $4000 in the same fixture moves "
+                                "the floating-bus latch, raises the watchpoint and enters the event "
+                                "ring, and the save stream sees it",
+              byte == 0xC7 && latch_moved && emu.debug_state().data_bp_hit() && ring() > ring_before &&
+                  moved != before,
+              "byte=" + hex(byte) + " latch=" + hex(emu.mmu().p3_floating_bus_dat()) + " hit=" +
+                  std::to_string(emu.debug_state().data_bp_hit()) + " ring=" + std::to_string(ring()) +
+                  " stream_equal=" + std::to_string(moved == before));
     }
 
     // ── a step ends at DI:HALT, and within its frame budget ─────────────
