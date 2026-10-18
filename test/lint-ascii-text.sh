@@ -39,8 +39,10 @@
 #
 # CANNOT CATCH, as examples and not as an exhaustive list: text assembled at run time
 # from code points or byte tables; an em dash split across adjacent literals
-# ("\xE2" "\x80\x94"); token pasting; text read from a file; user data; and files that
-# are not C or C++ (CMake, JSON, Qt resources, Markdown).
+# ("\xE2" "\x80\x94"); token pasting; text read from a file; user data; files that are
+# not C or C++ (CMake, JSON, Qt resources, Markdown); and sources behind a symbolic
+# link, which the walk skips. A root with no src/ scans nothing and reports clean (the
+# gate always uses this script's own checkout, so only a typed root can do that).
 #
 # MAY WRONGLY FLAG: a byte that is not valid UTF-8 inside a literal is reported as
 # non-ASCII (rule B), whatever the byte was meant to be.
@@ -390,6 +392,8 @@ self_test() {
     fx LAT-A22 "A:1"     src/t.cpp "f(\"abc ${BS}" "${EM} def\");"        # a spliced literal starts on its first line
     fx LAT-A23 "A:3"     src/t.cpp "f(\"abc ${BS}" "def\");" "g(\"${EM}\");"
     fx LAT-A24 "A:1 A:2" src/t.cpp "f(\"${EM}\");${CR}" "g(\"${EM}\");${CR}"
+    fx LAT-A25 "A:1"     src/t.cpp "f(\"abc ${BS}${CR}" "${EM} def\");${CR}"      # a CRLF splice inside a string literal
+    fx LAT-A26 "A:1"     src/t.cpp "char16_t c = u'${BS}${CR}" "${EM}';${CR}"    # ... and inside a character literal
     # Rule A is not excused by a declaration, and the declaration is not stale for it.
     CONF_TEXT=$(printf 'src/t.cpp\ta %s b\treason\n' "$EM")
     fx LAT-A12 "A:1"     src/t.cpp "f(\"a ${EM} b\");"
