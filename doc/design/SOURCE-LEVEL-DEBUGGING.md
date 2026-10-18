@@ -113,7 +113,7 @@ install, and every row takes its values from them.
 - `prog_<GROUP>.bin` (`-create-app`): one file per section group, from its `__<group>_head`:
   the linked bytes, the source of the program identity (section 9.7).
 - No `.cdb`/`.adb` file on either tree (zsdcc runs in `--c1mode` over stdin; master folds the
-  records into the map, 29da3be373). No SLD and no DWARF on any branch: a search of the
+  records into the map, 29da3be373). No SLD and no DWARF in any z88dk branch: a search of the
   history since 2025-01-01 found no such commit, and the tree at 39421a01cd names neither.
 - Naming traps: `+zxn` defaults to `-clib=sdcc_iy -O2 -SO2` (`lib/config/zxn.cfg`), so a bare
   `zcc +zxn` is sdcc; sccz80 needs `-clib=new` (or classic); `-clib=classic` failed on both
@@ -140,11 +140,13 @@ fixture; the others are from the planning builds.
 - G5. sccz80 `-debug` changes the program: `l_debug_push_frame` and `l_debug_pop_frame` in
   every function (fixture: `_main` at $8C73 without `-debug`, $8C92 with it). The program
   debugged is the `-debug` build, and steps run through the helpers, which have no lines.
-- G6. 2.4 only: sdcc line information exists only as `.lis` comments (`--c-code-in-asm`).
+- G6. 2.4 only: sdcc line information exists only as `.lis` comments (`--c-code-in-asm`), so sdcc
+  on 2.4 needs the listing adapter (E23-17).
 - G7. Optimisation moves code across lines, and the default `-SO2` is already optimised (sdcc,
   2.4): the `while(1)` back-jump sits under `return 0; }` at `-SO2` and under line 26 at `-SO0`.
   sdcc emits an out-of-line copy of a `static inline` in each module that includes it, so
-  `util.h:7` is two ranges in two modules: one line, many addresses.
+  `util.h:7` is two ranges in two modules: one line, many addresses (several starts for
+  `resolve()`, and the primary and "also" locations of OD-7).
 - G8. Banked code takes its page from the section name on newlib: `PAGE_20` is page 20, and
   `BANK_10` is the 8K pages 20 and 21. Addresses are logical and 16-bit, so without the
   section every bank's $C000 is the same address: D3's hazard (section 9.4).
@@ -154,11 +156,13 @@ fixture; the others are from the planning builds.
   E23-14 (#345) pins it with rows (section 7).
 - G10. Paths are as the build spelled them: user files relative to the build directory (as
   given to `zcc`), headers as written in `#include`, system headers absolute; the module name
-  is the mangled path.
+  is the mangled path. Files are therefore found relative to the map's directory (8.2) and
+  `resolve()` matches whole path components (5.1).
 - G11. The CDB records are `__CDBINFO__` symbols in the `-debug` map (sccz80; sdcc and 80cc on
   master): the input for C variables (#353).
 - G12. 2.4 only (reworked on master, eb1a9b1299, 2026-04-18): sdcc `-debug` fails to assemble
-  (`defc Gcounter0_00==.`; z88dk's own issue 3172).
+  (`defc Gcounter0_00==.`; z88dk's own issue 3172), so again the sdcc lines of 2.4 come from the
+  listings only.
 
 **Master since 2.4** (all in 39421a01cd):
 
@@ -206,8 +210,8 @@ labels). #352 fixed it in v1.1.45: `load_z88dk_map` skips `__C_LINE_`, `__ASM_LI
 
 `--sym=FILE` writes the whole symbol table and `--exp=FILE` only the `EXPORT` labels, one
 `NAME: EQU 0x0000ABCD` line each (sjasmplus 1.23.1). Addresses are 16-bit and the files carry
-symbols only. #390 loads them as unpaged labels (section 10.4); it lands on `main` on its own,
-as #352 did (OD-10), and reaches the epic through merges of `main`.
+symbols only. #390 loads them as unpaged labels (section 10.4); it is a standalone issue that
+lands ahead of the epic, as #352 did (OD-10).
 
 ## 3. Architecture
 
@@ -430,7 +434,7 @@ formatter's inverse (the breakpoint dialog, the project file, imports). Spelling
 upper-case `[A-Z0-9]` only, with no whitespace and no `:` (a ghidra address-space name is
 split at the last `:`; skoolkit file names). E23-22 fixes them. The list on #360 (`P0E`,
 `ROM0` to `ROM3`, `ALTROM0`, `ALTROM1`, `DIVROM`, `DIVRAM3`, `MFROM`, `MFRAM`, `BOOT`, `L2P12`,
-`CFG` plus the page) is provisional until E23-07 and E23-08 are merged.
+`CFG` plus the page) is provisional until E23-07 and E23-08 have landed.
 
 **Remote protocols** (owner decision on #360, 2026-10-18). Each carries as much of the identity
 as its existing vocabulary allows, and none is extended: no new commands, codes or fields on a
@@ -468,8 +472,9 @@ bitmap). E23-07 and E23-08 record the numbers.
 - An optional program identity (9.7).
 
 `lookup(space, addr)` returns every range that contains `addr` in `space`. The primary
-location is the shortest range; on a tie the record the adapter emitted last wins (the highest
-line, G3). It returns pointers into the store, not copies. `resolve("file:line")` returns every
+location is the shortest range; on a tie the record the adapter emitted last wins. The z88dk
+adapter emits equal starts in ascending line order, so the highest line owns the address
+(DeZog's rule, G3). It returns pointers into the store, not copies. `resolve("file:line")` returns every
 range start of the location. The file matches the exact path, else a unique suffix of whole
 path components (a basename is the one-component case, today's rule; `ain.c` never matches
 `main.c`). A zero-width line resolves through its alias or refuses with "no code at
@@ -702,10 +707,11 @@ An adapter turns one file format into the neutral stores and nothing else. It em
 It **parses the whole input and fails with a reason before replacing a store.** For a source
 half that is strict: any malformed record refuses the half, and the reason names the line. The
 symbol-only loaders keep the MAP rule: a file that cannot be opened, is not a regular file or
-is over the size cap is refused with a reason, and inside a readable file a line that is not a
-symbol line is skipped (a z88dk map is mostly lines that are not symbols). A file that fills
-two stores (a z88dk map) is two independent transactions, each reported: a map whose line
-records are refused still gives its symbols, as v1.1.45 does today.
+is over the size cap is refused with a reason, and inside a readable file a line that does not
+parse as a symbol is skipped, not fatal (real z88dk maps carry lines of every kind: `; const`
+values, `-debug` records, values wider than 16 bits). A file that fills two stores (a z88dk
+map) is two independent transactions, each reported: a map whose line records are refused still
+gives its symbols, as v1.1.45 does today.
 
 **Extents** (D2). Each adapter gives every record its extent:
 
