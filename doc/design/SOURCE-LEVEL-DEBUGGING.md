@@ -1035,6 +1035,9 @@ functional rows `source-map-func` (a looked-up line, E23-15) and `z88dk-source-f
   documentation, the fixture output and the rules of this document.
 - The fetch identity is VHDL-oracled (the lines in 4.1 and 4.2).
 - C stepping is checked against `z88dk-gdb` on the same fixture (E23-14).
+- The z88dk space rules (9.4) are checked against where `appmake` put the bytes (the bank and
+  offset of a symbol's bytes in the fixture's `.nex`), not against the map alone: the map
+  shows only an address and a section, and a rule can fit those and still be wrong.
 - Every writer (11.2) is checked against a foreign reader.
 - The project file has no foreign reader, so its rows assert the written bytes against 10.5, not
   only a round trip.
