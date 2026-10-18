@@ -313,8 +313,9 @@ stay until a reset or a load. The user's stores are never touched by any of this
 `NextBuild symbols '<file>' rejected: <reason>` and/or `source map '<file>'
 rejected: <reason>` (the file found, not the program), the two joined by `"; "`,
 empty when nothing was refused. `load_program_sidecars()` fills it and also logs
-each refusal. The frontends show it: the headless and SDL loops at warn
-(`--load: <problem>`), and the Qt `DebuggerManager::report_sidecars()` in the
+each refusal. The frontends show it: the headless loop at warn
+(`--load: <problem>`), the SDL loop likewise (`load: <problem>`), and the Qt
+`DebuggerManager::report_sidecars()` in the
 log, in the main window's status bar for ten seconds and in the Source tab in
 place of "No source map loaded" (kept in `sidecar_problem_`, so a window built
 later shows it too, and replaced by the next load's result, empty when clean).

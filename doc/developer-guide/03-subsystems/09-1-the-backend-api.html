@@ -2903,8 +2903,9 @@ stay until a reset or a load. The user's stores are never touched by any of this
 <code>NextBuild symbols '&lt;file&gt;' rejected: &lt;reason&gt;</code> and/or <code>source map '&lt;file&gt;'
 rejected: &lt;reason&gt;</code> (the file found, not the program), the two joined by <code>"; "</code>,
 empty when nothing was refused. <code>load_program_sidecars()</code> fills it and also logs
-each refusal. The frontends show it: the headless and SDL loops at warn
-(<code>--load: &lt;problem&gt;</code>), and the Qt <code>DebuggerManager::report_sidecars()</code> in the
+each refusal. The frontends show it: the headless loop at warn
+(<code>--load: &lt;problem&gt;</code>), the SDL loop likewise (<code>load: &lt;problem&gt;</code>), and the Qt
+<code>DebuggerManager::report_sidecars()</code> in the
 log, in the main window's status bar for ten seconds and in the Source tab in
 place of "No source map loaded" (kept in <code>sidecar_problem_</code>, so a window built
 later shows it too, and replaced by the next load's result, empty when clean).
