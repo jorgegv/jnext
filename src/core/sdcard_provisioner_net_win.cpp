@@ -131,7 +131,7 @@ struct AsyncState {
     std::atomic<DWORD> error{0};   // REQUEST_ERROR: dwError
     std::vector<char> buf;         // the read buffer: DownloadTimings::read_bytes (64 KiB in production)
     std::wstring headers;          // SendRequest's extra headers, valid until SENDREQUEST_COMPLETE
-    explicit AsyncState(size_t read_bytes) : buf(read_bytes ? read_bytes : 1) {}
+    explicit AsyncState(size_t read_bytes) : buf(read_bytes) {}
     AsyncState(const AsyncState&) = delete;
     AsyncState& operator=(const AsyncState&) = delete;
     ~AsyncState() { if (ev) CloseHandle(ev); }

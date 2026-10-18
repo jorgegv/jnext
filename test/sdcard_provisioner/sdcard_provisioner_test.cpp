@@ -47,11 +47,12 @@
 //                  server that never answers is a stall too (04); a slow transfer that
 //                  is alive is never cut (05); the pure rule and the production numbers
 //                  (06, 08); the SD-card path says it (07). Review round 1: a transport
-//                  failure (a server that closes the connection unanswered) ends the
-//                  attempt at once with the transport's own reason, never as a stall
-//                  (09: pins the WinHTTP asynchronous REQUEST_ERROR path); a WinHTTP read
-//                  never asks for more than DownloadTimings::read_bytes (10: wine reports
-//                  at most 8 KiB available, so the row lowers the cap to make it bind).
+//                  failure (a server that closes the connection unanswered; a port nothing
+//                  listens on) ends the attempt at once with the transport's own reason,
+//                  never as a stall (09: pins the WinHTTP asynchronous REQUEST_ERROR path
+//                  at its headers and connect stages); a WinHTTP read never asks for more
+//                  than DownloadTimings::read_bytes (10: wine reports at most 8 KiB
+//                  available, so the row lowers the cap to make it bind).
 //                  The NextPi twin is PIT-43, the GUI side SDD-01..04
 //                  (test/gui/sdcard_dialog_test.cpp).
 //   PROV-CONF-01   No image + declined confirm → Declined; no download.

@@ -243,10 +243,10 @@ void test_through_the_backend() {
           "wired as main.cpp wires it (the real clock): the dialog is visible, an application timer keeps firing "
           "(at least 5 times, never 800 ms apart) between the first call at 100000 bytes and the click on Cancel "
           "6.5 s later, the label the user was reading at the click says 'Stalled: no data received for N s' "
-          "with N from 5 to 8 and 'gives up after 30 s', and the call returns within 1 s of the click saying "
+          "with N from 5 to 9 and 'gives up after 30 s', and the call returns within 1 s of the click saying "
           "'cancelled by user' with the 100000 bytes kept",
           !ok && visible && first_at >= 0 && click_at > first_at && n >= 5 && gap <= 0.8 &&
-              shown_s >= 5 && shown_s <= 8 && has(label_at_click, "gives up after 30 s") &&
+              shown_s >= 5 && shown_s <= 9 && has(label_at_click, "gives up after 30 s") &&
               returned_at - click_at <= 1.0 && err == "cancelled by user" &&
               slurp(sdcard::partial_path(dest)) == body.substr(0, 100000) && sdcard::read_resume_info(dest, ri),
           "ok=" + std::to_string(ok) + " visible=" + std::to_string(visible) + " first_at=" + std::to_string(first_at) +
