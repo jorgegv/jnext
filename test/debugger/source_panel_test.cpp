@@ -996,6 +996,33 @@ void test_source_button_states() {
     }
 }
 
+// ── M46: a refused backward step says why ─────────────────────────────
+
+void test_source_reverse_refused() {
+    Fixture fx(/*rewind_frames=*/8);
+    fx.enable();
+    fx.backend->set_trace_enabled(true);
+    fx.load_map();
+    fx.mgr->refresh_panels();
+    SourcePanel* sp = fx.dbg()->source_panel();
+    QPushButton* into = button(sp, QStringLiteral("Into"));
+    for (int i = 0; i < 2 && into; ++i) { into->click(); QApplication::processEvents(); }
+    fx.mgr->refresh_panels();
+    // Two statements in, with no source breakpoint anywhere: Reverse has
+    // nowhere to go.
+    QPushButton* rev = button(sp, QStringLiteral("Reverse"));
+    const bool enabled = rev && rev->isEnabled();
+    const uint16_t from = fx.pc();
+    if (rev) rev->click();
+    QApplication::processEvents();
+    const QString bar = fx.dbg()->statusBar()->currentMessage();
+    check("QSRC-37", "Reverse with no earlier source breakpoint is refused: the machine "
+                     "stays and the debugger window's status bar says why",
+          enabled && from != 0x8000 && fx.pc() == from &&
+              bar.contains(QStringLiteral("no earlier source breakpoint")),
+          s(bar) + " pc " + std::to_string(from) + " -> " + std::to_string(fx.pc()));
+}
+
 // ── T11: the Source tab's messages and source file search ─────────────
 
 void test_source_messages() {
@@ -1324,6 +1351,7 @@ int main(int argc, char** argv) {
     test_sidecar_reason();
     test_source_buttons();
     test_source_button_states();
+    test_source_reverse_refused();
     test_source_messages();
     test_call_stack_pages();
 
