@@ -148,10 +148,11 @@ if want quick-snapshot-qt-func; then
         keep_names=$(find "$snap_dir" -maxdepth 1 -type f -name '*.jns' 2>/dev/null)
         n_keep=$(grep -cE '/jnext-[0-9]{8}-[0-9]{6}(-[0-9]{2})?\.jns$' <<<"$keep_names") || n_keep=0
         bad_kept=no; [[ -f "$snap_dir/zz-bad.jns" ]] && bad_kept=yes
-        # GH #386: keys typed BEFORE a Quick Save, in one burst with the chord;
-        # the garbage file (newest by mtime) goes first so Quick Load finds the
-        # new snapshot.
-        rm -f "$snap_dir/zz-bad.jns"
+        # GH #386: keys typed BEFORE a Quick Save, in one burst with the chord.
+        # Quick Load takes the newest by mtime, and the garbage file and the
+        # `touch`ed older save are both dated in the future, so they go first:
+        # the load must find the new snapshot.
+        rm -f "$snap_dir/zz-bad.jns" "$snap_dir"/jnext-*.jns
         qs_run typesave "$shot_ts"
         qs_run loadts "$shot_lts"
 
