@@ -79,7 +79,7 @@ if want quick-snapshot-qt-func; then
                     # GH #386: keys typed while the load is in progress (the app is
                     # stalled on the SD digest), after the chord: the host queues them
                     # and they reach the app after the cold boot, before the load lands.
-                    typeduring) xdotool key alt+shift+F9 2>/dev/null || true; sleep 0.3
+                    typeduring) xdotool key alt+shift+F9 2>/dev/null || true; sleep 0.1
                         xdotool key --delay 0 b 5 Return 2>/dev/null || true; sleep 1 ;;
                     # GH #386: a Quick Load that finds nothing does not cold-boot, so
                     # only the end of the action lifts the key queue: typing must work.

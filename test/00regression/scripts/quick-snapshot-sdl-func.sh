@@ -30,7 +30,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #          LOADED machine, so the border equals typeafter's BORDER 5 render. The
 #          key queue holds them behind the chord (Router::on_host_action) and the
 #          load re-asserts what the host holds (Router::reassert());
-#   typeduring  Alt+Shift+F9, then BORDER 5 typed 0.3 s later, while the app is stalled
+#   typeduring  Alt+Shift+F9, then BORDER 5 typed 0.1 s later, while the app is stalled
 #          on the SD digest (GH #386): the host queues the keys, they reach the
 #          app after the cold boot and before the load lands, and the load used
 #          to wipe them. Same expectation as typeahead. (If the host is fast
@@ -117,7 +117,7 @@ if want quick-snapshot-sdl-func; then
                     # GH #386: keys typed while the load is in progress (the app is
                     # stalled on the SD digest), after the chord: the host queues them
                     # and they reach the app after the cold boot, before the load lands.
-                    typeduring) xdotool key alt+shift+F9 2>/dev/null || true; sleep 0.3
+                    typeduring) xdotool key alt+shift+F9 2>/dev/null || true; sleep 0.1
                         xdotool key --delay 0 b 5 Return 2>/dev/null || true; sleep 1 ;;
                     # GH #386: a Quick Load that finds nothing does not cold-boot, so
                     # only the end of the action lifts the key queue: typing must work.
