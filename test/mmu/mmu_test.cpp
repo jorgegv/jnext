@@ -6829,10 +6829,19 @@ void test_cat22_fetch_identity() {
         rc.expect(f.mmu, "MF RAM first byte", 0x2000, MemSpace::multiface_ram(), 0x0000);
         rc.expect(f.mmu, "MF RAM last byte", 0x3FFF, MemSpace::multiface_ram(), 0x1FFF);
         rc.expect(f.mmu, "above the window", 0x4000, MemSpace::page(0x0A), 0x0000);
+        // route_with() answers for the cycle it is TOLD about, not for the live overlays:
+        // with the Multiface and DivMMC given as off for an M1 (the live Multiface is on),
+        // the low half is Layer 2's, and with the Multiface given as on it is the Multiface's.
+        const Mmu::Route off = f.mmu.route_with(0x0000, false, false);
+        const Mmu::Route mfp = f.mmu.route_with(0x0000, false, true);
+        if (!(off.space == MemSpace::layer2(0x10) && mfp.space == MemSpace::multiface_rom())) {
+            rc.ok = false;
+            rc.why += "route_with: off=" + route_str(off) + " mf=" + route_str(mfp) + "; ";
+        }
         check("FSRC-02",
               "an active Multiface supplies 0x0000-0x3FFF (ROM half below 0x2000, RAM half above) over "
-              "DivMMC conmem and the Layer 2 read mapping, and nothing above 0x3FFF -- VHDL "
-              "zxnext.vhd:3030-3035, 2933-2950",
+              "DivMMC conmem and the Layer 2 read mapping, and nothing above 0x3FFF; route_with() takes "
+              "the Multiface and DivMMC as given, not as live -- VHDL zxnext.vhd:3030-3035, 2933-2950",
               rc.ok, rc.why);
     }
 
