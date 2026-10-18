@@ -3707,6 +3707,11 @@ start.</p>
 <p>If no data arrives for a few seconds, the progress dialog says the download has stalled and for
 how long; after 30 seconds without data JNEXT stops waiting and says why. Cancel works at any
 time.</p>
+<p>Checking the mirror (the list of releases, the checksum) shows the same progress dialog, stall
+notice included, when it takes more than a second. When any of these fails, JNEXT says which
+address it was fetching, what went wrong in plain words (with the error code after it) and what
+it does next, and in the graphical version the message is in a dialog whose text can be selected
+and copied: try the address in a web browser to see whether the mirror can be reached at all.</p>
 <h3 id="if-you-already-have-nextpi-or-prepare-it-by-hand">If you already have NextPi, or prepare it by hand<a class="headerlink" href="#if-you-already-have-nextpi-or-prepare-it-by-hand" title="Permanent link">&para;</a></h3>
 <p>Put <code>NextPi-&lt;release&gt;.tar.gz</code> from the mirror (and, if you have it, its <code>.md5</code>)
 in the NextPi directory (<code>~/.jnext/nextpi</code>; on Windows <code>%USERPROFILE%\.jnext\nextpi</code>).
@@ -3772,7 +3777,7 @@ the Preferences tab means that default:</p>
 <p>Changes take effect the next time JNEXT starts. Changing the release makes the
 next start offer to download that one in place of the installed one. With
 <code>latest</code>, JNEXT checks the mirror each time it starts; if it cannot reach it, it
-carries on with the release it has.</p>
+carries on with the release it has, and says so, with the address it tried.</p>
 <p>The Pi's SD card image is never changed: everything NextPi writes goes to
 <code>overlay.qcow2</code> in the NextPi directory. Delete that file to start again from a
 pristine image. QEMU's own messages go to <code>qemu.log</code> there too, which is the

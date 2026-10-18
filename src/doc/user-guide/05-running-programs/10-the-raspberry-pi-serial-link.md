@@ -45,6 +45,12 @@ If no data arrives for a few seconds, the progress dialog says the download has 
 how long; after 30 seconds without data JNEXT stops waiting and says why. Cancel works at any
 time.
 
+Checking the mirror (the list of releases, the checksum) shows the same progress dialog, stall
+notice included, when it takes more than a second. When any of these fails, JNEXT says which
+address it was fetching, what went wrong in plain words (with the error code after it) and what
+it does next, and in the graphical version the message is in a dialog whose text can be selected
+and copied: try the address in a web browser to see whether the mirror can be reached at all.
+
 ### If you already have NextPi, or prepare it by hand
 
 Put `NextPi-<release>.tar.gz` from the mirror (and, if you have it, its `.md5`)
@@ -97,7 +103,7 @@ the Preferences tab means that default:
 Changes take effect the next time JNEXT starts. Changing the release makes the
 next start offer to download that one in place of the installed one. With
 `latest`, JNEXT checks the mirror each time it starts; if it cannot reach it, it
-carries on with the release it has.
+carries on with the release it has, and says so, with the address it tried.
 
 The Pi's SD card image is never changed: everything NextPi writes goes to
 `overlay.qcow2` in the NextPi directory. Delete that file to start again from a

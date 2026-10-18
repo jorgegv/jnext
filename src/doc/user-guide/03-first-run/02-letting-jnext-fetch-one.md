@@ -42,5 +42,10 @@ If no data arrives for a few seconds, the progress dialog says the download has 
 how long; after 30 seconds without data JNEXT stops waiting and says why. Cancel works at any
 time.
 
+When a download fails, JNEXT says which address it was fetching, what went wrong in plain words
+(with the error code after it, for anyone who has to look it up), and whether the part already
+fetched was kept. The address can be selected and copied from the message: try it in a web
+browser to see whether the file can be reached at all.
+
 Answering no leaves JNEXT with nothing to boot from, so it explains the problem
 and exits.

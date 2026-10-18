@@ -1014,3 +1014,58 @@ that number. The error side is pinned the same way: `PROV-STALL-09` makes a serv
 close without answering and a port refuse the connection, one per stage of the
 asynchronous sequence, and requires the transport's own reason at once, never a
 stall.
+
+What a failed fetch says is the callers' business, once (GH #385). Every failure of
+a fetch is built by `sdcard::fetch_failure(what, url, reason, next)`: `<what>:
+<reason>`, then `  URL: <url>` (exactly the string handed to the `DownloadFn`, one
+variable per fetch, so it can be pasted into a browser), then `  <what happens
+next>` (the part is kept, nothing was kept, the download was removed); nine call
+sites, two in `sdcard_provisioner.cpp` and seven in `nextpi_provisioner.cpp`, and
+nothing else builds one. The backends hand up a reason in plain words and no
+framing: `net_reason(kind, raw)` gives each `NetFailure` kind its one wording and
+appends the backend's own code and text in parentheses, `http_status_reason(status)`
+does the same for an HTTP error status (RFC 9110 section 15), and each twin defines
+`transport_reason(code)` (like `http_download`), which sorts its codes into the
+kinds: a `CURLcode` for libcurl, an `ERROR_WINHTTP_*` for WinHTTP, wine's
+`WSAETIMEDOUT` as a timeout. So the two say the same words for the same failure.
+libcurl's `CURLOPT_FAILONERROR` turns any HTTP status of 400 or more into one
+generic code, so that twin reads the status off the transfer, and a 404 reads the
+same as on WinHTTP (where `PartialDownload::begin` says it, through the same
+function). The stall reason, `cancelled by user` and the other reasons that were
+already plain are unchanged, as are the declared residuals (`curl_easy_init
+failed`, which the user cannot act on). `PROV-REASON-01..05` pin the wordings, `04`
+on both transports (it fails on both with the old text), `PROV-MSG-*` and
+`PIT-44..50` the messages, `PROV-SANDBOX-02` and `PROV-STALL-09` moved to the new
+text with their invariants intact.
+
+Where the message goes. `main.cpp` logs a failed SD-card provisioning in every
+frontend (headless and the SDL-only build printed it to stderr and nowhere else) and
+shows it in a dialog in the Qt GUI; a failed NextPi start is reported in a dialog
+in the Qt GUI whether it came from Preferences (jnext starts without it) or from
+`--nextpi` (it also prints to stderr and exits 1); and the warning that `latest`
+could not read the mirror's list is a dialog too, not only a log line. A declined
+release change is the user's own answer and is logged, not a warning.
+`SdcardGuiProvisioner::warn` shows a `QMessageBox` built by `warning_box`, whose
+text is selectable by mouse whatever the widget style (the "Windows" style's
+default is links only, so the address could not be copied). On the offscreen
+platform nothing is shown (nobody could dismiss it); the title and the text go to
+the `platform` logger at debug level, and that line is what `sdcard-download-fail-func`
+and `nextpi-func` facts 10-12 read of a dialog.
+
+The short fetches. The NextPi release list of `latest` and the two `.md5` fetches
+are tiny, so they passed no `ProgressFn`, and on a dead network the window showed
+nothing for the 30 s the backend waits. `ShortFetchFn` (`nextpi::ProvisionOptions::
+short_fetch`) wraps exactly those three, with a label each, and hands the fetch the
+`ProgressFn` it should give the `DownloadFn`; the archive download is not wrapped
+and keeps `opts.progress` (`PIT-51`). The Qt build's `SdcardGuiProvisioner::short_fetch`
+pumps the event loop on every call, shows nothing for the first
+`kShortFetchShowMs` (1000 ms, so a quick fetch does not flash a dialog), and then
+shows the same dialog as the archive, built and refreshed by the same code (title,
+empty bar, `Stalled` notice from 5 s, Cancel); it is gone when the fetch returns.
+Its Cancel ends that fetch only: the `cancelled_` latch of `progress()` is not
+touched, so the archive download that follows is not aborted. All of it counts on
+the helper's `now_()`, so `SDD-06..08` run on a clock the test owns, and `SDD-09`
+runs the whole thing through the real backend and a silent server on the production
+clock. `nextpi-func` fact 12 shows it in the real binary against a mirror that
+answers after 3 s. The CLI has no short-fetch seam: a terminal shows the process
+running, and the failure, with its address, arrives within the stall timeout.
