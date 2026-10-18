@@ -40,7 +40,7 @@ namespace dbg {
 /// which one answered must not collapse them.
 ///
 /// Every value the arbiter produces fits a 12-bit packing: `kind <= 15` and
-/// `index <= 0xFF` (pinned by mmu_test FSRC-09, and by the static_asserts in
+/// `index <= 0xFF` (pinned by mmu_integration_test FSRC-09, and by the static_asserts in
 /// `debug_types_check.cpp`). `Cpu` is never an arbiter result.
 struct MemSpace {
     enum class Kind : uint8_t {

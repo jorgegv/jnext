@@ -301,7 +301,7 @@ E23-07 (#339). To build: trace entries and call frames take the recorded value i
 (#340); until then the trace flag and the call frames' pages are still predicted before the
 instruction runs (section 4.3). Check (epic acceptance 1): no
 prediction of the M1 overlay outside `route_with`, `active_on_m1` and `would_latch_on_m1`;
-SRCDBG-ID-17 (an instruction that remaps its own slot keeps its recorded identity).
+SRCDBG-ID-17 (an instruction that remaps its own slot keeps its recorded identity; planned, E23-08 (#340)).
 
 **D2. The source map is range-aware and many-to-many.** A record covers its start up to an
 extent the adapter gives (section 9); ranges may overlap, and an address may have several
@@ -336,7 +336,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 
 | Mechanism | Today (v1.1.64 plus E23-07) | Design | Changed by |
 |---|---|---|---|
-| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The source map, the trace and the breakpoint gate still take a RAM page through `ram_page_of()` (`debug/ram_page.h`), `NOT_RAM_PAGE` for any other kind | 4.1, 4.2, 4.4 | E23-07 (#339) |
+| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The source map and the call stack still take a RAM page through `ram_page_of()` (`debug/ram_page.h`), `NOT_RAM_PAGE` for any other kind; the trace flag and the breakpoint gate reduce the identity to "not a `Page`" | 4.1, 4.2, 4.4 | E23-07 (#339) |
 | Identity in history | `TraceLog` keeps a flag per entry beside `TraceEntry` (`not_ram_`), predicted just before the instruction runs by `Emulator::predict_instruction_()` (the bytes the CPU will fetch, so the flag and the trace bytes follow the M1 overlay); Back reads `te.mmu[slot]`, `rom_slots` and the flag. `Mmu::last_m1()` records the fetch but nothing reads it yet | 4.3 | E23-08 (#340) |
 | Identity in call frames | `CallFrame::caller_page` and `target_page` (`uint8_t`; `NOT_RAM_PAGE` for ROM or an overlay), from the same prediction; the call-stack opcode bytes follow the M1 overlay | 4.3 | E23-08 (#340) |
 | Source map | exact (page, address) to one `SourceLocation`, a duplicate replaces; `lookup` returns a copy; `resolve()` returns the first start, by exact path or unique basename; an unqualified-record fallback that no adapter feeds (SLD records always name a page) | 5 | E23-06 (#338) |
@@ -398,7 +398,7 @@ the index each carries:
 The kinds 3 to 11 are identity-only: `peek` and `poke` refuse them with `Result::Unsupported`
 (one total switch, so `-Werror=switch` makes a future kind a compile error there); E23-21
 (#351) adds `peek(DivMmcRam)` with its own rows. Every route result has `kind <= 15` and
-`index <= 0xFF` (mmu_test FSRC-09 and static_asserts), which leaves room for the 12-bit packing
+`index <= 0xFF` (mmu_integration_test FSRC-09 and static_asserts), which leaves room for the 12-bit packing
 that E23-08 needs.
 
 Equality is exact (kind and index) and by decode path, not by physical store. `Layer2{p}` and
@@ -491,7 +491,7 @@ decode needs (`sram_pre_override(2)`, `(0)` with config mode, the alt-ROM read e
 `Debugger::source_page()` returns the predicted `FetchSource`; `Emulator::fetch_not_mmu_ram()`
 and `Mmu::read_not_mmu_ram()` are deleted (`TraceLog::fetch_not_mmu_ram()` and its `not_ram_` flag
 stay until E23-08). A prediction has no side effects: rows compare the
-whole machine state before and after (PURE-01, with PURE-02 as the control).
+whole machine state before and after (SRCDBG-PURE-01, with SRCDBG-PURE-02 as the control).
 
 **Fetch view and data view.** DivMMC's `automap` is not one value across an instruction
 (`divmmc.vhd:124-148`). `automap_hold` loads on every M1 (MREQ and M1 low) from that M1's entry
@@ -524,8 +524,10 @@ instruction-length reader, the trace flag and the call-stack opcode bytes and ca
 it, so the esxdos `RST $08` entry and the delayed NMI entry trace the bytes the CPU executed,
 not the bytes of the map before the M1. The length reader and the disassembler give the true
 length of a redundant DD/FD chain (`byte_count` may exceed 4; the first four bytes are kept in
-`opcode_bytes[4]` and `bytes[4]`), bounded at 64 prefixes; a longer run is its own `DB $DD`
-line.
+`opcode_bytes[4]` and `bytes[4]`), both bounded at 64 redundant prefixes: past it the
+disassembler makes the prefix byte its own `DB $DD` line (a 65-byte line for a run of DD), and
+the trace's length reader stops its recursion by returning 2 (66 bytes in all). The CPU itself
+consumes any run of prefixes in one `execute()`.
 
 Two limits, stated: `predict_instruction_` predicts the first four bytes only, so an M1 chain
 past four bytes is predicted for its first four; and no production code reads `Mmu::last_m1()`
@@ -586,8 +588,9 @@ Nothing new runs with the debugger off except `read()`'s restructuring onto `rou
 E23-07 (#339) gated on `make bench` (non-PGO A/B on a quiet host; the plan was at most 1% on the
 boot and game benches). Measured on the non-PGO build: `boot-nextzxos` +1.1% to +1.9% cycles,
 `boot-48k` inside the noise; the shipped PGO build was measured faster than the PGO build
-before. The owner accepted the non-PGO figure after one attempt to recover it (a shared
-out-of-line body for `read`, `read_m1` and `read_fetch` was slower, +4% cycles).
+before. The owner accepted the non-PGO figure after trying two variants inside the one
+arbiter, neither kept (one shared out-of-line body for `read`, `read_m1` and `read_fetch`,
+about +4% cycles; a shared `noinline` fetch body beside the inlined `read()`, +21.6%).
 `read_m1()` costs one load and one store more than `read()`. With the trace on, the identity is
 stored per M1; with the call stack on, per frame; an armed `Execute` subscription is evaluated
 only for its address (the existing per-page bitmap). E23-08 records its numbers.
@@ -1143,8 +1146,9 @@ Stack column, symbol address fields), `rewind_call_stack_test` (the tracker acro
 `nextbuild-symbols-func` and `source-map-func`. E23-07 (#339) added FSRC-01 to FSRC-16 (the
 arbiter's order, one row per arm, and `read()` equal to its route; `mmu_test` and
 `mmu_integration_test`), MF-M1G-07 (`multiface_test`), DM-PRED-01 (`divmmc_test`) and
-SRCDBG-ID-09 to SRCDBG-ID-50 (`source_debug_test`: the prediction against the recorded fetch,
-the fetch and data views, the prefix chains, the trace bytes, the call stack).
+SRCDBG-ID-09 to SRCDBG-ID-15 and SRCDBG-ID-18 to SRCDBG-ID-50, and SRCDBG-PURE-01/02
+(`source_debug_test`: the prediction against the recorded fetch, the fetch and data
+views, the prefix chains, the trace bytes, the call stack).
 
 **Planned.** `z88dk_map_test` (E23-13), `z88dk_lis_test` (E23-17), the fixture-hash row
 Z88FIX-01 (E23-12), and the functional rows `source-map-func` (a looked-up line, E23-15) and

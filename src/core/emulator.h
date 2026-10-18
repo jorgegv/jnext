@@ -2510,7 +2510,7 @@ private:
 
     /// The two overlays an M1 at `pc` itself switches, as that fetch will see
     /// them: DivMMC's automap (instant entry points, the hold) and the
-    /// Multiface's 0x0066 latch. `predict_fetch()` and `peek_fetch_byte_()`
+    /// Multiface's 0x0066 latch. `predict_fetch()` and `predict_instruction_()`
     /// both start from this one answer.
     struct M1Overlays {
         bool divmmc;  ///< for the opcode fetch itself
