@@ -1963,19 +1963,32 @@ int main()
         check("HKL-AF4-02", "F4 with right Alt, or with Alt plus Ctrl, Shift or GUI, also quits",
               ok02, d02);
 
-        // 03 — Alt+F1, left and right Alt: nothing.
-        bool ok03 = false; std::string d03 = sdl_err;
+        // 03 — Alt+F1: nothing. Left or right Alt, alone or with each other modifier,
+        // the F1 twin of 02 ("whatever else is held"): a fresh rig per set.
+        bool ok03 = sdl_ok; std::string d03 = sdl_err;
         if (sdl_ok) {
-            AltF4Rig r;
-            const bool more_l = r.batch({{LALT, true}, {F1, true}, {F1, false}, {LALT, false}});
-            const bool more_r = r.batch({{RALT, true}, {F1, true}, {F1, false}, {RALT, false}});
-            ok03 = r.pushed && more_l && more_r && r.quits == 0 && r.emu.hard == 0 &&
-                   r.emu.soft == 0 && r.router.fkeys == 0 && r.router.keys == 4;
-            d03 = r.state(more_r) + " more_l=" + std::to_string((int)more_l);
+            struct Set { const char* name; std::vector<SDL_Scancode> mods; };
+            const Set sets[] = {{"LALT", {LALT}}, {"RALT", {RALT}}, {"LCTRL+LALT", {LCTRL, LALT}},
+                                {"LALT+LSHIFT", {LALT, LSHIFT}}, {"LALT+LGUI", {LALT, LGUI}}};
+            d03.clear();
+            for (const Set& st : sets) {
+                std::vector<std::pair<SDL_Scancode, bool>> ev;
+                for (SDL_Scancode m : st.mods) ev.emplace_back(m, true);
+                ev.emplace_back(F1, true);
+                ev.emplace_back(F1, false);
+                for (SDL_Scancode m : st.mods) ev.emplace_back(m, false);
+                AltF4Rig r;
+                const bool more = r.batch(ev);
+                const bool none = r.pushed && more && r.quits == 0 && r.emu.hard == 0 &&
+                                  r.emu.soft == 0 && r.router.fkeys == 0 &&
+                                  r.router.keys == 2 * static_cast<int>(st.mods.size());
+                ok03 = ok03 && none;
+                d03 += std::string(st.name) + ":" + (none ? "ok" : r.state(more)) + " ";
+            }
         }
-        check("HKL-AF4-03", "Alt+F1, with left or right Alt, neither resets nor quits, and F1 never "
-                            "reaches the Router",
-              sdl_ok && ok03, d03);
+        check("HKL-AF4-03", "Alt+F1, with left or right Alt or with Alt plus Ctrl, Shift or GUI, "
+                            "neither resets nor quits, and F1 never reaches the Router",
+              ok03, d03);
 
         // 04 — the positive control for 01-03: plain F1 and F4 still reset. One key
         // at a time, so each is told apart from the other: counting both together
