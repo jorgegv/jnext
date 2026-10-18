@@ -2396,6 +2396,16 @@ records what supplied the first opcode byte, readable as <code>last_m1()</code>.
 is <code>MemSpace::cpu()</code>, "none recorded", after <code>reset()</code> and <code>load_state()</code> until
 the next fetch, and an accepted INT or NMI, which fetch nothing
 (<code>Z80Cpu::fetched_opcode_last_execute()</code> is false), leave it as it was.</p>
+<p>A DivMMC entry point makes the fetch and the bus cycles after it see different
+memory (<code>divmmc.vhd:128-148</code>): <code>automap_held</code> takes <code>automap_hold</code> on the first
+MREQ-high after the opcode byte, so a delayed-on entry's own operands already
+come from the DivMMC, and those of an instruction in the 0x1FF8-0x1FFF unmap
+range already come from RAM. <code>read_m1()</code> and <code>read_fetch()</code> (the core's re-read
+of the opcode and a prefix's inner byte; no record) route with the fetch view,
+<code>DivMmc::is_active()</code>; <code>read()</code> and the write path use <code>DivMmc::is_active_after_fetch()</code>.
+The debugger's reads of the instruction about to run follow the same split
+(<code>Emulator::peek_fetch_byte_()</code>: the opcode byte under the fetch view, the bytes
+after it under <code>DivMmc::active_after_m1_fetch()</code>), pure, through <code>route_with()</code>.</p>
 <p>The identity of a slot's own source is cached beside the pointer: <code>slot_space_[8]</code>
 is written wherever <code>read_ptr_[slot]</code> is (<code>rebuild_ptr_body_()</code> and
 <code>map_rom_physical()</code>), rebuilt by <code>load_state()</code>, never serialised. Deriving it

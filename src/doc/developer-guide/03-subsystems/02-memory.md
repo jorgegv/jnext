@@ -70,6 +70,17 @@ is `MemSpace::cpu()`, "none recorded", after `reset()` and `load_state()` until
 the next fetch, and an accepted INT or NMI, which fetch nothing
 (`Z80Cpu::fetched_opcode_last_execute()` is false), leave it as it was.
 
+A DivMMC entry point makes the fetch and the bus cycles after it see different
+memory (`divmmc.vhd:128-148`): `automap_held` takes `automap_hold` on the first
+MREQ-high after the opcode byte, so a delayed-on entry's own operands already
+come from the DivMMC, and those of an instruction in the 0x1FF8-0x1FFF unmap
+range already come from RAM. `read_m1()` and `read_fetch()` (the core's re-read
+of the opcode and a prefix's inner byte; no record) route with the fetch view,
+`DivMmc::is_active()`; `read()` and the write path use `DivMmc::is_active_after_fetch()`.
+The debugger's reads of the instruction about to run follow the same split
+(`Emulator::peek_fetch_byte_()`: the opcode byte under the fetch view, the bytes
+after it under `DivMmc::active_after_m1_fetch()`), pure, through `route_with()`.
+
 The identity of a slot's own source is cached beside the pointer: `slot_space_[8]`
 is written wherever `read_ptr_[slot]` is (`rebuild_ptr_body_()` and
 `map_rom_physical()`), rebuilt by `load_state()`, never serialised. Deriving it

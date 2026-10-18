@@ -111,6 +111,12 @@ still clear — which is precisely what esxdos's IM1 handler relies on during
 early boot, long before firmware sets that bit. Only the **automap** path needs
 both (`zxnext.vhd:4112`), so `is_active()` checks `port_io_enable_` alone.
 
+`is_active()` is the overlay for the opcode fetch: `held OR instant_on`.
+`is_active_after_fetch()` is the overlay for every later cycle of the same
+instruction: the `hold` the fetch loaded (`divmmc.vhd:128-143`). They differ
+exactly at a delayed-on entry (the operands are already the DivMMC's) and in the
+unmap window (the operands are already RAM's).
+
 The trigger addresses are **not hard-coded**: NR `0xB8`-`0xBB` select which RST
 vectors and tape traps map, whether each is instant or delayed, and whether the
 `0x3D00` wildcard and the `0x1FF8`-`0x1FFF` unmap window are live.
