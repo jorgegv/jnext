@@ -9,6 +9,7 @@
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QComboBox>
+#include <QLabel>
 #include <QLineEdit>
 #include <QString>
 
@@ -144,18 +145,33 @@ bool WatchPanel::show_watch_dialog(const QString& title, uint16_t& addr,
     type_combo->setCurrentIndex(type);
     form->addRow(tr("Type:"), type_combo);
 
+    // Why OK did not close the dialog. Hidden until there is a reason.
+    auto* error = new QLabel(&dlg);
+    error->setObjectName(QStringLiteral("watch_dialog_error"));
+    error->setWordWrap(true);
+    error->setStyleSheet(QStringLiteral("color: #c00000;"));
+    error->hide();
+    form->addRow(error);
+
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     form->addRow(buttons);
 
-    if (dlg.exec() != QDialog::Accepted) return false;
-
     // CAP-SYM: hex ($ / 0x prefixes optional), else a loaded symbol name;
     // `@name` forces the symbol (OD-12).
-    // A watch named by symbol is labelled with it unless a label was given.
-    const std::string entered = addr_edit->text().trimmed().toStdString();
-    const auto resolved = dbg_ ? dbg_->symbols().resolve(entered) : SymbolTable().resolve(entered);
+    // OK on text that names neither shows the dialog again with the reason; it
+    // never returns as if cancelled, so an entry is never silently dropped.
+    // Only Cancel gives up.
+    std::string entered;
+    std::optional<uint16_t> resolved;
+    while (dlg.exec() == QDialog::Accepted) {
+        entered = addr_edit->text().trimmed().toStdString();
+        resolved = dbg_ ? dbg_->symbols().resolve(entered) : SymbolTable().resolve(entered);
+        if (resolved) break;
+        error->setText(tr("Not an address or symbol: %1").arg(addr_edit->text().trimmed()));
+        error->show();
+    }
     if (!resolved) return false;
     addr = *resolved;
 

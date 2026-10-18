@@ -643,6 +643,47 @@ void test_watch_labels() {
               s(cell(wp, 1, 1)) + " " + s(cell(wp, 2, 0)) + "/" + s(cell(wp, 2, 1)));
 }
 
+// ── N1: the watch dialog never cancels silently ───────────────────────
+
+void test_watch_dialog_refused() {
+    Fixture fx;
+    fx.enable();
+    WatchPanel* wp = fx.dbg() ? fx.dbg()->watch_panel() : nullptr;
+    if (!wp) { check("QADR-09", "Watches panel", false); return; }
+    QString reason;
+    const int shown = drive_modals(
+        [&](QWidget* w, int n) {
+            auto* dlg = qobject_cast<QDialog*>(w);
+            if (!dlg) return;
+            if (n == 0) {
+                if (QLineEdit* e = dlg->findChild<QLineEdit*>()) e->setText("no_such_thing");
+                dlg->accept();
+                return;
+            }
+            if (auto* err = dlg->findChild<QLabel*>(QStringLiteral("watch_dialog_error")))
+                if (err->isVisible()) reason = err->text();
+            dlg->reject();
+        },
+        [&]() { wp->on_add_watch(); });
+    const bool none_added = cell(wp, 0, 0) == QStringLiteral("<no cell>");
+
+    // The control: a valid entry closes the dialog at once, and adds its watch.
+    const int shown_ok = drive_modals(
+        [&](QWidget* w, int) {
+            auto* dlg = qobject_cast<QDialog*>(w);
+            if (!dlg) return;
+            if (QLineEdit* e = dlg->findChild<QLineEdit*>()) e->setText("8005");
+            dlg->accept();
+        },
+        [&]() { wp->on_add_watch(); });
+    check("QADR-09", "text that names nothing keeps Add Watch open with the reason and adds "
+                     "no watch; a valid entry closes it at once",
+          shown == 2 && reason.contains(QStringLiteral("no_such_thing")) && none_added &&
+              shown_ok == 1 && cell(wp, 0, 0) == QStringLiteral("$8005"),
+          "shown=" + std::to_string(shown) + " reason=" + s(reason) +
+              " ok_shown=" + std::to_string(shown_ok));
+}
+
 // ── B2: the gutter removes the breakpoint it draws ─────────────────────
 
 void test_gutter() {
@@ -1433,6 +1474,7 @@ int main(int argc, char** argv) {
     test_call_stack();
     test_address_fields();
     test_watch_labels();
+    test_watch_dialog_refused();
     test_gutter();
     test_edit_type_refused();
     test_breakpoint_page_rows();
