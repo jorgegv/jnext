@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.67</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.67</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2390,6 +2390,7 @@ fix round that changed only documentation keeps its stamp; a clean merge of
 <code>main</code> into the branch is not re-run (CI on <code>main</code> is the full safety net); and
 mutation testing and diagnosis use targeted rows,
 <code>make regression-rows ROWS="&lt;row&gt; ..."</code>, which builds the binaries the rows run
+(the Qt <code>jnext</code> is the non-PGO Release build; <code>ROWS_PGO=1</code> for the PGO one)
 and never takes the lock. A full run whose only FAILs are timing rows that
 failed on a loaded host is not lost either: <code>make regression-confirm</code> re-runs
 just those rows solo and stamps the run if they pass.</p>

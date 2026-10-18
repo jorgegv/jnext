@@ -55,6 +55,9 @@ PGO_PROFILE_ABS   = $(CURDIR)/$(PGO_PROFILE_DIR)
 # `make bench` measures the non-PGO build: its speed does not move with a
 # retrained profile, so it is the one to compare two code changes with.
 BENCH_BUILD      ?= gui-release-non-pgo
+# `make regression-rows` runs the NON-PGO Release build (no training run on a
+# branch); ROWS_PGO=1 selects the shipped PGO build, `make regression`'s binary.
+ROWS_BUILD        = $(if $(filter 1,$(ROWS_PGO)),gui-release,gui-release-non-pgo)
 # The FUSE suite's case count (test/fuse/tests.in), pinned for fuse-pgo and for
 # the Windows PGO builds' FUSE-under-wine gate (tools/pgo-build.sh).
 FUSE_CASES        = 1356
@@ -572,16 +575,25 @@ regression: lint-makefile-help lint-thread-detach lint-ascii-text regression-doc
 	@# prerequisites above, so it is not the gate.
 	JNEXT_REGRESSION_STAMP=1 bash test/00regression/regression.sh
 
-# Run named regression rows (ROWS="a-func b-func") after building the binaries they run
-regression-rows: unit-test-build gui-release sdl-release z88dk-gdb
+# Run named regression rows (ROWS="a-func b-func") on the non-PGO Release build; ROWS_PGO=1 for the PGO one
+regression-rows: unit-test-build $(ROWS_BUILD) sdl-release z88dk-gdb
 	@# GH #295: the targeted run a reviewer, a mutation or a diagnosis uses
 	@# instead of a full one. The three prerequisites are the binaries rows
-	@# execute (build/gui-release/jnext, build/sdl-release/jnext for
-	@# sdl-keypress-func, build/test/* for rewind-func and friends) — the same
-	@# set `regression` declares, minus the gates that only a full run needs.
+	@# execute (the Qt jnext, build/sdl-release/jnext for sdl-keypress-func,
+	@# build/test/* for rewind-func and friends), the same set `regression`
+	@# declares, minus the gates that only a full run needs.
+	@# The Qt jnext is build/gui-release-non-pgo (owner, 2026-10-18): a branch
+	@# runs no PGO build, whose training re-runs after every code change. It is
+	@# the same code, so the rows see the same pixels. ROWS_PGO=1 runs
+	@# build/gui-release instead, for a row whose answer depends on the PGO
+	@# build. JNEXT is pinned explicitly: regression.sh's own search prefers
+	@# build/gui-release/jnext whenever that exists, which would silently
+	@# test a stale PGO binary lying around in the tree.
+	@# The recipe overrides a JNEXT set by the caller; to pin another binary run the bare script.
 	@# A targeted run never takes the host lock and never stamps.
-	@[ -n "$(ROWS)" ] || { printf "$(BADGE_FAIL) FAIL $(RESET) name the rows: make regression-rows ROWS=\"row-a row-b\"\n"; exit 2; }
-	bash test/00regression/regression.sh $(ROWS)
+	@[ -n "$(ROWS)" ] || { printf "$(BADGE_FAIL) FAIL $(RESET) name the rows: make regression-rows ROWS=\"row-a row-b\" [ROWS_PGO=1]\n"; exit 2; }
+	@printf "regression-rows: Qt jnext = build/$(ROWS_BUILD)/jnext\n"
+	JNEXT=$(CURDIR)/build/$(ROWS_BUILD)/jnext bash test/00regression/regression.sh $(ROWS)
 
 # Re-run SOLO the rows a full run failed on a loaded host; stamp the run if all pass
 regression-confirm: unit-test-build gui-release sdl-release z88dk-gdb

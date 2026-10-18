@@ -72,7 +72,7 @@ git push --force, gh pr create, and any equivalent are all forbidden unless
 the user explicitly says 'push' or 'open a PR'."
 
 Exception: the standing authorization in CLAUDE.md's push rule (after a green,
-APPROVED merge + bump: push main and its new tags, <=3 tags, CI on main idle;
+APPROVED merge + bump: push main and its new tags (all but the newest, then the newest alone), CI on main idle;
 push epic branches, never force). PRs and anything else stay per-message.
 
 If the user just said push/PR, or the push is inside that standing scope,

@@ -39,7 +39,7 @@ Load `verification-discipline`; it is the evidence standard.
 - Instrumentation stays on an investigation branch; only fix commits reach `main`.
 - Merge fixes individually; never squash several fixes into one.
 - Never move a tag. Never `git reset --hard` on `main`.
-- Push only `main` + its tags after a green batch gate (explicit refspecs, ≤3 tags, CI idle), and epic branches (never force; SKILL.md §Branches). After pushing `main`, watch the LATEST CI run on `main`; red → it becomes the next issue.
+- Push only `main` + its tags after a green batch gate (explicit refspecs, CI idle; `main`, then all the batch's tags except the newest in one push, then the newest tag alone; a public release tag alone), and epic branches (never force; SKILL.md §Branches). After pushing `main`, watch the LATEST CI run on `main`; red → it becomes the next issue.
 - Inherited work from a dead agent = unreviewed third-party code: back it up, review it in full.
 - No role ever bypasses or disables a hook, git or Claude Code (`git -c core.hooksPath=…`, `--no-verify`, an env override). A blocked agent stops and reports; the orchestrator decides, and asks the owner if the hook guards something only the owner can authorize (owner, 2026-10-13: an implementer committed with `core.hooksPath=/dev/null` unprompted).
 

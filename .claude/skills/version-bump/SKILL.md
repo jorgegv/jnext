@@ -75,7 +75,7 @@ This will:
 ### Next
 - NOT pushed. To push, ask the user explicitly. Then:
     JNEXT_ALLOW_PUSH=1 git push origin main && JNEXT_ALLOW_PUSH=1 git push origin vX.Y.Z
-  (explicit refspecs, ≤3 tags per push, CI on main idle)
+  (explicit refspecs, CI on main idle; a public release tag is pushed on its own, RELEASE-PROTOCOL.md §6)
 ```
 
 ## Hard rules

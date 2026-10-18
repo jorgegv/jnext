@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.67</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.67</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.68</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2336,8 +2336,8 @@ $ make regression
 <p>The triplet is the core of the <strong>batch gate</strong>, which adds <code>make unit-test-sdl</code>,
 <code>make unit-test-win</code> and <code>make regression-win</code>.</p>
 <ul>
-<li><strong>When it runs:</strong> on <code>main</code>'s tip, after at most three landings, at the end of
-  a work session, and before any push.</li>
+<li><strong>When it runs:</strong> on <code>main</code>'s tip, once, after all of a work session's landings
+  and before any push.</li>
 <li><strong>On a branch, nobody runs it.</strong> The author runs the suites and regression
   rows the change touches, plus <code>make unit-test</code> before each review. The
   reviewer runs the targeted rows again.</li>
@@ -2356,7 +2356,9 @@ the SDL-only frontend need <code>build/sdl-release/jnext</code> instead, because
 is instantiated only in a build configured with <code>ENABLE_QT_UI=OFF</code>; and the
 <code>rewind-func</code> row runs <code>build/test/rewind_test</code>, which <code>make clean</code> deletes.
 Building all of them from the target is what makes "the tests ran against this
-source" true by construction rather than by discipline.</p>
+source" true by construction rather than by discipline. (<code>make regression-rows</code>
+declares <code>gui-release-non-pgo</code> instead of <code>gui-release</code>, so a branch runs no PGO
+build; <code>ROWS_PGO=1</code> switches it back.)</p>
 <p>The rule was written after a 14-hour-old binary produced two bogus FAILs
 immediately before a version bump. Staleness cuts the other way too, and that
 direction is worse: an old binary can equally fail to <em>contain</em> the bug a test

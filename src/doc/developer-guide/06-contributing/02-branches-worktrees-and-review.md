@@ -78,6 +78,7 @@ fix round that changed only documentation keeps its stamp; a clean merge of
 `main` into the branch is not re-run (CI on `main` is the full safety net); and
 mutation testing and diagnosis use targeted rows,
 `make regression-rows ROWS="<row> ..."`, which builds the binaries the rows run
+(the Qt `jnext` is the non-PGO Release build; `ROWS_PGO=1` for the PGO one)
 and never takes the lock. A full run whose only FAILs are timing rows that
 failed on a loaded host is not lost either: `make regression-confirm` re-runs
 just those rows solo and stamps the run if they pass.
