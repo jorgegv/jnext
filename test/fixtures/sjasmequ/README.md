@@ -26,7 +26,7 @@ through `WriteLabelEquValue()` like `--exp`, so `EQU`; its order is a hash table
 v1.21.0 and by name from v1.21.1 (commit `e401162`, `std::map`). `--exp` has said `EQU` all
 along. GCC 16 needs the `-include` to build that old source; the file is made like this:
 
-    git -C sjasmplus archive v1.17.0 | tar -x -C src
+    mkdir src && git -C sjasmplus archive v1.17.0 | tar -x -C src
     make -C src CFLAGS_EXTRA='-include stdint.h'
     src/sjasmplus --sym=equlabels-v1.17.sym --exp=equlabels-v1.17.exp equlabels.asm
 

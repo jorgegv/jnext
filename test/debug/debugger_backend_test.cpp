@@ -8686,12 +8686,13 @@ int main() {
                 const std::string file = dbg.symbols().loaded_file();
                 const auto direct = dbg.load_map(p.path, p.explicit_format);
                 if (picked.status != Result::Ok || picked.value != p.entries || direct.value != p.entries ||
-                    table != dbg.symbols().symbols() || table.empty() || file != p.path)
+                    table != dbg.symbols().symbols() || table.empty() || file != p.path ||
+                    dbg.symbols().loaded_file() != p.path)
                     bad += std::string(p.path) + " ";
             }
             check("SYM-29", "the first line picks the loader: a 1.23.1 --sym, an --exp, a 1.17.0 --sym and the "
                             "CRLF --sym load as sjasmplus (16, 13, 16, 16 entries), a z88dk map as z88dk (6), "
-                            "each with the table and entry count of the loader it is read by",
+                            "each with the table, entry count and loaded file of the loader it is read by",
                   bad.empty(), bad);
         }
         {
