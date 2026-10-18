@@ -180,8 +180,8 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     const SourceMapLoadResult parsed = load_sld_sidecar(candidate, program_path);
     if (!parsed) {
         if (parsed.error != "no adjacent SLD sidecar") {
-            log->error("Rejected SLD source map for '{}': {}", program_path, parsed.error);
-            add_problem(out, "source map for '" + program_path + "' rejected: " + parsed.error);
+            log->error("Rejected SLD source map '{}': {}", parsed.file, parsed.error);
+            add_problem(out, "source map '" + parsed.file + "' rejected: " + parsed.error);
         }
         return out;
     }

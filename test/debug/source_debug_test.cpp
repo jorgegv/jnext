@@ -305,6 +305,26 @@ int main() {
                                 "program is rejected",
               rejected.sources == -1 && w.dbg->source_map().empty());
     }
+    {
+        // A refused sidecar is named by its own file: the .sld, or the .sld.txt
+        // when that is the one found, never the program it sits beside.
+        Machine m;
+        write_text(dir / "bad-a.sld", "this is not an SLD\n");
+        write_text(dir / "bad-b.sld.txt", "this is not an SLD either\n");
+        const auto a = m.dbg->load_program_sidecars((dir / "bad-a.sna").string());
+        const auto b = m.dbg->load_program_sidecars((dir / "bad-b.sna").string());
+        check("SRCDBG-SIDE-13", "a refused SLD sidecar is named by its own file, .sld or "
+                                ".sld.txt, and not by the program beside it",
+              a.problem.rfind("source map '", 0) == 0 &&
+                  a.problem.find("bad-a.sld' rejected: missing SLD.data.version") !=
+                      std::string::npos &&
+                  a.problem.find("bad-a.sna") == std::string::npos &&
+                  b.problem.rfind("source map '", 0) == 0 &&
+                  b.problem.find("bad-b.sld.txt' rejected: missing SLD.data.version") !=
+                      std::string::npos &&
+                  b.problem.find("bad-b.sna") == std::string::npos,
+              a.problem + " | " + b.problem);
+    }
 
     // ── source_step() forwards ──────────────────────────────────────────
     {

@@ -266,8 +266,11 @@ SourceMapLoadResult load_sld_sidecar(SourceMap& map,
         // never an exception.
         std::error_code ec;
         const auto st = fs::status(candidate, ec);
-        if (!ec && fs::is_regular_file(st))
-            return load_sld(map, candidate.string());
+        if (!ec && fs::is_regular_file(st)) {
+            SourceMapLoadResult result = load_sld(map, candidate.string());
+            result.file = candidate.string();
+            return result;
+        }
     }
     return failed("no adjacent SLD sidecar");
 }

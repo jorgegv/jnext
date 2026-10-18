@@ -2637,14 +2637,14 @@ static void b4_hosting_rows() {
         bool warned = false;
         for (const auto& l : ring->last_formatted())
             if (l.find("warn") != std::string::npos &&
-                l.find("--load: source map for '" + sna + "' rejected: missing SLD.data.version") !=
+                l.find("--load: source map '" + sld + "' rejected: missing SLD.data.version") !=
                     std::string::npos)
                 warned = true;
         Log::platform()->sinks().pop_back();
         std::remove(sna.c_str());
         std::remove(sld.c_str());
         check("HSRC-01", "HeadlessApp: --load of a program whose SLD sidecar is refused warns "
-                         "with the reason, and the load still succeeds",
+                         "with the reason, naming the .sld file, and the load still succeeds",
               ok && warned && app.exit_code() == 0,
               "warned=" + std::to_string(warned) + " exit=" + std::to_string(app.exit_code()));
     }

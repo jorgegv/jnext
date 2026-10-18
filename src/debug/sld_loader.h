@@ -7,6 +7,9 @@ class SourceMap;
 struct SourceMapLoadResult {
     int count = -1;
     std::string error;
+    /// The sidecar a `load_sld_sidecar()` result is about, also when that file
+    /// was refused; empty when no sidecar was found, and for `load_sld()`.
+    std::string file;
 
     explicit operator bool() const { return count >= 0; }
 };

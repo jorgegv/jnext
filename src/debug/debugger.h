@@ -975,8 +975,10 @@ public:
         /// A Memory.txt was found and could not be read (the previous
         /// program's sidecar symbols are cleared all the same).
         bool symbols_unreadable = false;
-        /// What was found and refused, in one line for a frontend to show
-        /// ("source map 'p.sld' rejected: <reason>"); empty when nothing was.
+        /// What was found and refused, in one line for a frontend to show:
+        /// "NextBuild symbols 'p.Memory.txt' rejected: <reason>" and/or
+        /// "source map 'p.sld' rejected: <reason>" (the file is named, not the
+        /// program), joined by "; " when both were; empty when nothing was.
         std::string problem;
     };
     SidecarLoad load_program_sidecars(const std::string& program_path);
