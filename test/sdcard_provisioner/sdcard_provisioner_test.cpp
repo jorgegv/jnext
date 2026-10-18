@@ -50,7 +50,9 @@
 //                  failure (a server that closes the connection unanswered; a port nothing
 //                  listens on) ends the attempt at once with the transport's own reason,
 //                  never as a stall (09: pins the WinHTTP asynchronous REQUEST_ERROR path
-//                  at its headers and connect stages); a WinHTTP read never asks for more
+//                  at its headers and connect stages, and WHICH reason each failure gives:
+//                  the CURLcode libcurl documents for it, the WinHTTP code of the failing
+//                  completion); a WinHTTP read never asks for more
 //                  than DownloadTimings::read_bytes (10: wine reports at most 8 KiB
 //                  available, so the row lowers the cap to make it bind).
 //                  The NextPi twin is PIT-43, the GUI side SDD-01..04
@@ -110,6 +112,9 @@
 #include "range_server.h"
 
 #include <zlib.h>
+#ifndef _WIN32
+#include <curl/curl.h>   // curl_easy_strerror: PROV-STALL-09 names the CURLcode each failure must report
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -1239,10 +1244,16 @@ void test_stall_rows() {
         }
     }
 
-    // 09: a transport failure is not a stall: it ends the attempt at once with the transport's own reason. Two
-    // ways to fail, one per stage of the asynchronous WinHTTP sequence that reports it as a REQUEST_ERROR
-    // completion: (a) a server that accepts, reads the request and closes without answering (the headers wait),
-    // (b) nothing listening at all (the connect). The stall rows above only see "nothing arrives".
+    // 09: a transport failure is not a stall: it ends the attempt at once with the transport's own reason, and the
+    // RIGHT one, since that is what the user reads when the network or the server is down. Two ways to fail, one
+    // per stage of the asynchronous WinHTTP sequence that reports it as a REQUEST_ERROR completion: (a) a server
+    // that accepts, reads the request and closes without answering (the headers wait), (b) nothing listening at all
+    // (the connect). The stall rows above only see "nothing arrives". The oracles are the transports' documented
+    // codes, not this code's output. libcurl (libcurl-errors(3)): CURLE_GOT_NOTHING, the server returned nothing, for
+    // (a) and CURLE_COULDNT_CONNECT for (b), each compared as libcurl's own text for the code. WinHTTP (winhttp.h):
+    // ERROR_WINHTTP_CANNOT_CONNECT, 12029, for (b), which winhttp_error() also names. What WinHTTP calls (a) is the
+    // OS's own business (wine says 12152, ERROR_WINHTTP_INVALID_SERVER_RESPONSE), so there any ERROR_WINHTTP_* code
+    // passes; the small number of WINHTTP_ASYNC_RESULT::dwResult, the id of the API that failed, does not.
     {
         rs::Server srv;
         if (!srv.ok()) {
@@ -1258,33 +1269,37 @@ void test_stall_rows() {
                 rs::Server gone;   // its port is free again once it is destroyed: connection refused
                 gone_url = gone.url();
             }
-            auto fails_at_once = [&](const std::string& url, const char* name, std::string& detail) {
+            auto fails_at_once = [&](const std::string& url, const char* name, bool refused, std::string& detail) {
                 const std::string dest = dest_in(name);
                 std::string err;
                 const Clk::time_point t0 = Clk::now();
                 const bool ok = sdcard::http_download(url, dest, {}, err, {200, 5000});
                 const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
 #ifdef _WIN32
-                // winhttp_error("transfer", dwError): the stage, and the failing completion's own non-zero code
+                // winhttp_error("transfer", dwError) = "transfer[: <name>] (WinHTTP error <dwError>)": the stage and
+                // the failing completion's own code
                 const std::string tag = "(WinHTTP error ";
                 const size_t code_at = err.find(tag);
-                const bool own_reason = err.rfind("transfer", 0) == 0 && code_at != std::string::npos &&
-                                        std::atoi(err.c_str() + code_at + tag.size()) != 0;
+                const long code = code_at == std::string::npos ? 0 : std::atol(err.c_str() + code_at + tag.size());
+                const bool own_reason = refused ? err == "transfer: cannot connect (WinHTTP error 12029)"
+                                                : (err.rfind("transfer", 0) == 0 && code > 12000 && code < 12200);
 #else
-                const bool own_reason = !err.empty();   // libcurl's own text for the closed / refused connection
+                const bool own_reason = err == curl_easy_strerror(refused ? CURLE_COULDNT_CONNECT : CURLE_GOT_NOTHING);
 #endif
                 detail += std::string(name) + ": ok=" + std::to_string(ok) + " t=" + num(secs) + "s err='" + err + "' ";
                 return !ok && secs < 2.0 && own_reason && err.rfind("stalled:", 0) != 0 && !exists(dest) &&
                        !exists(sdcard::partial_path(dest)) && !exists(sdcard::resume_record_path(dest));
             };
             std::string detail;
-            const bool closed = fails_at_once(srv.url(), "closed", detail);
-            const bool refused = fails_at_once(gone_url, "refused", detail);
+            const bool closed = fails_at_once(srv.url(), "closed", false, detail);
+            const bool refused = fails_at_once(gone_url, "refused", true, detail);
             check("PROV-STALL-09",
                   "a server that closes the connection without answering, and a port nothing listens on, each end "
-                  "the attempt in under 2 s (the stall timeout is 5 s) with the transport's own reason - "
-                  "'transfer ... (WinHTTP error N)', N not 0, on WinHTTP, libcurl's text otherwise - never "
-                  "'stalled:', and leave no dest, .part or record",
+                  "the attempt in under 2 s (the stall timeout is 5 s) with the transport's own reason, never "
+                  "'stalled:', and leave no dest, .part or record; the reason is libcurl's text for "
+                  "CURLE_GOT_NOTHING (the close) and CURLE_COULDNT_CONNECT (the refused port), and on WinHTTP "
+                  "'transfer' with an ERROR_WINHTTP_* code (12001-12199) for the close and exactly "
+                  "'transfer: cannot connect (WinHTTP error 12029)' for the refused port",
                   closed && refused, detail);
         }
     }
