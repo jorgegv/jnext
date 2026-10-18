@@ -489,4 +489,197 @@ E23-07 (#339) only swaps the key for `FetchSource`.
 `debugger.h` is a frozen public header: the sub-issue that needs an addition makes it, under
 the owner decisions recorded on #23 and #378.
 
+## 6. Sidecars, ownership and lifetime
+
+### 6.1 Search
+
+After a successful program load every frontend calls `load_program_sidecars(path)` (Qt and SDL
+from their load tick, headless from `--load`, and `Debugger::load()` for a remote client). It
+looks for `<stem>.Memory.txt`, else `Memory.txt`, beside a `.nex`; for `<stem>.sld`, else
+`<stem>.sld.txt`; and, with E23-13 (#344) (OD-5), for `<stem>.map` beside a `.nex`, `.tap` or
+`.sna`.
+
+Only a regular file under the 64 MiB cap is a sidecar (`source_file_problem()`); a FIFO would
+block the load. Today `load_sld()` and `load_nextbuild_memory()` call it, and E23-13 applies it
+to the map loaders before `<stem>.map` is attached automatically. A file that cannot be read is
+refused with a reason; a dangling or looping link is "no sidecar" (the search uses the
+non-throwing filesystem calls). Each outcome is logged, and a refused one is reported with its
+reason (`SidecarLoad::problem`): in the Qt status bar and the Source tab, at warn level in
+headless and SDL.
+
+### 6.2 Tapes
+
+`.tap`, `.tzx` and `.wav` get no automatic source map. The machine loads them over the frames
+after the load call returns, and neither the tape loader nor the backend has a point at which
+"the program has loaded" (a program may also run, and change its own image, before any check
+could match). This holds for every source format, the source half of `<stem>.map` included; its
+symbol half attaches. A tape's map is loaded by hand once the program is in memory.
+
+### 6.3 Ownership
+
+Each store is the user's (a map loaded by hand, `--map`, and `--source-map` by the same rule),
+a program sidecar's, or nobody's, and it changes only when a load succeeds. A sidecar never
+replaces or clears the user's store, even one that looks empty (a map of `; const` lines
+only). A previous program's sidecar data never survives into the next program: it is replaced,
+or cleared when the new program has no sidecar or its sidecar cannot be read. The user
+annotation store (10.2) is outside this rule: only its own verbs change it.
+
+### 6.4 Identity on attach
+
+A sidecar whose identity does not match the program in memory is refused and logged. A map
+loaded by hand that does not match is offered anyway in the Qt GUI, because a running program
+changes variables inside its own image. A map with no identity attaches unverified, and the
+log says so (OD-6).
+
+### 6.5 The lifetime model (E23-10 (#342))
+
+The clock-based model of today (`sidecar_attach_cycle`) goes. Two tiers replace it.
+
+1. **Load generation.** Every program load, state load (`.jns`, `.sna`, `.z80`, `.szx`, a DZRP
+   or ZRCP restore), RZX playback start and reset increments a 64-bit generation. It is part
+   of the per-slot state the rewind ring keeps in memory, beside the call frames that #332
+   added, so a rewind restores it. An attached map records its generation. A rewind within
+   the generation keeps the map; a rewind into an earlier generation re-attaches that
+   generation's map from a cache of the last 4 attachments.
+2. **Content re-verification.** On any replacement that is not a same-generation rewind, and
+   at the next pause after one, a map with an identity is verified against memory. Pass: the
+   map is kept and re-keyed to the new generation. Fail: a sidecar map is detached; a user map
+   is kept, marked **stale** and matching nothing, and the Source tab says why, so the user can
+   reload it or accept it. A map with no identity is detached on a generation change (sidecar)
+   or marked stale (user).
+
+- **Reset** is a new generation. The map survives only by passing re-verification at the next
+  pause, which catches the ROM clearing RAM a few frames later (the code is intact at the
+  reset itself).
+- **RZX.** Rewind is refused during record and playback (today). Playback start is tier 2.
+  Forward source steps during playback are ordinary steps.
+- **`.jns`.** The format is unchanged: no attached-program member (OD-16). A restore is tier 2.
+- **Back** after a foreign state load refuses: the trace filter adds the generation to the
+  `te.cycle < now` test.
+- **Every reader** goes through the one recheck: `symbols()`, `lookup()`, `lookup_name()`,
+  `source_map()`, `pump()`, the owner reset of `clear_symbols()`, and the reconstruct hook.
+
+### 6.6 What the backend cannot see
+
+A program the guest loads for itself (the NextZXOS browser, `LOAD ""`) is not a load to the
+backend: its predecessor's maps stay until a reset or a load. E23-10 decides whether the
+re-verification at the next pause covers it (a residual handed to it). A sibling NEX run under
+`--esxdos-stub` (`.RUN`) is a load like any other: the loop owner cold-boots with it, which
+drops the old sidecars, and attaches the new program's.
+
+### 6.7 Remote load and Reload
+
+`Debugger::load()` (the DZRP and ZRCP servers; File > Reload program, #374, is planned as a
+plain `load()` of the last path) attaches sidecars as the CLI does. Today it discards the
+`SidecarLoad`, so a refused map shows only in the log; E23-10 reports the reason (a residual
+handed to it).
+
+**Open, settled in E23-10:** a map loaded by hand, across a Reload of a rebuilt program. The
+model above marks it stale unless its identity verifies; the rule recorded on #342 from #374
+keeps it the user's, as today. E23-10 decides, pins the decision with a row and updates this
+paragraph. A Reload of a rebuilt program at the same path attaches the new build's map.
+
+### 6.8 The user annotation store
+
+It has no lifetime: it is kept across loads, resets, state loads and rewinds, it is not part of
+`.jns`, and only its own verbs and loading a project file change it (10.2).
+
+## 7. Source steps
+
+**Forward** steps (`Into`, `Over`, `Out`) are a run of the debugger's Step
+(`Emulator::debugger_step()`, which turns frames over and runs a HALT out), synchronous, with
+the same pause ownership and stop evidence as `step_into()`. The position is the primary
+location of the range under the PC (section 5); an unmapped instruction (library, crt, a
+trampoline) is run through.
+
+- `Into` stops when the position (file, line, column) differs from the start's.
+- `Over` additionally requires call depth <= the start's.
+- `Out` stops at the first mapped position at a depth below the start's; with no tracked
+  frame it is one instruction.
+- Starting on an unmapped instruction, any step is one instruction.
+
+Between instructions, each next PC gets the delivery `run_frame()` gives it: the legacy PC
+breakpoint, then the backend's own `Execute` gate. Handlers run (a script's `log` rule fires),
+and a `Stop` stops the step with its hit and `once` recorded, exactly as a run would. A handler
+may move the PC (section 4.2a of
+[DEBUG-SUBSYSTEM-ARCHITECTURE.md](DEBUG-SUBSYSTEM-ARCHITECTURE.md)): the step then re-evaluates
+its boundary at the new PC, without a second delivery there, as in a run, where the redirect
+target simply runs next. Any stop latched during an instruction (a watchpoint, the magic
+breakpoint) ends the step too. The step also ends, and logs why, at a HALT with interrupts
+disabled (only an NMI or a reset can end it), after `SOURCE_STEP_LIMIT` (one million)
+instructions, or after `SOURCE_STEP_FRAME_LIMIT` (100) frames of machine time, so a statement
+that waits never holds the frontend. Steps stay synchronous and bounded (OD-11); E23-16
+(#347) measures the worst case on the Release build.
+
+**Call depth** is the call-stack tracker's (`set_call_stack_enabled`), which the Qt debugger
+runs while its window is open and which follows rewind (#332, v1.1.46). E23-14 (#345) pins it
+on real z88dk code across `banked_call` (G9), the sccz80 `l_debug_push_frame` and
+`l_debug_pop_frame` helpers (G5), RST $08 esxDOS calls and a tail `JP`. A tracker defect found
+there is fixed in `CallStack` for every program, never as a special case for `banked_call`.
+
+**Backward** steps search the trace from newest to oldest, considering only entries before the
+machine's current cycle: a Frame Back or a slider jump leaves the abandoned history in the
+trace, and that is not "back". `Back` takes the newest mapped position different from the
+current one (a statement repeated over consecutive instructions counts once). `ReverseContinue`
+takes the newest mapped instruction covered by a live, unconditional, handler-less,
+non-transient `Execute` Stop (or a legacy PC breakpoint). Both match entries by the recorded
+identity (E23-08 (#340)) and use the one breakpoint predicate (E23-09 (#341)). The count goes
+to `step_back()`, so rewind's refusals (RZX, an empty ring, a replay that would cross a
+debugger mutation) and its corruption handling apply as they do for Step Back. A trace that is
+off, or no target, is `RefusedUnavailable` with a `REWIND REFUSED:` log line, which the Qt
+status bar shows.
+
+## 8. Breakpoints, panels and the remote surface
+
+### 8.1 Source-line breakpoints (E23-09 (#341))
+
+`resolve("file:line")` gives N starts. The backend adds one `Execute` subscription per start,
+each qualified with its range's `FetchSource`, grouped under one source breakpoint. The
+Breakpoints panel shows one row, "main.c:18 (2 locations)", and remove, enable and edit act on
+the group. One predicate, `EventFilter::matches(ev)`, replaces the three copies of today (3.3):
+the gate (`execute_gate` to `filter_matches`), `probe_execute()` and `history_stop_at()` all
+call it. The disassembly gutter draws, toggles and patches from the same identity
+(`pc_marked(addr, space)`), and clicking a Source tab line toggles its group (E23-16).
+
+### 8.2 Qt
+
+- **Source tab** (`src/debugger/source_panel.*`): the PC's file with the PC's line highlighted.
+  It follows the PC at every stop and says "Running" while the machine runs (done in v1.1.64).
+  The file is found from the recorded name, absolute or else relative to the map's directory
+  or one of its parents, and reloaded when it changes on disk. A refused sidecar says why in
+  the tab.
+- **Menu and keys** (E23-05 (#337)): a Debug > Source submenu (Step Into, Over, Out, Back,
+  Reverse Continue, Load Source Map..., Load Symbols (Memory.txt)...), each action bindable in
+  Debug > Change Keys, with Shift+F7, Shift+F8 and Shift+F6 as the defaults for Into, Over and
+  Out (OD-17). The owner approved changing the pinned menu tree and key bindings
+  (`debugger_accel_test` DACC-05, `debugger_keymap_test`).
+- **Source tab completion** (E23-16 (#347)): click a line number to toggle its source
+  breakpoint group; Run to Line (a transient group, then Continue); the current-line marker; the
+  "also:" list of the other locations at the PC (OD-7); selection sync between the Source tab
+  and the disassembly.
+- **Address fields**: a number first, `@` forces a symbol, `$` or `0x` force hex (OD-12; done).
+  `file:line` is accepted wherever an Execute address is (done). Call Stack "Called from" uses
+  the caller's recorded identity (E23-08). E23-22 (#360) shows the identity in every view, and
+  E23-24 (#387) edits labels and comments in the disassembly.
+
+### 8.3 Remote protocols and scripts
+
+The rule of 4.6 governs every protocol: each carries as much of the identity as its vocabulary
+allows, and none is extended.
+
+- **GDB.** `z88dk-gdb` maps sources itself, so nothing is required. E23-15 (#346) adds
+  `monitor src [ADDR]`: the location and the space of an address, else "unmapped", which makes
+  the source map observable in headless and SDL. `monitor sym` exists. E23-22 puts the identity
+  in its text form into `monitor src` and `monitor mmu`.
+- **DZRP and ZRCP.** DeZog maps sources from `.lis`, `.map` and `.sld` itself, so there are no
+  new commands. Banked breakpoints keep the legacy qualifier (4.5); the slot views are as in 4.6.
+- **DSL.** `addr_spec` accepts `file:line` (E23-15), resolved at load through the backend like
+  `@name`. An unresolvable one is a load error, and a multi-location line arms every start.
+  Saving GUI source-line breakpoints as `.jds` (#376) needs it.
+
+### 8.4 Headless and SDL
+
+Sidecars attach and log in both (done, v1.1.64). `monitor src` gives them a reader (E23-15),
+and `source-map-func` asserts a looked-up line instead of a log line.
+
 <!-- CONTINUE -->
