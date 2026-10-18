@@ -12,7 +12,7 @@
 #include "memory/contention.h"   // for MachineType
 #include "memory/attribute_mux.h" // G12 — Nirvana-class attribute replay
 #include "memory/sram_beam_log.h"  // GH #362 — Layer 2 SRAM beam replay
-#include "debug/mem_space.h"     // GH #339 — the type the read arbiter returns (std only)
+#include "debug/mem_space.h"     // GH #339 - the type the read arbiter returns (std only)
 
 
 namespace jnext { namespace save { class StateDesc; } }
@@ -79,9 +79,9 @@ public:
     }
     bool is_slot_rom(int slot) const { return read_only_[slot]; }
 
-    // ───────── GH #339 — the ONE read arbiter ──────────────────────────────
+    // ───────── GH #339 - the ONE read arbiter ──────────────────────────────
     //
-    // WHAT SUPPLIES a CPU read at `addr` — an opcode fetch included — as a
+    // WHAT SUPPLIES a CPU read at `addr` - an opcode fetch included - as a
     // value: the memory (`space`), where in its store (`offset`), and the byte
     // itself (`ptr`, nullptr when nothing answers and the bus floats to 0xFF).
     // Offsets are within the store `MemSpace` documents: 0..0x1FFF for an 8 KB
@@ -104,7 +104,7 @@ public:
     Route route(uint16_t addr) const { return to_route_(route_bits_<true>(addr, false, false)); }
 
     /// The route of a read at `addr` with the two overlays an M1 itself can
-    /// switch — DivMMC's automap and the Multiface's 0x0066 fetch — given as
+    /// switch - DivMMC's automap and the Multiface's 0x0066 fetch - given as
     /// they will be for that fetch (`Emulator::predict_fetch()` asks for them).
     /// Same body as `route()`; only the origin of those two answers differs.
     Route route_with(uint16_t addr, bool divmmc_active, bool mf_active) const {
@@ -112,7 +112,7 @@ public:
     }
 
     /// What supplied the first opcode byte of the last instruction fetched
-    /// (`read_m1()`): `MemSpace::cpu()` — "none recorded" — after construction,
+    /// (`read_m1()`): `MemSpace::cpu()` - "none recorded" - after construction,
     /// `reset()` and `load_state()` until the next fetch. Pair it with
     /// `Z80Cpu::fetched_opcode_last_execute()`: an accepted INT or NMI and an
     /// intercepted esxdos call fetch nothing, and leave the previous value.
@@ -288,9 +288,9 @@ public:
 
     // Hot-path memory access (inline for performance)
     //
-    // GH #339: a read is `route()` — the ONE arbiter, in the VHDL's order
+    // GH #339: a read is `route()` - the ONE arbiter, in the VHDL's order
     // (zxnext.vhd:2937-2945: boot ROM, Multiface, DivMMC, Layer 2, MMU, config,
-    // ROM) — followed by ONE side-effect tail for every source. Before, each of
+    // ROM) - followed by ONE side-effect tail for every source. Before, each of
     // the six overlay arms returned on its own with its own copy of the
     // data-breakpoint gate, and only the final RAM/ROM arm captured the +3
     // floating-bus latch: an overlay read over a contended page missed it, and
@@ -301,7 +301,7 @@ public:
 
     // The instruction fetch (M1) of Z80Cpu::execute(): `read()`, and it records
     // what supplied the byte. The record is the ground truth for the fetch
-    // identity — a prediction made before the instruction can only be compared
+    // identity - a prediction made before the instruction can only be compared
     // with it, never stand in for it (GH #339 D1). One load and one store more
     // than `read()`; the CPU's other bus cycles stay on `read()`.
     uint8_t read_m1(uint16_t addr) override {
@@ -361,7 +361,7 @@ public:
             debug_state_->wr_watch_armed(addr)) {
             watch_write_(addr, val);
         }
-        // VHDL zxnext.vhd:4498-4509 — p3_floating_bus_dat captures cpu_do on
+        // VHDL zxnext.vhd:4498-4509 - p3_floating_bus_dat captures cpu_do on
         // every contended memory WRITE cycle (mem_contend='1' AND
         // cpu_mreq_n='0' AND cpu_wr_n='0'), whatever the write goes to: the
         // process sits on the MREQ cycle, not on the SRAM arbiter. GH #339 (R1):
@@ -1448,7 +1448,7 @@ private:
     // Dedicated bank-5 16K dual-port VRAM (see bank5_vram() accessor).
     std::array<uint8_t, 0x4000> bank5_vram_{};
 
-    // ───────── GH #339 — the hot-path form of a Route ─────────────────────────
+    // ───────── GH #339 - the hot-path form of a Route ─────────────────────────
     //
     // `Route` (public) carries a `MemSpace`; this is the same three facts with
     // the identity as one packed word (kind in the low 16 bits, index in the high
@@ -1581,7 +1581,7 @@ private:
         }
     }
 
-    // ───────── GH #339 — route_bits_(): the read arbiter's one body ──────────
+    // ───────── GH #339 - route_bits_(): the read arbiter's one body ──────────
     //
     // Order, verbatim from the VHDL (zxnext.vhd:2937-2945, the SRAM arbiter at
     // :3084-3132 and the cpu_di mux at :1856-1870):
@@ -1601,9 +1601,9 @@ private:
     // `Live` selects where the two overlays an M1 itself can switch come from:
     // the live objects (true; `route()`, `read()`, `read_m1()`) or the caller's
     // two answers (false; `route_with()`). It is a compile-time switch so the
-    // live path keeps the call count the cascade always had — one Multiface
+    // live path keeps the call count the cascade always had - one Multiface
     // check and one DivMMC check on a 0x0000-0x3FFF read, none above 0x3FFF,
-    // none when the boot ROM answers — instead of asking both eagerly.
+    // none when the boot ROM answers - instead of asking both eagerly.
     //
     // THIS IS THE HOT PATH, and two things about its shape are deliberate:
     //   * the conditions are tested here, inline, and the routes of the arms that
@@ -1621,8 +1621,8 @@ private:
                                                        bool mf_active) const {
         using jnext::dbg::MemSpace;
         if (addr < 0x4000) {
-            // VHDL zxnext.vhd:1856 — gate on cpu_a(15:14)="00" (16 KB window).
-            // VHDL zxnext.vhd:3199-3204 — bootrom indexed by cpu_a(12:0) (8 KB
+            // VHDL zxnext.vhd:1856 - gate on cpu_a(15:14)="00" (16 KB window).
+            // VHDL zxnext.vhd:3199-3204 - bootrom indexed by cpu_a(12:0) (8 KB
             // span); upper 8 KB mirrors lower 8 KB. Mask with 0x1FFF accordingly.
             if (boot_rom_en_ && boot_rom_) {
                 const uint16_t off = addr & 0x1FFF;
@@ -1632,7 +1632,7 @@ private:
             // VHDL :3028-3035: when mf_mem_en=1 AND cpu_a(15:14)='00', SRAM
             // region 0x14000-0x17FFF maps to slot 0; cpu_a(13)=0 -> 8K MF ROM
             // (read-only), cpu_a(13)=1 -> 8K MF RAM (read-write). mf_enabled_o
-            // (multiface.vhd:186) = mf_enable_eff = mf_enable OR fetch_66 —
+            // (multiface.vhd:186) = mf_enable_eff = mf_enable OR fetch_66 -
             // handles the one-cycle bypass during the actual M1 fetch at 0x0066.
             if (multiface_ && (Live ? mf_overlay_active_() : mf_active))
                 return mf_route_(addr);
@@ -1655,9 +1655,9 @@ private:
         if (addr < 0x4000 && read_only_[slot]) {
             // Alt-ROM read override (VHDL zxnext.vhd:3021, 3078, 3116-3123).
             // Fires only on ROM-mapped slots in 0x0000-0x3FFF when config_mode
-            // is OFF (VHDL:3050 sets override(0)=0 in config_mode — altrom
+            // is OFF (VHDL:3050 sets override(0)=0 in config_mode - altrom
             // disabled by VHDL:3078 first clause). Per VHDL:3078 fourth clause,
-            // the read path takes altrom ONLY when sram_pre_rdonly=1 — i.e.
+            // the read path takes altrom ONLY when sram_pre_rdonly=1 - i.e.
             // when altrom_rw=0 (read-only altrom). When altrom_rw=1 the read
             // falls through to the normal ROM/sram_pre path (firmware uses that
             // mode to write-over altrom while keeping reads on the live ROM).
@@ -1685,12 +1685,12 @@ private:
     }
 
     // The tail every read shares (GH #339 R1/R2): the byte, the +3 floating-bus
-    // latch, the READ watchpoint. `val` is what the CPU receives — a floating
+    // latch, the READ watchpoint. `val` is what the CPU receives - a floating
     // read receives 0xFF, which is also what the latch captures (the hardware
     // latches the stale SRAM data bus there; jnext does not model that bus).
     [[gnu::always_inline]] inline uint8_t finish_read_(uint16_t addr, const RouteBits& r) {
         const uint8_t val = r.ptr ? *r.ptr : 0xFF;
-        // VHDL zxnext.vhd:4498-4509 — p3_floating_bus_dat captures cpu_di on
+        // VHDL zxnext.vhd:4498-4509 - p3_floating_bus_dat captures cpu_di on
         // every contended memory read where mem_contend='1' AND
         // cpu_mreq_n='0', WHATEVER supplied cpu_di (the process sits on the
         // MREQ cycle, not on the SRAM arbiter). Verify9-memory class-(c) ->
@@ -1701,7 +1701,7 @@ private:
         // (high pages 0x10..0xFF never contend; low pages contend per machine
         // type via odd-bank / bank-5 / +3 banks->=-4 rules). Pre-fix
         // `slot_contended_[]` was set externally only on 7FFD / +3-special-paging
-        // writes — NR $50/$51 RAM-mapping in slot 0/1 (e.g. NR $51,$05 mapping
+        // writes - NR $50/$51 RAM-mapping in slot 0/1 (e.g. NR $51,$05 mapping
         // bank 5 hi) silently missed the bank-5 contended-memory latch update.
         if (mem_contend_for_(addr)) {
             p3_floating_bus_dat_ = val;
@@ -1860,7 +1860,7 @@ private:
     // here), and inactive/unpopulated pages (mmu_A21_A13(8)='1' at :3061
     // suppresses sram_pre_active → no sram_req). 1 = wait, 0 = no wait.
     uint8_t        sram_read_wait28_[8] = {1, 1, 1, 1, 1, 1, 1, 1};
-    // GH #339 — the identity of what read_ptr_[slot] points at, derived state
+    // GH #339 - the identity of what read_ptr_[slot] points at, derived state
     // kept in lockstep with read_ptr_[] exactly like sram_read_wait28_[]:
     // written at the places that write read_ptr_[slot] (rebuild_ptr_body_(),
     // map_rom_physical()), rebuilt by load_state()'s rebuild_ptr() loop, never

@@ -1025,7 +1025,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // override bits) are consumed ONLY by check_automap, so hoisting
         // their computation inside the gate is behaviour-preserving.
         if (divmmc_.automap_m1_may_react(pc)) {
-            // G46(b) — the VHDL `sram_pre_override(2)` and `(0)` priority-
+            // G46(b) - the VHDL `sram_pre_override(2)` and `(0)` priority-
             // arbiter bits for this M1 fetch, so DivMmc::check_automap can
             // apply the gates from zxnext.vhd:3137-3138 (i_automap_active
             // = sram_divmmc_automap_en, i_automap_rom3_active =
@@ -1034,7 +1034,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // the ROM3-conditional AUTOMAP trap during the NextZXOS supervisor's
             // config_mode window and gets stuck in the boot loop tracked as
             // G46(b). They are computed by m1_automap_gates_(), which
-            // predict_fetch() calls too (GH #339) — one copy of the inputs.
+            // predict_fetch() calls too (GH #339) - one copy of the inputs.
             // The Multiface state passed is the one BEFORE this M1's own latch
             // (multiface_.on_m1 runs below), as it always was.
             const M1AutomapGates g = m1_automap_gates_(pc, multiface_.is_mem_active());

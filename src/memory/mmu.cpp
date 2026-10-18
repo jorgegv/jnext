@@ -127,7 +127,7 @@ void Mmu::reset(bool hard) {
         bank7_bram_.fill(0);
     }
 
-    // GH #339 — "none recorded": the fetch record belongs to the machine that
+    // GH #339 - "none recorded": the fetch record belongs to the machine that
     // made it, and a reset starts a new run of instructions.
     last_m1_ = pack_space_(jnext::dbg::MemSpace::cpu());
 
@@ -1155,7 +1155,7 @@ void Mmu::load_state(StateReader& r)
     // a pointer.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
 
-    // GH #339 — the fetch record is not state: a restore starts with none, so
+    // GH #339 - the fetch record is not state: a restore starts with none, so
     // nothing reads the previous machine's last fetch as this one's.
     last_m1_ = pack_space_(jnext::dbg::MemSpace::cpu());
 }
@@ -1286,7 +1286,7 @@ void Mmu::mf_ram_write_(uint16_t addr, uint8_t val) {
 // mean, and the number the slot mask itself is built from. STATED LIMITATION:
 // for an access served by a DivMMC, Multiface or Layer 2 OVERLAY, the boot ROM,
 // or nothing at all (a floating read) the byte does not come from that page at
-// all — those stores are outside the page-number space entirely — so `phys_page`
+// all - those stores are outside the page-number space entirely - so `phys_page`
 // names what the MMU maps, not what answered. Reporting the overlay's private
 // offset would be a page number that no filter, and no `peek(Page{})`, can
 // address. (`Mmu::route()` names what answered, as a `MemSpace`.)

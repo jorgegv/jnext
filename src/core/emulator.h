@@ -823,7 +823,7 @@ public:
     CallStack&    call_stack(){ return call_stack_; }
     const CallStack& call_stack() const { return call_stack_; }
 
-    /// What WILL supply the opcode fetch at `pc` — the next M1 there — named as
+    /// What WILL supply the opcode fetch at `pc` - the next M1 there - named as
     /// a `MemSpace` (GH #339): `Page{n}` for the MMU's RAM page, `Rom{i}` for a
     /// ROM slot, and the overlay or special source otherwise (`BootRom`,
     /// `MultifaceRom/Ram`, `DivMmcRom/Ram`, `Layer2`, `AltRom`, `Config`,
@@ -832,7 +832,7 @@ public:
     /// previous M1 (so the fetch after a 0x1FF8-0x1FFF unmap is RAM again), and
     /// the Multiface's 0x0066 fetch.
     ///
-    /// It is `Mmu::route_with()` — the arbiter `read()` itself uses — asked
+    /// It is `Mmu::route_with()` - the arbiter `read()` itself uses - asked
     /// with the two M1 answers, so the prediction and what the fetch records
     /// (`Mmu::last_m1()`) are one function evaluated before and after the
     /// instruction. The trace, the call-stack tracker and the debugger's source

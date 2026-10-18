@@ -948,7 +948,7 @@ public:
     /// CAP-SRC — the physical 8K page the MMU maps behind logical `addr` now.
     uint8_t effective_page(uint16_t addr) const;
 
-    /// CAP-SRC — what an instruction at `addr` would be fetched from NOW, as a
+    /// CAP-SRC - what an instruction at `addr` would be fetched from NOW, as a
     /// `MemSpace` (GH #339; `Emulator::predict_fetch()`): `Page{n}` when the
     /// MMU's RAM page `n` supplies it, `Rom{i}` for a ROM slot, and the overlay
     /// or special source otherwise (boot ROM, Multiface, DivMMC ROM or RAM, the
