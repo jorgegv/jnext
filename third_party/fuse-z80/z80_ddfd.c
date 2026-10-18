@@ -513,9 +513,9 @@
 	libspectrum_byte opcode3;
 	contend_read( PC, 3 );
 	z80.memptr.w =
-	    REGISTER + (libspectrum_signed_byte)readbyte_internal( PC );
+	    REGISTER + (libspectrum_signed_byte)readbyte_data_internal( PC );
 	PC++; contend_read( PC, 3 );
-	opcode3 = readbyte_internal( PC );
+	opcode3 = readbyte_data_internal( PC );
 	contend_read_no_mreq( PC, 1 ); contend_read_no_mreq( PC, 1 ); PC++;
 #ifdef HAVE_ENOUGH_MEMORY
 	switch(opcode3) {

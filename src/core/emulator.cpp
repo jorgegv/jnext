@@ -10624,24 +10624,24 @@ uint64_t Emulator::step_one_instruction()
             // the overlay the M1 itself selects (an instant DivMMC entry, the
             // Multiface at 0x0066), not the mapping as it is before that M1.
             // Pure, so these reads also leave the +3 floating-bus latch alone.
-            const M1Overlays m1o = predict_m1_overlays_(regs.PC);
+            const PredictedInstr pi = predict_instruction_(regs.PC);
             for (int i = 0; i < 4; ++i)
-                te.opcode_bytes[i] = peek_fetch_byte_(
-                    static_cast<uint16_t>(regs.PC + i), m1o, i == 0);
+                te.opcode_bytes[i] = pi.b[i];
             // Captureless lambda decays to a raw function pointer — no
             // per-instruction std::function construction (Task 27 A2).
-            struct FetchCtx { const Emulator* emu; M1Overlays o; uint16_t pc; }
-                fctx{this, m1o, regs.PC};
+            struct FetchCtx { const Emulator* emu; const PredictedInstr* pi; uint16_t pc; }
+                fctx{this, &pi, regs.PC};
             te.opcode_len = z80_instruction_length(
                 regs.PC,
-                [](void* ctx, uint16_t a) {
+                [](void* ctx, uint16_t a) -> uint8_t {
                     const FetchCtx* c = static_cast<const FetchCtx*>(ctx);
-                    return c->emu->peek_fetch_byte_(a, c->o, a == c->pc);
+                    const uint16_t i = static_cast<uint16_t>(a - c->pc);
+                    if (i < 4) return c->pi->b[i];
+                    const Mmu::Route r = c->emu->mmu_.route_with(a, c->pi->data_divmmc, c->pi->mf);
+                    return r.ptr ? *r.ptr : 0xFF;
                 },
                 &fctx);
-            trace_log_.record(te, mmu_.route_with(regs.PC, m1o.divmmc, m1o.mf)
-                                          .space.kind !=
-                                      jnext::dbg::MemSpace::Kind::Page);
+            trace_log_.record(te, pi.first.space.kind != jnext::dbg::MemSpace::Kind::Page);
         }
         // P0 boot probe trap detector: when the CPU enters the
         // post-soft-reset $0000/$0001 spin, dump the trace ring while
@@ -10676,13 +10676,10 @@ uint64_t Emulator::step_one_instruction()
             DebugState::InspectionScope inspect(debug_state_);
             const Z80Registers& regs2 = cpu_.registers();
             // Through the overlay the M1 selects, like the trace record above.
-            const M1Overlays m1o = predict_m1_overlays_(regs2.PC);
-            uint8_t op0 = peek_fetch_byte_(regs2.PC, m1o, true);
-            uint8_t op1 = peek_fetch_byte_(static_cast<uint16_t>(regs2.PC + 1), m1o, false);
-            uint8_t op2 = peek_fetch_byte_(static_cast<uint16_t>(regs2.PC + 2), m1o, false);
+            const PredictedInstr pi = predict_instruction_(regs2.PC);
             call_stack_.on_instruction_pre(
-                regs2.PC, regs2.SP, op0, op1, op2,
-                ram_page_of(mmu_.route_with(regs2.PC, m1o.divmmc, m1o.mf).space));
+                regs2.PC, regs2.SP, pi.b[0], pi.b[1], pi.b[2],
+                ram_page_of(pi.first.space));
         }
 
         // GH #203 — Step Out. Nothing is READ here, deliberately: only SP is
@@ -14207,17 +14204,17 @@ Emulator::M1Overlays Emulator::predict_m1_overlays_(uint16_t pc) const
     // (m1_automap_gates_), the DivMMC decision before the Multiface's. What the
     // M1 does not touch stays live (`is_active()`), exactly as in the hook.
     bool divmmc_active = divmmc_.is_active();
-    bool divmmc_data = divmmc_.is_active_after_fetch();
+    bool hold = divmmc_.automap_hold();
     if (divmmc_.automap_m1_may_react(pc)) {
         const M1AutomapGates g = m1_automap_gates_(pc, multiface_.is_mem_active());
         divmmc_active = divmmc_.active_on_m1(pc, g.override_2, g.override_0,
-                                             g.altrom_en_read, g.alt_128_n);
-        divmmc_data = divmmc_.active_after_m1_fetch(pc, g.override_2, g.override_0,
-                                                    g.altrom_en_read, g.alt_128_n);
+                                             g.altrom_en_read, g.alt_128_n, hold);
+        hold = divmmc_.hold_after_m1(pc, g.override_2, g.override_0,
+                                     g.altrom_en_read, g.alt_128_n, hold);
     }
     // The Multiface's 0x0066 fetch may latch mf_enable (multiface.vhd:169-186):
     // asked of the object, not of a copy of its 16 KB.
-    return M1Overlays{divmmc_active, multiface_.would_latch_on_m1(pc), divmmc_data};
+    return M1Overlays{divmmc_active, multiface_.would_latch_on_m1(pc), hold};
 }
 
 jnext::dbg::MemSpace Emulator::predict_fetch(uint16_t pc) const
@@ -14226,11 +14223,52 @@ jnext::dbg::MemSpace Emulator::predict_fetch(uint16_t pc) const
     return mmu_.route_with(pc, o.divmmc, o.mf).space;
 }
 
-uint8_t Emulator::peek_fetch_byte_(uint16_t addr, M1Overlays o, bool first) const
+Emulator::PredictedInstr Emulator::predict_instruction_(uint16_t pc) const
 {
     // A floating route answers 0xFF, as finish_read_() does.
-    const Mmu::Route r = mmu_.route_with(addr, first ? o.divmmc : o.divmmc_data, o.mf);
-    return r.ptr ? *r.ptr : 0xFF;
+    auto byte_at = [this](uint16_t a, bool divmmc, bool mf) -> uint8_t {
+        const Mmu::Route r = mmu_.route_with(a, divmmc, mf);
+        return r.ptr ? *r.ptr : 0xFF;
+    };
+    PredictedInstr p{};
+    const M1Overlays o = predict_m1_overlays_(pc);
+    p.first = mmu_.route_with(pc, o.divmmc, o.mf);
+    p.b[0] = p.first.ptr ? *p.first.ptr : 0xFF;
+    bool hold = o.hold, mf = o.mf;
+    // Which of the next bytes is an M1 (the shape of Z80Cpu::fetch_prefix_chain_):
+    // after CB or ED one more; after DD or FD the DD/FD bytes and the opcode
+    // that ends them, and one more after an ED. The rest is data.
+    enum class Next { Data, LastM1, Chain };
+    auto after = [](uint8_t v, Next n) {
+        if (n == Next::Chain)
+            return (v == 0xDD || v == 0xFD) ? Next::Chain : v == 0xED ? Next::LastM1 : Next::Data;
+        return Next::Data;
+    };
+    Next next = (p.b[0] == 0xCB || p.b[0] == 0xED)   ? Next::LastM1
+                : (p.b[0] == 0xDD || p.b[0] == 0xFD) ? Next::Chain
+                                                      : Next::Data;
+    for (int i = 1; i < 4; ++i) {
+        const uint16_t a = static_cast<uint16_t>(pc + i);
+        if (next == Next::Data) {
+            p.b[i] = byte_at(a, divmmc_.active_with_hold(hold), mf);
+            continue;
+        }
+        // An inner M1: its own automap decode, from the hold the one before loaded.
+        bool view = divmmc_.active_with_hold(false);
+        if (hold || divmmc_.automap_m1_may_react(a)) {
+            const M1AutomapGates g = m1_automap_gates_(a, multiface_.is_mem_active() || mf);
+            view = divmmc_.active_on_m1(a, g.override_2, g.override_0, g.altrom_en_read,
+                                        g.alt_128_n, hold);
+            hold = divmmc_.hold_after_m1(a, g.override_2, g.override_0, g.altrom_en_read,
+                                         g.alt_128_n, hold);
+        }
+        mf = mf || multiface_.would_latch_on_m1(a);
+        p.b[i] = byte_at(a, view, mf);
+        next = after(p.b[i], next);
+    }
+    p.data_divmmc = divmmc_.active_with_hold(hold);
+    p.mf = mf;
+    return p;
 }
 
 void Emulator::debug_after_machine_transition_(bool discard_ring)

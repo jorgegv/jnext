@@ -43,6 +43,8 @@
 #define readbyte(addr)          fuse_z80_readbyte(addr)
 /* readbyte_internal: opcode fetch reads — raw, no timing (contend_read handles it) */
 #define readbyte_internal(addr) fuse_z80_readbyte_raw(addr)
+/* readbyte_data_internal: the d and op bytes of DD CB d op - not M1 cycles (GH #339) */
+#define readbyte_data_internal(addr) fuse_z80_readbyte_raw_data(addr)
 /* writebyte: data writes — adds 3 T-states + contention (like FUSE) */
 #define writebyte(addr, val)    fuse_z80_writebyte(addr, val)
 #define readport(port)          fuse_z80_readport(port)

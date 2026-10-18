@@ -396,6 +396,12 @@ private:
     //                      used.
     // `mutable` because `save_state` is const and marshals into them; nothing
     // else in the class reads or writes them.
+    /// GH #339 - the M1 bytes of the instruction being executed (z80_cpu.cpp,
+    /// s_fetch_buf): fetch the inner bytes of a prefix chain, each after the
+    /// automap decode of its own M1, and read one back.
+    void    fetch_prefix_chain_(uint16_t pc, uint8_t opcode);
+    uint8_t chain_byte_(uint16_t addr);
+
     mutable int32_t  ser_ei_grace_      = -1;
     mutable uint8_t  ser_iff2_read_     = 0;
     mutable uint32_t ser_int_first_rel_ = 0;

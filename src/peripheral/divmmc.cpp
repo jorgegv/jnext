@@ -397,7 +397,7 @@ void DivMmc::decode_m1_(uint16_t pc, bool sram_pre_override_2, bool sram_pre_ove
 }
 
 bool DivMmc::active_on_m1(uint16_t pc, bool sram_pre_override_2, bool sram_pre_override_0,
-                          bool sram_altrom_en_read, bool sram_alt_128_n) const {
+                          bool sram_altrom_en_read, bool sram_alt_128_n, bool hold_in) const {
     // What check_automap(pc, true, ...) would leave is_active() at for the
     // fetch of this M1, without changing anything: held <= hold, the
     // button_nmi clear, then automap = held OR instant (divmmc.vhd:141,
@@ -407,26 +407,22 @@ bool DivMmc::active_on_m1(uint16_t pc, bool sram_pre_override_2, bool sram_pre_o
     if (!enabled_) return automap_active_;   // check_automap returns early
     // The button_nmi clear needs no modelling: it only acts while held, and
     // then the answer is held whatever the decode says.
-    const bool held = automap_hold_;
     bool instant = false, delayed = false, off = false;
     decode_m1_(pc, sram_pre_override_2, sram_pre_override_0, sram_altrom_en_read,
                sram_alt_128_n, button_nmi_, instant, delayed, off);
-    return held || instant;
+    return hold_in || instant;
 }
 
-bool DivMmc::active_after_m1_fetch(uint16_t pc, bool sram_pre_override_2,
-                                   bool sram_pre_override_0, bool sram_altrom_en_read,
-                                   bool sram_alt_128_n) const {
+bool DivMmc::hold_after_m1(uint16_t pc, bool sram_pre_override_2, bool sram_pre_override_0,
+                           bool sram_altrom_en_read, bool sram_alt_128_n, bool hold_in) const {
     // The `hold` check_automap(pc, true, ...) would load (divmmc.vhd:128-131),
     // where `held` is the previous hold: it is what is_active_after_fetch()
     // answers from then on.
-    if (!port_io_enable_) return false;
-    if (conmem_) return true;
-    if (!enabled_) return automap_hold_;   // check_automap returns early
+    if (!enabled_) return hold_in;   // check_automap returns early
     bool instant = false, delayed = false, off = false;
     decode_m1_(pc, sram_pre_override_2, sram_pre_override_0, sram_altrom_en_read,
                sram_alt_128_n, button_nmi_, instant, delayed, off);
-    return instant || delayed || (automap_hold_ && !off);
+    return instant || delayed || (hold_in && !off);
 }
 
 void DivMmc::check_automap(uint16_t pc, bool is_m1,
