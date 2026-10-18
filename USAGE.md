@@ -1802,7 +1802,8 @@ Card Image / Eject SD Card (see **CHANGING THE CARD WHILE RUNNING**),
 Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX /
 Stop RZX, Save Screenshot (Alt+S), Quick Screenshot (Alt+K), Save
 Snapshot (Alt+Shift+S), Quick Save Snapshot (Alt+Shift+F5), Quick Load
-Snapshot (Alt+Shift+F9) (see **JNEXT SNAPSHOTS** above), Quit (Alt+Q).
+Snapshot (Alt+Shift+F9) (see **JNEXT SNAPSHOTS** above), Quit (Alt+Q or
+Alt+F4).
 
 **Save Screenshot…** asks for a name; the extension chooses the format
 (**SCREENSHOT FORMATS** above). **Quick Screenshot** asks nothing: it
@@ -1925,12 +1926,15 @@ is toggled with F11 only (it used to also be exited with Esc).
 The function keys are host controls, not Spectrum keys. F1 is Power
 Reset (the same as Alt+R), F4 is Soft Reset, F9 fires the Multiface NMI,
 F10 fires the DivMMC NMI, F2 cycles the window scale and F11 toggles
-fullscreen. With the debugger open F9 belongs to the debugger (Pause /
-Break) instead. With Alt and Shift held, F5 and F9 are the quick
-snapshot keys (Alt+Shift+F5 saves, Alt+Shift+F9 loads) and reach neither
-the Multiface nor the guest; Alt+F5 and Alt+F9 on their own are not
-claimed. Shift is the guest’s Caps Shift, so it is held down for the
-guest while you press the chord.
+fullscreen. With Alt held F1 and F4 are not resets: Alt+F4 quits jnext,
+the same as File \> Quit, whatever else is held and whether or not the
+mouse is captured, and Alt+F1 does nothing. The SDL-only build does the
+same. With the debugger open F9 belongs to the debugger (Pause / Break)
+instead. With Alt and Shift held, F5 and F9 are the quick snapshot keys
+(Alt+Shift+F5 saves, Alt+Shift+F9 loads) and reach neither the Multiface
+nor the guest; Alt+F5 and Alt+F9 on their own are not claimed. Shift is
+the guest’s Caps Shift, so it is held down for the guest while you press
+the chord.
 
 The Pause key (Pause/Break) pauses and resumes the machine in the GUI,
 the same as Machine \> Pause; keyboards without one, such as most Mac
@@ -1949,7 +1953,7 @@ Ctrl+F6 (start and stop video recording), and function keys have no
 Spectrum meaning to lose.
 
 Alt is the opposite: it is a host modifier, never a Spectrum key. jnext
-claims Alt + Q/O/S/K/R/T/D/P/U, Alt+Shift+S, Alt+Shift+F5 and
+claims Alt + Q/O/S/K/R/T/D/P/U, Alt+F4, Alt+Shift+S, Alt+Shift+F5 and
 Alt+Shift+F9 (menu shortcuts), Alt + F/M/I/A/B/V/N/H (menu bar) and
 Alt + 1 to Alt + 8 (the script host keys), which leaves the guest only
 Alt + E/G/C (EDIT, GRAPH, CAPS LOCK) and Alt + the key left of `1` (INV

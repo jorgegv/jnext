@@ -502,6 +502,10 @@ private:
     // Fullscreen action
     QAction* fullscreen_action_ = nullptr;
 
+    // File > Quit. Kept so keyPressEvent() can trigger it for an Alt+F4 that
+    // no shortcut matched (GH #380).
+    QAction* quit_action_ = nullptr;
+
     // CRT filter action
     QAction* crt_filter_action_ = nullptr;
 

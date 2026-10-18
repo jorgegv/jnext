@@ -58,9 +58,9 @@ Four kinds of combination are refused, and the dialog says which and why:
   first. This is refused rather than silently taken over, because Qt answers
   two identical shortcuts by firing them alternately, which breaks both.
 
-Four combinations are **not** refused but do get a warning, because the
+Five combinations are **not** refused but do get a warning, because the
 emulator window already uses them: **Ctrl+F5** (record), **Ctrl+F6** (stop
-recording), **F4** (soft reset) and **F11** (fullscreen). You can bind them —
+recording), **F4** (soft reset), **F11** (fullscreen) and **Alt+F4** (quit). You can bind them —
 F11 for Step Into is a popular choice — and they will work in the debugger
 window. The emulator window keeps its own use of them, and the message under
 the table says so when you pick one.
