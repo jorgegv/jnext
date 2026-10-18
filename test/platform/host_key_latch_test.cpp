@@ -1021,7 +1021,7 @@ int main()
     {
         MatrixGuest g; MatrixRouter r; r.attach(g);
         mtick(r, g, tap(SC_1) + tap(SC_2), 1);
-        msettle(r, g, 4);
+        msettle(r, g, 6);   // GH #386: the second tap follows the first by TAP_SPACING_FRAMES
         check("SER-01a", "no frame ever samples two tapped keys together",
               !g.ever_together(SC_1, SC_2), got(g.samples));
         check("SER-01b", "the guest sees them sequentially, one per frame",
@@ -1037,7 +1037,7 @@ int main()
     {
         MatrixGuest g; MatrixRouter r; r.attach(g);
         mtick(r, g, tap(SC_SYM) + tap(SC_P), 1);
-        msettle(r, g, 4);
+        msettle(r, g, 6);   // GH #386: see SER-01
         check("SER-02a", "a SYM tap and a P tap never coincide in one frame",
               !g.ever_together(SC_SYM, SC_P), got(g.samples));
         check("SER-02b", "the guest sees SYM alone, then P alone",
@@ -1107,10 +1107,17 @@ int main()
                           {SC_P, true}, {SC_P, false},
                           {SC_O, true}, {SC_O, false},
                           {SC_SYM, false}}, 1);
-        msettle(r, g, 4);
+        msettle(r, g, 8);   // GH #386: see SER-01 (the second key lands 5 frames after the first)
+        // GH #386: the two keys are now 5 frames apart, and the held shift sits
+        // alone in the frames between them (a shift alone types nothing). The
+        // assertion is about the frames that carry a KEY, so those are the ones
+        // compared; "the shift is down in all of them" is the unchanged claim.
+        std::vector<std::vector<int>> key_frames;
+        for (const auto& f : g.keystrokes())
+            if (f.size() > 1 || f[0] != SC_SYM) key_frames.push_back(f);
         check("SER-05", "a held shift accompanies every key it was held across",
-              g.keystrokes() == std::vector<std::vector<int>>{{SC_P, SC_SYM},
-                                                             {SC_O, SC_SYM}},
+              key_frames == std::vector<std::vector<int>>{{SC_P, SC_SYM},
+                                                         {SC_O, SC_SYM}},
               got(g.keystrokes()));
     }
 
@@ -1166,7 +1173,7 @@ int main()
     {
         MatrixGuest g; MatrixRouter r; r.attach(g);
         mtick(r, g, tap(SC_DOWN) + tap(SC_ENTER), 1);
-        msettle(r, g, 4);
+        msettle(r, g, 8);   // GH #386: see SER-01
         check("SER-09a", "an arrow tap and an ENTER tap never coincide",
               !g.ever_together(SC_DOWN, SC_ENTER) &&
                   g.keystrokes() == std::vector<std::vector<int>>{{SC_DOWN},
@@ -1175,7 +1182,7 @@ int main()
 
         MatrixGuest g2; MatrixRouter r2; r2.attach(g2);
         mtick(r2, g2, tap(SC_DOWN) + tap(SC_UP), 1);
-        msettle(r2, g2, 4);
+        msettle(r2, g2, 8);   // GH #386: see SER-01
         check("SER-09b", "two different arrows in one gap stay two moves",
               !g2.ever_together(SC_DOWN, SC_UP) &&
                   g2.keystrokes() == std::vector<std::vector<int>>{{SC_DOWN},
@@ -1194,13 +1201,13 @@ int main()
 
         MatrixGuest ga; MatrixRouter ra; ra.attach(ga);
         for (const int k : seq) mtick(ra, ga, tap(k), 1);
-        msettle(ra, ga, 10);
+        msettle(ra, ga, 30);   // GH #386: a bunched backlog drains one key per 5 frames
 
         MatrixGuest gb; MatrixRouter rb; rb.attach(gb);
         Calls all;
         for (const int k : seq) all = all + tap(k);
         mtick(rb, gb, all, 1);
-        msettle(rb, gb, 10);
+        msettle(rb, gb, 30);   // GH #386: see above
 
         check("SER-10a", "bunching six keystrokes into one gap loses nothing",
               ga.keystrokes() == gb.keystrokes(),
@@ -1256,26 +1263,28 @@ int main()
               g.down == std::set<int>{SC_1}, got(g.kb));
     }
 
-    // --- SER-13: the SCOPE BOUNDARY, asserted rather than assumed -----------
-    // Two taps of the SAME key inside one gap still reach the guest as one
-    // continuous press across two frames. That is issue #120's documented
-    // residue and is deliberately NOT in #268's scope: separating them needs a
-    // released frame between the two presses, which halves the drain rate and
-    // makes a sustained tap stream grow the queue without bound. A human cannot
-    // tap one key twice inside 20 ms (or even 55 ms at 18 FPS), whereas two
-    // DIFFERENT keys in one gap is ordinary rollover — which is why the two
-    // cases are treated differently. This row exists so the limit is visible to
-    // the next reader instead of being rediscovered.
+    // --- SER-13: a same-key double tap is TWO keystrokes ---------------------
+    // Two taps of the SAME key inside one gap used to reach the guest as one
+    // continuous press across two frames (issue #120's documented residue,
+    // deliberately left by #268: a released frame between them halved the drain
+    // rate). GH #386 closes it. A queued tap now follows the previous one by
+    // TAP_SPACING_FRAMES, and the ROM needs exactly that: the same key seen
+    // again while its key set is still busy is a K-REPEAT, not a keystroke
+    // (48.rom 0x0310), so "11" typed during a stall used to arrive as "1". The
+    // IDs are kept; the assertions are inverted on purpose (owner decision D3).
     {
         MatrixGuest g; MatrixRouter r; r.attach(g);
         mtick(r, g, tap(KEY_A) + tap(KEY_A), 1);
-        msettle(r, g, 3);
-        check("SER-13a", "same-key double tap is still ONE continuous press",
+        msettle(r, g, 9);
+        std::vector<int> seen;
+        for (size_t i = 0; i < g.samples.size(); ++i)
+            if (!g.samples[i].empty()) seen.push_back(static_cast<int>(i));
+        check("SER-13a", "same-key double tap reaches the guest as TWO keystrokes",
               g.keystrokes() == std::vector<std::vector<int>>{{KEY_A}, {KEY_A}},
               got(g.keystrokes()));
-        check("SER-13b", "with no released frame between the two presses",
-              g.samples.size() >= 2 && g.samples[0] == std::vector<int>{KEY_A} &&
-                  g.samples[1] == std::vector<int>{KEY_A},
+        check("SER-13b", "with released frames between the two presses (4 of them, K-REPEAT)",
+              seen == std::vector<int>{0, 5} && g.samples[1].empty() &&
+                  g.samples[2].empty() && g.samples[3].empty() && g.samples[4].empty(),
               got(g.samples));
     }
 
@@ -1291,7 +1300,7 @@ int main()
               got(g.kb) + " pending=" + std::to_string(r.pending()));
         mtick(r, g, Calls{}, 1);
         mtick(r, g, Calls{}, 1);
-        msettle(r, g, 3);
+        msettle(r, g, 8);   // GH #386: see SER-01
         check("SER-14b", "and the first tick that emulates resumes the order",
               g.keystrokes() == std::vector<std::vector<int>>{{SC_1}, {SC_2}},
               got(g.keystrokes()));
