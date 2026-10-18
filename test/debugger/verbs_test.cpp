@@ -337,7 +337,7 @@ QRgb ball_colour(QPushButton* b) {
 // it rejects whatever else appears, so a dialog that keeps re-opening (a file
 // dialog refusing its answer) ends the row instead of the suite.
 struct Modals {
-    struct Seen { QString kind, title, text; };
+    struct Seen { QString kind, title, text, filters; };
 
     QString                    file_path;            // for a QFileDialog
     std::function<void()>      after_file_accept;    // e.g. make the file vanish
@@ -361,7 +361,7 @@ struct Modals {
         if (!dlg) return;
         if (seen.size() >= kMaxModals) { dlg->reject(); return; }
         if (auto* fd = qobject_cast<QFileDialog*>(w)) {
-            seen.push_back({"file", fd->windowTitle(), {}});
+            seen.push_back({"file", fd->windowTitle(), {}, fd->nameFilters().join(QStringLiteral(";;"))});
             fd->selectFile(file_path);
             dlg->accept();          // virtual: QFileDialog::accept(), which validates
             if (after_file_accept) after_file_accept();
@@ -2296,11 +2296,14 @@ static void test_map_load() {
 
         const Modals::Seen* okb = ok.first("box");
         const Modals::Seen* badb = bad.first("box");
+        const Modals::Seen* dlg = ok.first("file");
         check("QMAP-05",
-              "sjasmplus Format...: a real --sym loads (\"MAP Loaded\" / \"Loaded 14 symbols\"), "
-              "dotted names resolve and the first label at an address names it; a file that "
-              "cannot be read gives \"Load Failed\" and keeps the table",
-              sjasm && okb && okb->title == "MAP Loaded" &&
+              "sjasmplus Format...: a file dialog for *.sym and *.exp; a real --sym loads (\"MAP Loaded\" / "
+              "\"Loaded 14 symbols\"), dotted names resolve and the first label at an address names it; a "
+              "file that cannot be read gives \"Load Failed\" and keeps the table",
+              sjasm && dlg && dlg->title == "Load sjasmplus Symbol File" &&
+                  dlg->filters == "sjasmplus Symbol Files (*.sym *.exp);;All Files (*)" &&
+                  okb && okb->title == "MAP Loaded" &&
                   okb->text == QStringLiteral("Loaded 14 symbols from:\n%1")
                                    .arg(QString::fromStdString(path)) &&
                   gw == std::optional<uint16_t>(0x8016) && bank == std::optional<std::string>("banked") &&

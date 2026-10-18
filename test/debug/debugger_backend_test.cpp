@@ -8471,7 +8471,8 @@ int main() {
                             "(main.loop, gfx.draw.loop, point.x)",
                   r.status == Result::Ok && r.value == 16 && bad.empty() &&
                       dbg.symbols().resolve("main.loop") == std::optional<uint16_t>(0x8006) &&
-                      dbg.symbols().resolve("@gfx.draw") == std::optional<uint16_t>(0x8016),
+                      dbg.symbols().resolve("@gfx.draw") == std::optional<uint16_t>(0x8016) &&
+                      dbg.symbols().loaded_file() == JNEXT_SJASMEQU_DIR "/equlabels.sym",
                   std::to_string(r.value) + " bad: " + bad);
         }
         {
@@ -8511,6 +8512,10 @@ int main() {
         {
             Emulator emu; build(emu);
             Debugger dbg(emu);
+            // A --sym is loaded first: pos.x is in it and not in the --exp, so
+            // the --exp must REPLACE the table, as every MAP loader does.
+            const auto prior = dbg.load_map(JNEXT_SJASMEQU_DIR "/equlabels.sym", MapFormat::SjasmplusEqu);
+            const bool had = prior.status == Result::Ok && dbg.lookup_name("pos.x").has_value();
             const auto r = dbg.load_map(JNEXT_SJASMEQU_DIR "/equlabels.exp", MapFormat::SjasmplusEqu);
             // equlabels.exp lines 1-15, in EXPORT order. `draw` is the name the
             // EXPORT spells (inside MODULE gfx), with gfx.draw's value.
@@ -8521,9 +8526,10 @@ int main() {
             };
             const std::string bad = wrong_names(dbg, kExp, sizeof(kExp) / sizeof(kExp[0]));
             check("SYM-23", "a real sjasmplus --exp loads 13 entries (15 lines, minus PASTTOP and NEG; counter is "
-                            "written twice) and each name resolves, under the name EXPORT spelled",
-                  r.status == Result::Ok && r.value == 13 && bad.empty() && !dbg.lookup_name("PASTTOP") &&
-                      !dbg.lookup_name("NEG"),
+                            "written twice) and each name resolves, under the name EXPORT spelled; it replaces "
+                            "the table (a --sym's pos.x is gone)",
+                  had && r.status == Result::Ok && r.value == 13 && bad.empty() && !dbg.lookup_name("PASTTOP") &&
+                      !dbg.lookup_name("NEG") && !dbg.lookup_name("pos.x"),
                   std::to_string(r.value) + " bad: " + bad);
         }
         {
@@ -8581,6 +8587,8 @@ int main() {
                      "NOSPACE:EQU 0x0000AAAA\n"
                      "NOEQU: 0x0000BBBB\n"
                      "NOVALUE: EQU\n"
+                     "tab\tname: EQU 0x0000CCCC\n"
+                     "a:b: EQU 0x0000DDDD\n"
                      "EMPTYHEX: EQU 0x\n"
                      "NOPREFIX: EQU 00002222\n"
                      "BADHEX: EQU 0x0000G333\n"
@@ -8595,15 +8603,17 @@ int main() {
             Debugger dbg(emu);
             const auto r = dbg.load_map(path, MapFormat::SjasmplusEqu);
             std::string resolved;   // the names that must NOT resolve, if any does
-            for (const char* n : {"plain", "NOCOLON", "NOSPACE", "NOEQU", "NOVALUE", "EMPTYHEX", "NOPREFIX",
-                                  "BADHEX", "TRAILING", "two words", "TOOBIG"})
+            for (const char* n : {"plain", "NOCOLON", "NOSPACE", "NOEQU", "NOVALUE", "tab\tname", "a:b",
+                                  "EMPTYHEX", "NOPREFIX", "BADHEX", "TRAILING", "two words", "TOOBIG"})
                 if (dbg.lookup_name(n)) resolved += std::string(n) + " ";
             std::string named;      // the addresses that must name nothing, if any does
-            for (unsigned a : {0x0000u, 0x1111u, 0x2222u, 0x4444u, 0x5555u, 0x6666u, 0x8000u, 0xAAAAu, 0xBBBBu})
+            for (unsigned a : {0x0000u, 0x1111u, 0x2222u, 0x4444u, 0x5555u, 0x6666u, 0x8000u, 0xAAAAu, 0xBBBBu,
+                               0xCCCCu, 0xDDDDu})
                 if (dbg.lookup(static_cast<uint16_t>(a))) named += hex(a) + " ";
             check("SYM-26", "only a line of exactly `NAME: EQU 0x<hex>` counts: a comment, a blank, a z88dk line, "
-                            "a missing colon, space, EQU, 0x or value, bad hex, trailing text, an empty or "
-                            "spaced name and a value past 32 bits are skipped; a short value is read as a number",
+                            "a missing colon, space, EQU, 0x or value, bad hex, trailing text, an empty name, a "
+                            "name with a space, a tab or a colon, and a value past 32 bits are skipped; a short "
+                            "value is read as a number",
                   r.status == Result::Ok && r.value == 2 && dbg.symbols().size() == 2 &&
                       dbg.lookup_name("good") == std::optional<uint16_t>(0x1234) &&
                       dbg.lookup_name("short") == std::optional<uint16_t>(0x0005) && resolved.empty() &&
