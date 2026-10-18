@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QShowEvent>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -74,9 +75,15 @@ PokDialog::PokDialog(QWidget* parent) : QDialog(parent) {
     connect(open_button_, &QPushButton::clicked, this, &PokDialog::open_file_requested);
     connect(apply_button_, &QPushButton::clicked, this, &PokDialog::on_apply);
     connect(remove_button_, &QPushButton::clicked, this, &PokDialog::on_remove);
-    connect(trainers_, &QTreeWidget::currentItemChanged, this, [this]() { update_buttons(); });
+    // Selecting a row re-reads every status: the list is never more than one click old.
+    connect(trainers_, &QTreeWidget::currentItemChanged, this, [this]() { refresh(); });
 
     update_buttons();
+}
+
+void PokDialog::showEvent(QShowEvent* event) {
+    QDialog::showEvent(event);
+    refresh();
 }
 
 void PokDialog::set_session(jnext::pok::Session* session) {

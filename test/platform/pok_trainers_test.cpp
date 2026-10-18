@@ -470,15 +470,24 @@ void test_load() {
     {
         const std::string missing = dir + "/does-not-exist.pok";
         PokFile f, g;
-        std::string err, err_dir;
+        std::string err, err_dir, err_dev;
         const bool ok = load_pok_file(missing, f, err);
         const bool dir_ok = load_pok_file(dir, g, err_dir);   // a directory is no file
-        check("POK-19", "a path that cannot be read (missing, or a directory) fails with an error that names "
-                        "the file",
+        // Nor is a device: opened, /dev/null reads as an empty file and would say "holds no trainers".
+        // (POSIX only: Windows has no such path, and the other two arms hold there.)
+        bool device_refused = true;
+#ifndef _WIN32
+        PokFile h;
+        device_refused = !load_pok_file("/dev/null", h, err_dev) &&
+                         err_dev.find("/dev/null") != std::string::npos &&
+                         err_dev.find("cannot read") != std::string::npos;
+#endif
+        check("POK-19", "a path that cannot be read (missing, a directory, or a device) fails with an error "
+                        "that names the file",
               !ok && err.find(missing) != std::string::npos && err.find("cannot read") != std::string::npos &&
                   !dir_ok && err_dir.find(dir) != std::string::npos &&
-                  err_dir.find("cannot read") != std::string::npos,
-              err + " | " + err_dir);
+                  err_dir.find("cannot read") != std::string::npos && device_refused,
+              err + " | " + err_dir + " | " + err_dev);
     }
 
     // POK-20

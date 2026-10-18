@@ -15,10 +15,10 @@ then open the trainers.
 ## Using one
 
 1. Load and start the game.
-2. Choose **Machine ▸ POK Trainers…**, or **File ▸ Load…** and pick the `.pok`
-   file (the file dialog lists *POK Trainers (\*.pok)*). A `.pok` opened with
-   File ▸ Load does **not** reset the machine: it opens the trainers and leaves
-   the game exactly where it was.
+2. Choose **Machine ▸ POK Trainers…**, or **File ▸ Load NEX File…** (Alt+O) and
+   pick the `.pok` file (the file dialog lists *POK Trainers (\*.pok)*). A
+   `.pok` opened with File ▸ Load does **not** reset the machine: it opens the
+   trainers and leaves the game exactly where it was.
 3. Pick a trainer in the list and press **Apply**. Its **Status** reads
    *applied*, and the game now behaves differently: lives stop going down,
    say.
@@ -76,8 +76,8 @@ The file stays open for as long as the main window does, but what **Remove**
 needs to undo a trainer is kept only while the machine you applied it to is
 running. These forget it, though the changes stay in memory:
 
-- **Machine ▸ Power Reset**, a machine-type change, **File ▸ Load…** of a
-  program or snapshot, Quick Load, and a program that resets the machine
+- **Machine ▸ Power Reset**, a machine-type change, **File ▸ Load NEX File…**
+  of a program or snapshot, Quick Load, and a program that resets the machine
   itself. The row shows *applied (found in memory)* if memory still holds the
   bytes, *not applied* if not.
 - Opening another `.pok` file.

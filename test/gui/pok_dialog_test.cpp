@@ -145,6 +145,28 @@ struct Fixture {
     uint8_t rd(uint16_t a) { return emu.mmu().peek(a); }
 };
 
+/// Closes a dialog no row is waiting for. Nothing in this suite leaves one up on
+/// purpose: if a defect raises one outside a drive_modals() window, its nested
+/// event loop would hang the whole suite. Closing it lets the row fail instead,
+/// and says so.
+class ModalGuard {
+public:
+    ModalGuard() {
+        QObject::connect(&timer_, &QTimer::timeout, [] {
+            QWidget* w = QApplication::activeModalWidget();
+            if (qobject_cast<QMessageBox*>(w) || qobject_cast<QInputDialog*>(w) ||
+                qobject_cast<QFileDialog*>(w)) {
+                std::printf("  NOTE: closed a %s nobody was waiting for\n", w->metaObject()->className());
+                w->close();
+            }
+        });
+        timer_.start(500);
+    }
+
+private:
+    QTimer timer_;
+};
+
 /// Answer each modal dialog that opens while `open` runs: `act(widget)` is called
 /// for every poll that finds one, and must close it if it is its kind (it is
 /// called again until the dialog is gone). Returns how many polls found a modal.
@@ -455,6 +477,37 @@ void test_open_button() {
           std::to_string(pickers) + " " + std::to_string(asked));
 }
 
+void test_status_follows_memory() {
+    // PKD-16
+    Fixture f;
+    f.ok = f.ok && f.win.open_pok_file(QString::fromStdString(fixture_pok()));
+    QPushButton* apply = f.button("apply");
+    f.select(0);
+    if (apply) apply->click();
+    const bool applied = f.status(0) == QStringLiteral("applied");
+    // The program writes the byte back; selecting another row re-reads every status.
+    f.emu.mmu().write(0x8003, 0x35);
+    f.select(1);
+    const bool by_selection = f.status(0) == QStringLiteral("not applied");
+    // Closed, the dialog cannot know what memory does; shown again, it says.
+    f.select(0);
+    if (apply) apply->click();
+    const bool again = f.status(0) == QStringLiteral("applied");
+    if (f.dialog()) f.dialog()->reject();
+    f.emu.mmu().write(0x8003, 0x35);
+    QAction* action = nullptr;
+    for (QAction* a : f.win.findChildren<QAction*>())
+        if (a->text() == QStringLiteral("POK T&rainers...")) action = a;
+    if (action) action->trigger();
+    QApplication::processEvents();
+    const bool by_show = f.status(0) == QStringLiteral("not applied");
+    check("PKD-16", "the rows follow memory: a byte the program wrote back shows as not applied when another row "
+                    "is selected, and when the dialog is shown again after being closed",
+          f.ok && apply && action && applied && by_selection && again && by_show,
+          std::to_string(applied) + std::to_string(by_selection) + std::to_string(again) +
+              std::to_string(by_show));
+}
+
 void test_no_machine() {
     // PKD-13
     MainWindow bare;   // no emulator, no debugger
@@ -515,6 +568,7 @@ int main(int argc, char** argv) {
     QTemporaryDir config_dir;
     qputenv("JNEXT_CONFIG_DIR", config_dir.path().toUtf8());
     QApplication app(argc, argv);
+    ModalGuard guard;
 
     g_dir = jtp::make_temp_dir("jnext_pokdlg_");
     std::printf("POK Trainers dialog (GH #381)\n\n");
@@ -531,6 +585,7 @@ int main(int argc, char** argv) {
     test_rebuilt_machine();
     test_file_problems();
     test_open_button();
+    test_status_follows_memory();
     test_no_machine();
     test_unattended();
     test_unplaceable_value();

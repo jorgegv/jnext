@@ -387,7 +387,7 @@ void MainWindow::set_emulator(Emulator* emu) {
         mouse_dispatcher_.reset();
     }
     sync_machine_type_display();
-    // GH #381 — a rebuilt machine is a different program: what the POK session
+    // GH #381 - a rebuilt machine is a different program: what the POK session
     // recorded to undo its trainers belongs to the one that is gone. The dialog,
     // if open, shows what memory holds now.
     if (pok_) {
@@ -1107,7 +1107,7 @@ void MainWindow::create_menus() {
         }
     });
 
-    // GH #381 — the trainers of a .pok file, applied to the running machine.
+    // GH #381 - the trainers of a .pok file, applied to the running machine.
     // R: the Machine popup's P/S/A/T/U/E are taken. Deliberately no shortcut, no
     // data() and not checkable: preferences_apply_test finds the machine actions
     // by data() plus checkable.
@@ -1473,7 +1473,7 @@ void MainWindow::on_load_nex() {
     }
 }
 
-// GH #381 — Machine > POK Trainers...: the dialog of the open file or, with none
+// GH #381 - Machine > POK Trainers...: the dialog of the open file or, with none
 // open yet, the picker for one.
 void MainWindow::on_pok_trainers() {
     if (pok_ && pok_dialog_) {
@@ -1538,7 +1538,7 @@ void MainWindow::handle_load_path(const QString& path) {
     // enforces the same policy and fails the load.
     const std::string file = path.toStdString();
 
-    // GH #381 — a .pok is a list of trainers for the machine that is running,
+    // GH #381 - a .pok is a list of trainers for the machine that is running,
     // not a program: it opens the trainers dialog and nothing is reset. Before
     // this it fell to the NEX route below, which cold-booted the session away
     // and only then failed to load it.

@@ -4,6 +4,7 @@
 
 class QLabel;
 class QPushButton;
+class QShowEvent;
 class QTreeWidget;
 
 namespace jnext { namespace pok { class Session; } }
@@ -34,6 +35,10 @@ public:
 signals:
     /// "Open POK File..." was pressed: the window runs its file picker.
     void open_file_requested();
+
+protected:
+    /// Memory moves on while the dialog is closed: show it as it is now.
+    void showEvent(QShowEvent* event) override;
 
 private:
     int  selected_trainer() const;
