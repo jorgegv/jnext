@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Lines of code (comments and blank lines excluded), per directory and in total.
-# Run through `make kloc-count`, which passes the colour escapes in BOLD/CYAN/RESET.
+# Run through `make kloc-count` (three rows: src, test, tools, then TOTAL) or
+# `make kloc-count-detailed` (--detailed: every row). One counting pass feeds both
+# tables, so the summary's rows are the detailed table's subtotals by construction.
+# The make targets pass the colour escapes in BOLD/CYAN/RESET.
 #
 # Three sections, every line counted exactly once:
 #
@@ -114,7 +117,24 @@ section_end "tools"
 add total "TOTAL" "$TOTAL"
 
 # --- print ---------------------------------------------------------------------
-W=${#L[0]}; for l in "${L[@]}"; do [ ${#l} -gt "$W" ] && W=${#l}; done
+DETAILED=0
+case ${1:-} in
+    "") ;;
+    --detailed) DETAILED=1 ;;
+    *) echo "usage: kloc-count.sh [--detailed]" >&2; exit 2 ;;
+esac
+if [ "$DETAILED" -eq 0 ]; then
+    # Summary: each section subtotal becomes a plain row; the rows and inner separators go.
+    K2=(sep); L2=(""); N2=("")
+    for i in "${!K[@]}"; do
+        case ${K[$i]} in
+            sub)   K2+=(row); L2+=("${L[$i]% subtotal}"); N2+=("${N[$i]}") ;;
+            total) K2+=(total); L2+=("${L[$i]}"); N2+=("${N[$i]}") ;;
+        esac
+    done
+    K=("${K2[@]}"); L=("${L2[@]}"); N=("${N2[@]}")
+fi
+W=0; for l in "${L[@]}"; do [ ${#l} -gt "$W" ] && W=${#l}; done
 HDR="Path"; [ ${#HDR} -gt "$W" ] && W=${#HDR}
 CW=8
 H='─'; V='│'

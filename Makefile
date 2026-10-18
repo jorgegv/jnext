@@ -191,7 +191,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
-       kloc-count regression regression-win regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
+       kloc-count kloc-count-detailed regression regression-win regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check fuse-pgo unit-test lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-diagrams read-devguide \
@@ -1184,13 +1184,15 @@ worktree-bootstrap:
 		printf "$(BOLD)worktree-bootstrap: not ready yet — see the item(s) above.$(RESET)\n"; \
 	fi
 
-# Count lines of code (excluding comments and blanks): src/, test/ and tools, as a table
+# Count lines of code (no comments or blanks): src, test and tools, one row each plus the total
 kloc-count:
-	@# The rows are DISCOVERED, never a hard-coded subsystem list (the old list had
-	@# lost src/profiler, and its `if [ -d ]` guard made an unlisted directory and a
-	@# deleted one look identical). The logic lives in tools/kloc-count.sh, whose
-	@# header says what each section counts and why `grep -h` is load-bearing.
+	@# The counting logic (and the DISCOVERED row list, never a hard-coded subsystem
+	@# list) lives in tools/kloc-count.sh, shared with kloc-count-detailed.
 	@BOLD='$(BOLD)' CYAN='$(CYAN)' RESET='$(RESET)' tools/kloc-count.sh
+
+# Count lines of code (no comments or blanks): every src/ and test/ subdirectory and every tools category
+kloc-count-detailed:
+	@BOLD='$(BOLD)' CYAN='$(CYAN)' RESET='$(RESET)' tools/kloc-count.sh --detailed
 
 # Regenerate the man page, USAGE.md and the guide's option page (needs pandoc)
 docs-man:
