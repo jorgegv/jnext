@@ -463,19 +463,19 @@ void test_short_fetch_through_the_backend() {
     const double returned_at = since(t0);
     ticker.stop();
     int n = 0;
-    double prev = -1, gap = 0;
+    double prev = 0, gap = 0;   // from the start: the wait for the FIRST fire counts too
     for (double f : fires) {
         if (f > returned_at) continue;
         ++n;
-        if (prev >= 0) gap = std::max(gap, f - prev);
+        gap = std::max(gap, f - prev);
         prev = f;
     }
     check("SDD-09",
           "through the real backend and a server that never answers, with the production clock and a 2 s stall "
           "timeout: the fetch returns false after 1.9 to 5.0 s with 'stalled: no data received for 2 s', the "
           "dialog is visible at a ProgressFn call 1.0 s or more after the start and at none before it, an "
-          "application timer keeps firing (at least 5 times, never 800 ms apart) during the fetch, and no dialog "
-          "is left",
+          "application timer keeps firing (at least 5 times, never 800 ms apart, the first wait counted from the "
+          "start) during the fetch, and no dialog is left",
           !ok && returned_at >= 1.9 && returned_at <= 5.0 && err.rfind("stalled: no data received for 2 s", 0) == 0 &&
               first_visible >= 1.0 && last_before_1s_visible < 0 && n >= 5 && gap <= 0.8 && !the_dialog(),
           "ok=" + std::to_string(ok) + " returned_at=" + std::to_string(returned_at) + " err='" + err +
