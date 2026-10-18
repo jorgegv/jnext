@@ -655,8 +655,9 @@ each qualified with its range's `FetchSource`, grouped under one source breakpoi
 Breakpoints panel shows one row, "main.c:18 (2 locations)", and remove, enable and edit act on
 the group. One predicate, `EventFilter::matches(ev)`, replaces the three copies of today (3.3):
 the gate (`execute_gate` to `filter_matches`), `probe_execute()` and `history_stop_at()` all
-call it. The disassembly gutter draws, toggles and patches from the same identity
-(`pc_marked(addr, space)`), and clicking a Source tab line toggles its group (E23-16).
+call it. The disassembly gutter draws, toggles and patches from the same identity:
+`BreakpointModel::pc_marked(addr, space)` takes the `FetchSource` where it takes a page number
+today. Clicking a Source tab line toggles its group (E23-16).
 
 ### 8.2 Qt
 
