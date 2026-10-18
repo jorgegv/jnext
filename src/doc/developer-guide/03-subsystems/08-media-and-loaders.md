@@ -837,8 +837,8 @@ the request to `HeadlessApp::set_delayed_pok()` or `SdlApp::set_delayed_pok()`;
 Each of the two loops holds a `jnext::pok::CliJob`: the request and a
 `cli::Delay::frames(N)`. `poll()` runs once per tick, after that tick's `--load`,
 `--inject` and `--rzx-record` handling and before its frame, so `--load x.sna`
-with N = 0 applies the trainers right after the snapshot is in, and one frame
-after N have run. When due it calls `run_cli_request()`: a fresh `Session` over
+with N = 0 applies the trainers right after the snapshot is in; otherwise they go
+in on the poll after N frames have run. When due it calls `run_cli_request()`: a fresh `Session` over
 the loop owner's debugger backend (the same write path, so the same RZX refusal,
 rewind wall and `MUTATE` lines), `apply()` for each pick in the order written,
 stopping at the first refusal with the trainer's number and name in the reason;
@@ -864,17 +864,17 @@ MMU7 and nothing else, `zxnext.vhd:4679-4680`; MMU2-5 keep pages 0A 0B 04 05,
 `:4613-4616`), but real files name a bank for lower addresses too, and the rule
 above gives those lines a meaning the CPU view does not. **It is not always the
 author's.** On the real 128K Starglider (loaded from its tape, snapshot at the
-title), "Infinite Missiles (Bank#0)" is `M 0 44796 2 0` / `Z 0 60367 0 0`: the
-second line lands on `3D` (`DEC A`) in `LD A,(0x5628) / AND A / JR Z / DEC A /
-LD (0x5628),A` in bank 0, the missile counter; the first, read as the CPU
-address 0xAEFC (bank 2), is the `01` operand of `LD A,1 / LD (0x5628),A`, the
-counter's reset. Read as bank 0 offset 0x2EFC, as Fuse and ZEsarUX read it, it
-changes `47` in bank 0 instead (a bank diff of the two snapshots shows exactly
-those two bytes). So for that file the hardware reading is the right one and the
-bank-relative one misses a byte and changes another; the owner chose the
-bank-relative reading all the same (GH #381, Q2), and going back is the
-`p.address >= 0xC000` condition in `Session::locate()` plus rows POK-33, POK-34
-and POK-57. Every other poke (bank 8-15, "ignore the bank") is the RAM page
+title), "Infinite Missiles (Bank#0)" is `M 0 44796 2 0` / `Z 0 60367 0 0`. The
+second line lands in bank 0, on the `DEC A` that counts the missile counter down
+(it becomes a NOP). The first, read as the CPU address 0xAEFC (bank 2), is the
+operand of the `LD A,1` that resets the same counter; read as byte 0x2EFC of bank
+0, as Fuse and ZEsarUX read it, it changes an unrelated byte of bank 0 instead
+and the reset stays 1 (a bank diff of two snapshots, with and without the
+trainer, shows exactly those two bytes). So for that file the hardware reading is
+the right one and the bank-relative one misses a byte and changes another; the
+owner chose the bank-relative reading all the same (GH #381, Q2), and going back
+is the `p.address >= 0xC000` condition in `Session::locate()` plus rows POK-33,
+POK-34 and POK-57. Every other poke (bank 8-15, "ignore the bank") is the RAM page
 `Debugger::mmu_slots()` reports for the address when the trainer is applied, not
 `poke(Cpu)`, which would follow a Layer 2 write-over mapping that reads do not.
 
