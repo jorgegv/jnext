@@ -184,6 +184,9 @@ GdbServer::~GdbServer() {
 // client is attached as soon as it is admitted.
 void GdbServer::on_connect(Connection& c) {
     parser_.reset();
+    // z88dk-gdb's `load` is a run of `X` packets, no different on the wire from
+    // `set var`, so the session is the signal: a program is about to be replaced
+    // (the POK undo records, GH #381): `note_program_replaced()` below.
     const auto a = dbg_.attach(ClientInfo{"GDB RSP client (" + c.peer() + ")", ClientKind::GdbRsp});
     if (!a) {
         Log::debugger()->warn("gdb: client from {} refused - attach failed: {}", c.peer(),
@@ -192,6 +195,7 @@ void GdbServer::on_connect(Connection& c) {
         return;
     }
     cid_ = a.value;
+    dbg_.note_program_replaced();
     // SES-02: this client's stops arrive as `on_paused()` pushes.
     dbg_.set_listener(cid_, this);
 }

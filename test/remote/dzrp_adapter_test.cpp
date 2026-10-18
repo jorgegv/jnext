@@ -3032,6 +3032,34 @@ static void review_m2_rows() {
     }
 }
 
+// ── DZRP-LOAD — a new session is the signal that the program is replaced (GH #381) ──
+//
+// DZRP has no load verb: DeZog loads its program as memory writes right after CMD_INIT. The POK undo records
+// describe the old program, so a new session counts as a program replaced (Debugger::program_loads()); the
+// memory writes themselves, and a repeated CMD_INIT on the same session, do not.
+
+static void program_replaced_rows() {
+    Rig rig;
+    const std::uint64_t n0 = rig.dbg->program_loads();
+    Dz c(rig);
+    const std::uint64_t n_connect = rig.dbg->program_loads();   // a connection that says nothing touches nothing
+    c.init();
+    const std::uint64_t n_init = rig.dbg->program_loads();
+    c.init();                                                    // a renegotiation on the same session
+    const std::uint64_t n_again = rig.dbg->program_loads();
+    c.cmd(CMD_WRITE_MEM, bytes({0}) + u16s(0x9000) + bytes({0x77}));   // the program arriving as plain writes
+    const std::uint64_t n_write = rig.dbg->program_loads();
+    c.cmd(CMD_CLOSE);
+    c.init();                                                    // the next session: the next program
+    const std::uint64_t n_next = rig.dbg->program_loads();
+    check("DZRP-LOAD-01", "CMD_INIT of a new DZRP session counts as a program replaced "
+                          "(Debugger::program_loads() +1): not the bare connection, not a repeated CMD_INIT on the "
+                          "same session, not CMD_WRITE_MEM, but the next session again (POK undo records, GH #381)",
+          n_connect == n0 && n_init == n0 + 1 && n_again == n_init && n_write == n_init && n_next == n_init + 1,
+          std::to_string(n0) + " " + std::to_string(n_connect) + " " + std::to_string(n_init) + " " +
+              std::to_string(n_again) + " " + std::to_string(n_write) + " " + std::to_string(n_next));
+}
+
 int main() {
     std::printf("dzrp_adapter_test — the DZRP adapter over T's fake transport (GH #12)\n");
     framing_rows();
@@ -3053,6 +3081,7 @@ int main() {
     session_state_rows();
     edge_rows();
     review_m2_rows();
+    program_replaced_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass,

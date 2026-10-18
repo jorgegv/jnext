@@ -891,10 +891,15 @@ Apply is the way on; it replaces the record, but a location that still holds wha
 the older record wrote keeps the older record's `original` (matched by page and
 offset), because that byte is still our poke, and a location the program changed
 takes the program's byte. Without that, Remove would leave the poke in place for
-good. A program load through the backend (a debugger, DZRP or ZRCP client:
-`Debugger::load()`, which never reaches `set_emulator()`) drops them too: the
-`Session` compares `Debugger::program_loads()`, a counter `load()` bumps whether
-the loader succeeded or not, and forgets the records when it moved (POK-65).
+good. A program put in through the backend, which never reaches `set_emulator()`,
+drops them too: the `Session` compares `Debugger::program_loads()` and forgets the
+records when it moved (POK-65..67, once per move, for every trainer). The counter moves
+for a ZRCP `smartload` (`Debugger::load()`, whether the loader succeeded or not), a ZRCP
+`load-binary` that landed a byte, and a NEW DZRP or GDB session (`note_program_replaced()`
+from `cmd_init` and the GDB `on_connect`: neither protocol has a load verb, the program
+arrives as memory writes after the connection; DZRP-LOAD-01, GDB-SES-08, ZRCP-LOAD-06).
+Plain memory writes into a session already open (CMD_WRITE_MEM/BANK, `M`/`X`,
+`write-memory`) do not move it, so the records survive those.
 `forget_applied()` drops them for the other routes: `MainWindow::set_emulator()` calls
 it, and `QtApp` calls `set_emulator()` after every machine rebuild
 (`boot_machine()`'s `rewire_host` hook), which covers menu load, Quick Load,

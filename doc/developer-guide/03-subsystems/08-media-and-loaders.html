@@ -3329,10 +3329,15 @@ Apply is the way on; it replaces the record, but a location that still holds wha
 the older record wrote keeps the older record's <code>original</code> (matched by page and
 offset), because that byte is still our poke, and a location the program changed
 takes the program's byte. Without that, Remove would leave the poke in place for
-good. A program load through the backend (a debugger, DZRP or ZRCP client:
-<code>Debugger::load()</code>, which never reaches <code>set_emulator()</code>) drops them too: the
-<code>Session</code> compares <code>Debugger::program_loads()</code>, a counter <code>load()</code> bumps whether
-the loader succeeded or not, and forgets the records when it moved (POK-65).
+good. A program put in through the backend, which never reaches <code>set_emulator()</code>,
+drops them too: the <code>Session</code> compares <code>Debugger::program_loads()</code> and forgets the
+records when it moved (POK-65..67, once per move, for every trainer). The counter moves
+for a ZRCP <code>smartload</code> (<code>Debugger::load()</code>, whether the loader succeeded or not), a ZRCP
+<code>load-binary</code> that landed a byte, and a NEW DZRP or GDB session (<code>note_program_replaced()</code>
+from <code>cmd_init</code> and the GDB <code>on_connect</code>: neither protocol has a load verb, the program
+arrives as memory writes after the connection; DZRP-LOAD-01, GDB-SES-08, ZRCP-LOAD-06).
+Plain memory writes into a session already open (CMD_WRITE_MEM/BANK, <code>M</code>/<code>X</code>,
+<code>write-memory</code>) do not move it, so the records survive those.
 <code>forget_applied()</code> drops them for the other routes: <code>MainWindow::set_emulator()</code> calls
 it, and <code>QtApp</code> calls <code>set_emulator()</code> after every machine rebuild
 (<code>boot_machine()</code>'s <code>rewire_host</code> hook), which covers menu load, Quick Load,

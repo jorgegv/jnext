@@ -83,10 +83,12 @@ running. These forget it, though the changes stay in memory:
   of a program or snapshot, Quick Load, and a program that resets the machine
   itself. The row shows *applied (found in memory)* if memory still holds the
   bytes, *not applied* if not.
-- A program loaded from a debugger, DZRP or ZRCP client (an IDE sending the
-  program): the trainer's bytes may still be in memory, but what they replaced
-  belonged to the old program, so the row shows *applied (found in memory)* or
-  *not applied*, never *applied*.
+- A program sent by a debugger: a ZRCP `smartload` or `load-binary`, or a new
+  DeZog (DZRP) or GDB connection, which is when those load their program. The
+  trainer's bytes may still be in memory, but what they replaced belonged to the
+  old program, so the row shows *applied (found in memory)* or *not applied*,
+  never *applied*. Memory writes a debugger makes in a connection that is already
+  open do not do this.
 - Opening another `.pok` file.
 
 ## Where a poke lands

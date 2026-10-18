@@ -1618,6 +1618,74 @@ void test_session() {
                         "plan D6)",
               all && control, detail + "|" + cd + "|" + hex(c.rd(0x8003)));
     }
+
+    // POK-66: after a backend load the Session works again - the drop happens ONCE (the count is re-synced), so a
+    // trainer applied afterwards is Applied and Remove puts back the byte the NEW program had; a plain memory write
+    // through the backend does not drop anything; note_program_replaced() (the servers' signal for a program that
+    // arrives as memory writes: a DZRP or GDB session, a ZRCP load-binary) does.
+    {
+        Rig r(MachineType::ZX48K);
+        r.load("NT\nZ  8 32771 0 53\n");
+        jnext::dbg::LoopDriver d;
+        Rig* rig = &r;
+        d.load = [rig](const std::string&) { rig->wr(0x8003, 0x11); return true; };   // the new program's byte
+        r.dbg->set_loop_driver(d);
+        r.wr(0x8003, 0x77);
+        const std::string a1 = r.apply(0);
+        r.dbg->load(jnext::dbg::CLIENT_NONE, "other.sna");
+        const bool gone = r.s->state(0) == State::NotApplied;   // the new program holds 0x11, not the poke
+        const std::string a2 = r.apply(0);                       // records the NEW program's byte, 0x11
+        const std::uint8_t other = 0x5A;
+        r.dbg->poke(jnext::dbg::CLIENT_NONE, MemSpace::cpu(), 0x9000, 1, &other);   // a plain write
+        const bool still = r.s->state(0) == State::Applied && r.s->state(0) == State::Applied;
+        const std::string d1 = r.s->remove(0);
+        const bool back = d1.empty() && r.rd(0x8003) == 0x11;
+
+        Rig n(MachineType::ZX48K);
+        n.load("NT\nZ  8 32771 0 53\n");
+        n.wr(0x8003, 0x77);
+        n.apply(0);
+        n.dbg->note_program_replaced();
+        const bool noted = n.s->state(0) == State::AppliedFound && n.s->remove(0).empty() && n.rd(0x8003) == 0x35;
+        check("POK-66", "after a backend program load the records are dropped once: a trainer applied afterwards reads "
+                        "Applied (also after a plain memory write through the backend), and Remove restores the byte "
+                        "the NEW program had (0x11), not the old one (0x77); note_program_replaced() drops them too: "
+                        "the poked byte is still there, so it reads found in memory and Remove writes the file's "
+                        "original (0x35), not 0x77 (jnext's own undo rule, plan D6)",
+              r.ok && n.ok && a1.empty() && gone && a2.empty() && still && back && noted,
+              a1 + "|" + a2 + "|" + d1 + "|" + hex(r.rd(0x8003)));
+    }
+
+    // POK-67: ... for EVERY trainer: two applied before the load, a new program that holds both bytes: both read
+    // found in memory and neither Remove writes the old program's byte.
+    {
+        Rig r(MachineType::ZX48K);
+        r.load("NA\nZ  8 32771 0 53\nNB\nZ  8 32772 0 54\nNC\nZ  8 32773 0 55\n");
+        jnext::dbg::LoopDriver d;
+        Rig* rig = &r;
+        d.load = [rig](const std::string&) {
+            rig->wr(0x8003, 0x00);
+            rig->wr(0x8004, 0x00);
+            rig->wr(0x8005, 0x00);
+            return true;
+        };
+        r.dbg->set_loop_driver(d);
+        r.wr(0x8003, 0x71);
+        r.wr(0x8004, 0x72);
+        r.wr(0x8005, 0x73);
+        const std::string a = r.apply(0) + r.apply(1) + r.apply(2);
+        r.dbg->load(jnext::dbg::CLIENT_NONE, "other.sna");
+        const bool found = r.s->state(0) == State::AppliedFound && r.s->state(1) == State::AppliedFound &&
+                           r.s->state(2) == State::AppliedFound;
+        const std::string rm = r.s->remove(1) + r.s->remove(2) + r.s->remove(0);
+        check("POK-67", "three trainers applied before a backend load whose new program holds all their bytes all read "
+                        "found in memory afterwards (the records of EVERY trainer are dropped), and each Remove writes "
+                        "the file's original (0x35, 0x36, 0x37), never the old program's byte (0x71..0x73) "
+                        "(jnext's own undo rule, plan D6)",
+              r.ok && a.empty() && found && rm.empty() && r.rd(0x8003) == 0x35 && r.rd(0x8004) == 0x36 &&
+                  r.rd(0x8005) == 0x37,
+              a + "|" + rm + "|" + hex(r.rd(0x8003)) + hex(r.rd(0x8004)) + hex(r.rd(0x8005)));
+    }
 }
 
 }  // namespace
