@@ -333,7 +333,7 @@ void test_short_fetch_no_flash() {
         bool first = true;
         for (int ms : {0, 200, 400, 600, 800, 900}) {
             offset = milliseconds(ms);
-            all_true = pf(0, 0) && all_true;
+            all_true = (pf ? pf(0, 0) : false) && all_true;   // an empty ProgressFn fails the row, it does not abort
             if (first) fired_in_first_call = timer_fired;
             first = false;
             if (the_dialog()) dialog_ever = true;
@@ -449,7 +449,7 @@ void test_short_fetch_through_the_backend() {
     std::string err;
     const bool ok = gui.short_fetch(kShortLabel, [&](const sdcard::ProgressFn& pf) {
         spy = [&](uint64_t d, uint64_t t) {
-            const bool go = pf(d, t);
+            const bool go = pf ? pf(d, t) : true;   // an empty ProgressFn fails the row (no dialog), it does not abort
             ++calls;
             const double at = since(t0);
             QProgressDialog* dlg = the_dialog();
