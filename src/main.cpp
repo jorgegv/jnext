@@ -380,7 +380,7 @@ int main(int argc, char* argv[]) {
     std::vector<DelayedNmiArg> delayed_nmis;
     struct DelayedSdInsertArg { int delay; std::string image; };
     std::vector<DelayedSdInsertArg> delayed_sd_inserts;   // GH #93
-    // GH #381 (owner Q1) — --delayed-pok-frames N FILE and --pok-trainers LIST. The
+    // GH #381 (owner Q1) - --delayed-pok-frames N FILE and --pok-trainers LIST. The
     // counts are occurrences: a repeat is refused (one POK file per run), and
     // either option without the other is refused below the loop.
     int         pok_frames = 0;
@@ -1236,7 +1236,7 @@ int main(int argc, char* argv[]) {
             }
         }
     }
-    // GH #381 (owner Q1) — a POK trainer file from the command line. The pair is
+    // GH #381 (owner Q1) - a POK trainer file from the command line. The pair is
     // given once; the file and the list are read NOW, so that a typo in a CI script
     // fails at once and not after the run has gone on to its end. The Qt window
     // has Machine > POK Trainers..., so it refuses both.
@@ -2068,7 +2068,7 @@ int main(int argc, char* argv[]) {
         if (!inject_file.empty())
             app.set_pending_inject(inject_file, inject_org, inject_pc, inject_delay);
 
-        // GH #381 — --delayed-pok-frames: the headless and SDL-only loops apply it;
+        // GH #381 - --delayed-pok-frames: the headless and SDL-only loops apply it;
         // the Qt window refused it above.
 #ifdef ENABLE_QT_UI
         if constexpr (std::is_same_v<std::decay_t<decltype(app)>, HeadlessApp>)

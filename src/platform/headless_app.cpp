@@ -708,7 +708,7 @@ void HeadlessApp::run() {
             }
         }
 
-        // GH #381 — --delayed-pok-frames: the trainers go in through the backend, as
+        // GH #381 - --delayed-pok-frames: the trainers go in through the backend, as
         // a trainer applied in the Qt window does, AFTER this tick's load and before
         // its frame. A refusal fails the run, like a failed load.
         if (pok_job_ && !pok_job_->poll(*debugger_, emulator_.video_timing().refresh_60hz()))

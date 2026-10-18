@@ -144,7 +144,7 @@ public:
     /// Repeatable: each call queues one independent change.
     void set_delayed_sdcard_insert(const std::string& image, int delay_frames);
 
-    /// GH #381 (owner Q1) — --delayed-pok-frames N FILE with --pok-trainers LIST:
+    /// GH #381 (owner Q1) - --delayed-pok-frames N FILE with --pok-trainers LIST:
     /// the request main() has read and checked (jnext::pok::make_cli_request),
     /// applied after `delay_frames` frames through the debugger backend, as a
     /// trainer applied in the Qt window is. A refusal fails the run, as does the

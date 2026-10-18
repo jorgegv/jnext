@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One functional test of the regression suite. Sourced by regression.sh (the
-# driver); also directly executable — the lib then self-initializes and
+# driver); also directly executable - the lib then self-initializes and
 # standalone_summary prints the totals.
 # shellcheck source=test/00regression/test-functions.inc
 set -euo pipefail

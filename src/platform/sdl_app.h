@@ -81,7 +81,7 @@ public:
     /// The same bound in EMULATED seconds (cli::Delay).
     void set_delayed_exit_seconds(int delay_seconds);
 
-    /// GH #381 (owner Q1) — --delayed-pok-frames N FILE with --pok-trainers LIST:
+    /// GH #381 (owner Q1) - --delayed-pok-frames N FILE with --pok-trainers LIST:
     /// the request main() has read and checked (jnext::pok::make_cli_request),
     /// applied after `delay_frames` frames through the debugger backend. This
     /// frontend has no menus, so this is how it takes a POK file. A refusal fails

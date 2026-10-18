@@ -464,7 +464,7 @@ void SdlApp::run() {
                 load_countdown_ >= 0 || inject_countdown_ >= 0))
             exit_code_ = 1;
 
-        // GH #381 — --delayed-pok-frames: the trainers go in through the backend
+        // GH #381 - --delayed-pok-frames: the trainers go in through the backend
         // after this tick's load and before its frames. A refusal fails the run,
         // like a failed load.
         if (pok_job_ && !pok_job_->poll(*debugger_, emulator_.video_timing().refresh_60hz()))
