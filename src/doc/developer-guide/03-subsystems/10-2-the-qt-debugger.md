@@ -209,8 +209,12 @@ map and carries the source-step buttons; it holds no state of its own beyond
 the loaded file and its modification time, where the view was last put, and the
 sidecar reason `report_sidecars()` gave it. `refresh()` runs on every tick while
 the machine is paused, so it moves the cursor and centres only when the line or
-the PC changed or the text was loaded since (a user who scrolled stays put);
-while the machine runs it says "Running" and drops the highlight. Its buttons are not menu items and
+the PC changed or the text was loaded since (a user who scrolled stays put).
+`follow_pc()` forces the next one: `DebuggerWindow::activate_follow_pc()` calls
+it, and `apply_pause_state(true)` runs that at every stop and every step, as it
+does for the disassembly, so a stop at the very PC and line already shown still
+puts the view back. While the machine runs the tab says "Running" and drops the
+highlight. Its buttons are not menu items and
 have no key binding: the menu tree and the bindings are pinned by
 `debugger_accel_test` and `debugger_keymap_test`. `BreakpointModel` lists an
 Execute subscription with a page qualifier as the GUI's own row (`Row::page`);

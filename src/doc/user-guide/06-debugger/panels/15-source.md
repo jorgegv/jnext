@@ -17,7 +17,9 @@ use the disassembly there.
 
 While the machine runs the tab says **Running**; the next pause shows the line
 again. While it is paused you can scroll the file: the view goes back to the
-current line when the PC moves (a step, a rewind, another map) and not before.
+current line when the machine stops again (a breakpoint, a Pause, a step, a
+rewind), even at the same line, or when the line shown changes (another map
+loaded), and not before.
 When a program's source map was found and refused, the tab says why in place of
 "No source map loaded" (`source map 'game.sld' rejected: …`), and so do the
 status bar and the log.
