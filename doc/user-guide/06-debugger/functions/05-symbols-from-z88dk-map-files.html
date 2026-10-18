@@ -3612,8 +3612,10 @@ the disassembly right-click menu offers to watch the symbol by name. The open
 panels show the names as soon as the file is loaded.</p>
 <p>Where two symbols share an address, the first one in the file wins.</p>
 <p>On the command line, <code>--map FILE</code> loads a z88dk <code>.map</code> or an sjasmplus <code>--sym</code>
-or <code>--exp</code> file. It tells them apart by what is in the file, not by its name
-(z88dk's assembler also writes a <code>.sym</code>, in the map format). A script names a
+or <code>--exp</code> file. It tells them apart by the file's first line, not by its name
+(z88dk's assembler also writes a <code>.sym</code>, in the map format). A file sjasmplus
+wrote starts with a symbol line; one edited to start with a comment is read as
+a z88dk map, so load it with <strong>Map ▸ Load MAP File</strong> instead. A script names a
 symbol as <code>@name</code>, an sjasmplus label with its dots as <code>@main.loop</code>: see
 <a href="../scripting/04-reading-the-machine.html#symbols-name">Symbols</a>.</p>
 <p>NextBuild / Boriel ZX Basic programs come with a <code>Memory.txt</code> instead, which

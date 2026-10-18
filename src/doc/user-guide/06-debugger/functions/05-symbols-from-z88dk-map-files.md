@@ -38,8 +38,10 @@ panels show the names as soon as the file is loaded.
 Where two symbols share an address, the first one in the file wins.
 
 On the command line, `--map FILE` loads a z88dk `.map` or an sjasmplus `--sym`
-or `--exp` file. It tells them apart by what is in the file, not by its name
-(z88dk's assembler also writes a `.sym`, in the map format). A script names a
+or `--exp` file. It tells them apart by the file's first line, not by its name
+(z88dk's assembler also writes a `.sym`, in the map format). A file sjasmplus
+wrote starts with a symbol line; one edited to start with a comment is read as
+a z88dk map, so load it with **Map ▸ Load MAP File** instead. A script names a
 symbol as `@name`, an sjasmplus label with its dots as `@main.loop`: see
 [Symbols](../scripting/04-reading-the-machine.md#symbols-name).
 
