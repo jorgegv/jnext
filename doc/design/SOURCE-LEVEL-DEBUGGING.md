@@ -155,9 +155,10 @@ fixture; the others are from the planning builds.
   sdcc emits an out-of-line copy of a `static inline` in each module that includes it, so
   `util.h:7` is two ranges in two modules: one line, many addresses (several starts for
   `resolve()`, and the primary and "also" locations of OD-7).
-- G8. Banked code takes its page from the section name on newlib: `PAGE_20` is page 20, and
-  `BANK_10` is the 8K pages 20 and 21. Addresses are logical and 16-bit, so without the
-  section every bank's $C000 is the same address: D3's hazard (section 9.4).
+- G8. Banked code takes its page from the section name on newlib: `PAGE_20` starts in page 20
+  (and runs on into page 21 if it is larger than 8K), and `BANK_10` is the 8K pages 20 and
+  21. Addresses are logical and 16-bit, so without the section every bank's $C000 is the same
+  address: D3's hazard (section 9.4).
 - G9. `__banked` calls go through `banked_call`, which pops its return address, switches to a
   private stack, pages the target in and calls it through `l_jphl`. jnext's `CallStack` pops
   every frame whose `sp_at_call` is below SP on a RET, so the depth comes back right, by luck.
@@ -782,7 +783,15 @@ for each `<KIND>` (`CODE`, `RODATA`, `DATA` or `BSS`), `<KIND>_PAGE_<n>`, `<KIND
 `DATA_<n>_align_<m>` inside a plain bank. The rules read the word (`PAGE`, `DIV`, `BANK` or a
 `<KIND>`), the number `<n>` and the `_L` or `_H` suffix of the name.
 
-1. Section `PAGE_<n>` or `<KIND>_PAGE_<n>`: `Page{n}`.
+1. Section `PAGE_<n>` or `<KIND>_PAGE_<n>`:
+   `Page{n + (((head & 0x1fff) + (addr - head)) >> 13)}`, where `head` is the map's
+   `__PAGE_<n>_head`, the section's start. That is page n for the first 8K and the following
+   pages for the rest, because `appmake` lays a `PAGE_<n>` section out in successive 8K pages
+   from page n whatever its size (`src/appmake/zxn.c`, "merge PAGE space into BANK space",
+   identical on 2.4 and at 39421a01cd). Measured on 2026-10-18 on both installs (newlib,
+   sccz80): in a `PAGE_16` section of 12000 bytes at ORG $C000 (`__PAGE_16_size` $2EE4), a
+   symbol at $EEE0 is in page 17; a 600-byte `PAGE_16` section at ORG $E100 starts at offset
+   $100 of page 16, and its symbol at $E358 is in page 16.
 2. A section of the 16K bank n, which is the 8K pages 2n and 2n + 1. `BANK_<n>`, `<KIND>_<n>`
    and the aligned sections: `Page{2n + ((addr16 >> 13) & 1)}`. `BANK_<n>_L` and
    `<KIND>_<n>_L`: `Page{2n}`. `BANK_<n>_H` and `<KIND>_<n>_H`: `Page{2n + 1}`. `addr16` is
@@ -790,9 +799,9 @@ for each `<KIND>` (`CODE`, `RODATA`, `DATA` or `BSS`), `<KIND>_PAGE_<n>`, `<KIND
    z88dk's `appmake` (`src/appmake/zxn.c`, identical on 2.4 and at 39421a01cd) places a
    section in the 16K bank at `(org & 0x1fff) + 0xc000` for `_L`, at `(org & 0x1fff) + 0xe000`
    for `_H` and at `(org & 0x3fff) + 0xc000` for the rest: a byte of a plain bank is at bank
-   offset `addr16 & 0x3fff`, whatever the ORG. A page computed from the distance to the ORG
-   is wrong when the ORG is not 16K-aligned (`BANK_10` at $E000 starts in page 21, not 20).
-   Checked on 2026-10-18 by scratch builds on 2.4 and on the latest install (newlib, sccz80,
+   offset `addr16 & 0x3fff`, whatever the ORG. For a bank, a page computed from the distance
+   to the ORG is wrong when the ORG is not 16K-aligned (`BANK_10` at $E000 starts in page 21,
+   not 20). Checked on 2026-10-18 by scratch builds on 2.4 and on the latest install (newlib, sccz80,
    one function): in `BANK_10` at ORG $C000 or $D000 it is in page 20, at $E000 or $A000 in
    page 21; in `BANK_10_L` (ORG $C000) in page 20; in `BANK_10_H` (ORG $E000 or $C000) in
    page 21.
