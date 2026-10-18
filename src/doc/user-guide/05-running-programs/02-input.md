@@ -80,7 +80,10 @@ them as usual. Only the tap-Alt-then-arrow route is gone.
 
 The machine's own front-panel keys are on function keys: **F1** hard reset,
 **F4** soft reset, **F9** Multiface NMI, **F10** DivMMC. (With the debugger
-open, F9 belongs to the debugger.) With Alt and Shift held, F5 and F9 are the quick
+open, F9 belongs to the debugger.) With Alt held, F1 and F4 never reset the
+machine: **Alt+F4** quits JNEXT. It is the second shortcut of **File > Quit**,
+next to Alt+Q, and it works whatever else is held and with the mouse captured
+or not. Alt+F1 does nothing. With Alt and Shift held, F5 and F9 are the quick
 snapshot keys instead and reach neither the Multiface nor the guest. The **Pause** key pauses and resumes the
 machine (**Machine > Pause**, also **Alt+U**). The two resets are also in the **Machine**
 menu and on the toolbar: **Power Reset** (Alt+R, same as F1) is a power

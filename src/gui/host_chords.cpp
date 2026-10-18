@@ -28,7 +28,10 @@ std::vector<HostChord> harvest_host_chords(const QWidget* w) {
             if (!parse_combo(seq.toString().toStdString(), c, why)) continue;
             if (!validate_combo(c, why)) continue;   // the user could not bind it either
             if (find_host_chord(out, c)) continue;   // first claimant wins the label
-            out.push_back(HostChord{c, a->text().remove(QLatin1Char('&'))});
+            // The text before a tab: an action may carry its own accelerator
+            // column after one (File > Quit names both its shortcuts, GH #380).
+            out.push_back(HostChord{
+                c, a->text().section(QLatin1Char('\t'), 0, 0).remove(QLatin1Char('&'))});
         }
     }
     return out;
