@@ -129,7 +129,7 @@ void Mmu::reset(bool hard) {
 
     // GH #339 — "none recorded": the fetch record belongs to the machine that
     // made it, and a reset starts a new run of instructions.
-    last_m1_ = jnext::dbg::MemSpace::cpu();
+    last_m1_ = pack_space_(jnext::dbg::MemSpace::cpu());
 
     paging_locked_ = false;
     contention_disabled_ = false;
@@ -279,14 +279,14 @@ void Mmu::rebuild_ptr_body_(int slot) {
             read_ptr_[slot] = rom_in_sram_ ? ram_.page_ptr(page) : rom_.page_ptr(page);
             write_ptr_[slot] = nullptr;
             // GH #339: `page` is the ROM-area index (0..7); 16 KB image page>>1.
-            slot_space_[slot] = MemSpace::rom(page >> 1);
+            slot_space_[slot] = pack_space_(MemSpace::rom(page >> 1));
         } else {
             read_ptr_[slot] = nullptr;
             write_ptr_[slot] = nullptr;
             // GH #92: MMU<i>=0xFF in slots 2..7 → mmu_A21_A13(8)='1' →
             // sram_pre_active='0' (zxnext.vhd:3061) — no sram_req, no wait.
             sram_read_wait28_[slot] = 0;
-            slot_space_[slot] = MemSpace::floating();
+            slot_space_[slot] = pack_space_(MemSpace::floating());
         }
     } else {
         // VHDL floating-bus / inactive-slot gate (zxnext.vhd:2964 +
@@ -326,7 +326,7 @@ void Mmu::rebuild_ptr_body_(int slot) {
                 // GH #92: mmu_A21_A13(8)='1' → sram_pre_active='0'
                 // (zxnext.vhd:3061) — no sram_req, no 28 MHz read wait.
                 sram_read_wait28_[slot] = 0;
-                slot_space_[slot] = MemSpace::floating();   // GH #339
+                slot_space_[slot] = pack_space_(MemSpace::floating());   // GH #339
             } else {
                 // Slot 0/1: legacy ROM (sram_rom-derived). Mirror
                 // engage_legacy_rom_paging_slot() but without touching
@@ -372,7 +372,7 @@ void Mmu::rebuild_ptr_body_(int slot) {
                 // verbatim NR-write value (e.g. 0xE5) for read-back
                 // (zxnext.vhd:6075-6082).
                 slots_[slot] = rom_page;
-                slot_space_[slot] = MemSpace::rom(sram_rom);   // GH #339
+                slot_space_[slot] = pack_space_(MemSpace::rom(sram_rom));   // GH #339
             }
             return;
         }
@@ -395,7 +395,7 @@ void Mmu::rebuild_ptr_body_(int slot) {
             // appears nowhere in the 28 MHz wait expression at :3175
             // (only sram_req_t and cpu_bank5_sched do) — reads never wait.
             sram_read_wait28_[slot] = 0;
-            slot_space_[slot] = MemSpace::page(page);   // GH #339: Page{0x0E}
+            slot_space_[slot] = pack_space_(MemSpace::page(page));   // GH #339: Page{0x0E}
             return;
         }
         // Bank 5 (pages 0x0A/0x0B) is a dedicated 16K dual-port VRAM on
@@ -414,14 +414,14 @@ void Mmu::rebuild_ptr_body_(int slot) {
                             + ((page & 1) ? 0x2000 : 0);
             read_ptr_[slot]  = half;
             write_ptr_[slot] = half;
-            slot_space_[slot] = MemSpace::page(page);   // GH #339: Page{0x0A/0x0B}
+            slot_space_[slot] = pack_space_(MemSpace::page(page));   // GH #339: Page{0x0A/0x0B}
             return;
         }
         // RAM slot: apply VHDL mmu_A21_A13 shift (Next mode) via to_sram_page.
         uint8_t* p = ram_.page_ptr(to_sram_page(page));
         read_ptr_[slot] = p;
         write_ptr_[slot] = p;
-        slot_space_[slot] = MemSpace::page(page);       // GH #339
+        slot_space_[slot] = pack_space_(MemSpace::page(page));       // GH #339
     }
 }
 
@@ -447,7 +447,7 @@ void Mmu::map_rom_physical(int slot, uint8_t rom_page) {
     sram_read_wait28_[slot] = 1;
     // GH #339: the half is rom_page & 1, which every production caller makes
     // cpu_a(13) (sram_rom * 2 + slot).
-    slot_space_[slot] = jnext::dbg::MemSpace::rom(rom_page >> 1);
+    slot_space_[slot] = pack_space_(jnext::dbg::MemSpace::rom(rom_page >> 1));
     // Leaves nr_mmu_[slot] unchanged; callers update it as needed.
     // reset() seeds 0xFF (VHDL ROM sentinel); legacy paging callers
     // (map_128k_bank / map_plus3_bank) overwrite with physical page.
@@ -1157,22 +1157,73 @@ void Mmu::load_state(StateReader& r)
 
     // GH #339 — the fetch record is not state: a restore starts with none, so
     // nothing reads the previous machine's last fetch as this one's.
-    last_m1_ = jnext::dbg::MemSpace::cpu();
+    last_m1_ = pack_space_(jnext::dbg::MemSpace::cpu());
 }
 
 // ---------------------------------------------------------------------------
 // DivMMC overlay helpers (out-of-line to avoid circular include)
 // ---------------------------------------------------------------------------
 
-bool Mmu::divmmc_route_(uint16_t addr, bool check_active, Route& r) const {
-    if (check_active && !divmmc_->is_active()) return false;
+bool Mmu::divmmc_is_active_() const {
+    return divmmc_->is_active();
+}
+
+Mmu::RouteBits Mmu::divmmc_route_(uint16_t addr) const {
     // The decode is DivMmc's (divmmc.vhd:88-101, once); this only names it.
     const DivMmc::Overlay o = divmmc_->overlay_at(addr);
-    r.space  = o.ram ? jnext::dbg::MemSpace::divmmc_ram(o.bank)
-                     : jnext::dbg::MemSpace::divmmc_rom();
-    r.offset = addr & 0x1FFF;
-    r.ptr    = o.ptr;
-    return true;
+    return RouteBits{pack_space_(o.ram ? jnext::dbg::MemSpace::divmmc_ram(o.bank)
+                                       : jnext::dbg::MemSpace::divmmc_rom()),
+                     static_cast<uint16_t>(addr & 0x1FFF), o.ptr};
+}
+
+// The Layer 2 read mapping at a mapped address.
+// VHDL zxnext.vhd:2966-2969:
+//   bank        = nr_13 if map_shadow else nr_12     (G144)
+//   offset_pre  = cpu_a(15:14) when seg=11 else seg  (:2966)
+//   bank_offset = offset_pre + port_123b_layer2_offset (G92)
+//   page_idx    = ((bank + bank_offset) << 1) | cpu_a(13)
+// VHDL zxnext.vhd:2971 + :3101-3102 -- the L2 mmu_A21_A13(8) gate fires when
+// layer2_active_page(7:5) = "111" (i.e. sum[6:4]=111 when sum = bank + bofs). The
+// arbiter sets sram_active = NOT layer2_A21_A13(8), so when the gate fires the
+// SRAM is INACTIVE (read returns floating bus, write dropped). Verify10-memory
+// class-(c) fix: previously jnext computed `phys_page = to_sram_page(...)`
+// unconditionally, which for high sums (>=0x70) wrapped through `+0x20`
+// arithmetic into the ROM-in-SRAM region (pages 0..7) -- a read/write would alias
+// bytes in the ROM area instead of returning floating-bus / dropping. Real
+// software never sets L2 banks high enough to reach this corner, but the gate is
+// VHDL-faithful so we honour it. The route names it `Floating` (and the Layer 2
+// page >= 0xE0 it would have been is not a page the SRAM has).
+Mmu::RouteBits Mmu::layer2_route_(uint16_t addr) const {
+    const uint8_t bank    = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
+    const uint8_t off_pre = l2_offset_pre_for(addr);
+    const uint8_t bofs    = static_cast<uint8_t>(off_pre + l2_offset_);
+    const uint16_t off    = addr & 0x1FFF;
+    const uint8_t sum = static_cast<uint8_t>(bank + bofs);
+    if ((sum & 0x70) == 0x70)
+        return RouteBits{pack_space_(jnext::dbg::MemSpace::floating()), off, nullptr};
+    const uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
+    const uint8_t  lp      = static_cast<uint8_t>(l2_page | ((addr >> 13) & 1));
+    const uint8_t* p = ram_.page_ptr(to_sram_page(lp));
+    return RouteBits{pack_space_(jnext::dbg::MemSpace::layer2(lp)), off, p ? p + off : nullptr};
+}
+
+// The alternate ROM's read override (VHDL zxnext.vhd:3116-3122): SRAM page
+// 0x0C | sram_alt_128_n << 1 | cpu_a(13).
+Mmu::RouteBits Mmu::altrom_route_(uint16_t addr) const {
+    const uint8_t* p = ram_.page_ptr(altrom_sram_page_(addr));
+    return RouteBits{pack_space_(jnext::dbg::MemSpace::alt_rom(sram_alt_128_n() ? 1 : 0)),
+                     static_cast<uint16_t>(addr & 0x3FFF),
+                     p ? p + (addr & 0x1FFF) : nullptr};
+}
+
+// The config-mode window (VHDL zxnext.vhd:3044-3050): SRAM page
+// (nr_04_romram_bank << 1) | cpu_a(13).
+Mmu::RouteBits Mmu::config_route_(uint16_t addr) const {
+    const uint8_t* p =
+        ram_.page_ptr((static_cast<uint16_t>(nr_04_romram_bank_) << 1) | (addr >> 13));
+    return RouteBits{pack_space_(jnext::dbg::MemSpace::config(nr_04_romram_bank_)),
+                     static_cast<uint16_t>(addr & 0x3FFF),
+                     p ? p + (addr & 0x1FFF) : nullptr};
 }
 
 bool Mmu::divmmc_write(uint16_t addr, uint8_t val, bool& landed) {
@@ -1200,15 +1251,16 @@ bool Mmu::mf_overlay_active_() const {
     return multiface_->is_mem_active();
 }
 
-void Mmu::mf_route_(uint16_t addr, Route& r) const {
+Mmu::RouteBits Mmu::mf_route_(uint16_t addr) const {
     // 8 KB MF ROM at 0x0000-0x1FFF, 8 KB MF RAM at 0x2000-0x3FFF (cpu_a(13)
     // selects the half, zxnext.vhd:3031).
     const bool ram = addr >= 0x2000;
-    r.space  = ram ? jnext::dbg::MemSpace::multiface_ram()
-                   : jnext::dbg::MemSpace::multiface_rom();
-    r.offset = addr & 0x1FFF;
-    r.ptr    = (ram ? static_cast<const uint8_t*>(multiface_->ram_data())
-                    : multiface_->rom_data()) + r.offset;
+    const uint16_t off = addr & 0x1FFF;
+    return RouteBits{pack_space_(ram ? jnext::dbg::MemSpace::multiface_ram()
+                                     : jnext::dbg::MemSpace::multiface_rom()),
+                     off,
+                     (ram ? static_cast<const uint8_t*>(multiface_->ram_data())
+                          : multiface_->rom_data()) + off};
 }
 
 void Mmu::mf_ram_write_(uint16_t addr, uint8_t val) {

@@ -101,14 +101,14 @@ public:
     /// The route of a read at `addr` with the overlays as they are NOW.
     /// Pure: it changes nothing and raises no watchpoint (`read()` does that, on
     /// the result).
-    Route route(uint16_t addr) const { return route_impl_<true>(addr, false, false); }
+    Route route(uint16_t addr) const { return to_route_(route_bits_<true>(addr, false, false)); }
 
     /// The route of a read at `addr` with the two overlays an M1 itself can
     /// switch — DivMMC's automap and the Multiface's 0x0066 fetch — given as
     /// they will be for that fetch (`Emulator::predict_fetch()` asks for them).
     /// Same body as `route()`; only the origin of those two answers differs.
     Route route_with(uint16_t addr, bool divmmc_active, bool mf_active) const {
-        return route_impl_<false>(addr, divmmc_active, mf_active);
+        return to_route_(route_bits_<false>(addr, divmmc_active, mf_active));
     }
 
     /// What supplied the first opcode byte of the last instruction fetched
@@ -116,7 +116,7 @@ public:
     /// `reset()` and `load_state()` until the next fetch. Pair it with
     /// `Z80Cpu::fetched_opcode_last_execute()`: an accepted INT or NMI and an
     /// intercepted esxdos call fetch nothing, and leave the previous value.
-    jnext::dbg::MemSpace last_m1() const { return last_m1_; }
+    jnext::dbg::MemSpace last_m1() const { return unpack_space_(last_m1_); }
 
     // ── G46(b) — VHDL `sram_pre_override` priority arbiter ─────────────
     //
@@ -296,7 +296,7 @@ public:
     // floating-bus latch: an overlay read over a contended page missed it, and
     // the boot-ROM and floating-bus reads missed the READ watchpoint.
     inline uint8_t read(uint16_t addr) override {
-        return finish_read_(addr, route_impl_<true>(addr, false, false));
+        return finish_read_(addr, route_bits_<true>(addr, false, false));
     }
 
     // The instruction fetch (M1) of Z80Cpu::execute(): `read()`, and it records
@@ -305,7 +305,7 @@ public:
     // with it, never stand in for it (GH #339 D1). One load and one store more
     // than `read()`; the CPU's other bus cycles stay on `read()`.
     uint8_t read_m1(uint16_t addr) override {
-        const Route r = route_impl_<true>(addr, false, false);
+        const RouteBits r = route_bits_<true>(addr, false, false);
         last_m1_ = r.space;
         return finish_read_(addr, r);
     }
@@ -1448,6 +1448,27 @@ private:
     // Dedicated bank-5 16K dual-port VRAM (see bank5_vram() accessor).
     std::array<uint8_t, 0x4000> bank5_vram_{};
 
+    // ───────── GH #339 — the hot-path form of a Route ─────────────────────────
+    //
+    // `Route` (public) carries a `MemSpace`; this is the same three facts with
+    // the identity as one packed word (kind in the low 16 bits, index in the high
+    // 16), which is what read(), read_m1() and the per-slot cache move around.
+    struct RouteBits {
+        uint32_t       space;    ///< pack_space_(MemSpace)
+        uint16_t       offset;
+        const uint8_t* ptr;
+    };
+    static constexpr uint32_t pack_space_(jnext::dbg::MemSpace s) {
+        return static_cast<uint32_t>(s.kind) | (static_cast<uint32_t>(s.index) << 16);
+    }
+    static constexpr jnext::dbg::MemSpace unpack_space_(uint32_t b) {
+        return jnext::dbg::MemSpace{static_cast<jnext::dbg::MemSpace::Kind>(b & 0xFFFF),
+                                    static_cast<uint16_t>(b >> 16)};
+    }
+    static Route to_route_(const RouteBits& b) {
+        return Route{unpack_space_(b.space), b.offset, b.ptr};
+    }
+
     // ───────── Layer 2 overlay gate / offset helpers (Verify8 fix) ─────────
     //
     // VHDL zxnext.vhd:3037-3066 sram_pre_override(1) — Layer 2 priority
@@ -1560,7 +1581,7 @@ private:
         }
     }
 
-    // ───────── GH #339 — route_impl_(): the read arbiter's one body ──────────
+    // ───────── GH #339 — route_bits_(): the read arbiter's one body ──────────
     //
     // Order, verbatim from the VHDL (zxnext.vhd:2937-2945, the SRAM arbiter at
     // :3084-3132 and the cpu_di mux at :1856-1870):
@@ -1581,24 +1602,31 @@ private:
     // the live objects (true; `route()`, `read()`, `read_m1()`) or the caller's
     // two answers (false; `route_with()`). It is a compile-time switch so the
     // live path keeps the call count the cascade always had — one Multiface
-    // check and one DivMMC check-and-route on a 0x0000-0x3FFF read, none above
-    // 0x3FFF, none when the boot ROM answers — instead of asking both eagerly.
+    // check and one DivMMC check on a 0x0000-0x3FFF read, none above 0x3FFF,
+    // none when the boot ROM answers — instead of asking both eagerly.
+    //
+    // THIS IS THE HOT PATH, and two things about its shape are deliberate:
+    //   * the conditions are tested here, inline, and the routes of the arms that
+    //     are rare (an active Multiface or DivMMC, the Layer 2 mapping, the alt
+    //     ROM, config mode) are built by out-of-line functions, so the common
+    //     read keeps a small frame and few live registers;
+    //   * the result is a `RouteBits`, whose identity is ONE 32-bit word. A
+    //     `MemSpace` is two 16-bit fields and a compiler copies it field by
+    //     field (it must not copy the padding), which on the opcode-fetch path
+    //     was twenty instructions of shifts and masks per instruction.
     //
     // Pure. Nothing here writes, latches or raises a watchpoint.
     template <bool Live>
-    [[gnu::always_inline]] inline Route route_impl_(uint16_t addr, bool divmmc_active,
-                                                   bool mf_active) const {
+    [[gnu::always_inline]] inline RouteBits route_bits_(uint16_t addr, bool divmmc_active,
+                                                       bool mf_active) const {
         using jnext::dbg::MemSpace;
-        Route r;
         if (addr < 0x4000) {
             // VHDL zxnext.vhd:1856 — gate on cpu_a(15:14)="00" (16 KB window).
             // VHDL zxnext.vhd:3199-3204 — bootrom indexed by cpu_a(12:0) (8 KB
             // span); upper 8 KB mirrors lower 8 KB. Mask with 0x1FFF accordingly.
             if (boot_rom_en_ && boot_rom_) {
-                r.space  = MemSpace::boot_rom();
-                r.offset = addr & 0x1FFF;
-                r.ptr    = boot_rom_ + r.offset;
-                return r;
+                const uint16_t off = addr & 0x1FFF;
+                return RouteBits{pack_space_(MemSpace::boot_rom()), off, boot_rom_ + off};
             }
             // MF memory overlay (priority above DivMMC per VHDL zxnext.vhd:2937).
             // VHDL :3028-3035: when mf_mem_en=1 AND cpu_a(15:14)='00', SRAM
@@ -1606,73 +1634,23 @@ private:
             // (read-only), cpu_a(13)=1 -> 8K MF RAM (read-write). mf_enabled_o
             // (multiface.vhd:186) = mf_enable_eff = mf_enable OR fetch_66 —
             // handles the one-cycle bypass during the actual M1 fetch at 0x0066.
-            if (multiface_ && (Live ? mf_overlay_active_() : mf_active)) {
-                mf_route_(addr, r);
-                return r;
-            }
+            if (multiface_ && (Live ? mf_overlay_active_() : mf_active))
+                return mf_route_(addr);
             // DivMMC overlay when active. VHDL arbiter (zxnext.vhd:3084) puts
             // DivMMC above the config_mode SRAM routing, so it is settled before
-            // the config-mode arm below.
-            if (divmmc_ && (Live || divmmc_active) && divmmc_route_(addr, Live, r))
-                return r;
+            // the config-mode arm below. The activity test is a tiny function the
+            // linker inlines, so a ROM-area read with the DivMMC idle (nearly all
+            // of them) pays a few compares; the route is built only when active.
+            if (divmmc_ && (Live ? divmmc_is_active_() : divmmc_active))
+                return divmmc_route_(addr);
         }
         // Layer 2 read-over: redirect reads to L2 RAM banks. VHDL arbiter at
         // zxnext.vhd:3100 puts Layer 2 above config_mode, altrom, MMU, and ROMCS
-        // (and below DivMMC ROM/RAM). Mirrors the write-side block in
-        // write_landed(): same per-half override gate (VHDL :3043,:3050, :3057,
-        // :3065), same offset_pre computation (:2966), same shared
-        // layer2_active_page formula (:2969).
-        //
-        // Verify8-memory class-(a) fix: the per-half gate matches VHDL
-        // exactly — for 0x0000-0x3FFF (low half), Layer 2 is enabled in the
-        // non-MF cases (override(1)='1' at lines 3043, 3050, 3057); for
-        // 0x4000-0xBFFF (high half), Layer 2 is enabled only when seg='11'
-        // (line 3065 — `((not cpu_a(15)) or (not cpu_a(14))) and seg(1) and
-        // seg(0)`); for 0xC000+, Layer 2 is disabled. The pre-fix C++ used a
-        // bitmask seg=00->0x01, seg=01->0x02, seg=10->0x04, seg=11->0x07 —
-        // which routed L2 to seg-only-segment in the high half (e.g. seg=01
-        // enabled L2 only at 0x4000-0x7FFF) but did NOT enable L2 in the low
-        // half for seg!="00". VHDL routes L2 to the low half regardless of seg
-        // (in non-MF cases) and the seg field shifts the bank-offset
-        // (offset_pre = seg when seg != "11"); the C++ pre-fix also conflated
-        // offset_pre with the cpu_a(15:14) segment, breaking the bank-offset
-        // arithmetic for seg != "11".
-        if (l2_read_enable_ && l2_overlay_active_for(addr)) {
-            // VHDL zxnext.vhd:2966-2969:
-            //   bank        = nr_13 if map_shadow else nr_12     (G144)
-            //   offset_pre  = cpu_a(15:14) when seg=11 else seg  (:2966)
-            //   bank_offset = offset_pre + port_123b_layer2_offset (G92)
-            //   page_idx    = ((bank + bank_offset) << 1) | cpu_a(13)
-            const uint8_t bank    = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
-            const uint8_t off_pre = l2_offset_pre_for(addr);
-            const uint8_t bofs    = static_cast<uint8_t>(off_pre + l2_offset_);
-            r.offset = addr & 0x1FFF;
-            // VHDL zxnext.vhd:2971 + :3101-3102 — the L2 mmu_A21_A13(8) gate
-            // fires when layer2_active_page(7:5) = "111" (i.e. sum[6:4]=111
-            // when sum = bank + bofs). The arbiter sets sram_active = NOT
-            // layer2_A21_A13(8), so when the gate fires the SRAM is INACTIVE
-            // (read returns floating bus, write dropped). Verify10-memory
-            // class-(c) fix: previously jnext computed `phys_page = to_sram_page(...)`
-            // unconditionally, which for high sums (>=0x70) wrapped through
-            // `+0x20` arithmetic into the ROM-in-SRAM region (pages 0..7) —
-            // a read/write would alias bytes in the ROM area instead of
-            // returning floating-bus / dropping. Real software never sets
-            // L2 banks high enough to reach this corner, but the gate is
-            // VHDL-faithful so we honour it. The route names it `Floating`
-            // (and the Layer 2 page >= 0xE0 it would have been is not a page
-            // the SRAM has).
-            const uint8_t sum = static_cast<uint8_t>(bank + bofs);
-            if ((sum & 0x70) == 0x70) {
-                r.space = MemSpace::floating();
-                return r;
-            }
-            const uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
-            const uint8_t  lp      = static_cast<uint8_t>(l2_page | ((addr >> 13) & 1));
-            r.space = MemSpace::layer2(lp);
-            const uint8_t* p = ram_.page_ptr(to_sram_page(lp));
-            r.ptr = p ? p + r.offset : nullptr;
-            return r;
-        }
+        // (and below DivMMC ROM/RAM): the low half whenever the Multiface has not
+        // taken it, 0x4000-0xBFFF only at segment "11", never 0xC000+ (:3043,
+        // :3050, :3057, :3065). The page arithmetic is layer2_route_()'s.
+        if (l2_read_enable_ && l2_overlay_active_for(addr))
+            return layer2_route_(addr);
         const int slot = addr >> 13;
         if (addr < 0x4000 && read_only_[slot]) {
             // Alt-ROM read override (VHDL zxnext.vhd:3021, 3078, 3116-3123).
@@ -1683,44 +1661,34 @@ private:
             // when altrom_rw=0 (read-only altrom). When altrom_rw=1 the read
             // falls through to the normal ROM/sram_pre path (firmware uses that
             // mode to write-over altrom while keeping reads on the live ROM).
-            if (nr_8c_altrom_en() && !nr_8c_altrom_rw() && !config_mode_) {
-                r.space  = MemSpace::alt_rom(sram_alt_128_n() ? 1 : 0);
-                r.offset = addr & 0x3FFF;
-                const uint8_t* p = ram_.page_ptr(altrom_sram_page_(addr));
-                r.ptr = p ? p + (addr & 0x1FFF) : nullptr;
-                return r;
-            }
+            if (nr_8c_altrom_en() && !nr_8c_altrom_rw() && !config_mode_)
+                return altrom_route_(addr);
             // Config-mode routing (VHDL zxnext.vhd:3044-3050, arbiter line 3124):
             // with nr_03_config_mode=1 on a ROM-mapped 0x0000-0x3FFF slot, the
             // SRAM address comes from nr_04_romram_bank instead of sram_rom.
             // RAM-mapped slots win at zxnext.vhd:3037.
-            if (config_mode_) {
-                r.space  = MemSpace::config(nr_04_romram_bank_);
-                r.offset = addr & 0x3FFF;
-                const uint8_t* p =
-                    ram_.page_ptr((static_cast<uint16_t>(nr_04_romram_bank_) << 1) | slot);
-                r.ptr = p ? p + (addr & 0x1FFF) : nullptr;
-                return r;
-            }
+            if (config_mode_)
+                return config_route_(addr);
         }
         // The slot's own source. Its identity is cached beside read_ptr_[] and
         // kept in lockstep with it (slot_space_[]); a ROM slot's half is the
         // ROM page's low bit, which is cpu_a(13) for every mapping the VHDL
         // makes (zxnext.vhd:3052, sram_rom & cpu_a(13)).
-        r.space = slot_space_[slot];
-        r.offset = static_cast<uint16_t>(
-            (r.space.kind == MemSpace::Kind::Rom ? ((slots_[slot] & 1) << 13) : 0) |
-            (addr & 0x1FFF));
-        const uint8_t* p = read_ptr_[slot];
-        r.ptr = p ? p + (addr & 0x1FFF) : nullptr;
-        return r;
+        const uint32_t sp = slot_space_[slot];
+        const uint8_t* p  = read_ptr_[slot];
+        return RouteBits{sp,
+                         static_cast<uint16_t>(
+                             ((sp & 0xFFFF) == static_cast<uint32_t>(MemSpace::Kind::Rom)
+                                  ? ((slots_[slot] & 1) << 13) : 0) |
+                             (addr & 0x1FFF)),
+                         p ? p + (addr & 0x1FFF) : nullptr};
     }
 
     // The tail every read shares (GH #339 R1/R2): the byte, the +3 floating-bus
     // latch, the READ watchpoint. `val` is what the CPU receives — a floating
     // read receives 0xFF, which is also what the latch captures (the hardware
     // latches the stale SRAM data bus there; jnext does not model that bus).
-    [[gnu::always_inline]] inline uint8_t finish_read_(uint16_t addr, const Route& r) {
+    [[gnu::always_inline]] inline uint8_t finish_read_(uint16_t addr, const RouteBits& r) {
         const uint8_t val = r.ptr ? *r.ptr : 0xFF;
         // VHDL zxnext.vhd:4498-4509 — p3_floating_bus_dat captures cpu_di on
         // every contended memory read where mem_contend='1' AND
@@ -1901,10 +1869,13 @@ private:
     // slot nothing answers (an MMU page >= 0xE0 on slots 2-7, the 0xFF sentinel
     // set_page() leaves unmapped) is Floating. Computing it per fetch would cost
     // ~0.45% on boot-nextzxos; the cache costs one load.
-    jnext::dbg::MemSpace slot_space_[8] = {};
+    //
+    // PACKED (pack_space_()): the hot path copies the identity as one 32-bit word.
+    uint32_t slot_space_[8] = {};
     // What supplied the first opcode byte of the last instruction fetched
-    // (read_m1()); MemSpace::cpu() = "none recorded". Derived, not serialised.
-    jnext::dbg::MemSpace last_m1_ = jnext::dbg::MemSpace::cpu();
+    // (read_m1()), packed; 0 = MemSpace::cpu() = "none recorded". Derived, not
+    // serialised.
+    uint32_t last_m1_ = 0;
     bool           paging_locked_ = false;
     // VHDL p3_floating_bus_dat latch (zxnext.vhd:4498-4509). Captures the
     // last contended CPU r/w data byte; surfaced through port 0x0FFD on
@@ -2142,10 +2113,20 @@ private:
     DebugState* debug_state_ = nullptr;
 
     // Out-of-line DivMMC helpers (defined in mmu.cpp to avoid circular include)
-    /// The DivMMC arm of route_impl_(): when `check_active` is set, ask the
-    /// overlay whether it is on (the live path); either way fill `r` from
-    /// `DivMmc::overlay_at()`. Returns false only when the overlay is off.
-    bool divmmc_route_(uint16_t addr, bool check_active, Route& r) const;
+    /// Is the DivMMC overlay on right now? A one-line function, here and not in
+    /// the header only because DivMmc is incomplete in this one (the linker
+    /// inlines it into read()).
+    bool divmmc_is_active_() const;
+    /// The DivMMC arm of route_bits_() for an ACTIVE overlay: the route from
+    /// `DivMmc::overlay_at()`.
+    RouteBits divmmc_route_(uint16_t addr) const;
+    /// The Layer 2 read mapping's route at `addr` (a mapped address): the page
+    /// arithmetic of zxnext.vhd:2966-2971 and the inactive-page gate :3101-3102.
+    RouteBits layer2_route_(uint16_t addr) const;
+    /// The alternate ROM's route at a ROM-mapped `addr` below 0x4000 (:3116-3122).
+    RouteBits altrom_route_(uint16_t addr) const;
+    /// The config-mode window's route at a ROM-mapped `addr` below 0x4000 (:3044-3050).
+    RouteBits config_route_(uint16_t addr) const;
     /// True when DivMMC's overlay took the write (the byte is then DivMMC's,
     /// landed or not); `landed` says whether it was stored (GH #281 F1).
     bool divmmc_write(uint16_t addr, uint8_t val, bool& landed);
@@ -2154,7 +2135,7 @@ private:
     // multiface.h does not need to be pulled into mmu.h's transitive
     // include set (the hot-path read/write inlines stay branch-light).
     bool    mf_overlay_active_() const;
-    /// The Multiface arm of route_impl_(): ROM half below 0x2000, RAM above.
-    void    mf_route_(uint16_t addr, Route& r) const;
+    /// The Multiface arm of route_bits_(): ROM half below 0x2000, RAM above.
+    RouteBits mf_route_(uint16_t addr) const;
     void    mf_ram_write_(uint16_t addr, uint8_t val);
 };
