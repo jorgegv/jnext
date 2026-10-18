@@ -119,13 +119,34 @@ inline constexpr bool is_modifier(int sc)
     return sc >= MOD_FIRST && sc <= MOD_LAST;
 }
 
-/// Pending-event bound for Router (issue #268). The drain rate is one
-/// keystroke per emulated frame, so even at 18 FPS it is ~18 keystrokes/s
-/// against a human's 5-10: the queue only grows while the emulator is running
-/// NO frames at all (debugger paused, a long stall), and filling it needs
-/// ~13 s of stalled emulation with continuous typing. See Router::enqueue for
+/// Pending-event bound for Router (issue #268). A backlog drains at one
+/// keystroke per TAP_SPACING_FRAMES frames (10 keys/s at 50 FPS) against a
+/// human's 5-10: the queue only grows while the emulator is running NO frames
+/// at all (debugger paused, a long stall), and filling it needs tens of seconds of
+/// stalled emulation with continuous typing. See Router::flush_overflow for
 /// what happens if that ever does occur.
 inline constexpr std::size_t MAX_PENDING = 256;
+
+/// Frames between two keystrokes that JNEXT schedules itself (GH #386).
+///
+/// A keystroke the Router had to queue behind a sub-frame tap has no host
+/// timing left to honour: press and release arrived before any frame saw the
+/// press, so it is the Router, not the user, that chooses when the next key
+/// lands. It must choose a gap the Spectrum ROM can accept. 48.rom's KEYBOARD
+/// routine keeps TWO key sets (KSTATE at $5C00 and $5C04):
+///   * every interrupt decrements each busy set's counter and frees the set at
+///     zero (the loop at 0x02C6-0x02D6; `DEC (HL)` at 0x02CB);
+///   * a new key needs a free set, and with none free `RET Z` at 0x02F0 throws
+///     the key away;
+///   * a new key's counter is set to 5 by `LD (HL),$05` at 0x02F4, so a set is
+///     free again 5 interrupts after its key was last seen;
+///   * the SAME key seen again while its set is busy is a REPEAT (K-REPEAT,
+///     0x0310), not a new keystroke.
+/// One keystroke per frame therefore loses the third distinct key and every
+/// repeated one; one per 5 frames (10 keys/s at 50 FPS) loses neither. The same
+/// bytes (`36 05 23 3A 09 5C`) are in 128.rom 0x42F4, plus3.rom 0xC2F4 and
+/// enNextZX.rom 0xC2F4: every 48-BASIC KEYBOARD jnext runs.
+inline constexpr int TAP_SPACING_FRAMES = 5;
 
 class Latch {
 public:
@@ -271,12 +292,32 @@ private:
 /// both frames show a state the host genuinely passed through.
 ///
 /// PRICE, STATED PLAINLY. Two presses landing in the SAME inter-frame gap are
-/// staggered by one frame even when the user meant them simultaneously — up
-/// and fire hit within one gap, say. One frame per extra key (20 ms at
-/// 50 FPS), keys ACCUMULATE rather than replace, and nothing is lost. It is
-/// unavoidable in either direction: when the second press arrives nothing
-/// distinguishes rollover-while-typing from two fingers at once, and NOT
-/// staggering is precisely what loses both characters today.
+/// staggered even when the user meant them simultaneously (up and fire hit
+/// within one gap, say). Keys ACCUMULATE rather than replace. It is unavoidable
+/// in either direction: when the second press arrives nothing distinguishes
+/// rollover-while-typing from two fingers at once, and NOT staggering is
+/// precisely what loses both characters.
+///
+/// HOW FAR APART (GH #386). "Nothing is lost" holds for the MATRIX, not for the
+/// GUEST: the Spectrum ROM reads keys through two key sets and drops a third
+/// distinct key that follows two others by less than 5 frames, and reads the
+/// same key again within 5 frames as a repeat (see TAP_SPACING_FRAMES). A backlog
+/// replayed one keystroke per frame (a UI stall of a few seconds, a Quick
+/// Save, a Quick Load) therefore lost characters inside the ROM. The rule now:
+/// a keystroke QUEUED behind a sub-frame tap (a "stretched" tap: press and
+/// release arrived before any frame saw the press, so jnext chose its length)
+/// waits TAP_SPACING_FRAMES frames after it. A press arriving on an IDLE Router
+/// is applied at once as before, so games and ordinary typing keep the host's
+/// own timing and pay nothing. The price: a backlog drains at 10 keys/s.
+///
+/// HOST ACTIONS (GH #386). A host action (a Quick Save or Quick Load) is a
+/// BARRIER in the same FIFO, `on_host_action()`: it waits for every keystroke
+/// typed before it to have been shown to a frame, and every host event typed
+/// after it waits until the action is done, so the user's order is kept on both
+/// sides. A Quick Load cold-boots, and `attach()` keeps the events queued
+/// behind a barrier: they were typed after the action, so they belong to the
+/// machine it creates. After a snapshot load wipes the matrix, `reassert()`
+/// puts back the keys the Router holds.
 ///
 /// SIDE EFFECT ON THE LATCH, scoped precisely — the branch is NOT dead.
 /// Gate (b) makes `Latch::on_press`'s "a re-press cancels a pending release"
@@ -305,11 +346,20 @@ public:
     {
         sink_ = &sink;
         latch_.reset();
-        pending_.clear();
-        host_down_.reset();
         sink_down_.reset();
         script_down_.reset();
         key_awaiting_frame_ = false;
+        tap_spacing_left_ = 0;
+        if (barrier_) {
+            // A host action (Quick Load) caused this boot. Everything still
+            // queued was typed AFTER it, so it belongs to the new machine and
+            // is kept, in order. `host_down_` is kept too: it describes the
+            // user's fingers, which a cold boot does not change.
+            barrier_ = false;
+        } else {
+            pending_.clear();
+            host_down_.reset();
+        }
     }
 
     /// GH #26 WP5 (dsl-frontend.md §6.4, qt-frontend.md §5.3) — the script
@@ -357,14 +407,52 @@ public:
             host_down_.set(static_cast<size_t>(i), pressed);
         }
 
-        // Ordering is absolute: once anything is queued, everything queues.
-        if (!pending_.empty()) { enqueue(i, pressed); return; }
+        // Ordering is absolute: once anything is queued, everything queues, and
+        // so does everything typed while a host action is being serviced.
+        if (barrier_ || !pending_.empty()) { enqueue(i, pressed); return; }
 
         if (pressed) {
             if (!gates_open()) { enqueue(i, true); return; }
             apply_press(i);
         } else {
             apply_release(i);
+        }
+    }
+
+    /// A host action (GH #386): `fn` is called once every keystroke typed
+    /// before it has been shown to a frame, and from then until `action_done()`
+    /// (or the cold boot's `attach()`) every host event queues. `fn` must only
+    /// RAISE the request (set a frontend flag); it must never save or cold-boot
+    /// from inside the Router.
+    void on_host_action(std::function<void()> fn)
+    {
+        if (!fn) return;
+        if (!sink_) { fn(); return; }
+        if (!barrier_ && pending_.empty() && gates_open()) {
+            barrier_ = true;
+            fn();
+            return;
+        }
+        Event ev;
+        ev.action = std::move(fn);
+        pending_.push_back(std::move(ev));
+        if (pending_.size() > MAX_PENDING) flush_overflow();
+    }
+
+    /// The action `fn` raised has been serviced (whatever its outcome): lift the
+    /// barrier. The queue drains from the next tick that emulates a frame.
+    void action_done() { barrier_ = false; }
+
+    /// A snapshot load wiped the matrix: put back every key the Router holds
+    /// down, so that after a load the guest matrix is exactly what the host
+    /// holds through the Router. Call it right after every load, before the
+    /// next frame. Leaves the Latch and the queue alone, so a deferred release
+    /// still waits for a frame and the key is shown at least once.
+    void reassert()
+    {
+        if (!sink_) return;
+        for (std::size_t i = 0; i < MAX_KEYS; ++i) {
+            if (sink_down_.test(i)) sink_->set_key(static_cast<Scancode>(i), true);
         }
     }
 
@@ -394,7 +482,12 @@ public:
     void release_all()
     {
         if (!sink_) return;
-        pending_.clear();
+        // Queued keystrokes are dropped; a queued host ACTION is not: a focus
+        // loss must not cancel a Quick Save the user asked for.
+        pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
+                                      [](const Event& e) { return !e.action; }),
+                       pending_.end());
+        tap_spacing_left_ = 0;
         script_down_.reset();   // a key-up that went elsewhere must not eat a later press
         for (std::size_t i = 0; i < MAX_KEYS; ++i) {
             if (!sink_down_.test(i)) continue;
@@ -422,6 +515,7 @@ public:
             mark_sink(sc, false);
         }
         key_awaiting_frame_ = false;
+        tap_spacing_left_ = std::max(0, tap_spacing_left_ - frames_rendered);
         drain();
     }
 
@@ -433,8 +527,10 @@ public:
 
 private:
     struct Event {
-        int  sc;
-        bool pressed;
+        int  sc = 0;
+        bool pressed = false;
+        /// Set for a host action (a barrier); `sc`/`pressed` are unused.
+        std::function<void()> action;
     };
 
     static bool in_range(int sc) { return sc >= 0 && sc < MAX_KEYS; }
@@ -488,7 +584,12 @@ private:
     /// written out twice so the two callers cannot drift.
     bool apply_release(int sc)
     {
-        if (!latch_.on_release(sc)) return false;
+        if (!latch_.on_release(sc)) {
+            // A stretched tap: jnext, not the host, now chooses when the next
+            // QUEUED key lands (TAP_SPACING_FRAMES).
+            tap_spacing_left_ = TAP_SPACING_FRAMES;
+            return false;
+        }
         sink_->set_key(static_cast<Scancode>(sc), false);
         mark_sink(sc, false);
         return true;
@@ -496,33 +597,61 @@ private:
 
     void enqueue(int sc, bool pressed)
     {
-        pending_.push_back({sc, pressed});
-        if (pending_.size() <= MAX_PENDING) return;
+        Event ev;
+        ev.sc      = sc;
+        ev.pressed = pressed;
+        pending_.push_back(std::move(ev));
+        if (pending_.size() > MAX_PENDING) flush_overflow();
+    }
 
-        // OVERFLOW. Apply everything, in order, ignoring the gates, and start
-        // again empty. Replaying the COMPLETE event list in order lands on
-        // exactly the host's current key state, so this can never strand a key
-        // down; any release the Latch still defers is discharged by the next
-        // tick that emulates a frame. It degrades to the pre-#268 behaviour for
-        // this one batch and nothing worse, and reaching it at all needs the
-        // emulator to have stopped running frames entirely (see MAX_PENDING).
-        for (const Event& ev : pending_) {
+    /// OVERFLOW. Apply everything, in order, ignoring the gates, and start
+    /// again empty. Replaying the COMPLETE event list in order lands on
+    /// exactly the host's current key state, so this can never strand a key
+    /// down; any release the Latch still defers is discharged by the next
+    /// tick that emulates a frame. It degrades to the pre-#268 behaviour for
+    /// this one batch and nothing worse, and reaching it at all needs the
+    /// emulator to have stopped running frames entirely (see MAX_PENDING).
+    ///
+    /// A queued host action is dispatched in its place in the order and raises
+    /// the barrier: what is queued behind it stays queued. While a barrier is
+    /// already up nothing may be applied, so there is no flush (the barrier is
+    /// short-lived: its frontend lifts it in the same or the next tick).
+    void flush_overflow()
+    {
+        if (barrier_) return;
+        while (!pending_.empty()) {
+            Event ev = std::move(pending_.front());
+            pending_.pop_front();
+            if (ev.action) {
+                barrier_ = true;
+                ev.action();
+                return;
+            }
             if (ev.pressed) apply_press(ev.sc);
             else            apply_release(ev.sc);
         }
-        pending_.clear();
     }
 
     /// Head-first, stopping at the first event that cannot land yet. A drain
     /// legitimately applies SEVERAL events — releasing the keystroke that has
     /// been seen and applying the next one are both needed before the next
     /// frame — but at most one press, because that press arms gate (c).
+    /// A press also waits out TAP_SPACING_FRAMES after a stretched tap, and a
+    /// host action waits for every earlier keystroke to have been shown.
     void drain()
     {
-        while (!pending_.empty()) {
+        while (!barrier_ && !pending_.empty()) {
+            if (pending_.front().action) {
+                if (!gates_open()) break;
+                std::function<void()> fn = std::move(pending_.front().action);
+                pending_.pop_front();
+                barrier_ = true;
+                fn();
+                return;
+            }
             const Event ev = pending_.front();
             if (ev.pressed) {
-                if (!gates_open()) break;
+                if (!gates_open() || tap_spacing_left_ > 0) break;
                 pending_.pop_front();
                 apply_press(ev.sc);
             } else {
@@ -553,6 +682,12 @@ private:
     /// Gate (c): a non-modifier press has been applied that no emulated frame
     /// has sampled yet.
     bool key_awaiting_frame_ = false;
+    /// Frames still to wait before a QUEUED press may land (TAP_SPACING_FRAMES),
+    /// armed by a stretched tap.
+    int  tap_spacing_left_ = 0;
+    /// A host action has been dispatched and not yet serviced (GH #386): every
+    /// host event queues until action_done() or the cold boot's attach().
+    bool barrier_ = false;
     /// GH #26 WP5 — the digits 1..8 whose press was taken as a script host key,
     /// so their release is swallowed too (even if Alt was let go first).
     std::bitset<8> script_down_;

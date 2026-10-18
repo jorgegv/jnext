@@ -142,8 +142,15 @@ bool SdlApp::init(int argc, char* argv[]) {
             // is swallowed. The tracker (platform/quick_snapshot_chord.h) keeps
             // the modifiers from the key events, not SDL_GetModState().
             switch (quick) {
-            case jnext::QuickChord::Save:   quick_save(); return;
-            case jnext::QuickChord::Load:   quick_load_requested_ = true; return;
+            // GH #386 - a chord takes its turn behind the keys typed before it
+            // and holds back the ones typed after it (Router::on_host_action);
+            // run() services the flag once the Router lets the action through.
+            case jnext::QuickChord::Save:
+                key_router_.on_host_action([this]() { quick_save_requested_ = true; });
+                return;
+            case jnext::QuickChord::Load:
+                key_router_.on_host_action([this]() { quick_load_requested_ = true; });
+                return;
             case jnext::QuickChord::Repeat: return;
             case jnext::QuickChord::None:   break;
             }
@@ -216,8 +223,10 @@ bool SdlApp::init(int argc, char* argv[]) {
     };
     driver.load = [this](const std::string& path) {
         // GH #323: follow an in-place machine switch (see emulator_apply_load_keeping()).
-        return emulator_apply_load_keeping(emulator_, path, tape_realtime_,
+        const bool ok = emulator_apply_load_keeping(emulator_, path, tape_realtime_,
                                            [this](MachineType t) { config_.type = t; });
+        key_router_.reassert();   // GH #386: the load wiped the matrix
+        return ok;
     };
     debugger_->set_loop_driver(driver);
     host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
@@ -280,21 +289,38 @@ void SdlApp::quick_save() {
     prune_quick_snapshots(default_quick_snapshot_dir(), emulator_.config().quick_snapshot_keep);
 }
 
-void SdlApp::quick_load() {
+bool SdlApp::quick_load() {
     const std::string dir = default_quick_snapshot_dir();
     std::string why;
     const std::string path = latest_quick_snapshot(dir, why);
     if (path.empty()) {
         Log::platform()->warn("quick load: {}", why);
-        return;
+        return false;
     }
     // Refuse a bad file BEFORE the cold boot throws the session away.
     if (!emulator_.probe_jns_file(path, why)) {
         Log::platform()->error("quick load: refused '{}': {}", path, why);
-        return;
+        return false;
     }
     Log::platform()->info("quick load: '{}'", path);
     cold_boot(path);
+    return true;
+}
+
+bool SdlApp::service_quick_requests() {
+    if (!quick_save_requested_ && !quick_load_requested_) return false;
+    bool booted = false;
+    if (quick_save_requested_) {
+        quick_save_requested_ = false;
+        quick_save();
+    } else {
+        quick_load_requested_ = false;
+        booted = quick_load();   // cold-boots through cold_boot() when it loads
+    }
+    // Whatever the outcome (saved, refused, nothing to load, cold-booted - a
+    // boot's attach() has already lifted the barrier, so this is then a no-op).
+    key_router_.action_done();
+    return booted;
 }
 
 // GH #276 B4 — CTL-12 rule 5: a boot the loop owner decides on (F1, a guest
@@ -436,8 +462,12 @@ void SdlApp::run() {
         // Apply pending load when countdown reaches zero.
         if (load_countdown_ == 0) {
             // Shared format dispatch (incl. .rzx) — see platform/emulator_boot.h.
-            if (!emulator_apply_load_keeping(emulator_, load_file_, tape_realtime_,
-                                             [this](MachineType t) { config_.type = t; })) {
+            const bool loaded = emulator_apply_load_keeping(
+                emulator_, load_file_, tape_realtime_,
+                [this](MachineType t) { config_.type = t; });
+            // GH #386 - the load wiped the matrix, keys the host holds included.
+            key_router_.reassert();
+            if (!loaded) {
                 Log::platform()->error("load: failed to load '{}'", load_file_);
                 exit_code_ = 1;   // a failed load exits non-zero (as headless)
             } else {
@@ -558,11 +588,7 @@ void SdlApp::run() {
             continue;
         }
 
-        if (quick_load_requested_) {
-            quick_load_requested_ = false;
-            quick_load();   // cold-boots through cold_boot() when it loads
-            continue;
-        }
+        if (service_quick_requests()) continue;   // a Quick Load cold-booted
 
         // Task 70 — a hard reset (F1 / a program's NR 0x02 bit 1) is a power-on
         // cold boot done here between frames. cold_boot() reconstructs the

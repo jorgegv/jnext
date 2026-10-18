@@ -322,11 +322,13 @@ bool QtApp::init(int argc, char* argv[]) {
         driver.load = [this](const std::string& path) {
             // GH #323: a snapshot saved on another machine switches it in
             // place; the frontend must follow, or its next reset boots the old one.
-            return emulator_apply_load_keeping(emulator_, path, tape_realtime_,
+            const bool ok = emulator_apply_load_keeping(emulator_, path, tape_realtime_,
                 [this](MachineType t) {
                     config_.type = t;
                     if (main_window_) main_window_->sync_machine_type_display();
                 });
+            key_router_.reassert();   // GH #386: the load wiped the matrix
+            return ok;
         };
         debugger_->set_loop_driver(driver);
     }
@@ -379,6 +381,8 @@ bool QtApp::init(int argc, char* argv[]) {
     // live in wire_host_keys() so the suite can drive the real wiring; see the
     // header for why that matters (GH #268).
     wire_host_keys(*main_window_, key_router_);
+    // GH #386 - Quick Save / Quick Load take their turn in the key queue.
+    wire_host_actions(*main_window_, key_router_, pending_quick_);
     // GH #26 WP5 — Alt+1..Alt+8 are the script host keys (host_key_wiring.h).
     wire_script_keys(key_router_, *debugger_);
 
@@ -533,6 +537,7 @@ void QtApp::cold_boot(const std::string& load_file, bool allow_experimental_nex_
 void QtApp::boot_machine(const std::string& load_file, bool allow_experimental_nex_v13) {
     Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
                           load_file.empty() ? "(none)" : load_file.c_str());
+    ++cold_boots_;
 
     // Issue #40 — the sequence itself lives in platform/emulator_boot.h and is
     // shared with SdlApp; this supplies only the Qt-specific steps. Placement-
@@ -655,6 +660,8 @@ bool QtApp::TickEffects::pre_frames() {
                 a.config_.type = t;
                 if (a.main_window_) a.main_window_->sync_machine_type_display();
             });
+        // GH #386 - the load wiped the matrix, keys the host holds included.
+        a.key_router_.reassert();
         if (!loaded) {
             Log::platform()->error("load: failed to load '{}'", a.load_file_);
             a.exit_code_ = 1;   // a failed load exits non-zero (as headless)
@@ -741,6 +748,24 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
     // paused tick emulates nothing, so the hold is not yet honoured) lives in
     // Router::on_tick_end and is pinned by rows RT-04a/b/c.
     a.key_router_.on_tick_end(frames_rendered);
+
+    // GH #386 - a Quick Save / Quick Load that has waited its turn behind the
+    // keys typed before it. The Router holds every later key until
+    // action_done(), however the action ends (saved, refused, nothing to load,
+    // cold-booted: a boot's attach() has already lifted it, so this is then a
+    // harmless no-op). A Quick Load that cold-booted leaves the rest of the tick
+    // to the next one, as the cold boots below do.
+    if (a.pending_quick_) {
+        const jnext::QuickAction act = *a.pending_quick_;
+        a.pending_quick_.reset();
+        const unsigned boots = a.cold_boots_;
+        if (a.main_window_) {
+            if (act == jnext::QuickAction::Save) a.main_window_->quick_save_now();
+            else                                 a.main_window_->quick_load_now();
+        }
+        a.key_router_.action_done();
+        if (a.cold_boots_ != boots) return;
+    }
 
     // THE DEFERRED COLD BOOTS, polled BEFORE the pump (GH #278 WP2 — the B3
     // obligation, CAP-CTL-12's ordering paragraph). A guest raises them inside

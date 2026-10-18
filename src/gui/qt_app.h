@@ -3,6 +3,7 @@
 #include <string>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "core/emulator.h"
@@ -15,6 +16,7 @@
 #include "input/gamepad_host.h"
 #include "platform/frame_sequencer.h"
 #include "platform/host_key_latch.h"
+#include "platform/quick_snapshot_chord.h"
 #include "core/screenshot.h"
 #include "video/renderer.h"
 
@@ -292,6 +294,11 @@ private:
     // — each a single forwarding statement. That split is deliberate: see the
     // Router preamble for the v0.98.47 wiring regression it exists to prevent.
     host_key_latch::Router<Keyboard, SDL_Scancode> key_router_;
+    // GH #386 - a Quick Save / Quick Load the Router has let through (it waited
+    // for the keys typed before it), serviced by post_frames(); and a count of
+    // machine reconstructions, so that tick can tell a load cold-booted.
+    std::optional<jnext::QuickAction> pending_quick_;
+    unsigned cold_boots_ = 0;
 
     // Emulator speed multiplier (1.0 = real-time 50 Hz)
     double speed_multiplier_ = 1.0;

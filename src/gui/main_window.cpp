@@ -1459,7 +1459,7 @@ void MainWindow::on_load_nex() {
 // GH #228 — the post-picker half of a menu file-load, split out so
 // nex_v13_dialog_test can drive the REAL dialog-to-decision wiring (the
 // picker is modal and untestable; this is not).
-void MainWindow::handle_load_path(const QString& path) {
+void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     // GH #228 — NEX V1.3 is an experimental format jnext does not
     // officially support: warn, and only proceed on an explicit
     // confirmation, Cancel being the default. The decision itself is the
@@ -1488,7 +1488,7 @@ void MainWindow::handle_load_path(const QString& path) {
 
     // GH #321 (R1) — likewise a .jns: refused BEFORE the cold boot, with the
     // running machine untouched.
-    if (emulator_ && jnext::is_jns_path(file)) {
+    if (emulator_ && !jns_probed && jnext::is_jns_path(file)) {
         std::string why;
         if (!emulator_->probe_jns_file(file, why)) {
             refuse_jns(path, QString::fromStdString(why));
@@ -2249,6 +2249,11 @@ bool MainWindow::save_jns_with_feedback(const QString& path, const QString& ok_m
 
 // GH #321 — File > Quick Save Snapshot (Alt+Shift+F5).
 void MainWindow::on_quick_save() {
+    if (host_action_callback_) { host_action_callback_(QuickAction::Save); return; }
+    quick_save_now();
+}
+
+void MainWindow::quick_save_now() {
     if (!emulator_) return;
     const std::string dir = default_quick_snapshot_dir();
     const std::string path = auto_quick_snapshot_path(dir, std::time(nullptr));
@@ -2272,6 +2277,11 @@ void MainWindow::on_quick_save() {
 // GH #321 — File > Quick Load Snapshot (Alt+Shift+F9): the newest .jns in the quick
 // folder, through the same route as File > Load.
 void MainWindow::on_quick_load() {
+    if (host_action_callback_) { host_action_callback_(QuickAction::Load); return; }
+    quick_load_now();
+}
+
+void MainWindow::quick_load_now() {
     if (!emulator_) return;
     const std::string dir = default_quick_snapshot_dir();
     std::string why;
@@ -2295,7 +2305,7 @@ void MainWindow::on_quick_load() {
     const QString msg = tr("Quick loading: %1").arg(QString::fromStdString(path));
     statusBar()->showMessage(msg, 5000);
     Log::platform()->info("status bar: {}", msg.toStdString());
-    handle_load_path(QString::fromStdString(path));
+    handle_load_path(QString::fromStdString(path), true);   // probed just above
 }
 
 void MainWindow::refuse_jns(const QString& path, const QString& why) {
