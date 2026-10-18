@@ -56,7 +56,11 @@ save_snapshot compare_scr press for release joystick set out if then else and
 or not true false mem mem16 phys mmu stack changed depth`.
 
 A MAP symbol is written `@name` and can be any name at all, keywords included
-(`@start` is fine): see [Symbols](04-reading-the-machine.md#symbols-name).
+(`@start` is fine). An sjasmplus label keeps its dots: `@main.loop`,
+`@gfx.draw.loop`. A `.` joins the parts of a name only when a letter or `_`
+follows it, so `@a..@b` is still a range. A name with a `?`, `!`, `#` or `@` in
+it cannot be written after `@` (a debugger address field takes it). See
+[Symbols](04-reading-the-machine.md#symbols-name).
 
 ## Numbers
 

@@ -129,6 +129,8 @@ public slots:
     void on_rewind_to_frame(uint32_t frame_num);
     void on_load_map_z88dk();
     void on_load_map_simple();
+    /// GH #390: Map > Load MAP File > sjasmplus Format (`--sym` / `--exp`).
+    void on_load_map_sjasmplus();
     /// CAP-SRC: the Source tab's Load Memory.txt... and Load SLD... buttons.
     void on_load_nextbuild_memory();
     void on_load_sld();

@@ -28,6 +28,9 @@
 //    `addr_spec`, and `nextreg[r]` from the event `on nextreg`.
 //  * `@name` is one token (a MAP symbol reference), the name being any
 //    identifier — keywords included, since a MAP symbol is not a keyword.
+//    It may also be identifiers joined by `.` (`@main.loop`, an sjasmplus
+//    label; GH #390): a `.` joins only when a letter or `_` follows it, so
+//    `@a..@b` is still a range and `@a.1` is `@a`, `.`, `1`.
 //  * LINE ENDS ARE WHITESPACE. See the "WP1 as built" notes in
 //    dsl-frontend.md for why no construct of §2.1 needs one.
 // ---------------------------------------------------------------------------

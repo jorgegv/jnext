@@ -198,9 +198,16 @@ The Map menu loads into the backend's one table with `load_map()`, and the
 Disassembly, Call Stack and Breakpoints panels read `symbols()`. A breakpoint set
 on a symbol keeps its name in the list, and a symbol any other client loads
 shows in the panels too. `src/debug/symbol_table.*` reads z88dk maps
-(`load_z88dk_map()`), plain `SYMBOL = $ADDR` lists (`load_simple_map()`) and
-NextBuild `Memory.txt` files (`load_nextbuild_memory()`); the address fields of
-the breakpoint and watch dialogs go through `SymbolTable::resolve()`.
+(`load_z88dk_map()`), plain `SYMBOL = $ADDR` lists (`load_simple_map()`),
+sjasmplus `--sym` / `--exp` files (`load_sjasmplus_equ()`) and NextBuild
+`Memory.txt` files (`load_nextbuild_memory()`); the address fields of the
+breakpoint and watch dialogs go through `SymbolTable::resolve()`.
+
+The three Map > Load MAP File items (Z88DK, Simple, sjasmplus) are three handlers
+in `DebuggerManager`, each calling `load_map()` and then `refresh_panels()`. The
+Breakpoints Symbol column and the Call Stack's target names are computed in the
+panels' own `refresh()`, so a load that skipped it left the previous names on a
+paused machine (rows QMAP-05 and QMAP-06).
 
 ## Source
 

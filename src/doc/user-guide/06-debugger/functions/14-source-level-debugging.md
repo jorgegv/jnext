@@ -9,7 +9,7 @@ JNEXT reads source maps in the **sjasmplus SLD** format (`.sld`), which
 sjasmplus writes with `--sld`, and which a Boriel ZX Basic / NextBuild build
 can produce too. Symbols come from the **NextBuild `Memory.txt`** the NextBuild
 toolchain writes beside a program, as well as from the MAP files in
-[Symbols from Z88DK MAP files](05-symbols-from-z88dk-map-files.md).
+[Symbols from MAP files](05-symbols-from-z88dk-map-files.md).
 
 ## Loading them
 

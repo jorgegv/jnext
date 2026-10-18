@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.67</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.67</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2397,7 +2397,7 @@
   <span class="md-ellipsis">
     
   
-    Symbols from Z88DK MAP files
+    Symbols from MAP files
   
 
     
@@ -3792,7 +3792,11 @@ dump_regs dump_mmu dump_mem snap unsnap dump_diff enable disable screenshot
 save_snapshot compare_scr press for release joystick set out if then else and
 or not true false mem mem16 phys mmu stack changed depth</code>.</p>
 <p>A MAP symbol is written <code>@name</code> and can be any name at all, keywords included
-(<code>@start</code> is fine): see <a href="04-reading-the-machine.html#symbols-name">Symbols</a>.</p>
+(<code>@start</code> is fine). An sjasmplus label keeps its dots: <code>@main.loop</code>,
+<code>@gfx.draw.loop</code>. A <code>.</code> joins the parts of a name only when a letter or <code>_</code>
+follows it, so <code>@a..@b</code> is still a range. A name with a <code>?</code>, <code>!</code>, <code>#</code> or <code>@</code> in
+it cannot be written after <code>@</code> (a debugger address field takes it). See
+<a href="04-reading-the-machine.html#symbols-name">Symbols</a>.</p>
 <h2 id="numbers">Numbers<a class="headerlink" href="#numbers" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

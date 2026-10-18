@@ -25,7 +25,7 @@
     
     
       
-        <title>Symbols from Z88DK MAP files - JNEXT User Guide</title>
+        <title>Symbols from MAP files - JNEXT User Guide</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#symbols-from-z88dk-map-files" class="md-skip">
+        <a href="#symbols-from-map-files" class="md-skip">
           Skip to content
         </a>
       
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Symbols from Z88DK MAP files
+              Symbols from MAP files
             
           </span>
         </div>
@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.67</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.67</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2408,7 +2408,7 @@
   <span class="md-ellipsis">
     
   
-    Symbols from Z88DK MAP files
+    Symbols from MAP files
   
 
     
@@ -3605,8 +3605,8 @@
   
 
 
-<h1 id="symbols-from-z88dk-map-files">Symbols from Z88DK MAP files<a class="headerlink" href="#symbols-from-z88dk-map-files" title="Permanent link">&para;</a></h1>
-<p>Load a symbol table with <strong>Map ▸ Load MAP File</strong>, which offers two formats:</p>
+<h1 id="symbols-from-map-files">Symbols from MAP files<a class="headerlink" href="#symbols-from-map-files" title="Permanent link">&para;</a></h1>
+<p>Load a symbol table with <strong>Map ▸ Load MAP File</strong>, which offers three formats:</p>
 <ul>
 <li><strong>Z88DK Format…</strong> — the <code>.map</code> file <code>zcc</code> writes next to your binary.
   Entries marked <code>; addr</code> are addresses. Entries marked <code>; const</code> are
@@ -3620,12 +3620,36 @@
   not symbols and are ignored, so the function labels keep their addresses.</li>
 <li><strong>Simple Format (48K ROM)…</strong> — plain <code>NAME = $ADDR</code> lines, one per line,
   <code>;</code> for comments.</li>
+<li><strong>sjasmplus Format (--sym, --exp)…</strong> — the symbol file sjasmplus writes with
+  <code>--sym=FILE</code> or <code>--exp=FILE</code>, lines such as <code>main.loop: EQU 0x00008006</code>.
+  <code>--sym</code> lists every label (sorted by name from sjasmplus 1.21.1, in another
+  order before; sjasmplus 1.18.0 and older leave out the labels whose name does
+  not start with a letter, such as <code>_start</code>); <code>--exp</code> only the labels the
+  source <code>EXPORT</code>s, in the order it exports them. The <code>--sym</code> of sjasmplus
+  1.17.0 and older, which spells the keyword in lower case
+  (<code>main.loop: equ 0x00008006</code>), loads as well. The names
+  are sjasmplus's full ones (<code>main.loop</code>, <code>gfx.draw</code>). The file records no
+  type, so every entry is a label: an <code>EQU</code> size or a struct field offset names
+  an address too (a disassembled <code>LD BC,$1B00</code> can read <code>LD BC,SCRSIZE</code>), and
+  <code>EXPORT</code> is how you choose what is loaded. A value above <code>0xFFFF</code>, or a
+  negative one, is ignored.
+  The file records no memory bank either: of two labels at one address in
+  different banks the first names the address, and both resolve by name. A
+  Windows file, with CRLF line ends, loads as it is.</li>
 </ul>
 <p>Once loaded, symbols appear wherever an address is shown and a name is known:
 the disassembly replaces a matching 16-bit immediate with the symbol name, the
 Call Stack names call targets, the Breakpoints panel gains a Symbol column, and
-the disassembly right-click menu offers to watch the symbol by name.</p>
+the disassembly right-click menu offers to watch the symbol by name. The open
+panels show the names as soon as the file is loaded.</p>
 <p>Where two symbols share an address, the first one in the file wins.</p>
+<p>On the command line, <code>--map FILE</code> loads a z88dk <code>.map</code> or an sjasmplus <code>--sym</code>
+or <code>--exp</code> file. It tells them apart by the file's first line, not by its name
+(z88dk's assembler also writes a <code>.sym</code>, in the map format). A file sjasmplus
+wrote starts with a symbol line; one edited to start with a comment is read as
+a z88dk map, so load it with <strong>Map ▸ Load MAP File</strong> instead. A script names a
+symbol as <code>@name</code>, an sjasmplus label with its dots as <code>@main.loop</code>: see
+<a href="../scripting/04-reading-the-machine.html#symbols-name">Symbols</a>.</p>
 <p>NextBuild / Boriel ZX Basic programs come with a <code>Memory.txt</code> instead, which
 JNEXT loads by itself when the program is loaded: see
 <a href="14-source-level-debugging.html">Source-level debugging</a>.</p>

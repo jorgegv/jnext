@@ -10,6 +10,9 @@
 - Source-level debugging: SLD and NextBuild Memory.txt maps attach beside a program; Source tab, source-line steps, `file:line` breakpoints (Qt debugger)
 - POK trainer files: Machine > POK Trainers... applies and removes pokes; --delayed-pok-frames/--pok-trainers do it headless and SDL-only
 
+### Developer Features
+- Debugger labels from sjasmplus --sym and --exp files (Map menu, --map); scripts name them as @module.label
+
 ### Bug Fixes
 - NextPi checks that QEMU is installed before offering its 6 GB download
 - Windows: NextPi's finished 6 GB download was deleted as "missing"; files over 4 GB are now recognised

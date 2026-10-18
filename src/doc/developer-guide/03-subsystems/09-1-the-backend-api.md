@@ -250,8 +250,9 @@ incident is reported on its own.
 ### Symbols — CAP-SYM
 
 There is one symbol table, and the backend owns it. `load_map(path, format)`
-reads a z88dk map (`MapFormat::Z88dk`) or a plain `SYMBOL = $ADDR` list
-(`MapFormat::Simple`); `clear_symbols`, `lookup(addr)`, `lookup_name(name)` and
+reads a z88dk map (`MapFormat::Z88dk`), a plain `SYMBOL = $ADDR` list
+(`MapFormat::Simple`) or an sjasmplus `--sym` / `--exp` file
+(`MapFormat::SjasmplusEqu`); `clear_symbols`, `lookup(addr)`, `lookup_name(name)` and
 `symbols()` read it. The Qt panels, the DSL's `@name`, the GDB server's
 `monitor sym` and `--map` all read this table, so a symbol loaded by one client
 shows in every other. A z88dk map's `; const` lines go into a separate
@@ -263,6 +264,24 @@ are dropped by the loader, so they never name an address or resolve by name.
 compiler's `_`, and the raw label resolves by name too. `SymbolTable::resolve()`
 turns an address field's text into an address: hex first (`4000`, `$4000`,
 `0x4000`), else a symbol; `@name` always means the symbol.
+
+`MapFormat::SjasmplusEqu` (GH #390) reads the lines `NAME: EQU 0x0000ABCD` that
+sjasmplus's `WriteLabelEquValue()` writes to `--sym` and `--exp`, with the CR its
+Windows build adds. The `--sym` of sjasmplus 1.17.0 and earlier
+(`CLabelTable::DumpSymbols()`) wrote the keyword in lower case,
+`NAME: equ 0x0000ABCD`, and the loader takes both spellings, exactly. The file
+has no type and no page, so every entry is a label, an `EQU` size or a struct
+field offset included. A value past 0xFFFF, or negative (written 0x80000000 and
+up), does not fit the 16-bit table and is skipped; the first line at an address
+wins, and, apart, the first for a name. `parse_equ_line()` in `symbol_table.cpp`
+is the one definition of such a line.
+`MapFormat::Z88dkOrSjasmplus` is how `--map` picks between this loader and the
+z88dk one: `SymbolTable::load_z88dk_or_sjasmplus()` reads the file once, into
+memory, and its first line (an EQU line or not) decides. By contents, because
+sjasmplus names its files freely and z88dk's assembler writes a `.sym` of its
+own, in the map format; and in one read, because `--map <(cmd)` is a pipe, which
+a second open would find drained (rows SYM-19 to SYM-32, SCRIPT-HOST-MAP-*, and
+the functional row `script-map-pipe-func`).
 
 ### Source maps — CAP-SRC
 

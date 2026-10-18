@@ -785,8 +785,10 @@ inline constexpr Option OPTIONS[] = {
       "with --headless --script FILE." },
     { "--map", 1, Doc::Documented, OptId::Map,
       "FILE",
-      "Load a z88dk .map symbol table, for `@symbol` in scripts\n"
-      "and for the debugger (the same table Map > Load MAP fills)." },
+      "Load a symbol table, a z88dk .map or an sjasmplus --sym\n"
+      "or --exp file, told apart by its contents, for `@symbol`\n"
+      "in scripts and for the debugger (the same table\n"
+      "Map > Load MAP fills)." },
     { "--magic-port", 1, Doc::Documented, OptId::MagicPort,
       "PORT",
       "Enable magic debug port at PORT (hex, e.g. 0x00FF)" },

@@ -114,7 +114,7 @@ function, so it can be used as a reference while debugging.
 - Run to cursor, run to end of frame, run to end of scanline
 - Breakpoints: execute, read, write, I/O
 - Watches, and watch sizes (byte / word / long)
-- Symbols from Z88DK MAP files
+- Symbols from MAP files
 - The trace log
 - Backward execution (rewind)
 - The magic breakpoint and the magic port

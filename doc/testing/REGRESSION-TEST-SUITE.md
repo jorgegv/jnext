@@ -227,6 +227,10 @@ a time, under the lock and the quiet-host wait, on the same tree, and only if
 every one passes writes the stamp, naming them (`confirmed_solo=`). An
 idle-host FAIL, a screenshot or lint FAIL, or a SKIP is never confirmable.
 
+Since 2026-10-18 the full run happens in the **batch gate** on `main`, after at most
+three landings, at the end of a work session and before any push (CLAUDE.md, merge
+protocol step 2). Branches and reviewers run the targeted rows (`make regression-rows`).
+
 ```bash
 make regression-stamp-check   # the stamp covering this tree, or exit 1 and why
 make regression-confirm       # re-run a full run's loaded-host FAILs solo; stamp if all pass
@@ -236,7 +240,7 @@ make regression-ci-check      # a green push/dispatch CI run on a commit with th
 ## Quick Start
 
 ```bash
-# Run the full regression suite (the gate)
+# Run the full regression suite (part of the batch gate on main)
 make regression
 
 # Generate/update reference screenshots

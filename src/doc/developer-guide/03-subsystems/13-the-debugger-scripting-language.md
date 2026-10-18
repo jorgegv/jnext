@@ -70,6 +70,14 @@ is both is the address (row SYM-13).
 The `-debug` records of a map (names starting `__C_LINE_`, `__ASM_LINE_` or
 `__CDBINFO__`) are not symbols: the loader drops them (rows SYM-14 to SYM-18).
 
+An sjasmplus `--sym` / `--exp` file loads into the same table (`--map` picks it
+by contents). Its names are dotted (`main.loop`, `gfx.draw.loop`), so
+`lex_symbol()` lets a `.` continue an `@name` when a letter or `_` follows it: `@a..@b`
+is still a range, `@a.1` is `@a`, `.`, `1`, and no script that parsed before
+changes meaning, since a `.` after a symbol was an error (rows LEX-26,
+EVAL-SYMBOL-DOTTED). A name with `?`, `!`, `#` or `@` in it cannot be written
+after `@`; it still shows in the disassembly and resolves in an address field.
+
 ## Values, state and the snapshot stacks
 
 Integers are 32-bit signed and wrap. Comparisons, `and`, `or` and `not` yield

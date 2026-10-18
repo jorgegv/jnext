@@ -92,13 +92,11 @@ because a nit either matters, in which case it is a REJECT with the reason
 cited, or it does not, in which case it is not part of a verdict. On REJECT, fix
 and re-review.
 
-The reviewer does not repeat the author's full regression. In their own
-worktree of the branch they run `make regression-stamp-check`, which prints the
-author's green stamp when the tree's non-doc content is the one the author
-tested (stamps are per user, shared by every worktree), and then the
-**targeted** rows the change touches. A tree with no matching stamp has not
-cleared the gate, and that is a REJECT, not a reason to run it on the author's
-behalf.
+Neither the author nor the reviewer runs the full regression on a branch. The
+full gate runs on `main`, once per batch of landings, before anything is
+pushed. In their own worktree of the branch, the reviewer runs the **targeted**
+rows and suites the change touches, and checks that the author's
+`make unit-test` is green on the reviewed head.
 
 The reason this rule is absolute is empirical rather than philosophical. On this
 project a series of real defects were caught by review and *none* of them by the

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.67</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.67</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2563,7 +2563,7 @@ child of the run can inherit the lock. It then waits, bounded, while the
 <code>test/regression-stamp.sh</code> records the counts, the loads and the commit under a
 key hashed from <code>git ls-tree</code> over every non-documentation path.
 <code>make regression-stamp-check</code> prints the stamp covering the current tree, which
-is how a reviewer verifies the author's run without repeating it, and
+is how a batch gate on an unchanged tree avoids repeating the run, and
 <code>make regression-ci-check</code> finds a green CI run with the same key, which is how
 a release reuses CI. Only a run with no FAIL and no SKIP is stamped, and since 2026-10-06 <code>regression.sh</code>
 itself exits 1 on a SKIP in every mode (full, named rows, <code>confirm</code>, <code>--update</code>;

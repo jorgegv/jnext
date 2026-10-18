@@ -19,9 +19,10 @@ silent skip.
 
 The rest of the chapter works through the pieces:
 
-- **The test triplet** is the three layers every change has to clear before it
-  can land — the unit suites, the FUSE Z80 opcode corpus, and the screenshot
-  and functional regression.
+- **The test triplet** is the three layers every batch of changes clears on
+  `main` before it is pushed — the unit suites, the FUSE Z80 opcode corpus, and
+  the screenshot and functional regression. A branch clears its targeted tests
+  and `make unit-test` first.
 - **The manifests** are where the pinned counts live: `test/unit-tests.conf`
   for the unit suites, `test/00regression/regression_tests.conf` and
   `functional_tests.conf` for the regression. Each harness treats a
