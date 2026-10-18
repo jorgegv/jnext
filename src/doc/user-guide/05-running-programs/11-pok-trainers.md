@@ -97,8 +97,9 @@ follows the hardware:
 | bank **0-7**, address **below 0xC000** | the bank is ignored, as for 8-15: only the top 16 KB of the address space is banked, so this is the memory map again |
 
 Banks 0-7 are the 128K RAM banks, so they work on the 128K, +3, Pentagon and the
-Next. On a **48K** the only bank that exists at 0xC000 is bank 0; a trainer with
-a line naming another bank is refused, with a message. A trainer whose lines say
+Next. On a **48K** the only bank that exists at 0xC000 is bank 0; a line naming
+another bank at 0xC000 or above is refused, with a message (below 0xC000 the bank
+is ignored, as on every machine, and the line pokes the memory map). A trainer whose lines say
 bank 8 writes into whatever bank the game has paged in at that moment, so apply
 it while the game is running normally.
 
@@ -147,7 +148,7 @@ file there:
 
 - `--delayed-pok-frames N FILE` applies trainers from `FILE` after `N` emulated
   frames, once the program has loaded. Frames are counted from the start of the
-  run, 50 to an emulated second.
+  run (a 50 Hz machine runs 50 a second).
 - `--pok-trainers LIST` says which ones: their numbers in the file, 1 for the
   first `N` line, comma-separated, each `T` or `T=VALUE`. A trainer that asks
   for a value (a `256` in the file) needs `T=VALUE`, 0 to 255; any other trainer
@@ -161,13 +162,13 @@ $ jnext --headless --machine 48k game.tap \
       --delayed-automatic-exit-frames 1300
 ```
 
-The numbers are the order of the `N` lines in the file (`grep -n '^N' game.pok`
-lists them), and the log names each trainer as it is applied. Pick the frame by
+The numbers are the order of the `N` lines in the file (`grep '^N' game.pok | cat -n`
+numbers them), and the log names each trainer as it is applied. Pick the frame by
 when the game has reached the point you want, and look with a
 `--delayed-screenshot` at a guessed frame: a tape loaded with the fast loader is
 ready after a few hundred frames (the 48K Starglider shows its menu at 150), one
 loaded in real time (`--tape-realtime`) takes as many frames as it has seconds
-of tape times 50. With a snapshot, `--delayed-pok-frames 0` applies the
+of tape times 50 at 50 Hz. With a snapshot, `--delayed-pok-frames 0` applies the
 trainers in the first frame, right after the snapshot has loaded.
 
 Everything that can be checked is checked before the machine starts, and a
@@ -180,7 +181,7 @@ trainers window.
 
 The trainers go in by the same path as the window's **Apply**: every write is a
 `MUTATE` line in the log, a trainer is applied whole or not at all, a bank-3
-line on a 48K or an address that is ROM in the current memory map is refused,
+line at 0xC000 or above on a 48K or an address that is ROM in the current memory map is refused,
 and so is anything while an RZX is recorded or played. A refusal, or an
 automatic exit that comes before the frame, makes the run exit non-zero once it
 ends, and the trainers before the refused one stay applied. A trainer whose

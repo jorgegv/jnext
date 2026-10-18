@@ -783,7 +783,7 @@ naming the option and the value, and exits with status 1.
     no **Machine > POK Trainers...** window: **\--headless** and the SDL-only
     build's window (see **POK TRAINERS** under LOADING PROGRAMS). The trainers
     are the ones **\--pok-trainers** names, which this requires. *N* counts
-    frames from the start of the run, 50 to an emulated second, and a tape
+    frames from the start of the run (50 a second on a 50 Hz machine), and a tape
     takes many; the trainers are written through the debugger's memory path,
     exactly as the window's **Apply** writes them. Given once. The file and the
     list are checked before the machine starts, and a run that fails the check

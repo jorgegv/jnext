@@ -869,12 +869,29 @@ void test_session() {
             }
             all = all && r.ok;
         }
+        // A 48K: the bank is ignored below 0xC000 there too. Bank 3, which a 48K lacks, is NOT refused (it is
+        // refused only at 0xC000+, POK-34), and bank 0, which is the 0xC000 RAM, does not move the poke there.
+        Rig k(MachineType::ZX48K);
+        k.load("NA\nZ  3 32771 9 0\nNB\nZ  0 32772 7 0\n");
+        k.wr(0x8003, 0x35);
+        k.wr(0x8004, 0x36);
+        k.wr(0xC003, 0x6B);
+        k.wr(0xC004, 0x6C);
+        const std::string ka = k.apply(0), kb = k.apply(1);
+        const bool k_in = ka.empty() && kb.empty() && k.rd(0x8003) == 9 && k.rd(0x8004) == 7 &&
+                          k.rd(0xC003) == 0x6B && k.rd(0xC004) == 0x6C;
+        const std::string kd = k.s->remove(0) + k.s->remove(1);
+        const bool k_ok = k.ok && k_in && kd.empty() && k.rd(0x8003) == 0x35 && k.rd(0x8004) == 0x36 &&
+                          k.rd(0xC003) == 0x6B && k.rd(0xC004) == 0x6C;
         check("POK-57", "on a 128K and on the Next a bank 0-7 poke at an address below 0xC000 (the edges of every 8K "
                         "page of 0x4000-0xBFFF, banks 0, 1, 3, 4, 6, 7) writes the memory the map shows there and "
-                        "leaves byte address & 0x3FFF of the named bank alone; Remove puts the map byte back (only "
-                        "0xC000+ is banked: zxnext.vhd:4613-4616, :4679-4680; the real Starglider 128K: its "
-                        "\"Infinite Missiles (Bank#0)\" line at 44796 is the CPU byte 0xAEFC)",
-              all, detail);
+                        "leaves byte address & 0x3FFF of the named bank alone; Remove puts the map byte back; on a "
+                        "48K a bank-3 line at 0x8003 is applied to the map byte, not refused, and a bank-0 line at "
+                        "0x8004 lands at 0x8004 and leaves 0xC004 alone (only 0xC000+ is banked: zxnext.vhd:4613-4616, "
+                        ":4679-4680; the real Starglider 128K: its \"Infinite Missiles (Bank#0)\" line at 44796 is "
+                        "the CPU byte 0xAEFC)",
+              all && k_ok, detail + "|" + ka + "|" + kb + "|" + kd + "|" + hex(k.rd(0x8003)) + hex(k.rd(0x8004)) +
+                               hex(k.rd(0xC003)) + hex(k.rd(0xC004)));
     }
 
     // POK-35: undo goes back to where the trainer wrote, not to wherever the map points then.

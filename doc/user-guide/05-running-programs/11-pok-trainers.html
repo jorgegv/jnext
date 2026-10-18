@@ -3865,8 +3865,9 @@ follows the hardware:</p>
 </tbody>
 </table>
 <p>Banks 0-7 are the 128K RAM banks, so they work on the 128K, +3, Pentagon and the
-Next. On a <strong>48K</strong> the only bank that exists at 0xC000 is bank 0; a trainer with
-a line naming another bank is refused, with a message. A trainer whose lines say
+Next. On a <strong>48K</strong> the only bank that exists at 0xC000 is bank 0; a line naming
+another bank at 0xC000 or above is refused, with a message (below 0xC000 the bank
+is ignored, as on every machine, and the line pokes the memory map). A trainer whose lines say
 bank 8 writes into whatever bank the game has paged in at that moment, so apply
 it while the game is running normally.</p>
 <p>A trainer is applied <strong>all or nothing</strong>. If one of its pokes cannot land (an
@@ -3908,7 +3909,7 @@ file there:</p>
 <ul>
 <li><code>--delayed-pok-frames N FILE</code> applies trainers from <code>FILE</code> after <code>N</code> emulated
   frames, once the program has loaded. Frames are counted from the start of the
-  run, 50 to an emulated second.</li>
+  run (a 50 Hz machine runs 50 a second).</li>
 <li><code>--pok-trainers LIST</code> says which ones: their numbers in the file, 1 for the
   first <code>N</code> line, comma-separated, each <code>T</code> or <code>T=VALUE</code>. A trainer that asks
   for a value (a <code>256</code> in the file) needs <code>T=VALUE</code>, 0 to 255; any other trainer
@@ -3920,13 +3921,13 @@ file there:</p>
       --delayed-snapshot trained.sna --delayed-snapshot-frames 1210 \
       --delayed-automatic-exit-frames 1300
 </code></pre>
-<p>The numbers are the order of the <code>N</code> lines in the file (<code>grep -n '^N' game.pok</code>
-lists them), and the log names each trainer as it is applied. Pick the frame by
+<p>The numbers are the order of the <code>N</code> lines in the file (<code>grep '^N' game.pok | cat -n</code>
+numbers them), and the log names each trainer as it is applied. Pick the frame by
 when the game has reached the point you want, and look with a
 <code>--delayed-screenshot</code> at a guessed frame: a tape loaded with the fast loader is
 ready after a few hundred frames (the 48K Starglider shows its menu at 150), one
 loaded in real time (<code>--tape-realtime</code>) takes as many frames as it has seconds
-of tape times 50. With a snapshot, <code>--delayed-pok-frames 0</code> applies the
+of tape times 50 at 50 Hz. With a snapshot, <code>--delayed-pok-frames 0</code> applies the
 trainers in the first frame, right after the snapshot has loaded.</p>
 <p>Everything that can be checked is checked before the machine starts, and a
 failure exits with status 1: a file that cannot be read, is larger than 1 MiB or
@@ -3937,7 +3938,7 @@ given to one that does not; either option without the other, or given twice
 trainers window.</p>
 <p>The trainers go in by the same path as the window's <strong>Apply</strong>: every write is a
 <code>MUTATE</code> line in the log, a trainer is applied whole or not at all, a bank-3
-line on a 48K or an address that is ROM in the current memory map is refused,
+line at 0xC000 or above on a 48K or an address that is ROM in the current memory map is refused,
 and so is anything while an RZX is recorded or played. A refusal, or an
 automatic exit that comes before the frame, makes the run exit non-zero once it
 ends, and the trainers before the refused one stay applied. A trainer whose

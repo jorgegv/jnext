@@ -40,8 +40,9 @@ bank below 0xC000 is +3 special paging (port 0x1FFD) or Profi mapping.
   (identical to Rule A for those addresses). Below 0xC000 the bank field is ignored
   and the line pokes the page the map shows there when the trainer is applied. On a
   48K only bank 0 exists (port 0x7FFD is not decoded, NR 0x82 = 0xC0: `emulator.cpp`
-  power-on, `zxnext.vhd:2399, :2593`) and any other bank is refused, at every
-  address.
+  power-on, `zxnext.vhd:2399, :2593`), so a bank 1-7 line at 0xC000 and above is
+  refused. Below 0xC000 the bank is ignored on every machine, a 48K included: a
+  bank-3 line at 0x8003 pokes the map byte there and is not refused.
 
 The rules differ only for bank 0-7 lines below 0xC000.
 
