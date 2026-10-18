@@ -82,7 +82,8 @@ public:
     /// Is the debugger currently set to follow the emulator window?
     bool attach_enabled() const { return attach_enabled_; }
 
-    /// Activate follow-PC in the disassembly panel.
+    /// Activate follow-PC in the disassembly panel and the Source tab (every
+    /// stop and step, from DebuggerManager::apply_pause_state()).
     void activate_follow_pc();
 
     /// Update debug action enabled state based on pause state.

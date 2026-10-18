@@ -1335,6 +1335,77 @@ void test_source_recentre_terms() {
               std::to_string(v_file) + " reload " + std::to_string(v_reload));
 }
 
+// A stop at the very PC and line the tab last showed still puts the view on
+// the line, after the user scrolled away during the previous pause: a
+// breakpoint, a Pause and a Step each end in the window's follow-PC, as the
+// disassembly's does.
+void test_source_follow_stop() {
+    Fixture fx;
+    fx.enable();
+    const std::string dir = g_tmp->path().toStdString();
+    std::string long_bas;
+    for (int i = 1; i <= 400; ++i) long_bas += "REM line " + std::to_string(i) + "\n";
+    write_text(dir + "/long.bas", long_bas);
+    write_text(dir + "/follow.sld",
+               std::string("|SLD.data.version|1\nlong.bas|10||0") + kNextDevice +
+                   "long.bas|10||0|" + std::to_string(fx.p80) + "|32768|T|\n");
+    // A loop on one line, so every stop below is at $8000, line 10.
+    fx.emu.mmu().write(0x8000, 0x18);   // JR $
+    fx.emu.mmu().write(0x8001, 0xFE);
+    fx.backend->load_source_map(dir + "/follow.sld", false);
+    fx.mgr->refresh_panels();
+    SourcePanel* sp = fx.dbg()->source_panel();
+    auto* editor = sp->findChild<QPlainTextEdit*>();
+    QScrollBar* bar = editor ? editor->verticalScrollBar() : nullptr;
+    if (!bar) { check("QSRC-46", "Source editor", false); return; }
+    auto scroll_away = [&]() {
+        bar->setValue(360);
+        QApplication::processEvents();
+        return bar->value();
+    };
+    const bool placed = sp->highlighted_line() == 10 && fx.pc() == 0x8000 && bar->value() < 100;
+
+    // A paused tick leaves the view where the user put it.
+    const int away = scroll_away();
+    fx.mgr->refresh_panels();
+    const bool tick_keeps = away >= 300 && bar->value() == away;
+
+    // A breakpoint hit at $8000: Run, the stop is processed by the tick.
+    scroll_away();
+    fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x8000);
+    fx.mgr->on_run();
+    for (int i = 0; i < 8 && !fx.backend->state().paused; ++i) fx.emu.run_frame();
+    fx.mgr->check_breakpoint_hit();
+    QApplication::processEvents();
+    const int at_break = bar->value();
+    const bool break_ok = fx.backend->state().paused && fx.pc() == 0x8000 &&
+                          sp->highlighted_line() == 10 && at_break < 100;
+    fx.mgr->breakpoints().clear_all();
+
+    // A Pause: Run, then Pause the loop at $8000.
+    fx.mgr->on_run();
+    fx.emu.run_frame();
+    scroll_away();
+    fx.mgr->on_pause();
+    QApplication::processEvents();
+    const int at_pause = bar->value();
+    const bool pause_ok = fx.backend->state().paused && fx.pc() == 0x8000 &&
+                          sp->highlighted_line() == 10 && at_pause < 100;
+
+    // A Step: JR $ lands on $8000 again.
+    scroll_away();
+    fx.mgr->on_step_into();
+    QApplication::processEvents();
+    const int at_step = bar->value();
+    const bool step_ok = fx.pc() == 0x8000 && sp->highlighted_line() == 10 && at_step < 100;
+    check("QSRC-46", "a stop at the PC and line already shown (a breakpoint, a Pause, a Step) "
+                     "puts the Source tab back on the line after the user scrolled away",
+          placed && tick_keeps && break_ok && pause_ok && step_ok,
+          "break " + std::to_string(at_break) + " pause " + std::to_string(at_pause) +
+              " step " + std::to_string(at_step) + " tick_keeps " +
+              std::to_string(tick_keeps));
+}
+
 // ── C4: while the machine runs the Source tab says so ─────────────────
 
 void test_source_running() {
@@ -1481,6 +1552,7 @@ int main(int argc, char** argv) {
     test_source_hex();
     test_source_scroll();
     test_source_recentre_terms();
+    test_source_follow_stop();
     test_source_running();
     test_sidecar_reason();
     test_sidecar_reason_late_window();

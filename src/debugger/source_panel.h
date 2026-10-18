@@ -25,6 +25,10 @@ public:
     explicit SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent = nullptr);
 
     void refresh();
+    /// The machine stopped (a breakpoint, a step, a Pause, a rewind): the next
+    /// refresh puts the view on the current line even when the line and the PC
+    /// are the ones it last showed and the user has scrolled away since.
+    void follow_pc() { placed_ = false; }
     /// Enable the step buttons for this state, without re-reading anything.
     void update_buttons(bool paused);
 

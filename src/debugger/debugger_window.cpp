@@ -1347,6 +1347,7 @@ void DebuggerWindow::create_panels() {
 
 void DebuggerWindow::activate_follow_pc() {
     if (disasm_panel_) disasm_panel_->activate_follow_pc();
+    if (source_panel_) source_panel_->follow_pc();
 }
 
 bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr,
