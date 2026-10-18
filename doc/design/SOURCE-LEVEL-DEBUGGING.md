@@ -116,8 +116,10 @@ install, and every row takes its values from them.
   records into the map, 29da3be373). No SLD and no DWARF in any z88dk branch: a search of the
   history since 2025-01-01 found no such commit, and the tree at 39421a01cd names neither.
 - Naming traps: `+zxn` defaults to `-clib=sdcc_iy -O2 -SO2` (`lib/config/zxn.cfg`), so a bare
-  `zcc +zxn` is sdcc; sccz80 needs `-clib=new` (or classic); `-clib=classic` failed on both
-  trees while planning (`Unknown option2 --hardware-keyboard`).
+  `zcc +zxn` is sdcc; sccz80 needs `-clib=new` (or classic). `-clib=classic -debug` fails on
+  both trees (`Unknown option2 --hardware-keyboard`: while planning, and again on
+  2026-10-18), so a classic map has no C lines; without `-debug` a classic build can link
+  (our fixture sources, both installs, 2026-10-18). E23-12 (#343) re-checks both installs.
 
 **Findings, and what each demands of the design.** Values marked "fixture" are in the checked-in
 fixture; the others are from the planning builds.
@@ -170,8 +172,12 @@ fixture; the others are from the planning builds.
 - The sdcc `-debug` rework, merged as eb1a9b1299 (2bafa2baee, 29da3be373, 2026-04-16/18): the
   CDB records become `__CDBINFO__` defc in the asm, and `C_LINE` carries scope and block.
 - 72ea9d221b (2026-04-20): in classic `+zxn`, the `BANK_n` ORG is `(2n)<<16 + CRT_ORG_BANK_n`,
-  so the 24-bit value carries the 8K page. Newlib still uses 16-bit addresses. Classic `+zxn`
-  could not be built while planning, so this row is from the source.
+  so the 24-bit value carries the 8K page; before it the prefix was the 16K bank number (2.4:
+  `ORG 0x0a0000 + CRT_ORG_BANK_10`). Only a plain `BANK_n` has the prefix: `BANK_n_L`,
+  `BANK_n_H`, `PAGE_n` and `DIV_n` have 16-bit ORGs on both trees, and newlib has them
+  throughout. Measured on 2026-10-18 (classic build without `-debug`, one function in
+  `CODE_10`): `_banked_add` is `$AC000` on 2.4 (ORG $C000) and `$14E000` on the latest
+  install (ORG $E000, in page 21).
 - 80cc, a new C compiler (147d689ad7, 21148942d7, 7ac2e80b4f): `-compiler=80cc -debug` writes
   the same map format as sccz80, with function names.
 - z88dk-gdb: `monitor` passthrough, watchpoints, exit codes (0f5f252276, b11cb3f69b,
@@ -192,8 +198,8 @@ What the master maps showed (planning build):
 - Master's `z88dk-gdb` cannot yet use master's sdcc output (`Warning: unsupported address
   space`, then `Cannot break on 'main.c:19'`); the sccz80 path is the mature one.
 - The page encoding depends on the z88dk version and library (newlib: the section name, on
-  both trees; classic: a 24-bit value, the page after 72ea9d221b and the bank before it),
-  hence the order of 9.4's rules.
+  both trees; classic: the section name, and in a plain `BANK_n` also a 24-bit value, the page
+  after 72ea9d221b and the bank before it), hence the order of 9.4's rules.
 
 **What `.lis` guarantees.** Every assembled line with its bytes and module-relative address
 (relocation needs the map and a label in the same section piece); for sccz80, `C_LINE`
@@ -481,8 +487,9 @@ adapter emits equal starts in ascending line order, so the highest line owns the
 returns every range start of the location. The file matches the exact path, else a unique
 suffix of whole path components (a basename is the one-component case, today's rule; `ain.c`
 never matches `main.c`). A zero-width line resolves through its alias or refuses with "no code
-at file:line" (G3; `main.c:14` in the fixture). Two locations are the same position when file,
-line and column of their primary locations are equal.
+at file:line" (G3; `main.c:14` in the fixture, the line of `int main(void)`). Two addresses are
+at the same position when the primary locations of the ranges under them have equal file, line
+and column.
 
 E23-06 (#338) builds the store on a placeholder 16-bit page key and fixes its interface;
 E23-07 (#339) only swaps the key for `FetchSource`.
@@ -751,36 +758,52 @@ that DeZog's `z88dkmapfile.ts` accepts). Lines in an empty section are dropped (
 
 **Space derivation**, in this order. The section name comes first, because the meaning of a
 24-bit value changed between z88dk versions. The section families are those of z88dk's memory
-maps (newlib `libsrc/_DEVELOPMENT/target/zxn/crt_memory_map.inc`, classic
-`lib/target/zxn/classic/memory_map.asm`); a `<KIND>` is `CODE`, `RODATA`, `DATA` or `BSS`.
+maps. Newlib's `crt_memory_map.inc` (`libsrc/_DEVELOPMENT/target/zxn/` in 2.4,
+`libsrc/newlib/target/zxn/` at 39421a01cd) defines `PAGE_<n>` (n = 0 to 223), `BANK_<n>`,
+`BANK_<n>_L` and `BANK_<n>_H` (n = 0 to 111), and `DIV_<n>` (n = 0 to 15). Classic's
+`lib/target/zxn/classic/memory_map.asm` (the same path in both trees) defines those names and,
+for each `<KIND>` (`CODE`, `RODATA`, `DATA` or `BSS`), `<KIND>_PAGE_<n>`, `<KIND>_<n>`,
+`<KIND>_<n>_L`, `<KIND>_<n>_H` and `<KIND>_DIV_<n>`, with `RODATA_<n>_align_<m>` and
+`DATA_<n>_align_<m>` inside a plain bank. The rules read the word (`PAGE`, `DIV`, `BANK` or a
+`<KIND>`), the number `<n>` and the `_L` or `_H` suffix of the name.
 
-1. Section `PAGE_<n>` (newlib) or `<KIND>_PAGE_<n>` (classic): `Page{n}`.
-2. Section `BANK_<n>`, `BANK_<n>_L` or `BANK_<n>_H` (newlib) or `<KIND>_<n>`, `<KIND>_<n>_L`,
-   `<KIND>_<n>_H` (classic): `page = 2n + h + ((addr16 - ORG) >> 13)`. `ORG` is the section's
-   `CRT_ORG_BANK_<n>[_L|_H]`, read from the map's `CRT_ORG_*` const; `h` is 1 for the `_H`
-   sections, the upper 8K of the 16K bank (as z88dk's `appmake` places them), and 0 otherwise.
-   Only the low 16 bits of a 24-bit value are used.
-3. A value above 0xFFFF in a section with no number: bits 16 to 23 are the 8K page, and the
-   upper 8K of an even page adds 1 (DeZog's rule, right for classic after 72ea9d221b). In a
-   numbered section the same bits must agree with rules 1 and 2, or the map is refused with a
-   reason. This rule exists only if E23-12 (#343) can produce a real classic `+zxn` fixture;
-   otherwise a 24-bit value outside a numbered section is refused with a reason, and the rule
-   waits for a fixture.
+1. Section `PAGE_<n>` or `<KIND>_PAGE_<n>`: `Page{n}`.
+2. A section of the 16K bank n, which is the 8K pages 2n and 2n + 1. `BANK_<n>`, `<KIND>_<n>`
+   and the aligned sections: `Page{2n + ((addr16 >> 13) & 1)}`. `BANK_<n>_L` and
+   `<KIND>_<n>_L`: `Page{2n}`. `BANK_<n>_H` and `<KIND>_<n>_H`: `Page{2n + 1}`. `addr16` is
+   the low 16 bits of the value. The map's `CRT_ORG_BANK_<n>[_L|_H]` is not used, because
+   z88dk's `appmake` (`src/appmake/zxn.c`, identical on 2.4 and at 39421a01cd) places a
+   section in the 16K bank at `(org & 0x1fff) + 0xc000` for `_L`, at `(org & 0x1fff) + 0xe000`
+   for `_H` and at `(org & 0x3fff) + 0xc000` for the rest: a byte of a plain bank is at bank
+   offset `addr16 & 0x3fff`, whatever the ORG. A page computed from the distance to the ORG
+   is wrong when the ORG is not 16K-aligned (`BANK_10` at $E000 starts in page 21, not 20).
+   Checked on 2026-10-18 by scratch builds on 2.4 and on the latest install (newlib, sccz80,
+   one function): in `BANK_10` at ORG $C000 or $D000 it is in page 20, at $E000 or $A000 in
+   page 21; in `BANK_10_L` (ORG $C000) in page 20; in `BANK_10_H` (ORG $E000 or $C000) in
+   page 21.
+3. A value above 0xFFFF in a section whose name has no number (none of z88dk's standard memory
+   maps has one; a user memory map can): bits 16 to 23 are the 8K page, and the upper 8K of an
+   even page adds 1 (DeZog's rule, right for classic after 72ea9d221b). This rule exists only
+   if E23-12 (#343) can produce a fixture of such a map; otherwise the value is refused with a
+   reason, and the rule waits for a fixture. In a numbered section the bits are not read: they
+   are the 16K bank number before 72ea9d221b and the 8K page after it, so they cannot check
+   the name without knowing the version.
 4. Any other section (`CODE`, `code_*`, the main program): the RAM page the MMU maps at that
    slot with the program in memory. For a NEX that is banks 5, 2 and 0, the pages 10, 11, 4, 5,
    0 and 1 for $4000-$FFFF, so $8000-$9FFF is `Page{4}`. A map read before the program is in
    memory (`--map`, `--source-map`) takes its rule-4 spaces at the program load, not when it is
    read: `--map` is read when the script host starts, before the `--load` countdown applies
    the program.
-5. A DivMMC dot command (org $2000): `DivMmcRam{bank}` (E23-21 (#351), OD-14). The z88dk
-   memory maps define `DIV_<n>` sections (newlib and classic); E23-21 establishes how a dot
-   command's sections map to it.
+5. A DivMMC dot command (org $2000), and the `DIV_<n>` and `<KIND>_DIV_<n>` sections of the
+   memory maps: `DivMmcRam{bank}` (E23-21 (#351), OD-14). E23-21 establishes how a dot
+   command's sections map to a bank.
 
 **Zero-width lines** (G3). A line whose address equals the next line's start is an alias of
 that line if both are in the same function: sccz80 and 80cc give the function; for sdcc, which
 writes `x`, the test is the same module and no function-entry `addr` symbol of another
-function at that address. Otherwise the line has no code (`main.c:14` in the fixture). Toolchain
-mis-attributions are reported as the map says (G4 on 2.4, master sdcc's `util.h:9`).
+function at that address. Otherwise the line has no code (`main.c:14` in the fixture, the line
+of `int main(void)`, which carries `square`'s scope). Toolchain mis-attributions are reported
+as the map says (G4 on 2.4, master sdcc's `util.h:9`).
 
 **Loading.** `<stem>.map` is a sidecar per 6.1 (OD-5). A user `--map` keeps the user's symbols
 and still attaches the source half. By hand, Load Source Map... accepts `.map`, and the command
