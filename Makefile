@@ -1184,36 +1184,13 @@ worktree-bootstrap:
 		printf "$(BOLD)worktree-bootstrap: not ready yet — see the item(s) above.$(RESET)\n"; \
 	fi
 
-# Count lines of code (excluding comments and blanks), per directory and total
+# Count lines of code (excluding comments and blanks): src/, test/ and tools, as a table
 kloc-count:
-	@# The subsystem list is DISCOVERED, not written down: every top-level
-	@# directory under src/ that holds sources, plus test/. Adding a subsystem
-	@# needs no edit here and — the point — cannot silently go uncounted. The
-	@# old hard-coded list had already lost src/profiler, and its `if [ -d ]`
-	@# guard made an unlisted directory and a deleted one look identical: both
-	@# printed nothing. A directory with no .cpp/.h (src/doc, src/save) is
-	@# skipped by the same rule that finds the others, so there is no list of
-	@# exceptions to maintain either.
-	@#
-	@# A module shipping its own suite (src/esp01/test — GH #25) counts that
-	@# suite under the module, not under test/: the proof ships with the code.
-	@#
-	@# `grep -h` is load-bearing. With several files grep prefixes every output
-	@# line with `filename:`, anchoring the following ^-patterns against the
-	@# path instead of the code — so the three comment filters matched NOTHING
-	@# and this target counted comments for as long as it existed, while its
-	@# own header claimed otherwise. Reported total 165,897 -> 105,803.
-	printf "\n$(BOLD)Lines of code (excluding comments and blank lines):$(RESET)\n\n"
-	total=0; \
-	for dir in $$(find src -mindepth 1 -maxdepth 1 -type d | sort) test; do \
-		files=$$(find "$$dir" -name '*.cpp' -o -name '*.h'); \
-		if [ -n "$$files" ]; then \
-			count=$$(echo "$$files" | xargs grep -h -v '^\s*$$' | grep -v '^\s*//' | grep -v '^\s*/\*' | grep -v '^\s*\*' | wc -l); \
-			printf "  $(CYAN)$(BOLD)%-30s$(RESET) %6d\n" "$$dir" "$$count"; \
-			total=$$((total + count)); \
-		fi; \
-	done; \
-	printf "\n  $(BOLD)%-30s %6d$(RESET)\n\n" "TOTAL" "$$total"
+	@# The rows are DISCOVERED, never a hard-coded subsystem list (the old list had
+	@# lost src/profiler, and its `if [ -d ]` guard made an unlisted directory and a
+	@# deleted one look identical). The logic lives in tools/kloc-count.sh, whose
+	@# header says what each section counts and why `grep -h` is load-bearing.
+	@BOLD='$(BOLD)' CYAN='$(CYAN)' RESET='$(RESET)' tools/kloc-count.sh
 
 # Regenerate the man page, USAGE.md and the guide's option page (needs pandoc)
 docs-man:
