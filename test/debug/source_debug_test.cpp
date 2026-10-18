@@ -1630,6 +1630,76 @@ int main() {
                       " IncDecZ=" + std::to_string(m.emu.cpu().get_registers().IncDecZ));
         }
         {
+            // The M1 of the byte after an ED inside a DD/FD chain loads the hold like any other
+            // (divmmc.vhd:127-131): `DD ED A0` at $0006 with the A0 at a delayed entry ($0008) is
+            // RAM's, and the NEXT instruction, at $0009, is the DivMMC ROM's (LD A,$77), not RAM's NOP.
+            auto mp = setup(0x02);
+            Machine& m = *mp;
+            m.emu.mmu().write(0x0006, 0xDD); m.emu.mmu().write(0x0007, 0xED);
+            m.emu.mmu().write(0x0008, 0xA0);                                   // DD ED LDI
+            uint8_t* drom = m.emu.divmmc().rom_data();
+            drom[0x0009] = 0x3E; drom[0x000A] = 0x77;                          // LD A,$77
+            set_regs(m, 0, 0x0001, true);
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.HL = 0x9000; r.DE = 0x9100;
+            m.emu.cpu().set_registers(r);
+            m.set_pc(0x0006);
+            (void)step_pair(m);                       // DD ED LDI
+            (void)step_pair(m);                       // the instruction at $0009
+            check("SRCDBG-ID-45", "DD ED xx with xx at a delayed DivMMC entry: that M1 loads the hold, "
+                                  "so the next instruction is the DivMMC ROM's (LD A,$77, PC = $000B)",
+                  (m.dbg->registers().AF >> 8) == 0x77 && m.pc() == 0x000B,
+                  "A=" + hex(m.dbg->registers().AF >> 8) + " " + m.where());
+        }
+        {
+            // The predictor follows the chain past the first inner byte: `DD ED xx` with xx at an
+            // INSTANT entry ($0008): the third M1 maps the DivMMC itself (zxnext.vhd:4116-4125), so xx
+            // is the ROM's A0 (LDI) and the trace shows DD ED A0; RAM's 00 at $0008 is not executed.
+            auto mp = setup(0x02);
+            Machine& m = *mp;
+            m.dbg->nextreg_write(m.a, 0xBA, 0x02);   // instant
+            m.emu.mmu().write(0x0006, 0xDD); m.emu.mmu().write(0x0007, 0xED);
+            m.emu.divmmc().rom_data()[0x0008] = 0xA0;
+            set_regs(m, 0, 0x0001, true);
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.HL = 0x9000; r.DE = 0x9100;
+            m.emu.cpu().set_registers(r);
+            m.dbg->set_trace_enabled(true);
+            m.set_pc(0x0006);
+            (void)step_pair(m);
+            const auto& t = m.emu.trace_log();
+            const TraceEntry& e = t.at(t.size() - 1);
+            check("SRCDBG-ID-46", "DD ED xx with xx at an instant DivMMC entry: xx is the ROM's A0 - LDI "
+                                  "runs (BC = 0) and the trace shows DD ED A0",
+                  m.emu.cpu().get_registers().BC == 0 && m.pc() == 0x0009 && e.opcode_bytes[0] == 0xDD &&
+                      e.opcode_bytes[1] == 0xED && e.opcode_bytes[2] == 0xA0,
+                  "BC=" + hex(m.emu.cpu().get_registers().BC) + " " + m.where() + " bytes=" + hex(e.opcode_bytes[0]) + hex(e.opcode_bytes[1]) + hex(e.opcode_bytes[2]));
+        }
+        {
+            // The Multiface's 0x0066 latch across a prefix chain: CB at $0065 (RAM), the M1 of the inner
+            // byte at $0066 latches the armed Multiface (multiface.vhd:169-186), so that byte is the
+            // Multiface ROM's 3F (SRL A) and the trace shows CB 3F; RAM's 07 (RLC A) is not run.
+            Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+            m.dbg->nextreg_write(m.a, 0x50, 10);
+            m.emu.multiface().set_enabled(true);
+            m.emu.mmu().write(0x0065, 0xCB); m.emu.mmu().write(0x0066, 0x07);
+            m.emu.ram().page_ptr(0x0A)[0x66] = 0x3F;   // Multiface ROM $0066: SRL A
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.AF = 0x8100;
+            m.emu.cpu().set_registers(r);
+            m.emu.multiface().button_press();
+            m.dbg->set_trace_enabled(true);
+            m.set_pc(0x0065);
+            (void)step_pair(m);
+            const auto& t = m.emu.trace_log();
+            const TraceEntry& e = t.at(t.size() - 1);
+            check("SRCDBG-ID-47", "CB at $0065, its inner byte at $0066 latching an armed Multiface: the "
+                                  "byte is the Multiface ROM's (SRL A, A = $40) and the trace shows CB 3F",
+                  (m.dbg->registers().AF >> 8) == 0x40 && e.pc == 0x0065 && e.opcode_bytes[0] == 0xCB &&
+                      e.opcode_bytes[1] == 0x3F && e.opcode_len == 2,
+                  "A=" + hex(m.dbg->registers().AF >> 8) + " " + m.where());
+        }
+        {
             auto mp = setup(0x02);
             Machine& m = *mp;
             int hits = 0;
