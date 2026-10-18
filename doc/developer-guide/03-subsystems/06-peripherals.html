@@ -2518,7 +2518,8 @@ both (<code>zxnext.vhd:4112</code>), so <code>is_active()</code> checks <code>po
 <code>is_active_after_fetch()</code> is the overlay for every later cycle of the same
 instruction: the <code>hold</code> the fetch loaded (<code>divmmc.vhd:128-143</code>). They differ
 exactly at a delayed-on entry (the operands are already the DivMMC's) and in the
-unmap window (the operands are already RAM's).</p>
+unmap window (the operands are already RAM's). <code>is_nmi_hold()</code> follows the second:
+it is sampled after the instruction (<code>automap_hold_ OR button_nmi</code>).</p>
 <p>The trigger addresses are <strong>not hard-coded</strong>: NR <code>0xB8</code>-<code>0xBB</code> select which RST
 vectors and tape traps map, whether each is instant or delayed, and whether the
 <code>0x3D00</code> wildcard and the <code>0x1FF8</code>-<code>0x1FFF</code> unmap window are live.</p>

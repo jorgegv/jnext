@@ -157,7 +157,10 @@ fires *before* the read, because DivMMC automap, the NMI FSM and the Multiface
 window all decide what memory the CPU is about to see, and must be settled
 before the byte is fetched through them. `on_m1_cycle` fires *after*, once per
 fetched byte of a prefix chain — including the inner byte of `DD ED xx` —
-because the IM2 opcode decoder models one event per M1.
+because the IM2 opcode decoder models one event per M1. Both fire for every M1
+byte of an instruction, the inner bytes of a prefix chain included
+(`fetch_prefix_chain_()`): the DivMMC and Multiface decisions are per M1, and an
+inner byte can sit on an entry point or in the unmap window.
 
 `request_interrupt(vector, first, last)` gives the CPU the window of
 instruction boundaries, on the FUSE T-state counter, at which /INT is seen low.

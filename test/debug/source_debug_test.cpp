@@ -1552,6 +1552,34 @@ int main() {
                   "A=" + hex(m.dbg->registers().AF >> 8) + " " + m.where());
         }
         {
+            // DD CB d op across the unmap: DD at $1FF7 and CB at $1FF8 are the DivMMC ROM's (the CB
+            // M1 loads the released hold), d and op at $1FF9/$1FFA are plain data reads of RAM.
+            auto mp = setup(0x01);
+            Machine& m = *mp;
+            m.dbg->nextreg_write(m.a, 0xBA, 0x01);
+            m.dbg->nextreg_write(m.a, 0xBB, 0x40);
+            m.emu.mmu().write(0x1FF9, 0x05); m.emu.mmu().write(0x1FFA, 0x06);   // RAM: RLC (IX+5)
+            uint8_t* drom = m.emu.divmmc().rom_data();
+            drom[0] = 0xC3; drom[1] = 0xF7; drom[2] = 0x1F;   // JP $1FF7
+            drom[0x1FF7] = 0xDD; drom[0x1FF8] = 0xCB;
+            drom[0x1FF9] = 0x07; drom[0x1FFA] = 0x0E;          // RRC (IX+7), not run
+            m.emu.mmu().write(0xA005, 0x01); m.emu.mmu().write(0xA007, 0x01);
+            Z80Registers r = m.emu.cpu().get_registers();
+            r.IX = 0xA000;
+            m.emu.cpu().set_registers(r);
+            m.dbg->set_trace_enabled(true);
+            m.set_pc(0x0000);
+            (void)step_pair(m); (void)step_pair(m);
+            const auto& t = m.emu.trace_log();
+            const TraceEntry& e = t.at(t.size() - 1);
+            check("SRCDBG-ID-44", "DD CB d op across the unmap: d and op are no M1, they come from RAM "
+                                  "(RLC (IX+5)) and the trace shows DD CB 05 06",
+                  m.emu.mmu().read(0xA005) == 0x02 && m.emu.mmu().read(0xA007) == 0x01 &&
+                      m.pc() == 0x1FFB && e.opcode_bytes[0] == 0xDD && e.opcode_bytes[1] == 0xCB &&
+                      e.opcode_bytes[2] == 0x05 && e.opcode_bytes[3] == 0x06 && e.opcode_len == 4,
+                  "(IX+5)=" + hex(m.emu.mmu().read(0xA005)) + " " + m.where());
+        }
+        {
             auto mp = setup(0x02);
             Machine& m = *mp;
             std::vector<Seen> log;

@@ -74,12 +74,18 @@ A DivMMC entry point makes the fetch and the bus cycles after it see different
 memory (`divmmc.vhd:128-148`): `automap_held` takes `automap_hold` on the first
 MREQ-high after the opcode byte, so a delayed-on entry's own operands already
 come from the DivMMC, and those of an instruction in the 0x1FF8-0x1FFF unmap
-range already come from RAM. `read_m1()` and `read_fetch()` (the core's re-read
-of the opcode and a prefix's inner byte; no record) route with the fetch view,
-`DivMmc::is_active()`; `read()` and the write path use `DivMmc::is_active_after_fetch()`.
-The debugger's reads of the instruction about to run follow the same split
-(`Emulator::peek_fetch_byte_()`: the opcode byte under the fetch view, the bytes
-after it under `DivMmc::active_after_m1_fetch()`), pure, through `route_with()`.
+range already come from RAM. `read_m1()` and `read_fetch()` (a prefix's inner
+byte; no record) route with the fetch view, `DivMmc::is_active()`; `read()` and
+the write path use `DivMmc::is_active_after_fetch()`. Every byte of a prefix chain
+is an M1 of its own (it loads the hold again), so `Z80Cpu::fetch_prefix_chain_()`
+runs the `on_m1_prefetch` decode at each inner address and reads that byte once
+into `s_fetch_buf`; the FUSE core's re-reads of the M1 bytes are served from it.
+The `d` and `op` of `DD CB d op` are no M1 (`t80n.vhd:414-417, 1755-1761`): plain
+data reads. The debugger's reads of the instruction about to run follow the same
+split (`Emulator::predict_instruction_()`: each M1 byte under the overlay its own
+M1 selects, the DivMMC hold chained from one M1 to the next with
+`DivMmc::active_on_m1()` / `hold_after_m1()`, the rest under
+`DivMmc::active_with_hold()`), pure, through `route_with()`.
 
 The identity of a slot's own source is cached beside the pointer: `slot_space_[8]`
 is written wherever `read_ptr_[slot]` is (`rebuild_ptr_body_()` and
