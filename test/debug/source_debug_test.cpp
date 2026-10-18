@@ -1057,6 +1057,115 @@ int main() {
               }());
     }
     {
+        // The debugger's reads of the instruction about to run happen BEFORE the M1 that maps the
+        // DivMMC in, so they must go through the overlay that M1 selects (divmmc.vhd:124-148;
+        // zxnext.vhd:3084): a CALL fetched straight away at the entry point is a CALL from the
+        // DivMMC ROM, its bytes are the ROM's (not RAM page 10's zeros), and the tracker opens a
+        // second frame. ID-22 is the instant entry (the CALL at $0008), ID-23 the delayed one
+        // (RAM at $0008, the CALL at $0009 - the first fetch the DivMMC supplies).
+        struct Case { const char* id; uint8_t ba; uint16_t call_at; };
+        for (const Case& c : {Case{"SRCDBG-ID-22", 0x02, 0x0008}, Case{"SRCDBG-ID-23", 0x00, 0x0009}}) {
+            Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+            m.dbg->nextreg_write(m.a, 0x50, 10);
+            m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+            m.dbg->nextreg_write(m.a, 0xB8, 0x02);
+            m.dbg->nextreg_write(m.a, 0xB9, 0x02);
+            m.dbg->nextreg_write(m.a, 0xBA, c.ba);
+            uint8_t* drom = m.emu.divmmc().rom_data();
+            drom[c.call_at] = 0xCD; drom[c.call_at + 1] = 0x20; drom[c.call_at + 2] = 0x00;  // CALL $0020
+            drom[0x0020] = 0xC9;                                                            // RET
+            m.emu.mmu().write(0x0008, 0x00);          // RAM page 10: NOP (the delayed case runs it)
+            m.emu.mmu().write(0x8000, 0xCF);          // RST $08
+            m.emu.mmu().write(0x8001, 0x00);
+            m.dbg->set_trace_enabled(true);
+            m.dbg->set_call_stack_enabled(true);
+            m.set_pc(0x8000);
+            (void)step_pair(m);                                   // RST $08
+            if (c.call_at != 0x0008) (void)step_pair(m);          // the NOP at $0008 (held entry)
+            (void)step_pair(m);                                   // the CALL, fetched from the DivMMC ROM
+            const auto& f = m.dbg->call_stack();
+            const auto& t = m.emu.trace_log();
+            const TraceEntry& e = t.at(t.size() - 1);
+            check(c.id, c.ba == 0x02
+                      ? "an instant DivMMC entry: a CALL fetched directly at $0008 is traced with the "
+                        "DivMMC ROM's bytes (CD 20 00) and opens its own frame"
+                      : "a delayed DivMMC entry: a CALL fetched directly at $0009 is traced with the "
+                        "DivMMC ROM's bytes (CD 20 00) and opens its own frame",
+                  e.pc == c.call_at && e.opcode_bytes[0] == 0xCD && e.opcode_bytes[1] == 0x20 &&
+                      e.opcode_bytes[2] == 0x00 && e.opcode_len == 3 &&
+                      t.fetch_not_mmu_ram(t.size() - 1) && f.size() == 2 &&
+                      f[1].caller_pc == c.call_at && f[1].target_pc == 0x0020,
+                  [&] {
+                      char b[96];
+                      std::snprintf(b, sizeof b, "pc=%04X bytes=%02X %02X %02X len=%d frames=%zu",
+                                    e.pc, e.opcode_bytes[0], e.opcode_bytes[1], e.opcode_bytes[2],
+                                    e.opcode_len, f.size());
+                      return std::string(b);
+                  }());
+        }
+    }
+    {
+        // The first instruction after a fetch in the DivMMC unmap range comes from RAM again
+        // (divmmc.vhd:128-148, the unmap releases `automap` for the NEXT M1), while DivMMC still
+        // reads as mapped before it: the trace's bytes are RAM page 10's, not the ROM's.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+        m.dbg->nextreg_write(m.a, 0xB8, 0x01);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x01);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x01);
+        m.dbg->nextreg_write(m.a, 0xBB, 0x40);   // unmap at 0x1FF8-0x1FFF
+        m.emu.mmu().write(0x1FF9, 0x3E);          // RAM page 10: LD A,$77
+        m.emu.mmu().write(0x1FFA, 0x77);
+        uint8_t* drom = m.emu.divmmc().rom_data();
+        drom[0] = 0xC3; drom[1] = 0xF8; drom[2] = 0x1F;   // JP $1FF8
+        drom[0x1FF8] = 0x00;                               // NOP
+        drom[0x1FF9] = 0x06; drom[0x1FFA] = 0x55;          // LD B,$55: the ROM's, not run
+        m.dbg->set_trace_enabled(true);
+        m.set_pc(0x0000);
+        (void)step_pair(m);                       // the JP, from DivMMC
+        (void)step_pair(m);                       // the NOP at $1FF8 arms the unmap
+        (void)step_pair(m);                       // $1FF9: RAM again
+        const auto& t = m.emu.trace_log();
+        const TraceEntry& e = t.at(t.size() - 1);
+        check("SRCDBG-ID-24", "the first instruction after the DivMMC unmap range is traced with "
+                              "RAM's bytes (3E 77), not the ROM it was mapped over",
+              e.pc == 0x1FF9 && e.opcode_bytes[0] == 0x3E && e.opcode_bytes[1] == 0x77 &&
+                  e.opcode_len == 2 && !t.fetch_not_mmu_ram(t.size() - 1),
+              [&] {
+                  char b[96];
+                  std::snprintf(b, sizeof b, "pc=%04X bytes=%02X %02X len=%d", e.pc,
+                                e.opcode_bytes[0], e.opcode_bytes[1], e.opcode_len);
+                  return std::string(b);
+              }());
+    }
+    {
+        // The Multiface's 0x0066 fetch, armed: the instruction is the Multiface ROM's
+        // (multiface.vhd:169,176,186), and so are the bytes the trace shows for it.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.emu.multiface().set_enabled(true);
+        m.emu.mmu().write(0x0066, 0x00);           // RAM page 10: NOP
+        m.emu.ram().page_ptr(0x0A)[0x66] = 0x3E;   // Multiface ROM $0066: LD A,$42
+        m.emu.ram().page_ptr(0x0A)[0x67] = 0x42;
+        m.dbg->set_trace_enabled(true);
+        m.set_pc(0x0066);
+        m.emu.multiface().button_press();
+        (void)step_pair(m);
+        const auto& t = m.emu.trace_log();
+        const TraceEntry& e = t.at(t.size() - 1);
+        check("SRCDBG-ID-25", "an armed Multiface fetch at $0066 is traced with the Multiface "
+                              "ROM's bytes (3E 42), not RAM's",
+              e.pc == 0x0066 && e.opcode_bytes[0] == 0x3E && e.opcode_bytes[1] == 0x42 &&
+                  e.opcode_len == 2 && t.fetch_not_mmu_ram(t.size() - 1),
+              [&] {
+                  char b[96];
+                  std::snprintf(b, sizeof b, "pc=%04X bytes=%02X %02X len=%d", e.pc,
+                                e.opcode_bytes[0], e.opcode_bytes[1], e.opcode_len);
+                  return std::string(b);
+              }());
+    }
+    {
         // The live gate (execute_gate, run while a machine RUNS with an Execute subscription) takes
         // the same prediction as probe_execute (ID-02, ID-06): at an instant DivMMC entry the fetch
         // at $0000 is the DivMMC ROM's, so a page_ram_only subscription on RAM page 10 there is

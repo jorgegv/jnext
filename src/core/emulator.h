@@ -2508,6 +2508,22 @@ private:
     };
     M1AutomapGates m1_automap_gates_(uint16_t pc, bool mf_active) const;
 
+    /// The two overlays an M1 at `pc` itself switches, as that fetch will see
+    /// them: DivMMC's automap (instant entry points, the hold) and the
+    /// Multiface's 0x0066 latch. `predict_fetch()` and `peek_fetch_byte_()`
+    /// both start from this one answer.
+    struct M1Overlays {
+        bool divmmc;
+        bool mf;
+    };
+    M1Overlays predict_m1_overlays_(uint16_t pc) const;
+
+    /// The byte a fetch cycle at `addr` would receive under `o`: pure (no
+    /// +3 floating-bus latch, no watchpoint). The debugger's reads of the
+    /// instruction about to execute (trace bytes, call-stack opcodes) use this,
+    /// so they see the overlay the M1 will select, not the pre-M1 mapping.
+    uint8_t peek_fetch_byte_(uint16_t addr, M1Overlays o) const;
+
     /// GH #276 B2 §4.3 — latch `Scanline` / `Frame` / `IntAck` / `Nmi` /
     /// `Magic`. Out of line, each behind its own `has_kind()` gate.
     void debug_latch_scanline_(int raw_line);

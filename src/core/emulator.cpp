@@ -10620,17 +10620,26 @@ uint64_t Emulator::step_one_instruction()
                 rom_slots |= static_cast<uint8_t>(mmu_.is_slot_rom(s)) << s;
             }
             te.rom_slots = rom_slots;
+            // The bytes of the instruction about to be FETCHED: read through
+            // the overlay the M1 itself selects (an instant DivMMC entry, the
+            // Multiface at 0x0066), not the mapping as it is before that M1.
+            // Pure, so these reads also leave the +3 floating-bus latch alone.
+            const M1Overlays m1o = predict_m1_overlays_(regs.PC);
             for (int i = 0; i < 4; ++i)
-                te.opcode_bytes[i] = mmu_.read(regs.PC + i);
+                te.opcode_bytes[i] = peek_fetch_byte_(
+                    static_cast<uint16_t>(regs.PC + i), m1o);
             // Captureless lambda decays to a raw function pointer — no
             // per-instruction std::function construction (Task 27 A2).
+            struct FetchCtx { const Emulator* emu; M1Overlays o; } fctx{this, m1o};
             te.opcode_len = z80_instruction_length(
                 regs.PC,
                 [](void* ctx, uint16_t a) {
-                    return static_cast<Mmu*>(ctx)->read(a);
+                    const FetchCtx* c = static_cast<const FetchCtx*>(ctx);
+                    return c->emu->peek_fetch_byte_(a, c->o);
                 },
-                &mmu_);
-            trace_log_.record(te, predict_fetch(regs.PC).kind !=
+                &fctx);
+            trace_log_.record(te, mmu_.route_with(regs.PC, m1o.divmmc, m1o.mf)
+                                          .space.kind !=
                                       jnext::dbg::MemSpace::Kind::Page);
         }
         // P0 boot probe trap detector: when the CPU enters the
@@ -10665,11 +10674,14 @@ uint64_t Emulator::step_one_instruction()
             // debugger, so this too only ever hurt the user who had it open.
             DebugState::InspectionScope inspect(debug_state_);
             const Z80Registers& regs2 = cpu_.registers();
-            uint8_t op0 = mmu_.read(regs2.PC);
-            uint8_t op1 = mmu_.read(regs2.PC + 1);
-            uint8_t op2 = mmu_.read(regs2.PC + 2);
-            call_stack_.on_instruction_pre(regs2.PC, regs2.SP, op0, op1, op2,
-                                           ram_page_of(predict_fetch(regs2.PC)));
+            // Through the overlay the M1 selects, like the trace record above.
+            const M1Overlays m1o = predict_m1_overlays_(regs2.PC);
+            uint8_t op0 = peek_fetch_byte_(regs2.PC, m1o);
+            uint8_t op1 = peek_fetch_byte_(static_cast<uint16_t>(regs2.PC + 1), m1o);
+            uint8_t op2 = peek_fetch_byte_(static_cast<uint16_t>(regs2.PC + 2), m1o);
+            call_stack_.on_instruction_pre(
+                regs2.PC, regs2.SP, op0, op1, op2,
+                ram_page_of(mmu_.route_with(regs2.PC, m1o.divmmc, m1o.mf).space));
         }
 
         // GH #203 — Step Out. Nothing is READ here, deliberately: only SP is
@@ -14187,7 +14199,7 @@ Emulator::M1AutomapGates Emulator::m1_automap_gates_(uint16_t pc, bool mf_active
         mmu_.sram_alt_128_n()};
 }
 
-jnext::dbg::MemSpace Emulator::predict_fetch(uint16_t pc) const
+Emulator::M1Overlays Emulator::predict_m1_overlays_(uint16_t pc) const
 {
     // The on_m1_prefetch hook in init(), asked of const predictors instead of
     // the state machines themselves: the same gate, the same arbiter inputs
@@ -14201,7 +14213,20 @@ jnext::dbg::MemSpace Emulator::predict_fetch(uint16_t pc) const
     }
     // The Multiface's 0x0066 fetch may latch mf_enable (multiface.vhd:169-186):
     // asked of the object, not of a copy of its 16 KB.
-    return mmu_.route_with(pc, divmmc_active, multiface_.would_latch_on_m1(pc)).space;
+    return M1Overlays{divmmc_active, multiface_.would_latch_on_m1(pc)};
+}
+
+jnext::dbg::MemSpace Emulator::predict_fetch(uint16_t pc) const
+{
+    const M1Overlays o = predict_m1_overlays_(pc);
+    return mmu_.route_with(pc, o.divmmc, o.mf).space;
+}
+
+uint8_t Emulator::peek_fetch_byte_(uint16_t addr, M1Overlays o) const
+{
+    // A floating route answers 0xFF, as finish_read_() does.
+    const Mmu::Route r = mmu_.route_with(addr, o.divmmc, o.mf);
+    return r.ptr ? *r.ptr : 0xFF;
 }
 
 void Emulator::debug_after_machine_transition_(bool discard_ring)

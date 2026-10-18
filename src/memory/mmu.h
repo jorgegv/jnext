@@ -1496,7 +1496,7 @@ private:
     inline bool l2_overlay_active_for(uint16_t addr) const {
         if (addr < 0x4000) {
             // Low half: L2 enabled in non-MF cases. The Multiface is excluded by
-            // the CALLER: route_impl_() and write_landed() both settle it above
+            // the CALLER: route_bits_() and write_landed() both settle it above
             // the L2 block, so by the time we reach here any MF overlay has
             // already won. There used to be a redundant live check here "for
             // robustness"; it is gone because route_with() asks about an M1
