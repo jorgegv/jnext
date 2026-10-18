@@ -1057,6 +1057,51 @@ int main() {
               }());
     }
     {
+        // The live gate (execute_gate, run while a machine RUNS with an Execute subscription) takes
+        // the same prediction as probe_execute (ID-02, ID-06): at an instant DivMMC entry the fetch
+        // at $0000 is the DivMMC ROM's, so a page_ram_only subscription on RAM page 10 there is
+        // refused and a plain page qualifier, which compares numbers alone, still matches.
+        Machine m(/*rewind=*/false, MachineType::ZXN_ISSUE2);
+        m.dbg->nextreg_write(m.a, 0x50, 10);
+        m.dbg->nextreg_write(m.a, 0x0A, 0x10);
+        m.dbg->nextreg_write(m.a, 0xB8, 0x01);
+        m.dbg->nextreg_write(m.a, 0xB9, 0x01);
+        m.dbg->nextreg_write(m.a, 0xBA, 0x01);
+        m.emu.divmmc().rom_data()[0] = 0x3C;      // INC A
+        m.emu.divmmc().rom_data()[1] = 0xC9;      // RET
+        m.emu.mmu().write(0x0000, 0x00);          // RAM page 10: NOP
+        m.emu.mmu().write(0x8000, 0xCD);          // CALL $0000
+        m.emu.mmu().write(0x8001, 0x00);
+        m.emu.mmu().write(0x8002, 0x00);
+        m.set_pc(0x8000);
+        int ram_only_hits = 0, plain_hits = 0;
+        Subscription ram_only;
+        ram_only.kind = EventKind::Execute;
+        ram_only.filter.lo = ram_only.filter.hi = 0x0000;
+        ram_only.filter.page = 10;
+        ram_only.filter.page_ram_only = true;
+        ram_only.action = Action::Continue;
+        ram_only.handler = [&ram_only_hits](const jnext::dbg::Event&, Debugger&) {
+            ++ram_only_hits;
+            return Action::Continue;
+        };
+        Subscription plain = ram_only;
+        plain.filter.page_ram_only = false;
+        plain.handler = [&plain_hits](const jnext::dbg::Event&, Debugger&) {
+            ++plain_hits;
+            return Action::Continue;
+        };
+        m.dbg->subscribe(m.a, ram_only);
+        m.dbg->subscribe(m.a, plain);
+        m.dbg->run(m.a);
+        m.emu.run_frame();
+        check("SRCDBG-ID-21", "while running, an Execute gate at an instant DivMMC entry refuses a "
+                              "page_ram_only subscription on the RAM page there and delivers the plain "
+                              "page-qualified one",
+              ram_only_hits == 0 && plain_hits >= 1,
+              "ram_only=" + std::to_string(ram_only_hits) + " plain=" + std::to_string(plain_hits));
+    }
+    {
         // PURE-01/02 -- asking is not doing. The prediction functions run inside the
         // guest's own execution scope, where a READ watch, a Mem subscription and the +3
         // floating-bus latch are all live, over probes that hit every overlay, and the
