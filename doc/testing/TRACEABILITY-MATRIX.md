@@ -37,7 +37,7 @@ mentions them, so a test can no longer be absent from this document.
 | UART+I2C/RTC                               |   229 |  229 |    0 |    0 |       0 |          0 |
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
-| Input                                      |   401 |  401 |    0 |    0 |       0 |          0 |
+| Input                                      |   404 |  404 |    0 |    0 |       0 |          0 |
 | Rewind                                     |   308 |  308 |    0 |    0 |       0 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |   113 |  113 |    0 |    0 |       0 |          0 |
@@ -62,13 +62,13 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: ctc_interrupts_test             |    88 |   88 |    0 |    0 |       0 |          0 |
 | Companion: nextreg_integration_test        |   379 |  379 |    0 |    0 |       0 |          0 |
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
-| Companion: input_integration_test          |    43 |   43 |    0 |    0 |       0 |          0 |
+| Companion: input_integration_test          |    46 |   46 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    49 |   49 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    66 |   66 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5909 | 5909 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5915 | 5915 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5909**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5461**. Rows the 155 suites declared in `test/unit-tests.conf` run live: **13381**.
+Rows the sections above carry: **5915**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5464**. Rows the 155 suites declared in `test/unit-tests.conf` run live: **13412**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,7 +80,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 108 suites (8004 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 108 suites (8032 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -117,7 +117,7 @@ These 108 suites (8004 live rows) have no VHDL-derived plan row to map, so they 
 | `frame_sequencer_test` | 116 | host frame sequencer (wall-clock run/present ordering) |
 | `tick_stats_test` | 32 | host tick accounting for the status bar |
 | `speed_report_test` | 36 | host speed-percentage reporting |
-| `host_key_latch_test` | 145 | host key latch/debounce compensation; guest matrix is `## Input` |
+| `host_key_latch_test` | 170 | host key latch/debounce compensation; guest matrix is `## Input` |
 | `sdl_pointer_release_test` | 11 | SDL pointer-release route (host UI, GH #365) |
 | `sdl_window_title_test` | 3 | SDL window title carries the version (host GUI) |
 | `quit_signal_test` | 14 | SIGINT/SIGTERM as a quit request (host process behaviour; GH #364) |
@@ -177,7 +177,7 @@ These 108 suites (8004 live rows) have no VHDL-derived plan row to map, so they 
 | `sdcard_dialog_test` | 4 | SD-card/NextPi download dialog through a dropped network (host GUI, GH #358) |
 | `quit_cleanup_test` | 8 | host shutdown ordering (GUI lifecycle) |
 | `toolbar_icons_test` | 28 | toolbar icon set: SVG loader, Main/Debug toolbars, icon-file lint (host GUI, doc/design/ICONSET-DESIGN.md) |
-| `preferences_apply_test` | 79 | Preferences dialog wiring (host GUI) |
+| `preferences_apply_test` | 82 | Preferences dialog wiring (host GUI) |
 | `debugger_video_panel_test` | 118 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 17 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 8 | debugger quit gating (host GUI lifecycle) |
@@ -3099,8 +3099,8 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | KBD-19 | CS+SYM, rows 0,7 AND = 0x1C | membrane.vhd:251 | pass | test/input/input_test.cpp:322 |
 | KBD-20 | no rows selected = 0x1F | membrane.vhd:242-251 | pass | test/input/input_test.cpp:331 |
 | KBD-21 | all rows, single Z = 0x1D | membrane.vhd:251 | pass | test/input/input_test.cpp:341 |
-| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:184 |
-| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:208 |
+| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:185 |
+| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:209 |
 | KBDHYS-01 | CS held one extra scan after release (membrane.vhd:178, 188-191, 232) | membrane.vhd:178,188-191,232 | pass | test/input/input_test.cpp:385 |
 | KBDHYS-02 | CS pressed across 3 scans reads pressed each scan (membrane.vhd:190) | membrane.vhd:190 | pass | test/input/input_test.cpp:406 |
 | KBDHYS-03 | the cancel bit does NOT clear the NR 0xB0/0xB1 raw readback (membrane.vhd:253 vs :183-186) | membrane.vhd:253 | pass | test/input/input_test.cpp:439 |
@@ -3257,18 +3257,21 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | NMI-05 | NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1 | zxnext.vhd:2090 | pass | test/input/input_test.cpp:3196 |
 | NMI-06 | NR 0x06 bit4=1 + nmi_sw_gen_divmmc → nmi_assert_divmmc=1 | — | pass | test/input/input_test.cpp:3214 |
 | NMI-07 | NR 0x06 bits 3+4=1 + both hotkeys → both gates assert | — | pass | test/input/input_test.cpp:3232 |
-| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:233 |
-| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:254 |
-| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:273 |
-| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:337 |
-| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1228 |
-| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1246 |
+| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:234 |
+| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:255 |
+| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:274 |
+| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:338 |
+| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1229 |
+| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1247 |
 | JCAL-01 | NR 0x28 keymap_sel write handler routes bit 7 + bit 0 | membrane_stick.vhd | pass | test/input/input_test.cpp:3306 |
 | JCAL-02 | NR 0x29 addr-low + NR 0x2B data write + auto-inc | zxnext.vhd:6304-6308, membrane_stick.vhd:182 | pass | test/input/input_test.cpp:3345 |
 | JCAL-03 | NR 0x05=111 + UDK[16]=(4,3) + bit0 press → row4 col3 low | membrane_stick.vhd:172-183 | pass | test/input/input_test.cpp:3389 |
 | FNK-01 | F8 press increments NR 0x07 cpu_speed (VHDL :5789-5791) | input/membrane/emu_fnkeys.vhd:53-202 | pass | test/input/input_test.cpp:3429 |
-| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5790-5791,6342-6347 | pass | test/input/input_integration_test.cpp:990 |
-| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | membrane_stick.vhd:124-131 | pass | test/input/input_integration_test.cpp:645 |
+| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5790-5791,6342-6347 | pass | test/input/input_integration_test.cpp:991 |
+| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | membrane_stick.vhd:124-131 | pass | test/input/input_integration_test.cpp:646 |
+| ROMKB-01 | B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 (48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped) | — | pass | test/input/input_integration_test.cpp:1817 |
+| ROMKB-02 | B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 (48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat) | — | pass | test/input/input_integration_test.cpp:1836 |
+| ROMKB-03 | a key the host pressed just before a snapshot load reaches the ROM after reassert() (the load wipes the matrix), and does not without it | — | pass | test/input/input_integration_test.cpp:1864 |
 | FNK-02 | F3 press toggles NR 0x05 bit 2 (5060), readable after the frame edge only (VHDL :5839-5841; eff latch :6697-6700) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3462 |
 | FNK-03 | F2 press toggles NR 0x05 bit 0 (scandouble), readable after the frame edge only (VHDL :5849-5852; eff latch :6702) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3490 |
 | EXTC-08a | LEFT folds to CAPS SHIFT + 5 (row 3 col 4) | — | pass | test/input/input_test.cpp:563 |
@@ -6205,49 +6208,52 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:184 |
-| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:208 |
-| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:233 |
-| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:254 |
-| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:273 |
-| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:337 |
-| BP-04 | port 0xFE READ — border bits [2:0] NOT exposed across 0/5/7 sweep (zxnext.vhd:3459+3604; emulator.cpp:1163-1185) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:461 |
-| BP-20 | port 0xFE READ — bit 6 = i_AUDIO_EAR OR port_fe_ear: 0 idle, 1 after OUT 0xFE bit 4 (zxnext.vhd:3459 + :3598) | zxnext.vhd:3459,3598 | pass | test/input/input_integration_test.cpp:480 |
-| BP-21 | port 0xFE READ — bit 5 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:513 |
-| BP-22 | port 0xFE READ — bits [4:0] = keyboard column mux for A[15:8] (zxnext.vhd:3463-3468 + membrane.vhd:251; Keyboard::read_rows) | zxnext.vhd:3463-3468, membrane.vhd:251 | pass | test/input/input_integration_test.cpp:553 |
-| BP-23 | port 0xFE READ — bit 7 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:585 |
-| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | zxnext.vhd:5157-5158, membrane_stick.vhd:117-149 | pass | test/input/input_integration_test.cpp:645 |
-| JOY-WIRE-02 | SDL_EVENT_GAMEPAD_BUTTON_* → Joystick port 0x1F (K1 mode) (zxnext.vhd:3441-3442 + :3470-3479; G42) | zxnext.vhd:3441-3442,3470-3479 | pass | test/input/input_integration_test.cpp:700 |
-| JOY-WIRE-03 | SDL_EVENT_GAMEPAD_AXIS_MOTION → digital U/D/L/R threshold (symmetric ±AXIS_THRESHOLD=16384; G42) | — | pass | test/input/input_integration_test.cpp:758 |
-| JOY-WIRE-04 | SDL idx 0/1 → joy_left / joy_right; idx >= 2 ignored (JOY-WIRE-04 routing policy; G42) | — | pass | test/input/input_integration_test.cpp:814 |
-| JOY-WIRE-04-SDL | handle_sdl_event resolves SDL_JoystickID → slot via map; ignores unmapped + non-controller events (G42) | — | pass | test/input/input_integration_test.cpp:871 |
-| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5839-5841, zxnext.vhd:6343, zxnext.vhd:6345, zxnext.vhd:5861-5863, zxnext.vhd:5789-5791, zxnext.vhd:1107-1108 | pass | test/input/input_integration_test.cpp:990 |
-| GH233-01 | NR 0x02 bit 0 (RESET_SOFT) disarms a pending TAP autostart | — | pass | test/input/input_integration_test.cpp:1030 |
-| GH233-02 | after a soft reset a full ROM keyboard scan queues no keystrokes — the cancelled autostart cannot type into the machine that came up after the reset | — | pass | test/input/input_integration_test.cpp:1050 |
-| GH233-03 | a mid-scan soft reset cancels the autostart outright (the pre-reset row accumulator cannot complete afterwards) | — | pass | test/input/input_integration_test.cpp:1071 |
-| GH233-04 | a hard reset (frontend cold boot) also disarms a pending TAP autostart — a full ROM keyboard scan afterwards queues no keystrokes | — | pass | test/input/input_integration_test.cpp:1099 |
-| GH233-05 | arming AFTER a reset still fires — the reset-on-init does not cancel a legitimate autostart (load always follows init) | — | pass | test/input/input_integration_test.cpp:1122 |
-| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1228 |
-| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1246 |
-| GPH-01 | a real SDL3 device's instance id is nonzero (0 is the invalid id) | — | pass | test/input/input_integration_test.cpp:1324 |
-| GPH-02 | enumerate_existing_devices() finds an already-attached pad and maps it to connector 1 (GH #57) | — | pass | test/input/input_integration_test.cpp:1339 |
-| GPH-03 | a button press on the opened device reaches connector 1's bits | — | pass | test/input/input_integration_test.cpp:1353 |
-| GPH-04 | a duplicate ADDED for an open device is deduped: same slot, connector 2 still free (GH #57) | — | pass | test/input/input_integration_test.cpp:1368 |
-| GPH-05 | REMOVED closes the slot and unmaps the instance id | — | pass | test/input/input_integration_test.cpp:1383 |
-| GPH-06 | an event from a removed device is refused, not applied to a connector | — | pass | test/input/input_integration_test.cpp:1394 |
-| GPA-01 | identical pads share a GUID: ids <guid> and <guid>#2; another model differs | — | pass | test/input/input_integration_test.cpp:1461 |
-| GPA-02 | enumerate with nothing assigned: first two on Joy 1/2, the third unbound | — | pass | test/input/input_integration_test.cpp:1461 |
-| GPA-03 | assigning C to Joy 1 binds it live; A2 keeps Joy 2 (sticky); C's button reaches Joy 1 | — | pass | test/input/input_integration_test.cpp:1461 |
-| GPA-04 | assigning A1's id to Joy 2 pre-empts A2, which was holding Joy 2 | — | pass | test/input/input_integration_test.cpp:1461 |
-| GPA-05 | unplug+replug: the vacated connector adopts the idle pad, then the replugged pad (same id) takes it back | — | pass | test/input/input_integration_test.cpp:1461 |
-| GPA-06 | an assigned id that is not present falls back to the first free controller | — | pass | test/input/input_integration_test.cpp:1462 |
-| GPA-07 | unplugging a pad with a button held releases the connector | — | pass | test/input/input_integration_test.cpp:1462 |
-| GPA-08 | switching a connector back to Sdl adopts a pad that is already plugged in | — | pass | test/input/input_integration_test.cpp:1462 |
-| GPA-09 | on_devices_changed fires once per enumerate/arrival/removal and not on a button | — | pass | test/input/input_integration_test.cpp:1462 |
-| GPA-10 | switching a connector to None unbinds its pad and leaves the other connector alone | — | pass | test/input/input_integration_test.cpp:1462 |
-| GPA-11 | after a replug and a host rebuild (cold boot) the assignment stays on the same physical pad, ids unchanged | — | pass | test/input/input_integration_test.cpp:1463 |
-| GPA-12 | fallback line: once on entry, silent on a no-change re-resolve, again after a new assignment and after a match | — | pass | test/input/input_integration_test.cpp:1463 |
-| GPA-13 | a lone remaining pad keeps its '#2' id and Joy 2 across a host rebuild | — | pass | test/input/input_integration_test.cpp:1463 |
+| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:185 |
+| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:209 |
+| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:234 |
+| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:255 |
+| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:274 |
+| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:338 |
+| BP-04 | port 0xFE READ — border bits [2:0] NOT exposed across 0/5/7 sweep (zxnext.vhd:3459+3604; emulator.cpp:1163-1185) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:462 |
+| BP-20 | port 0xFE READ — bit 6 = i_AUDIO_EAR OR port_fe_ear: 0 idle, 1 after OUT 0xFE bit 4 (zxnext.vhd:3459 + :3598) | zxnext.vhd:3459,3598 | pass | test/input/input_integration_test.cpp:481 |
+| BP-21 | port 0xFE READ — bit 5 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:514 |
+| BP-22 | port 0xFE READ — bits [4:0] = keyboard column mux for A[15:8] (zxnext.vhd:3463-3468 + membrane.vhd:251; Keyboard::read_rows) | zxnext.vhd:3463-3468, membrane.vhd:251 | pass | test/input/input_integration_test.cpp:554 |
+| BP-23 | port 0xFE READ — bit 7 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:586 |
+| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | zxnext.vhd:5157-5158, membrane_stick.vhd:117-149 | pass | test/input/input_integration_test.cpp:646 |
+| JOY-WIRE-02 | SDL_EVENT_GAMEPAD_BUTTON_* → Joystick port 0x1F (K1 mode) (zxnext.vhd:3441-3442 + :3470-3479; G42) | zxnext.vhd:3441-3442,3470-3479 | pass | test/input/input_integration_test.cpp:701 |
+| JOY-WIRE-03 | SDL_EVENT_GAMEPAD_AXIS_MOTION → digital U/D/L/R threshold (symmetric ±AXIS_THRESHOLD=16384; G42) | — | pass | test/input/input_integration_test.cpp:759 |
+| JOY-WIRE-04 | SDL idx 0/1 → joy_left / joy_right; idx >= 2 ignored (JOY-WIRE-04 routing policy; G42) | — | pass | test/input/input_integration_test.cpp:815 |
+| JOY-WIRE-04-SDL | handle_sdl_event resolves SDL_JoystickID → slot via map; ignores unmapped + non-controller events (G42) | — | pass | test/input/input_integration_test.cpp:872 |
+| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5839-5841, zxnext.vhd:6343, zxnext.vhd:6345, zxnext.vhd:5861-5863, zxnext.vhd:5789-5791, zxnext.vhd:1107-1108 | pass | test/input/input_integration_test.cpp:991 |
+| GH233-01 | NR 0x02 bit 0 (RESET_SOFT) disarms a pending TAP autostart | — | pass | test/input/input_integration_test.cpp:1031 |
+| GH233-02 | after a soft reset a full ROM keyboard scan queues no keystrokes — the cancelled autostart cannot type into the machine that came up after the reset | — | pass | test/input/input_integration_test.cpp:1051 |
+| GH233-03 | a mid-scan soft reset cancels the autostart outright (the pre-reset row accumulator cannot complete afterwards) | — | pass | test/input/input_integration_test.cpp:1072 |
+| GH233-04 | a hard reset (frontend cold boot) also disarms a pending TAP autostart — a full ROM keyboard scan afterwards queues no keystrokes | — | pass | test/input/input_integration_test.cpp:1100 |
+| GH233-05 | arming AFTER a reset still fires — the reset-on-init does not cancel a legitimate autostart (load always follows init) | — | pass | test/input/input_integration_test.cpp:1123 |
+| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1229 |
+| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1247 |
+| GPH-01 | a real SDL3 device's instance id is nonzero (0 is the invalid id) | — | pass | test/input/input_integration_test.cpp:1325 |
+| GPH-02 | enumerate_existing_devices() finds an already-attached pad and maps it to connector 1 (GH #57) | — | pass | test/input/input_integration_test.cpp:1340 |
+| GPH-03 | a button press on the opened device reaches connector 1's bits | — | pass | test/input/input_integration_test.cpp:1354 |
+| GPH-04 | a duplicate ADDED for an open device is deduped: same slot, connector 2 still free (GH #57) | — | pass | test/input/input_integration_test.cpp:1369 |
+| GPH-05 | REMOVED closes the slot and unmaps the instance id | — | pass | test/input/input_integration_test.cpp:1384 |
+| GPH-06 | an event from a removed device is refused, not applied to a connector | — | pass | test/input/input_integration_test.cpp:1395 |
+| GPA-01 | identical pads share a GUID: ids <guid> and <guid>#2; another model differs | — | pass | test/input/input_integration_test.cpp:1462 |
+| GPA-02 | enumerate with nothing assigned: first two on Joy 1/2, the third unbound | — | pass | test/input/input_integration_test.cpp:1462 |
+| GPA-03 | assigning C to Joy 1 binds it live; A2 keeps Joy 2 (sticky); C's button reaches Joy 1 | — | pass | test/input/input_integration_test.cpp:1462 |
+| GPA-04 | assigning A1's id to Joy 2 pre-empts A2, which was holding Joy 2 | — | pass | test/input/input_integration_test.cpp:1462 |
+| GPA-05 | unplug+replug: the vacated connector adopts the idle pad, then the replugged pad (same id) takes it back | — | pass | test/input/input_integration_test.cpp:1462 |
+| GPA-06 | an assigned id that is not present falls back to the first free controller | — | pass | test/input/input_integration_test.cpp:1463 |
+| GPA-07 | unplugging a pad with a button held releases the connector | — | pass | test/input/input_integration_test.cpp:1463 |
+| GPA-08 | switching a connector back to Sdl adopts a pad that is already plugged in | — | pass | test/input/input_integration_test.cpp:1463 |
+| GPA-09 | on_devices_changed fires once per enumerate/arrival/removal and not on a button | — | pass | test/input/input_integration_test.cpp:1463 |
+| GPA-10 | switching a connector to None unbinds its pad and leaves the other connector alone | — | pass | test/input/input_integration_test.cpp:1463 |
+| GPA-11 | after a replug and a host rebuild (cold boot) the assignment stays on the same physical pad, ids unchanged | — | pass | test/input/input_integration_test.cpp:1464 |
+| GPA-12 | fallback line: once on entry, silent on a no-change re-resolve, again after a new assignment and after a match | — | pass | test/input/input_integration_test.cpp:1464 |
+| GPA-13 | a lone remaining pad keeps its '#2' id and Joy 2 across a host rebuild | — | pass | test/input/input_integration_test.cpp:1464 |
+| ROMKB-01 | B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 (48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped) | — | pass | test/input/input_integration_test.cpp:1817 |
+| ROMKB-02 | B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 (48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat) | — | pass | test/input/input_integration_test.cpp:1836 |
+| ROMKB-03 | a key the host pressed just before a snapshot load reaches the ROM after reassert() (the load wipes the matrix), and does not without it | — | pass | test/input/input_integration_test.cpp:1864 |
 
 ### Companion integration suite — `test/uart/uart_integration_test.cpp`
 
