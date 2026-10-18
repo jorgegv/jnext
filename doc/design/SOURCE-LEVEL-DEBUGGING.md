@@ -144,14 +144,18 @@ data never survives into the next program: it is replaced, or cleared when the
 new program has no sidecar or its sidecar cannot be read.
 
 **History.** A sidecar belongs to the load it came with: the backend records the
-machine's clock at the attach. Every replacement of the machine (a rewind, a
-state load, a reset) marks the sidecars for a recheck, which `pump()` and every
-reader of the stores perform before reading — deferred because a rewind
+machine's clock at the attach. A reset, a cold boot, or a state brought in from
+outside the rewind ring (a snapshot file, a bookmark, a remote client's
+restore) drops the sidecar stores at once: another program may be in the machine
+now, whatever its clock says. A rewind-ring restore returns into this program's
+own history, so it only marks the sidecars for a recheck, which `pump()` and
+every reader of the stores perform before reading — deferred because a rewind
 restores a snapshot and then replays forward, so only where it lands counts. If
 the machine now stands BEFORE the attach point, the sidecar stores are dropped:
-in that history the program has not been loaded. Only the clock is compared: a
-state from another session whose clock is past the attach point keeps them.
-Stores the user loaded are never dropped this way.
+in that history the program has not been loaded. Stores the user loaded are
+never dropped this way. A program loaded from inside the machine (the NextZXOS
+browser, a chain-loading NEX) is not seen by the backend; the map is reloaded by
+hand. (The full lifetime model is E23-10's.)
 
 **Identity.** A sidecar SLD whose identity does not match the program in memory
 is rejected and logged. A map loaded by hand that does not match is offered
@@ -259,8 +263,8 @@ records for code copied at run time (§4).
 - `source_debug_test` — the backend on a real machine: loading and identity,
   fetch identity now and in history (ROM slot, Layer 2 overlay) and the
   `page_ram_only` qualifier, sidecar ownership and failure paths, tape
-  exclusion and the history rule (rewind before / after the load, a state
-  restored from before it), DivMMC instant entry and unmap foreseen at M1,
+  exclusion and the history rule (rewind before / after the load, a reset or a
+  state restored from outside the ring), DivMMC instant entry and unmap foreseen at M1,
   looping links, an unopenable sidecar, relative paths, every step kind and its
   stops (breakpoints, handlers, a handler redirect, `once`, DI:HALT, the frame
   budget), backward steps through the rewind ring including after a Frame

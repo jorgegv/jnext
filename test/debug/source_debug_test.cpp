@@ -47,6 +47,7 @@
 #include "debug/debugger.h"
 #include "debug/ram_page.h"
 #include "peripheral/divmmc.h"
+#include "platform/emulator_boot.h"
 #include "debug/sld_loader.h"
 #include "debug/source_file.h"
 #include "core/saveable.h"
@@ -68,6 +69,7 @@ using jnext::dbg::ClientId;
 using jnext::dbg::Debugger;
 using jnext::dbg::EventKind;
 using jnext::dbg::PauseReason;
+using jnext::dbg::ResetKind;
 using jnext::dbg::Result;
 using jnext::dbg::Subscription;
 using Step = Debugger::SourceStep;
@@ -966,6 +968,132 @@ int main() {
         const bool kept = m.dbg->source_map().size() == 6;
         check("SRCDBG-HIST-04", "nothing happening to the machine keeps them",
               attached && kept);
+    }
+
+    // ── a reset or a restored state drops the sidecars ──────────────────
+    // A program's sidecars describe the program loaded with them. A rewind-ring
+    // restore goes back into that program's history (HIST-01/02, and HIST-08
+    // below); anything else puts a machine in front of them that they may not
+    // describe, whatever its clock says.
+    const auto attach = [&](Machine& m, const std::string& stem) {
+        write_text(own / (stem + ".nex"), "");
+        write_text(own / (stem + ".Memory.txt"), "8000: ._Main\n");
+        write_text(own / (stem + ".sld"), program_sld(p80, p90));
+        return m.dbg->load_program_sidecars((own / (stem + ".nex")).string());
+    };
+    const auto with_cold_boot = [](Machine& m) {
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&m]() {
+            emulator_frontend_cold_boot(m.emu, m.emu.config(), std::string(), ColdBootHooks{});
+            return true;
+        };
+        m.dbg->set_loop_driver(d);
+    };
+    const auto sidecars_gone = [](Machine& m) {
+        return m.dbg->source_map().empty() && m.dbg->symbols().empty() &&
+               !m.dbg->source_location(0x8000);
+    };
+    {
+        Machine m;
+        const auto r = attach(m, "rst-soft");
+        const bool attached = r.symbols == 1 && r.sources == 6;
+        const Result rr = m.dbg->reset(m.a, ResetKind::Soft);
+        check("SRCDBG-HIST-05", "a soft reset drops the program's sidecars: no source map, "
+                                "no symbols",
+              attached && rr == Result::Ok && sidecars_gone(m));
+    }
+    {
+        Machine m;
+        with_cold_boot(m);
+        const auto r = attach(m, "rst-hard");
+        const bool attached = r.symbols == 1 && r.sources == 6;
+        const Result rr = m.dbg->reset(m.a, ResetKind::Hard);
+        check("SRCDBG-HIST-06", "a hard reset (a cold boot of a rebuilt machine) drops the "
+                                "program's sidecars too",
+              attached && rr == Result::Ok && sidecars_gone(m));
+    }
+    {
+        // The rebuilt machine's hook is installed by the re-application after a
+        // cold boot, not by the constructor: sidecars attached to the rebuilt
+        // machine are dropped by its next reset all the same.
+        Machine m;
+        with_cold_boot(m);
+        m.dbg->reset(m.a, ResetKind::Hard);
+        const auto r = attach(m, "rst-after-boot");
+        const bool attached = r.symbols == 1 && r.sources == 6;
+        const Result rr = m.dbg->reset(m.a, ResetKind::Soft);
+        check("SRCDBG-HIST-10", "after a cold boot the rebuilt machine's reset still drops "
+                                "the sidecars attached to it",
+              attached && rr == Result::Ok && sidecars_gone(m));
+    }
+    {
+        // A state from another machine, taken well after the sidecars were
+        // attached: its clock is not before the attach, so only the kind of
+        // landing can tell it is not this program's history.
+        Machine m;
+        const auto r = attach(m, "rst-load");
+        const bool attached = r.symbols == 1 && r.sources == 6;
+        const uint64_t attach_clock = m.emu.clock().get();
+        Emulator other;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        other.init(cfg);
+        for (int i = 0; i < 3; ++i) other.run_frame();
+        StateWriter measure;
+        other.save_state(measure);
+        std::vector<uint8_t> foreign(measure.position(), 0);
+        StateWriter w(foreign.data(), foreign.size());
+        other.save_state(w);
+        const Result lr = m.dbg->load_state_bytes(m.a, foreign.data(), foreign.size());
+        check("SRCDBG-HIST-07", "a state restored from another machine drops the sidecars "
+                                "even when its clock is past their load",
+              attached && lr == Result::Ok && m.emu.clock().get() > attach_clock &&
+                  sidecars_gone(m));
+    }
+    {
+        // The same kind of landing (after the attach) twice: through the rewind
+        // ring it stays this program's history and keeps the sidecars; as a
+        // restored state it may be anything, and drops them.
+        Machine m(/*rewind=*/true);
+        m.dbg->run(m.a);
+        for (int i = 0; i < 3; ++i) m.emu.run_frame();
+        m.dbg->pause(m.a);
+        const auto r = attach(m, "rst-ring");
+        const uint32_t attach_frame = m.dbg->time().frame;
+        m.dbg->run(m.a);
+        for (int i = 0; i < 3; ++i) m.emu.run_frame();
+        m.dbg->pause(m.a);
+        StateWriter measure;
+        m.emu.save_state(measure);
+        std::vector<uint8_t> later(measure.position(), 0);
+        StateWriter w(later.data(), later.size());
+        m.emu.save_state(w);
+        const bool attached = r.symbols == 1 && r.sources == 6;
+        m.dbg->rewind_to_frame(m.a, attach_frame + 1);
+        const bool ring_kept = m.dbg->source_map().size() == 6 && m.dbg->lookup_name("Main");
+        const Result lr = m.dbg->load_state_bytes(m.a, later.data(), later.size());
+        check("SRCDBG-HIST-08", "a landing after the attach keeps the sidecars when it comes "
+                                "from the rewind ring and drops them when it is restored as "
+                                "a state",
+              attached && ring_kept && lr == Result::Ok && sidecars_gone(m));
+    }
+    {
+        // What the user loaded is not the program's: a reset leaves it.
+        Machine m;
+        with_cold_boot(m);
+        const fs::path user_map = dir / "keep.map";
+        write_text(user_map, "UserSym = $8005 ; addr, local\n");
+        m.dbg->load_map(user_map.string(), jnext::dbg::MapFormat::Z88dk);
+        m.dbg->load_source_map(sld.string(), false);
+        const Result soft = m.dbg->reset(m.a, ResetKind::Soft);
+        const bool soft_kept = m.dbg->lookup_name("UserSym") == 0x8005 &&
+                               m.dbg->source_map().loaded_file() == sld.string();
+        const Result hard = m.dbg->reset(m.a, ResetKind::Hard);
+        check("SRCDBG-HIST-09", "a source map and symbols the user loaded survive a soft "
+                                "and a hard reset",
+              soft == Result::Ok && hard == Result::Ok && soft_kept &&
+                  m.dbg->lookup_name("UserSym") == 0x8005 &&
+                  m.dbg->source_map().loaded_file() == sld.string());
     }
 
     // ── loops, links and relative paths ─────────────────────────────────

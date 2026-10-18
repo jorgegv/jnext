@@ -218,18 +218,33 @@ void Debugger::Impl::recheck_sidecars() {
     if (emu.clock().get() >= sidecar_attach_cycle) return;
     // The machine now stands before the load the sidecars came with: they
     // describe a program that, in this history, has not been loaded.
+    drop_sidecars("the machine is before the load they came with");
+}
+
+void Debugger::Impl::drop_sidecars(const char* why) {
     if (symbols_owner == StoreOwner::Sidecar) {
         symbols.clear();
         symbols_owner = StoreOwner::None;
-        Log::debugger()->info("Dropped the program's NextBuild symbols: the machine is "
-                              "before the load they came with");
+        Log::debugger()->info("Dropped the program's NextBuild symbols: {}", why);
     }
     if (sources_owner == StoreOwner::Sidecar) {
         source_map.clear();
         sources_owner = StoreOwner::None;
-        Log::debugger()->info("Dropped the program's SLD source map: the machine is "
-                              "before the load it came with");
+        Log::debugger()->info("Dropped the program's SLD source map: {}", why);
     }
+}
+
+void Debugger::Impl::machine_replaced() {
+    arm(PauseReason::Kind::None, CLIENT_NONE);
+    // The sidecars describe the program that was loaded when they were
+    // attached. A rewind-ring restore goes back into that program's own
+    // history, so only where it lands says (recheck_sidecars()). Anything else
+    // - a reset, a cold boot, a state from a snapshot, a bookmark or a remote
+    // client - puts a machine in front of them that they may not describe.
+    if (ds().restoring_from_rewind())
+        sidecar_recheck = true;
+    else
+        drop_sidecars("the machine was reset or replaced");
 }
 
 // ---------------------------------------------------------------------------

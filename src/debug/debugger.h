@@ -960,8 +960,10 @@ public:
     /// `<stem>.sld` / `<stem>.sld.txt` for the source map — except beside a
     /// tape program (`.tap`, `.tzx`, `.wav`), which is not in memory when
     /// its load call returns: its map must be loaded by hand once it has
-    /// loaded. The sidecars belong to that load: rewinding, or restoring or
-    /// resetting the machine, to a point before it drops them. A sidecar fills a
+    /// loaded. The sidecars belong to that load: a reset, a cold boot, or a
+    /// state restored from outside the rewind ring (a snapshot, a bookmark, a
+    /// remote client's) drops them, and so does rewinding to a point before it
+    /// (a rewind to after it keeps them). A sidecar fills a
     /// store that is empty or was filled by a previous program's sidecar; a
     /// store the user filled (a MAP or SLD loaded by hand, `--map`) is kept.
     /// A previous program's sidecar data is cleared when the new program has

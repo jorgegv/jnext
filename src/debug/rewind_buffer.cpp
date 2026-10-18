@@ -142,7 +142,20 @@ uint64_t RewindBuffer::restore_nearest(uint64_t target_cycle, Emulator& emu) con
 
     const Slot& s = slots_[best];
     StateReader r(s.data, snapshot_bytes_);
-    if (!emu.load_state(r)) {
+    // This load puts the machine back to a point of its own recorded history:
+    // the debugger's machine-replaced hook asks, to tell it from a reset or a
+    // state brought in from outside the ring.
+    struct RingRestore {
+        DebugState& ds;
+        explicit RingRestore(DebugState& d) : ds(d) { ds.set_restoring_from_rewind(true); }
+        ~RingRestore() { ds.set_restoring_from_rewind(false); }
+    };
+    bool loaded;
+    {
+        const RingRestore ring_restore(emu.debug_state());
+        loaded = emu.load_state(r);
+    }
+    if (!loaded) {
         // Task 60b: the snapshot failed sentinel/bounds verification.
         // Emulator::load_state already logged the failing subsystem; the
         // machine is partially restored and NOT trustworthy (documented

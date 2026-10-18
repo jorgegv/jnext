@@ -129,11 +129,7 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     ds().set_event_table(&events);
     ds().set_event_hooks([this]() { return drain_boundary(); },
                          [this](uint16_t pc) { return execute_gate(pc); });
-    ds().set_machine_replaced_hook(
-        [this]() {
-            arm(PauseReason::Kind::None, CLIENT_NONE);
-            sidecar_recheck = true;   // CAP-SRC: see recheck_sidecars()
-        });
+    ds().set_machine_replaced_hook([this]() { machine_replaced(); });
 
     //     THE MASTER SWITCH'S LEGACY MIRROR (GH #278 WP4c). The switch is the
     //     `EventTable`'s and survived; the rebuilt `BreakpointSet` starts with
@@ -185,7 +181,12 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     //     breakpoint would report `User` and silently swallow it — which is
     //     exactly right for an UNOWNED pause (below), and why (4) re-arms `User`
     //     only for an owned one.
-    arm(PauseReason::Kind::None, CLIENT_NONE);
+    //
+    //     CAP-SRC: the hook also drops the previous program's sidecars (a
+    //     rebuilt machine is not the program they describe), so a cold boot
+    //     needs it as much as a reset does. A program loaded by this very
+    //     verb attaches its own afterwards (`Debugger::load()`).
+    machine_replaced();
 
     // (4) RULE 3 — "paused stays paused, running stays running". A fresh
     //     `Emulator` is always running, so only the paused direction needs an

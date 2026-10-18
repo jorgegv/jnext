@@ -55,15 +55,24 @@ struct Debugger::Impl {
     StoreOwner  symbols_owner = StoreOwner::None;
     StoreOwner  sources_owner = StoreOwner::None;
     /// A sidecar belongs to the program loaded at `sidecar_attach_cycle`.
-    /// Every machine replacement (a rewind, a state load, a reset) raises
-    /// `sidecar_recheck`; `recheck_sidecars()` — run by `pump()` and by every
-    /// reader of the two stores before it reads — drops the sidecar stores
-    /// when the machine now stands before that load. Deferred, not done in
-    /// the hook: a rewind restores a snapshot and THEN replays forward, so
+    /// A machine replacement that is not a rewind-ring restore (a reset, a
+    /// cold boot, a snapshot, bookmark or remote state: another program may
+    /// be in the machine now) drops the sidecar stores at once
+    /// (`machine_replaced()`). A ring restore returns to this program's own
+    /// history: it raises `sidecar_recheck`, and `recheck_sidecars()` (run by
+    /// `pump()` and by every reader of the two stores before it reads) drops
+    /// them when the machine now stands before that load. Deferred, not done
+    /// in the hook: a rewind restores a snapshot and THEN replays forward, so
     /// only the landing point says where the machine is.
     uint64_t    sidecar_attach_cycle = 0;
     bool        sidecar_recheck      = false;
     void recheck_sidecars();
+    /// Drop the stores a program's sidecars filled, never the user's.
+    void drop_sidecars(const char* why);
+    /// The machine this backend describes was reset or replaced: both the
+    /// hook `DebugState` calls and the re-application after a cold boot end
+    /// here. Reconciles the stop evidence and the program's sidecars.
+    void machine_replaced();
 
     /// SES-04 — what a `Stop` action does here. Held by the backend, set by the
     /// loop owner. `Pause` is the Qt default; a headless loop owner sets

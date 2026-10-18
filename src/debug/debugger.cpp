@@ -49,12 +49,9 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
     // `Step` from an earlier `step_back` would otherwise explain the restored
     // machine's pause) and clears `EventTable::hits_`, the `matched[]` list §4.3
     // makes part of the `Paused` contract. A verb that IS a stop re-arms after
-    // the restore, so its own reason still wins.
-    impl_->ds().set_machine_replaced_hook(
-        [this]() {
-            impl_->arm(PauseReason::Kind::None, CLIENT_NONE);
-            impl_->sidecar_recheck = true;   // CAP-SRC: see recheck_sidecars()
-        });
+    // the restore, so its own reason still wins. CAP-SRC: the same place drops
+    // a previous program's sidecars (`Impl::machine_replaced()`).
+    impl_->ds().set_machine_replaced_hook([this]() { impl_->machine_replaced(); });
 
     // §6.1 — SEED THE EIGHT LIVE PAGES. `DebugState::on_slot_remapped()`
     // early-returns while the table is null, so every `rebuild_ptr()` during
