@@ -230,8 +230,8 @@ a time, under the lock and the quiet-host wait, on the same tree, and only if
 every one passes writes the stamp, naming them (`confirmed_solo=`). An
 idle-host FAIL, a screenshot or lint FAIL, or a SKIP is never confirmable.
 
-Since 2026-10-18 the full run happens in the **batch gate** on `main`, after at most
-three landings, at the end of a work session and before any push (CLAUDE.md, merge
+Since 2026-10-18 the full run happens in the **batch gate** on `main`, once, after all
+of a work session's landings and before any push (CLAUDE.md, merge
 protocol step 2). Branches and reviewers run the targeted rows (`make regression-rows`).
 
 ```bash

@@ -13,7 +13,7 @@ before you start:
    change touches, and `make unit-test` before review. The full test triplet (a
    clean rebuild, the unit suites, the FUSE Z80 opcode suite and the regression
    suite, with their Windows runs) runs on `main` after the merge. It runs once
-   per batch of at most three landings, before anything is pushed. No FAIL
+   per work session's batch of landings, before anything is pushed. No FAIL
    anywhere.
 4. **An independent review**, by someone who did not write the change. The
    verdict is binary: APPROVE or REJECT.

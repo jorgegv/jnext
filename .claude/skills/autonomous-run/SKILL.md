@@ -53,9 +53,9 @@ Owner is away. Decide, record why, keep going. CLAUDE.md applies in full; this a
 8. APPROVE → implementer merges its target branch (§Branches) into the branch, recounts manifest counters by hand, keeps both lines in ChangeLog conflicts.
 9. Land into the target. `main`: `JNEXT_ALLOW_MAIN_WRITE=1 git merge`, then `JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n`; it stays local until the batch gate (step 10). Epic branch: plain merge, no bump.
 10. Batch gate, then push (main only).
-    - When: after at most 3 landings, at the end of the session, and before any push.
+    - When: once, after all of the session's landings (no landing-count limit), and before any push.
     - What: the batch gate (CLAUDE.md merge protocol step 2), on `main`'s tip, in `~/tmp/worktrees/main-gate`. A `regression-runner` agent runs it; that agent counts toward the cap.
-    - Green and CI on main idle (`gh run list --workflow CI --limit 1`) → `JNEXT_ALLOW_PUSH=1 git push origin main <tags…>`, ≤3 tags per push. CI busy → wait, then push.
+    - Green and CI on main idle (`gh run list --workflow CI --limit 1`) → `JNEXT_ALLOW_PUSH=1 git push origin main`, then all the batch's tags except the newest in one push, then the newest tag on its own (it always gets its tag event; a public release tag alone, RELEASE-PROTOCOL.md §6). CI busy → wait, then push.
     - Red → find the landing that broke it (re-run the failing rows at each merge commit). Fix forward on a branch, or undo that merge with a new revert commit. Re-run the gate. Never push red.
 11. Close the issue (rules.md §GitHub): standalone once pushed; epic sub-issue once merged into the epic branch, noting it reaches `main` with the epic. Untestable-by-gate fix (feel, speed, host-specific) → comment, leave open for reporter confirmation.
 12. Once the issue is closed: remove both worktrees and delete the merged branch (`worktree-launch` §Cleanup). Parked issues keep theirs; anything that fails the checks is listed in the handover.

@@ -14,8 +14,8 @@ $ make regression
 The triplet is the core of the **batch gate**, which adds `make unit-test-sdl`,
 `make unit-test-win` and `make regression-win`.
 
-- **When it runs:** on `main`'s tip, after at most three landings, at the end of
-  a work session, and before any push.
+- **When it runs:** on `main`'s tip, once, after all of a work session's landings
+  and before any push.
 - **On a branch, nobody runs it.** The author runs the suites and regression
   rows the change touches, plus `make unit-test` before each review. The
   reviewer runs the targeted rows again.

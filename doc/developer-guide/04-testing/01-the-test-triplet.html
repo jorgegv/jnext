@@ -2336,8 +2336,8 @@ $ make regression
 <p>The triplet is the core of the <strong>batch gate</strong>, which adds <code>make unit-test-sdl</code>,
 <code>make unit-test-win</code> and <code>make regression-win</code>.</p>
 <ul>
-<li><strong>When it runs:</strong> on <code>main</code>'s tip, after at most three landings, at the end of
-  a work session, and before any push.</li>
+<li><strong>When it runs:</strong> on <code>main</code>'s tip, once, after all of a work session's landings
+  and before any push.</li>
 <li><strong>On a branch, nobody runs it.</strong> The author runs the suites and regression
   rows the change touches, plus <code>make unit-test</code> before each review. The
   reviewer runs the targeted rows again.</li>
