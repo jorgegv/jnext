@@ -58,6 +58,18 @@ is easy to get wrong and jnext did:
 | Wireshark extcap — the named-pipe server (`CreateNamedPipe`, duplex, byte mode) a child opens with `fopen("wb")` on Windows; the precedent for the Pi audio pipe (GH #331) | <https://gitlab.com/wireshark/wireshark/-/blob/master/extcap.c> |
 | QEMU for Windows — builds `qemu-system-arm.exe` that the Windows NextPi launcher runs (install hint, GH #316) | <https://qemu.weilnetz.de/w64/> |
 
+## Source-level debugging: toolchains and interop formats
+
+Cited by tool, version and file path in [SOURCE-LEVEL-DEBUGGING.md](design/SOURCE-LEVEL-DEBUGGING.md).
+
+| Reference                                                                    | URL                                                      |
+|------------------------------------------------------------------------------|----------------------------------------------------------|
+| z88dk - the `-debug` map, `.lis` listings, `z88dk-gdb`, and the zxn memory maps (`libsrc/_DEVELOPMENT/target/zxn/crt_memory_map.inc`, `lib/target/zxn/classic/memory_map.asm`) | <https://github.com/z88dk/z88dk> |
+| DeZog - its z88dk parsers (`src/labels/z88dklabelparserv2.ts`, `z88dkmapfile.ts`) are the oracle for the line-extent rule | <https://github.com/maziac/DeZog> |
+| sjasmplus - the SLD format v1 (`docs/documentation.xml`, chapter "Source Level Debugging (SLD) data", read at v1.23.1) and the `--sym` / `--exp` EQU files | <https://github.com/z00m128/sjasmplus> |
+| SkoolKit - control files (`sphinx/source/control-files.rst`), `sna2skool.py` (`commands.rst`) and the `@bank` directive (`asm.rst`), read on master after release 10.1 | <https://github.com/skoolkid/skoolkit> |
+| Ghidra - `Ghidra/Extensions/Jython/ghidra_scripts/ImportSymbolsScript.py`, the symbol import that the ghidra export targets | <https://github.com/NationalSecurityAgency/ghidra> |
+
 ## Emulators used as oracles / comparison
 
 | Reference                                                         | URL                                      |
