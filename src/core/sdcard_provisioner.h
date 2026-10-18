@@ -127,12 +127,16 @@ using ProgressFn = std::function<bool(uint64_t downloaded, uint64_t total)>;
 // backends' timeout and for the GUI's "Stalled" notice (stall_note), and
 // download_step() is the per-tick decision both backends share.
 
-// `err` is a BARE reason — "Could not resolve hostname", "HTTP status 404" —
-// and must NOT carry a "download failed" of its own. provision_sd_card adds
-// that framing exactly once, and both default backends used to add it too, so
-// the reported message read `download failed: download failed: Could not
-// resolve hostname` (GH #271: the doubled text is in the bug report itself).
-// PROV-PREFIX-01/02 pin the single-prefix form on the real backend.
+// `err` is a BARE reason in plain words ("the server's name could not be found
+// (curl error 6: Could not resolve hostname)", "the server does not have this
+// file (HTTP 404)"; GH #385, see net_reason / http_status_reason /
+// transport_reason below) and must NOT carry a "download failed" of its own,
+// nor the URL: the caller owns the framing (fetch_failure names what failed,
+// the URL it fetched and what happens next), exactly once. Both default
+// backends used to add a "download failed" too, so the reported message read
+// `download failed: download failed: Could not resolve hostname` (GH #271: the
+// doubled text is in the bug report itself). PROV-PREFIX-01/02 pin the
+// single-prefix form on the real backend.
 // Default impl is platform-native: libcurl on Linux/macOS
 // (sdcard_provisioner_net_curl.cpp), WinHTTP on Windows
 // (sdcard_provisioner_net_win.cpp — GH #108 Phase B, so the Windows packages
@@ -145,6 +149,30 @@ using DownloadFn = std::function<bool(const std::string& url,
                                       const ProgressFn& progress,
                                       std::string& err)>;
 
+// ---- What a failed fetch says (GH #385) ---------------------------------------
+// A failed download names the address that failed, says in plain words what went
+// wrong (with the code, for whoever has to look it up) and what happens next. Both
+// backends sort their own failure codes into the NetFailure kinds, and every kind
+// has ONE wording, so libcurl and WinHTTP say the same thing about the same
+// failure; the code they started from follows in parentheses.
+enum class NetFailure { NameNotFound, CannotConnect, TimedOut, ConnectionLost, NoAnswer, Tls,
+                        BadAddress, Redirect, Other };
+// "<words of kind> (<raw>)": the plain wording, then the backend's own code and text.
+std::string net_reason(NetFailure kind, const std::string& raw);
+// The reason of an HTTP error status (RFC 9110 section 15): "<words> (HTTP <status>)".
+// Both backends use it, so a 404 reads the same on libcurl and on WinHTTP.
+std::string http_status_reason(long status);
+// The reason of a transport failure, from the backend's own code: a CURLcode on
+// Linux/macOS, a WinHTTP/Win32 error on Windows. Defined in EACH backend twin, like
+// http_download.
+std::string transport_reason(long code);
+// The one shape of a failed fetch, for every caller:
+//   "<what>: <reason>\n  URL: <url>\n  <next>"
+// with the last line left out when `next` is empty. `url` is exactly the string
+// that was passed to the DownloadFn, so it can be pasted into a browser.
+std::string fetch_failure(const std::string& what, const std::string& url,
+                          const std::string& reason, const std::string& next);
+
 // Confirmation seam: returns true if the user agrees to download.
 using ConfirmFn = std::function<bool(const std::string& message)>;
 
@@ -156,6 +184,14 @@ using ConfirmFn = std::function<bool(const std::string& message)>;
 // on a worker thread; the CLI wires `cli_busy` (a one-line message).
 using BusyFn = std::function<bool(const std::string& phase,
                                   const std::function<bool()>& work)>;
+
+// Short-fetch seam (GH #385): runs a SHORT fetch (a release list, a checksum) under
+// the label `label`; the GUI gives feedback only when the fetch turns out to be
+// slow. `fetch` must be called exactly once, with the ProgressFn to hand to the
+// DownloadFn, and its result is returned. May be empty: the fetch then runs with no
+// ProgressFn (the CLI, the tests).
+using ShortFetchFn = std::function<bool(const std::string& label,
+                                        const std::function<bool(const ProgressFn&)>& fetch)>;
 
 // Copy seam: byte-copy `src` to `dst`, verifying completeness. Returns true on
 // success, else sets `err`. Default impl streams and checks the copied size

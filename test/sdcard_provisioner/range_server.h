@@ -67,6 +67,7 @@ struct Opts {
     std::size_t stall_after = kNoDrop;  // send this many body bytes, then hold the connection open sending nothing
     bool silent = false;                // read the request, send nothing at all, hold the connection open
     int stall_ms = 8000;                // how long stall_after / silent hold it (ends early: client closes, ~Server)
+    int status = 0;                     // >0: answer every request with this status, Content-Length: 0, no body (GH #385)
 };
 
 class Server {
@@ -192,6 +193,10 @@ private:
 
         if (o.close_immediately) return;
         if (o.silent) { hold(c, o.stall_ms); return; }
+        if (o.status > 0) {
+            send_all(c, "HTTP/1.1 " + std::to_string(o.status) + " Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            return;
+        }
         if (!r.range.empty() && o.fail_ranged_status > 0) {
             send_all(c, "HTTP/1.1 " + std::to_string(o.fail_ranged_status) +
                             " Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");

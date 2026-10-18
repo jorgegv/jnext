@@ -6,9 +6,12 @@
 // imports PathCchRemoveFileSpec (Windows 8+), which was the single import
 // keeping the SDL-only bundle off Windows 7.
 //
-// Both twins implement the same three functions declared in
-// sdcard_provisioner.h (http_download, sha256_hex, sha256_file) with identical
-// contracts: the partial-file contract documented there (`<dest>.part` kept for
+// Both twins implement the same four functions declared in
+// sdcard_provisioner.h (http_download, transport_reason, sha256_hex, sha256_file)
+// with identical contracts: the failure wording documented there (transport_reason
+// sorts the CURLcode into the same kinds the WinHTTP twin sorts its codes into, so
+// both say the same words; an HTTP error status says the same through
+// http_status_reason), the partial-file contract documented there (`<dest>.part` kept for
 // resuming) and the tick / stall / cancel one (the ProgressFn is called at least
 // every tick whatever the network does; false aborts with "cancelled by user";
 // no body byte for the stall timeout ends the attempt). The
@@ -38,6 +41,55 @@
 #include <vector>
 
 namespace sdcard {
+
+// ---------------------------------------------------------------------------
+// What a transport failure says (GH #385): the CURLcode sorted into the shared
+// kinds of net_reason, so libcurl and WinHTTP say the same words. The meanings
+// are libcurl-errors(3); only codes libcurl 7.66 already has are named, because
+// the packaged targets include older distributions.
+// ---------------------------------------------------------------------------
+namespace {
+NetFailure curl_kind(CURLcode c) {
+    switch (c) {
+    case CURLE_UNSUPPORTED_PROTOCOL:
+    case CURLE_URL_MALFORMAT:
+        return NetFailure::BadAddress;
+    case CURLE_COULDNT_RESOLVE_PROXY:
+    case CURLE_COULDNT_RESOLVE_HOST:
+        return NetFailure::NameNotFound;
+    case CURLE_COULDNT_CONNECT:
+        return NetFailure::CannotConnect;
+    case CURLE_GOT_NOTHING:
+        return NetFailure::NoAnswer;
+    case CURLE_HTTP2:
+    case CURLE_PARTIAL_FILE:
+    case CURLE_SEND_ERROR:
+    case CURLE_RECV_ERROR:
+    case CURLE_HTTP2_STREAM:
+        return NetFailure::ConnectionLost;
+    case CURLE_OPERATION_TIMEDOUT:
+        return NetFailure::TimedOut;
+    case CURLE_SSL_CONNECT_ERROR:
+    case CURLE_SSL_CERTPROBLEM:
+    case CURLE_SSL_CIPHER:
+    case CURLE_PEER_FAILED_VERIFICATION:
+    case CURLE_SSL_CACERT_BADFILE:
+    case CURLE_SSL_ISSUER_ERROR:
+    case CURLE_SSL_PINNEDPUBKEYNOTMATCH:
+    case CURLE_SSL_INVALIDCERTSTATUS:
+        return NetFailure::Tls;
+    case CURLE_TOO_MANY_REDIRECTS:
+        return NetFailure::Redirect;
+    default:
+        return NetFailure::Other;
+    }
+}
+} // namespace
+
+std::string transport_reason(long code) {
+    const CURLcode c = static_cast<CURLcode>(code);
+    return net_reason(curl_kind(c), "curl error " + std::to_string(code) + ": " + curl_easy_strerror(c));
+}
 
 // ---------------------------------------------------------------------------
 // Download (default impl uses libcurl — no shell-out)
@@ -177,7 +229,10 @@ Outcome attempt_download(const std::string& url, const std::string& dest, const 
         return Outcome::Failed;
     }
     if (rc != CURLE_OK) {
-        err = curl_easy_strerror(rc);
+        // FAILONERROR turns an HTTP status >= 400 into one generic code that loses
+        // the status; it is read off the transfer so a 404 says 404, like WinHTTP.
+        err = (rc == CURLE_HTTP_RETURNED_ERROR && http_code >= 400) ? http_status_reason(http_code)
+                                                                    : transport_reason(rc);
         part.fail(err, rc == CURLE_PARTIAL_FILE);
         return Outcome::Failed;
     }

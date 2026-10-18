@@ -267,7 +267,7 @@ PartialDownload::Begin PartialDownload::begin(const HttpResponseInfo& r, std::st
     begun_ = true;
     if (r.status == 416 && ranged_) { discard_partial(dest_); return Begin::Retry; }
     if (r.status >= 400) {
-        err = "HTTP status " + std::to_string(r.status);
+        err = http_status_reason(r.status);
         cancelled();
         return Begin::Error;
     }
@@ -421,6 +421,41 @@ bool download_step(PartialDownload& part, const ProgressFn& progress, uint64_t g
 bool default_http_download(const std::string& url, const std::string& dest_path,
                            const ProgressFn& progress, std::string& err) {
     return http_download(url, dest_path, progress, err, DownloadTimings{});
+}
+
+// ---------------------------------------------------------------------------
+// What a failed fetch says (GH #385): see the comment above net_reason in the
+// header. The wordings live here, once, for both backends and every caller.
+// ---------------------------------------------------------------------------
+std::string net_reason(NetFailure kind, const std::string& raw) {
+    const char* words = "the transfer failed";
+    switch (kind) {
+    case NetFailure::NameNotFound:   words = "the server's name could not be found"; break;
+    case NetFailure::CannotConnect:  words = "could not connect to the server"; break;
+    case NetFailure::TimedOut:       words = "the server did not answer in time"; break;
+    case NetFailure::ConnectionLost: words = "the connection to the server was lost"; break;
+    case NetFailure::NoAnswer:       words = "the server closed the connection without answering"; break;
+    case NetFailure::Tls:            words = "the secure connection to the server failed"; break;
+    case NetFailure::BadAddress:     words = "the address is not a valid http or https URL"; break;
+    case NetFailure::Redirect:       words = "the server's redirect could not be followed"; break;
+    case NetFailure::Other:          break;
+    }
+    return std::string(words) + " (" + raw + ")";
+}
+
+std::string http_status_reason(long status) {
+    const char* words = "the server refused the request";
+    if (status == 404 || status == 410) words = "the server does not have this file";
+    else if (status == 401 || status == 403) words = "the server refused access";
+    else if (status >= 500 && status <= 599) words = "the server reported an error";
+    return std::string(words) + " (HTTP " + std::to_string(status) + ")";
+}
+
+std::string fetch_failure(const std::string& what, const std::string& url,
+                          const std::string& reason, const std::string& next) {
+    std::string m = what + ": " + reason + "\n  URL: " + url;
+    if (!next.empty()) m += "\n  " + next;
+    return m;
 }
 
 std::string default_state_dir() { return config_dir(); }
@@ -892,15 +927,17 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             return r;
         }
 
+        // A failed fetch names the address, the reason in plain words and what
+        // happens next (GH #385); the sandbox note, when there is one, comes last.
         if (!download(distro_url, zip_tmp, opts.progress, err)) {
             r.status = ProvisionStatus::Failed;
             uint64_t h2 = 0, t2 = 0;
             const PartialState ps = partial_state(zip_tmp, distro_url, h2, t2);
-            if (ps == PartialState::Resumable)
-                err += "; the part fetched so far is kept and the next start continues it";
-            else if (ps == PartialState::Complete)
-                err += "; the complete download is kept and the next start uses it";
-            r.error  = "download failed: " + err + sandbox_network_note(opts);
+            const char* next =
+                ps == PartialState::Resumable ? "the part fetched so far is kept and the next start continues it"
+              : ps == PartialState::Complete  ? "the complete download is kept and the next start uses it"
+              : "nothing was kept, so the next start downloads it from the beginning";
+            r.error  = fetch_failure("download failed", distro_url, err, next) + sandbox_network_note(opts);
             return r;
         }
 
@@ -909,7 +946,8 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             std::remove(zip_tmp.c_str());
             std::remove(raw.c_str()); // never trust a partial raw
             r.status = ProvisionStatus::Failed;
-            r.error  = "unzip failed: " + err;
+            r.error  = fetch_failure("unzip failed", distro_url, err,
+                                     "the download was removed, so the next start downloads it from the beginning");
             return r;
         }
         std::remove(zip_tmp.c_str());
