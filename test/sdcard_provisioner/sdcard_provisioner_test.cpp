@@ -1257,14 +1257,18 @@ void test_stall_rows() {
             const bool ok = sdcard::http_download(srv.url(), dest, {}, err, {200, 5000});
             const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
 #ifdef _WIN32
-            const bool own_reason = err.rfind("transfer", 0) == 0;   // winhttp_error("transfer", code)
+            // winhttp_error("transfer", dwError): the stage, and the failing completion's own non-zero code
+            const std::string tag = "(WinHTTP error ";
+            const size_t code_at = err.find(tag);
+            const bool own_reason = err.rfind("transfer", 0) == 0 && code_at != std::string::npos &&
+                                    std::atoi(err.c_str() + code_at + tag.size()) != 0;
 #else
             const bool own_reason = !err.empty();                    // libcurl's own text for the closed connection
 #endif
             check("PROV-STALL-09",
                   "a server that closes the connection without answering ends the attempt in under 2 s (the stall "
-                  "timeout is 5 s) with the transport's own reason - 'transfer ... (WinHTTP error N)' on WinHTTP, "
-                  "libcurl's text otherwise - never 'stalled:', and leaves no dest, .part or record",
+                  "timeout is 5 s) with the transport's own reason - 'transfer ... (WinHTTP error N)', N not 0, on "
+                  "WinHTTP, libcurl's text otherwise - never 'stalled:', and leaves no dest, .part or record",
                   !ok && secs < 2.0 && own_reason && err.rfind("stalled:", 0) != 0 && !exists(dest) &&
                       !exists(sdcard::partial_path(dest)) && !exists(sdcard::resume_record_path(dest)),
                   "ok=" + std::to_string(ok) + " t=" + num(secs) + "s err='" + err + "'");
