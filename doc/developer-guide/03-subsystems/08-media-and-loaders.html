@@ -3453,7 +3453,23 @@ the count is <code>EmulatorConfig::quick_snapshot_keep</code> (CLI) or
 the CLI winning (<code>quick_snapshot_keep_cli</code>). The debugger keymap refuses
 Alt+Shift+F5/F9 by name (<code>validate_combo</code>).
 The SDL chord predicate is <code>platform/quick_snapshot_chord.h</code>; the Qt chords are
-the two QAction shortcuts in <code>main_window.cpp</code>.</p>
+the two QAction shortcuts in <code>main_window.cpp</code>.
+Both frontends hand the request to the key <code>Router</code> (<code>on_host_action()</code>, GH #386)
+instead of acting in the key callback, so a chord takes its turn behind the keys
+typed before it, keys typed during or after it reach the loaded machine, and
+<code>SdlApp::service_quick_requests()</code> / <code>QtApp::TickEffects::post_frames()</code> call
+<code>action_done()</code> however the action ended (see the input subsystem chapter).
+The cost of the stall is the Tier-2 content stamp, a SHA-256 of the WHOLE SD
+image on the UI thread: one pass per save, two per load (the probe, then the load
+itself; the Qt Quick Load passes <code>jns_probed</code> so <code>handle_load_path()</code> does not
+repeat the probe). It scales with the card size (about 0.5-2 s for 1 GB) and every
+digest logs <code>snapshot: digested SD image '&lt;path&gt;' (&lt;MB&gt; MB) in &lt;ms&gt; ms</code>, so a
+user can see what the freeze was. The digest is eager by design (the snapshot
+format's section 11.3 and <code>sd_snapshot_identity.h</code>, "cost, stated rather than
+hidden"), and a probe without it would wrongly accept a snapshot taken
+mid-transfer (section 11.3, last row of the restore matrix). The freeze
+itself (the digest on the UI thread, which grows with the card) is kept as
+designed and tracked in GH #396.</p>
 <p>Video recording needs <strong>FFmpeg on the host</strong>. jnext writes raw ARGB frames and
 raw stereo PCM to temporary files during the run, so the hot loop pays no
 encoding cost, and shells out once at stop, trying <code>libx264</code>, <code>mpeg4</code> and

@@ -1021,7 +1021,7 @@ int main()
     {
         MatrixGuest g; MatrixRouter r; r.attach(g);
         mtick(r, g, tap(SC_1) + tap(SC_2), 1);
-        msettle(r, g, 4);
+        msettle(r, g, 6);   // GH #386: the second tap follows the first by TAP_SPACING_FRAMES
         check("SER-01a", "no frame ever samples two tapped keys together",
               !g.ever_together(SC_1, SC_2), got(g.samples));
         check("SER-01b", "the guest sees them sequentially, one per frame",
@@ -1037,7 +1037,7 @@ int main()
     {
         MatrixGuest g; MatrixRouter r; r.attach(g);
         mtick(r, g, tap(SC_SYM) + tap(SC_P), 1);
-        msettle(r, g, 4);
+        msettle(r, g, 6);   // GH #386: see SER-01
         check("SER-02a", "a SYM tap and a P tap never coincide in one frame",
               !g.ever_together(SC_SYM, SC_P), got(g.samples));
         check("SER-02b", "the guest sees SYM alone, then P alone",
@@ -1107,10 +1107,17 @@ int main()
                           {SC_P, true}, {SC_P, false},
                           {SC_O, true}, {SC_O, false},
                           {SC_SYM, false}}, 1);
-        msettle(r, g, 4);
+        msettle(r, g, 8);   // GH #386: see SER-01 (the second key lands 5 frames after the first)
+        // GH #386: the two keys are now 5 frames apart, and the held shift sits
+        // alone in the frames between them (a shift alone types nothing). The
+        // assertion is about the frames that carry a KEY, so those are the ones
+        // compared; "the shift is down in all of them" is the unchanged claim.
+        std::vector<std::vector<int>> key_frames;
+        for (const auto& f : g.keystrokes())
+            if (f.size() > 1 || f[0] != SC_SYM) key_frames.push_back(f);
         check("SER-05", "a held shift accompanies every key it was held across",
-              g.keystrokes() == std::vector<std::vector<int>>{{SC_P, SC_SYM},
-                                                             {SC_O, SC_SYM}},
+              key_frames == std::vector<std::vector<int>>{{SC_P, SC_SYM},
+                                                         {SC_O, SC_SYM}},
               got(g.keystrokes()));
     }
 
@@ -1166,7 +1173,7 @@ int main()
     {
         MatrixGuest g; MatrixRouter r; r.attach(g);
         mtick(r, g, tap(SC_DOWN) + tap(SC_ENTER), 1);
-        msettle(r, g, 4);
+        msettle(r, g, 8);   // GH #386: see SER-01
         check("SER-09a", "an arrow tap and an ENTER tap never coincide",
               !g.ever_together(SC_DOWN, SC_ENTER) &&
                   g.keystrokes() == std::vector<std::vector<int>>{{SC_DOWN},
@@ -1175,7 +1182,7 @@ int main()
 
         MatrixGuest g2; MatrixRouter r2; r2.attach(g2);
         mtick(r2, g2, tap(SC_DOWN) + tap(SC_UP), 1);
-        msettle(r2, g2, 4);
+        msettle(r2, g2, 8);   // GH #386: see SER-01
         check("SER-09b", "two different arrows in one gap stay two moves",
               !g2.ever_together(SC_DOWN, SC_UP) &&
                   g2.keystrokes() == std::vector<std::vector<int>>{{SC_DOWN},
@@ -1194,13 +1201,13 @@ int main()
 
         MatrixGuest ga; MatrixRouter ra; ra.attach(ga);
         for (const int k : seq) mtick(ra, ga, tap(k), 1);
-        msettle(ra, ga, 10);
+        msettle(ra, ga, 30);   // GH #386: a bunched backlog drains one key per 5 frames
 
         MatrixGuest gb; MatrixRouter rb; rb.attach(gb);
         Calls all;
         for (const int k : seq) all = all + tap(k);
         mtick(rb, gb, all, 1);
-        msettle(rb, gb, 10);
+        msettle(rb, gb, 30);   // GH #386: see above
 
         check("SER-10a", "bunching six keystrokes into one gap loses nothing",
               ga.keystrokes() == gb.keystrokes(),
@@ -1256,26 +1263,28 @@ int main()
               g.down == std::set<int>{SC_1}, got(g.kb));
     }
 
-    // --- SER-13: the SCOPE BOUNDARY, asserted rather than assumed -----------
-    // Two taps of the SAME key inside one gap still reach the guest as one
-    // continuous press across two frames. That is issue #120's documented
-    // residue and is deliberately NOT in #268's scope: separating them needs a
-    // released frame between the two presses, which halves the drain rate and
-    // makes a sustained tap stream grow the queue without bound. A human cannot
-    // tap one key twice inside 20 ms (or even 55 ms at 18 FPS), whereas two
-    // DIFFERENT keys in one gap is ordinary rollover — which is why the two
-    // cases are treated differently. This row exists so the limit is visible to
-    // the next reader instead of being rediscovered.
+    // --- SER-13: a same-key double tap is TWO keystrokes ---------------------
+    // Two taps of the SAME key inside one gap used to reach the guest as one
+    // continuous press across two frames (issue #120's documented residue,
+    // deliberately left by #268: a released frame between them halved the drain
+    // rate). GH #386 closes it. A queued tap now follows the previous one by
+    // TAP_SPACING_FRAMES, and the ROM needs exactly that: the same key seen
+    // again while its key set is still busy is a K-REPEAT, not a keystroke
+    // (48.rom 0x0310), so "11" typed during a stall used to arrive as "1". The
+    // IDs are kept; the assertions are inverted on purpose (owner decision D3).
     {
         MatrixGuest g; MatrixRouter r; r.attach(g);
         mtick(r, g, tap(KEY_A) + tap(KEY_A), 1);
-        msettle(r, g, 3);
-        check("SER-13a", "same-key double tap is still ONE continuous press",
+        msettle(r, g, 9);
+        std::vector<int> seen;
+        for (size_t i = 0; i < g.samples.size(); ++i)
+            if (!g.samples[i].empty()) seen.push_back(static_cast<int>(i));
+        check("SER-13a", "same-key double tap reaches the guest as TWO keystrokes",
               g.keystrokes() == std::vector<std::vector<int>>{{KEY_A}, {KEY_A}},
               got(g.keystrokes()));
-        check("SER-13b", "with no released frame between the two presses",
-              g.samples.size() >= 2 && g.samples[0] == std::vector<int>{KEY_A} &&
-                  g.samples[1] == std::vector<int>{KEY_A},
+        check("SER-13b", "with released frames between the two presses (4 of them, K-REPEAT)",
+              seen == std::vector<int>{0, 5} && g.samples[1].empty() &&
+                  g.samples[2].empty() && g.samples[3].empty() && g.samples[4].empty(),
               got(g.samples));
     }
 
@@ -1291,7 +1300,7 @@ int main()
               got(g.kb) + " pending=" + std::to_string(r.pending()));
         mtick(r, g, Calls{}, 1);
         mtick(r, g, Calls{}, 1);
-        msettle(r, g, 3);
+        msettle(r, g, 8);   // GH #386: see SER-01
         check("SER-14b", "and the first tick that emulates resumes the order",
               g.keystrokes() == std::vector<std::vector<int>>{{SC_1}, {SC_2}},
               got(g.keystrokes()));
@@ -1341,6 +1350,382 @@ int main()
                   g.samples[1] == std::vector<int>{SC_1, SC_2} &&
                   g.samples[2] == std::vector<int>{SC_1, SC_2, SC_3},
               got(g.samples));
+    }
+
+    // =======================================================================
+    // Spacing of QUEUED keystrokes, re-assert after a load, host actions as
+    // barriers in the key queue (GitHub issue #386).
+    //
+    // ORACLE. The Spectrum ROM, not the Router: 48.rom's KEYBOARD routine keeps
+    // two key sets (KSTATE $5C00/$5C04); every interrupt decrements each busy
+    // set's counter and frees it at 0 (0x02C6-0x02D6, DEC (HL) at 0x02CB); a
+    // new key needs a free set, with none free RET Z at 0x02F0 throws the key
+    // away; LD (HL),$05 at 0x02F4 sets the counter to 5; the same key seen
+    // again while its set is busy is a REPEAT, not a keystroke (K-REPEAT,
+    // 0x0310). So a backlog replayed one keystroke per frame loses the third
+    // distinct key and every repeated one; one keystroke per 5 frames loses
+    // neither. input_integration_test ROMKB-* run this against the real ROM.
+    // =======================================================================
+
+    // The index of the first frame that sampled `sc` down, or -1.
+    auto first_seen = [](const MatrixGuest& g, int sc) {
+        for (size_t i = 0; i < g.samples.size(); ++i)
+            if (std::find(g.samples[i].begin(), g.samples[i].end(), sc) !=
+                g.samples[i].end())
+                return static_cast<int>(i);
+        return -1;
+    };
+
+    // --- TAPSP-01: three taps in one gap, a distinct 5-frame slot each -------
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, tap(SC_1) + tap(SC_2) + tap(SC_3), 1);
+        msettle(r, g, 14);
+        const int a = first_seen(g, SC_1), b = first_seen(g, SC_2), c = first_seen(g, SC_3);
+        check("TAPSP-01", "tap(1) tap(2) tap(3) in one gap are first sampled at frames 0, 5 and 10, never together",
+              a == 0 && b == 5 && c == 10 &&
+                  !g.ever_together(SC_1, SC_2) && !g.ever_together(SC_2, SC_3),
+              "first=" + std::to_string(a) + "," + std::to_string(b) + "," +
+                  std::to_string(c) + " " + got(g.keystrokes()));
+    }
+
+    // --- TAPSP-02: the same key twice is two keystrokes, 5 frames apart ------
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, tap(KEY_A) + tap(KEY_A), 1);
+        msettle(r, g, 9);
+        std::vector<int> seen;
+        for (size_t i = 0; i < g.samples.size(); ++i)
+            if (!g.samples[i].empty()) seen.push_back(static_cast<int>(i));
+        // K-REPEAT: the ROM needs the key's set freed (5 interrupts) between them.
+        check("TAPSP-02", "a same-key double tap in one gap is two keystrokes, first seen exactly 5 frames apart with released frames between",
+              seen == std::vector<int>{0, 5} && g.samples[1].empty() &&
+                  g.samples[4].empty(),
+              got(g.samples));
+    }
+
+    // --- TAPSP-03: an IDLE Router keeps the host's own timing ----------------
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, tap(SC_1), 1);          // a stretched tap: spacing armed
+        mtick(r, g, Calls{}, 1);
+        mtick(r, g, Calls{{SC_2, true}}, 1);  // the queue is empty: lands at once
+        check("TAPSP-03", "a press on an idle Router 2 frames after a stretched tap lands at once (host timing kept)",
+              g.samples.size() == 3 && g.samples[2] == std::vector<int>{SC_2},
+              got(g.samples));
+    }
+
+    // --- TAPSP-04: the spacing counts FRAMES, not ticks ----------------------
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, tap(SC_1) + tap(SC_2), 1);   // 4 frames of spacing left
+        mtick(r, g, Calls{}, 3);                 // 3 frames in one tick: 1 left
+        check("TAPSP-04a", "one tick that emulated 3 frames counts 3 toward the spacing",
+              first_seen(g, SC_2) == -1 && r.pending() == 2, got(g.samples));
+        mtick(r, g, Calls{}, 1);                 // the last one
+        check("TAPSP-04b", "so the next queued press is applied after exactly 5 frames in all",
+              first_seen(g, SC_2) == -1 && g.down == std::set<int>{SC_2},
+              got(g.kb));
+        mtick(r, g, Calls{}, 1);
+        check("TAPSP-04c", "and is first sampled by frame 5",
+              first_seen(g, SC_2) == 5, got(g.samples));
+
+        MatrixGuest z; MatrixRouter rz; rz.attach(z);
+        mtick(rz, z, tap(SC_1) + tap(SC_2), 1);
+        for (int i = 0; i < 20; ++i) mtick(rz, z, Calls{}, 0);   // paused: no frames
+        check("TAPSP-04d", "ticks that emulated no frame count nothing toward the spacing",
+              rz.pending() == 2 && first_seen(z, SC_2) == -1, "pending=" + std::to_string(rz.pending()));
+    }
+
+    // --- TAPSP-05: a cold boot or a focus loss forgets the spacing -----------
+    {
+        // After the reset the queued press must wait only for the frame (gate
+        // (c)), not for 5 more frames of a tap of the machine that is gone.
+        MatrixGuest old_g, new_g; MatrixRouter r; r.attach(old_g);
+        mtick(r, old_g, tap(SC_1), 1);               // spacing armed
+        r.attach(new_g);
+        r.on_host_key(SC_2, true);                   // applied; awaits a frame
+        r.on_host_key(SC_3, true);                   // queued behind it
+        new_g.run_frame();
+        r.on_tick_end(1);
+        check("TAPSP-05a", "attach() clears the spacing: a queued press after a cold boot is not held back",
+              new_g.down == std::set<int>{SC_2, SC_3}, got(new_g.kb));
+
+        MatrixGuest g; MatrixRouter r2; r2.attach(g);
+        mtick(r2, g, tap(SC_1), 1);                  // spacing armed
+        r2.release_all();
+        r2.on_host_key(SC_2, true);
+        r2.on_host_key(SC_3, true);
+        g.run_frame();
+        r2.on_tick_end(1);
+        check("TAPSP-05b", "release_all() clears the spacing too",
+              g.down == std::set<int>{SC_2, SC_3}, got(g.kb));
+    }
+
+    // --- TAPSP-06: held keys are not taps: no spacing armed ------------------
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, Calls{{SC_1, true}, {SC_2, true}}, 1);
+        msettle(r, g, 1);
+        check("TAPSP-06", "two keys held from one gap still converge one frame apart (SER-16 price)",
+              g.samples.size() >= 2 && g.samples[0] == std::vector<int>{SC_1} &&
+                  g.samples[1] == std::vector<int>{SC_1, SC_2},
+              got(g.samples));
+    }
+
+    // --- RSYNC-01: reassert() puts back what a load wiped --------------------
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        r.on_host_key(KEY_A, true);
+        r.on_host_key(KEY_A, false);                 // release deferred: no frame yet
+        g.down.clear();                              // a snapshot load wiped the matrix
+        r.reassert();
+        g.run_frame();
+        const bool seen = g.samples.size() == 1 && g.samples[0] == std::vector<int>{KEY_A};
+        r.on_tick_end(1);
+        check("RSYNC-01", "after a wipe, reassert() shows the held key to the next frame and its release lands after that frame",
+              seen && g.down.empty() && g.kb.count(KEY_A, false) == 1,
+              got(g.samples) + " " + got(g.kb));
+    }
+
+    // --- RSYNC-02: reassert() re-applies only what the Router holds ----------
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        mtick(r, g, tap(KEY_A), 1);
+        r.on_tick_end(1);
+        const size_t before = g.kb.calls.size();
+        r.reassert();
+        check("RSYNC-02a", "reassert() re-presses nothing the Router already released",
+              g.kb.calls.size() == before, got(g.kb));
+
+        MatrixGuest old_g, new_g; MatrixRouter r2; r2.attach(old_g);
+        r2.on_host_key(KEY_B, true);                 // held on the machine that goes away
+        r2.attach(new_g);
+        r2.reassert();
+        check("RSYNC-02b", "nor a key pressed before attach() (the new machine never had it)",
+              new_g.kb.calls.empty(), got(new_g.kb));
+    }
+
+    // --- RSYNC-03: reassert() does not apply what is still QUEUED -------------
+    // A is applied and awaiting its frame; B is queued behind it. A load wipes
+    // the matrix. Only A is down in the Router's sink: B must not be shown early
+    // (two keys in one frame is the #268 defect) and must still arrive in order.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        r.on_host_key(SC_1, true);                   // applied, awaiting a frame
+        r.on_host_key(SC_2, true);                   // queued behind it
+        g.down.clear();                              // the load wipes the matrix
+        r.reassert();
+        g.run_frame();
+        const bool only_a = g.samples.size() == 1 && g.samples[0] == std::vector<int>{SC_1};
+        r.on_tick_end(1);                            // A has been shown: B may land
+        check("RSYNC-03", "reassert() re-presses only what the Router has applied: a key still queued waits for its frame",
+              only_a && g.kb.count(SC_2, true) == 1 && g.down == std::set<int>{SC_1, SC_2},
+              got(g.samples) + " " + got(g.kb));
+    }
+
+    // --- HACT-*: host actions are barriers in the key queue ------------------
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        int ran = 0;
+        r.on_host_action([&ran]() { ++ran; });
+        check("HACT-01a", "on an idle Router a host action runs before on_host_action() returns",
+              ran == 1);
+        r.on_host_key(KEY_A, true);
+        check("HACT-01b", "and a key pressed right after it is queued, not applied (the barrier)",
+              g.kb.calls.empty() && r.pending() == 1, got(g.kb));
+    }
+
+    {
+        // Host order: B 2 ENTER, then the action. It runs only once ENTER has
+        // been shown to a frame and released.
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        int ran = 0; bool enter_seen_when_run = false; bool enter_down_when_run = true;
+        for (const auto& e : tap(SC_1) + tap(SC_2) + tap(SC_ENTER)) r.on_host_key(e.first, e.second);
+        r.on_host_action([&]() {
+            ++ran;
+            enter_seen_when_run = first_seen(g, SC_ENTER) >= 0;
+            enter_down_when_run = g.down.count(SC_ENTER) != 0;
+        });
+        bool early = false;
+        for (int i = 0; i < 20; ++i) {
+            const int before = ran;
+            g.run_frame();
+            r.on_tick_end(1);
+            if (before == 0 && ran == 1 && first_seen(g, SC_ENTER) < 0) early = true;
+        }
+        check("HACT-02", "an action queued behind B 2 ENTER runs once, only after ENTER was sampled and released",
+              ran == 1 && enter_seen_when_run && !enter_down_when_run && !early &&
+                  g.keystrokes() == std::vector<std::vector<int>>{{SC_1}, {SC_2}, {SC_ENTER}},
+              "ran=" + std::to_string(ran) + " " + got(g.keystrokes()));
+    }
+
+    {
+        // Immediate dispatch.
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        r.on_host_action([]() {});
+        for (int i = 0; i < 6; ++i) { g.run_frame(); r.on_tick_end(1); }
+        r.on_host_key(KEY_A, true);
+        r.on_host_key(KEY_A, false);
+        for (int i = 0; i < 6; ++i) { g.run_frame(); r.on_tick_end(1); }
+        const bool held = g.kb.calls.empty() && r.pending() == 2;
+        // Dispatch from the queue: tap(B), action, then a key typed after it.
+        MatrixGuest g2; MatrixRouter r2; r2.attach(g2);
+        int ran = 0;
+        for (const auto& e : tap(SC_1)) r2.on_host_key(e.first, e.second);
+        r2.on_host_action([&ran]() { ++ran; });
+        r2.on_host_key(KEY_A, true);
+        for (int i = 0; i < 12; ++i) { g2.run_frame(); r2.on_tick_end(1); }
+        check("HACT-03", "keys typed after a dispatched action (immediate or from the queue) stay unapplied across ticks until action_done()",
+              held && ran == 1 && first_seen(g2, KEY_A) == -1 && r2.pending() == 1,
+              got(g.kb) + " " + got(g2.kb));
+    }
+
+    {
+        // attach() keeps what was queued behind the barrier.
+        MatrixGuest old_g, new_g; MatrixRouter r; r.attach(old_g);
+        r.on_host_action([]() {});
+        for (const auto& e : tap(KEY_A)) r.on_host_key(e.first, e.second);
+        const bool queued = r.pending() == 2;
+        r.attach(new_g);                              // the Quick Load's cold boot
+        const bool kept = r.pending() == 2;
+        for (int i = 0; i < 4; ++i) { new_g.run_frame(); r.on_tick_end(1); }
+        check("HACT-04a", "attach() with the barrier up keeps the keys typed after the action and delivers them to the NEW machine",
+              queued && kept && old_g.kb.calls.empty() &&
+                  new_g.keystrokes() == std::vector<std::vector<int>>{{KEY_A}},
+              got(new_g.keystrokes()));
+        // ... and the barrier is gone: a fresh key is applied directly.
+        new_g.kb.calls.clear();
+        r.on_host_key(KEY_B, true);
+        check("HACT-04b", "attach() lifts the barrier",
+              new_g.kb.count(KEY_B, true) == 1, got(new_g.kb));
+        // No barrier: attach() clears as always.
+        MatrixGuest g3, g4; MatrixRouter r3; r3.attach(g3);
+        mtick(r3, g3, tap(SC_1) + tap(SC_2), 0);
+        const bool loaded = r3.pending() == 2;
+        r3.attach(g4);
+        check("HACT-04c", "attach() with no barrier still clears the queue",
+              loaded && r3.pending() == 0);
+    }
+
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        int ran = 0;
+        mtick(r, g, tap(SC_1), 0);                   // paused: 1 applied, release deferred
+        r.on_host_action([&ran]() { ++ran; });       // gates closed: queued
+        for (int i = 0; i < 5; ++i) mtick(r, g, Calls{}, 0);
+        const bool waited = ran == 0 && r.pending() == 1;
+        mtick(r, g, Calls{}, 1);
+        check("HACT-05", "a zero-frame tick does not run a queued action; the first tick that emulates a frame does",
+              waited && ran == 1, "ran=" + std::to_string(ran));
+    }
+
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        int ran = 0;
+        for (const auto& e : tap(SC_1) + tap(SC_2)) r.on_host_key(e.first, e.second);
+        r.on_host_action([&ran]() { ++ran; });
+        r.release_all();                              // focus loss
+        const bool kept = r.pending() == 1 && ran == 0;
+        mtick(r, g, Calls{}, 1);
+        check("HACT-06", "release_all() drops the queued keys, keeps the action, and it runs at the next tick that emulates a frame",
+              kept && ran == 1 && first_seen(g, SC_2) == -1, "ran=" + std::to_string(ran));
+    }
+
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        int ran = 0;
+        r.on_host_key(KEY_A, true);                   // awaiting a frame: everything queues
+        for (int i = 0; i < 10; ++i) { r.on_host_key(KEY_B, true); r.on_host_key(KEY_B, false); }
+        r.on_host_action([&ran]() { ++ran; });
+        for (int i = 0; i < 200; ++i) { r.on_host_key(SC_1, true); r.on_host_key(SC_1, false); }
+        const bool once = ran == 1;
+        const bool applied_before = g.kb.count(KEY_B, true) == 10;
+        const bool held_after = g.kb.count(SC_1, true) == 0 && r.pending() > 0;
+        for (int i = 0; i < 3; ++i) { g.run_frame(); r.on_tick_end(1); }
+        r.action_done();
+        for (int i = 0; i < 10; ++i) { g.run_frame(); r.on_tick_end(1); }
+        check("HACT-07", "an overflow flush runs a queued action exactly once, in order, and keeps the keys behind it queued",
+              once && applied_before && held_after && ran == 1,
+              "ran=" + std::to_string(ran) + " B=" + std::to_string(g.kb.count(KEY_B, true)));
+    }
+
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        r.on_host_action([]() {});
+        for (const auto& e : tap(KEY_A) + tap(KEY_B)) r.on_host_key(e.first, e.second);
+        for (int i = 0; i < 4; ++i) { g.run_frame(); r.on_tick_end(1); }
+        const bool held = g.kb.calls.empty();
+        r.action_done();
+        for (int i = 0; i < 14; ++i) { g.run_frame(); r.on_tick_end(1); }
+        check("HACT-08", "action_done() lifts the barrier: the held keys drain from the next tick that emulates, in order",
+              held && g.keystrokes() == std::vector<std::vector<int>>{{KEY_A}, {KEY_B}},
+              got(g.keystrokes()));
+    }
+
+    {
+        // The wiring function the Qt window uses: a request raised by the
+        // window reaches the Router as an action and records itself in `pending`.
+        struct Src {
+            std::function<void(int)> cb;
+            void set_host_action_callback(std::function<void(int)> f) { cb = std::move(f); }
+        };
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        Src src; int pending = 0;
+        wire_host_actions(src, r, pending);
+        const bool wired = static_cast<bool>(src.cb);
+        r.on_host_key(KEY_A, true);                   // a key typed before the request
+        if (src.cb) src.cb(7);
+        const bool waits = pending == 0;
+        g.run_frame(); r.on_tick_end(1);
+        check("HACT-09", "wire_host_actions(): a window request waits behind the typed keys, then records itself in `pending`",
+              wired && waits && pending == 7, "pending=" + std::to_string(pending));
+    }
+
+    // --- HACT-10: an action waits for a key just applied to be SHOWN ---------
+    // [X applied, A queued, action queued]: the drain applies A and must stop at
+    // the action until a frame has sampled A.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        int ran = 0; bool a_seen_when_run = false;
+        r.on_host_key(SC_1, true);                   // applied, awaiting a frame
+        r.on_host_key(SC_2, true);                   // queued
+        r.on_host_action([&]() { ++ran; a_seen_when_run = first_seen(g, SC_2) >= 0; });
+        g.run_frame(); r.on_tick_end(1);             // drain applies SC_2, not the action
+        const bool waited = ran == 0 && g.down.count(SC_2) == 1;
+        g.run_frame(); r.on_tick_end(1);             // SC_2 has been sampled now
+        check("HACT-10", "a queued action does not run in the tick that applies the key before it, only after a frame has sampled that key",
+              waited && ran == 1 && a_seen_when_run, "ran=" + std::to_string(ran));
+    }
+
+    // --- HACT-11: attach() under a barrier keeps what the host holds ---------
+    // The key B queued behind the barrier is still held by the host. Its
+    // autorepeat after the cold boot is dropped (host_down_), not queued again.
+    {
+        MatrixGuest old_g, new_g; MatrixRouter r; r.attach(old_g);
+        r.on_host_action([]() {});
+        r.on_host_key(KEY_B, true);                  // queued behind the barrier
+        r.attach(new_g);                             // the Quick Load's cold boot
+        r.on_host_key(KEY_B, true);                  // SDL autorepeat
+        check("HACT-11", "attach() under a barrier keeps the host's held keys: an autorepeat of a queued key is not queued again",
+              r.pending() == 1, "pending=" + std::to_string(r.pending()));
+    }
+
+    // --- HACT-12: release_all() leaves the barrier up -------------------------
+    // A focus loss between raising an action and servicing it must not let keys
+    // reach the machine before the save or load.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        r.on_host_action([]() {});                   // dispatched: barrier up
+        r.release_all();
+        r.on_host_key(KEY_A, true);
+        const bool held = g.kb.calls.empty() && r.pending() == 1;
+        for (int i = 0; i < 3; ++i) { g.run_frame(); r.on_tick_end(1); }
+        const bool still = g.kb.calls.empty();
+        r.action_done();
+        g.run_frame(); r.on_tick_end(1);
+        check("HACT-12", "release_all() does not lift the barrier: a key pressed after it stays queued until action_done()",
+              held && still && g.kb.count(KEY_A, true) == 1, got(g.kb));
     }
 
     // =======================================================================

@@ -5,6 +5,7 @@
 #include "core/sdcard_provisioner.h"
 
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
@@ -68,12 +69,22 @@ bool read_sd_image_content_stamp(const std::string& image_path,
         return false;
     }
 
+    // GH #386 - this is the freeze a user sees on a Quick Save / Quick Load: the
+    // whole card is read on the UI thread. One line per digest says what the
+    // pause was (and gives a test a countable observable).
+    const auto t0 = std::chrono::steady_clock::now();
     sha256_out = sdcard::sha256_file(image_path);
     if (sha256_out.empty()) {
         why = "SHA-256 of SD image '" + image_path + "' failed";
         mtime_utc_out.clear();
         return false;
     }
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
+    const std::uintmax_t bytes = fs::file_size(image_path, ec);
+    Log::emulator()->info("snapshot: digested SD image '{}' ({} MB) in {} ms",
+                          image_path, ec ? 0 : bytes / (1024 * 1024),
+                          static_cast<long long>(ms));
     return true;
 }
 

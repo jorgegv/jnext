@@ -13,6 +13,7 @@
 #include "gui/app_config.h"
 #include "input/joy_assign.h"
 #include "platform/pointer_capture.h"
+#include "platform/quick_snapshot_chord.h"   // jnext::QuickAction (GH #386)
 #include "debug/events.h"        // ClientId — GH #306 pause client
 
 class Emulator;
@@ -117,6 +118,17 @@ public:
         keyboard_lost_callback_ = std::move(cb);
     }
 
+    /// GH #386 - a Quick Save / Quick Load is a host action that must take its
+    /// turn behind the keys typed before it (host_key_latch::Router::
+    /// on_host_action). With a callback set, the File menu and the chord hand
+    /// the request to it instead of acting; the frontend later calls
+    /// quick_save_now() / quick_load_now(). Unset, they act at once.
+    using QuickAction = jnext::QuickAction;
+    using HostActionCallback = std::function<void(QuickAction)>;
+    void set_host_action_callback(HostActionCallback cb) { host_action_callback_ = std::move(cb); }
+    void quick_save_now();
+    void quick_load_now();
+
     /// Toggle between windowed and fullscreen mode.
     void toggle_fullscreen();
 
@@ -178,7 +190,9 @@ public:
     static QString load_filter();
     static QString save_filter(bool next_machine);
 
-    void handle_load_path(const QString& path);
+    /// `jns_probed`: the caller has already probed a .jns (digest included), so
+    /// the .jns probe is not repeated (GH #386: it re-read the whole SD card).
+    void handle_load_path(const QString& path, bool jns_probed = false);
 
     /// GH #381 - everything Machine > POK Trainers... does AFTER its file picker
     /// returns, and what File > Load of a .pok does instead of a cold boot: read
@@ -595,6 +609,7 @@ private:
     // Screenshot actions
     QAction* screenshot_action_ = nullptr;
     QAction* quick_screenshot_action_ = nullptr;   // GH #19
+    HostActionCallback host_action_callback_;   // GH #386
     QAction* quick_save_action_ = nullptr;   // GH #321
     QAction* quick_load_action_ = nullptr;   // GH #321
 

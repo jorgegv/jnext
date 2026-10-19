@@ -797,6 +797,22 @@ VHDL: `input/membrane/emu_fnkeys.vhd:53-202` — consumes
 |----|------|--------------|
 | JOY-WIRE-01 | Emulator: OUT (0x253B), 0x40 with reg=0x05; verify MembraneStick fold redirects through full NR-write path through OUT (0x253B) | `emulator.cpp:456-458` + `membrane_stick.vhd:124-131`. skip — production wire missing (integration tier; see G126) — paired with JMODE-09 (bare-class side) |
 
+### 3.17 Host keys into the 48K ROM (ROMKB-*, GH #386)
+
+Not a VHDL oracle: the oracle is the Spectrum ROM's own KEYBOARD routine
+(`48.rom` 0x02BF-0x02F4), which `input_integration_test` runs for real. Two
+key sets (KSTATE `$5C00`/`$5C04`); an interrupt decrements each busy set and
+frees it at 0 (0x02C6-0x02D6); a new key with no free set is dropped
+(`RET Z`, 0x02F0); a new key's counter is set to 5 (0x02F4); the same key seen
+again while its set is busy is a repeat (K-REPEAT, 0x0310). The same bytes are
+in 128.rom, plus3.rom and enNextZX.rom.
+
+| ID | Stimulus | Expected | Cite |
+|----|----------|----------|------|
+| ROMKB-01 | `B 2 ENTER` taps delivered to the Router in ONE host gap, then 60 frames | border == 2 (pre-fix: ENTER dropped, border unchanged) | 48.rom 0x02F0, 0x02F4 |
+| ROMKB-02 | `B 1 1` taps in one gap, then 40 frames | edit line `E7 31 31` (pre-fix: `E7 31`) | 48.rom 0x0310 |
+| ROMKB-03 | `B` pressed (release deferred), a `.jns` load wipes the matrix, `Router::reassert()`, 20 frames | edit line starts `E7`; without `reassert()` it does not | `emulator_apply_load` -> `release_all_keys` |
+
 ---
 
 ## 4. Reset Defaults (VHDL-verified)

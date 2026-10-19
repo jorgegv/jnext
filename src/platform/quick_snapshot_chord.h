@@ -14,6 +14,10 @@ namespace jnext {
 // neither act again nor fall through to the F-key block).
 enum class QuickChord { None, Save, Load, Repeat };
 
+// GH #386 - a quick-snapshot request as the frontends carry it from the key
+// Router's queue to the tick that services it (host_key_wiring.h).
+enum class QuickAction { Save, Load };
+
 // USB HID scancodes, the values SDL_SCANCODE_F5 / SDL_SCANCODE_F9 take
 // (static_assert'ed in sdl_app.cpp).
 constexpr int kQuickSaveScancode = 62;   // F5

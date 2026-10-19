@@ -71,16 +71,20 @@
 #include <cstring>
 #include <filesystem>
 #include <cmath>
+#include <cstdlib>
+#include <sstream>
 #include <string>
 #include <vector>
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/log.h"
 #include "gui/app_config.h"
 #include "gui/main_window.h"
 #include <memory>
 #include "debug/debugger.h"
 #include "gui/preferences_dialog.h"
+#include <spdlog/sinks/ostream_sink.h>
 #include "../row_id.h"
 
 namespace {
@@ -133,10 +137,15 @@ struct Fixture {
 
     /// `keep_cli` >= 0 stands for `--quick-snapshot-keep` given on the command
     /// line with that value (0 = unlimited); -1 = flag absent (GH #321).
-    explicit Fixture(MachineType type = MachineType::ZX48K, int keep_cli = -1)
+    explicit Fixture(MachineType type = MachineType::ZX48K, int keep_cli = -1,
+                     const std::string& sd_image = {})
     {
         EmulatorConfig cfg;
         cfg.type = type;
+        if (!sd_image.empty()) {   // GH #386: PA-25c counts SD digests
+            cfg.sd_card_image    = sd_image;
+            cfg.sd_card_readonly = true;
+        }
         if (keep_cli >= 0) {
             cfg.quick_snapshot_keep     = keep_cli;
             cfg.quick_snapshot_keep_cli = true;
@@ -962,6 +971,84 @@ void test_quick_snapshot_actions()
     qunsetenv("JNEXT_CONFIG_DIR");
 }
 
+/// PA-25 - GH #386: Quick Save / Quick Load take their turn in the key queue.
+/// With a host-action callback set, the File menu / chord only RAISES the
+/// request; the frontend performs it later (quick_save_now / quick_load_now),
+/// once the keys typed before it have been shown to a frame. Unset, they act
+/// at once, which PA-22 pins. PA-25c: a Quick Load digests the SD card once
+/// for its own probe, not again in handle_load_path() (the Qt freeze was 3
+/// whole-card SHA-256 passes; the oracle is the log line each digest writes).
+void test_quick_snapshot_host_actions()
+{
+    QTemporaryDir home;
+    qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+    const QDir snaps(home.path() + QStringLiteral("/snapshots"));
+
+    const char* env = std::getenv("JNEXT_TEST_SD_IMAGE");
+    const std::string sd = env ? std::string(env)
+                               : std::string(std::getenv("HOME") ? std::getenv("HOME") : ".") +
+                                     "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+    Fixture f(MachineType::ZX48K, -1, sd);
+    f.win.set_unattended(true);
+    auto find = [&f](const char* text) {
+        for (QAction* a : f.win.findChildren<QAction*>())
+            if (a->text() == QString::fromLatin1(text)) return a;
+        return static_cast<QAction*>(nullptr);
+    };
+    QAction* save = find("Quick Save Snapshot");
+    QAction* load = find("Quick Load Snapshot");
+    std::vector<std::string> loaded;
+    f.win.set_load_file_callback([&loaded](const std::string& p, bool) { loaded.push_back(p); });
+    std::vector<jnext::QuickAction> raised;
+    f.win.set_host_action_callback([&raised](jnext::QuickAction a) { raised.push_back(a); });
+
+    // (a) Quick Save: the slot only raises the request.
+    if (save) { save->trigger(); QApplication::processEvents(); }
+    const bool nothing_yet = !snaps.exists() || snaps.entryList(QDir::Files).isEmpty();
+    const bool raised_save = raised.size() == 1 && raised[0] == jnext::QuickAction::Save;
+    f.win.quick_save_now();
+    const QStringList one = snaps.entryList(QDir::Files);
+    check("PA-25a", "with a host-action callback, Quick Save writes NO file until the frontend "
+                    "services the request, then exactly one",
+          save != nullptr && nothing_yet && raised_save && one.size() == 1,
+          "nothing_yet=" + std::to_string(nothing_yet) + " raised=" + std::to_string(raised.size()) +
+              " files=" + one.join(QLatin1Char(',')).toStdString());
+
+    // (c) one digest per Quick Load probe. Capture the emulator log.
+    std::ostringstream cap;
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(cap);
+    sink->set_pattern("%v");
+    Log::emulator()->sinks().push_back(sink);
+    auto digests = [&cap]() {
+        size_t n = 0;
+        const std::string t = cap.str();
+        const std::string key = "snapshot: digested SD image";
+        for (size_t p = t.find(key); p != std::string::npos; p = t.find(key, p + 1)) ++n;
+        return n;
+    };
+
+    // (b) Quick Load: the slot only raises the request; nothing reaches the load route.
+    raised.clear();
+    if (load) { load->trigger(); QApplication::processEvents(); }
+    const bool not_loaded_yet = loaded.empty();
+    const bool raised_load = raised.size() == 1 && raised[0] == jnext::QuickAction::Load;
+    const size_t digests_after_raise = digests();
+    f.win.quick_load_now();
+    const size_t digests_after_load = digests();
+    check("PA-25b", "with a host-action callback, Quick Load hands nothing to the load route "
+                    "until the frontend services the request, then exactly once",
+          load != nullptr && not_loaded_yet && raised_load && digests_after_raise == 0 &&
+              loaded.size() == 1,
+          "loaded_before=" + std::to_string(!not_loaded_yet) + " raised=" +
+              std::to_string(raised.size()) + " loaded=" + std::to_string(loaded.size()));
+    check("PA-25c", "a Quick Load of a valid newest .jns digests the SD card once (its own probe), "
+                    "not again in handle_load_path()",
+          digests_after_load == 1, "digests=" + std::to_string(digests_after_load));
+    Log::emulator()->sinks().pop_back();
+
+    qunsetenv("JNEXT_CONFIG_DIR");
+}
+
 /// PA-24 — GH #323: File > Load of a .sna/.szx/.z80 runs it on the machine it was
 /// saved on, so a snapshot jnext cannot run is refused BEFORE the cold boot (the
 /// session is kept), exactly as PA-22f does for a .jns. Oracle: the file's own
@@ -1308,6 +1395,7 @@ int main(int argc, char** argv)
     test_quick_screenshot_controls();
     test_quick_screenshot_writes_a_file();
     test_quick_snapshot_actions();
+    test_quick_snapshot_host_actions();
     test_snapshot_load_refusal();
     test_quick_save_prunes();
     test_quick_keep_control();

@@ -23,6 +23,7 @@
 - Alt+F4 quits JNEXT, also with the mouse captured, instead of resetting the machine; Alt+F1 no longer hard-resets
 - SD-card and NextPi downloads no longer freeze when the network drops: the dialog says stalled; 30 s without data stops it
 - Failed SD-card and NextPi downloads name the address that failed, say why in plain words and what was kept
+- Keys typed during a Quick Save/Load or in a fast burst are no longer dropped or saved out of order
 
 ### Contributors in this release
 - @pavero01, @janko-jj, @jattree, @jsmolina, @Nitrowing

@@ -148,8 +148,12 @@ private:
     /// GH #321 — Alt+Shift+F5 / Alt+Shift+F9. Save runs from the key callback (between
     /// frames); Load is serviced in run() beside the NEX load request.
     void quick_save();
-    void quick_load();
+    bool quick_load();   // true when it cold-booted
+    bool quick_save_requested_ = false;
     bool quick_load_requested_ = false;
+    /// GH #386 - the tick's service of a request the key Router let through:
+    /// runs it, then lifts the Router's barrier once. True when it cold-booted.
+    bool service_quick_requests();
     jnext::QuickChordTracker quick_chords_;
 
     // Kempston mouse host adapter — wires SDL_MOUSE* events into the
