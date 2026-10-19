@@ -1506,6 +1506,24 @@ int main()
               new_g.kb.calls.empty(), got(new_g.kb));
     }
 
+    // --- RSYNC-03: reassert() does not apply what is still QUEUED -------------
+    // A is applied and awaiting its frame; B is queued behind it. A load wipes
+    // the matrix. Only A is down in the Router's sink: B must not be shown early
+    // (two keys in one frame is the #268 defect) and must still arrive in order.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        r.on_host_key(SC_1, true);                   // applied, awaiting a frame
+        r.on_host_key(SC_2, true);                   // queued behind it
+        g.down.clear();                              // the load wipes the matrix
+        r.reassert();
+        g.run_frame();
+        const bool only_a = g.samples.size() == 1 && g.samples[0] == std::vector<int>{SC_1};
+        r.on_tick_end(1);                            // A has been shown: B may land
+        check("RSYNC-03", "reassert() re-presses only what the Router has applied: a key still queued waits for its frame",
+              only_a && g.kb.count(SC_2, true) == 1 && g.down == std::set<int>{SC_1, SC_2},
+              got(g.samples) + " " + got(g.kb));
+    }
+
     // --- HACT-*: host actions are barriers in the key queue ------------------
     {
         MatrixGuest g; MatrixRouter r; r.attach(g);
@@ -1662,6 +1680,52 @@ int main()
         g.run_frame(); r.on_tick_end(1);
         check("HACT-09", "wire_host_actions(): a window request waits behind the typed keys, then records itself in `pending`",
               wired && waits && pending == 7, "pending=" + std::to_string(pending));
+    }
+
+    // --- HACT-10: an action waits for a key just applied to be SHOWN ---------
+    // [X applied, A queued, action queued]: the drain applies A and must stop at
+    // the action until a frame has sampled A.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        int ran = 0; bool a_seen_when_run = false;
+        r.on_host_key(SC_1, true);                   // applied, awaiting a frame
+        r.on_host_key(SC_2, true);                   // queued
+        r.on_host_action([&]() { ++ran; a_seen_when_run = first_seen(g, SC_2) >= 0; });
+        g.run_frame(); r.on_tick_end(1);             // drain applies SC_2, not the action
+        const bool waited = ran == 0 && g.down.count(SC_2) == 1;
+        g.run_frame(); r.on_tick_end(1);             // SC_2 has been sampled now
+        check("HACT-10", "a queued action does not run in the tick that applies the key before it, only after a frame has sampled that key",
+              waited && ran == 1 && a_seen_when_run, "ran=" + std::to_string(ran));
+    }
+
+    // --- HACT-11: attach() under a barrier keeps what the host holds ---------
+    // The key B queued behind the barrier is still held by the host. Its
+    // autorepeat after the cold boot is dropped (host_down_), not queued again.
+    {
+        MatrixGuest old_g, new_g; MatrixRouter r; r.attach(old_g);
+        r.on_host_action([]() {});
+        r.on_host_key(KEY_B, true);                  // queued behind the barrier
+        r.attach(new_g);                             // the Quick Load's cold boot
+        r.on_host_key(KEY_B, true);                  // SDL autorepeat
+        check("HACT-11", "attach() under a barrier keeps the host's held keys: an autorepeat of a queued key is not queued again",
+              r.pending() == 1, "pending=" + std::to_string(r.pending()));
+    }
+
+    // --- HACT-12: release_all() leaves the barrier up -------------------------
+    // A focus loss between raising an action and servicing it must not let keys
+    // reach the machine before the save or load.
+    {
+        MatrixGuest g; MatrixRouter r; r.attach(g);
+        r.on_host_action([]() {});                   // dispatched: barrier up
+        r.release_all();
+        r.on_host_key(KEY_A, true);
+        const bool held = g.kb.calls.empty() && r.pending() == 1;
+        for (int i = 0; i < 3; ++i) { g.run_frame(); r.on_tick_end(1); }
+        const bool still = g.kb.calls.empty();
+        r.action_done();
+        g.run_frame(); r.on_tick_end(1);
+        check("HACT-12", "release_all() does not lift the barrier: a key pressed after it stays queued until action_done()",
+              held && still && g.kb.count(KEY_A, true) == 1, got(g.kb));
     }
 
     // =======================================================================
