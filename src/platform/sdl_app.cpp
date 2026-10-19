@@ -223,10 +223,10 @@ bool SdlApp::init(int argc, char* argv[]) {
     };
     driver.load = [this](const std::string& path) {
         // GH #323: follow an in-place machine switch (see emulator_apply_load_keeping()).
-        const bool ok = emulator_apply_load_keeping(emulator_, path, tape_realtime_,
-                                           [this](MachineType t) { config_.type = t; });
-        key_router_.reassert();   // GH #386: the load wiped the matrix
-        return ok;
+        // GH #386: the load wipes the matrix; the helper re-asserts held keys.
+        return emulator_apply_load_keeping_keys(emulator_, path, tape_realtime_,
+                                           [this](MachineType t) { config_.type = t; },
+                                           key_router_);
     };
     debugger_->set_loop_driver(driver);
     host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
@@ -468,11 +468,11 @@ void SdlApp::run() {
         // Apply pending load when countdown reaches zero.
         if (load_countdown_ == 0) {
             // Shared format dispatch (incl. .rzx) — see platform/emulator_boot.h.
-            const bool loaded = emulator_apply_load_keeping(
+            // GH #386 - the load wipes the matrix, keys the host holds included;
+            // the helper re-asserts them.
+            const bool loaded = emulator_apply_load_keeping_keys(
                 emulator_, load_file_, tape_realtime_,
-                [this](MachineType t) { config_.type = t; });
-            // GH #386 - the load wiped the matrix, keys the host holds included.
-            key_router_.reassert();
+                [this](MachineType t) { config_.type = t; }, key_router_);
             if (!loaded) {
                 Log::platform()->error("load: failed to load '{}'", load_file_);
                 exit_code_ = 1;   // a failed load exits non-zero (as headless)

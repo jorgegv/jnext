@@ -69,6 +69,25 @@ inline bool emulator_apply_load_keeping(Emulator& emu, const std::string& file,
     return ok;
 }
 
+/// emulator_apply_load_keeping(), then re-assert the keys the host holds
+/// (GH #386). A snapshot load wipes the guest keyboard matrix (the keys the
+/// host held when the file was written are not state to come back to), and with
+/// it any key the user pressed after the cold boot and before the load landed,
+/// which the key Router believes is down. `router.reassert()` puts those back,
+/// before the next frame. The windowed frontends' four load sites (the
+/// deferred --load / menu load and the debugger driver's load, Qt and SDL) all
+/// go through this one function, so none can forget it; the Router is a
+/// template parameter to keep this header free of the input layer.
+template <typename Router>
+inline bool emulator_apply_load_keeping_keys(Emulator& emu, const std::string& file,
+                                             bool tape_realtime,
+                                             const std::function<void(MachineType)>& keep,
+                                             Router& router) {
+    const bool ok = emulator_apply_load_keeping(emu, file, tape_realtime, keep);
+    router.reassert();
+    return ok;
+}
+
 /// True when emulator_apply_load() above would route `file` to
 /// Emulator::load_nex() — i.e. the extension is `.nex` or unrecognised (the
 /// fallback). The GH #228 experimental-V1.3 gate applies to exactly that

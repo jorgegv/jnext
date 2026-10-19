@@ -322,13 +322,12 @@ bool QtApp::init(int argc, char* argv[]) {
         driver.load = [this](const std::string& path) {
             // GH #323: a snapshot saved on another machine switches it in
             // place; the frontend must follow, or its next reset boots the old one.
-            const bool ok = emulator_apply_load_keeping(emulator_, path, tape_realtime_,
+            // GH #386: the load wipes the matrix; the helper re-asserts held keys.
+            return emulator_apply_load_keeping_keys(emulator_, path, tape_realtime_,
                 [this](MachineType t) {
                     config_.type = t;
                     if (main_window_) main_window_->sync_machine_type_display();
-                });
-            key_router_.reassert();   // GH #386: the load wiped the matrix
-            return ok;
+                }, key_router_);
         };
         debugger_->set_loop_driver(driver);
     }
@@ -655,13 +654,13 @@ bool QtApp::TickEffects::pre_frames() {
     // Apply pending load when countdown reaches zero (auto-detect format).
     if (a.load_countdown_ == 0) {
         // Shared format dispatch (incl. .rzx) — see platform/emulator_boot.h.
-        const bool loaded = emulator_apply_load_keeping(
+        // GH #386 - the load wipes the matrix, keys the host holds included; the
+        // helper re-asserts them.
+        const bool loaded = emulator_apply_load_keeping_keys(
             a.emulator_, a.load_file_, a.tape_realtime_, [&a](MachineType t) {
                 a.config_.type = t;
                 if (a.main_window_) a.main_window_->sync_machine_type_display();
-            });
-        // GH #386 - the load wiped the matrix, keys the host holds included.
-        a.key_router_.reassert();
+            }, a.key_router_);
         if (!loaded) {
             Log::platform()->error("load: failed to load '{}'", a.load_file_);
             a.exit_code_ = 1;   // a failed load exits non-zero (as headless)

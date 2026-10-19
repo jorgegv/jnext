@@ -278,7 +278,7 @@ in the machine-side class, plus a stated policy.
   after the action, so it belongs to the new machine). `release_all()` drops the
   queued keys but keeps queued actions, so a focus loss does not cancel a save the
   user asked for. After a snapshot load wipes the matrix, `Router::reassert()`
-  puts back the keys the router holds (the four frontend load sites call it), so
+  puts back the keys the router holds (the four windowed-frontend load sites all go through `emulator_apply_load_keeping_keys()` in `emulator_boot.h`, so none can forget it), so
   the guest matrix is exactly what the host holds through the router. The
   Quick Save/Load stall is the whole-card SHA-256 (see media and loaders); the
   keys typed during it are delivered afterwards, in order.
