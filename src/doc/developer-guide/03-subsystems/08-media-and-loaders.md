@@ -8,9 +8,9 @@ needs a way in and a way out, so they are host-side conveniences that reach
 directly into the emulator's RAM, registers and MMU rather than going through
 any bus the guest can see.
 
-Everything under this heading lives in `src/core/`, is driven from the frontend
-(a CLI flag at startup, a menu item later) and drives `Emulator` — never the
-reverse. Only two things here are hardware the guest could tell apart from the
+Everything under this heading except the POK trainers (below) lives in
+`src/core/`, is driven from the frontend (a CLI flag at startup, a menu item
+later) and drives `Emulator` — never the reverse. Only two things here are hardware the guest could tell apart from the
 real article: the real-time tape signal, which arrives on the EAR line exactly
 as an analogue tape would, and the SD card's SPI transport, which is a device
 the guest's own driver talks to. Both are called out below.
@@ -28,6 +28,7 @@ the guest's own driver talks to. Both are called out below.
 | `.wav` | yes | yes | `wav_loader.*`, `tape_recorder.*` | Read: real-time only, no fast path. Write: the tape-out signal, 8-bit mono 44100 Hz |
 | `.rzx` | yes | yes | `rzx_player.*`, `rzx_recorder.*` | Input recording, not state |
 | raw binary | yes | — | `Emulator::inject_binary` | `--inject` + `--inject-org`/`--inject-pc` |
+| `.pok` | yes | — | `platform/pok_trainers.*`, `gui/pok_dialog.*` | Not a loader: a list of trainers applied to the machine that is already running, through the debugger backend; Qt window only (see POK trainers) |
 
 Format selection is by **file extension**: for `--load` in `src/main.cpp`
 around line 890, and again in the GUI's file dialogs and in the headless
@@ -793,6 +794,133 @@ from a second snapshot (FUSE writes one for an inserted snapshot) is played up
 to it: `rzx::parse()` stops there and counts the rest in
 `RzxRecording::later_snapshots`, and `load_rzx()` warns.
 
+## POK trainers
+
+A `.pok` file (the World of Spectrum format: `N` name, `M`/`Z` pokes of
+`bank address value original`, `Y` end) is a list of cheats for one game. It is
+the one input here that is not loaded into a fresh machine: it edits the machine
+that is running, so it is written as a **client of the debugger backend**
+(`jnext::pok`, `src/platform/pok_trainers.*`, namespace `jnext::pok`) and holds no
+`Emulator*`. Every read is `Debugger::peek` and every write is
+`Debugger::poke(CLIENT_NONE, MemSpace::page(p), ...)`, which is what gives the
+trainers, with no code of their own, the RZX refusal (a recording would diverge),
+the rewind wall (`note_mutation()`: Step Back across a trainer is refused, as for
+any debugger edit), the beam-replay logging of a page store (`log_page_store()`)
+and a `MUTATE` line per byte. A second write path (a direct `Mmu` or `Ram` store)
+would lose each of those; do not add one.
+
+The module has no Qt, so `pok_trainers_test` runs in `make unit-test`,
+`unit-test-sdl` and `unit-test-win`. The Qt side is `gui/pok_dialog.*` (a view
+of a `Session`) and `MainWindow::open_pok_file()`, the seam both Machine ▸ POK
+Trainers… and File ▸ Load of a `.pok` end in; `pok_dialog_test` drives the real
+menu action, file picker, dialog and value prompt. `--load x.pok` keeps its
+"unsupported file extension" refusal: a `.pok` is not a program. The runs that
+have no window (headless, and the SDL-only window) take one through two options,
+`--delayed-pok-frames N FILE` and `--pok-trainers LIST` (below); a script
+(`set mem[a]`, `set phys[p, o]`, `save_snapshot`) still does what the options do
+not, and the recipe is in the user guide (5.11).
+
+**From the command line.** Two rows in `cli_options.h`, not one, because the
+table's arity is at most 2 (CLI-TBL-03) and because "when, and which file" and
+"which trainers" are different things; `main.cpp` refuses either without the
+other, or either twice. The parse arms only store. Below the loop `main()`
+reads and checks everything that can be checked before the machine exists, so a
+typo in a CI script fails at once with status 1: `parse_picks()` turns the list
+(`1,3=9,7`: a trainer number from 1, optionally `=VALUE`) into `Pick`s,
+`make_cli_request()` loads the file and checks the picks against it (the trainer
+exists and is valid, a value is given exactly for a trainer that leaves one
+open) into a `CliRequest`. The Qt window has the dialog, so `main()` refuses the
+options there (`#ifdef ENABLE_QT_UI`, not headless). `configure_and_run` hands
+the request to `HeadlessApp::set_delayed_pok()` or `SdlApp::set_delayed_pok()`;
+`QtApp` has none, and `if constexpr` leaves the call out of its instantiation.
+
+Each of the two loops holds a `jnext::pok::CliJob`: the request and a
+`cli::Delay::frames(N)`. `poll()` runs once per tick, after that tick's `--load`,
+`--inject` and `--rzx-record` handling and before its frame, so `--load x.sna`
+with N = 0 applies the trainers right after the snapshot is in; otherwise they go
+in on the poll after N frames have run. When due it calls `run_cli_request()`: a fresh `Session` over
+the loop owner's debugger backend (the same write path, so the same RZX refusal,
+rewind wall and `MUTATE` lines), `apply()` for each pick in the order written,
+stopping at the first refusal with the trainer's number and name in the reason;
+a trainer that `state()` already reports as found in memory is logged and left.
+A refusal makes `poll()` return false, which the loop turns into
+`exit_code_ = 1`, and a job still pending when the automatic exit fires is
+listed in `auto_exit_finds_no_deferred_work()`, so neither can end in a quiet
+exit 0. Nothing is removed from here: a run is one-shot. The rows are POK-60..64
+(the list, the request, the run, the refusal, the job's counting) and the
+regression row `delayed-pok-func`, which reads the trainers back from a `.scr`
+(the ULA screen memory, byte for byte) in both loops, with the controls that a
+frame earlier or later flips, the `--load` order, the banked line, the usage
+errors and the Qt refusal.
+
+**Where a poke lands.** Only 0xC000-0xFFFF is banked. Port 0x7FFD writes MMU6
+and MMU7 and nothing else (`zxnext.vhd:4679-4680`; MMU2-5 keep pages 0A 0B 04 05,
+`:4613-4616`), so a Multiface-level POKE with a bank number can only reach that
+bank at 0xC000 and above. A banked poke (bank 0-7) at address ≥ 0xC000 is NR page
+`2*bank + ((address >> 13) & 1)`, offset `address & 0x1FFF`, whatever is paged in
+(a 48K only has bank 0 there: port 0x7FFD is not decoded, NR 0x82 = 0xC0). Every
+other poke (bank 8-15, "ignore the bank", or an address below 0xC000) is the RAM
+page `Debugger::mmu_slots()` reports for the address when the trainer is applied,
+not `poke(Cpu)`, which would follow a Layer 2 write-over mapping that reads do not.
+Fuse and ZEsarUX index `RAM[bank][address & 0x3FFF]` for every address; that
+differs from this only for a banked line below 0xC000, a few lines in thousands
+of real files, all in trainers that also poke the banked window, and it is not
+the author's reading. On the real 128K Starglider (loaded from its tape, snapshot
+at the title), "Infinite Missiles (Bank#0)" is `M 0 44796 2 0` / `Z 0 60367 0 0`.
+The second line lands in bank 0, on the `DEC A` that counts the missile counter
+down (it becomes a NOP). The first is the CPU address 0xAEFC (bank 2), the operand
+of the `LD A,1` that resets the same counter; read as byte 0x2EFC of bank 0, as
+Fuse and ZEsarUX read it, it changes an unrelated byte of bank 0 instead and the
+reset stays 1 (a bank diff of two snapshots, with and without the trainer, shows
+exactly those two bytes).
+The decision, the evidence and what would reopen it are in
+`doc/analysis/POK-BANKED-POKES-BELOW-C000.md`.
+
+**Undo and state.** `Session::apply` resolves every poke to a location, reads
+every original **before** writing anything (so a refusal leaves memory untouched
+and a trainer that pokes one address twice restores the byte from before the
+trainer), writes the last value of each location, and keeps `{location, original,
+final}` per trainer. `remove` writes those originals back to those locations,
+whatever is paged in by then. `state()` is **derived from memory, never stored**:
+Applied needs a record whose bytes all still hold; AppliedFound is a trainer with
+no value left open whose bytes are all in memory with no record (removable only
+if every poke gives a non-zero `original`). A record that stops verifying is kept,
+because removing an overlapping trainer can make it true again. When the program
+has overwritten part of a trainer it reads Not applied and Remove is refused, so
+Apply is the way on; it replaces the record, but a location that still holds what
+the older record wrote keeps the older record's `original` (matched by page and
+offset), because that byte is still our poke, and a location the program changed
+takes the program's byte. Without that, Remove would leave the poke in place for
+good. A program put in through the backend, which never reaches `set_emulator()`,
+drops them too: the `Session` compares `Debugger::program_loads()` and forgets the
+records when it moved (POK-65..67, once per move, for every trainer). The counter moves
+for a ZRCP `smartload` (`Debugger::load()`, whether the loader succeeded or not), a ZRCP
+`load-binary` that landed a byte, and a NEW DZRP or GDB session (`note_program_replaced()`
+from `cmd_init` and the GDB `on_connect`: neither protocol has a load verb, the program
+arrives as memory writes after the connection; DZRP-LOAD-01, GDB-SES-08, ZRCP-LOAD-06).
+Plain memory writes into a session already open (CMD_WRITE_MEM/BANK, `M`/`X`,
+`write-memory`) do not move it, so the records survive those.
+`forget_applied()` drops them for the other routes: `MainWindow::set_emulator()` calls
+it, and `QtApp` calls `set_emulator()` after every machine rebuild
+(`boot_machine()`'s `rewire_host` hook), which covers menu load, Quick Load,
+Power Reset, a guest NR 0x02 reset and a machine-type change.
+
+**File > Load.** `handle_load_path()` sends a `.pok` to `open_pok_file()` before
+any cold boot. The same function now also refuses, before the cold boot, a file
+that would route to the NEX loader (a `.nex`, or an extension nothing owns) but
+has no `Next` prologue (`NexLoader::probe_version()`), which `NexLoader::load()`
+would refuse anyway: before, the session was reset and then the load failed. The
+reason follows the case: a `.nex` is "not a NEX file" and nothing more, and only
+an extension nothing owns is told the list of formats and where a `.pok` goes.
+
+The suites: `pok_trainers_test` (POK-01..25 and POK-60 the parser, the list and
+`load_pok_file`, POK-30..57 and POK-61..64 the session and the command-line
+request, each bank-to-page row citing `zxnext.vhd` or the other emulators'
+indexing and asserting bytes the test placed itself; the rows that sweep a
+trainer's locations one at a time, POK-50..52, are there so that a rule meant for
+every location cannot pass by checking the first) and `pok_dialog_test`
+(PKD-01..16); File > Load's refusal is `preferences_apply_test` PA-24e/f/g.
+
 ## Media out
 
 | What | Flag / UI | Code |
@@ -1030,3 +1158,98 @@ that number. The error side is pinned the same way: `PROV-STALL-09` makes a serv
 close without answering and a port refuse the connection, one per stage of the
 asynchronous sequence, and requires the transport's own reason at once, never a
 stall.
+
+What a failed fetch says is the callers' business, once (GH #385). Every failure of
+a fetch is built by `sdcard::fetch_failure(what, url, reason, next)`: `<what>:
+<reason>`, then `  URL: <url>` (exactly the string handed to the `DownloadFn`, one
+variable per fetch, so it can be pasted into a browser), then `  <what happens
+next>` (the part is kept, nothing was kept, the download was removed); nine call
+sites, two in `sdcard_provisioner.cpp` and seven in `nextpi_provisioner.cpp`, and
+nothing else builds one. The backends hand up a reason in plain words and no
+framing: `net_reason(kind, raw)` gives each `NetFailure` kind its one wording and
+appends the backend's own code and text in parentheses, `http_status_reason(status)`
+does the same for an HTTP error status (RFC 9110 section 15), and each twin defines
+`transport_reason(code)` (like `http_download`), which sorts its codes into the
+kinds: a `CURLcode` for libcurl, an `ERROR_WINHTTP_*` for WinHTTP, wine's
+`WSAETIMEDOUT` as a timeout. So the two say the same words for the same failure.
+libcurl's `CURLOPT_FAILONERROR` turns any HTTP status of 400 or more into one
+generic code, so that twin reads the status off the transfer, and a 404 reads the
+same as on WinHTTP (where `PartialDownload::begin` says it, through the same
+function). A proxy that will not open the tunnel (its answer to `CONNECT` is not a
+2xx) leaves the transfer with no response status at all, so that twin also reads
+`CURLINFO_HTTP_CONNECTCODE` and says `could not connect to the server (the proxy
+answered HTTP 403 to the connection request)`, whatever code libcurl gave the
+failure (8.18: 22 for a 4xx or 5xx, 56 for a 3xx). WinHTTP takes its proxy from the
+machine's settings, never from the environment, so the case exists only on libcurl.
+libcurl also gives its codes 1 and 3 (unsupported protocol, malformed URL) to a reply
+it cannot use after connecting (not HTTP, or a redirect to a scheme or URL it cannot
+follow); only with no connection made (`CURLINFO_NUM_CONNECTS` 0) is that the
+address's fault, so only then is it worded as one. The stall reason, `cancelled by
+user` and the other reasons that were already plain are unchanged, as are the
+declared residuals (`curl_easy_init failed`, which the user cannot act on).
+`PROV-REASON-01..05` pin the wordings, `04` on both transports (it fails on both
+with the old text) and `05` the transport's own code for an address it cannot use;
+`PROV-REASON-06` and `07` put a refusing proxy, and a server whose reply libcurl
+cannot use, in front of the real libcurl backend, which is why they live in the
+POSIX-only sibling suite `sdcard_provisioner_posix_test`; `PROV-MSG-*` and
+`PIT-44..50` the messages, `PROV-SANDBOX-02` and `PROV-STALL-09` moved to the new
+text with their invariants intact.
+
+Where the message goes. `main.cpp` logs a failed SD-card provisioning in every
+frontend (headless and the SDL-only build printed it to stderr and nowhere else) and
+shows it in a dialog in the Qt GUI; a failed NextPi start is reported in a dialog
+in the Qt GUI whether it came from Preferences (jnext starts without it) or from
+`--nextpi` (it also prints to stderr and exits 1); and the warning that `latest`
+could not read the mirror's list is a dialog too, not only a log line. A declined
+release change is the user's own answer and is logged, not a warning.
+`SdcardGuiProvisioner::warn` shows a `QMessageBox` built by `warning_box`, whose
+text is selectable by mouse whatever the widget style (the "Windows" style's
+default is links only, so the address could not be copied). On the offscreen
+platform nothing is shown (nobody could dismiss it); the title and the text go to
+the `platform` logger at debug level, and that line is what `sdcard-download-fail-func`
+and `nextpi-func` facts 10-12 read of a dialog.
+
+The short fetches. The NextPi release list of `latest` and the two `.md5` fetches
+are tiny, so they passed no `ProgressFn`, and on a dead network the window showed
+nothing for the 30 s the backend waits. `ShortFetchFn` (`nextpi::ProvisionOptions::
+short_fetch`) wraps exactly those three, with a label and the address each, and hands
+the fetch the `ProgressFn` it should give the `DownloadFn`; the archive download is
+not wrapped and keeps `opts.progress` (`PIT-51`). The Qt build's `SdcardGuiProvisioner::short_fetch`
+pumps the event loop on every call, shows nothing for the first
+`kShortFetchShowMs` (1000 ms, so a quick fetch does not flash a dialog), and then
+shows the same dialog as the archive, built and refreshed by the same code (title,
+empty bar, `Stalled` notice from 5 s, Cancel); it is gone when the fetch returns.
+Its Cancel ends that fetch only: the `cancelled_` latch of `progress()` is not
+touched, so the archive download that follows is not aborted. All of it counts on
+the helper's `now_()`, so `SDD-06..08` run on a clock the test owns, and `SDD-09`
+runs the whole thing through the real backend and a silent server on the production
+clock. `nextpi-func` fact 12 shows it in the real binary against a mirror that
+answers after 3 s.
+
+The console. The frontends with no dialog (`--headless`, the SDL-only build) say the
+same things as text, on stderr and in the log, in the dialog's words (GH #385). One
+class decides: `sdcard::ConsoleWait` is made for one transfer and ticked by its
+`ProgressFn`, which the backends call at least every 200 ms whatever the network does.
+When no byte has arrived for `kStallNoticeMs` (5 s) it says `stall_note()`, the
+dialog's own text, once, on a line of its own on stderr and as a warning in the log,
+and again if bytes come and a new stall begins. With a `slow_line` it also says that
+line once, as information, when the transfer has gone on for `kShortFetchShowMs`; a
+quicker transfer says nothing at all. The limit is the dialog's, defined once in the
+core. A `ConsoleWait` counts from its first tick, not from its construction: the
+prompt before a download can sit open for minutes. `nextpi::CliShortFetch` is the
+console's `ShortFetchFn`: one `ConsoleWait` per fetch, its line `<label> <address>`,
+logged on the `uart` logger like the rest of the module. `sdcard::CliProgress` is the
+terminal's progress display of a download, the `\rDownloading ...  45%` line that
+`cli_progress` and the NextPi twin drew, now one class with the heading and the
+no-length rule as arguments (the SD-card image counts MiB, NextPi says nothing) and
+the stall note, which starts a new line when a progress line was left unfinished.
+`make_cli_progress()` makes the SD-card image's and `nextpi::make_cli_progress()`
+NextPi's; `main.cpp` wires them, and `CliShortFetch`, where there is no dialog. The
+clock, the stream and the log's copy are parameters, so `PROV-CON-01..11` and
+`PIT-52..56` run all of it on a fake clock and read the stream back as a file; the
+real binary is shown by `sdcard-download-fail-func` fact 5 (both frontends without
+a dialog, each with its own wiring in `main.cpp`) and `nextpi-func` fact 13, against
+a server that answers after 8 s. What no row can show is the NextPi archive's own
+display being wired in `main.cpp`: its download needs 22 GB free, which the
+regression suite cannot assume, so that one assignment is covered only by the
+classes it uses.

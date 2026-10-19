@@ -492,6 +492,10 @@ void DzrpServer::cmd_init(const Command& cmd) {
             return;
         }
         cid_ = a.value;
+        // DeZog loads its program with plain memory writes right after this, and
+        // DZRP has no load verb: a new session is the signal that the program under
+        // the machine is about to be replaced (the POK undo records, GH #381).
+        dbg_.note_program_replaced();
         // SES-02: this client's stops arrive as `on_paused()` pushes.
         dbg_.set_listener(cid_, this);
     }

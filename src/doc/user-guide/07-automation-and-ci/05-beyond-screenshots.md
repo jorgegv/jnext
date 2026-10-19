@@ -11,6 +11,9 @@ Screenshots are the general-purpose check, but they are not the only one.
 - **`--delayed-snapshot`** saves machine state rather than a picture, at a
   frame you choose — useful when what you want to assert is memory, not
   pixels.
+- **`--delayed-pok-frames`** with **`--pok-trainers`** applies cheats from a
+  `.pok` file at a frame you choose, so a run can be taken from "infinite
+  lives" to a snapshot or a picture (see [5.11](../05-running-programs/11-pok-trainers.md)).
 - **`--wav-record`** captures the mixed audio, including headless, so a sound
   change can be regression-tested too.
 - **RZX** (`--rzx-record` / `--rzx-play`) replays a whole recorded session

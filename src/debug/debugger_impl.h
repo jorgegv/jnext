@@ -565,6 +565,12 @@ struct Debugger::Impl {
     /// the live one, or releases it when no arming client remains (GH #280 N1).
     std::optional<PreBoot> pending_boot;
 
+    /// How many times `load()` has run its driver, successful or not (a failed
+    /// loader can leave the machine half-replaced). A client that remembers what
+    /// the program had in memory (the POK trainers' undo records, GH #381) compares
+    /// it to know the program under it was replaced.
+    uint64_t program_loads = 0;
+
     /// CTL-12 — re-bind to the machine at `emu`'s address and re-apply
     /// everything the backend owns. Idempotent, and deliberately called whether
     /// or not the machine was actually replaced (see `Debugger::load`).

@@ -63,6 +63,10 @@ terminal; the GUI spins up a temporary `QApplication` for the dialogs and tears
 it down again before `QtApp` builds its own. If no image can be resolved,
 startup fails outright — every ROM except the FPGA boot ROM is read out of that
 image, exactly as on real hardware, so there is no machine to run without one.
+A failed download is reported with the address it was fetching, a reason in plain
+words and what happens next: in a dialog in the Qt GUI (a NextPi failure too, also
+with `--nextpi`, which then exits) and on stderr and in the log otherwise. A fetch that
+is slow or stalls says so the same way: a dialog, or lines on stderr and in the log.
 
 ## Choosing a frontend
 
@@ -90,7 +94,9 @@ drive three classes that share no base class. They implement the same informal
 interface — `set_config`, `init`, `run`, `shutdown`, `emulator`, `exit_code` —
 and the handful of steps that genuinely belong to only one of them are guarded
 with `if constexpr` on the deduced type. `--delayed-snapshot` wiring is
-`HeadlessApp`-only that way, and some GUI plumbing is `QtApp`-only.
+`HeadlessApp`-only that way, `--delayed-pok-frames` is `HeadlessApp`- and
+`SdlApp`-only (the Qt window refuses it in `main()`), and some GUI plumbing is
+`QtApp`-only.
 
 Most of the `set_*` calls in that body come *after* `init()`, because they
 only make sense once the machine exists. So a frontend must act on what they
@@ -236,7 +242,8 @@ as an idle one. And a capture that was requested but never taken makes the
 process exit non-zero rather than quietly writing nothing, so a broken test run
 cannot pass by producing no output. The same holds for any other work the
 command line deferred — a `--load` or `--inject` still waiting, a keypress, an
-NMI, a recording, a serial stream or ESP outage edge still to come — when the
+NMI, a POK trainer file, a recording, a serial stream or ESP outage edge still to
+come — when the
 automatic exit fires first: each frontend asks `auto_exit_finds_no_deferred_work()`
 (`src/platform/auto_exit.h`) at that moment. See [2.5](05-save-state-and-rewind.md) and
 [4.3 The regression suite](../04-testing/03-the-regression-suite.md).

@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.68</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.70</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.68</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.70</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1237,6 +1237,8 @@
       
         
       
+        
+      
     
     
     
@@ -1553,6 +1555,34 @@
     
   
     5.10 NextPi on the Raspberry Pi
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-running-programs/11-pok-trainers.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.11 POK trainers
   
 
     
@@ -3612,7 +3642,12 @@ part already fetched is kept as <code>sn-emulator.zip.part</code> in <code>~/.jn
 the next start continues from there (the question then says so).</p>
 <p>If no data arrives for a few seconds, the progress dialog says the download has stalled and for
 how long; after 30 seconds without data JNEXT stops waiting and says why. Cancel works at any
-time.</p>
+time. Without the dialog (<code>--headless</code>, or a build with no Qt window) the same notice is printed
+on the terminal and written to the log.</p>
+<p>When a download fails, JNEXT says which address it was fetching, what went wrong in plain words
+(with the error code after it, for anyone who has to look it up), and whether the part already
+fetched was kept. The address can be selected and copied from the message: try it in a web
+browser to see whether the file can be reached at all.</p>
 <p>Answering no leaves JNEXT with nothing to boot from, so it explains the problem
 and exits.</p>
 

@@ -4,6 +4,7 @@
 #include "platform/pointer_capture.h"
 #include <SDL3/SDL.h>
 #include <memory>
+#include <optional>
 #include <string>
 #include "sdl_display.h"
 #include "sdl_input.h"
@@ -14,6 +15,7 @@
 #include "debug/debugger.h"
 #include "platform/host_probe.h"
 #include "platform/debug_servers.h"
+#include "platform/pok_trainers.h"
 #include "script/script_host.h"
 #include "video/renderer.h"
 #include "input/gamepad_host.h"
@@ -78,6 +80,13 @@ public:
     void set_delayed_exit(int delay_frames);
     /// The same bound in EMULATED seconds (cli::Delay).
     void set_delayed_exit_seconds(int delay_seconds);
+
+    /// GH #381 (owner Q1) - --delayed-pok-frames N FILE with --pok-trainers LIST:
+    /// the request main() has read and checked (jnext::pok::make_cli_request),
+    /// applied after `delay_frames` frames through the debugger backend. This
+    /// frontend has no menus, so this is how it takes a POK file. A refusal fails
+    /// the run, as does the automatic exit coming first.
+    void set_delayed_pok(jnext::pok::CliRequest request, int delay_frames);
 
     /// Process exit status, valid after shutdown(). Non-zero when a requested
     /// --delayed-screenshot was never written.
@@ -192,6 +201,9 @@ private:
     // Pending --load state
     std::string load_file_;
     int         load_countdown_ = -1;    // -1 = no pending load
+
+    // Pending --delayed-pok-frames request (GH #381); empty when not given.
+    std::optional<jnext::pok::CliJob> pok_job_;
 
     // Pending --delayed-screenshot state
     std::string screenshot_file_;

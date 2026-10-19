@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.68</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.70</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.68</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.1.70</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2390,7 +2390,11 @@ download and patch the canonical distribution image. Headless asks on the
 terminal; the GUI spins up a temporary <code>QApplication</code> for the dialogs and tears
 it down again before <code>QtApp</code> builds its own. If no image can be resolved,
 startup fails outright — every ROM except the FPGA boot ROM is read out of that
-image, exactly as on real hardware, so there is no machine to run without one.</p>
+image, exactly as on real hardware, so there is no machine to run without one.
+A failed download is reported with the address it was fetching, a reason in plain
+words and what happens next: in a dialog in the Qt GUI (a NextPi failure too, also
+with <code>--nextpi</code>, which then exits) and on stderr and in the log otherwise. A fetch that
+is slow or stalls says so the same way: a dialog, or lines on stderr and in the log.</p>
 <h2 id="choosing-a-frontend">Choosing a frontend<a class="headerlink" href="#choosing-a-frontend" title="Permanent link">&para;</a></h2>
 <p>The choice comes down to a single runtime condition wrapped around a single
 compile-time arm:</p>
@@ -2412,7 +2416,9 @@ drive three classes that share no base class. They implement the same informal
 interface — <code>set_config</code>, <code>init</code>, <code>run</code>, <code>shutdown</code>, <code>emulator</code>, <code>exit_code</code> —
 and the handful of steps that genuinely belong to only one of them are guarded
 with <code>if constexpr</code> on the deduced type. <code>--delayed-snapshot</code> wiring is
-<code>HeadlessApp</code>-only that way, and some GUI plumbing is <code>QtApp</code>-only.</p>
+<code>HeadlessApp</code>-only that way, <code>--delayed-pok-frames</code> is <code>HeadlessApp</code>- and
+<code>SdlApp</code>-only (the Qt window refuses it in <code>main()</code>), and some GUI plumbing is
+<code>QtApp</code>-only.</p>
 <p>Most of the <code>set_*</code> calls in that body come <em>after</em> <code>init()</code>, because they
 only make sense once the machine exists. So a frontend must act on what they
 request in <code>run()</code> or in its frame loop, and never read the value back inside
@@ -2571,7 +2577,8 @@ as an idle one. And a capture that was requested but never taken makes the
 process exit non-zero rather than quietly writing nothing, so a broken test run
 cannot pass by producing no output. The same holds for any other work the
 command line deferred — a <code>--load</code> or <code>--inject</code> still waiting, a keypress, an
-NMI, a recording, a serial stream or ESP outage edge still to come — when the
+NMI, a POK trainer file, a recording, a serial stream or ESP outage edge still to
+come — when the
 automatic exit fires first: each frontend asks <code>auto_exit_finds_no_deferred_work()</code>
 (<code>src/platform/auto_exit.h</code>) at that moment. See <a href="05-save-state-and-rewind.html">2.5</a> and
 <a href="../04-testing/03-the-regression-suite.html">4.3 The regression suite</a>.</p>

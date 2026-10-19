@@ -77,6 +77,9 @@ above; the consequence is that the restored machine is up to one frame (20 ms)
 past where you stopped. If you need the precise instant, that
 is what the rewind buffer is for.
 
+A snapshot also keeps the changes a [POK trainer](11-pok-trainers.md) made to
+the running game: apply the trainer, then save.
+
 ## Quick save and quick load
 
 **File ▸ Quick Save Snapshot** (**Alt+Shift+F5**) and **File ▸ Quick Load Snapshot**

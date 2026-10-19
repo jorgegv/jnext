@@ -127,12 +127,16 @@ using ProgressFn = std::function<bool(uint64_t downloaded, uint64_t total)>;
 // backends' timeout and for the GUI's "Stalled" notice (stall_note), and
 // download_step() is the per-tick decision both backends share.
 
-// `err` is a BARE reason — "Could not resolve hostname", "HTTP status 404" —
-// and must NOT carry a "download failed" of its own. provision_sd_card adds
-// that framing exactly once, and both default backends used to add it too, so
-// the reported message read `download failed: download failed: Could not
-// resolve hostname` (GH #271: the doubled text is in the bug report itself).
-// PROV-PREFIX-01/02 pin the single-prefix form on the real backend.
+// `err` is a BARE reason in plain words ("the server's name could not be found
+// (curl error 6: Could not resolve hostname)", "the server does not have this
+// file (HTTP 404)"; GH #385, see net_reason / http_status_reason /
+// transport_reason below) and must NOT carry a "download failed" of its own,
+// nor the URL: the caller owns the framing (fetch_failure names what failed,
+// the URL it fetched and what happens next), exactly once. Both default
+// backends used to add a "download failed" too, so the reported message read
+// `download failed: download failed: Could not resolve hostname` (GH #271: the
+// doubled text is in the bug report itself). PROV-PREFIX-01/02 pin the
+// single-prefix form on the real backend.
 // Default impl is platform-native: libcurl on Linux/macOS
 // (sdcard_provisioner_net_curl.cpp), WinHTTP on Windows
 // (sdcard_provisioner_net_win.cpp — GH #108 Phase B, so the Windows packages
@@ -145,6 +149,30 @@ using DownloadFn = std::function<bool(const std::string& url,
                                       const ProgressFn& progress,
                                       std::string& err)>;
 
+// ---- What a failed fetch says (GH #385) ---------------------------------------
+// A failed download names the address that failed, says in plain words what went
+// wrong (with the code, for whoever has to look it up) and what happens next. Both
+// backends sort their own failure codes into the NetFailure kinds, and every kind
+// has ONE wording, so libcurl and WinHTTP say the same thing about the same
+// failure; the code they started from follows in parentheses.
+enum class NetFailure { NameNotFound, CannotConnect, TimedOut, ConnectionLost, NoAnswer, Tls,
+                        BadAddress, Redirect, Other };
+// "<words of kind> (<raw>)": the plain wording, then the backend's own code and text.
+std::string net_reason(NetFailure kind, const std::string& raw);
+// The reason of an HTTP error status (RFC 9110 section 15): "<words> (HTTP <status>)".
+// Both backends use it, so a 404 reads the same on libcurl and on WinHTTP.
+std::string http_status_reason(long status);
+// The reason of a transport failure, from the backend's own code: a CURLcode on
+// Linux/macOS, a WinHTTP/Win32 error on Windows. Defined in EACH backend twin, like
+// http_download.
+std::string transport_reason(long code);
+// The one shape of a failed fetch, for every caller:
+//   "<what>: <reason>\n  URL: <url>\n  <next>"
+// with the last line left out when `next` is empty. `url` is exactly the string
+// that was passed to the DownloadFn, so it can be pasted into a browser.
+std::string fetch_failure(const std::string& what, const std::string& url,
+                          const std::string& reason, const std::string& next);
+
 // Confirmation seam: returns true if the user agrees to download.
 using ConfirmFn = std::function<bool(const std::string& message)>;
 
@@ -156,6 +184,15 @@ using ConfirmFn = std::function<bool(const std::string& message)>;
 // on a worker thread; the CLI wires `cli_busy` (a one-line message).
 using BusyFn = std::function<bool(const std::string& phase,
                                   const std::function<bool()>& work)>;
+
+// Short-fetch seam (GH #385): runs a SHORT fetch (a release list, a checksum) from
+// `url` under the label `label`; the frontends give feedback only when the fetch turns
+// out to be slow: the GUI a dialog (it needs only the label), the console (ConsoleWait
+// below) a line naming both. `fetch` must be called exactly once, with the ProgressFn
+// to hand to the DownloadFn, and its result is returned. May be empty: the fetch then
+// runs with no ProgressFn (the tests).
+using ShortFetchFn = std::function<bool(const std::string& label, const std::string& url,
+                                        const std::function<bool(const ProgressFn&)>& fetch)>;
 
 // Copy seam: byte-copy `src` to `dst`, verifying completeness. Returns true on
 // success, else sets `err`. Default impl streams and checks the copied size
@@ -289,6 +326,73 @@ private:
 constexpr int kStallNoticeMs = 5000;
 std::string stall_note(uint64_t idle_ms);
 
+// ---- Feedback on the console (GH #385) ----------------------------------------
+// A GUI session tells a user who is waiting what jnext waits for: a dialog for a
+// short fetch that turns out to be slow, and after kStallNoticeMs without data the
+// "Stalled" note. The frontends with no dialog (--headless, the SDL-only build) say
+// the same in text, on stderr and in the log, with the same words. The decisions
+// (when to speak, once) are made here, once, for every fetch.
+
+// A short fetch quicker than this says nothing at all: the usual sub-second fetch
+// must not leave a line behind (the dialog: no flash). One second is the
+// conventional limit for a wait that needs no explanation.
+constexpr int kShortFetchShowMs = 1000;
+
+// The log's copy of a console line (`warning`: a stall, else information). Empty: none.
+using ConsoleLogFn = std::function<void(bool warning, const std::string& line)>;
+// The clock the console counts with. Empty: steady_clock::now(); a test passes a fake.
+using ConsoleNowFn = std::function<StallWatch::Clock::time_point()>;
+
+// What the console says while ONE transfer waits. Its tick() belongs in the transfer's
+// ProgressFn, which the backends call at least every tick whatever the network does.
+// Counted from the FIRST tick, which comes as the attempt starts, not from construction:
+// a prompt before the download can sit open for minutes and that is not a wait.
+//   - The stall note: when no byte has arrived for kStallNoticeMs, stall_note() is said
+//     once, as a warning; bytes arriving re-arm it, so a second stall speaks again.
+//   - `slow_line` (empty: none): when the transfer has been going for kShortFetchShowMs,
+//     it is said once, as information. A short fetch names what it fetches and from
+//     where; a big download has a progress display of its own and passes none.
+// A line goes to `out` on a line of its own and to `log`.
+class ConsoleWait {
+public:
+    ConsoleWait(std::FILE* out, ConsoleLogFn log, std::string slow_line = {}, ConsoleNowFn now = {});
+    // `downloaded`: body bytes so far (any change resets the stall). `line_open`: the caller
+    // has left a line unfinished on `out` (a progress line), so what is said starts a new one.
+    // True when something was said (the unfinished line is then closed).
+    bool tick(uint64_t downloaded, bool line_open = false);
+
+private:
+    void say(const std::string& line, bool warning, bool new_line_first);
+
+    std::FILE*   out_;
+    ConsoleLogFn log_;
+    std::string  slow_line_;
+    ConsoleNowFn now_;
+    bool started_ = false, slow_said_ = false, stall_said_ = false;
+    StallWatch::Clock::time_point began_;
+    StallWatch   watch_;
+};
+
+// The terminal's progress display of a download of `what`: "Downloading <what>:  45%"
+// rewritten in place (or "N MiB" when the server sent no length and `mib_if_unknown`),
+// and the console's stall note (ConsoleWait) on a line of its own. Never cancels. One per
+// download: it keeps the line state. make_cli_progress() is the SD-card image's.
+class CliProgress {
+public:
+    CliProgress(std::string what, bool mib_if_unknown, ConsoleLogFn log,
+                std::FILE* out = stderr, ConsoleNowFn now = {});
+    bool operator()(uint64_t downloaded, uint64_t total);
+
+private:
+    std::string what_;
+    bool        mib_if_unknown_;
+    std::FILE*  out_;
+    int         last_pct_ = -1;
+    uint64_t    last_mib_ = 0;
+    bool        open_ = false;   // a progress line is on `out`, not yet ended with a newline
+    ConsoleWait wait_;
+};
+
 // The per-tick decision both backends take after every completion and every idle
 // tick. `got` = body bytes of THIS response so far. True: go on. False: the
 // attempt is over, `err` is set and the partial settled: "cancelled by user" (the
@@ -307,8 +411,10 @@ bool http_download(const std::string& url, const std::string& dest_path,
 bool default_http_download(const std::string& url, const std::string& dest_path,
                            const ProgressFn& progress, std::string& err);
 bool cli_confirm(const std::string& message);
-// Lightweight textual (\r NN%) progress for the CLI/headless path.
-bool cli_progress(uint64_t downloaded, uint64_t total);
+// Lightweight textual (\r NN%) progress for the CLI/headless path, with the console's stall
+// note (GH #385): a CliProgress for the SD-card image, logging as the SD-card image.
+// `out` and `now` are for the tests.
+ProgressFn make_cli_progress(std::FILE* out = stderr, ConsoleNowFn now = {});
 // Default CLI BusyFn: prints "<phase>… " to stderr, runs `work`, then prints
 // "done"/"failed". No thread/spinner (a terminal user tolerates a short wait,
 // and the message alone shows the app is working).

@@ -21,6 +21,7 @@
 #include "platform/pointer_capture.h"   // GH #365 --mouse-release
 #include "platform/emulator_boot.h"   // emulator_boot_machine (RZX playback)
 #include "platform/quit_signal.h"      // SIGINT/SIGTERM as a quit request (GH #364)
+#include "platform/pok_trainers.h"     // --delayed-pok-frames / --pok-trainers (GH #381)
 #include "core/screenshot.h"   // screenshot_format_for_path (GH #18)
 #include "video/renderer.h"
 #include "version.h"
@@ -33,6 +34,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -378,6 +380,14 @@ int main(int argc, char* argv[]) {
     std::vector<DelayedNmiArg> delayed_nmis;
     struct DelayedSdInsertArg { int delay; std::string image; };
     std::vector<DelayedSdInsertArg> delayed_sd_inserts;   // GH #93
+    // GH #381 (owner Q1) - --delayed-pok-frames N FILE and --pok-trainers LIST. The
+    // counts are occurrences: a repeat is refused (one POK file per run), and
+    // either option without the other is refused below the loop.
+    int         pok_frames = 0;
+    std::string pok_file;
+    int         pok_frames_count = 0;
+    std::string pok_trainers_text;
+    int         pok_trainers_count = 0;
 
     // Parse command-line arguments.
     //
@@ -1020,6 +1030,17 @@ int main(int argc, char* argv[]) {
                 delayed_sd_inserts.push_back({static_cast<int>(n), v[1]});
                 break;
             }
+            case cli::OptId::DelayedPokFrames:
+                // GH #381. N is checked here; the file and the list are read below
+                // the loop, once --help and --version have had their say.
+                if (!int_arg(arg, opt, v[0], 0, INT_MAX, pok_frames)) return 1;
+                pok_file = v[1];
+                ++pok_frames_count;
+                break;
+            case cli::OptId::PokTrainers:
+                pok_trainers_text = v[0];
+                ++pok_trainers_count;
+                break;
             case cli::OptId::RewindBufferSize:
                 if (!int_arg(arg, opt, v[0], 0, INT_MAX, rewind_buffer_frames)) return 1;
                 break;
@@ -1203,6 +1224,10 @@ int main(int argc, char* argv[]) {
               "--profile" },
             { magic_port_mode_set,          "--magic-port-mode",           magic_port_enabled,
               "--magic-port PORT" },
+            { pok_trainers_count > 0,       "--pok-trainers",              pok_frames_count > 0,
+              "--delayed-pok-frames N FILE" },
+            { pok_frames_count > 0,         "--delayed-pok-frames",        pok_trainers_count > 0,
+              "--pok-trainers LIST" },
         };
         for (const Needs& n : needs) {
             if (n.given && !n.base) {
@@ -1210,6 +1235,38 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
         }
+    }
+    // GH #381 (owner Q1) - a POK trainer file from the command line. The pair is
+    // given once; the file and the list are read NOW, so that a typo in a CI script
+    // fails at once and not after the run has gone on to its end. The Qt window
+    // has Machine > POK Trainers..., so it refuses both.
+    std::optional<jnext::pok::CliRequest> pok_request;
+    if (pok_frames_count > 0) {
+        if (pok_frames_count > 1 || pok_trainers_count > 1) {
+            fprintf(stderr, "--delayed-pok-frames and --pok-trainers can each be given once: "
+                            "one POK file per run.\n");
+            return 1;
+        }
+#ifdef ENABLE_QT_UI
+        if (!headless) {
+            fprintf(stderr, "--delayed-pok-frames is not available in the Qt window: use Machine > "
+                            "POK Trainers... (it works with --headless, and in the SDL-only build).\n");
+            return 1;
+        }
+#endif
+        std::vector<jnext::pok::Pick> picks;
+        std::string pok_err;
+        if (!jnext::pok::parse_picks(pok_trainers_text, picks, pok_err)) {
+            fprintf(stderr, "--pok-trainers: %s\n", pok_err.c_str());
+            return 1;
+        }
+        jnext::pok::CliRequest request;
+        pok_err = jnext::pok::make_cli_request(pok_file, picks, request);
+        if (!pok_err.empty()) {
+            fprintf(stderr, "--delayed-pok-frames: %s\n", pok_err.c_str());
+            return 1;
+        }
+        pok_request = std::move(request);
     }
     // GH #269 / #292 — how --sdcard-file-add, -dest and -force combine: one
     // source per run, dest optional, either order (see file_add_usage_error).
@@ -1349,18 +1406,19 @@ int main(int argc, char* argv[]) {
             };
         } else {
             opts.confirm  = sdcard::cli_confirm;
-            opts.progress = sdcard::cli_progress;
+            opts.progress = sdcard::make_cli_progress();
             opts.busy     = sdcard::cli_busy;
         }
 #else
         opts.confirm  = sdcard::cli_confirm;
-        opts.progress = sdcard::cli_progress;
+        opts.progress = sdcard::make_cli_progress();
         opts.busy     = sdcard::cli_busy;
 #endif
         sdcard::ProvisionResult res = sdcard::provision_sd_card(opts);
         if (res.status == sdcard::ProvisionStatus::Ok) {
             sd_card_image = res.path;
         } else {
+            bool logged = false;
 #ifdef ENABLE_QT_UI
             // GH #358: a download that stalled or failed in the GUI used to make
             // the dialog vanish and jnext exit, the reason on stderr only, which
@@ -1370,8 +1428,13 @@ int main(int argc, char* argv[]) {
                 Log::emulator()->error("SD-card image: {}", res.error);
                 gui_prov.warn("The SD-card image could not be installed:\n\n" + res.error +
                               "\n\njnext cannot start without one.");
+                logged = true;
             }
 #endif
+            // GH #385: every other frontend (headless, SDL, --sdcard-file-add) printed the
+            // reason to stderr and nowhere else, so a run with --log-file kept no trace of it.
+            if (!logged && res.status == sdcard::ProvisionStatus::Failed && !res.error.empty())
+                Log::emulator()->error("SD-card image: {}", res.error);
             if (!res.error.empty())
                 std::fprintf(stderr, "error: SD-card image: %s\n", res.error.c_str());
             std::fprintf(stderr,
@@ -1529,8 +1592,11 @@ int main(int argc, char* argv[]) {
             };
             popts.download = sdcard::default_http_download;
             popts.confirm  = sdcard::cli_confirm;
-            popts.progress = nextpi::cli_progress;
+            popts.progress = nextpi::make_cli_progress();
             popts.busy     = nextpi::cli_busy;
+            // GH #385: with no dialog the console says what the dialog would: a release list or a
+            // checksum that takes more than a second, and any transfer that stalls.
+            popts.short_fetch = nextpi::CliShortFetch();
 #ifdef ENABLE_QT_UI
             SdcardGuiProvisioner gui_prov;   // one temporary QApplication, gone before QtApp's
             if (!headless) {
@@ -1541,12 +1607,22 @@ int main(int argc, char* argv[]) {
                 popts.busy     = [&](const std::string& p, const std::function<bool()>& w) {
                     return gui_prov.busy(p, w);
                 };
-                if (!req.asked_on_cli)   // from Preferences: say so, and carry on
-                    report = [&](const std::string& m) {
-                        Log::uart()->error("NextPi: {}", m);
-                        gui_prov.warn("NextPi could not be started:\n\n" + m +
-                                      "\n\njnext starts without it.");
-                    };
+                // GH #385: the release list and the .md5 files are short fetches; the dialog
+                // appears only if one is slow (it needs the label; the console's line, set above,
+                // names the address too).
+                popts.short_fetch = [&](const std::string& l, const std::string&,
+                                        const std::function<bool(const sdcard::ProgressFn&)>& f) {
+                    return gui_prov.short_fetch(l, f);
+                };
+                // A failure is shown in a dialog either way: from Preferences jnext starts
+                // without NextPi, from --nextpi it exits (and says so on stderr too).
+                report = [&](const std::string& m) {
+                    Log::uart()->error("NextPi: {}", m);
+                    if (req.asked_on_cli) std::fprintf(stderr, "error: NextPi: %s\n", m.c_str());
+                    gui_prov.warn("NextPi could not be started:\n\n" + m +
+                                  (req.asked_on_cli ? "\n\njnext exits, because --nextpi asked for it."
+                                                    : "\n\njnext starts without it."));
+                };
             }
 #endif
             std::string error, qemu_path, qemu_img_path;
@@ -1557,7 +1633,14 @@ int main(int argc, char* argv[]) {
             else
                 res.error = error;
             if (res.status == sdcard::ProvisionStatus::Ok) {
-                if (!res.warning.empty()) Log::uart()->warn("NextPi: {}", res.warning);
+                if (!res.warning.empty()) {
+                    Log::uart()->warn("NextPi: {}", res.warning);
+#ifdef ENABLE_QT_UI
+                    // GH #385: "latest" could not read the mirror's list and carries on with the
+                    // release it has. Only the log said so; a GUI user is told too.
+                    if (!headless) gui_prov.warn("NextPi:\n\n" + res.warning);
+#endif
+                }
                 spec.dir = res.dir;
                 pi_qemu  = std::make_unique<PiQemu>();
                 if (!pi_qemu->start(spec, error)) pi_qemu.reset();
@@ -2010,6 +2093,15 @@ int main(int argc, char* argv[]) {
         }
         if (!inject_file.empty())
             app.set_pending_inject(inject_file, inject_org, inject_pc, inject_delay);
+
+        // GH #381 - --delayed-pok-frames: the headless and SDL-only loops apply it;
+        // the Qt window refused it above.
+#ifdef ENABLE_QT_UI
+        if constexpr (std::is_same_v<std::decay_t<decltype(app)>, HeadlessApp>)
+#endif
+        {
+            if (pok_request) app.set_delayed_pok(*pok_request, pok_frames);
+        }
 
         // Set up pending load (auto-detect format by extension).
         if (!load_file.empty()) {

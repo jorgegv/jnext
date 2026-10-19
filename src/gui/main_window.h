@@ -23,10 +23,12 @@ class QTimer;
 class QMouseEvent;
 class QWheelEvent;
 class QFocusEvent;
+class PokDialog;
 #ifdef ENABLE_DEBUGGER
 class DebuggerManager;
 #endif
 namespace jnext { namespace dbg { class Debugger; } }
+namespace jnext { namespace pok { class Session; } }
 
 /// Main emulator window — QMainWindow shell with emulator viewport, menu bar,
 /// toolbar, and status bar.  Keyboard events are dispatched to a configurable callback.
@@ -191,6 +193,16 @@ public:
     /// `jns_probed`: the caller has already probed a .jns (digest included), so
     /// the .jns probe is not repeated (GH #386: it re-read the whole SD card).
     void handle_load_path(const QString& path, bool jns_probed = false);
+
+    /// GH #381 - everything Machine > POK Trainers... does AFTER its file picker
+    /// returns, and what File > Load of a .pok does instead of a cold boot: read
+    /// the file, make it the window's POK session (replacing the previous one,
+    /// whose trainers stay in memory but whose undo is forgotten) and show the
+    /// trainers dialog. A file that cannot be read, or holds no trainer, is said
+    /// in the status bar and the log and, unless unattended, in a dialog; returns
+    /// false. Public and separate from the picker for the reason given at
+    /// handle_load_path().
+    bool open_pok_file(const QString& path);
 
     // The File menu's RZX actions — everything each does AFTER its file picker
     // returns. Public and separate from the pickers for the reason given at
@@ -357,6 +369,8 @@ private:
 
     // Menu action slots
     void on_load_nex();
+    void on_pok_trainers();
+    void on_pok_open();
     void on_insert_sd();
     void on_reset();
     void on_soft_reset();
@@ -451,6 +465,13 @@ private:
     // The file handle_load_path() last handed to load_file_callback_, until
     // load_finished() reports on it.
     std::string menu_load_pending_;
+    // GH #381 - the POK file open in Machine > POK Trainers... and the dialog
+    // showing it. The session outlives resets (set_emulator() makes it forget
+    // its undo records) and is replaced when another file is opened.
+    // Declared in this order on purpose: the dialog holds a pointer to the
+    // session, so it must be destroyed first (members die in reverse order).
+    std::unique_ptr<jnext::pok::Session> pok_;
+    std::unique_ptr<PokDialog> pok_dialog_;
     RebootCallback   reboot_callback_;
     ConfirmRestartCallback confirm_restart_callback_;
     EspConfigCallback esp_config_callback_;

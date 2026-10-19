@@ -67,6 +67,16 @@ is easy to get wrong and jnext did:
 | Reference                                                         | URL                                      |
 |-------------------------------------------------------------------|------------------------------------------|
 | FUSE — Z80 core (vendored, GPLv2-or-later) and behavioural oracle | <https://fuse-emulator.sourceforge.net/> |
+| FUSE source, `pokefinder/pokemem.c` (POK banked-poke behaviour, read only; GH #381) | <https://sourceforge.net/p/fuse-emulator/fuse/ci/master/tree/> |
+| ZEsarUX source, `src/utils.c` `util_poke` (POK banked-poke behaviour, read only; GH #381) | <https://github.com/chernandezba/zesarux> |
+| ESPeccy source, `src/Cheat.cpp` (POK banked-poke behaviour, read only; GH #381) | <https://github.com/SplinterGU/ESPeccy> |
+
+## POK trainer files (GH #381)
+
+| Reference | URL |
+|---|---|
+| The issue, with the World of Spectrum `POKformat.txt` link the format notes come from | <https://github.com/jorgegv/jnext/issues/381> |
+| POK corpus used for the banked-line survey (ESPeccy MegaPack v1.0 POK Update, 8710 `.pok` files) | <https://archive.org/details/especcy-mega-pack.-dd-v-1.0-pok-update.-7z> |
 
 
 ## Adding to this file

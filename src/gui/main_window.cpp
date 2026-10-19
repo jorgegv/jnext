@@ -4,6 +4,7 @@
 #include "gui/host_chords.h"
 #include "gui/preferences_dialog.h"
 #include "gui/preferences_apply_policy.h"
+#include "gui/pok_dialog.h"           // GH #381
 #include "gui/qt_ctrl_is_command.h"   // GH #365
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -13,6 +14,7 @@
 #include "core/nex_saver.h"
 #include "core/nex_loader.h"          // GH #228 — probe_version + policy
 #include "platform/emulator_boot.h"   // GH #228 — emulator_load_routes_to_nex
+#include "platform/pok_trainers.h"    // GH #381
 #include "core/rzx.h"                 // rzx::playable, before a cold boot plays a file
 #include "core/log.h"
 #include <stdexcept>
@@ -385,6 +387,13 @@ void MainWindow::set_emulator(Emulator* emu) {
         mouse_dispatcher_.reset();
     }
     sync_machine_type_display();
+    // GH #381 - a rebuilt machine is a different program: what the POK session
+    // recorded to undo its trainers belongs to the one that is gone. The dialog,
+    // if open, shows what memory holds now.
+    if (pok_) {
+        pok_->forget_applied();
+        if (pok_dialog_) pok_dialog_->refresh();
+    }
     // GH #278 WP6 — the Magic Breakpoint item shows whether the magic
     // breakpoint is armed (CTL-14), e.g. by --magic-breakpoint, on every
     // machine bound here (a cold boot binds a new one). Its old read of the
@@ -1098,6 +1107,14 @@ void MainWindow::create_menus() {
         }
     });
 
+    // GH #381 - the trainers of a .pok file, applied to the running machine.
+    // R: the Machine popup's P/S/A/T/U/E are taken. Deliberately no shortcut, no
+    // data() and not checkable: preferences_apply_test finds the machine actions
+    // by data() plus checkable.
+    machine_menu->addSeparator();
+    QAction* pok_trainers = machine_menu->addAction(tr("POK T&rainers..."));
+    connect(pok_trainers, &QAction::triggered, this, &MainWindow::on_pok_trainers);
+
     // --- Input menu (Task 79) ---
     // Per-connector host input source. Each Next joystick connector can be
     // driven by a chosen (or the first free) controller, by the host cursor keys + Space,
@@ -1456,6 +1473,57 @@ void MainWindow::on_load_nex() {
     }
 }
 
+// GH #381 - Machine > POK Trainers...: the dialog of the open file or, with none
+// open yet, the picker for one.
+void MainWindow::on_pok_trainers() {
+    if (pok_ && pok_dialog_) {
+        if (pok_dialog_->isVisible()) {
+            pok_dialog_->raise();
+            pok_dialog_->activateWindow();
+        } else {
+            pok_dialog_->open();
+        }
+        return;
+    }
+    on_pok_open();
+}
+
+void MainWindow::on_pok_open() {
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Open POK File"), app_config_.data().last_load_dir,
+        tr("POK Trainers (*.pok *.POK);;All Files (*)"));
+    if (path.isEmpty()) return;
+    app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
+    app_config_.save();
+    open_pok_file(path);
+}
+
+bool MainWindow::open_pok_file(const QString& path) {
+    if (!emulator_ || !debugger_) return false;
+    jnext::pok::PokFile file;
+    std::string error;
+    if (!jnext::pok::load_pok_file(path.toStdString(), file, error)) {
+        const QString msg = tr("Cannot load POK file: %1").arg(QString::fromStdString(error));
+        statusBar()->showMessage(msg, 5000);
+        Log::platform()->error("status bar: {}", msg.toStdString());
+        if (!unattended_) QMessageBox::warning(this, tr("POK Trainers"), msg);
+        return false;
+    }
+    pok_ = std::make_unique<jnext::pok::Session>(*debugger_, std::move(file), path.toStdString());
+    if (!pok_dialog_) {
+        pok_dialog_ = std::make_unique<PokDialog>(this);
+        connect(pok_dialog_.get(), &PokDialog::open_file_requested, this, &MainWindow::on_pok_open);
+    }
+    pok_dialog_->set_session(pok_.get());   // straight away: the old session is gone
+    if (pok_dialog_->isVisible()) {
+        pok_dialog_->raise();
+        pok_dialog_->activateWindow();
+    } else {
+        pok_dialog_->open();
+    }
+    return true;
+}
+
 // GH #228 — the post-picker half of a menu file-load, split out so
 // nex_v13_dialog_test can drive the REAL dialog-to-decision wiring (the
 // picker is modal and untestable; this is not).
@@ -1469,6 +1537,15 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     // dialog cannot load V1.3 silently, because Emulator::load_nex()
     // enforces the same policy and fails the load.
     const std::string file = path.toStdString();
+
+    // GH #381 - a .pok is a list of trainers for the machine that is running,
+    // not a program: it opens the trainers dialog and nothing is reset. Before
+    // this it fell to the NEX route below, which cold-booted the session away
+    // and only then failed to load it.
+    if (jnext::pok::is_pok_path(file)) {
+        open_pok_file(path);
+        return;
+    }
 
     // An .rzx is checked BEFORE the cold boot below, so a file that cannot
     // play is refused with the running machine untouched — the same check
@@ -1511,8 +1588,22 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
     if (emulator_load_routes_to_nex(file)) {
         uint8_t ver_bcd = 0;
         char    ver[5]  = {0};
-        if (NexLoader::probe_version(file, ver_bcd, ver) &&
-            nex_version_needs_v13_optin(ver_bcd)) {
+        // GH #381 (RF-1) - a .nex, or a file with an extension nothing owns, falls
+        // to the NEX loader, which wants the "Next" prologue probe_version() looks
+        // for: a file without it cannot load (NexLoader::load refuses the same
+        // magic), so say so BEFORE the cold boot throws the session away for it.
+        // The reason follows the case: a .nex is just not a NEX file (a saved web
+        // page, say), and "its extension is not one JNEXT loads" or a hint about
+        // .pok would contradict its name; only the other extensions get those.
+        if (!NexLoader::probe_version(file, ver_bcd, ver)) {
+            refuse_jns(path, snapshot_file_ext(file) == "nex"
+                ? tr("it is not a NEX file (it does not start with the \"Next\" header)")
+                : tr("it is not a NEX file and its extension is not one JNEXT loads "
+                     "(.nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx); a .pok "
+                     "trainer file opens from Machine > POK Trainers"));
+            return;
+        }
+        if (nex_version_needs_v13_optin(ver_bcd)) {
             QMessageBox box(QMessageBox::Warning, tr("Experimental NEX V1.3"),
                             tr("'%1' is NEX version %2.\n\n"
                                "NEX V1.3 is an EXPERIMENTAL format and is NOT "
@@ -2213,7 +2304,7 @@ QString MainWindow::load_filter() {
               "NEX Files (*.nex);;jnext Snapshots (*.jns);;SNA Snapshots (*.sna);;"
               "SZX Snapshots (*.szx);;Z80 Snapshots (*.z80);;TAP Files (*.tap);;"
               "TZX Files (*.tzx);;WAV Files (*.wav);;RZX Recordings (*.rzx);;"
-              "All Files (*)");
+              "POK Trainers (*.pok);;All Files (*)");
 }
 
 QString MainWindow::save_filter(bool next_machine) {

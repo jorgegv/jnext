@@ -777,6 +777,35 @@ naming the option and the value, and exits with status 1.
     comes first. An empty *FILE* is rejected. Repeatable. Requires
     **\--headless**.
 
+**\--delayed-pok-frames** *N* *FILE*
+:   Apply trainers from the POK file *FILE* after *N* emulated frames, once the
+    program has loaded. This is how a `.pok` file is used in the runs that have
+    no **Machine > POK Trainers...** window: **\--headless** and the SDL-only
+    build's window (see **POK TRAINERS** under LOADING PROGRAMS). The trainers
+    are the ones **\--pok-trainers** names, which this requires. *N* counts
+    frames from the start of the run (50 a second on a 50 Hz machine), and a tape
+    takes many; the trainers are written through the debugger's memory path,
+    exactly as the window's **Apply** writes them. Given once. The file and the
+    list are checked before the machine starts, and a run that fails the check
+    exits 1 without starting: *FILE* unreadable, larger than 1 MiB or without
+    a trainer, a listed trainer the file does not have or whose lines are
+    malformed, a value missing or given where none is open. Later, the run
+    exits non-zero if a trainer cannot be applied - an address that is ROM in
+    the current memory map, a bank the machine does not have, an RZX recording
+    or playback - and then the trainers before it stay applied; and if the
+    automatic exit comes first. The Qt window refuses the option; with
+    **\--headless** every build accepts it.
+
+**\--pok-trainers** *LIST*
+:   The trainers **\--delayed-pok-frames** applies: their numbers in the POK
+    file (1 is the first `N` line), comma-separated, no blanks, each *T* or
+    *T*`=`*VALUE*. A trainer that leaves a value open (a `256` in the file,
+    "Lives" without saying how many) needs *T*`=`*VALUE*, *VALUE* 0 to 255,
+    which goes everywhere the trainer leaves one open; any other trainer takes
+    none. `1,3=9,7` applies trainers 1, 3 (with 9) and 7, in that order. A
+    trainer whose bytes memory already holds is left as it is. Requires
+    **\--delayed-pok-frames**.
+
 **\--compositor-trace** *FILE*
 :   Dump a per-pixel compositor trace (CSV) for one frame.
 
@@ -1233,6 +1262,22 @@ host directory described above. Every other call goes to the code at
 NextZXOS booted, it answers those calls in front of NextZXOS's own esxDOS, and
 NextZXOS's file commands stop working.
 
+## POK trainers
+
+A `.pok` file (the World of Spectrum trainer format: named cheats, each a few
+bytes to write) is not a program: it changes the one that is running, so
+**\--load** refuses it. The Qt window opens it from **Machine > POK Trainers...**
+or **File > Load**, lists its trainers, applies and removes them. In
+**\--headless** and in the SDL-only window **\--delayed-pok-frames** *N* *FILE*
+with **\--pok-trainers** *LIST* applies the chosen ones *N* frames in.
+
+A line with a bank number 0 to 7 and an address of 0xC000 or above writes that
+128K RAM bank (a 48K has bank 0 only); any other line, bank 8 to 15, which a 48K
+game's file uses, or an address below 0xC000, writes the memory the memory map
+shows at that address when the trainer is applied. A trainer is applied whole or
+not at all. Keep the result with a snapshot (**File > Save
+Snapshot...**, **\--delayed-snapshot**).
+
 # JNEXT SNAPSHOTS
 
 A `.jns` file is jnext's own whole-machine snapshot, and the only format that
@@ -1655,7 +1700,7 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
 **THE KEYBOARD** below).
 
 **File**
-:   Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Insert SD Card
+:   Load a program (Alt+O - NEX/JNS/SNA/SZX/Z80/TAP/TZX/WAV/RZX; a .pok opens POK Trainers instead, without a reset), Insert SD Card
     Image / Eject SD Card (see **CHANGING THE CARD WHILE RUNNING**), Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX / Stop
     RZX, Save Screenshot (Alt+S), Quick Screenshot (Alt+K), Save Snapshot
     (Alt+Shift+S), Quick Save Snapshot (Alt+Shift+F5), Quick Load Snapshot (Alt+Shift+F9)
@@ -1683,7 +1728,9 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
     or a load made while paused stays paused),
     Machine Type (48K / 128K / +3 / Next), CPU Speed (3.5 / 7 /
     14 / 28 MHz - the Next's own clock), Emulator Speed (0.5x / 1x / 2x / 4x /
-    custom % - the host-side throttle).
+    custom % - the host-side throttle), POK Trainers... (open a .pok trainer
+    file and apply or remove its trainers - infinite lives and the like - on the
+    running machine; a snapshot saved afterwards keeps them).
 
 **Input**
 :   Joy 1 Source (port 0x1F) and Joy 2 Source (port 0x37), each selecting what
@@ -2242,6 +2289,14 @@ anything (**\--sdcard-download-confirm** is the alternative).
         --sdcard ~/.jnext/sdcard/cspect-next-1gb-fixed.img \
         --delayed-screenshot /tmp/test.png \
         --delayed-screenshot-frames 200 --delayed-automatic-exit 5
+
+Apply trainers 1 and 3 (this one with the value 9) of a POK file 1200 frames
+into a tape load, and keep the result as a snapshot:
+
+    jnext --headless --machine 48k game.tap \
+        --delayed-pok-frames 1200 game.pok --pok-trainers 1,3=9 \
+        --delayed-snapshot trained.sna --delayed-snapshot-frames 1210 \
+        --delayed-automatic-exit-frames 1300
 
 Capture Layer 2 on its own, then the ULA and sprites together:
 

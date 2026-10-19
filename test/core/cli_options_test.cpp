@@ -1145,6 +1145,7 @@ int main() {
                 {"--delayed-nmi",        "", " mf", "0", SECS_HI, {"5x", "35791395", "-1"}},
                 {"--delayed-nmi-frames", "", " mf", "0", INT_HI, {"5x", "2147483648", "-1"}},
                 {"--delayed-sdcard-insert-frames", "", " img", "0", INT_HI, {"5x", "2147483648", "-1"}},
+                {"--delayed-pok-frames", "", " pok", "0", INT_HI, {"5x", "2147483648", "-1"}},   // GH #381
                 {"--rewind-buffer-size",       "", "", "0", INT_HI, {"5x", "2147483648", "-1"}},
                 {"--compositor-trace-frame",   "", "", "0", INT_HI, {"7junk", "2147483648", "-1"}},
                 {"--joy-uart-rx-delay-frames", "", "", "0", INT_HI, {"5x", "2147483648", "-1"}},

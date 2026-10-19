@@ -972,6 +972,7 @@ my %NO_MATRIX_SECTION = (
     'sdcard_file_add_linux_test' => 'SDFA-T26 moved out of sdcard_file_add_test (needs a case-sensitive host filesystem; Linux-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces',
     'fat32_image_test'        => 'FAT32 on-disk format (host image reader)',
     'sdcard_provisioner_test' => 'jnext SD-image download/patch policy (host side)',
+    'sdcard_provisioner_posix_test' => 'PROV-REASON-06 and 07, rows that need libcurl itself (an HTTP proxy put in front of it through the environment; the codes it gives for a reply it cannot use) and have no WinHTTP counterpart, so they are POSIX-only (GH #385); same oracle: libcurl documentation and jnext SD-image download/patch policy (host side)',
     'snapshot_test'           => 'the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file',
     'sd_identity_test'        => 'the .jns snapshot SD-card MEDIA IDENTITY (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3): the two-tier identity read off a REAL image -- MBR partition table, FAT32 BS_VolID, whole-image digest -- and the refusal/warning matrix it feeds. The oracle is that design section plus the FAT32 on-disk format; the FPGA core never sees a filesystem, only SPI blocks, which `## SD Card` traces',
     'video_recorder_cmd_test' => 'FFmpeg command-line construction (host encoder)',
@@ -1033,6 +1034,13 @@ my %NO_MATRIX_SECTION = (
     # core has no loader and no dialog, so there is nothing to cite. The
     # policy predicate/probe/enforcement rows live in nex_loader_test.
     'nex_v13_dialog_test' => 'experimental NEX V1.3 warning dialog (GUI), no core counterpart',
+
+    # ── POK trainer files ────────────────────────────────────────────
+    # GH #381. The oracle is the World of Spectrum POKformat.txt (a host file
+    # format the FPGA core never sees) and jnext's own apply/remove policy; the
+    # bank-to-page rows cite zxnext.vhd:4613-4616 / :4679-4680 in their own source.
+    'pok_trainers_test' => 'the WoS POK trainer file format and jnext\'s apply/remove policy (host side); its bank-to-page rows cite zxnext.vhd in their own source',
+    'pok_dialog_test'   => 'POK trainers dialog (GUI), no core counterpart',
     'load_error_test' => 'GUI load-failure reporting, the Tape menu, and the file-dialog FILTERS (GUI), no core counterpart',
 
     # ── RZX File-menu dialogs ────────────────────────────────────────

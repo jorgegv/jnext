@@ -284,7 +284,7 @@ endif()
 # test-support binary.
 add_executable(nextpi_qemu_stub uart/nextpi_qemu_stub.cpp)
 target_link_libraries(nextpi_qemu_stub PRIVATE esp01)
-add_executable(nextpi_test uart/nextpi_test.cpp uart/nextpi_support.cpp)
+add_executable(nextpi_test uart/nextpi_test.cpp uart/nextpi_support.cpp uart/nextpi_log_capture.cpp)
 target_link_libraries(nextpi_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video
     jnext_audio jnext_port jnext_peripheral jnext_input
@@ -425,6 +425,14 @@ add_executable(sdcard_provisioner_test sdcard_provisioner/sdcard_provisioner_tes
 target_link_libraries(sdcard_provisioner_test PRIVATE jnext_core ZLIB::ZLIB)
 target_include_directories(sdcard_provisioner_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sdcard_provisioner_tests COMMAND sdcard_provisioner_test)
+# The rows that need libcurl's own behaviour (a proxy put in front of it through the
+# environment, which the WinHTTP twin has no counterpart of): POSIX only (GH #385).
+if(NOT WIN32)
+    add_executable(sdcard_provisioner_posix_test sdcard_provisioner/sdcard_provisioner_posix_test.cpp)
+    target_link_libraries(sdcard_provisioner_posix_test PRIVATE jnext_core)
+    target_include_directories(sdcard_provisioner_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_provisioner_posix_tests COMMAND sdcard_provisioner_posix_test)
+endif()
 
 # Warm-start tests (GH #234): the on-disk state cache — paths, round trip and
 # the four keys that invalidate it — plus the NextZXOS-residency criterion that
@@ -751,6 +759,19 @@ target_link_libraries(snapshot_machine_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(snapshot_machine_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME snapshot_machine_tests COMMAND snapshot_machine_test)
+
+# GH #381 - POK trainer files: the .pok parser and the session that applies and
+# removes trainers through the debugger backend (src/platform/pok_trainers.*).
+# No Qt (so it runs in the SDL-only and the Windows builds too); a real Emulator
+# and Debugger, built like debugger_backend_test (no ROM, no SD image).
+add_executable(pok_trainers_test platform/pok_trainers_test.cpp)
+target_link_libraries(pok_trainers_test PRIVATE
+    jnext_platform
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(pok_trainers_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME pok_trainers_tests COMMAND pok_trainers_test)
 
 # CLI option table / man page alignment (issue #43). Header-only table under
 # test (src/core/cli_options.h) — no emulator core needed. The three paths are
@@ -1415,6 +1436,17 @@ if(ENABLE_QT_UI)
     target_link_libraries(nex_v13_dialog_test PRIVATE jnext_gui)
     target_include_directories(nex_v13_dialog_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME nex_v13_dialog_tests COMMAND nex_v13_dialog_test)
+
+    # GH #381 - Machine > POK Trainers...: the real menu action, file picker,
+    # trainers dialog and value prompt over a real MainWindow and 48K machine.
+    # The decisions (where a poke lands, undo, states) are pok_trainers_test's,
+    # without Qt; this pins the wiring on top. Same offscreen-QPA idiom as
+    # nex_v13_dialog_test.
+    add_executable(pok_dialog_test gui/pok_dialog_test.cpp)
+    set_target_properties(pok_dialog_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(pok_dialog_test PRIVATE jnext_gui)
+    target_include_directories(pok_dialog_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME pok_dialog_tests COMMAND pok_dialog_test)
 
     # The File menu's RZX actions: each failure (unwritable recording, one that
     # would replace a running recording, recording during playback, an
