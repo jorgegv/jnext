@@ -30,12 +30,16 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #          LOADED machine, so the border equals typeafter's BORDER 5 render. The
 #          key queue holds them behind the chord (Router::on_host_action) and the
 #          load re-asserts what the host holds (Router::reassert());
-#   typeduring  Alt+Shift+F9, then BORDER 5 typed 0.1 s later, while the app is stalled
-#          on the SD digest (GH #386): the host queues the keys, they reach the
-#          app after the cold boot and before the load lands, and the load used
-#          to wipe them. Same expectation as typeahead. (If the host is fast
-#          enough that the keys arrive after the load, they are ordinary typing
-#          and the run still passes; it cannot fail spuriously.)
+#   typeduring  the chord with its key-down and key-up SPLIT (keydown, 50 ms,
+#          keyup), then BORDER 5 typed in one burst while the app is stalled on the
+#          SD digest (GH #386). With the chord's releases already consumed nothing
+#          is queued at the cold boot, so the keys reach the app directly, after
+#          the boot and before the deferred load lands, and the load wipes the
+#          matrix: only Router::reassert() (through the shared load helper) puts
+#          them back. Same expectation as typeahead. Removing the re-assert fails
+#          it every time (measured by the round-1 review: 3/3 on both rows). A
+#          plain `xdotool key alt+shift+F9` does NOT test this: its releases are
+#          queued behind the barrier and the keys line up behind them;
 #   emptytype  right after `empty` (the folder is still empty), Alt+Shift+F9 then
 #          BORDER 4 typed slowly: the load finds nothing and does not cold-boot,
 #          so only the end of the action lifts the key queue; the border must
@@ -114,10 +118,17 @@ if want quick-snapshot-sdl-func; then
                     # delay between xdotool events), so the host delivers them to
                     # the app together, as it does after any UI stall.
                     typeahead) xdotool key --delay 0 alt+shift+F9 b 5 Return 2>/dev/null || true; sleep 1 ;;
-                    # GH #386: keys typed while the load is in progress (the app is
-                    # stalled on the SD digest), after the chord: the host queues them
-                    # and they reach the app after the cold boot, before the load lands.
-                    typeduring) xdotool key alt+shift+F9 2>/dev/null || true; sleep 0.1
+                    # GH #386: keys typed while the load is in progress, and nothing
+                    # left in the key queue when its cold boot comes: the chord
+                    # key-down and key-up are split, with the keys typed after the
+                    # key-up, so the chord releases are already consumed when the
+                    # stall (the SD digest) begins to end. The host queues the keys,
+                    # they reach the app after the cold boot and before the load
+                    # lands, and the load wipes the matrix: only the re-assert
+                    # (emulator_apply_load_keeping_keys) keeps them.
+                    typeduring)
+                        xdotool keydown alt shift F9 2>/dev/null || true; sleep 0.05
+                        xdotool keyup F9 shift alt 2>/dev/null || true; sleep 0.05
                         xdotool key --delay 0 b 5 Return 2>/dev/null || true; sleep 1 ;;
                     # GH #386: a Quick Load that finds nothing does not cold-boot, so
                     # only the end of the action lifts the key queue: typing must work.

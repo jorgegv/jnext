@@ -1851,8 +1851,12 @@ static void test_gh386_rom_keys() {
             bool good = emu.save_jns_file(jns);
             r.on_host_key(SDL_SCANCODE_B, true);
             r.on_host_key(SDL_SCANCODE_B, false);     // release deferred: no frame saw it
-            good = good && emulator_apply_load(emu, jns, false);
-            if (reassert) r.reassert();
+            // The frontends' four load sites all call the keys helper; without
+            // it the plain load is what they did before GH #386.
+            good = good && (reassert
+                ? emulator_apply_load_keeping_keys(emu, jns, false,
+                                                   std::function<void(MachineType)>{}, r)
+                : emulator_apply_load(emu, jns, false));
             for (int i = 0; i < 20; ++i) tick(emu, r);
             std::filesystem::remove(jns);
             line = edit_line(emu);
@@ -1862,7 +1866,7 @@ static void test_gh386_rom_keys() {
         const bool a = run(true, with);
         const bool b = run(false, without);
         check("ROMKB-03",
-              "a key the host pressed just before a snapshot load reaches the ROM after reassert() "
+              "a key the host pressed just before a snapshot load reaches the ROM through the frontends' load helper "
               "(the load wipes the matrix), and does not without it",
               a && b && !with.empty() && with[0] == 0xE7 && (without.empty() || without[0] != 0xE7),
               "with: " + bytes_str(with) + "without: " + bytes_str(without));
@@ -1902,7 +1906,7 @@ int main() {
     std::printf("  Group: GH265-TAPE — done\n");
 
     test_gh386_rom_keys();
-    std::printf("  Group: ROMKB   — done\n");
+    std::printf("  Group: ROMKB   - done\n");
 
     test_gamepad_host_real_device();
     std::printf("  Group: GPH     — done\n");

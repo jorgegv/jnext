@@ -11,7 +11,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # MainWindow wiring and the real QtApp::cold_boot are exercised end to end
 # (preferences_apply_test PA-22* drives the slots without a cold boot).
 #
-# Same runs (empty, emptytype, save, load, typeafter, typeahead, typeduring, load2, bad, keep1,
+# Same runs (empty, emptytype, save, load, typeafter, typeahead, typeduring [split chord], load2, bad, keep1,
 # typesave, loadts) and the same oracle as quick-snapshot-sdl-func (read its
 # header; the GH #386 runs typeahead, emptytype, typesave and loadts are the
 # lost-key cases, and the digest count is 2 per run as there). Qt reports in the status bar, which MainWindow mirrors into the log
@@ -76,10 +76,17 @@ if want quick-snapshot-qt-func; then
                     # delay between xdotool events), so the host delivers them to
                     # the app together, as it does after any UI stall.
                     typeahead) xdotool key --delay 0 alt+shift+F9 b 5 Return 2>/dev/null || true; sleep 1 ;;
-                    # GH #386: keys typed while the load is in progress (the app is
-                    # stalled on the SD digest), after the chord: the host queues them
-                    # and they reach the app after the cold boot, before the load lands.
-                    typeduring) xdotool key alt+shift+F9 2>/dev/null || true; sleep 0.1
+                    # GH #386: keys typed while the load is in progress, and nothing
+                    # left in the key queue when its cold boot comes: the chord
+                    # key-down and key-up are split, with the keys typed after the
+                    # key-up, so the chord releases are already consumed when the
+                    # stall (the SD digest) begins to end. The host queues the keys,
+                    # they reach the app after the cold boot and before the load
+                    # lands, and the load wipes the matrix: only the re-assert
+                    # (emulator_apply_load_keeping_keys) keeps them.
+                    typeduring)
+                        xdotool keydown alt shift F9 2>/dev/null || true; sleep 0.05
+                        xdotool keyup F9 shift alt 2>/dev/null || true; sleep 0.05
                         xdotool key --delay 0 b 5 Return 2>/dev/null || true; sleep 1 ;;
                     # GH #386: a Quick Load that finds nothing does not cold-boot, so
                     # only the end of the action lifts the key queue: typing must work.
