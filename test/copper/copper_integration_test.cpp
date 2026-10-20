@@ -923,6 +923,87 @@ static void test_gh270_write_hpos()
     }
 }
 
+// ── GH #270 follow-up — a write in VBLANK owns ALL of framebuffer row 0 ─
+
+static void test_gh270_vblank_write_owns_row0()
+{
+    set_group("GH270-Vblank");
+
+    // GH270-HPOS-04 — Emulator::on_scanline coalesces every raw line above
+    // the first framebuffer row (raw 0..vblank_top-1) onto change-log tag 0,
+    // so a vblank write is replayed by apply_changes_for_line(0). Its column
+    // was measured within its OWN vblank line, though, and replaying that
+    // column on row 0 splits row 0: the columns left of it were drawn with
+    // the PREVIOUS bank / scroll. On the hardware the write lands tens of
+    // lines before row 0 is fetched, and layer2.vhd:110-122 resamples
+    // layer2_active_bank_q / layer2_scroll_*_q every CLK_7, so the whole of
+    // row 0 (and every later row) uses the new value.
+    //
+    // WAIT(line 250, hpos 20): cvc 250 is raw line (250 + 64) mod 311 = 3
+    // (zxula_timing.vhd:204 c_max_vc 310), fb row 3 - 32 = -29, i.e. vblank, coalesced to tag 0. hpos 20 ->
+    // hc_ula 172 (copper.vhd:94) -> raw hc 297 -> column 163, which is the
+    // split the defect produced: 2 segments on row 0, the second from
+    // column 163. Correct: 1 segment, already carrying the new bank.
+    //
+    // Driven by run_frame() so the tag and the vblank flag come from the
+    // real SCANLINE events. The Copper's line counter starts this frame at
+    // cvc 247 (raw 0), so the WAIT fires three lines in.
+    Emulator emu;
+    if (!build_next_emulator(emu)) {
+        check("GH270-HPOS-04", "Emulator::init(ZXN_ISSUE2) failed", false, "");
+        return;
+    }
+    const bool geom_ok = (emu.video_timing().hc_max() + 1 == 456 &&
+                          emu.video_timing().display_origin().hc == 136 &&
+                          emu.video_timing().display_origin().vc == 64 &&
+                          emu.video_timing().vc_max() + 1 == 311 &&
+                          emu.video_timing().vblank_top() == 32);
+
+    emu.run_frame();
+    const uint16_t code_addr = 0xC000;
+    for (uint32_t a = code_addr; a <= 0xFFFF; ++a)
+        emu.mmu().write(static_cast<uint16_t>(a), 0x00);   // NOP sled
+    auto regs = emu.cpu().get_registers();
+    regs.PC = code_addr;
+    regs.IFF1 = 0;
+    regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+
+    emu.copper().reset();
+    for (int i = 0; i < 16; ++i)
+        program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+    program_word(emu, 0, enc_wait(20, 250));      // vblank: raw line 3
+    program_word(emu, 1, enc_move(0x12, 0x10));   // Layer 2 bank
+    program_word(emu, 2, enc_wait(0, 511));       // HALT
+    nr_write(emu, 0x64, 0);
+    nr_write(emu, 0x12, 0x08);
+    set_copper_mode(emu, 1);
+
+    emu.run_frame();
+    const bool fired = (nr_read(emu, 0x12) == 0x10);
+
+    emu.layer2().rewind_to_baseline();
+    const uint8_t baseline = emu.layer2().active_bank();
+    emu.layer2().apply_changes_for_line(0);
+    const size_t segs = emu.layer2().line_segment_count();
+    const int col     = emu.layer2().segment_first_column(1, true);
+    const uint8_t row0_bank = emu.layer2().active_bank();
+
+    check("GH270-HPOS-04",
+          "a Copper MOVE NR 0x12 on vblank raw line 3 (column 163 of THAT "
+          "line) owns all of framebuffer row 0: one segment, new bank "
+          "[layer2.vhd:110-122; zxula_timing.vhd:457-466]",
+          geom_ok && fired && baseline == 0x08 && segs == 1
+            && row0_bank == 0x10,
+          "geom_ok=" + std::to_string(geom_ok) +
+          " fired=" + std::to_string(fired) +
+          " baseline=" + std::to_string(baseline) +
+          " segs=" + std::to_string(segs) +
+          " row0_bank=" + std::to_string(row0_bank) +
+          (segs > 1 ? " split_wide_col=" + std::to_string(col) : std::string()) +
+          " (expected 1 segment; the defect split row 0 at column 163/195)");
+}
+
 // ── GH #270 — every tagged NextREG handler ────────────────────────────
 
 static void test_gh270_tagged_handlers()
@@ -1884,6 +1965,9 @@ int main() {
 
     test_gh270_tagged_handlers();
     std::printf("  Group: GH270-Handlers — done\n");
+
+    test_gh270_vblank_write_owns_row0();
+    std::printf("  Group: GH270-Vblank — done\n");
 
     test_gh272_row_boundary_atomic();
     test_gh272_cpu_write_past_boundary();

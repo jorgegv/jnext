@@ -12755,7 +12755,11 @@ void Emulator::on_scanline(int line)
     const uint16_t tag = (fb_row < 0) ? 0u : static_cast<uint16_t>(fb_row);
 
     palette_.set_current_line(tag);
-    layer2_.set_current_line(tag);
+    // A vblank line coalesced onto row 0 lies wholly before row 0's first
+    // pixel, so Layer 2 writes on it must own all of row 0 rather than split
+    // it at their column within the vblank line (GH #270 follow-up; see
+    // Layer2::set_current_line).
+    layer2_.set_current_line(tag, /*before_display=*/fb_row < 0);
     sprites_.set_current_line(tag);
     renderer_.ula().set_current_line(tag);
     renderer_.ula().set_current_scroll_line(tag);

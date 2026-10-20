@@ -291,9 +291,20 @@ public:
     /// (GH #270): a write that nobody positions explicitly then applies
     /// from column 0, which is exactly the whole-line behaviour every
     /// write had before segmentation existed.
-    void set_current_line(int line) {
-        current_line_ = static_cast<uint16_t>(line);
-        current_hpos_ = kHposLineStart;
+    ///
+    /// `before_display` marks a raw line ABOVE the first framebuffer row
+    /// (the vblank lines Emulator::on_scanline coalesces onto tag 0). Every
+    /// write on such a line precedes row 0's first pixel, so its column
+    /// within its OWN raw line says nothing about row 0: while it is set,
+    /// set_current_hpos() is ignored and the write keeps the line-start
+    /// tag. Without this, a write made N columns into a vblank line was
+    /// replayed as a mid-line split of row 0 at column N+2 (N+34 wide),
+    /// leaving the left part of row 0 drawn from the previous frame's
+    /// bank / scroll.
+    void set_current_line(int line, bool before_display = false) {
+        current_line_   = static_cast<uint16_t>(line);
+        current_hpos_   = kHposLineStart;
+        before_display_ = before_display;
     }
 
     /// Position subsequent bank / scroll writes horizontally within the
@@ -310,6 +321,7 @@ public:
     /// hpos -> first-affected-source-column mapping in layer2.cpp
     /// (seg_first_col).
     void set_current_hpos(int hpos) {
+        if (before_display_) return;          // see set_current_line
         current_hpos_ = static_cast<int16_t>(hpos);
     }
 
@@ -404,6 +416,7 @@ private:
     size_t   change_count_    = 0;
     uint16_t current_line_    = 0;
     int16_t  current_hpos_    = kHposLineStart;
+    bool     before_display_  = false;  // set per raw line by set_current_line
     size_t   render_cursor_   = 0;
     bool     overflow_warned_ = false;
 

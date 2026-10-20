@@ -44,6 +44,7 @@ void Layer2::reset(bool hard)
     change_count_      = 0;
     current_line_      = 0;
     current_hpos_      = kHposLineStart;
+    before_display_    = false;
     render_cursor_     = 0;
     overflow_warned_   = false;
     baseline_scroll_x_ = 0;
