@@ -79,6 +79,13 @@ is easy to get wrong and jnext did:
 | POK corpus used for the banked-line survey (ESPeccy MegaPack v1.0 POK Update, 8710 `.pok` files) | <https://archive.org/details/especcy-mega-pack.-dd-v-1.0-pok-update.-7z> |
 
 
+## Display filter
+
+| Reference                                                                                  | URL                                           |
+|--------------------------------------------------------------------------------------------|-----------------------------------------------|
+| crtemu — Mattias Gustavsson's CRT-emulation shader (MIT / Unlicense), vendored and patched in `third_party/crtemu/` | <https://github.com/mattiasgustavsson/libs> |
+
+
 ## Adding to this file
 
 Add the URL here **and** link to this file rather than pasting the URL again
