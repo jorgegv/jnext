@@ -17,6 +17,12 @@ effect off.
   bright areas, scanlines and a phosphor mask.
 - *PC monitor* is the same, flatter.
 
+The same frame in each mode, off and Scanlines above, TV and PC monitor below, on the NextZXOS
+welcome screen.
+
+![NextZXOS welcome screen, no effect](../img/crt-boot-off.png) ![The same, Scanlines](../img/crt-boot-scanlines.png)
+![The same, TV](../img/crt-boot-tv.jpg) ![The same, PC monitor](../img/crt-boot-pc.jpg)
+
 It is off by default. Scanlines is drawn by the same GPU effect where the computer supports it,
 and by a simple overlay where it does not. While the effect is off nothing extra is created
 or drawn. If a TV or PC monitor look cannot run on this computer, jnext says so, switches it
