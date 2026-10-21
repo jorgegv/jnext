@@ -309,8 +309,9 @@ void VideoLayerView::setLayer(Layer layer)
     last_vc_ = -2;  // force re-render
 }
 
-void VideoLayerView::refresh(int vc)
+void VideoLayerView::refresh(int vc, bool show_raster)
 {
+    show_raster_ = show_raster;
     // Only skip re-render for the dim running placeholder (vc < 0), and only
     // when the placeholder is what is ALREADY shown (last_vc_ == -1). When
     // paused (vc >= 0), always re-render: registers (scroll, palette, tile
@@ -416,7 +417,7 @@ void VideoLayerView::paintEvent(QPaintEvent*)
     // Red scanline indicator when paused.
     // Spans the full widget width so it's visible in the margins even when
     // image content is red or the scanline is at the very bottom.
-    if (last_vc_ >= 0) {
+    if (last_vc_ >= 0 && show_raster_) {
         // Logical y: top of image + (vc * logical image height / 256)
         const int log_img_h = qRound(phys_h / dpr);
         const int y_line    = TITLE_H + MARGIN + (last_vc_ + 1) * log_img_h / NATIVE_H;
@@ -739,6 +740,12 @@ void VideoPanel::refresh()
     // fb_row < 0  → raster is still in the top vblank: nothing drawn yet.
     // fb_row is clamped to FB_HEIGHT-1 for the bottom border / bottom vblank.
     int vc = -1;
+    // Break between frames lands at raw VC 0, above the framebuffer (row < 0),
+    // before begin_new_frame() has run: the change logs still hold the frame
+    // that just ended, so draw all of it (no raster line) rather than a
+    // placeholder for every ordinary Break.  A pause inside the top vblank of a
+    // frame in progress keeps the placeholder: its logs were re-baselined.
+    bool show_raster = true;
     {
         // INS-19: the per-machine raster geometry, from the live VideoTiming.
         const jnext::dbg::MachineInfo mi = dbg_->machine();
@@ -750,6 +757,10 @@ void VideoPanel::refresh()
         if (dbg_->state().paused) {
             const RasterState rs = video_panel_raster_state(*dbg_);
             vc = fb_row_for_vc(rs.raw_vc, mi.vblank_top);
+            if (vc < 0 && dbg_->at_frame_boundary()) {
+                vc = VideoLayerView::NATIVE_H - 1;
+                show_raster = false;
+            }
 
             raw_label_->setText(QString::asprintf(
                 "raw     hc:%4d  vc:%4d   VHDL hc / vc (frame)",
@@ -822,12 +833,12 @@ void VideoPanel::refresh()
 
     // ── Layer sub-panel views — only refresh the visible tab ─────────────────
     switch (layer_tabs_->currentIndex()) {
-        case 0:  if (composite_view_)  composite_view_->refresh(vc);  break;
-        case 1:  if (ula_view_)        ula_view_->refresh(vc);        break;
-        case 2:  if (l2_view_)         l2_view_->refresh(vc);         break;
-        case 3:  if (sprites_view_)    sprites_view_->refresh(vc);    break;
-        case 4:  if (tilemap_view_)    tilemap_view_->refresh(vc);    break;
-        case 5:  if (background_view_) background_view_->refresh(vc); break;
+        case 0:  if (composite_view_)  composite_view_->refresh(vc, show_raster);  break;
+        case 1:  if (ula_view_)        ula_view_->refresh(vc, show_raster);        break;
+        case 2:  if (l2_view_)         l2_view_->refresh(vc, show_raster);         break;
+        case 3:  if (sprites_view_)    sprites_view_->refresh(vc, show_raster);    break;
+        case 4:  if (tilemap_view_)    tilemap_view_->refresh(vc, show_raster);    break;
+        case 5:  if (background_view_) background_view_->refresh(vc, show_raster); break;
         default: break;
     }
 }

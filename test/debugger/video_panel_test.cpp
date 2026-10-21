@@ -2429,6 +2429,66 @@ static void test_tab_switch_renders_visible_only(Emulator& emu) {
           !emu.debug_state().paused() && sprites_dimmed && composite_dimmed,
           fmt("running=%d sprites placeholder=%d all-layers placeholder=%d",
               !emu.debug_state().paused(), sprites_dimmed, composite_dimmed));
+
+    // QVT-03 — Break between frames lands at raw VC 0, i.e. framebuffer row
+    // -vblank_top, before begin_new_frame(): the change logs are still the
+    // previous frame's. The panel shows that completed frame, whole and without
+    // a raster line, rather than the placeholder every ordinary Break used to
+    // produce.
+    emu.run_frame();
+    emu.debug_state().pause();
+    emu.snapshot_raster();
+    const int boundary_row = VideoPanel::fb_row_for_vc(
+        emu.paused_vc(), emu.video_timing().vblank_top());
+    panel.refresh();
+    const QImage whole = view_image(0);
+    bool every_row_drawn = !whole.isNull();
+    for (int y : {0, Renderer::FB_HEIGHT / 2, Renderer::FB_HEIGHT - 1})
+        every_row_drawn = every_row_drawn && whole.pixel(0, y) != unrendered;
+    check("QVT-03",
+          "paused at the top of a frame (raster row < 0) the All layers view "
+          "shows the whole previous frame, not the placeholder",
+          emu.debug_state().paused() && boundary_row < 0 && every_row_drawn,
+          fmt("paused=%d fb_row=%d every_row_drawn=%d",
+              emu.debug_state().paused(), boundary_row, every_row_drawn));
+
+    auto* composite = tabs ? tabs->widget(0)->findChild<VideoLayerView*>() : nullptr;
+    check("QVT-04",
+          "…and draws no red raster line over that whole-frame picture",
+          composite && !composite->raster_line_shown(),
+          fmt("line shown=%d", composite ? composite->raster_line_shown() : -1));
+
+    // QVT-05 — an ordinary mid-frame pause still draws its raster line.
+    emu.debug_state().resume();
+    emu.debug_state().run_to_cycle(emu.current_frame_cycle() +
+                                   200 * emu.timing().master_cycles_per_line);
+    emu.run_frame();
+    emu.snapshot_raster();
+    panel.refresh();
+    check("QVT-05",
+          "paused mid-frame the red raster line is still drawn",
+          composite && composite->raster_line_shown(),
+          fmt("line shown=%d", composite ? composite->raster_line_shown() : -1));
+
+    // QVT-06 — paused inside the top vblank of a frame in progress (raw VC 10):
+    // begin_new_frame() has re-baselined the logs, so nothing of the previous
+    // frame is replayable; the placeholder stays.
+    emu.debug_state().resume();
+    emu.run_frame();                         // finish QVT-05's frame
+    emu.debug_state().run_to_cycle(emu.current_frame_cycle() +
+                                   10 * emu.timing().master_cycles_per_line);
+    emu.run_frame();
+    emu.snapshot_raster();
+    panel.refresh();
+    const QImage vblank = view_image(0);
+    check("QVT-06",
+          "paused inside the top vblank of a frame in progress the view keeps "
+          "the placeholder (the previous frame is no longer replayable)",
+          emu.debug_state().paused() && emu.frame_in_progress() &&
+              is_placeholder(vblank),
+          fmt("paused=%d in_progress=%d placeholder=%d fb_row=%d", emu.debug_state().paused(),
+              emu.frame_in_progress(), is_placeholder(vblank),
+              VideoPanel::fb_row_for_vc(emu.paused_vc(), emu.video_timing().vblank_top())));
 }
 
 // ── DVP-RASTER: the raster position / ULA fetch indicator (GH #22) ────
