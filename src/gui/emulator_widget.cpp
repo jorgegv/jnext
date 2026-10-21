@@ -1,11 +1,17 @@
 #include "gui/emulator_widget.h"
+#include "core/log.h"
 #include <QCoreApplication>
 #include <QEvent>
 #include <QPainter>
+#include <QPointer>
 #include <chrono>
 #include <cstring>
 #include <algorithm>
 #include <cmath>
+
+#ifdef JNEXT_HAVE_CRT_GL
+#include "gui/crt_gl_overlay.h"
+#endif
 
 EmulatorWidget::EmulatorWidget(QWidget* parent)
     : QWidget(parent)
@@ -33,6 +39,18 @@ void EmulatorWidget::update_frame(const uint32_t* framebuffer, int w, int h,
         set_scale(scale_);
         emit scale_changed();
     }
+
+#ifdef JNEXT_HAVE_CRT_GL
+    // The CRT shader draws the frame itself: no copy into native_, no prescale.
+    if (crt_overlay_) {
+        // native_ is not touched: the overlay holds the newest frame, and
+        // drop_crt_overlay() rebuilds native_ from it when the software path resumes.
+        crt_overlay_->submit(framebuffer, w, h);
+        if (fullscreen_mode_) layout_crt_overlay();   // prescale() re-derives this every frame too
+        if (new_content) frame_pending_ = true;
+        return;
+    }
+#endif
 
     if (native_.width() != w || native_.height() != h) {
         native_ = QImage(w, h, QImage::Format_ARGB32);
@@ -96,6 +114,7 @@ void EmulatorWidget::set_scale(int factor) {
 void EmulatorWidget::set_crt_filter(bool enabled) {
     if (crt_filter_ != enabled) {
         crt_filter_ = enabled;
+        sync_crt_overlay();   // the scanline mode is the shader's Lite style where there is GL
         update();
     }
 }
@@ -103,6 +122,128 @@ void EmulatorWidget::set_crt_filter(bool enabled) {
 void EmulatorWidget::set_fullscreen_mode(bool fs) {
     fullscreen_mode_ = fs;
     fs_offset_ = QPoint(0, 0);
+    layout_crt_overlay();
+}
+
+bool EmulatorWidget::set_crt_shader(bool enabled) {
+#ifdef JNEXT_HAVE_CRT_GL
+    crt_shader_ = enabled;
+    if (enabled) gl_unavailable_ = false;   // an explicit request tries again
+    sync_crt_overlay();
+    return true;
+#else
+    (void)enabled;
+    crt_shader_ = false;
+    return false;
+#endif
+}
+
+void EmulatorWidget::set_crt_shader_style(crt_shader::Style style) {
+    if (crt_style_ == style) return;
+    crt_style_ = style;
+    sync_crt_overlay();   // the style picks crtemu's shader set at creation: rebuild
+}
+
+void EmulatorWidget::sync_crt_overlay() {
+#ifdef JNEXT_HAVE_CRT_GL
+    // Which look is wanted: the shader's TV/PC style; or, for the scanline mode,
+    // the shader's own scanlines-only (Lite) style. If GL turned out to be
+    // unusable the scanline mode falls back to the software overlay (paintEvent).
+    bool want = false;
+    crt_shader::Style style = crt_style_;
+    if (crt_shader_) {
+        want = true;
+    } else if (crt_filter_ && !gl_unavailable_) {
+        want = true;
+        style = crt_shader::Style::Lite;
+    }
+
+    if (crt_overlay_ && (!want || crt_overlay_->style() != style)) drop_crt_overlay();
+    if (want && !crt_overlay_) {
+        crt_overlay_ = new CrtGlOverlay(this, style);
+        connect(crt_overlay_, &CrtGlOverlay::presented,
+                this, &EmulatorWidget::note_overlay_presented);
+        // Queued: failed() can be raised from inside the overlay's own
+        // initializeGL()/paintEvent(), which must return before it is deleted.
+        // By the time it is delivered the user may have switched the effect off
+        // (or on again, into a NEW overlay): only the overlay that raised it counts.
+        connect(crt_overlay_, &CrtGlOverlay::failed, this,
+                [this, raised_by = QPointer<CrtGlOverlay>(crt_overlay_)](const QString& why) {
+                    if (!raised_by || raised_by != crt_overlay_) return;
+                    drop_crt_overlay();
+                    gl_unavailable_ = true;
+                    if (crt_shader_) {
+                        crt_shader_ = false;
+                        Log::platform()->warn("CRT shader unavailable, using the software display: {}",
+                                              why.toStdString());
+                        emit crt_shader_failed(why);
+                    } else {
+                        // The scanline mode keeps its look: the software overlay takes over.
+                        Log::platform()->warn("CRT shader unavailable, drawing software scanlines: {}",
+                                              why.toStdString());
+                        update();
+                    }
+                }, Qt::QueuedConnection);
+        layout_crt_overlay();
+        // Paused, or stopped in the debugger: no frame is coming, so show the last one.
+        if (!native_.isNull())
+            crt_overlay_->submit(reinterpret_cast<const uint32_t*>(native_.constBits()),
+                                 native_.width(), native_.height());
+        crt_overlay_->show();
+    }
+#endif
+}
+
+void EmulatorWidget::drop_crt_overlay() {
+#ifdef JNEXT_HAVE_CRT_GL
+    if (!crt_overlay_) return;
+    // Take the newest frame back (native_ is not updated while an overlay runs).
+    std::vector<uint32_t> last;
+    if (crt_overlay_->copy_frame_argb(last)) {
+        const QSize sz = crt_overlay_->frame_size();
+        if (native_.width() != sz.width() || native_.height() != sz.height())
+            native_ = QImage(sz.width(), sz.height(), QImage::Format_ARGB32);
+        std::memcpy(native_.bits(), last.data(), last.size() * 4);
+    }
+    // Deleted now, not deleteLater(): its destructor needs its context, and a
+    // later deletion could land after the parent's own teardown.
+    delete crt_overlay_;
+    crt_overlay_ = nullptr;
+    // Repaint from it now.
+    if (!native_.isNull()) prescale();
+    update();
+#endif
+}
+
+void EmulatorWidget::note_overlay_presented() {
+    if (frame_pending_) {
+        frame_pending_ = false;
+        ++present_count_;
+    }
+}
+
+void EmulatorWidget::layout_crt_overlay() {
+#ifdef JNEXT_HAVE_CRT_GL
+    if (!crt_overlay_) return;
+    if (!fullscreen_mode_) {
+        crt_overlay_->setGeometry(rect());
+        return;
+    }
+    // Same rectangle prescale() gives the software picture in fullscreen.
+    const qreal dpr = devicePixelRatioF();
+    const int pw = qRound(width() * dpr);
+    const int ph = qRound(height() * dpr);
+    const int s = crt_shader::fullscreen_scale(pw, ph, NATIVE_W, DISPLAY_H);
+    const int tw = NATIVE_W * s;
+    const int th = DISPLAY_H * s;
+    crt_overlay_->setGeometry(qRound((pw - tw) / (2.0 * dpr)), qRound((ph - th) / (2.0 * dpr)),
+                              qRound(tw / dpr), qRound(th / dpr));
+#endif
+}
+
+void EmulatorWidget::resizeEvent(QResizeEvent* event) {
+    QWidget::resizeEvent(event);
+    layout_crt_overlay();
 }
 
 void EmulatorWidget::prescale() {
@@ -121,9 +262,7 @@ void EmulatorWidget::prescale() {
         // Phase 7). The source image is still NATIVE_H rows tall; the
         // generic nearest-neighbour scaling loop below handles the
         // nh→target_h vertical stretch (typically 2× per fs_scale step).
-        const int sx = pw / NATIVE_W;
-        const int sy = ph / DISPLAY_H;
-        const int fs_scale = std::max(1, std::min(sx, sy));
+        const int fs_scale = crt_shader::fullscreen_scale(pw, ph, NATIVE_W, DISPLAY_H);
         target_w = NATIVE_W * fs_scale;
         target_h = DISPLAY_H * fs_scale;
         // Offset to center the image (in logical pixels for paintEvent).
@@ -162,6 +301,8 @@ void EmulatorWidget::prescale() {
 }
 
 void EmulatorWidget::paintEvent(QPaintEvent* /*event*/) {
+    // The CRT shader overlay covers the picture and does its own accounting.
+    if (crt_overlay_) return;
     if (scaled_.isNull()) return;
 
     // Task 63 — count this as a PRESENT only if it is serving a frame not yet

@@ -143,6 +143,13 @@ public:
     void set_crt_filter(bool enabled);
     bool crt_filter() const;
 
+    /// The OpenGL CRT shader, in the style last given to the widget (View menu /
+    /// Preferences). Choosing it switches the scanline mode off and the other way
+    /// round. False when this build has no OpenGL support; see
+    /// EmulatorWidget::set_crt_shader().
+    bool set_crt_shader(bool enabled);
+    bool crt_shader() const;
+
     bool is_fullscreen() const { return is_fullscreen_; }
     int current_scale() const { return current_scale_; }
 
@@ -543,6 +550,11 @@ private:
 
     // CRT filter action
     QAction* crt_filter_action_ = nullptr;
+    // The CRT effect is one choice: off, scanlines (above), or one of the OpenGL
+    // shader's two looks. The actions are kept in step by sync_crt_actions().
+    QAction* crt_tv_action_ = nullptr;       ///< null when the build has no OpenGL shader
+    QAction* crt_pc_action_ = nullptr;       ///< null when the build has no OpenGL shader
+    void sync_crt_actions();
 
 #ifdef ENABLE_DEBUGGER
     DebuggerManager* debugger_mgr_ = nullptr;

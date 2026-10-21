@@ -34,6 +34,8 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
                                      const std::vector<HostChord>& host_chords,
                                      const std::vector<JoyDeviceInfo>& joy_devices)
     : QDialog(parent), joy_devices_(joy_devices), debug_keys_(current.debug_keys),
+      crt_shader_saved_(current.crt_shader),
+      crt_shader_style_saved_(current.crt_shader_style),
       host_chords_(host_chords)
 {
     for (int i = 0; i < 2; ++i) {
@@ -71,7 +73,15 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     mouse_release_combo_->setCurrentIndex(
         mouse_release_combo_->findData(static_cast<int>(current.mouse_release)));
     scale_combo_->setCurrentIndex(scale_combo_->findData(current.window_scale));
-    crt_check_->setChecked(current.crt_filter);
+    // Both set (a hand-edited file): the shader wins, as it does at start-up. A saved
+    // shader in the scanlines-only (Lite) style is the scanline mode.
+    int crt_choice = CRT_OFF;
+    if (crt_combo_->findData(CRT_TV) >= 0 && current.crt_shader &&
+        current.crt_shader_style != crt_shader::Style::Lite)
+        crt_choice = current.crt_shader_style == crt_shader::Style::Pc ? CRT_PC : CRT_TV;
+    else if (current.crt_filter || (crt_combo_->findData(CRT_TV) >= 0 && current.crt_shader))
+        crt_choice = CRT_SCANLINES;
+    crt_combo_->setCurrentIndex(crt_combo_->findData(crt_choice));
     silent_check_->setChecked(current.silent);
     tape_fast_check_->setChecked(current.tape_fast_load);
     audio_gain_slider_->setValue(static_cast<int>(std::lround(current.audio_gain_db)));
@@ -168,8 +178,18 @@ QWidget* PreferencesDialog::build_startup_tab() {
         scale_combo_->addItem(tr("%1x").arg(s), s);
     form->addRow(tr("Window scale:"), scale_combo_);
 
-    crt_check_ = new QCheckBox(tr("CRT scanline filter"), tab);
-    form->addRow(QString(), crt_check_);
+    // One CRT effect at a time, as a pop-up: Off, Scanlines (the shader's scanlines-only
+    // look where there is GPU support, a software overlay elsewhere), or one of the two
+    // shader looks, which exist only in a build that has the shader. Without them
+    // collect() hands the saved shader settings back (crt_shader_saved_).
+    crt_combo_ = new QComboBox(tab);
+    crt_combo_->addItem(tr("Off"), CRT_OFF);
+    crt_combo_->addItem(tr("Scanlines"), CRT_SCANLINES);
+    if (EmulatorWidget::crt_shader_built_in()) {
+        crt_combo_->addItem(tr("TV (curved, bloom)"), CRT_TV);
+        crt_combo_->addItem(tr("PC monitor"), CRT_PC);
+    }
+    form->addRow(tr("CRT effect:"), crt_combo_);
 
     silent_check_ = new QCheckBox(tr("Start muted (no audio output)"), tab);
     silent_check_->setToolTip(tr("Applies on next launch - there is no live audio-device toggle."));
@@ -557,7 +577,19 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.window_scale = scale_combo_->currentData().toInt();
     cfg.mouse_release = static_cast<pointer_capture::ReleaseMethod>(
         mouse_release_combo_->currentData().toInt());
-    cfg.crt_filter   = crt_check_->isChecked();
+    const int crt_choice = crt_combo_->currentData().toInt();
+    cfg.crt_filter = crt_choice == CRT_SCANLINES;
+    if (crt_combo_->findData(CRT_TV) >= 0) {
+        cfg.crt_shader = crt_choice == CRT_TV || crt_choice == CRT_PC;
+        cfg.crt_shader_style = crt_choice == CRT_PC ? crt_shader::Style::Pc
+                             : crt_choice == CRT_TV ? crt_shader::Style::Tv
+                                                    : crt_shader_style_saved_;
+    } else {
+        // No shader choices here: hand the saved ones back — unless the user has just
+        // chosen the scanline mode, which excludes the shader.
+        cfg.crt_shader       = crt_shader_saved_ && !cfg.crt_filter;
+        cfg.crt_shader_style = crt_shader_style_saved_;
+    }
     cfg.silent       = silent_check_->isChecked();
     cfg.tape_fast_load = tape_fast_check_->isChecked();
     cfg.audio_gain_db = static_cast<float>(audio_gain_slider_->value());

@@ -82,7 +82,9 @@ private:
     QSpinBox*  emu_speed_spin_   = nullptr;
     QComboBox* when_slow_combo_  = nullptr;   // issue #35
     QComboBox* scale_combo_      = nullptr;
-    QCheckBox* crt_check_        = nullptr;
+    // The CRT effect is ONE choice, a pop-up: off, scanlines, or a shader look (TV, PC).
+    enum { CRT_OFF = 0, CRT_SCANLINES = 1, CRT_TV = 2, CRT_PC = 3 };
+    QComboBox* crt_combo_ = nullptr;
     QCheckBox* silent_check_     = nullptr;
     QCheckBox* tape_fast_check_  = nullptr;
 
@@ -122,6 +124,12 @@ private:
     // GH #1 — the edited copy of the key bindings. ALWAYS present, even in a
     // build with no Debugger Keys tab, because collect() must hand it back.
     jnext::dbgkeys::Keymap debug_keys_;
+
+    // The saved CRT-shader settings, handed back by collect() when this build
+    // has no shader controls (a config shared between two builds must not lose
+    // them to a build that cannot show them) — the same rule as debug_keys_.
+    bool crt_shader_saved_ = false;
+    crt_shader::Style crt_shader_style_saved_ = crt_shader::STYLE_DEFAULT;
 #ifdef ENABLE_DEBUGGER
     ShortcutCaptureButton* key_buttons_[jnext::dbgkeys::ACTION_COUNT] = {};
     QLabel* key_message_ = nullptr;

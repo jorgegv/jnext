@@ -333,6 +333,19 @@ MainWindow::MainWindow(QWidget* parent)
         // click and capture.
     }
 
+    // The shader could not run (no usable OpenGL): the widget has already
+    // fallen back to the software display; make the menu say so, and tell the user.
+    connect(emulator_widget_, &EmulatorWidget::crt_shader_failed, this,
+            [this](const QString& why) {
+        sync_crt_actions();
+        auto* box = new QMessageBox(QMessageBox::Warning, tr("CRT Effect"),
+            tr("The CRT effect cannot run on this computer: %1.\n\n"
+               "The display continues without it.").arg(why),
+            QMessageBox::Ok, this);
+        box->setAttribute(Qt::WA_DeleteOnClose);
+        box->open();   // not exec(): the emulator must keep running behind it
+    });
+
     // When the emulator widget detects the real DPR on its first frame,
     // it re-applies its scale and emits scale_changed — we re-fix the
     // window size to match.
@@ -703,14 +716,34 @@ void MainWindow::cycle_scale() {
 }
 
 void MainWindow::set_crt_filter(bool enabled) {
+    // The scanline filter and the OpenGL shader are mutually exclusive.
+    if (enabled && emulator_widget_->crt_shader()) set_crt_shader(false);
     emulator_widget_->set_crt_filter(enabled);
 
-    if (crt_filter_action_)
-        crt_filter_action_->setChecked(enabled);
+    sync_crt_actions();
+}
+
+void MainWindow::sync_crt_actions() {
+    const bool shader = emulator_widget_->crt_shader();
+    const auto style = emulator_widget_->crt_shader_style();
+    if (crt_filter_action_) crt_filter_action_->setChecked(emulator_widget_->crt_filter());
+    if (crt_tv_action_) crt_tv_action_->setChecked(shader && style == crt_shader::Style::Tv);
+    if (crt_pc_action_) crt_pc_action_->setChecked(shader && style == crt_shader::Style::Pc);
 }
 
 bool MainWindow::crt_filter() const {
     return emulator_widget_->crt_filter();
+}
+
+bool MainWindow::set_crt_shader(bool enabled) {
+    const bool ok = emulator_widget_->set_crt_shader(enabled);
+    if (ok && enabled) set_crt_filter(false);   // exclusive with the scanline filter
+    sync_crt_actions();
+    return ok;
+}
+
+bool MainWindow::crt_shader() const {
+    return emulator_widget_->crt_shader();
 }
 
 // ---------------------------------------------------------------------------
@@ -1235,11 +1268,31 @@ void MainWindow::create_menus() {
     // entry users reach for far more often). C is the guest's Alt+C, R is the
     // Power Reset shortcut, T the Open Tape one — so the L of "Filter", free
     // everywhere.
-    crt_filter_action_ = view_menu->addAction(tr("CRT Fi&lter"));
+    crt_filter_action_ = view_menu->addAction(tr("CRT Scan&lines"));
     crt_filter_action_->setCheckable(true);
     connect(crt_filter_action_, &QAction::triggered, this, [this](bool checked) {
-        emulator_widget_->set_crt_filter(checked);
+        set_crt_filter(checked);
     });
+
+    // The OpenGL shader's two looks, only in a build that has it. The entry above is
+    // the scanline mode (the shader's scanlines-only style where there is OpenGL), so
+    // View carries one choice: off, scanlines, TV or PC monitor. No mnemonics, like the
+    // Scale entries: the main window's Alt-letter space is full (see the header of
+    // test/gui/main_window_accel_test.cpp) and MA-05 pins how many the menu tree has.
+    if (EmulatorWidget::crt_shader_built_in()) {
+        auto add_look = [this, view_menu](const QString& text, crt_shader::Style style) {
+            QAction* a = view_menu->addAction(text);
+            a->setCheckable(true);
+            connect(a, &QAction::triggered, this, [this, style](bool checked) {
+                if (checked) emulator_widget_->set_crt_shader_style(style);
+                set_crt_shader(checked);
+            });
+            return a;
+        };
+        crt_tv_action_ = add_look(tr("CRT TV"), crt_shader::Style::Tv);
+        crt_pc_action_ = add_look(tr("CRT PC Monitor"), crt_shader::Style::Pc);
+        crt_tv_action_->setToolTip(tr("Curved glass, bloom, scanlines and shadow mask, drawn by the GPU"));
+    }
 
 #ifdef ENABLE_DEBUGGER
     view_menu->addSeparator();
@@ -2527,7 +2580,15 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
 
     set_mouse_release_method(cfg.mouse_release);   // GH #365
     set_scale(cfg.window_scale);
-    set_crt_filter(cfg.crt_filter);
+    // One effect: resolve the exclusivity before touching the widget, so a config
+    // with both set builds one overlay, not a Lite one that is torn down at once.
+    emulator_widget_->set_crt_shader_style(cfg.crt_shader_style);
+    if (cfg.crt_shader) {
+        set_crt_shader(true);        // also clears the scanline mode
+    } else {
+        set_crt_shader(false);
+        set_crt_filter(cfg.crt_filter);
+    }
 
     if (speed_callback_) speed_callback_(cfg.emulator_speed_percent / 100.0);
 
