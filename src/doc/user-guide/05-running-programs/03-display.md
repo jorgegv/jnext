@@ -7,8 +7,22 @@ always a whole number of pixels, so the picture stays sharp.
 black bars, keeping the correct shape. F11 again returns. (Esc will not: it is
 the Break key.)
 
-**CRT filter.** **View > CRT Filter** overlays soft scanlines, for a more
-period-accurate look.
+**CRT effect.** One choice, in **View** or **Settings > Preferences**: *off*, *Scanlines*,
+*TV* or *PC monitor*. Choosing one switches the others off, and unchecking it turns the
+effect off.
+
+- *Scanlines* overlays soft scanlines, for a more period-accurate look.
+- *TV* draws the display through a GPU emulation of a cathode-ray tube: a curved
+  screen (the whole picture stays inside the glass, with a thin black margin), bloom around
+  bright areas, scanlines and a phosphor mask.
+- *PC monitor* is the same, flatter.
+
+It is off by default. Scanlines is drawn by the same GPU effect where the computer supports it,
+and by a simple overlay where it does not. While the effect is off nothing extra is created
+or drawn. If a TV or PC monitor look cannot run on this computer, jnext says so, switches it
+off and carries on with the normal display (a saved choice is tried again at the next start);
+Scanlines quietly falls back to the overlay. The TV and PC monitor entries are absent from
+builds made without GPU support.
 
 **Layers.** The Next composites several video layers — the classic ULA screen,
 Layer 2, the tilemap and up to 128 sprites — and the running program decides

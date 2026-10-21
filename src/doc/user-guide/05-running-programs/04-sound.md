@@ -41,7 +41,7 @@ frames reached the screen. If `emu` sits below about 50, your host is behind,
 and the audio will suffer with it. Things that help, roughly in order:
 
 1. Close whatever else is busy on the machine.
-2. Turn off the CRT filter and drop the window scale.
+2. Turn off the CRT effect and drop the window scale.
 3. Reduce the emulated CPU speed (**Machine > CPU Speed**) if the software
    tolerates it — 28 MHz is many times the work of 3.5 MHz.
 4. Use `--silent` if you do not need sound at all.

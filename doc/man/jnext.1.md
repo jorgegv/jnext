@@ -1693,7 +1693,8 @@ on exit. Join it against a z88dk `.map` file to get a per-function heatmap:
 The Qt6 build gives a native window with menus, a toolbar and a status bar
 (FPS, CPU speed, emulator speed, tape status, machine type, and a Paused
 indicator while the machine is paused), Hi-DPI
-pixel-perfect rendering at integer scale, and a CRT scanline filter.
+pixel-perfect rendering at integer scale, and a CRT effect (scanlines, or an
+optional TV or PC-monitor look).
 
 Menu shortcuts use **Alt**, never plain **Ctrl**: Ctrl is the Spectrum's Symbol
 Shift, so a Ctrl shortcut would eat a key the guest needs (see
@@ -1748,8 +1749,9 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
     **View**).
 
 **View**
-:   Scale 1x / 2x / 3x, Fullscreen (F11, letterboxed), CRT Filter, Debugger
-    (Alt+D).
+:   Scale 1x / 2x / 3x, Fullscreen (F11, letterboxed), the CRT effect (CRT Scanlines,
+    CRT TV, CRT PC Monitor; one at a time, none checked = off; the last two
+    only in builds with GPU support), Debugger (Alt+D).
 
 **Settings**
 :   Preferences... (Alt+P), which opens the settings dialog (Startup, Input,
