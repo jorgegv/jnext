@@ -186,6 +186,7 @@ void Layer2::start_frame()
     render_cursor_     = 0;
     current_line_      = 0;
     current_hpos_      = kHposLineStart;
+    before_display_    = false;
     overflow_warned_   = false;
 
     baseline_clip_x1_      = clip_x1_;
