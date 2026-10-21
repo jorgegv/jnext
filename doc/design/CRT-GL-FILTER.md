@@ -155,6 +155,10 @@ TV and PC entries have none, like the Scale entries in the same popup.
   configs; the Preferences dialog hands saved values back in any build and collects
   new ones; the View entry exists exactly when the build has the shader, with no
   mnemonic; applying a configuration switches it.
+* `tools/crtshot` (not part of the build or the tests; `cmake --build build --target crtshot`)
+  takes one picture per mode of the same emulator frame, on a real window with a real
+  GPU: `./build/crtshot --prefix crt-boot` for the NextZXOS welcome screen (600 frames),
+  `--load FILE --frames N` for a program. The user guide's pictures come from it.
 * **What the tests cannot see is the picture.** The shader's pixels were checked by
   running the real widget on the native macOS platform, with the shader on in each of
   the three styles and off, rendering a test card and reading the result back:
