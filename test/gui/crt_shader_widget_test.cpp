@@ -49,6 +49,8 @@
 #include "gui/preferences_dialog.h"
 
 #include <QApplication>
+#include <unistd.h>
+#include <vector>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -153,6 +155,19 @@ int main(int argc, char** argv) {
         std::printf("Total:    0  Passed:    0  Failed:    1  Skipped:    0\n");
         return 1;
     }
+    // Qt's offscreen platform gets its GL context from GLX, which needs an X
+    // server: with no DISPLAY (the CI container) it has none and every row that
+    // expects a live overlay fails. Re-run once under Xvfb, as the other suites
+    // that need one do (xvfb-run -d: it picks the display itself).
+    if (EmulatorWidget::crt_shader_built_in() && qEnvironmentVariableIsEmpty("DISPLAY") &&
+        !qEnvironmentVariableIsSet("JNEXT_CRT_TEST_XVFB")) {
+        qputenv("JNEXT_CRT_TEST_XVFB", "1");
+        std::vector<char*> av{const_cast<char*>("xvfb-run"), const_cast<char*>("-d"),
+                              const_cast<char*>("--server-args=-noreset")};
+        for (int i = 0; i < argc; ++i) av.push_back(argv[i]);
+        av.push_back(nullptr);
+        execvp("xvfb-run", av.data());   // returns only if xvfb-run is missing
+    }
     qputenv("QT_QPA_PLATFORM", "offscreen");
     // MainWindow reads ~/.jnext/jnext.conf otherwise.
     qputenv("JNEXT_CONFIG_DIR", dir.path().toUtf8());
@@ -164,6 +179,16 @@ int main(int argc, char** argv) {
                 EmulatorWidget::crt_shader_built_in() ? "HAS" : "does NOT have");
 
     const bool built_in = EmulatorWidget::crt_shader_built_in();
+    // The rows below assume a machine that can make a GL context when the build
+    // has the shader. Say so once and stop, instead of 18 cryptic "no overlay" FAILs.
+    // (CRT-W-39 covers the no-GL path itself with set_gl_probe_override(0).)
+    if (built_in && !EmulatorWidget::gl_context_available()) {
+        std::printf("  FAIL: this build has the shader but no GL context can be made "
+                    "(offscreen needs an X server: set DISPLAY or install xvfb-run, "
+                    "and Mesa's EGL/GL drivers)\n");
+        std::printf("Total:    0  Passed:    0  Failed:    1  Skipped:    0\n");
+        return 1;
+    }
     const auto fb = make_fb(0xFF204060);
 
     // ── The filter OFF — the default, and it must be free ────────────────
