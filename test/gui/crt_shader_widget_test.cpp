@@ -49,8 +49,6 @@
 #include "gui/preferences_dialog.h"
 
 #include <QApplication>
-#include <unistd.h>
-#include <vector>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -70,6 +68,7 @@
 
 #include <cstdio>
 #include <string>
+#include <unistd.h>
 #include <vector>
 #include "../row_id.h"
 
@@ -149,16 +148,11 @@ QAction* find_action(MainWindow& w, const QString& title_contains) {
 } // namespace
 
 int main(int argc, char** argv) {
-    QTemporaryDir dir;
-    if (!dir.isValid()) {
-        std::printf("  FAIL: could not create a temporary directory\n");
-        std::printf("Total:    0  Passed:    0  Failed:    1  Skipped:    0\n");
-        return 1;
-    }
     // Qt's offscreen platform gets its GL context from GLX, which needs an X
     // server: with no DISPLAY (the CI container) it has none and every row that
-    // expects a live overlay fails. Re-run once under Xvfb, as the other suites
-    // that need one do (xvfb-run -d: it picks the display itself).
+    // expects a live overlay fails. Re-run once under Xvfb, as the regression
+    // rows that need one do (xvfb-run -d: it picks the display itself). Done before
+    // anything is created, so the exec leaks no temporary directory.
     if (EmulatorWidget::crt_shader_built_in() && qEnvironmentVariableIsEmpty("DISPLAY") &&
         !qEnvironmentVariableIsSet("JNEXT_CRT_TEST_XVFB")) {
         qputenv("JNEXT_CRT_TEST_XVFB", "1");
@@ -167,6 +161,12 @@ int main(int argc, char** argv) {
         for (int i = 0; i < argc; ++i) av.push_back(argv[i]);
         av.push_back(nullptr);
         execvp("xvfb-run", av.data());   // returns only if xvfb-run is missing
+    }
+    QTemporaryDir dir;
+    if (!dir.isValid()) {
+        std::printf("  FAIL: could not create a temporary directory\n");
+        std::printf("Total:    0  Passed:    0  Failed:    1  Skipped:    0\n");
+        return 1;
     }
     qputenv("QT_QPA_PLATFORM", "offscreen");
     // MainWindow reads ~/.jnext/jnext.conf otherwise.
@@ -185,7 +185,7 @@ int main(int argc, char** argv) {
     if (built_in && !EmulatorWidget::gl_context_available()) {
         std::printf("  FAIL: this build has the shader but no GL context can be made "
                     "(offscreen needs an X server: set DISPLAY or install xvfb-run, "
-                    "and Mesa's EGL/GL drivers)\n");
+                    "and Mesa's GL (GLX) drivers)\n");
         std::printf("Total:    0  Passed:    0  Failed:    1  Skipped:    0\n");
         return 1;
     }
