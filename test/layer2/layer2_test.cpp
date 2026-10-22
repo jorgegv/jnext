@@ -2924,6 +2924,115 @@ static void test_group10f_midline_segments() {
               DETAIL("built=%d segments_after_reset=%zu",
                      built, l2.line_segment_count()));
     }
+
+    // ---------- GH270-16: start_frame clears the before-display flag ----------
+    // set_current_line(line, before_display=true) makes set_current_hpos()
+    // a no-op for the vblank lines Emulator::on_scanline folds onto row 0.
+    // start_frame() resets the other recording coordinates (line, hpos), so
+    // it resets that flag too: a frame, or a load_state (which goes through
+    // start_frame), does not inherit "before display" from the previous
+    // frame's last on_scanline call.
+    {
+        Layer2 l2; l2.reset();
+        l2.set_current_line(0, /*before_display=*/true);
+        l2.start_frame();
+        l2.set_current_hpos(kHposCol67Narrow);
+        l2.set_active_bank(0x10);
+        l2.rewind_to_baseline();
+        l2.apply_changes_for_line(0);
+        const size_t segs = l2.line_segment_count();
+        const int col = segs > 1 ? l2.segment_first_column(1, /*wide=*/false) : -1;
+        check("L2-GH270-16",
+              "start_frame clears the before-display flag: a positioned "
+              "write after it still splits its line",
+              segs == 2 && col == 67,
+              DETAIL("segments=%zu col=%d", segs, col));
+    }
+
+    // ---------- GH270-17/18: vblank writes own row 0, wide modes ----------
+    // The pixel side of GH270-HPOS-04/05 (copper_integration_test). Bank and
+    // X scroll writes made on raw lines above row 0 (on_scanline passes
+    // before_display=true and tag 0) precede row 0's first fetch, so all of
+    // row 0 uses them, whatever column they were made at in their own line
+    // and in whatever column order. A write on row 0 itself
+    // (before_display=false) still splits row 0 at its own column. Checked
+    // pixel for pixel against single-segment renders of each part.
+    //
+    // hpos 305 is raw hc 441 on the last vblank line (wide column 339, past
+    // the right edge: without the flag the whole of row 0 kept the old bank
+    // and scroll); 250 and 200 are earlier on that line, so the writes go
+    // backwards in column. hpos 65 is wide column 99.
+    for (int mode = 0; mode < 2; ++mode) {
+        const uint8_t control = mode == 0 ? 0x10 : 0x20;   // 320x256 / 640x256
+        Ram ram; PaletteManager pal;
+        pal.reset();
+        pal.set_global_transparency(0xFE);
+        auto pat_old = [](int x, int y){ return uint8_t(0x80 + (x + y) % 90); };
+        auto pat_new = [](int x, int y){ return uint8_t(0x01 + (x * 3 + y) % 200); };
+        if (mode == 0) {
+            fill_320x256(ram, 0x08, pat_old);
+            fill_320x256(ram, 0x10, pat_new);
+        } else {
+            fill_640x256(ram, 0x08, pat_old);
+            fill_640x256(ram, 0x10, pat_new);
+        }
+
+        // One segment with the given bank and scroll: what each part of
+        // row 0 must look like.
+        auto reference = [&](uint8_t bank, uint16_t scroll, uint32_t* buf) {
+            Layer2 r; r.reset();
+            r.set_enabled(true);
+            r.set_control(control);
+            r.set_active_bank(bank);
+            r.set_scroll_x_lsb(scroll & 0xFF);
+            r.set_scroll_x_msb(scroll >> 8);
+            r.start_frame();
+            r.rewind_to_baseline();
+            r.apply_changes_for_line(0);
+            render_row(r, ram, pal, buf, 0);
+        };
+
+        Layer2 l2; l2.reset();
+        l2.set_enabled(true);
+        l2.set_control(control);
+        l2.start_frame();
+        l2.set_current_line(0, /*before_display=*/true);   // raw line 31
+        l2.set_current_hpos(305);
+        l2.set_active_bank(0x10);
+        l2.set_current_hpos(250);
+        l2.set_scroll_x_lsb(0x23);
+        l2.set_current_hpos(200);
+        l2.set_scroll_x_msb(0x01);       // scroll 0x123 = 291
+        l2.set_current_line(0);          // raw line 32 = fb row 0
+        l2.set_current_hpos(kHposCol99Wide);
+        l2.set_active_bank(0x08);
+        l2.rewind_to_baseline();
+        l2.apply_changes_for_line(0);
+        const size_t segs = l2.line_segment_count();
+        const int col = segs > 1 ? l2.segment_first_column(1, /*wide=*/true) : -1;
+
+        uint32_t buf[BUF_WIDTH], left[BUF_WIDTH], right[BUF_WIDTH];
+        render_row(l2, ram, pal, buf, 0);
+        reference(0x10, 0x123, left);
+        reference(0x08, 0x123, right);
+        int bad = -1;
+        for (int i = 0; i < BUF_WIDTH && bad < 0; ++i)
+            if (buf[i] != (i < 2 * 99 ? left[i] : right[i])) bad = i;
+        const bool ok = segs == 2 && col == 99 && bad < 0;
+        if (mode == 0)
+            check("L2-GH270-17",
+                  "320x256: vblank bank + X scroll writes (columns 339, 284, "
+                  "234 of their line) own row 0 from column 0; a row-0 write "
+                  "still splits it at column 99",
+                  ok, DETAIL("segments=%zu col=%d first_bad_pixel=%d",
+                             segs, col, bad));
+        else
+            check("L2-GH270-18",
+                  "640x256: vblank bank + X scroll writes own row 0 from "
+                  "column 0; a row-0 write still splits it at column 99",
+                  ok, DETAIL("segments=%zu col=%d first_bad_pixel=%d",
+                             segs, col, bad));
+    }
 }
 
 // =========================================================================

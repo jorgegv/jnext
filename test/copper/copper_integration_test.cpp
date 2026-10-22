@@ -923,6 +923,216 @@ static void test_gh270_write_hpos()
     }
 }
 
+// ── GH #270 follow-up — a write in VBLANK owns ALL of framebuffer row 0 ─
+
+static void test_gh270_vblank_write_owns_row0()
+{
+    set_group("GH270-Vblank");
+
+    // GH270-HPOS-04 — Emulator::on_scanline coalesces every raw line above
+    // the first framebuffer row (raw 0..vblank_top-1) onto change-log tag 0,
+    // so a vblank write is replayed by apply_changes_for_line(0). Its column
+    // was measured within its OWN vblank line, though, and replaying that
+    // column on row 0 splits row 0: the columns left of it were drawn with
+    // the PREVIOUS bank / scroll. On the hardware the write lands tens of
+    // lines before row 0 is fetched, and layer2.vhd:110-122 resamples
+    // layer2_active_bank_q / layer2_scroll_*_q every CLK_7, so the whole of
+    // row 0 (and every later row) uses the new value.
+    //
+    // WAIT(line 250, hpos 20): cvc 250 is raw line (250 + 64) mod 311 = 3
+    // (zxula_timing.vhd:204 c_max_vc 310), fb row 3 - 32 = -29, i.e. vblank, coalesced to tag 0. hpos 20 ->
+    // hc_ula 172 (copper.vhd:94) -> raw hc 297 -> column 163, which is the
+    // split the defect produced: 2 segments on row 0, the second from
+    // column 163. Correct: 1 segment, already carrying the new bank.
+    //
+    // Driven by run_frame() so the tag and the vblank flag come from the
+    // real SCANLINE events. The Copper's line counter starts this frame at
+    // cvc 247 (raw 0), so the WAIT fires three lines in.
+    Emulator emu;
+    if (!build_next_emulator(emu)) {
+        check("GH270-HPOS-04", "Emulator::init(ZXN_ISSUE2) failed", false, "");
+        return;
+    }
+    const bool geom_ok = (emu.video_timing().hc_max() + 1 == 456 &&
+                          emu.video_timing().display_origin().hc == 136 &&
+                          emu.video_timing().display_origin().vc == 64 &&
+                          emu.video_timing().vc_max() + 1 == 311 &&
+                          emu.video_timing().vblank_top() == 32);
+
+    emu.run_frame();
+    const uint16_t code_addr = 0xC000;
+    for (uint32_t a = code_addr; a <= 0xFFFF; ++a)
+        emu.mmu().write(static_cast<uint16_t>(a), 0x00);   // NOP sled
+    auto regs = emu.cpu().get_registers();
+    regs.PC = code_addr;
+    regs.IFF1 = 0;
+    regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+
+    emu.copper().reset();
+    for (int i = 0; i < 16; ++i)
+        program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+    program_word(emu, 0, enc_wait(20, 250));      // vblank: raw line 3
+    program_word(emu, 1, enc_move(0x12, 0x10));   // Layer 2 bank
+    program_word(emu, 2, enc_wait(0, 511));       // HALT
+    nr_write(emu, 0x64, 0);
+    nr_write(emu, 0x12, 0x08);
+    set_copper_mode(emu, 1);
+
+    emu.run_frame();
+    const bool fired = (nr_read(emu, 0x12) == 0x10);
+
+    emu.layer2().rewind_to_baseline();
+    const uint8_t baseline = emu.layer2().active_bank();
+    emu.layer2().apply_changes_for_line(0);
+    const size_t segs = emu.layer2().line_segment_count();
+    const int col     = emu.layer2().segment_first_column(1, true);
+    const uint8_t row0_bank = emu.layer2().active_bank();
+
+    check("GH270-HPOS-04",
+          "a Copper MOVE NR 0x12 on vblank raw line 3 (column 163 of THAT "
+          "line) owns all of framebuffer row 0: one segment, new bank "
+          "[layer2.vhd:110-122; zxula_timing.vhd:457-466]",
+          geom_ok && fired && baseline == 0x08 && segs == 1
+            && row0_bank == 0x10,
+          "geom_ok=" + std::to_string(geom_ok) +
+          " fired=" + std::to_string(fired) +
+          " baseline=" + std::to_string(baseline) +
+          " segs=" + std::to_string(segs) +
+          " row0_bank=" + std::to_string(row0_bank) +
+          (segs > 1 ? " split_wide_col=" + std::to_string(col) : std::string()) +
+          " (expected 1 segment; the defect split row 0 at column 163/195)");
+}
+
+static void test_gh270_last_vblank_line()
+{
+    set_group("GH270-Vblank");
+
+    // GH270-HPOS-05 — the boundary of HPOS-04, end to end in 320x256.
+    // Three MOVEs late on the LAST raw line before row 0 (bank, X scroll
+    // LSB, X scroll MSB), then a MOVE on row 0 itself. In the wide modes
+    // the first fetched row is framebuffer row 0 = raw line 32, and the
+    // wide vertical counter only reaches 0 on raw line 32
+    // (zxula_timing.vhd:476), so there is no fetch of row 0 on raw line 31
+    // for those writes to miss: all of row 0 uses them. The row-0 MOVE
+    // must still split row 0 at its own column, i.e. on_scanline's
+    // before_display flag is cleared for fb row 0.
+    //
+    // WAIT(line 278, hpos 38): cvc 278 is raw line (278 + 64) mod 311 = 31,
+    // fb row -1; hpos 38 -> hc_ula 316 (copper.vhd:94) -> raw hc 441, wide
+    // column 339, past the right edge. Without the fix the three writes
+    // were replayed from column 339 and the row-0 write was clamped forward
+    // onto it: all of row 0 kept the old bank and scroll.
+    // WAIT(line 279, hpos 20): raw line 32 = fb row 0, raw hc 297, wide
+    // column 195.
+    //
+    // Checked on the segment list and pixel for pixel: row 0 against two
+    // single-segment renders of the same Layer 2 (new bank and scroll for
+    // columns 0..194, old bank and new scroll from 195).
+    Emulator emu;
+    if (!build_next_emulator(emu)) {
+        check("GH270-HPOS-05", "Emulator::init(ZXN_ISSUE2) failed", false, "");
+        return;
+    }
+    const bool geom_ok = (emu.video_timing().hc_max() + 1 == 456 &&
+                          emu.video_timing().display_origin().hc == 136 &&
+                          emu.video_timing().vc_max() + 1 == 311 &&
+                          emu.video_timing().vblank_top() == 32);
+
+    // Row 0 of two 320x256 images (column-major, 5 banks each).
+    for (int x = 0; x < 320; ++x) {
+        const uint32_t off = static_cast<uint32_t>(x) * 256u;
+        emu.ram().write(8u * 16384u + off,
+                        static_cast<uint8_t>(0x80 + x % 90));
+        emu.ram().write(16u * 16384u + off,
+                        static_cast<uint8_t>(0x01 + (x * 3) % 200));
+    }
+
+    emu.run_frame();
+    const uint16_t code_addr = 0xC000;
+    for (uint32_t a = code_addr; a <= 0xFFFF; ++a)
+        emu.mmu().write(static_cast<uint16_t>(a), 0x00);   // NOP sled
+    auto regs = emu.cpu().get_registers();
+    regs.PC = code_addr;
+    regs.IFF1 = 0;
+    regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+
+    emu.copper().reset();
+    for (int i = 0; i < 16; ++i)
+        program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+    program_word(emu, 0, enc_wait(38, 278));      // raw line 31, hc 441
+    program_word(emu, 1, enc_move(0x12, 0x10));   // Layer 2 bank
+    program_word(emu, 2, enc_move(0x16, 0x23));   // X scroll LSB
+    program_word(emu, 3, enc_move(0x71, 0x01));   // X scroll MSB: 0x123
+    program_word(emu, 4, enc_wait(20, 279));      // fb row 0, hc 297
+    program_word(emu, 5, enc_move(0x12, 0x08));   // bank back
+    program_word(emu, 6, enc_wait(0, 511));       // HALT
+    nr_write(emu, 0x64, 0);
+    nr_write(emu, 0x70, 0x10);                    // 320x256 8bpp
+    nr_write(emu, 0x12, 0x08);
+    nr_write(emu, 0x16, 0x00);
+    nr_write(emu, 0x71, 0x00);
+    emu.layer2().set_enabled(true);
+    set_copper_mode(emu, 1);
+
+    emu.run_frame();
+    Layer2& l2 = emu.layer2();
+    const bool fired = (nr_read(emu, 0x12) == 0x08 && l2.scroll_x() == 0x123);
+
+    PaletteManager& pal = emu.palette();
+    auto render_row0 = [&](uint32_t* buf) {
+        std::fill_n(buf, 640, 0u);
+        l2.render_scanline(buf, 0, emu.ram(), pal, pal.global_transparency(),
+                           /*rom_in_sram=*/false, /*priority_dst=*/nullptr,
+                           pal.active_layer2_palette());
+    };
+
+    l2.rewind_to_baseline();
+    const uint8_t baseline = l2.active_bank();
+    const uint16_t baseline_scroll = l2.scroll_x();
+    l2.apply_changes_for_line(0);
+    const size_t segs = l2.line_segment_count();
+    const int col     = segs > 1 ? l2.segment_first_column(1, true) : -1;
+    std::vector<uint32_t> row0(640), left(640), right(640);
+    render_row0(row0.data());
+
+    // The references: the same Layer 2 with one segment on row 0.
+    l2.set_scroll_x_lsb(0x23);
+    l2.set_scroll_x_msb(0x01);
+    l2.set_active_bank(0x10);
+    l2.start_frame();
+    l2.rewind_to_baseline();
+    l2.apply_changes_for_line(0);
+    render_row0(left.data());
+    l2.set_active_bank(0x08);
+    l2.start_frame();
+    l2.rewind_to_baseline();
+    l2.apply_changes_for_line(0);
+    render_row0(right.data());
+
+    int bad = -1;
+    for (int i = 0; i < 640 && bad < 0; ++i)
+        if (row0[i] != (i < 2 * 195 ? left[i] : right[i])) bad = i;
+    const bool differ = left[0] != right[0];   // the halves are distinguishable
+
+    check("GH270-HPOS-05",
+          "320x256: MOVEs of NR 0x12/0x16/0x71 at raw hc 441 of the last "
+          "vblank line own all of row 0; a MOVE on row 0 at column 195 "
+          "still splits it there [zxula_timing.vhd:476; layer2.vhd:110-122]",
+          geom_ok && fired && baseline == 0x08 && baseline_scroll == 0
+            && segs == 2 && col == 195 && differ && bad < 0,
+          "geom_ok=" + std::to_string(geom_ok) +
+          " fired=" + std::to_string(fired) +
+          " baseline=" + std::to_string(baseline) +
+          " baseline_scroll=" + std::to_string(baseline_scroll) +
+          " segs=" + std::to_string(segs) +
+          " col=" + std::to_string(col) +
+          " differ=" + std::to_string(differ) +
+          " first_bad_pixel=" + std::to_string(bad) +
+          " (expected 2 segments split at 195; the defect gave 339)");
+}
+
 // ── GH #270 — every tagged NextREG handler ────────────────────────────
 
 static void test_gh270_tagged_handlers()
@@ -1884,6 +2094,10 @@ int main() {
 
     test_gh270_tagged_handlers();
     std::printf("  Group: GH270-Handlers — done\n");
+
+    test_gh270_vblank_write_owns_row0();
+    test_gh270_last_vblank_line();
+    std::printf("  Group: GH270-Vblank - done\n");
 
     test_gh272_row_boundary_atomic();
     test_gh272_cpu_write_past_boundary();
