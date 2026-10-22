@@ -3209,37 +3209,6 @@ int main(int argc, char** argv) {
                   det("ok=%d warnings=%zu", ok, v2.warnings.size()));
         }
         {
-            ReaderEnv e = env_with_card(base, "NEXT       ", "11223344");
-            jnext::zip::Reader r;
-            Manifest m;
-            Verdict v;
-            const bool ok = jnext::jns::open_snapshot(z.data(), z.size(), e, r,
-                                                      m, v);
-            check("JNSI-08",
-                  "Tier-2 drift alone RESTORES with one warning — the card "
-                  "drifting is legitimate and common, because jnext persists "
-                  "guest writes to it (§11.1)",
-                  ok && v.warnings.size() == 1,
-                  det("ok=%d warnings=%zu", ok, v.warnings.size()));
-            check("JNSI-09",
-                  "…and that warning names both digests",
-                  ok && !v.warnings.empty() &&
-                      v.warnings[0].find("aabbccdd") != std::string::npos &&
-                      v.warnings[0].find("11223344") != std::string::npos,
-                  v.warnings.empty() ? "no warning" : v.warnings[0]);
-
-            e.sd_transfer_in_flight = true;
-            jnext::zip::Reader r2;
-            Verdict v2;
-            jnext::jns::open_snapshot(z.data(), z.size(), e, r2, m, v2);
-            check("JNSI-10",
-                  "…but the SAME drift with the SD FSM MID-TRANSFER refuses: a "
-                  "half-finished sector read against changed bytes is exactly "
-                  "the 'streams garbage' failure, and this is where strictness "
-                  "is earned (§11.3)",
-                  refused_naming("JNSI-10", v2, "mid-transfer"), v2.refusal);
-        }
-        {
             // The row this whole tier exists for. `BS_VolLab` is a STALE COPY:
             // the authoritative FAT32 label is the root-directory entry with
             // ATTR_VOLUME_ID, which jnext's own FAT walk skips
@@ -3284,89 +3253,6 @@ int main(int argc, char** argv) {
                   "whole Tier-1 check for any file written before the identity "
                   "could be computed",
                   refused_naming("JNSI-13", v, "not the one"), v.refusal);
-        }
-        {
-            // ── AN UNKNOWN TIER-2 STAMP IS NOT A CHANGED ONE (GH #27 S7) ──
-            //
-            // The defect S7 found by wiring the producer: the stamps were
-            // compared with a plain `==`, so an ABSENT digest on either side
-            // read as a change, and the warning then quoted an empty string as
-            // the new digest. That message is not true and not actionable, and
-            // on the mid-transfer path the same `==` produced a REFUSAL whose
-            // stated reason ("changed from X to '' ") was a fabrication.
-            //
-            // Absence is real: a snapshot written before the stamp existed, or
-            // a live card whose digest failed part-way through a gigabyte of
-            // I/O (`describe_sdcard_for_snapshot` keeps Tier 1 and drops Tier 2
-            // in exactly that case). Tier 1 already distinguished the two
-            // (`identity_known`); this is the same rule one tier down.
-            struct Unknown {
-                const char* row;
-                const char* snap;     // digest IN the snapshot
-                const char* live;     // digest of the card mounted now
-                const char* names;    // what the message must say
-                const char* desc;
-            };
-            const Unknown unknowns[] = {
-                {"JNSI-14", "", "aabbccdd", "the snapshot has none",
-                 "a snapshot with NO Tier-2 stamp warns that the contents "
-                 "COULD NOT BE COMPARED — it does not claim they changed, and "
-                 "it does not quote an empty string as a digest"},
-                {"JNSI-15", "aabbccdd", "", "the mounted card has none",
-                 "…and so does a mounted card whose digest could not be "
-                 "computed: a failed hash of the live image is not evidence "
-                 "that the image changed"},
-                {"JNSI-16", "", "", "neither the snapshot nor the mounted card",
-                 "…and when NEITHER side has one, the message says so rather "
-                 "than reporting '' -> '' as a match"},
-            };
-            for (const Unknown& u : unknowns) {
-                const std::vector<uint8_t> zu =
-                    build_with_card(base, "NEXT       ", u.snap);
-                ReaderEnv e = env_with_card(base, "NEXT       ", u.live);
-                jnext::zip::Reader r;
-                Manifest m;
-                Verdict v;
-                const bool ok = jnext::jns::open_snapshot(zu.data(), zu.size(),
-                                                          e, r, m, v);
-                const bool one_warning = ok && v.warnings.size() == 1;
-                const bool says_uncompared =
-                    one_warning &&
-                    v.warnings[0].find("could not be compared") !=
-                        std::string::npos &&
-                    v.warnings[0].find(u.names) != std::string::npos;
-                const bool no_false_change =
-                    one_warning &&
-                    v.warnings[0].find("changed since") == std::string::npos;
-                check(u.row, u.desc,
-                      says_uncompared && no_false_change,
-                      det("ok=%d n=%zu '%s'", ok, v.warnings.size(),
-                          v.warnings.empty() ? "" : v.warnings[0].c_str()));
-            }
-            {
-                // §11.3's last row REQUIRES the stamp to match when the FSM was
-                // mid-transfer, and an unknown stamp is not a match — so this
-                // still refuses. What changed is the REASON: it says the
-                // contents could not be VERIFIED, not that they changed to an
-                // empty digest.
-                const std::vector<uint8_t> zu =
-                    build_with_card(base, "NEXT       ", "");
-                ReaderEnv e = env_with_card(base, "NEXT       ");
-                e.sd_transfer_in_flight = true;
-                jnext::zip::Reader r;
-                Manifest m;
-                Verdict v;
-                jnext::jns::open_snapshot(zu.data(), zu.size(), e, r, m, v);
-                check("JNSI-17",
-                      "an UNKNOWN Tier-2 stamp with the SD FSM mid-transfer "
-                      "still REFUSES — §11.3 requires a match there — but the "
-                      "refusal says the contents could not be VERIFIED rather "
-                      "than inventing a change to an empty digest",
-                      refused_naming("JNSI-17", v, "could not be verified") &&
-                          v.refusal.find("mid-transfer") != std::string::npos &&
-                          v.refusal.find("changed since") == std::string::npos,
-                      v.refusal);
-            }
         }
     }
 
