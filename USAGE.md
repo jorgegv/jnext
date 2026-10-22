@@ -1270,13 +1270,13 @@ or, for a name with any other extension (or none), by its contents. When
 it holds several programs the command line refuses, listing them (unzip
 it and name the one you want); the window’s **File \> Load** asks which
 one. An archive that is encrypted, uses a method other than stored or
-deflate, is ZIP64 or multi-disk, has a member over 256 MiB, or names a
-member with an absolute path or `..` is refused with the reason. The
-program is extracted to a temporary file under `~/.jnext/archive-load/`
-(or the **JNEXT_CONFIG_DIR** directory) that is removed when **jnext**
-exits. In the window, a `.pok` file in the archive (the one named like
-the program, else the only one) is offered under **Machine \> POK
-Trainers…**.
+deflate, is ZIP64 or multi-disk, is itself over 256 MiB, has a member
+over 256 MiB, or names a member with an absolute path or `..` is refused
+with the reason. The program is extracted to a temporary file under
+`~/.jnext/archive-load/` (or the **JNEXT_CONFIG_DIR** directory) that is
+removed when **jnext** exits. In the window, a `.pok` file in the
+archive (the one named like the program, else the only one) is offered
+under **Machine \> POK Trainers…**.
 
 `.tap` and `.tzx` load in real time instead with **--tape-realtime**.
 

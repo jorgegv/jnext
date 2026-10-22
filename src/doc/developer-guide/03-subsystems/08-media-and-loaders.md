@@ -174,7 +174,10 @@ file exactly — a block whose declared length runs past the end, or one stray
 byte where a length field should start — the two cases FUSE's libspectrum TAP
 reader rejects. A bad checksum or flag byte inside a complete block is not a
 container error: the tape loads, and the ROM reports "R Tape loading error"
-when it reads that block. `TzxLoader::validate()` does the same for a `.tzx`
+when it reads that block. Those anomalies are warnings, and `parse_blocks()` reports
+only the first `kMaxWarnings` (20) plus one count of the rest: a 256 MiB tape of
+zeros is 134 million zero-length blocks (TAPC-13).
+`TzxLoader::validate()` does the same for a `.tzx`
 against libspectrum's TZX reader: the `ZXTape!` signature, then every block
 walked with that reader's length rules, so a block that runs past the end or a
 header with no block after it refuses the whole tape. ZOT's own `tzx_load()`
@@ -962,7 +965,12 @@ with one name, and extracts to `<config-dir>/archive-load/<process>/<n>/<basenam
 after refusing an absolute, drive-lettered or `..` name (splitting on both `/` and
 `\`, APPNOTE 4.4.17) and sanitising the basename. Several programs are refused
 on the command line (listed) and asked for in the window (`QInputDialog`;
-refused with the list when unattended).
+refused with the list when unattended, and the choice mapped back by INDEX, never
+by re-encoding the text). Duplicate names are found with a hash set (a `find()` per
+member was quadratic: 12 s for 65534 entries). A member name is untrusted bytes:
+every message that carries one goes through `display_name()`, which escapes C0, DEL,
+C1 and anything outside well-formed UTF-8 as `\xNN`, so no consumer can print an
+escape sequence. An archive file over 256 MiB is refused too, before it is read.
 
 **Lifetime.** One `ScratchDir` per process (`process_scratch()`, a function-local
 static, so it is destroyed on any return from `main()`, after the app objects and
