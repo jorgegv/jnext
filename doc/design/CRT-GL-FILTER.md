@@ -152,8 +152,9 @@ TV and PC entries have none, like the Scale entries in the same popup.
 * `test/gui/crt_shader_widget_test.cpp` (32 rows, offscreen QPA): off is the default
   and builds nothing; the software path still presents frames; on-then-off leaves
   nothing behind; switching on either runs or falls back with exactly one message, and an injected overlay failure (live, and stale after a toggle) behaves as specified
-  (the offscreen platform has no GPU, so on a CI host this is the fallback arm — the
-  test prints which outcome it saw); settings defaults, round trip, garbage and older
+  (whether offscreen yields a GL context depends on the host: on Linux Mesa gives one and
+  CRT-W-07 prints OUTCOME=running; a host without one takes the fallback arm; the test
+  prints which outcome it saw); settings defaults, round trip, garbage and older
   configs; the Preferences dialog hands saved values back in any build and collects
   new ones; the View entry exists exactly when the build has the shader, with no
   mnemonic; applying a configuration switches it; Scanlines never builds a GL widget and draws the software lines; a saved Lite-style shader starts as, and shows in Preferences as, Scanlines; the overlay's presents are counted and switching off brings back the newest frame.
