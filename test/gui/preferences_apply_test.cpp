@@ -975,9 +975,8 @@ void test_quick_snapshot_actions()
 /// With a host-action callback set, the File menu / chord only RAISES the
 /// request; the frontend performs it later (quick_save_now / quick_load_now),
 /// once the keys typed before it have been shown to a frame. Unset, they act
-/// at once, which PA-22 pins. PA-25c: a Quick Load digests the SD card once
-/// for its own probe, not again in handle_load_path() (the Qt freeze was 3
-/// whole-card SHA-256 passes; the oracle is the log line each digest writes).
+/// at once, which PA-22 pins. (PA-25c, the one-digest-per-Quick-Load count, was
+/// retired by GH #396 with the digest itself.)
 void test_quick_snapshot_host_actions()
 {
     QTemporaryDir home;
@@ -1034,16 +1033,12 @@ void test_quick_snapshot_host_actions()
     const bool raised_load = raised.size() == 1 && raised[0] == jnext::QuickAction::Load;
     const size_t digests_after_raise = digests();
     f.win.quick_load_now();
-    const size_t digests_after_load = digests();
     check("PA-25b", "with a host-action callback, Quick Load hands nothing to the load route "
                     "until the frontend services the request, then exactly once",
           load != nullptr && not_loaded_yet && raised_load && digests_after_raise == 0 &&
               loaded.size() == 1,
           "loaded_before=" + std::to_string(!not_loaded_yet) + " raised=" +
               std::to_string(raised.size()) + " loaded=" + std::to_string(loaded.size()));
-    check("PA-25c", "a Quick Load of a valid newest .jns digests the SD card once (its own probe), "
-                    "not again in handle_load_path()",
-          digests_after_load == 1, "digests=" + std::to_string(digests_after_load));
     Log::emulator()->sinks().pop_back();
 
     qunsetenv("JNEXT_CONFIG_DIR");
