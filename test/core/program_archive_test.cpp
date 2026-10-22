@@ -357,12 +357,24 @@ int main() {
         check("ZIPI-24", "a compressed size running past the end of the buffer is refused", !ok && !why.empty(), why);
     }
     {
-        Bytes z = slurp(kFix + "/beeper.tap.zip");
+        // Each relaxation the interchange reader needs must still be refused by the
+        // STRICT reader, one at a time: the flag (Info-ZIP's 0x0002) and the extra field.
+        // (The Info-ZIP fixture is refused first on its upper-case name, so the
+        // flag and the extra field are built alone, in lower-case names the grammar allows.)
+        Member f = mem("a.bin", pattern(40), 0);
+        f.flags = 0x0002;
+        const Bytes z = zipfx::build({f});
         jnext::zip::Reader strict;
         std::string why;
         const bool ok = strict.open(z.data(), z.size(), why);
-        check("ZIPI-25", "the STRICT .jns reader still refuses an Info-ZIP archive (flag 0x0002 / extra field)",
-              !ok && !why.empty(), why);
+        Member m = mem("a.bin", pattern(40), 0);
+        m.central_extra = 24;
+        const Bytes z2 = zipfx::build({m});
+        jnext::zip::Reader strict2;
+        std::string why2;
+        const bool ok2 = strict2.open(z2.data(), z2.size(), why2);
+        check("ZIPI-25", "the STRICT .jns reader still refuses an Info-ZIP flag (0x0002) and, alone, a central extra field",
+              !ok && has(why, "general-purpose flags") && !ok2 && has(why2, "extra field"), why + " / " + why2);
     }
 
     // ----------------------------------------------------- program-archive layer
