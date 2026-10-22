@@ -23,6 +23,7 @@
 #include "../row_id.h"
 
 namespace fs = std::filesystem;
+using jnext::dbg::MemSpace;
 
 static int g_total = 0;
 static int g_pass  = 0;
@@ -92,46 +93,46 @@ int main() {
     check("SRCMAP-02", "binary identity reports different bytes as a mismatch",
           mismatch && !*mismatch);
 
-    const auto at4 = map.lookup(4, 0x8016);
+    const auto at4 = map.lookup(MemSpace::page(4), 0x8016);
     check("SRCMAP-03", "lookup on the record's page finds its file and line",
           at4 && at4->file == "main.bas" && at4->line == 6);
-    const auto at5 = map.lookup(5, 0x8016);
+    const auto at5 = map.lookup(MemSpace::page(5), 0x8016);
     check("SRCMAP-04", "the same logical address on another page is that page's record",
           at5 && at5->line == 9);
     check("SRCMAP-05", "an address on a page with no record has no source",
-          !map.lookup(6, 0x8016));
-    const auto dup = map.lookup(4, 0x801B);
+          !map.lookup(MemSpace::page(6), 0x8016));
+    const auto dup = map.lookup(MemSpace::page(4), 0x801B);
     check("SRCMAP-06", "of two records at one address the later wins", dup && dup->line == 8);
-    const auto helper = map.lookup(4, 0x8039);
+    const auto helper = map.lookup(MemSpace::page(4), 0x8039);
     check("SRCMAP-07", "an included file keeps its path, and line:column parses",
           helper && helper->file == "include/helper.bas" && helper->line == 2 &&
               helper->column == 5);
 
-    const auto exact = map.resolve("include/helper.bas:2");
+    const auto exact = map.resolve("include/helper.bas:2").starts;
     check("SRCMAP-08", "file:line resolves to the line's address and page",
-          exact && exact->page && *exact->page == 4 && exact->address == 0x8039);
-    const auto base = map.resolve("helper.bas:2");
+          exact.size() == 1 && exact[0].space == MemSpace::page(4) &&
+              exact[0].address == 0x8039);
+    const auto base = map.resolve("helper.bas:2").starts;
     check("SRCMAP-09", "a unique basename resolves like the full path",
-          base && base->address == 0x8039);
+          base.size() == 1 && base[0].address == 0x8039);
     check("SRCMAP-10", "a line that is not a number does not resolve",
-          !map.resolve("helper.bas:x"));
-    check("SRCMAP-11", "a line with no code does not resolve", !map.resolve("main.bas:99"));
+          map.resolve("helper.bas:x").starts.empty());
+    check("SRCMAP-11", "a line with no code does not resolve",
+          map.resolve("main.bas:99").starts.empty());
 
-    SourceLocation a{"x.bas", 3, 0, std::nullopt, 0x8000};
-    SourceLocation b{"x.bas", 3, 0, uint8_t{4}, 0x9000};
-    SourceLocation c{"x.bas", 4, 0, std::nullopt, 0x8000};
+    SourceLocation a{"x.bas", 3, 0};
+    SourceLocation b{"x.bas", 3, 0};
+    SourceLocation c{"x.bas", 4, 0};
     check("SRCMAP-12", "same_position compares file, line and column, not address or page",
           SourceMap::same_position(a, b) && !SourceMap::same_position(a, c));
 
     // Unqualified records are wildcards for every page.
     {
         SourceMap m;
-        // An SLD record always carries a page; a map built by another adapter
-        // may not. Replace directly to cover the wildcard rule.
-        m.replace({{"w.asm", 1, 0, std::nullopt, 0x8000}, {"w.asm", 3, 0, uint8_t{4}, 0x8000}},
+        m.replace({{MemSpace::page(4), 0x8000, 0x8001, {"w.asm", 3, 0}}}, {},
                   std::nullopt, "adapter");
-        const auto on4 = m.lookup(4, 0x8000);
-        const auto on9 = m.lookup(9, 0x8000);
+        const auto on4 = m.lookup(MemSpace::page(4), 0x8000);
+        const auto on9 = m.lookup(MemSpace::page(9), 0x8000);
         check("SRCMAP-13", "a page-qualified record outranks an unqualified one on its page",
               on4 && on4->line == 3);
         check("SRCMAP-14", "an unqualified record answers on every other page",
@@ -149,8 +150,10 @@ int main() {
             "two/helper.bas|2||0|4|32769|T|\n");
         SourceMap m;
         check("SLD-04", "two files with one basename load", load_sld(m, amb.string()).count == 2);
-        check("SRCMAP-16", "an ambiguous basename does not resolve", !m.resolve("helper.bas:2"));
-        check("SRCMAP-17", "the full path still resolves", m.resolve("one/helper.bas:2").has_value());
+        check("SRCMAP-16", "an ambiguous basename does not resolve",
+              m.resolve("helper.bas:2").starts.empty());
+        check("SRCMAP-17", "the full path still resolves",
+              !m.resolve("one/helper.bas:2").starts.empty());
     }
 
     // Validation, and a failed load leaves the live map alone.
@@ -203,7 +206,7 @@ int main() {
                   r.count == -1 && r.error.find("invalid SHA-256") != std::string::npos);
         }
         check("SLD-13", "a refused load leaves the live map in place",
-              kept.size() == 4 && kept.lookup(4, 0x8016).has_value());
+              kept.size() == 4 && kept.lookup(MemSpace::page(4), 0x8016) != nullptr);
     }
 
     // CRLF line ends (an SLD edited or produced on Windows).
@@ -215,7 +218,7 @@ int main() {
             "c.bas|4||0|4|32768|T|\r\n");
         SourceMap m;
         const auto r = load_sld(m, crlf.string());
-        const auto at = m.lookup(4, 0x8000);
+        const auto at = m.lookup(MemSpace::page(4), 0x8000);
         check("SLD-14", "CRLF line ends load", r.count == 1 && at && at->line == 4);
     }
 
