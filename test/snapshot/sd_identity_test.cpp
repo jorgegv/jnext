@@ -38,7 +38,7 @@
 //                  cost §11.3 asks for, and Tier 2 equal to
 //                  `sdcard::sha256_file` (the "reused verbatim" claim)
 //
-// `--verdict SNAP_IMG CUR_IMG [--mid-transfer] [--force]` is the same code
+// `--verdict SNAP_IMG CUR_IMG [--force]` is the same code
 // path as a driver for `snapshot-sdcard-mismatch-func`: it exits non-zero on a
 // refusal, which is what that row asserts.
 //
@@ -210,17 +210,6 @@ bool is_lower_hex(const std::string& s, size_t want_len) {
     });
 }
 
-/// `YYYY-MM-DDTHH:MM:SSZ`, checked as a shape rather than against a clock.
-bool is_iso8601_utc(const std::string& s) {
-    if (s.size() != 20) return false;
-    static const char* pat = "dddd-dd-ddTdd:dd:ddZ";
-    for (size_t i = 0; i < s.size(); ++i) {
-        if (pat[i] == 'd') { if (!std::isdigit(static_cast<unsigned char>(s[i]))) return false; }
-        else if (s[i] != pat[i]) return false;
-    }
-    return true;
-}
-
 std::string canonical_image() {
     if (const char* env = std::getenv("JNEXT_TEST_SD_IMAGE")) return env;
     const char* home = std::getenv("HOME");
@@ -238,11 +227,9 @@ using jnext::jns::Verdict;
 /// `cur_image`. The ONE path both the rows below and the functional row's
 /// driver take, so the row and the shipped behaviour cannot drift apart.
 bool run_verdict(const std::string& snap_image, const std::string& cur_image,
-                 bool mid_transfer, bool force, Verdict& v, std::string& why) {
+                 bool force, Verdict& v, std::string& why) {
     jnext::jns::SdCardInfo snap_card;
-    // `describe_...` returns false ONLY when Tier 1 could not be read; a
-    // Tier-2 failure returns true with `why` set, which is a card this suite
-    // can still run a verdict against.
+    // `describe_...` returns false ONLY when Tier 1 could not be read.
     if (!jnext::describe_sdcard_for_snapshot(snap_image, false, snap_card,
                                              why)) {
         return false;
@@ -266,7 +253,6 @@ bool run_verdict(const std::string& snap_image, const std::string& cur_image,
 
     ReaderEnv e;
     e.machine               = "next";
-    e.sd_transfer_in_flight = mid_transfer;
     e.force_sdcard          = force;
     if (!jnext::describe_sdcard_for_snapshot(cur_image, false, e.card, why)) {
         return false;
@@ -311,23 +297,22 @@ int make_image_main(int argc, char** argv) {
 
 int verdict_main(int argc, char** argv) {
     std::string snap, cur;
-    bool mid = false, force = false;
+    bool force = false;
     for (int i = 2; i < argc; ++i) {
         const std::string a = argv[i];
-        if (a == "--mid-transfer") mid = true;
-        else if (a == "--force")   force = true;
+        if (a == "--force")        force = true;
         else if (snap.empty())     snap = a;
         else if (cur.empty())      cur = a;
     }
     if (snap.empty() || cur.empty()) {
         std::fprintf(stderr,
                      "usage: sd_identity_test --verdict SNAP_IMG CUR_IMG "
-                     "[--mid-transfer] [--force]\n");
+                     "[--force]\n");
         return 2;
     }
     Verdict v;
     std::string why;
-    if (!run_verdict(snap, cur, mid, force, v, why)) {
+    if (!run_verdict(snap, cur, force, v, why)) {
         std::fprintf(stderr, "HARNESS: %s\n", why.c_str());
         return 2;
     }
@@ -897,7 +882,7 @@ int main(int argc, char** argv) {
     {
         Verdict v;
         std::string w;
-        const bool ran = run_verdict(base_img, base_img, false, false, v, w);
+        const bool ran = run_verdict(base_img, base_img, false, v, w);
         check("JNSI-P27",
               "the same image on both sides restores SILENTLY — no refusal and "
               "no warning at all",
@@ -912,7 +897,7 @@ int main(int argc, char** argv) {
         const uint64_t far = static_cast<uint64_t>(kPartLba + 4000) * 512;
         const bool prepared = copy_image(base_img, m) && poke(m, far, 0x5A);
         const bool ran = prepared &&
-                         run_verdict(base_img, m, false, false, v, w);
+                         run_verdict(base_img, m, false, v, w);
         const bool warned =
             ran && v.warnings.size() == 1 &&
             v.warnings[0].find("contents changed") != std::string::npos;
@@ -932,7 +917,7 @@ int main(int argc, char** argv) {
             copy_image(base_img, m) &&
             poke(m, static_cast<uint64_t>(kPartLba) * 512 + 0x43, 0x99);
         const bool ran = prepared &&
-                         run_verdict(base_img, m, false, false, v, w);
+                         run_verdict(base_img, m, false, v, w);
         check("JNSI-P29",
               "LEG 2 — a mutated BS_VolID REFUSES, and the refusal names BOTH "
               "serials so a user can see which card is mounted without opening "
@@ -945,7 +930,7 @@ int main(int argc, char** argv) {
 
         Verdict vf;
         const bool ran_f = prepared &&
-                           run_verdict(base_img, m, false, true, vf, w);
+                           run_verdict(base_img, m, true, vf, w);
         check("JNSI-P30",
               "…and `--snapshot-mode force` downgrades that refusal to a "
               "warning that still names both serials",
@@ -1004,7 +989,7 @@ int main(int argc, char** argv) {
                   b.fat32_bs_vollab.c_str()));
 
         const bool ran = prepared &&
-                         run_verdict(base_img, m, false, false, v, w);
+                         run_verdict(base_img, m, false, v, w);
         const bool label_silent = std::none_of(
             v.warnings.begin(), v.warnings.end(), [](const std::string& x) {
                 return x.find("label") != std::string::npos ||

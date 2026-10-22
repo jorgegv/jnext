@@ -3254,6 +3254,96 @@ int main(int argc, char** argv) {
                   "could be computed",
                   refused_naming("JNSI-13", v, "not the one"), v.refusal);
         }
+        {
+            // GH #396 (owner, 2026-10-22): Tier 2 is retired. Oracle: plan
+            // sections 3.1 / 3.2 (format doc 11.3). A file from jnext
+            // 1.1.0-1.1.75 carries `content_stamp`; it is ignored, whatever
+            // its shape, and never reported as unknown.
+            const std::string good = jnext::jns::manifest_to_json([&] {
+                Manifest m = make_manifest();
+                m.sdcard.present      = true;
+                m.sdcard.mounted_path = "/card.img";
+                m.sdcard.identity     = base;
+                m.sdcard.vollab       = "NEXT       ";
+                return m;
+            }());
+            auto with_stamp = [&](const char* stamp_json) {
+                std::string t = good;
+                const size_t at = t.find("\"identity\"");
+                t.insert(at, std::string("\"content_stamp\":") + stamp_json + ",");
+                return t;
+            };
+            auto open_text = [&](const std::string& text, Verdict& v) {
+                std::string w2;
+                const std::vector<uint8_t> zt = build_with_manifest_text(text, w2);
+                ReaderEnv e = env_with_card(base, "NEXT       ");
+                jnext::zip::Reader r;
+                Manifest m;
+                return jnext::jns::open_snapshot(zt.data(), zt.size(), e, r, m, v);
+            };
+            {
+                Verdict v;
+                const bool ok = open_text(
+                    with_stamp(R"({"sha256":"00ff","mtime_utc":"2026-01-01T00:00:00Z"})"), v);
+                check("JNSI-18",
+                      "a legacy `content_stamp` whose digest matches nothing "
+                      "opens with NO warning and no refusal, and the retired "
+                      "key is not reported as unknown",
+                      ok && v.warnings.empty() && v.refusal.empty(),
+                      det("ok=%d warnings=%zu '%s'", ok, v.warnings.size(),
+                          v.warnings.empty() ? "" : v.warnings[0].c_str()));
+            }
+            {
+                Verdict v1, v2;
+                const bool ok1 = open_text(with_stamp(R"({"sha256":99})"), v1);
+                const bool ok2 = open_text(with_stamp("\"not an object\""), v2);
+                check("JNSI-19",
+                      "a MALFORMED legacy `content_stamp` (a number where the "
+                      "digest string was, or a non-object) still opens: the "
+                      "retired key is never parsed",
+                      ok1 && ok2 && v1.refusal.empty() && v2.refusal.empty(),
+                      det("ok1=%d ok2=%d '%s' '%s'", ok1, ok2,
+                          v1.refusal.c_str(), v2.refusal.c_str()));
+            }
+            {
+                Manifest m = make_manifest();
+                m.sdcard.present      = true;
+                m.sdcard.mounted_path = "/card.img";
+                m.sdcard.identity     = base;
+                m.sdcard.vollab       = "NEXT       ";
+                const std::string text = jnext::jns::manifest_to_json(m);
+                check("JNSI-20",
+                      "the writer emits `media.sdcard` with identity and "
+                      "informational and NO `content_stamp`",
+                      text.find("content_stamp") == std::string::npos &&
+                          text.find("\"identity\"") != std::string::npos &&
+                          text.find("\"informational\"") != std::string::npos &&
+                          text.find("\"mounted_path\"") != std::string::npos &&
+                          text.find("\"read_only\"") != std::string::npos,
+                      "manifest text");
+            }
+            {
+                // The one SD row whose fixture has no Tier-2 data at all.
+                SdIdentity other = base;
+                other.fat32_volume_id = "99887766";
+                const std::vector<uint8_t> z2 = build_with_card(base, "NEXT       ");
+                ReaderEnv e = env_with_card(other, "NEXT       ");
+                jnext::zip::Reader r;
+                Manifest m;
+                Verdict v;
+                jnext::jns::open_snapshot(z2.data(), z2.size(), e, r, m, v);
+                e.force_sdcard = true;
+                jnext::zip::Reader r2;
+                Verdict v2;
+                const bool okf = jnext::jns::open_snapshot(z2.data(), z2.size(),
+                                                           e, r2, m, v2);
+                check("JNSI-21",
+                      "Tier 1 is unchanged without Tier 2: a differing "
+                      "BS_VolID still refuses, and force still downgrades it",
+                      refused_naming("JNSI-21", v, "not the one") && okf,
+                      v.refusal);
+            }
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
