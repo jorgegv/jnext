@@ -595,7 +595,7 @@ AppConfigData PreferencesDialog::collect() const {
         cfg.crt_shader_style = crt_shader_style_saved_;
         if (crt_choice == crt_initial_choice_) {
             cfg.crt_filter = crt_filter_saved_;
-            cfg.crt_shader = crt_shader_saved_;
+            cfg.crt_shader = crt_shader_saved_ && !crt_filter_saved_;   // both set: one effect, as before
         } else {
             cfg.crt_shader = crt_shader_saved_ && !cfg.crt_filter;
         }
