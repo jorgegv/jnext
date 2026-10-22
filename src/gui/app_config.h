@@ -32,6 +32,7 @@ struct AppConfigData {
     crt_shader::Style crt_shader_style = crt_shader::STYLE_DEFAULT;
     bool        silent                 = false; // matches --silent's default
     bool        tape_fast_load         = true;  // matches the Tape menu's default
+    bool        tape_auto_play         = true;  // GH #395: automatic tape play/stop
 
     // Issue #35 — what a host that cannot emulate in real time sacrifices.
     // Default Audio is the behaviour that existed before the option, so a

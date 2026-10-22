@@ -70,10 +70,8 @@ public:
     bool fast_load() const { return fast_load_; }
     void set_fast_load(bool enabled) { fast_load_ = enabled; }
 
-    /// ROM trap address (same as TAP: LD-BYTES at 0x0556).
-    static constexpr uint16_t LD_BYTES_ADDR = 0x0556;
 
-    /// Handle LD-BYTES ROM trap for fast-load.
+    /// Handle the LD-BREAK (0x056B) ROM trap for fast-load (tape_trap.h).
     /// Extracts the next standard-speed data block from the TZX,
     /// feeds it into memory, and returns true.
     /// Returns false if no suitable block is available.
@@ -91,6 +89,22 @@ public:
 
     /// True if the tape is currently playing.
     bool is_playing() const;
+
+    // -----------------------------------------------------------------------
+    // Automatic play/stop (GH #395)
+    // -----------------------------------------------------------------------
+
+    /// The host's policy for the next update(): hold at the next gap boundary
+    /// (a block's non-zero pause has elapsed); stop blocks hold instead of
+    /// ending the tape (auto_play); a 0x2A block stops only on a 48K machine.
+    void set_auto_policy(bool hold_at_gap, bool auto_play, bool is_48k);
+
+    /// True when the deck is stopped at a gap boundary or a stop block and
+    /// resume() continues it at the next block.
+    bool is_held() const;
+
+    /// Continue a held tape at the next block, from its first pulse.
+    bool resume(uint64_t cpu_clocks);
 
     /// Update EAR output. Call once per Z80 instruction.
     /// Returns the current EAR level (0 or 1).

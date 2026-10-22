@@ -87,6 +87,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     crt_initial_choice_ = crt_choice;
     silent_check_->setChecked(current.silent);
     tape_fast_check_->setChecked(current.tape_fast_load);
+    tape_auto_check_->setChecked(current.tape_auto_play);
     audio_gain_slider_->setValue(static_cast<int>(std::lround(current.audio_gain_db)));
     audio_beeper_gain_slider_->setValue(
         static_cast<int>(std::lround(current.audio_gain_beeper_db)));
@@ -200,6 +201,8 @@ QWidget* PreferencesDialog::build_startup_tab() {
 
     tape_fast_check_ = new QCheckBox(tr("Tape fast-load by default"), tab);
     form->addRow(QString(), tape_fast_check_);
+    tape_auto_check_ = new QCheckBox(tr("Tape: automatic play/stop"), tab);
+    form->addRow(QString(), tape_auto_check_);
 
     return tab;
 }
@@ -604,6 +607,7 @@ AppConfigData PreferencesDialog::collect() const {
     }
     cfg.silent       = silent_check_->isChecked();
     cfg.tape_fast_load = tape_fast_check_->isChecked();
+    cfg.tape_auto_play = tape_auto_check_->isChecked();
     cfg.audio_gain_db = static_cast<float>(audio_gain_slider_->value());
     cfg.audio_gain_beeper_db = static_cast<float>(audio_beeper_gain_slider_->value());
     for (int chip = 0; chip < 3; ++chip)
