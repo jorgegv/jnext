@@ -567,6 +567,7 @@ public:
     /// polls the port. Off: the deck runs straight through, as before.
     void set_tape_auto_play(bool on);
     bool tape_auto_play() const { return tape_auto_play_; }
+    const TapePollDetector& tape_poll() const { return tape_poll_; }
 
     /// Access the tape loader (e.g. for UI tape controls).
     TapLoader& tape() { return tape_; }

@@ -1841,6 +1841,7 @@ int main(int argc, char* argv[]) {
                 gui_app_config.data().esp_allowed_hosts);
         }
 #endif
+        Log::emulator()->info("Tape automatic play/stop: {}", cfg.tape_auto_play ? "on" : "off");
         // An RZX recording replays only on the machine it was made on, so a
         // playback boots that machine (emulator_boot_machine()) — the same
         // rule every cold boot applies. An explicit --machine wins, and

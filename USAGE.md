@@ -457,6 +457,15 @@ it.
 Real-time tape loading, at the speed of an actual tape, instead of fast
 load.
 
+**--tape-auto-play**, **--no-tape-auto-play**  
+Turn automatic tape play/stop on (the default) or off for this run,
+overriding the saved GUI preference. While on, the tape deck stops in
+the silent gap between two blocks when no program is reading the tape,
+and resumes when one does, so tapes whose BASIC loader is slow between
+blocks load in real time; in fast load mode a tape whose loader never
+calls the ROM routine plays in real time instead of hanging. Off, the
+deck runs straight through, as a real one does.
+
 **--tape-save** *FILE*  
 Save to tape, appending to *FILE*; its extension picks the format. A
 `.tzx` or `.wav` records the machine’s tape output (the MIC jack), so a
@@ -1893,9 +1902,9 @@ freely (by default Ctrl+Alt releases it, Alt+Cmd on macOS; see
 **--mouse-release**).
 
 **Tape**  
-Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle); Start
-Saving…, which saves to a TAP, TZX or WAV file as **--tape-save** does,
-and Stop Saving.
+Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle), Auto
+Play/Stop (toggle); Start Saving…, which saves to a TAP, TZX or WAV file
+as **--tape-save** does, and Stop Saving.
 
 **Debug**  
 Magic Breakpoint (toggle), Debugger (Alt+D - the same entry as in

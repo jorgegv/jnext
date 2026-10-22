@@ -15,6 +15,18 @@ follow. Turn it on with **Tape > Fast Load** (uncheck it) or `--tape-realtime`.
 
 `.wav` files are always real time; there is no ROM routine to short-circuit.
 
+**Automatic play/stop** is on by default. A real tape deck needs a finger on
+STOP and PLAY when a program is slow between blocks (many tape conversions run
+a BASIC loader in the gaps). JNEXT does it for you: in a silent gap between
+two blocks, when no program is reading the tape port, the deck stops; it
+plays again, from the start of the next block, as soon as a program reads the
+port again. Nothing is cut or repeated, and a program that keeps listening sees
+the same tape as before. That is why tapes with slow BASIC loaders load in real
+time. In fast load, a tape whose loader never calls the ROM routine plays in
+real time instead of hanging. `.wav` files are never paused. Turn it off with
+**Tape > Auto Play/Stop**, **Settings > Preferences**, or `--no-tape-auto-play`
+for a deck that runs straight through, like a cassette without a finger.
+
 **Tape > Open Tape File…** (Alt+T) loads a tape, fast or in real time as
 **Tape > Fast Load** shows, and **Eject** and **Rewind** do what they say (a
 `.wav` rewinds by starting again). The status bar shows the tape name and, while

@@ -31,6 +31,7 @@ struct Case {
     bool tzx = false;
     std::string path;            // the tape file
     uint16_t entry = 0x0562;     // CALL target
+    uint16_t ix = 0xA000;        // destination
     bool di_before_call = true;
     uint8_t flag = 0xFF;
     uint16_t de = 5;
@@ -54,7 +55,7 @@ inline Bytes caller(const Case& c) {
     Bytes code;
     auto put = [&](std::initializer_list<uint8_t> b) { code.insert(code.end(), b); };
     if (c.rom1_128) put({0x3E, 0x17, 0x01, 0xFD, 0x7F, 0xED, 0x79});   // LD A,17; LD BC,7FFD; OUT (C),A
-    put({0xDD, 0x21, 0x00, 0xA0});                                      // LD IX,0xA000
+    put({0xDD, 0x21, static_cast<uint8_t>(c.ix & 0xFF), static_cast<uint8_t>(c.ix >> 8)});   // LD IX,dest
     put({0x11, static_cast<uint8_t>(c.de & 0xFF), static_cast<uint8_t>(c.de >> 8)});
     put({0x3E, c.flag});                                                // LD A,flag
     put({c.load ? uint8_t(0x37) : uint8_t(0xA7)});                      // SCF / AND A

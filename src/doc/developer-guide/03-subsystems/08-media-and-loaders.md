@@ -130,7 +130,40 @@ caller's return address for a `0x0562` one. The registers it leaves are those of
 the ROM run against jnext's own real-time player, except the ROM's edge-tracking
 byte C, whose value after the sync depends on the pilot phase the ROM caught and
 which the trap pins to `0x21`. A custom or turbo loader that never enters the ROM
-routine is never intercepted, and real time is then the only way it will load.
+routine is never intercepted by the trap; with automatic play/stop (below) it
+plays in real time instead of hanging.
+
+**Automatic play/stop (GH #395)** is a host deck feature with no hardware
+counterpart (no Spectrum has tape motor control). The signal is
+`TapePollDetector` (`src/core/tape_poll_detector.h`): every CPU `IN` of the ULA
+port while `cpu_.executing()` (the debugger's port reads are not counted),
+stamped with `tape_sample_tstates()`. 32 reads in a row, each at most 1000
+T-states after the previous, with the last no more than 1000 T-states old, is
+"polling". 1000 T-states is over the shortest standard pulse (855), and 32 is
+over the ROM's keyboard scan (bursts of 8 reads 59 T apart, then about 69000
+T-states of nothing). There is no PC range (it would serve only ROM loaders
+and differ by ROM) and no register rule: FUSE's "B changes by one" start rule
+cannot see DeciLoad, which polls one address with B constant, and FUSE's own
+detect-loader fails the `xevious-deciload` tape.
+
+- **Real time.** The deck starts at attach as ever. It holds only at a gap
+  boundary, the instant a block and its non-zero pause have finished, and only
+  when nobody polls. It never stops mid-block and never at a zero-pause join. It
+  resumes at the first counted read once polling: the next block from its first
+  pulse. TAP: `TapLoader::set_gap_hold` / `resume`. TZX: ZOT's `hold_request`,
+  `held`, `tzx_resume()`; a stop block (0x20 pause 0, 0x2A) holds instead of
+  ending the tape, and 0x2A stops only on a 48K machine. WAV has no gaps.
+- **Fast mode.** A polling program with no tape playing auto-starts the deck at
+  the block the trap would serve next (`TzxLoader::auto_start()` seeks ZOT there:
+  one tape position for the trap and the player). An auto-started deck holds at
+  every gap, polling or not, and the `0x056B` trap may take it over while it is
+  in a pilot, sync or pause (`take_over()`), so a false start never costs a
+  ROM load.
+- **State.** The detector and the hold are host-deck state, not serialised, and
+  reset on every state load (tape position is excluded from rewind and
+  snapshots by design). Off (`tape_auto_play`, `--no-tape-auto-play`) is the
+  deck as it was: no hold, stop blocks stop for good, fast mode never starts
+  the deck.
 
 Saving works the same way in reverse. `--tape-save` (or Tape ▸ Start Saving,
 both through `Emulator::start_tape_save()`) arms one of two savers by the
