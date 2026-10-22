@@ -62,6 +62,7 @@
 #include <string>
 #include <initializer_list>
 #include <unistd.h>
+#include <utility>
 #include "../row_id.h"
 
 namespace fs = std::filesystem;
@@ -133,6 +134,16 @@ static std::string program_sld_without(unsigned page80, unsigned page90,
                                     std::to_string(page80) + "|");
         text.erase(at, text.find('\n', at) + 1 - at);
     }
+    return text;
+}
+
+// A one-file SLD of `x.asm` records (position, address) on page `page`.
+static std::string x_sld(unsigned page,
+                         std::initializer_list<std::pair<const char*, unsigned>> records) {
+    std::string text = std::string("|SLD.data.version|1\n") + "x.asm|1||0" + kNextDevice;
+    for (const auto& [pos, addr] : records)
+        text += std::string("x.asm|") + pos + "||0|" + std::to_string(page) + "|" +
+                std::to_string(addr) + "|T|\n";
     return text;
 }
 
@@ -534,6 +545,31 @@ int main() {
               m.where() + " ran " + std::to_string(ran));
     }
 
+    // A record covers the bytes up to the next one: the step goes by statement,
+    // not by exact record address (GH #338).
+    {
+        const fs::path nops = dir / "nops.sld";
+        write_text(nops, x_sld(p80, {{"1", 0x8000}, {"2", 0x8003}}));
+        Machine m;
+        for (uint16_t a = 0x8000; a < 0x8004; ++a) m.emu.mmu().write(a, 0x00);   // NOP x4
+        m.dbg->load_source_map(nops.string(), false);
+        m.set_pc(0x8001);   // inside x.asm:1, not at its record
+        m.dbg->source_step(m.a, Step::Into);
+        check("SRCDBG-STEP-18", "a step from inside a statement's range, not at its record "
+                                "address, runs to the next statement",
+              m.pc() == 0x8003, m.where());
+
+        const fs::path cols = dir / "cols.sld";
+        write_text(cols, x_sld(p80, {{"5:1", 0x8000}, {"5:7", 0x8001}, {"6", 0x8002}}));
+        Machine n;
+        for (uint16_t a = 0x8000; a < 0x8004; ++a) n.emu.mmu().write(a, 0x00);
+        n.dbg->load_source_map(cols.string(), false);
+        n.dbg->source_step(n.a, Step::Into);
+        check("SRCDBG-STEP-19", "a step stops between two columns of one line: the column is "
+                                "part of the position",
+              n.pc() == 0x8001, n.where());
+    }
+
     // ── source_step() backwards ─────────────────────────────────────────
     {
         Machine m(/*rewind=*/true);
@@ -586,6 +622,42 @@ int main() {
         check("SRCDBG-BACK-08", "Back counts a statement's consecutive instructions as one "
                                 "position: from the second, it lands on the statement before",
               at && m.pc() == 0x9003, m.where());
+    }
+
+    {
+        // Back lands on the FIRST instruction of the previous statement (the
+        // inverse of Into), not on the last one it ran (GH #338).
+        const fs::path nops = dir / "back-nops.sld";
+        write_text(nops, x_sld(p80, {{"1", 0x8000}, {"2", 0x8003}}));
+        Machine m(/*rewind=*/true);
+        for (uint16_t a = 0x8000; a < 0x8004; ++a) m.emu.mmu().write(a, 0x00);   // NOP x4
+        m.dbg->load_source_map(nops.string(), false);
+        m.dbg->set_trace_enabled(true);
+        m.dbg->source_step(m.a, Step::Into);   // $8000 -> $8003
+        const bool at = m.pc() == 0x8003;
+        m.dbg->source_step(m.a, Step::Back);
+        check("SRCDBG-BACK-10", "Back lands on the first instruction of the previous "
+                                "multi-instruction statement",
+              at && m.pc() == 0x8000, m.where());
+
+        // The statement's run is not broken by code that has no location: a
+        // call into code on another page is part of the statement.
+        const fs::path call = dir / "back-call.sld";
+        write_text(call, x_sld(p80, {{"1", 0x8000}, {"2", 0x8004}}));
+        Machine n(/*rewind=*/true);
+        const uint8_t prog[] = {0xCD, 0x00, 0xC0, 0x00, 0x00};   // CALL $C000; NOP; NOP
+        for (size_t i = 0; i < sizeof(prog); ++i)
+            n.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+        n.emu.mmu().write(0xC000, 0xC9);   // RET
+        const bool other_page = n.dbg->effective_page(0xC000) != p80;   // read, not assumed
+        n.dbg->load_source_map(call.string(), false);
+        n.dbg->set_trace_enabled(true);
+        n.dbg->source_step(n.a, Step::Into);   // CALL, RET, NOP -> $8004
+        const bool there = n.pc() == 0x8004;
+        n.dbg->source_step(n.a, Step::Back);
+        check("SRCDBG-BACK-11", "Back passes over unmapped code inside the previous "
+                                "statement and lands on its first instruction",
+              other_page && there && n.pc() == 0x8000, n.where());
     }
 
     // ── fetch identity: a page names RAM only when RAM supplies the fetch ─

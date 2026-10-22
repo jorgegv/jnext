@@ -2,6 +2,7 @@
 // behind source-level debugging (doc/design/SOURCE-LEVEL-DEBUGGING.md):
 //
 //   SRCMAP-*   SourceMap: page-aware lookup, file:line resolution, identity
+//   SRCRNG-*   SourceMap ranges: address ranges, overlap, line entries, "no code at"
 //   SLD-*      the sjasmplus SLD v1 adapter, its validation and sidecar search
 //   NBSYM-*    the NextBuild / Boriel ZX Basic Memory.txt adapter and
 //              SymbolTable::resolve() for address fields
@@ -16,14 +17,30 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <new>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <type_traits>
 #include <unistd.h>
 #include "../row_id.h"
 
 namespace fs = std::filesystem;
 using jnext::dbg::MemSpace;
+
+// Counts every allocation, so SRCRNG-09 can prove lookup() makes none.
+static long g_allocations = 0;
+void* operator new(std::size_t n) {
+    ++g_allocations;
+    if (void* p = std::malloc(n ? n : 1)) return p;
+    throw std::bad_alloc();
+}
+void* operator new[](std::size_t n) { return operator new(n); }
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete[](void* p) noexcept { std::free(p); }
+void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
 
 static int g_total = 0;
 static int g_pass  = 0;
@@ -298,6 +315,166 @@ int main() {
         check("SLD-23", "a file of exactly the 64 MiB cap passes the size check, one byte "
                         "more is refused with its size",
               at_cap && over.find(std::to_string(big)) != std::string::npos);
+    }
+
+    // ── Ranges (GH #338, design 5.1 / 9.1) ──────────────────────────────
+    // Oracle: the SLD records each row writes (sjasmplus emits one T record per
+    // instruction) and the design's range semantics. No VHDL counterpart.
+    {
+        auto rec = [](const char* file, const char* pos, int page, unsigned addr) {
+            return std::string(file) + "|" + pos + "||0|" + std::to_string(page) + "|" +
+                   std::to_string(addr) + "|T|\n";
+        };
+        auto load = [&](SourceMap& m, const char* name, const std::string& first_file,
+                        const std::string& records) {
+            const fs::path p = dir / name;
+            write_text(p, std::string("|SLD.data.version|1\n") + first_file + "|1||0" +
+                              kNextDevice + records);
+            return load_sld(m, p.string()).count;
+        };
+        const MemSpace p4 = MemSpace::page(4);
+        auto is = [](const SourceLocation* l, const char* file, int line) {
+            return l && l->file == file && l->line == line;
+        };
+
+        {
+            SourceMap m;
+            load(m, "rng1.sld", "x.asm", rec("x.asm", "1", 4, 0x8000) + rec("x.asm", "2", 4, 0x8003));
+            check("SRCRNG-01", "an address inside a record's range, not only its first byte, "
+                               "has the record's location; below the first record, none",
+                  is(m.lookup(p4, 0x8001), "x.asm", 1) && is(m.lookup(p4, 0x8002), "x.asm", 1) &&
+                      !m.lookup(p4, 0x7FFF));
+            check("SRCRNG-02", "a record ends where the next one starts: the next address "
+                               "has one location, not two",
+                  is(m.lookup(p4, 0x8003), "x.asm", 2) && m.lookup_all(p4, 0x8003).size() == 1);
+        }
+        {
+            SourceMap m;
+            load(m, "rng3.sld", "x.asm", rec("x.asm", "1", 4, 0x9FFE) + rec("x.asm", "2", 4, 0xA002));
+            check("SRCRNG-03", "an SLD record ends at its 8K page end: $A000-$A001 are no "
+                               "statement, $A002 is the next",
+                  is(m.lookup(p4, 0x9FFF), "x.asm", 1) && !m.lookup(p4, 0xA000) &&
+                      !m.lookup(p4, 0xA001) && is(m.lookup(p4, 0xA002), "x.asm", 2));
+        }
+        {
+            SourceMap m;
+            m.replace({{p4, 0x8004, 0x8008, {"a.c", 7, 0}}, {p4, 0x8000, 0x8010, {"a.c", 3, 0}}},
+                      {}, std::nullopt, "mem");
+            const auto all = m.lookup_all(p4, 0x8005);
+            check("SRCRNG-04", "of overlapping ranges the shortest is primary, even when a "
+                               "longer one was emitted later; lookup_all lists both",
+                  is(m.lookup(p4, 0x8005), "a.c", 7) && all.size() == 2 &&
+                      is(all[0], "a.c", 7) && is(all[1], "a.c", 3) &&
+                      is(m.lookup(p4, 0x8002), "a.c", 3));
+        }
+        {
+            SourceMap m;
+            m.replace({{p4, 0x8C95, 0x8C9A, {"main.c", 17, 0}}, {p4, 0x8C95, 0x8C9A, {"main.c", 16, 0}}},
+                      {}, std::nullopt, "mem");
+            const auto all = m.lookup_all(p4, 0x8C95);
+            check("SRCRNG-05", "of equal ranges the later-emitted is primary, not the higher line",
+                  is(m.lookup(p4, 0x8C95), "main.c", 16) && all.size() == 2 &&
+                      is(all[0], "main.c", 16) && is(all[1], "main.c", 17));
+        }
+        {
+            SourceMap m;
+            load(m, "rng6.sld", "a.asm",
+                 rec("a.asm", "10", 4, 0x8000) + rec("a.asm", "11", 4, 0x8003) +
+                 rec("a.asm", "10", 4, 0x9000) + rec("a.asm", "12", 4, 0x9002) +
+                 rec("a.asm", "10", 20, 0xC000));
+            const auto st = m.resolve("a.asm:10").starts;
+            check("SRCRNG-06", "a line compiled to several places resolves to every one, "
+                               "sorted by space then address",
+                  st.size() == 3 && st[0].space == p4 && st[0].address == 0x8000 &&
+                      st[1].space == p4 && st[1].address == 0x9000 &&
+                      st[2].space == MemSpace::page(20) && st[2].address == 0xC000);
+        }
+        {
+            SourceMap m;
+            m.replace({{p4, 0x8C92, 0x8C92, {"main.c", 14, 0}},
+                       {p4, 0x8C92, 0x8C95, {"main.c", 15, 0}},
+                       {p4, 0x8C95, 0x8C95, {"main.c", 16, 0}},
+                       {p4, 0x8C95, 0x8C9A, {"main.c", 17, 0}}},
+                      {{"main.c", 16, 3}}, std::nullopt, "mem");
+            const auto r16 = m.resolve("main.c:16");
+            const auto r14 = m.resolve("main.c:14");
+            const auto all = m.lookup_all(p4, 0x8C95);
+            check("SRCRNG-07", "a zero-width line resolves through its alias; one with none "
+                               "is refused as \"no code at\"; a zero-width range covers nothing",
+                  r16.starts.size() == 1 && r16.starts[0].space == p4 &&
+                      r16.starts[0].address == 0x8C95 && r14.starts.empty() &&
+                      r14.error == "no code at main.c:14" && all.size() == 1 &&
+                      is(all[0], "main.c", 17));
+        }
+        {
+            SourceMap m;
+            load(m, "rng8.sld", "x.asm",
+                 rec("x.asm", "5:3", 4, 0x8000) + rec("x.asm", "5:7", 4, 0x8001) +
+                 rec("x.asm", "5:3", 4, 0x8002));
+            const SourceLocation* a = m.lookup(p4, 0x8000);
+            const SourceLocation* b = m.lookup(p4, 0x8001);
+            const SourceLocation* c = m.lookup(p4, 0x8002);
+            check("SRCRNG-08", "positions on one line differ by column",
+                  a && b && c && a->line == 5 && b->line == 5 &&
+                      !SourceMap::same_position(*a, *b) && SourceMap::same_position(*a, *c));
+        }
+        {
+            SourceMap m;
+            load(m, "rng9.sld", "x.asm", rec("x.asm", "1", 4, 0x8000) + rec("x.asm", "2", 4, 0x8003));
+            const SourceLocation* first = m.lookup(p4, 0x8001);
+            const bool same = first && first == m.lookup(p4, 0x8001) && first == m.lookup(p4, 0x8002) &&
+                              first == m.lookup_all(p4, 0x8001)[0];
+            const long before = g_allocations;
+            long hits = 0;
+            for (int i = 0; i < 1000; ++i)
+                hits += m.lookup(p4, static_cast<uint16_t>(0x8000 + (i & 3))) != nullptr;
+            const long made = g_allocations - before;
+            static_assert(std::is_same_v<decltype(m.lookup(p4, 0)), const SourceLocation*>,
+                          "lookup() returns the stored location by pointer");
+            check("SRCRNG-09", "lookup() returns the one stored location, without copying "
+                               "or allocating",
+                  same && hits == 1000 && made == 0);
+        }
+        {
+            SourceMap m;
+            load(m, "rng10.sld", "src/game/main.asm",
+                 rec("src/game/main.asm", "1", 4, 0x8000) + rec("lib/util.asm", "1", 4, 0x8010));
+            const auto a = m.resolve("main.asm:1").starts;
+            const auto b = m.resolve("game/main.asm:1").starts;
+            const auto c = m.resolve("src/game/main.asm:1").starts;
+            const SourceResolution d = m.resolve("ain.asm:1");
+            const SourceResolution e = m.resolve("me/main.asm:1");
+            check("SRCRNG-10", "a path matches by whole trailing components, never by "
+                               "characters, and a refusal says nothing",
+                  a.size() == 1 && b.size() == 1 && c.size() == 1 && a[0].address == 0x8000 &&
+                      b[0].address == 0x8000 && c[0].address == 0x8000 && d.starts.empty() &&
+                      d.error.empty() && e.starts.empty() && e.error.empty());
+        }
+        {
+            SourceMap m;
+            load(m, "rng11.sld", "x.asm",
+                 rec("x.asm", "5:1", 4, 0x8000) + rec("x.asm", "5:13", 4, 0x8002) +
+                 rec("x.asm", "7", 4, 0x8004) + rec("x.asm", "7", 4, 0x8005) +
+                 rec("x.asm", "8", 4, 0x8006));
+            const auto l5 = m.resolve("x.asm:5").starts;
+            const auto l7 = m.resolve("x.asm:7").starts;
+            check("SRCRNG-11", "a line's several instructions are one start: a range "
+                               "that continues another of the same line is not an entry",
+                  l5.size() == 1 && l5[0].address == 0x8000 && l7.size() == 1 &&
+                      l7[0].address == 0x8004);
+        }
+        {
+            SourceMap m;
+            load(m, "rng12.sld", "x.asm", rec("x.asm", "1", 4, 0x8000));
+            check("SRCRNG-12", "a record names its memory space: no other space, and no "
+                               "other page, answers for it",
+                  m.lookup(MemSpace::page(4), 0x8000) &&
+                      !m.lookup(MemSpace::divmmc_ram(4), 0x8000) &&
+                      !m.lookup(MemSpace::layer2(4), 0x8000) &&
+                      !m.lookup(MemSpace::config(4), 0x8000) &&
+                      !m.lookup(MemSpace::page(5), 0x8000) &&
+                      !m.lookup(MemSpace::cpu(), 0x8000));
+        }
     }
 
     // ── NextBuild Memory.txt ────────────────────────────────────────────
