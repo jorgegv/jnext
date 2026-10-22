@@ -12,8 +12,8 @@ the Break key.)
 effect off.
 
 - *Scanlines* overlays soft scanlines, for a more period-accurate look.
-- *Soft scanlines* (**View > CRT Soft Scanlines**) draws the same idea on the GPU: finer,
-  softer lines than Scanlines. It needs a graphics card with OpenGL; on a computer without one
+- *Soft scanlines* (**View > CRT Soft Scanlines**) draws the same idea on the GPU: softer, slightly blurred
+  lines than Scanlines. It needs a graphics card with OpenGL; on a computer without one
   (software OpenGL) it costs much more processor time than Scanlines, which is why it is a separate choice.
 - *TV* draws the display through a GPU emulation of a cathode-ray tube: a curved
   screen (the whole picture stays inside the glass, with a thin black margin), bloom around
