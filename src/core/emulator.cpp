@@ -109,7 +109,7 @@ Emulator::~Emulator()
 bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
-    // GH #395 — automatic tape play/stop is a host deck setting; a polling run
+    // GH #395 - automatic tape play/stop is a host deck setting; a polling run
     // never outlives the machine it was counted on.
     tape_auto_play_ = cfg.tape_auto_play;
     tape_poll_.reset();
@@ -4933,7 +4933,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // brought up to it, TZX/WAV evaluated at it. It used to be the
             // level at the instruction's start (TAP) or one T-state before
             // the I/O cycle's data latch (TZX/WAV, the live FUSE counter).
-            // GH #395 — automatic tape play/stop: count the CPU's read.
+            // GH #395 - automatic tape play/stop: count the CPU's read.
             if (tape_auto_play_ && cpu_.executing() && !rzx_player_.is_playing())
                 tape_auto_on_read_();
             bool playing = true;

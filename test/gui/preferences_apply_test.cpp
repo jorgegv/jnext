@@ -1370,7 +1370,7 @@ void test_debug_keymap_passthrough()
           render_combo(passthrough.debug_keys.combo(jnext::dbgkeys::Action::Run)));
 }
 
-/// PA-26 — GH #395: the Preferences "automatic play/stop" setting reaches the
+/// PA-26 - GH #395: the Preferences "automatic play/stop" setting reaches the
 /// machine (and Apply with it on leaves it on).
 void test_tape_auto_play_preference()
 {

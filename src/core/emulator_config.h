@@ -212,7 +212,7 @@ struct EmulatorConfig {
     // and for testing the recording path itself.
     bool warm_start_regenerate = false;
 
-    // GH #395 — automatic tape play/stop (Tape menu, Preferences,
+    // GH #395 - automatic tape play/stop (Tape menu, Preferences,
     // --tape-auto-play / --no-tape-auto-play). Default ON.
     bool tape_auto_play = true;
 

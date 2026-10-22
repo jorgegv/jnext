@@ -2424,7 +2424,7 @@ private:
     uint64_t tap_sync_serial_ = 0;
     uint32_t tap_sync_ts_     = 0;
 
-    // GH #395 — automatic tape play/stop. Host deck state: not serialised,
+    // GH #395 - automatic tape play/stop. Host deck state: not serialised,
     // reset on every state load (tape position is excluded from rewind and
     // snapshots by design).
     bool             tape_auto_play_ = true;

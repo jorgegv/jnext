@@ -283,7 +283,7 @@ int main(int argc, char* argv[]) {
     std::string benchmark_label;       // --benchmark-label; empty = derive
     bool        silent = false;
     bool        tape_realtime = false;
-    // GH #395 — --tape-auto-play / --no-tape-auto-play: last one wins; `_set`
+    // GH #395 - --tape-auto-play / --no-tape-auto-play: last one wins; `_set`
     // lets the negation override a saved GUI preference.
     bool        tape_auto_play = true;
     bool        tape_auto_play_set = false;
@@ -1830,7 +1830,7 @@ int main(int argc, char* argv[]) {
             // saved entry the user cannot get rid of from the command line.
             cfg.esp_enabled = merge_cli_precedence(esp_enabled_set, esp_enabled,
                                                    gui_app_config.data().esp_enabled);
-            // GH #395 — the same CLI-over-saved resolution; the merged value
+            // GH #395 - the same CLI-over-saved resolution; the merged value
             // reaches the machine through cfg and the Tape menu through the
             // saved-config mirror below.
             cfg.tape_auto_play = merge_cli_precedence(tape_auto_play_set, tape_auto_play,
