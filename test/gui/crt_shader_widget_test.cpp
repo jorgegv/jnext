@@ -28,7 +28,8 @@
 //   CRT-W-30      note_overlay_presented() not counting; CRT-W-31 drop_crt_overlay() not
 //                 copying the newest frame back; CRT-W-32 Preferences not mapping Lite to Soft
 //   CRT-W-39      no GL probe before the overlay (a GL widget in a no-GL window); CRT-W-40 start-up
-//                 fallback to crt_filter; CRT-W-41 Preferences vs start-up in a no-shader build
+//                 fallback to crt_filter; CRT-W-41 Preferences vs start-up in a no-shader build; CRT-W-42 a saved Soft
+//                 set to Off in Preferences still starting as Scanlines (no-shader build)
 //   CRT-W-33..38  Soft Scanlines: the View entry, five-way exclusivity, the Lite overlay, the
 //                 Preferences choice, and the GL-failure fallback to the software Scanlines
 //   CRT-W-10      crt_shader not written by AppConfig::save()
@@ -888,6 +889,24 @@ int main(int argc, char** argv) {
               shown.toStdString() + " / " + shown2.toStdString());
     }
 
+    {
+        // A saved Soft scanlines, the pop-up changed to Off: nothing may run at the next start
+        // (a build without the shader shows Soft as Scanlines and must not keep it alive).
+        AppConfigData soft;
+        soft.crt_shader = true;
+        soft.crt_shader_style = crt_shader::Style::Lite;
+        PreferencesDialog dlg(soft);
+        QComboBox* combo = crt_combo(dlg);
+        if (combo) choose(combo, "Off");
+        const AppConfigData out = apply_and_collect(dlg);
+        MainWindow w;
+        w.show();
+        settle();
+        w.apply_startup_config(out);
+        check("CRT-W-42", "a saved Soft scanlines changed to Off in Preferences starts as no effect at all, in a build with or without the shader",
+              combo && !out.crt_filter && !out.crt_shader && !w.crt_filter() && !w.crt_shader(),
+              "out: filter=" + std::to_string(out.crt_filter) + " shader=" + std::to_string(out.crt_shader));
+    }
     app.closeAllWindows();
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
