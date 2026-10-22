@@ -336,7 +336,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 
 | Mechanism | Today (v1.1.64 plus E23-07) | Design | Changed by |
 |---|---|---|---|
-| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The source map and the call stack still take a RAM page through `ram_page_of()` (`debug/ram_page.h`), `NOT_RAM_PAGE` for any other kind; the trace flag and the breakpoint gate reduce the identity to "not a `Page`" | 4.1, 4.2, 4.4 | E23-07 (#339) |
+| Fetch identity at the PC | DONE (E23-07 (#339)): `Mmu::route()` / `route_with()` are the one arbiter and `read()` / `read_m1()` / `read_fetch()` sit on it; `Emulator::predict_fetch(pc)` asks `route_with()` with the M1's own answers (`DivMmc::active_on_m1()`, `Multiface::would_latch_on_m1()`); `Debugger::source_page()` returns the `FetchSource` (`MemSpace`, `debug/mem_space.h`). The call stack still takes a RAM page through `ram_page_of()` (`debug/ram_page.h`), `NOT_RAM_PAGE` for any other kind; the trace flag and the breakpoint gate reduce the identity to "not a `Page`" | 4.1, 4.2, 4.4 | E23-07 (#339) |
 | Identity in history | `TraceLog` keeps a flag per entry beside `TraceEntry` (`not_ram_`), predicted just before the instruction runs by `Emulator::predict_instruction_()` (the bytes the CPU will fetch, so the flag and the trace bytes follow the M1 overlay); Back reads `te.mmu[slot]`, `rom_slots` and the flag. `Mmu::last_m1()` records the fetch but nothing reads it yet | 4.3 | E23-08 (#340) |
 | Identity in call frames | `CallFrame::caller_page` and `target_page` (`uint8_t`; `NOT_RAM_PAGE` for ROM or an overlay), from the same prediction; the call-stack opcode bytes follow the M1 overlay | 4.3 | E23-08 (#340) |
 | Source map | DONE (E23-06 (#338)): ranges `{FetchSource, lo, hi_excl, location}`, overlaps allowed, a segment index (one binary search, no allocation); `lookup` returns the primary `const SourceLocation*` into the store, `lookup_all` every one; `resolve()` returns the line's entries and a reason ("no code at"); the SLD adapter extends each record to the next distinct start in its page, capped at the 8K page end | 5 | E23-06 (#338) |
@@ -1148,7 +1148,13 @@ arbiter's order, one row per arm, and `read()` equal to its route; `mmu_test` an
 `mmu_integration_test`), MF-M1G-07 (`multiface_test`), DM-PRED-01 (`divmmc_test`) and
 SRCDBG-ID-09 to SRCDBG-ID-15 and SRCDBG-ID-18 to SRCDBG-ID-50, and SRCDBG-PURE-01/02
 (`source_debug_test`: the prediction against the recorded fetch, the fetch and data
-views, the prefix chains, the trace bytes, the call stack).
+views, the prefix chains, the trace bytes, the call stack). E23-06 (#338) added SRCRNG-01 to
+SRCRNG-15 (`source_map_test`: ranges, overlap, line entries, "no code at", the file suffix
+rule, sorted unique starts, the SLD page-end cap), SRCDBG-STEP-18/19 and SRCDBG-BACK-10 to
+SRCDBG-BACK-12 (`source_debug_test`: steps by range, Back to the statement's first
+instruction and to its last pass), and QBPP-04 to QBPP-07 and QADR-10/11
+(`debugger_source_panel_test`: a source line arms every start, "no code at", the Source
+column of a logical breakpoint).
 
 **Planned.** `z88dk_map_test` (E23-13), `z88dk_lis_test` (E23-17), the fixture-hash row
 Z88FIX-01 (E23-12), and the functional rows `source-map-func` (a looked-up line, E23-15) and

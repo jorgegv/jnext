@@ -967,6 +967,14 @@ void test_line_starts() {
           edited && two_rows(false), "rows=" + std::to_string(m.rows().size()));
     m.clear_all();
 
+    // A logical breakpoint (no page) on a mapped address names its line too.
+    m.add(BreakpointModel::Execute, 0x8002);
+    bp->refresh();
+    check("QBPP-07", "the Symbol / Source column names the line of a breakpoint with no "
+                     "page, by what is mapped at its address",
+          cell(bp, 0, 3) == QStringLiteral("main.bas:11"), s(cell(bp, 0, 3)));
+    m.clear_all();
+
     QAction* add_exec = nullptr;
     for (QAction* a : fx.dbg()->menuBar()->actions())
         if (a->menu())

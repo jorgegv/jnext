@@ -475,6 +475,41 @@ int main() {
                       !m.lookup(MemSpace::page(5), 0x8000) &&
                       !m.lookup(MemSpace::cpu(), 0x8000));
         }
+        {
+            // One copy ends exactly where the copy in another page starts: the
+            // second is not a continuation of the first.
+            SourceMap m;
+            load(m, "rng13.sld", "lib.asm",
+                 rec("lib.asm", "10", 4, 0x8000) + rec("other.asm", "1", 4, 0x8003) +
+                 rec("lib.asm", "10", 5, 0x8003));
+            const auto st = m.resolve("lib.asm:10").starts;
+            check("SRCRNG-13", "copies of a line in two pages, one ending where the other "
+                               "starts, are two starts",
+                  st.size() == 2 && st[0].space == p4 && st[0].address == 0x8000 &&
+                      st[1].space == MemSpace::page(5) && st[1].address == 0x8003);
+        }
+        {
+            // Records written out of order, one of them twice.
+            SourceMap m;
+            load(m, "rng14.sld", "a.asm",
+                 rec("a.asm", "10", 20, 0xC000) + rec("a.asm", "10", 4, 0x9000) +
+                 rec("a.asm", "10", 4, 0x8000) + rec("b.asm", "1", 4, 0x8003) +
+                 rec("a.asm", "10", 4, 0x8000));
+            const auto st = m.resolve("a.asm:10").starts;
+            check("SRCRNG-14", "starts come back sorted by space then address, each once, "
+                               "whatever order the records were written in",
+                  st.size() == 3 && st[0].space == p4 && st[0].address == 0x8000 &&
+                      st[1].space == p4 && st[1].address == 0x9000 &&
+                      st[2].space == MemSpace::page(20) && st[2].address == 0xC000);
+        }
+        {
+            SourceMap m;
+            load(m, "rng15.sld", "x.asm", rec("x.asm", "1", 4, 0x8000));
+            check("SRCRNG-15", "the last record of a page ends at that page's 8K end, not "
+                               "at the end of the address space",
+                  is(m.lookup(p4, 0x9FFF), "x.asm", 1) && !m.lookup(p4, 0xA000) &&
+                      !m.lookup(p4, 0xFFFF));
+        }
     }
 
     // ── NextBuild Memory.txt ────────────────────────────────────────────

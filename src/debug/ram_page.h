@@ -11,10 +11,10 @@
 inline constexpr uint8_t NOT_RAM_PAGE = 0xFF;
 
 /// The page-keyed view of a fetch source (GH #339): the MMU RAM page when the
-/// fetch came from `MemSpace::Page`, else NOT_RAM_PAGE. The source map, the
-/// trace and the call-stack tracker are still keyed by page number (they move
-/// to the full `MemSpace` in their own sub-issues of epic #23); this is the one
-/// bridge, so no consumer re-derives "is it RAM" from the kind.
+/// fetch came from `MemSpace::Page`, else NOT_RAM_PAGE. The trace and the
+/// call-stack tracker are still keyed by page number (they move to the full
+/// `MemSpace` in their own sub-issues of epic #23; the source map already is, GH
+/// #338); this is the one bridge, so no consumer re-derives "is it RAM" from the kind.
 constexpr uint8_t ram_page_of(jnext::dbg::MemSpace s) {
     return s.kind == jnext::dbg::MemSpace::Kind::Page ? static_cast<uint8_t>(s.index)
                                                       : NOT_RAM_PAGE;

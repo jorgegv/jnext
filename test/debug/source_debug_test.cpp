@@ -660,6 +660,27 @@ int main() {
               other_page && there && n.pc() == 0x8000, n.where());
     }
 
+    {
+        // A statement that ran twice: Back lands on its LAST pass.
+        //   8000 LD B,2   1      8002 NOP   2      8003 DJNZ 8002   3      8005 NOP   4
+        const fs::path loop = dir / "back-loop.sld";
+        write_text(loop, x_sld(p80, {{"1", 0x8000}, {"2", 0x8002}, {"3", 0x8003}, {"4", 0x8005}}));
+        Machine m(/*rewind=*/true);
+        const uint8_t prog[] = {0x06, 0x02, 0x00, 0x10, 0xFD, 0x00};
+        for (size_t i = 0; i < sizeof(prog); ++i)
+            m.emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+        m.dbg->load_source_map(loop.string(), false);
+        m.dbg->set_trace_enabled(true);
+        for (int i = 0; i < 5; ++i) m.dbg->source_step(m.a, Step::Into);   // 1,2,3,2,3 -> 4
+        const bool at4 = m.pc() == 0x8005;
+        m.dbg->source_step(m.a, Step::Back);
+        const unsigned b = m.emu.cpu().get_registers().BC >> 8;
+        check("SRCDBG-BACK-12", "Back after a loop lands on the last pass of the previous "
+                                "statement, not the first",
+              at4 && m.pc() == 0x8003 && b == 1,
+              m.where() + " B=" + std::to_string(b));
+    }
+
     // ── fetch identity: a page names RAM only when RAM supplies the fetch ─
     {
         // 48K: slots 0/1 hold ROM. Whatever page number the MMU reports for
