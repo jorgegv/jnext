@@ -111,7 +111,6 @@ void TapLoader::eject() {
     loaded_ = false;
     playing_ = false;
     held_ = false;
-    auto_started_ = false;
     filename_.clear();
     Log::emulator()->info("TAP: tape ejected");
 }

@@ -386,9 +386,8 @@ inline constexpr Option OPTIONS[] = {
     { "--tape-auto-play", 0, Doc::Documented, OptId::TapeAutoPlay,
       "",
       "Automatic tape play/stop on for this run (the default):\n"
-      "the deck stops in a silent gap between blocks while\n"
-      "nothing reads the tape, and resumes when a program does;\n"
-      "in fast mode a custom loader plays in real time" },
+      "real-time deck stops in a silent gap between blocks while\n"
+      "nothing reads the tape, and resumes when a program does" },
     { "--no-tape-auto-play", 0, Doc::Documented, OptId::NoTapeAutoPlay,
       "",
       "Automatic tape play/stop off for this run: the deck runs\n"

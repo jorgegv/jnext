@@ -82,7 +82,7 @@ int tzx_load(TZXPlayer *p, const uint8_t *data, int len) {
     memset(p, 0, sizeof(TZXPlayer));
     p->data = data;
     p->len = len;
-    p->is_48k = 1;      /* as before: a 0x2A block always stopped the tape */
+    p->is_48k = 1;      /* jnext (GH #395): as before, 0x2A stops unless the host says otherwise */
 
     /* Detect format: TZX starts with "ZXTape!\x1A". */
     if (len >= 10 && memcmp(data, "ZXTape!\x1A", 8) == 0) {
@@ -112,22 +112,11 @@ void tzx_play(TZXPlayer *p, uint64_t cpu_clocks) {
     p->direct_level = 0;
     p->loop_count = 0;
     p->loop_start_offset = 0;
-    p->held = 0;
+    p->held = 0;          /* jnext (GH #395) */
     p->gap_done = 0;
 }
 
-void tzx_seek_block(TZXPlayer *p, int offset, uint64_t cpu_clocks) {
-    if (!p->data) return;
-    p->offset = offset;
-    p->playing = 1;
-    p->level = 0;
-    p->edge_clock = cpu_clocks;
-    p->phase = TZX_PHASE_IDLE;
-    p->direct_level = 0;
-    p->held = 0;
-    p->gap_done = 0;
-}
-
+/* jnext (GH #395): continue a held tape at the next block. */
 int tzx_resume(TZXPlayer *p, uint64_t cpu_clocks) {
     if (!p->held) return 0;
     p->held = 0;
@@ -224,7 +213,6 @@ static int tzx_parse_next_block(TZXPlayer *p) {
     for (;;) {
         if (p->offset >= p->len) return 0;  /* End of tape */
 
-        p->block_start = p->offset;
         uint8_t id = p->data[p->offset];
         const uint8_t *b = p->data + p->offset + 1;
         int remaining = p->len - p->offset - 1;
@@ -386,7 +374,7 @@ static int tzx_parse_next_block(TZXPlayer *p) {
             if (pause_ms == 0) {
                 /* printf("TZX: Stop the tape\n"); */
                 p->playing = 0;
-                if (p->stop_holds) p->held = 1;
+                if (p->stop_holds) p->held = 1;   /* jnext (GH #395) */
                 return 0;
             }
             p->pause_tstates = (uint32_t)pause_ms * TSTATES_PER_MS;
@@ -446,10 +434,10 @@ static int tzx_parse_next_block(TZXPlayer *p) {
         case 0x2A: {
             if (remaining < 4) return 0;
             p->offset += 1 + 4;
-            if (!p->is_48k) continue;
+            if (!p->is_48k) continue;        /* jnext (GH #395): stops only on a 48K */
             /* printf("TZX: Stop (48K mode)\n"); */
             p->playing = 0;
-            if (p->stop_holds) p->held = 1;
+            if (p->stop_holds) p->held = 1;   /* jnext (GH #395) */
             return 0;
         }
 
@@ -597,6 +585,7 @@ static uint32_t tzx_next_pulse(TZXPlayer *p) {
 
         /* No block active: try to parse the next one. */
         case TZX_PHASE_IDLE:
+            /* jnext (GH #395): hold at a gap boundary when nobody listens */
             if (p->gap_done && p->hold_request && p->offset < p->len) {
                 /* Gap boundary with nobody listening: hold here. */
                 p->gap_done = 0;
@@ -703,7 +692,7 @@ static uint32_t tzx_next_pulse(TZXPlayer *p) {
             }
             p->level = 0;
             p->phase = TZX_PHASE_IDLE;
-            p->gap_done = 1;
+            p->gap_done = 1;                  /* jnext (GH #395) */
             return d;
         }
 
@@ -711,7 +700,7 @@ static uint32_t tzx_next_pulse(TZXPlayer *p) {
         case TZX_PHASE_PAUSE2: {
             p->level = 0;
             p->phase = TZX_PHASE_IDLE;
-            p->gap_done = 1;
+            p->gap_done = 1;                  /* jnext (GH #395) */
             return p->pause_tstates;
         }
 

@@ -462,9 +462,10 @@ Turn automatic tape play/stop on (the default) or off for this run,
 overriding the saved GUI preference. While on, the tape deck stops in
 the silent gap between two blocks when no program is reading the tape,
 and resumes when one does, so tapes whose BASIC loader is slow between
-blocks load in real time; in fast load mode a tape whose loader never
-calls the ROM routine plays in real time instead of hanging. Off, the
-deck runs straight through, as a real one does.
+blocks load in real time. It does nothing in fast load mode. Off, the
+deck runs straight through, as a real one does (a TZX “stop the tape if
+in 48K mode” block now stops only on a 48K machine, as the TZX
+specification says, whatever this setting is).
 
 **--tape-save** *FILE*  
 Save to tape, appending to *FILE*; its extension picks the format. A

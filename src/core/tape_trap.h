@@ -22,13 +22,13 @@ constexpr uint16_t LD_BYTES_RET_ADDR = 0x05E2;   ///< the routine's common exit 
 /// ROM identity gate: the bytes about to execute are the 48K LD-BYTES
 /// (0x056B `RET NZ; CALL 05E7`, 0x05DF `LD A,H; CP 1; RET`). Same bytes in
 /// the 48K ROM wherever it appears (48K, 128K ROM 1, +3 ROM 3, SD 48.rom).
-/// Reads through the CPU's view of memory, like TapSaver::sa_bytes_rom_present.
+/// Peeks through the CPU's view of memory (no watchpoint, no latch side effect).
 inline bool ld_bytes_rom_present(Mmu& mmu) {
     static constexpr uint8_t sig_a[4] = { 0xC0, 0xCD, 0xE7, 0x05 };
     static constexpr uint8_t sig_b[4] = { 0x7C, 0xFE, 0x01, 0xC9 };
     for (uint16_t i = 0; i < 4; ++i) {
-        if (mmu.read(static_cast<uint16_t>(LD_BREAK_ADDR + i)) != sig_a[i]) return false;
-        if (mmu.read(static_cast<uint16_t>(0x05DF + i)) != sig_b[i]) return false;
+        if (mmu.peek(static_cast<uint16_t>(LD_BREAK_ADDR + i)) != sig_a[i]) return false;
+        if (mmu.peek(static_cast<uint16_t>(0x05DF + i)) != sig_b[i]) return false;
     }
     return true;
 }

@@ -3713,10 +3713,11 @@ two blocks, when no program is reading the tape port, the deck stops; it
 plays again, from the start of the next block, as soon as a program reads the
 port again. Nothing is cut or repeated, and a program that keeps listening sees
 the same tape as before. That is why tapes with slow BASIC loaders load in real
-time. In fast load, a tape whose loader never calls the ROM routine plays in
-real time instead of hanging. <code>.wav</code> files are never paused. Turn it off with
-<strong>Tape &gt; Auto Play/Stop</strong>, <strong>Settings &gt; Preferences</strong>, or <code>--no-tape-auto-play</code>
-for a deck that runs straight through, like a cassette without a finger.</p>
+time. It does nothing in fast load. <code>.wav</code> files are never paused. Turn it off
+with <strong>Tape &gt; Auto Play/Stop</strong>, <strong>Settings &gt; Preferences</strong>, or
+<code>--no-tape-auto-play</code> for a deck that runs straight through, like a cassette
+without a finger (a TZX "stop the tape if in 48K mode" block stops only on a 48K
+machine, as the TZX specification says, whatever this setting is).</p>
 <p><strong>Tape &gt; Open Tape File…</strong> (Alt+T) loads a tape, fast or in real time as
 <strong>Tape &gt; Fast Load</strong> shows, and <strong>Eject</strong> and <strong>Rewind</strong> do what they say (a
 <code>.wav</code> rewinds by starting again). The status bar shows the tape name and, while

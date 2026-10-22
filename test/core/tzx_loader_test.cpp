@@ -629,8 +629,24 @@ int main(int argc, char** argv) {
             const bool resumed48 = m48->tzx_tape().is_playing();
             auto [m128, ok2] = mk(path, false, true, MachineType::ZX128K, delay_then_poll(13));
             for (int i = 0; i < 150; ++i) m128->run_frame();           // past block A's end (~frame 100)
-            check("TZXC-104", "0x2A stops the deck on a 48K machine (and auto play resumes it), not on a 128K",
-                  ok1 && ok2 && held48 && resumed48 && !m128->tzx_tape().is_held() && m128->tzx_tape().is_playing(),
+            // The same on a 128K whose program polls: the block is then parsed on a port read.
+            // The block's parse lands in a port-read update or in the instruction-end one
+            // depending on the loop's phase, so several phases (0..7 NOPs, 4 T each) run.
+            bool p128_ok = true; bool ok3 = true;
+            log_out.str("");
+            for (int pad = 0; pad < 8; ++pad) {
+                Bytes prog = {0xF3}; prog.insert(prog.end(), pad, 0x00);
+                prog.insert(prog.end(), {0xED, 0x78, 0x18, 0xFC});
+                auto [e, okk] = mk(path, false, true, MachineType::ZX128K, prog);
+                for (int i = 0; i < 150; ++i) e->run_frame();
+                ok3 = ok3 && okk;
+                p128_ok = p128_ok && !e->tzx_tape().is_held() && e->tzx_tape().is_playing();
+            }
+            // A polling program resumes a hold at once, so the log is what shows one happened.
+            p128_ok = p128_ok && log_out.str().find("TZX: deck held") == std::string::npos;
+            check("TZXC-104", "0x2A stops the deck on a 48K machine (and auto play resumes it), not on a 128K (polling or not)",
+                  ok1 && ok2 && ok3 && held48 && resumed48 && !m128->tzx_tape().is_held() && m128->tzx_tape().is_playing() &&
+                  p128_ok,
                   "held48=" + std::to_string(held48) + " resumed48=" + std::to_string(resumed48));
         }
         {   // TZXC-105
@@ -673,19 +689,16 @@ int main(int argc, char** argv) {
                   "pilot_intervals=" + std::to_string(pilot) + " first=" + std::to_string(first));
         }
         {   // TZXC-107
+            // Fast mode with the defaults: a key-wait longer than the next block's
+            // pilot (tight IN A,(C) loop), then a ROM load, still loads that block.
             const Bytes t1 = tap_body(0xFF, {1, 2, 3, 4, 5});
             const Bytes t2 = tap_body(0xFF, {6, 7, 8, 9});
-            const Bytes t3 = tap_body(0xFF, {10, 11});
-            const std::string path = write_file("t107.tzx",
-                concat({kHeader, b10p(t1, 1000), b10p(t2, 1000), b10p(t3, 1000)}));
-            Case c1; c1.tzx = true; c1.path = path;
-            Case c2 = c1; c2.ix = 0xB000; c2.de = 2;
-            Bytes prog = caller(c1);
-            prog.insert(prog.end(), {0x01, 0xFE, 0xFF, 0x1E, 0x40, 0xED, 0x78, 0x1D, 0x20, 0xFB});   // 64 reads
-            const Bytes d = delay_then_poll(8);
-            prog.insert(prog.end(), d.begin() + 1, d.begin() + 17);                                 // the delay only
-            const Bytes call2 = caller(c2);
-            prog.insert(prog.end(), call2.begin(), call2.end());
+            const std::string path = write_file("t107.tzx", concat({kHeader, b10p(t1, 1000), b10p(t2, 1000)}));
+            Case c; c.tzx = true; c.path = path;
+            Bytes prog = {0xF3, 0x01, 0xFE, 0xFF, 0x11, 0x05, 0x00, 0x21, 0x00, 0x00,
+                          0xED, 0x78, 0x2B, 0x7C, 0xB5, 0x20, 0xF9, 0x1B, 0x7A, 0xB3, 0x20, 0xF1};
+            const Bytes call = caller(c);
+            prog.insert(prog.end(), call.begin(), call.end());
             prog.push_back(0x18); prog.push_back(0xFE);
             const uint16_t jr = uint16_t(0x8000 + prog.size() - 2);
             auto emu = std::make_unique<Emulator>();
@@ -696,14 +709,51 @@ int main(int argc, char** argv) {
             auto r = emu->cpu().get_registers();
             r.PC = 0x8000; r.SP = 0x9000; r.IFF1 = r.IFF2 = 0;
             emu->cpu().set_registers(r);
-            for (int f = 0; f < 800 && emu->cpu().pc() != jr; ++f) emu->run_frame();
-            const bool first = emu->mmu().peek(0xA000) == 1 && emu->mmu().peek(0xA004) == 5;
-            const bool second = emu->cpu().pc() == jr && emu->mmu().peek(0xB000) == 10 &&
-                                emu->mmu().peek(0xB001) == 11 && (emu->cpu().get_registers().AF & 1);
-            check("TZXC-107", "fast mode: auto play starts at the block the trap would serve next, and after its hold the trap serves the block after that",
-                  ok && first && second && !emu->tzx_tape().is_playing() && emu->tzx_tape().at_end(),
-                  "first=" + std::to_string(first) + " second=" + std::to_string(second) +
-                  " b000=" + std::to_string(emu->mmu().peek(0xB000)));
+            for (int f = 0; f < 400 && emu->cpu().pc() != jr; ++f) emu->run_frame();
+            check("TZXC-107", "fast mode: a key-wait longer than the next block's pilot, then a ROM load, still loads that block (GH #395 review F1)",
+                  ok && emu->cpu().pc() == jr && emu->mmu().peek(0xA000) == 1 &&
+                  emu->mmu().peek(0xA004) == 5 && !emu->tzx_tape().is_playing(),
+                  "pc=" + std::to_string(emu->cpu().pc()) + " a000=" + std::to_string(emu->mmu().peek(0xA000)));
+        }
+        {   // TZXC-108
+            const std::string path = write_file("t108.tzx",
+                concat({kHeader, b10p(dataA, 0), Bytes{0x20, 0, 0}, b10p(dataB, 1000)}));
+            auto [emu, ok] = mk(path, false, true, MachineType::ZX48K, delay_then_poll(13));
+            int f = 0;
+            for (; f < 300 && !emu->tzx_tape().is_held(); ++f) emu->run_frame();
+            const bool held = ok && emu->tzx_tape().is_held() && !emu->tzx_tape().is_playing();
+            emu->set_tape_auto_play(false);
+            check("TZXC-108", "turning auto play off while a TZX deck is held plays it again at once",
+                  held && emu->tzx_tape().is_playing() && !emu->tzx_tape().is_held());
+        }
+        {   // TZXC-109
+            const Bytes hdrA = tap_body(0x00, Bytes(17, 0x20));
+            const std::string path = write_file("t109.tzx", concat({kHeader, b10p(hdrA, 1000), b10p(dataB, 1000)}));
+            auto [emu, ok] = mk(path, false, true, MachineType::ZX48K, delay_then_poll(20));
+            int f = 0;
+            for (; f < 600 && !emu->tzx_tape().is_held(); ++f) emu->run_frame();
+            const bool held = ok && emu->tzx_tape().is_held();
+            emu->tzx_tape().rewind();                       // block B is next; rewound it is block A again
+            const bool still = emu->tzx_tape().is_held();
+            const uint64_t t0 = emu->monotonic_tstates();
+            std::vector<uint64_t> edges; uint64_t t_res = 0; bool resumed = false;
+            while (emu->monotonic_tstates() < t0 + 60000000ULL) {
+                const bool was = emu->beeper().tape_ear();
+                emu->execute_single_instruction();
+                if (emu->beeper().tape_ear() != was) edges.push_back(emu->monotonic_tstates());
+                if (!resumed && emu->tzx_tape().is_playing()) { resumed = true; t_res = emu->monotonic_tstates(); }
+                if (resumed && emu->monotonic_tstates() > t_res + 18500000ULL) break;
+            }
+            size_t i0 = 0;
+            while (i0 < edges.size() && edges[i0] <= t_res) ++i0;
+            size_t pilot = 0;
+            for (size_t i = i0; i + 1 < edges.size(); ++i) {
+                const int64_t d = int64_t(edges[i + 1]) - int64_t(edges[i]);
+                if (d >= 2168 - 40 && d <= 2168 + 40) ++pilot; else break;
+            }
+            check("TZXC-109", "a rewind while the TZX deck is held keeps it held, at block 0: it resumes with the header's 8063-pulse pilot",
+                  held && still && resumed && pilot == 8062,
+                  "pilot_intervals=" + std::to_string(pilot));
         }
     }
 

@@ -2579,8 +2579,7 @@ caller's return address for a <code>0x0562</code> one. The registers it leaves a
 the ROM run against jnext's own real-time player, except the ROM's edge-tracking
 byte C, whose value after the sync depends on the pilot phase the ROM caught and
 which the trap pins to <code>0x21</code>. A custom or turbo loader that never enters the ROM
-routine is never intercepted by the trap; with automatic play/stop (below) it
-plays in real time instead of hanging.</p>
+routine is never intercepted, and real time is then the only way it will load.</p>
 <p><strong>Automatic play/stop (GH #395)</strong> is a host deck feature with no hardware
 counterpart (no Spectrum has tape motor control). The signal is
 <code>TapePollDetector</code> (<code>src/core/tape_poll_detector.h</code>): every CPU <code>IN</code> of the ULA
@@ -2601,17 +2600,17 @@ detect-loader fails the <code>xevious-deciload</code> tape.</p>
   pulse. TAP: <code>TapLoader::set_gap_hold</code> / <code>resume</code>. TZX: ZOT's <code>hold_request</code>,
   <code>held</code>, <code>tzx_resume()</code>; a stop block (0x20 pause 0, 0x2A) holds instead of
   ending the tape, and 0x2A stops only on a 48K machine. WAV has no gaps.</li>
-<li><strong>Fast mode.</strong> A polling program with no tape playing auto-starts the deck at
-  the block the trap would serve next (<code>TzxLoader::auto_start()</code> seeks ZOT there:
-  one tape position for the trap and the player). An auto-started deck holds at
-  every gap, polling or not, and the <code>0x056B</code> trap may take it over while it is
-  in a pilot, sync or pause (<code>take_over()</code>), so a false start never costs a
-  ROM load.</li>
+<li><strong>Fast mode.</strong> Nothing happens: a polling program never starts a tape that
+  is not playing, because in fast mode the <code>0x056B</code> trap serves the loads and a
+  "press any key" wait (a tight <code>IN</code> loop, indistinguishable at the port from a
+  pure-EAR loader such as DeciLoad) would play blocks away that a later ROM load
+  needs. A custom loader in fast mode behaves as it always did.</li>
 <li><strong>State.</strong> The detector and the hold are host-deck state, not serialised, and
   reset on every state load (tape position is excluded from rewind and
   snapshots by design). Off (<code>tape_auto_play</code>, <code>--no-tape-auto-play</code>) is the
-  deck as it was: no hold, stop blocks stop for good, fast mode never starts
-  the deck.</li>
+  deck as it was: no hold, stop blocks stop for good. The one exception is
+  independent of the setting: a 0x2A block now stops only on a 48K machine (the
+  TZX specification).</li>
 </ul>
 <p>Saving works the same way in reverse. <code>--tape-save</code> (or Tape ▸ Start Saving,
 both through <code>Emulator::start_tape_save()</code>) arms one of two savers by the

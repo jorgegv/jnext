@@ -443,6 +443,50 @@ int main() {
                   ok && emu->tape().current_block() == 0 && emu->cpu().pc() == 0x8000,
                   "block=" + std::to_string(emu->tape().current_block()) + " pc=" + std::to_string(emu->cpu().pc()));
         }
+        {   // TAPC-25
+            // Only the first signature (0x056B) present, the second (0x05DF) not:
+            // an image of some other ROM that happens to match there. Control: both.
+            auto trapped = [&](bool second) {
+                auto emu = std::make_unique<Emulator>();
+                EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0;
+                const bool ok = emu->init(cfg) && emu->load_tap(write_file("t25.tap", good), true);
+                std::vector<uint8_t> boot(0x2000, 0x00);
+                const uint8_t a[4] = {0xC0, 0xCD, 0xE7, 0x05}, b[4] = {0x7C, 0xFE, 0x01, 0xC9};
+                for (int i = 0; i < 4; ++i) { boot[0x056B + i] = a[i]; if (second) boot[0x05DF + i] = b[i]; }
+                emu->mmu().set_boot_rom(boot.data(), boot.size());
+                emu->mmu().set_boot_rom_enabled(true);
+                emu->mmu().write(0x9000, 0x00); emu->mmu().write(0x9001, 0x80);
+                auto r = emu->cpu().get_registers();
+                r.PC = 0x056B; r.SP = 0x9000; r.AF = 0x0040; r.AF2 = 0xFF01; r.IX = 0xA000; r.DE = 5;
+                r.IFF1 = r.IFF2 = 0;
+                emu->cpu().set_registers(r);
+                emu->run_frame();
+                return ok ? int(emu->tape().current_block()) : -1;
+            };
+            const int both = trapped(true), first_only = trapped(false);
+            check("TAPC-25", "the identity check needs both signatures: only the 0x056B one is not the 48K LD-BYTES",
+                  both == 1 && first_only == 0,
+                  "both=" + std::to_string(both) + " first_only=" + std::to_string(first_only));
+        }
+        {   // TAPC-26
+            // A pass through LD-BREAK with no tape must not touch memory the
+            // debugger watches: a READ watchpoint inside the 0x05DF signature
+            // (never executed by this run) stays quiet.
+            auto emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0;
+            cfg.sd_card_image = sd_image(); cfg.sd_card_readonly = true;
+            const bool ok = emu->init(cfg);
+            emu->debug_state().set_clients_attached(true);
+            emu->debug_state().set_live_raster(true);
+            emu->debug_state().breakpoints().add_watchpoint(0x05E0, WatchType::READ);
+            auto r = emu->cpu().get_registers();
+            r.PC = 0x056B; r.SP = 0x9000; r.AF = 0x0040; r.IFF1 = r.IFF2 = 0;
+            emu->cpu().set_registers(r);
+            emu->run_frame();
+            check("TAPC-26", "an LD-BREAK pass with no tape attached trips no read watchpoint (no identity read)",
+                  ok && !emu->debug_state().paused(),
+                  "paused=" + std::to_string(emu->debug_state().paused()));
+        }
     }
 
     // ---- Automatic tape play/stop (GH #395) ------------------------------
@@ -601,19 +645,16 @@ int main() {
                   ok && !emu->tape().is_held() && gap >= 3500000 - 50 && gap <= 3500000 + 50,
                   "max gap=" + std::to_string(gap));
         }
+        // A "press any key" wait: a tight loop of IN A,(C) for ~12 M T-states (longer
+        // than a data block's pilot), then a ROM load entered at 0x0562.
+        const Bytes key_wait = {0xF3, 0x01, 0xFE, 0xFF, 0x11, 0x05, 0x00, 0x21, 0x00, 0x00,
+                                0xED, 0x78, 0x2B, 0x7C, 0xB5, 0x20, 0xF9, 0x1B, 0x7A, 0xB3, 0x20, 0xF1};
         {   // TAPA-09
             auto [emu, ok] = mk(two, true, true, poll_only);
-            log_out.str("");
-            bool auto_started = false;
-            for (int f = 0; f < 5; ++f) emu->run_frame();
-            auto_started = emu->tape().is_playing() && emu->tape().auto_started() &&
-                           emu->tape().current_block() == 0;
-            for (int f = 0; f < 600; ++f) emu->run_frame();
-            const std::string lg = log_out.str();
-            check("TAPA-09", "fast mode: an edge loop that never calls the ROM auto-starts the tape, which holds at the gap and resumes while the loop polls",
-                  ok && auto_started && lg.find("deck held before block 1") != std::string::npos &&
-                  lg.find("deck playing again at block 1") != std::string::npos && emu->tape().at_end(),
-                  "auto_started=" + std::to_string(auto_started));
+            for (int f = 0; f < 300; ++f) emu->run_frame();
+            check("TAPA-09", "fast mode with the defaults: an edge loop never starts the tape (the ROM trap serves the loads)",
+                  ok && !emu->tape().is_playing() && !emu->tape().is_held() &&
+                  emu->tape().current_block() == 0);
         }
         {   // TAPA-10
             Case c; c.path = two;
@@ -621,7 +662,7 @@ int main() {
             EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0;
             cfg.sd_card_image = sd_image(); cfg.sd_card_readonly = true;
             bool ok = emu->init(cfg) && emu->load_tap(two, true);
-            Bytes prog = {0xF3, 0x06, 0x40, 0xDB, 0xFE, 0x10, 0xFC};          // 64 reads: starts the deck
+            Bytes prog = key_wait;
             Bytes call = caller(c);
             prog.insert(prog.end(), call.begin(), call.end());
             prog.push_back(0x18); prog.push_back(0xFE);
@@ -630,13 +671,13 @@ int main() {
             auto r = emu->cpu().get_registers();
             r.PC = 0x8000; r.SP = 0x9000; r.IFF1 = r.IFF2 = 0;
             emu->cpu().set_registers(r);
-            for (int f = 0; f < 20 && emu->cpu().pc() != jr; ++f) emu->run_frame();
+            for (int f = 0; f < 400 && emu->cpu().pc() != jr; ++f) emu->run_frame();
             const bool got = emu->cpu().pc() == jr && (emu->cpu().get_registers().AF & 1) &&
                              emu->mmu().peek(0xA000) == 1 && emu->mmu().peek(0xA004) == 5;
-            check("TAPA-10", "fast mode: a ROM load entered while the auto-started deck is still in its pilot is served by the trap and stops the deck",
-                  ok && got && !emu->tape().is_playing() && !emu->tape().is_held() &&
-                  emu->tape().current_block() == 1,
-                  "pc=" + std::to_string(emu->cpu().pc()) + " blk=" + std::to_string(emu->tape().current_block()));
+            check("TAPA-10", "fast mode: a key-wait longer than the next block's pilot, then a ROM load, still loads that block (GH #395 review F1)",
+                  ok && got && !emu->tape().is_playing() && emu->tape().current_block() == 1,
+                  "pc=" + std::to_string(emu->cpu().pc()) + " blk=" + std::to_string(emu->tape().current_block()) +
+                  " a000=" + std::to_string(emu->mmu().peek(0xA000)));
         }
         {   // TAPA-11
             auto [emu, ok] = mk(two, true, false, poll_only);
@@ -685,6 +726,44 @@ int main() {
                   !e2->tape_poll().polling(e2->monotonic_tstates()),
                   "was=" + std::to_string(was) + " after=" + std::to_string(after) +
                   " held=" + std::to_string(e2->tape().is_held()));
+        }
+        {   // TAPA-16
+            // The resume re-bases the instruction to the read's sample T-state (GH #265), so
+            // the first resumed pulse ends 2168 T after that sample, not after the instruction
+            // start. A program counts IN A,(C) loops until EAR rises; NOP padding moves the
+            // loop phase, and the count changes where the sample point matters. The values
+            // are PINNED (measured with the sample point; re-basing to 0 gives 69, 61 and 58
+            // for the pads 4, 8 and 10), not derived from an outside oracle.
+            static const int want[12] = {83, 79, 75, 71, 70, 67, 65, 63, 62, 60, 59, 57};
+            std::string got_s; bool all = true;
+            for (int pad = 0; pad < 12; ++pad) {
+                Bytes prog = delay_then_poll(20);
+                prog.resize(prog.size() - 4);                              // drop the plain poll loop
+                prog.insert(prog.end(), {0x21, 0x00, 0x00});               // LD HL,0
+                const size_t loop = prog.size();
+                prog.push_back(0xED); prog.push_back(0x78);                // IN A,(C)
+                prog.push_back(0x23);                                      // INC HL
+                for (int i = 0; i < pad; ++i) prog.push_back(0x00);        // NOP padding
+                prog.push_back(0xE6); prog.push_back(0x40);                // AND 0x40
+                prog.push_back(0x28); prog.push_back(uint8_t(int(loop) - int(prog.size() + 2)));   // JR Z,loop
+                prog.push_back(0x18); prog.push_back(0xFE);                // JR $
+                auto [emu, ok] = mk(hdr_two, false, true, prog);
+                for (int f = 0; f < 900; ++f) emu->run_frame();
+                const int k = emu->cpu().get_registers().HL;
+                got_s += std::to_string(k) + " ";
+                all = all && ok && k == want[pad];
+            }
+            check("TAPA-16", "the resumed deck's first pulse is timed from the read's sample point (pinned loop counts for 12 phases)",
+                  all, "got " + got_s);
+        }
+        {   // TAPA-15
+            auto [emu, ok] = mk(hdr_two, false, true, delay_then_poll(20));
+            int f = 0;
+            for (; f < 600 && !emu->tape().is_held(); ++f) emu->run_frame();
+            const bool held = ok && emu->tape().is_held() && !emu->tape().is_playing();
+            emu->set_tape_auto_play(false);
+            check("TAPA-15", "turning auto play off while the deck is held plays it again at once",
+                  held && emu->tape().is_playing() && !emu->tape().is_held() && !emu->tape_auto_play());
         }
     }
 

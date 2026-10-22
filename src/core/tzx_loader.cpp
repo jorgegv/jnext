@@ -43,7 +43,6 @@ TzxLoader::TzxLoader(TzxLoader&& other) noexcept
     , filename_(std::move(other.filename_))
     , fast_load_offset_(other.fast_load_offset_)
     , is_tzx_(other.is_tzx_)
-    , auto_started_(other.auto_started_)
 {
     other.player_ = new TZXPlayer;
     std::memset(static_cast<TZXPlayer*>(other.player_), 0, sizeof(TZXPlayer));
@@ -65,7 +64,6 @@ TzxLoader& TzxLoader::operator=(TzxLoader&& other) noexcept {
         filename_ = std::move(other.filename_);
         fast_load_offset_ = other.fast_load_offset_;
         is_tzx_ = other.is_tzx_;
-        auto_started_ = other.auto_started_;
 
         other.loaded_ = false;
 
@@ -432,7 +430,6 @@ bool TzxLoader::load(const std::string& path) {
 void TzxLoader::eject() {
     tzx_stop(P());
     P()->held = 0;
-    auto_started_ = false;
     file_data_.clear();
     loaded_ = false;
     fast_load_offset_ = 0;
@@ -469,18 +466,10 @@ bool TzxLoader::is_playing() const {
 
 uint8_t TzxLoader::update(uint64_t cpu_clocks) {
     if (!loaded_) return 0;
-    const bool was_playing = tzx_is_playing(P());
+    const int was_held = P()->held;
     const uint8_t level = tzx_update(P(), cpu_clocks);
-    if (was_playing && auto_started_ && !tzx_is_playing(P())) {
-        // The deck stopped (a hold, a stop block or the end): the fast-load
-        // trap's position is where the player stands.
-        if (P()->held) {
-            fast_load_offset_ = P()->offset;
-        } else {
-            fast_load_offset_ = static_cast<int>(file_data_.size());
-            auto_started_ = false;
-        }
-    }
+    if (P()->held && !was_held)
+        Log::emulator()->info("TZX: deck held before offset {}", P()->offset);
     return level;
 }
 
@@ -498,39 +487,11 @@ bool TzxLoader::is_held() const {
     return loaded_ && static_cast<TZXPlayer*>(player_)->held != 0;
 }
 
-void TzxLoader::auto_start(uint64_t cpu_clocks) {
-    if (!loaded_) return;
-    tzx_seek_block(P(), fast_load_offset_, cpu_clocks);
-    auto_started_ = true;
-    Log::emulator()->debug("TZX: auto play from offset {}", fast_load_offset_);
-}
-
 bool TzxLoader::resume(uint64_t cpu_clocks) {
     if (!loaded_) return false;
     const bool ok = tzx_resume(P(), cpu_clocks) != 0;
     if (ok) Log::emulator()->debug("TZX: auto play resumed at offset {}", P()->offset);
     return ok;
-}
-
-void TzxLoader::take_over() {
-    if (!loaded_) return;
-    TZXPlayer* p = P();
-    if (p->playing) {
-        const bool block_done = p->phase == TZX_PHASE_IDLE || p->phase == TZX_PHASE_PAUSE ||
-                                p->phase == TZX_PHASE_PAUSE2;
-        fast_load_offset_ = block_done ? p->offset : p->block_start;
-    }
-    p->held = 0;
-    p->gap_done = 0;
-    p->playing = 0;
-    p->level = 0;
-    auto_started_ = false;
-}
-
-bool TzxLoader::in_data() const {
-    if (!loaded_) return false;
-    const TZXPlayer* p = static_cast<TZXPlayer*>(player_);
-    return p->playing && (p->phase == TZX_PHASE_DATA || p->phase == TZX_PHASE_DIRECT);
 }
 
 // ---------------------------------------------------------------------------

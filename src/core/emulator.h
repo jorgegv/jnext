@@ -2432,8 +2432,7 @@ private:
     /// One CPU read of the ULA port: count it, and start or resume a deck.
     void tape_auto_on_read_();
     /// The hold policy a deck is given before it is ticked at `now`.
-    bool tape_gap_hold_(bool auto_started, uint64_t now) const;
-    void tape_feed_policy_(uint64_t now);
+    bool tape_gap_hold_(uint64_t now) const;
 
     // GH #265 — the instruction slot just run, for finish_slot_interrupts():
     // the IM2 fabric is ticked once the slot's devices have raised their
