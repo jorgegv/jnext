@@ -28,7 +28,8 @@ class PokDialog;
 class DebuggerManager;
 #endif
 namespace jnext { namespace dbg { class Debugger; } }
-namespace jnext { namespace pok { class Session; } }
+namespace jnext { namespace pok { class Session; struct PokFile; } }
+namespace program_archive { class ProgramArchive; }
 
 /// Main emulator window — QMainWindow shell with emulator viewport, menu bar,
 /// toolbar, and status bar.  Keyboard events are dispatched to a configurable callback.
@@ -200,6 +201,11 @@ public:
     /// `jns_probed`: the caller has already probed a .jns (digest included), so
     /// the .jns probe is not repeated (GH #386: it re-read the whole SD card).
     void handle_load_path(const QString& path, bool jns_probed = false);
+
+    /// GH #392 - the window's POK session and whether its dialog is showing
+    /// (an archive's bundled trainers make a session without opening it).
+    const jnext::pok::Session* pok_session() const { return pok_.get(); }
+    bool pok_dialog_visible() const;
 
     /// GH #381 - everything Machine > POK Trainers... does AFTER its file picker
     /// returns, and what File > Load of a .pok does instead of a cold boot: read
@@ -443,6 +449,14 @@ private:
     /// dialog.
     void refuse_jns(const QString& path, const QString& why);
 
+    /// handle_load_path() for one real program file; `shown` (when not empty)
+    /// is what every message calls it (GH #392: "<archive> (<member>)"). True
+    /// when the load was handed to load_file_callback_.
+    bool handle_program_path(const QString& path, const QString& shown, bool jns_probed);
+    void start_pok_session(jnext::pok::PokFile file, const std::string& display, bool show);
+    void offer_archive_pok(const program_archive::ProgramArchive& archive,
+                           const std::string& program, const std::string& archive_path);
+
     /// GH #18/#19 — the single write path behind both screenshot menu
     /// entries. Picks PNG or .SCR from `path`'s extension, reports the file
     /// it wrote in the status bar, and raises a dialog when it could not.
@@ -472,6 +486,9 @@ private:
     // The file handle_load_path() last handed to load_file_callback_, until
     // load_finished() reports on it.
     std::string menu_load_pending_;
+    // GH #392 - what to call menu_load_pending_ in the failure box (an archive
+    // member's extracted path is not something the user knows).
+    std::string menu_load_shown_;
     // GH #381 - the POK file open in Machine > POK Trainers... and the dialog
     // showing it. The session outlives resets (set_emulator() makes it forget
     // its undo records) and is replaced when another file is opened.

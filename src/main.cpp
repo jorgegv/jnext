@@ -2,6 +2,7 @@
 #include "audio/dac_trace_recorder.h"
 #include "core/cli_options.h"
 #include "core/log.h"
+#include "core/program_archive.h"
 #include "core/nex_loader.h"   // probe_version + nex_version_needs_v13_optin (GH #228)
 #include "core/esxdos_hostfs.h"
 #include "core/rzx_recorder.h"
@@ -1108,6 +1109,20 @@ int main(int argc, char* argv[]) {
         load_file = positional_file;
     }
 
+    // GH #392 - a program inside a .zip archive: extract the one program to a
+    // file of its own extension, and carry on with that path, so every check
+    // below (RZX rules, warm start, the pending-load dispatch) sees an ordinary
+    // file. Several programs, none, or an unreadable archive refuse with exit 1.
+    if (!load_file.empty() && program_archive::is_archive_path(load_file)) {
+        std::string extracted, member, why;
+        if (!program_archive::extract_single_program(load_file, extracted, why, &member)) {
+            fprintf(stderr, "--load %s: %s.\n", load_file.c_str(), why.c_str());
+            return 1;
+        }
+        Log::emulator()->info("--load {}: loading {} from the archive", load_file, member);
+        load_file = extracted;
+    }
+
     // RZX combinations that cannot do what they say. Each used to be accepted
     // and to do something else without a word: the second RZX silently won,
     // the loaded program was wiped by the recording's own snapshot, and a
@@ -2166,7 +2181,7 @@ int main(int argc, char* argv[]) {
                 app.set_pending_load(load_file, 100);
                 app.set_tape_realtime(true);
             } else {
-                Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx)", ext);
+                Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx, .zip)", ext);
                 audio_recorder.stop();
                 dac_trace_recorder.stop();
                 return 1;
