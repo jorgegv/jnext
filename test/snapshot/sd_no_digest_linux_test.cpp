@@ -301,7 +301,11 @@ int main() {
     // boot) on a writable reflinked copy of the card, deleted afterwards.
     {
         using Clock = std::filesystem::file_time_type;
-        const std::string rec = dir + "/rec.img";
+        // Beside the card (the run's reflink-capable clone directory), never
+        // in the RAM-backed temp dir: a 1 GB copy does not belong in /tmp.
+        const std::string rec =
+            (std::filesystem::path(card).parent_path() /
+             ("nodigest-rec-" + jtp::process_id_string() + ".img")).string();
         const std::string cp = "cp --reflink=auto '" + card + "' '" + rec + "'";
         const bool copied = std::system(cp.c_str()) == 0;
         std::filesystem::remove_all(warm_start::cache_dir(), ec);
