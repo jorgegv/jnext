@@ -60,6 +60,7 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <initializer_list>
 #include <unistd.h>
 #include "../row_id.h"
 
@@ -120,6 +121,19 @@ static std::string program_sld(unsigned page80, unsigned page90, const std::stri
            "main.bas|13||0|" + p80 + "|32774|T|\n" +
            "sub.bas|1||0|" + p90 + "|36864|T|\n" +
            "sub.bas|2||0|" + p90 + "|36867|T|\n" + extra;
+}
+
+// program_sld() without the given statement's record (`lines` are main.bas
+// line numbers): under ranges the previous record would cover its address.
+static std::string program_sld_without(unsigned page80, unsigned page90,
+                                       std::initializer_list<int> lines) {
+    std::string text = program_sld(page80, page90);
+    for (const int line : lines) {
+        const size_t at = text.find("main.bas|" + std::to_string(line) + "||0|" +
+                                    std::to_string(page80) + "|");
+        text.erase(at, text.find('\n', at) + 1 - at);
+    }
+    return text;
 }
 
 struct Machine {
@@ -272,8 +286,13 @@ int main() {
         const auto sub = m.dbg->source_location(0x9003);
         check("SRCDBG-LOC-02", "any address's statement, on the page mapped there now",
               sub && sub->file == "sub.bas" && sub->line == 2);
+        // $8000-$8001 sit below the first record of the page: no statement.
+        const fs::path no10 = dir / "no-line10.sld";
+        write_text(no10, program_sld_without(p80, p90, {10}));
+        m.dbg->load_source_map(no10.string(), false);
         check("SRCDBG-LOC-03", "an unmapped instruction has no location",
               !m.dbg->source_location(0x8001));
+        m.dbg->load_source_map(sld.string(), false);
         // The same addresses recorded on other pages do not describe this
         // machine's memory.
         const fs::path other = dir / "other-pages.sld";
