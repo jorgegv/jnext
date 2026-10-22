@@ -2480,8 +2480,10 @@ change — and <code>advance_fuse_tstates_()</code> moves it with the clock when
 advances with no CPU instruction (DMA holding the bus, a parked CPU, a tape
 trap's synthetic cycles).</p>
 <p>A separate stretch is the 28 MHz SRAM read wait (<code>zxnext.vhd:3171-3181</code>): at CPU
-speed 3, every memory <em>read</em> cycle that reaches external SRAM costs one extra
-T-state, qualified per target by <code>Mmu::sram_read_wait28()</code>.</p>
+speed 3, a memory <em>read</em> cycle costs one extra T-state when it raises the SRAM
+request or schedules a bank-5 read. <code>Mmu::sram_read_wait28()</code> decides this in the
+read's own overlay order (Multiface, DivMMC, an active Layer 2 mapping, then the
+slot), and a boot-ROM read waits as the access beneath it would.</p>
 <h2 id="m1-hooks-and-interrupts">M1 hooks and interrupts<a class="headerlink" href="#m1-hooks-and-interrupts" title="Permanent link">&para;</a></h2>
 <p>Two callbacks bracket the opcode fetch, and the order matters. <code>on_m1_prefetch</code>
 fires <em>before</em> the read, because DivMMC automap, the NMI FSM and the Multiface
