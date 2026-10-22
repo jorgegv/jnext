@@ -76,8 +76,8 @@ void usage() {
         "  --sdcard IMAGE  NextZXOS SD image; defaults to $JNEXT_TEST_SD_IMAGE, then\n"
         "                  the location jnext itself falls back to\n"
         "\n"
-        "Needs a display and OpenGL; TV, PC and (on the GPU) Scanlines are skipped\n"
-        "with a message if the context cannot be created.\n");
+        "Needs a display; TV and PC also need OpenGL and are skipped with a message\n"
+        "if the context cannot be created. Scanlines is the software overlay.\n");
 }
 
 } // namespace
@@ -180,7 +180,7 @@ int main(int argc, char** argv)
             settle(120);
         }
         const bool gpu = w.crt_shader_active();
-        if ((m.shader || m.scanlines) && !gpu) {
+        if (m.shader && !gpu) {
             std::fprintf(stderr, "crtshot: %s: no OpenGL here, would show the software display - skipped\n", m.name);
             ++failed;
             continue;
