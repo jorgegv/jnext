@@ -53,8 +53,8 @@ my %SECTION_LINK = (
     'JNEXT SNAPSHOTS' =>
         '[5.9 Snapshots](../05-running-programs/09-snapshots.md)',
     'LOADING PROGRAMS' =>
-        '[Programs that need NextZXOS]'
-        . '(../05-running-programs/index.md#programs-that-need-nextzxos)',
+        '[Programs in ZIP archives]'
+        . '(../05-running-programs/index.md#programs-in-zip-archives)',
     # The guide has no logging chapter, so this one points at the man page's
     # own section, rendered in USAGE.md.
     'LOGGING' =>

@@ -736,11 +736,14 @@ int main() {
               at && !over && has(w2, "limit"), w1 + "/" + w2);
     }
     {
+        // A long shared prefix makes every name comparison cost, so a per-member
+        // find() over the earlier members cannot hide behind short early-out compares.
         std::vector<Member> ms;
+        const std::string prefix(200, 'A');
         for (int i = 0; i < 65534; ++i) {
             char nm[16];
             std::snprintf(nm, sizeof nm, "N%05d.TAP", i);
-            ms.push_back(mem(nm, Bytes{}, 0));
+            ms.push_back(mem(prefix + nm, Bytes{}, 0));
         }
         spit(files + "/many.zip", zipfx::build(ms));
         pa::ProgramArchive a;

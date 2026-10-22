@@ -69,7 +69,7 @@ extension, or none, is taken as one when it starts like a ZIP file.
 - **Refused, with the reason:** an archive with no program in it, one that is
   not a ZIP file, a password-protected one, one compressed with a method other
   than the usual deflate (bzip2, LZMA and the like), a ZIP64 or multi-disk one,
-  a member over 256 MiB, and a member whose name is an absolute path or climbs
+  an archive file or a member over 256 MiB, and a member whose name is an absolute path or climbs
   out with `..`.
 - **A bundled `.pok`** (a cheat list for the game; see
   [5.11 POK trainers](11-pok-trainers.md)): when the archive holds one named
