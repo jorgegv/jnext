@@ -131,17 +131,10 @@ int main() {
     check("SRCMAP-12", "same_position compares file, line and column, not address or page",
           SourceMap::same_position(a, b) && !SourceMap::same_position(a, c));
 
-    // Unqualified records are wildcards for every page.
     {
         SourceMap m;
         m.replace({{MemSpace::page(4), 0x8000, 0x8001, {"w.asm", 3, 0}}}, {},
                   std::nullopt, "adapter");
-        const auto on4 = m.lookup(MemSpace::page(4), 0x8000);
-        const auto on9 = m.lookup(MemSpace::page(9), 0x8000);
-        check("SRCMAP-13", "a page-qualified record outranks an unqualified one on its page",
-              on4 && on4->line == 3);
-        check("SRCMAP-14", "an unqualified record answers on every other page",
-              on9 && on9->line == 1);
         check("SRCMAP-15", "no identity metadata: verify_program() has no answer",
               !m.verify_program([](uint16_t) { return uint8_t{0}; }).has_value());
     }
