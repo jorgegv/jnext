@@ -3560,12 +3560,11 @@ void test_s6_state_roundtrip() {
               "the stream is byte-identical to an uninterrupted card",
               got == want && !got.empty(), detail);
 
-        // The same instant is what §11.3's last row calls mid-transfer, and
-        // `jns::ReaderEnv::sd_transfer_in_flight` has had no producer since
-        // S1. This is it.
+        // The same instant is what §11.3's last row called mid-transfer
+        // (retired by GH #396); the observable stays for these rows.
         check("S6-SD-INFLIGHT-01",
               "a card part-way through a CMD18 block reports the transfer "
-              "in flight (the input §11.3's Tier-2 refusal rule needs)",
+              "in flight",
               in_flight);
     }
 

@@ -85,6 +85,7 @@
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include "core/warm_start_cache.h"
+#include "peripheral/sd_card.h"
 #include "core/saveable.h"
 
 #include <spdlog/sinks/ringbuffer_sink.h>
@@ -698,6 +699,17 @@ int main()
                   g_refusals.size() == 12 && all_set && all_distinct,
                   det("%zu refusals", g_refusals.size()));
         }
+
+        // GH #396: the key is (size, mtime). WSC-INV-01 moves the mtime; this
+        // moves only the SIZE. Run after WSC-INV-10 so its refusal is not
+        // counted among the twelve branches (it re-enters the same branch).
+        {
+            warm_start::store(id, state, why);
+            warm_start::Identity bigger = id;
+            bigger.sd_image_bytes += 1;
+            check("WSC-INV-11", "a different SD image size is refused, as such",
+                  refused(bigger, "recorded from a different SD image"), why);
+        }
     }
 
     // ── store() refusals ─────────────────────────────────────────────
@@ -1100,6 +1112,208 @@ int main()
                   emu.divmmc().automap_active(),
               det("pc0=%04X pc1=%04X before=%d automap=%d", pc0, pc1,
                   before ? 1 : 0, emu.divmmc().automap_active() ? 1 : 0));
+    }
+
+    // ── GH #396: the warm-start key is (size, mtime) + own-write generation ──
+    //
+    // Oracle: plan sections 4.3-4.5 (owner decision 2026-10-22). Each row plants
+    // a cache entry keyed on a blob card's real (size, mtime) and this
+    // machine's real stream length, so a HIT restores without booting firmware.
+    // A MISS makes ensure_warm_start_state() record, which on a firmware-less
+    // card declines after a real boot (kWhyNotRecorded) - that is the
+    // observable. Each row uses its own card: the process-wide memo is keyed
+    // on the path.
+    {
+        namespace fs = std::filesystem;
+        auto blob = [](const std::string& path) {
+            std::vector<uint8_t> bytes(64 * 1024, 0x44);
+            std::ofstream f(path, std::ios::binary | std::ios::trunc);
+            f.write(reinterpret_cast<const char*>(bytes.data()),
+                    static_cast<std::streamsize>(bytes.size()));
+        };
+        auto plant = [&](const std::string& card) {
+            Emulator probe;
+            EmulatorConfig pc;
+            pc.type = MachineType::ZXN_ISSUE2;
+            pc.rewind_buffer_frames = 0;
+            pc.sd_card_image = card;
+            probe.init(pc);
+            StateWriter measure;
+            probe.save_state(measure);
+            std::vector<uint8_t> st(measure.position());
+            StateWriter w(st.data(), st.size());
+            probe.save_state(w);
+            std::string pwhy;
+            return warm_start::store(
+                make_card_id(card, static_cast<uint8_t>(MachineType::ZXN_ISSUE2),
+                             st.size()),
+                st, pwhy);
+        };
+        auto make_emu = [&](Emulator& e, const std::string& card) {
+            EmulatorConfig c;
+            c.type = MachineType::ZXN_ISSUE2;
+            c.rewind_buffer_frames = 0;
+            c.sd_card_image = card;
+            e.init(c);
+        };
+        // One CMD24 of sector 0 through the emulator's own card device.
+        auto write_sector = [](Emulator& e) {
+            SdCardDevice& sd = e.sd_card();
+            sd.reset();
+            auto cmd = [&](uint8_t c, uint32_t arg) {
+                sd.receive(0x40 | c);
+                sd.receive(static_cast<uint8_t>(arg >> 24));
+                sd.receive(static_cast<uint8_t>(arg >> 16));
+                sd.receive(static_cast<uint8_t>(arg >> 8));
+                sd.receive(static_cast<uint8_t>(arg));
+                sd.receive(0x95);
+                uint8_t r = 0xFF;
+                for (int i = 0; i < 16 && r == 0xFF; ++i) r = sd.send();
+                return r;
+            };
+            cmd(0, 0); cmd(8, 0x1AA); cmd(55, 0); cmd(41, 0x40000000); cmd(58, 0);
+            const uint8_t r1 = cmd(24, 0);
+            sd.receive(0xFE);
+            for (int i = 0; i < 512; ++i) sd.receive(0x5A);
+            sd.receive(0xFF);
+            sd.receive(0xFF);
+            bool accepted = false;
+            for (int i = 0; i < 32; ++i) {
+                const uint8_t b = sd.send();
+                if (b == 0x05) { accepted = true; break; }
+            }
+            sd.deselect();
+            return r1 == 0x00 && accepted;
+        };
+        auto set_mtime = [](const std::string& card, int64_t ticks) {
+            std::error_code e;
+            fs::last_write_time(card,
+                fs::file_time_type(fs::file_time_type::duration(ticks)), e);
+            return !e;
+        };
+        auto mtime_of = [](const std::string& card) {
+            std::error_code e;
+            return static_cast<int64_t>(
+                fs::last_write_time(card, e).time_since_epoch().count());
+        };
+        constexpr const char* kRestored = "restored a recorded NextZXOS machine";
+
+        // WSR-KEY-01: an own write invalidates the in-memory state.
+        {
+            const std::string card = g_dir + "/key1.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            const bool planted = plant(card);
+            Emulator e;
+            make_emu(e, card);
+            LogTap tap(Log::emulator());
+            const bool first = e.ensure_warm_start_state() && !e.warm_start_state().empty();
+            const uint64_t gen0 = SdCardDevice::host_write_generation();
+            const bool wrote = write_sector(e);
+            const bool bumped = SdCardDevice::host_write_generation() == gen0 + 1;
+            const bool second = e.ensure_warm_start_state();
+            check("WSR-KEY-01",
+                  "an own CMD24 write bumps the write generation and drops the "
+                  "in-memory recording: the next ensure re-records instead of "
+                  "reusing it",
+                  planted && first && wrote && bumped && !second &&
+                      e.warm_start_state().empty() &&
+                      tap.count(kRestored) == 1 && tap.count(kWhyNotRecorded) == 1,
+                  det("planted=%d first=%d wrote=%d bumped=%d second=%d "
+                      "restored=%d not-recorded=%d", planted, first, wrote, bumped,
+                      second, tap.count(kRestored), tap.count(kWhyNotRecorded)));
+        }
+        // WSR-KEY-02: an own write whose mtime is put back is still caught by
+        // the process-wide memo, across a fresh Emulator.
+        {
+            const std::string card = g_dir + "/key2.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            const bool planted = plant(card);
+            const int64_t recorded = mtime_of(card);
+            LogTap tap(Log::emulator());
+            Emulator e1;
+            make_emu(e1, card);
+            const bool hit1 = e1.ensure_warm_start_state();
+            const bool wrote = write_sector(e1);
+            const bool restored_mtime = set_mtime(card, recorded) &&
+                                        mtime_of(card) == recorded;
+            Emulator e2;
+            make_emu(e2, card);
+            const bool hit2 = e2.ensure_warm_start_state();
+            check("WSR-KEY-02",
+                  "an own write with the mtime restored to the recorded one is "
+                  "still refused for a fresh Emulator (the generation memo) and "
+                  "re-recorded",
+                  planted && hit1 && wrote && restored_mtime && !hit2 &&
+                      tap.count(kRestored) == 1 && tap.count(kWhyNotRecorded) == 1,
+                  det("planted=%d hit1=%d wrote=%d mtime=%d hit2=%d restored=%d "
+                      "not-recorded=%d", planted, hit1, wrote, restored_mtime, hit2,
+                      tap.count(kRestored), tap.count(kWhyNotRecorded)));
+        }
+        // WSR-KEY-03: outside changes - mtime alone, then size alone.
+        {
+            const std::string card = g_dir + "/key3.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            const bool planted = plant(card);
+            const int64_t recorded = mtime_of(card);
+            const bool moved = set_mtime(card, recorded + 20000000LL);
+            LogTap tap(Log::emulator());
+            Emulator e1;
+            make_emu(e1, card);
+            const bool miss_mtime = !e1.ensure_warm_start_state();
+            const int diff1 = tap.count("recorded from a different SD image state");
+
+            set_mtime(card, recorded);
+            const bool replanted = plant(card);
+            {   // size only: append a sector, then put the mtime back
+                std::ofstream f(card, std::ios::binary | std::ios::app);
+                const std::vector<char> sector(512, 0);
+                f.write(sector.data(), static_cast<std::streamsize>(sector.size()));
+            }
+            const bool back = set_mtime(card, recorded);
+            Emulator e2;
+            make_emu(e2, card);
+            const bool miss_size = !e2.ensure_warm_start_state();
+            const int diff2 = tap.count("recorded from a different SD image state");
+            check("WSR-KEY-03",
+                  "an outside change is caught by the header key: a moved mtime "
+                  "alone refuses, and so does a changed size with the mtime "
+                  "unchanged; both re-record",
+                  planted && moved && miss_mtime && diff1 == 1 && replanted && back &&
+                      miss_size && diff2 == 2 && tap.count(kRestored) == 0,
+                  det("planted=%d moved=%d miss_mtime=%d diff1=%d replanted=%d "
+                      "back=%d miss_size=%d diff2=%d", planted, moved, miss_mtime,
+                      diff1, replanted, back, miss_size, diff2));
+        }
+        // WSR-KEY-04: no over-invalidation.
+        {
+            const std::string card = g_dir + "/key4.img";
+            blob(card);
+            fs::remove_all(warm_start::cache_dir(), ec);
+            const bool planted = plant(card);
+            LogTap tap(Log::emulator());
+            Emulator e1;
+            make_emu(e1, card);
+            const bool hit1 = e1.ensure_warm_start_state();
+            Emulator e2;
+            make_emu(e2, card);
+            const bool hit2 = e2.ensure_warm_start_state();   // memo present
+            Emulator::reset_warm_start_memo_for_test();
+            Emulator e3;
+            make_emu(e3, card);
+            const bool hit3 = e3.ensure_warm_start_state();   // "a new process"
+            check("WSR-KEY-04",
+                  "an unchanged card is served from the cache every time - with "
+                  "the memo, and with the memo cleared as in a new process - and "
+                  "never re-recorded",
+                  planted && hit1 && hit2 && hit3 &&
+                      tap.count(kRestored) == 3 && tap.count(kWhyNotRecorded) == 0,
+                  det("planted=%d hits=%d%d%d restored=%d not-recorded=%d", planted,
+                      hit1, hit2, hit3, tap.count(kRestored),
+                      tap.count(kWhyNotRecorded)));
+        }
     }
 
     std::filesystem::remove_all(g_dir, ec);

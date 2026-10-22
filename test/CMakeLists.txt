@@ -511,6 +511,15 @@ add_test(NAME sd_identity_tests
          COMMAND sd_identity_test
          WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
+# GH #396: no whole-card read on save / probe / load / warm-start hit. Linux
+# only: it measures /proc/self/io rchar.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(sd_no_digest_linux_test snapshot/sd_no_digest_linux_test.cpp)
+    target_link_libraries(sd_no_digest_linux_test PRIVATE jnext_core)
+    target_include_directories(sd_no_digest_linux_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sd_no_digest_linux_tests COMMAND sd_no_digest_linux_test)
+endif()
+
 # Sprites subsystem compliance test
 add_executable(sprites_test sprites/sprites_test.cpp)
 target_link_libraries(sprites_test PRIVATE jnext_video jnext_memory jnext_port jnext_peripheral jnext_debug)
