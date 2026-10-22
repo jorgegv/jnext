@@ -2338,11 +2338,11 @@ that knowing the rule is usually faster than grepping.</p>
 </tr>
 <tr>
 <td><code>third_party/</code></td>
-<td>Vendored dependencies: <code>fuse-z80/</code> (the Z80 core, GPLv2-or-later), <code>spdlog/</code> (logging, submodule), <code>zot/</code> (TZX playback, MIT), <code>fatfs/</code> (FAT filesystem, used for SD-image work; carries one local addition, <code>f_syncvol()</code>, marked in <code>ff.c</code>, which flushes the volume before jnext unmounts one it has modified).</td>
+<td>Vendored dependencies: <code>fuse-z80/</code> (the Z80 core, GPLv2-or-later), <code>spdlog/</code> (logging, submodule), <code>zot/</code> (TZX playback, MIT), <code>crtemu/</code> (CRT-emulation shader, MIT / Unlicense; patched, every patch marked <code>JNEXT PATCH</code> and listed in its <code>README.jnext.md</code>), <code>fatfs/</code> (FAT filesystem, used for SD-image work; carries one local addition, <code>f_syncvol()</code>, marked in <code>ff.c</code>, which flushes the volume before jnext unmounts one it has modified).</td>
 </tr>
 <tr>
 <td><code>tools/</code></td>
-<td>Developer utilities that are not part of the build: SD-image fixers, CSpect/DZRP differential-debugging helpers, profiler post-processing, the user-guide server.</td>
+<td>Developer utilities that are not part of the build: SD-image fixers, CSpect/DZRP differential-debugging helpers, profiler post-processing, the user-guide server, <code>crtshot</code> (one picture per CRT effect, for the user guide).</td>
 </tr>
 <tr>
 <td><code>roms/</code></td>
@@ -2431,7 +2431,7 @@ profiler — surround the emulation rather than being part of it.</p>
 </tr>
 <tr>
 <td><code>gui/</code></td>
-<td>The Qt 6 frontend: <code>QtApp</code>, <code>MainWindow</code>, <code>EmulatorWidget</code>, the preferences dialog and the saved-configuration store. <code>gui/icons/</code> holds the toolbar icon set: monochrome SVGs, one per toolbar action, whose only colour is <code>currentColor</code> (rules in <code>doc/design/ICONSET-DESIGN.md</code>). <code>color_scheme_policy.h</code> and <code>desktop_color_scheme.*</code> make the GUI follow the desktop's light/dark preference (see 2.1).</td>
+<td>The Qt 6 frontend: <code>QtApp</code>, <code>MainWindow</code>, <code>EmulatorWidget</code>, the preferences dialog and the saved-configuration store. <code>gui/icons/</code> holds the toolbar icon set: monochrome SVGs, one per toolbar action, whose only colour is <code>currentColor</code> (rules in <code>doc/design/ICONSET-DESIGN.md</code>). <code>color_scheme_policy.h</code> and <code>desktop_color_scheme.*</code> make the GUI follow the desktop's light/dark preference (see 2.1). <code>crt_gl_overlay.*</code>, <code>crt_shader_policy.h</code> and <code>crtemu_impl.cpp</code> are the optional OpenGL CRT shader (Qt 6 with OpenGLWidgets only, <code>-DENABLE_CRT_GL</code>): a <code>QOpenGLWidget</code> that exists only while the shader is on, drawn by the vendored crtemu; with it off there is no widget, no GL context and no per-frame work (<code>doc/design/CRT-GL-FILTER.md</code>).</td>
 </tr>
 <tr>
 <td><code>qt/</code></td>

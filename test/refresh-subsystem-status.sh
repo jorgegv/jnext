@@ -153,6 +153,8 @@ BEGIN {
     M["shifted_keys_test"]             = "Shifted symbols reach the guest"
     M["window_scale_test"]             = "Window scale + fullscreen geometry"
     M["window_title_test"]             = "Main-window title (version)"
+    M["crt_shader_policy_test"]        = "CRT display effect rules (pure)"
+    M["crt_shader_widget_test"]        = "CRT display effect (widget, settings, menu)"
     M["quit_cleanup_test"]             = "Quit runs closeEvent cleanup"
     M["toolbar_icons_test"]            = "Toolbar SVG icon set + icon lint"
     M["color_scheme_test"]             = "GUI light/dark scheme (GH #363)"

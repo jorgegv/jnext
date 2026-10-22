@@ -144,6 +144,15 @@ void AppConfig::load() {
             data_.window_scale = scale;
 
         data_.crt_filter     = settings_.value("crt_filter", data_.crt_filter).toBool();
+        data_.crt_shader     = settings_.value("crt_shader", data_.crt_shader).toBool();
+        {
+            // An unreadable or out-of-range style keeps the default.
+            bool style_ok = false;
+            const int style = settings_.value("crt_shader_style",
+                static_cast<int>(data_.crt_shader_style)).toInt(&style_ok);
+            data_.crt_shader_style = style_ok ? crt_shader::style_from_int(style)
+                                              : crt_shader::STYLE_DEFAULT;
+        }
         data_.silent         = settings_.value("silent", data_.silent).toBool();
         data_.tape_fast_load = settings_.value("tape_fast_load", data_.tape_fast_load).toBool();
 
@@ -300,6 +309,8 @@ void AppConfig::save() const {
     settings_.setValue("emulator_speed_percent", data_.emulator_speed_percent);
     settings_.setValue("window_scale", data_.window_scale);
     settings_.setValue("crt_filter", data_.crt_filter);
+    settings_.setValue("crt_shader", data_.crt_shader);
+    settings_.setValue("crt_shader_style", static_cast<int>(data_.crt_shader_style));
     settings_.setValue("silent", data_.silent);
     settings_.setValue("tape_fast_load", data_.tape_fast_load);
     settings_.setValue("when_slow_prefer",

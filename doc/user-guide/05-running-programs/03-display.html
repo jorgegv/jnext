@@ -3609,8 +3609,24 @@ always a whole number of pixels, so the picture stays sharp.</p>
 <p><strong>Fullscreen.</strong> <strong>F11</strong>, or <strong>View &gt; Fullscreen</strong>. The image is centred with
 black bars, keeping the correct shape. F11 again returns. (Esc will not: it is
 the Break key.)</p>
-<p><strong>CRT filter.</strong> <strong>View &gt; CRT Filter</strong> overlays soft scanlines, for a more
-period-accurate look.</p>
+<p><strong>CRT effect.</strong> One choice, in <strong>View</strong> or <strong>Settings &gt; Preferences</strong>: <em>off</em>, <em>Scanlines</em>,
+<em>TV</em> or <em>PC monitor</em>. Choosing one switches the others off, and unchecking it turns the
+effect off.</p>
+<ul>
+<li><em>Scanlines</em> overlays soft scanlines, for a more period-accurate look.</li>
+<li><em>TV</em> draws the display through a GPU emulation of a cathode-ray tube: a curved
+  screen (the whole picture stays inside the glass, with a thin black margin), bloom around
+  bright areas, scanlines and a phosphor mask.</li>
+<li><em>PC monitor</em> is the same, flatter.</li>
+</ul>
+<p>The same frame in each mode, off and Scanlines above, TV and PC monitor below, on the NextZXOS
+welcome screen.</p>
+<p><img alt="NextZXOS welcome screen, no effect" src="../img/crt-boot-off.png" /> <img alt="The same, Scanlines" src="../img/crt-boot-scanlines.png" />
+<img alt="The same, TV" src="../img/crt-boot-tv.jpg" /> <img alt="The same, PC monitor" src="../img/crt-boot-pc.jpg" /></p>
+<p>It is off by default. Scanlines is a simple overlay drawn by jnext itself, on any computer and at
+no extra cost. While the effect is off nothing extra is created or drawn. If a TV or PC monitor look cannot run on this computer, jnext says so, switches it
+off and carries on with the normal display (a saved choice is tried again at the next start). The TV and PC monitor entries are absent from
+builds made without GPU support.</p>
 <p><strong>Layers.</strong> The Next composites several video layers — the classic ULA screen,
 Layer 2, the tilemap and up to 128 sprites — and the running program decides
 their stacking order and transparency. There is nothing to configure; it is

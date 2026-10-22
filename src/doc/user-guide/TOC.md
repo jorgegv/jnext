@@ -62,7 +62,7 @@ session as subsections.
   changes with each (timing, contention, available hardware).
 - **5.2 Input** — keyboard mapping and the extended keys, joysticks and
   gamepads, the Kempston mouse and pointer capture.
-- **5.3 Display** — scaling, fullscreen, the CRT filter, layers, and
+- **5.3 Display** — scaling, fullscreen, the CRT effect, layers, and
   screenshots.
 - **5.4 Sound** — AY / TurboSound, the beeper, DAC, volume and stereo, and
   what to do about audio glitches.

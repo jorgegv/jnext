@@ -39,7 +39,7 @@
 //                                 "Sto&p MPEG4 Recording" in the same popup,
 //                                 and the V of Video is the View menu
 //   "CP&U Speed"              U   the acronym's own letter
-//   "CRT Fi&lter"             L   free everywhere (a different popup from
+//   "CRT Scan&lines"          L   free everywhere (a different popup from
 //                                 Load NEX, so reusing L is legitimate)
 //
 // Groups:

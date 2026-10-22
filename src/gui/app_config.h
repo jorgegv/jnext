@@ -11,6 +11,7 @@
 #include "platform/audio_pacing.h"
 #include "platform/pointer_capture.h"
 #include "core/screenshot.h"
+#include "gui/crt_shader_policy.h"
 
 /// Persisted GUI preferences (Task 66 — Configurability).
 ///
@@ -25,6 +26,10 @@ struct AppConfigData {
     int         emulator_speed_percent = 100;   // 10..1000, matches --speed's clamp
     int         window_scale           = 1;     // matches MainWindow's default (G104)
     bool        crt_filter             = false;
+    // The OpenGL CRT shader (doc/design/CRT-GL-FILTER.md). Off by default: a
+    // machine with no config file behaves, and costs, exactly as before.
+    bool        crt_shader             = false;
+    crt_shader::Style crt_shader_style = crt_shader::STYLE_DEFAULT;
     bool        silent                 = false; // matches --silent's default
     bool        tape_fast_load         = true;  // matches the Tape menu's default
 

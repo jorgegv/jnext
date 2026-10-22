@@ -1332,6 +1332,16 @@ target_compile_definitions(zrcp_adapter_test PRIVATE
     JNEXT_ZRCP_FIXTURE="${CMAKE_SOURCE_DIR}/test/fixtures/zrcp/zesarux-12.0-exchanges.txt")
 add_test(NAME zrcp_adapter_tests COMMAND zrcp_adapter_test)
 
+# OpenGL CRT display filter (doc/design/CRT-GL-FILTER.md) — the pure decision rules:
+# style numbers, the fullscreen placement rule, the ARGB->GL byte order. No Qt, no GL,
+# so it belongs to the SDL-only set too. crtemu.h is included for its declarations only.
+add_executable(crt_shader_policy_test gui/crt_shader_policy_test.cpp)
+target_include_directories(crt_shader_policy_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
+target_compile_definitions(crt_shader_policy_test PRIVATE
+    JNEXT_CRTEMU_HEADER="${CMAKE_SOURCE_DIR}/third_party/crtemu/crtemu.h")
+add_test(NAME crt_shader_policy_tests COMMAND crt_shader_policy_test)
+
 # Task 66 — AppConfig (GUI preferences: QSettings-backed load/save,
 # CLI-vs-saved-preference precedence). Needs jnext_gui (QSettings/QString
 # usage in src/gui/app_config.*), so it is gated on ENABLE_QT_UI like the
@@ -1537,6 +1547,14 @@ if(ENABLE_QT_UI)
     target_link_libraries(window_scale_test PRIVATE jnext_gui)
     target_include_directories(window_scale_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME window_scale_tests COMMAND window_scale_test)
+
+    # OpenGL CRT display filter — the widget, the settings and the menu, offscreen
+    # (no GPU: the invariant that holds whether or not a context can be made).
+    add_executable(crt_shader_widget_test gui/crt_shader_widget_test.cpp)
+    set_target_properties(crt_shader_widget_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(crt_shader_widget_test PRIVATE jnext_gui)
+    target_include_directories(crt_shader_widget_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME crt_shader_widget_tests COMMAND crt_shader_widget_test)
 
     # GH #155 — the main window title (and its mouse-capture title) names the version.
     add_executable(window_title_test gui/window_title_test.cpp)
