@@ -149,8 +149,10 @@ trap's synthetic cycles).
 A separate stretch is the 28 MHz SRAM read wait (`zxnext.vhd:3171-3181`): at CPU
 speed 3, a memory *read* cycle costs one extra T-state when it raises the SRAM
 request or schedules a bank-5 read. `Mmu::sram_read_wait28()` decides this in the
-read's own overlay order (Multiface, DivMMC, an active Layer 2 mapping, then the
-slot), and a boot-ROM read waits as the access beneath it would.
+read's own overlay order (Multiface, DivMMC, an engaged Layer 2 mapping, then the
+slot). An engaged Layer 2 mapping decides alone: it waits on an active page and
+does not on an inactive one, whatever the slot holds. A boot-ROM read waits as
+the access beneath it would.
 
 ## M1 hooks and interrupts
 
