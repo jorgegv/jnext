@@ -83,7 +83,7 @@ private:
     QComboBox* when_slow_combo_  = nullptr;   // issue #35
     QComboBox* scale_combo_      = nullptr;
     // The CRT effect is ONE choice, a pop-up: off, scanlines, or a shader look (TV, PC).
-    enum { CRT_OFF = 0, CRT_SCANLINES = 1, CRT_TV = 2, CRT_PC = 3 };
+    enum { CRT_OFF = 0, CRT_SCANLINES = 1, CRT_TV = 2, CRT_PC = 3, CRT_SOFT = 4 };
     QComboBox* crt_combo_ = nullptr;
     QCheckBox* silent_check_     = nullptr;
     QCheckBox* tape_fast_check_  = nullptr;

@@ -73,13 +73,13 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     mouse_release_combo_->setCurrentIndex(
         mouse_release_combo_->findData(static_cast<int>(current.mouse_release)));
     scale_combo_->setCurrentIndex(scale_combo_->findData(current.window_scale));
-    // Both set (a hand-edited file): the shader wins, as it does at start-up. A saved
-    // shader in the scanlines-only (Lite) style is the scanline mode.
+    // Both set (a hand-edited file): the shader wins, as it does at start-up. The Lite
+    // style is Soft Scanlines. Without the shader choices only Scanlines can show.
     int crt_choice = CRT_OFF;
-    if (crt_combo_->findData(CRT_TV) >= 0 && current.crt_shader &&
-        current.crt_shader_style != crt_shader::Style::Lite)
-        crt_choice = current.crt_shader_style == crt_shader::Style::Pc ? CRT_PC : CRT_TV;
-    else if (current.crt_filter || (crt_combo_->findData(CRT_TV) >= 0 && current.crt_shader))
+    if (crt_combo_->findData(CRT_TV) >= 0 && current.crt_shader)
+        crt_choice = current.crt_shader_style == crt_shader::Style::Pc ? CRT_PC
+                   : current.crt_shader_style == crt_shader::Style::Lite ? CRT_SOFT : CRT_TV;
+    else if (current.crt_filter)
         crt_choice = CRT_SCANLINES;
     crt_combo_->setCurrentIndex(crt_combo_->findData(crt_choice));
     silent_check_->setChecked(current.silent);
@@ -178,13 +178,14 @@ QWidget* PreferencesDialog::build_startup_tab() {
         scale_combo_->addItem(tr("%1x").arg(s), s);
     form->addRow(tr("Window scale:"), scale_combo_);
 
-    // One CRT effect at a time, as a pop-up: Off, Scanlines (the software overlay), or one of the two
+    // One CRT effect at a time, as a pop-up: Off, Scanlines (the software overlay), or one of the three
     // shader looks, which exist only in a build that has the shader. Without them
     // collect() hands the saved shader settings back (crt_shader_saved_).
     crt_combo_ = new QComboBox(tab);
     crt_combo_->addItem(tr("Off"), CRT_OFF);
     crt_combo_->addItem(tr("Scanlines"), CRT_SCANLINES);
     if (EmulatorWidget::crt_shader_built_in()) {
+        crt_combo_->addItem(tr("Soft scanlines (GPU)"), CRT_SOFT);
         crt_combo_->addItem(tr("TV (curved, bloom)"), CRT_TV);
         crt_combo_->addItem(tr("PC monitor"), CRT_PC);
     }
@@ -579,9 +580,10 @@ AppConfigData PreferencesDialog::collect() const {
     const int crt_choice = crt_combo_->currentData().toInt();
     cfg.crt_filter = crt_choice == CRT_SCANLINES;
     if (crt_combo_->findData(CRT_TV) >= 0) {
-        cfg.crt_shader = crt_choice == CRT_TV || crt_choice == CRT_PC;
+        cfg.crt_shader = crt_choice == CRT_TV || crt_choice == CRT_PC || crt_choice == CRT_SOFT;
         cfg.crt_shader_style = crt_choice == CRT_PC ? crt_shader::Style::Pc
                              : crt_choice == CRT_TV ? crt_shader::Style::Tv
+                             : crt_choice == CRT_SOFT ? crt_shader::Style::Lite
                                                     : crt_shader_style_saved_;
     } else {
         // No shader choices here: hand the saved ones back — unless the user has just

@@ -9,7 +9,7 @@
 - The captured mouse can be released with Ctrl+Alt (default), a middle click or Esc: Preferences > Input, `--mouse-release`
 - Source-level debugging: SLD and NextBuild Memory.txt maps attach beside a program; Source tab, source-line steps, `file:line` breakpoints (Qt debugger)
 - POK trainer files: Machine > POK Trainers... applies and removes pokes; --delayed-pok-frames/--pok-trainers do it headless and SDL-only
-- TV and PC monitor CRT looks drawn on the GPU, beside the Scanlines filter (View menu, Preferences)
+- Soft scanlines, TV and PC monitor CRT looks drawn on the GPU, beside the Scanlines filter (View menu, Preferences)
 
 ### Developer Features
 - Debugger labels from sjasmplus --sym and --exp files (Map menu, --map); scripts name them as @module.label

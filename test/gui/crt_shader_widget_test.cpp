@@ -23,10 +23,12 @@
 //   CRT-W-01/02/03/05/06  the overlay built eagerly in EmulatorWidget's constructor
 //   CRT-W-17      failed() no longer dropping the overlay (the fallback)
 //   CRT-W-18      the stale-failure guard (raised_by) removed
-//   CRT-W-27/28   Scanlines mapped back onto the shader's Lite style (sync_crt_overlay), or a
-//                 saved Lite-style shader not starting as Scanlines (apply_startup_config)
+//   CRT-W-27      Scanlines mapped onto the shader's Lite style (sync_crt_overlay)
+//   CRT-W-28      a saved Lite-style shader not starting as Soft Scanlines (apply_startup_config)
 //   CRT-W-30      note_overlay_presented() not counting; CRT-W-31 drop_crt_overlay() not
-//                 copying the newest frame back; CRT-W-32 Preferences not mapping Lite to Scanlines
+//                 copying the newest frame back; CRT-W-32 Preferences not mapping Lite to Soft
+//   CRT-W-33..38  Soft Scanlines: the View entry, five-way exclusivity, the Lite overlay, the
+//                 Preferences choice, and the GL-failure fallback to the software Scanlines
 //   CRT-W-10      crt_shader not written by AppConfig::save()
 //   CRT-W-11      the style range check removed from AppConfig::load()
 //   CRT-W-13/14   PreferencesDialog::collect() ignoring the shader checkbox
@@ -50,6 +52,7 @@
 #include <QElapsedTimer>
 #include <QMenu>
 #include <QMenuBar>
+#include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
 #include <QSettings>
@@ -436,7 +439,8 @@ int main(int argc, char** argv) {
               " plain_off=" + std::to_string(plain_off));
     }
     {
-        // A hand-edited config: the shader in its scanlines-only (Lite) style IS Scanlines.
+        // A saved shader in the scanlines-only (Lite) style IS the Soft Scanlines choice.
+        // A build without the shader has nothing to draw it with: Scanlines, the software overlay.
         MainWindow w;
         w.show();
         settle();
@@ -445,12 +449,16 @@ int main(int argc, char** argv) {
         cfg.crt_shader_style = crt_shader::Style::Lite;
         w.apply_startup_config(cfg);
         QAction* filt = find_action(w, "CRT Scan");
+        QAction* soft = find_action(w, "CRT Soft");
         QAction* tv = find_action(w, "CRT TV");
         QAction* pc = find_action(w, "CRT PC");
-        check("CRT-W-28", "a saved shader in the Lite style starts as Scanlines: software overlay, no GL widget, menu entry checked",
-              w.crt_filter() && !w.crt_shader() && !w.emulator_widget()->crt_shader_active() &&
-              overlay_count(*w.emulator_widget()) == 0 &&
-              filt && filt->isChecked() && (!tv || !tv->isChecked()) && (!pc || !pc->isChecked()));
+        const bool others_off = (!tv || !tv->isChecked()) && (!pc || !pc->isChecked());
+        check("CRT-W-28", "a saved shader in the Lite style starts as Soft Scanlines (GL build; Scanlines where there is no shader), one entry checked",
+              built_in ? (w.crt_shader() && !w.crt_filter() && w.emulator_widget()->crt_shader_style() == crt_shader::Style::Lite &&
+                          w.emulator_widget()->crt_shader_active() && soft && soft->isChecked() &&
+                          filt && !filt->isChecked() && others_off)
+                       : (w.crt_filter() && !w.crt_shader() && !w.emulator_widget()->crt_shader_active() &&
+                          overlay_count(*w.emulator_widget()) == 0 && filt && filt->isChecked() && !soft && others_off));
     }
 
     // ── Settings: AppConfig ──────────────────────────────────────────────
@@ -553,11 +561,11 @@ int main(int argc, char** argv) {
         QComboBox* combo = crt_combo(dlg);
         const bool starts_on_filter = combo && combo->currentText() == "Scanlines";
         const bool entries_ok = combo && combo->findText("Off") >= 0 &&
-                                combo->count() == (built_in ? 4 : 2);
+                                combo->count() == (built_in ? 5 : 2);   // Off, Scanlines, Soft, TV, PC
         if (built_in && combo) choose(combo, "TV");
         const AppConfigData out = apply_and_collect(dlg);
         const bool one_only = !(out.crt_filter && out.crt_shader);
-        check("CRT-W-23", "Preferences offers the CRT effect as one pop-up (off, scanlines, TV, PC): never two at once",
+        check("CRT-W-23", "Preferences offers the CRT effect as one pop-up (off, scanlines, soft scanlines, TV, PC): never two at once",
               starts_on_filter && entries_ok && one_only &&
               (built_in ? (out.crt_shader && !out.crt_filter) : (!out.crt_shader && out.crt_filter)));
     }
@@ -577,9 +585,32 @@ int main(int argc, char** argv) {
         lite.crt_shader_style = crt_shader::Style::Lite;
         PreferencesDialog dlg(lite);
         QComboBox* combo = crt_combo(dlg);
-        check("CRT-W-32", "Preferences shows a saved Lite-style shader as Scanlines (in a GL build)",
-              combo && (built_in ? combo->currentText() == "Scanlines" : true),
+        check("CRT-W-32", "Preferences shows a saved Lite-style shader as Soft scanlines (in a GL build)",
+              combo && (built_in ? combo->currentText().startsWith("Soft scanlines") : true),
               combo ? combo->currentText().toStdString() : "no combo");
+    }
+    {
+        // Soft scanlines in Preferences: offered exactly in a GL build, chosen -> collected as the
+        // shader in the Lite style; and a build without it hands a saved Lite shader back unchanged.
+        AppConfigData initial;   // everything off
+        PreferencesDialog dlg(initial);
+        QComboBox* combo = crt_combo(dlg);
+        const bool has_soft = combo && combo->findText("Soft scanlines", Qt::MatchStartsWith) >= 0;
+        bool ok;
+        if (built_in && has_soft) {
+            choose(combo, "Soft scanlines");
+            const AppConfigData out = apply_and_collect(dlg);
+            ok = out.crt_shader && out.crt_shader_style == crt_shader::Style::Lite && !out.crt_filter;
+        } else {
+            AppConfigData lite;
+            lite.crt_shader = true;
+            lite.crt_shader_style = crt_shader::Style::Lite;
+            PreferencesDialog d2(lite);
+            const AppConfigData out = apply_and_collect(d2);
+            ok = combo && !built_in && !has_soft && out.crt_shader && out.crt_shader_style == crt_shader::Style::Lite;
+        }
+        check("CRT-W-36", "the CRT pop-up offers Soft scanlines exactly in a GL build; chosen it is collected as the Lite shader, "
+                          "and a build without it hands a saved Lite shader back", ok);
     }
 
     // ── The main window ──────────────────────────────────────────────────
@@ -657,6 +688,122 @@ int main(int argc, char** argv) {
             ok = ok && !tv && !pc;
         }
         check("CRT-W-29", "the View menu is one choice: choosing PC, TV or scanlines unchecks the others, and unchecking leaves off", ok);
+    }
+
+    {
+        // The View entry: present, unchecked and mnemonic-free exactly when the build has the shader.
+        MainWindow w;
+        w.show();
+        settle();
+        QAction* soft = find_action(w, "CRT Soft");
+        const bool plain = soft && soft->isCheckable() && !soft->isChecked() && !soft->text().contains('&') &&
+                           !soft->toolTip().isEmpty();
+        check("CRT-W-33", "the View menu has an unchecked, mnemonic-free 'CRT Soft Scanlines' entry with a tool tip exactly when the build has the shader",
+              built_in ? plain : !soft);
+    }
+    {
+        // Five-way exclusivity, triggered like a user would: soft in and out of every other choice.
+        MainWindow w;
+        w.show();
+        settle();
+        QAction* filt = find_action(w, "CRT Scan");
+        QAction* soft = find_action(w, "CRT Soft");
+        QAction* tv = find_action(w, "CRT TV");
+        QAction* pc = find_action(w, "CRT PC");
+        bool ok = filt != nullptr;
+        if (built_in && ok && soft && tv && pc) {
+            const auto only = [&](QAction* a) {
+                for (QAction* x : {filt, soft, tv, pc})
+                    if (x->isChecked() != (x == a)) return false;
+                return true;
+            };
+            soft->trigger();
+            const bool soft_on = only(soft) && w.crt_shader() && !w.crt_filter();
+            tv->trigger();
+            const bool tv_took = only(tv);
+            soft->trigger();
+            const bool soft_back = only(soft);
+            pc->trigger();
+            const bool pc_took = only(pc);
+            soft->trigger();
+            filt->trigger();
+            const bool filt_took = only(filt) && !w.crt_shader() && w.crt_filter();
+            soft->trigger();
+            const bool soft_over_filt = only(soft) && !w.crt_filter();
+            soft->trigger();                       // unchecking the checked one is "off"
+            const bool off = only(nullptr) && !w.crt_shader() && !w.crt_filter();
+            ok = soft_on && tv_took && soft_back && pc_took && filt_took && soft_over_filt && off;
+        } else if (!built_in) {
+            ok = ok && !soft;
+        }
+        check("CRT-W-34", "the View menu is one choice among five: Soft scanlines unchecks scanlines, TV and PC and is unchecked by each", ok);
+    }
+#ifdef JNEXT_HAVE_CRT_GL
+    {
+        // Selecting it builds the overlay in the Lite style; Scanlines still builds none.
+        MainWindow w;
+        w.show();
+        settle();
+        QAction* soft = find_action(w, "CRT Soft");
+        QAction* filt = find_action(w, "CRT Scan");
+        if (soft) soft->trigger();
+        auto ov = w.emulator_widget()->findChildren<CrtGlOverlay*>();
+        const bool built = ov.size() == 1 && ov[0]->style() == crt_shader::Style::Lite &&
+                           w.emulator_widget()->crt_shader_style() == crt_shader::Style::Lite;
+        if (filt) filt->trigger();
+        const bool scan_no_gl = overlay_count(*w.emulator_widget()) == 0 && w.crt_filter();
+        check("CRT-W-35", "choosing Soft scanlines builds the GL overlay in the Lite style; choosing Scanlines instead removes it and builds none",
+              soft && filt && built && scan_no_gl);
+    }
+    {
+        // GL failure under each shader choice, driven through the overlay's failed() signal.
+        const auto run = [&](const char* entry, bool& scanlines_on, bool& shader_on, int& boxes) {
+            MainWindow w;
+            w.show();
+            settle();
+            QAction* a = find_action(w, entry);
+            if (a) a->trigger();
+            auto ov = w.emulator_widget()->findChildren<CrtGlOverlay*>();
+            if (ov.size() == 1) emit ov[0]->failed(QStringLiteral("injected"));
+            settle(6);
+            scanlines_on = w.crt_filter() && find_action(w, "CRT Scan")->isChecked();
+            shader_on = w.crt_shader() || w.emulator_widget()->crt_shader_active();
+            boxes = static_cast<int>(w.findChildren<QMessageBox*>().size());
+            return a != nullptr && ov.size() == 1 && !find_action(w, "CRT TV")->isChecked() &&
+                   !find_action(w, "CRT PC")->isChecked() && !find_action(w, "CRT Soft")->isChecked();
+        };
+        bool s_sc = false, s_sh = true, t_sc = true, t_sh = true;
+        int s_box = -1, t_box = -1;
+        const bool s_ok = run("CRT Soft", s_sc, s_sh, s_box);
+        const bool t_ok = run("CRT TV", t_sc, t_sh, t_box);
+        check("CRT-W-37", "a GL failure under Soft scanlines continues as the software Scanlines with exactly one message; under TV it continues with none on",
+              s_ok && s_sc && !s_sh && s_box == 1 && t_ok && !t_sc && !t_sh && t_box == 1,
+              "soft: scan=" + std::to_string(s_sc) + " boxes=" + std::to_string(s_box) +
+              " tv: scan=" + std::to_string(t_sc) + " boxes=" + std::to_string(t_box));
+    }
+#else
+    check("CRT-W-35", "choosing Soft scanlines builds the GL overlay in the Lite style; choosing Scanlines instead removes it and builds none",
+          !built_in, "no overlay in this build");
+    check("CRT-W-37", "a GL failure under Soft scanlines continues as the software Scanlines with exactly one message; under TV it continues with none on",
+          !built_in, "no overlay in this build");
+#endif
+    {
+        // Config: the Lite shader round-trips through apply_startup_config and back to Preferences' view.
+        MainWindow w;
+        w.show();
+        settle();
+        AppConfigData cfg;
+        cfg.crt_shader = true;
+        cfg.crt_shader_style = crt_shader::Style::Lite;
+        cfg.crt_filter = true;                    // both set: the shader wins
+        w.apply_startup_config(cfg);
+        const bool soft_wins = built_in ? (w.crt_shader() && !w.crt_filter()) : (w.crt_filter() && !w.crt_shader());
+        AppConfigData old;                        // a config from before the shader: Scanlines only
+        old.crt_filter = true;
+        w.apply_startup_config(old);
+        QAction* soft = find_action(w, "CRT Soft");
+        check("CRT-W-38", "with both effects saved the Lite shader wins (Scanlines in a build without it); an old crt_filter-only config is Scanlines",
+              soft_wins && w.crt_filter() && !w.crt_shader() && (!soft || !soft->isChecked()));
     }
 
     app.closeAllWindows();
