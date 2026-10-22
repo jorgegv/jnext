@@ -1,5 +1,6 @@
 #include "debugger/callstack_panel.h"
 #include "debug/debugger.h"
+#include "debug/ram_page.h"
 #include "debug/symbol_table.h"
 
 #include <QVBoxLayout>
@@ -89,7 +90,12 @@ void CallStackPanel::refresh() {
         set_cell(3, target_text);
 
         QString source_text;
-        if (const auto src = dbg_->source_map().lookup(f.caller_page, f.caller_pc))
+        // The tracker still records a page number; E23-08 records the space.
+        if (const SourceLocation* src =
+                f.caller_page == NOT_RAM_PAGE
+                    ? nullptr
+                    : dbg_->source_map().lookup(jnext::dbg::MemSpace::page(f.caller_page),
+                                                f.caller_pc))
             source_text = QString::fromStdString(src->file) + ":" + QString::number(src->line);
         set_cell(4, source_text);
 

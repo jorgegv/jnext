@@ -8,7 +8,9 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <optional>
+#include <set>
 #include <string_view>
 #include <vector>
 
@@ -158,7 +160,7 @@ SourceMapLoadResult load_sld(SourceMap& map, const std::string& path)
     std::optional<std::string> program_sha256;
     std::optional<uint32_t> program_org;
     std::optional<uint32_t> program_size;
-    std::vector<SourceLocation> locations;
+    std::vector<SourceRange> ranges;
     int trace_count = 0;
     int device_count = 0;
     int page_count = 0;
@@ -217,9 +219,9 @@ SourceMapLoadResult load_sld(SourceMap& map, const std::string& path)
             || !address || *address < 0 || *address > 0xFFFF) {
             return failed("invalid SLD trace at line " + std::to_string(line_number));
         }
-        locations.push_back({std::string(fields[0]), source_line, source_column,
-                             static_cast<uint8_t>(*page),
-                             static_cast<uint16_t>(*address)});
+        ranges.push_back({jnext::dbg::MemSpace::page(static_cast<uint16_t>(*page)),
+                          static_cast<uint16_t>(*address), 0,
+                          {std::string(fields[0]), source_line, source_column}});
         ++trace_count;
     }
 
@@ -247,7 +249,19 @@ SourceMapLoadResult load_sld(SourceMap& map, const std::string& path)
     // its directory whatever the working directory is later.
     std::error_code ec;
     const std::filesystem::path absolute = std::filesystem::absolute(path, ec);
-    map.replace(std::move(locations), std::move(identity),
+    // A record covers its instruction's bytes up to the next distinct start in
+    // its page, never past the 8K page end (design 9.1; an SLD names 8K pages).
+    // Records sharing a start share the extent.
+    std::map<uint16_t, std::set<uint16_t>> starts;
+    for (const SourceRange& r : ranges) starts[r.space.index].insert(r.lo);
+    for (SourceRange& r : ranges) {
+        const auto& page_starts = starts[r.space.index];
+        const uint32_t page_end = (static_cast<uint32_t>(r.lo) & 0xE000u) + 0x2000u;
+        const auto next = page_starts.upper_bound(r.lo);
+        r.hi_excl = next == page_starts.end() ? page_end
+                                              : std::min<uint32_t>(*next, page_end);
+    }
+    map.replace(std::move(ranges), {}, std::move(identity),
                 ec ? path : absolute.lexically_normal().string());
     return {trace_count, {}};
 }

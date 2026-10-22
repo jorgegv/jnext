@@ -179,7 +179,7 @@ void SourcePanel::refresh()
     const QString pc_text = QString::asprintf("%04X", pc);
     const QString where = page == NOT_RAM_PAGE ? tr("ROM or overlay")
                                                : tr("page %1").arg(QString::asprintf("%02X", page));
-    const auto location = dbg_->source_location(pc);
+    const SourceLocation* location = dbg_->source_location(pc);
     if (!location) {
         show_message(tr("$%1 (%2): no source mapping; use the disassembly")
                          .arg(pc_text).arg(where));
