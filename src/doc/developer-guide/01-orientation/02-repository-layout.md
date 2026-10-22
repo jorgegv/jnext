@@ -15,7 +15,7 @@ that knowing the rule is usually faster than grepping.
 | `demo/` | z88dk test programs, one directory per feature (`copper_demo`, `tilemap_demo`, `lores_demo`, …), built to `.nex`/`.tap` by `demo/Makefile`. Most regression screenshots are of these. |
 | `packaging/` | Everything that turns a build into a package: `rpm/`, `debian/`, `flatpak/`, `macos/`, `windows/`, the AppStream metadata in `assets/`, `gen-debian-changelog.sh`, and `sync-version.sh`, which does the part of a version bump that must be committed. |
 | `third_party/` | Vendored dependencies: `fuse-z80/` (the Z80 core, GPLv2-or-later), `spdlog/` (logging, submodule), `zot/` (TZX playback, MIT), `crtemu/` (CRT-emulation shader, MIT / Unlicense; patched, every patch marked `JNEXT PATCH` and listed in its `README.jnext.md`), `fatfs/` (FAT filesystem, used for SD-image work; carries one local addition, `f_syncvol()`, marked in `ff.c`, which flushes the volume before jnext unmounts one it has modified). |
-| `tools/` | Developer utilities that are not part of the build: SD-image fixers, CSpect/DZRP differential-debugging helpers, profiler post-processing, the user-guide server. |
+| `tools/` | Developer utilities that are not part of the build: SD-image fixers, CSpect/DZRP differential-debugging helpers, profiler post-processing, the user-guide server, `crtshot` (one picture per CRT effect, for the user guide). |
 | `roms/` | `nextboot.rom` and nothing else. The 8 KB FPGA boot ROM is embedded into the binary at build time; every other ROM is read out of the SD-card image at runtime. Git-ignored beyond that file. |
 | `cmake/` | `GenerateVersion.cmake` — derives the version from `version.yaml`. |
 | `data/` | `48rom.map`, a symbol map for the 48K ROM used when disassembling. |

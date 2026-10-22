@@ -23,11 +23,9 @@ welcome screen.
 ![NextZXOS welcome screen, no effect](../img/crt-boot-off.png) ![The same, Scanlines](../img/crt-boot-scanlines.png)
 ![The same, TV](../img/crt-boot-tv.jpg) ![The same, PC monitor](../img/crt-boot-pc.jpg)
 
-It is off by default. Scanlines is drawn by the same GPU effect where the computer supports it,
-and by a simple overlay where it does not. While the effect is off nothing extra is created
-or drawn. If a TV or PC monitor look cannot run on this computer, jnext says so, switches it
-off and carries on with the normal display (a saved choice is tried again at the next start);
-Scanlines quietly falls back to the overlay. The TV and PC monitor entries are absent from
+It is off by default. Scanlines is a simple overlay drawn by jnext itself, on any computer and at
+no extra cost. While the effect is off nothing extra is created or drawn. If a TV or PC monitor look cannot run on this computer, jnext says so, switches it
+off and carries on with the normal display (a saved choice is tried again at the next start). The TV and PC monitor entries are absent from
 builds made without GPU support.
 
 **Layers.** The Next composites several video layers — the classic ULA screen,

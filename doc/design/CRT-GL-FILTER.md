@@ -15,13 +15,15 @@ CRT emulation, and want it switched off, at no cost, when they do not.
 
 The **CRT effect** is one choice, in the View menu and in Preferences: **off**,
 **Scanlines**, **TV** or **PC monitor**. TV and PC monitor draw the emulator picture
-through a GPU CRT emulation; Scanlines replaces the old 25 %-black line overlay with the
-same shader's scanlines-only (Lite) look, so there is one implementation of CRT drawing
-rather than two.
+through a GPU CRT emulation; **Scanlines is the existing software overlay, unchanged,
+for everyone** (owner decision, 2026-10-22): the 25 %-black line over every other row,
+drawn with or without OpenGL, at no cost. Measured under Mesa llvmpipe the shader's Lite
+style cost about ten times the CPU of that overlay, which would have penalised every
+existing `crt_filter` user on a host without a GPU.
 
 | Mode | Look | Implementation |
 |---|---|---|
-| Scanlines | scanlines only (with a light bloom) | shader Lite style; the old software overlay where there is no OpenGL (a build without it, or a driver that failed) |
+| Scanlines | scanlines only | the software overlay in `EmulatorWidget::paintEvent()`; no OpenGL involved |
 | TV | curved glass, bloom, scanlines, phosphor mask, slight noise and flicker | shader TV style |
 | PC monitor | flatter, scanlines and mask, little curvature | shader PC style |
 
@@ -38,15 +40,15 @@ nothing at the sides, which is how it was noticed.
   in `paintEvent()`.
 * **On never leaves a dead picture.** If the machine cannot provide OpenGL (no
   context, GLSL 1.20 refused), the widget drops the overlay, returns to the software
-  display, switches the setting off, and tells the user why once. A failure under the
-  Scanlines mode is silent: the software overlay takes over (and GL is not retried on
-  every toggle).
+  display, switches the setting off, and tells the user why once. Scanlines never
+  involves OpenGL, so it cannot fail this way.
 * The modes are **mutually exclusive**: Preferences offers one pop-up, the View menu
   entries (CRT Scanlines, CRT TV, CRT PC Monitor) uncheck one another and none
   checked is off. Persisted as `[startup] crt_filter` (Scanlines; the key that already
   existed, so an old config keeps working), `crt_shader` and `crt_shader_style`; a config
-  with both set starts with the shader only, and a shader saved in the Lite style is the
-  Scanlines mode.
+  with both set starts with the shader only, and a shader saved in the Lite style (hand-edited
+  only: the menu and Preferences never write it; the style stays in the enum for config
+  compatibility) is the Scanlines mode, at start-up and in Preferences.
 * It is a **display filter only**. It reads the frame the emulator already
   produced, changes nothing the guest can observe, and does not touch screenshots
   or recordings, which are taken from the emulator's own framebuffer.
@@ -147,14 +149,14 @@ TV and PC entries have none, like the Scale entries in the same popup.
   set): the style numbers against crtemu's own enum, out-of-range fallback, the
   fullscreen scale on several screens and degenerate sizes, and the byte-level pixel
   conversion (the red/blue swap that would otherwise ship invisibly wrong).
-* `test/gui/crt_shader_widget_test.cpp` (29 rows, offscreen QPA): off is the default
+* `test/gui/crt_shader_widget_test.cpp` (32 rows, offscreen QPA): off is the default
   and builds nothing; the software path still presents frames; on-then-off leaves
   nothing behind; switching on either runs or falls back with exactly one message, and an injected overlay failure (live, and stale after a toggle) behaves as specified
   (the offscreen platform has no GPU, so on a CI host this is the fallback arm — the
   test prints which outcome it saw); settings defaults, round trip, garbage and older
   configs; the Preferences dialog hands saved values back in any build and collects
   new ones; the View entry exists exactly when the build has the shader, with no
-  mnemonic; applying a configuration switches it.
+  mnemonic; applying a configuration switches it; Scanlines never builds a GL widget and draws the software lines; a saved Lite-style shader starts as, and shows in Preferences as, Scanlines; the overlay's presents are counted and switching off brings back the newest frame.
 * `tools/crtshot` (not part of the build or the tests; `cmake --build build --target crtshot`)
   takes one picture per mode of the same emulator frame, on a real window with a real
   GPU: `./build/crtshot --prefix crt-boot` for the NextZXOS welcome screen (600 frames),
@@ -163,6 +165,6 @@ TV and PC entries have none, like the Scale entries in the same popup.
   running the real widget on the native macOS platform, with the shader on in each of
   the three styles and off, rendering a test card and reading the result back:
   colours correct (red and blue the right way round), scanlines, mask, bloom and, for
-  TV and PC, curvature; the Lite style fills the viewport. Re-do this by eye on
+  TV and PC, curvature; the Lite style (no longer reachable from the UI) filled the viewport. Re-do this by eye on
   Linux and Windows before a release: `QOpenGLWidget` composition differs per
   platform and no host here has been exercised other than macOS.
