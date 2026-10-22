@@ -129,7 +129,9 @@ int main(int argc, char** argv)
     if (!scratch.isValid()) { std::fprintf(stderr, "crtshot: no temporary directory\n"); return 1; }
     const QString sd_copy = scratch.path() + QStringLiteral("/sd.img");
     std::printf("crtshot: copying the SD image...\n");
-    if (QProcess::execute(QStringLiteral("cp"), {QStringLiteral("--reflink=auto"), sd, sd_copy}) != 0) {
+    // --reflink is GNU cp only: where cp refuses it (BSD/macOS) or is missing, copy plainly.
+    if (QProcess::execute(QStringLiteral("cp"), {QStringLiteral("--reflink=auto"), sd, sd_copy}) != 0 &&
+        !QFile::copy(sd, sd_copy)) {
         std::fprintf(stderr, "crtshot: could not copy %s\n", qPrintable(sd));
         return 1;
     }
