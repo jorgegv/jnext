@@ -120,9 +120,14 @@ int main() {
     check("SRCMAP-11", "a line with no code does not resolve",
           map.resolve("main.bas:99").starts.empty());
 
-    SourceLocation a{"x.bas", 3, 0};
-    SourceLocation b{"x.bas", 3, 0};
-    SourceLocation c{"x.bas", 4, 0};
+    SourceMap same;
+    same.replace({{MemSpace::page(0), 0x8000, 0x8001, {"x.bas", 3, 0}},
+                  {MemSpace::page(4), 0x9000, 0x9001, {"x.bas", 3, 0}},
+                  {MemSpace::page(0), 0xA000, 0xA001, {"x.bas", 4, 0}}},
+                 {}, std::nullopt, "mem");
+    const SourceLocation a = *same.lookup(MemSpace::page(0), 0x8000);
+    const SourceLocation b = *same.lookup(MemSpace::page(4), 0x9000);
+    const SourceLocation c = *same.lookup(MemSpace::page(0), 0xA000);
     check("SRCMAP-12", "same_position compares file, line and column, not address or page",
           SourceMap::same_position(a, b) && !SourceMap::same_position(a, c));
 
