@@ -8,9 +8,9 @@ needs a way in and a way out, so they are host-side conveniences that reach
 directly into the emulator's RAM, registers and MMU rather than going through
 any bus the guest can see.
 
-Everything under this heading lives in `src/core/`, is driven from the frontend
-(a CLI flag at startup, a menu item later) and drives `Emulator` — never the
-reverse. Only two things here are hardware the guest could tell apart from the
+Everything under this heading except the POK trainers (below) lives in
+`src/core/`, is driven from the frontend (a CLI flag at startup, a menu item
+later) and drives `Emulator` — never the reverse. Only two things here are hardware the guest could tell apart from the
 real article: the real-time tape signal, which arrives on the EAR line exactly
 as an analogue tape would, and the SD card's SPI transport, which is a device
 the guest's own driver talks to. Both are called out below.
@@ -28,6 +28,7 @@ the guest's own driver talks to. Both are called out below.
 | `.wav` | yes | yes | `wav_loader.*`, `tape_recorder.*` | Read: real-time only, no fast path. Write: the tape-out signal, 8-bit mono 44100 Hz |
 | `.rzx` | yes | yes | `rzx_player.*`, `rzx_recorder.*` | Input recording, not state |
 | raw binary | yes | — | `Emulator::inject_binary` | `--inject` + `--inject-org`/`--inject-pc` |
+| `.pok` | yes | — | `platform/pok_trainers.*`, `gui/pok_dialog.*` | Not a loader: a list of trainers applied to the machine that is already running, through the debugger backend; Qt window only (see POK trainers) |
 
 Format selection is by **file extension**: for `--load` in `src/main.cpp`
 around line 890, and again in the GUI's file dialogs and in the headless
@@ -793,6 +794,133 @@ from a second snapshot (FUSE writes one for an inserted snapshot) is played up
 to it: `rzx::parse()` stops there and counts the rest in
 `RzxRecording::later_snapshots`, and `load_rzx()` warns.
 
+## POK trainers
+
+A `.pok` file (the World of Spectrum format: `N` name, `M`/`Z` pokes of
+`bank address value original`, `Y` end) is a list of cheats for one game. It is
+the one input here that is not loaded into a fresh machine: it edits the machine
+that is running, so it is written as a **client of the debugger backend**
+(`jnext::pok`, `src/platform/pok_trainers.*`, namespace `jnext::pok`) and holds no
+`Emulator*`. Every read is `Debugger::peek` and every write is
+`Debugger::poke(CLIENT_NONE, MemSpace::page(p), ...)`, which is what gives the
+trainers, with no code of their own, the RZX refusal (a recording would diverge),
+the rewind wall (`note_mutation()`: Step Back across a trainer is refused, as for
+any debugger edit), the beam-replay logging of a page store (`log_page_store()`)
+and a `MUTATE` line per byte. A second write path (a direct `Mmu` or `Ram` store)
+would lose each of those; do not add one.
+
+The module has no Qt, so `pok_trainers_test` runs in `make unit-test`,
+`unit-test-sdl` and `unit-test-win`. The Qt side is `gui/pok_dialog.*` (a view
+of a `Session`) and `MainWindow::open_pok_file()`, the seam both Machine ▸ POK
+Trainers… and File ▸ Load of a `.pok` end in; `pok_dialog_test` drives the real
+menu action, file picker, dialog and value prompt. `--load x.pok` keeps its
+"unsupported file extension" refusal: a `.pok` is not a program. The runs that
+have no window (headless, and the SDL-only window) take one through two options,
+`--delayed-pok-frames N FILE` and `--pok-trainers LIST` (below); a script
+(`set mem[a]`, `set phys[p, o]`, `save_snapshot`) still does what the options do
+not, and the recipe is in the user guide (5.11).
+
+**From the command line.** Two rows in `cli_options.h`, not one, because the
+table's arity is at most 2 (CLI-TBL-03) and because "when, and which file" and
+"which trainers" are different things; `main.cpp` refuses either without the
+other, or either twice. The parse arms only store. Below the loop `main()`
+reads and checks everything that can be checked before the machine exists, so a
+typo in a CI script fails at once with status 1: `parse_picks()` turns the list
+(`1,3=9,7`: a trainer number from 1, optionally `=VALUE`) into `Pick`s,
+`make_cli_request()` loads the file and checks the picks against it (the trainer
+exists and is valid, a value is given exactly for a trainer that leaves one
+open) into a `CliRequest`. The Qt window has the dialog, so `main()` refuses the
+options there (`#ifdef ENABLE_QT_UI`, not headless). `configure_and_run` hands
+the request to `HeadlessApp::set_delayed_pok()` or `SdlApp::set_delayed_pok()`;
+`QtApp` has none, and `if constexpr` leaves the call out of its instantiation.
+
+Each of the two loops holds a `jnext::pok::CliJob`: the request and a
+`cli::Delay::frames(N)`. `poll()` runs once per tick, after that tick's `--load`,
+`--inject` and `--rzx-record` handling and before its frame, so `--load x.sna`
+with N = 0 applies the trainers right after the snapshot is in; otherwise they go
+in on the poll after N frames have run. When due it calls `run_cli_request()`: a fresh `Session` over
+the loop owner's debugger backend (the same write path, so the same RZX refusal,
+rewind wall and `MUTATE` lines), `apply()` for each pick in the order written,
+stopping at the first refusal with the trainer's number and name in the reason;
+a trainer that `state()` already reports as found in memory is logged and left.
+A refusal makes `poll()` return false, which the loop turns into
+`exit_code_ = 1`, and a job still pending when the automatic exit fires is
+listed in `auto_exit_finds_no_deferred_work()`, so neither can end in a quiet
+exit 0. Nothing is removed from here: a run is one-shot. The rows are POK-60..64
+(the list, the request, the run, the refusal, the job's counting) and the
+regression row `delayed-pok-func`, which reads the trainers back from a `.scr`
+(the ULA screen memory, byte for byte) in both loops, with the controls that a
+frame earlier or later flips, the `--load` order, the banked line, the usage
+errors and the Qt refusal.
+
+**Where a poke lands.** Only 0xC000-0xFFFF is banked. Port 0x7FFD writes MMU6
+and MMU7 and nothing else (`zxnext.vhd:4679-4680`; MMU2-5 keep pages 0A 0B 04 05,
+`:4613-4616`), so a Multiface-level POKE with a bank number can only reach that
+bank at 0xC000 and above. A banked poke (bank 0-7) at address ≥ 0xC000 is NR page
+`2*bank + ((address >> 13) & 1)`, offset `address & 0x1FFF`, whatever is paged in
+(a 48K only has bank 0 there: port 0x7FFD is not decoded, NR 0x82 = 0xC0). Every
+other poke (bank 8-15, "ignore the bank", or an address below 0xC000) is the RAM
+page `Debugger::mmu_slots()` reports for the address when the trainer is applied,
+not `poke(Cpu)`, which would follow a Layer 2 write-over mapping that reads do not.
+Fuse and ZEsarUX index `RAM[bank][address & 0x3FFF]` for every address; that
+differs from this only for a banked line below 0xC000, a few lines in thousands
+of real files, all in trainers that also poke the banked window, and it is not
+the author's reading. On the real 128K Starglider (loaded from its tape, snapshot
+at the title), "Infinite Missiles (Bank#0)" is `M 0 44796 2 0` / `Z 0 60367 0 0`.
+The second line lands in bank 0, on the `DEC A` that counts the missile counter
+down (it becomes a NOP). The first is the CPU address 0xAEFC (bank 2), the operand
+of the `LD A,1` that resets the same counter; read as byte 0x2EFC of bank 0, as
+Fuse and ZEsarUX read it, it changes an unrelated byte of bank 0 instead and the
+reset stays 1 (a bank diff of two snapshots, with and without the trainer, shows
+exactly those two bytes).
+The decision, the evidence and what would reopen it are in
+`doc/analysis/POK-BANKED-POKES-BELOW-C000.md`.
+
+**Undo and state.** `Session::apply` resolves every poke to a location, reads
+every original **before** writing anything (so a refusal leaves memory untouched
+and a trainer that pokes one address twice restores the byte from before the
+trainer), writes the last value of each location, and keeps `{location, original,
+final}` per trainer. `remove` writes those originals back to those locations,
+whatever is paged in by then. `state()` is **derived from memory, never stored**:
+Applied needs a record whose bytes all still hold; AppliedFound is a trainer with
+no value left open whose bytes are all in memory with no record (removable only
+if every poke gives a non-zero `original`). A record that stops verifying is kept,
+because removing an overlapping trainer can make it true again. When the program
+has overwritten part of a trainer it reads Not applied and Remove is refused, so
+Apply is the way on; it replaces the record, but a location that still holds what
+the older record wrote keeps the older record's `original` (matched by page and
+offset), because that byte is still our poke, and a location the program changed
+takes the program's byte. Without that, Remove would leave the poke in place for
+good. A program put in through the backend, which never reaches `set_emulator()`,
+drops them too: the `Session` compares `Debugger::program_loads()` and forgets the
+records when it moved (POK-65..67, once per move, for every trainer). The counter moves
+for a ZRCP `smartload` (`Debugger::load()`, whether the loader succeeded or not), a ZRCP
+`load-binary` that landed a byte, and a NEW DZRP or GDB session (`note_program_replaced()`
+from `cmd_init` and the GDB `on_connect`: neither protocol has a load verb, the program
+arrives as memory writes after the connection; DZRP-LOAD-01, GDB-SES-08, ZRCP-LOAD-06).
+Plain memory writes into a session already open (CMD_WRITE_MEM/BANK, `M`/`X`,
+`write-memory`) do not move it, so the records survive those.
+`forget_applied()` drops them for the other routes: `MainWindow::set_emulator()` calls
+it, and `QtApp` calls `set_emulator()` after every machine rebuild
+(`boot_machine()`'s `rewire_host` hook), which covers menu load, Quick Load,
+Power Reset, a guest NR 0x02 reset and a machine-type change.
+
+**File > Load.** `handle_load_path()` sends a `.pok` to `open_pok_file()` before
+any cold boot. The same function now also refuses, before the cold boot, a file
+that would route to the NEX loader (a `.nex`, or an extension nothing owns) but
+has no `Next` prologue (`NexLoader::probe_version()`), which `NexLoader::load()`
+would refuse anyway: before, the session was reset and then the load failed. The
+reason follows the case: a `.nex` is "not a NEX file" and nothing more, and only
+an extension nothing owns is told the list of formats and where a `.pok` goes.
+
+The suites: `pok_trainers_test` (POK-01..25 and POK-60 the parser, the list and
+`load_pok_file`, POK-30..57 and POK-61..64 the session and the command-line
+request, each bank-to-page row citing `zxnext.vhd` or the other emulators'
+indexing and asserting bytes the test placed itself; the rows that sweep a
+trainer's locations one at a time, POK-50..52, are there so that a rule meant for
+every location cannot pass by checking the first) and `pok_dialog_test`
+(PKD-01..16); File > Load's refusal is `preferences_apply_test` PA-24e/f/g.
+
 ## Media out
 
 | What | Flag / UI | Code |
@@ -874,6 +1002,22 @@ the CLI winning (`quick_snapshot_keep_cli`). The debugger keymap refuses
 Alt+Shift+F5/F9 by name (`validate_combo`).
 The SDL chord predicate is `platform/quick_snapshot_chord.h`; the Qt chords are
 the two QAction shortcuts in `main_window.cpp`.
+Both frontends hand the request to the key `Router` (`on_host_action()`, GH #386)
+instead of acting in the key callback, so a chord takes its turn behind the keys
+typed before it, keys typed during or after it reach the loaded machine, and
+`SdlApp::service_quick_requests()` / `QtApp::TickEffects::post_frames()` call
+`action_done()` however the action ended (see the input subsystem chapter).
+The cost of the stall is the Tier-2 content stamp, a SHA-256 of the WHOLE SD
+image on the UI thread: one pass per save, two per load (the probe, then the load
+itself; the Qt Quick Load passes `jns_probed` so `handle_load_path()` does not
+repeat the probe). It scales with the card size (about 0.5-2 s for 1 GB) and every
+digest logs `snapshot: digested SD image '<path>' (<MB> MB) in <ms> ms`, so a
+user can see what the freeze was. The digest is eager by design (the snapshot
+format's section 11.3 and `sd_snapshot_identity.h`, "cost, stated rather than
+hidden"), and a probe without it would wrongly accept a snapshot taken
+mid-transfer (section 11.3, last row of the restore matrix). The freeze
+itself (the digest on the UI thread, which grows with the card) is kept as
+designed and tracked in GH #396.
 
 Video recording needs **FFmpeg on the host**. jnext writes raw ARGB frames and
 raw stereo PCM to temporary files during the run, so the hot loop pays no

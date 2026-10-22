@@ -33,6 +33,7 @@ and it will be changed.
 | [spdlog](https://github.com/gabime/spdlog) | MIT | Fast C++ logging (git submodule, `third_party/spdlog/`) |
 | FUSE Z80 core | GPLv2 | Z80 CPU core, adapted from the [FUSE](http://fuse-emulator.sourceforge.net/) emulator (`third_party/fuse-z80/`) |
 | [ZOT](https://github.com/antirez/zot) | MIT | TZX/TAP tape player library by antirez (vendored in `third_party/zot/`) |
+| [crtemu](https://github.com/mattiasgustavsson/libs) by Mattias Gustavsson | MIT / Unlicense | CRT emulation shader for the optional OpenGL display filter (vendored, patched, in `third_party/crtemu/`) |
 | [nexlib + tests](https://github.com/dcrespo3d) by David Crespo | GPLv3 | Next demo/test programs used as rendering and timing fixtures (vendored in `demo/dapr-nexlib+tests/`) |
 | zlib | zlib | Compressed snapshot (SZX) and RZX blocks |
 | libpng | libpng | PNG screenshots |

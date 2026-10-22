@@ -376,6 +376,12 @@ if(ENABLE_DEBUGGER AND ENABLE_QT_UI)
     add_subdirectory(tools/docshot)
 endif()
 
+# crtshot: a picture per CRT display effect; needs the Qt frontend and, to run, a GPU
+# (tools/crtshot/crtshot.cpp). EXCLUDE_FROM_ALL inside.
+if(ENABLE_QT_UI)
+    add_subdirectory(tools/crtshot)
+endif()
+
 add_executable(jnext src/main.cpp)
 
 # GH #308 -- stack-frame gate. No production function may need a frame over

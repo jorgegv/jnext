@@ -446,6 +446,26 @@ public:
     /// PC.
     Result load(ClientId by, const std::string& path);
 
+    /// How many times a program has been replaced under the clients since this
+    /// `Debugger` was built: every `load()` that ran the loop driver (the ZRCP
+    /// `smartload`), whether the loader succeeded or not, plus every
+    /// `note_program_replaced()` (below): a new DZRP or GDB session, a ZRCP
+    /// `load-binary` that landed a byte. A client that keeps bytes it saved from
+    /// the old program (the POK undo records) drops them when the count moves. It
+    /// does NOT move for plain memory writes once a session is up (`poke()`, DZRP
+    /// CMD_WRITE_MEM/BANK, GDB `M`/`X`, ZRCP `write-memory`), so a debugger that
+    /// pokes a program into a session already open is not seen. File > Load and a
+    /// cold boot do not go through here (the window's `set_emulator()` covers them).
+    uint64_t program_loads() const;
+
+    /// A remote client has put a program into memory in a way the backend cannot
+    /// see as one load, because the protocol has no load verb: it sends memory
+    /// writes. The servers call this where the protocol shows a program is being
+    /// replaced: a new DZRP session (CMD_INIT, DeZog loads on connect), a new GDB
+    /// session (`load` is `X` packets, indistinguishable from `set var`), and a
+    /// ZRCP `load-binary`. Bumps `program_loads()`.
+    void note_program_replaced();
+
     /// §4.1 — is the step machinery live? The hot loop's gate: when it is
     /// false the backend is inert and costs what today's `DebugState::armed()`
     /// costs.

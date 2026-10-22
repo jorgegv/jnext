@@ -47,6 +47,7 @@
 #include "input/membrane_stick.h"
 #include "input/emu_fnkeys.h"
 #include "platform/emulator_boot.h"
+#include "platform/host_key_latch.h"
 #include "port/nextreg.h"
 
 #include <cstdio>
@@ -1736,6 +1737,142 @@ static void test_gh311_gamepad_host() {
     SDL_Quit();
 }
 
+// -- ROMKB: the real 48K ROM against the Router's backlog drain (GH #386) ----
+//
+// ORACLE: the Spectrum ROM's own KEYBOARD routine (48.rom 0x02BF-0x02F4), not
+// the Router. Two key sets (KSTATE $5C00/$5C04); each interrupt decrements a
+// busy set's counter and frees it at 0 (loop 0x02C6-0x02D6, DEC (HL) at
+// 0x02CB); a new key with no free set is dropped (RET Z at 0x02F0); a new
+// key's counter is set to 5 (LD (HL),$05 at 0x02F4); the same key seen again
+// while its set is busy is a REPEAT (K-REPEAT, 0x0310). So three distinct
+// keys, or a repeated one, delivered one per frame lose a character inside
+// the ROM even though the matrix showed every one of them to a frame. The
+// Router, the Keyboard and the machine are the real ones; only the host's
+// events are scripted, exactly as a frontend tick feeds them: events, frame,
+// on_tick_end.
+namespace gh386_rom {
+
+using KRouter = host_key_latch::Router<Keyboard, SDL_Scancode>;
+
+std::string sd_image() {
+    if (const char* env = std::getenv("JNEXT_TEST_SD_IMAGE")) return env;
+    const char* home = std::getenv("HOME");
+    return std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+}
+
+bool boot_48k(Emulator& emu) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZX48K;
+    cfg.rewind_buffer_frames = 0;
+    cfg.sd_card_image = sd_image();
+    cfg.sd_card_readonly = true;
+    if (!emu.init(cfg)) return false;
+    for (int i = 0; i < 200; ++i) emu.run_frame();   // to the K prompt
+    return true;
+}
+
+void tick(Emulator& emu, KRouter& r, int frames = 1) {
+    for (int i = 0; i < frames; ++i) emu.run_frame();
+    r.on_tick_end(frames);
+}
+
+void tap(KRouter& r, SDL_Scancode sc) {
+    r.on_host_key(sc, true);
+    r.on_host_key(sc, false);
+}
+
+/// The bytes of the BASIC edit line, up to the ENTER that ends it.
+std::vector<uint8_t> edit_line(Emulator& emu) {
+    uint16_t p = static_cast<uint16_t>(emu.mmu().peek(0x5C59) |
+                                       (emu.mmu().peek(0x5C5A) << 8));   // E_LINE
+    std::vector<uint8_t> out;
+    for (int i = 0; i < 32; ++i) {
+        const uint8_t b = emu.mmu().peek(static_cast<uint16_t>(p + i));
+        if (b == 0x0D) break;
+        out.push_back(b);
+    }
+    return out;
+}
+
+std::string bytes_str(const std::vector<uint8_t>& v) {
+    std::string s;
+    for (uint8_t b : v) s += hex2(b) + " ";
+    return s;
+}
+
+}  // namespace gh386_rom
+
+static void test_gh386_rom_keys() {
+    set_group("ROMKB");
+    using namespace gh386_rom;
+
+    // ROMKB-01 - B 2 ENTER in ONE gap is BORDER 2.
+    {
+        Emulator emu;
+        const bool ok = boot_48k(emu);
+        KRouter r; r.attach(emu.keyboard());
+        const int before = ok ? emu.ula().get_border() : -1;
+        tap(r, SDL_SCANCODE_B); tap(r, SDL_SCANCODE_2); tap(r, SDL_SCANCODE_RETURN);
+        for (int i = 0; i < 60; ++i) tick(emu, r);
+        check("ROMKB-01",
+              "B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 "
+              "(48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped)",
+              ok && before != 2 && emu.ula().get_border() == 2,
+              "border before=" + std::to_string(before) + " after=" +
+                  std::to_string(emu.ula().get_border()));
+    }
+
+    // ROMKB-02 - B 1 1 in ONE gap: the repeated key is a second keystroke.
+    {
+        Emulator emu;
+        const bool ok = boot_48k(emu);
+        KRouter r; r.attach(emu.keyboard());
+        tap(r, SDL_SCANCODE_B); tap(r, SDL_SCANCODE_1); tap(r, SDL_SCANCODE_1);
+        for (int i = 0; i < 40; ++i) tick(emu, r);
+        const std::vector<uint8_t> line = edit_line(emu);
+        // The line holds the BORDER token and both digits; the cursor is a
+        // later byte, so compare the prefix.
+        const std::vector<uint8_t> want{0xE7, 0x31, 0x31};
+        check("ROMKB-02",
+              "B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 "
+              "(48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat)",
+              ok && line.size() >= 3 && std::equal(want.begin(), want.end(), line.begin()),
+              "edit line: " + bytes_str(line));
+    }
+
+    // ROMKB-03 - a snapshot load wipes the matrix; reassert() restores the key.
+    {
+        auto run = [](bool reassert, std::vector<uint8_t>& line) {
+            Emulator emu;
+            if (!boot_48k(emu)) return false;
+            KRouter r; r.attach(emu.keyboard());
+            const std::string jns = (std::filesystem::temp_directory_path() /
+                ("jnext_gh386_" + std::to_string(::getpid()) + ".jns")).string();
+            bool good = emu.save_jns_file(jns);
+            r.on_host_key(SDL_SCANCODE_B, true);
+            r.on_host_key(SDL_SCANCODE_B, false);     // release deferred: no frame saw it
+            // The frontends' four load sites all call the keys helper; without
+            // it the plain load is what they did before GH #386.
+            good = good && (reassert
+                ? emulator_apply_load_keeping_keys(emu, jns, false,
+                                                   std::function<void(MachineType)>{}, r)
+                : emulator_apply_load(emu, jns, false));
+            for (int i = 0; i < 20; ++i) tick(emu, r);
+            std::filesystem::remove(jns);
+            line = edit_line(emu);
+            return good;
+        };
+        std::vector<uint8_t> with, without;
+        const bool a = run(true, with);
+        const bool b = run(false, without);
+        check("ROMKB-03",
+              "a key the host pressed just before a snapshot load reaches the ROM through the frontends' load helper "
+              "(the load wipes the matrix), and does not without it",
+              a && b && !with.empty() && with[0] == 0xE7 && (without.empty() || without[0] != 0xE7),
+              "with: " + bytes_str(with) + "without: " + bytes_str(without));
+    }
+}
+
 int main() {
     std::printf("Input Subsystem Integration Tests (port 0xFE assembly)\n");
     std::printf("======================================================\n\n");
@@ -1767,6 +1904,9 @@ int main() {
 
     test_gh265_tape_sample();
     std::printf("  Group: GH265-TAPE — done\n");
+
+    test_gh386_rom_keys();
+    std::printf("  Group: ROMKB   - done\n");
 
     test_gamepad_host_real_device();
     std::printf("  Group: GPH     — done\n");

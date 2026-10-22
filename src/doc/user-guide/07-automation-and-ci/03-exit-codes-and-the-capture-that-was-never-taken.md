@@ -56,9 +56,9 @@ error and non-zero exit follow when the automatic exit fires before any other
 deferred work has happened: a `--load` still waiting out its boot delay (a
 `.tzx` or `.wav` waits 100 frames for BASIC), an `--inject` with
 `--inject-delay`, an `--rzx-record` waiting for that load, a
-`--delayed-keypress` or `--delayed-nmi` still to come, a `--joy-uart-rx`
-stream still in its start delay, or an edge of a scheduled ESP outage. The log
-names each one:
+`--delayed-keypress` or `--delayed-nmi` still to come, a `--delayed-pok-frames`
+trainer file still to be applied, a `--joy-uart-rx` stream still in its start
+delay, or an edge of a scheduled ESP outage. The log names each one:
 
 ```console
 $ jnext --headless --machine 48k --load game.tzx --delayed-automatic-exit-frames 5

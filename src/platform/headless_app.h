@@ -3,6 +3,7 @@
 #include <vector>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include "core/screenshot.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -10,6 +11,7 @@
 #include "platform/cli_delay.h"
 #include "platform/host_probe.h"
 #include "platform/debug_servers.h"
+#include "platform/pok_trainers.h"
 #include "script/script_host.h"
 #include "video/renderer.h"
 
@@ -142,6 +144,13 @@ public:
     /// Repeatable: each call queues one independent change.
     void set_delayed_sdcard_insert(const std::string& image, int delay_frames);
 
+    /// GH #381 (owner Q1) - --delayed-pok-frames N FILE with --pok-trainers LIST:
+    /// the request main() has read and checked (jnext::pok::make_cli_request),
+    /// applied after `delay_frames` frames through the debugger backend, as a
+    /// trainer applied in the Qt window is. A refusal fails the run, as does the
+    /// automatic exit coming first. One per run: a second call replaces the first.
+    void set_delayed_pok(jnext::pok::CliRequest request, int delay_frames);
+
     /// Which of the two NMI buttons a --delayed-nmi press targets.
     /// Public because the name→enum parser is a free function in the
     /// .cpp, alongside the keypress name parser.
@@ -249,6 +258,9 @@ private:
         int         countdown;  // in frames
     };
     std::vector<DelayedSdInsert> delayed_sd_inserts_;
+
+    // Pending --delayed-pok-frames request (GH #381); empty when not given.
+    std::optional<jnext::pok::CliJob> pok_job_;
 
     // In-memory framebuffer size (canonical 640×256 post-G104). Headless
     // never opens a window; these constants are declarative for symmetry

@@ -362,6 +362,12 @@ void HeadlessApp::set_delayed_sdcard_insert(const std::string& image, int delay_
                           image, delay_frames);
 }
 
+void HeadlessApp::set_delayed_pok(jnext::pok::CliRequest request, int delay_frames) {
+    Log::platform()->info("--delayed-pok-frames: will apply {} trainer(s) of '{}' after {} frame(s)",
+                          request.picks.size(), request.path, delay_frames);
+    pok_job_.emplace(std::move(request), delay_frames);
+}
+
 void HeadlessApp::run() {
     // Command-line RZX play/record — shared with QtApp/SdlApp, and applied
     // here in run() for the reason given at emulator_start_rzx().
@@ -702,6 +708,12 @@ void HeadlessApp::run() {
             }
         }
 
+        // GH #381 - --delayed-pok-frames: the trainers go in through the backend, as
+        // a trainer applied in the Qt window does, AFTER this tick's load and before
+        // its frame. A refusal fails the run, like a failed load.
+        if (pok_job_ && !pok_job_->poll(*debugger_, emulator_.video_timing().refresh_60hz()))
+            exit_code_ = 1;
+
         // --delayed-screenshot: when the countdown comes due, hand the capture
         // to the backend (GH #276 B4, O2; platform/cli_capture.h). It arms the
         // --delayed-screenshot-layers mask on the renderer NOW, for the frame
@@ -976,6 +988,8 @@ void HeadlessApp::run() {
                     {"--delayed-keypress", keys, !delayed_keys_.empty()},
                     {"--delayed-nmi", nmis, !delayed_nmis_.empty()},
                     {"--delayed-sdcard-insert-frames", cards, !delayed_sd_inserts_.empty()},
+                    {"--delayed-pok-frames", pok_job_ ? pok_job_->request().path : std::string(),
+                     pok_job_ && pok_job_->pending()},
                 }))
                 exit_code_ = 1;
             // GH #26 WP4 (§7.3) — the watchdog fired before a script reached

@@ -39,7 +39,7 @@
 //                                 "Sto&p MPEG4 Recording" in the same popup,
 //                                 and the V of Video is the View menu
 //   "CP&U Speed"              U   the acronym's own letter
-//   "CRT Fi&lter"             L   free everywhere (a different popup from
+//   "CRT Scan&lines"          L   free everywhere (a different popup from
 //                                 Load NEX, so reusing L is legitimate)
 //
 // Groups:
@@ -221,7 +221,7 @@ static void test_accelerators(MainWindow& w)
     // and for the same reason: every row above passes trivially against an
     // empty harvest, so the shape of the walk is pinned. Eight menus; thirteen
     // popups (File, Machine + Machine Type + CPU Speed + Emulator Speed, Input
-    // + Joy 1 + Joy 2, Tape, Debug, View, Settings, Help); fifty
+    // + Joy 1 + Joy 2, Tape, Debug, View, Settings, Help); fifty-one
     // mnemonics; seventeen shortcuts — plus, in a debugger build, the two
     // View/Debug entries sharing one Alt+D. (GH #19 added one of each:
     // File > Quic&k Screenshot, Alt+K. GH #93 added a mnemonic: File > &Eject
@@ -231,7 +231,8 @@ static void test_accelerators(MainWindow& w)
     // GH #324 added a mnemonic: Machine Type > &Pentagon 128K.
     // GH #321 added two shortcuts: File > Quick Save Snapshot, Alt+Shift+F5, and
     // Quick Load Snapshot, Alt+Shift+F9; neither has a mnemonic.
-    // GH #380 added a shortcut: File > Quit's second, Alt+F4, next to Alt+Q.)
+    // GH #380 added a shortcut: File > Quit's second, Alt+F4, next to Alt+Q.
+    // GH #381 added a mnemonic: Machine > POK T&rainers...)
     //
     // ADDING OR REMOVING A MENU ENTRY MEANS UPDATING THESE NUMBERS, and that
     // edit is the point: it is the claim about how much of the menu tree is
@@ -245,14 +246,14 @@ static void test_accelerators(MainWindow& w)
         const bool as_expected =
                top.size()           == 8
             && popup_scopes.size()  == 13
-            && menu_accels.size()   == 50 + kDebuggerMnemonics
+            && menu_accels.size()   == 51 + kDebuggerMnemonics
             && key_accels.size()    == 17 + kDebuggerShortcuts;
         check("MA-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
               fmt("menus=%zu (want 8), popups=%zu (want 13), mnemonics=%zu (want %zu), "
                   "shortcuts=%zu (want %zu)",
                   top.size(), popup_scopes.size(),
-                  menu_accels.size(), 50 + kDebuggerMnemonics,
+                  menu_accels.size(), 51 + kDebuggerMnemonics,
                   key_accels.size(), 17 + kDebuggerShortcuts));
     }
 }

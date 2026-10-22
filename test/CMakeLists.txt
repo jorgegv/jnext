@@ -760,6 +760,19 @@ target_link_libraries(snapshot_machine_test PRIVATE
 target_include_directories(snapshot_machine_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME snapshot_machine_tests COMMAND snapshot_machine_test)
 
+# GH #381 - POK trainer files: the .pok parser and the session that applies and
+# removes trainers through the debugger backend (src/platform/pok_trainers.*).
+# No Qt (so it runs in the SDL-only and the Windows builds too); a real Emulator
+# and Debugger, built like debugger_backend_test (no ROM, no SD image).
+add_executable(pok_trainers_test platform/pok_trainers_test.cpp)
+target_link_libraries(pok_trainers_test PRIVATE
+    jnext_platform
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(pok_trainers_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME pok_trainers_tests COMMAND pok_trainers_test)
+
 # CLI option table / man page alignment (issue #43). Header-only table under
 # test (src/core/cli_options.h) — no emulator core needed. The three paths are
 # baked in at configure time so the suite works from any working directory
@@ -1319,6 +1332,16 @@ target_compile_definitions(zrcp_adapter_test PRIVATE
     JNEXT_ZRCP_FIXTURE="${CMAKE_SOURCE_DIR}/test/fixtures/zrcp/zesarux-12.0-exchanges.txt")
 add_test(NAME zrcp_adapter_tests COMMAND zrcp_adapter_test)
 
+# OpenGL CRT display filter (doc/design/CRT-GL-FILTER.md) — the pure decision rules:
+# style numbers, the fullscreen placement rule, the ARGB->GL byte order. No Qt, no GL,
+# so it belongs to the SDL-only set too. crtemu.h is included for its declarations only.
+add_executable(crt_shader_policy_test gui/crt_shader_policy_test.cpp)
+target_include_directories(crt_shader_policy_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party)
+target_compile_definitions(crt_shader_policy_test PRIVATE
+    JNEXT_CRTEMU_HEADER="${CMAKE_SOURCE_DIR}/third_party/crtemu/crtemu.h")
+add_test(NAME crt_shader_policy_tests COMMAND crt_shader_policy_test)
+
 # Task 66 — AppConfig (GUI preferences: QSettings-backed load/save,
 # CLI-vs-saved-preference precedence). Needs jnext_gui (QSettings/QString
 # usage in src/gui/app_config.*), so it is gated on ENABLE_QT_UI like the
@@ -1424,6 +1447,17 @@ if(ENABLE_QT_UI)
     target_include_directories(nex_v13_dialog_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME nex_v13_dialog_tests COMMAND nex_v13_dialog_test)
 
+    # GH #381 - Machine > POK Trainers...: the real menu action, file picker,
+    # trainers dialog and value prompt over a real MainWindow and 48K machine.
+    # The decisions (where a poke lands, undo, states) are pok_trainers_test's,
+    # without Qt; this pins the wiring on top. Same offscreen-QPA idiom as
+    # nex_v13_dialog_test.
+    add_executable(pok_dialog_test gui/pok_dialog_test.cpp)
+    set_target_properties(pok_dialog_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(pok_dialog_test PRIVATE jnext_gui)
+    target_include_directories(pok_dialog_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME pok_dialog_tests COMMAND pok_dialog_test)
+
     # The File menu's RZX actions: each failure (unwritable recording, one that
     # would replace a running recording, recording during playback, an
     # unplayable file) must reach the user as a dialog. Same offscreen-QPA
@@ -1513,6 +1547,14 @@ if(ENABLE_QT_UI)
     target_link_libraries(window_scale_test PRIVATE jnext_gui)
     target_include_directories(window_scale_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME window_scale_tests COMMAND window_scale_test)
+
+    # OpenGL CRT display filter — the widget, the settings and the menu, offscreen
+    # (no GPU: the invariant that holds whether or not a context can be made).
+    add_executable(crt_shader_widget_test gui/crt_shader_widget_test.cpp)
+    set_target_properties(crt_shader_widget_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(crt_shader_widget_test PRIVATE jnext_gui)
+    target_include_directories(crt_shader_widget_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME crt_shader_widget_tests COMMAND crt_shader_widget_test)
 
     # GH #155 — the main window title (and its mouse-capture title) names the version.
     add_executable(window_title_test gui/window_title_test.cpp)

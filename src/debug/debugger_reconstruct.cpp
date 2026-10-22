@@ -448,6 +448,10 @@ Result Debugger::Impl::reset_hard(ClientId by) {
 // CTL-15 — `load(path)`
 // ---------------------------------------------------------------------------
 
+uint64_t Debugger::program_loads() const { return impl_->program_loads; }
+
+void Debugger::note_program_replaced() { ++impl_->program_loads; }
+
 Result Debugger::load(ClientId by, const std::string& path) {
     const Result nested = impl_->refuse_inside_delivery("load");
     if (nested != Result::Ok) return nested;
@@ -465,6 +469,7 @@ Result Debugger::load(ClientId by, const std::string& path) {
     impl_->pending_boot.reset();
 
     const bool loaded = impl_->driver.load(path);
+    note_program_replaced();
 
     // DID THE DRIVER RECONSTRUCT THE MACHINE? The backend can tell, from its OWN
     // publication rather than from a guess about the closure: the constructor

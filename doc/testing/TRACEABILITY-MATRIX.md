@@ -24,7 +24,7 @@ mentions them, so a test can no longer be absent from this document.
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
 | Memory/MMU                                 |   318 |  318 |    0 |    0 |       0 |          0 |
 | ULA Video                                  |   155 |  155 |    0 |    0 |       0 |          0 |
-| Layer2                                     |   238 |  238 |    0 |    0 |       0 |          0 |
+| Layer2                                     |   241 |  241 |    0 |    0 |       0 |          0 |
 | Sprites                                    |   217 |  217 |    0 |    0 |       0 |          0 |
 | Tilemap                                    |   123 |  123 |    0 |    0 |       0 |          0 |
 | Copper                                     |   110 |  110 |    0 |    0 |       0 |          0 |
@@ -37,7 +37,7 @@ mentions them, so a test can no longer be absent from this document.
 | UART+I2C/RTC                               |   243 |  243 |    0 |    0 |       0 |          0 |
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
-| Input                                      |   401 |  401 |    0 |    0 |       0 |          0 |
+| Input                                      |   404 |  404 |    0 |    0 |       0 |          0 |
 | Rewind                                     |   308 |  308 |    0 |    0 |       0 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |   113 |  113 |    0 |    0 |       0 |          0 |
@@ -55,20 +55,20 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: mmu_integration_test            |   127 |  127 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: compositor_integration_test     |    51 |   51 |    0 |    0 |       0 |          0 |
-| Companion: copper_integration_test         |    30 |   30 |    0 |    0 |       0 |          0 |
+| Companion: copper_integration_test         |    32 |   32 |    0 |    0 |       0 |          0 |
 | Companion: tilemap_fetch_split_test        |    12 |   12 |    0 |    0 |       0 |          0 |
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
 | Companion: divmmc_integration_test         |     6 |    6 |    0 |    0 |       0 |          0 |
 | Companion: ctc_interrupts_test             |    88 |   88 |    0 |    0 |       0 |          0 |
 | Companion: nextreg_integration_test        |   379 |  379 |    0 |    0 |       0 |          0 |
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
-| Companion: input_integration_test          |    43 |   43 |    0 |    0 |       0 |          0 |
+| Companion: input_integration_test          |    46 |   46 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    42 |   42 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    49 |   49 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |    79 |   79 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  5957 | 5957 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  5968 | 5968 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **5957**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5492**. Rows the 156 suites declared in `test/unit-tests.conf` run live: **13484**.
+Rows the sections above carry: **5968**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **5500**. Rows the 160 suites declared in `test/unit-tests.conf` run live: **13664**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -80,7 +80,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 109 suites (8076 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 113 suites (8248 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -118,7 +118,7 @@ These 109 suites (8076 live rows) have no VHDL-derived plan row to map, so they 
 | `frame_sequencer_test` | 116 | host frame sequencer (wall-clock run/present ordering) |
 | `tick_stats_test` | 32 | host tick accounting for the status bar |
 | `speed_report_test` | 36 | host speed-percentage reporting |
-| `host_key_latch_test` | 145 | host key latch/debounce compensation; guest matrix is `## Input` |
+| `host_key_latch_test` | 174 | host key latch/debounce compensation; guest matrix is `## Input` |
 | `sdl_pointer_release_test` | 11 | SDL pointer-release route (host UI, GH #365) |
 | `sdl_window_title_test` | 3 | SDL window title carries the version (host GUI) |
 | `quit_signal_test` | 14 | SIGINT/SIGTERM as a quit request (host process behaviour; GH #364) |
@@ -134,6 +134,7 @@ These 109 suites (8076 live rows) have no VHDL-derived plan row to map, so they 
 | `tape_save_test` | 59 | TZX / WAV writer (GH #89): the TZX 1.20 and RIFF/WAVE layouts, with FUSE/libspectrum as the foreign reader (host saver); its hardware rows, the tape-out signal (TSAVE-30, TSAVE-43), cite zxnext.vhd:6503 in their own source |
 | `snapshot_im_test` | 4 | snapshot loaders seeding the NR 0xC0 IM latch (host loaders; nextreg.txt NR 0xC0) |
 | `snapshot_machine_test` | 26 | which machine a .sna/.szx/.z80 loads as (libspectrum header tables, GH #323; host loaders) and the +3 / AY / NTSC state they restore; its hardware rows (SNM-27, 30, 31, 33) cite zxnext.vhd, zxula_timing.vhd and ports.txt in their own source |
+| `pok_trainers_test` | 61 | the WoS POK trainer file format and jnext's apply/remove policy (host side); its bank-to-page rows cite zxnext.vhd in their own source |
 | `atic_atac_nmi_test` | 4 | narrative section, hand-maintained (feeds protected NR-C0-02) |
 | `inject_test` | 17 | jnext --inject entry state (host debugging aid), no core counterpart |
 | `profiler_test` | 32 | jnext profiler output format (a developer tool) |
@@ -143,19 +144,20 @@ These 109 suites (8076 live rows) have no VHDL-derived plan row to map, so they 
 | `source_map_test` | 53 | source-map and compiler-symbol file adapters (sjasmplus SLD, NextBuild Memory.txt; jnext-internal); the T80N core has no debugger |
 | `source_debug_test` | 122 | debugger source-level stepping and source map store (CAP-SRC, jnext-internal); the T80N core has no debugger |
 | `source_debug_posix_test` | 5 | source-map sidecars that are POSIX file types (jnext-internal); the T80N core has no debugger |
-| `debugger_backend_test` | 1469 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
+| `debugger_backend_test` | 1470 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
 | `persistent_bp_test` | 22 | debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger |
 | `io_watchpoint_test` | 25 | debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger |
 | `bp_enable_test` | 23 | debugger breakpoint enable/disable policy (GH #225, jnext-internal); the T80N core has no debugger |
 | `resume_step_off_test` | 19 | debugger resume/step-off execution control (GH #221, jnext-internal); the T80N core has no debugger |
 | `remote_transport_test` | 69 | debugger socket transport (GH #287, jnext-internal host sockets); the T80N core has no debugger |
-| `dzrp_adapter_test` | 161 | DZRP remote-debugger adapter (GH #12; DeZog protocol spec, jnext-internal); the T80N core has no debugger |
-| `gdb_rsp_test` | 97 | GDB RSP remote-debugger adapter (GH #281; GDB remote protocol + z88dk-gdb, jnext-internal); the T80N core has no debugger |
+| `dzrp_adapter_test` | 162 | DZRP remote-debugger adapter (GH #12; DeZog protocol spec, jnext-internal); the T80N core has no debugger |
+| `gdb_rsp_test` | 98 | GDB RSP remote-debugger adapter (GH #281; GDB remote protocol + z88dk-gdb, jnext-internal); the T80N core has no debugger |
 | `script_parse_test` | 260 | debugger scripting language front end (GH #26, jnext-internal); the T80N core has no debugger |
 | `script_eval_test` | 60 | debugger scripting language evaluator (GH #26, jnext-internal); the T80N core has no debugger |
 | `script_events_test` | 123 | debugger scripting language engine (GH #26, jnext-internal); the T80N core has no debugger |
 | `script_record_test` | 35 | debugger session recorder (GH #20 / #26 WP6, jnext-internal); the T80N core has no debugger |
-| `zrcp_adapter_test` | 215 | ZRCP remote-debugger adapter (GH #280; ZEsarUX 12.0 transcripts, jnext-internal); the T80N core has no debugger |
+| `zrcp_adapter_test` | 216 | ZRCP remote-debugger adapter (GH #280; ZEsarUX 12.0 transcripts, jnext-internal); the T80N core has no debugger |
+| `crt_shader_policy_test` | 14 | OpenGL CRT shader decision rules: style numbers, fullscreen placement, ARGB-to-GL byte order (host GUI) |
 | `app_config_test` | 161 | jnext.conf schema/precedence (host settings file) |
 | `audio_gain_config_test` | 22 | gain settings persistence (host settings file) |
 | `audio_gain_preferences_test` | 10 | gain controls in the Preferences dialog (host GUI) |
@@ -164,6 +166,7 @@ These 109 suites (8076 live rows) have no VHDL-derived plan row to map, so they 
 | `frame_timer_test` | 6 | host GUI frame-timer contract (Qt timer, not core timing) |
 | `esp_status_test` | 15 | host status-bar ESP indicator (GUI), no core counterpart |
 | `nex_v13_dialog_test` | 4 | experimental NEX V1.3 warning dialog (GUI), no core counterpart |
+| `pok_dialog_test` | 16 | POK trainers dialog (GUI), no core counterpart |
 | `rzx_menu_test` | 16 | RZX File-menu error dialogs (GUI), no core counterpart |
 | `load_error_test` | 24 | GUI load-failure reporting, the Tape menu, and the file-dialog FILTERS (GUI), no core counterpart |
 | `esc_break_test` | 6 | host ESC->BREAK binding; guest matrix is `## Input` |
@@ -173,12 +176,13 @@ These 109 suites (8076 live rows) have no VHDL-derived plan row to map, so they 
 | `joystick_menu_test` | 14 | joystick controller picker: Input menu, Preferences (host GUI) |
 | `shifted_keys_test` | 22 | host shifted-scancode translation; guest matrix is `## Input` |
 | `window_scale_test` | 10 | main-window scale/fullscreen geometry (host GUI) |
+| `crt_shader_widget_test` | 42 | OpenGL CRT shader widget, settings and menu (host GUI) |
 | `window_title_test` | 6 | main-window title carries the version (host GUI) |
 | `color_scheme_test` | 29 | GUI light/dark scheme from the desktop portal (host GUI, GH #363) |
 | `sdcard_dialog_test` | 9 | SD-card/NextPi download dialog through a dropped network (host GUI, GH #358) |
 | `quit_cleanup_test` | 8 | host shutdown ordering (GUI lifecycle) |
 | `toolbar_icons_test` | 28 | toolbar icon set: SVG loader, Main/Debug toolbars, icon-file lint (host GUI, doc/design/ICONSET-DESIGN.md) |
-| `preferences_apply_test` | 79 | Preferences dialog wiring (host GUI) |
+| `preferences_apply_test` | 85 | Preferences dialog wiring (host GUI) |
 | `debugger_video_panel_test` | 118 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 17 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 8 | debugger quit gating (host GUI lifecycle) |
@@ -818,8 +822,8 @@ Notes and rationale: [LAYER2-TEST-PLAN-DESIGN.md](LAYER2-TEST-PLAN-DESIGN.md).
 | G10-G05-02 | row<change uses baseline clip; row>=change uses new clip | layer2.vhd:134,167 | pass | test/layer2/layer2_test.cpp:2289 |
 | G10-G09-01 | Layer2 NR 0x12 active-bank write logged with current scanline | zxnext.vhd:5220,1135 | pass | test/layer2/layer2_test.cpp:2318 |
 | G10-G09-02 | rows<64 sample old bank 0x08; rows>=64 sample new 0x10 | layer2.vhd:172 | pass | test/layer2/layer2_test.cpp:2378 |
-| G10-G14-01 | Layer2 set_enabled write logged with current scanline | zxnext.vhd:3916,3924-3925 | pass | test/layer2/layer2_test.cpp:2949 |
-| G10-G14-02 | rows<50 hidden; 50<=row<150 visible; row>=150 hidden | layer2.vhd:175,197-198 | pass | test/layer2/layer2_test.cpp:3019 |
+| G10-G14-01 | Layer2 set_enabled write logged with current scanline | zxnext.vhd:3916,3924-3925 | pass | test/layer2/layer2_test.cpp:3058 |
+| G10-G14-02 | rows<50 hidden; 50<=row<150 visible; row>=150 hidden | layer2.vhd:175,197-198 | pass | test/layer2/layer2_test.cpp:3128 |
 | L2-BR-01 | layer2.vhd hc_eff = hc + 1 - a byte written in the post-display lines is seen by the next frame only | layer2.vhd | pass | test/layer2/layer2_test.cpp:1627 |
 | L2-BR-02 | layer2.vhd hc_eff = hc + 1, zxula_timing.vhd:510-522 - 256x192: pixel 50 is fetched at raw hc 178; a write 2 ticks after is old, 2 ticks before is new | layer2.vhd, zxula_timing.vhd:510-522 | pass | test/layer2/layer2_test.cpp:1644 |
 | L2-BR-03 | layer2.vhd hc_eff = hc + 1, zxula_timing.vhd:476-492 - 320x256: column 100 is fetched at raw hc 196 (whc origin, not phc); a write 2 ticks after is old, 2 ticks before is new | layer2.vhd, zxula_timing.vhd:476-492 | pass | test/layer2/layer2_test.cpp:1661 |
@@ -933,23 +937,26 @@ Notes and rationale: [LAYER2-TEST-PLAN-DESIGN.md](LAYER2-TEST-PLAN-DESIGN.md).
 | L2-GH270-13 | render_scanline_debug draws its forced bank across the whole row and leaves the segment list intact | — | pass | test/layer2/layer2_test.cpp:2857 |
 | L2-GH270-14 | rewind_to_baseline drops the segment list, so a render before the next replay uses the rewound live registers | — | pass | test/layer2/layer2_test.cpp:2898 |
 | L2-GH270-15 | a hard reset drops the segment list with the change logs it is derived from | — | pass | test/layer2/layer2_test.cpp:2920 |
-| G10-G14-01a | two enable writes appended to log | — | pass | test/layer2/layer2_test.cpp:2949 |
-| G10-G14-01b | rewind+replay matches per-line enable transitions | — | pass | test/layer2/layer2_test.cpp:2966 |
-| G11-00a | palette layer2_priority_high(K) == true | — | pass | test/layer2/layer2_test.cpp:3091 |
-| G11-00b | palette layer2_priority_high(K+1) == false | — | pass | test/layer2/layer2_test.cpp:3093 |
-| G11-00c | palette layer2_priority_high(K+2) == true | — | pass | test/layer2/layer2_test.cpp:3095 |
-| G11-01a | narrow: priority bit on (idx K) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:3125 |
-| G11-01b | narrow: priority bit off (idx K+1) overwrites priority_dst false (doubled) | — | pass | test/layer2/layer2_test.cpp:3131 |
-| G11-01c | narrow: priority bit on (idx K+2) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:3137 |
-| G11-02a-PRECOND | palette layer2_rgb8(K) == NR 0x14 (= 0xE3) | — | pass | test/layer2/layer2_test.cpp:3161 |
-| G11-02b | narrow: transparent L2 pixel leaves priority_dst untouched | — | pass | test/layer2/layer2_test.cpp:3181 |
-| G11-03a | wide: priority bit on (idx K) propagates at cols 0..1 (doubled) | — | pass | test/layer2/layer2_test.cpp:3215 |
-| G11-03b | wide: priority bit off (idx K+1) overwrites false at cols 2..3 (doubled) | — | pass | test/layer2/layer2_test.cpp:3219 |
-| G11-04a | 640px: left nibble (idx 0x01) writes priority TRUE at col*2 | — | pass | test/layer2/layer2_test.cpp:3256 |
-| G11-04b | 640px: right nibble (idx 0x02) writes priority FALSE at col*2+1 | — | pass | test/layer2/layer2_test.cpp:3260 |
-| G11-05a | 640@320: col=0 left nibble (idx 0x01) writes prio TRUE at col 0 | — | pass | test/layer2/layer2_test.cpp:3294 |
-| G11-05b | 640@320: col=1 left nibble (idx 0x02) writes prio FALSE at col 1 | — | pass | test/layer2/layer2_test.cpp:3298 |
-| G11-06 | nullptr priority_dst: render still emits colour, no crash | — | pass | test/layer2/layer2_test.cpp:3324 |
+| L2-GH270-16 | start_frame clears the before-display flag: a positioned write after it still splits its line | — | pass | test/layer2/layer2_test.cpp:2945 |
+| L2-GH270-17 | 320x256: vblank bank + X scroll writes (columns 339, 284, 234 of their line) own row 0 from column 0; a row-0 write still splits it at column 99 | — | pass | test/layer2/layer2_test.cpp:3023 |
+| L2-GH270-18 | 640x256: vblank bank + X scroll writes own row 0 from column 0; a row-0 write still splits it at column 99 | — | pass | test/layer2/layer2_test.cpp:3030 |
+| G10-G14-01a | two enable writes appended to log | — | pass | test/layer2/layer2_test.cpp:3058 |
+| G10-G14-01b | rewind+replay matches per-line enable transitions | — | pass | test/layer2/layer2_test.cpp:3075 |
+| G11-00a | palette layer2_priority_high(K) == true | — | pass | test/layer2/layer2_test.cpp:3200 |
+| G11-00b | palette layer2_priority_high(K+1) == false | — | pass | test/layer2/layer2_test.cpp:3202 |
+| G11-00c | palette layer2_priority_high(K+2) == true | — | pass | test/layer2/layer2_test.cpp:3204 |
+| G11-01a | narrow: priority bit on (idx K) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:3234 |
+| G11-01b | narrow: priority bit off (idx K+1) overwrites priority_dst false (doubled) | — | pass | test/layer2/layer2_test.cpp:3240 |
+| G11-01c | narrow: priority bit on (idx K+2) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:3246 |
+| G11-02a-PRECOND | palette layer2_rgb8(K) == NR 0x14 (= 0xE3) | — | pass | test/layer2/layer2_test.cpp:3270 |
+| G11-02b | narrow: transparent L2 pixel leaves priority_dst untouched | — | pass | test/layer2/layer2_test.cpp:3290 |
+| G11-03a | wide: priority bit on (idx K) propagates at cols 0..1 (doubled) | — | pass | test/layer2/layer2_test.cpp:3324 |
+| G11-03b | wide: priority bit off (idx K+1) overwrites false at cols 2..3 (doubled) | — | pass | test/layer2/layer2_test.cpp:3328 |
+| G11-04a | 640px: left nibble (idx 0x01) writes priority TRUE at col*2 | — | pass | test/layer2/layer2_test.cpp:3365 |
+| G11-04b | 640px: right nibble (idx 0x02) writes priority FALSE at col*2+1 | — | pass | test/layer2/layer2_test.cpp:3369 |
+| G11-05a | 640@320: col=0 left nibble (idx 0x01) writes prio TRUE at col 0 | — | pass | test/layer2/layer2_test.cpp:3403 |
+| G11-05b | 640@320: col=1 left nibble (idx 0x02) writes prio FALSE at col 1 | — | pass | test/layer2/layer2_test.cpp:3407 |
+| G11-06 | nullptr priority_dst: render still emits colour, no crash | — | pass | test/layer2/layer2_test.cpp:3433 |
 
 ## Sprites — `test/sprites/sprites_test.cpp`
 
@@ -1405,22 +1412,22 @@ Notes and rationale: [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md).
 | VT-GH181-04 | Pentagon timing: hc_ula==0 at raw hc = c_min_hactive - 11 = 117 (VHDL zxula_timing.vhd:159,423-436,344) | zxula_timing.vhd:159,423-436,344 | pass | test/videotiming/videotiming_test.cpp:246 |
 | VT-GH181-05 | Next (ZXN_ISSUE2, 128K-class slot): hc_ula==0 at raw hc = 125 (VHDL zxula_timing.vhd:195,423-436,344) | zxula_timing.vhd:195,423-436,344 | pass | test/videotiming/videotiming_test.cpp:256 |
 | VT-GH181-06 | the registered reset puts hc_ula==0 exactly ONE pixel after the armed origin (VHDL zxula_timing.vhd:424 vs :427-436) | zxula_timing.vhd:424 | pass | test/videotiming/videotiming_test.cpp:268 |
-| COP-GH290-01 | WAIT(v=150) after a mid-frame NR 0x64 = 20 write compares the cvc reloaded at ula_min_vactive (offset 0, raw line 214), not the register (raw 194) (zxnext.vhd:3950; zxula_timing.vhd:457-466) | zxnext.vhd:3950, zxula_timing.vhd:457-466 | pass | test/copper/copper_integration_test.cpp:1430 |
-| COP-GH290-02 | …and from the next frame's reload on it counts from the new offset: the WAIT lands on raw line 194 (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/copper/copper_integration_test.cpp:1451 |
-| COP-GH290-03 | a Copper MOVE NR 0x64 <- 20 on the cycle before the cvc reload is loaded by it: line 100 reads 56 (zxula_timing.vhd:457-462; copper.vhd:94) | zxula_timing.vhd:457-462, copper.vhd:94 | pass | test/copper/copper_integration_test.cpp:1499 |
-| COP-GH290-04 | …and one on the reload's own cycle is not: line 100 reads 36, the register already 20 (zxula_timing.vhd:457-462; zxnext.vhd:5442,6090) | zxula_timing.vhd:457-462, zxnext.vhd:5442,6090 | pass | test/copper/copper_integration_test.cpp:1506 |
-| COP-GH290-05 | no frame events: WAIT(v=20) after NR 0x64 = 20 is satisfied on the reload's line (raw 64), counting from the register as the readback does there, not on raw 84 (zxula_timing.vhd:457-462; zxnext.vhd:3950) | zxula_timing.vhd:457-462, zxnext.vhd:3950 | pass | test/copper/copper_integration_test.cpp:1547 |
-| COP-GH290-06 | a Copper MOVE NR 0x23 = 87 on the cycle before the compare reaches it: the line interrupt fires this frame (zxula_timing.vhd:563-583) | zxula_timing.vhd:563-583 | pass | test/copper/copper_integration_test.cpp:1601 |
-| COP-GH290-07 | …and one on the compare's own cycle is one pixel late: no fire this frame, one the next (zxula_timing.vhd:563-572) | zxula_timing.vhd:563-572 | pass | test/copper/copper_integration_test.cpp:1607 |
-| COP-GH293-01 | a mode-11 program with one DAC MOVE per cvc line makes 311 writes per frame: no restart at the raw frame start (copper.vhd:80-110) | copper.vhd:80-110, zxula_timing.vhd:457-470 | pass | test/copper/copper_integration_test.cpp:1704 |
-| COP-GH293-02 | at raw line 30 (cvc 277) the Copper is at WAIT(278), not rewound to its first WAIT at the raw frame start (copper.vhd:80-83) | copper.vhd:80-83, zxnext.vhd:3949-3950 | pass | test/copper/copper_integration_test.cpp:1732 |
-| COP-GH293-03 | the DAC ramp written over cvc 248..309 reaches the mixer: the left output takes many levels there, not one held value (copper.vhd:80) | copper.vhd:80, soundrive.vhd:85-89, audio_mixer.vhd | pass | test/copper/copper_integration_test.cpp:1714 |
-| COP-GH293-04 | a mid-frame NR 0x61/0x62 write keeping mode 11 (upload index changed) does not restart the Copper (copper.vhd:70; zxnext.vhd:5426-5431) | copper.vhd:70, zxnext.vhd:5426-5431 | pass | test/copper/copper_integration_test.cpp:1752 |
-| COP-GH293-05 | mode 11 stopped (NR 0x62 = 0x00) and restarted (0xC0) mid-frame resets the Copper PC: 00 is latched while stopped (copper.vhd:70-76) | copper.vhd:70-76 | pass | test/copper/copper_integration_test.cpp:1774 |
-| COP-GH293-06 | the same for mode 01 (0x00 then 0x40): the PC resets, it does not run on from where it stopped (copper.vhd:70-76) | copper.vhd:70-76 | pass | test/copper/copper_integration_test.cpp:1790 |
-| COP-GH293-07 | mode 01 runs on across the raw frame start: no frame restart (copper.vhd:80-85) | copper.vhd:80-85 | pass | test/copper/copper_integration_test.cpp:1810 |
-| COP-GH293-08 | the same for mode 10 (copper.vhd:80-85) | copper.vhd:80-85 | pass | test/copper/copper_integration_test.cpp:1824 |
-| COP-GH293-09 | with NR 0x64 = 32 the mode-11 restart is at cvc 0 = raw line 32: 311 writes per frame, and at raw line 40 (cvc 8) the PC is at WAIT(9) (copper.vhd:80; zxula_timing.vhd:457-466) | copper.vhd:80, zxula_timing.vhd:457-466 | pass | test/copper/copper_integration_test.cpp:1844 |
+| COP-GH290-01 | WAIT(v=150) after a mid-frame NR 0x64 = 20 write compares the cvc reloaded at ula_min_vactive (offset 0, raw line 214), not the register (raw 194) (zxnext.vhd:3950; zxula_timing.vhd:457-466) | zxnext.vhd:3950, zxula_timing.vhd:457-466 | pass | test/copper/copper_integration_test.cpp:1640 |
+| COP-GH290-02 | …and from the next frame's reload on it counts from the new offset: the WAIT lands on raw line 194 (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/copper/copper_integration_test.cpp:1661 |
+| COP-GH290-03 | a Copper MOVE NR 0x64 <- 20 on the cycle before the cvc reload is loaded by it: line 100 reads 56 (zxula_timing.vhd:457-462; copper.vhd:94) | zxula_timing.vhd:457-462, copper.vhd:94 | pass | test/copper/copper_integration_test.cpp:1709 |
+| COP-GH290-04 | …and one on the reload's own cycle is not: line 100 reads 36, the register already 20 (zxula_timing.vhd:457-462; zxnext.vhd:5442,6090) | zxula_timing.vhd:457-462, zxnext.vhd:5442,6090 | pass | test/copper/copper_integration_test.cpp:1716 |
+| COP-GH290-05 | no frame events: WAIT(v=20) after NR 0x64 = 20 is satisfied on the reload's line (raw 64), counting from the register as the readback does there, not on raw 84 (zxula_timing.vhd:457-462; zxnext.vhd:3950) | zxula_timing.vhd:457-462, zxnext.vhd:3950 | pass | test/copper/copper_integration_test.cpp:1757 |
+| COP-GH290-06 | a Copper MOVE NR 0x23 = 87 on the cycle before the compare reaches it: the line interrupt fires this frame (zxula_timing.vhd:563-583) | zxula_timing.vhd:563-583 | pass | test/copper/copper_integration_test.cpp:1811 |
+| COP-GH290-07 | …and one on the compare's own cycle is one pixel late: no fire this frame, one the next (zxula_timing.vhd:563-572) | zxula_timing.vhd:563-572 | pass | test/copper/copper_integration_test.cpp:1817 |
+| COP-GH293-01 | a mode-11 program with one DAC MOVE per cvc line makes 311 writes per frame: no restart at the raw frame start (copper.vhd:80-110) | copper.vhd:80-110, zxula_timing.vhd:457-470 | pass | test/copper/copper_integration_test.cpp:1914 |
+| COP-GH293-02 | at raw line 30 (cvc 277) the Copper is at WAIT(278), not rewound to its first WAIT at the raw frame start (copper.vhd:80-83) | copper.vhd:80-83, zxnext.vhd:3949-3950 | pass | test/copper/copper_integration_test.cpp:1942 |
+| COP-GH293-03 | the DAC ramp written over cvc 248..309 reaches the mixer: the left output takes many levels there, not one held value (copper.vhd:80) | copper.vhd:80, soundrive.vhd:85-89, audio_mixer.vhd | pass | test/copper/copper_integration_test.cpp:1924 |
+| COP-GH293-04 | a mid-frame NR 0x61/0x62 write keeping mode 11 (upload index changed) does not restart the Copper (copper.vhd:70; zxnext.vhd:5426-5431) | copper.vhd:70, zxnext.vhd:5426-5431 | pass | test/copper/copper_integration_test.cpp:1962 |
+| COP-GH293-05 | mode 11 stopped (NR 0x62 = 0x00) and restarted (0xC0) mid-frame resets the Copper PC: 00 is latched while stopped (copper.vhd:70-76) | copper.vhd:70-76 | pass | test/copper/copper_integration_test.cpp:1984 |
+| COP-GH293-06 | the same for mode 01 (0x00 then 0x40): the PC resets, it does not run on from where it stopped (copper.vhd:70-76) | copper.vhd:70-76 | pass | test/copper/copper_integration_test.cpp:2000 |
+| COP-GH293-07 | mode 01 runs on across the raw frame start: no frame restart (copper.vhd:80-85) | copper.vhd:80-85 | pass | test/copper/copper_integration_test.cpp:2020 |
+| COP-GH293-08 | the same for mode 10 (copper.vhd:80-85) | copper.vhd:80-85 | pass | test/copper/copper_integration_test.cpp:2034 |
+| COP-GH293-09 | with NR 0x64 = 32 the mode-11 restart is at cvc 0 = raw line 32: 311 writes per frame, and at raw line 40 (cvc 8) the PC is at WAIT(9) (copper.vhd:80; zxula_timing.vhd:457-466) | copper.vhd:80, zxula_timing.vhd:457-466 | pass | test/copper/copper_integration_test.cpp:2054 |
 
 ## Compositor — `test/compositor/compositor_test.cpp`
 
@@ -3132,8 +3139,8 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | KBD-19 | CS+SYM, rows 0,7 AND = 0x1C | membrane.vhd:251 | pass | test/input/input_test.cpp:322 |
 | KBD-20 | no rows selected = 0x1F | membrane.vhd:242-251 | pass | test/input/input_test.cpp:331 |
 | KBD-21 | all rows, single Z = 0x1D | membrane.vhd:251 | pass | test/input/input_test.cpp:341 |
-| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:184 |
-| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:208 |
+| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:185 |
+| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:209 |
 | KBDHYS-01 | CS held one extra scan after release (membrane.vhd:178, 188-191, 232) | membrane.vhd:178,188-191,232 | pass | test/input/input_test.cpp:385 |
 | KBDHYS-02 | CS pressed across 3 scans reads pressed each scan (membrane.vhd:190) | membrane.vhd:190 | pass | test/input/input_test.cpp:406 |
 | KBDHYS-03 | the cancel bit does NOT clear the NR 0xB0/0xB1 raw readback (membrane.vhd:253 vs :183-186) | membrane.vhd:253 | pass | test/input/input_test.cpp:439 |
@@ -3290,18 +3297,21 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | NMI-05 | NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1 | zxnext.vhd:2090 | pass | test/input/input_test.cpp:3196 |
 | NMI-06 | NR 0x06 bit4=1 + nmi_sw_gen_divmmc → nmi_assert_divmmc=1 | — | pass | test/input/input_test.cpp:3214 |
 | NMI-07 | NR 0x06 bits 3+4=1 + both hotkeys → both gates assert | — | pass | test/input/input_test.cpp:3232 |
-| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:233 |
-| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:254 |
-| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:273 |
-| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:337 |
-| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1228 |
-| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1246 |
+| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:234 |
+| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:255 |
+| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:274 |
+| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:338 |
+| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1229 |
+| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1247 |
 | JCAL-01 | NR 0x28 keymap_sel write handler routes bit 7 + bit 0 | membrane_stick.vhd | pass | test/input/input_test.cpp:3306 |
 | JCAL-02 | NR 0x29 addr-low + NR 0x2B data write + auto-inc | zxnext.vhd:6304-6308, membrane_stick.vhd:182 | pass | test/input/input_test.cpp:3345 |
 | JCAL-03 | NR 0x05=111 + UDK[16]=(4,3) + bit0 press → row4 col3 low | membrane_stick.vhd:172-183 | pass | test/input/input_test.cpp:3389 |
 | FNK-01 | F8 press increments NR 0x07 cpu_speed (VHDL :5789-5791) | input/membrane/emu_fnkeys.vhd:53-202 | pass | test/input/input_test.cpp:3429 |
-| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5790-5791,6342-6347 | pass | test/input/input_integration_test.cpp:990 |
-| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | membrane_stick.vhd:124-131 | pass | test/input/input_integration_test.cpp:645 |
+| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5790-5791,6342-6347 | pass | test/input/input_integration_test.cpp:991 |
+| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | membrane_stick.vhd:124-131 | pass | test/input/input_integration_test.cpp:646 |
+| ROMKB-01 | B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 (48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped) | — | pass | test/input/input_integration_test.cpp:1817 |
+| ROMKB-02 | B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 (48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat) | — | pass | test/input/input_integration_test.cpp:1836 |
+| ROMKB-03 | a key the host pressed just before a snapshot load reaches the ROM through the frontends' load helper (the load wipes the matrix), and does not without it | — | pass | test/input/input_integration_test.cpp:1868 |
 | FNK-02 | F3 press toggles NR 0x05 bit 2 (5060), readable after the frame edge only (VHDL :5839-5841; eff latch :6697-6700) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3462 |
 | FNK-03 | F2 press toggles NR 0x05 bit 0 (scandouble), readable after the frame edge only (VHDL :5849-5852; eff latch :6702) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3490 |
 | EXTC-08a | LEFT folds to CAPS SHIFT + 5 (row 3 col 4) | — | pass | test/input/input_test.cpp:563 |
@@ -5675,26 +5685,28 @@ Notes and rationale: [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md).
 | GH181-HCULA-04 | Emulator::init(ZXN_ISSUE2) failed | zxula_timing.vhd:423-436,457-470, copper.vhd:94 | pass | test/copper/copper_integration_test.cpp:717 |
 | GH270-HPOS-01 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxula_timing.vhd:423-436 | pass | test/copper/copper_integration_test.cpp:814 |
 | GH270-HPOS-02 | Emulator::init(ZXN_ISSUE2) failed | — | pass | test/copper/copper_integration_test.cpp:849 |
-| GH270-HPOS-03 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxnext.vhd:5220,5226, layer2.vhd:110-122 | pass | test/copper/copper_integration_test.cpp:998 |
-| GH272-ROWATOM-01 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxula_timing.vhd:423-436, tilemap.vhd:345-354,427 | pass | test/copper/copper_integration_test.cpp:1153 |
-| GH272-ROWATOM-02 | Emulator::init(ZXN_ISSUE2) failed | zxnext.vhd:4739-4777 | pass | test/copper/copper_integration_test.cpp:1288 |
-| GH272-ROWATOM-03 | Emulator::init(ZXN_ISSUE2) failed | zxnext.vhd:4739-4777 | pass | test/copper/copper_integration_test.cpp:1351 |
-| COP-GH290-01 | WAIT(v=150) after a mid-frame NR 0x64 = 20 write compares the cvc reloaded at ula_min_vactive (offset 0, raw line 214), not the register (raw 194) (zxnext.vhd:3950; zxula_timing.vhd:457-466) | zxnext.vhd:3950, zxula_timing.vhd:457-466 | pass | test/copper/copper_integration_test.cpp:1430 |
-| COP-GH290-02 | …and from the next frame's reload on it counts from the new offset: the WAIT lands on raw line 194 (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/copper/copper_integration_test.cpp:1451 |
-| COP-GH290-03 | a Copper MOVE NR 0x64 <- 20 on the cycle before the cvc reload is loaded by it: line 100 reads 56 (zxula_timing.vhd:457-462; copper.vhd:94) | zxula_timing.vhd:457-462, copper.vhd:94 | pass | test/copper/copper_integration_test.cpp:1499 |
-| COP-GH290-04 | …and one on the reload's own cycle is not: line 100 reads 36, the register already 20 (zxula_timing.vhd:457-462; zxnext.vhd:5442,6090) | zxula_timing.vhd:457-462, zxnext.vhd:5442,6090 | pass | test/copper/copper_integration_test.cpp:1506 |
-| COP-GH290-05 | no frame events: WAIT(v=20) after NR 0x64 = 20 is satisfied on the reload's line (raw 64), counting from the register as the readback does there, not on raw 84 (zxula_timing.vhd:457-462; zxnext.vhd:3950) | zxula_timing.vhd:457-462, zxnext.vhd:3950 | pass | test/copper/copper_integration_test.cpp:1547 |
-| COP-GH290-06 | a Copper MOVE NR 0x23 = 87 on the cycle before the compare reaches it: the line interrupt fires this frame (zxula_timing.vhd:563-583) | zxula_timing.vhd:563-583 | pass | test/copper/copper_integration_test.cpp:1601 |
-| COP-GH290-07 | …and one on the compare's own cycle is one pixel late: no fire this frame, one the next (zxula_timing.vhd:563-572) | zxula_timing.vhd:563-572 | pass | test/copper/copper_integration_test.cpp:1607 |
-| COP-GH293-01 | a mode-11 program with one DAC MOVE per cvc line makes 311 writes per frame: no restart at the raw frame start (copper.vhd:80-110) | copper.vhd:80-110 | pass | test/copper/copper_integration_test.cpp:1704 |
-| COP-GH293-03 | the DAC ramp written over cvc 248..309 reaches the mixer: the left output takes many levels there, not one held value (copper.vhd:80) | copper.vhd:80 | pass | test/copper/copper_integration_test.cpp:1714 |
-| COP-GH293-02 | at raw line 30 (cvc 277) the Copper is at WAIT(278), not rewound to its first WAIT at the raw frame start (copper.vhd:80-83) | copper.vhd:80-83 | pass | test/copper/copper_integration_test.cpp:1732 |
-| COP-GH293-04 | a mid-frame NR 0x61/0x62 write keeping mode 11 (upload index changed) does not restart the Copper (copper.vhd:70; zxnext.vhd:5426-5431) | copper.vhd:70, zxnext.vhd:5426-5431 | pass | test/copper/copper_integration_test.cpp:1752 |
-| COP-GH293-05 | mode 11 stopped (NR 0x62 = 0x00) and restarted (0xC0) mid-frame resets the Copper PC: 00 is latched while stopped (copper.vhd:70-76) | copper.vhd:70-76 | pass | test/copper/copper_integration_test.cpp:1774 |
-| COP-GH293-06 | the same for mode 01 (0x00 then 0x40): the PC resets, it does not run on from where it stopped (copper.vhd:70-76) | copper.vhd:70-76 | pass | test/copper/copper_integration_test.cpp:1790 |
-| COP-GH293-07 | mode 01 runs on across the raw frame start: no frame restart (copper.vhd:80-85) | copper.vhd:80-85 | pass | test/copper/copper_integration_test.cpp:1810 |
-| COP-GH293-08 | the same for mode 10 (copper.vhd:80-85) | copper.vhd:80-85 | pass | test/copper/copper_integration_test.cpp:1824 |
-| COP-GH293-09 | with NR 0x64 = 32 the mode-11 restart is at cvc 0 = raw line 32: 311 writes per frame, and at raw line 40 (cvc 8) the PC is at WAIT(9) (copper.vhd:80; zxula_timing.vhd:457-466) | copper.vhd:80, zxula_timing.vhd:457-466 | pass | test/copper/copper_integration_test.cpp:1844 |
+| GH270-HPOS-04 | Emulator::init(ZXN_ISSUE2) failed | layer2.vhd:110-122, zxula_timing.vhd:457-466 | pass | test/copper/copper_integration_test.cpp:992 |
+| GH270-HPOS-05 | Emulator::init(ZXN_ISSUE2) failed | zxula_timing.vhd:476, layer2.vhd:110-122 | pass | test/copper/copper_integration_test.cpp:1119 |
+| GH270-HPOS-03 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxnext.vhd:5220,5226, layer2.vhd:110-122 | pass | test/copper/copper_integration_test.cpp:1208 |
+| GH272-ROWATOM-01 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxula_timing.vhd:423-436, tilemap.vhd:345-354,427 | pass | test/copper/copper_integration_test.cpp:1363 |
+| GH272-ROWATOM-02 | Emulator::init(ZXN_ISSUE2) failed | zxnext.vhd:4739-4777 | pass | test/copper/copper_integration_test.cpp:1498 |
+| GH272-ROWATOM-03 | Emulator::init(ZXN_ISSUE2) failed | zxnext.vhd:4739-4777 | pass | test/copper/copper_integration_test.cpp:1561 |
+| COP-GH290-01 | WAIT(v=150) after a mid-frame NR 0x64 = 20 write compares the cvc reloaded at ula_min_vactive (offset 0, raw line 214), not the register (raw 194) (zxnext.vhd:3950; zxula_timing.vhd:457-466) | zxnext.vhd:3950, zxula_timing.vhd:457-466 | pass | test/copper/copper_integration_test.cpp:1640 |
+| COP-GH290-02 | …and from the next frame's reload on it counts from the new offset: the WAIT lands on raw line 194 (zxula_timing.vhd:457-462) | zxula_timing.vhd:457-462 | pass | test/copper/copper_integration_test.cpp:1661 |
+| COP-GH290-03 | a Copper MOVE NR 0x64 <- 20 on the cycle before the cvc reload is loaded by it: line 100 reads 56 (zxula_timing.vhd:457-462; copper.vhd:94) | zxula_timing.vhd:457-462, copper.vhd:94 | pass | test/copper/copper_integration_test.cpp:1709 |
+| COP-GH290-04 | …and one on the reload's own cycle is not: line 100 reads 36, the register already 20 (zxula_timing.vhd:457-462; zxnext.vhd:5442,6090) | zxula_timing.vhd:457-462, zxnext.vhd:5442,6090 | pass | test/copper/copper_integration_test.cpp:1716 |
+| COP-GH290-05 | no frame events: WAIT(v=20) after NR 0x64 = 20 is satisfied on the reload's line (raw 64), counting from the register as the readback does there, not on raw 84 (zxula_timing.vhd:457-462; zxnext.vhd:3950) | zxula_timing.vhd:457-462, zxnext.vhd:3950 | pass | test/copper/copper_integration_test.cpp:1757 |
+| COP-GH290-06 | a Copper MOVE NR 0x23 = 87 on the cycle before the compare reaches it: the line interrupt fires this frame (zxula_timing.vhd:563-583) | zxula_timing.vhd:563-583 | pass | test/copper/copper_integration_test.cpp:1811 |
+| COP-GH290-07 | …and one on the compare's own cycle is one pixel late: no fire this frame, one the next (zxula_timing.vhd:563-572) | zxula_timing.vhd:563-572 | pass | test/copper/copper_integration_test.cpp:1817 |
+| COP-GH293-01 | a mode-11 program with one DAC MOVE per cvc line makes 311 writes per frame: no restart at the raw frame start (copper.vhd:80-110) | copper.vhd:80-110 | pass | test/copper/copper_integration_test.cpp:1914 |
+| COP-GH293-03 | the DAC ramp written over cvc 248..309 reaches the mixer: the left output takes many levels there, not one held value (copper.vhd:80) | copper.vhd:80 | pass | test/copper/copper_integration_test.cpp:1924 |
+| COP-GH293-02 | at raw line 30 (cvc 277) the Copper is at WAIT(278), not rewound to its first WAIT at the raw frame start (copper.vhd:80-83) | copper.vhd:80-83 | pass | test/copper/copper_integration_test.cpp:1942 |
+| COP-GH293-04 | a mid-frame NR 0x61/0x62 write keeping mode 11 (upload index changed) does not restart the Copper (copper.vhd:70; zxnext.vhd:5426-5431) | copper.vhd:70, zxnext.vhd:5426-5431 | pass | test/copper/copper_integration_test.cpp:1962 |
+| COP-GH293-05 | mode 11 stopped (NR 0x62 = 0x00) and restarted (0xC0) mid-frame resets the Copper PC: 00 is latched while stopped (copper.vhd:70-76) | copper.vhd:70-76 | pass | test/copper/copper_integration_test.cpp:1984 |
+| COP-GH293-06 | the same for mode 01 (0x00 then 0x40): the PC resets, it does not run on from where it stopped (copper.vhd:70-76) | copper.vhd:70-76 | pass | test/copper/copper_integration_test.cpp:2000 |
+| COP-GH293-07 | mode 01 runs on across the raw frame start: no frame restart (copper.vhd:80-85) | copper.vhd:80-85 | pass | test/copper/copper_integration_test.cpp:2020 |
+| COP-GH293-08 | the same for mode 10 (copper.vhd:80-85) | copper.vhd:80-85 | pass | test/copper/copper_integration_test.cpp:2034 |
+| COP-GH293-09 | with NR 0x64 = 32 the mode-11 restart is at cvc 0 = raw line 32: 311 writes per frame, and at raw line 40 (cvc 8) the PC is at WAIT(9) (copper.vhd:80; zxula_timing.vhd:457-466) | copper.vhd:80, zxula_timing.vhd:457-466 | pass | test/copper/copper_integration_test.cpp:2054 |
 
 ### Companion regression suite — `test/tilemap/tilemap_fetch_split_test.cpp`
 
@@ -6241,49 +6253,52 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:184 |
-| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:208 |
-| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:233 |
-| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:254 |
-| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:273 |
-| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:337 |
-| BP-04 | port 0xFE READ — border bits [2:0] NOT exposed across 0/5/7 sweep (zxnext.vhd:3459+3604; emulator.cpp:1163-1185) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:461 |
-| BP-20 | port 0xFE READ — bit 6 = i_AUDIO_EAR OR port_fe_ear: 0 idle, 1 after OUT 0xFE bit 4 (zxnext.vhd:3459 + :3598) | zxnext.vhd:3459,3598 | pass | test/input/input_integration_test.cpp:480 |
-| BP-21 | port 0xFE READ — bit 5 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:513 |
-| BP-22 | port 0xFE READ — bits [4:0] = keyboard column mux for A[15:8] (zxnext.vhd:3463-3468 + membrane.vhd:251; Keyboard::read_rows) | zxnext.vhd:3463-3468, membrane.vhd:251 | pass | test/input/input_integration_test.cpp:553 |
-| BP-23 | port 0xFE READ — bit 7 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:585 |
-| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | zxnext.vhd:5157-5158, membrane_stick.vhd:117-149 | pass | test/input/input_integration_test.cpp:645 |
-| JOY-WIRE-02 | SDL_EVENT_GAMEPAD_BUTTON_* → Joystick port 0x1F (K1 mode) (zxnext.vhd:3441-3442 + :3470-3479; G42) | zxnext.vhd:3441-3442,3470-3479 | pass | test/input/input_integration_test.cpp:700 |
-| JOY-WIRE-03 | SDL_EVENT_GAMEPAD_AXIS_MOTION → digital U/D/L/R threshold (symmetric ±AXIS_THRESHOLD=16384; G42) | — | pass | test/input/input_integration_test.cpp:758 |
-| JOY-WIRE-04 | SDL idx 0/1 → joy_left / joy_right; idx >= 2 ignored (JOY-WIRE-04 routing policy; G42) | — | pass | test/input/input_integration_test.cpp:814 |
-| JOY-WIRE-04-SDL | handle_sdl_event resolves SDL_JoystickID → slot via map; ignores unmapped + non-controller events (G42) | — | pass | test/input/input_integration_test.cpp:871 |
-| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5839-5841, zxnext.vhd:6343, zxnext.vhd:6345, zxnext.vhd:5861-5863, zxnext.vhd:5789-5791, zxnext.vhd:1107-1108 | pass | test/input/input_integration_test.cpp:990 |
-| GH233-01 | NR 0x02 bit 0 (RESET_SOFT) disarms a pending TAP autostart | — | pass | test/input/input_integration_test.cpp:1030 |
-| GH233-02 | after a soft reset a full ROM keyboard scan queues no keystrokes — the cancelled autostart cannot type into the machine that came up after the reset | — | pass | test/input/input_integration_test.cpp:1050 |
-| GH233-03 | a mid-scan soft reset cancels the autostart outright (the pre-reset row accumulator cannot complete afterwards) | — | pass | test/input/input_integration_test.cpp:1071 |
-| GH233-04 | a hard reset (frontend cold boot) also disarms a pending TAP autostart — a full ROM keyboard scan afterwards queues no keystrokes | — | pass | test/input/input_integration_test.cpp:1099 |
-| GH233-05 | arming AFTER a reset still fires — the reset-on-init does not cancel a legitimate autostart (load always follows init) | — | pass | test/input/input_integration_test.cpp:1122 |
-| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1228 |
-| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1246 |
-| GPH-01 | a real SDL3 device's instance id is nonzero (0 is the invalid id) | — | pass | test/input/input_integration_test.cpp:1324 |
-| GPH-02 | enumerate_existing_devices() finds an already-attached pad and maps it to connector 1 (GH #57) | — | pass | test/input/input_integration_test.cpp:1339 |
-| GPH-03 | a button press on the opened device reaches connector 1's bits | — | pass | test/input/input_integration_test.cpp:1353 |
-| GPH-04 | a duplicate ADDED for an open device is deduped: same slot, connector 2 still free (GH #57) | — | pass | test/input/input_integration_test.cpp:1368 |
-| GPH-05 | REMOVED closes the slot and unmaps the instance id | — | pass | test/input/input_integration_test.cpp:1383 |
-| GPH-06 | an event from a removed device is refused, not applied to a connector | — | pass | test/input/input_integration_test.cpp:1394 |
-| GPA-01 | identical pads share a GUID: ids <guid> and <guid>#2; another model differs | — | pass | test/input/input_integration_test.cpp:1461 |
-| GPA-02 | enumerate with nothing assigned: first two on Joy 1/2, the third unbound | — | pass | test/input/input_integration_test.cpp:1461 |
-| GPA-03 | assigning C to Joy 1 binds it live; A2 keeps Joy 2 (sticky); C's button reaches Joy 1 | — | pass | test/input/input_integration_test.cpp:1461 |
-| GPA-04 | assigning A1's id to Joy 2 pre-empts A2, which was holding Joy 2 | — | pass | test/input/input_integration_test.cpp:1461 |
-| GPA-05 | unplug+replug: the vacated connector adopts the idle pad, then the replugged pad (same id) takes it back | — | pass | test/input/input_integration_test.cpp:1461 |
-| GPA-06 | an assigned id that is not present falls back to the first free controller | — | pass | test/input/input_integration_test.cpp:1462 |
-| GPA-07 | unplugging a pad with a button held releases the connector | — | pass | test/input/input_integration_test.cpp:1462 |
-| GPA-08 | switching a connector back to Sdl adopts a pad that is already plugged in | — | pass | test/input/input_integration_test.cpp:1462 |
-| GPA-09 | on_devices_changed fires once per enumerate/arrival/removal and not on a button | — | pass | test/input/input_integration_test.cpp:1462 |
-| GPA-10 | switching a connector to None unbinds its pad and leaves the other connector alone | — | pass | test/input/input_integration_test.cpp:1462 |
-| GPA-11 | after a replug and a host rebuild (cold boot) the assignment stays on the same physical pad, ids unchanged | — | pass | test/input/input_integration_test.cpp:1463 |
-| GPA-12 | fallback line: once on entry, silent on a no-change re-resolve, again after a new assignment and after a match | — | pass | test/input/input_integration_test.cpp:1463 |
-| GPA-13 | a lone remaining pad keeps its '#2' id and Joy 2 across a host rebuild | — | pass | test/input/input_integration_test.cpp:1463 |
+| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:185 |
+| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:209 |
+| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:234 |
+| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:255 |
+| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:274 |
+| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:338 |
+| BP-04 | port 0xFE READ — border bits [2:0] NOT exposed across 0/5/7 sweep (zxnext.vhd:3459+3604; emulator.cpp:1163-1185) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:462 |
+| BP-20 | port 0xFE READ — bit 6 = i_AUDIO_EAR OR port_fe_ear: 0 idle, 1 after OUT 0xFE bit 4 (zxnext.vhd:3459 + :3598) | zxnext.vhd:3459,3598 | pass | test/input/input_integration_test.cpp:481 |
+| BP-21 | port 0xFE READ — bit 5 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:514 |
+| BP-22 | port 0xFE READ — bits [4:0] = keyboard column mux for A[15:8] (zxnext.vhd:3463-3468 + membrane.vhd:251; Keyboard::read_rows) | zxnext.vhd:3463-3468, membrane.vhd:251 | pass | test/input/input_integration_test.cpp:554 |
+| BP-23 | port 0xFE READ — bit 7 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:586 |
+| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | zxnext.vhd:5157-5158, membrane_stick.vhd:117-149 | pass | test/input/input_integration_test.cpp:646 |
+| JOY-WIRE-02 | SDL_EVENT_GAMEPAD_BUTTON_* → Joystick port 0x1F (K1 mode) (zxnext.vhd:3441-3442 + :3470-3479; G42) | zxnext.vhd:3441-3442,3470-3479 | pass | test/input/input_integration_test.cpp:701 |
+| JOY-WIRE-03 | SDL_EVENT_GAMEPAD_AXIS_MOTION → digital U/D/L/R threshold (symmetric ±AXIS_THRESHOLD=16384; G42) | — | pass | test/input/input_integration_test.cpp:759 |
+| JOY-WIRE-04 | SDL idx 0/1 → joy_left / joy_right; idx >= 2 ignored (JOY-WIRE-04 routing policy; G42) | — | pass | test/input/input_integration_test.cpp:815 |
+| JOY-WIRE-04-SDL | handle_sdl_event resolves SDL_JoystickID → slot via map; ignores unmapped + non-controller events (G42) | — | pass | test/input/input_integration_test.cpp:872 |
+| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5839-5841, zxnext.vhd:6343, zxnext.vhd:6345, zxnext.vhd:5861-5863, zxnext.vhd:5789-5791, zxnext.vhd:1107-1108 | pass | test/input/input_integration_test.cpp:991 |
+| GH233-01 | NR 0x02 bit 0 (RESET_SOFT) disarms a pending TAP autostart | — | pass | test/input/input_integration_test.cpp:1031 |
+| GH233-02 | after a soft reset a full ROM keyboard scan queues no keystrokes — the cancelled autostart cannot type into the machine that came up after the reset | — | pass | test/input/input_integration_test.cpp:1051 |
+| GH233-03 | a mid-scan soft reset cancels the autostart outright (the pre-reset row accumulator cannot complete afterwards) | — | pass | test/input/input_integration_test.cpp:1072 |
+| GH233-04 | a hard reset (frontend cold boot) also disarms a pending TAP autostart — a full ROM keyboard scan afterwards queues no keystrokes | — | pass | test/input/input_integration_test.cpp:1100 |
+| GH233-05 | arming AFTER a reset still fires — the reset-on-init does not cancel a legitimate autostart (load always follows init) | — | pass | test/input/input_integration_test.cpp:1123 |
+| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1229 |
+| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1247 |
+| GPH-01 | a real SDL3 device's instance id is nonzero (0 is the invalid id) | — | pass | test/input/input_integration_test.cpp:1325 |
+| GPH-02 | enumerate_existing_devices() finds an already-attached pad and maps it to connector 1 (GH #57) | — | pass | test/input/input_integration_test.cpp:1340 |
+| GPH-03 | a button press on the opened device reaches connector 1's bits | — | pass | test/input/input_integration_test.cpp:1354 |
+| GPH-04 | a duplicate ADDED for an open device is deduped: same slot, connector 2 still free (GH #57) | — | pass | test/input/input_integration_test.cpp:1369 |
+| GPH-05 | REMOVED closes the slot and unmaps the instance id | — | pass | test/input/input_integration_test.cpp:1384 |
+| GPH-06 | an event from a removed device is refused, not applied to a connector | — | pass | test/input/input_integration_test.cpp:1395 |
+| GPA-01 | identical pads share a GUID: ids <guid> and <guid>#2; another model differs | — | pass | test/input/input_integration_test.cpp:1462 |
+| GPA-02 | enumerate with nothing assigned: first two on Joy 1/2, the third unbound | — | pass | test/input/input_integration_test.cpp:1462 |
+| GPA-03 | assigning C to Joy 1 binds it live; A2 keeps Joy 2 (sticky); C's button reaches Joy 1 | — | pass | test/input/input_integration_test.cpp:1462 |
+| GPA-04 | assigning A1's id to Joy 2 pre-empts A2, which was holding Joy 2 | — | pass | test/input/input_integration_test.cpp:1462 |
+| GPA-05 | unplug+replug: the vacated connector adopts the idle pad, then the replugged pad (same id) takes it back | — | pass | test/input/input_integration_test.cpp:1462 |
+| GPA-06 | an assigned id that is not present falls back to the first free controller | — | pass | test/input/input_integration_test.cpp:1463 |
+| GPA-07 | unplugging a pad with a button held releases the connector | — | pass | test/input/input_integration_test.cpp:1463 |
+| GPA-08 | switching a connector back to Sdl adopts a pad that is already plugged in | — | pass | test/input/input_integration_test.cpp:1463 |
+| GPA-09 | on_devices_changed fires once per enumerate/arrival/removal and not on a button | — | pass | test/input/input_integration_test.cpp:1463 |
+| GPA-10 | switching a connector to None unbinds its pad and leaves the other connector alone | — | pass | test/input/input_integration_test.cpp:1463 |
+| GPA-11 | after a replug and a host rebuild (cold boot) the assignment stays on the same physical pad, ids unchanged | — | pass | test/input/input_integration_test.cpp:1464 |
+| GPA-12 | fallback line: once on entry, silent on a no-change re-resolve, again after a new assignment and after a match | — | pass | test/input/input_integration_test.cpp:1464 |
+| GPA-13 | a lone remaining pad keeps its '#2' id and Joy 2 across a host rebuild | — | pass | test/input/input_integration_test.cpp:1464 |
+| ROMKB-01 | B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 (48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped) | — | pass | test/input/input_integration_test.cpp:1817 |
+| ROMKB-02 | B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 (48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat) | — | pass | test/input/input_integration_test.cpp:1836 |
+| ROMKB-03 | a key the host pressed just before a snapshot load reaches the ROM through the frontends' load helper (the load wipes the matrix), and does not without it | — | pass | test/input/input_integration_test.cpp:1868 |
 
 ### Companion integration suite — `test/uart/uart_integration_test.cpp`
 

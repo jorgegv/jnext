@@ -67,6 +67,23 @@ void wire_host_keys(Source& source, Router& router, KeyFn&& on_key)
     wire_keyboard_loss(source, router);
 }
 
+/// GH #386 - host actions that must take their turn in the key queue (Quick
+/// Save / Quick Load). `source.set_host_action_callback(fn(Action))` is the
+/// window's request; it reaches the Router as a BARRIER (`on_host_action`), and
+/// when the barrier's turn comes the action is recorded in `pending` for the
+/// frontend's tick to service and then `action_done()`. Nothing is saved or
+/// cold-booted from inside the Router. `Pending` is anything assignable from
+/// the action (a `std::optional<Action>` in QtApp). One function, so a
+/// frontend cannot wire the keys and forget the actions: with the actions
+/// unwired a chord overtakes the keys typed before it.
+template <typename Source, typename Router, typename Pending>
+void wire_host_actions(Source& source, Router& router, Pending& pending)
+{
+    source.set_host_action_callback([&router, &pending](auto action) {
+        router.on_host_action([&pending, action]() { pending = action; });
+    });
+}
+
 /// GH #26 WP5 — the script host keys (dsl-frontend.md §6.4): bind the Router's
 /// Alt+1..Alt+8 chord to the backend's `Host` event `scriptN` (CAP-EVT
 /// `Host`). Both windowed frontends call this one function on their Router, so

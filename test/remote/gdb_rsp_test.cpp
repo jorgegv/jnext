@@ -2088,6 +2088,29 @@ static void session_rows() {
                   rig.dbg->subscriptions(false)[0].owner == rig.gdb->client(),
               z + " / " + s);
     }
+    {
+        // GH #381: z88dk-gdb's `load` is a run of X packets, so the session is the
+        // signal that the program under the machine is being replaced (the POK
+        // undo records); the memory writes themselves are not.
+        Rig rig;
+        const std::uint64_t n0 = rig.dbg->program_loads();
+        Client c(rig);
+        const std::uint64_t n_connect = rig.dbg->program_loads();
+        c.cmd("M9000,4:deadbeef");
+        const std::string xr = c.cmd("X9000,2:ab");         // the binary form z88dk-gdb's load uses
+        const std::uint64_t n_write = rig.dbg->program_loads();
+        c.p->close();
+        c.tick();
+        c.tick();
+        Client d(rig);
+        const std::uint64_t n_next = rig.dbg->program_loads();
+        check("GDB-SES-08", "a GDB client's session counts as a program replaced "
+                            "(Debugger::program_loads() +1 on admission); its M and X writes do not; "
+                            "the next client's session counts again (POK undo records, GH #381)",
+              n_connect == n0 + 1 && n_write == n_connect && n_next == n_connect + 1 && xr == "OK",
+              std::to_string(n0) + " " + std::to_string(n_connect) + " " +
+                  std::to_string(n_write) + " " + std::to_string(n_next));
+    }
 }
 
 int main() {

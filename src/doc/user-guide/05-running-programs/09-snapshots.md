@@ -77,6 +77,9 @@ above; the consequence is that the restored machine is up to one frame (20 ms)
 past where you stopped. If you need the precise instant, that
 is what the rewind buffer is for.
 
+A snapshot also keeps the changes a [POK trainer](11-pok-trainers.md) made to
+the running game: apply the trainer, then save.
+
 ## Quick save and quick load
 
 **File ▸ Quick Save Snapshot** (**Alt+Shift+F5**) and **File ▸ Quick Load Snapshot**
@@ -107,6 +110,11 @@ boot, then the load. A `.jns` you save into that folder yourself counts too.
   the Spectrum's Caps Shift, so it is held down for the program while you press
   the chord.
 - Only `.jns` is used: it is the one format that can hold a whole machine.
+- Keys you type while a quick save or load is in progress are not lost: they are
+  delivered afterwards, in the order you typed them, and a quick save waits for
+  the keys you typed before it. The machine freezes for a moment while it reads
+  the SD card image to identify it, which grows with the size of the image; the
+  log shows each such pass as "digested SD image".
 
 ## Loading
 

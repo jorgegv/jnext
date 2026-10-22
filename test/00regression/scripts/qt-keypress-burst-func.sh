@@ -50,12 +50,15 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #     master cycles, so SYMBOL SHIFT stayed "pressed" into P's frame and the
 #     guest still typed `"` with the router fix alone).
 #   - `1 2` is the plain two-key case, with no shift involved at all.
-#   - TWO per burst, not four, because of the GUEST, not the emulator: the 48K
-#     ROM's KEYBOARD routine (0x02BF) parks an accepted key in one of two
-#     K-STATE sets for five interrupts, so it accepts at most two keys per five
-#     frames no matter what the matrix does. A four-key burst delivered one per
-#     frame yields `12` from `1 2 3 4` — measured, and that is the ROM behaving
-#     as it does on hardware. Bursting two is the honest test of THIS layer.
+#   - TWO per burst. The 48K ROM's KEYBOARD routine (0x02BF) parks an accepted
+#     key in one of two K-STATE sets for five interrupts, so a third distinct
+#     key (or a repeat) arriving inside five frames is dropped BY THE ROM. A
+#     four-key burst replayed one key per frame used to yield `12` from
+#     `1 2 3 4`; that was jnext's own replay rate, not hardware (nobody types 3
+#     keys in 60 ms), and GH #386 fixed it: the Router now spaces the keystrokes
+#     it queues by TAP_SPACING_FRAMES (input_integration_test ROMKB-01/02 run
+#     the real ROM against it). Two per burst stays the honest test of THIS
+#     layer, sub-frame delivery of one pair.
 #     (A shift takes no K-STATE set: K-TEST returns no character for a
 #     shift-only scan, so `ctrl p` costs one set, not two.)
 #

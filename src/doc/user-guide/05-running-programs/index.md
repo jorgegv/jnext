@@ -12,7 +12,10 @@ The format is recognised from the extension — `.nex`, `.jns`, `.sna`, `.szx`,
 `.z80`, `.tap`, `.tzx`, `.wav` and `.rzx` are all understood. (`.jns` is
 JNEXT's own whole-machine snapshot; see [5.9 Snapshots](09-snapshots.md), which also says
 which machine each snapshot format loads as.) A bare filename is
-exactly the same as `--load FILE`; you cannot use both at once.
+exactly the same as `--load FILE`; you cannot use both at once. A `.pok` is not
+a program but a list of cheats for the one that is running: in the window it
+opens the trainers dialog ([5.11 POK trainers](11-pok-trainers.md)), and on the
+command line it is refused.
 
 A NEX **V1.3** file can declare a buffer for an argument line, and `--nex-args`
 fills it:
@@ -46,7 +49,9 @@ entry, **Tape > Open Tape File…** (Alt+T), covered in
 [5.5](05-recording-and-playback.md). A file that cannot be loaded — missing,
 truncated, or not the format its extension says — gets a warning dialog naming
 it, from either menu and from **File > Play RZX Recording…**; the log says
-what was wrong with it.
+what was wrong with it. A file whose extension JNEXT does not know and that is
+not a NEX file is refused in the same way, before anything is reset, so the
+game you were playing is still there.
 
 A program loaded either way brings its debugging files with it when they sit
 beside it: `game.sld` (an sjasmplus source map) and, for a `.nex`,

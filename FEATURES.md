@@ -89,6 +89,7 @@
 - WAV: RIFF/PCM EAR bit playback (8-bit/16-bit, mono/stereo) with sub-sample edge interpolation (DeciLoad-class turbo loaders work)
 - RZX: playback in every frontend, and recording on a **48K, 128K or +3** (IN replay, zlib compressed; 48K embeds an SNA, 128K/+3 an SZX). Recording is REFUSED on a Next, naming the machines that can: no snapshot an RZX can carry describes a Next, and its input log stores values without the ports they came from, so a Next recording is either lossy or silently out of step. Playing one an older jnext wrote still works, with a warning
 - RZX playback runs on the machine the recording was made on (jnext records it; other emulators' files are read from their snapshot); an explicit `--machine` wins
+- POK trainer files (WoS `.pok`): Machine > POK Trainers... (or File > Load, which resets nothing) lists a file's trainers and applies or removes each on the running machine. It asks for the value a trainer leaves open (256). 128K bank pokes reach their bank on 128K/+3/Pentagon/Next. Removal restores the exact bytes replaced. Malformed lines are reported with their line number. The result is saved with File > Save Snapshot (any format the machine can use). Headless and the SDL-only window apply trainers from the command line: `--delayed-pok-frames N FILE` with `--pok-trainers 1,3=9` (trainer numbers in the file, `=VALUE` for the ones that ask), checked before the machine starts; a script (`set mem[]`/`set phys[]`, `save_snapshot`) does the rest. A bank 0-7 line reaches its bank at 0xC000 and above (below that the bank is ignored and the memory map is poked)
 
 ## GUI (Qt 6)
 - Native Qt 6 main window with menu bar, toolbar, and status bar
@@ -96,7 +97,7 @@
 - Light and dark mode: the windows (debugger included) follow the desktop's colour scheme, live; on Linux read from the XDG desktop portal, which Qt misses under GNOME; `JNEXT_COLOR_SCHEME=dark|light` forces one. Qt 6 builds only
 - Hi-DPI pixel-perfect rendering at integer scale (2×/3×/4×)
 - True fullscreen with aspect-ratio letterbox
-- CRT scanline filter overlay
+- CRT effect, one choice (View menu or Preferences): off, Scanlines, or an optional GPU Soft scanlines / TV / PC-monitor look (curved glass kept inside the screen, bloom, scanlines, phosphor mask). Scanlines is the simple software overlay, with or without OpenGL. Off creates no GL context and does no per-frame work; the GPU looks fall back, with a message (Soft scanlines to the software Scanlines), where OpenGL is unavailable. Qt 6 builds with OpenGLWidgets (`-DENABLE_CRT_GL=OFF` leaves the shader out)
 - FPS counter, CPU speed, and machine mode in status bar
 - Two distinct reset controls in menu and toolbar, as on real hardware: Power Reset (Alt+R/F1, cold boot) and Soft Reset (F4, back to NextZXOS without re-running the boot chain)
 - Emulator speed control (0.5×/1×/2×/4×/custom %, or `--speed`)

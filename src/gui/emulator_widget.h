@@ -4,7 +4,10 @@
 #include <QImage>
 #include <cstdint>
 
+#include "gui/crt_shader_policy.h"
 #include "platform/tick_stats.h"
+
+class CrtGlOverlay;
 
 /// Emulator display widget — renders the emulator framebuffer as a QImage.
 ///
@@ -39,9 +42,38 @@ public:
     void set_scale(int factor);
     int scale() const { return scale_; }
 
-    /// Enable or disable the CRT scanline filter overlay.
+    /// The Scanlines mode of the CRT display: the software overlay drawn in paintEvent(),
+    /// for every build and host, with or without OpenGL.
     void set_crt_filter(bool enabled);
     bool crt_filter() const { return crt_filter_; }
+
+    /// Switch the OpenGL CRT shader (crtemu, doc/design/CRT-GL-FILTER.md) on or
+    /// off. Off is the default and costs nothing: the overlay widget, its GL
+    /// context and its shaders exist only while this is on. Returns false —
+    /// leaving it off — when this build has no OpenGL support. A context that
+    /// cannot be created only shows itself at the first paint; the widget then
+    /// falls back to the software display on its own and emits
+    /// crt_shader_failed(). Scanlines above and this are mutually exclusive
+    /// (MainWindow enforces it); both are views of one "CRT effect" setting.
+    bool set_crt_shader(bool enabled);
+    bool crt_shader() const { return crt_shader_; }
+    /// True while the overlay widget exists (the setting is on AND it is alive).
+    bool crt_shader_active() const { return crt_overlay_ != nullptr; }
+    void set_crt_shader_style(crt_shader::Style style);
+    crt_shader::Style crt_shader_style() const { return crt_style_; }
+    /// Test hook: force the "can this machine make a GL context" probe (-1 = really probe,
+    /// 0 = no, 1 = yes). The probe runs once and is cached BEFORE any QOpenGLWidget joins the
+    /// window: with no GL, merely adding one turns the whole window black for good.
+    static void set_gl_probe_override(int v);
+    static bool gl_context_available();
+    /// Does this binary carry the OpenGL shader at all?
+    static constexpr bool crt_shader_built_in() {
+#ifdef JNEXT_HAVE_CRT_GL
+        return true;
+#else
+        return false;
+#endif
+    }
 
     /// Task 63 (issue #9) — total frames actually PRESENTED: paintEvents that
     /// served a framebuffer handed to this widget and not yet painted.
@@ -152,10 +184,26 @@ signals:
     /// this to re-fix its window size.
     void scale_changed();
 
+    /// The shader was switched on but cannot run here (no usable OpenGL, shader
+    /// rejected). The widget has already fallen back to the software display and
+    /// the setting is off again; the string says why, for the user.
+    void crt_shader_failed(const QString& reason);
+
 protected:
     void paintEvent(QPaintEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
+    /// Put the overlay exactly over the picture (the whole widget, or the
+    /// integer-scaled centred rectangle in fullscreen).
+    void layout_crt_overlay();
+    /// The overlay drew a frame: account for it as paintEvent() does.
+    void note_overlay_presented();
+    /// Delete the overlay and return to the software display.
+    void drop_crt_overlay();
+    /// Make the overlay match the settings: none, or the shader's style; rebuild it
+    /// when the style it was made with is no longer wanted.
+    void sync_crt_overlay();
     /// Software-scale native_ into scaled_ at the current scale factor.
     void prescale();
 
@@ -163,6 +211,9 @@ private:
     QImage scaled_;   ///< Pre-scaled framebuffer (drawn 1:1, no painter scaling).
     int scale_ = MIN_SCALE;
     bool crt_filter_ = false;
+    bool crt_shader_ = false;                     ///< the setting
+    crt_shader::Style crt_style_ = crt_shader::STYLE_DEFAULT;
+    CrtGlOverlay* crt_overlay_ = nullptr;         ///< non-null only while the shader runs
     bool fullscreen_mode_ = false;
     bool dpr_valid_ = false;  ///< True once DPR has been verified on-screen.
     QPoint fs_offset_;        ///< Top-left offset for centered image in fullscreen.

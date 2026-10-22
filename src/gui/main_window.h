@@ -13,6 +13,7 @@
 #include "gui/app_config.h"
 #include "input/joy_assign.h"
 #include "platform/pointer_capture.h"
+#include "platform/quick_snapshot_chord.h"   // jnext::QuickAction (GH #386)
 #include "debug/events.h"        // ClientId — GH #306 pause client
 
 class Emulator;
@@ -22,10 +23,12 @@ class QTimer;
 class QMouseEvent;
 class QWheelEvent;
 class QFocusEvent;
+class PokDialog;
 #ifdef ENABLE_DEBUGGER
 class DebuggerManager;
 #endif
 namespace jnext { namespace dbg { class Debugger; } }
+namespace jnext { namespace pok { class Session; } }
 
 /// Main emulator window — QMainWindow shell with emulator viewport, menu bar,
 /// toolbar, and status bar.  Keyboard events are dispatched to a configurable callback.
@@ -115,6 +118,17 @@ public:
         keyboard_lost_callback_ = std::move(cb);
     }
 
+    /// GH #386 - a Quick Save / Quick Load is a host action that must take its
+    /// turn behind the keys typed before it (host_key_latch::Router::
+    /// on_host_action). With a callback set, the File menu and the chord hand
+    /// the request to it instead of acting; the frontend later calls
+    /// quick_save_now() / quick_load_now(). Unset, they act at once.
+    using QuickAction = jnext::QuickAction;
+    using HostActionCallback = std::function<void(QuickAction)>;
+    void set_host_action_callback(HostActionCallback cb) { host_action_callback_ = std::move(cb); }
+    void quick_save_now();
+    void quick_load_now();
+
     /// Toggle between windowed and fullscreen mode.
     void toggle_fullscreen();
 
@@ -128,6 +142,13 @@ public:
 
     void set_crt_filter(bool enabled);
     bool crt_filter() const;
+
+    /// The OpenGL CRT shader, in the style last given to the widget (View menu /
+    /// Preferences). Choosing it switches the scanline mode off and the other way
+    /// round. False when this build has no OpenGL support; see
+    /// EmulatorWidget::set_crt_shader().
+    bool set_crt_shader(bool enabled);
+    bool crt_shader() const;
 
     bool is_fullscreen() const { return is_fullscreen_; }
     int current_scale() const { return current_scale_; }
@@ -176,7 +197,19 @@ public:
     static QString load_filter();
     static QString save_filter(bool next_machine);
 
-    void handle_load_path(const QString& path);
+    /// `jns_probed`: the caller has already probed a .jns (digest included), so
+    /// the .jns probe is not repeated (GH #386: it re-read the whole SD card).
+    void handle_load_path(const QString& path, bool jns_probed = false);
+
+    /// GH #381 - everything Machine > POK Trainers... does AFTER its file picker
+    /// returns, and what File > Load of a .pok does instead of a cold boot: read
+    /// the file, make it the window's POK session (replacing the previous one,
+    /// whose trainers stay in memory but whose undo is forgotten) and show the
+    /// trainers dialog. A file that cannot be read, or holds no trainer, is said
+    /// in the status bar and the log and, unless unattended, in a dialog; returns
+    /// false. Public and separate from the picker for the reason given at
+    /// handle_load_path().
+    bool open_pok_file(const QString& path);
 
     // The File menu's RZX actions — everything each does AFTER its file picker
     // returns. Public and separate from the pickers for the reason given at
@@ -343,6 +376,8 @@ private:
 
     // Menu action slots
     void on_load_nex();
+    void on_pok_trainers();
+    void on_pok_open();
     void on_insert_sd();
     void on_reset();
     void on_soft_reset();
@@ -437,6 +472,13 @@ private:
     // The file handle_load_path() last handed to load_file_callback_, until
     // load_finished() reports on it.
     std::string menu_load_pending_;
+    // GH #381 - the POK file open in Machine > POK Trainers... and the dialog
+    // showing it. The session outlives resets (set_emulator() makes it forget
+    // its undo records) and is replaced when another file is opened.
+    // Declared in this order on purpose: the dialog holds a pointer to the
+    // session, so it must be destroyed first (members die in reverse order).
+    std::unique_ptr<jnext::pok::Session> pok_;
+    std::unique_ptr<PokDialog> pok_dialog_;
     RebootCallback   reboot_callback_;
     ConfirmRestartCallback confirm_restart_callback_;
     EspConfigCallback esp_config_callback_;
@@ -508,6 +550,12 @@ private:
 
     // CRT filter action
     QAction* crt_filter_action_ = nullptr;
+    // The CRT effect is one choice: off, scanlines (above), or one of the OpenGL
+    // shader's three looks. The actions are kept in step by sync_crt_actions().
+    QAction* crt_soft_action_ = nullptr;     ///< null when the build has no OpenGL shader
+    QAction* crt_tv_action_ = nullptr;       ///< null when the build has no OpenGL shader
+    QAction* crt_pc_action_ = nullptr;       ///< null when the build has no OpenGL shader
+    void sync_crt_actions();
 
 #ifdef ENABLE_DEBUGGER
     DebuggerManager* debugger_mgr_ = nullptr;
@@ -574,6 +622,7 @@ private:
     // Screenshot actions
     QAction* screenshot_action_ = nullptr;
     QAction* quick_screenshot_action_ = nullptr;   // GH #19
+    HostActionCallback host_action_callback_;   // GH #386
     QAction* quick_save_action_ = nullptr;   // GH #321
     QAction* quick_load_action_ = nullptr;   // GH #321
 

@@ -1034,6 +1034,13 @@ my %NO_MATRIX_SECTION = (
     # core has no loader and no dialog, so there is nothing to cite. The
     # policy predicate/probe/enforcement rows live in nex_loader_test.
     'nex_v13_dialog_test' => 'experimental NEX V1.3 warning dialog (GUI), no core counterpart',
+
+    # ── POK trainer files ────────────────────────────────────────────
+    # GH #381. The oracle is the World of Spectrum POKformat.txt (a host file
+    # format the FPGA core never sees) and jnext's own apply/remove policy; the
+    # bank-to-page rows cite zxnext.vhd:4613-4616 / :4679-4680 in their own source.
+    'pok_trainers_test' => 'the WoS POK trainer file format and jnext\'s apply/remove policy (host side); its bank-to-page rows cite zxnext.vhd in their own source',
+    'pok_dialog_test'   => 'POK trainers dialog (GUI), no core counterpart',
     'load_error_test' => 'GUI load-failure reporting, the Tape menu, and the file-dialog FILTERS (GUI), no core counterpart',
 
     # ── RZX File-menu dialogs ────────────────────────────────────────
@@ -1068,6 +1075,8 @@ my %NO_MATRIX_SECTION = (
     'joystick_menu_test' => 'joystick controller picker: Input menu, Preferences (host GUI)',
     'shifted_keys_test'   => 'host shifted-scancode translation; guest matrix is `## Input`',
     'window_scale_test'   => 'main-window scale/fullscreen geometry (host GUI)',
+    'crt_shader_policy_test' => 'OpenGL CRT shader decision rules: style numbers, fullscreen placement, ARGB-to-GL byte order (host GUI)',
+    'crt_shader_widget_test' => 'OpenGL CRT shader widget, settings and menu (host GUI)',
     'window_title_test'   => 'main-window title carries the version (host GUI)',
     'color_scheme_test'   => 'GUI light/dark scheme from the desktop portal (host GUI, GH #363)',
     'sdcard_dialog_test'  => 'SD-card/NextPi download dialog through a dropped network (host GUI, GH #358)',
