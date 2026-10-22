@@ -12,12 +12,12 @@
 // backend, as debugger_verbs_test drives them. The program and its source:
 //
 //   8000  00           NOP          main.bas:10
-//   8001  00           NOP          (unmapped)
+//   8001  00           NOP          (inside main.bas:10's range)
 //   8002  CD 00 90     CALL SUB     main.bas:11
 //   8005  00           NOP          main.bas:12
 //   8006  C3 00 80     JP $8000     main.bas:13
 //   9000  00           NOP          sub.bas:1
-//   9001  C9           RET          (unmapped)
+//   9001  C9           RET          (inside sub.bas:1's range)
 //
 // Every row fails on a tree without the feature: there is no Source tab, no
 // page-qualified model row and no source map to read.

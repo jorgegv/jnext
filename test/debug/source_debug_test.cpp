@@ -12,13 +12,13 @@
 // them; no ROM. The program (interrupts off), with the source map's lines:
 //
 //   8000  00           NOP          main.bas:10
-//   8001  00           NOP          (unmapped: same statement)
+//   8001  00           NOP          (inside main.bas:10's range: same statement)
 //   8002  CD 00 90     CALL SUB     main.bas:11
 //   8005  00           NOP          main.bas:12
 //   8006  C3 00 80     JP $8000     main.bas:13
 //   9000  32 00 A0     LD ($A000),A sub.bas:1
 //   9003  00           NOP          sub.bas:2
-//   9004  C9           RET          (unmapped)
+//   9004  C9           RET          (inside sub.bas:2's range)
 //
 // Every row fails on a tree without the feature: there is no source map,
 // source_step() or load_program_sidecars() to call.
@@ -396,8 +396,8 @@ int main() {
         m.dbg->load_source_map(sld.string(), false);
 
         const Result r = m.dbg->source_step(m.a, Step::Into);
-        check("SRCDBG-STEP-02", "Into skips the unmapped instruction of the same "
-                                "statement: main.bas:10 -> :11",
+        check("SRCDBG-STEP-02", "Into runs through the rest of the statement (the second "
+                                "instruction of main.bas:10): main.bas:10 -> :11",
               r == Result::Ok && m.pc() == 0x8002, m.where());
         check("SRCDBG-STEP-03", "the machine is left paused, reason Step",
               m.dbg->state().paused && m.dbg->state().pause_reason.kind == PauseReason::Kind::Step);
@@ -421,8 +421,8 @@ int main() {
         m.dbg->load_source_map(sld.string(), false);
         m.dbg->subscribe(m.a, execute_stop(0x8001));
         m.dbg->source_step(m.a, Step::Into);
-        check("SRCDBG-STEP-08", "an Execute breakpoint on an unmapped instruction ends "
-                                "the step there, before it runs",
+        check("SRCDBG-STEP-08", "an Execute breakpoint inside the statement (on its second "
+                                "instruction) ends the step there, before it runs",
               m.pc() == 0x8001, m.where());
         m.dbg->source_step(m.a, Step::Into);
         check("SRCDBG-STEP-09", "a step from the breakpoint's own address steps off it",
@@ -492,8 +492,8 @@ int main() {
         m.dbg->load_source_map(sld.string(), false);
         m.emu.debug_state().breakpoints().add_pc(0x8001);
         m.dbg->source_step(m.a, Step::Into);
-        check("SRCDBG-STEP-15", "a legacy PC breakpoint between two statements stops the "
-                                "step there, before it runs",
+        check("SRCDBG-STEP-15", "a legacy PC breakpoint on the statement's second instruction "
+                                "stops the step there, before it runs",
               m.pc() == 0x8001, m.where());
     }
     {
@@ -584,7 +584,7 @@ int main() {
         check("SRCDBG-BACK-03", "Back rewinds to the previous statement: main.bas:12",
               r == Result::Ok && m.pc() == 0x8005, m.where());
         m.dbg->source_step(m.a, Step::Back);
-        check("SRCDBG-BACK-04", "Back again skips the unmapped RET: sub.bas:2",
+        check("SRCDBG-BACK-04", "Back again lands on the start of sub.bas:2, not on its RET: sub.bas:2",
               m.pc() == 0x9003, m.where());
         check("SRCDBG-BACK-05", "the call stack is the one at that point (inside SUB)",
               m.dbg->call_stack().size() == 1);
@@ -1998,7 +1998,7 @@ int main() {
     {
         Machine m;
         m.emu.mmu().write(0x8000, 0xF3);   // DI      main.bas:10
-        m.emu.mmu().write(0x8001, 0x76);   // HALT    (unmapped)
+        m.emu.mmu().write(0x8001, 0x76);   // HALT    (same statement, inside h.bas:10)
         const fs::path hs = dir / "halt.sld";
         write_text(hs, std::string("|SLD.data.version|1\n") + "h.bas|1||0" + kNextDevice +
                            "h.bas|10||0|" + std::to_string(p80) + "|32768|T|\n");
@@ -2066,7 +2066,7 @@ int main() {
     }
 
     {
-        // A handler that redirects: at the unmapped $8001 it sends the PC to
+        // A handler that redirects: at $8001 (inside main.bas:10) it sends the PC to
         // $8005 (main.bas:12). The step must stop there, not run line 12.
         Machine m;
         m.dbg->load_source_map(sld.string(), false);
