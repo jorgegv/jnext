@@ -1832,15 +1832,18 @@ private:
     // lockstep with read_ptr_[] by rebuild_ptr()/map_rom_physical(). VHDL
     // zxnext.vhd:3171-3181 inserts one 28 MHz wait cycle (= +1 T-state at
     // cpu_speed="11") on every memory READ machine cycle whose target is
-    // either the external SRAM (`sram_req_t`, :3154+:3167 — normal RAM,
-    // ROM-in-SRAM, DivMMC ROM/RAM, AltROM, MF, Layer2-mapped, config-mode)
-    // or the shared-port bank-5 BRAM (`cpu_bank5_sched`, :6592). The only
-    // read sources that do NOT wait: the dedicated bank-7 BRAM (page 0x0E,
-    // cpu_di <= cpu_bank7_do at :1863 — bank7_ram has its own CPU port,
-    // :6670-6685, and appears nowhere in the :3175 wait expression), the
-    // boot ROM (cpu_di <= bootrom_do, :1857 — handled in the getter, not
-    // here), and inactive/unpopulated pages (mmu_A21_A13(8)='1' at :3061
-    // suppresses sram_pre_active → no sram_req). 1 = wait, 0 = no wait.
+    // either the external SRAM (`sram_req_t`, :3154+:3167 - normal RAM,
+    // ROM-in-SRAM, AltROM, config-mode, ROMCS) or the shared-port bank-5 BRAM
+    // (`cpu_bank5_sched`, :6592). This per-slot flag covers only what the MMU
+    // slot alone decides; the overlays that sit above the slot in the arbiter
+    // (Multiface, DivMMC, Layer 2 mapping) are resolved in sram_read_wait28().
+    // The slot reads that do NOT wait: the dedicated bank-7 BRAM (page 0x0E,
+    // cpu_di <= cpu_bank7_do at :1863 - bank7_ram has its own CPU port,
+    // :6670-6685, and appears nowhere in the :3175 wait expression) and
+    // inactive/unpopulated pages (mmu_A21_A13(8)='1' at :3061 suppresses
+    // sram_pre_active, so no sram_req). The boot ROM is not a source of its
+    // own: bootrom_en only switches cpu_di (:1856), so a boot-ROM read waits
+    // as the slot beneath it. 1 = wait, 0 = no wait.
     uint8_t        sram_read_wait28_[8] = {1, 1, 1, 1, 1, 1, 1, 1};
     bool           paging_locked_ = false;
     // VHDL p3_floating_bus_dat latch (zxnext.vhd:4498-4509). Captures the
