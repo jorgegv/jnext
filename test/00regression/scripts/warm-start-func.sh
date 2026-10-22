@@ -30,7 +30,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   B. RESTORE  the second run uses the cache and does NOT boot again. A warm
 #               start that re-boots every time is not broken, just slow —
 #               which is exactly the kind of regression nothing else notices.
-#   C. INVALIDATE  a cache whose recorded SD digest no longer matches is
+#   C. INVALIDATE  a cache whose recorded SD image key (size, mtime) no longer matches is
 #               REFUSED and re-recorded. A stale recording silently served to
 #               the wrong machine is the worst failure this feature can have,
 #               because the machine it produces LOOKS booted.
@@ -134,15 +134,15 @@ if want warm-start-func; then
             ws_faults+=("D: no screenshot was written by the warm-started run")
         fi
 
-        # C — corrupt the recorded SD digest in place. Offset 24 is the first
-        # byte of the 64-char ASCII digest field (warm_start_cache.cpp), so one
-        # byte is enough to make the identity disagree with the mounted image.
-        printf 'Z' | dd of="$ws_file" bs=1 seek=24 count=1 conv=notrunc status=none
+        # C — corrupt the recorded SD image mtime in place. Offset 32 is the
+        # first byte of the i64 mtime field (warm_start_cache.cpp, GH #396), so
+        # one byte is enough to make the key disagree with the mounted image.
+        printf 'Z' | dd of="$ws_file" bs=1 seek=32 count=1 conv=notrunc status=none
         ws_c=$(timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next \
             "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" --load "$ws_nex" \
             --delayed-automatic-exit-frames 10 2>&1 || true)
         grep -q "recorded from a different SD image" <<<"$ws_c" \
-            || ws_faults+=("C: a cache with the wrong SD digest was NOT refused")
+            || ws_faults+=("C: a cache with the wrong SD image key was NOT refused")
         grep -q "recorded a NextZXOS-resident machine" <<<"$ws_c" \
             || ws_faults+=("C: the refused cache was not replaced by a fresh recording")
     fi
@@ -192,7 +192,7 @@ if want warm-start-func; then
     rm -rf "$ws_cache_dir"
 
     if [[ ${#ws_faults[@]} -eq 0 ]]; then
-        pass_row " (record, restore, digest invalidation, deflated payload, ROM-3 handover, loud fallback, and the warm render matches its reference)"
+        pass_row " (record, restore, key invalidation, deflated payload, ROM-3 handover, loud fallback, and the warm render matches its reference)"
     else
         fail_row " ($(IFS='; '; echo "${ws_faults[*]}"))"
         # What each run said about the warm start. ws_ere picks the lines the
@@ -200,7 +200,7 @@ if want warm-start-func; then
         ws_ere='warm start|\[error\]|\[warning\]|cannot|NextZXOS'
         show_output "A: cold-cache run" "$ws_a" "$ws_ere"
         show_output "B: warm-cache run" "$ws_b" "$ws_ere"
-        show_output "C: wrong-digest run" "$ws_c" "$ws_ere"
+        show_output "C: wrong-key run" "$ws_c" "$ws_ere"
         show_output "F: no-firmware run" "$ws_f" "$ws_ere"
     fi
 fi
