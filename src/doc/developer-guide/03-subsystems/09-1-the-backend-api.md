@@ -296,7 +296,8 @@ the functional row `script-map-pipe-func`).
 ### Source maps — CAP-SRC
 
 The backend also owns one `SourceMap` (`src/debug/source_map.*`): records of
-(RAM page, logical address) → file, line, column, filled by a format adapter —
+ranges `{space, lo, hi_excl, location}` (file, line, column) keyed by the
+`FetchSource` that supplies the code, filled by a format adapter —
 `load_sld()` in `src/debug/sld_loader.*` reads sjasmplus SLD v1 — and replaced
 only by a complete, successful load. Matching uses one identity everywhere:
 `source_page(addr)` is a `MemSpace`, from `Emulator::predict_fetch()`: a
@@ -305,10 +306,19 @@ including what the M1 itself switches (DivMMC's instant entry points and the
 hold from the previous M1 via `DivMmc::active_on_m1()`, the Multiface at
 0x0066 via `Multiface::would_latch_on_m1()`), then `Mmu::route_with()` for the
 rest (ROM slot, boot ROM, Layer 2 read mapping, alt-ROM, config mode). It is
-`Page{n}` when the MMU's RAM page `n` supplies it. The page-keyed consumers read
-it through `ram_page_of()` (`debug/ram_page.h`): the page, else `NOT_RAM_PAGE`,
-and `SourceMap::lookup(NOT_RAM_PAGE, addr)` matches
-only an unqualified record. After the instruction, `Mmu::last_m1()` is what its
+`Page{n}` when the MMU's RAM page `n` supplies it, and the source map is keyed
+by it directly: there are no unqualified records, so code from a ROM slot or an
+overlay has a location only if a record names that space. `source_location()`
+returns the primary location (the shortest covering range; on a tie the one the
+adapter emitted last) as a `const SourceLocation*` into the store, valid until
+the next load or clear, so copy what you keep; `source_map().lookup_all()` lists
+every location, primary first. The SLD adapter makes each `T` record cover its
+instruction up to the next distinct start in its page, never past the 8K page
+end. `resolve("file:line")` returns the line's entries (every place it compiled
+to; a later instruction of the same line is not one), or a reason ("no code at
+file:line"); the file is the exact path or the unique file whose path ends in the
+text on a component boundary. The trace and the call frames still use page
+numbers (`ram_page_of()`, `debug/ram_page.h`) until E23-08. After the instruction, `Mmu::last_m1()` is what its
 fetch actually recorded: the prediction and the record are one function evaluated
 before and after, and the tests compare them for every fetch of a guest tour. The trace records the same flag beside each entry
 (`TraceLog::fetch_not_mmu_ram()`; `TraceEntry` itself stays 56 bytes), call
@@ -366,7 +376,10 @@ HALT with IFF1 clear, after `SOURCE_STEP_LIMIT` instructions or after
 `SOURCE_STEP_FRAME_LIMIT` frames. `Back` and `ReverseContinue` search the trace
 for entries before the current cycle (a Frame Back leaves newer ones), derive
 each entry's identity from `mmu[]`, `rom_slots` and the overlay flag, and hand
-the count to `step_back()`, so they inherit its refusals.
+the count to `step_back()`, so they inherit its refusals. `Back` finds the newest
+earlier position that differs from the current one, then walks older entries
+(passing unmapped ones) while they are at that position, and lands on the
+oldest: the first instruction of the previous statement, the inverse of `Into`.
 
 ### Coverage and the trace
 

@@ -89,7 +89,7 @@ work. A breakpoint change another client made arrives as
 | NextREG | `nextreg_peek()` for the whole register file | `nextreg_write()` |
 | Audio | `ay_registers()`, `turbosound_enabled()`, `ay_mode()`, `stereo_mode()` | `set_audio_mute_mask()` |
 | Script | the `ScriptHost`'s loaded scripts, their rules and hits, the verdict line and the script log | load, reload, unload, record |
-| Source | `source_location()` for the PC, and the source file it names | the source steps and loads, through `DebuggerManager` |
+| Source | `source_location()` (a pointer into the store) for the PC, and the source file it names | the source steps and loads, through `DebuggerManager` |
 
 Four panels (CPU, Disassembly, Stack, Call Stack) update only while paused:
 reading the register file every frame while the machine runs produces a blur,
@@ -229,9 +229,11 @@ state comes from `SourcePanel::update_buttons()` through the `steps_available()`
 signal, so the buttons and the actions share one predicate. The menu tree and
 the bindings are pinned by `debugger_accel_test` and `debugger_keymap_test`. `BreakpointModel` lists an
 Execute subscription with a page qualifier as the GUI's own row (`Row::page`);
-the Breakpoints panel creates one from a `file:line`, and the gutter draws it
-only while its page is mapped (`pc_marked()`). The Call Stack's last column
-looks up each frame's caller on its recorded page.
+the Breakpoints panel creates one per place a `file:line` compiled to (its Add
+and Edit dialogs and Breakpoints > Add Execute Breakpoint share that rule, and show
+the store's reason, such as "no code at main.bas:5", when a line has none), and
+the gutter draws it only while its page is mapped (`pc_marked()`). The Call
+Stack's last column looks up each frame's caller on its recorded page.
 
 ## Copying out of a custom-painted panel
 

@@ -2502,7 +2502,7 @@ work. A breakpoint change another client made arrives as
 </tr>
 <tr>
 <td>Source</td>
-<td><code>source_location()</code> for the PC, and the source file it names</td>
+<td><code>source_location()</code> (a pointer into the store) for the PC, and the source file it names</td>
 <td>the source steps and loads, through <code>DebuggerManager</code></td>
 </tr>
 </tbody>
@@ -2628,9 +2628,11 @@ state comes from <code>SourcePanel::update_buttons()</code> through the <code>st
 signal, so the buttons and the actions share one predicate. The menu tree and
 the bindings are pinned by <code>debugger_accel_test</code> and <code>debugger_keymap_test</code>. <code>BreakpointModel</code> lists an
 Execute subscription with a page qualifier as the GUI's own row (<code>Row::page</code>);
-the Breakpoints panel creates one from a <code>file:line</code>, and the gutter draws it
-only while its page is mapped (<code>pc_marked()</code>). The Call Stack's last column
-looks up each frame's caller on its recorded page.</p>
+the Breakpoints panel creates one per place a <code>file:line</code> compiled to (its Add
+and Edit dialogs and Breakpoints &gt; Add Execute Breakpoint share that rule, and show
+the store's reason, such as "no code at main.bas:5", when a line has none), and
+the gutter draws it only while its page is mapped (<code>pc_marked()</code>). The Call
+Stack's last column looks up each frame's caller on its recorded page.</p>
 <h2 id="copying-out-of-a-custom-painted-panel">Copying out of a custom-painted panel<a class="headerlink" href="#copying-out-of-a-custom-painted-panel" title="Permanent link">&para;</a></h2>
 <p>The Disassembly panel paints itself, so there is no Qt text widget to inherit a
 selection from. The selection is an <strong>address range</strong> — an anchor and a cursor —
