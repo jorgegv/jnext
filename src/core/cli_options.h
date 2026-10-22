@@ -227,7 +227,8 @@ inline constexpr Option OPTIONS[] = {
       "FILE",
       "Load a program file (auto-detect format by extension)\n"
       "Supported: .nex, .jns, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx\n"
-      "(.rzx is accepted here and plays back, as --rzx-play)" },
+      "(.rzx is accepted here and plays back, as --rzx-play)\n"
+      "A .zip archive holding one such program loads that program" },
     { "--nex-args", 1, Doc::Documented, OptId::NexArgs,
       "LINE",
       "Argument line for a NEX V1.3 program: placed in the CLI\n"

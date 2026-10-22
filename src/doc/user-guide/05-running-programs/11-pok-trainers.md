@@ -28,6 +28,11 @@ then open the trainers.
    holds the changed bytes, so loading it later gives you the game with the
    trainer already in it.
 
+A game loaded from a ZIP archive that also holds a `.pok` gets its trainers
+without any of this: File ▸ Load makes them the open list (not shown), the
+status bar says so, and **Machine ▸ POK Trainers…** shows them
+([5. Running programs](index.md)).
+
 **Machine ▸ POK Trainers…** with no file open asks for one; with a file open it
 shows the trainers again. **Open POK File…** in the window opens another file.
 While the window is open the game keeps running behind it, but the main window

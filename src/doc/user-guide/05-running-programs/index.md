@@ -53,6 +53,34 @@ what was wrong with it. A file whose extension JNEXT does not know and that is
 not a NEX file is refused in the same way, before anything is reset, so the
 game you were playing is still there.
 
+## Programs in ZIP archives
+
+A program downloaded as `game.tap.zip` or `game.nex.zip` loads without
+unzipping it, from the command line (`jnext game.tap.zip`) and from **File >
+Load NEX File…**. JNEXT loads the one program inside the archive (a file with
+one of the extensions above) exactly as if you had given it on its own, and
+ignores the screenshots, `.scr` files and text files that usually travel with
+it. A name ending in `.zip` is always taken as an archive; a file with any other
+extension, or none, is taken as one when it starts like a ZIP file.
+
+- **Several programs** (side A and side B of a tape, say): the command line
+  refuses and lists them, so you can unzip it and name the one you want; the
+  window asks which one to load, and Cancel leaves the running game alone.
+- **Refused, with the reason:** an archive with no program in it, one that is
+  not a ZIP file, a password-protected one, one compressed with a method other
+  than the usual deflate (bzip2, LZMA and the like), a ZIP64 or multi-disk one,
+  a member over 256 MiB, and a member whose name is an absolute path or climbs
+  out with `..`.
+- **A bundled `.pok`** (a cheat list for the game; see
+  [5.11 POK trainers](11-pok-trainers.md)): when the archive holds one named
+  like the program, or the only one, File > Load makes it the open trainer list
+  without showing it, and says so in the status bar. Open it with **Machine ▸
+  POK Trainers…**.
+
+The program is unpacked to a temporary file in JNEXT's configuration directory
+(`~/.jnext/archive-load/`) that is deleted when JNEXT exits; leftovers of a
+crashed run are swept after a week.
+
 A program loaded either way brings its debugging files with it when they sit
 beside it: `game.sld` (an sjasmplus source map) and, for a `.nex`,
 `game.Memory.txt` (NextBuild / Boriel ZX Basic symbols). See

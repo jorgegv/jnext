@@ -59,7 +59,8 @@ naming the option and the value, and exits with status 1.
 **\--load** *FILE*
 :   Load a program. The format is detected from the extension: `.nex`, `.jns`,
     `.sna`, `.szx`, `.z80`, `.tap`, `.tzx`, `.wav`, `.rzx`. (`.rzx` is accepted
-    here and plays back, as **\--rzx-play**.)
+    here and plays back, as **\--rzx-play**.) A `.zip` archive holding one of
+    them loads that program (see **LOADING PROGRAMS**).
 
     `.jns` is jnext's own whole-machine snapshot (see **JNEXT SNAPSHOTS**
     below). Loading one restores the machine it was taken on, including the
@@ -1149,6 +1150,22 @@ format is detected from the extension:
 
 `.rzx`
 :   Played back as if **\--rzx-play** had been given.
+
+`.zip`
+:   An archive holding one program (`game.tap.zip`, `game.nex.zip`): the one
+    file inside it with one of the extensions above is loaded, exactly as if
+    it had been given on its own; screenshots, `.scr` and other files in the
+    archive are ignored. An archive is recognised by its `.zip` extension, or,
+    for a name with any other extension (or none), by its contents. When it
+    holds several programs the command line refuses, listing them (unzip it and
+    name the one you want); the window's **File > Load** asks which one. An
+    archive that is encrypted, uses a method other than stored or deflate, is
+    ZIP64 or multi-disk, has a member over 256 MiB, or names a member with an
+    absolute path or `..` is refused with the reason. The program is extracted
+    to a temporary file under `~/.jnext/archive-load/` (or the
+    **JNEXT_CONFIG_DIR** directory) that is removed when **jnext** exits. In
+    the window, a `.pok` file in the archive (the one named like the program,
+    else the only one) is offered under **Machine > POK Trainers...**.
 
 `.tap` and `.tzx` load in real time instead with **\--tape-realtime**.
 
