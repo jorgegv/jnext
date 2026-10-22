@@ -308,6 +308,32 @@ int main() {
               "path=" + full + " filename=" + t.filename());
     }
 
+    // TAPC-13 / TAPC-14 (GH #392) - a tape with one anomaly per 2 bytes (a 256 MiB
+    // zip of zeros was 134 million warnings, ~10 GB of stderr). Oracle: this
+    // header's own contract that anomalies are non-fatal and reported through
+    // `warn`; the cap (TapLoader::kMaxWarnings = 20) is the new rule.
+    {
+        Bytes zeros(200000, 0);   // 100000 zero-length blocks
+        std::vector<TapBlock> blocks;
+        std::vector<std::string> warns;
+        const bool ok = TapLoader::parse_blocks(zeros, blocks,
+            [&warns](const std::string& m) { warns.push_back(m); });
+        check("TAPC-13", "100000 zero-length blocks parse, and warn 20 times plus one summary counting the rest",
+              ok && warns.size() == TapLoader::kMaxWarnings + 1 &&
+                  warns.back().find("99980 more warnings suppressed") != std::string::npos,
+              "warnings=" + std::to_string(warns.size()) + (warns.empty() ? "" : " last=" + warns.back()));
+    }
+    {
+        Bytes zeros(10, 0);   // 5 zero-length blocks
+        std::vector<TapBlock> blocks;
+        std::vector<std::string> warns;
+        const bool ok = TapLoader::parse_blocks(zeros, blocks,
+            [&warns](const std::string& m) { warns.push_back(m); });
+        check("TAPC-14", "5 zero-length blocks (under the cap) are each reported and no summary is added",
+              ok && warns.size() == 5 && warns.back().find("suppressed") == std::string::npos,
+              "warnings=" + std::to_string(warns.size()));
+    }
+
     Log::emulator()->sinks().pop_back();
     std::filesystem::remove_all(g_root, ec);
 

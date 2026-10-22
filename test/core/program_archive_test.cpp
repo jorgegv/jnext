@@ -377,6 +377,97 @@ int main() {
               !ok && has(why, "general-purpose flags") && !ok2 && has(why2, "extra field"), why + " / " + why2);
     }
 
+
+    // ---- GH #392 round 2: the bounds and refusals a hostile archive reaches ----
+    {
+        Member m = mem("A.BIN", pattern(10));
+        m.central_name_len_override = 60000;
+        const std::string why = open_refusal(zipfx::build({m}));
+        check("ZIPI-26", "a central entry whose name length runs past the directory is refused as overrunning it",
+              has(why, "overruns"), why);
+    }
+    {
+        zipfx::Eocd e;
+        e.central_tail = Bytes{'P', 'K', 1, 2};
+        e.central_tail.resize(20, 0);   // a valid central signature with only 20 bytes left
+        e.central_extra_entries = 1;
+        const std::string why = open_refusal(zipfx::build({mem("A.BIN", pattern(10))}, e));
+        check("ZIPI-27", "a central entry cut short by the end of the directory (valid signature, 20 of 46 bytes) is refused as truncated",
+              has(why, "truncated"), why);
+    }
+    {
+        zipfx::Eocd e;
+        e.total_override = 1;
+        const std::string why = open_refusal(zipfx::build({mem("A.BIN", pattern(10)), mem("B.BIN", pattern(10))}, e));
+        check("ZIPI-28", "a directory holding more entries than the EOCD counts is refused as disagreeing with its entry count",
+              has(why, "entry count"), why);
+    }
+    {
+        Member m = mem("A.BIN", pattern(10));
+        zipfx::Eocd e;
+        e.comment = std::string("PK\x03\x04") + std::string(6, '\0');
+        Bytes b = zipfx::build({m}, e);
+        m.local_offset_override = static_cast<int64_t>(b.size()) - 10;   // a local signature, but under 30 bytes left
+        b = zipfx::build({m}, e);
+        InterchangeReader r;
+        std::string why, rwhy;
+        Bytes out;
+        const bool opened = open_buf(r, b, why);
+        const bool ok = opened && r.read(r.entries()[0], out, rwhy);
+        check("ZIPI-29", "a local header offset with fewer than 30 bytes before the end of the file is refused as a damaged local header",
+              opened && !ok && has(rwhy, "local header"), why + "/" + rwhy);
+    }
+    {
+        Bytes b = zipfx::build({mem("A.BIN", pattern(10))});
+        b.insert(b.end(), {'x', 'y', 'z'});
+        const std::string why = open_refusal(b);
+        check("ZIPI-30", "bytes after the EOCD: the archive is refused (the EOCD must end exactly at the end of the file)",
+              has(why, "not a ZIP archive"), why);
+    }
+    {
+        zipfx::Eocd e;
+        e.cd_disk = 1;
+        const std::string why = open_refusal(zipfx::build({mem("A.BIN", pattern(10))}, e));
+        check("ZIPI-31", "EOCD central-directory disk number 1 is refused as multi-disk", has(why, "multi-disk"), why);
+    }
+    {
+        zipfx::Eocd e;
+        e.here_override = 0;
+        const std::string why = open_refusal(zipfx::build({mem("A.BIN", pattern(10))}, e));
+        check("ZIPI-32", "an EOCD whose this-disk entry count differs from its total is refused as multi-disk",
+              has(why, "multi-disk"), why);
+    }
+    {
+        Member m = mem("A.BIN", pattern(10));
+        m.disk_start = 1;
+        const std::string why = open_refusal(zipfx::build({m}));
+        check("ZIPI-33", "a central entry starting on disk 1 is refused as multi-disk", has(why, "multi-disk"), why);
+    }
+    {
+        zipfx::Eocd e;
+        e.cd_size_override = 0xFFFFFFFFll;
+        const std::string why = open_refusal(zipfx::build({mem("A.BIN", pattern(10))}, e));
+        check("ZIPI-34", "an EOCD central-directory size of 0xFFFFFFFF is refused naming ZIP64", has(why, "ZIP64"), why);
+    }
+    {
+        zipfx::Eocd e;
+        e.cd_off_override = 0xFFFFFFFFll;
+        const std::string why = open_refusal(zipfx::build({mem("A.BIN", pattern(10))}, e));
+        check("ZIPI-35", "an EOCD central-directory offset of 0xFFFFFFFF is refused naming ZIP64", has(why, "ZIP64"), why);
+    }
+    {
+        Member m = mem("A.BIN", pattern(10));
+        m.csize_override = 0xFFFFFFFFll;
+        const std::string why = open_refusal(zipfx::build({m}));
+        check("ZIPI-36", "a central entry with compressed size 0xFFFFFFFF is refused naming ZIP64", has(why, "ZIP64"), why);
+    }
+    {
+        Member m = mem("A.BIN", pattern(10));
+        m.local_offset_override = 0xFFFFFFFFll;
+        const std::string why = open_refusal(zipfx::build({m}));
+        check("ZIPI-37", "a central entry with local offset 0xFFFFFFFF is refused naming ZIP64", has(why, "ZIP64"), why);
+    }
+
     // ----------------------------------------------------- program-archive layer
     namespace pa = program_archive;
     const std::string files = root + "/files";
@@ -599,6 +690,102 @@ int main() {
         const bool ok = a.open(files + "/dup.zip", why);
         check("ZIPL-22", "two members both named GAME.TAP: the archive is refused (readers disagree which wins)",
               !ok && has(why, "two members named"), why);
+    }
+
+    // ---- GH #392 round 2 ----
+    {
+        spit(files + "/bs.zip", zipfx::build({mem("\\abs.tap", pattern(8))}));
+        std::string path, why;
+        const bool ok = pa::extract_single_program(files + "/bs.zip", path, why);
+        check("ZIPL-23", "a member named \\abs.tap (leading backslash) is refused as unsafe", !ok && has(why, "unsafe"), why);
+    }
+    {
+        spit(files + "/ctl.zip", zipfx::build({mem(std::string("A\x01\x1b" "B\x7f" "C.TAP"), pattern(8))}));
+        pa::ProgramArchive a;
+        std::string why, path;
+        const bool ok = a.open(files + "/ctl.zip", why) && a.extract(a.programs()[0], scratch, path, why);
+        check("ZIPL-24", "control bytes (0x01, ESC, DEL) in a member basename become _ in the extracted file name",
+              ok && fs::path(path).filename() == "A__B_C.TAP", path + " " + why);
+    }
+    {
+        spit(files + "/empty", zipfx::build({}));
+        pa::ProgramArchive a;
+        std::string why;
+        const bool opened = a.open(files + "/empty", why);
+        check("ZIPL-25", "an empty archive (only an EOCD, PK\\5\\6) saved without an extension is an archive, with no program",
+              pa::is_archive_path(files + "/empty") && opened && a.programs().empty() &&
+                  has(a.no_program_why(), "nothing"), why);
+    }
+    {
+        spit(files + "/mac2.zip", zipfx::build({mem("__MACOSX/BEEPER.TAP", pattern(5)), mem("BEEPER.TAP", pattern(5))}));
+        pa::ProgramArchive a;
+        std::string why;
+        const bool ok = a.open(files + "/mac2.zip", why);
+        check("ZIPL-26", "a member under __MACOSX/ is not a program even without a ._ name",
+              ok && a.programs() == std::vector<std::string>{"BEEPER.TAP"}, why);
+    }
+    {
+        const std::string p = files + "/cap.zip";
+        spit(p, zipfx::build({mem("CAP.TAP", pattern(300), 0)}));
+        const uint64_t sz = fs::file_size(p);
+        pa::ProgramArchive a1, a2;
+        std::string w1, w2;
+        const bool at = a1.open(p, w1, sz);
+        const bool over = a2.open(p, w2, sz - 1);
+        check("ZIPL-27", "the archive cap straddles: a file of exactly the cap opens, one byte over is refused",
+              at && !over && has(w2, "limit"), w1 + "/" + w2);
+    }
+    {
+        std::vector<Member> ms;
+        for (int i = 0; i < 65534; ++i) {
+            char nm[16];
+            std::snprintf(nm, sizeof nm, "N%05d.TAP", i);
+            ms.push_back(mem(nm, Bytes{}, 0));
+        }
+        spit(files + "/many.zip", zipfx::build(ms));
+        pa::ProgramArchive a;
+        std::string why;
+        const auto t0 = std::chrono::steady_clock::now();
+        const bool ok = a.open(files + "/many.zip", why);
+        const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        check("ZIPL-28", "an archive of 65534 program members opens in linear time (under 4 s; a find() per member took 12 s)",
+              ok && a.programs().size() == 65534 && secs < 4.0, why + " secs=" + std::to_string(secs));
+    }
+    {
+        const std::string esc1 = "\x1b]0;PWNED\x07\x1b[31mRED.TAP", esc2 = "\x1b[2JCLEAR.TAP";
+        spit(files + "/two_esc.zip", zipfx::build({mem(esc1, pattern(5)), mem(esc2, pattern(5))}));
+        spit(files + "/none_esc.zip", zipfx::build({mem("\x1b[2JREADME.TXT", pattern(5))}));
+        spit(files + "/dup_esc.zip", zipfx::build({mem("\x1b[2J.TAP", pattern(5)), mem("\x1b[2J.TAP", pattern(6))}));
+        Member enc = mem("\x1b[2JENC.TAP", pattern(5), 0);
+        enc.flags = 1;
+        spit(files + "/enc_esc.zip", zipfx::build({enc}));
+        std::string p, w_several, w_none, w_dup, w_enc, w_unsafe;
+        pa::extract_single_program(files + "/two_esc.zip", p, w_several);
+        pa::extract_single_program(files + "/none_esc.zip", p, w_none);
+        pa::extract_single_program(files + "/dup_esc.zip", p, w_dup);
+        pa::extract_single_program(files + "/enc_esc.zip", p, w_enc);
+        spit(files + "/unsafe_esc.zip", zipfx::build({mem("\x1b[2J/../x.tap", pattern(5))}));
+        pa::extract_single_program(files + "/unsafe_esc.zip", p, w_unsafe);
+        auto clean = [](const std::string& s) {
+            for (unsigned char c : s) if (c < 0x20 || c >= 0x7F) return false;
+            return true;
+        };
+        check("ZIPL-29", "no control byte survives into the several-programs, no-program, duplicate, encrypted or unsafe-path messages",
+              !w_several.empty() && !w_none.empty() && !w_dup.empty() && !w_enc.empty() && !w_unsafe.empty() &&
+                  clean(w_several) && clean(w_none) && clean(w_dup) && clean(w_enc) && clean(w_unsafe) &&
+                  has(w_several, "\\x1B") && has(w_enc, "encrypted"),
+              w_several + " | " + w_none + " | " + w_dup + " | " + w_enc + " | " + w_unsafe);
+    }
+    {
+        using pa::display_name;
+        check("ZIPL-30", "display_name escapes C0, DEL, C1 and bytes outside well-formed UTF-8, keeps valid UTF-8, and stays injective",
+              display_name(std::string("A\x82" "B")) == "A\\x82B" &&
+                  display_name("caf\xC3\xA9") == "caf\xC3\xA9" &&
+                  display_name("\xC2\x9B") == "\\xC2\\x9B" &&
+                  display_name("\x7f") == "\\x7F" &&
+                  display_name(std::string("A\0B", 3)) == "A\\x00B" &&
+                  display_name("\xE0\x80\x80") == "\\xE0\\x80\\x80" &&
+                  display_name("F\x82") != display_name("F\x83"));
     }
 
     fs::remove_all(root, ec);

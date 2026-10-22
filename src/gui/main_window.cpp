@@ -1611,16 +1611,18 @@ void MainWindow::offer_archive_pok(const program_archive::ProgramArchive& archiv
     std::string why;
     if (archive.member_size(pok) > kMaxPok || !archive.read_member(pok, bytes, why)) {
         Log::platform()->info("archive {}: trainers not offered: {}", archive_path,
-                              why.empty() ? pok + " is larger than 1 MiB" : why);
+                              why.empty() ? program_archive::display_name(pok) + " is larger than 1 MiB" : why);
         return;
     }
     jnext::pok::PokFile file = jnext::pok::parse_pok(
         std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
     if (file.trainers.empty()) {
-        Log::platform()->info("archive {}: {} holds no trainers, not offered", archive_path, pok);
+        Log::platform()->info("archive {}: {} holds no trainers, not offered", archive_path,
+                              program_archive::display_name(pok));
         return;
     }
-    start_pok_session(std::move(file), archive_path + " (" + pok + ")", false);
+    start_pok_session(std::move(file),
+                      archive_path + " (" + program_archive::display_name(pok) + ")", false);
     const QString msg = tr("Trainers for this program: Machine > POK Trainers...");
     statusBar()->showMessage(msg, 8000);
     Log::platform()->info("status bar: {}", msg.toStdString());
@@ -1646,27 +1648,36 @@ void MainWindow::handle_load_path(const QString& path, bool jns_probed) {
             refuse_jns(path, QString::fromStdString(archive.no_program_why()));
             return;
         }
-        std::string member = archive.programs()[0];
+        size_t chosen = 0;
         if (archive.programs().size() > 1) {
             if (unattended_) {   // no dialog, as every other dialog here
                 refuse_jns(path, QString::fromStdString(archive.several_why()));
                 return;
             }
+            // Shown names are display_name()s (escaped, so valid UTF-8 and distinct);
+            // the choice is mapped back by INDEX, never by re-encoding the text (a
+            // CP437 name does not survive a QString round trip).
             QStringList items;
-            for (const auto& m : archive.programs()) items << QString::fromStdString(m);
+            for (const auto& m : archive.programs())
+                items << QString::fromStdString(program_archive::display_name(m));
             bool ok = false;
             const QString pick = QInputDialog::getItem(
                 this, tr("Load from Archive"),
                 tr("%1 holds several programs. Load which one?").arg(QFileInfo(path).fileName()),
                 items, 0, false, &ok);
-            if (!ok || pick.isEmpty()) return;   // Cancel: nothing loaded, nothing reset
-            member = pick.toStdString();
+            const int idx = items.indexOf(pick);
+            if (!ok || idx < 0) return;   // Cancel: nothing loaded, nothing reset
+            chosen = static_cast<size_t>(idx);
         }
-        const QString shown = path + QStringLiteral(" (") + QString::fromStdString(member) + QStringLiteral(")");
+        const std::string member = archive.programs()[chosen];
+        const QString shown = path + QStringLiteral(" (") +
+                              QString::fromStdString(program_archive::display_name(member)) +
+                              QStringLiteral(")");
         std::string extracted;
         if (!archive.extract(member, extracted, why)) {
             // extract() prefixes the member; the archive is named by `shown` here.
-            const std::string tail = why.rfind(member + " ", 0) == 0 ? why.substr(member.size() + 1) : why;
+            const std::string shown_member = program_archive::display_name(member);
+            const std::string tail = why.rfind(shown_member + " ", 0) == 0 ? why.substr(shown_member.size() + 1) : why;
             refuse_jns(shown, QString::fromStdString(tail));
             return;
         }

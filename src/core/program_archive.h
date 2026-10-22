@@ -26,6 +26,14 @@ namespace program_archive {
 /// `.nex`: .nex .jns .sna .szx .z80 .tap .tzx .wav .rzx (case-insensitive).
 bool is_program_ext(const std::string& path);
 
+/// A member name made safe to print on a terminal, in a log or in a window:
+/// every byte that is not part of a well-formed UTF-8 character, every C0
+/// control (ESC, BEL, NUL...), DEL and every C1 control (U+0080-U+009F) is
+/// written as `\xNN`. Injective for names without a literal backslash-x, so two
+/// different names never display alike. Every message that carries a member
+/// name goes through it, in this layer, so no consumer can forget.
+std::string display_name(const std::string& name);
+
 /// True when `path` must be opened as an archive: `.zip` in any case whatever
 /// the content (so a broken one is refused as "not a ZIP archive"); never for a
 /// program extension or `.pok` (a `.jns` IS a zip and keeps its route); for any

@@ -1119,7 +1119,8 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "--load %s: %s.\n", load_file.c_str(), why.c_str());
             return 1;
         }
-        Log::emulator()->info("--load {}: loading {} from the archive", load_file, member);
+        Log::emulator()->info("--load {}: loading {} from the archive", load_file,
+                              program_archive::display_name(member));
         load_file = extracted;
     }
 

@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <random>
+#include <unordered_set>
 
 namespace fs = std::filesystem;
 
@@ -62,12 +63,43 @@ std::string safe_basename(const std::string& name) {
 
 std::string join_names(const std::vector<std::string>& v) {
     std::string s;
-    for (size_t i = 0; i < v.size() && i < 20; ++i) s += (i ? ", " : "") + v[i];
+    for (size_t i = 0; i < v.size() && i < 20; ++i) s += (i ? ", " : "") + display_name(v[i]);
     if (v.size() > 20) s += " and " + std::to_string(v.size() - 20) + " more";
     return s;
 }
 
 }  // namespace
+
+std::string display_name(const std::string& name) {
+    std::string out;
+    auto esc = [&out](unsigned char c) {
+        static const char* d = "0123456789ABCDEF";
+        out += "\\x";
+        out += d[c >> 4];
+        out += d[c & 15];
+    };
+    for (size_t i = 0; i < name.size();) {
+        const unsigned char c = static_cast<unsigned char>(name[i]);
+        if (c < 0x20 || c == 0x7F) { esc(c); ++i; continue; }
+        if (c < 0x80) { out += static_cast<char>(c); ++i; continue; }
+        // RFC 3629 well-formed sequence?
+        size_t n = (c >= 0xC2 && c <= 0xDF) ? 2 : (c >= 0xE0 && c <= 0xEF) ? 3 : (c >= 0xF0 && c <= 0xF4) ? 4 : 0;
+        bool ok = n && i + n <= name.size();
+        for (size_t k = 1; ok && k < n; ++k) ok = (static_cast<unsigned char>(name[i + k]) & 0xC0) == 0x80;
+        if (ok) {
+            const unsigned char c1 = static_cast<unsigned char>(name[i + 1]);
+            if (c == 0xE0 && c1 < 0xA0) ok = false;                 // overlong
+            if (c == 0xED && c1 >= 0xA0) ok = false;               // surrogate
+            if (c == 0xF0 && c1 < 0x90) ok = false;                // overlong
+            if (c == 0xF4 && c1 >= 0x90) ok = false;               // above U+10FFFF
+        }
+        if (ok && c == 0xC2 && static_cast<unsigned char>(name[i + 1]) < 0xA0) ok = false;   // C1 control
+        if (!ok) { esc(c); ++i; continue; }
+        out.append(name, i, n);
+        i += n;
+    }
+    return out;
+}
 
 bool is_program_ext(const std::string& path) {
     const std::string e = ext_of(path);
@@ -149,13 +181,14 @@ bool ProgramArchive::open(const std::string& path, std::string& why, uint64_t ma
     }
     if (!reader_.open(data_.data(), data_.size(), why)) { data_.clear(); return false; }
 
+    std::unordered_set<std::string> seen;   // linear, not a find() per member
     for (const auto& e : reader_.entries()) {
         if (e.is_directory()) continue;
         const std::string b = base_of(e.name);
         if (e.name.rfind("__MACOSX/", 0) == 0 || b.rfind("._", 0) == 0) continue;
         if (!is_program_ext(b)) continue;
-        if (std::find(programs_.begin(), programs_.end(), e.name) != programs_.end()) {
-            why = "holds two members named " + e.name;
+        if (!seen.insert(e.name).second) {
+            why = "holds two members named " + display_name(e.name);
             programs_.clear();
             data_.clear();
             return false;
@@ -193,13 +226,13 @@ bool ProgramArchive::read_member(const std::string& member, std::vector<uint8_t>
                                  std::string& why) const {
     out.clear();
     if (unsafe_name(member)) {
-        why = member + " has an unsafe path (absolute or with ..)";
+        why = display_name(member) + " has an unsafe path (absolute or with ..)";
         return false;
     }
     const auto* e = find(member);
-    if (!e) { why = member + " is not in the archive"; return false; }
+    if (!e) { why = display_name(member) + " is not in the archive"; return false; }
     std::string r;
-    if (!reader_.read(*e, out, r)) { why = member + " " + r; return false; }
+    if (!reader_.read(*e, out, r)) { why = display_name(member) + " " + r; return false; }
     return true;
 }
 
@@ -221,13 +254,13 @@ bool ProgramArchive::extract(const std::string& member, ScratchDir& scratch,
         std::ofstream o(part, std::ios::binary | std::ios::trunc);
         if (!o.write(reinterpret_cast<const char*>(bytes.data()),
                      static_cast<std::streamsize>(bytes.size())) && !bytes.empty()) {
-            why = member + " could not be written to " + slot;
+            why = display_name(member) + " could not be written to " + slot;
             return false;
         }
     }
     std::error_code ec;
     fs::rename(part, dest, ec);
-    if (ec) { why = member + " could not be written to " + slot + ": " + ec.message(); return false; }
+    if (ec) { why = display_name(member) + " could not be written to " + slot + ": " + ec.message(); return false; }
     out_path = fs::absolute(dest, ec).string();
     return true;
 }

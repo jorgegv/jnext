@@ -812,6 +812,90 @@ int main(int argc, char** argv) {
               MainWindow::load_filter().contains("ZIP Archives (*.zip);;"),
           q(MainWindow::load_filter()));
 
+    // ---- GH #392 round 2 ----
+    auto write_zip = [](const char* name, const std::vector<zipfx::Member>& ms) {
+        const std::string zp = (g_root / name).string();
+        const Bytes z = zipfx::build(ms);
+        std::ofstream o(zp, std::ios::binary);
+        o.write(reinterpret_cast<const char*>(z.data()), static_cast<std::streamsize>(z.size()));
+        return zp;
+    };
+    auto zmem = [](const std::string& n, const Bytes& d) {
+        zipfx::Member m; m.name = n; m.data = d; m.method = 0; return m;
+    };
+    // ZIPG-10
+    {
+        Fixture f; Handed h; hook(f, h);
+        const std::string zp = write_zip("cp437.zip", {zmem("F\x82TBOL.TAP", Bytes(8, 1)), zmem("OTHER.TAP", Bytes(8, 2))});
+        InputWatcher in; in.pick = "F\\x82TBOL.TAP";
+        f.win.handle_load_path(QString::fromStdString(zp));
+        in.stop();
+        check("ZIPG-10",
+              "a program whose name is not UTF-8 (CP437 0x82) is listed escaped and loads when picked "
+              "(the choice is mapped by index, not by re-encoding the text)",
+              f.ok && in.seen == 1 && in.items.size() == 2 && in.items[0] == "F\\x82TBOL.TAP" && h.n == 1 &&
+                  std::filesystem::path(h.path).filename() == "F_TBOL.TAP" && h.bytes == Bytes(8, 1),
+              fmt("seen=%d items=%s n=%d path=%s", in.seen, q(in.items.join(",")).c_str(), h.n, h.path.c_str()));
+    }
+    // ZIPG-11
+    {
+        Fixture f; Handed h; hook(f, h);
+        DialogWatcher w;
+        f.win.handle_load_path(QString::fromStdString(zfix + "/beeper.tap.zip"));
+        f.win.load_finished(h.path, false);   // the cold boot reports the load failed
+        w.pump(300);
+        w.stop();
+        check("ZIPG-11",
+              "when the load of an archive's program fails, the Load Failed box names `<archive> (BEEPER.TAP)`, "
+              "not the scratch path",
+              f.ok && h.n == 1 && w.seen == 1 && w.text.contains("beeper.tap.zip (BEEPER.TAP)") &&
+                  !w.text.contains("archive-load"),
+              fmt("seen=%d text=%s", w.seen, q(w.text).c_str()));
+    }
+    const std::string trainer = "NInfinite\r\nZ   8 32768   0   0\r\nY\r\n";
+    // ZIPG-12
+    {
+        Fixture f; Handed h; hook(f, h);
+        std::string big = trainer;
+        big.append(1024 * 1024, ' ');   // over the 1 MiB limit for a trainer file
+        const std::string zp = write_zip("bigpok.zip", {zmem("G.TAP", Bytes(8, 1)),
+                                                        zmem("G.POK", Bytes(big.begin(), big.end()))});
+        f.win.handle_load_path(QString::fromStdString(zp));
+        check("ZIPG-12", "a bundled .pok over 1 MiB is not offered (no POK session) while the program still loads",
+              f.ok && h.n == 1 && !f.win.pok_session(), fmt("n=%d", h.n));
+    }
+    // ZIPG-13
+    {
+        Fixture f;
+        f.win.set_load_file_callback(nullptr);   // nothing takes the load
+        DialogWatcher w;
+        f.win.handle_load_path(QString::fromStdString(zfix + "/beeper.tap.zip"));
+        w.stop();
+        check("ZIPG-13", "the bundled .pok is not offered when the load was not handed on",
+              f.ok && !f.win.pok_session());
+    }
+    // ZIPG-14
+    {
+        Fixture f; Handed h; hook(f, h);
+        const std::string t = "this is not a trainer file\r\n";
+        const std::string zp = write_zip("nopok.zip", {zmem("G.TAP", Bytes(8, 1)), zmem("G.POK", Bytes(t.begin(), t.end()))});
+        f.win.handle_load_path(QString::fromStdString(zp));
+        check("ZIPG-14", "a bundled .pok that holds no trainer is not offered while the program still loads",
+              f.ok && h.n == 1 && !f.win.pok_session(), fmt("n=%d", h.n));
+    }
+    // ZIPG-15
+    {
+        Fixture f; Handed h; hook(f, h);
+        f.win.set_unattended(true);
+        const std::string zp = write_zip("esc.zip", {zmem("\x1b]0;PWNED\x07" "A.TAP", Bytes(8, 1)), zmem("\x1b[2J" "B.TAP", Bytes(8, 2))});
+        f.win.handle_load_path(QString::fromStdString(zp));
+        const QString st = f.win.statusBar()->currentMessage();
+        bool ctl = false;
+        for (QChar c : st) if (c.unicode() < 0x20 || c.unicode() == 0x7F) ctl = true;
+        check("ZIPG-15", "control bytes in member names never reach the status bar (escaped as \\xNN)",
+              f.ok && h.n == 0 && !st.isEmpty() && !ctl && st.contains("\\x1B"), q(st));
+    }
+
     std::filesystem::remove_all(g_root, ec);
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);

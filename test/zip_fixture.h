@@ -25,6 +25,9 @@ struct Member {
     int64_t     crc_override = -1;
     int64_t     csize_override = -1;  ///< central directory only
     int64_t     usize_override = -1;  ///< central directory only
+    int64_t     local_offset_override = -1;   ///< central directory only
+    int         disk_start = 0;               ///< central directory only
+    int         central_name_len_override = -1;
     bool        corrupt_local_sig = false;
     bool        use_raw = false;      ///< on-disk bytes are `raw`, not `data` compressed
     Bytes       raw;
@@ -35,9 +38,12 @@ struct Eocd {
     uint16_t    disk = 0;
     uint16_t    cd_disk = 0;
     int         total_override = -1;  ///< both entry counts
+    int         here_override = -1;   ///< this-disk entry count only
+    int         central_extra_entries = 0;  ///< entries the EOCD claims beyond the real ones (total only)
     int64_t     cd_size_override = -1;
     int64_t     cd_off_override = -1;
     bool        zip64_locator = false;
+    Bytes       central_tail;         ///< bytes appended inside the central directory (counted in its size)
 };
 
 inline void p16(Bytes& b, uint32_t v) { b.push_back(v & 0xFF); b.push_back((v >> 8) & 0xFF); }
@@ -87,20 +93,23 @@ inline Bytes build(const std::vector<Member>& members, const Eocd& e = {}) {
         p16(central, 20); p16(central, 20); p16(central, m.flags); p16(central, m.method);
         p16(central, 0); p16(central, 0x5A21);
         p32(central, use_crc); p32(central, csize); p32(central, usize);
-        p16(central, static_cast<uint32_t>(m.name.size()));
+        p16(central, m.central_name_len_override >= 0 ? static_cast<uint32_t>(m.central_name_len_override)
+                                                      : static_cast<uint32_t>(m.name.size()));
         p16(central, static_cast<uint32_t>(m.central_extra));
-        p16(central, 0); p16(central, 0); p16(central, 0); p32(central, 0);
-        p32(central, off);
+        p16(central, 0); p16(central, static_cast<uint32_t>(m.disk_start)); p16(central, 0); p32(central, 0);
+        p32(central, m.local_offset_override >= 0 ? static_cast<uint32_t>(m.local_offset_override) : off);
         central.insert(central.end(), m.name.begin(), m.name.end());
         central.insert(central.end(), m.central_extra, 0);
     }
+    central.insert(central.end(), e.central_tail.begin(), e.central_tail.end());
     const uint32_t cd_off = static_cast<uint32_t>(out.size());
     out.insert(out.end(), central.begin(), central.end());
     if (e.zip64_locator) { p32(out, 0x07064b50); out.insert(out.end(), 16, 0); }
     const uint32_t n = e.total_override >= 0 ? static_cast<uint32_t>(e.total_override)
-                                             : static_cast<uint32_t>(members.size());
+                                             : static_cast<uint32_t>(members.size() + e.central_extra_entries);
     p32(out, 0x06054b50);
-    p16(out, e.disk); p16(out, e.cd_disk); p16(out, n); p16(out, n);
+    const uint32_t nh = e.here_override >= 0 ? static_cast<uint32_t>(e.here_override) : n;
+    p16(out, e.disk); p16(out, e.cd_disk); p16(out, nh); p16(out, n);
     p32(out, e.cd_size_override >= 0 ? static_cast<uint32_t>(e.cd_size_override)
                                       : static_cast<uint32_t>(central.size()));
     p32(out, e.cd_off_override >= 0 ? static_cast<uint32_t>(e.cd_off_override) : cd_off);
