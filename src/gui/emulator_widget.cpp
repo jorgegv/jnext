@@ -4,6 +4,11 @@
 #include <QEvent>
 #include <QPainter>
 #include <QPointer>
+#include <QMetaObject>
+#ifdef JNEXT_HAVE_CRT_GL
+#include <QOpenGLContext>
+#include <QSurfaceFormat>
+#endif
 #include <chrono>
 #include <cstring>
 #include <algorithm>
@@ -142,6 +147,31 @@ void EmulatorWidget::set_crt_shader_style(crt_shader::Style style) {
     sync_crt_overlay();   // the style picks crtemu's shader set at creation: rebuild
 }
 
+namespace { int g_gl_probe_override = -1; int g_gl_probe_cache = -1; }
+
+void EmulatorWidget::set_gl_probe_override(int v) {
+    g_gl_probe_override = v;
+    g_gl_probe_cache = -1;
+}
+
+bool EmulatorWidget::gl_context_available() {
+#ifdef JNEXT_HAVE_CRT_GL
+    if (g_gl_probe_override >= 0) return g_gl_probe_override != 0;
+    if (g_gl_probe_cache < 0) {
+        QSurfaceFormat fmt;
+        fmt.setRenderableType(QSurfaceFormat::OpenGL);
+        fmt.setVersion(2, 1);
+        fmt.setProfile(QSurfaceFormat::NoProfile);
+        QOpenGLContext probe;
+        probe.setFormat(fmt);
+        g_gl_probe_cache = probe.create() ? 1 : 0;
+    }
+    return g_gl_probe_cache == 1;
+#else
+    return false;
+#endif
+}
+
 void EmulatorWidget::sync_crt_overlay() {
 #ifdef JNEXT_HAVE_CRT_GL
     // The overlay exists only for the shader's own looks (TV, PC monitor). The
@@ -151,6 +181,17 @@ void EmulatorWidget::sync_crt_overlay() {
     const crt_shader::Style style = crt_style_;
 
     if (crt_overlay_ && (!want || crt_overlay_->style() != style)) drop_crt_overlay();
+    if (want && !crt_overlay_ && !gl_context_available()) {
+        // Never add a QOpenGLWidget to the window without a GL context: it blanks the window
+        // for good, even after the widget is deleted. Same outcome as a failed overlay.
+        crt_shader_ = false;
+        const QString why = tr("no usable graphics context is available");
+        Log::platform()->warn("CRT shader unavailable, using the software display: {}",
+                              why.toStdString());
+        QMetaObject::invokeMethod(this, [this, why] { emit crt_shader_failed(why); },
+                                  Qt::QueuedConnection);
+        return;
+    }
     if (want && !crt_overlay_) {
         crt_overlay_ = new CrtGlOverlay(this, style);
         connect(crt_overlay_, &CrtGlOverlay::presented,

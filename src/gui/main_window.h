@@ -551,7 +551,8 @@ private:
     // CRT filter action
     QAction* crt_filter_action_ = nullptr;
     // The CRT effect is one choice: off, scanlines (above), or one of the OpenGL
-    // shader's two looks. The actions are kept in step by sync_crt_actions().
+    // shader's three looks. The actions are kept in step by sync_crt_actions().
+    QAction* crt_soft_action_ = nullptr;     ///< null when the build has no OpenGL shader
     QAction* crt_tv_action_ = nullptr;       ///< null when the build has no OpenGL shader
     QAction* crt_pc_action_ = nullptr;       ///< null when the build has no OpenGL shader
     void sync_crt_actions();

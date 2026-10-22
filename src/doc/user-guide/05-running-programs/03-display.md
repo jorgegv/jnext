@@ -8,24 +8,28 @@ black bars, keeping the correct shape. F11 again returns. (Esc will not: it is
 the Break key.)
 
 **CRT effect.** One choice, in **View** or **Settings > Preferences**: *off*, *Scanlines*,
-*TV* or *PC monitor*. Choosing one switches the others off, and unchecking it turns the
+*Soft scanlines*, *TV* or *PC monitor*. Choosing one switches the others off, and unchecking it turns the
 effect off.
 
 - *Scanlines* overlays soft scanlines, for a more period-accurate look.
+- *Soft scanlines* (**View > CRT Soft Scanlines**) draws the same idea on the GPU: softer, slightly blurred
+  lines than Scanlines. It needs a graphics card with OpenGL; on a computer without one
+  (software OpenGL) it costs much more processor time than Scanlines, which is why it is a separate choice.
 - *TV* draws the display through a GPU emulation of a cathode-ray tube: a curved
   screen (the whole picture stays inside the glass, with a thin black margin), bloom around
   bright areas, scanlines and a phosphor mask.
 - *PC monitor* is the same, flatter.
 
-The same frame in each mode, off and Scanlines above, TV and PC monitor below, on the NextZXOS
+The same frame in each mode, off, Scanlines and Soft scanlines above, TV and PC monitor below, on the NextZXOS
 welcome screen.
 
 ![NextZXOS welcome screen, no effect](../img/crt-boot-off.png) ![The same, Scanlines](../img/crt-boot-scanlines.png)
+![The same, Soft scanlines](../img/crt-boot-soft-scanlines.png)
 ![The same, TV](../img/crt-boot-tv.jpg) ![The same, PC monitor](../img/crt-boot-pc.jpg)
 
 It is off by default. Scanlines is a simple overlay drawn by jnext itself, on any computer and at
-no extra cost. While the effect is off nothing extra is created or drawn. If a TV or PC monitor look cannot run on this computer, jnext says so, switches it
-off and carries on with the normal display (a saved choice is tried again at the next start). The TV and PC monitor entries are absent from
+no extra cost. While the effect is off nothing extra is created or drawn. If a GPU look cannot run on this computer, jnext says so and carries on with the normal display
+(with the software Scanlines, if Soft scanlines was the choice; a saved choice is tried again at the next start). The Soft scanlines, TV and PC monitor entries are absent from
 builds made without GPU support.
 
 **Layers.** The Next composites several video layers — the classic ULA screen,

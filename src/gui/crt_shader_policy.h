@@ -19,7 +19,7 @@ namespace crt_shader {
 enum class Style : int {
     Tv   = 0,   ///< full effect: curvature, bloom, scanlines, shadow mask, noise
     Pc   = 1,   ///< flatter monitor: scanlines and mask, little curvature
-    Lite = 2,   ///< cheapest: scanlines only
+    Lite = 2,   ///< scanlines only: the "Soft scanlines" choice (GPU)
 };
 
 inline constexpr int STYLE_COUNT   = 3;

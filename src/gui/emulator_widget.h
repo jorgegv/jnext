@@ -61,6 +61,11 @@ public:
     bool crt_shader_active() const { return crt_overlay_ != nullptr; }
     void set_crt_shader_style(crt_shader::Style style);
     crt_shader::Style crt_shader_style() const { return crt_style_; }
+    /// Test hook: force the "can this machine make a GL context" probe (-1 = really probe,
+    /// 0 = no, 1 = yes). The probe runs once and is cached BEFORE any QOpenGLWidget joins the
+    /// window: with no GL, merely adding one turns the whole window black for good.
+    static void set_gl_probe_override(int v);
+    static bool gl_context_available();
     /// Does this binary carry the OpenGL shader at all?
     static constexpr bool crt_shader_built_in() {
 #ifdef JNEXT_HAVE_CRT_GL

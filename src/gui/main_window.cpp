@@ -335,12 +335,17 @@ MainWindow::MainWindow(QWidget* parent)
 
     // The shader could not run (no usable OpenGL): the widget has already
     // fallen back to the software display; make the menu say so, and tell the user.
+    // Soft scanlines were asked for scanlines: they continue as the software Scanlines.
     connect(emulator_widget_, &EmulatorWidget::crt_shader_failed, this,
             [this](const QString& why) {
+        const bool soft = emulator_widget_->crt_shader_style() == crt_shader::Style::Lite;
+        if (soft) set_crt_filter(true);
         sync_crt_actions();
         auto* box = new QMessageBox(QMessageBox::Warning, tr("CRT Effect"),
-            tr("The CRT effect cannot run on this computer: %1.\n\n"
-               "The display continues without it.").arg(why),
+            soft ? tr("The CRT effect cannot run on this computer: %1.\n\n"
+                      "The display continues with the software Scanlines.").arg(why)
+                 : tr("The CRT effect cannot run on this computer: %1.\n\n"
+                      "The display continues without it.").arg(why),
             QMessageBox::Ok, this);
         box->setAttribute(Qt::WA_DeleteOnClose);
         box->open();   // not exec(): the emulator must keep running behind it
@@ -727,6 +732,7 @@ void MainWindow::sync_crt_actions() {
     const bool shader = emulator_widget_->crt_shader();
     const auto style = emulator_widget_->crt_shader_style();
     if (crt_filter_action_) crt_filter_action_->setChecked(emulator_widget_->crt_filter());
+    if (crt_soft_action_) crt_soft_action_->setChecked(shader && style == crt_shader::Style::Lite);
     if (crt_tv_action_) crt_tv_action_->setChecked(shader && style == crt_shader::Style::Tv);
     if (crt_pc_action_) crt_pc_action_->setChecked(shader && style == crt_shader::Style::Pc);
 }
@@ -1274,9 +1280,9 @@ void MainWindow::create_menus() {
         set_crt_filter(checked);
     });
 
-    // The OpenGL shader's two looks, only in a build that has it. The entry above is
+    // The OpenGL shader's three looks, only in a build that has it. The entry above is
     // the Scanlines mode (the software overlay, with or without OpenGL), so
-    // View carries one choice: off, scanlines, TV or PC monitor. No mnemonics, like the
+    // View carries one choice: off, scanlines, soft scanlines, TV or PC monitor. No mnemonics, like the
     // Scale entries: the main window's Alt-letter space is full (see the header of
     // test/gui/main_window_accel_test.cpp) and MA-05 pins how many the menu tree has.
     if (EmulatorWidget::crt_shader_built_in()) {
@@ -1289,8 +1295,10 @@ void MainWindow::create_menus() {
             });
             return a;
         };
+        crt_soft_action_ = add_look(tr("CRT Soft Scanlines"), crt_shader::Style::Lite);
         crt_tv_action_ = add_look(tr("CRT TV"), crt_shader::Style::Tv);
         crt_pc_action_ = add_look(tr("CRT PC Monitor"), crt_shader::Style::Pc);
+        crt_soft_action_->setToolTip(tr("Soft scanlines only, drawn by the GPU"));
         crt_tv_action_->setToolTip(tr("Curved glass, bloom, scanlines and shadow mask, drawn by the GPU"));
     }
 
@@ -2580,16 +2588,16 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
 
     set_mouse_release_method(cfg.mouse_release);   // GH #365
     set_scale(cfg.window_scale);
-    // One effect: resolve the exclusivity before touching the widget. A shader saved
-    // in the scanlines-only (Lite) style is the Scanlines mode, the software overlay
-    // (a hand-edited file only: the menu and Preferences never write it).
-    const bool lite = cfg.crt_shader && cfg.crt_shader_style == crt_shader::Style::Lite;
+    // One effect: resolve the exclusivity before touching the widget. The shader
+    // (any style, Lite = Soft Scanlines) wins over the software Scanlines. In a build
+    // without it a saved Soft Scanlines choice is the nearest thing it has: Scanlines.
+    const bool soft = cfg.crt_shader && cfg.crt_shader_style == crt_shader::Style::Lite;
     emulator_widget_->set_crt_shader_style(cfg.crt_shader_style);
-    if (cfg.crt_shader && !lite) {
-        set_crt_shader(true);        // also clears the scanline mode
+    if (cfg.crt_shader && set_crt_shader(true)) {
+        // on; also cleared the scanline mode
     } else {
         set_crt_shader(false);
-        set_crt_filter(cfg.crt_filter || lite);
+        set_crt_filter(cfg.crt_filter || soft);
     }
 
     if (speed_callback_) speed_callback_(cfg.emulator_speed_percent / 100.0);
