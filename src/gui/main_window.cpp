@@ -1209,7 +1209,7 @@ void MainWindow::create_menus() {
     tape_fast_action_->setChecked(true);  // fast load is default
     connect(tape_fast_action_, &QAction::triggered, this, &MainWindow::on_tape_fast_load);
     // GH #395 — the deck's automatic play/stop (default on).
-    tape_auto_action_ = tape_menu->addAction(tr("&Auto Play/Stop"));
+    tape_auto_action_ = tape_menu->addAction(tr("Auto Play/Stop"));
     tape_auto_action_->setCheckable(true);
     tape_auto_action_->setChecked(true);
     connect(tape_auto_action_, &QAction::triggered, this, &MainWindow::on_tape_auto_play);

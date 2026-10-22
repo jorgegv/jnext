@@ -973,8 +973,13 @@ int main() {
             // Through the real binary: the start-up line reports the setting the
             // run got, so the negation, the default and "last one wins" are each
             // observable. Table-vs-man-page parity is the CLI-TBL / DOC rows' job.
+            // The SD image is checked before the setting is reported, so the run
+            // is given one (the harness's clone, JNEXT_TEST_SD_IMAGE; a dev
+            // host's own otherwise).
+            std::string sd_arg;
+            if (const char* sd = std::getenv("JNEXT_TEST_SD_IMAGE")) sd_arg = std::string(" --sdcard \"") + sd + "\"";
             auto auto_play_line = [&](const std::string& flags) {
-                run_split("--headless " + flags + " --delayed-automatic-exit-frames 1");
+                run_split("--headless --machine 48k" + sd_arg + " " + flags + " --delayed-automatic-exit-frames 1");
                 const std::string all = slurp(out_path) + slurp(err_path);
                 if (all.find("Tape automatic play/stop: off") != std::string::npos) return std::string("off");
                 if (all.find("Tape automatic play/stop: on") != std::string::npos) return std::string("on");
