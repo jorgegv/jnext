@@ -604,8 +604,11 @@ int main(int argc, char** argv) {
             const std::string path = write_file("t103.tzx",
                 concat({kHeader, b10p(dataA, 0), Bytes{0x20, 0, 0}, b10p(dataB, 1000)}));
             auto [on, ok1] = mk(path, false, true, MachineType::ZX48K, delay_then_poll(13));
+            log_out.str("");
             int f = 0;
             for (; f < 300 && !on->tzx_tape().is_held(); ++f) on->run_frame();
+            // The known answer the 128K rows of TZXC-104 measure their "no hold" against.
+            const bool hold_logged = log_out.str().find("TZX: deck held before offset") != std::string::npos;
             const bool held = on->tzx_tape().is_held() && !on->tzx_tape().is_playing();
             for (int i = 0; i < 100; ++i) on->run_frame();
             const bool still = on->tzx_tape().is_held();
@@ -614,7 +617,7 @@ int main(int argc, char** argv) {
             auto [off, ok2] = mk(path, false, false, MachineType::ZX48K, delay_then_poll(13));
             for (int i = 0; i < 520; ++i) off->run_frame();
             check("TZXC-103", "a stop block (0x20, pause 0): the deck stops there; auto play resumes it when the program polls, off leaves it stopped",
-                  ok1 && ok2 && held && still && resumed && !off->tzx_tape().is_playing() && !off->tzx_tape().is_held(),
+                  ok1 && ok2 && held && hold_logged && still && resumed && !off->tzx_tape().is_playing() && !off->tzx_tape().is_held(),
                   "f=" + std::to_string(f) + " held=" + std::to_string(held) + " still=" + std::to_string(still) +
                   " resumed=" + std::to_string(resumed));
         }

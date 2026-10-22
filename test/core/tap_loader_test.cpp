@@ -487,6 +487,30 @@ int main() {
                   ok && !emu->debug_state().paused(),
                   "paused=" + std::to_string(emu->debug_state().paused()));
         }
+        {   // TAPC-27
+            // With a fast tape attached and the load served by the trap, the identity
+            // check runs: it must not trip a READ watchpoint inside its signature
+            // (0x05E0 is never executed by this run, so only the check reads it).
+            Case c = mk(Case{}, "t27.tap", good);
+            auto emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0;
+            cfg.sd_card_image = sd_image(); cfg.sd_card_readonly = true;
+            const bool ok = emu->init(cfg) && emu->load_tap(c.path, true);
+            Bytes code = caller(c);
+            const uint16_t jr = uint16_t(0x8000 + code.size());
+            code.push_back(0x18); code.push_back(0xFE);
+            for (size_t i2 = 0; i2 < code.size(); ++i2) emu->mmu().write(uint16_t(0x8000 + i2), code[i2]);
+            emu->debug_state().set_clients_attached(true);
+            emu->debug_state().set_live_raster(true);
+            emu->debug_state().breakpoints().add_watchpoint(0x05E0, WatchType::READ);
+            auto r = emu->cpu().get_registers();
+            r.PC = 0x8000; r.SP = 0x9000; r.IFF1 = r.IFF2 = 0;
+            emu->cpu().set_registers(r);
+            for (int f = 0; f < 10 && emu->cpu().pc() != jr; ++f) emu->run_frame();
+            check("TAPC-27", "a trap-served LD-BREAK pass trips no read watchpoint on the identity bytes (peek, not read)",
+                  ok && emu->tape().current_block() == 1 && emu->cpu().pc() == jr && !emu->debug_state().paused(),
+                  "blk=" + std::to_string(emu->tape().current_block()) + " paused=" + std::to_string(emu->debug_state().paused()));
+        }
     }
 
     // ---- Automatic tape play/stop (GH #395) ------------------------------

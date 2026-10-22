@@ -562,9 +562,9 @@ public:
 
     /// Automatic tape play/stop (GH #395; default on). While on, a real-time
     /// deck stops in a silent gap between blocks when the CPU is not polling
-    /// the tape port and resumes when it does; in fast mode a tape whose
-    /// loader never enters the ROM routine plays in real time once the CPU
-    /// polls the port. Off: the deck runs straight through, as before.
+    /// the tape port and resumes when it does. It does nothing in fast mode: a
+    /// polling program never starts a tape that is not playing. Off: the deck
+    /// runs straight through, as before.
     void set_tape_auto_play(bool on);
     bool tape_auto_play() const { return tape_auto_play_; }
     const TapePollDetector& tape_poll() const { return tape_poll_; }
@@ -2429,7 +2429,8 @@ private:
     // snapshots by design).
     bool             tape_auto_play_ = true;
     TapePollDetector tape_poll_;
-    /// One CPU read of the ULA port: count it, and start or resume a deck.
+    /// One CPU read of the ULA port: count it, and resume a deck that auto play
+    /// itself held (never start one that is not playing).
     void tape_auto_on_read_();
     /// The hold policy a deck is given before it is ticked at `now`.
     bool tape_gap_hold_(uint64_t now) const;
