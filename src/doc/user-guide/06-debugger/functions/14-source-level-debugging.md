@@ -44,7 +44,8 @@ Symbols or a source map you loaded by hand (below), or a MAP
 given with `--map`, are kept instead: they are your choice, not the program's.
 
 **By hand.** The **Source** tab has **Load SLD...** and **Load Memory.txt...**
-buttons. The symbols replace whatever was loaded before, as the
+buttons, also in **Debug ▸ Source ▸ Load Source Map…** and **Load Symbols
+(Memory.txt)…**. The symbols replace whatever was loaded before, as the
 **Map ▸ Load MAP File** formats do.
 
 **Binary identity.** An SLD may record the SHA-256 of the program's bytes as it
@@ -89,8 +90,10 @@ See [Source](../panels/15-source.md). Its buttons step by statement:
 - **Reverse** — rewind to the most recent source statement with an Execute
   breakpoint on it.
 
-These buttons are the only way to source-step: there is no menu entry or
-keyboard shortcut for them.
+The same five are in **Debug ▸ Source**. Into, Over and Out are on **Ctrl+F6**,
+**Ctrl+F7** and **Ctrl+F8** (like F6, F7 and F8 for instructions); Back and
+Reverse ship unbound. All of them can be rebound ([Changing the keys]), and they
+work in the debugger window only.
 
 While a step runs, breakpoints, watchpoints, the magic breakpoint and debugger
 script rules act exactly as they do when the program runs: a breakpoint stops

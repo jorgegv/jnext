@@ -29,6 +29,11 @@ const ActionInfo kActions[ACTION_COUNT] = {
     { Action::RunToEosl,   "run_to_eosl",   "Run to End of Scan Line", unbound()                  },
     { Action::TraceToggle, "trace_toggle",  "Enable / Disable Trace",  bare(Key::F2)              },
     { Action::TraceExport, "trace_export",  "Export Trace...",         bare(Key::F3)              },
+    { Action::SourceStepInto,        "source_step_into",        "Source Step Into",         with(MOD_CTRL, Key::F6) },
+    { Action::SourceStepOver,        "source_step_over",        "Source Step Over",         with(MOD_CTRL, Key::F7) },
+    { Action::SourceStepOut,         "source_step_out",         "Source Step Out",          with(MOD_CTRL, Key::F8) },
+    { Action::SourceStepBack,        "source_step_back",        "Source Step Back",         unbound()               },
+    { Action::SourceReverseContinue, "source_reverse_continue", "Source Reverse Continue",  unbound()               },
 };
 
 struct KeyName { Key key; const char* name; };

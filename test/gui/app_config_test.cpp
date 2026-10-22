@@ -571,9 +571,11 @@ static void test_debug_keys_defaults(QTemporaryDir& dir) {
     // user binding, so the list is pinned rather than merely used.
     std::string ids;
     for (int i = 0; i < ACTION_COUNT; ++i) ids += std::string(action_table()[i].id) + " ";
-    check("DK-03", "the action ids are exactly the twelve published names",
+    check("DK-03", "the action ids are exactly the seventeen published names",
           ids == "run pause step_into step_over step_out step_back frame_back "
-                 "run_to_cursor run_to_eof run_to_eosl trace_toggle trace_export ",
+                 "run_to_cursor run_to_eof run_to_eosl trace_toggle trace_export "
+                 "source_step_into source_step_over source_step_out source_step_back "
+                 "source_reverse_continue ",
           ids);
 }
 

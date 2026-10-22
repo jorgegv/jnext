@@ -15,9 +15,9 @@ namespace jnext { namespace dbg { class Debugger; } }
 /// (doc/design/SOURCE-LEVEL-DEBUGGING.md), and the source-step buttons.
 ///
 /// The buttons only REQUEST; DebuggerManager runs the verbs, exactly as the
-/// Debug menu's actions do. They live on the tab, not in the menu bar, and
-/// carry no mnemonic and no shortcut: the debugger's menu tree and its key
-/// bindings are pinned by the accelerator and keymap suites.
+/// Debug menu's actions do. The buttons carry no mnemonic and no shortcut;
+/// the same verbs are Debug > Source actions on the same manager slots, keyed
+/// from the keymap and enabled through steps_available().
 class SourcePanel : public QWidget {
     Q_OBJECT
 public:
@@ -42,6 +42,8 @@ public:
     int highlighted_line() const { return highlighted_line_; }
 
 signals:
+    /// Emitted by update_buttons() with the two enabled states it applied.
+    void steps_available(bool forward, bool backward);
     void step_into_requested();
     void step_over_requested();
     void step_out_requested();

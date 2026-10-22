@@ -240,6 +240,12 @@ private:
     QAction* step_over_action_ = nullptr;
     QAction* step_out_action_ = nullptr;
     QAction* step_back_action_ = nullptr;
+    // GH #337 Debug > Source; enabled by SourcePanel::steps_available().
+    QAction* source_into_action_ = nullptr;
+    QAction* source_over_action_ = nullptr;
+    QAction* source_out_action_ = nullptr;
+    QAction* source_back_action_ = nullptr;
+    QAction* source_reverse_action_ = nullptr;
     QAction* frame_back_action_ = nullptr;
     QAction* run_to_eof_action_ = nullptr;
     QAction* run_to_eosl_action_ = nullptr;

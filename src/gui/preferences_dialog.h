@@ -27,7 +27,7 @@ class ShortcutCaptureButton;
 /// and its hostname allowlist), and **Paths** (last load directory, default
 /// SD card image, screenshot directory, and the GH #19 quick-screenshot
 /// directory and format), and — only in a build with the debugger compiled in
-/// — **Debugger Keys** (GH #1: the twelve rebindable debugger commands).
+/// — **Debugger Keys** (GH #1: the rebindable debugger commands).
 ///
 /// A build WITHOUT the debugger has no Debugger Keys tab but still carries the
 /// saved keymap through collect() untouched. That is not tidiness: collect()

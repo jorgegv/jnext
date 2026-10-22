@@ -380,6 +380,11 @@ void DebuggerWindow::apply_keymap() {
     bind(run_to_eosl_action_,   Action::RunToEosl);
     bind(trace_enable_action_,  Action::TraceToggle);
     bind(trace_export_action_,  Action::TraceExport);
+    bind(source_into_action_,    Action::SourceStepInto);
+    bind(source_over_action_,    Action::SourceStepOver);
+    bind(source_out_action_,     Action::SourceStepOut);
+    bind(source_back_action_,    Action::SourceStepBack);
+    bind(source_reverse_action_, Action::SourceReverseContinue);
 
     // The captions. "F5: Continue" is "<key>: <name>" with the key dropped
     // when the action is unbound — so the default keymap reproduces exactly
@@ -557,6 +562,40 @@ void DebuggerWindow::create_menus() {
         if (disasm_panel_) disasm_panel_->run_to_selected();
     });
     addAction(run_to_cursor_action_);
+
+    debug_menu->addSeparator();
+
+    // GH #337 - Source submenu. Mnemonic E: S/o/u/r/c of "Source" are all taken
+    // in this popup (Single Step, Step Over, Step Out, Rewind, Continue). In the
+    // Source popup I/O/U/B/R/M/S are distinct. Each item requests the SAME
+    // DebuggerManager slot as its Source-tab button; the enabled state comes
+    // from SourcePanel::update_buttons() through steps_available().
+    QMenu* source_menu = debug_menu->addMenu(tr("Sourc&e"));
+    auto source_item = [this, source_menu](const QString& text, auto slot) {
+        QAction* a = source_menu->addAction(text);
+        connect(a, &QAction::triggered, debugger_mgr_, slot);
+        return a;
+    };
+    source_into_action_ = source_item(tr("Step &Into"), &DebuggerManager::on_source_step_into);
+    source_over_action_ = source_item(tr("Step &Over"), &DebuggerManager::on_source_step_over);
+    source_out_action_  = source_item(tr("Step O&ut"),  &DebuggerManager::on_source_step_out);
+    source_back_action_ = source_item(tr("Step &Back"), &DebuggerManager::on_source_step_back);
+    source_reverse_action_ = source_item(tr("&Reverse Continue"),
+                                         &DebuggerManager::on_source_reverse_continue);
+    source_menu->addSeparator();
+    source_item(tr("Load Source &Map..."), &DebuggerManager::on_load_sld);
+    source_item(tr("Load &Symbols (Memory.txt)..."), &DebuggerManager::on_load_nextbuild_memory);
+    if (source_panel_) {
+        connect(source_panel_, &SourcePanel::steps_available, this,
+                [this](bool forward, bool backward) {
+            source_into_action_->setEnabled(forward);
+            source_over_action_->setEnabled(forward);
+            source_out_action_->setEnabled(forward);
+            source_back_action_->setEnabled(backward);
+            source_reverse_action_->setEnabled(backward);
+        });
+        source_panel_->update_buttons(dbg_.state().paused);
+    }
 
     debug_menu->addSeparator();
 
@@ -789,7 +828,7 @@ void DebuggerWindow::update_actions(bool is_paused) {
     const bool can_step_back = can_rewind && dbg->trace_enabled();
     if (step_back_action_) step_back_action_->setEnabled(can_step_back);
     if (rewind_jump_btn_)  rewind_jump_btn_->setEnabled(can_rewind);
-    // Only the Source tab's buttons: its text is refreshed once per pause, by
+    // The Source tab's buttons and the Debug > Source actions: its text is refreshed once per pause, by
     // refresh_panels(), which also runs this.
     if (source_panel_)     source_panel_->update_buttons(is_paused);
 }
