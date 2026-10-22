@@ -26,6 +26,7 @@
 - Failed SD-card and NextPi downloads name the address that failed, say why in plain words and what was kept
 - Keys typed during a Quick Save/Load or in a fast burst are no longer dropped or saved out of order
 - Layer 2 games no longer tear the top line when they change bank or scroll during vblank
+- Tape fast load serves loaders that enter the ROM loader past LD-BYTES (Starglider 128K TAP loads); checksum and VERIFY errors are reported
 
 ### Contributors in this release
 - @pavero01, @janko-jj, @jattree, @jsmolina, @Nitrowing, @shadowphiar

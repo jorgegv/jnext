@@ -107,14 +107,30 @@ as it goes, and the loader chatters through the speaker. jnext can reproduce
 all of that, or it can skip it entirely and have the program in memory almost
 instantly. Those are two independent code paths that share nothing.
 
-**Fast load is a ROM trap.** When ROM is paged into slot 0 and PC reaches the
-48K ROM's `LD-BYTES` entry at `0x0556`, the run loop hands the next block
-straight to memory and skips the routine altogether — no tape signal is ever
-generated. `.tap` and `.tzx` both support this. `.wav` cannot, because a WAV is
-just audio samples with no block structure to extract. The gate is a PC match,
-which has one consequence worth knowing: a custom or turbo loader that never
-enters the ROM routine is never intercepted, and real time is then the only way
-it will load.
+**Fast load is a ROM trap.** The trap sits at `LD-BREAK`, `0x056B`, the `RET NZ`
+of the 48K ROM's `LD-BYTES` routine, not at the routine's entry `0x0556`: every
+entry converges there, including the `0x0562` one a custom block loader uses after
+doing the routine's prologue itself (FUSE traps the same spot). It fires only
+with ROM paged into slot 0, the Z flag set (the ROM's `RET NZ` is then not about
+to return) and a **ROM identity check** on the bytes at `0x056B` and `0x05DF`
+(`tape_trap::ld_bytes_rom_present`, like the save trap's). It then hands the next
+block to memory without generating any tape signal. `.tap` and `.tzx` both
+support this; `.wav` cannot, because a WAV is just audio samples with no block
+structure to extract.
+
+Both loaders call one helper, `tape_trap::rom_ld_bytes` (`src/core/tape_trap.*`),
+which does what the ROM does from `LD-START` to its return: the flag comes from
+A' and LOAD/VERIFY from the carry of F' (the entry's `EX AF,AF'` has run); a flag
+mismatch consumes the block and returns carry clear; LOAD stores bytes, VERIFY
+compares them; the carry reports the parity of flag, bytes and the byte after the
+last one (the checksum), and a DE longer than the block times out as the ROM does.
+The CPU is left at the routine's own `RET` (`0x05E2`), so the ROM pops whatever the
+caller pushed: `SA/LD-RET` for a `0x0556` entry (border restored, `EI`), the
+caller's return address for a `0x0562` one. The registers it leaves are those of
+the ROM run against jnext's own real-time player, except the ROM's edge-tracking
+byte C, whose value after the sync depends on the pilot phase the ROM caught and
+which the trap pins to `0x21`. A custom or turbo loader that never enters the ROM
+routine is never intercepted, and real time is then the only way it will load.
 
 Saving works the same way in reverse. `--tape-save` (or Tape ▸ Start Saving,
 both through `Emulator::start_tape_save()`) arms one of two savers by the
