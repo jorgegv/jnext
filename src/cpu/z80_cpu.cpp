@@ -64,6 +64,9 @@ static IoInterface*     s_io  = nullptr;
 static uint16_t s_fetch_base = 0;
 static uint8_t  s_fetch_n    = 0;
 static uint8_t  s_fetch_buf[68];
+// The 28 MHz read wait of each M1 in s_fetch_buf, decided when that byte was
+// read (see record_m1_wait28()); valid for [0, s_fetch_n).
+static uint8_t  s_fetch_wait[68];
 
 // There is no per-instruction contention callback, and that is deliberate:
 // the contention path runs entirely through ContentionModel::contention_tick()
@@ -296,6 +299,17 @@ inline void sram_wait28_read_tick(libspectrum_word address, bool fetch = false) 
     }
 }
 
+/// The wait of the M1 just read into s_fetch_buf[idx] at `address`, decided NOW:
+/// E23-07 reads every M1 byte of a prefix chain up front, each under the
+/// DivMMC/Multiface state its own automap decode left, but FUSE charges the
+/// cycles later (contend_read(PC,4)), when the live overlay is the chain's LAST
+/// M1's. The wait of an M1 is the overlay's of its own read (divmmc.vhd:124-148,
+/// zxnext.vhd:3084-3099), so it is recorded here and contend_read consumes it.
+inline void record_m1_wait28(uint8_t idx, libspectrum_word address) {
+    s_fetch_wait[idx] = (s_contention && s_contention->cpu_speed() == 3 && s_contention_mmu)
+        ? s_contention_mmu->sram_read_wait28(address, true) : 0;
+}
+
 } // anonymous namespace
 
 extern "C" {
@@ -511,7 +525,17 @@ extern "C" void contend_read(libspectrum_word address, libspectrum_dword time) {
     // this: sram_memcycle requires cpu_mreq_n='0' (zxnext.vhd:3144).
     // contend_read(PC, 4) is the M1 opcode fetch (GH #339: the DivMMC view of
     // an M1); contend_read(PC, 3) is an operand read.
-    sram_wait28_read_tick(address, time == 4);
+    if (time == 4) {
+        const uint16_t off = static_cast<uint16_t>(address - s_fetch_base);
+        if (off < s_fetch_n) {
+            if (s_contention && s_contention->cpu_speed() == 3 && s_contention_mmu)
+                tstates += s_fetch_wait[off];
+        } else {
+            sram_wait28_read_tick(address, true);
+        }
+    } else {
+        sram_wait28_read_tick(address, false);
+    }
     tstates += time;
 }
 
@@ -704,6 +728,7 @@ void Z80Cpu::fetch_prefix_chain_(uint16_t pc, uint8_t opcode) {
     auto m1 = [this](uint16_t a) -> uint8_t {
         if (on_m1_prefetch) on_m1_prefetch(a);
         const uint8_t v = mem_.read_fetch(a);
+        record_m1_wait28(s_fetch_n, a);
         s_fetch_buf[s_fetch_n++] = v;
         return v;
     };
@@ -998,6 +1023,7 @@ int Z80Cpu::execute() {
     slot_kind_ = SlotKind::Opcode;   // past every early return; the CPU read PC itself
     s_fetch_base = pc;
     s_fetch_buf[0] = opcode;
+    record_m1_wait28(0, pc);
     s_fetch_n = 1;
     // The inner bytes of a prefix chain are M1s too: each runs the automap
     // decode at its own address, then is read under what that leaves.

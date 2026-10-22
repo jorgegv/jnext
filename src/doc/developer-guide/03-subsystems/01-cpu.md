@@ -154,6 +154,13 @@ slot). An engaged Layer 2 mapping decides alone: it waits on an active page and
 does not on an inactive one, whatever the slot holds. A boot-ROM read waits as
 the access beneath it would.
 
+The DivMMC term follows the view of the cycle that asks: the M1 view for an
+opcode fetch, the after-fetch (`hold`) view for every other read, DMA included.
+`Z80Cpu` decides each M1's wait when it reads that byte, under the overlay that
+M1's own automap decode left, and `contend_read(PC, 4)` charges that recorded
+value, so the first M1 of a prefix chain is not charged for the state the chain's
+last M1 leaves behind.
+
 ## M1 hooks and interrupts
 
 Two callbacks bracket the opcode fetch, and the order matters. `on_m1_prefetch`
