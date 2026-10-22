@@ -10004,17 +10004,22 @@ void Emulator::run_frame()
             !rzx_player_.is_playing()) {
             uint16_t pc = cpu_.pc();
 
-            // Fast-load: intercept LD-BYTES when tape is loaded and in fast mode.
-            if (tape_.is_loaded() && tape_.fast_load() && !tape_.at_end() &&
-                pc == TapLoader::LD_BYTES_ADDR) {
+            // Fast-load: intercept LD-BYTES at LD-BREAK (0x056B), where every
+            // entry of the routine converges, when the tape is loaded and in
+            // fast mode. Z set: the ROM's `RET NZ` is not about to return (the
+            // BREAK exit). ROM identity: other ROMs run code at 0x056B too.
+            const bool ld_break = pc == tape_trap::LD_BREAK_ADDR &&
+                                  (cpu_.get_registers().AF & 0x40) &&
+                                  tape_trap::ld_bytes_rom_present(mmu_);
+            if (ld_break && tape_.is_loaded() && tape_.fast_load() && !tape_.at_end()) {
                 tape_.handle_ld_bytes_trap(*this);
                 skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
             }
 
             // TZX fast-load: same ROM trap, different loader.
-            if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end() &&
-                pc == TzxLoader::LD_BYTES_ADDR) {
+            if (ld_break && tzx_tape_.is_loaded() && tzx_tape_.fast_load() &&
+                !tzx_tape_.at_end()) {
                 tzx_tape_.handle_ld_bytes_trap(*this);
                 skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;

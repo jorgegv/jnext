@@ -70,10 +70,8 @@ public:
     bool fast_load() const { return fast_load_; }
     void set_fast_load(bool enabled) { fast_load_ = enabled; }
 
-    /// ROM trap address (same as TAP: LD-BYTES at 0x0556).
-    static constexpr uint16_t LD_BYTES_ADDR = 0x0556;
 
-    /// Handle LD-BYTES ROM trap for fast-load.
+    /// Handle the LD-BREAK (0x056B) ROM trap for fast-load (tape_trap.h).
     /// Extracts the next standard-speed data block from the TZX,
     /// feeds it into memory, and returns true.
     /// Returns false if no suitable block is available.

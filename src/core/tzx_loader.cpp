@@ -1,6 +1,7 @@
 #include "core/tzx_loader.h"
 #include "core/emulator.h"
 #include "core/log.h"
+#include "core/tape_trap.h"
 
 extern "C" {
 #include "tzx.h"
@@ -593,70 +594,20 @@ const uint8_t* TzxLoader::next_data_block(int& out_len) {
 }
 
 bool TzxLoader::handle_ld_bytes_trap(Emulator& emu) {
+    // The CPU stands at LD-BREAK (0x056B): the expected flag is in A',
+    // LOAD/VERIFY in the carry of F'. The ROM's transfer, checksum and exit
+    // are tape_trap::rom_ld_bytes (shared with the TAP loader).
     auto regs = emu.cpu().get_registers();
-
-    uint8_t expected_flag = static_cast<uint8_t>(regs.AF >> 8);
-    bool is_load = (regs.AF & 0x01) != 0;
-    uint16_t dest = regs.IX;
-    uint16_t length = regs.DE;
-
     Log::emulator()->debug("TZX trap: flag={:#04x} {} IX={:#06x} DE={:#06x}",
-                            expected_flag, is_load ? "LOAD" : "VERIFY", dest, length);
+                            regs.AF2 >> 8, (regs.AF2 & 1) ? "LOAD" : "VERIFY", regs.IX, regs.DE);
 
-    // Get next data block.
     int block_len = 0;
     const uint8_t* block_data = next_data_block(block_len);
     if (!block_data || block_len < 1) {
         Log::emulator()->warn("TZX: no more data blocks on tape");
-        regs.AF &= ~0x0001;  // clear carry (error)
-        uint16_t ret_lo = emu.mmu().read(regs.SP);
-        uint16_t ret_hi = emu.mmu().read(regs.SP + 1);
-        regs.SP += 2;
-        regs.PC = static_cast<uint16_t>(ret_lo | (ret_hi << 8));
-        emu.cpu().set_registers(regs);
+        tape_trap::rom_ld_bytes(emu, nullptr, 0);
         return false;
     }
-
-    // block_data[0] is the flag byte.
-    uint8_t block_flag = block_data[0];
-    if (block_flag != expected_flag) {
-        Log::emulator()->debug("TZX: flag mismatch (expected {:#04x}, got {:#04x})",
-                                expected_flag, block_flag);
-        regs.AF &= ~0x0001;
-        uint16_t ret_lo = emu.mmu().read(regs.SP);
-        uint16_t ret_hi = emu.mmu().read(regs.SP + 1);
-        regs.SP += 2;
-        regs.PC = static_cast<uint16_t>(ret_lo | (ret_hi << 8));
-        emu.cpu().set_registers(regs);
-        return true;
-    }
-
-    if (is_load) {
-        // Payload is block_data[1..block_len-2], checksum is block_data[block_len-1].
-        int payload_len = block_len - 2;  // exclude flag and checksum
-        if (payload_len < 0) payload_len = 0;
-        size_t copy_len = std::min(static_cast<size_t>(length),
-                                    static_cast<size_t>(payload_len));
-        for (size_t i = 0; i < copy_len; ++i) {
-            emu.mmu().write(static_cast<uint16_t>(dest + i), block_data[1 + i]);
-        }
-        Log::emulator()->debug("TZX: loaded {} bytes to {:#06x}", copy_len, dest);
-        regs.IX = static_cast<uint16_t>(dest + copy_len);
-        regs.DE = 0;
-    } else {
-        Log::emulator()->debug("TZX: verify mode - auto-passing");
-        regs.IX = static_cast<uint16_t>(dest + length);
-        regs.DE = 0;
-    }
-
-    regs.AF |= 0x0001;  // set carry (success)
-
-    // Simulate RET: pop return address.
-    uint16_t ret_lo = emu.mmu().read(regs.SP);
-    uint16_t ret_hi = emu.mmu().read(regs.SP + 1);
-    regs.SP += 2;
-    regs.PC = static_cast<uint16_t>(ret_lo | (ret_hi << 8));
-
-    emu.cpu().set_registers(regs);
+    tape_trap::rom_ld_bytes(emu, block_data, static_cast<size_t>(block_len));
     return true;
 }

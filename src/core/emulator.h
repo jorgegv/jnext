@@ -62,6 +62,7 @@ namespace jnext { namespace zip { class Reader; } namespace jns { struct Manifes
 #include "core/tap_loader.h"
 #include "core/tap_saver.h"
 #include "core/tape_recorder.h"
+#include "core/tape_trap.h"
 #include "core/tzx_loader.h"
 #include "core/sna_loader.h"
 #include "core/szx_loader.h"

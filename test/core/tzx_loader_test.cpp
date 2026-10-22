@@ -421,7 +421,7 @@ int main(int argc, char** argv) {
         if (!emu->init(cfg) || !t.load(path)) return false;
         auto trap = [&](uint16_t af, uint16_t ix, uint16_t de) {
             Z80Registers r = emu->cpu().get_registers();
-            r.AF = af; r.IX = ix; r.DE = de; r.SP = 0x9000;
+            r.AF2 = af; r.IX = ix; r.DE = de; r.SP = 0x9000;   // LD-BREAK: flag/mode in AF'
             emu->mmu().write(0x9000, 0x34);
             emu->mmu().write(0x9001, 0x12);
             emu->cpu().set_registers(r);
