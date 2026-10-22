@@ -40,8 +40,11 @@ nothing at the sides, which is how it was noticed.
   libraries, loaded at start-up; see Build). The display path is the one that
   existed before the feature, plus one null-pointer test in `update_frame()` and one
   in `paintEvent()`.
-* **On never leaves a dead picture.** If the machine cannot provide OpenGL (no
-  context, GLSL 1.20 refused), the widget drops the overlay, returns to the software
+* **On never leaves a dead picture.** Before any `QOpenGLWidget` joins the window, one cached
+  probe tries to create a GL context (`EmulatorWidget::gl_context_available()`; a test hook can force
+  its answer): with none, the overlay is never created, because adding a GL widget to a window
+  that has no GL blanks it for good, even after the widget is deleted. If the machine cannot
+  provide OpenGL (no context, GLSL 1.20 refused), the widget drops the overlay, returns to the software
   display, switches the setting off, and tells the user why once. Scanlines never
   involves OpenGL, so it cannot fail this way. **Soft scanlines continue as the software
   Scanlines**: the user asked for scanlines, so the least surprising fallback is the scanlines
