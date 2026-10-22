@@ -53,17 +53,24 @@ public:
     // the VHDL zxnext.vhd:4611-4618 defaults (MMU0/MMU1 = 0xFF ROM sentinel).
     uint8_t get_page(int slot) const { return nr_mmu_[slot]; }
 
-    // GH #92 — 28 MHz SRAM read wait qualifier (see sram_read_wait28_[]
+    // GH #92 / #391 - 28 MHz SRAM read wait qualifier (see sram_read_wait28_[]
     // member comment for the VHDL derivation, zxnext.vhd:3171-3181).
     // Returns 1 when a CPU memory READ machine cycle at `addr` would incur
-    // the one-cycle sram_wait_n stretch at cpu_speed="11", else 0. The
-    // boot-ROM overlay is resolved here (mirrors the read() gate at the
-    // top of the cascade): bootrom reads are served from BRAM
-    // (cpu_di <= bootrom_do, zxnext.vhd:1857) and never assert sram_req.
-    // Callers gate on cpu_speed==3 BEFORE calling — this is 28 MHz-only.
+    // the one-cycle sram_wait_n stretch at cpu_speed="11", else 0. Resolved
+    // in the arbiter's own order (overlays first, slot last, :3029-3131):
+    // Multiface and DivMMC always request SRAM; Layer 2 read mapping requests
+    // it only on an active page (:3100-3107, :2969-2971); otherwise the slot
+    // flag decides. The boot ROM is NOT an arbiter input (bootrom_en only
+    // switches cpu_di, :1856), so a boot-ROM read waits as the access
+    // beneath it would. Callers gate on cpu_speed==3 BEFORE calling.
     inline uint8_t sram_read_wait28(uint16_t addr) const {
-        if (boot_rom_en_ && addr < 0x4000 && boot_rom_) return 0;
-        return sram_read_wait28_[addr >> 13];
+        if (addr < 0x4000) {
+            if (multiface_ && mf_overlay_active_()) return 1;   // :3030-3036
+            if (divmmc_ && divmmc_is_active_())    return 1;    // :3084-3099
+        }
+        if (l2_read_enable_ && l2_overlay_active_for(addr))     // :3077, :3065
+            return l2_mapped_page_active_(addr) ? 1 : 0;        // :3100-3107
+        return sram_read_wait28_[addr >> 13];                   // :3124-3131
     }
     // Returns the effective physical page backing `slot` — combines the NR
     // 0x50–0x57 explicit override (nr_mmu_[slot] when != 0xFF) with the
@@ -341,7 +348,8 @@ public:
             const uint8_t bank   = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
             const uint8_t off_pre = l2_offset_pre_for(addr);
             const uint8_t bofs   = static_cast<uint8_t>(off_pre + l2_offset_);
-            // VHDL zxnext.vhd:2971 + :3101-3102 — the L2 mmu_A21_A13(8) gate
+            // VHDL zxnext.vhd:2971 + :3101-3102 (test shared with
+            // l2_mapped_page_active_(), which the 28 MHz wait uses) — the L2 mmu_A21_A13(8) gate
             // fires when layer2_active_page(7:5) = "111" (i.e. sum[6:4]=111
             // when sum = bank + bofs). The arbiter sets sram_active = NOT
             // layer2_A21_A13(8), so when the gate fires the SRAM is INACTIVE
@@ -353,8 +361,7 @@ public:
             // returning floating-bus / dropping. Real software never sets
             // L2 banks high enough to reach this corner, but the gate is
             // VHDL-faithful so we honour it.
-            const uint8_t sum = static_cast<uint8_t>(bank + bofs);
-            if ((sum & 0x70) == 0x70) {
+            if (!l2_mapped_page_active_(addr)) {
                 // L2 inactive — read returns floating bus (0xFF). Mirror the
                 // floating-bus latch pattern below: contended-cycle latch is
                 // not updated for inactive L2 (VHDL :4498-4509 keys on
@@ -1616,6 +1623,15 @@ private:
             return static_cast<uint8_t>((addr >> 14) & 0x03);
         }
         return l2_segment_raw_;
+    }
+
+    // VHDL zxnext.vhd:2969-2971 - the Layer 2 mapped page is active unless
+    // layer2_active_page(7:5)="111", i.e. (bank + offset)(6:4) = 111.
+    // Shared by read() and sram_read_wait28() so data and timing agree.
+    inline bool l2_mapped_page_active_(uint16_t addr) const {
+        const uint8_t bank = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
+        const uint8_t bofs = static_cast<uint8_t>(l2_offset_pre_for(addr) + l2_offset_);
+        return (static_cast<uint8_t>(bank + bofs) & 0x70) != 0x70;
     }
 
     // Compute the 8K SRAM page index for an alt-ROM access at `addr`

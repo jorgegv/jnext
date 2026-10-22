@@ -268,9 +268,10 @@ inline uint8_t mem_active_page_for(uint16_t address) {
 /// reads and data reads alike (the M1-only restriction at :3174 is
 /// commented OUT in the shipped core). Writes (cpu_rd_n='1'), refresh
 /// (cpu_rfsh_n gate in sram_memcycle, :3144), I/O and the FUSE no-MREQ
-/// internal cycles never wait. Per-target qualification (bank-7 BRAM,
-/// bootrom, unpopulated pages are exempt) lives in
-/// Mmu::sram_read_wait28(), maintained at remap time.
+/// internal cycles never wait. Per-target qualification (bank-7 BRAM and
+/// inactive pages do not wait; Multiface, DivMMC and Layer 2 mapping are
+/// resolved in the arbiter's order; a boot-ROM read waits as the access
+/// beneath it, GH #391) lives in Mmu::sram_read_wait28().
 ///
 /// cpu_speed() is ContentionModel's committed NR 0x07 value — the same
 /// bus-idle-latched `cpu_speed` signal the VHDL expression reads
