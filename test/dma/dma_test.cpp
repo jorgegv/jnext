@@ -3458,6 +3458,46 @@ void group23_sram_read_wait28() {
                       dma_still_deferred, dma_completed));
         }
     }
+
+    // 23.8 (GH #391) - DMA source reads through a Layer 2 read mapping
+    // (segment 11) over a bank-7 slot DO wait at 28 MHz: the mapping's
+    // sram_active = NOT layer2_A21_A13(8) = 1 (zxnext.vhd:3077,
+    // 3100-3107) beats the slot's bank-7 exemption, and the DMA drives the
+    // bus signals the wait expression reads (:1828-1835,3175). 8 source
+    // reads wait +1 each -> 24 T (16 T if the slot flag alone decided).
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        if (!emu.init(cfg)) {
+            check("23.8", "Emulator::init failed (Next machine)", false,
+                  "init returned false");
+        } else {
+            g23_set_speed(emu, 3);
+            emu.nextreg().write(0x52, 0x0E);   // slot 2 -> bank-7 BRAM
+            emu.nextreg().write(0x56, 0x20);   // slot 6 -> plain SRAM page
+            emu.port().out(0x123B, 0xC1);      // seg 11 + write-over
+            for (int i = 0; i < 8; ++i)
+                emu.mmu().write(static_cast<uint16_t>(0x4000 + i),
+                                static_cast<uint8_t>(0xD0 + i));
+            emu.port().out(0x123B, 0xC4);      // seg 11 + read-over
+            const int t = g23_run_dma_step(emu, 0x4000, 0xC000, 8);
+            emu.port().out(0x123B, 0x00);
+            bool copied = true;
+            for (int i = 0; i < 8; ++i)
+                copied = copied
+                    && emu.mmu().read(static_cast<uint16_t>(0xC000 + i))
+                           == static_cast<uint8_t>(0xD0 + i);
+            check("23.8",
+                  "8-byte DMA burst sourced through a Layer 2 read mapping "
+                  "(seg 11) over a bank-7 slot at 28 MHz = 24 T: the "
+                  "mapping's sram_active=1 beats the slot's bank-7 "
+                  "exemption (zxnext.vhd:3077,3100-3107,1828-1835,3175)",
+                  t == 24 && copied,
+                  fmt("t=%d expected=24 copied=%d", t, (int)copied));
+        }
+    }
 }
 
 // ══ Group 24 — GH #230: write_io lifetime across Emulator::init() ═════

@@ -3861,6 +3861,28 @@ uint64_t sw28_step(Emulator& emu, std::initializer_list<uint8_t> code,
     return emu.monotonic_tstates() - before;
 }
 
+// As sw28_step(), but the code lives at 0xC000 (slot 6, page 0x20): for rows
+// whose overlay (Layer 2 segment 11) covers 0x8000.
+uint64_t sw28_step_c000(Emulator& emu, std::initializer_list<uint8_t> code,
+                        uint16_t hl) {
+    emu.nextreg().write(0x56, 0x20);   // slot 6 -> page 0x20 (plain SRAM)
+    uint16_t a = 0xC000;
+    for (uint8_t b : code) emu.mmu().write(a++, b);
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = 0xC000;
+    r.HL = hl;
+    r.BC = 0x0000;
+    r.halted = false;
+    emu.cpu().set_registers(r);
+    const uint64_t before = emu.monotonic_tstates();
+    emu.execute_single_instruction();
+    return emu.monotonic_tstates() - before;
+}
+
+uint8_t sw28_a(Emulator& emu) {
+    return static_cast<uint8_t>(emu.cpu().get_registers().AF >> 8);
+}
+
 } // namespace
 
 static void test_sw28_sram_read_wait() {
@@ -4216,6 +4238,191 @@ static void test_sw28_sram_read_wait() {
                   "sram_req_t waits (:3175)",
                   t == 9 && a == 0x99,
                   fmt("t=%llu expected=9 A=0x%02X expected=0x99",
+                      static_cast<unsigned long long>(t), a));
+        }
+    }
+
+    // CT-SW28-22..28 (GH #391) - the wait follows the access beneath an
+    // overlay, in the arbiter's own order (zxnext.vhd:3029-3131).
+
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-22", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.nextreg().write(0x50, 0x0E);   // slot 0 -> bank-7 BRAM
+            emu.mmu().write(0x0010, 0x5A);
+            std::vector<uint8_t> boot(0x2000, 0x00);
+            boot[0x0010] = 0x42;
+            emu.mmu().set_boot_rom(boot.data(), boot.size());
+            const uint64_t t = sw28_step(emu, {0x7E}, /*hl=*/0x0010);
+            const uint8_t a = sw28_a(emu);
+            check("CT-SW28-22",
+                  "Boot ROM read over a bank-7 slot at 28 MHz = 8 T and reads the "
+                  "bootrom byte: bank 7 gives sram_active=0 and no bank-5 schedule "
+                  "(zxnext.vhd:3037-3043), bootrom_en only drives cpu_di (:1856)",
+                  t == 8 && a == 0x42,
+                  fmt("t=%llu expected=8 A=0x%02X expected=0x42",
+                      static_cast<unsigned long long>(t), a));
+        }
+    }
+
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-23", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.nextreg().write(0x50, 0x0A);   // slot 0 -> bank-5 BRAM
+            std::vector<uint8_t> boot(0x2000, 0x00);
+            boot[0x0010] = 0x42;
+            emu.mmu().set_boot_rom(boot.data(), boot.size());
+            const uint64_t t = sw28_step(emu, {0x7E}, /*hl=*/0x0010);
+            const uint8_t a = sw28_a(emu);
+            check("CT-SW28-23",
+                  "Boot ROM read over a bank-5 slot at 28 MHz = 9 T and reads the "
+                  "bootrom byte: bank 5 schedules cpu_bank5_rd (zxnext.vhd:3037-3043, "
+                  ":3148, :6582, :6592) and the wait expression has no bootrom term (:3175)",
+                  t == 9 && a == 0x42,
+                  fmt("t=%llu expected=9 A=0x%02X expected=0x42",
+                      static_cast<unsigned long long>(t), a));
+        }
+    }
+
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-24", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.nextreg().write(0x51, 0x0E);   // slot 1 -> bank-7 BRAM
+            emu.mmu().write(0x2140, 0x5A);
+            emu.port().out(0x00E3, 0x80);      // conmem=1
+            emu.mmu().write(0x2140, 0xA7);     // DivMMC RAM bank 0
+            const uint64_t t_lo = sw28_step(emu, {0x7E}, /*hl=*/0x2140);
+            const uint8_t a = sw28_a(emu);
+            emu.nextreg().write(0x52, 0x0E);   // slot 2 -> bank-7 BRAM
+            const uint64_t t_hi = sw28_step(emu, {0x7E}, /*hl=*/0x4100);
+            check("CT-SW28-24",
+                  "DivMMC RAM window over a bank-7 slot at 28 MHz = 9 T with the "
+                  "DivMMC marker read back (override(2)=1 and sram_active=1, "
+                  "zxnext.vhd:3042,3049,3092-3099); the same conmem at 0x4000+ over bank 7 "
+                  "= 8 T (DivMMC override only below 0x4000, :3065)",
+                  t_lo == 9 && a == 0xA7 && t_hi == 8,
+                  fmt("t_lo=%llu expected=9 A=0x%02X expected=0xA7 t_hi=%llu expected=8",
+                      static_cast<unsigned long long>(t_lo), a,
+                      static_cast<unsigned long long>(t_hi)));
+        }
+    }
+
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-25", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.nextreg().write(0x51, 0x0E);   // slot 1 -> bank-7 BRAM
+            emu.mmu().write(0x2180, 0x5A);
+            emu.multiface().set_enabled(true);
+            emu.multiface().button_press();
+            emu.multiface().on_m1(0x0066, /*mreq_low=*/true);
+            const bool mf_active = emu.multiface().is_mem_active();
+            emu.mmu().write(0x2180, 0x5C);     // MF RAM half
+            const uint64_t t_lo = sw28_step(emu, {0x7E}, /*hl=*/0x2180);
+            const uint8_t a = sw28_a(emu);
+            emu.nextreg().write(0x52, 0x0E);   // slot 2 -> bank-7 BRAM
+            const uint64_t t_hi = sw28_step(emu, {0x7E}, /*hl=*/0x4100);
+            check("CT-SW28-25",
+                  "Multiface RAM read over a bank-7 slot at 28 MHz = 9 T with the "
+                  "MF marker read back (mf_mem_en: sram_pre_active=1, override 000, "
+                  "zxnext.vhd:3029-3036); the same read at 0x4100 over bank 7 = 8 T "
+                  "(MF decode only for cpu_a(15:14)=00)",
+                  mf_active && t_lo == 9 && a == 0x5C && t_hi == 8,
+                  fmt("mf_active=%d t_lo=%llu expected=9 A=0x%02X expected=0x5C t_hi=%llu expected=8",
+                      mf_active ? 1 : 0, static_cast<unsigned long long>(t_lo), a,
+                      static_cast<unsigned long long>(t_hi)));
+        }
+    }
+
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-26", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.nextreg().write(0x52, 0x0E);   // slot 2 -> bank-7 BRAM
+            emu.mmu().write(0x4100, 0x5A);
+            emu.port().out(0x123B, 0xC1);      // seg 11 + write-over
+            emu.mmu().write(0x4100, 0x99);     // lands in the L2 bank
+            emu.port().out(0x123B, 0xC4);      // seg 11 + read-over
+            const uint64_t t = sw28_step_c000(emu, {0x7E}, /*hl=*/0x4100);
+            const uint8_t a = sw28_a(emu);
+            check("CT-SW28-26",
+                  "Layer 2 read mapping, segment 11, over a bank-7 slot at 28 MHz "
+                  "= 9 T with the L2 marker read back: override(1) for seg=11 below "
+                  "0xC000 (zxnext.vhd:3065,3077), sram_active = NOT layer2_A21_A13(8) = 1 "
+                  "(:3100-3107) beats the slot's bank-7 exemption",
+                  t == 9 && a == 0x99,
+                  fmt("t=%llu expected=9 A=0x%02X expected=0x99",
+                      static_cast<unsigned long long>(t), a));
+        }
+    }
+
+    // CT-SW28-27 - Layer 2 read mapping onto an INACTIVE page does not
+    // wait. NR 0x12 = 0x70 puts layer2_active_page(7:5) at 111, so
+    // layer2_A21_A13(8)=1 (zxnext.vhd:2969-2971) and sram_active=0
+    // (:3100-3107), over a slot-0 ROM that alone would wait. Control: with
+    // the mapping off the same read waits. The data byte is not asserted
+    // (no request, no defined byte on the bus).
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-27", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.nextreg().write(0x12, 0x70);
+            emu.port().out(0x123B, 0x04);      // seg 00 + read-over
+            const uint64_t t_map = sw28_step(emu, {0x7E}, /*hl=*/0x0140);
+            emu.port().out(0x123B, 0x00);
+            const uint64_t t_off = sw28_step(emu, {0x7E}, /*hl=*/0x0140);
+            check("CT-SW28-27",
+                  "Layer 2 read mapping onto an inactive page (NR 0x12 = "
+                  "0x70) at 28 MHz = 8 T, and 9 T with the mapping off "
+                  "(control): layer2_A21_A13(8)=1 makes sram_active=0 "
+                  "(zxnext.vhd:2969-2971, :3100-3107)",
+                  t_map == 8 && t_off == 9,
+                  fmt("t_map=%llu expected=8 t_off=%llu expected=9",
+                      static_cast<unsigned long long>(t_map),
+                      static_cast<unsigned long long>(t_off)));
+        }
+    }
+
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-28", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.nextreg().write(0x12, 0x70);
+            emu.port().out(0x123B, 0x04);      // inactive L2 read mapping
+            emu.port().out(0x00E3, 0x80);      // conmem=1
+            emu.mmu().write(0x2140, 0xA7);     // DivMMC RAM bank 0
+            const uint64_t t = sw28_step(emu, {0x7E}, /*hl=*/0x2140);
+            const uint8_t a = sw28_a(emu);
+            check("CT-SW28-28",
+                  "DivMMC RAM read under an inactive Layer 2 mapping at 28 MHz = 9 T "
+                  "with the DivMMC marker read back: the DivMMC branches (zxnext.vhd:"
+                  "3084-3099) come before the Layer 2 branch (:3100-3107) in the final mux",
+                  t == 9 && a == 0xA7,
+                  fmt("t=%llu expected=9 A=0x%02X expected=0xA7",
                       static_cast<unsigned long long>(t), a));
         }
     }
