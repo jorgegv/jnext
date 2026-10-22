@@ -4037,10 +4037,13 @@ static void test_sw28_sram_read_wait() {
         }
     }
 
-    // CT-SW28-16 / -17 — boot ROM overlay vs legacy ROM at 0x0000. With
-    // bootrom_en the read is served from BRAM (cpu_di <= bootrom_do,
-    // zxnext.vhd:1857) — exempt. Without it, slot-0 ROM is served from
-    // external SRAM (zxnext.vhd:3052-3053, sram_pre_active='1') — waits.
+    // CT-SW28-16 / -17 - boot ROM overlay vs legacy ROM at 0x0000. With
+    // bootrom_en only cpu_di is switched (cpu_di <= bootrom_do,
+    // zxnext.vhd:1856); bootrom_en is not an input of the SRAM arbiter
+    // (:3014-3181), so the slot-0 ROM branch (:3051-3057,
+    // sram_pre_active='1') still raises sram_req (:3154) and the read waits
+    // (:3175), exactly as without the overlay. GH #391: this row used to
+    // expect 8 T ("never asserts sram_req"), which :3154 contradicts.
     {
         Emulator emu;
         if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
@@ -4053,7 +4056,7 @@ static void test_sw28_sram_read_wait() {
             // A bare test Emulator (empty cfg.sd_card_image) never loads
             // the embedded nextboot.rom, so install one via the public
             // set_boot_rom() (copies into the Mmu's own 8 KB buffer and
-            // asserts boot_rom_en — mirrors the production init path).
+            // asserts boot_rom_en - mirrors the production init path).
             std::vector<uint8_t> boot(0x2000, 0x00);
             boot[0x0010] = 0x42;
             emu.mmu().set_boot_rom(boot.data(), boot.size());
@@ -4061,12 +4064,14 @@ static void test_sw28_sram_read_wait() {
             const uint8_t a_boot = static_cast<uint8_t>(
                 emu.cpu().get_registers().AF >> 8);
             check("CT-SW28-16",
-                  "LD A,(HL) from the boot ROM overlay at 28 MHz = 8 T "
-                  "(fetch +1 only) and reads the bootrom byte — bootrom "
-                  "reads come from BRAM (cpu_di <= bootrom_do, "
-                  "zxnext.vhd:1857,3199-3204) and never assert sram_req",
-                  t_boot == 8 && a_boot == 0x42,
-                  fmt("t=%llu expected=8 A=0x%02X expected=0x42",
+                  "LD A,(HL) from the boot ROM overlay at 28 MHz = 9 T "
+                  "(fetch +1, data +1) and reads the bootrom byte - "
+                  "bootrom_en only drives cpu_di (zxnext.vhd:1856), the "
+                  "slot-0 ROM branch sets sram_pre_active='1' "
+                  "(:3051-3057), sram_req has no bootrom term (:3154) "
+                  "so the read waits (:3175)",
+                  t_boot == 9 && a_boot == 0x42,
+                  fmt("t=%llu expected=9 A=0x%02X expected=0x42",
                       static_cast<unsigned long long>(t_boot), a_boot));
             emu.mmu().set_boot_rom_enabled(false);
             const uint64_t t_rom = sw28_step(emu, {0x7E}, /*hl=*/0x0010);
