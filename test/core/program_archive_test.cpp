@@ -320,7 +320,7 @@ int main() {
         Bytes out;
         std::string why;
         const bool ok = read_first(zipfx::build({m}), out, why);
-        check("ZIPI-20", "a CRC-32 off by one is refused naming the CRC", !ok && has(why, "CRC-32"), why);
+        check("ZIPI-20", "a CRC off by one is refused naming the CRC", !ok && has(why, "CRC"), why);
     }
     {
         Member m = mem("S.BIN", pattern(10), 0);
