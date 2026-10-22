@@ -1198,8 +1198,7 @@ Mmu::RouteBits Mmu::layer2_route_(uint16_t addr) const {
     const uint8_t off_pre = l2_offset_pre_for(addr);
     const uint8_t bofs    = static_cast<uint8_t>(off_pre + l2_offset_);
     const uint16_t off    = addr & 0x1FFF;
-    const uint8_t sum = static_cast<uint8_t>(bank + bofs);
-    if ((sum & 0x70) == 0x70)
+    if (!l2_mapped_page_active_(addr))   // :2971, :3101-3102; shared with the 28 MHz wait
         return RouteBits{pack_space_(jnext::dbg::MemSpace::floating()), off, nullptr};
     const uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
     const uint8_t  lp      = static_cast<uint8_t>(l2_page | ((addr >> 13) & 1));

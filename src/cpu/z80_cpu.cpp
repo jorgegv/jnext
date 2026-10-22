@@ -281,17 +281,18 @@ inline uint8_t mem_active_page_for(uint16_t address) {
 /// reads and data reads alike (the M1-only restriction at :3174 is
 /// commented OUT in the shipped core). Writes (cpu_rd_n='1'), refresh
 /// (cpu_rfsh_n gate in sram_memcycle, :3144), I/O and the FUSE no-MREQ
-/// internal cycles never wait. Per-target qualification (bank-7 BRAM,
-/// bootrom, unpopulated pages are exempt) lives in
-/// Mmu::sram_read_wait28(), maintained at remap time.
+/// internal cycles never wait. Per-target qualification (bank-7 BRAM and
+/// inactive pages do not wait; Multiface, DivMMC and Layer 2 mapping are
+/// resolved in the arbiter's order; a boot-ROM read waits as the access
+/// beneath it, GH #391) lives in Mmu::sram_read_wait28().
 ///
 /// cpu_speed() is ContentionModel's committed NR 0x07 value — the same
 /// bus-idle-latched `cpu_speed` signal the VHDL expression reads
 /// (zxnext.vhd:5816-5820). Null s_contention (FUSE Z80 standalone
 /// harness) or null s_contention_mmu keeps this inert.
-inline void sram_wait28_read_tick(libspectrum_word address) {
+inline void sram_wait28_read_tick(libspectrum_word address, bool fetch = false) {
     if (s_contention && s_contention->cpu_speed() == 3 && s_contention_mmu) {
-        tstates += s_contention_mmu->sram_read_wait28(address);
+        tstates += s_contention_mmu->sram_read_wait28(address, fetch);
     }
 }
 
@@ -508,7 +509,9 @@ extern "C" void contend_read(libspectrum_word address, libspectrum_dword time) {
     // read of a not-taken JR/DJNZ (contend_read(PC,3)) — each stretches by
     // +1 T-state at cpu_speed="11". The no-MREQ macros below do NOT get
     // this: sram_memcycle requires cpu_mreq_n='0' (zxnext.vhd:3144).
-    sram_wait28_read_tick(address);
+    // contend_read(PC, 4) is the M1 opcode fetch (GH #339: the DivMMC view of
+    // an M1); contend_read(PC, 3) is an operand read.
+    sram_wait28_read_tick(address, time == 4);
     tstates += time;
 }
 

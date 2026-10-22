@@ -924,13 +924,15 @@ clock; the T80 samples WAIT in T2). Reads only (`cpu_rd_n='0'`); refresh
 excluded (`cpu_rfsh_n` in `sram_memcycle`, :3144); I/O and no-MREQ
 internal cycles never reach `sram_req`. Exempt read sources: dedicated
 bank-7 BRAM (page 0x0E — `cpu_bank7_do`, :6670-6685 + `cpu_di` mux :1863,
-absent from the :3175 wait expression), boot ROM (`cpu_di <= bootrom_do`,
-:1857), inactive pages (`mmu_A21_A13(8)='1'` → `sram_pre_active='0'`,
-:2964+:3061). The M1-only restriction at :3174 is commented OUT in the
-shipped core — data reads wait too.
+absent from the :3175 wait expression), inactive pages
+(`mmu_A21_A13(8)='1'` → `sram_pre_active='0'`, :2964+:3061). The boot ROM
+is NOT exempt: `bootrom_en` only switches `cpu_di` (:1856), so a boot-ROM
+read waits as the access beneath it. The M1-only restriction at :3174 is
+commented OUT in the shipped core — data reads wait too.
 
-Emulator seams: `Mmu::sram_read_wait28()` per-slot flag (rebuild_ptr /
-map_rom_physical keep it in lockstep with `read_ptr_[]`), consumed in
+Emulator seams: `Mmu::sram_read_wait28()` (overlays resolved at read time in
+arbiter order, then the per-slot flag that rebuild_ptr / map_rom_physical
+keep in lockstep with `read_ptr_[]`), consumed in
 `z80_cpu.cpp` `fuse_z80_readbyte` + `contend_read` gated on
 `ContentionModel::cpu_speed()==3` (the committed NR 0x07 value,
 zxnext.vhd:5809,5817).
@@ -955,27 +957,32 @@ Fixture: full Next Emulator, code at 0x8000 in plain RAM page 0x20
 | CT-SW28-13 | LD A,(HL) from bank-5 BRAM (page 0x0A) at 28 MHz = 9 T — cpu_bank5_sched waits | zxnext.vhd:6592,3175 |
 | CT-SW28-14 | LD A,(HL) from bank-7 BRAM (page 0x0E) at 28 MHz = 8 T + reads BRAM byte | zxnext.vhd:6670-6685,1863,3175 |
 | CT-SW28-15 | LD A,(HL) from inactive page (NR 0x52=0xE5) at 28 MHz = 8 T, A=0xFF | zxnext.vhd:2964,3061 |
-| CT-SW28-16 | LD A,(HL) from boot ROM overlay at 28 MHz = 8 T + reads bootrom byte | zxnext.vhd:1857,3199-3204 |
+| CT-SW28-16 | LD A,(HL) from boot ROM overlay at 28 MHz = 9 T + reads bootrom byte (bootrom_en only drives cpu_di; GH #391 corrected the old 8 T) | zxnext.vhd:1856,3051-3057,3154,3175 |
 | CT-SW28-17 | LD A,(HL) from slot-0 ROM (bootrom off) at 28 MHz = 9 T (ROM is SRAM) | zxnext.vhd:3052-3053 |
 | CT-SW28-18 | NR 0x07 3→0 round-trip: 9 T then 7 T — wait follows committed cpu_speed | zxnext.vhd:3175,5809,5817 |
 | CT-SW28-19 | DivMMC ROM + RAM window reads at 28 MHz = 9 T each, RAM marker round-trip | zxnext.vhd:3084-3099,3175 |
 | CT-SW28-20 | Multiface ROM + RAM half reads at 28 MHz = 9 T each, RAM marker round-trip | zxnext.vhd:3028-3035,3175 |
 | CT-SW28-21 | Layer2 read-over read at 28 MHz = 9 T, L2 marker round-trip | zxnext.vhd:3077,3100-3107,3175 |
+| CT-SW28-22 | Boot ROM read over a bank-7 slot at 28 MHz = 8 T, bootrom byte read | zxnext.vhd:3037-3043,1856 |
+| CT-SW28-23 | Boot ROM read over a bank-5 slot at 28 MHz = 9 T, bootrom byte read | zxnext.vhd:3037-3043,3148,6582,6592,3175 |
+| CT-SW28-24 | DivMMC RAM window over a bank-7 slot = 9 T, marker read; same conmem at 0x4000+ over bank 7 = 8 T | zxnext.vhd:3042,3049,3065,3092-3099 |
+| CT-SW28-25 | Multiface RAM over a bank-7 slot = 9 T, marker read; at 0x4000+ over bank 7 = 8 T | zxnext.vhd:3029-3036 |
+| CT-SW28-26 | Layer 2 read mapping seg 11 over a bank-7 slot = 9 T, L2 marker read | zxnext.vhd:3065,3077,3100-3107 |
+| CT-SW28-27 | Layer 2 read mapping onto an inactive page (NR 0x12=0x70) = 8 T; mapping off = 9 T (control) | zxnext.vhd:2969-2971,3100-3107 |
+| CT-SW28-28 | DivMMC RAM read under an inactive Layer 2 mapping = 9 T (DivMMC wins the final mux) | zxnext.vhd:3084-3099,3100-3107 |
+| CT-SW28-29 | Layer 2 read mapping, NR 0x12 = 0x6F (active page) = 9 T | zxnext.vhd:2969-2971,3100-3107 |
+| CT-SW28-30 | NR 0x12 = 0x6F + segment 01 (sum 0x70) = 8 T | zxnext.vhd:2966-2971 |
+| CT-SW28-31 | NR 0x12 = 0x6F + port 0x123B offset 1 (sum 0x70) = 8 T | zxnext.vhd:2967,3922 |
+| CT-SW28-32 | Shadow bank (NR 0x13 = 0x70, port bit 3) = 8 T | zxnext.vhd:2968,3919 |
 
-Known deliberate simplification (documented, not asserted): jnext's
-per-slot flag keys on the underlying MMU register alone, while DivMMC/MF/
-Layer2 activation is entirely INDEPENDENT of that register state — so an
-overlay over a slot whose MMU register is 0x0E (or an inactive page) is
-served from SRAM in VHDL (the :3084 arbiter overrides the bank-7 decode →
-wait) but jnext charges no wait. In every realistic configuration the
-overlay sits over a ROM- or RAM-mapped slot whose flag is already 1
-(CT-SW28-19/20/21 prove that category), and AltROM/config-mode routing is
-structurally safe — it only applies to read_only_ (ROM) slots, flag
-already 1. ±1 T-state in a configuration no shipped software uses. DMA
-reads at 28 MHz also wait on real hardware (the bus signals drive
-sram_req_t during DMA cycles); jnext's DMA burst model does not add this
-— out of scope here (GH #92 targets the CPU path), candidate follow-up
-issue.
+Wait resolution (GH #391): `Mmu::sram_read_wait28()` follows the arbiter's
+own order (zxnext.vhd:3029-3131) - Multiface, DivMMC, Layer 2 mapping (active
+page decides alone: wait on an active page, none on an inactive one,
+whatever the slot is, :3100-3107), then the per-slot flag when no overlay is engaged. The boot ROM is not an arbiter input
+(`bootrom_en` only switches `cpu_di`, :1856), so a boot-ROM read waits as the
+access beneath it would (CT-SW28-16/22/23). AltROM/config-mode/ROMCS routing
+only applies to ROM slots, whose flag is already 1. DMA source reads wait too
+(dma_test group 23, row 23.8 for the Layer 2 mapping).
 
 Perf note: at 3.5 MHz the added per-read check costs ~0.7% host time
 (interleaved A/B, gui-release). At 28 MHz the fix makes wall-clock
