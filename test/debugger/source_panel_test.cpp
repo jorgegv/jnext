@@ -1688,7 +1688,8 @@ void test_source_menu() {
             Fixture fx; fx.enable(); fx.mgr->refresh_panels();
             state(fx, "a", none);
         }
-        {   // (b) map via the backend, refresh path only; (c) then running
+        {   // (b) a map loaded behind the window, then the manager's paused
+        // refresh (panels, then update_actions()); (c) then running
             Fixture fx; fx.enable(); fx.load_map(); fx.mgr->refresh_panels();
             state(fx, "b", fwd);
             fx.dbg()->update_actions(/*is_paused=*/false);

@@ -92,7 +92,7 @@ See [Source](../panels/15-source.md). Its buttons step by statement:
 
 The same five are in **Debug ▸ Source**. Into, Over and Out are on **Ctrl+F6**,
 **Ctrl+F7** and **Ctrl+F8** (like F6, F7 and F8 for instructions); Back and
-Reverse ship unbound. All of them can be rebound ([Changing the keys]), and they
+Reverse ship unbound. All of them can be rebound ([Changing the keys](09-changing-the-keys.md)), and they
 work in the debugger window only.
 
 While a step runs, breakpoints, watchpoints, the magic breakpoint and debugger
