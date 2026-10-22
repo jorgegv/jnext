@@ -185,10 +185,7 @@ std::string manifest_to_json(const Manifest& m) {
         info["fat32_bs_vollab"] = m.sdcard.vollab;
         sd["informational"] = info;
 
-        json stamp = json::object();
-        stamp["sha256"]    = m.sdcard.content_sha256;
-        stamp["mtime_utc"] = m.sdcard.content_mtime_utc;
-        sd["content_stamp"] = stamp;
+        // No `content_stamp` (GH #396): written by jnext 1.1.0-1.1.75, retired.
 
         media["sdcard"] = sd;
     }
@@ -424,7 +421,7 @@ bool manifest_parse(const std::string& text, Manifest& out,
             }
             note_unknown(unknown_keys, "media.sdcard.", sd,
                          {"mounted_path", "read_only", "identity",
-                          "informational", "content_stamp"});
+                          "informational", "content_stamp" /* retired */});
 
             if (sd.contains("identity")) {
                 const json& id = sd.at("identity");
@@ -500,21 +497,10 @@ bool manifest_parse(const std::string& text, Manifest& out,
                 note_unknown(unknown_keys, "media.sdcard.informational.", inf,
                              {"fat32_bs_vollab"});
             }
-            if (sd.contains("content_stamp")) {
-                const json& cs = sd.at("content_stamp");
-                if (!cs.is_object()) {
-                    why = where + ".content_stamp is not an object";
-                    return false;
-                }
-                if (!get_str_key(cs, "sha256", out.sdcard.content_sha256,
-                                 where + ".content_stamp", why) ||
-                    !get_str_key(cs, "mtime_utc", out.sdcard.content_mtime_utc,
-                                 where + ".content_stamp", why)) {
-                    return false;
-                }
-                note_unknown(unknown_keys, "media.sdcard.content_stamp.", cs,
-                             {"sha256", "mtime_utc"});
-            }
+            // `content_stamp` is RETIRED (GH #396, owner 2026-10-22): jnext
+            // 1.1.0-1.1.75 wrote it, nothing reads it any more. It is listed
+            // as known above so it is not reported as unknown, and it is never
+            // parsed: whatever its shape, an old file cannot be refused for it.
         }
 
         // ── §10.2 P3 — ROM identity ─────────────────────────────────────
@@ -1050,59 +1036,9 @@ bool open_snapshot(const uint8_t* data, size_t len, const ReaderEnv& env,
                 (env.card.read_only ? "read-only" : "writable") + " now");
         }
 
-        // AN UNKNOWN STAMP IS NOT A CHANGED STAMP (GH #27 S7).
-        //
-        // Tier 2 can be absent on either side: a snapshot written before the
-        // stamp existed, or a live card whose digest failed part-way through a
-        // gigabyte of I/O. A plain `==` reports that as a CHANGE — and then
-        // says so in a message quoting an empty string as the new digest,
-        // which is not true and not actionable. Tier 1 already got this right
-        // (`identity_known` above); this is the same rule one tier down.
-        //
-        // The three cases are genuinely different, so there are three:
-        //   both known and equal    -> silent
-        //   both known and differing-> warn (refuse if mid-transfer)
-        //   either unknown          -> "could not be compared" (refuse if
-        //                              mid-transfer, because §11.3's last row
-        //                              REQUIRES a match there and an unknown
-        //                              stamp is not a match)
-        const bool content_known = !manifest.sdcard.content_sha256.empty() &&
-                                   !env.card.content_sha256.empty();
-        const bool content_same =
-            manifest.sdcard.content_sha256 == env.card.content_sha256;
-        if (!content_known) {
-            const std::string which =
-                manifest.sdcard.content_sha256.empty()
-                    ? (env.card.content_sha256.empty()
-                           ? std::string("neither the snapshot nor the mounted "
-                                         "card has one")
-                           : std::string("the snapshot has none"))
-                    : std::string("the mounted card has none");
-            if (env.sd_transfer_in_flight) {
-                return refuse(v, "the SD card's contents could not be verified "
-                                 "against the snapshot (" + which +
-                                 ") and the card was mid-transfer when it was "
-                                 "taken");
-            }
-            v.warnings.push_back("the SD card's contents could not be compared "
-                                 "with the snapshot (" + which + ")");
-        } else if (!content_same) {
-            if (env.sd_transfer_in_flight) {
-                // The strictness is EARNED exactly here: the machine was in
-                // the middle of reading a sector, and a half-finished read
-                // against changed bytes is the "streams garbage" failure.
-                return refuse(v, "the SD card's contents changed since the "
-                                 "snapshot (" +
-                                 quote(manifest.sdcard.content_sha256) +
-                                 " -> " + quote(env.card.content_sha256) +
-                                 ") and the card was mid-transfer when it was "
-                                 "taken");
-            }
-            v.warnings.push_back("the SD card's contents changed since the "
-                                 "snapshot (" +
-                                 quote(manifest.sdcard.content_sha256) +
-                                 " -> " + quote(env.card.content_sha256) + ")");
-        }
+        // There is no Tier 2 (GH #396, owner 2026-10-22): the card's contents
+        // are not compared. jnext assumes the mounted card is as the snapshot
+        // left it; changing it in between is at the user's risk.
         // `informational.fat32_bs_vollab` is deliberately not compared here,
         // and there is deliberately no warning for it either (§11.3).
     }

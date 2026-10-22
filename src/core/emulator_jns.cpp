@@ -610,17 +610,12 @@ bool Emulator::check_jns(const uint8_t* data, std::size_t len,
     env.state_model_revision = 1;
     env.strict               = opt.strict;
     env.force_sdcard         = opt.force_sdcard;
-    env.sd_transfer_in_flight = sd_card_.transfer_in_flight();
 
     env.constructible_ram_kb = { static_cast<uint32_t>(ram_.size() / 1024) };
 
     if (!config_.sd_card_image.empty()) {
         std::string card_why;
-        // BRANCH ON THE RETURN VALUE, NEVER ON `why.empty()`. That function
-        // sets `why` on SUCCESS too, when Tier 1 was read and only the Tier-2
-        // digest failed — the card is then perfectly usable and the return
-        // value says so. The distinction is written down here because this is
-        // its first real call site.
+        // Tier 1 only (GH #396): a few sectors, never the whole image.
         if (!jnext::describe_sdcard_for_snapshot(config_.sd_card_image,
                                                  config_.sd_card_readonly,
                                                  env.card, card_why)) {
@@ -629,12 +624,6 @@ bool Emulator::check_jns(const uint8_t* data, std::size_t len,
             // path — the decision belongs there, not here.
             Log::emulator()->warn("load_jns: the mounted SD card could not be "
                                   "identified: {}", card_why);
-        } else if (!card_why.empty()) {
-            // Tier 1 read, Tier 2 unavailable. The container distinguishes an
-            // UNKNOWN stamp from a CHANGED one (S7), so this warns rather than
-            // manufacturing a drift that did not happen.
-            Log::emulator()->warn("load_jns: the mounted SD card's content "
-                                  "stamp is unavailable: {}", card_why);
         }
     }
     {
