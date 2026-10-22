@@ -62,6 +62,7 @@ namespace jnext { namespace zip { class Reader; } namespace jns { struct Manifes
 #include "core/tap_loader.h"
 #include "core/tap_saver.h"
 #include "core/tape_recorder.h"
+#include "core/tape_poll_detector.h"
 #include "core/tape_trap.h"
 #include "core/tzx_loader.h"
 #include "core/sna_loader.h"
@@ -558,6 +559,14 @@ public:
     /// Access the RZX player/recorder.
     RzxPlayer& rzx_player() { return rzx_player_; }
     RzxRecorder& rzx_recorder() { return rzx_recorder_; }
+
+    /// Automatic tape play/stop (GH #395; default on). While on, a real-time
+    /// deck stops in a silent gap between blocks when the CPU is not polling
+    /// the tape port and resumes when it does; in fast mode a tape whose
+    /// loader never enters the ROM routine plays in real time once the CPU
+    /// polls the port. Off: the deck runs straight through, as before.
+    void set_tape_auto_play(bool on);
+    bool tape_auto_play() const { return tape_auto_play_; }
 
     /// Access the tape loader (e.g. for UI tape controls).
     TapLoader& tape() { return tape_; }
@@ -2413,6 +2422,17 @@ private:
     bool     tap_sync_valid_  = false;
     uint64_t tap_sync_serial_ = 0;
     uint32_t tap_sync_ts_     = 0;
+
+    // GH #395 — automatic tape play/stop. Host deck state: not serialised,
+    // reset on every state load (tape position is excluded from rewind and
+    // snapshots by design).
+    bool             tape_auto_play_ = true;
+    TapePollDetector tape_poll_;
+    /// One CPU read of the ULA port: count it, and start or resume a deck.
+    void tape_auto_on_read_();
+    /// The hold policy a deck is given before it is ticked at `now`.
+    bool tape_gap_hold_(bool auto_started, uint64_t now) const;
+    void tape_feed_policy_(uint64_t now);
 
     // GH #265 — the instruction slot just run, for finish_slot_interrupts():
     // the IM2 fabric is ticked once the slot's devices have raised their

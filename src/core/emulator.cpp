@@ -109,6 +109,10 @@ Emulator::~Emulator()
 bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
+    // GH #395 — automatic tape play/stop is a host deck setting; a polling run
+    // never outlives the machine it was counted on.
+    tape_auto_play_ = cfg.tape_auto_play;
+    tape_poll_.reset();
     // The effective NR 0x03 machine timing (eff_nr_03_machine_timing) is a
     // latch loaded only at video_frame_sync, with no reset clause
     // (zxnext.vhd:6696-6703): a soft reset must hand it back unchanged.
@@ -4929,12 +4933,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // brought up to it, TZX/WAV evaluated at it. It used to be the
             // level at the instruction's start (TAP) or one T-state before
             // the I/O cycle's data latch (TZX/WAV, the live FUSE counter).
+            // GH #395 — automatic tape play/stop: count the CPU's read.
+            if (tape_auto_play_ && cpu_.executing() && !rzx_player_.is_playing())
+                tape_auto_on_read_();
             bool playing = true;
             uint8_t tape_level = 0;
             if (tape_.is_playing()) {
                 tape_level = tap_ear_for_port_read();
             } else if (tzx_tape_.is_playing()) {
                 // Monotonic T-state clock (never resets across frames — G36).
+                tzx_tape_.set_auto_policy(
+                    tape_gap_hold_(tzx_tape_.auto_started(), tape_sample_tstates()),
+                    tape_auto_play_, config_.type == MachineType::ZX48K);
                 tape_level = tzx_tape_.update(tape_sample_tstates());
             } else if (wav_tape_.is_playing()) {
                 tape_level = wav_tape_.get_ear_bit(tape_sample_tstates());
@@ -8281,6 +8291,7 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     resume_from_park("a TAP tape was attached");
 
     loader.set_fast_load(fast_load);
+    tape_poll_.reset();
     tape_ = std::move(loader);
     Log::emulator()->info("TAP: tape attached - {} blocks, mode: {}",
                            tape_.block_count(), tape_.fast_load() ? "fast" : "realtime");
@@ -8387,6 +8398,7 @@ bool Emulator::load_tzx(const std::string& path, bool fast_load)
     resume_from_park("a TZX tape was attached");
 
     loader.set_fast_load(fast_load);
+    tape_poll_.reset();
     tzx_tape_ = std::move(loader);
     Log::emulator()->info("TZX: tape attached, mode: {}",
                            tzx_tape_.fast_load() ? "fast" : "realtime");
@@ -10011,7 +10023,11 @@ void Emulator::run_frame()
             const bool ld_break = pc == tape_trap::LD_BREAK_ADDR &&
                                   (cpu_.get_registers().AF & 0x40) &&
                                   tape_trap::ld_bytes_rom_present(mmu_);
-            if (ld_break && tape_.is_loaded() && tape_.fast_load() && !tape_.at_end()) {
+            // An auto-started deck still in a pilot, sync or pause has consumed
+            // nothing of its block: the trap takes it over (GH #395).
+            if (ld_break && tape_.is_loaded() && tape_.fast_load() && !tape_.at_end() &&
+                (!tape_.is_playing() || (tape_.auto_started() && !tape_.in_data()))) {
+                tape_.take_over();
                 tape_.handle_ld_bytes_trap(*this);
                 skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
@@ -10019,7 +10035,10 @@ void Emulator::run_frame()
 
             // TZX fast-load: same ROM trap, different loader.
             if (ld_break && tzx_tape_.is_loaded() && tzx_tape_.fast_load() &&
-                !tzx_tape_.at_end()) {
+                !tzx_tape_.at_end() &&
+                (!tzx_tape_.is_playing() ||
+                 (tzx_tape_.auto_started() && !tzx_tape_.in_data()))) {
+                tzx_tape_.take_over();
                 tzx_tape_.handle_ld_bytes_trap(*this);
                 skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
@@ -10894,6 +10913,7 @@ uint64_t Emulator::step_one_instruction()
             const uint32_t done =
                 (tap_sync_valid_ && tap_sync_serial_ == cpu_.execute_serial())
                     ? tap_sync_ts_ : 0u;
+            tape_.set_gap_hold(tape_gap_hold_(tape_.auto_started(), monotonic_tstates()));
             tape_.tick_realtime(static_cast<uint64_t>(tstates) - done);
             beeper_.set_tape_ear(tape_.tick_realtime(0) != 0);
             // GH #89 — a playing tape is echoed to tape-out (zxnext.vhd:6503):
@@ -10905,6 +10925,9 @@ uint64_t Emulator::step_one_instruction()
             // TZX real-time: ZOT models an absolute tape timeline, so
             // it must see the monotonic clock, not the frame-relative
             // FUSE counter (G36).
+            tzx_tape_.set_auto_policy(
+                tape_gap_hold_(tzx_tape_.auto_started(), monotonic_tstates()),
+                tape_auto_play_, config_.type == MachineType::ZX48K);
             beeper_.set_tape_ear(tzx_tape_.update(monotonic_tstates()) != 0);
             if (tape_capture_live_)
                 tape_recorder_.sample(tape_out_level(), clock_.get() + master_cycles);
@@ -12243,8 +12266,53 @@ uint64_t Emulator::tape_sample_tstates() const
          + tape_sample_offset();
 }
 
+bool Emulator::tape_gap_hold_(bool auto_started, uint64_t now) const
+{
+    // Hold at a gap boundary unless the CPU is listening; a deck that was
+    // started by auto play holds at every gap so a later ROM call can be
+    // trapped.
+    return tape_auto_play_ && (auto_started || !tape_poll_.polling(now));
+}
+
+void Emulator::set_tape_auto_play(bool on)
+{
+    config_.tape_auto_play = on;
+    if (tape_auto_play_ == on) return;
+    tape_auto_play_ = on;
+    tape_poll_.reset();
+    if (!on) {
+        // Off is today's deck: a held tape must not stay stopped for ever.
+        const uint64_t now = monotonic_tstates();
+        if (tape_.is_loaded() && tape_.is_held()) tape_.resume();
+        if (tzx_tape_.is_loaded() && tzx_tape_.is_held()) tzx_tape_.resume(now);
+    }
+}
+
+void Emulator::tape_auto_on_read_()
+{
+    const uint64_t now = tape_sample_tstates();
+    tape_poll_.on_read(now);
+    if (!tape_poll_.polling(now)) return;
+
+    if (tape_.is_loaded() && !tape_.is_playing() && !tape_.at_end()) {
+        if (tape_.is_held() || tape_.fast_load()) {
+            if (tape_.is_held()) tape_.resume(); else tape_.auto_start();
+            // The rest of this instruction runs from the sample point.
+            tap_sync_valid_  = true;
+            tap_sync_serial_ = cpu_.execute_serial();
+            tap_sync_ts_     = tape_sample_offset();
+            Log::emulator()->info("TAP: deck playing again at block {}", tape_.current_block());
+        }
+    }
+    if (tzx_tape_.is_loaded() && !tzx_tape_.is_playing() && !tzx_tape_.at_end()) {
+        if (tzx_tape_.is_held()) tzx_tape_.resume(now);
+        else if (tzx_tape_.fast_load()) tzx_tape_.auto_start(now);
+    }
+}
+
 uint8_t Emulator::tap_ear_for_port_read()
 {
+    tape_.set_gap_hold(tape_gap_hold_(tape_.auto_started(), tape_sample_tstates()));
     if (!cpu_.executing()) return tape_.tick_realtime(0);
     if (!tap_sync_valid_ || tap_sync_serial_ != cpu_.execute_serial()) {
         tap_sync_valid_  = true;
@@ -13282,6 +13350,7 @@ void Emulator::save_state(StateWriter& w) const
 
 bool Emulator::load_state(StateReader& r)
 {
+    tape_poll_.reset();   // GH #395: time may have moved backwards
     // GH #276 B2 — THE RECONCILIATION RUNS ON EVERY EXIT, not just the
     // successful one, and this is the exit that needs it most.
     //

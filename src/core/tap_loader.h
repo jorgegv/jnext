@@ -180,6 +180,32 @@ public:
     /// True if real-time playback is in progress.
     bool is_playing() const { return playing_; }
 
+    // -----------------------------------------------------------------------
+    // Automatic play/stop (GH #395)
+    // -----------------------------------------------------------------------
+
+    /// The host's policy, set before each tick: stop at the next gap boundary
+    /// (a block and its pause done, the next block about to start).
+    void set_gap_hold(bool hold) { gap_hold_ = hold; }
+
+    /// True when the deck is stopped at a gap boundary; resume() continues it
+    /// at the next block, from its first pilot pulse.
+    bool is_held() const { return held_; }
+    void resume() { start_realtime_playback(); }
+
+    /// Fast mode: play in real time from the current block (a loader that
+    /// never enters the ROM routine).
+    void auto_start() { auto_started_ = true; start_realtime_playback(); }
+    bool auto_started() const { return auto_started_; }
+
+    /// The fast-load trap takes the deck: stop it; the trap serves the
+    /// current block (an auto-started deck in a pilot, sync or pause has
+    /// not consumed it).
+    void take_over() { playing_ = false; held_ = false; auto_started_ = false; }
+
+    /// True while a block's data bits are being played.
+    bool in_data() const { return playing_ && play_phase_ == PlayPhase::DATA; }
+
     /// Get the tape filename (for UI display).
     const std::string& filename() const { return filename_; }
 
@@ -188,6 +214,9 @@ private:
     size_t current_block_ = 0;
     bool loaded_ = false;
     bool fast_load_ = true;
+    bool gap_hold_ = false;
+    bool held_ = false;
+    bool auto_started_ = false;
     std::string filename_;
 
     // Real-time playback state

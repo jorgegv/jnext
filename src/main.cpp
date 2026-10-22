@@ -283,6 +283,10 @@ int main(int argc, char* argv[]) {
     std::string benchmark_label;       // --benchmark-label; empty = derive
     bool        silent = false;
     bool        tape_realtime = false;
+    // GH #395 — --tape-auto-play / --no-tape-auto-play: last one wins; `_set`
+    // lets the negation override a saved GUI preference.
+    bool        tape_auto_play = true;
+    bool        tape_auto_play_set = false;
     std::string tape_save_file;
     bool        magic_breakpoint = false;
     bool        persistent_breakpoints = false;
@@ -584,6 +588,14 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::TapeRealtime:
                 tape_realtime = true;
+                break;
+            case cli::OptId::TapeAutoPlay:
+                tape_auto_play = true;
+                tape_auto_play_set = true;
+                break;
+            case cli::OptId::NoTapeAutoPlay:
+                tape_auto_play = false;
+                tape_auto_play_set = true;
                 break;
             case cli::OptId::TapeSave:
                 tape_save_file = v[0];
@@ -1734,6 +1746,7 @@ int main(int argc, char* argv[]) {
         cfg.joy_device[0].id       = joy_device_id[0];   // GH #311 (CLI value; SDL-only has no config)
         cfg.joy_device[1].id       = joy_device_id[1];
         cfg.esp_enabled            = esp_enabled;     // GH #25 (CLI value)
+        cfg.tape_auto_play         = tape_auto_play;  // GH #395 (CLI value)
         cfg.esp_allowed_hosts      = esp_allow.allowed_hosts;
         // GH #210. No merge and no saved form: an unset flag leaves the
         // config's own loopback default, which is the safe value.
@@ -1817,6 +1830,12 @@ int main(int argc, char* argv[]) {
             // saved entry the user cannot get rid of from the command line.
             cfg.esp_enabled = merge_cli_precedence(esp_enabled_set, esp_enabled,
                                                    gui_app_config.data().esp_enabled);
+            // GH #395 — the same CLI-over-saved resolution; the merged value
+            // reaches the machine through cfg and the Tape menu through the
+            // saved-config mirror below.
+            cfg.tape_auto_play = merge_cli_precedence(tape_auto_play_set, tape_auto_play,
+                                                      gui_app_config.data().tape_auto_play);
+            gui_app_config.data().tape_auto_play = cfg.tape_auto_play;
             cfg.esp_allowed_hosts = merge_cli_precedence(
                 esp_allow_set, esp_allow.allowed_hosts,
                 gui_app_config.data().esp_allowed_hosts);

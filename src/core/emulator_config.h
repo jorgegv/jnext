@@ -212,6 +212,10 @@ struct EmulatorConfig {
     // and for testing the recording path itself.
     bool warm_start_regenerate = false;
 
+    // GH #395 — automatic tape play/stop (Tape menu, Preferences,
+    // --tape-auto-play / --no-tape-auto-play). Default ON.
+    bool tape_auto_play = true;
+
     // Rewind buffer: number of frame snapshots to keep (0 = disabled).
     // Opt-in: rewind costs a full-machine save_state every frame plus the
     // ring-buffer memory, so it is off unless --rewind-buffer-size is given.

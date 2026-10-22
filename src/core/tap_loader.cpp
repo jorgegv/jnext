@@ -110,6 +110,8 @@ void TapLoader::eject() {
     current_block_ = 0;
     loaded_ = false;
     playing_ = false;
+    held_ = false;
+    auto_started_ = false;
     filename_.clear();
     Log::emulator()->info("TAP: tape ejected");
 }
@@ -125,6 +127,7 @@ void TapLoader::start_realtime_playback() {
     if (!block) return;
 
     playing_ = true;
+    held_ = false;
     play_tstates_ = 0;
     play_byte_idx_ = 0;
     play_bit_idx_ = 7;
@@ -250,6 +253,13 @@ uint8_t TapLoader::tick_realtime(uint64_t tstates) {
                 play_phase_ = PlayPhase::DONE;
                 playing_ = false;
                 Log::emulator()->info("TAP realtime: tape ended");
+            } else if (gap_hold_) {
+                // Gap boundary with nobody listening: hold the deck here.
+                playing_ = false;
+                held_ = true;
+                play_phase_ = PlayPhase::DONE;
+                Log::emulator()->info("TAP: deck held before block {}", current_block_);
+                return ear_bit_;
             } else {
                 // Start next block
                 start_realtime_playback();

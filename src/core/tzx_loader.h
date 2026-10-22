@@ -90,6 +90,37 @@ public:
     /// True if the tape is currently playing.
     bool is_playing() const;
 
+    // -----------------------------------------------------------------------
+    // Automatic play/stop (GH #395)
+    // -----------------------------------------------------------------------
+
+    /// The host's policy for the next update(): hold at the next gap boundary
+    /// (a block's non-zero pause has elapsed); stop blocks hold instead of
+    /// ending the tape (auto_play); a 0x2A block stops only on a 48K machine.
+    void set_auto_policy(bool hold_at_gap, bool auto_play, bool is_48k);
+
+    /// True when the deck is stopped at a gap boundary or a stop block and
+    /// resume() continues it at the next block.
+    bool is_held() const;
+
+    /// True when the deck was started by auto_start() (fast mode).
+    bool auto_started() const { return auto_started_; }
+
+    /// Fast mode: play in real time from the block the fast-load trap would
+    /// serve next (one tape position, shared with the trap).
+    void auto_start(uint64_t cpu_clocks);
+
+    /// Continue a held tape at the next block, from its first pulse.
+    bool resume(uint64_t cpu_clocks);
+
+    /// The fast-load trap takes the deck: stop it and hand the position
+    /// back, so the trap serves the block that was playing (if it had not
+    /// started its data) or the next one.
+    void take_over();
+
+    /// True while a block's data bits are being played.
+    bool in_data() const;
+
     /// Update EAR output. Call once per Z80 instruction.
     /// Returns the current EAR level (0 or 1).
     uint8_t update(uint64_t cpu_clocks);
@@ -116,4 +147,5 @@ private:
     // Fast-load scanning position (separate from ZOT's playback offset).
     int fast_load_offset_ = 0;
     bool is_tzx_ = false;  // true for TZX, false for TAP
+    bool auto_started_ = false;
 };
