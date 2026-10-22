@@ -34,6 +34,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
                                      const std::vector<HostChord>& host_chords,
                                      const std::vector<JoyDeviceInfo>& joy_devices)
     : QDialog(parent), joy_devices_(joy_devices), debug_keys_(current.debug_keys),
+      crt_filter_saved_(current.crt_filter),
       crt_shader_saved_(current.crt_shader),
       crt_shader_style_saved_(current.crt_shader_style),
       host_chords_(host_chords)
@@ -79,9 +80,11 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     if (crt_combo_->findData(CRT_TV) >= 0 && current.crt_shader)
         crt_choice = current.crt_shader_style == crt_shader::Style::Pc ? CRT_PC
                    : current.crt_shader_style == crt_shader::Style::Lite ? CRT_SOFT : CRT_TV;
-    else if (current.crt_filter)
-        crt_choice = CRT_SCANLINES;
+    else if (current.crt_filter ||
+             (current.crt_shader && current.crt_shader_style == crt_shader::Style::Lite))
+        crt_choice = CRT_SCANLINES;   // no shader here: start-up runs a saved Soft scanlines as Scanlines
     crt_combo_->setCurrentIndex(crt_combo_->findData(crt_choice));
+    crt_initial_choice_ = crt_choice;
     silent_check_->setChecked(current.silent);
     tape_fast_check_->setChecked(current.tape_fast_load);
     audio_gain_slider_->setValue(static_cast<int>(std::lround(current.audio_gain_db)));
@@ -586,10 +589,16 @@ AppConfigData PreferencesDialog::collect() const {
                              : crt_choice == CRT_SOFT ? crt_shader::Style::Lite
                                                     : crt_shader_style_saved_;
     } else {
-        // No shader choices here: hand the saved ones back — unless the user has just
-        // chosen the scanline mode, which excludes the shader.
-        cfg.crt_shader       = crt_shader_saved_ && !cfg.crt_filter;
+        // No shader choices here: hand the saved ones back, so nothing is lost when the file
+        // moves to a build that has them. The pop-up may show a saved Soft scanlines as
+        // Scanlines; only a change of the choice replaces what was saved.
         cfg.crt_shader_style = crt_shader_style_saved_;
+        if (crt_choice == crt_initial_choice_) {
+            cfg.crt_filter = crt_filter_saved_;
+            cfg.crt_shader = crt_shader_saved_;
+        } else {
+            cfg.crt_shader = crt_shader_saved_ && !cfg.crt_filter;
+        }
     }
     cfg.silent       = silent_check_->isChecked();
     cfg.tape_fast_load = tape_fast_check_->isChecked();

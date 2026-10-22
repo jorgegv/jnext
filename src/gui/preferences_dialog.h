@@ -128,6 +128,8 @@ private:
     // The saved CRT-shader settings, handed back by collect() when this build
     // has no shader controls (a config shared between two builds must not lose
     // them to a build that cannot show them) — the same rule as debug_keys_.
+    bool crt_filter_saved_ = false;
+    int  crt_initial_choice_ = 0;   ///< the pop-up's value as opened
     bool crt_shader_saved_ = false;
     crt_shader::Style crt_shader_style_saved_ = crt_shader::STYLE_DEFAULT;
 #ifdef ENABLE_DEBUGGER
