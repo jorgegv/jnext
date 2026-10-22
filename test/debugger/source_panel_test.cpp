@@ -1213,11 +1213,11 @@ void test_source_hex() {
     SourcePanel* sp = fx.dbg()->source_panel();
     const QString want = QString::asprintf("main.bas:10  $%04X  page %02X", addr, page);
     const QString mapped = sp->location_text();
-    r.PC = static_cast<uint16_t>(addr + 1);
+    r.PC = static_cast<uint16_t>(addr - 1);   // below the only record; addr + 1 is inside its range
     fx.emu.cpu().set_registers(r);
     fx.mgr->refresh_panels();
     const QString want_unmapped =
-        QString::asprintf("$%04X (page %02X): no source mapping; use the disassembly", addr + 1, page);
+        QString::asprintf("$%04X (page %02X): no source mapping; use the disassembly", addr - 1, page);
     check("QSRC-44", "the Source tab prints the PC and the page in upper-case hex, mapped "
                      "or not",
           addr != 0 && mapped == want && sp->location_text() == want_unmapped,
