@@ -59,8 +59,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   typesave  BORDER 1 typed slowly, then BORDER 2 and Alt+Shift+F5 in ONE burst
 #          (GH #386; the garbage file removed first); loadts then Quick Loads it:
 #          its border must equal A's. The save waits for the keys typed before it.
-# The log also counts the whole-card SHA-256 the UI thread pays ("snapshot:
-# digested SD image"): 2 in the save run (one per save), 2 in the load run.
+# (GH #396 removed the whole-card SHA-256 and the digest count that used to be
+# asserted here; the NODIG rows of sd_no_digest_linux_test measure bytes read.)
 # No palette value is hard-coded: every comparison is between renders of this
 # row. Border pixels, not text, because the BASIC cursor flashes.
 #
@@ -236,10 +236,6 @@ if want quick-snapshot-sdl-func; then
             px_e=$(border_px "$shot_e"); px_a=$(border_px "$shot_a"); px_l=$(border_px "$shot_l")
             px_l2=$(border_px "$shot_l2"); px_t=$(border_px "$shot_t"); px_bad=$(border_px "$shot_bad")
             px_ta=$(border_px "$shot_ta"); px_td=$(border_px "$shot_td"); px_et=$(border_px "$shot_et"); px_lts=$(border_px "$shot_lts")
-            # GH #386: every whole-card SHA-256 the UI thread pays is logged. A save
-            # digests once; a load twice (the probe, then the load itself).
-            dig_save=$(grep -c 'snapshot: digested SD image' "$(L save)" || true)
-            dig_load=$(grep -c 'snapshot: digested SD image' "$(L load)" || true)
             if [[ "$n_files" -ne 2 || "$bad_names" -ne 0 || "$saved_lines" -ne 2 ]]; then
                 fail_row " (save: $n_files file(s), $bad_names misnamed, $saved_lines 'quick save: wrote' line(s); want 2/0/2)"
             elif [[ "$empty_msg" -lt 1 || "$boots_empty" -ne "$boots_save" ]]; then
@@ -258,8 +254,6 @@ if want quick-snapshot-sdl-func; then
                 fail_row " (keys typed during the Quick Load were wiped by it: BORDER 5 typed while the app was stalled left the border at $px_td, while typed after the load it gives $px_t (restored $px_l, untouched $px_e); the load must re-assert the keys the host holds)"
             elif [[ "$px_et" == "$px_e" ]]; then
                 fail_row " (typing after a Quick Load that found nothing did not work: border $px_et equals the untouched machine's; the key queue stayed blocked behind the finished action)"
-            elif [[ "$dig_save" -ne 2 || "$dig_load" -ne 2 ]]; then
-                fail_row " (whole-card SHA-256 passes on the UI thread: $dig_save in the save run (want 2, one per save), $dig_load in the load run (want 2: probe + load))"
             elif [[ "$px_l2" == "$px_l" || "$px_l2" == "$px_e" ]]; then
                 fail_row " (the two saves are not distinguishable, or Quick Load ignored modification time: after touching the older save the border is $px_l2; newest-by-name gave $px_l, untouched $px_e)"
             elif [[ "$bad_msg" -lt 1 || "$bad_boot" -ne 0 || "$boots_bad" -ne "$boots_save" ]]; then
