@@ -195,13 +195,15 @@ shipped with JNEXT: it contains NextZXOS's own ROM, and JNEXT does not
 redistribute firmware — which is also why it downloads the SD card image rather
 than including one.
 
-It is one file per machine type, a little over 100 KB, keyed by the contents of
-the SD card image, the machine type and the save format. Change any of those —
-replace the image, switch machine, install a JNEXT update that changes the
-format — and it re-records itself on the next load. Checking that key means
-reading the whole card image each time a NEX file is loaded, which costs about
-half a second on a 1 GB image; it is what stops a recording of one card being
-served to another.
+It is one file per machine type, a little over 100 KB, keyed by the size and
+modification time of the SD card image, the machine type and the save format.
+Change any of those — replace the image, switch machine, install a JNEXT update
+that changes the format — or let JNEXT itself write to the card, and it
+re-records itself on the next load. The card's contents are not read, so
+loading stays fast on any card size. The one case this cannot see: an image
+replaced or edited outside JNEXT that ends up with the same size and the same
+modification time (for example `cp -p`, or `touch -r`) is served the old
+recording. Use `--warm-start-regenerate` when in doubt.
 
 If you update `TBBLUE.FW` or NextZXOS on the card in a way you want re-recorded
 straight away, `--warm-start-regenerate` forces it:

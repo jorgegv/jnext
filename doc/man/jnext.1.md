@@ -164,10 +164,13 @@ naming the option and the value, and exits with status 1.
     **jnext** says so on standard error and falls back to the machine it has
     always assembled.
 
-    The recording is keyed by the SD image's contents, the machine type and
-    the state format, so it invalidates itself whenever any of those change.
-    Use this option to force the issue anyway, after replacing `TBBLUE.FW` or
-    NextZXOS on the card. It applies to `.nex` files on the Next only: the
+    The recording is keyed by the SD image's size and modification time, the
+    machine type and the state format, and it is also dropped when **jnext**
+    itself writes to the image, so it invalidates itself whenever any of those
+    change. The image's contents are not read: an image replaced or edited from
+    outside with the same size and the same modification time (`cp -p`,
+    `touch -r`) is served the old recording. Use this option to force the issue
+    in that case, and after replacing `TBBLUE.FW` or NextZXOS on the card. It applies to `.nex` files on the Next only: the
     other machine types run no firmware, and snapshots and tapes are loaded by
     mechanisms a firmware-resident machine does not have.
 

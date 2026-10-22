@@ -136,8 +136,13 @@ if want warm-start-func; then
 
         # C — corrupt the recorded SD image mtime in place. Offset 32 is the
         # first byte of the i64 mtime field (warm_start_cache.cpp, GH #396), so
-        # one byte is enough to make the key disagree with the mounted image.
-        printf 'Z' | dd of="$ws_file" bs=1 seek=32 count=1 conv=notrunc status=none
+        # one byte is enough to make the key disagree with the mounted image -
+        # provided it CHANGES: write the complement of what is there, never a
+        # fixed byte (a fixed one equals the real low mtime byte 1 run in 256).
+        ws_b32=$(dd if="$ws_file" bs=1 skip=32 count=1 status=none | od -An -tu1 | tr -d ' ')
+        # shellcheck disable=SC2059
+        printf "$(printf '\\%03o' $(( (ws_b32 ^ 255) & 255 )))" \
+            | dd of="$ws_file" bs=1 seek=32 count=1 conv=notrunc status=none
         ws_c=$(timeout --foreground --kill-after=5s 120s "$JNEXT" --headless --machine next \
             "${SD_CARD_ARGS[@]}" --rtc "$NEXTZXOS_RTC" --load "$ws_nex" \
             --delayed-automatic-exit-frames 10 2>&1 || true)

@@ -161,7 +161,7 @@ public:
     bool transfer_in_flight() const;
 
     /// Process-wide count of sector writes jnext itself has committed to ANY
-    /// card image (CMD24, the only write site). The warm-start cache compares
+    /// card image (CMD24, the only write site during emulation). The warm-start cache compares
     /// it to know the image changed under its recording (GH #396). It is
     /// static because the device dies with the `Emulator` at every cold boot.
     static std::uint64_t host_write_generation() {
