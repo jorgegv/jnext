@@ -133,7 +133,10 @@ jobs:
       # Package set mirrors release.yml's rpm job (same fedora:44 container,
       # same dnf names) plus the tools the test
       # layers need on top: imagemagick (`compare`, screenshot diffing),
-      # xvfb (audio-underrun-func's real-audio-device functional test —
+      # xvfb (audio-underrun-func's real-audio-device functional test, and
+      # crt_shader_widget_test in `make unit-test`: Qt's offscreen GL is GLX and
+      # needs an X server; with mesa-dri-drivers + mesa-libGL, declared here, it
+      # gets llvmpipe —
       # every other GUI functional test uses QT_QPA_PLATFORM=offscreen and
       # needs no display), python3 (check-audio-underruns.py), unzip (the
       # SD-image provisioning step's own dependency, ultimately via
@@ -157,7 +160,8 @@ jobs:
             ripgrep ffmpeg-free bc file xxd dbus-daemon \
             mtools dosfstools rpm-build \
             pandoc mkdocs-material graphviz liberation-sans-fonts \
-            perl-interpreter perl-FindBin perl-File-Temp perl-PathTools
+            perl-interpreter perl-FindBin perl-File-Temp perl-PathTools \
+            mesa-dri-drivers mesa-libGL
           # mtools + dosfstools are the FOREIGN validators the GH #269
           # sdcard-file-add-func row reads the SD image back with (mdir,
           # mcopy, fsck.vfat). They are not a convenience: jnext writes FAT32

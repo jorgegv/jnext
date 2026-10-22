@@ -158,12 +158,10 @@ Soft scanlines, TV and PC entries have none, like the Scale entries in the same 
   set): the style numbers against crtemu's own enum, out-of-range fallback, the
   fullscreen scale on several screens and degenerate sizes, and the byte-level pixel
   conversion (the red/blue swap that would otherwise ship invisibly wrong).
-* `test/gui/crt_shader_widget_test.cpp` (38 rows, offscreen QPA): off is the default
+* `test/gui/crt_shader_widget_test.cpp` (42 rows, offscreen QPA): off is the default
   and builds nothing; the software path still presents frames; on-then-off leaves
   nothing behind; switching on either runs or falls back with exactly one message, and an injected overlay failure (live, and stale after a toggle) behaves as specified
-  (whether offscreen yields a GL context depends on the host: on Linux Mesa gives one and
-  CRT-W-07 prints OUTCOME=running; a host without one takes the fallback arm; the test
-  prints which outcome it saw); settings defaults, round trip, garbage and older
+  (on Linux offscreen gets its GL context from GLX, so the suite re-runs itself under `xvfb-run -d` when DISPLAY is empty; Mesa's llvmpipe then gives a context and CRT-W-07 prints OUTCOME=running. A shader build on a host with no GL at all fails with one clear line; the no-GL arm itself is covered by CRT-W-39 through the probe override); settings defaults, round trip, garbage and older
   configs; the Preferences dialog hands saved values back in any build and collects
   new ones; the View entry exists exactly when the build has the shader, with no
   mnemonic; applying a configuration switches it; Scanlines never builds a GL widget and draws the software lines; a saved Lite-style shader starts as, and shows in Preferences as, Soft scanlines; the Soft scanlines View entry, five-way exclusivity, the Lite-style overlay it builds, the Preferences choice, and the GL-failure fallback to the software Scanlines (one message; TV continues without an effect); the overlay's presents are counted and switching off brings back the newest frame.
