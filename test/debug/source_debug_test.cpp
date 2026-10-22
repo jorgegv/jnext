@@ -463,15 +463,13 @@ int main() {
     {
         // The caller's return address has no record: Out keeps going past it
         // to the first mapped position below the call.
+        // Lines 10-12 have no record: the return address $8005 lies below the
+        // page's first record ($8006).
         const fs::path no12 = dir / "no-line12.sld";
-        std::string text = program_sld(p80, p90);
-        const std::string line12 = "main.bas|12||0|" + std::to_string(p80) + "|32773|T|\n";
-        text.erase(text.find(line12), line12.size());
-        write_text(no12, text);
+        write_text(no12, program_sld_without(p80, p90, {10, 11, 12}));
         Machine m;
         m.dbg->load_source_map(no12.string(), false);
-        m.dbg->source_step(m.a, Step::Into);
-        m.dbg->source_step(m.a, Step::Into);   // main.bas:11, sub.bas:1
+        for (int i = 0; i < 3; ++i) m.dbg->step_into(m.a);   // NOP, NOP, CALL -> sub.bas:1
         const bool in_sub = m.pc() == 0x9000;
         m.dbg->source_step(m.a, Step::Out);
         check("SRCDBG-STEP-14", "Out whose caller returns into unmapped code stops at the "
