@@ -109,6 +109,8 @@ bool deflate_raw(const uint8_t* src, size_t len, std::vector<uint8_t>& out) {
     return true;
 }
 
+}  // namespace
+
 /// Raw INFLATE to an EXACTLY known length. `expect` comes from the header, so
 /// the output buffer is sized up front and the stream is refused if it wants
 /// more (`avail_out` exhausted with input left) or produces fewer bytes.
@@ -147,8 +149,6 @@ bool inflate_exact(const uint8_t* src, size_t src_len, uint32_t expect,
     }
     return true;
 }
-
-}  // namespace
 
 // ─────────────────────────────────────────────────────────────────────────
 // Path grammar
