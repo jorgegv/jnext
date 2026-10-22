@@ -346,7 +346,7 @@ SRCBP-02 (a page number is not an identity), SRCBP-05 (the legacy meaning pinned
 | Symbols | `SymbolTable` keyed by the 16-bit address; no page | 10 | E23-23 (#375); EQU files: #390 |
 | User labels and comments | none | 10 | E23-24 (#387) |
 | Coverage | INS-20: one bit per executed 16-bit PC (`CoverageBits`) | 11.1 | E23-25 (#388) |
-| Source steps in menus and keys | Source tab buttons only | 8.2 | E23-05 (#337) |
+| Source steps in menus and keys | Debug > Source menu; Ctrl+F6/F7/F8, all rebindable (done in E23-05 (#337)) | 8.2 | E23-05 (#337) |
 | Source tab | the PC line highlighted, the step buttons, "Running" while the machine runs; no click-to-break, Run to Line, location list or selection sync | 8.2 | E23-16 (#347) |
 | Remote and script surface | GDB `monitor sym`; no `monitor src`, no DSL `file:line` | 8.3 | E23-15 (#346) |
 | The identity in every view; remote vocabularies | none | 4.6 | E23-22 (#360) |
@@ -805,14 +805,9 @@ today. Clicking a Source tab line toggles its group (E23-16).
 - **Menu and keys** (E23-05 (#337)): a Debug > Source submenu (Step Into, Over, Out, Back,
   Reverse Continue, Load Source Map..., Load Symbols (Memory.txt)...), each action bindable in
   Settings > Preferences... > Debugger Keys like the other debugger actions
-  (`src/debug/debug_keymap.cpp`). The owner approved changing the pinned menu tree and key
-  bindings (`debugger_accel_test` DACC-05, `debugger_keymap_test`). OD-17 gives source Into,
-  Over and Out the defaults Shift+F7, Shift+F8 and Shift+F6, but Step Back and Frame Back
-  already have Shift+F7 and Shift+F6 (user guide, "Changing the keys"). When two defaults
-  clash, the keymap keeps the action listed first in Preferences and leaves the other
-  unbound, so either the two OD-17 defaults or the two documented ones must change. That is
-  the owner's call: E23-05 takes it to the owner before it binds any key, and this document
-  does not decide it.
+  (`src/debug/debug_keymap.cpp`). Decided by the owner on #337 (2026-10-22): source Into,
+  Over and Out default to Ctrl+F6, Ctrl+F7 and Ctrl+F8; Back and Reverse Continue ship
+  unbound; the emulator window does not forward them. Done.
 - **Source tab completion** (E23-16 (#347)): click a line number to toggle its source
   breakpoint group; Run to Line (a transient group, then Continue); the current-line marker; the
   "also:" list of the other locations at the PC (OD-7); selection sync between the Source tab

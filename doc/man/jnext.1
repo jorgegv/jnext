@@ -2593,6 +2593,21 @@ T}@T{
 Pause / Break
 T}
 T{
+Ctrl+F6
+T}@T{
+Source Step Into
+T}
+T{
+Ctrl+F7
+T}@T{
+Source Step Over
+T}
+T{
+Ctrl+F8
+T}@T{
+Source Step Out
+T}
+T{
 Shift+F6
 T}@T{
 Frame Back
@@ -2605,11 +2620,12 @@ T}
 .TE
 .PP
 Those are defaults.
-All twelve debugger commands \- the nine above plus Run to Cursor, Run
-to End of Frame and Run to End of Scan Line, which ship unbound \- can
-be rebound under \f[B]Settings > Preferences > Debugger Keys\f[R] in the
-emulator window, or by hand in the \f[CR][debugger_keys]\f[R] section of
-the configuration file (\f[CR]step_over=F10\f[R]).
+All seventeen debugger commands \- the twelve above plus Run to Cursor,
+Run to End of Frame, Run to End of Scan Line, Source Step Back and
+Source Reverse Continue, which ship unbound \- can be rebound under
+\f[B]Settings > Preferences > Debugger Keys\f[R] in the emulator window,
+or by hand in the \f[CR][debugger_keys]\f[R] section of the
+configuration file (\f[CR]step_over=F10\f[R]).
 Only the commands you change are written there, so a default that
 changes in a later release still reaches you.
 .PP

@@ -2122,16 +2122,20 @@ the Qt6 UI, so it needs a GUI build (`make gui-release` or
 | F7       | Step Over          |
 | F8       | Step Out           |
 | F9       | Pause / Break      |
+| Ctrl+F6  | Source Step Into   |
+| Ctrl+F7  | Source Step Over   |
+| Ctrl+F8  | Source Step Out    |
 | Shift+F6 | Frame Back         |
 | Shift+F7 | Step Back          |
 
-Those are defaults. All twelve debugger commands - the nine above plus
-Run to Cursor, Run to End of Frame and Run to End of Scan Line, which
-ship unbound - can be rebound under **Settings \> Preferences \>
-Debugger Keys** in the emulator window, or by hand in the
-`[debugger_keys]` section of the configuration file (`step_over=F10`).
-Only the commands you change are written there, so a default that
-changes in a later release still reaches you.
+Those are defaults. All seventeen debugger commands - the twelve above
+plus Run to Cursor, Run to End of Frame, Run to End of Scan Line, Source
+Step Back and Source Reverse Continue, which ship unbound - can be
+rebound under **Settings \> Preferences \> Debugger Keys** in the
+emulator window, or by hand in the `[debugger_keys]` section of the
+configuration file (`step_over=F10`). Only the commands you change are
+written there, so a default that changes in a later release still
+reaches you.
 
 The window may be resized below what the panels need: the panel area
 then scrolls rather than clipping, and the control toolbar along the

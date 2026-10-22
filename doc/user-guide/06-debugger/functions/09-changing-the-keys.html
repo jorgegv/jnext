@@ -3682,7 +3682,7 @@ the combination you want. Click <strong>Reset</strong> on a row to put that one 
 <strong>Reset All to Defaults</strong> for the lot. Nothing is written until you press OK or
 Apply, and Apply takes effect immediately in both windows — you do not have to
 restart JNEXT.</p>
-<p>The twelve commands, and what they are bound to out of the box:</p>
+<p>The seventeen commands, and what they are bound to out of the box:</p>
 <table>
 <thead>
 <tr>
@@ -3752,13 +3752,45 @@ restart JNEXT.</p>
 <td><strong>F3</strong></td>
 <td>toolbar, <strong>Debug ▸ Trace</strong></td>
 </tr>
+<tr>
+<td>Source Step Into</td>
+<td><strong>Ctrl+F6</strong></td>
+<td>Source tab, <strong>Debug ▸ Source</strong></td>
+</tr>
+<tr>
+<td>Source Step Over</td>
+<td><strong>Ctrl+F7</strong></td>
+<td>Source tab, <strong>Debug ▸ Source</strong></td>
+</tr>
+<tr>
+<td>Source Step Out</td>
+<td><strong>Ctrl+F8</strong></td>
+<td>Source tab, <strong>Debug ▸ Source</strong></td>
+</tr>
+<tr>
+<td>Source Step Back</td>
+<td><em>unbound</em></td>
+<td>Source tab, <strong>Debug ▸ Source</strong></td>
+</tr>
+<tr>
+<td>Source Reverse Continue</td>
+<td><em>unbound</em></td>
+<td>Source tab, <strong>Debug ▸ Source</strong></td>
+</tr>
 </tbody>
 </table>
-<p>Three ship with no key at all. They are not second-class — they are reachable
-from the toolbar, the menu and (for Run to Cursor) the Enter key — but giving
+<p>Five ship with no key at all (Run to Cursor, Run to End of Frame, Run to End of
+Scan Line, Source Step Back and Source Reverse Continue). They are not
+second-class — they are reachable from the toolbar, the menus and (for Run to
+Cursor) the Enter key — but giving
 them a default would have meant taking a key away from something else, so the
 choice is left to you. If you are coming from blueMSX or Spectaculator, Run to
 Cursor is the one you will want to bind.</p>
+<p>The source steps default to <strong>Ctrl+F6</strong>, <strong>Ctrl+F7</strong> and <strong>Ctrl+F8</strong>, the
+instruction steps' keys with Ctrl added. <strong>Ctrl+F6</strong> is also the emulator
+window's Stop Recording key and keeps that meaning there: the two are different
+windows, so they do not clash. A key the desktop takes for itself never reaches
+JNEXT; rebind the command here if that happens.</p>
 <p>The toolbar captions follow the bindings, so a button never advertises a key
 that no longer works.</p>
 <h2 id="what-you-can-bind">What you can bind<a class="headerlink" href="#what-you-can-bind" title="Permanent link">&para;</a></h2>
@@ -3798,7 +3830,7 @@ the table says so when you pick one.</p>
 <h2 id="the-emulator-window">The emulator window<a class="headerlink" href="#the-emulator-window" title="Permanent link">&para;</a></h2>
 <p>Run, Pause, Single Step, Step Over and Step Out also work while the <em>emulator</em>
 window has focus, whenever the debugger is enabled, and they follow your
-bindings there as well. The other seven do not: they work in the debugger
+bindings there as well. The other twelve do not: they work in the debugger
 window only. Trace in particular stays out of it because its default, <strong>F2</strong>,
 is the emulator window's window-scale cycler.</p>
 <p>Two consequences of that forwarding:</p>
@@ -3828,7 +3860,8 @@ run_to_cursor=Ctrl+F10
 </code></pre>
 <p>The action names are <code>run</code>, <code>pause</code>, <code>step_into</code>, <code>step_over</code>, <code>step_out</code>,
 <code>step_back</code>, <code>frame_back</code>, <code>run_to_cursor</code>, <code>run_to_eof</code>, <code>run_to_eosl</code>,
-<code>trace_toggle</code> and <code>trace_export</code>. Case does not matter in a combination, and
+<code>trace_toggle</code>, <code>trace_export</code>, <code>source_step_into</code>, <code>source_step_over</code>,
+<code>source_step_out</code>, <code>source_step_back</code> and <code>source_reverse_continue</code>. Case does not matter in a combination, and
 <code>none</code> means "no key". Only redefinitions are written, so the section holds
 just the lines you changed — and is absent entirely if you changed nothing.</p>
 <p>Nothing here fails quietly. An entry JNEXT cannot parse, one that breaks a rule
