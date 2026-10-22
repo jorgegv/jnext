@@ -112,9 +112,7 @@ boot, then the load. A `.jns` you save into that folder yourself counts too.
 - Only `.jns` is used: it is the one format that can hold a whole machine.
 - Keys you type while a quick save or load is in progress are not lost: they are
   delivered afterwards, in the order you typed them, and a quick save waits for
-  the keys you typed before it. The machine freezes for a moment while it reads
-  the SD card image to identify it, which grows with the size of the image; the
-  log shows each such pass as "digested SD image".
+  the keys you typed before it.
 
 ## Loading
 
@@ -188,9 +186,11 @@ holds NextZXOS, which is not ours to redistribute. It records the card's
   it, and says what it is overriding. That includes a card you put in with
   **File > Insert SD Card Image** after saving: insert the original again to
   restore.
-- **The same card, changed since** — which happens constantly, because JNEXT
-  writes guest changes back to the card — **restores with one warning line**.
-  That is normal, and usually irrelevant.
+- **The same card, changed since, is not checked.** JNEXT assumes the card is as
+  you left it. If you change it between saving and loading, outside JNEXT or by
+  running other programs that write to it, loading the snapshot is at your own
+  risk: NextZXOS keeps parts of the card's file system in memory, and a restored
+  machine can write that stale picture back and corrupt files.
 - The card's **volume label** is never compared. Several tools rewrite it, and
   a snapshot that refused over a renamed card would be a snapshot nobody reads
   the warnings of.

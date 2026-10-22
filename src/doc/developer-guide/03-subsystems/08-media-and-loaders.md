@@ -331,8 +331,8 @@ booted one does.
 
 **The cache** is `src/core/warm_start_cache.{h,cpp}`: one file per machine
 type under `<config-dir>/warm-start`, with a 96-byte header carrying the
-identity that invalidates it — the SD image's SHA-256, the machine type, a
-state-format version, and the exact *uncompressed* stream length. Any mismatch
+identity that invalidates it — the SD image's size and mtime, the machine
+type, a state-format version, and the exact *uncompressed* stream length. Any mismatch
 discards the file and re-boots. The length is not a convenience:
 `Ram::load_state` reads a count-prefixed blob straight into the live RAM
 buffer, so refusing a stream whose length is not exactly what this build
@@ -396,16 +396,17 @@ machine the defaults do not hold — a measured MMU3 = page 17 sent every write
 to `$6000-$7FFF` into Layer 2's bank 8. `apply()` now writes them, which is a
 no-op on the synthetic path and pinned by `NEXMMU-01..07`.
 
-**The cost.** A miss costs a 500-frame boot, ~3.5 s headless. A hit costs the
-SD image's SHA-256 — ~0.5 s for a 1 GB image warm in the page cache, ~1.2 s
-cold — because the recording's identity is the image's *contents*. The cheap
-alternatives (a size+mtime key, a hashed prefix, a named subset of files) all
-accept a cached recording without reading the image, and any of them can serve
-a recording of a different card while reporting success; that is the worst
-failure this mechanism can have, because the machine it produces looks booted.
-Within a process the digest is paid once: the restored stream stays in
-`warm_start_state_` for the session, so a GUI **File > Load NEX File…** after
-a CLI `--load` costs nothing.
+**The cost.** A miss costs a 500-frame boot, ~3.5 s headless. A hit costs one
+`stat` of the SD image plus inflating the ~100 KB cache. The key is the image's
+(size, mtime) read after the recording, plus a process-wide write generation
+(`SdCardDevice::host_write_generation()`, bumped by every CMD24 jnext commits):
+an own write drops the in-memory state, and a memo of the last validation
+catches an own write that left the mtime unchanged. GH #396 (owner, 2026-10-22)
+replaced the whole-image SHA-256 this used to pay (0.6-1.2 s per GB on the UI
+thread at every cold boot that loads a program). **Accepted residual:** an
+image replaced or edited from outside with the same size and the same mtime
+(`cp -p`, `touch -r`) serves a stale recording; `--warm-start-regenerate` is the
+escape hatch. The file magic is `JNEXTWS3` (layout generation).
 
 **Tests.** `test/warm_start/warm_start_test.cpp` (`WSC-*` for the cache file,
 its four invalidation keys and the compressed payload; `WSR-*` for the
@@ -1007,17 +1008,11 @@ instead of acting in the key callback, so a chord takes its turn behind the keys
 typed before it, keys typed during or after it reach the loaded machine, and
 `SdlApp::service_quick_requests()` / `QtApp::TickEffects::post_frames()` call
 `action_done()` however the action ended (see the input subsystem chapter).
-The cost of the stall is the Tier-2 content stamp, a SHA-256 of the WHOLE SD
-image on the UI thread: one pass per save, two per load (the probe, then the load
-itself; the Qt Quick Load passes `jns_probed` so `handle_load_path()` does not
-repeat the probe). It scales with the card size (about 0.5-2 s for 1 GB) and every
-digest logs `snapshot: digested SD image '<path>' (<MB> MB) in <ms> ms`, so a
-user can see what the freeze was. The digest is eager by design (the snapshot
-format's section 11.3 and `sd_snapshot_identity.h`, "cost, stated rather than
-hidden"), and a probe without it would wrongly accept a snapshot taken
-mid-transfer (section 11.3, last row of the restore matrix). The freeze
-itself (the digest on the UI thread, which grows with the card) is kept as
-designed and tracked in GH #396.
+There is no whole-card read on this path (GH #396, owner 2026-10-22): a save,
+probe or load reads the MBR and the BPB sector (the Tier-1 identity) and nothing
+else; `.jns` has no Tier-2 `content_stamp` any more (old files carry one, it is
+ignored) and no mid-transfer refusal. jnext assumes the card is as the snapshot
+left it. `sd_no_digest_linux_test` (`NODIG-01..04`) pins it by bytes read.
 
 Video recording needs **FFmpeg on the host**. jnext writes raw ARGB frames and
 raw stereo PCM to temporary files during the run, so the hot loop pays no
