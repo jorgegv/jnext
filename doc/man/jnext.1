@@ -1638,8 +1638,9 @@ The file does \f[B]not\f[R] contain the SD card \- a card image is a
 gigabyte, and it holds NextZXOS.
 It records the card\(cqs identity instead and checks it on load: a
 different card is refused unless \f[B]\-\-snapshot\-mode\f[R]
-\f[CR]force\f[R], while the same card changed since (which happens on
-any run that writes to it) restores with a warning.
+\f[CR]force\f[R].
+The card\(cqs contents are not checked: changing the card between saving
+and loading is at your own risk.
 \f[B]\-\-snapshot\-mode\f[R] \f[CR]strict\f[R] additionally turns the
 state\-model and ROM\-digest warnings into refusals, and
 \f[B]\-\-snapshot\-compression\f[R] \f[CR]off\f[R] writes the members
@@ -3155,7 +3156,8 @@ The recorded NextZXOS\-resident machine a \f[B]\-\-load\f[R] of a
 \f[CR].nex\f[R] starts from, one file per machine type, around 100 KB
 each.
 Written on the first such load with a given SD image and re\-recorded
-whenever the image, the machine type or the state format changes \- see
+whenever the image\(cqs size or modification time changes, or JNEXT
+writes to it, or the machine type or the state format changes \- see
 \f[B]\-\-warm\-start\-regenerate\f[R].
 Deleting it costs one cold boot, nothing else.
 .TP

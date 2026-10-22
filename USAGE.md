@@ -1457,8 +1457,8 @@ stopped.
 The file does **not** contain the SD card - a card image is a gigabyte,
 and it holds NextZXOS. It records the card’s identity instead and checks
 it on load: a different card is refused unless **--snapshot-mode**
-`force`, while the same card changed since (which happens on any run
-that writes to it) restores with a warning. **--snapshot-mode** `strict`
+`force`. The card’s contents are not checked: changing the card between
+saving and loading is at your own risk. **--snapshot-mode** `strict`
 additionally turns the state-model and ROM-digest warnings into
 refusals, and **--snapshot-compression** `off` writes the members stored
 rather than deflated, so the file can be read with `unzip -p`.
@@ -2549,7 +2549,8 @@ keeps the newest 20 files it made (see **--quick-snapshot-keep**).
 The recorded NextZXOS-resident machine a **--load** of a `.nex` starts
 from, one file per machine type, around 100 KB each. Written on the
 first such load with a given SD image and re-recorded whenever the
-image, the machine type or the state format changes - see
+image’s size or modification time changes, or JNEXT writes to it, or the
+machine type or the state format changes - see
 **--warm-start-regenerate**. Deleting it costs one cold boot, nothing
 else.
 
