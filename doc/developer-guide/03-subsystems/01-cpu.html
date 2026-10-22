@@ -2486,6 +2486,12 @@ read's own overlay order (Multiface, DivMMC, an engaged Layer 2 mapping, then th
 slot). An engaged Layer 2 mapping decides alone: it waits on an active page and
 does not on an inactive one, whatever the slot holds. A boot-ROM read waits as
 the access beneath it would.</p>
+<p>The DivMMC term follows the view of the cycle that asks: the M1 view for an
+opcode fetch, the after-fetch (<code>hold</code>) view for every other read, DMA included.
+<code>Z80Cpu</code> decides each M1's wait when it reads that byte, under the overlay that
+M1's own automap decode left, and <code>contend_read(PC, 4)</code> charges that recorded
+value, so the first M1 of a prefix chain is not charged for the state the chain's
+last M1 leaves behind.</p>
 <h2 id="m1-hooks-and-interrupts">M1 hooks and interrupts<a class="headerlink" href="#m1-hooks-and-interrupts" title="Permanent link">&para;</a></h2>
 <p>Two callbacks bracket the opcode fetch, and the order matters. <code>on_m1_prefetch</code>
 fires <em>before</em> the read, because DivMMC automap, the NMI FSM and the Multiface
