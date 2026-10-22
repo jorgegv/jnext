@@ -2097,7 +2097,7 @@ int main() {
 
     test_gh270_vblank_write_owns_row0();
     test_gh270_last_vblank_line();
-    std::printf("  Group: GH270-Vblank — done\n");
+    std::printf("  Group: GH270-Vblank - done\n");
 
     test_gh272_row_boundary_atomic();
     test_gh272_cpu_write_past_boundary();
