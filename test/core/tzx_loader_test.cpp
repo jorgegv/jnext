@@ -29,6 +29,7 @@
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include "core/tzx_loader.h"
+#include "ld_trap_rig.h"
 
 #include <spdlog/sinks/ostream_sink.h>
 
@@ -524,6 +525,50 @@ int main(int argc, char** argv) {
         check("TZXC-68", "Emulator::load_tzx after a WAV ejects the WAV",
               wav_ok && tzx_ok && !emu->wav_tape().is_loaded() && emu->tzx_tape().is_loaded(),
               buf);
+    }
+
+
+    // ---- LD-BYTES fast-load trap (GH #395), TZX side ----------------------
+    // Siblings of TAPC-13/17/16: the same shared helper (tape_trap.h) serves
+    // both loaders, entry at 0x0562 included. Fixtures are our own bytes.
+    {
+        using namespace ldrig;
+        auto body_of = [](bool good) {
+            Bytes b = {0xFF, 1, 2, 3, 4, 5};
+            uint8_t sum = 0;
+            for (uint8_t v : b) sum ^= v;
+            b.push_back(good ? sum : static_cast<uint8_t>(sum ^ 0x55));
+            return b;
+        };
+        auto tzx_case = [&](const char* name, bool good) {
+            Case c; c.tzx = true;
+            c.path = write_file(name, concat({kHeader, b10(body_of(good))}));
+            return c;
+        };
+        {
+            Result f = run(tzx_case("t100.tzx", true), true, 20);
+            check("TZXC-100", "fast load serves a caller entering LD-BYTES at 0x0562 from a TZX 0x10 block",
+                  f.built && f.reached && carry(f) && f.mem[0] == 1 && f.mem[4] == 5,
+                  "reached=" + std::to_string(f.reached));
+        }
+        {
+            Result f = run(tzx_case("t101.tzx", false), true, 20);
+            check("TZXC-101", "a TZX 0x10 block with a bad checksum: carry clear, payload written",
+                  f.built && f.reached && !carry(f) && f.mem[4] == 5,
+                  "reached=" + std::to_string(f.reached));
+        }
+        {
+            const Bytes b = body_of(true);
+            Bytes tap = le16(static_cast<uint32_t>(b.size()));
+            tap.insert(tap.end(), b.begin(), b.end());
+            Case tc; tc.path = write_file("t102.tap", tap);
+            Result z = run(tzx_case("t102.tzx", true), true, 20);
+            Result t = run(tc, true, 20);
+            std::string why;
+            check("TZXC-102", "the TZX trap leaves the same state as the TAP trap for the same bytes",
+                  z.reached && t.reached && same_state(z, t, &why) && z.r.AF2 == t.r.AF2 &&
+                  z.r.BC == t.r.BC && carry(z), why);
+        }
     }
 
     Log::emulator()->sinks().pop_back();

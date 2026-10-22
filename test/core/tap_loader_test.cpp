@@ -23,6 +23,7 @@
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include "core/tap_loader.h"
+#include "ld_trap_rig.h"
 
 #include <spdlog/sinks/ostream_sink.h>
 
@@ -306,6 +307,140 @@ int main() {
         check("TAPC-12", "a TAP loaded through a native-separator path reports its bare file name",
               ok && t.filename() == "native-separators.tap",
               "path=" + full + " filename=" + t.filename());
+    }
+
+
+    // ---- LD-BYTES fast-load trap (GH #395) -------------------------------
+    // The trap sits at LD-BREAK 0x056B, where every LD-BYTES entry converges
+    // (FUSE traps the same spot: opcodes_base.c RET NZ -> tape_load_trap()).
+    // Oracles: the 48K ROM listing, and the REAL ROM executed by the CPU on
+    // the same block fed by jnext's own real-time player (the CPU is pinned by
+    // FUSE's 1356 opcode tests). Fixtures are synthetic bytes of our own.
+    {
+        using namespace ldrig;
+        const Bytes pl = {1, 2, 3, 4, 5};
+        const uint8_t chk = static_cast<uint8_t>(0xFF ^ 1 ^ 2 ^ 3 ^ 4 ^ 5);
+        auto mk = [&](Case c, const char* name, const Bytes& tap) { c.path = write_file(name, tap); return c; };
+        auto both = [&](const Case& c, Result& rt, Result& fa) {
+            rt = run(c, false, 500);
+            fa = run(c, true, 20);
+        };
+        auto d = [&](const Result& rt, const Result& fa) {
+            std::string why;
+            const bool same = same_state(rt, fa, &why);
+            char b[160];
+            std::snprintf(b, sizeof(b), "rt:reached=%d f=%d AF=%04x AF'=%04x BC=%04x DE=%04x HL=%04x IX=%04x | "
+                          "fast:reached=%d AF=%04x AF'=%04x BC=%04x DE=%04x HL=%04x IX=%04x same=%d(%s)",
+                          rt.reached, rt.frames, rt.r.AF, rt.r.AF2, rt.r.BC, rt.r.DE, rt.r.HL, rt.r.IX,
+                          fa.reached, fa.r.AF, fa.r.AF2, fa.r.BC, fa.r.DE, fa.r.HL, fa.r.IX, same, why.c_str());
+            return std::string(b);
+        };
+        const Bytes good = tap_block(0xFF, pl);
+
+        {   // TAPC-13
+            Case c = mk(Case{}, "t13.tap", good);
+            Result f = run(c, true, 20);
+            check("TAPC-13", "fast load serves a caller that enters LD-BYTES at 0x0562 (past 0x0556)",
+                  f.built && f.reached && carry(f) && f.mem[0] == 1 && f.mem[4] == 5 && f.at_end,
+                  "reached=" + std::to_string(f.reached));
+        }
+        {   // TAPC-14
+            Case c; c.mt = MachineType::ZX128K; c.rom1_128 = true;
+            c = mk(c, "t14.tap", good);
+            Result f = run(c, true, 20);
+            check("TAPC-14", "same on ZX128K with ROM 1 (the 48K BASIC ROM) paged",
+                  f.built && f.reached && carry(f) && f.mem[0] == 1 && f.mem[4] == 5 && f.at_end,
+                  "reached=" + std::to_string(f.reached));
+        }
+        {   // TAPC-15
+            Case c; c.entry = 0x0556; c.bordcr = 0x10;
+            c = mk(c, "t15.tap", good);
+            Result f = run(c, true, 20);
+            check("TAPC-15", "an entry at 0x0556 returns through SA/LD-RET: EI executed, border restored from BORDCR",
+                  f.built && f.reached && carry(f) && f.mem[4] == 5 && f.r.IFF1 == 1 && f.border == 2,
+                  "iff1=" + std::to_string(f.r.IFF1) + " border=" + std::to_string(f.border));
+        }
+        {   // TAPC-16
+            Case c = mk(Case{}, "t16.tap", good);
+            Result rt, fa; both(c, rt, fa);
+            check("TAPC-16", "success: fast load leaves the registers the ROM leaves (AF 0093, AF' 2165, BC B021, L=checksum, DE 0)",
+                  same_state(rt, fa) && fa.r.AF == 0x0093 && fa.r.AF2 == 0x2165 && fa.r.BC == 0xB021 &&
+                  fa.r.HL == chk && fa.r.DE == 0 && fa.r.IX == 0xA005, d(rt, fa));
+        }
+        {   // TAPC-17
+            Case c = mk(Case{}, "t17.tap", tap_block(0xFF, pl, false));
+            Result rt, fa; both(c, rt, fa);
+            check("TAPC-17", "bad checksum: carry clear, payload written, same state as the ROM",
+                  same_state(rt, fa) && !carry(fa) && fa.mem[4] == 5, d(rt, fa));
+        }
+        {   // TAPC-18
+            Case c; c.flag = 0x00; c.de = 17; c.prefill = Bytes(8, 0xEE);
+            c = mk(c, "t18.tap", concat({good, tap_block(0xFF, {9})}));
+            Result rt, fa; both(c, rt, fa);
+            Result f2 = fa;
+            check("TAPC-18", "flag mismatch: carry clear, nothing written, block consumed, same state as the ROM",
+                  same_state(rt, fa) && !carry(fa) && fa.mem[0] == 0xEE && fa.block == 1, d(rt, fa));
+            (void)f2;
+        }
+        {   // TAPC-19
+            Case c; c.de = 3; c.prefill = Bytes(8, 0xEE);
+            c = mk(c, "t19.tap", good);
+            Result rt, fa; both(c, rt, fa);
+            check("TAPC-19", "DE shorter than the payload: DE bytes written, carry clear (parity takes the next byte)",
+                  same_state(rt, fa) && !carry(fa) && fa.mem[2] == 3 && fa.mem[3] == 0xEE, d(rt, fa));
+        }
+        {   // TAPC-20
+            Case c; c.de = 8;
+            c = mk(c, "t20.tap", good);
+            Result rt, fa; both(c, rt, fa);
+            check("TAPC-20", "DE longer than the payload: payload+checksum written, DE reduced, carry clear, B=0, L=1",
+                  same_state(rt, fa) && !carry(fa) && fa.mem[5] == chk && fa.r.DE == 2 &&
+                  (fa.r.BC >> 8) == 0 && (fa.r.HL & 0xFF) == 1, d(rt, fa));
+        }
+        {   // TAPC-21
+            Case c; c.load = false; c.prefill = Bytes(pl);
+            c = mk(c, "t21.tap", good);
+            Result rt, fa; both(c, rt, fa);
+            check("TAPC-21", "VERIFY against matching memory: carry set, memory untouched",
+                  same_state(rt, fa) && carry(fa) && fa.mem[0] == 1 && fa.mem[4] == 5, d(rt, fa));
+        }
+        {   // TAPC-22
+            Case c; c.load = false; c.prefill = Bytes{1, 2, 9, 4, 5};
+            c = mk(c, "t22.tap", good);
+            Result rt, fa; both(c, rt, fa);
+            check("TAPC-22", "VERIFY with one byte differing: carry clear, memory untouched",
+                  same_state(rt, fa) && !carry(fa) && fa.mem[2] == 9, d(rt, fa));
+        }
+        {   // TAPC-23
+            Case cc; cc.mt = MachineType::ZX128K; cc = mk(cc, "t23.tap", good);
+            auto emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = cc.mt; cfg.rewind_buffer_frames = 0;
+            cfg.sd_card_image = sd_image(); cfg.sd_card_readonly = true;
+            bool ok = emu->init(cfg) && emu->load_tap(cc.path, true);
+            emu->mmu().write(0x9000, 0x00); emu->mmu().write(0x9001, 0x80);
+            auto r = emu->cpu().get_registers();
+            r.PC = 0x056B; r.SP = 0x9000; r.AF = 0x0040; r.IFF1 = r.IFF2 = 0;
+            emu->cpu().set_registers(r);
+            emu->run_frame();
+            check("TAPC-23", "ROM 0 (128 editor) paged at 0x056B: no trap, the tape is not touched",
+                  ok && emu->tape().current_block() == 0, "block=" + std::to_string(emu->tape().current_block()));
+        }
+        {   // TAPC-24
+            Case cc = mk(Case{}, "t24.tap", good);
+            auto emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = cc.mt; cfg.rewind_buffer_frames = 0;
+            cfg.sd_card_image = sd_image(); cfg.sd_card_readonly = true;
+            bool ok = emu->init(cfg) && emu->load_tap(cc.path, true);
+            emu->mmu().write(0x8000, 0x18); emu->mmu().write(0x8001, 0xFE);
+            emu->mmu().write(0x9000, 0x00); emu->mmu().write(0x9001, 0x80);
+            auto r = emu->cpu().get_registers();
+            r.PC = 0x056B; r.SP = 0x9000; r.AF = 0x0000; r.IFF1 = r.IFF2 = 0;
+            emu->cpu().set_registers(r);
+            emu->run_frame();
+            check("TAPC-24", "LD-BREAK with Z clear: the ROM's RET NZ is taken, no trap",
+                  ok && emu->tape().current_block() == 0 && emu->cpu().pc() == 0x8000,
+                  "block=" + std::to_string(emu->tape().current_block()) + " pc=" + std::to_string(emu->cpu().pc()));
+        }
     }
 
     Log::emulator()->sinks().pop_back();
