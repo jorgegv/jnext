@@ -190,7 +190,9 @@ later, the loser is left unbound — and every refusal becomes a `LoadIssue` tha
 `MainWindow` keeps the map in effect in `debug_keys_`. Both its forwarding of
 the five execution keys (`run`, `pause`, `step_into`, `step_over`, `step_out`)
 and the push into `DebuggerWindow::set_keymap()` read that member, so the two
-windows cannot disagree.
+windows cannot disagree. The five source-step actions are keymap actions too
+(`source_step_into` and the rest), but they are debugger-window only: the
+forwarding stays at the five instruction-level keys.
 
 ## Symbols
 
@@ -221,9 +223,11 @@ the PC changed or the text was loaded since (a user who scrolled stays put).
 it, and `apply_pause_state(true)` runs that at every stop and every step, as it
 does for the disassembly, so a stop at the very PC and line already shown still
 puts the view back. While the machine runs the tab says "Running" and drops the
-highlight. Its buttons are not menu items and
-have no key binding: the menu tree and the bindings are pinned by
-`debugger_accel_test` and `debugger_keymap_test`. `BreakpointModel` lists an
+highlight. The Debug > Source actions
+connect to the same `DebuggerManager` slots as its buttons, and their enabled
+state comes from `SourcePanel::update_buttons()` through the `steps_available()`
+signal, so the buttons and the actions share one predicate. The menu tree and
+the bindings are pinned by `debugger_accel_test` and `debugger_keymap_test`. `BreakpointModel` lists an
 Execute subscription with a page qualifier as the GUI's own row (`Row::page`);
 the Breakpoints panel creates one from a `file:line`, and the gutter draws it
 only while its page is mapped (`pc_marked()`). The Call Stack's last column

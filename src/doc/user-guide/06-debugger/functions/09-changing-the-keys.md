@@ -7,7 +7,7 @@ the combination you want. Click **Reset** on a row to put that one back, or
 Apply, and Apply takes effect immediately in both windows — you do not have to
 restart JNEXT.
 
-The twelve commands, and what they are bound to out of the box:
+The seventeen commands, and what they are bound to out of the box:
 
 | Command | Default | Also reachable from |
 |---|---|---|
@@ -23,12 +23,25 @@ The twelve commands, and what they are bound to out of the box:
 | Run to End of Scan Line | *unbound* | toolbar, **Debug** menu |
 | Enable / Disable Trace | **F2** | toolbar, **Debug ▸ Trace** |
 | Export Trace… | **F3** | toolbar, **Debug ▸ Trace** |
+| Source Step Into | **Ctrl+F6** | Source tab, **Debug ▸ Source** |
+| Source Step Over | **Ctrl+F7** | Source tab, **Debug ▸ Source** |
+| Source Step Out | **Ctrl+F8** | Source tab, **Debug ▸ Source** |
+| Source Step Back | *unbound* | Source tab, **Debug ▸ Source** |
+| Source Reverse Continue | *unbound* | Source tab, **Debug ▸ Source** |
 
-Three ship with no key at all. They are not second-class — they are reachable
-from the toolbar, the menu and (for Run to Cursor) the Enter key — but giving
+Five ship with no key at all (Run to Cursor, Run to End of Frame, Run to End of
+Scan Line, Source Step Back and Source Reverse Continue). They are not
+second-class — they are reachable from the toolbar or the Source tab, the menus and (for
+Run to Cursor) the Enter key — but giving
 them a default would have meant taking a key away from something else, so the
 choice is left to you. If you are coming from blueMSX or Spectaculator, Run to
 Cursor is the one you will want to bind.
+
+The source steps default to **Ctrl+F6**, **Ctrl+F7** and **Ctrl+F8**, the
+instruction steps' keys with Ctrl added. **Ctrl+F6** is also the emulator
+window's Stop Recording key and keeps that meaning there: the two are different
+windows, so they do not clash. A key the desktop takes for itself never reaches
+JNEXT; rebind the command here if that happens.
 
 The toolbar captions follow the bindings, so a button never advertises a key
 that no longer works.
@@ -77,7 +90,7 @@ Two things that are *not* refused, and are worth knowing:
 
 Run, Pause, Single Step, Step Over and Step Out also work while the *emulator*
 window has focus, whenever the debugger is enabled, and they follow your
-bindings there as well. The other seven do not: they work in the debugger
+bindings there as well. The other twelve do not: they work in the debugger
 window only. Trace in particular stays out of it because its default, **F2**,
 is the emulator window's window-scale cycler.
 
@@ -112,7 +125,8 @@ run_to_cursor=Ctrl+F10
 
 The action names are `run`, `pause`, `step_into`, `step_over`, `step_out`,
 `step_back`, `frame_back`, `run_to_cursor`, `run_to_eof`, `run_to_eosl`,
-`trace_toggle` and `trace_export`. Case does not matter in a combination, and
+`trace_toggle`, `trace_export`, `source_step_into`, `source_step_over`,
+`source_step_out`, `source_step_back` and `source_reverse_continue`. Case does not matter in a combination, and
 `none` means "no key". Only redefinitions are written, so the section holds
 just the lines you changed — and is absent entirely if you changed nothing.
 

@@ -2594,7 +2594,9 @@ later, the loser is left unbound — and every refusal becomes a <code>LoadIssue
 <p><code>MainWindow</code> keeps the map in effect in <code>debug_keys_</code>. Both its forwarding of
 the five execution keys (<code>run</code>, <code>pause</code>, <code>step_into</code>, <code>step_over</code>, <code>step_out</code>)
 and the push into <code>DebuggerWindow::set_keymap()</code> read that member, so the two
-windows cannot disagree.</p>
+windows cannot disagree. The five source-step actions are keymap actions too
+(<code>source_step_into</code> and the rest), but they are debugger-window only: the
+forwarding stays at the five instruction-level keys.</p>
 <h2 id="symbols">Symbols<a class="headerlink" href="#symbols" title="Permanent link">&para;</a></h2>
 <p>The Map menu loads into the backend's one table with <code>load_map()</code>, and the
 Disassembly, Call Stack and Breakpoints panels read <code>symbols()</code>. A breakpoint set
@@ -2620,9 +2622,11 @@ the PC changed or the text was loaded since (a user who scrolled stays put).
 it, and <code>apply_pause_state(true)</code> runs that at every stop and every step, as it
 does for the disassembly, so a stop at the very PC and line already shown still
 puts the view back. While the machine runs the tab says "Running" and drops the
-highlight. Its buttons are not menu items and
-have no key binding: the menu tree and the bindings are pinned by
-<code>debugger_accel_test</code> and <code>debugger_keymap_test</code>. <code>BreakpointModel</code> lists an
+highlight. The Debug &gt; Source actions
+connect to the same <code>DebuggerManager</code> slots as its buttons, and their enabled
+state comes from <code>SourcePanel::update_buttons()</code> through the <code>steps_available()</code>
+signal, so the buttons and the actions share one predicate. The menu tree and
+the bindings are pinned by <code>debugger_accel_test</code> and <code>debugger_keymap_test</code>. <code>BreakpointModel</code> lists an
 Execute subscription with a page qualifier as the GUI's own row (<code>Row::page</code>);
 the Breakpoints panel creates one from a <code>file:line</code>, and the gutter draws it
 only while its page is mapped (<code>pc_marked()</code>). The Call Stack's last column

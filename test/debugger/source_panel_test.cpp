@@ -67,7 +67,9 @@
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTemporaryDir>
+#include <QTest>
 #include <QTextBlock>
+#include <QWindow>
 #include <QTimer>
 
 #include <chrono>
@@ -1523,6 +1525,264 @@ void test_call_stack_pages() {
 
 }  // namespace
 
+// ── GH #337: Debug > Source ───────────────────────────────────────────
+//
+// Oracle: issue #337 and design doc 8.2 (the menu); section 7 via the PC
+// signatures QSRC-05/06/11/17/18 already pin (the verbs); the one handler is
+// DebuggerManager::run_source_step().
+
+/// The Debug > Source popup of the debugger window, or nullptr.
+QMenu* source_popup(DebuggerWindow* dbg) {
+    if (!dbg) return nullptr;
+    for (QAction* top : dbg->menuBar()->actions()) {
+        QMenu* debug = top->menu();
+        if (!debug) continue;
+        for (QAction* sub : debug->actions())
+            if (sub->menu() && sub->menu()->title().remove(QLatin1Char('&')) == QStringLiteral("Source"))
+                return sub->menu();
+    }
+    return nullptr;
+}
+
+QAction* source_item(DebuggerWindow* dbg, const QString& text) {
+    if (QMenu* m = source_popup(dbg))
+        for (QAction* a : m->actions())
+            if (a->text().remove(QLatin1Char('&')) == text) return a;
+    return nullptr;
+}
+
+void trigger(DebuggerWindow* dbg, const QString& text) {
+    if (QAction* a = source_item(dbg, text)) a->trigger();
+    QApplication::processEvents();
+}
+
+/// Paused, rewind 8, trace on, map loaded, Into x3 (main.bas:12), and an
+/// Execute breakpoint at $8002 so Back ($9000) and Reverse ($8002) differ.
+void at_line_12(Fixture& fx) {
+    fx.enable();
+    fx.backend->set_trace_enabled(true);
+    fx.load_map();
+    fx.mgr->refresh_panels();
+    for (int i = 0; i < 3; ++i) trigger(fx.dbg(), QStringLiteral("Step Into"));
+    fx.mgr->breakpoints().add(BreakpointModel::Execute, 0x8002,
+                              static_cast<uint16_t>(fx.p80));
+    fx.mgr->refresh_panels();
+}
+
+void settle_ms(int ms) {
+    QEventLoop loop;
+    QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+    loop.exec();
+}
+
+void test_source_menu() {
+    const std::string dir = g_tmp->path().toStdString();
+    {
+        Fixture fx;
+        fx.enable();
+        QStringList items;
+        if (QMenu* m = source_popup(fx.dbg()))
+            for (QAction* a : m->actions())
+                if (!a->isSeparator()) items << a->text().remove(QLatin1Char('&'));
+        const QStringList want{"Step Into", "Step Over", "Step Out", "Step Back",
+                               "Reverse Continue", "Load Source Map...",
+                               "Load Symbols (Memory.txt)..."};
+        check("QSRC-47", "Debug > Source holds, in order: Step Into, Step Over, Step Out, "
+                         "Step Back, Reverse Continue, Load Source Map..., "
+                         "Load Symbols (Memory.txt)...",
+              items == want, s(items.join(QStringLiteral(" | "))));
+    }
+    {
+        Fixture fx;
+        fx.enable(); fx.load_map(); fx.mgr->refresh_panels();
+        trigger(fx.dbg(), QStringLiteral("Step Into"));
+        const uint16_t a = fx.pc();
+        trigger(fx.dbg(), QStringLiteral("Step Into"));
+        check("QSRC-48", "Debug > Source > Step Into, twice from $8000: $8002 then $9000",
+              a == 0x8002 && fx.pc() == 0x9000,
+              std::to_string(a) + " -> " + std::to_string(fx.pc()));
+    }
+    {
+        Fixture fx;
+        fx.enable(); fx.load_map(); fx.mgr->refresh_panels();
+        trigger(fx.dbg(), QStringLiteral("Step Over"));
+        const uint16_t a = fx.pc();
+        trigger(fx.dbg(), QStringLiteral("Step Over"));
+        check("QSRC-49", "Debug > Source > Step Over, twice from $8000: $8002 then $8005",
+              a == 0x8002 && fx.pc() == 0x8005,
+              std::to_string(a) + " -> " + std::to_string(fx.pc()));
+    }
+    {
+        Fixture fx;
+        fx.enable(); fx.load_map(); fx.mgr->refresh_panels();
+        trigger(fx.dbg(), QStringLiteral("Step Out"));
+        check("QSRC-50", "Debug > Source > Step Out from $8000 stops at $8001",
+              fx.pc() == 0x8001, std::to_string(fx.pc()));
+    }
+    {
+        Fixture fx(/*rewind_frames=*/8);
+        at_line_12(fx);
+        const uint16_t from = fx.pc();
+        trigger(fx.dbg(), QStringLiteral("Step Back"));
+        check("QSRC-51", "Debug > Source > Step Back from main.bas:12 lands on sub.bas:1 ($9000)",
+              from == 0x8005 && fx.pc() == 0x9000,
+              std::to_string(from) + " -> " + std::to_string(fx.pc()));
+    }
+    {
+        Fixture fx(/*rewind_frames=*/8);
+        at_line_12(fx);
+        const uint16_t from = fx.pc();
+        trigger(fx.dbg(), QStringLiteral("Reverse Continue"));
+        check("QSRC-52", "Debug > Source > Reverse Continue from main.bas:12 lands on the "
+                         "breakpoint at $8002",
+              from == 0x8005 && fx.pc() == 0x8002,
+              std::to_string(from) + " -> " + std::to_string(fx.pc()));
+    }
+    {
+        Fixture fx;
+        fx.enable();
+        const QString sld = QString::fromStdString(fx.sld);
+        drive_modals([&](QWidget* w, int) { choose_file(w, sld); },
+                     [&]() { trigger(fx.dbg(), QStringLiteral("Load Source Map...")); });
+        check("QSRC-53", "Debug > Source > Load Source Map... loads the chosen SLD and no symbols",
+              !fx.backend->source_map().empty() &&
+                  fx.backend->source_map().loaded_file() == fx.sld &&
+                  !fx.backend->lookup_name("Landing").has_value());
+    }
+    {
+        Fixture fx;
+        fx.enable();
+        const std::string mem = dir + "/menu.Memory.txt";
+        write_text(mem, "8005: ._Landing\n");
+        drive_modals([&](QWidget* w, int) { choose_file(w, QString::fromStdString(mem)); },
+                     [&]() { trigger(fx.dbg(), QStringLiteral("Load Symbols (Memory.txt)...")); });
+        check("QSRC-54", "Debug > Source > Load Symbols (Memory.txt)... loads the chosen "
+                         "symbols and no source map",
+              fx.backend->lookup_name("Landing") == std::optional<uint16_t>(0x8005) &&
+                  fx.backend->source_map().empty());
+    }
+    {
+        // The five step actions against the buttons, over five states. Both the
+        // pairwise equality and the expected value, so all-disabled cannot pass.
+        const char* const names[5] = {"Step Into", "Step Over", "Step Out", "Step Back",
+                                      "Reverse Continue"};
+        const char* const btns[5]  = {"Into", "Over", "Out", "Back", "Reverse"};
+        std::string detail;
+        bool ok = true;
+        auto state = [&](Fixture& fx, const char* what, const bool want[5]) {
+            for (int i = 0; i < 5; ++i) {
+                QAction* a = source_item(fx.dbg(), QString::fromLatin1(names[i]));
+                QPushButton* b = button(fx.dbg()->source_panel(), QString::fromLatin1(btns[i]));
+                if (!a || !b || a->isEnabled() != b->isEnabled() || a->isEnabled() != want[i]) {
+                    ok = false;
+                    detail += std::string(what) + "/" + names[i] + " action=" +
+                              (a ? std::to_string(a->isEnabled()) : "null") + " button=" +
+                              (b ? std::to_string(b->isEnabled()) : "null") + "; ";
+                }
+            }
+        };
+        const bool none[5] = {false, false, false, false, false};
+        const bool fwd[5]  = {true, true, true, false, false};
+        const bool all[5]  = {true, true, true, true, true};
+        {   // (a) no map
+            Fixture fx; fx.enable(); fx.mgr->refresh_panels();
+            state(fx, "a", none);
+        }
+        {   // (b) a map loaded behind the window, then the manager's paused
+        // refresh (panels, then update_actions()); (c) then running
+            Fixture fx; fx.enable(); fx.load_map(); fx.mgr->refresh_panels();
+            state(fx, "b", fwd);
+            fx.dbg()->update_actions(/*is_paused=*/false);
+            state(fx, "c", none);
+        }
+        {   // (d) rewind + trace + map, two steps in
+            Fixture fx(/*rewind_frames=*/8);
+            fx.enable(); fx.backend->set_trace_enabled(true); fx.load_map();
+            fx.mgr->refresh_panels();
+            for (int i = 0; i < 2; ++i) trigger(fx.dbg(), QStringLiteral("Step Into"));
+            fx.mgr->refresh_panels();
+            state(fx, "d", all);
+        }
+        {   // (e) rewind, no trace
+            Fixture fx(/*rewind_frames=*/8);
+            fx.enable(); fx.load_map(); fx.mgr->refresh_panels();
+            state(fx, "e", fwd);
+        }
+        check("QSRC-55", "the five step actions are enabled exactly when their buttons are",
+              ok, detail);
+    }
+    {
+        // QSRC-22's corrupt machine, through the menu: the gate is in the manager.
+        Fixture fx;
+        fx.enable(); fx.load_map(); fx.mgr->refresh_panels();
+        const uint8_t garbage[4] = {0, 0, 0, 0};
+        StateReader r(garbage, sizeof(garbage));
+        fx.emu.load_state(r);
+        fx.backend->load_source_map(fx.sld, false);
+        fx.mgr->refresh_panels();
+        bool asked = false;
+        drive_modals(
+            [&](QWidget* w, int) {
+                if (auto* mb = qobject_cast<QMessageBox*>(w))
+                    asked = mb->windowTitle() == QStringLiteral("Machine State Corrupt");
+                click_box(w, QMessageBox::No);
+            },
+            [&]() { trigger(fx.dbg(), QStringLiteral("Step Into")); });
+        check("QSRC-27", "the menu runs the button's handler: on a corrupt machine Debug > "
+                         "Source > Step Into asks first, and No does not step",
+              !fx.emu.last_state_error().empty() && asked && fx.pc() == 0x8000,
+              "asked=" + std::to_string(asked) + " pc=" + std::to_string(fx.pc()));
+    }
+    {
+        Fixture fx(/*rewind_frames=*/8);
+        fx.enable();
+        fx.backend->set_trace_enabled(true);
+        fx.load_map();
+        fx.mgr->refresh_panels();
+        for (int i = 0; i < 2; ++i) trigger(fx.dbg(), QStringLiteral("Step Into"));
+        fx.mgr->refresh_panels();
+        QAction* rev = source_item(fx.dbg(), QStringLiteral("Reverse Continue"));
+        const bool enabled = rev && rev->isEnabled();
+        const uint16_t from = fx.pc();
+        trigger(fx.dbg(), QStringLiteral("Reverse Continue"));
+        const QString bar = fx.dbg()->statusBar()->currentMessage();
+        check("QSRC-56", "a refused Reverse Continue from the menu leaves the machine and names "
+                         "the reason in the debugger window's status bar",
+              enabled && from != 0x8000 && fx.pc() == from &&
+                  bar.contains(QStringLiteral("no earlier source breakpoint")),
+              s(bar) + " pc " + std::to_string(from) + " -> " + std::to_string(fx.pc()));
+    }
+    {
+        // The default keys, through the real platform key path.
+        struct Press { Qt::Key key; int times; uint16_t want; };
+        const Press presses[3] = {{Qt::Key_F6, 2, 0x9000}, {Qt::Key_F7, 2, 0x8005},
+                                  {Qt::Key_F8, 1, 0x8001}};
+        std::string detail;
+        bool ok = true;
+        for (const Press& p : presses) {
+            Fixture fx;
+            fx.enable(); fx.load_map(); fx.mgr->refresh_panels();
+            DebuggerWindow* w = fx.dbg();
+            w->show();
+            w->activateWindow();
+            settle_ms(150);
+            if (!w->windowHandle()) { ok = false; detail += "no window handle; "; continue; }
+            for (int i = 0; i < p.times; ++i) {
+                QTest::keyClick(w->windowHandle(), p.key, Qt::ControlModifier);
+                settle_ms(80);
+            }
+            if (fx.pc() != p.want) {
+                ok = false;
+                detail += "Ctrl+F" + std::to_string(p.key - Qt::Key_F1 + 1) + " -> " +
+                          std::to_string(fx.pc()) + "; ";
+            }
+        }
+        check("QSRC-57", "the default keys pressed in the debugger window run the source steps: "
+                         "Ctrl+F6 twice gives $9000, Ctrl+F7 twice gives $8005, Ctrl+F8 gives $8001",
+              ok, detail);
+    }
+}
+
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     qunsetenv("QT_QPA_PLATFORMTHEME");
@@ -1561,6 +1821,7 @@ int main(int argc, char** argv) {
     test_source_reverse_refused();
     test_source_messages();
     test_call_stack_pages();
+    test_source_menu();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

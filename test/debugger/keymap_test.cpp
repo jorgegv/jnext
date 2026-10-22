@@ -45,6 +45,7 @@
 #include <QApplication>
 #include <QKeyEvent>
 #include <QKeySequence>
+#include <QMenu>
 #include <QLabel>
 #include <QPushButton>
 #include <QString>
@@ -463,7 +464,7 @@ void test_preferences_tab() {
 //
 // THE FINDING, AND WHY THE ANSWER IS NOT "REFUSE IT".
 //
-// Conflict detection covers the twelve debugger actions. It does NOT cover the
+// Conflict detection covers the seventeen debugger actions. It does NOT cover the
 // chords the EMULATOR window already binds, and five of those survive every
 // refusal rule. Measured, not listed by hand — DKH-01 harvests them:
 //
@@ -524,7 +525,7 @@ void test_debugger_window_has_no_foreign_chord() {
 
     // Same window = same shortcut map = a REAL ambiguity, which Qt answers by
     // firing both round-robin (GH #124). There must therefore be nothing in
-    // this window, outside the twelve, that a user could also bind. Today that
+    // this window, outside the seventeen, that a user could also bind. Today that
     // holds because the only two (the disassembly panel's Copy and Select All)
     // are refused by validate_combo(). This row is what makes the next debugger
     // shortcut somebody adds a loud failure instead of a silent ambiguity.
@@ -537,7 +538,7 @@ void test_debugger_window_has_no_foreign_chord() {
             std::string why;
             if (!parse_combo(seq.toString().toStdString(), c, why)) continue;
             if (!validate_combo(c, why)) continue;     // a user could not bind it
-            if (km.action_for(c)) continue;            // one of the twelve: fine
+            if (km.action_for(c)) continue;            // one of the seventeen: fine
             offenders << QStringLiteral("%1=%2").arg(
                 seq.toString(), a->text().remove(QLatin1Char('&')));
         }
@@ -885,6 +886,102 @@ void test_keymap_survives_a_late_window() {
 }
 
 
+// ── DKM-40..44: the Debug > Source actions (GH #337) ──────────────────────
+//
+// Oracle: owner decision on #337 (2026-10-22) for the defaults (source
+// Into/Over/Out on Ctrl+F6/F7/F8; Back and Reverse Continue unbound); the
+// GH #1 keymap contract (apply_keymap() is the one installer) for the rest.
+
+/// The item labelled `label` in the Debug > Source popup, or nullptr. Found by
+/// its visible label, never by its shortcut, so a swapped bind() is caught.
+QAction* source_menu_item(DebuggerWindow* dbg, const QString& label) {
+    for (QAction* top : dbg->menuBar()->actions()) {
+        QMenu* debug = top->menu();
+        if (!debug) continue;
+        for (QAction* sub : debug->actions()) {
+            QMenu* m = sub->menu();
+            if (!m || m->title().remove(QLatin1Char('&')) != QStringLiteral("Source")) continue;
+            for (QAction* a : m->actions())
+                if (a->text().remove(QLatin1Char('&')) == label) return a;
+        }
+    }
+    return nullptr;
+}
+
+/// Preferences row for `a`: its label text and capture-button combo.
+std::string prefs_row(PreferencesDialog& dlg, Action a, const char* label) {
+    const auto buttons = dlg.findChildren<ShortcutCaptureButton*>();
+    bool has_label = false;
+    for (QLabel* l : dlg.findChildren<QLabel*>())
+        if (l->text() == QLatin1String(label)) has_label = true;
+    const int i = static_cast<int>(a);
+    if (!has_label || i >= buttons.size()) return "";
+    return render_combo(buttons[i]->combo());
+}
+
+void source_key_row(const char* id, const char* desc, Action act, const char* item,
+                    const char* want_default, const char* label, const char* rebind)
+{
+    DebuggerFixture fx;
+    if (!fx.ok) { check(id, desc, false, "fixture failed"); return; }
+    AppConfigData before;
+    PreferencesDialog dlg(before);
+
+    const ActionInfo& ai = info(act);
+    QAction* a = source_menu_item(fx.dbg, QString::fromLatin1(item));
+    if (!a) { check(id, desc, false, std::string("no Debug > Source > ") + item); return; }
+
+    const std::string def_text = render_combo(ai.def);
+    std::string detail;
+    bool ok = true;
+    auto need = [&](bool c, const std::string& why) { if (!c) { ok = false; detail += why + "; "; } };
+
+    need(def_text == want_default, "default is " + def_text);
+    need(find_action(ai.id) == &ai, "find_action(id)");
+    need(std::string(ai.label) == label, "label");
+    const QString shown = a->shortcuts().isEmpty() ? QString()
+                                                   : a->shortcut().toString(QKeySequence::PortableText);
+    need(std::string(want_default) == "none" ? a->shortcuts().isEmpty()
+                                             : shown == QString::fromLatin1(want_default),
+         "action carries '" + shown.toStdString() + "'");
+    need(prefs_row(dlg, act, label) == want_default, "Preferences row '" + prefs_row(dlg, act, label) + "'");
+
+    Keymap km;
+    km.set(act, parsed(rebind));
+    fx.dbg->set_keymap(km);
+    QApplication::processEvents();
+    need(a->shortcut() == to_key_sequence(parsed(rebind)),
+         "rebind not on the same action: '" + a->shortcut().toString().toStdString() + "'");
+    if (std::string(want_default) != "none")
+        need(action_with_shortcut(fx.dbg, to_key_sequence(parsed(want_default))) == nullptr,
+             std::string(want_default) + " still claimed after the rebind");
+    if (act == Action::SourceStepBack) {
+        QAction* instr = action_with_shortcut(fx.dbg, to_key_sequence(parsed("Shift+F7")));
+        need(instr != nullptr && instr != a, "instruction Step Back lost Shift+F7");
+    }
+    check(id, desc, ok, detail);
+}
+
+void test_source_keys() {
+    source_key_row("DKM-40",
+        "Source Step Into: Ctrl+F6 by default, on the Debug > Source action; listed in Preferences; a rebind moves it onto the same action",
+        Action::SourceStepInto, "Step Into", "Ctrl+F6", "Source Step Into", "Ctrl+F10");
+    source_key_row("DKM-41",
+        "Source Step Over: Ctrl+F7 by default, on the Debug > Source action; listed in Preferences; a rebind moves it onto the same action",
+        Action::SourceStepOver, "Step Over", "Ctrl+F7", "Source Step Over", "Ctrl+F11");
+    source_key_row("DKM-42",
+        "Source Step Out: Ctrl+F8 by default, on the Debug > Source action; listed in Preferences; a rebind moves it onto the same action",
+        Action::SourceStepOut, "Step Out", "Ctrl+F8", "Source Step Out", "Ctrl+F12");
+    source_key_row("DKM-43",
+        "Source Step Back: unbound by default; a rebind installs it on the Source action and not on the instruction Step Back",
+        Action::SourceStepBack, "Step Back", "none", "Source Step Back", "Ctrl+Shift+F7");
+    source_key_row("DKM-44",
+        "Source Reverse Continue: unbound by default; a rebind installs it on the Source action",
+        Action::SourceReverseContinue, "Reverse Continue", "none", "Source Reverse Continue",
+        "Ctrl+Shift+F8");
+}
+
+
 // ── DBGF: the debugger window's menu bar must not take the keyboard ────────
 //
 // GH #268 was reported against the EMULATOR window, where a bare Alt tap hands
@@ -1153,6 +1250,7 @@ int main(int argc, char** argv) {
     test_main_window_forwarding();
     test_main_window_pushes_keymap();
     test_keymap_survives_a_late_window();
+    test_source_keys();
     test_debugger_menu_focus();
     test_script_keys();
 

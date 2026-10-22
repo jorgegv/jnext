@@ -329,18 +329,21 @@ static void test_accelerators(Fixture& fx)
         // Capture &Screen, S&top Recording) — three more mnemonics.
         // GH #390: + the Load MAP File popup's s&jasmplus item: one more
         // mnemonic, J (Z and S are taken in that popup), no new popup.
+        // GH #337: + the Debug > Source popup (one popup, its "Sourc&e" title
+        // and seven item mnemonics = 8 more) and Ctrl+F6/F7/F8 (Back and
+        // Reverse Continue ship unbound).
         const bool as_expected = top == 6
-                              && popup_scopes.size() == 9
-                              && menu_accels.size() == 39
-                              && shortcuts == 19;
+                              && popup_scopes.size() == 10
+                              && menu_accels.size() == 47
+                              && shortcuts == 22;
         // Described as what it is — a comparison against pinned sizes — not as
         // "the walk covers the whole tree", which would claim a completeness
         // four size checks cannot establish (add one menu and delete another
         // and the counts still agree).
         check("DACC-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
-              fmt("menus=%zu (want 6), popups=%zu (want 9), mnemonics=%zu (want 39), "
-                  "shortcuts=%zu (want 19)",
+              fmt("menus=%zu (want 6), popups=%zu (want 10), mnemonics=%zu (want 47), "
+                  "shortcuts=%zu (want 22)",
                   top, popup_scopes.size(), menu_accels.size(), shortcuts));
     }
 }

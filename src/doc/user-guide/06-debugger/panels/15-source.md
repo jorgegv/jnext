@@ -7,7 +7,7 @@ At the top, the source steps — **Into**, **Over**, **Out**, **Back** and
 **Reverse** — and **Load SLD...** / **Load Memory.txt...** to load a source map
 or NextBuild symbols by hand. The steps are available while the machine is
 paused and a source map is loaded; **Back** and **Reverse** also need the trace
-log and rewind.
+log and rewind. The same steps and loads are also in **Debug ▸ Source**.
 
 Under them, a line naming the position — `main.bas:120  $8A3C  page 2E`, or
 `ROM or overlay` when no RAM page supplies the address — and

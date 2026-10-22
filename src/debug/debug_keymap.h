@@ -20,7 +20,7 @@
 
 namespace jnext::dbgkeys {
 
-/// The twelve "virtual" debugger commands a key can be bound to.
+/// The seventeen "virtual" debugger commands a key can be bound to.
 ///
 /// The ORDER is load-bearing twice over: it is the order the Preferences table
 /// lists, and it is the tie-break when two actions want the same combination
@@ -38,9 +38,16 @@ enum class Action : uint8_t {
     RunToEosl,
     TraceToggle,
     TraceExport,
+    // GH #337: appended, so the order above (Preferences listing, conflict
+    // tie-break) is unchanged for the first twelve.
+    SourceStepInto,
+    SourceStepOver,
+    SourceStepOut,
+    SourceStepBack,
+    SourceReverseContinue,
 };
 
-inline constexpr int ACTION_COUNT = 12;
+inline constexpr int ACTION_COUNT = 17;
 
 /// Modifier bitmask. NOT Qt's values — this header must not know about Qt.
 enum Mod : uint8_t {

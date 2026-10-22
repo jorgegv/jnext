@@ -26,7 +26,7 @@ SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
     layout->setSpacing(2);
 
     // No '&' anywhere: these share the window's Alt namespace with the menu
-    // bar (accel_test DACC-04), and a source step has no reserved key. The
+    // bar (accel_test DACC-04), and the buttons have no key (the same verbs are Debug > Source actions, keyed from the keymap). The
     // captions do not repeat the toolbar's ("Step Back" & co.): the window's
     // buttons are found by caption.
     auto* steps = new QHBoxLayout();
@@ -148,6 +148,7 @@ void SourcePanel::update_buttons(bool paused)
     // not refuse, and the trace to find the target in.
     const bool backward = forward && !dbg_->rewind_blocked().has_value() &&
                           dbg_->trace_enabled();
+    emit steps_available(forward, backward);
     into_btn_->setEnabled(forward);
     over_btn_->setEnabled(forward);
     out_btn_->setEnabled(forward);
