@@ -91,6 +91,7 @@
 #include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -1258,7 +1259,14 @@ int main()
             fs::remove_all(warm_start::cache_dir(), ec);
             const bool planted = plant(card);
             const int64_t recorded = mtime_of(card);
-            const bool moved = set_mtime(card, recorded + 20000000LL);
+            // One hour in the clock's own ticks (ns on Linux, 100 ns on
+            // Windows), read back: a host that rounds timestamps coarsely
+            // (wine) must still show the move.
+            const int64_t hour = static_cast<int64_t>(
+                std::chrono::duration_cast<fs::file_time_type::duration>(
+                    std::chrono::hours(1)).count());
+            const bool moved = set_mtime(card, recorded + hour) &&
+                               mtime_of(card) != recorded;
             LogTap tap(Log::emulator());
             Emulator e1;
             make_emu(e1, card);
