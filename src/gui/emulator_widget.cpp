@@ -114,8 +114,7 @@ void EmulatorWidget::set_scale(int factor) {
 void EmulatorWidget::set_crt_filter(bool enabled) {
     if (crt_filter_ != enabled) {
         crt_filter_ = enabled;
-        sync_crt_overlay();   // the scanline mode is the shader's Lite style where there is GL
-        update();
+        update();             // the scanline mode is always the software overlay (paintEvent)
     }
 }
 
@@ -128,7 +127,6 @@ void EmulatorWidget::set_fullscreen_mode(bool fs) {
 bool EmulatorWidget::set_crt_shader(bool enabled) {
 #ifdef JNEXT_HAVE_CRT_GL
     crt_shader_ = enabled;
-    if (enabled) gl_unavailable_ = false;   // an explicit request tries again
     sync_crt_overlay();
     return true;
 #else
@@ -146,17 +144,11 @@ void EmulatorWidget::set_crt_shader_style(crt_shader::Style style) {
 
 void EmulatorWidget::sync_crt_overlay() {
 #ifdef JNEXT_HAVE_CRT_GL
-    // Which look is wanted: the shader's TV/PC style; or, for the scanline mode,
-    // the shader's own scanlines-only (Lite) style. If GL turned out to be
-    // unusable the scanline mode falls back to the software overlay (paintEvent).
-    bool want = false;
-    crt_shader::Style style = crt_style_;
-    if (crt_shader_) {
-        want = true;
-    } else if (crt_filter_ && !gl_unavailable_) {
-        want = true;
-        style = crt_shader::Style::Lite;
-    }
+    // The overlay exists only for the shader's own looks (TV, PC monitor). The
+    // Scanlines mode (crt_filter_) is the software overlay in paintEvent() for
+    // everyone, GL or not: it costs nothing and needs no graphics context.
+    const bool want = crt_shader_;
+    const crt_shader::Style style = crt_style_;
 
     if (crt_overlay_ && (!want || crt_overlay_->style() != style)) drop_crt_overlay();
     if (want && !crt_overlay_) {
@@ -171,18 +163,10 @@ void EmulatorWidget::sync_crt_overlay() {
                 [this, raised_by = QPointer<CrtGlOverlay>(crt_overlay_)](const QString& why) {
                     if (!raised_by || raised_by != crt_overlay_) return;
                     drop_crt_overlay();
-                    gl_unavailable_ = true;
-                    if (crt_shader_) {
-                        crt_shader_ = false;
-                        Log::platform()->warn("CRT shader unavailable, using the software display: {}",
-                                              why.toStdString());
-                        emit crt_shader_failed(why);
-                    } else {
-                        // The scanline mode keeps its look: the software overlay takes over.
-                        Log::platform()->warn("CRT shader unavailable, drawing software scanlines: {}",
-                                              why.toStdString());
-                        update();
-                    }
+                    crt_shader_ = false;
+                    Log::platform()->warn("CRT shader unavailable, using the software display: {}",
+                                          why.toStdString());
+                    emit crt_shader_failed(why);
                 }, Qt::QueuedConnection);
         layout_crt_overlay();
         // Paused, or stopped in the debugger: no frame is coming, so show the last one.

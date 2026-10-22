@@ -42,9 +42,8 @@ public:
     void set_scale(int factor);
     int scale() const { return scale_; }
 
-    /// The scanline mode of the CRT display. Where the build has the OpenGL shader this
-    /// is its scanlines-only (Lite) style; otherwise, or if OpenGL turns out to be
-    /// unusable, it is the software overlay drawn in paintEvent().
+    /// The Scanlines mode of the CRT display: the software overlay drawn in paintEvent(),
+    /// for every build and host, with or without OpenGL.
     void set_crt_filter(bool enabled);
     bool crt_filter() const { return crt_filter_; }
 
@@ -54,7 +53,7 @@ public:
     /// leaving it off — when this build has no OpenGL support. A context that
     /// cannot be created only shows itself at the first paint; the widget then
     /// falls back to the software display on its own and emits
-    /// crt_shader_failed(). The scanline mode above and this are mutually exclusive
+    /// crt_shader_failed(). Scanlines above and this are mutually exclusive
     /// (MainWindow enforces it); both are views of one "CRT effect" setting.
     bool set_crt_shader(bool enabled);
     bool crt_shader() const { return crt_shader_; }
@@ -197,8 +196,8 @@ private:
     void note_overlay_presented();
     /// Delete the overlay and return to the software display.
     void drop_crt_overlay();
-    /// Make the overlay match the settings: none, the shader's style, or Lite for the
-    /// scanline mode; rebuild it when the style it was made with is no longer wanted.
+    /// Make the overlay match the settings: none, or the shader's style; rebuild it
+    /// when the style it was made with is no longer wanted.
     void sync_crt_overlay();
     /// Software-scale native_ into scaled_ at the current scale factor.
     void prescale();
@@ -210,7 +209,6 @@ private:
     bool crt_shader_ = false;                     ///< the setting
     crt_shader::Style crt_style_ = crt_shader::STYLE_DEFAULT;
     CrtGlOverlay* crt_overlay_ = nullptr;         ///< non-null only while the shader runs
-    bool gl_unavailable_ = false;                 ///< the overlay failed once: scanlines go software
     bool fullscreen_mode_ = false;
     bool dpr_valid_ = false;  ///< True once DPR has been verified on-screen.
     QPoint fs_offset_;        ///< Top-left offset for centered image in fullscreen.

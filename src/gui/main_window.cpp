@@ -1275,7 +1275,7 @@ void MainWindow::create_menus() {
     });
 
     // The OpenGL shader's two looks, only in a build that has it. The entry above is
-    // the scanline mode (the shader's scanlines-only style where there is OpenGL), so
+    // the Scanlines mode (the software overlay, with or without OpenGL), so
     // View carries one choice: off, scanlines, TV or PC monitor. No mnemonics, like the
     // Scale entries: the main window's Alt-letter space is full (see the header of
     // test/gui/main_window_accel_test.cpp) and MA-05 pins how many the menu tree has.
@@ -2580,14 +2580,16 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
 
     set_mouse_release_method(cfg.mouse_release);   // GH #365
     set_scale(cfg.window_scale);
-    // One effect: resolve the exclusivity before touching the widget, so a config
-    // with both set builds one overlay, not a Lite one that is torn down at once.
+    // One effect: resolve the exclusivity before touching the widget. A shader saved
+    // in the scanlines-only (Lite) style is the Scanlines mode, the software overlay
+    // (a hand-edited file only: the menu and Preferences never write it).
+    const bool lite = cfg.crt_shader && cfg.crt_shader_style == crt_shader::Style::Lite;
     emulator_widget_->set_crt_shader_style(cfg.crt_shader_style);
-    if (cfg.crt_shader) {
+    if (cfg.crt_shader && !lite) {
         set_crt_shader(true);        // also clears the scanline mode
     } else {
         set_crt_shader(false);
-        set_crt_filter(cfg.crt_filter);
+        set_crt_filter(cfg.crt_filter || lite);
     }
 
     if (speed_callback_) speed_callback_(cfg.emulator_speed_percent / 100.0);

@@ -23,6 +23,10 @@
 //   CRT-W-01/02/03/05/06  the overlay built eagerly in EmulatorWidget's constructor
 //   CRT-W-17      failed() no longer dropping the overlay (the fallback)
 //   CRT-W-18      the stale-failure guard (raised_by) removed
+//   CRT-W-27/28   Scanlines mapped back onto the shader's Lite style (sync_crt_overlay), or a
+//                 saved Lite-style shader not starting as Scanlines (apply_startup_config)
+//   CRT-W-30      note_overlay_presented() not counting; CRT-W-31 drop_crt_overlay() not
+//                 copying the newest frame back; CRT-W-32 Preferences not mapping Lite to Scanlines
 //   CRT-W-10      crt_shader not written by AppConfig::save()
 //   CRT-W-11      the style range check removed from AppConfig::load()
 //   CRT-W-13/14   PreferencesDialog::collect() ignoring the shader checkbox
@@ -233,7 +237,7 @@ int main(int argc, char** argv) {
         const bool not_built_in = !built_in && !w.crt_shader_active() && !w.crt_shader() &&
                                   failed_count == 0;
         check("CRT-W-07", "after switching on: the GPU filter is running, or the widget fell back "
-                          "and said why once, or this build has none — never anything in between",
+                          "and said why once, or this build has none - never anything in between",
               built_in ? (running != fellback && (running || fellback)) : not_built_in,
               std::string(running ? "OUTCOME=running" : fellback ? "OUTCOME=fell-back" :
                           not_built_in ? "OUTCOME=not-built-in" : "OUTCOME=INCONSISTENT") +
@@ -281,11 +285,10 @@ int main(int argc, char** argv) {
         auto overlays = w.findChildren<CrtGlOverlay*>();
         if (overlays.size() == 1) emit overlays[0]->failed(QStringLiteral("injected"));
         w.set_crt_shader(false);          // the user got there first, before the queued failure ran
-        settle(6);
-        const bool stale_ignored = failed_count == 0 && !w.crt_shader() && !w.crt_shader_active();
-        w.set_crt_shader(true);           // and a NEW overlay must not be torn down by the old one's message
-        const bool alive_again = w.crt_shader_active();
-        settle(1);
+        const bool stale_ignored = !w.crt_shader() && !w.crt_shader_active();
+        w.set_crt_shader(true);           // a NEW overlay exists when the old one's message is delivered
+        settle(6);                        // ... and must not be torn down by it
+        const bool alive_again = w.crt_shader_active() && failed_count == 0;
         check("CRT-W-18", "a failure raised by an overlay that is already gone is ignored: no message, no effect on a new overlay",
               overlays.size() == 1 && stale_ignored && alive_again,
               "failed_count=" + std::to_string(failed_count));
@@ -359,6 +362,39 @@ int main(int argc, char** argv) {
               before.size() == 1 && !old && after.size() == 1 && after[0]->style() == crt_shader::Style::Pc &&
               w.crt_shader() && w.crt_shader_active());
     }
+    {
+        EmulatorWidget w;
+        w.show();
+        settle();
+        w.set_crt_shader(true);
+        auto ov = w.findChildren<CrtGlOverlay*>();
+        const uint64_t before = w.present_count();
+        bool counted = false;
+        if (ov.size() == 1) {
+            w.update_frame(fb.data(), FB_W, FB_H);   // a frame is pending ...
+            emit ov[0]->presented();                 // ... the overlay shows it: one present
+            emit ov[0]->presented();                 // a repaint of the same frame: not another
+            counted = w.present_count() == before + 1;
+        }
+        check("CRT-W-30", "while the overlay runs, a presented frame is counted once (the 'shown' rate)",
+              ov.size() == 1 && counted,
+              "present_count " + std::to_string(before) + " -> " + std::to_string(w.present_count()));
+    }
+    {
+        EmulatorWidget w;
+        w.show();
+        settle();
+        const auto fa = make_fb(0xFF204060), fbb = make_fb(0xFF901030);
+        w.update_frame(fa.data(), FB_W, FB_H);
+        w.set_crt_shader(true);
+        w.update_frame(fbb.data(), FB_W, FB_H);      // while on, frames go to the overlay only
+        w.set_crt_shader(false);                     // the newest one must come back
+        const QImage img = w.grab().toImage();
+        const QRgb c = img.pixel(img.width() / 2, img.height() / 2);
+        check("CRT-W-31", "switching the effect off shows the newest frame, not the one from before it was switched on",
+              (c & 0xFFFFFF) == 0x901030,
+              "centre pixel " + QString::number(c & 0xFFFFFF, 16).toStdString());
+    }
 #else
     check("CRT-W-17", "a failure raised by the live overlay drops it, switches the setting off and tells the user once",
           !built_in, "this build has no overlay to fail");
@@ -368,41 +404,54 @@ int main(int argc, char** argv) {
     check("CRT-W-20", "fullscreen, the overlay is the integer-scaled centred rectangle, and follows a resize", !built_in, "no overlay in this build");
     check("CRT-W-21", "a shader switched on while paused shows the last frame at once, and later frames are fed to it", !built_in, "no overlay in this build");
     check("CRT-W-22", "changing the style under a running overlay rebuilds it with the new style", !built_in, "no overlay in this build");
+    check("CRT-W-30", "while the overlay runs, a presented frame is counted once (the 'shown' rate)", !built_in, "no overlay in this build");
+    check("CRT-W-31", "switching the effect off shows the newest frame, not the one from before it was switched on", !built_in, "no overlay in this build");
 #endif
 
-    // ── The scanline mode IS the shader's scanlines-only look (software without GL) ──
-#ifdef JNEXT_HAVE_CRT_GL
+    // ── Scanlines is the software overlay, for everyone: no GL widget, ever ──
     {
         EmulatorWidget w;
         w.show();
         settle();
-        w.set_crt_filter(true);
-        auto ov = w.findChildren<CrtGlOverlay*>();
-        const bool lite = ov.size() == 1 && ov[0]->style() == crt_shader::Style::Lite && w.crt_filter() && !w.crt_shader();
-        w.set_crt_filter(false);
-        check("CRT-W-27", "the scanline mode runs the shader's scanlines-only style, and off removes it again",
-              lite && overlay_count(w) == 0 && !w.crt_filter());
-    }
-    {
-        EmulatorWidget w;
-        int failed_count = 0;
-        QObject::connect(&w, &EmulatorWidget::crt_shader_failed, [&](const QString&) { ++failed_count; });
-        w.show();
+        w.update_frame(fb.data(), FB_W, FB_H);
         settle();
         w.set_crt_filter(true);
-        auto ov = w.findChildren<CrtGlOverlay*>();
-        if (ov.size() == 1) emit ov[0]->failed(QStringLiteral("injected"));
-        settle(6);
-        const bool kept = overlay_count(w) == 0 && w.crt_filter() && failed_count == 0;   // software scanlines, silently
+        w.update_frame(fb.data(), FB_W, FB_H);
+        settle();
+        const QImage on = w.grab().toImage();
+        const bool no_gl = overlay_count(w) == 0 && !w.crt_shader_active() && !w.crt_shader() && w.crt_filter();
+        // The software overlay darkens every odd row of the 2x-tall picture.
+        const auto lum = [](QRgb c) { return qRed(c) + qGreen(c) + qBlue(c); };
+        const bool drawn = on.width() > 20 && on.height() > 20 &&
+                           lum(on.pixel(10, 1)) < lum(on.pixel(10, 0)) &&
+                           lum(on.pixel(10, 3)) < lum(on.pixel(10, 2));
         w.set_crt_filter(false);
-        w.set_crt_filter(true);                    // GL is known bad: no new overlay on every toggle
-        check("CRT-W-28", "if GL fails under the scanline mode it stays on as software scanlines, with no message and no retry",
-              ov.size() == 1 && kept && overlay_count(w) == 0 && w.crt_filter());
+        w.update_frame(fb.data(), FB_W, FB_H);
+        settle();
+        const QImage off = w.grab().toImage();
+        const bool plain_off = lum(off.pixel(10, 1)) == lum(off.pixel(10, 0));
+        check("CRT-W-27", "Scanlines never builds the GL overlay: the software scanlines are drawn, and off removes them",
+              no_gl && drawn && plain_off && overlay_count(w) == 0 && !w.crt_filter(),
+              "no_gl=" + std::to_string(no_gl) + " drawn=" + std::to_string(drawn) +
+              " plain_off=" + std::to_string(plain_off));
     }
-#else
-    check("CRT-W-27", "the scanline mode runs the shader's scanlines-only style, and off removes it again", !built_in, "no overlay in this build");
-    check("CRT-W-28", "if GL fails under the scanline mode it stays on as software scanlines, with no message and no retry", !built_in, "no overlay in this build");
-#endif
+    {
+        // A hand-edited config: the shader in its scanlines-only (Lite) style IS Scanlines.
+        MainWindow w;
+        w.show();
+        settle();
+        AppConfigData cfg;
+        cfg.crt_shader = true;
+        cfg.crt_shader_style = crt_shader::Style::Lite;
+        w.apply_startup_config(cfg);
+        QAction* filt = find_action(w, "CRT Scan");
+        QAction* tv = find_action(w, "CRT TV");
+        QAction* pc = find_action(w, "CRT PC");
+        check("CRT-W-28", "a saved shader in the Lite style starts as Scanlines: software overlay, no GL widget, menu entry checked",
+              w.crt_filter() && !w.crt_shader() && !w.emulator_widget()->crt_shader_active() &&
+              overlay_count(*w.emulator_widget()) == 0 &&
+              filt && filt->isChecked() && (!tv || !tv->isChecked()) && (!pc || !pc->isChecked()));
+    }
 
     // ── Settings: AppConfig ──────────────────────────────────────────────
     {
@@ -520,6 +569,17 @@ int main(int argc, char** argv) {
         const AppConfigData out = apply_and_collect(dlg);
         check("CRT-W-24", "a config with both effects set shows, and saves back, exactly one (the shader where there is one)",
               !(out.crt_filter && out.crt_shader) && (built_in ? out.crt_shader : out.crt_filter));
+    }
+
+    {
+        AppConfigData lite;
+        lite.crt_shader = true;
+        lite.crt_shader_style = crt_shader::Style::Lite;
+        PreferencesDialog dlg(lite);
+        QComboBox* combo = crt_combo(dlg);
+        check("CRT-W-32", "Preferences shows a saved Lite-style shader as Scanlines (in a GL build)",
+              combo && (built_in ? combo->currentText() == "Scanlines" : true),
+              combo ? combo->currentText().toStdString() : "no combo");
     }
 
     // ── The main window ──────────────────────────────────────────────────

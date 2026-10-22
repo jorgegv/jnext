@@ -1,4 +1,4 @@
-// crtshot — one picture per CRT effect (off, Scanlines, TV, PC monitor) of the
+// crtshot - one picture per CRT effect (off, Scanlines, TV, PC monitor) of the
 // SAME emulator frame.
 // ===========================================================================
 //
@@ -32,6 +32,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QProcess>
 #include <QTemporaryDir>
 #include <QTimer>
 
@@ -59,7 +60,7 @@ struct Mode {
 
 void usage() {
     std::printf(
-        "crtshot — one screenshot per CRT effect, of the same emulator frame\n"
+        "crtshot - one screenshot per CRT effect, of the same emulator frame\n"
         "\n"
         "Usage: crtshot [--out DIR] [--prefix NAME] [--frames N] [--scale N]\n"
         "               [--load FILE] [--sdcard IMAGE]\n"
@@ -120,11 +121,18 @@ int main(int argc, char** argv)
     }
 
     // Work on a copy, and keep jnext's own config out of the picture.
-    QTemporaryDir scratch;
+    // Under ~/.jnext/runs, not the system temp dir (RAM-backed on some hosts, and the
+    // image is 1 GB), and cloned with cp --reflink=auto like `make docs-screenshots`.
+    const QString runs = QDir::homePath() + QStringLiteral("/.jnext/runs");
+    QDir().mkpath(runs);
+    QTemporaryDir scratch(runs + QStringLiteral("/crtshot-XXXXXX"));
     if (!scratch.isValid()) { std::fprintf(stderr, "crtshot: no temporary directory\n"); return 1; }
     const QString sd_copy = scratch.path() + QStringLiteral("/sd.img");
     std::printf("crtshot: copying the SD image...\n");
-    if (!QFile::copy(sd, sd_copy)) { std::fprintf(stderr, "crtshot: could not copy %s\n", qPrintable(sd)); return 1; }
+    if (QProcess::execute(QStringLiteral("cp"), {QStringLiteral("--reflink=auto"), sd, sd_copy}) != 0) {
+        std::fprintf(stderr, "crtshot: could not copy %s\n", qPrintable(sd));
+        return 1;
+    }
     qputenv("JNEXT_CONFIG_DIR", scratch.path().toUtf8());
 
     QApplication app(argc, argv);   // the native platform: this needs a GPU

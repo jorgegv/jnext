@@ -178,8 +178,7 @@ QWidget* PreferencesDialog::build_startup_tab() {
         scale_combo_->addItem(tr("%1x").arg(s), s);
     form->addRow(tr("Window scale:"), scale_combo_);
 
-    // One CRT effect at a time, as a pop-up: Off, Scanlines (the shader's scanlines-only
-    // look where there is GPU support, a software overlay elsewhere), or one of the two
+    // One CRT effect at a time, as a pop-up: Off, Scanlines (the software overlay), or one of the two
     // shader looks, which exist only in a build that has the shader. Without them
     // collect() hands the saved shader settings back (crt_shader_saved_).
     crt_combo_ = new QComboBox(tab);
