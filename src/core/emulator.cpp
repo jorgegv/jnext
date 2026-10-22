@@ -6630,7 +6630,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // cpu_speed="11" (ContentionModel's committed NR 0x07), and during
     // dma_holds_bus the DMA drives the very bus signals the wait
     // expression reads (zxnext.vhd:1828-1835); per-target qualification
-    // (bank-7 BRAM / bootrom / inactive pages exempt) is
+    // (bank-7 BRAM and inactive pages do not wait; overlays resolve in
+    // arbiter order; no boot-ROM exemption, GH #391) is
     // Mmu::sram_read_wait28().
     dma_.read_mem_wait_tstates = [this](uint16_t addr) -> uint8_t {
         return (contention_.cpu_speed() == 3) ? mmu_.sram_read_wait28(addr)
