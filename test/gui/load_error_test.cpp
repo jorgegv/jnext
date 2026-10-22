@@ -807,8 +807,10 @@ int main(int argc, char** argv) {
               fmt("n=%d seen=%d text=%s", h.n, w.seen, q(w.text).c_str()));
     }
     // ZIPG-09
-    check("ZIPG-09", "the File > Load filter offers *.zip",
-          MainWindow::load_filter().contains("*.zip"), q(MainWindow::load_filter()));
+    check("ZIPG-09", "the File > Load filter offers *.zip in 'Spectrum Files' and as its own 'ZIP Archives' entry",
+          MainWindow::load_filter().contains("*.rzx *.zip);;") &&
+              MainWindow::load_filter().contains("ZIP Archives (*.zip);;"),
+          q(MainWindow::load_filter()));
 
     std::filesystem::remove_all(g_root, ec);
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
