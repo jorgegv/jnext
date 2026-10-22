@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=209  # HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
+EXPECTED_TOTAL=218  # HS-98a..i (the wine stall capture, GH #383), HS-97a..h (the ASCII-text lint, GH #382), HS-95f..i (the wine desktop keeper, GH #329), HS-96a..d (the detach lint, GH #328), HS-95a..e (the platform run's end-to-end accounting), HS-94g..i (stdin, DISPLAY) + HS-90a..e, HS-91a..g, HS-92a..b, HS-93a..d, HS-94a..f (GH #319: --platform, os= tags, per-OS pins, the wine runner; 24 rows) + 75 + HS-89 (xdotool Xvfb -noreset, GH #318) + HS-82..88d (19 rows: the target OS, `# os:`, .exe/runner, userland preflight, job cap; GH #214) + HS-81a..b + HS-78, HS-79, HS-80a..h (tool-missing / version-gap FAIL pins) + HS-76a..b + HS-77a..d (a SKIP fails the run, 2026-10-06) + HS-68a..e (the sourced-row counter guard) + HS-69a..o, HS-70a..e, HS-71a..p, HS-72, HS-73, HS-74a..c, HS-75a..b (GH #295)
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -2434,6 +2434,20 @@ wstub="$T/wine-stub"
 cat > "$wstub" <<'WEOF'
 #!/bin/bash
 # stub wine: report what a Windows process would see, per the first argument
+if [[ "${1:-}" == winedbg ]]; then   # the stall capture's debugger (GH #383), in `info thread`'s real format
+    case "${3:-}" in
+        "info thread")
+            [[ -z "${STUB_DBG_HANG:-}" ]] || exec sleep 30
+            w=${STUB_EXE//\//\\}
+            printf 'process  tid      prio    name (all IDs are in hex)\r\nSTUB-INFO-THREAD\r\n'
+            printf '00000100 fake.exe\r\n\t["Z:%s" hang-other]\r\n\t00000104    0     \r\n' "$w"
+            printf '00000200 fake.exe\r\n\t["Z:%s" hang]\r\n\t00000204    0     \r\n' "$w"
+            [[ -z "${STUB_DBG_DUP:-}" ]] || printf '00000300 fake.exe\r\n\t["Z:%s" hang]\r\n\t00000304    0     \r\n' "$w"
+            ;;
+        "bt all") echo "STUB-BT for ${4:-}" ;;
+    esac
+    exit 0
+fi
 case "${2:-}" in
     env)  echo "QPA=${QT_QPA_PLATFORM:-unset} WQPA=${WINEQT_QPA_PLATFORM:-unset} SDLV=${WINESDL_VIDEODRIVER:-unset}" ;;
     crlf) printf 'out line\r\n'; printf 'err line\r\n' >&2 ;;
@@ -2568,6 +2582,76 @@ check "HS-95h" "a --serve that cannot provide the desktop keeper is a harness fa
 # the CI container has no procps-ng (GH #295): wine-run.sh must not call pgrep / pkill
 n=$(grep -v '^[[:space:]]*#' "$PROJECT_DIR/test/wine-run.sh" | grep -cE '\b(pgrep|pkill)\b' || true)
 check "HS-95i" "wine-run.sh needs no procps-ng (no pgrep / pkill call; the CI container lacks it)" 0 $((n == 0 ? 0 : 1)) "calls=$n" "calls=0"
+
+# GH #383: a TERM at the bound saves the stalled process's state before it is forwarded.
+# The stub's `hang` mode is the deliberately blocked process; its own /proc/<pid>/task is
+# what the capture must save. The oracle is the runner's contract (wine-run.sh header).
+export STUB_EXE="$T/fake.exe"
+cap_hang() {   # cap_hang <capture dir | ->: sets cap_rc cap_ms cap_out (env: STUB_DBG_DUP / STUB_DBG_HANG)
+    local d=$1 pid dog t0 t1
+    rm -rf "$T/cap"
+    ( if [[ $d == - ]]; then unset JNEXT_WINE_CAPTURE_DIR; else export JNEXT_WINE_CAPTURE_DIR=$d; fi
+      JNEXT_WINE_BIN="$wstub" WINEPREFIX="$T/wp" exec bash "$PROJECT_DIR/test/wine-run.sh" --jnext "$T/fake.exe" hang ) \
+        > "$T/caphang.out" 2>&1 &
+    pid=$!
+    ( sleep 40; kill -KILL "$pid" 2>/dev/null ) &
+    dog=$!
+    for _ in $(seq 1 50); do grep -q ready "$T/caphang.out" 2>/dev/null && break; sleep 0.1; done
+    t0=$EPOCHREALTIME
+    kill -TERM "$pid" 2>/dev/null
+    cap_rc=0; wait "$pid" || cap_rc=$?
+    t1=$EPOCHREALTIME
+    kill "$dog" 2>/dev/null; wait "$dog" 2>/dev/null || true
+    pkill -KILL -f -- "$wstub" 2>/dev/null || true
+    cap_ms=$(( (${t1/./} - ${t0/./}) / 1000 ))
+    cap_out=$(cat "$T/caphang.out")
+}
+cap_file() { local f; for f in "$T"/cap/wine-stall-*.txt; do [[ -e $f ]] && echo "$f"; done; return 0; }
+cap_n() { cap_file | wc -l; }
+
+cap_hang "$T/cap"
+cap1=$(cap_file | head -1)
+check "HS-98a" "a TERM at the bound still reaches wine (rc 9) and leaves exactly one capture file (GH #383)" 9 $cap_rc "$cap_out"$'\n'"files=$(cap_n)" "got-term" "files=1"
+cap_txt=$(cat "$cap1" 2>/dev/null || true)
+cap_thr=$(sed -n '/^== target threads/,/^$/p' <<<"$cap_txt")
+check "HS-98b" "...it holds the blocked process's own /proc threads (comm, state, syscall) and the command's args" 0 0 "$cap_thr"$'\n'"$cap_txt" "wine-stub" "syscall:" "command: $T/fake.exe hang"
+n=$(grep -c '0x00000100' <<<"$cap_txt" || true)
+check "HS-98c" "...and backtraces the right Windows pid (the exact command-line match), not the decoy listed first" 0 $((n == 0 ? 0 : 1)) "$cap_txt" "STUB-BT for 0x00000200"
+STUB_DBG_DUP=1 cap_hang "$T/cap"
+cap_txt=$(cat "$(cap_file | head -1)" 2>/dev/null || true)
+n=$(grep -c 'STUB-BT' <<<"$cap_txt" || true)
+check "HS-98d" "two processes with the identical command line give 'no unique match' and no backtrace at all" 0 $((n == 0 ? 0 : 1)) "$cap_txt" "no unique match"
+STUB_DBG_HANG=1 cap_hang "$T/cap"
+cap_txt=$(cat "$(cap_file | head -1)" 2>/dev/null || true)
+check "HS-98e" "a winedbg that never answers cannot hold the forward past the rows' --kill-after=5s (rc 9, ms=$cap_ms < 5000)" 9 $cap_rc "$cap_txt"$'\n'"ms=$(( cap_ms < 5000 ? 1 : 0 ))" "no answer within" "ms=1"
+cap_hang "$T/cap"
+cap_txt=$(cat "$(cap_file | head -1)" 2>/dev/null || true)
+n=$(grep -c 'STUB-INFO-THREAD\|STUB-BT' <<<"$cap_out" || true)
+check "HS-98f" "winedbg's output never reaches the row (only the capture file), which gets one 'wine-run: TERM at the bound' line" 0 $((n == 0 ? 0 : 1)) "$cap_out"$'\n'"$cap_txt" "wine-run: TERM at the bound" "STUB-INFO-THREAD"
+cap_hang -
+n=$(find "$T" -name 'wine-stall-*' 2>/dev/null | wc -l)
+check "HS-98g" "with JNEXT_WINE_CAPTURE_DIR unset TERM is forwarded at once (ms=$cap_ms < 1000, rc 9) and no capture is written anywhere" 9 $cap_rc "$cap_out"$'\n'"files=$n ms=$(( cap_ms < 1000 ? 1 : 0 ))" "got-term" "files=0" "ms=1"
+unset STUB_EXE
+
+# the driver: exports the capture dir, reports captures and the prefix line, never changes a verdict
+cp "$PLT/scripts/adm-a-func.sh" "$T/adm-a.good"
+printf 'if want adm-a-func; then begin_func adm-a-func; mkdir -p "$JNEXT_WINE_CAPTURE_DIR"; printf "== header\\nx\\n\\n== target threads (tid comm)\\n7 stub-thread-line\\n\\n== winedbg\\n" > "$JNEXT_WINE_CAPTURE_DIR/wine-stall-x.txt"; pass_row; fi\n' > "$PLT/scripts/adm-a-func.sh"
+plw_serve "\"$T/explorer.exe\" 600 </dev/null >/dev/null 2>&1 & echo \$! | tee \"$T/expl.pid\""
+rm -rf "$PL/build/regression-artifacts"
+out=$(plw_run); rc=$?
+kill "$(cat "$T/expl.pid")" 2>/dev/null || true
+check "HS-98h" "a capture a row leaves in \$JNEXT_WINE_CAPTURE_DIR is listed with its threads, and the verdict stays green (GH #383)" 0 $rc "$out" \
+    "wine stall captures (GH #383): 1" "wine-stall-x.txt" "stub-thread-line"
+printf 'if want adm-a-func; then begin_func adm-a-func; mkdir -p "$JNEXT_WINE_CAPTURE_DIR"; pass_row; fi\n' > "$PLT/scripts/adm-a-func.sh"
+plw_serve "\"$T/explorer.exe\" 600 </dev/null >/dev/null 2>&1 & echo \$! | tee \"$T/expl.pid\""
+rm -rf "$PL/build/regression-artifacts"
+out=$(plw_run); rc=$?
+kill "$(cat "$T/expl.pid")" 2>/dev/null || true
+left=$(find "$PL/build/regression-artifacts/wine-stall" -mindepth 1 2>/dev/null | wc -l)
+n=$(grep -c 'wine stall captures' <<<"$out" || true)
+check "HS-98i" "a run with no capture prints the prefix line, no captures line, and leaves no empty per-run dir" 0 $rc "$out"$'\n'"left=$left caps=$n" \
+    "wine prefix at the end:" "left=0 caps=0"
+cp "$T/adm-a.good" "$PLT/scripts/adm-a-func.sh"
 
 echo ""
 echo "====================================="
