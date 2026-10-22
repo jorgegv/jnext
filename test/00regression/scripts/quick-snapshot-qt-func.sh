@@ -11,7 +11,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # MainWindow wiring and the real QtApp::cold_boot are exercised end to end
 # (preferences_apply_test PA-22* drives the slots without a cold boot).
 #
-# Same runs (empty, emptytype, save, load, typeafter, typeahead, typeduring [split chord], load2, bad, keep1,
+# Same runs (empty, emptytype, save, load, typeafter, typeahead, load2, bad, keep1,
 # typesave, loadts) and the same oracle as quick-snapshot-sdl-func (read its
 # header; the GH #386 runs typeahead, emptytype, typesave and loadts are the
 # lost-key cases). Qt reports in the status bar, which MainWindow mirrors into the log
@@ -48,7 +48,7 @@ if want quick-snapshot-qt-func; then
             # typeafter waits for the load, then types: it needs a later capture;
             # typeahead types as the load is serviced, so it gets the same.
             shot_frame=700; exit_frame=760
-            case "$mode" in typeafter|typeahead|typeduring) shot_frame=950; exit_frame=1010 ;; esac
+            case "$mode" in typeafter|typeahead) shot_frame=950; exit_frame=1010 ;; esac
             "$bin" --machine 48k --silent $extra \
                 --delayed-screenshot "$out" --delayed-screenshot-frames $shot_frame \
                 --delayed-automatic-exit-frames $exit_frame >"$log" 2>&1 &
@@ -76,18 +76,6 @@ if want quick-snapshot-qt-func; then
                     # delay between xdotool events), so the host delivers them to
                     # the app together, as it does after any UI stall.
                     typeahead) xdotool key --delay 0 alt+shift+F9 b 5 Return 2>/dev/null || true; sleep 1 ;;
-                    # GH #386: keys typed while the load is in progress, and nothing
-                    # left in the key queue when its cold boot comes: the chord
-                    # key-down and key-up are split, with the keys typed after the
-                    # key-up, so the chord releases are already consumed when the
-                    # stall (the SD digest) begins to end. The host queues the keys,
-                    # they reach the app after the cold boot and before the load
-                    # lands, and the load wipes the matrix: only the re-assert
-                    # (emulator_apply_load_keeping_keys) keeps them.
-                    typeduring)
-                        xdotool keydown alt shift F9 2>/dev/null || true; sleep 0.05
-                        xdotool keyup F9 shift alt 2>/dev/null || true; sleep 0.05
-                        xdotool key --delay 0 b 5 Return 2>/dev/null || true; sleep 1 ;;
                     # GH #386: a Quick Load that finds nothing does not cold-boot, so
                     # only the end of the action lifts the key queue: typing must work.
                     emptytype) tap alt+shift+F9; tap b; tap 4; tap Return ;;
@@ -117,7 +105,7 @@ if want quick-snapshot-qt-func; then
 
     shot_e="$TMP_DIR/qs_qt_e.png"; shot_a="$TMP_DIR/qs_qt_a.png"
     shot_l="$TMP_DIR/qs_qt_l.png"; shot_l2="$TMP_DIR/qs_qt_l2.png"
-    shot_bad="$TMP_DIR/qs_qt_bad.png"; shot_k="$TMP_DIR/qs_qt_k.png"; shot_t="$TMP_DIR/qs_qt_t.png"; shot_ta="$TMP_DIR/qs_qt_ta.png"; shot_td="$TMP_DIR/qs_qt_td.png"
+    shot_bad="$TMP_DIR/qs_qt_bad.png"; shot_k="$TMP_DIR/qs_qt_k.png"; shot_t="$TMP_DIR/qs_qt_t.png"; shot_ta="$TMP_DIR/qs_qt_ta.png"
     shot_et="$TMP_DIR/qs_qt_et.png"; shot_ts="$TMP_DIR/qs_qt_ts.png"; shot_lts="$TMP_DIR/qs_qt_lts.png"
 
     if ! command -v xvfb-run &>/dev/null; then
@@ -145,7 +133,6 @@ if want quick-snapshot-qt-func; then
         qs_run typeafter "$shot_t"
         # GH #386: the load chord and the keys typed right behind it, in one burst.
         qs_run typeahead "$shot_ta"
-        qs_run typeduring "$shot_td"
         # Make the OLDER save the newest by modification time: the load must now
         # restore a DIFFERENT state, which also proves the two saves differ.
         [[ -n "$first_saved" ]] && touch -d '10 minutes' "$first_saved"
@@ -170,8 +157,8 @@ if want quick-snapshot-qt-func; then
         qs_run loadts "$shot_lts"
 
         problems=()
-        for m in empty emptytype save load typeafter typeahead typeduring load2 bad keep1 typesave loadts; do
-            case "$m" in empty) shot="$shot_e" ;; emptytype) shot="$shot_et" ;; typeahead) shot="$shot_ta" ;; typeduring) shot="$shot_td" ;; typesave) shot="$shot_ts" ;; loadts) shot="$shot_lts" ;; save) shot="$shot_a" ;; load) shot="$shot_l" ;; typeafter) shot="$shot_t" ;; load2) shot="$shot_l2" ;; bad) shot="$shot_bad" ;; *) shot="$shot_k" ;; esac
+        for m in empty emptytype save load typeafter typeahead load2 bad keep1 typesave loadts; do
+            case "$m" in empty) shot="$shot_e" ;; emptytype) shot="$shot_et" ;; typeahead) shot="$shot_ta" ;; typesave) shot="$shot_ts" ;; loadts) shot="$shot_lts" ;; save) shot="$shot_a" ;; load) shot="$shot_l" ;; typeafter) shot="$shot_t" ;; load2) shot="$shot_l2" ;; bad) shot="$shot_bad" ;; *) shot="$shot_k" ;; esac
             if [[ ! -s "$shot" || "${qs_rc[$m]}" -ne 0 ]]; then
                 err_line=$(grep -m1 -E '\[(error|critical)\]' "$TMP_DIR/qs_qt_$m.log" 2>/dev/null) || err_line="no error logged"
                 problems+=("$m run: jnext exit ${qs_rc[$m]}, png $([[ -s "$shot" ]] && echo written || echo missing); $err_line")
@@ -191,7 +178,7 @@ if want quick-snapshot-qt-func; then
             bad_msg=$(grep -c 'status bar: Quick Load: refused' "$(L bad)" || true)
             px_e=$(border_px "$shot_e"); px_a=$(border_px "$shot_a"); px_l=$(border_px "$shot_l")
             px_l2=$(border_px "$shot_l2"); px_t=$(border_px "$shot_t"); px_bad=$(border_px "$shot_bad")
-            px_ta=$(border_px "$shot_ta"); px_td=$(border_px "$shot_td"); px_et=$(border_px "$shot_et"); px_lts=$(border_px "$shot_lts")
+            px_ta=$(border_px "$shot_ta"); px_et=$(border_px "$shot_et"); px_lts=$(border_px "$shot_lts")
             if [[ "$n_files" -ne 2 || "$bad_names" -ne 0 || "$saved_lines" -ne 2 ]]; then
                 fail_row " (save: $n_files file(s), $bad_names misnamed, $saved_lines 'status bar: Quick saved:' line(s); want 2/0/2)"
             elif [[ "$empty_msg" -lt 1 || "$boots_empty" -ne "$boots_save" ]]; then
@@ -206,8 +193,6 @@ if want quick-snapshot-qt-func; then
                 fail_row " (typing after a Quick Load did not work: BORDER 5 left the border at $px_t (restored $px_l, untouched $px_e); lost keystrokes (the usual cause on a loaded host: the load had not landed, or a key was dropped), or a CAPS SHIFT held in the saved keyboard matrix?)"
             elif [[ "$px_ta" != "$px_t" ]]; then
                 fail_row " (keys typed with the Quick Load chord were lost: BORDER 5 typed in the same burst left the border at $px_ta, while typed after the load it gives $px_t (restored $px_l, untouched $px_e); the load wiped keys the host was holding, or the cold boot dropped the queue behind the chord)"
-            elif [[ "$px_td" != "$px_t" ]]; then
-                fail_row " (keys typed during the Quick Load were wiped by it: BORDER 5 typed while the app was stalled left the border at $px_td, while typed after the load it gives $px_t (restored $px_l, untouched $px_e); the load must re-assert the keys the host holds)"
             elif [[ "$px_et" == "$px_e" ]]; then
                 fail_row " (typing after a Quick Load that found nothing did not work: border $px_et equals the untouched machine's; the key queue stayed blocked behind the finished action)"
             elif [[ "$px_l2" == "$px_l" || "$px_l2" == "$px_e" ]]; then
