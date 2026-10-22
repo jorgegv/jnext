@@ -26,17 +26,15 @@
 //                  that is not printable ASCII
 //   JNSI-P15..P19b the refusals, each NAMING the defect — and leaving the
 //                  struct EMPTY, which none of the others can see
-//   JNSI-P20..P26b `describe_sdcard_for_snapshot` and the Tier-2 stamp: both
-//                  tiers, the lazy variant, the UTC rendering pinned to one
-//                  known epoch, and the two failures that must not half-fill
-//                  their outputs
+//   JNSI-P20..P24  `describe_sdcard_for_snapshot`: Tier 1 filled, a data
+//                  sector does not move it, a failure fills nothing
+//                  (P21, P23, P25, P26, P26b retired by GH #396)
 //   JNSI-P27..P31b end-to-end through the real reader, against real images —
 //                  §16.2's three legs at the unit tier, plus --force. Leg 3
 //                  carries a correction to the design that writing it found —
 //                  see JNSI-P31.
-//   JNSI-P32..P34  the canonical 1 GB image: Tier 1 populated, the MEASURED
-//                  cost §11.3 asks for, and Tier 2 equal to
-//                  `sdcard::sha256_file` (the "reused verbatim" claim)
+//   JNSI-P32, P35 the canonical 1 GB image: Tier 1 populated and the producer
+//                  clean (P33, P34 retired by GH #396)
 //
 // `--verdict SNAP_IMG CUR_IMG [--force]` is the same code
 // path as a driver for `snapshot-sdcard-mismatch-func`: it exits non-zero on a
@@ -699,7 +697,7 @@ int main(int argc, char** argv) {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // JNSI-P20..P26b — `describe_sdcard_for_snapshot` and the Tier-2 stamp
+    // JNSI-P20..P24 — `describe_sdcard_for_snapshot` (Tier 1 only, GH #396)
     // ─────────────────────────────────────────────────────────────────────
     {
         jnext::jns::SdCardInfo info;
@@ -718,14 +716,6 @@ int main(int argc, char** argv) {
                   info.vollab == base.fat32_bs_vollab &&
                   info.identity.populated(),
               det("ok=%d present=%d why='%s'", ok, info.present, w.c_str()));
-
-        check("JNSI-P21",
-              "…and Tier 2: a 64-hex whole-image digest and an ISO-8601 UTC "
-              "mtime (`YYYY-MM-DDTHH:MM:SSZ`)",
-              ok && is_lower_hex(info.content_sha256, 64) &&
-                  is_iso8601_utc(info.content_mtime_utc),
-              det("sha='%s' mtime='%s'", info.content_sha256.c_str(),
-                  info.content_mtime_utc.c_str()));
     }
     {
         // The two tiers answer DIFFERENT questions, and this is the row that
@@ -740,28 +730,10 @@ int main(int argc, char** argv) {
             jnext::describe_sdcard_for_snapshot(base_img, false, a, w) &&
             jnext::describe_sdcard_for_snapshot(m, false, b, w);
         check("JNSI-P22",
-              "a written data sector moves Tier 2 and NOT Tier 1. That is the "
-              "whole design: Tier 1 says 'same card', Tier 2 says 'it has "
-              "drifted', and only the first refuses",
-              ok && a.identity == b.identity &&
-                  a.content_sha256 != b.content_sha256,
-              det("ok=%d id_same=%d sha_same=%d", ok,
-                  ok && a.identity == b.identity,
-                  ok && a.content_sha256 == b.content_sha256));
-    }
-    {
-        jnext::jns::SdCardInfo info;
-        std::string w;
-        const bool ok = jnext::describe_sdcard_for_snapshot(base_img, false,
-                                                            info, w, false);
-        check("JNSI-P23",
-              "`want_content_stamp = false` fills Tier 1 and leaves Tier 2 "
-              "empty — the lever for a caller that has already established "
-              "Tier 1 does not match, never a way to skip the check",
-              ok && info.present && info.identity.populated() &&
-                  info.content_sha256.empty() &&
-                  info.content_mtime_utc.empty(),
-              det("ok=%d sha='%s'", ok, info.content_sha256.c_str()));
+              "a written data sector does NOT move Tier 1 (GH #396: the half "
+              "of this row that survives the removal of Tier 2)",
+              ok && a.identity == b.identity,
+              det("ok=%d id_same=%d", ok, ok && a.identity == b.identity));
     }
     {
         jnext::jns::SdCardInfo info;
@@ -775,102 +747,10 @@ int main(int argc, char** argv) {
               "filled. A half-filled identity would compare unequal against "
               "itself on reload and refuse for a reason nobody could act on",
               !ok && !info.present && info.mounted_path.empty() &&
-                  !info.identity.populated() && info.content_sha256.empty() &&
-                  info.vollab.empty(),
+                  !info.identity.populated() && info.vollab.empty(),
               det("ok=%d present=%d path='%s'", ok, info.present,
                   info.mounted_path.c_str()));
     }
-    {
-        // The mtime string is UTC, and this is the row that says so. Every
-        // other assertion on it checks only the SHAPE, which a `localtime_r`
-        // would satisfy exactly as well as a `gmtime_r` — and then ship a local
-        // timestamp with a 'Z' on the end, which is a different instant wearing
-        // the right suit. Pinning one KNOWN epoch to one known rendering is the
-        // only assertion that can tell them apart.
-        const std::string m = tmp_path("fixed-mtime");
-        std::string sha, mtime, w;
-        bool prepared = copy_image(base_img, m);
-        if (prepared) {
-            // `std::filesystem::last_write_time`'s SETTER, not `utimensat`.
-            // The first version of this row used the POSIX call and did not
-            // compile under the MinGW cross-toolchain with ENABLE_TESTS=ON —
-            // a gap `make win-release` cannot show, because it builds the
-            // shipped binary and never this file. The convention is one
-            // directory away (`test/uart/uart_integration_test.cpp` guards
-            // POSIX code with `#ifdef _WIN32`), and the portable setter is
-            // better than a guard: it keeps ONE code path, so the assertion
-            // below is the same assertion on every platform.
-            //
-            // C++17 has no portable `system_clock` -> `file_clock` cast, so
-            // this is the documented offset idiom — the exact reverse of the
-            // one `iso8601_utc` uses to read the value back.
-            namespace fs = std::filesystem;
-            // 250 ms past the second, not on it: the two clock reads below are
-            // microseconds apart, so an mtime set "on" the second can land a
-            // hair before it, and a filesystem that keeps whole seconds (wine's
-            // Windows layer) then returns the second BEFORE. At .250 every
-            // granularity renders the same second (GH #214).
-            const auto sys_tp = std::chrono::system_clock::from_time_t(
-                static_cast<std::time_t>(1700000000)) +
-                std::chrono::milliseconds(250);
-            const auto file_tp =
-                std::chrono::time_point_cast<fs::file_time_type::duration>(
-                    sys_tp - std::chrono::system_clock::now() +
-                    fs::file_time_type::clock::now());
-            std::error_code ec;
-            fs::last_write_time(m, file_tp, ec);
-            prepared = !ec;
-        }
-        const bool ok = prepared &&
-                        jnext::read_sd_image_content_stamp(m, sha, mtime, w);
-        check("JNSI-P25",
-              "the Tier-2 mtime is rendered in UTC: epoch 1700000000 is "
-              "`2023-11-14T22:13:20Z` exactly, whatever the host's timezone",
-              ok && mtime == "2023-11-14T22:13:20Z",
-              det("prepared=%d ok=%d mtime='%s'", prepared, ok, mtime.c_str()));
-    }
-    {
-        std::string sha = "leftover", mtime = "leftover", w;
-        const std::string missing = tmp_path("absent-for-stamp");
-        std::remove(missing.c_str());
-        const bool ok = jnext::read_sd_image_content_stamp(missing, sha, mtime, w);
-        check("JNSI-P26",
-              "a Tier-2 stamp that cannot be taken refuses, NAMES the path, and "
-              "leaves BOTH outputs empty — a half-filled stamp would be "
-              "compared against the snapshot's and report a drift that never "
-              "happened",
-              !ok && sha.empty() && mtime.empty() &&
-                  w.find(missing) != std::string::npos,
-              det("ok=%d sha='%s' mtime='%s' why='%s'", ok, sha.c_str(),
-                  mtime.c_str(), w.c_str()));
-    }
-    {
-        // …AND THE OTHER ORDER, which the row above cannot reach. A missing
-        // path fails at the STAT, so the digest is never attempted and the
-        // clean-up after a FAILED DIGEST is never executed. This row drives
-        // that second branch: a DIRECTORY stats perfectly and cannot be read,
-        // so the mtime is computed and the digest then fails — and the mtime
-        // must still come back empty.
-        //
-        // It exists because a mutation found the hole: deleting the
-        // `mtime_utc_out.clear()` in the digest-failure path left every row
-        // green. A half-filled stamp is not harmless — it is written into the
-        // manifest as a stamp, and the reader has no way to tell it apart from
-        // a real one.
-        std::string sha = "leftover", mtime = "leftover", w;
-        const char* base = std::getenv("TMPDIR");
-        const std::string dir = (base && *base) ? base : "/tmp";
-        const bool ok =
-            jnext::read_sd_image_content_stamp(dir, sha, mtime, w);
-        check("JNSI-P26b",
-              "a stamp whose DIGEST fails after the stat SUCCEEDED also leaves "
-              "both outputs empty — the mtime computed on the way must not "
-              "survive the failure",
-              !ok && sha.empty() && mtime.empty() && !w.empty(),
-              det("ok=%d sha='%s' mtime='%s' why='%s'", ok, sha.c_str(),
-                  mtime.c_str(), w.c_str()));
-    }
-
     // ─────────────────────────────────────────────────────────────────────
     // JNSI-P27..P31b — end to end, against real images
     // ─────────────────────────────────────────────────────────────────────
@@ -898,14 +778,10 @@ int main(int argc, char** argv) {
         const bool prepared = copy_image(base_img, m) && poke(m, far, 0x5A);
         const bool ran = prepared &&
                          run_verdict(base_img, m, false, v, w);
-        const bool warned =
-            ran && v.warnings.size() == 1 &&
-            v.warnings[0].find("contents changed") != std::string::npos;
         check("JNSI-P28",
-              "LEG 1 — a mutated DATA SECTOR restores with exactly one warning "
-              "naming the drift. The run proceeds: the card drifting is "
-              "legitimate and common",
-              ran && v.ok && warned,
+              "LEG 1 — a mutated DATA SECTOR restores with NO warning and no "
+              "refusal: the card's contents are not compared (GH #396)",
+              ran && v.ok && v.warnings.empty() && v.refusal.empty(),
               det("ran=%d ok=%d n=%zu '%s'", ran, v.ok, v.warnings.size(),
                   v.warnings.empty() ? "" : v.warnings[0].c_str()));
     }
@@ -943,25 +819,10 @@ int main(int argc, char** argv) {
               det("ran=%d ok=%d n=%zu", ran_f, vf.ok, vf.warnings.size()));
     }
     {
-        // LEG 3, AND THE ONE PLACE §16.2'S WORDING NEEDED CORRECTING.
-        //
-        // The design's leg 3 reads "mutate only BS_VolLab -> assert no warning
-        // and no refusal". The first half of that is UNACHIEVABLE, and this row
-        // is what proved it: BS_VolLab lives at partition_lba*512 + 0x47,
-        // INSIDE the file, so rewriting it necessarily moves the whole-image
-        // SHA-256 that Tier 2 IS — and Tier 2 is the warm-start cache's digest
-        // "reused verbatim" (§11.3, pinned by JNSI-P34), so carving a region
-        // out of it would be a DIFFERENT mechanism, not the same one.
-        //
-        // The Tier-2 warning here is TRUE: a byte on the card did change. What
-        // §11.3's third matrix row actually promises — and what this row
-        // asserts — is that the LABEL IS NEVER COMPARED: no refusal, and no
-        // warning mentioning the label or the identity. A reader that compared
-        // labels would refuse or warn HERE and stay silent on leg 1, so the row
-        // is discriminative in exactly the direction that matters.
-        //
-        // §11.3's matrix and §16.2's row were corrected to say this; see the S7
-        // append in the design doc.
+        // LEG 3 (GH #396). Without a whole-image digest, rewriting only
+        // BS_VolLab warns about NOTHING: the label is never compared. The S7
+        // correction ("unachievable", because the Tier-2 digest moved with the
+        // label) is reversed with Tier 2's removal.
         const std::string m = tmp_path("e2e-vollab");
         Verdict v;
         std::string w;
@@ -996,20 +857,19 @@ int main(int argc, char** argv) {
                        x.find("not the one") != std::string::npos;
             });
         check("JNSI-P31b",
-              "LEG 3 — a differing BS_VolLab produces NO refusal and NO warning "
-              "about the label or the identity. It is a stale copy several "
-              "tools rewrite, and a false refusal on the same physical card is "
-              "the cries-wolf failure §11.1 exists to avoid. (The Tier-2 drift "
-              "warning IS present and IS true: the label is a byte of the "
-              "image, so the whole-image digest moved with it.)",
-              ran && v.ok && v.refusal.empty() && label_silent,
+              "LEG 3 — a differing BS_VolLab produces NO refusal and NO "
+              "warning at all. It is a stale copy several tools rewrite, and "
+              "a false refusal on the same physical card is the cries-wolf "
+              "failure §11.1 exists to avoid",
+              ran && v.ok && v.refusal.empty() && v.warnings.empty() &&
+                  label_silent,
               det("ran=%d ok=%d n=%zu '%s'", ran, v.ok, v.warnings.size(),
                   v.warnings.empty() ? v.refusal.c_str()
                                      : v.warnings[0].c_str()));
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // JNSI-P32..P34 — the canonical 1 GB image, and the measured cost
+    // JNSI-P32, P35 — the canonical 1 GB image
     // ─────────────────────────────────────────────────────────────────────
     {
         SdImageIdentity id;
@@ -1032,34 +892,15 @@ int main(int argc, char** argv) {
                   id.partition_lba, id.fat32_volume_id.c_str(), w.c_str()));
     }
     {
-        // §11.3: "the Tier-2 digest is ~0.5 s warm, ~1.2 s cold on a 1 GB
-        // image… Recommend shipping it eager and measuring." Measured here and
-        // PRINTED, so the figure in the design doc is a number this suite
-        // reproduces rather than a claim nobody re-checks.
-        std::string sha, mtime, w;
-        const auto t0 = std::chrono::steady_clock::now();
+        jnext::jns::SdCardInfo info;
+        std::string w;
         const bool ok =
-            jnext::read_sd_image_content_stamp(real, sha, mtime, w);
-        const auto t1 = std::chrono::steady_clock::now();
-        const double secs =
-            std::chrono::duration<double>(t1 - t0).count();
-        std::printf("  NOTE JNSI-P33: Tier-2 digest of %s took %.3f s\n",
-                    real.c_str(), secs);
-        std::fflush(stdout);
-        check("JNSI-P33",
-              "the Tier-2 stamp of the real 1 GB image is a 64-hex digest and "
-              "an ISO-8601 UTC mtime (the cost is printed above, not asserted: "
-              "a wall-clock threshold on a shared build host is a flaky row, "
-              "not a measurement)",
-              ok && is_lower_hex(sha, 64) && is_iso8601_utc(mtime),
-              det("ok=%d secs=%.3f why='%s'", ok, secs, w.c_str()));
-
-        check("JNSI-P34",
-              "…and it is the warm-start cache's mechanism REUSED VERBATIM: "
-              "byte-for-byte `sdcard::sha256_file` of the same image, not a "
-              "second digest implementation that could drift from it",
-              ok && sha == sdcard::sha256_file(real),
-              det("sha='%s'", sha.c_str()));
+            jnext::describe_sdcard_for_snapshot(real, true, info, w);
+        check("JNSI-P35",
+              "describe_sdcard_for_snapshot on the real 1 GB card fills Tier 1 "
+              "and reports no defect (there is no Tier 2 to fill, GH #396)",
+              ok && info.present && info.identity.populated() && w.empty(),
+              det("ok=%d why='%s'", ok, w.c_str()));
     }
 
     cleanup_scratch();
