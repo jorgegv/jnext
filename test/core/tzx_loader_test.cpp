@@ -667,9 +667,10 @@ int main(int argc, char** argv) {
                 const int64_t d = int64_t(edges[i + 1]) - int64_t(edges[i]);
                 if (d >= 2168 - 40 && d <= 2168 + 40) ++pilot; else break;
             }
+            const int64_t first = i0 < edges.size() ? int64_t(edges[i0]) - int64_t(t_res) : -1;
             check("TZXC-106", "after a hold the player continues at the NEXT block, from its first pulse (3223 pilot pulses of the data block, not block 0's 8063)",
-                  held && resumed && pilot == 3222,
-                  "pilot_intervals=" + std::to_string(pilot));
+                  held && resumed && pilot == 3222 && first > 0 && first <= 2168 + 60,
+                  "pilot_intervals=" + std::to_string(pilot) + " first=" + std::to_string(first));
         }
         {   // TZXC-107
             const Bytes t1 = tap_body(0xFF, {1, 2, 3, 4, 5});

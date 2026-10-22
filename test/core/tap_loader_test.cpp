@@ -514,6 +514,9 @@ int main() {
         const Bytes poll_only = {0xF3, 0xED, 0x78, 0x18, 0xFC};
         const Bytes blk = tap_block(0xFF, {1, 2, 3, 4, 5});
         const std::string two = write_file("auto2.tap", concat({blk, tap_block(0xFF, {6, 7, 8, 9})}));
+        // A header block then a data block: their pilots differ (8063 / 3223 pulses).
+        const std::string hdr_two = write_file("autoh.tap",
+                                               concat({tap_block(0x00, Bytes(17, 0x20)), tap_block(0xFF, {6, 7, 8, 9})}));
 
         auto mk = [&](const std::string& tap, bool fast, bool autop, const Bytes& prog) {
             auto emu = std::make_unique<Emulator>();
@@ -538,7 +541,7 @@ int main() {
         };
 
         {   // TAPA-06
-            auto [emu, ok] = mk(two, false, true, delay_then_poll(13));
+            auto [emu, ok] = mk(hdr_two, false, true, delay_then_poll(20));
             int f = 0;
             for (; f < 600 && !emu->tape().is_held(); ++f) emu->run_frame();
             const bool held = ok && emu->tape().is_held() && !emu->tape().is_playing() &&
@@ -564,6 +567,7 @@ int main() {
                 const int64_t d = int64_t(edges[i + 1]) - int64_t(edges[i]);
                 if (d >= 2168 - 40 && d <= 2168 + 40) ++pilot; else break;
             }
+            const int64_t first = silent_edges < edges.size() ? int64_t(edges[silent_edges]) - int64_t(t_res) : -1;
             const size_t k = silent_edges + pilot;     // index of the last pilot edge
             const int64_t sync = (k + 1 < edges.size()) ? int64_t(edges[k + 1]) - int64_t(edges[k]) : -1;
             char b[160];
@@ -571,7 +575,7 @@ int main() {
                           held, f, (t_res - t_hold) / 1e6, silent_edges, pilot, (long long)sync);
             check("TAPA-06", "real time: the deck holds in the gap while the program does not poll, then resumes with a complete data pilot",
                   held && resumed && t_res - t_hold >= 10000000ULL && silent_edges <= 1 &&
-                  pilot == 3222 && sync >= 667 - 40 && sync <= 667 + 40, b);
+                  pilot == 3222 && sync >= 667 - 40 && sync <= 667 + 40 && first > 0 && first <= 2168 + 60, b);
         }
         {   // TAPA-07
             std::vector<uint64_t> on_edges, off_edges;
@@ -587,9 +591,9 @@ int main() {
                   "on=" + std::to_string(on_edges.size()) + " off=" + std::to_string(off_edges.size()));
         }
         {   // TAPA-08
-            auto [emu, ok] = mk(two, false, false, delay_then_poll(13));
+            auto [emu, ok] = mk(hdr_two, false, false, delay_then_poll(20));
             std::vector<uint64_t> edges;
-            step_to(*emu, 16000000ULL, edges);
+            step_to(*emu, 26000000ULL, edges);
             int64_t gap = 0;
             for (size_t i = 0; i + 1 < edges.size(); ++i)
                 gap = std::max(gap, int64_t(edges[i + 1]) - int64_t(edges[i]));
@@ -668,7 +672,7 @@ int main() {
             const bool loaded = emu->load_state(r1);
             const bool after = emu->tape_poll().polling(emu->monotonic_tstates());
             // A held real-time deck stays held across a state load.
-            auto [e2, ok2] = mk(two, false, true, delay_then_poll(13));
+            auto [e2, ok2] = mk(hdr_two, false, true, delay_then_poll(20));
             int f = 0;
             for (; f < 600 && !e2->tape().is_held(); ++f) e2->run_frame();
             StateWriter m2; e2->save_state(m2);
