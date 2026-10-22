@@ -61,7 +61,7 @@
 //   JNSN-*        the `manifest.json` grammar (§6, §8)
 //   JNSV-*        `format_version` and `state_model_revision` (§7)
 //   JNSR-*        the reader-rule table, one row per line of §12.4
-//   JNSI-*        the two-tier SD identity (§11.3)
+//   JNSI-*        the SD identity (§11.3; Tier 2 retired by GH #396)
 //   JNSM-*        refusal-message properties — G9 is a testable property, not
 //                 a slogan (§16.1)
 //
@@ -1976,8 +1976,6 @@ int main(int argc, char** argv) {
         m.sdcard.read_only      = false;
         m.sdcard.identity       = make_identity();
         m.sdcard.vollab         = "NEXT       ";
-        m.sdcard.content_sha256 = "00112233";
-        m.sdcard.content_mtime_utc = "2026-09-23T09:58:41Z";
         m.members["mem/ram.bin"] = BlobDecl{2097152, 0x8f3a21bdu};
         m.subsystems             = {"cpu", "mmu"};
         m.producer.git_describe  = "v1.0.18-0-gabcdef12";
@@ -2005,8 +2003,6 @@ int main(int argc, char** argv) {
             back.sdcard.read_only == m.sdcard.read_only &&
             back.sdcard.identity == m.sdcard.identity &&
             back.sdcard.vollab == m.sdcard.vollab &&
-            back.sdcard.content_sha256 == m.sdcard.content_sha256 &&
-            back.sdcard.content_mtime_utc == m.sdcard.content_mtime_utc &&
             back.members == m.members && back.subsystems == m.subsystems;
         check("JNSN-01",
               "a fully populated manifest round-trips through JSON with every "
@@ -2885,7 +2881,6 @@ int main(int argc, char** argv) {
         m.sdcard.mounted_path   = "/home/user/.jnext/sdcard/card.img";
         m.sdcard.identity       = make_identity();
         m.sdcard.vollab         = "NEXT       ";
-        m.sdcard.content_sha256 = "deadbeef";
         w.set_manifest(m);
         w.add_subsystem("cpu", kJson, why);
         std::vector<uint8_t> z;
@@ -2932,7 +2927,6 @@ int main(int argc, char** argv) {
         m.sdcard.mounted_path   = "/card.img";
         m.sdcard.read_only      = true;
         m.sdcard.identity       = make_identity();
-        m.sdcard.content_sha256 = "cafe";
         w.set_manifest(m);
         w.add_subsystem("cpu", kJson, why);
         std::vector<uint8_t> z;
@@ -2943,7 +2937,6 @@ int main(int argc, char** argv) {
         e.card.mounted_path   = "/card.img";
         e.card.read_only      = false;          // the only difference
         e.card.identity       = make_identity();
-        e.card.content_sha256 = "cafe";
 
         jnext::zip::Reader r;
         Manifest got;
@@ -3102,7 +3095,7 @@ int main(int argc, char** argv) {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // JNSI — the two-tier SD identity (§11.3)
+    // JNSI — the SD identity (§11.3)
     // ─────────────────────────────────────────────────────────────────────
     //
     // The whole point of the tiering: jnext opens the image READ-WRITE and
@@ -3111,15 +3104,13 @@ int main(int argc, char** argv) {
     // the very card the snapshot was taken on. An identity that cries wolf
     // gets ignored, and an ignored identity is worse than none (§11.1).
     {
-        auto build_with_card = [&](const SdIdentity& id, const char* vollab,
-                                   const char* content) {
+        auto build_with_card = [&](const SdIdentity& id, const char* vollab) {
             SnapshotWriter w(false);
             Manifest m = make_manifest();
             m.sdcard.present        = true;
             m.sdcard.mounted_path   = "/card.img";
             m.sdcard.identity       = id;
             m.sdcard.vollab         = vollab;
-            m.sdcard.content_sha256 = content;
             w.set_manifest(m);
             std::string w2;
             w.add_subsystem("cpu", kJson, w2);
@@ -3127,31 +3118,29 @@ int main(int argc, char** argv) {
             w.finish(z, w2);
             return z;
         };
-        auto env_with_card = [&](const SdIdentity& id, const char* vollab,
-                                 const char* content) {
+        auto env_with_card = [&](const SdIdentity& id, const char* vollab) {
             ReaderEnv e = make_env();
             e.card.present        = true;
             e.card.mounted_path   = "/card.img";
             e.card.identity       = id;
             e.card.vollab         = vollab;
-            e.card.content_sha256 = content;
             return e;
         };
 
         const SdIdentity base = make_identity();
         const std::vector<uint8_t> z =
-            build_with_card(base, "NEXT       ", "aabbccdd");
+            build_with_card(base, "NEXT       ");
         record_corpus("jnsi-card", z);
 
         {
-            ReaderEnv e = env_with_card(base, "NEXT       ", "aabbccdd");
+            ReaderEnv e = env_with_card(base, "NEXT       ");
             jnext::zip::Reader r;
             Manifest m;
             Verdict v;
             const bool ok = jnext::jns::open_snapshot(z.data(), z.size(), e, r,
                                                       m, v);
             check("JNSI-01",
-                  "both tiers matching is SILENT — no warning at all (§11.3)",
+                  "Tier 1 matching is SILENT — no warning at all (§11.3)",
                   ok && v.warnings.empty(), det("ok=%d w=%zu", ok,
                                                 v.warnings.size()));
         }
@@ -3179,7 +3168,7 @@ int main(int argc, char** argv) {
             if (std::strcmp(c.field, "mbr") == 0)   other.mbr_partition_table_sha256 = "ff00";
             if (std::strcmp(c.field, "lba") == 0)   other.partition_lba = 63;
 
-            ReaderEnv e = env_with_card(other, "NEXT       ", "aabbccdd");
+            ReaderEnv e = env_with_card(other, "NEXT       ");
             jnext::zip::Reader r;
             Manifest m;
             Verdict v;
@@ -3190,7 +3179,7 @@ int main(int argc, char** argv) {
         {
             SdIdentity other = base;
             other.fat32_volume_id = "99887766";
-            ReaderEnv e = env_with_card(other, "NEXT       ", "aabbccdd");
+            ReaderEnv e = env_with_card(other, "NEXT       ");
             jnext::zip::Reader r;
             Manifest m;
             Verdict v;
@@ -3257,7 +3246,7 @@ int main(int argc, char** argv) {
             // (sd_rom_extractor.cpp:292). A tool that rewrites `BS_VolLab`
             // would otherwise produce a FALSE REFUSAL on the same physical
             // card.
-            ReaderEnv e = env_with_card(base, "RENAMED    ", "aabbccdd");
+            ReaderEnv e = env_with_card(base, "RENAMED    ");
             jnext::zip::Reader r;
             Manifest m;
             Verdict v;
@@ -3283,8 +3272,8 @@ int main(int argc, char** argv) {
             // not compare equal-and-fine: they are two absences, not one card.
             SdIdentity none;
             const std::vector<uint8_t> zn =
-                build_with_card(none, "", "aabbccdd");
-            ReaderEnv e = env_with_card(none, "", "aabbccdd");
+                build_with_card(none, "");
+            ReaderEnv e = env_with_card(none, "");
             jnext::zip::Reader r;
             Manifest m;
             Verdict v;
@@ -3362,7 +3351,7 @@ int main(int argc, char** argv) {
                 // empty digest.
                 const std::vector<uint8_t> zu =
                     build_with_card(base, "NEXT       ", "");
-                ReaderEnv e = env_with_card(base, "NEXT       ", "aabbccdd");
+                ReaderEnv e = env_with_card(base, "NEXT       ");
                 e.sd_transfer_in_flight = true;
                 jnext::zip::Reader r;
                 Manifest m;
