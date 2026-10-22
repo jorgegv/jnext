@@ -435,11 +435,14 @@ int main() {
     }
     {
         Machine m;
-        m.dbg->load_source_map(sld.string(), false);
-        m.set_pc(0x8001);   // unmapped
+        const fs::path no10 = dir / "no-line10-step.sld";
+        write_text(no10, program_sld_without(p80, p90, {10}));
+        m.dbg->load_source_map(no10.string(), false);
+        m.set_pc(0x8001);   // below the page's first record: unmapped
         m.dbg->source_step(m.a, Step::Into);
         check("SRCDBG-STEP-11", "from an unmapped instruction a step is one instruction",
               m.pc() == 0x8002, m.where());
+        m.set_pc(0x8002);
         m.dbg->source_step(m.a, Step::Out);
         check("SRCDBG-STEP-12", "Out with no tracked call is one instruction",
               m.pc() == 0x9000, m.where());
