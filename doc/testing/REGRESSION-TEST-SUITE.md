@@ -179,6 +179,20 @@ checkpoint count, and at least one `drained_edge=` guest-read record must be log
 digest lines cost ~410 jnext log lines (+28 KB) on a green run of that row and nothing when the
 debug level is off; `nextsync-digest.py --selftest` and a unit row pin the FNV-1a/32 vectors.
 
+### A stalled jnext.exe names its blocked call (GH #383)
+
+A Qt `jnext.exe` under wine sometimes stalls at startup and holds its row to the 60 s bound (about 4
+of 13 full runs on one branch, none seen on `main`). When a row's `timeout` sends TERM and
+`JNEXT_WINE_CAPTURE_DIR` is set (the driver sets it to
+`build/regression-artifacts/wine-stall/<run>/`, which CI uploads on a red run), `wine-run.sh --jnext`
+first saves `wine-stall-<time>-<pid>.txt`: the process's threads, state and CPU time from `/proc`; the
+prefix's processes with their thread counts; `winedbg info thread`; and `winedbg bt all` of that ONE
+Windows pid (prefix-wide `bt all` took 21.6 s at load 20). The whole capture is bounded at 3.5 s
+(+0.4 s kill) inside the rows' `--kill-after=5s`, runs after the verdict is decided, and forwards TERM
+afterwards as before. At the end of every Windows run the driver prints `wine prefix at the end:` (thread
+counts of the prefix's wine processes; `plugplay.exe` near 500 would confirm the leading hypothesis,
+see the issue) and lists any captures with their thread sections. Diagnostics only: no exit status moves.
+
 ## One full run at a time, and green-run stamps (GH #295)
 
 A **full** run — no arguments, the real manifests — takes a per-user host lock

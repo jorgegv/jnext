@@ -345,6 +345,16 @@ screenshots + the admitted rows (no lints, no stamp).
    "the first child" is a shell, so the row finds the process named `jnext` /
    `jnext.exe` among the descendants (deepest one) and reads its CPU from `/proc`
    or, off Linux, `ps -o time=`.
+10. A `jnext.exe` that reaches its row's bound names its blocked call (GH #383).
+    The runner's TERM handler, when `JNEXT_WINE_CAPTURE_DIR` is set (the driver
+    exports `build/regression-artifacts/wine-stall/<run>/`), first writes
+    `wine-stall-<time>-<pid>.txt`: the process's threads from `/proc`, the
+    prefix's processes with thread counts, `winedbg info thread`, and `winedbg
+    bt all` of that one Windows pid, found by its exact command line. It is
+    bounded at 3.5 s (+0.4 s kill) inside the rows' `--kill-after=5s`, runs after
+    the verdict is decided, and then forwards TERM as before, so it never changes
+    a result. The driver ends every Windows run with a `wine prefix at the end:`
+    line (thread counts of the prefix's wine processes) and lists any captures.
 
 **On macOS** the SD image comes from `make sdcard-image`, the per-run clone falls
 back to a plain copy where `cp --reflink=always` does not exist (reported as
