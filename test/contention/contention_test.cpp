@@ -3813,8 +3813,9 @@ static void test_cpu_seam_raster_window()
 // sram_memcycle, :3144); I/O and internal (no-MREQ) cycles never reach
 // sram_req. Exempt read sources: dedicated bank-7 BRAM (page 0x0E —
 // cpu_bank7_do, :6670-6685 + cpu_di mux :1863, absent from the :3175
-// wait expression), boot ROM (cpu_di <= bootrom_do, :1857), inactive
-// pages (mmu_A21_A13(8)='1' → sram_pre_active='0', :3061).
+// wait expression), inactive pages (mmu_A21_A13(8)='1' -> sram_pre_active='0',
+// :3061). The boot ROM is NOT exempt: bootrom_en only switches cpu_di (:1856),
+// so a boot-ROM read waits as the access beneath it.
 //
 // Rows use a full Next Emulator: code in plain RAM page 0x20 (never-
 // contended high page, so speed-0 rows are contention-free too), one
@@ -4424,6 +4425,93 @@ static void test_sw28_sram_read_wait() {
                   t == 9 && a == 0xA7,
                   fmt("t=%llu expected=9 A=0x%02X expected=0xA7",
                       static_cast<unsigned long long>(t), a));
+        }
+    }
+
+    // CT-SW28-29..32 (GH #391) - the Layer 2 active-page test (sum of bank,
+    // segment pre-offset and port offset, sum(6:4)="111" is inactive,
+    // zxnext.vhd:2966-2971) on a slot-0 ROM read, one input at a time.
+    // Each row lands exactly on the 0x6F/0x70 boundary.
+
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-29", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.nextreg().write(0x12, 0x6F);
+            emu.port().out(0x123B, 0x04);      // seg 00 + read-over
+            const uint64_t t = sw28_step(emu, {0x7E}, /*hl=*/0x0140);
+            check("CT-SW28-29",
+                  "Layer 2 read mapping with NR 0x12 = 0x6F (sum 0x6F, still an active page) "
+                  "at 28 MHz = 9 T: inactive only from sum(6:4)=111, i.e. 0x70 "
+                  "(zxnext.vhd:2969-2971, :3100-3107)",
+                  t == 9,
+                  fmt("t=%llu expected=9",
+                      static_cast<unsigned long long>(t)));
+        }
+    }
+
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-30", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.nextreg().write(0x12, 0x6F);
+            emu.port().out(0x123B, 0x44);      // seg 01 + read-over
+            const uint64_t t = sw28_step(emu, {0x7E}, /*hl=*/0x0140);
+            check("CT-SW28-30",
+                  "Layer 2 read mapping with NR 0x12 = 0x6F and segment 01 (pre-offset 1, "
+                  "sum 0x70) at 28 MHz = 8 T: the segment adds to the bank "
+                  "(zxnext.vhd:2966-2971)",
+                  t == 8,
+                  fmt("t=%llu expected=8",
+                      static_cast<unsigned long long>(t)));
+        }
+    }
+
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-31", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.nextreg().write(0x12, 0x6F);
+            emu.port().out(0x123B, 0x11);      // offset-only write: offset 1
+            emu.port().out(0x123B, 0x04);      // seg 00 + read-over; offset kept
+            const uint64_t t = sw28_step(emu, {0x7E}, /*hl=*/0x0140);
+            check("CT-SW28-31",
+                  "Layer 2 read mapping with NR 0x12 = 0x6F and port 0x123B offset 1 "
+                  "(sum 0x70) at 28 MHz = 8 T: the port offset adds to the bank "
+                  "(zxnext.vhd:2967, :3922)",
+                  t == 8,
+                  fmt("t=%llu expected=8",
+                      static_cast<unsigned long long>(t)));
+        }
+    }
+
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("CT-SW28-32", "Emulator::init failed (Next machine)",
+                  false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.nextreg().write(0x12, 0x08);
+            emu.nextreg().write(0x13, 0x70);
+            emu.port().out(0x123B, 0x0C);      // shadow + read-over
+            const uint64_t t = sw28_step(emu, {0x7E}, /*hl=*/0x0140);
+            check("CT-SW28-32",
+                  "Layer 2 read mapping through the shadow bank (NR 0x13 = 0x70, NR 0x12 = "
+                  "0x08) at 28 MHz = 8 T: port 0x123B bit 3 selects NR 0x13 as the bank "
+                  "(zxnext.vhd:2968, :3919)",
+                  t == 8,
+                  fmt("t=%llu expected=8",
+                      static_cast<unsigned long long>(t)));
         }
     }
 }
