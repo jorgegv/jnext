@@ -40,7 +40,10 @@ bool is_archive_path(const std::string& path);
 class ScratchDir {
 public:
     static constexpr std::chrono::hours kSweepAge{7 * 24};
-    explicit ScratchDir(std::string root) : root_(std::move(root)) {}
+    /// `sweep_age` is a parameter so a test can drive the sweep without setting a
+    /// directory's mtime (not possible on Windows with std::filesystem).
+    explicit ScratchDir(std::string root, std::chrono::hours sweep_age = kSweepAge)
+        : root_(std::move(root)), age_(sweep_age) {}
     ~ScratchDir();
     ScratchDir(const ScratchDir&) = delete;
     ScratchDir& operator=(const ScratchDir&) = delete;
@@ -51,6 +54,7 @@ public:
 
 private:
     std::string root_, proc_;
+    std::chrono::hours age_;
     unsigned    next_ = 0;
 };
 

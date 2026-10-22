@@ -532,16 +532,27 @@ int main() {
               existed && !proc.empty() && !fs::exists(proc), proc);
     }
     {
+        // A directory's mtime cannot be set portably (std::filesystem on Windows
+        // cannot open one for writing), so the sweep age is injected instead: a
+        // negative age puts every existing directory behind the cutoff, the
+        // default age (7 days) puts none.
         const std::string r = root + "/sweep";
-        fs::create_directories(r + "/old/1");
-        fs::create_directories(r + "/recent/1");
-        fs::last_write_time(r + "/old", fs::file_time_type::clock::now() - std::chrono::hours(24 * 8));
-        fs::last_write_time(r + "/recent", fs::file_time_type::clock::now() - std::chrono::hours(1));
-        pa::ScratchDir s(r);
+        fs::create_directories(r + "/fresh/1");
         std::string why;
-        const std::string slot = s.new_slot(why);
-        check("ZIPL-17", "the first slot sweeps a sibling directory older than 7 days and keeps one from an hour ago",
-              !slot.empty() && !fs::exists(r + "/old") && fs::exists(r + "/recent"), why);
+        std::string slot_keep, slot_sweep;
+        {
+            pa::ScratchDir keep(r);   // default age
+            slot_keep = keep.new_slot(why);
+        }
+        const bool kept = fs::exists(r + "/fresh");
+        {
+            pa::ScratchDir sweep(r, std::chrono::hours(-1));
+            slot_sweep = sweep.new_slot(why);
+        }
+        const bool swept = !fs::exists(r + "/fresh");
+        check("ZIPL-17", "the first slot sweeps directories older than the sweep age (7 days by default: a fresh one is kept)",
+              pa::ScratchDir::kSweepAge == std::chrono::hours(7 * 24) && !slot_keep.empty() &&
+                  !slot_sweep.empty() && kept && swept, why);
     }
     {
         spit(files + "/pok1.zip", zipfx::build({mem("BEEPER.TAP", pattern(5)), mem("POKES/OTHER.POK", pattern(5)),

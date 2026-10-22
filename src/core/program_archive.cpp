@@ -100,7 +100,7 @@ std::string ScratchDir::new_slot(std::string& why) {
         if (ec) { why = "cannot create " + root_ + ": " + ec.message(); return {}; }
         // Leftovers of a crash or SIGKILL. 7 days, not 1: another instance's
         // long session must never be swept.
-        const auto cutoff = fs::file_time_type::clock::now() - kSweepAge;
+        const auto cutoff = fs::file_time_type::clock::now() - age_;
         for (fs::directory_iterator it(root_, ec), endit; !ec && it != endit; it.increment(ec)) {
             std::error_code e2;
             if (it->is_directory(e2) && fs::last_write_time(it->path(), e2) < cutoff && !e2)
